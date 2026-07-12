@@ -1,0 +1,10 @@
+from __future__ import annotations
+
+from typing import Final
+
+
+SURFACE_CONTRACT_VERSION: Final = "backend-vnext/comparison-surface/v1"
+SURFACE_PROFILE_STANDARD_TABLE_BROWSER: Final = "STANDARD_TABLE_BROWSER"
+SURFACE_REF_SCOPE_OPERATION_RELATIVE: Final = "OPERATION_RELATIVE"
+SURFACE_REF_SCOPE_BUNDLE_RELATIVE: Final = "BUNDLE_RELATIVE"
+SURFACE_ORDERED_EXTENSION_CONTRACT_VERSION: Final = "backend-vnext/ordered-diff/v2"

@@ -1,0 +1,32 @@
+from __future__ import annotations
+
+from typing import Final
+
+
+REPOSITORY_IMPORT_CONTRACT_VERSION: Final = "backend-vnext/repository-import/v1"
+REPOSITORY_IMPORT_BUNDLE_CONTENT_SCHEMA_VERSION: Final = (
+    "backend-vnext/repository-import-bundle-content/v1"
+)
+REPOSITORY_IMPORT_BUNDLE_MANIFEST_KIND: Final = "repository-import-bundle"
+REPOSITORY_IMPORT_TABLE_CONTENT_SCHEMA_VERSION: Final = (
+    "backend-vnext/repository-import-table-content/v1"
+)
+REPOSITORY_IMPORT_TABLE_MANIFEST_KIND: Final = "repository-import-table"
+REPOSITORY_IMPORT_SCHEMA_FILE_SCHEMA_VERSION: Final = (
+    "backend-vnext/repository-import-schema/v1"
+)
+REPOSITORY_IMPORT_ROW_FORMAT_CSV: Final = "CSV"
+REPOSITORY_IMPORT_ROW_FORMAT_TSV: Final = "TSV"
+REPOSITORY_IMPORT_ROW_FORMAT_SQL_REPLAY: Final = "SQL_REPLAY"
+REPOSITORY_IMPORT_ROW_FORMAT_PARQUET: Final = "PARQUET"
+REPOSITORY_IMPORT_NULL_TOKEN: Final = r"\N"
+REPOSITORY_IMPORT_BUNDLE_CONTENT_FILE_NAME: Final = "bundle.json"
+REPOSITORY_IMPORT_TABLE_CONTENT_FILE_NAME: Final = "table.json"
+REPOSITORY_IMPORT_MANIFEST_FILE_NAME: Final = "manifest.json"
+REPOSITORY_IMPORT_REPLAY_SQL_FILE_NAME: Final = "replay.sql"
+REPOSITORY_IMPORT_SCHEMA_FILE_NAME: Final = "schema.json"
+REPOSITORY_IMPORT_ROWS_CSV_FILE_NAME: Final = "rows.csv"
+REPOSITORY_IMPORT_ROWS_TSV_FILE_NAME: Final = "rows.tsv"
+REPOSITORY_IMPORT_ROWS_PARQUET_FILE_NAME: Final = "rows.parquet"
+REPOSITORY_IMPORT_TABLES_DIR_NAME: Final = "tables"
+REPOSITORY_IMPORT_DEFAULT_INSERT_BATCH_SIZE: Final = 500

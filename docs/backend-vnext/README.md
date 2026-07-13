@@ -16,6 +16,7 @@ vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约�
 - `implementation-boundary.md`：vNext 代码落点、隔离新包、旧模块依赖禁用和实施边界。
 - `implementation-plan.md`：模块级执行顺序、RepositoryServer 前置位置、每阶段完成标准和实现注意事项。
 - `modules.md`：目标代码模块边界。
+- `refactoring/`：整体重构文档，包括目标架构总纲、阶段实施设计、独立 Repository Service 边界和迁移门禁。
 - `contracts/comparison-bundle.md`：正式新前后端契约、operation polling、bundle/data package 边界和 upload preview bundle closure。
 - `frontend-surface-simplification.md`：前后端共同简化 surface/bundle 的策略、正式 projection/read-model 和 artifact 边界。
 - `contracts/ordered-diff.md`：ordered diff 正式语义、records、ordered extension、digest 和风险挂载边界。

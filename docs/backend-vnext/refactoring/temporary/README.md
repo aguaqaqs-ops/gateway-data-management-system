@@ -19,4 +19,9 @@ temporary/phase-1/
   experiments.md
 ```
 
+当前讨论记录：
+
+- [Phase 0 Baseline and Oracle](phase-0/baseline-and-oracle-notes.md)
+- [Project Environment Preparation](project-environment-preparation.md)
+
 不得把临时文档直接改名为正式文档；正式文档需要去除讨论过程，并重新表述 owner、规则、版本和验收标准。

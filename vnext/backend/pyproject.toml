@@ -1,0 +1,55 @@
+[project]
+name = "gateway-backend"
+version = "0.1.0"
+description = "Gateway vNext backend walking skeleton"
+readme = "README.md"
+authors = [
+    { name = "issac", email = "issac@test.com" }
+]
+requires-python = ">=3.14.6"
+dependencies = [
+    "fastapi==0.139.0",
+    "gateway-compute-python==0.1.0",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.14.2",
+    "pyarrow==25.0.0",
+    "uvicorn==0.51.0",
+]
+
+[tool.uv.sources]
+gateway-compute-python = { path = "../rust/gateway-compute-python" }
+
+[project.scripts]
+gateway-backend = "gateway_backend:main"
+
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx==0.28.1",
+    "hypothesis==6.156.6",
+    "maturin==1.14.1",
+    "mypy==2.3.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+    "ruff==0.15.21",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["gateway_compute", "pyarrow"]
+ignore_missing_imports = true

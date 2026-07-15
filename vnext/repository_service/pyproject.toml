@@ -1,0 +1,42 @@
+[project]
+name = "gateway-repository-service"
+version = "0.1.0"
+description = "Gateway vNext Repository Service bootstrap"
+readme = "README.md"
+authors = [
+    { name = "issac", email = "issac@test.com" }
+]
+requires-python = ">=3.14.6"
+dependencies = [
+    "pydantic==2.13.4",
+    "pydantic-settings==2.14.2",
+]
+
+[project.scripts]
+gateway-repository-service = "gateway_repository_service:main"
+
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "hypothesis==6.156.6",
+    "mypy==2.3.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+    "ruff==0.15.21",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src", "tests"]

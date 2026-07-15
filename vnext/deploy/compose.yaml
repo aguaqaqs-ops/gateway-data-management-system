@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      GATEWAY_BACKEND_ARTIFACT_ROOT: /var/lib/gateway/artifacts
+    volumes:
+      - backend-artifacts:/var/lib/gateway/artifacts
+  worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    command: ["python", "-c", "print('worker bootstrap')"]
+  repository-service:
+    build:
+      context: ..
+      dockerfile: repository_service/Dockerfile
+    profiles: ["phase-2"]
+    environment:
+      GATEWAY_REPOSITORY_DATA_ROOT: /var/lib/gateway/repository
+    volumes:
+      - repository-dolt:/var/lib/gateway/repository/dolt
+      - repository-registry:/var/lib/gateway/repository/registry
+      - repository-operation-journal:/var/lib/gateway/repository/operation-journal
+
+volumes:
+  backend-artifacts:
+  repository-dolt:
+  repository-registry:
+  repository-operation-journal:

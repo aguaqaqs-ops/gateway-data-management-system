@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+target/
+*.whl
+*.sqlite
+*.sqlite3
+*.db
+artifacts/
+runtime-data/
+dolt-data/
+logs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

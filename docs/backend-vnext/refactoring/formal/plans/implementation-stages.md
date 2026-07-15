@@ -80,7 +80,7 @@ Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务
 
 ### 目标
 
-固定新实现必须保持或有意改变的业务语义、数据契约和性能基线，建立可重复对照环境。
+固定新实现必须保持或有意改变的业务语义、数据契约和性能基线，建立可重复对照环境；同时主动识别可派生状态、重复事实、无真实调用方功能和无 benchmark 依据的优化，形成明确的首版简化范围。
 
 ### 主要工作
 
@@ -91,6 +91,8 @@ Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务
 - 记录 parse、materialize、projection、comparison、risk、surface、Parquet、Dolt import/readback 的分阶段性能和峰值内存。
 - 决定是否迁移旧数据；如果不迁移，记录正式不兼容边界。
 - 记录当前人工验收路径和已知旧 bug，不把旧 bug 自动作为新 contract。
+- 按 `KEEP / SIMPLIFY / DEFER / REMOVE` 审查现有状态、流程、provider、cache、compat 和前端操作；简化项必须说明被保留的业务事实与可恢复路径。
+- 优先删除可由事实推导的持久状态、重复上传/重复校验、无调用方公共 API、预优化流程和跨模块重复结果。
 
 ### 交付物
 
@@ -99,6 +101,8 @@ Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务
 - Flow journey baseline report。
 - Performance baseline report。
 - Legacy behavior audit 和 intentional change 清单。
+- First-version simplification register，记录 `KEEP / SIMPLIFY / DEFER / REMOVE`、owner、理由、风险和恢复方式。
+- 第一版明确功能范围及被推迟功能的重新进入条件。
 
 ### 退出条件
 
@@ -106,6 +110,8 @@ Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务
 - 关键输出可做结构化比较，不依赖人工查看日志。
 - 每个旧新差异可归类为 old bug、new bug 或 intentional change。
 - 已明确数据迁移策略。
+- 现有主要功能、状态和优化均已完成简化分类，不存在“因为旧系统已有”而默认进入第一版的范围。
+- 已确认第一版业务旅程可以在不依赖被删除/推迟功能的情况下闭环，并保留必要的可靠性和审计能力。
 
 ### 本阶段不做
 
@@ -117,41 +123,45 @@ Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务
 
 ### 目标
 
-固定语言无关的语义边界，建立新代码隔离区、依赖方向和最小 bootstrap。
+固定第一批实现真正需要的语言无关共享语义、所有权规则和依赖方向，通过一个可复用 walking skeleton 建立新代码隔离区和最小 bootstrap；不提前完成后续阶段的全部 contract 与框架。
 
 ### 主要工作
 
-- 建立 shared kernel：identifier、scalar、canonical serialization、digest、diagnostics。
-- 分类 interface、application、capability 和 repository wire contracts。
-- 固定 ArtifactRef、artifact closure、records Parquet 和 table access contract。
-- 固定 Operation、Step、checkpoint 和 error taxonomy。
-- 固定 Repository ID/ref/commit、CAS、artifact 和 remote operation contract。
-- 建立目标目录、依赖检查和禁止旧模块 import 的架构测试。
-- 建立 Python package、Rust workspace、格式化、静态检查、测试和构建骨架；完成 PyO3、Arrow round-trip、panic/error mapping 和目标平台 wheel/image 的最小验证。
-- 为 Phase 3 首批 Rust production kernel 固定 scalar、ordering、digest、Arrow/Parquet schema 和 Python reference oracle 约束。
-- 补充 transport、artifact transfer、persistence、Python/Rust boundary 等 ADR。
+- 固定 Contract Taxonomy/Ownership 和 shared semantics：identifier、scalar、NULL、datetime、canonical serialization、ordering、digest、最小 error/diagnostics。
+- 只定义 walking skeleton 所需的最小跨边界 envelope：ArtifactRef、contract/version marker、operation/job reference、repository ID/ref/commit reference；完整内容由对应 owner 阶段补齐。
+- 建立实际会被 walking skeleton 使用的最小 package/crate，不预创建完整目标目录树和空模块。
+- 建立最小依赖检查：禁止旧业务模块 import、Domain 反向依赖和 capability 内部越界；不先建设通用架构分析框架。
+- 建立一条可复用 walking skeleton：Python facade -> Arrow/PyO3 -> Rust batch kernel -> ArtifactRef/diagnostics round-trip。
+- Rust interop 第一版只支持预定首个部署目标，验证 GIL release、panic/error mapping 和 wheel/image 构建；完整平台矩阵在 Rust production provider 阶段补齐。
+- 为 Phase 3 首批 Rust kernel 固定 scalar、ordering、digest、Arrow/Parquet schema 和小规模 Python oracle 约束。
+- 只补充会阻塞 Phase 2/3 开工的 ADR；Repository transport、Operation persistence 等可由对应阶段在实现前收口，不为一次性完成 Phase 1 而提前决策。
 
 ### 交付物
 
-- 新架构 package skeleton。
-- Versioned contract modules/schema。
-- Architecture test suite。
-- Python/Rust minimal interop spike，不包含正式业务算法。
-- Rust provider contract、构建和失败映射基线。
-- 第一批 ADR。
+- 最小 Python package/Rust crate bootstrap，且均被 walking skeleton 实际使用。
+- Shared semantics contract/golden fixtures 和最小 boundary envelopes。
+- 最小 architecture/import tests。
+- 可复用 Python/Rust/Arrow/Artifact walking skeleton，不建设一次性 throwaway demo。
+- 首个部署目标的 Rust 构建、失败映射和运行基线。
+- Blocking decision register 与必要 ADR。
 
 ### 退出条件
 
 - 新入口可以启动且不 import 旧业务模块。
-- Contract 可以独立序列化、反序列化和版本检查。
+- Phase 1 最小 contract 可以独立序列化、反序列化和版本检查；未实现模块只有 owner/边界说明，不伪造完整 DTO。
 - Python/Rust 对 scalar、Arrow schema 和 digest fixture 有一致解释。
-- 已证明 Python 可以通过粗粒度 PyO3/Arrow 调用 Rust，并将受控 failure 映射为 capability error。
+- 已证明 Python 可以通过粗粒度 PyO3/Arrow 调用 Rust，释放 GIL，并将受控 failure 映射为稳定 error/diagnostics。
+- Walking skeleton 产生的 artifact 可按 digest 校验并通过引用恢复。
 - 依赖违规会在 CI 中失败。
 
 ### 本阶段不做
 
 - 不提前建立通用 workflow/DAG framework。
 - 不创建 `common`、`helpers`、`utils` 作为未归属代码容器。
+- 不一次性设计所有 HTTP、Repository、Operation 和 capability 完整 contract；它们由对应 owner 阶段按真实调用方收口。
+- 不建立未被首个纵切使用的 schema registry、codegen pipeline、provider registry 和 adapter hierarchy。
+- 不预创建完整目标目录树和空 package。
+- 不为 Phase 1 验收构建完整 OS/architecture wheel matrix。
 - 不实现完整业务流程。
 
 ## 5. Phase 2：Repository Service Foundation

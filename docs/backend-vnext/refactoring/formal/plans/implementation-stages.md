@@ -10,7 +10,7 @@
 
 “从头重构”指新代码不继承旧模块边界和内部 DTO，不代表重新猜测业务语义：
 
-- 旧代码只作为业务行为、边界 case、性能和人工体验的 oracle。
+- 旧代码只作为业务行为、边界 case 和人工体验的发现 oracle；不作为 vNext 内部结构或性能 oracle。
 - 新代码不得依赖旧业务模块，也不在旧实现上包一层 adapter 作为正式能力。
 - 稳定的业务结果、digest、artifact 和状态变化必须由 fixture、contract 和验收用例固定。
 - 新旧实现可以在测试或 shadow 阶段离线对照，但不共享可变业务状态。
@@ -42,7 +42,7 @@
 ### 1.3 正确性先于性能
 
 - 第一版 capability 默认串行、确定性执行。
-- Rust、并行、cache 和 provider 优化不能先于 contract、oracle 和 benchmark。
+- 初始 production route 可包含满足稳定 contract、language-neutral oracle 与 component evidence 的 Rust provider；后续 Rust coverage、并行、cache 和 provider 优化不能先于 accepted vNext baseline。
 - 性能结果只统计 validation passed 的运行。
 - 优化不能改变 canonical scalar、排序、digest、records 或 diagnostics 语义。
 
@@ -80,26 +80,30 @@ Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务
 
 ### 目标
 
-固定新实现必须保持或有意改变的业务语义、数据契约和性能基线，建立可重复对照环境；同时主动识别可派生状态、重复事实、无真实调用方功能和无 benchmark 依据的优化，形成明确的首版简化范围。
+固定新实现必须保持或有意改变的业务语义、数据契约、fixture/oracle 和 performance measurement contract；建立可重复 conformance 环境与 numeric baseline capture gate。同时识别可派生状态、重复事实、无真实调用方功能和无证据优化，形成明确的首版简化范围。
+
+Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-state.md)、[External Effect](../contracts/external-effect-and-recovery.md)、[Canonical Encoding](../contracts/shared-canonical-encoding.md)、[Fixture Conformance](../contracts/fixture-oracle-and-conformance.md)、[Canonical Storage](../contracts/canonical-storage-and-repository-boundary.md)和 [Performance Measurement](../contracts/performance-measurement-and-baseline.md) contracts 分别拥有。
 
 ### 主要工作
 
 - 列出正式业务旅程：upload、preview、submit、review、archive、next baseline、history compare。
-- 固定 Workspace、Submission、Archive/Batch 的状态转换、generation gate、权限和失败语义。
-- 建立 source package、SQL dump、普通表、有序表、空表、无 key 表、schema change 和异常输入 fixture。
-- 固定 Snapshot、Comparison、Ordered Records、Risk、Surface、Bundle 的 golden payload、Parquet schema 和 digest。
-- 记录 parse、materialize、projection、comparison、risk、surface、Parquet、Dolt import/readback 的分阶段性能和峰值内存。
-- 决定是否迁移旧数据；如果不迁移，记录正式不兼容边界。
+- 固定 Workspace、UploadRevision、PreviewResult、SubmitAttempt、Submission Review、BaselineNode/Head、ArchivePlan/Execution/Result 的 owner、状态、generation gate、权限和失败语义。
+- 固定 SourcePackage raw authority、canonical Dolt storage、storage/comparison projection、SnapshotTableArtifact retention 和 Repository evidence 边界。
+- 在 `vnext/fixtures/` 定义 language-neutral scenario manifest、目录/命名、provenance、golden envelope、runner profile、fault/recovery checkpoint 和 CI lane。
+- 固定 JCS、typed scalar、identifier、row/collection framing、digest 与 Python/Rust/Repository normative vectors。
+- 定义 measurement stages、profiles、workloads、metrics、result eligibility、environment authority、baseline record lifecycle 和 first-capture gate；当前不伪造 numeric baseline。
+- 将 legacy 数据迁移/旧 Dolt compatibility 保留为独立 cutover gate，本阶段不决定策略。
 - 记录当前人工验收路径和已知旧 bug，不把旧 bug 自动作为新 contract。
 - 按 `KEEP / SIMPLIFY / DEFER / REMOVE` 审查现有状态、流程、provider、cache、compat 和前端操作；简化项必须说明被保留的业务事实与可恢复路径。
 - 优先删除可由事实推导的持久状态、重复上传/重复校验、无调用方公共 API、预优化流程和跨模块重复结果。
 
 ### 交付物
 
-- Versioned fixture manifest。
-- Golden contract/digest 数据集。
-- Flow journey baseline report。
-- Performance baseline report。
+- Versioned fixture manifest、golden envelope 与 language-neutral conformance contract。
+- Shared canonical encoding contract 与 normative vector specification。
+- Business lifecycle、external-effect/recovery、canonical storage 与 artifact retention contracts。
+- Benchmark Measurement Contract、workload/dataset identity、result schema 与 first accepted baseline capture gate。
+- Flow journey/oracle audit 与 intentional-change register。
 - Legacy behavior audit 和 intentional change 清单。
 - First-version simplification register，记录 `KEEP / SIMPLIFY / DEFER / REMOVE`、owner、理由、风险和恢复方式。
 - 第一版明确功能范围及被推迟功能的重新进入条件。
@@ -109,7 +113,7 @@ Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务
 - fixture 可在隔离环境重复生成相同输入 digest。
 - 关键输出可做结构化比较，不依赖人工查看日志。
 - 每个旧新差异可归类为 old bug、new bug 或 intentional change。
-- 已明确数据迁移策略。
+- 旧 Dolt migration/compatibility 已被明确隔离为单独 cutover gate，未被默认兼容或迁移。
 - 现有主要功能、状态和优化均已完成简化分类，不存在“因为旧系统已有”而默认进入第一版的范围。
 - 已确认第一版业务旅程可以在不依赖被删除/推迟功能的情况下闭环，并保留必要的可靠性和审计能力。
 
@@ -118,6 +122,7 @@ Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务
 - 不修改正式流量。
 - 不开始大规模目录搬迁。
 - 不根据单次 benchmark 决定 Rust 或并行策略。
+- 不要求尚不存在的 production path 产生 numeric baseline，也不建立 legacy-vs-vNext performance report。
 
 ## 4. Phase 1：Contracts and Architecture Skeleton
 
@@ -125,31 +130,34 @@ Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务
 
 固定第一批实现真正需要的语言无关共享语义、所有权规则和依赖方向，通过一个可复用 walking skeleton 建立新代码隔离区和最小 bootstrap；不提前完成后续阶段的全部 contract 与框架。
 
+本阶段实现 [Shared Canonical Encoding](../contracts/shared-canonical-encoding.md) 与 [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md) 的最小 executable skeleton。
+
 ### 主要工作
 
-- 固定 Contract Taxonomy/Ownership 和 shared semantics：identifier、scalar、NULL、datetime、canonical serialization、ordering、digest、最小 error/diagnostics。
+- 固定 Contract Taxonomy/Ownership 和 `canonical_encoding_version`：JCS、identifier、scalar、NULL、temporal、ordering、row/collection framing、domain-separated digest 与 FailureDescriptor primitive。
+- 建立 `vnext/fixtures/vectors/shared-kernel/canonical-encoding/v1/` normative vectors、scenario manifest schema 和最小 conformance runner/harness skeleton。
 - 只定义 walking skeleton 所需的最小跨边界 envelope：ArtifactRef、contract/version marker、operation/job reference、repository ID/ref/commit reference；完整内容由对应 owner 阶段补齐。
 - 建立实际会被 walking skeleton 使用的最小 package/crate，不预创建完整目标目录树和空模块。
 - 建立最小依赖检查：禁止旧业务模块 import、Domain 反向依赖和 capability 内部越界；不先建设通用架构分析框架。
 - 建立一条可复用 walking skeleton：Python facade -> Arrow/PyO3 -> Rust batch kernel -> ArtifactRef/diagnostics round-trip。
 - Rust interop 第一版只支持预定首个部署目标，验证 GIL release、panic/error mapping 和 wheel/image 构建；完整平台矩阵在 Rust production provider 阶段补齐。
-- 为 Phase 3 首批 Rust kernel 固定 scalar、ordering、digest、Arrow/Parquet schema 和小规模 Python oracle 约束。
+- 为 Phase 3 首批 Rust kernel 固定 scalar、ordering、digest、Arrow/Parquet schema，以及 Python/Rust/Repository 共同消费的 language-neutral oracle 约束。
 - 只补充会阻塞 Phase 2/3 开工的 ADR；Repository transport、Operation persistence 等可由对应阶段在实现前收口，不为一次性完成 Phase 1 而提前决策。
 
 ### 交付物
 
 - 最小 Python package/Rust crate bootstrap，且均被 walking skeleton 实际使用。
-- Shared semantics contract/golden fixtures 和最小 boundary envelopes。
+- Shared canonical encoding contract/normative vectors、scenario manifest schema、最小 conformance skeleton 和 boundary envelopes。
 - 最小 architecture/import tests。
 - 可复用 Python/Rust/Arrow/Artifact walking skeleton，不建设一次性 throwaway demo。
-- 首个部署目标的 Rust 构建、失败映射和运行基线。
+- 首个部署目标的 Rust 构建、失败映射和 component execution evidence。
 - Blocking decision register 与必要 ADR。
 
 ### 退出条件
 
 - 新入口可以启动且不 import 旧业务模块。
 - Phase 1 最小 contract 可以独立序列化、反序列化和版本检查；未实现模块只有 owner/边界说明，不伪造完整 DTO。
-- Python/Rust 对 scalar、Arrow schema 和 digest fixture 有一致解释。
+- Python/Rust/Repository 对 canonical bytes、stable invalid code、Arrow schema 和 digest fixture 有一致解释。
 - 已证明 Python 可以通过粗粒度 PyO3/Arrow 调用 Rust，释放 GIL，并将受控 failure 映射为稳定 error/diagnostics。
 - Walking skeleton 产生的 artifact 可按 digest 校验并通过引用恢复。
 - 依赖违规会在 CI 中失败。
@@ -168,7 +176,9 @@ Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务
 
 ### 目标
 
-建立独立、通用、容器化 Repository Service 的最小读写边界，使业务系统不再依赖 Dolt CLI 和仓库本地路径。
+优先建立真正可运行、独立、通用、容器化的 Repository Service，使业务系统不再依赖 Dolt CLI 和仓库本地路径，并提供 accepted baseline 所需的可测 production environment。
+
+Journal/recovery 与 canonical import/readback 分别遵守 [External Effect and Recovery](../contracts/external-effect-and-recovery.md) 和 [Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md)。
 
 ### 2A：Contract 清理
 
@@ -207,7 +217,7 @@ DeleteRef
 Plan/ExecuteGarbageCollection
 ```
 
-写侧包含单 repository writer lease、幂等键、operation journal、readback、审计和确定错误分类。
+写侧包含单 repository writer lease、幂等键、PREPARED/APPLIED/VERIFIED operation journal、full committed-ref SnapshotManifest readback、审计和确定 effect classification。Restart/reconciliation 必须先读 evidence，不得重做可能已产生 effect 的请求。
 
 ### 2D：客户端与部署
 
@@ -215,7 +225,9 @@ Plan/ExecuteGarbageCollection
 - `LocalRepositoryClient` 用于早期 contract integration。
 - `RemoteRepositoryClient` 用于正式容器访问。
 - 大文件使用对象存储引用、预签名 URL 或流式传输，不进入普通 JSON。
-- 建立持久 volume、Dolt 版本固定、健康检查和最小 backup/restore。
+- Repository Service container 自己拥有 Dolt process/binary、registry、journal、repository volume 和 staging；第一版不另拆 Dolt container。
+- 建立持久 volume、Dolt/image identity 固定、readiness/liveness、graceful/non-graceful restart recovery、run-scoped fresh repository 和最小 backup/restore。
+- 暴露 typed measurement spans/counters 与 environment fingerprint；benchmark runner 只能走 production public client/wire contract。
 
 ### 交付物
 
@@ -223,6 +235,7 @@ Plan/ExecuteGarbageCollection
 - Local/Remote client SDK。
 - Local/Remote contract test suite。
 - Repository operation、并发 CAS 和 restart recovery tests。
+- Full post-commit readback、journal evidence 与可测 container environment。
 - 最小运维 runbook。
 
 ### 退出条件
@@ -231,6 +244,7 @@ Plan/ExecuteGarbageCollection
 - Local 与 Remote 实现对相同 fixture 返回等价 catalog、rows、diff 和 commit。
 - 重复 import/CAS 请求有确定幂等结果。
 - 服务重启不会产生无法判断的半完成写入。
+- Normal write 只有 full readback manifest 匹配后才进入 VERIFIED；unknown outcome 保持可 reconcile。
 
 ### 本阶段不做
 
@@ -244,17 +258,19 @@ Plan/ExecuteGarbageCollection
 
 建立可独立调用、独立测试、无环依赖的 capability 主链，并产出首个业务纵切需要的事实和 artifact。
 
+Storage/comparison projection、artifact retention、ordered identity 和 full-readback expectations 以 [Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md) 为准。
+
 ### 实现顺序
 
 ```text
-table_rules
-  -> table_projection
-  -> snapshot_materialization
-  -> comparison
-  -> risk_evaluation
-  -> business_projection
-  -> surface_assembly
-  -> bundle_assembly
+table_access + parser -> snapshot_materialization -> SnapshotTableArtifact
+table_rules + SnapshotTableArtifact
+  -> storage_projection -> RepositoryImportArtifact
+  -> comparison_projection -> comparison
+       -> risk_evaluation
+       -> business_projection
+       -> surface_assembly
+       -> bundle_assembly
 ```
 
 Repository import 在业务系统侧收敛为 Repository Client 调用和业务 readback validation，不重新拥有 Dolt lifecycle。
@@ -263,18 +279,21 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 
 1. 定义或收口 `contracts.py`，固定 scalar、ordering、digest 和 Arrow/Parquet 边界。
 2. 实现只覆盖小规模语义和边界 case 的 Python reference oracle。
-3. 通过 Phase 0 golden/property fixtures，记录基线 profile 和 implementation route。
+3. 通过 Phase 0 golden/property fixtures，记录 component candidate measurement 和 implementation route；不要求 legacy 对比或已不存在的 numeric baseline。
 4. 对满足 ADR 0001 门禁的稳定热点，直接实现 Rust production provider；其他能力使用 Python/Polars 验证语义。
 5. 实现 artifact 输入输出、closure、失败映射和受控 provider fallback。
 6. 增加独立 kernel/end-to-end benchmark 和 diagnostics。
 
 ### 重点调整
 
-- 提取 `table_projection`，消除 snapshot 对 comparison digest 的反向依赖。
+- 提取独立 storage/comparison projection，消除 snapshot 对 comparison digest 的反向依赖。
+- 分离 storage projection 与 comparison projection；前者产出 CanonicalizationManifest/RepositoryImportArtifact，后者负责 schema alignment 与 compare records。
+- Storage projection 直接执行 column policy、canonical key、ordered `no/gid` 与 row-integrity validation；Repository Service 不解释业务规则。
 - 提取最小 `table_access` protocol，不把完整 Snapshot 泛化成通用表模型。
 - 消费方只依赖 capability public contract，不 import 内部 `models.py`、planner 或 builder。
 - 风险规则先保留 Python reference；大规模 row facts extraction 与规则决策分离。
-- 第一批 Rust production 候选为 scalar/digest、table projection、standard hash diff、records 和计算结果的 Arrow/Parquet materialization。
+- 第一批 Rust production 候选为 scalar/digest、storage/comparison projection、standard hash diff、records 和计算结果的 Arrow/Parquet materialization。
+- `SnapshotTableArtifact` 只在 current Preview/active SubmitAttempt 期间 pin；Attempt 终态后可重算，不建设长期重复 full-row archive。
 - Python reference 不是与 Rust 同等规模的 production provider；正式语义由 contract 和 golden fixtures 拥有。
 
 ### 交付物
@@ -290,6 +309,7 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 - 每个 capability 可脱离 API、application 和 Operation Runtime 单独调用。
 - 相同输入、版本和 policy 产生稳定结果与 digest。
 - Rust production provider 与 Python reference 在 golden/property fixtures 上语义一致。
+- Python、Rust 和 Repository 对 canonical encoding normative vectors 逐字节一致。
 - Capability 不包含 Workspace、Submission、Archive、History request 等 flow identity。
 - 依赖图无环且无内部实现越界。
 
@@ -305,6 +325,8 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 
 建立可持久化、可重试、可接管的最小执行运行时，为 submit、archive 和 history 等耗时流程提供可靠执行机制。
 
+Operation 与业务 execution/effect evidence 的分界以 [External Effect and Recovery](../contracts/external-effect-and-recovery.md) 为准。
+
 ### 主要工作
 
 - 持久化 operation/step store 和 optimistic version。
@@ -313,7 +335,8 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 - Step output 只保存稳定 DTO、business ID、artifact ref、repository operation ID 和 checkpoint。
 - 大型 Comparison/Risk/Surface 结果必须通过 artifact/checkpoint 重载，不能依赖 Python 闭包。
 - 实现 retry、cancel、supersede、final failure 和 READY closure。
-- 建立 Repository remote operation 的 submit/poll/checkpoint 模式，不占用线程阻塞等待。
+- 建立 Repository remote operation 的 submit/poll/evidence checkpoint 模式，不占用线程阻塞等待。
+- Takeover `RUNNING` step 时先读取 durable checkpoint 与 Repository journal；`APPLIED/VERIFIED` 向前完成，`UNKNOWN` 只 reconcile，只有 explicit `NOT_APPLIED` evidence 才能用原 idempotency key replay。
 - 第一版保持顺序 step；只预留固定 fan-out/fan-in contract。
 
 ### 交付物
@@ -325,8 +348,9 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 
 ### 退出条件
 
-- 任意 step 后终止 worker，另一 worker 能继续或给出确定最终失败。
+- 任意 step 后终止 worker，另一 worker 能从 checkpoint/evidence 继续、reconcile 或给出精确 attention；只有证据允许时才进入业务终态。
 - 已提交的 repository 写操作不会因业务 step 重试而重复提交。
+- 不存在“保守重做整个 step”的 blind replay 路径。
 - READY 前 artifact closure 完整，READY 后后台优化不改变正式结果。
 - Operation Runtime 不依赖具体业务模型或 capability 实现。
 
@@ -340,6 +364,8 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 ### 目标
 
 按业务价值和依赖顺序建立新的正式主路径。每个 Slice 通过后再进入下一 Slice，不等待所有功能一次完成。
+
+所有 Slice 的对象、状态、占用、derived projection 与 freeze point 遵守 [Business Lifecycle and State](../contracts/business-lifecycle-and-state.md)。
 
 ### Slice 5A：Upload Preview
 
@@ -355,32 +381,36 @@ HTTP
 
 重点验证 capability 组合、bundle contract 和同步/异步边界。该 Slice 不依赖 Repository 写路径，是首个端到端架构验证点。
 
+Upload/Preview 产生 immutable UploadRevision、PreviewResult 与 full-row table facts；SnapshotTableArtifact 仅在未接受的 current Preview 或 active SubmitAttempt 期间持久 pin，T1 转移 pin responsibility，Attempt 终态释放。
+
 退出条件：正式 preview bundle 可由新前端 loader 打开，golden comparison/risk/digest 一致，API 不内联 capability 算法。
 
 ### Slice 5B：Submit Acceptance and Finalize
 
 ```text
 Workspace submit gate
-  -> persist Submission + operation/outbox
+  -> reject NO_CANONICAL_CHANGE before Attempt
+  -> persist SubmitAttempt + Operation/outbox (T1)
+  -> build/reuse one RepositoryImportArtifact
   -> Repository SubmitImport
   -> poll/checkpoint
-  -> readback validation
-  -> finalize Submission/Workspace
+  -> full readback VERIFIED evidence (T2)
+  -> create Submission/finalize Workspace (T3)
 ```
 
 重点验证跨服务幂等、事务边界、补偿和 worker takeover。
 
-退出条件：重复请求、worker crash 和 Repository Service restart 不产生重复 submission/ref/commit。
+退出条件：重复请求、worker crash 和 Repository Service restart 不产生重复 submission/ref/commit；Repository 成功前不存在 Submission；unknown effect 不解锁或 blind replay。该 slice 通过 capture gate 后立即捕获首份 accepted vNext performance baseline。
 
 ### Slice 5C：Review
 
-实现 start review、approve、reject、withdraw 和 mutable ref release。领域状态变化归 Submission/Workspace，Repository Service 只执行通用 ref 操作。
+实现直接 approve、reject、withdraw、return 和 mutable ref release；不建设单独 start-review 动作或中间审核状态。领域状态变化归 Submission/Workspace，Repository Service 只执行通用 ref 操作。
 
 退出条件：状态机、权限、幂等和 ref release conflict 全部由自动测试覆盖。
 
 ### Slice 5D：Archive
 
-实现 candidate、confirmation、anomaly resolution、selection、dry run 和 execute gate。业务侧决定 target commit，Repository Service 仅执行 main ref CAS。
+实现从 approved Submission facts 派生 CandidateProjection、confirmation/anomaly resolution、纯读 PreviewArchivePlan 与 StartArchive execute gate。Preview 不持久化、不冻结；Start 才重新校验并冻结 ArchivePlan。使用 immutable BaselineNode + BaselineHead，不建设 batch。业务侧决定 target commit，Repository Service 仅执行 main ref CAS。
 
 退出条件：并发 archive、base main conflict、重复执行和部分失败有确定结果，业务与 repository operation 可关联审计。
 
@@ -401,6 +431,8 @@ Workspace submit gate
 ### 目标
 
 在 Phase 3 首批 Rust production kernel 的基础上，根据完整业务 journey profile 扩大 Rust 覆盖并深度优化数据路径。Phase 6 不是首次引入 Rust，也不机械替换所有 Python/Polars 实现。
+
+Provider route 遵守 [ADR 0001](../adr/0001-python-rust-hybrid-compute-strategy.md)，收益声明遵守 [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)。
 
 ### 推荐顺序
 
@@ -429,6 +461,7 @@ gateway-compute-worker     artifact-based worker/CLI
 - Python reference oracle 和跨语言 golden fixture 已稳定。
 - Arrow/Parquet 和 scalar/digest contract 已版本化。
 - Phase 3 首批 Rust provider 已通过真实纵切验证，不存在尚未收口的基础 FFI/打包问题。
+- Slice 5B 已按 measurement contract 产生 accepted vNext baseline；没有 baseline 不得声明 coverage/provider 优化收益。
 
 ### 退出条件
 
@@ -447,7 +480,7 @@ gateway-compute-worker     artifact-based worker/CLI
 
 ### 目标
 
-在完整正确路径稳定后，根据 benchmark 引入受控并行、cache 和 provider 优化。
+在完整正确路径稳定且首份 vNext baseline 已 accepted 后，根据同一可比 series 的 measurement 引入受控并行、cache 和 provider 优化。
 
 ### 主要工作
 
@@ -474,18 +507,19 @@ gateway-compute-worker     artifact-based worker/CLI
 
 ### 切换顺序
 
-1. 离线 fixture 和 benchmark 对照。
+1. 离线 language-neutral fixture/canonical correctness 对照，以及独立 vNext measurement。
 2. 只读 shadow：catalog、history resolve、comparison。
 3. Upload preview shadow，结果不对用户生效。
 4. Upload preview 正式切换。
 5. Submit 双重验证但单写，禁止两个系统同时提交 repository 写入。
 6. Submit/Review 正式切换。
-7. Archive dry run shadow。
+7. Archive plan preview shadow。
 8. Archive mainline CAS 正式切换。
 
 ### 规则
 
 - Shadow 比较使用规范化结果，不要求保留旧 host path、cache key 或 bundle layout。
+- Shadow 只对照 canonical correctness 和明确 intentional change；不运行 legacy-vs-vNext 性能门禁。
 - 任何写路径只能有一个 system of record 和一个 writer owner。
 - 每次切换有明确 feature flag、回滚点和数据兼容说明。
 - 回滚不得依赖删除新系统已经提交的 immutable commit。
@@ -534,9 +568,10 @@ gateway-compute-worker     artifact-based worker/CLI
 
 ### 13.2 数据迁移
 
-- 如果决定不迁移旧数据，必须提供明确的环境初始化和切换边界。
-- 如果需要迁移，迁移器是独立一次性应用，不把 legacy schema 兼容写入新 domain。
-- 迁移结果通过业务 ID、commit、artifact digest 和抽样 journey 验证。
+- Legacy Dolt migration/compatibility 是独立 cutover gate；本计划不预设迁移或不迁移结论。
+- Gate 若选择不迁移，必须提供明确环境初始化和切换边界。
+- Gate 若选择迁移，迁移器是独立一次性应用，不把 legacy schema 兼容写入新 domain。
+- 迁移结果通过业务 ID、commit、artifact digest 和抽样 journey 验证；不得把 raw legacy commit 与 canonical vNext commit 当作同版本 state 直接比较。
 
 ### 13.3 可观测性
 
@@ -568,7 +603,7 @@ capability/provider/version
 - 关键失败路径和幂等测试通过。
 - 产物有 digest、diagnostics 和 owner。
 - 没有新增 host path、隐式全局状态或跨层 DTO re-export。
-- 有基准或容量数据支持性能结论。
+- 初始 correctness route 有 component evidence；任何优化/回归性能结论都有 accepted vNext baseline 或容量数据支持。
 - 文档、ADR、runbook 与实现一致。
 - 新代码已接入正式入口或明确标记为未启用，不能长期处于无人使用的“已完成”状态。
 

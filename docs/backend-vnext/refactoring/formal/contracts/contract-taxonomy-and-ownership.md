@@ -2,9 +2,9 @@
 
 状态：正式设计（Accepted）
 
-阶段：Phase 1A
+阶段：Phase 0–1
 
-本文定义 backend vNext 重构后的 contract 分类、语义所有权、存放位置、依赖方向和变更治理。本文只固定长期规则，不记录讨论过程；讨论记录应位于 `refactoring/temporary/phase-1/`。
+本文定义 backend vNext 重构后的 contract 分类、语义所有权、存放位置、依赖方向和变更治理。本文只固定长期规则，不记录讨论过程；讨论记录保留在对应的 `refactoring/temporary/phase-*/` 目录。
 
 ## 1. 设计目标
 
@@ -92,16 +92,17 @@ DigestRef
 CanonicalIdentifier
 scalar/null/decimal/datetime semantics
 canonical serialization
-ErrorCode
-Diagnostic
+FailureDescriptor category/recovery/effect primitives
+Diagnostic primitive
 ContractVersion primitive
 ```
 
 约束：
 
 - 只包含没有业务归属、被多个边界共同使用的稳定原语。
-- 不包含 Workspace/Submission 状态、benchmark result、repository purpose 或 capability facts。
+- 不包含 Workspace/Submission 状态、use-case error code/phase/details、benchmark result、repository purpose 或 capability facts。
 - Python、Rust 和 Repository wire schema 必须对这些语义具有一致解释。
+- Canonical bytes 的唯一规范见 [Shared Canonical Encoding](shared-canonical-encoding.md)；业务 use case 分别拥有自己的 stable failure code registry。
 
 ### 4.2 Domain Contract
 
@@ -175,7 +176,8 @@ BundleAssemblyInput/Result
 
 ```text
 table_access/table_rules
-  -> table_projection
+  -> storage_projection -> RepositoryImportArtifact
+  -> comparison_projection
   -> snapshot
   -> comparison
   -> risk
@@ -240,8 +242,11 @@ location-independent access metadata
 
 | Artifact 内容 | Owner |
 | --- | --- |
-| Snapshot table/summary | Snapshot capability |
-| Projection table | Table Projection capability |
+| `SourcePackageArtifact` content | Workspace Input/Application |
+| `SnapshotTableArtifact` full-row facts | Snapshot Materialization capability |
+| `CanonicalizationManifest`、`RepositoryImportArtifact` | Table Rules/Storage Projection capability |
+| Comparison projection table | Comparison Projection capability |
+| `SnapshotManifest` readback envelope | Repository Service；canonical expected fields 由 Storage Projection 定义 |
 | Comparison records | Comparison capability |
 | Ordered records | Ordered Comparison capability |
 | Risk annotations/report | Risk capability |
@@ -283,6 +288,8 @@ RepositoryId/Ref/Commit
 ResolveRef
 Create/GetRepository
 SubmitImport/GetOperation
+RepositoryOperationJournal/Evidence
+SnapshotManifest
 Create/Delete/CompareAndSetRef
 GetCatalog/StreamRows/ExportTable
 DiffRefs
@@ -296,8 +303,8 @@ wire error and timeout semantics
 Workspace
 Submission
 Preview
-ArchiveCandidate
-BaselineBatch
+business candidate entity/state
+baseline business batching/state
 HistoryComparison
 business promotion policy
 ```
@@ -361,19 +368,31 @@ Owner：对应 infrastructure adapter。
 
 | 对象/语义 | Owner | 主要消费者 |
 | --- | --- | --- |
-| `DigestRef`、canonical serialization | Shared Kernel | 所有模块和跨语言实现 |
+| `DigestRef`、CanonicalIdentifier、canonical encoding | Shared Kernel | 所有模块和跨语言实现 |
+| `FailureDescriptor.category/recovery/effect` | Shared Kernel | Application、Operations、Interfaces |
+| Submit/Review/Archive failure code、phase、details | 对应 Application use case | Operations、Interfaces、Fixtures |
 | `ArtifactRef`、manifest、closure | Artifacts | Capabilities、Operations、Interfaces |
+| `SourcePackageArtifact` content/provenance/retention intent | Workspace Input/Application | Workspace、Submission、ArtifactStore |
+| `SnapshotTableArtifact` full-row facts/schema | Snapshot Materialization capability | Preview、Storage/Comparison Projection |
 | `Snapshot`、`SnapshotSummary` | Snapshot capability | Comparison、Application |
 | `TableReader`、`TableSet` | Table Access contract | Snapshot、Comparison、Repository adapter |
-| `ProjectionSchema`、projection digest | Table Projection capability | Snapshot、Comparison、Cache |
+| Storage column policy/key/ordered identity、`CanonicalizationManifest` | Table Rules/Storage Projection capability | Submit、Repository adapter、Fixtures |
+| Comparison `ProjectionSchema`、projection digest | Comparison Projection capability | Snapshot、Comparison、Cache |
+| `RepositoryImportArtifact` content schema | Storage Projection capability | Submit Attempt、Repository Service |
+| `SnapshotManifest` readback/journal schema | Repository Service | Repository adapter、Submit/Archive reconciliation |
 | `ComparisonFacts`、standard records | Comparison capability | Risk、Surface、Bundle |
 | Ordered facts/records | Ordered Comparison capability | Risk、Surface、Bundle |
 | `RiskFacts`、`RiskReport` | Risk capability | Surface、Bundle、Application |
 | `ComparisonSurface` | Surface capability | Bundle、Interface |
 | `ComparisonBundle` | Bundle capability | Application、Interface |
-| `WorkspaceId/Status` | Workspace domain | Workspace Application、Interface mapping |
-| `SubmissionId/Status` | Submission domain | Submission Application、Archive |
-| Archive batch/candidate/selection | Archive domain | Archive Application |
+| `Workspace`、`UploadRevision` | Workspace Domain | Workspace Application、Interface |
+| `PreviewResult` | Workspace Application | Submission Application、Interface |
+| `SubmitAttempt` | Submission Application | Operations、Workspace、Interface |
+| `Submission`、Review projection/event | Submission Domain | Archive Application、Interface |
+| `BaselineNode`、`BaselineHead` | Baseline Domain | Workspace、Submission、Archive、History |
+| `ArchivePlan`、`ArchiveExecution` | Archive Application | Baseline、Operations、Interface |
+| `ArchiveResult` | Archive Domain | Baseline、Submission、Interface |
+| `CandidateProjection`、`PreviewArchivePlan` | Archive Application read model | Interface、StartArchive |
 | `OperationRecord`、Step、Lease | Operations | Application jobs、Workers、Interface polling |
 | `SubmitFinalizeJobPayload` | Submission Application | Operations handler |
 | Repository ID/ref/commit/CAS wire semantics | Repository Service | Remote Repository adapter |
@@ -384,6 +403,10 @@ Owner：对应 infrastructure adapter。
 | HTTP preview/submit/archive DTO | HTTP Interface | External clients、Application mapping |
 | Cache registry/envelope | Cache module | Capability provider、Operations |
 | Cache payload schema | Payload-producing capability | Cache module、consumer capability |
+| Scenario manifest/runner result/evidence bundle | Conformance Harness | Python、Rust、Repository、CI |
+| Scenario expected semantic content | 对应 Domain/Application/Capability contract owner | Conformance Harness |
+| `BenchmarkBaselineRecord`/measurement semantics | Performance Measurement | Phase owners、CI、Architecture review |
+| `environment_profile_id` | Deployment/Repository Environment owner | Performance Measurement |
 
 新增对象时必须先加入 ownership matrix 或在对应正式 contract 中声明 owner，不能通过放入 `shared` 目录回避归属决策。
 
@@ -408,6 +431,12 @@ wire: none/json/http/grpc/arrow/parquet
 | Workspace entity | no | required through adapter | none |
 | Workspace HTTP DTO | yes at interface | no | HTTP JSON |
 | Repository import request | yes at service boundary | operation journal | HTTP/gRPC + artifact ref |
+| `SourcePackageArtifact` | yes by ref | required | artifact bytes + manifest |
+| `SnapshotTableArtifact` | yes by ref | current Preview/active Attempt only | Arrow/Parquet + manifest |
+| `RepositoryImportArtifact` | yes by ref | active Attempt/checkpoint | artifact stream + manifest |
+| `CanonicalizationManifest` | yes | required for accepted commit | JCS JSON |
+| `SnapshotManifest` | yes | required as VERIFIED evidence | Repository wire/JCS JSON |
+| `BenchmarkBaselineRecord` | yes | required when accepted | JCS JSON |
 
 `module_public=yes` 不等于必须跨语言序列化；`persisted=yes` 也不等于可以直接作为 HTTP response。
 
@@ -506,13 +535,25 @@ digest_participation
 compatibility_window
 ```
 
-区分三种版本：
+区分基础版本与独立 contract version axes：
 
 | 版本 | 含义 | 是否进入业务 digest/cache identity |
 | --- | --- | --- |
 | Semantic contract version | 字段含义、排序、计算或正式结果语义 | 语义相关时进入 |
 | Wire schema version | JSON/Protobuf/Arrow 等传输结构 | 只有影响正式语义时进入 |
 | Provider implementation version | Python/Rust/Dolt 的算法实现版本 | 纯性能变化不进入 |
+
+下列版本轴不得折叠为单个“系统版本”，也不得因 provider 升级而静默改变：
+
+| Version axis | Owner | 主要影响 |
+| --- | --- | --- |
+| `canonical_encoding_version` | Shared Kernel | JCS/scalar/frame/digest bytes |
+| `fixture_manifest_schema_version` | Conformance Harness | Scenario closure/validation |
+| Scenario-bound semantic contract version | 对应 semantic owner | Golden expected meaning |
+| `storage_projection_version` + ruleset digest | Storage Projection/Table Rules | Canonical Dolt schema/content |
+| Repository wire/readback schema version | Repository Service | Import/journal/SnapshotManifest wire |
+| `measurement_contract_version` | Performance Measurement | Stage/metric/eligibility/aggregation |
+| Baseline series identity | Performance Measurement + environment/data owners | 可比 dataset/environment/component 集合 |
 
 规则：
 
@@ -589,6 +630,9 @@ Persistence record 反向成为 domain model
 5. Artifact envelope 与 artifact content schema 分离。
 6. Business Repository Port 与 Repository Service wire contract 分离。
 7. Python/Rust provider 共享 capability contract，语言实现不取得 contract ownership；稳定热点允许采用 Rust production provider + Python 小规模 oracle。
+8. Shared Kernel 只拥有 FailureDescriptor 的公共维度，stable use-case code/phase/details 由对应 Application owner 管理。
+9. Raw Source、full-row Snapshot、canonical import/readback 和 comparison projection 是不同 artifact/contract owner，不建立泛化 `Projection` authority。
+10. Fixture manifest、canonical encoding、storage projection、Repository wire 和 measurement 使用独立版本轴。
 
 后续 Phase 1B Shared Semantic Contracts、Phase 1C Dependency Rules 和 Phase 1D Cross-process Contracts 必须遵守上述决策。
 
@@ -603,3 +647,4 @@ Persistence record 反向成为 domain model
 - Python/Rust 边界不使用逐行 Python object graph 作为正式 contract。
 - Architecture tests 可以根据本规则检测禁止依赖。
 - Contract 变更具有 owner、版本、compatibility 和 golden test 要求。
+- SourcePackage、SnapshotTable、RepositoryImportArtifact、CanonicalizationManifest、SnapshotManifest 和 BenchmarkBaselineRecord 均能定位到唯一内容 owner。

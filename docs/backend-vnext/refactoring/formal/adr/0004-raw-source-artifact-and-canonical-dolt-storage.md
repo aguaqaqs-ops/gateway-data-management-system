@@ -1,0 +1,38 @@
+# ADR 0004: Raw Source Artifact and Canonical Dolt Storage
+
+状态：Accepted
+
+日期：2026-07-19
+
+决策 owner：Backend vNext Storage Projection Architecture
+
+关联阶段：Phase 2、Phase 3、Slice 5A/5B
+
+## Context
+
+Legacy 要求 Dolt 尽量保存原始 SQL schema/data，并在比较时构建临时 projection table。该做法重复消耗 CPU/I/O，且不稳定列会放大无业务意义的历史 diff 和存储。原始上传 bytes 已可由 immutable artifact 独立保存，因此不需要让 Dolt 同时承担 raw package authority。
+
+## Decision
+
+SourcePackageArtifact 是原始上传权威；Dolt 只保存由版本化 table rules/storage projection 生成的 canonical business tables。Storage projection 可删除已证明无业务、结构、顺序、审计或恢复意义的列，必须保持 retained row 完整性并 fail closed。Comparison projection 是独立边界。
+
+Ordered table 第一版保留 `no`，以 `gid` 为主键；real gid 为 `1..3_999_999_999`，blank pseudo gid 从 `4_000_000_000` 确定分配。每次 import 绑定 CanonicalizationManifest、immutable RepositoryImportArtifact 和 full post-commit SnapshotManifest readback。SnapshotTableArtifact 只在 current Preview/active Attempt 期间 pin；首版不长期复制 full-row archive。精确规则由 [Canonical Storage and Repository Boundary Contract](../contracts/canonical-storage-and-repository-boundary.md) 唯一规定。
+
+## Alternatives
+
+- Dolt 继续完整保存 raw schema/rows：拒绝，因为重复 raw authority 并保留不稳定数据。
+- 比较时临时投影：拒绝作为主路径，避免每次比较重复成本。
+- 删除 ordered `no` 并建立 position/edge table：延后；罕见漂移不足以证明双表复杂度。
+- 自动 surrogate key/dedup：拒绝，会隐藏数据语义错误或丢行。
+- 规则升级时迁移全部历史：拒绝第一版采用；使用 versioned alignment/fallback。
+
+## Consequences
+
+Dolt export 是 canonical schema，不能单独复原原始 DDL/删除列；原始审计回到 durable SourcePackageArtifact。Submit 增加一次 storage projection，但后续 read/diff 可直接使用 canonical state。规则升级可能产生 degraded comparison；旧 Dolt migration/compatibility 仍需独立 cutover 决策。
+
+## Required Verification
+
+- Raw artifact restore、canonical manifest、row-count/key 和 dropped-column fixtures。
+- Ordered gid/no、pseudo blank、position shift 和 reserved-range vectors。
+- Repository full readback 与 journal VERIFIED conformance。
+- Projection version mismatch 进入 alignment/fallback，不使用不安全 native diff。

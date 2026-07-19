@@ -1401,7 +1401,7 @@ after_repository_effect_confirmed
 before_readback_verified
 after_readback_verified
 before_business_finalize
-after_business_finalize_before_outbox_publish
+after_business_finalize_before_outbox_delivery
 ```
 
 场景至少描述并在失败后、恢复后分别断言：
@@ -2240,6 +2240,378 @@ Backend Python、Rust compute core 和 Repository Service 分别直接消费同�
 
 Phase 0 退出前至少满足：vector schema/closure 可校验；Python、Rust、Repository 三方通过全部 valid/invalid vectors；同一 logical input 产生相同 bytes 和 digest；任何 byte contract 变化都由 version 变化和 digest compatibility 说明显式表达。
 
+### 5.30 Oracle runner 的权责与 harness registry
+
+已确认使用一个语言无关 fixture orchestrator，加 owner harness registry：
+
+```text
+load and validate scenario closure
+  -> resolve harness(track, subject)
+  -> provision isolated execution profile
+  -> arm fault when declared
+  -> invoke stable production entrypoint
+  -> collect owner observations
+  -> canonicalize and exact-compare golden
+  -> emit conformance result/evidence
+```
+
+Runner core 只拥有 fixture discovery/schema/closure、profile lifecycle、fault/checkpoint control、canonical comparison 和 test result；不解释 Submit、Archive、Comparison 或 Repository 业务语义。
+
+- `data` harness 调用 capability public contract。
+- `command/recovery` harness 调用 application use case、正式 worker/queue/reconciler 和 Repository client/service contract。
+- Registry key 使用已确认的 `scenario track + subject`；manifest 不记录 module/function/class 或 executable path。
+- Owner harness 负责把稳定 subject 映射到 public entrypoint 和 typed observer，不允许 runner 直接调用私有 step handler。
+- Runner 不是第二套 workflow engine，不支持 manifest script、任意 callback、动态 DAG 或透传实现语言对象。
+- Test result/evidence 不是生产 Operation、artifact 或业务事实，不能反向进入正式状态机。
+
+### 5.31 Execution profiles 与 required matrix
+
+同一 scenario/golden 可以在多个 execution profile 下验证；profile 由 versioned runner/CI suite config 选择，不进入 `scenario_id`、manifest expectation 或 expected payload：
+
+| Profile | 作用 |
+| --- | --- |
+| `reference` | Deterministic in-process adapters、fake clock/scheduler；快速跑完整决策表。 |
+| `integration` | Real persistence、Repository Service 和 Dolt；验证真实 service/journal/readback 边界。 |
+| `process-crash` | 独立 worker/service process 的非优雅终止、lease expiry、restart/takeover。 |
+| `provider-matrix` | Python/Rust 等 capability provider 对同一输入、bytes、facts/digest 的一致性。 |
+
+最低 required matrix：
+
+| Track | Reference | Integration | Process-crash | Provider matrix |
+| --- | --- | --- | --- | --- |
+| Data semantics | 全量 | source→Repository→readback 关键子集 | 不要求 | Python/Rust 共有 capability 全量 |
+| Command rejection | 全量 | 涉及真实事务/唯一约束的子集 | 不要求 | 不要求 |
+| Recovery | 全量 evidence decision table | 每种 Repository outcome/evidence 分支至少一个 | 每个 durable boundary/关键 journey 至少一个 | 不要求 |
+
+Process-crash 至少覆盖：request 已发送但 client 无 evidence、Repository effect 已提交但 application 无 evidence、readback verified 后 business finalize 前，以及 business finalize/outbox record 原子提交后 delivery 前。
+
+Profile/provider 不支持声明的 contract、boundary 或 action 时返回 `UNSUPPORTED`，不能伪装为 pass。Required matrix 中任一 cell 未运行或非 `PASSED` 都使 suite 失败；不得用临时 CLI 参数静默降低 required coverage。
+
+### 5.32 Runner result contract
+
+每个 `(scenario_id, profile, provider)` 形成唯一 execution result，状态第一版限定为：
+
+```text
+PASSED
+ASSERTION_FAILED
+HARNESS_ERROR
+UNSUPPORTED
+```
+
+- `ASSERTION_FAILED`：schema-valid actual observation 与 golden 不相等，或 owner digest/invariant 重算不一致。
+- `HARNESS_ERROR`：环境、fault control、barrier/observer、schema/contract resolution、cleanup 等测试基础设施失败，无法形成可信业务结论。
+- `UNSUPPORTED`：该 profile/provider 不实现已声明能力；它只是明确缺口，不是成功。
+- Normative scenario 不允许 `xfail`、模糊 pass、自动 retry 后覆盖第一次失败或从 legacy classification 推导 expected failure。
+- 未被 suite 选择的 scenario 不产生伪造 `SKIPPED` result；suite report 另行记录 selection coverage。
+
+Result 至少记录：scenario/profile/provider、fixture digest、contract versions、status、expected/actual observation digest 和脱敏 diagnostic/evidence refs。Timing/resource 可以作为非 golden 测量字段存在，但不能改变 correctness status。
+
+### 5.33 Fault plan、legality matrix 与 effect authority
+
+第一版每个 scenario 只允许一个 primary fault：
+
+```yaml
+fault:
+  contract:
+    owner: repository-faults
+    version: 1
+  target: repository_client
+  boundary: after_repository_request_sent
+  action: drop_response
+  occurrence: 1
+```
+
+Fault envelope 只包含 versioned `owner/target/boundary/action/occurrence` 及必要 typed parameters；禁止 exception class、函数/代码行、SQL/shell/path 和任意脚本。重复 recovery 由 recovery stimulus 拥有，不通过声明多个 primary faults 模拟。
+
+每个 fault owner 发布 target/boundary/action legality matrix。非法组合在 arm 阶段返回 `HARNESS_ERROR`，不能开始 stimulus。第一版稳定 boundary 继续使用：
+
+```text
+before_repository_effect
+after_repository_request_sent
+after_repository_effect_confirmed
+before_readback_verified
+after_readback_verified
+before_business_finalize
+after_business_finalize_before_outbox_delivery
+```
+
+`after_business_finalize_before_outbox_delivery` 的前置事实必须是 business finalize 与 outbox record 已在同一本地事务原子提交，只是 outbox 尚未投递。不得注入“业务已提交但 outbox record 缺失”的非法事务缝隙。
+
+Fault action 只决定测试组件如何行为，例如 `reject_before_accept`、`drop_response`、`transport_timeout`、`crash_worker`、`corrupt_readback` 或 integrity-corruption case。Fault receipt 只能证明测试动作发生；Repository effect 是否存在仍由 operation journal、CAS/ref、readback 和已确认 evidence decision table 裁决。
+
+### 5.34 Fault arm/consume protocol 与安全边界
+
+执行 stimulus 前必须完成：
+
+```text
+submit fault plan
+  -> validate profile support and legality
+  -> return armed receipt + plan digest
+  -> execute stimulus
+  -> trigger boundary/action
+  -> persist consumed receipt
+  -> verify exact occurrence count
+  -> disarm during teardown
+```
+
+Fault 未 arm、未触发、位置/次数不符或残留未 disarm 均为 `HARNESS_ERROR`。Receipt 包含 run-scoped fault ID、plan digest、target/boundary/action、trigger count 和 test evidence ref，但不进入业务 golden，也不能替代 Repository journal。
+
+Fault provider 只由 test composition root 注入：
+
+- Production factory 不注册 provider，不暴露 control route；非 test environment 请求启用时服务拒绝启动。
+- Real Repository Service profile 使用 test-only adapter/control side channel，只允许固定 versioned fault contract。
+- Side channel 只绑定隔离网络、loopback 或 Unix socket，并使用 run-scoped token。
+- 禁止 arbitrary SQL/command/path/exception；token 和 fault config 不进入 log、artifact 或 golden。
+- Process-crash profile 必须真正终止目标 process；reference profile 的 lease-loss simulation 不能冒充已验证真实 process crash，只能共享同一业务 golden。
+
+### 5.35 Recovery execution protocol 与 checkpoint shape
+
+Recovery runner 的固定阶段：
+
+```text
+seed initial facts
+  -> validate seed
+  -> arm primary fault
+  -> execute stimulus through production entrypoint
+  -> reach durable failure/quiescence barrier
+  -> collect after-failure
+  -> drive production recovery mechanism
+  -> reach durable completion barrier
+  -> collect after-recovery
+  -> canonicalize/compare/recompute digests
+```
+
+Recovery golden 第一版只允许两个 checkpoint：
+
+```text
+after-failure
+after-recovery
+```
+
+Seed validation 是 harness evidence，不重复成为 golden checkpoint。`repetitions > 1` 时，在全部重复 recovery actions 完成后采集唯一 `after-recovery`；exactly-once 由最终 facts 和 action receipts 证明。需要第三个正式业务阶段时优先拆分新 scenario，不扩张成任意 timeline DSL。
+
+Checkpoint facts 由 journey recovery contract 按 authority 分组：
+
+```json
+{
+  "name": "after-failure",
+  "facts": {
+    "business": {},
+    "operation": {},
+    "repository": {},
+    "artifacts": {},
+    "events": {}
+  }
+}
+```
+
+外层 journey contract 固定子块 schema/version，payload 不重复 owner metadata。Observer 只读取 typed read model、Operation store port、Repository journal/query contract 和 artifact manifest/digest；不读取原始 DB dump、Repository 服务端文件树或日志作为业务 golden，也不通过观察动作推进状态。
+
+### 5.36 Stable-read barrier 与生产恢复驱动
+
+跨 Application/Repository observation 不建设测试专用分布式事务，采用 stable-read protocol：
+
+```text
+hold new runnable work
+  -> settle or terminate in-flight worker/effect
+  -> read application anchor versions
+  -> read business/operation facts in one DB snapshot
+  -> query Repository journal/evidence
+  -> validate artifact manifests/digests
+  -> reread application/repository anchors
+  -> accept only when anchors are unchanged
+```
+
+Anchor 变化时在 profile deadline 内重新采集；无法稳定是 `HARNESS_ERROR`。Barrier 只控制 test scheduling，不补 journal、不 finalize、不 reconcile、不篡改业务事实。Reference 使用 deterministic `run_until_idle/hold`，integration 使用 bounded polling 和 read-only authority queries，不使用固定 sleep。
+
+Runner 只允许以下固定 test controls 驱动正式机制：
+
+```text
+advance_fake_clock
+stop_or_start_worker
+deliver_durable_message
+run_scheduled_reconciler
+release_dispatch_hold
+```
+
+Manifest recovery stimulus 由 owner versioned trigger 表达，例如 `automatic_retry`、`lease_takeover`、`process_restart`、`duplicate_delivery`、`scheduled_reconcile` 和 repetitions；不保存任意 action list。禁止直接修改 Operation/Attempt/Execution、伪造 journal、调用私有 handler 或手工标记成功。
+
+### 5.37 Logical time、deadline、isolation 与 teardown
+
+Scenario logical time 与 runner wall-clock deadline 必须分离：
+
+- Logical clock 拥有业务 timestamp、retry schedule、lease expiry 和 reconciliation 语义；reference profile 使用 injectable wall/monotonic test clock。
+- Runner deadline 只约束 environment startup、fault arm、effect settle、observation stabilization 和 recovery completion，由 profile config 拥有，不进入 fixture/golden。
+- Runner deadline 超时是 `HARNESS_ERROR`。业务预期 timeout 必须由 fault action 产生正式 FailureDescriptor，不能依赖 runner 等待超时。
+- Integration/process-crash 可以用 test config 缩短 lease/poll interval，但 actual duration 不进入 golden。
+
+每次 execution 使用独立 DB namespace、artifact root、repository ID/ref、queue/worker scope。Business ID、clock 和随机源由 scenario seed 固定；environment run ID 只防止并发碰撞，不进入 golden。`data/command` 可以并行；第一版 recovery 在共享外部服务上串行，只有 profile 证明完整隔离后才放开。
+
+Correctness failure 不自动重试。CI 无论成功失败都 teardown；cleanup、lease、process 或 fault-plan 泄漏使 result 成为 `HARNESS_ERROR`。本地可以显式保留隔离环境，但不能改变 result。
+
+### 5.38 RunEvidenceBundle
+
+每次失败生成 test-only、content-digested `RunEvidenceBundle`：
+
+```text
+scenario/fixture digest
+git revision
+profile/provider/component versions
+deterministic seed and logical clock start
+fault arm/consume receipts
+actual checkpoint payloads
+expected/actual canonical diff
+Repository journal/query evidence
+sanitized diagnostic/log references
+teardown result
+```
+
+Evidence bundle 不是业务 artifact、golden 或 production contract；不得包含 credential、host path、原始敏感数据、完整数据库或 Repository 文件树。CI 先尽力采集 evidence 再 teardown。Evidence 采集失败不能覆盖原始 `ASSERTION_FAILED`，而是附加 secondary harness failure。Reproduction 只依赖 `scenario_id + profile + provider + fixture digest + git revision`，不依赖临时目录。
+
+### 5.39 Intentional conflict、延后事项与退出条件
+
+现有 `operations.md` 草案允许 lease timeout 后保守地“重做整个 RUNNING step”；该规则对纯内部/幂等计算可以成立，但与 Repository external effect recovery 冲突。Phase 0 formal 整理时必须改为：一旦请求可能被接受，takeover 先按 journal/readback evidence reconcile，只有明确 no-effect 才以原 idempotency key replay。
+
+原注入点 `after_business_finalize_before_outbox_publish` 已更名为 `after_business_finalize_before_outbox_delivery`，明确 business finalize 与 outbox record 原子提交，publish/delivery 是后续可恢复 effect。
+
+以下实施细节不阻塞本架构：runner CLI/报告展示格式、具体 profile deadline 数值、完整 fault action/error code registry、test side-channel transport 和 evidence bundle 的物理归档位置。它们必须遵守本节 result/security/authority 约束。
+
+0C/0D 本部分退出前至少满足：
+
+- Manifest fault/recovery schema 能在执行前拒绝非法组合。
+- Reference profile 可跑完整 recovery decision table，无固定 sleep。
+- Real integration 能证明 fault 确实 arm/consume，并从 Repository authority 观察 no-effect/unknown/applied 分支。
+- Process-crash 覆盖四个关键 durable boundary，replacement worker 通过生产机制恢复。
+- Required matrix 无 silent skip/xfail；`ASSERTION_FAILED/HARNESS_ERROR/UNSUPPORTED` 均不能算 pass。
+- 两个 checkpoint 可稳定采集、canonical compare，observer 不修改状态。
+- 每个失败可形成脱敏 reproduction evidence；每个执行可完全 teardown，无 fault/lease/process 泄漏。
+
+### 5.40 “测试材料”术语与边界
+
+为避免与正式 SourcePackageArtifact、SnapshotTableArtifact 等生产 Artifact 混淆，本文使用“测试材料”作为本轮数据样本的中文统称。`fixture asset` 只保留为物理目录/技术名称，不把测试文件提升为业务 Artifact。
+
+与本轮样本数据有关的测试材料分为三种治理类别：
+
+| 类别 | 内容与位置 | Correctness authority |
+| --- | --- | --- |
+| Scenario package | Git 内的 `scenario.yaml + input/ + expected/` closure。 | 是；以 owner contract 和 golden 表达正式预期。 |
+| Shared fixture asset | Git 内 `vnext/fixtures/assets/sha256/<digest>/` 的不可变共享输入 bytes。 | 单独不是；由显式引用它的 scenario 赋予语义。 |
+| External benchmark dataset | Git 外的大型或敏感 workload 与受控 dataset manifest。 | 否；只测量新架构性能、容量和资源使用。 |
+
+Manifest schema、Shared Kernel normative vectors 也是仓库内规范性测试内容，但已有独立 contract/version 治理，不纳入上述“样本数据三分法”。Runner/harness 代码、临时数据库/Dolt repository、日志、RunEvidenceBundle、benchmark report 和生产 Artifact 也不属于该分类。
+
+### 5.41 Scenario-local material 与 shared input asset
+
+Scenario package 是可独立发现、审查、校验和执行的 correctness 最小单元：
+
+- Manifest、scenario-local input、expected/golden 和 artifact closure 共同进入已确认的 `fixture_content_digest`。
+- Handcrafted 与 sanitized regression 使用完全相同的 schema、canonical comparison 和通过标准，只由 `provenance.kind` 区分来源。
+- `minimal/regression` 不重新成为目录、测试等级或 CI status；已提交 scenario 都是 normative correctness 测试材料。
+- 场景很小且只被少量使用时，优先将 input 复制到各自 scenario，保持 closure 直观；不为消除少量 bytes 建共享抽象。
+
+Shared fixture asset 只在同一份较大不可变输入确有跨场景复用价值时使用：
+
+- 只保存输入材料，不保存 stimulus、expectation、golden 或业务判定。
+- Scenario 必须按 content digest 显式引用；禁止按文件名、搜索路径或另一个 scenario 间接发现。
+- 修改任一 byte 必须产生新 digest/新路径，不能原地覆盖。
+- 单独执行 scenario 只解析自己的 manifest closure 和直接引用的 shared assets，不加载其它 scenario。
+- 不共享 expected/golden；即使输入相同，各 capability/journey owner 仍分别拥有 observation contract 和 expected payload。
+
+### 5.42 Git 提交大小与可审查性门禁
+
+第一版采用以下默认 admission budget：
+
+- 一个 scenario 的 scenario-local closure 总计不超过 `1 MiB`。
+- 一个 content-addressed shared asset 不超过 `5 MiB`。
+- 同时校验物理 bytes 和安全展开后的 bytes；归档成员、嵌套和展开路径必须受控，不能用高压缩比绕过大小门禁。
+- 除非压缩/归档格式本身就是被测输入 contract，否则提交可直接审查的明文 SQL/JSON/JSONL 等文件。
+- 第一版不使用 Git LFS。无法合理裁剪到门禁内的大型输入进入仓库外 dataset，不以 LFS 模糊 correctness fixture 与 benchmark corpus 的边界。
+
+大小门禁是 repository/test governance，不是业务 contract。极少数确有 correctness 必要性的例外必须记录理由、安全审查和 owner approval；不能由 contributor 临时提高本地参数绕过 CI。总仓库 fixture budget、归档成员数量等实施数值可以由 versioned CI policy 细化，但不得弱化上述默认边界。
+
+### 5.43 Sanitized regression 的准入、审核与退出
+
+只有同时满足以下条件的真实问题样本才进入 Git：
+
+1. 来自已发生缺陷或真实数据组合，并捕获 handcrafted scenario 尚未表达的跨表、DDL、ordering、recovery 或 lifecycle interaction。
+2. 已裁剪为稳定复现该语义的最小 closure；无关表、行、列、注释、文件和 metadata 已删除。
+3. 客户、设备、项目、路径、凭据及其它真实标识已替换为不可反查的 synthetic values。
+4. 自动敏感信息扫描通过，并由人工完成脱敏和最小化审核。
+5. `case_ref`、sanitization summary 和 review status 本身均为非敏感信息。
+
+Sanitized regression 不提交原始业务输入、原始路径、原始敏感 content digest 或受限工单内容。原始来源与脱敏过程的受限审计证据由仓库外安全流程拥有；legacy output 不能未经 contract 审核直接成为 golden。
+
+一旦进入 Git，regression scenario 不因原 bug 已修复而删除。只有更小的 normative scenario 已完整覆盖同一 contract boundary 时才允许退役，并在审查记录中指向 replacement scenario；删除不能静默降低 required coverage。
+
+### 5.44 External benchmark dataset identity
+
+仓库外 dataset 只评价新架构自身，不承担 correctness oracle。正式、可进入 baseline/report 的 benchmark dataset 必须包含 versioned `dataset.yaml`；旧约定中的 optional manifest 只允许本地探索，所产结果标记为 non-reportable/non-normative。
+
+第一版 dataset identity 至少包含：
+
+```text
+dataset_contract_version
+dataset_id
+dataset_revision
+source_sql_file
+private_content_digest
+workload_shape
+sensitivity_class
+validation_profile
+```
+
+规则：
+
+- `dataset_id + dataset_revision + private_content_digest` 唯一确定不可变输入；同一 revision 的 bytes 不允许漂移，输入变化必须发布新 revision。
+- `small/medium/large` 只是由安全 aggregate statistics 派生的 `size_class`/展示标签，不是稳定 dataset identity；不继承 `business_small` 等旧 runner 名称作为新 contract。
+- `private_content_digest` 保存在受限 dataset package 和内部运行证据中；若其本身可能帮助识别敏感来源，不写入 Git、公开 report 或普通 CI log。
+- 公开/共享 report 只输出安全的 dataset ID/revision、规模摘要、validation profile 和脱敏环境 fingerprint；不得包含原始路径、客户标签或 row payload。
+- Benchmark runner 只消费显式 provision/mount 的 dataset root，不联网下载、猜测 host path 或内置凭据。
+- Dataset manifest 描述 source 和 workload identity，不透传 provider 私有参数；benchmark suite/profile config 拥有运行矩阵。
+
+### 5.45 Correctness CI、benchmark lane 与语义回流
+
+已确认分离以下执行 lane：
+
+| Lane | 输入 | 门禁语义 |
+| --- | --- | --- |
+| PR correctness | Git 内全部 scenario/schema/vector closure。 | 全量 discovery/schema/path/digest/provenance 校验，并执行 required reference correctness suite。 |
+| Merge/scheduled conformance | 同一 Git fixture；按 versioned suite config 选择 integration/process-crash/provider profiles。 | Required cell 非 `PASSED` 即失败，不改变 scenario 的 normative 身份。 |
+| External benchmark | 显式 provision 的仓库外 immutable dataset revision。 | 先 validation，后计量；只建立新架构自身性能/容量基线。 |
+
+外部 dataset 不得成为普通 PR correctness 的隐式依赖。已配置为 required 的 benchmark job 找不到或不能验证 dataset 时，结果为 `HARNESS_ERROR`，并使用稳定 diagnostic code `DATASET_UNAVAILABLE`/`DATASET_IDENTITY_MISMATCH`；不能报告 `PASSED` 或把结果纳入统计。
+
+只有 validation passed 的运行才能进入时间、吞吐、峰值内存和存储结果。每个可比较结果必须绑定 git revision、dataset ID/revision/private identity、contract/policy/storage projection version、component/provider version 和脱敏 environment fingerprint。Phase 0 不运行或维护 legacy-vs-vNext 性能门禁。
+
+External benchmark 暴露新语义时采用单向回流：
+
+```text
+external dataset finding
+  -> minimize and sanitize
+  -> review business/contract meaning
+  -> add sanitized-regression scenario
+  -> review explicit golden diff
+```
+
+Benchmark actual output 不能直接 bless golden；无法安全裁剪的输入只能保留为受限 investigation evidence，不能形成普通 correctness CI 的隐藏 oracle。
+
+### 5.46 Intentional conflict、延后事项与退出条件
+
+现有 `testing-fixtures.md` 使用旧 backend test root，并以 `minimal/regression/external` 作为物理目录；这与 5.1–5.2、5.40–5.45 的仓库级 scenario/provenance 设计冲突。Phase 0 formal 整理时必须重写，而不是保留兼容目录。其 `dataset.yaml optional` 也必须收窄为：只有非正式本地探索可省略，正式 baseline/report 不可省略。
+
+现有 benchmark runbook 中 `business_small/medium/large`、provider 列表、host path 和当前 runner output layout 只说明已有实验环境，不进入新 dataset identity 或 public benchmark contract。Legacy 和旧 benchmark runner 只能帮助识别 workload/容量，不继承其内部分类、cache/provider 布局或性能比较口径。
+
+以下实施细节不阻塞本架构：size-policy 文件的物理位置、敏感信息扫描器选型、人工 approval 的代码承载方式、外部 dataset registry/storage 服务，以及安全报告发布渠道。它们必须遵守本节 storage、identity、privacy 和 authority 边界。
+
+0C/0D 本部分退出前至少满足：
+
+- 单个 scenario 可离线解析完整 closure；普通 PR 不需要外部 dataset、网络或 legacy 文件。
+- CI 能阻止 oversize/unsafe archive、未声明文件、shared asset digest 漂移和未审核 sanitized regression。
+- Handcrafted 与 regression 使用相同 exact golden contract，不存在 regression-only 宽松 matcher/xfail。
+- Reportable benchmark 可拒绝缺失或 identity 漂移的 dataset，并只在 validation passed 后计量。
+- 外部数据发现的 correctness 语义只能通过已审核 sanitized regression 进入 Git/golden。
+- 公开报告和普通 evidence 不泄漏 private dataset digest、原始路径、真实标签或 row payload。
+
 ## 6. 新重构原则：Raw Source Artifact 与 Canonical Dolt Repository（阶段性确认）
 
 ### 6.1 原则与权威边界
@@ -2523,7 +2895,7 @@ Table rules/storage projection capability 拥有 canonical schema、列策略、
 
 Phase 0 fixture/golden 至少需要覆盖：
 
-- ignored-only raw change 产生相同 canonical content/digest。
+- ignored-only raw change 产生相同 canonical content/digest，Preview 暴露 `NO_CANONICAL_CHANGE`，Submit 在创建 Attempt/Operation 前拒绝且没有 Repository effect。
 - dropped column 不影响 canonical schema 之外的 row count 和 retained values。
 - duplicate/missing effective key 阻止 Submit，不发生 Repository effect。
 - ordered real gid 保持原值并成为主键。
@@ -2534,12 +2906,345 @@ Phase 0 fixture/golden 至少需要覆盖：
 - storage projection version change 进入 schema alignment/fallback，不错误使用 native data diff。
 - SourcePackageArtifact 可独立恢复原始上传 bytes，Dolt export 明确为 canonical schema。
 
-## 7. 后续待讨论
+### 6.11 Measurement contract 与 numeric baseline 的交付时序
 
-0B 的主要业务状态、失败语义和异常 golden 范围，0C/0D 的 versioned fixture manifest、目录层级、scenario naming、golden 公共 envelope、canonical normalization、Shared Kernel 逐字节 encoding 与跨语言 vectors，以及 Raw Source Artifact + Canonical Dolt Repository 重构原则已形成阶段性结论。后续建议依次确认：
+当前 vNext 尚未具备完整、正确的 `storage projection -> Dolt import -> post-commit canonical readback` 路径，因此 Phase 0 当前交付的是 `BenchmarkMeasurementContract v1`、workload/dataset identity、result schema 和 capture gate，不使用 legacy 数字或方向性实验伪造新架构 numeric baseline。
 
-1. Oracle runner、Repository fault injection adapter 和恢复 checkpoint execution protocol；不引入通用表达式 DSL。
-2. 最小可提交样本、裁剪 regression 样本与仓库外 benchmark dataset 的边界。
-3. Storage projection、Dolt import、post-commit canonical readback 的时间、吞吐、峰值内存和多代次存储基线。
+首份 accepted numeric baseline 在以下路径首次可运行后立即捕获：
 
-当前内容仍是 temporary discussion notes；0C/0D 收口后再按 ownership 重新整理为正式 contract/ADR，而不是直接移动或改名本文。
+```text
+frozen Preview-bound table facts
+  -> storage projection
+  -> CanonicalizationManifest
+  -> RepositoryImportArtifact
+  -> Repository Service import/commit
+  -> full post-commit readback
+  -> VERIFIED evidence
+```
+
+它必须先于 parallelism、cache、incremental readback、production provider 切换或专用 Rust 性能优化。Baseline record lifecycle 与 execution result 四态相互独立：缺少 required evidence/gate 为 `INCOMPLETE`，完整且等待 owner review 为 `CANDIDATE`，审核通过为 `ACCEPTED`，被新记录显式取代后为 `SUPERSEDED`。只有 `ACCEPTED` 才是正式 numeric baseline。具体用户延迟、容量预算、资源上限和相对 regression threshold 由 0E 在真实部署 profile 上确认。
+
+因此正式阶段计划中的“Phase 0 Performance baseline report”必须整理为“measurement contract + baseline capture gate”；真实数字由首条 validation-passed vNext 纵切产生。旧实现和旧 runner 只帮助识别 workload/规模，不提供性能目标或相对 speedup 门禁。
+
+### 6.12 Accepted baseline 的容器与环境权威
+
+正式端到端 numeric baseline 只接受容器化 Repository Service deployment profile：
+
+```text
+Backend/worker container
+  -> Repository public client/wire contract
+  -> Repository Service container
+       owns Dolt binary/process lifecycle
+       owns registry/journal/repository/staging storage
+```
+
+第一版不把 Dolt SQL Server 拆成另一个独立容器。Repository Service 是 Dolt lifecycle、journal、recovery 和路径的唯一 owner；业务容器不安装 Dolt、不挂载 Repository volume，也不接触服务端路径。
+
+首份 baseline 前的最小容器门禁：
+
+- Repository Service 真正运行稳定 public contract，不是打印 settings 后退出的 bootstrap。
+- Repository Service image、base image、Dolt version/binary digest 固定。
+- Dolt repository、registry、operation journal 使用独立 persistent volume；temporary staging 可独立清理和计量。
+- 支持 readiness/liveness、graceful stop、non-graceful restart recovery 和 run-scoped fresh repository。
+- Container CPU/memory limits、volume driver/filesystem、host CPU/disk class、kernel/runtime 进入 `environment_profile_id`。
+- 同一 baseline machine 一次只执行一个正式 benchmark suite。
+
+Host-local、pytest embedded 或直接 Dolt CLI 结果可以作为 component/diagnostic evidence，但不能与 deployment baseline 混为同一 series。只有相同 environment profile 的结果可以做性能回归判断；具体 quota 数值在 0E 固定，但 profile 一旦用于 accepted baseline 就不可静默漂移。
+
+### 6.13 `NO_CANONICAL_CHANGE` 与 Submit artifact 边界
+
+原始 SourcePackageArtifact bytes 可以不同，但当 Preview 绑定的 canonical business digest 与当前 base 完全相同时：
+
+```text
+Preview
+  -> expose NO_CANONICAL_CHANGE
+
+AcceptSubmit T1
+  -> revalidate revision/preview/base binding
+  -> reject NO_CANONICAL_CHANGE
+  -> no SubmitAttempt
+  -> no Operation
+  -> no Repository request/commit
+  -> no Submission/BaselineNode
+```
+
+该 SourcePackageArtifact 继续按 Workspace retention 管理，不提升为 submission durable。第一版不建立“成功但复用旧 commit”的 no-op Submission，不让无业务变化输入进入 review/archive 历史。
+
+Preview 负责 parse/materialize immutable full-row table facts、canonical business digests 和正式 PreviewResult，但不为每个未提交 Preview 预建完整 Dolt-specific RepositoryImportArtifact。Submit T2 从 exact Preview-bound SnapshotTableArtifact/table facts 开始：
+
+```text
+frozen table facts + frozen ruleset/policy
+  -> storage projection
+  -> CanonicalizationManifest
+  -> RepositoryImportArtifact
+  -> persist artifact/checkpoint digest on the Attempt
+  -> call Repository Service
+```
+
+Submit 不重新解析原始 SQL。RepositoryImportArtifact 对同一 Attempt 只构建一次；retry、worker takeover 和 reconciliation 复用完全相同的 immutable artifact ref/digest。一旦 Repository 请求可能被接受，禁止重新构建另一份“逻辑等价”artifact 再盲目发起请求。
+
+### 6.14 非重叠阶段、计时层级与 full readback
+
+Measurement contract 使用以下非重叠阶段：
+
+```text
+storage_projection
+  frozen table facts/ruleset
+  -> canonical schema/rows validated
+  -> CanonicalizationManifest and RepositoryImportArtifact ready
+
+repository_prepare
+  request accepted
+  -> journal PREPARED
+  -> deterministic staging/ref ready
+
+dolt_apply
+  import canonical tables
+  -> working set complete
+
+commit
+  working set complete
+  -> durable commit + APPLIED evidence
+
+post_commit_readback
+  open committed ref
+  -> stream required canonical/protected tables
+  -> SnapshotManifest matched
+
+verification_persist
+  matched manifest
+  -> journal VERIFIED
+```
+
+同时保留三个观察层级：
+
+| 层级 | 边界 | 用途 |
+| --- | --- | --- |
+| Component | 单个 projection/Repository 阶段。 | 定位 owner 与热点。 |
+| Effect | Submit T2 开始到 VERIFIED evidence 可用。 | 衡量完整外部写 effect。 |
+| Journey | AcceptSubmit T1 开始到 FinalizeSubmit T3 commit。 | 衡量 queue/dispatch/RPC/业务事务后的用户旅程。 |
+
+`canonical_repository_write_total` 从 storage projection 开始到 VERIFIED；`repository_effect_total` 从 Repository request accepted 到 VERIFIED。各层实际独立计量，不通过 component durations 相加制造重复 total。
+
+所有 duration 使用 monotonic clock。Client wall、service-local spans、queue/RPC/process startup 分开记录，不能用跨进程日志 timestamp 相减。正常 Submit readback 必须从 committed ref 全量、流式读取本次 commit 的必要业务/受保护表；不能复用 import input stream、内存 row objects 或旧 VERIFIED evidence。Recovery 复用 VERIFIED evidence 是独立 recovery profile，不混入 normal readback scan baseline。
+
+### 6.15 Benchmark profiles 与 workload matrix
+
+第一版使用四类互不拼接的 profile：
+
+| Profile | 固定输入 | 每次重建 | 目的 |
+| --- | --- | --- | --- |
+| `projection-build` | 同一 immutable SnapshotTableArtifact。 | CanonicalizationManifest、RepositoryImportArtifact；fresh output。 | 单独测 storage projection。 |
+| `repository-effect` | 同一 prebuilt content-digested RepositoryImportArtifact。 | Fresh repository、import、commit、full readback。 | 隔离 Repository Service。 |
+| `canonical-write-e2e` | 同一 SnapshotTableArtifact。 | Projection、artifact、import、commit、readback。 | 完整 canonical write。 |
+| `history-sequence` | 固定 immutable revision chain。 | 每代次 artifact 和正式 Repository history。 | 多代次增长。 |
+
+Profile 之间的数字不能相加。`repository-effect` 不得重建 projection；`projection-build` 不得命中前次 artifact；`canonical-write-e2e` 必须真正重跑完整路径；每个 cold sample 使用 fresh repository 和 run-scoped operation identity。
+
+正式 workload 分别报告，不建立缺乏业务依据的加权综合分数：
+
+| Workload | 作用 |
+| --- | --- |
+| `initial-load` | Empty repository 的首次 canonical import。 |
+| `canonical-no-change` | Raw unstable/ignored-only change；只测 projection/no-change detection。 |
+| `sparse-business-change` | 少量 retained values 的常规变化。 |
+| `row-churn` | 业务行 insert/delete。 |
+| `compatible-schema-change` | Retained canonical schema 的正常演进。 |
+| `normal-history-30` | 30 个确定性业务代次，建立常规增长斜率。 |
+| `retention-stress-100` | 100 代次 scheduled capacity stress，不进入普通 PR。 |
+| `ordered-position-shift` | 罕见 `no` 大范围漂移，独立诊断。 |
+| `storage-projection-upgrade` | 极罕见规则升级/alignment，独立诊断。 |
+
+Accepted baseline 必须覆盖 representative typical dataset 的 initial/sparse/row-churn/schema/history-30，以及 upper-bound representative dataset 的 initial/change/readback。`canonical-no-change`、history-100、ordered shift 和 projection upgrade 单独报告，不能通过人工权重改变正常路径结论。
+
+真实 immutable revision chain 优先；缺少特定 change shape 时使用固定 generator version、seed 和完整 result digest 的确定性变换。Benchmark 运行时不得随机生成未固定的输入。
+
+### 6.16 Multi-generation retention lifecycle 与 GC checkpoint
+
+每个标准代次必须模拟正式可达历史：
+
+```text
+canonicalize
+  -> submit candidate commit
+  -> full readback VERIFIED
+  -> mainline CAS/archive-equivalent production mechanism
+  -> remove transient operation/staging refs
+  -> quiescence
+  -> record storage
+  -> next generation
+```
+
+规则：
+
+- 保留 mainline 可达的完整正式历史和仍被业务 retention owner 引用的 commit。
+- 清除 transient staging、operation ref 和实验失败残留，不能把测试垃圾算作长期增长。
+- 不通过“每代次重新创建 repository”模拟历史，也不能过度删除正式 commit 得到虚假低增长。
+- 记录每次 commit 后增量、累计大小和 working-storage high-water。
+- 30/100 代次序列结束并达到 quiescence 后才执行固定 maintenance/GC checkpoint；GC 不进入单次 Submit latency。
+- GC 前后都记录 physical size、reclaimed bytes、duration 和保留 commit/ref closure。
+
+具体 Dolt maintenance 命令/参数和生产周期延后，但同一 baseline series 必须固定 Dolt version 与 maintenance policy。
+
+### 6.17 时间、吞吐、内存与存储指标
+
+Required time/throughput：
+
+```text
+each exclusive phase duration
+effect/journey total duration
+canonical rows per second
+canonical encoded bytes per second
+tables per second
+readback rows/bytes per second
+GC/maintenance duration separately
+```
+
+不能只报告 rows/s；宽表、窄表和 table fixed overhead 必须通过 canonical bytes/s 与 tables/s 一并解释。
+
+Memory authority：
+
+- 各 Backend/worker、Repository Service/Dolt container 分别记录 cgroup peak。
+- 按同一 monotonic timeline 同步采样 run-scoped containers；`pipeline_memory_peak` 是同一时刻各 container actual usage 之和的最大值。
+- 禁止把不同时间出现的各 container independent peak 直接相加。
+- Linux 优先使用 cgroup memory authority；fallback process-tree RSS sampler 必须记录 method/interval，不同方法不可直接比较。
+- Host page cache、container runtime 和 benchmark runner 单独报告；CPU time、read/write bytes 同样提供 component 和 pipeline 视图。
+
+Storage authority 至少分四类：
+
+| Owner | Required measurements |
+| --- | --- |
+| SourcePackageArtifact store | Raw bytes、content-digest dedup growth。 |
+| Canonical Dolt repository | Apparent/allocated bytes、每代增量、累计增长、pre/post-GC bytes。 |
+| Repository metadata | Registry、operation journal、manifest/evidence bytes。 |
+| Temporary working storage | Import artifact/staging/transient high-water，cleanup 后不计 durable total。 |
+
+“删除不稳定列减少存储”首先是 Dolt physical-growth 假设；只测 Dolt 时不能宣称系统总存储下降。系统容量预算使用各 owner 总和，但必须保留分项。SourcePackageArtifact durable retention 和去重成本不能隐藏在 Repository 指标之外。
+
+### 6.18 Repetition、统计与 result eligibility
+
+单代次 profile 使用一次 warm-up 加至少 5 次有效 measured run；cold profile 每次创建 fresh repository。报告全部原始样本、median、MAD、min/max；少于 20 个样本不报告伪精确 P95，需要 P95 时至少执行 20 次。Multi-generation profile 至少执行 3 条完整 fresh-repository sequence，逐代保存指标。
+
+不静默删除 outlier；只能标记并解释。失败 sample 和原始 evidence 必须保留，自动 retry 不能覆盖第一次结果。Correctness/validation 未通过的运行不进入任何 performance aggregate。
+
+Benchmark 复用 Oracle runner 四态：
+
+```text
+PASSED
+ASSERTION_FAILED
+HARNESS_ERROR
+UNSUPPORTED
+```
+
+- `PASSED`：正式路径、full readback validation、required metrics 和 cleanup 全部完成。
+- `ASSERTION_FAILED`：valid dataset 暴露 schema/digest mismatch、row loss、非法终局或其它 correctness failure。
+- `HARNESS_ERROR`：dataset/environment/measurement/cleanup 不能形成可信结论；稳定 diagnostic 包括 `DATASET_UNAVAILABLE`、`DATASET_IDENTITY_MISMATCH` 等。
+- `UNSUPPORTED`：明确的 profile/environment capability 缺口，不是 pass。
+
+`Cold` 第一版表示 fresh repository、fresh service/process 且不复用 application artifact/cache；不要求清除宿主 OS page cache。真正 system-cold 需要独立受控 machine profile，不能与普通 container-cold 混为同一 series。
+
+### 6.19 Measurement version、baseline series 与 record
+
+独立的 `measurement_contract_version` 拥有 stage boundary、metric unit/denominator、required metrics、sample eligibility、aggregation、cold/warm、GC checkpoint 和 result schema。上述任一语义发生不兼容变化必须升级版本；只增加 optional diagnostic 字段可以保持版本。
+
+以下变化不一定升级 measurement contract，但必须建立新的 baseline series，不能判定为同线代码 regression：
+
+- Dataset revision/change chain。
+- Storage projection/ruleset/canonical encoding/readback contract。
+- Dolt、Repository Service image或 production provider。
+- CPU/memory/filesystem/volume driver/environment profile。
+
+Accepted baseline 使用不可变、machine-readable `BenchmarkBaselineRecord`：
+
+```text
+baseline_id/status/supersedes_baseline_id
+measurement contract digest
+git revision
+safe dataset id/revision
+environment/image/component digests
+validation status
+all measured samples
+median/MAD/min/max
+external evidence digest/ref
+known limitations
+```
+
+权威 JSON 可以生成 Markdown report；report 不是第二事实来源。Accepted record 不原地覆盖，新 record 显式 supersede。Git 内 record 不包含 private dataset digest、host path、raw row 或敏感 log；完整 evidence、logs、repositories 位于 Git 外并 content-digested。
+
+### 6.20 Production entrypoints 与 run validity
+
+Benchmark 不建设第二条执行路径：
+
+```text
+projection-build       -> table_projection public capability
+repository-effect      -> Repository Service public client/wire contract
+canonical-write-e2e    -> production Submit worker/job definition
+history-sequence       -> production import/readback/CAS/cleanup mechanisms
+```
+
+禁止调用私有 step、绕过 journal/commit/readback/validation、直接修改服务端目录、使用 benchmark-only import fast path、伪造 VERIFIED evidence，或为计时改变 production batch/order/digest 语义。生产组件通过 typed diagnostic spans/counters 暴露阶段；runner 只观察，不重新实现。
+
+正式 run preflight/validity 至少要求：
+
+- 同一 machine 无并发正式 benchmark，同 Repository 只有一个 writer。
+- Container topology、quota、volume/filesystem 与 environment profile 一致。
+- Disk headroom 达到 profile 安全水位。
+- 无未声明 background GC、backup 或其它 Repository maintenance。
+- 服务 health/quiescence 后才开始计时。
+- Container restart、OOM、异常 throttling、disk exhaustion 或 required metric gap 使结果成为 `HARNESS_ERROR`。
+- Ambient load、CPU throttling、memory/disk pressure 进入 environment diagnostics。
+
+### 6.21 First accepted baseline capture gate
+
+首份 accepted numeric baseline 必须同时满足：
+
+1. Storage projection、RepositoryImportArtifact、SnapshotManifest 和 measurement contract 已版本化。
+2. Normative fixture/vector、Repository conformance 和 full readback tests 全部通过。
+3. 最小 Repository Service container 已满足 health、persistent volume、restart recovery 和固定 image/Dolt identity。
+4. External dataset identity/validation 通过。
+5. 四类 benchmark profile 都只走 production public entrypoint。
+6. Required 单代次 profile 至少 5 个有效 measured samples。
+7. Required history profile 至少 3 条完整 fresh-repository sequence。
+8. 所有进入 aggregate 的结果均为 `PASSED`。
+9. Baseline record、samples、environment fingerprint 和 external evidence digest 完整。
+10. Storage projection owner、Repository owner 和 environment profile owner 共同审核接受。
+
+Capture gate 前的实现不能声明 accepted performance baseline；capture gate 后任何优化只能在 correctness 继续通过且同 baseline series 可比时声称收益。
+
+### 6.22 Intentional conflict、延后事项与本轮收敛
+
+现有 formal implementation stages 把 Phase 0 写成直接记录 parse/materialize/projection/Dolt 等新路径性能；在完整 vNext path 尚不存在且 legacy benchmark 已被排除后，该顺序不可执行。Formal 整理时必须采用 6.11 的 measurement-contract-now/capture-after-walking-slice 模型。
+
+现有 `capabilities/repository-import.md` 和 benchmark runbook 中的 `business_small/medium/large` identity、provider ranking/matrix、host path、旧 Snapshot materialization 阶段及已有数值只作为历史实验依据，不自动进入新的 dataset、profile、stage 或 accepted baseline contract。第一版 production route 只有一个；替代 provider 只是 spike，直到后续 benchmark/ADR 明确提升。
+
+以下事项延后，不阻塞本轮架构：具体 CPU/memory quota、绝对 latency/capacity budget、relative regression threshold、Dolt GC 命令与周期、RSS sampler/interval、baseline record 物理目录/报告样式，以及 Kubernetes、HA、autoscaling 和完整 backup retention。它们分别由 0E、实现 policy 或后续生产硬化拥有。
+
+三轮访谈后，本子题不存在剩余架构级阻塞。Phase 0 measurement contract 的退出条件是：上述 stage/profile/workload/result/storage/capture gate 可形成版本化 schema/runner contract；真实 numeric baseline 明确等待首条正确 containerized production path，而不是等待 legacy 对比或提前实现优化。
+
+## 7. Phase 0 讨论收敛状态与 formal 整理
+
+0B 的主要业务状态、失败语义和异常 golden 范围，0C/0D 的 versioned fixture manifest、目录层级、scenario naming、golden 公共 envelope、canonical normalization、Shared Kernel 逐字节 encoding 与跨语言 vectors、Oracle runner、Repository fault injection、恢复 checkpoint execution protocol、测试材料治理与外部 benchmark dataset 边界，Raw Source Artifact + Canonical Dolt Repository 重构原则，以及新架构自身 performance measurement/capture contract 已形成阶段性结论。
+
+当前没有会改变 Phase 0 核心架构的待讨论阻塞项。下一步应按 ownership 将本文重新整理到 formal contract/ADR/implementation stages；不能直接移动、改名本文或把整份 temporary notes 作为一个大型正式 contract。Numeric baseline、绝对性能/容量预算和 regression threshold 按 6.11/6.21 延后到可执行纵切与 0E，不阻塞当前 discussion closure。
+
+## 8. Formalization 状态与逐节映射
+
+状态：**已 formalized（2026-07-19）**
+
+本文继续原位保存为讨论证据，不移动、不改名、不删除。自该日期起，normative 语义由下表中的唯一 formal owner 持有；本文不再作为第二份正式规范。其他 formal 文档只链接 owner contract，ADR 只记录决策理由。
+
+| Temporary 主题 | 唯一 normative owner | Formal 落点 |
+| --- | --- | --- |
+| 2.1–2.5 legacy oracle 权威、差异分类、不兼容变更 | Conformance Harness | [Fixture Oracle and Conformance](../../formal/contracts/fixture-oracle-and-conformance.md)、[ADR 0006](../../formal/adr/0006-language-neutral-fixture-oracle.md) |
+| 3.1–3.5 业务旅程、Upload/Preview、最小持久业务事实 | 对应 Domain/Application 子 owner | [Business Lifecycle and State](../../formal/contracts/business-lifecycle-and-state.md)、[ADR 0002](../../formal/adr/0002-minimal-persisted-business-state.md) |
+| 3.5/4 中 Submit/Archive execution、T1/T2/T3、FailureDescriptor 与恢复终局 | 对应 Application；Repository evidence 由 Repository Service | [External Effect and Recovery](../../formal/contracts/external-effect-and-recovery.md)、[ADR 0003](../../formal/adr/0003-external-effect-reconciliation.md) |
+| 4 中 Workspace、Review、Baseline、Candidate/Plan/Result 状态对象 | 对应 Domain/Application 子 owner | [Business Lifecycle and State](../../formal/contracts/business-lifecycle-and-state.md) |
+| 4 中异常 fixture/golden 分轨与 recovery scenario | Conformance Harness；expected content 由绑定 semantic owner | [Fixture Oracle and Conformance](../../formal/contracts/fixture-oracle-and-conformance.md) |
+| 5.1–5.15 manifest、目录、scenario naming、golden envelope、provenance | Conformance Harness | [Fixture Oracle and Conformance](../../formal/contracts/fixture-oracle-and-conformance.md)、[ADR 0006](../../formal/adr/0006-language-neutral-fixture-oracle.md) |
+| 5.16–5.29 JCS、scalar、identifier、temporal、digest、row/collection framing、vectors | Shared Kernel | [Shared Canonical Encoding](../../formal/contracts/shared-canonical-encoding.md)、[ADR 0005](../../formal/adr/0005-shared-canonical-encoding.md) |
+| 5.30–5.46 runner/harness、profile、fault/recovery、evidence、材料与 external dataset | Conformance Harness | [Fixture Oracle and Conformance](../../formal/contracts/fixture-oracle-and-conformance.md) |
+| 6.1–6.10 raw source authority、storage/comparison projection、key、ordered no/gid、manifests、artifact retention、upgrade | Table Rules/Storage Projection；generic effect 由 Repository Service | [Canonical Storage and Repository Boundary](../../formal/contracts/canonical-storage-and-repository-boundary.md)、[ADR 0004](../../formal/adr/0004-raw-source-artifact-and-canonical-dolt-storage.md) |
+| 6.11–6.22 measurement、container authority、profiles/workloads、retention/GC、metrics、baseline lifecycle/capture gate | Performance Measurement | [Performance Measurement and Baseline](../../formal/contracts/performance-measurement-and-baseline.md)、[ADR 0007](../../formal/adr/0007-vnext-performance-baseline-authority.md) |
+| 跨模块 contract 类型、public/persisted/wire、版本轴 | 各 semantic owner；taxonomy 负责分类治理 | [Contract Taxonomy and Ownership](../../formal/contracts/contract-taxonomy-and-ownership.md) |
+| 分阶段交付顺序与 cutover gate | Backend vNext Architecture | [Implementation Stages](../../formal/plans/implementation-stages.md)、[Architecture and Refactoring Plan](../../formal/architecture/architecture-and-refactoring-plan.md) |
+
+本轮 formalization 明确保留的延后项：旧 Dolt repository migration/compatibility、Repository transport/物理 journal 技术、绝对性能与容量预算、regression threshold、Dolt maintenance policy 和生产 HA。它们没有被本文或 formal contract 擅自决定。

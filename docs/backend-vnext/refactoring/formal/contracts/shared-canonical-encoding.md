@@ -1,0 +1,159 @@
+# Shared Canonical Encoding Contract
+
+状态：正式设计（Accepted）
+
+阶段：Phase 0 结论；Phase 1 实现
+
+Contract ID：`gateway-vnext.shared-canonical-encoding`
+
+Owner：Shared Kernel
+
+Canonical encoding version：`1`
+
+Semantic version：`1.0.0`
+
+## 1. 范围与版本轴
+
+`canonical_encoding_version` 作为一个 bundle 同时固定 canonical JSON、typed scalar frame、identifier、row/collection framing 和 semantic digest。v1 不允许调用方混搭这些子层版本。Python Backend、Rust compute core 与 Repository Service 必须逐字节一致。
+
+本 contract 不拥有 SQL parser 的 type alias/timezone policy、业务 anomaly reason、table rules、use-case error code 或 artifact content schema。
+
+## 2. Canonical JSON
+
+JSON-compatible DTO、manifest 和 digest payload 使用 RFC 8785 JCS。输入必须是 I-JSON：UTF-8、唯一 member name、合法 Unicode、有限 binary64 number。Property 按 JCS UTF-16 code unit 排序；array 保持原顺序；不输出空白，不执行 Unicode normalization。
+
+JSON integer 限于 `[-(2^53)+1, (2^53)-1]`。`uint64`、高精度 decimal、binary 和 table temporal 必须使用 schema-declared string/typed representation。NaN、Infinity、duplicate key、lone surrogate、Unicode noncharacter 和 unknown field fail closed。Pretty JSON 在 equality/digest 前必须 schema validate 并转为 JCS bytes。
+
+## 3. Typed scalar frame
+
+```text
+scalar_frame = tag:u8 || payload_length:minimal-ULEB128 || payload
+```
+
+ULEB128 必须最短；规范最大 payload length 为 `2^63-1`，实现可用更低资源上限。Unknown/reserved tag、truncation、overflow 和 non-minimal ULEB128 都失败。Frame 是 digest preimage，不是通用 public wire/storage format。
+
+| Tag | Kind | Canonical payload |
+| --- | --- | --- |
+| `0x00` | null | empty |
+| `0x01` | boolean | one byte `00`/`01` |
+| `0x10` | signed integer | 8-byte big-endian two's complement |
+| `0x11` | unsigned integer | 8-byte big-endian unsigned |
+| `0x12` | decimal | canonical ASCII decimal |
+| `0x13` | float32 | 4-byte IEEE-754 big-endian bits |
+| `0x14` | float64 | 8-byte IEEE-754 big-endian bits |
+| `0x20` | string | canonical valid UTF-8 bytes |
+| `0x21` | binary/`BIT(n)` | raw bytes，保留 leading zero bits |
+| `0x30` | date | `YYYY-MM-DD` |
+| `0x31` | datetime | `YYYY-MM-DDTHH:MM:SS[.fraction]` |
+| `0x32` | timestamp | `YYYY-MM-DDTHH:MM:SS[.fraction]Z` |
+| `0x33` | time duration | `[-]HH:MM:SS[.fraction]` |
+| `0x7f` | source literal anomaly | JCS anomaly envelope |
+
+其余 tag 在 v1 保留，任何实现不得自行占用。
+
+Integer 由 column schema 校验 width/signedness；`+`、leading zero 和 `-0` 归一为同一数值，越界失败。Decimal 禁止 exponent/`+`，删除冗余整数 leading zero 和小数 trailing zero，小于 1 时补整数 `0`，负零为 `0`；precision/scale 属于 schema digest，不进入 value payload。Float 按声明宽度 round-to-nearest ties-to-even；float32 先舍入为 binary32；负零变正零，subnormal 保留，NaN/Infinity 失败。
+
+String 不 trim、case-fold 或 normalize；非法 UTF-8、surrogate/noncharacter 不可静默替换。Binary 原样保存。
+
+`DATE/DATETIME` 是 civil value；`DATETIME` 不转 UTC。`TIMESTAMP` encoder 只接受已解析 UTC instant，不读取机器 timezone/tzdb。`TIME` 是可负、可超过 24 小时的 MySQL duration（上限 838 小时）；0–99 hours 使用两位，100–838 使用三位，negative zero 变正零。Fraction 最多六位、去尾零，全零则省略。zero/incomplete date、leap second 和越界值只能成为 owner 允许的 anomaly 或 hard failure。Application/operation timestamp 不使用 table scalar tag，其 public contract 使用 RFC 3339 UTC instant。
+
+Anomaly envelope 至少包含 `declared_type`、无 padding base64url `raw_base64url`、`raw_encoding` 和 stable owner-defined `reason`。Raw bytes 是 SQL unquote/unescape 后、type coercion 前的 logical literal；原始 SQL token 由 SourcePackageArtifact 保存。
+
+## 4. CanonicalIdentifier
+
+Parser 先负责 identifier unquote。Shared Kernel 只把 ASCII `A-Z` 映射到 `a-z`；不 trim，不 Unicode case-fold/normalize。空值、非法 Unicode 和 canonical collision 失败。Row field 按 canonical identifier UTF-8 bytes 的 unsigned lexicographic order 排序；不得与 JCS UTF-16 property ordering 混用。
+
+## 5. Digest 与 framing
+
+Semantic digest：
+
+```text
+preimage = ASCII("gateway-vnext:<digest-kind>:v1\0") || canonical_payload
+digest   = SHA256(preimage)
+wire     = "sha256:" || lowercase_hex(digest)
+```
+
+`digest-kind` 使用 lower-kebab-case registry。组合 digest 使用 child raw 32-byte hash，不使用 wire hex。Raw blob integrity 仍是直接 SHA-256(raw bytes)，不加 semantic prefix；`raw-content` 与 `business-content` 永远分域，不能复用 DigestRef。
+
+```text
+row_frame =
+  ULEB128(field_count) +
+  each field in canonical identifier order:
+    ULEB128(name_length) + name_utf8 + scalar_frame
+
+row_hash = SHA256(domain("row") + row_frame)
+
+unordered_table_frame =
+  ULEB128(row_count) + sorted(raw row_hash bytes)
+
+raw_content_digest =
+  SHA256(domain("raw-content") + unordered_table_frame)
+```
+
+Unordered table 对 field/input row order 不敏感，保留 duplicate row hashes。Ordered `no`/sequence 由 ordered owner 的 ordering digest 表达。
+
+其中 `domain(kind)` 是本节 semantic prefix bytes。Collection framing 为：
+
+```text
+framed_item = ULEB128(item_length) + item_bytes
+item_hash   = SHA256(domain("collection-item") + framed_item)
+
+sequence_frame =
+  ULEB128(item_count) + framed_item... in declared order
+
+multiset_or_set_frame =
+  ULEB128(item_count) + sorted(raw item_hash bytes)
+
+keyed_collection_frame =
+  ULEB128(entry_count) + entries sorted by canonical key bytes:
+    ULEB128(key_length) + key_bytes +
+    ULEB128(value_length) + value_bytes
+```
+
+Collection owner 必须显式选择：
+
+- `sequence`：count + length-framed items，保留顺序。
+- `multiset`：排序 raw item hash，保留重复。
+- `set`：同上，但重复 item hash 失败。
+- `keyed-collection`：按 canonical key bytes 排序 length-framed key/value，重复 key 失败。
+
+Serializer 不根据宿主语言容器类型猜测 semantics。
+
+## 6. Normative vectors
+
+唯一跨语言向量根：
+
+```text
+vnext/fixtures/vectors/shared-kernel/canonical-encoding/v1/
+  vector-set.json
+  jcs.jsonl
+  scalar.jsonl
+  digest.jsonl
+  invalid.jsonl
+```
+
+`vector-set.json` 声明 owner、contract/version、closure 和 content digest。Case 使用稳定 `case_id`；valid case 固定 canonical bytes/digest，invalid case只固定 stable error code。Python、Rust、Repository 必须直接消费同一向量并比较完整 bytes；只比较最终 digest 不算通过。
+
+普通 CI 不生成或 bless vectors。Generator 只产 candidate diff；关键 bytes 经人工审查及至少两个独立实现验证。v1 已有 case 的 bytes、digest 或 success/error classification 改变必须发布 v2；由既有规则唯一推导的新增 case可保留 v1。
+
+## 7. Classification
+
+Module public：是。Persisted：作为 version/digest marker 被持久化。Wire：JCS/Arrow/Parquet owner schema；scalar frame 本身为 none。
+
+任一规范 byte 改变都升级 `canonical_encoding_version` 并说明既有 artifact/cache/digest 的失效或重算策略。Provider implementation version 不参与 semantic digest。
+
+## 8. 验收标准
+
+- Python、Rust、Repository 逐字节通过全部 valid/invalid normative vectors。
+- 覆盖 JCS 非 BMP ordering、数值 extrema、Unicode/binary、temporal/anomaly、row/collection、ULEB128 invalid 和 digest domain separation。
+- Property/fuzz tests 补充而不替代静态 vectors。
+- 同一 logical input 在不同语言、串并行模式和进程重启后得到相同 bytes/DigestRef。
+- 公共 API 不暴露 scalar frame 通用 decoder，owner wire schema 继续校验资源限制。
+
+## 9. 关联文档
+
+- [Fixture Oracle and Conformance](fixture-oracle-and-conformance.md)
+- [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
+- [ADR 0005](../adr/0005-shared-canonical-encoding.md)
+- [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
+- [Implementation Stages](../plans/implementation-stages.md)

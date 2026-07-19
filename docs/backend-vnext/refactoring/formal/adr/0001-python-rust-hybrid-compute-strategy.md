@@ -62,7 +62,7 @@ records construction
 Arrow/Parquet materialization around compute results
 ```
 
-第二批、需要更多语义和 benchmark 依据的候选：
+第二批、需要更多语义和已接受 vNext baseline 依据的候选：
 
 ```text
 ordered preparation/classification/interval/move
@@ -135,28 +135,30 @@ gateway-compute-worker     optional artifact-based worker/CLI
 - 有足够的 golden/property fixtures。
 - 输入输出能以 Arrow/Parquet 和小型 metadata 表达。
 - 算法相对稳定，不是仍在高频试错的业务规则。
-- Profile 或现有实现证据表明它是显著 CPU、内存或数据复制热点。
+- Component profile、算法复杂度或 materialization evidence 表明它是明确的数据面热点；不使用 legacy performance benchmark 作为进入依据。
 - CI 能构建和测试目标平台 wheel/image。
 - 具有 Python reference、明确失败映射和受控 fallback。
 
-不满足条件时，先用 Python/Polars 验证语义和瓶颈，不为语言统一强行使用 Rust。
+不满足条件时，先用 Python/Polars 验证语义和瓶颈，不为语言统一强行使用 Rust。第一条正确 production path 可以本身包含满足上述 contract、fixture 和 component evidence 的初始 Rust provider；这不需要先建立一个完整 Python production route。
 
 ### 6. 性能验收
 
-Rust provider 必须同时通过 kernel 和端到端 benchmark。微基准更快不足以成为采用依据。
+初始 Rust production provider 以稳定 contract、跨语言 fixture、正确性证据、粗粒度 Arrow 边界和 component evidence 进入，不需要与 legacy 实现进行性能 benchmark，也不需要尚不存在的 vNext numeric baseline。
 
-每个候选在实现前记录：
+首条完整、validation-passed、containerized vNext production path 必须按 [Performance Measurement and Baseline Contract](../contracts/performance-measurement-and-baseline.md) 捕获 accepted baseline。此后 Rust coverage 扩张、provider 切换和专用性能优化才可以声明收益，并且必须同时通过 kernel 与端到端 measurement；微基准更快不足以成为采用依据。
+
+后续候选至少记录：
 
 ```text
-baseline CPU and wall time
-peak memory and materialization count
+accepted vNext baseline series
+CPU/wall time and peak memory
+materialization count
 input scale/distribution
-expected kernel gain
-expected end-to-end gain
-fallback cost
+expected kernel/end-to-end gain
+fallback and maintenance cost
 ```
 
-具体收益门槛由对应 capability benchmark memo 固定；如果端到端收益不足以覆盖维护、构建和部署成本，保留 Python/Polars provider。
+收益门槛由对应 capability measurement memo 在同一可比 vNext series 内固定；如果端到端收益不足以覆盖维护、构建和部署成本，保留当前 production provider。
 
 ### 7. 并发控制
 
@@ -206,7 +208,8 @@ Operation worker、Python executor、Polars/Rayon 和 Repository worker 共享�
 - Serial/parallel determinism tests。
 - Panic、timeout、cancel、native crash 和 worker takeover tests。
 - Wheel/image platform matrix tests。
-- Capability-level 与 end-to-end benchmark。
+- 初始 route 的 component evidence，以及 accepted baseline 后后续优化的 capability-level 与 end-to-end vNext measurement。
+- Formal/CI 中不存在 legacy-vs-vNext performance gate。
 
 ## Related Documents
 

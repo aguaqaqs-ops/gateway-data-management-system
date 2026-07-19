@@ -46,12 +46,16 @@ artifacts / contracts / operations / cache
 | `artifacts` | artifact manifest、artifact ref、本地 artifact store、staging metadata、records artifact、artifact closure。 | 必需 |
 | `repository_server` / `dolt_repository` | repository-local registry、table catalog、row stream reader（primary row path）、optional export fast path、repository server table cache。独立 API/容器边界，不包含业务模型。 | repository-backed 能力前置；纯 SQL path 可暂缓 |
 | `capabilities.snapshot_materialization` | 从 SourcePackage 中的 SQL document 或 repository ref 生成 Snapshot、Summary、TableDescriptor 和 TableReader。 | 必需 |
+| `capabilities.composite_signal` | 解析可选 composite logic XML，绑定特殊装置测点并生成 `composite_signal_point` 派生表及 supplemental artifacts。 | 必需 |
 | `capabilities.repository_import` | 生成 import artifact，执行 Dolt provider，commit，readback validation。 | 必需 |
 | `benchmarks.repository_import` | dataset 解析、benchmark matrix、runner、summary/report。 | 必需 |
 | `capabilities.comparison` | directed comparison、projection table、diff facts、comparison compute orchestration。Contract 见 `contracts/comparison.md`，实现设计见 `capabilities/comparison-compute.md`。 | 后续 |
 | `capabilities.comparison.providers.dolt_native` | RepositoryRef -> RepositoryRef 的 Dolt native diff provider、raw diff canonicalization 和 fallback diagnostics。实现设计见 `capabilities/dolt-native-provider.md`。 | 后续 |
 | `capabilities.comparison.providers.ordered_table_compare` | 有序表 position/move/interval diff provider。Contract 见 `contracts/ordered-diff.md`，实现设计见 `capabilities/ordered-diff-compute.md`。 | 后续 |
 | `capabilities.risk_evaluation` | risk facts、ruleset、risk report、annotation artifacts。Contract 见 `contracts/risk.md`，实现设计见 `capabilities/risk-evaluation.md`。 | 后续 |
+| `capabilities.business_projection` | comparison records/risk 到业务视图的身份挂载与 projection artifact；secondary-device 设计见 `capabilities/business-projection.md`。 | 后续 |
+| `capabilities.project_identity` | 基于 materialized snapshot 的 flow-neutral 项目身份 assessment；不暴露原始身份行。 | 后续 |
+| `capabilities.dataset_replacement` | 跨项目时构造不做实体配对的 table replacement facts 和 comparison-level risk。 | 后续 |
 | `capabilities.surface_assembly` | comparison surface 组装、表级展示投影、ref validation、surface digest。Contract 见 `contracts/comparison-surface.md`。 | 后续 |
 | `capabilities.bundle_assembly` | comparison bundle 组装、artifact closure、ref rewrite、bundle digest。Contract 见 `contracts/comparison-bundle.md`。 | 后续 |
 | `cache` | cache registry、validation status、comparison core cache、promotion、cleanup。 | 后续 |
@@ -398,6 +402,10 @@ Contract 见 `contracts/comparison-surface.md`；实现设计见 `capabilities/s
 - 第一版只展开普通表、schema/degraded 和 risk refs；ordered table 只保留 extension。
 - Dolt native provider 输出必须先归一化为 comparison/risk contract，再进入 surface。
 
+### capabilities.table_presentation
+
+负责 raw descriptor 到 `TablePresentation` 的确定性投影，包括列标题、类型、展示顺序、宽度、对齐、隐藏、冻结和 primary/diff key 标记。模块拥有独立 ruleset，不复用 comparison table rules，也不进入 `ComparisonSurface` 或业务 digest。正式契约见 `contracts/table-presentation.md`，实现设计见 `capabilities/table-presentation.md`。
+
 ### capabilities.bundle_assembly
 
 后续负责：
@@ -430,7 +438,7 @@ step diagnostics
 retry / cancel
 writer lease orchestration
 artifact closure before READY
-legacy read-only sidecar materialization optional
+current flow delivery materialization
 ```
 
 第一轮 benchmark 只记录 runner diagnostics，不实现 operation runtime。
@@ -446,7 +454,7 @@ submit acceptance
 commit finalize
 history compare
 archive / promote
-legacy preview/workbench adapter policy optional
+formal bundle/read-model delivery
 ```
 
 第一轮 benchmark 不接入业务 flow。
@@ -491,7 +499,7 @@ repository server export artifact cache
 
 需要补充设计后才能扩大范围：
 
-- 新前端不能直接消费 vNext surface/bundle，需要上层兼容输出。
+- 前端正式 loader 需要与当前 surface/bundle contract 锁步升级。
 - ordered table 需要 move、position、interval 语义展示。
 - Dolt native provider 被证明能显著提升 RepositoryRef -> RepositoryRef 性能，需要进入默认 provider planning。
 - projection artifact cache 被性能数据证明必要。

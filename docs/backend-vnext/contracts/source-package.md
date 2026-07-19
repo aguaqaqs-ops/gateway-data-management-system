@@ -1,6 +1,6 @@
 # SourcePackage Contract
 
-本文定义 `SourcePackage` 作为多目录多文件输入容器的正式边界。SQL 解析不属于 `SourcePackage`；当前阶段只从容器中解析唯一的 `/sql/dbcfg.sql`，并交给 SQL dump materialization 流程。
+本文定义 `SourcePackage` 作为多目录多文件输入容器的正式边界。SQL/XML 解析均不属于 `SourcePackage`；业务 materialization 从容器中解析唯一的 `/sql/dbcfg.sql`，并可选解析 `/comps/logic/logics.xml`。
 
 ## 职责
 
@@ -50,6 +50,7 @@ SourcePackage:
 - `SQL_FILE` 仅用于测试或 benchmark 裸 SQL 输入；正式业务输入仍以完整 package 为准。
 - `SQL_GZ` 表示单个 gzip 压缩 SQL 文件输入，解压后映射为 `/sql/dbcfg.sql`。
 - `TAR_GZ` 表示多文件 tarball 经 gzip 压缩；普通 `.gz` 不是多文件容器。
+- `TAR_GZ` 流式 staging 只物化当前可解析文档路径：required SQL 与可选 composite XML；两者都生成 entry digest 和 content artifact，其他成员保持 metadata-only。
 
 ## Retention Policy
 
@@ -94,7 +95,7 @@ Path 规则：
 SourceDocumentRef:
   source_package_id
   normalized_path
-  document_kind: SQL_DUMP | XML | OTHER
+  document_kind: SQL_DUMP | XML
   document_content_digest
   size_bytes
   encoding_hint optional
@@ -105,10 +106,10 @@ SourceDocumentRef:
 
 - `SourceDocumentRef` 不暴露 host path。
 - `document_content_digest` 基于 entry bytes 或规范化文本内容；具体语义由 document parser contract 定义。
-- `SourceDocumentRef` 可以被不同 parser 消费，例如 SQL dump parser 或未来 XML parser。
+- `SourceDocumentRef` 可以被不同 parser 消费；当前正式消费者包括 SQL dump parser 和 composite logic XML parser。
 - 文档 ref 不包含 upload generation、operation id、cache key 或临时目录。
 
-## 当前 SQL 入口
+## 当前业务文档入口
 
 当前阶段固定要求：
 
@@ -118,17 +119,25 @@ required_sql_document:
   document_kind: SQL_DUMP
 ```
 
+```text
+optional_composite_logic_document:
+  normalized_path: /comps/logic/logics.xml
+  document_kind: XML
+```
+
 规则：
 
 - 必须存在唯一 `/sql/dbcfg.sql`。
 - 不考虑多个 SQL 文件合并、排序或同名表覆盖。
-- 其他文件只进入 package manifest 和 diagnostics，不进入 SQL Snapshot materialization。
-- 未来 XML 等文件应走独立 parser/capability，不应塞进 SQL dump parser。
+- `/comps/logic/logics.xml` 缺失时返回稳定 EMPTY source，不产生 package diagnostic。
+- composite XML 走独立 parser/capability，不进入 SQL dump parser。
+- 除上述两项外的文件只进入 package manifest 和 diagnostics。
 
 GZ 规则：
 
 - 如果输入是单个 `.sql.gz`，使用 `SQL_GZ`，解压后作为 `/sql/dbcfg.sql`。
 - 如果输入是包含多目录多文件的 `.tar.gz`，使用 `TAR_GZ` 并按 package entry 规则索引。
+- TAR 中 `/comps/logic/logics.xml` 存在时必须与 required SQL 一样完成流式提取、digest 和 artifact 固化；成员顺序不影响结果。
 - 单独 `.gz` 不表达目录结构；除 `SQL_GZ` 外不作为正式多文件 SourcePackage。
 
 ## SqlDumpSource
@@ -161,6 +170,7 @@ SqlDumpSource:
 | `required_entries_manifest_digest` | 调用方指定的 required entries | 外部 binding、replay validation 和快速复现。 |
 | `document_content_digest` | 单个 entry 内容 | document parser 输入校验。 |
 | `sql_source_digest` | SQL dump parser 输入 | Snapshot materialization cache key。 |
+| `composite_logic_source_digest` | XML entry 内容或稳定 EMPTY marker | 业务 Snapshot materialization identity。 |
 
 这些 digest 都不包含：
 
@@ -196,7 +206,8 @@ SQL 级 failure 或表级降级不属于 `SourcePackage`：
 第一阶段只需要薄 cache 边界：
 
 - `source_package_index_cache` 可选，用于复用 package entry index；不是业务事实。
-- `source_snapshot_cache` 使用 `sql_source_digest + parser/materialization versions + table_ruleset_version`。
+- SQL-only benchmark 的 `source_snapshot_cache` 继续使用 `sql_source_digest + SQL parser/materialization versions + table_ruleset_version`。
+- 正式业务 Snapshot identity 使用 SQL digest、XML digest/EMPTY marker、两类 parser/materializer version 和 table ruleset version 的组合。
 - `snapshot_table_artifact_cache` 不直接使用 package bytes，而使用 table descriptor / raw content digest。
 
 调用方可以要求写入 `PROVISIONAL` cache candidate；只有经过 repository/readback 或等价权威校验后才能 promote 为 `COMMIT_VALIDATED`。具体哪些业务流程允许读取或写入这些状态，由 `flows.md` 映射。
@@ -206,5 +217,6 @@ SQL 级 failure 或表级降级不属于 `SourcePackage`：
 - 同一 package 内容重复 staging，entry manifest digest 稳定。
 - 改变 zip 物理元数据但不改变 `/sql/dbcfg.sql` 内容时，SQL Snapshot 不应变化。
 - 缺少或重复 `/sql/dbcfg.sql` 时，SourcePackage staging 明确失败。
-- 非 SQL 文件被记录为 unconsumed members，不影响当前 SQL Snapshot。
+- 缺失 composite XML 时业务 Snapshot 可正常生成；XML 内容变化必须改变业务 Snapshot identity。
+- 除 composite XML 外的非 SQL 文件被记录为 unconsumed members，不影响业务 Snapshot。
 - 裸 SQL / `.sql.gz` benchmark 输入必须通过 `SQL_FILE` / `SQL_GZ` 或测试 helper 显式标记，避免混入正式业务 contract。

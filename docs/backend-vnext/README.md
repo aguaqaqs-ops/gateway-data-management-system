@@ -16,7 +16,6 @@ vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约�
 - `implementation-boundary.md`：vNext 代码落点、隔离新包、旧模块依赖禁用和实施边界。
 - `implementation-plan.md`：模块级执行顺序、RepositoryServer 前置位置、每阶段完成标准和实现注意事项。
 - `modules.md`：目标代码模块边界。
-- `refactoring/`：整体重构文档，包括目标架构总纲、阶段实施设计、独立 Repository Service 边界和迁移门禁。
 - `contracts/comparison-bundle.md`：正式新前后端契约、operation polling、bundle/data package 边界和 upload preview bundle closure。
 - `frontend-surface-simplification.md`：前后端共同简化 surface/bundle 的策略、正式 projection/read-model 和 artifact 边界。
 - `contracts/ordered-diff.md`：ordered diff 正式语义、records、ordered extension、digest 和风险挂载边界。
@@ -43,6 +42,7 @@ vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约�
 - `contracts/ordered-diff.md`：有序表 diff 的 ordered facts、records、interval/move、digest 和降级边界。
 - `contracts/risk.md`：RiskEvaluationInput、RiskRulesetSnapshot、RiskFacts、RiskEvaluation、RiskReport 和 annotation artifact 边界。
 - `contracts/comparison-surface.md`：ComparisonSurface 的展示 contract、artifact refs、digest、ordered table 预留和验收标准。
+- `contracts/table-presentation.md`：raw descriptor 到完整 preview 列展示元数据的独立契约和 digest 边界。
 - `contracts/comparison-bundle.md`：ComparisonBundle、FlowEnvelope、business projection refs、bundle artifact closure 和后续 Dolt native/ordered 计划。
 - `contracts/ordered-diff.md`：IEC104 ordered family、gid/no、pseudo blank、table processing mode 和 ordered risk reason code 的正式目标。
 - `adr/0002-comparison-hash-sqlite-mode-selection.md`：comparison compute 的 hash / SQLite 内部模式选择、benchmark 切换准则和诊断口径。
@@ -54,21 +54,24 @@ vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约�
 - `capabilities/repository-ref-materialization.md`：repository ref 到 Snapshot/Summary/TableSet 的实现边界、RepositoryRefSession、scalar encoding 和 repository table cache 关系。
 - `capabilities/repository-import.md`：Dolt/repository API 边界、import provider modes、writer lease、cache handoff 和导入后校验。
 - `capabilities/comparison-compute.md`：comparison compute 的实现拆分、provider 路线、projection、records artifact、cache 接入点和验收标准。
+- `capabilities/business-projection.md`：业务 projection、secondary-device 身份索引、per-device/per-tab changes/risk 聚合和性能约束。
+- `capabilities/project-identity-and-dataset-replacement.md`：formal upload 的逐 pair 项目身份判定、跨项目 replacement 安全预览、提交/归档二次确认和审计边界。
 - `capabilities/dolt-native-provider.md`：Dolt native provider 的功能测试结论、eligibility、canonicalization、cache 边界和 benchmark 前置条件。
 - `capabilities/ordered-diff-compute.md`：`ORDERED_TABLE_COMPARE` provider 的第一版实现边界、算法取舍、records artifact 和验收标准。
 - `capabilities/risk-evaluation.md`：risk evaluation 的 capability 边界、第一版规则、annotation artifact、cache 预留和 ordered table 后续完善计划。
 - `capabilities/surface-assembly.md`：surface assembly 的 flow-neutral 能力边界、旧实现参考边界、ref validation 和 future cache。
+- `capabilities/table-presentation.md`：独立展示 ruleset、resolver、snapshot column comment 和 preview delivery 接入边界。
 - `capabilities/bundle-assembly.md`：bundle assembly 的 artifact closure、ref rewrite、Workbench adapter 和多 pair 组装边界。
 - `testing-fixtures.md`：vNext fixture 分层、测试隔离和 benchmark dataset 约定。
 - `repository-import-benchmark-runbook.md`：repository import benchmark 的实际运行方法、外部业务数据目录约定和产物验收。
 - `adr/0001-snapshot-table-and-dolt-import-boundary.md`：SnapshotTableReader 与 Dolt import 分离的架构决策。
 - `adr/0003-dolt-native-provider-selection.md`：DOLT_NATIVE provider selection、history compare cache miss 边界和 comparison-side repository-backed context。
 
-## 当前执行计划
+## 当前合同与执行记录
 
 - `contracts/comparison-bundle.md`：正式 bundle/data package contract 与 upload preview bundle closure 的主锚点。
-- `notes/formal-contract-migration-execution-plan.md`：正式 contract 迁移、前端准备和手动反馈记录的执行台账。
-- `notes/comparison-bundle-migration-execution-plan.md`：comparison/bundle data-surface cleanup 的后续 slice、验收口径和暂停条件。
+- `notes/formal-contract-migration-execution-plan.md`：正式 contract 演进和手动反馈的历史执行记录，不作为当前兼容要求。
+- `notes/comparison-bundle-migration-execution-plan.md`：comparison/bundle data-surface cleanup 的历史验收记录，不作为当前兼容要求。
 - `notes/comparison-bundle-oracle-audit.md`：旧 Workbench / risk / ordered 实现中的业务语义 oracle、mapping 表和手工 case。
 - `notes/comparison-bundle-formal-contract-scheme.md`：正式 bundle/surface/projection/risk/Parquet records 的 contract 收口方案。
 - `dolt-test/dolt-import-provider-functional-test-result-2026-06-20.md`：Dolt import provider 功能测试结果。

@@ -41,14 +41,17 @@ SnapshotTableSet:
 
 ## SnapshotTableReader
 
-第一版只强制 full-row streaming。
+Reader 同时提供 full-row streaming 与精确单列值计数。后者用于只需要完整性摘要、但不需要行内容的消费方。
 
 ```text
 SnapshotTableReader:
   descriptor() -> SnapshotTableDescriptor
   iter_rows() -> RowIterator
+  count_column_values(column_name) -> SnapshotColumnValueCounts
   close()
 ```
+
+`SnapshotColumnValueCounts` 包含 canonical `column_name`、原始 scalar `value -> row count`、`total_row_count` 和内部读取策略。计数必须覆盖所有行并包含 `NULL`；业务层自行决定是否忽略或转换某类值。
 
 约束：
 
@@ -61,6 +64,8 @@ SnapshotTableReader:
 - reader 不拼接 SQL literal。
 - reader 不管理 Dolt branch、server、commit 或 ref。
 - 第一版要求调用方能够重新打开 reader；不强制同一个 reader 支持 rewind。
+- 单列计数不得为了生成 cache key 触发完整 content digest 计算；只有 descriptor 已携带不可变 content/raw SQL/fast-row digest 时才允许持久缓存。
+- SQL reader 只解析目标 INSERT literal，Parquet reader只投影目标列，repository reader将聚合下推到 provider，内存 reader只访问目标列。优化路径不可用时调用方可以回退 full-row streaming，但不得把失败解释为空表。
 
 ### Row Path First
 
@@ -71,11 +76,10 @@ SnapshotTableReader:
 未来可选扩展：
 
 ```text
-ColumnProjectableReader
 PredicatePushdownReader
 ```
 
-这些扩展不是第一版 contract。第一版只要求 `streaming full rows`；如果预留选项会增加实现复杂度或性能损耗，可以暂不落接口。Predicate pushdown 暂只允许 provider-private 使用。
+通用多列 projection 和 predicate pushdown 仍不是当前 contract；精确单列计数是已落地的受限统计能力，不扩展为任意查询接口。
 
 ## SnapshotTableArtifact
 

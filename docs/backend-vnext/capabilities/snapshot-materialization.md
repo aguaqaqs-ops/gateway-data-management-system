@@ -7,10 +7,12 @@
 ```text
 source_package_staging
 source_package_entry_resolution
+optional_source_document_resolution
 sql_dump_source_resolution
 sql_dump_parse
 snapshot_materialization
 repository_ref_materialization
+business_source_composition
 snapshot_summary
 snapshot_table_set_resolution
 ```
@@ -34,6 +36,9 @@ Capability 必须保持 flow-neutral 和显式输入输出。
 - 对于没有可用 compare key 的表，Snapshot materialization 不再自动补全列 surrogate key；它应保留为 keyless 事实，并按 shared rules / comparison contract 进入早退或降级判断。
 - submit finalize 写入的 FINAL SnapshotSummary 必须在 repository commit/ref 内以隐藏系统表形式落地；history compare / archive 读取这份正式事实，而不是自己重建摘要。
 - `/sql/dbcfg.sql` 是当前项目的 SourcePackage 业务约定，不应成为 SQL dump parser 的唯一入口。
+- `/comps/logic/logics.xml` 是可选业务文档，由 `composite_signal` capability 消费；缺失时使用稳定 EMPTY source。
+- 正式 upload、submit 和 archive source replay 统一调用 business-source wrapper，组合 SQL SnapshotTable 与 `composite_signal_point` 后再最终化 identity；SQL-only benchmark entrypoint 不改变。
+- history compare 直接从 repository/Dolt 回读包含派生表的 FINAL SnapshotTableSet，不重新解析 XML。
 - upload 阶段可以把 `fast_row_digest` 作为该阶段内的主要判据来源，用于 SQL->Dolt 与 SQL->SQL 两条上传路径的去重、路由、缓存预筛和同步早退；parser / descriptor 里可携带 provenance / diagnostics 元数据，但这些字段不进入主判据链。
 - upload 阶段可以先调用 `materialize_sql_snapshot_preview(...)` 产出 `PROVISIONAL` snapshot/summary，再由 `finalize_snapshot_materialization(...)` 在异步阶段补齐 canonical `raw_content_digest` 并生成 `FINAL` snapshot/summary。
 - `materialize_sql_snapshot_preview(...)` 只负责 `fast_row_digest` 和其它轻量事实，不应提前生成 `canonical_artifact_ref` 或 `previous_canonical_artifact_ref`。
@@ -53,6 +58,8 @@ materialize_sql_snapshot_preview(materialization_context) -> SnapshotMaterializa
 materialize_sql_dump_source(sql_dump_source, materialization_context) -> SnapshotMaterializationResult
 finalize_snapshot_materialization(materialization_result) -> SnapshotMaterializationResult
 materialize_repository_ref(repository_ref, materialization_context) -> SnapshotMaterializationResult
+materialize_business_source_package(source_package) -> SnapshotMaterializationResult
+materialize_business_source_package_preview(source_package) -> SnapshotMaterializationResult
 resolve_snapshot_table_set(snapshot_ref | materialization_result, policy) -> SnapshotTableSet
 ```
 
@@ -70,6 +77,7 @@ resolve_snapshot_table_set(snapshot_ref | materialization_result, policy) -> Sna
 - `finalize_snapshot_materialization(...)` 如果运行在 submit finalize / repository import 路径下，还必须把 FINAL SnapshotSummary 写入 repository commit/ref 的隐藏系统表，并让后续 readback 以这份 hidden summary 为权威事实。
 - `materialize_repository_ref` 不读取 SourcePackage 或 SQL，只通过 repository table access provider 归一化 repository row stream。
 - Flow-facing helper 可以组合上述入口，但测试、benchmark 或外部项目可以直接调用其中任一稳定入口。
+- `materialize_business_source_package*` 是正式业务 flow-facing wrapper；它调用 SQL materialization、composite XML parser/materializer 与通用 Snapshot result rebuild/finalize，不复制 digest 算法。
 - Stable entrypoint 的 contract version、digest 输入和 diagnostics 必须可独立断言。
 
 ## Packaging And Scheduling
@@ -627,7 +635,7 @@ artifact_policy:
 
 第一版固定选择：
 
-- 当前业务 SourcePackage 只消费唯一 `/sql/dbcfg.sql`。
+- 当前业务 SourcePackage 必须消费唯一 `/sql/dbcfg.sql`，并可选消费 `/comps/logic/logics.xml`；后者缺失等价于 EMPTY source。
 - `SQL_FILE` / `SQL_GZ` 只用于测试和 benchmark 裸 SQL 输入。
 - SQL parser 只处理当前业务常见的 `DROP` / `CREATE` / `INSERT` 简单 dump。
 - `SnapshotTableReader` contract 只要求 full-row streaming。

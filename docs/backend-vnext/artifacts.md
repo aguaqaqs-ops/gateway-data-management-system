@@ -56,8 +56,8 @@ Source artifact 负责证明系统收到过哪些原始输入。它不包含 par
 
 - submit acceptance 返回 `ACCEPTED` 前，`SubmitSourcePackage` 必须 L1 durable。
 - upload preview 可按策略决定是否保存完整 source；如果不保存，submit full package 必须能通过 binding 复现 preview-relevant input。
-- 当前业务 SourcePackage 是多目录多文件包；SQL materialization 只消费唯一 `/sql/dbcfg.sql` 对应的 `SourceDocumentRef`。
-- 其他 package entries 只作为 source manifest 或未来 parser 输入记录，不进入当前 SQL Snapshot。
+- 当前业务 SourcePackage 是多目录多文件包；业务 materialization 消费唯一 `/sql/dbcfg.sql`，并可选消费 `/comps/logic/logics.xml` 对应的 `SourceDocumentRef`。
+- 其他 package entries 只作为 source manifest 或未来 parser 输入记录；composite XML 通过独立 capability 生成 `composite_signal_point` SnapshotTable。
 - Source artifact 缺失不是 cache miss，除非已按过期策略显式释放。
 
 ## SnapshotTableArtifact
@@ -111,6 +111,9 @@ descriptor 与 `rows.parquet`。
 - archive source of truth 是 artifact store 中的单一 archive artifact，不是 repository import 的临时目录。
 - 物理 rows parquet 可以在 artifact 内按 canonical/physical table 去重；restore 后必须恢复完整 logical table map。
 - FULL upload 构造 archived baseline pair 时优先 restore `SnapshotRowsArchive`，命中后跳过 archived source package staging、SQL parse 和 materialize。
+- restore 的完整性边界是 artifact-level content digest 与 restore cache marker；restore 阶段只恢复 summary、descriptor 与 logical table map，不提前读取所有 parquet rows。
+- `rows.parquet` 由 lazy reader 在首次访问时读取，并校验 schema 与 row_count；显式诊断仍可调用 row digest validation。
+- restore cache 是可重建目录，`.restore-complete.json` marker 必须匹配 artifact manifest/content digest；缺失或不匹配时重新解包。
 - artifact 缺失或校验失败只能作为性能 miss/fallback，不改变 repository commit/hidden summary 的业务事实。
 
 ## RepositoryImportArtifact
@@ -336,8 +339,6 @@ annotation_artifact_contract_version
 comparison_digest
 risk_evaluation_digest optional
 surface_contract_version
-surface_profile
-surface_options
 records_closure_manifest_digest optional
 risk_annotation_closure_manifest_digest optional
 ```

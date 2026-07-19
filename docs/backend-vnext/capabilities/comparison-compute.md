@@ -239,6 +239,8 @@ validate input
 - Pair 级 snapshot digest 相同且 semantic versions/options 相同，可直接输出 pair unchanged。
 - raw digest 相同只能证明 raw unchanged；ignored columns 导致的业务等价应通过 projection digest 或 row diff 表达。
 - 第一版没有 projection digest 缓存时，raw digest 变化后必须重新投影才能判断业务等价。
+- 当 projection digest 已存在但 before/current digest 不同时，comparison core 仍进入 `SNAPSHOT_TABLE_COMPARE` 行级 diff；若 descriptor digest 与当前 projection schema / version / authority 精确匹配，`self_project` 可以复用 descriptor digest parts，跳过 projection logical digest 的 normalize/hash 重算。
+- 对普通表 `SNAPSHOT_TABLE_COMPARE`，若 projection digest summary 已经无法早退且必须生成 row records，`self_project` 可以直接跳过 projection logical digest 重算；table fact 的 projection digest 可为空，records artifact 和 row_change_stats 是该路径的权威 diff 输出。
 
 ## Projection
 
@@ -277,6 +279,9 @@ table_ruleset compare_key > DDL primary key > fallback_key_policy
 规则：
 
 - row identity 使用 effective compare key 的 canonical scalar tuple。
+- Projection 是 reader 表示差异的 canonicalization 边界。无论输入来自 fresh SQL、snapshot archive parquet、repository reader 还是 projection cache，selected columns 都必须按 `SnapshotTableColumn.scalar_type` 规范化后才能建立 row identity、比较 row value 或写 records。
+- 标量规范化只处理 selected columns，并按列预构建 normalizer；不得为了规范化重新扫描 ignored columns。
+- 复用 descriptor projection digest parts 或跳过 projection logical digest 重算，只能省略 normalize/hash 的 digest pass，不能省略 projected row values 本身的标量规范化。records correctness 始终依赖 canonical projected rows。
 - ignored columns 不参与 row value digest 和 modified 判定。
 - before-only/current-only columns 不参与 row diff，但进入 schema diagnostics 和后续 risk input。
 - 字段顺序无业务意义；digest 按 canonical set 和 key 计算。

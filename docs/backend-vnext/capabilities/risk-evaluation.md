@@ -249,6 +249,8 @@ ORDERED_DIFF_UNSUPPORTED -> UNKNOWN
 COMPARISON_FAILED -> HIGH
 ```
 
+派生表例外：`composite_signal_point` 不套用标准逐行风险。只要存在可见 ADD/DELETE/UPDATE，就输出一个表级 `UNKNOWN + COMPOSITE_SIGNAL_CHANGE_REVIEW_REQUIRED`，evidence 汇总各类计数；公式更新不升级风险等级。该 UNKNOWN 仅参与既有聚合，不增加确认或阻断工作流。原始 `device_*` 风险规则保持不变。
+
 规则：
 
 - 默认等级可以被 `RiskRulesetSnapshot` 参数覆盖。

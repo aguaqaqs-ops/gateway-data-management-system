@@ -43,13 +43,14 @@ Source digest 分为 package 容器层和 document/parser 输入层。
 | `required_entries_manifest_digest` | 当前流程关心的 required entries | preview/submit binding 和快速复现。 |
 | `document_content_digest` | 单个 package entry 内容 | document parser 输入校验。 |
 | `sql_source_digest` | SqlDumpSource 的 SQL parser 输入 | SQL Snapshot materialization cache key；当前业务默认由 `/sql/dbcfg.sql` 派生。 |
+| `composite_logic_source_digest` | `/comps/logic/logics.xml` 内容或稳定 EMPTY marker | 正式业务 Snapshot identity。 |
 
 规则：
 
-- 当前业务 package 是多目录多文件包，但默认 SQL Snapshot 只消费唯一 `/sql/dbcfg.sql`；通用 SQL dump 入口可以直接消费 `SqlDumpSource`。
+- 当前业务 package 是多目录多文件包；正式业务 Snapshot 消费唯一 `/sql/dbcfg.sql` 与可选 composite XML，通用 SQL-only 入口仍可直接消费 `SqlDumpSource`。
 - SQL Snapshot materialization 主要依赖 `sql_source_digest`，不直接依赖整个 zip bytes digest。
 - zip entry 顺序、压缩参数、mtime 等物理元数据变化不应改变 SQL Snapshot。
-- 其他 unconsumed package files 不进入 SQL Snapshot digest。
+- composite XML 变化必须改变业务 Snapshot identity；其他 unconsumed package files 不进入业务 Snapshot digest。
 
 这些 digest 都不参与：
 

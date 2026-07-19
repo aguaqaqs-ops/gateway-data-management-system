@@ -1,5 +1,7 @@
 # Comparison Contract
 
+> v2 增加 `comparison_mode`、project identity assessment digest 和 `REPLACED` table status。formal upload 在 `DIFFERENT_PROJECT` 时使用 `DATASET_REPLACEMENT`，不生成 records closure；完整规则见 `../capabilities/project-identity-and-dataset-replacement.md`。
+
 本文定义 backend vNext 第一版 directed comparison contract。Comparison 只消费已经物化的 Snapshot/Summary/Table access，不解析 SourcePackage，不执行 repository import，不生成风险结论或前端 surface。
 
 ## 范围
@@ -272,7 +274,9 @@ projection_logical_digest
 - raw digest 不变、projection schema digest 不变时，可以复用 projection table。
 - SnapshotTableDescriptor 可以携带可选的 `projection_digests[]` 派生摘要；comparison core 在构造 ProjectionTable 前可按 `projection_schema_digest + table_ruleset_version + projection_contract_version + scalar_encoding_version + digest_authority` 做 exact lookup。
 - lookup 命中且 before/current `projection_logical_digest` 相同，可直接生成 `UNCHANGED`、`BUSINESS_EQUIVALENT` 或 schema-only table fact，不构造 projection rows、不生成 records。
-- lookup miss、digest 不同、authority 不允许或 schema/version 不匹配时，必须回退现有 ProjectionTable / records 路径。
+- lookup 命中但 before/current `projection_logical_digest` 不同时，comparison core 仍必须构造 projection rows 并生成行级 records；此时可以复用 descriptor 中的 `row_identity_digest`、`projected_row_value_digest` 和 `projection_logical_digest`，避免重复执行 projection digest normalize/hash。
+- lookup miss、descriptor digest parts 不完整、authority 不允许或 schema/version 不匹配时，必须回退现有 ProjectionTable / records 路径。
+- 当普通表已经进入行级 records 路径时，records correctness 只依赖 projection rows、effective compare key 和 row value compare；projection logical digest 是可选 metadata。为降低 upload preview 响应时间，该路径可以跳过 projection logical digest 重算，并在 table fact 中省略 before/current projection digest。
 - upload preview / provisional materialization 默认不生成 projection digest；只有显式 `projection_digest_policy` 开启时才会产生 `PROVISIONAL_FAST` digest。
 - `PROVISIONAL_FAST` digest authority 只可用于 upload preview/provisional comparison；纯 FINAL/history comparison 只接受 `FINAL` authority。
 - raw digest 变化且没有可用 descriptor projection digest summary 时，第一版必须重算 projection 后才能知道 projection digest 是否变化。

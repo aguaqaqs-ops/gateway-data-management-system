@@ -1,5 +1,7 @@
 # Operations
 
+formal upload 在 snapshot materialization 后先执行逐 pair project identity assessment。`DIFFERENT_PROJECT` 选择 `DATASET_REPLACEMENT`，不调度 detailed comparison/cache completion；埋点和确认语义见 `capabilities/project-identity-and-dataset-replacement.md`。
+
 本文描述 backend vNext 的执行编排、异步边界、step 状态和诊断。业务流程见 `flows.md`，能力 contract 见 `capabilities/`。
 
 ## Operation 原则
@@ -149,7 +151,6 @@ cleanup
 
 - 生成后续 finalize 可复用的候选 cache。
 - 可执行 repository import provider shadow benchmark。
-- benchmark 建议先记录关闭 legacy 兼容层的 baseline，再打开兼容层记录额外开销和行为差异；两轮都应尽量复用同一条 flow 旅程。
 - benchmark 建议先记录正式路径 baseline，再在相同 flow 旅程上观察额外的 cache / async / materialization 开销；两轮都应尽量复用同一条 flow 旅程。
 
 典型步骤：

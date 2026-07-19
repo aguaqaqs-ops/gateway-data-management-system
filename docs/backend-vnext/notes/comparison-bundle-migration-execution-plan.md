@@ -132,7 +132,9 @@ Slice 2 的 contract 收口方案见 `comparison-bundle-formal-contract-scheme.m
 - Projection 输入默认加载 `net_cfg`、`device`、`app_cfg` 行，其它表作为 metadata/existence
   参与导航、candidate resolution 和 unparsed 归类；hidden empty unchanged tables 不进入
   `UNPARSED_TABLES`。二次装置 projection 首项发布 `device` metadata tab（装置总表），
-  通讯规约 projection 首项发布 `net_cfg` metadata tab（网口配置表），全局参数 projection 按
+  通讯规约 projection 首项发布 `net_cfg` metadata tab（网口配置表），普通二次装置 item
+  的 change/risk 只由其业务 tabs 汇总，不混入 `device` metadata 主表；共享测点表按
+  `dev_addr`/`gid` 拆分到具体装置 item。全局参数 projection 按
   `project`、`prot_list`、`app_cfg` metadata、`app_cfg.table_cfg` 派生目标表的顺序生成 item。
   `app_cfg.table_cfg` 派生只引用同一 visible surface 中存在的表，空表名、缺失目标、filtered
   target 或重复 target 只产生非阻断 diagnostics，不影响 bundle READY。前端继续通过

@@ -1,10 +1,10 @@
 # Comparison Bundle Contract
 
+> comparison-bundle v2 / preview-bundle v3 加入逐 pair identity assessment artifact、顶层 assessment-set digest 与 replacement confirmation requirement。只支持当前合同；历史产物需重新生成。详见 `../capabilities/project-identity-and-dataset-replacement.md`。
+
 本文定义 backend vNext 第一版 comparison bundle contract。Bundle 是一个或多个 `ComparisonSurface` 及其 artifacts 的闭合交付单元，可用于前端加载或下载。
 
-旧 `history-comparison-bundle/v1`、`preview-bundle/v2` 和 `workbench-bundle/v1` 中的多 pair 组织、相对路径、snapshot artifact 复用思路可以参考；vNext 第一版不把 preview/upload/submit 绑定语义写入通用 bundle contract。
-
-前后端简化策略见 `../frontend-surface-simplification.md`。Bundle core 只做闭合交付；正式路径不再输出 history workbench legacy sidecar。
+前后端简化策略见 `../frontend-surface-simplification.md`。Bundle core 只做闭合交付；preview/upload/submit 绑定语义属于 flow envelope，不写入通用 bundle contract。
 
 ## 范围
 
@@ -22,6 +22,8 @@ Comparison bundle 不负责：
 - 写 repository 或推进业务状态。
 - 定义 upload/submit/history compare 状态机。
 - 定义 ordered diff algorithm。
+
+对于 `DATASET_REPLACEMENT` pair，bundle 必须同时闭合 surface/preview index 中每张表的 `replacement_summary` 与可用侧 snapshot parquet refs。前端按 `comparison_mode` 进入独立双侧浏览模块，不得把两侧 parquet 拼接为普通 diff dataset，也不得为全部替换行生成增删或风险展示。
 
 ## 分层
 
@@ -177,6 +179,8 @@ bundle-root/
         communication-protocols.json
         global-parameters.json
         unparsed-tables.json
+        composite-signal-points.json
+        composite-signal-formulas.json
       risk/
         risk-evaluation.json
         risk-report.json
@@ -193,6 +197,8 @@ bundle-root/
 
 - Bundle 内所有 refs 都必须是 bundle-relative。
 - Snapshot/input table artifacts 可以跨 pair 复用。
+- 跨 pair 复用的 snapshot table artifact 使用 `shared/snapshot-tables/...` bundle-root ref；bundle
+  pair ref rewrite 不得再次把这类 ref 改写到 `pairs/<pair_id>/shared/...`。
 - Upload preview 的 `before_table_ref`、`current_table_ref` 和 `browse_table_ref` 若非空，必须直接指向
   可读取的 Parquet snapshot rows；不得以 JSON descriptor 或 metadata envelope 占位。
 - Upload preview 默认只发布单侧 snapshot：current 侧存在时只发布 `current_table_ref`（包括
@@ -200,11 +206,33 @@ bundle-root/
   `before_table_ref`。两侧均不可用时不发布 row ref。
 - `records_ref` 若非空同样必须闭合为 bundle 内 Parquet diff rows，并与其 manifest ref 一起发布。
   Bundle assembler 不得自动生成 descriptor、diff envelope 或其他 metadata 来替代这些 row artifacts。
+- Bundle artifact closure 必须覆盖最终 rewritten surface 引用的 snapshot parquet、standard/ordered
+  records parquet、records manifest、risk annotation content/manifest 和 business projection artifacts。
+  Upload preview 与 history compare 使用同一套 writer/validator；发布层不得再手工补写 records/risk。
 - Upload preview 的 `preview_index.tables[].diff_artifact_ref` 在正式 vNext 路径中等同于 direct
   Parquet records ref：标准 records 表使用 `CURRENT_INLINE`，ordered records 表使用
   `CURRENT_SLOTTED` 并必须携带 `position_column`。
+- History/formal comparison bundle 在 comparison input 带有 snapshot table set 时，应发布可浏览的
+  `current_table_ref` / `browse_table_ref` Parquet snapshot rows。标准 records 表使用 `CURRENT_INLINE`，
+  ordered records 表使用 `CURRENT_SLOTTED`，从而复用 upload diff 浏览和 full/diff/risk 过滤逻辑。
+- History compare 的 snapshot table 发布应复用 upload preview 的 snapshot ref 绑定、fast candidate
+  去重、cross-pair shared ref rewrite 和 Parquet export helper。三节点 history compare 中相同内容的
+  snapshot rows 可以跨 `left_to_middle` / `middle_to_right` pair 共享为 `shared/snapshot-tables/...`。
+- Upload preview 和 history compare 使用同一套 snapshot Parquet cache/export capability。
+  跨 operation 持久 cache 只允许使用 `SnapshotTableDescriptor.row_layout_digest +
+  parquet_writer_contract_version` 精确命中；`fast_candidate_key` 只用于同次 dedupe、shared ref
+  rewrite 和 dry-run/估算，不得作为持久 cache identity。
+- Snapshot Parquet cache hit 恢复到 bundle 时必须复制为当前 bundle 的 bundle-relative
+  Parquet artifact ref，并进入统一 artifact closure；cache-local artifact ref 不得出现在
+  surface、preview index 或 bundle manifest 中。
+- 如果 history/formal comparison bundle 缺少 snapshot table refs，但存在 ordered records，前端可以
+  以 `FORMAL_ORDERED_RECORDS` 直接读取 `ordered_extension.ordered_records_ref` 指向的 Parquet records。
+  该 fallback 只展示 ordered 差异记录本身，不要求 `current_table_ref`。
+- Formal comparison surface 中没有 `records_ref` / `ordered_records_ref` 的表应作为 `SUMMARY_ONLY`
+  展示摘要；这不是 artifact 读取失败。
 - Alias member 默认不重复携带 records artifact；closure 只需闭合 canonical table records 和 alias mapping。
 - Comparison records、business projections、risk report、risk annotations 和 diagnostics 是 pair 级 artifacts，默认不跨 pair 合并。
+- Business projection supplemental artifact 是任意可附加的 pair 级 artifact。复合信号 points/formulas 使用 projection item 内的 ref/digest 寻址，并必须同时出现在 pair closure；因此无需提升 comparison bundle 总合同版本。
 - 正式 row records artifact 固定为 Parquet；JSON 只用于 manifest、surface、projection、risk 和 diagnostics 等小型结构化 metadata。
 - Layout 是建议，不是 digest 身份；manifest/closure 才是可校验事实。
 
@@ -237,6 +265,7 @@ ComparisonBundleArtifactClosure:
   surfaces
   comparison_records
   business_projections
+  business_projection_supplemental_artifacts
   risk_reports
   risk_annotations
   diagnostics
@@ -249,18 +278,18 @@ ComparisonBundleArtifactClosure:
 - Cache hit 恢复到 bundle 时必须重写为 bundle-relative refs。
 - Closure 缺失时 bundle 不能对外 READY。
 - Bundle digest 可以包含 closure manifest digest；closure refs 本身可重写。
-- Closure 不闭合 `workbench_manifest.json`、`preview_index.json`、`diff_summary.json` 或其他 legacy sidecar。
+- Core closure 不闭合 upload-specific 的 `preview_index.json`、`diff_summary.json`；它们由 preview bundle delivery 层根据当前 v3 contract 生成。
 - 所有 `ComparisonSurface.tables[].risk_refs.annotation_ref` 与
   `annotation_manifest_ref` 必须在 bundle 内闭合为真实
-  `backend-vnext/risk-annotations/v1` content / manifest JSON。`legacy-risk-annotation-sidecar/v1`
-  或任何空 placeholder 不能占用 annotation ref。
-- `RiskReport.tables` 缺席某个表表示该表没有 annotation；正式/preview 兼容层应将该表风险
+  `backend-vnext/risk-annotations/v1` content / manifest JSON。任何非当前合同或空 placeholder 都不能占用 annotation ref。
+- `RiskReport.tables` 缺席某个表表示该表没有 annotation；正式/preview consumer 应将该表风险
   展示为 `risk_level: null`、`annotation_count: 0`，不得因存在 surface 或缺失 source artifact
   合成 `UNKNOWN`。
 
 ## Cache 边界
 
-第一版不要求实现 bundle cache。
+第一版不要求实现 bundle cache。Snapshot Parquet persistent cache 已作为 snapshot artifact IO cache
+实现，但它只缓存可重建的 snapshot rows parquet，不缓存 surface、risk、records 或 bundle assembly。
 
 未来 cache 层：
 

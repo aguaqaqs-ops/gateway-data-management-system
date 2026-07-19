@@ -11,7 +11,10 @@
 ```text
 SourcePackage
   -> SourceDocumentRef("/sql/dbcfg.sql")
-  -> SqlDumpSource
+  -> SqlDumpSource --------------------------+
+  -> optional SourceDocumentRef("/comps/logic/logics.xml")
+  -> CompositeLogicSource / AST -------------+
+  -> business source composition
   -> Snapshot
   -> SnapshotSummary
   -> SnapshotTableSet
@@ -30,8 +33,9 @@ SubmitSourcePackage
 关键规则：
 
 - `SourcePackage` 是多目录多文件压缩包容器，不包含解析后的表。
-- 当前业务 SourcePackage 默认只解析唯一的 `/sql/dbcfg.sql`；通用 SQL dump materialization 可以直接消费 `SqlDumpSource`。
+- 当前业务 SourcePackage 必须解析唯一的 `/sql/dbcfg.sql`，并可选解析 `/comps/logic/logics.xml`；通用 SQL-only materialization 仍可直接消费 `SqlDumpSource`。
 - SQL 解析属于 `SqlDumpSource` / snapshot materialization capability，不属于 `SourcePackage` 容器职责。
+- composite XML 解析与 `composite_signal_point` 派生属于独立 `composite_signal` capability；业务 wrapper 组合 SQL 表与派生表后统一重建 Snapshot/Summary/TableSet identity。
 - `Snapshot` 是可比较状态身份，不包含全量 rows。
 - `SnapshotSummary` 是轻量摘要；PROVISIONAL 形态不提供 row reader，FINAL 形态会被持久化到 repository commit/ref 内的隐藏系统表并由只读流程读取。
 - `SnapshotTableSet` 是 L0 逻辑视图，不直接作为业务事实持久化。

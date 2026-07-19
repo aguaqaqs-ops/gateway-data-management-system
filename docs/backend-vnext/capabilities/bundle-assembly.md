@@ -116,6 +116,7 @@ BundleAssemblyResult:
 
 - `pair_surfaces` 必须已经通过 surface validation。
 - `pair_artifact_closures` 必须能校验 records/risk/diagnostics artifacts。
+- business projection 声明的 supplemental artifacts 必须按 pair-relative ref 写入，并在 closure 中记录 ref、kind 与 content digest。
 - `bundle_artifact_ref` 是内部 artifact ref，不是 host path 或 download URL。
 
 ## Layout 与 Ref Rewrite
@@ -145,6 +146,7 @@ MULTI_PAIR
 - 每个 pair surface 独立闭合。
 - Pair 之间不合并 records 或 risk artifacts。
 - Shared snapshot/input artifacts 可以只写一次。
+- composite points/formulas supplemental artifacts 保持 pair 隔离；Dataset Replacement 的 before/current side artifact 也不得合并。
 - 3 节点 history compare 使用两个 pair，不生成三方 diff。
 
 ## Flow Envelope Writer

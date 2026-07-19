@@ -37,7 +37,7 @@
 - 旧代码只能证明当前实现做了什么，不能单独证明业务上必须这样做。
 - 正式重构 contract/ADR 一旦与已确认业务规则冲突，应先修正文档，不能以文档优先级覆盖业务事实。
 - 当前目标业务文档用于补充尚未进入正式重构 contract 的语义。
-- 旧系统只作为行为、fixture、性能和人工体验 oracle，不继承其模块、DTO、路径和 cache 结构。
+- 旧系统只作为行为、fixture 和人工体验 oracle，不继承其模块、DTO、路径和 cache 结构，也不作为新设计的性能 benchmark 对比基线。
 
 ### 2.2 现有行为分类
 
@@ -1572,33 +1572,974 @@ Command rejection、Operation execution failure、external effect uncertainty �
 
 已确认异常覆盖分为 data semantics、command rejection 和 execution/recovery 三条轨道。P0 golden 只固定会改变业务事实、stable failure semantics、Repository evidence、digest/artifact 或恢复终局的异常；普通 adapter/helper 错误留在 unit/contract tests。Recovery fixture 以稳定 effect 注入点和 evidence decision table 驱动，不绑定 Python/Rust 代码行，也不保存完整数据库快照。
 
-## 5. 后续待讨论
+## 5. 0C/0D Fixture manifest、目录与命名（阶段性确认）
 
-0B 的主要业务状态、失败语义和异常 golden 范围已形成阶段性结论。下一步进入 0C/0D，建议依次确认：
+### 5.1 语言无关的 fixture 根目录
 
-1. Versioned fixture manifest、目录层级和 scenario naming。
-2. semantic/artifact/recovery golden 的公共 envelope 与 canonical normalization。
-3. Oracle runner、Repository fault injection adapter 和恢复 checkpoint DSL。
-4. 最小可提交样本、裁剪 regression 样本与仓库外 benchmark dataset 的边界。
-5. Submit post-commit readback 的时间、吞吐和峰值内存基线。
+已确认 Phase 0 正式 fixture 使用跨实现共享的仓库级根目录：
+
+```text
+vnext/fixtures/
+```
+
+规则：
+
+- Backend、Repository Service 和 Rust 实现共同读取这里的语言无关场景，不把正式 oracle 归属于某一种实现语言。
+- 各组件自己的测试目录只保留不构成跨实现 contract/oracle 的私有小型测试数据。
+- 不继承 legacy 的测试目录或内部 fixture 组织方式；legacy 只用于提取输入、行为证据和差异分类。
+- 当前 `testing-fixtures.md` 中以旧 backend 测试目录为根的约定需要在 Phase 0 收口后重新整理，而不是作为新目录的兼容约束。
+
+### 5.2 目录第一分类维度
+
+已确认正式 scenario 按执行语义组织：
+
+```text
+vnext/fixtures/
+  scenarios/
+    data/
+    command/
+    recovery/
+```
+
+三类目录分别对应 0B 已确认的测试轨道：
+
+| 目录 | 场景语义 |
+| --- | --- |
+| `data/` | capability 正常完成，但产生正常结果、anomaly、degraded 或 blocker。 |
+| `command/` | 命令未被接受，不创建 Operation，也不产生业务或 Repository 副作用。 |
+| `recovery/` | 请求已被接受，在 durable step 或外部 effect 边界失败并恢复或对账。 |
+
+`semantic / artifact / recovery` 是 golden/断言输出类型，不建立与 scenario 轨道竞争的第二套顶层目录分类。一个场景可以同时拥有 semantic 和 artifact golden；recovery 场景还可以拥有 recovery timeline/终局断言。
+
+原 `minimal / regression` 不再作为正式目录第一维度：
+
+- 手写最小样本与脱敏裁剪样本通过 manifest provenance 区分。
+- 原始业务数据不属于正式 manifest，也不进入可提交 scenario；只允许存在于 gitignored staging 位置或仓库外 dataset root。
+- benchmark dataset 继续位于仓库外，不与 correctness fixture 混合。
+
+### 5.3 Manifest 权威粒度
+
+已确认每个 scenario 目录包含一份权威 `scenario.yaml`：
+
+```text
+vnext/fixtures/scenarios/data/ordered-records/duplicate-gid-degraded/
+  scenario.yaml
+  input/
+  expected/
+```
+
+规则：
+
+- 不维护人工编辑的全局巨型 manifest，避免全局清单与场景内容形成两个事实来源。
+- manifest 格式由版本化 schema 校验。
+- 如 runner、CI 或文档需要全局 catalog，应从各场景 manifest 生成；生成物不是权威编辑入口。
+- 一个 scenario 目录是可独立发现、校验和执行的最小资产单元。
+
+### 5.4 版本维度
+
+已确认分离以下版本和完整性概念：
+
+```yaml
+manifest_schema_version: 1
+scenario_id: data.ordered-records.duplicate-gid-degraded
+contracts:
+  scalar: 1
+  ordered_records: 1
+fixture_content_digest: ...
+```
+
+规则：
+
+- `manifest_schema_version` 只表示 `scenario.yaml` 的格式版本。
+- 各 owner 的 semantic/artifact/policy contract 独立版本化，不由一个全局 fixture version 代替。
+- `fixture_content_digest` 标识场景受控内容，用于检测未声明的输入或 golden 漂移。
+- 不在目录或 `scenario_id` 中预先加入 `v1`，也不建立泛化的 `scenario_version`。
+- contract 语义变化时更新对应 contract version 和 golden；只有滚动升级或兼容窗口明确要求新旧 contract 同时验证时，才在同一稳定场景身份下保留多版本 expected 数据。
+
+### 5.5 Scenario identity 与 naming
+
+已确认 `scenario_id` 使用稳定的小写点分命名空间，物理路径使用对应的小写 kebab-case 段：
+
+```text
+data.ordered-records.duplicate-gid-degraded
+command.submit.stale-preview
+recovery.submit.timeout-with-success-journal
+```
+
+命名规则：
+
+- 第一段固定为 `data / command / recovery`，并与物理目录一致。
+- 后续段表达 owner/capability 或 journey，再表达触发条件或业务边界。
+- 不使用 `SUB-01` 等序号作为稳定身份；序号只能作为报告或讨论文档中的展示别名。
+- 不绑定 Python exception、实现函数、内部 step、代码行或 legacy 方法名。
+- 当 recovery 的 evidence 分支决定不同终局时，名称明确表达分支，例如 `timeout-with-success-journal`。
+- `scenario_id` 发布后不因目录整理、实现替换或纯文案修改而变化；若场景所表达的业务语义实质改变，应创建新 scenario，而不是静默复用旧 identity。
+
+### 5.6 Subject 与 runner 分派
+
+已确认 manifest 只声明稳定的业务 subject，不引用实现入口：
+
+```yaml
+subject:
+  kind: capability
+  name: ordered-records
+```
+
+规则：
+
+- `subject.kind` 第一版收敛为 `capability | journey`；`subject.name` 表达对应 capability 或业务旅程 owner。
+- scenario 轨道由 `scenario_id` 第一段和物理目录共同确定，不在 manifest 中维护另一份可漂移的 track 字段。
+- runner 使用 `scenario track + subject` 查找已注册的 harness。
+- manifest 不保存 Python module/function、Rust binary、Repository Service 实现类或 legacy entrypoint。
+- 实现重构、provider 替换和跨语言 differential runner 不改变 scenario identity 或 manifest 的业务 subject。
+
+### 5.7 Manifest 最小字段
+
+已确认每份 `scenario.yaml` 的最小权威字段为：
+
+```yaml
+manifest_schema_version: 1
+scenario_id: data.ordered-records.duplicate-gid-degraded
+subject: ...
+provenance: ...
+contracts: ...
+inputs: ...
+stimulus: ...
+expectations: ...
+input_digest: ...
+fixture_content_digest: ...
+```
+
+可选的人类说明和筛选字段为：
+
+```yaml
+title: ...
+tags: ...
+legacy_oracle: ...
+notes: ...
+```
+
+`legacy_oracle` 只在场景确实执行旧新对照时填写 `MATCH / OLD_BUG / INTENTIONAL_CHANGE / UNRESOLVED`。纯新 contract 或 legacy 没有可比较行为的场景不伪造 legacy 分类；一旦产生实际旧新差异，仍必须遵守 0A 的差异分类规则。
+
+### 5.8 场景 closure 与输入资产复用
+
+已确认不建立 scenario 组合框架：
+
+- 禁止 scenario 继承、模板展开和 scenario-to-scenario 引用。
+- 小型手写输入直接放在 scenario 自己的 `input/`。
+- 只有确有跨场景复用价值的较大输入才进入 `vnext/fixtures/assets/`，并通过内容 digest 引用。
+- scenario closure 包含 manifest 直接引用的本地文件和共享资产；发现、校验或执行一个 scenario 不需要加载另一个 scenario。
+- 第一版不建立通用 fixture dependency graph、参数化继承 DSL 或动态输入生成插件。
+
+这允许适度复用不可变 bytes，但不继承 legacy 中以 helper、builder 或隐式目录约定拼装测试输入的内部结构。
+
+### 5.9 Input digest 与 fixture content digest
+
+已确认使用两个职责不同的 digest：
+
+```yaml
+input_digest: ...
+fixture_content_digest: ...
+```
+
+- `input_digest` 覆盖 schema 校验并规范化后的 stimulus，以及全部输入文件/共享输入资产的 closure，用于证明相同场景输入可重复生成。
+- `fixture_content_digest` 覆盖规范化 manifest（计算时排除两个 digest 字段）和全部 input、expected、artifact closure，用于检测任何未声明的 fixture/golden 漂移。
+- digest 遍历按规范化相对路径排序；绝对路径、host path、mtime、目录枚举顺序和 YAML 排版不得影响结果。
+- Manifest、JSON、JSONL 等声明为结构化 contract 的内容，schema 校验后按 owner 声明的 canonical representation 参与 digest；SQL、压缩包、Parquet 和其他 raw/binary asset 按原始 bytes 参与 digest。
+- 结构化文件的 YAML/JSON 缩进、object key 排版或注释不改变 digest；owner 声明为有序的 JSONL/array 仍保留顺序语义。CI 可以另行要求统一 formatter，但 formatter 不是 digest contract。
+- 修改 expected 的 canonical content 而没有修改 input 时，`input_digest` 保持不变，`fixture_content_digest` 必须变化；纯排版变化不改变二者。
+- 两个 digest 都是校验产物，不能替代各业务 owner 自己的 semantic、artifact 或 repository content digest。
+
+### 5.10 Declarative manifest 边界
+
+已确认采用受控的 YAML 与外部文件混合模式：
+
+- `scenario.yaml` 内联 subject、contract versions、stimulus 和 fault injection；所有 golden expectation 一律通过 `path` 引用外部文件，不在 manifest 中内联 expected payload。
+- SQL、source package、expected payload、Parquet 和完整 artifact 放在 `input/`、`expected/` 等外部文件，并由 manifest 显式引用。
+- manifest 禁止任意脚本、可执行表达式、环境变量替换、YAML 自定义 tag 和实现语言对象反序列化。
+- YAML 只是人类编辑格式；schema 校验、runner 输入和 digest 使用解析后的规范化数据模型，不依赖 YAML 注释、锚点写法、key 排版或原始文本格式。
+- 允许的 stimulus/fault/expectation envelope 必须由版本化 manifest schema 明确定义，expected payload 必须由对应 owner contract 定义；不能通过透传任意字典把实现内部参数暴露为 fixture contract。
+
+### 5.11 Subject、identity 与物理路径一致性
+
+已确认 `scenario_id` 第二段、`subject.name` 和物理 subject 目录必须完全一致：
+
+```yaml
+scenario_id: data.ordered-records.duplicate-gid-degraded
+subject:
+  kind: capability
+  name: ordered-records
+```
+
+```text
+scenarios/data/ordered-records/duplicate-gid-degraded/
+```
+
+因此此前讨论中的临时示例 `data.ordered.*` 在任何 fixture 发布前统一修正为 `data.ordered-records.*`，不保留 owner alias 或另一份映射表。对于 journey，同样要求例如 `command.submit.*` 和 `subject.name: submit` 一致。
+
+### 5.12 完整目录层级
+
+已确认目标目录为：
+
+```text
+vnext/fixtures/
+  README.md
+  schemas/
+    scenario-manifest-v1.schema.json
+  assets/
+    sha256/
+      <digest>/
+        <logical-name>
+  vectors/
+    shared-kernel/
+      canonical-encoding/
+        v1/
+          vector-set.json
+          jcs.jsonl
+          scalar.jsonl
+          digest.jsonl
+          invalid.jsonl
+  scenarios/
+    data/
+      <subject>/
+        <scenario>/
+          scenario.yaml
+          input/       optional
+          expected/    optional
+    command/
+      <subject>/
+        <scenario>/
+          scenario.yaml
+          input/       optional
+          expected/    optional
+    recovery/
+      <subject>/
+        <scenario>/
+          scenario.yaml
+          input/       optional
+          expected/    optional
+```
+
+只在首个真实 schema、asset、vector、track、subject 或 scenario 出现时创建对应目录，不预建空目录树。`schemas/` 中的 `v1` 表示 manifest schema 自身的版本；`vectors/` 中的 `v1` 表示被验证的真实 contract version。两者都不违反 scenario identity/path 不携带泛化版本号的规则。
+
+### 5.13 Expected 与 contract version 的显式绑定
+
+已确认 expected 文件的语义和版本由 manifest 显式声明，不通过目录位置猜测：
+
+```yaml
+expectations:
+  - expectation_id: ordered-records
+    kind: semantic
+    contract:
+      owner: ordered-comparison
+      name: ordered-records
+      version: 1
+    path: expected/ordered-records.v1.json
+```
+
+规则：
+
+- `expectations[]` 是 golden 的唯一公共 envelope；`manifest_schema_version` 负责版本化该 envelope。
+- 每项必须具有场景内唯一的 lower-kebab-case `expectation_id`、`kind`、完整 owner/name/version 和相对 `path`。
+- `expectations[].kind` 第一版限定为 `semantic | artifact | recovery`。
+- `kind` 只用于分类、发现和 runner 校验路由，不拥有或替代 expected payload schema。
+- 一个 scenario 可以声明多个 expectation，也允许存在多个同 kind expectation；禁止把不相关 owner 的输出塞入一个大型 `expected.json`。
+- referenced expected 文件只保存 owner contract payload，不再重复嵌套 fixture `kind/contract/version` wrapper，避免双份 envelope 漂移。
+- 第一版不支持 inline golden、`path | inline` union 或从文件内容反向推断 contract。
+- 兼容窗口需要同时验证多个 contract version 时，在同一场景 manifest 中声明多项 expectation。
+- `expected/` 默认保持扁平，不再重复建立 `semantic/artifact/recovery` 子目录；文件名中的版本只用于可读性，不是权威版本来源。
+- 多文件 artifact 使用 `expected/<expectation-id>.v<version>/`，其 expectation `path` 指向目录内的 `manifest.json`；该 manifest 显式声明完整 closure。
+- 不建立全局 `expected/v1/`、`expected/v2/` 目录约定。
+
+建议的局部布局为：
+
+```text
+expected/
+  comparison-facts.v1.json
+  comparison-records.v1/
+    manifest.json
+    records.jsonl
+  submit-recovery.v1.json
+```
+
+### 5.14 Provenance 与脱敏边界
+
+已确认手写样本使用最小 provenance：
+
+```yaml
+provenance:
+  kind: handcrafted
+```
+
+裁剪回归样本使用：
+
+```yaml
+provenance:
+  kind: sanitized-regression
+  case_ref: non-sensitive-reference
+  sanitization:
+    status: reviewed
+    summary: ...
+```
+
+规则：
+
+- sanitized regression 必须记录非敏感 case reference、脱敏审核状态和裁剪/替换摘要。
+- manifest 和已提交资产禁止包含原始业务路径、客户/设备真实标识、凭据或其它可反查源数据的信息。
+- 不强制保存原始敏感输入 digest；若 digest 本身可能用于识别来源，也不得提交。
+- 原始数据与脱敏过程的受限审计证据如需长期保存，应由仓库外的安全流程拥有，不扩张公开 fixture manifest 的职责。
+
+### 5.15 校验、CI 与 golden 更新门禁
+
+已确认以下情况必须使 fixture schema/contract 校验或 CI 失败：
+
+- manifest schema version 不受支持。
+- `scenario_id`、物理路径或 `subject` 不一致。
+- 存在重复 scenario ID。
+- 声明的 contract/version 没有 owner 或不可解析。
+- 文件引用缺失、越出 `vnext/fixtures/` 或经过 symlink。
+- scenario 目录存在 manifest 未声明的 input/expected 文件。
+- `input_digest` 或 `fixture_content_digest` 不匹配。
+- sanitized regression 缺少脱敏确认。
+- 普通测试运行尝试自动改写 manifest、expected 或 digest。
+
+Golden 更新只能通过后续显式设计的 bless/generate 操作完成，更新结果必须形成可审查 diff。Phase 0 当前只固定这个安全边界，不提前设计 CLI、通用插件系统或自动接受新输出的工作流。
+
+### 5.16 Canonical normalization 的 owner 与执行顺序
+
+已确认 canonical normalization 分成两层，不建设 fixture runner 私有的万能清洗器：
+
+```text
+Shared Kernel
+  stable scalar/identifier primitives
+  canonical serialization
+
+owner observation contract
+  stable fields
+  collection identity/order/duplicate semantics
+  owner-specific canonical payload
+```
+
+Shared Kernel 只拥有跨语言稳定原语。semantic、artifact 或 recovery owner 拥有对应 observation contract 的字段选择、集合解释和排序规则。第一版不增加独立 `normalization_profile` 版本轴；normalization 改变正式可观察含义时升级 owner contract，共享 scalar/serialization 改变时升级 Shared Kernel contract 并说明受影响 digest 的 compatibility。
+
+Golden runner 的固定顺序为：
+
+```text
+resolve contract owner/name/version
+  -> validate expected schema
+  -> validate actual schema
+  -> canonicalize both with that contract
+  -> exact compare
+  -> independently recompute and verify declared digests
+```
+
+默认 fail-closed：未知 contract/version、未知字段、缺失必需字段、非法 scalar 和 normalization failure 都直接失败；不隐式转换类型，不降级为字符串比较。Golden 默认执行完整 observation contract equality，不提供 `$any`、regex、dynamic ignore list、任意 subset、数值范围、`oneOf accepted outputs` 或递归“排序后再试”的 matcher。
+
+不稳定值必须在正式 observation contract 中排除，或通过 fixture 固定 clock、ID source 和稳定 external evidence。范围/类型边界、局部字段和参数化校验留给 unit/contract tests，不能扩张 public golden envelope。
+
+### 5.17 Shared scalar 与 collection 默认语义
+
+已确认第一版默认规则：
+
+- Canonical structured output 使用 UTF-8 和 LF；object key 按 Shared Kernel canonical serialization 排序。
+- `null`、boolean、integer、decimal、string、date/time、binary 和 digest 保持 contract 声明的类型区别；decimal 不经 binary float 中转，NaN/Infinity 不允许进入正式 golden。
+- Application/operation timestamp 使用 UTC instant；SQL `DATE/DATETIME/TIMESTAMP/TIME` 按 5.26 的 civil/instant/duration 边界分别解释，不能笼统地全部转换为 UTC。
+- 普通业务字符串保留原始 code points，不做全局 Unicode 改写；只有 `CanonicalIdentifier` 使用其明确声明的 identifier normalization。
+- Array 默认保序。只有 owner contract 明确声明 identity 和 canonical order 后，集合才可解释为 set、multiset 或 keyed collection；multiset 必须保留重复次数，公共 runner 不自动去重。
+- 不属于 contract 的 host path、trace/correlation ID、worker/lease ID、随机时间戳、日志/stack 文本和 provider/build metadata 不进入 golden observation。
+
+Shared Kernel 的 decimal、timestamp、binary、typed row scalar 等逐字节编码由 5.23–5.28 的 `canonical_encoding_version` contract 和跨语言 vectors 固定，不能回退为复用 legacy helper 实现。
+
+### 5.18 Semantic golden
+
+Semantic golden 直接绑定 capability/domain owner 的公开 canonical payload：
+
+- 不创建通用数据库 dump、ORM snapshot 或 test-only 万能业务 DTO。
+- 跨多个 owner 的 journey 优先拆成多项 expectation；只有必须表达原子关系时，才由 journey owner 定义组合 observation contract。
+- 公开 facts、summary、diagnostics 和 digest 如果属于同一 contract，应共同精确验证；runner 必须从 canonical payload 独立重算声明的 digest，不能只比较预填 digest 字符串。
+- “事实不存在”由 owner contract 的明确 `null/absent/empty` 语义表示，不使用 matcher 或字段缺省猜测。
+
+### 5.19 Artifact golden
+
+Artifact contract 继续保持“Artifacts 拥有通用 envelope，内容 producer 拥有 content schema”的 owner 边界。Artifact golden 使用稳定 manifest view 加 owner content：
+
+- 固定 artifact kind/contract version、按 `logical_ref` canonical ordering 的 closure，以及 owner 定义的 schema、稳定 metadata、diagnostics 和 canonical content。
+- 只有 content contract 明确声明为 byte-canonical 的格式，才把物理 bytes、blob/content digest 和 size 作为跨 provider golden。
+- Parquet、压缩包等可能包含 writer-dependent metadata 的 logical-canonical 格式，比较解码后的 owner content/schema/order 和 owner logical digest；物理 digest 仍用于该次 artifact bytes 的完整性验证，但不作为跨 provider oracle。
+- `created_at`、location、host path、object key、writer/build metadata 和临时文件名不进入稳定 artifact observation。
+- `expected/<expectation-id>.v<version>/manifest.json` 是多文件 expected artifact closure 的唯一入口；closure 之外的额外文件使校验失败。
+
+### 5.20 Recovery golden
+
+Recovery golden 由 Submit、Archive 等 journey owner 定义组合 observation contract，以命名 checkpoint 保存精确状态快照：
+
+```json
+{
+  "checkpoints": [
+    {"name": "after-failure", "facts": {}},
+    {"name": "after-recovery", "facts": {}}
+  ]
+}
+```
+
+规则：
+
+- fault injection 位于 manifest stimulus，使用已确认的稳定 effect boundary；expected recovery 文件不绑定 Python/Rust 代码行。
+- Checkpoint 名称、顺序和 typed facts 由 journey contract 版本化并精确比较。
+- Attempt/Execution/Operation 状态、Repository journal/evidence、业务占用、恢复动作、最终业务 facts、event/artifact refs 和 exactly-once 结果通过 typed facts 表达。
+- 重复 retry/reconcile 的幂等性由 stimulus 明确执行相应次数，再观察命名 checkpoint；不引入 `$eventually`、条件表达式、脚本或通用 invariant DSL。
+- 不保存完整数据库 dump 或原始事件日志。wall-clock、内部 retry 次数、lease token 和并发事件交错默认不固定；只有 owner contract 明确承诺的顺序/次数才能进入 golden。
+
+### 5.21 Failure 与 diagnostic 的稳定投影
+
+- `FailureDescriptor` 精确固定 `code/category/phase/recovery/effect` 和 use-case owner versioned typed details。
+- `Diagnostic` 固定 code、severity、稳定 subject/location 和 typed parameters；人类 message、翻译文本、stack trace 和日志文本不是 golden contract。
+- Diagnostic collection 的 order、identity 和 duplicate semantics 由 owner 声明；公共 runner 不自动排序、聚合或去重。
+- HTTP adapter 的安全 message/details 投影由 interface contract test 验证，不反向改变 application failure golden。
+
+### 5.22 Golden 演进与跨实现一致性
+
+- 修正错误 golden 但不改变 contract 语义时，保持 contract version，更新 expected 与 `fixture_content_digest`，并记录变更理由及适用的 oracle 差异分类。
+- 字段、类型、collection semantics、normalization 或可观察含义变化时，升级 owner contract version。
+- 同一 scenario 只有在明确兼容窗口中才同时保留多版本 expectation；各版本必须分别通过，不能表达为任一版本通过即可。
+- 场景业务含义不变时保持 `scenario_id`；stimulus 条件或预期业务边界实质变化时创建新 scenario。
+- Python、Rust 和 Repository provider 共用同一 golden；禁止 `.python.json`、`.rust.json` 等实现专属 oracle。Provider 私有 metadata 和性能观测留在各实现私有测试或 benchmark 中。
+
+### 5.23 Canonical encoding contract 边界与版本
+
+已确认新设计使用统一的：
+
+```text
+canonical_encoding_version
+```
+
+它替代含义过窄的 `scalar_encoding_version`，同时固定三个明确层次：
+
+```text
+canonical JSON for DTO/manifest/digest payload
+typed table scalar encoding
+row/collection digest framing
+```
+
+三个层次在规范中分别描述，但第一版只发布一个 bundle version，不允许调用方自由组合 JSON/scalar/frame 版本。任一层的规范 bytes 发生变化都升级 `canonical_encoding_version`，避免形成未经验证的版本矩阵。Hash algorithm 继续由 `DigestRef` 的 `sha256:` prefix 明示，不隐含在 field name 中。
+
+Python Backend、Rust compute core 和 Repository Service 必须对同一 version 具有完全相同的解释。Legacy 的 Python `json.dumps(sort_keys=True)`、`str.lower()` 和“转换失败则保留原字符串”只作为风险证据，不进入新 contract。
+
+### 5.24 Canonical JSON
+
+JSON-compatible DTO、manifest、golden structured content 和 semantic digest payload 采用 RFC 8785 JSON Canonicalization Scheme（JCS），不自定义 `sort_keys + separators` 方言：
+
+- 输入必须满足 I-JSON：UTF-8、object member name 唯一、合法 Unicode、有限 IEEE-754 binary64 number。
+- Object property 按 JCS 的 UTF-16 code-unit 规则递归排序；array element order 不改变。
+- 不输出 token 间 whitespace；string escaping 和 number serialization 完全采用 JCS。
+- String code points 原样保存，不执行 Unicode normalization。
+- 普通 JSON integer 只允许精确互操作范围 `[-(2^53)+1, (2^53)-1]`；`uint64`、高精度 decimal、binary 和 table temporal 使用 schema-declared string/typed scalar，不能冒充 JSON number。
+- NaN、Infinity、duplicate key、lone surrogate、Unicode noncharacter 和 schema-unknown field fail-closed。
+- 仓库中的 JSON 可以按 formatter 生成 pretty form；进入 digest 或 equality 前必须先 schema-validate 并转换为 JCS bytes。
+
+### 5.25 Typed scalar frame 与数值 payload
+
+Typed table scalar 的 canonical frame 为：
+
+```text
+tag:u8 || payload_length:minimal-ULEB128 || payload
+```
+
+- ULEB128 必须是最短表示，允许的 payload length 最大为 `2^63-1`；实现必须支持 streaming，并可在入口根据业务/resource policy 设置更低限额。
+- Unknown/reserved tag、truncated payload、length overflow 和非最短 ULEB128 直接失败。
+- 这些 bytes 只作为 digest preimage，不成为 public wire/storage format，生产 API 不公开通用 decoder。跨语言 conformance test 必须提供 frame validator 以验证 unknown tag、truncation、length overflow 和 non-minimal ULEB128；正式数据交换继续使用 JCS、Arrow、Parquet 或 owner artifact contract。
+
+第一版 tag registry：
+
+| Tag | Kind | Payload |
+| --- | --- | --- |
+| `0x00` | null | length `0`。 |
+| `0x01` | boolean | length `1`，false=`00`，true=`01`。 |
+| `0x10` | signed-int | 8-byte big-endian two's-complement。 |
+| `0x11` | unsigned-int | 8-byte big-endian unsigned integer。 |
+| `0x12` | decimal | Canonical ASCII decimal。 |
+| `0x13` | float32 | 4-byte IEEE-754 big-endian bits。 |
+| `0x14` | float64 | 8-byte IEEE-754 big-endian bits。 |
+| `0x20` | string | Valid canonical UTF-8 bytes。 |
+| `0x21` | binary | Raw bytes。 |
+| `0x30` | date | Canonical ASCII civil date。 |
+| `0x31` | datetime | Canonical ASCII civil datetime。 |
+| `0x32` | timestamp | Canonical ASCII UTC instant。 |
+| `0x33` | time | Canonical ASCII MySQL duration。 |
+| `0x7f` | source-literal-anomaly | JCS anomaly envelope。 |
+
+其余 tag 在 v1 中保留；实现不能自行占用。
+
+数值规则：
+
+- Column canonical schema 校验 `tinyint/smallint/mediumint/int/bigint` 的 width 和 signedness；scalar payload 统一使用 8 bytes，不重复写 column width。
+- Integer lexical `+`、前导零和 `-0` 规范为唯一数值 bytes；超出 column range 失败。
+- Decimal 禁止 `+` 和 exponent，移除多余整数前导零与小数尾零，补足小于 1 的整数 `0`，`-0` 规范为 `0`。例如 `1.00 -> 1`、`.10 -> 0.1`、`-0.000 -> 0`。
+- Decimal precision/scale 属于 schema digest，不进入 value payload；只有 scale 的扩大且值未变化时不制造 content diff。
+- Float 按声明宽度 round-to-nearest, ties-to-even；`FLOAT` 必须先舍入为 binary32。`-0` 规范为 `+0`，正常 subnormal bits 保留，NaN/Infinity 失败。
+
+### 5.26 Text、binary、temporal、anomaly 与 identifier
+
+#### Text 与 binary
+
+- String payload 原样保存 UTF-8 bytes，不 trim、不 case-fold、不做 NFC/NFKC。
+- Surrogate、Unicode noncharacter 和非法 UTF-8 不进入正常 string；禁止使用 replacement character 静默修复。
+- Binary payload 保存 raw bytes；`BIT(n)` 使用 binary tag，位宽由 schema 验证，leading zero bits 不能丢失。
+
+#### Temporal
+
+Canonical payload：
+
+```text
+date       YYYY-MM-DD
+datetime   YYYY-MM-DDTHH:MM:SS[.fraction]
+timestamp  YYYY-MM-DDTHH:MM:SS[.fraction]Z
+time       [-]HH:MM:SS[.fraction]
+```
+
+规则：
+
+- `DATE` 是无时区 civil date；`DATETIME` 是无时区 civil datetime，不能擅自转 UTC。
+- `TIMESTAMP` 是 UTC instant。Shared Kernel encoder 只接受已经解析完成的 UTC value，不读取机器时区或 timezone database。
+- SQL parser/Repository adapter 必须绑定显式 source/session timezone；DST ambiguous/nonexistent local time 产生 stable anomaly，不能猜测。Named-zone/tzdb policy 由 parser contract 版本化。
+- `TIME` 是 MySQL duration，可为负或超过 24 小时。Hours 0–99 使用两位、100–838 使用三位；负零规范为正零。
+- Fraction 最多 6 位并移除尾零；全零时省略。Schema 的 fractional precision 仍由 schema digest 保存。
+- Zero/incomplete date、非法 leap second 和越界值不能使用正常 temporal tag，只能进入 owner-declared anomaly 或 hard failure。
+- Application/operation timestamp 不使用 table scalar tag；其 public contract 使用 RFC 3339 UTC instant，并由 JCS serialization 固定。
+
+#### SourceLiteralAnomaly
+
+Normalizer 不允许“转换失败就变成普通 string”，只能返回 valid typed scalar、owner-declared `SourceLiteralAnomaly` 或 hard failure。Anomaly payload 为 JCS object：
+
+```json
+{
+  "declared_type": "datetime",
+  "raw_base64url": "...",
+  "raw_encoding": "utf-8",
+  "reason": "ZERO_DATE"
+}
+```
+
+`raw_base64url` 使用 RFC 4648 URL-safe alphabet 且不带 padding，覆盖 parser 完成 SQL unquote/unescape 后、type coercion 前的 logical literal bytes；原始 SQL token/quoting 仍由 SourcePackageArtifact 保存。`raw_encoding`、reason code 和允许继续进入 storage projection 的条件由 parser/use-case owner 版本化，Shared Kernel 只拥有 envelope。
+
+#### CanonicalIdentifier
+
+- SQL parser 负责 identifier unquote 和 escaped quote；Shared Kernel 不 trim、不猜 quote。
+- 只将 ASCII `A-Z` 映射为 `a-z`；非 ASCII code point 原样保留，不执行 Unicode case-fold/normalization。
+- 空 identifier、非法 Unicode 和 canonical 后重名失败。
+- Binary row 中字段按 canonical identifier 的 UTF-8 bytes unsigned lexicographic order 排序；这与 JCS object key 的 UTF-16 ordering 是两个独立 contract，不能混用。
+- Display identifier 是 source/schema fact，不进入 canonical identity，除非 owner contract 明确将其作为业务值。
+
+### 5.27 Semantic digest、row 与 collection framing
+
+Canonical semantic digest 使用 domain separation：
+
+```text
+preimage = ASCII("gateway-vnext:<digest-kind>:v1\0") || canonical_payload
+digest   = SHA256(preimage)
+wire     = "sha256:" || lowercase_hex(digest)
+```
+
+`digest-kind` 是 lower-kebab-case registry value，例如 `canonical-json`、`row`、`raw-content`、`business-content`、`collection-item`、`sequence`、`multiset`、`set`、`keyed-collection` 和 `snapshot`。组合 digest 使用 child digest 的 raw 32 bytes，不使用其 hex/wire text。
+
+Raw file/blob integrity digest 仍为直接 `SHA256(raw bytes)`，不增加 semantic prefix。`raw-content` 与 `business-content` 属于不同 domain：即使 canonical payload 相同也产生不同 digest，不能互相替代或通过值相等暗示 authority 相同。
+
+Unordered row/table framing：
+
+```text
+row_frame =
+  ULEB128(field_count)
+  + for field in canonical_identifier_utf8_order:
+      ULEB128(name_length) + name_utf8 + scalar_frame
+
+row_hash = SHA256(domain("row") + row_frame)
+
+unordered_table_frame =
+  ULEB128(row_count)
+  + lexicographically_sorted(raw_row_hash_bytes...)
+
+raw_content_digest =
+  SHA256(domain("raw-content") + unordered_table_frame)
+```
+
+Field order 和 input row order 不影响 unordered content digest；duplicate canonical column name 失败；duplicate rows 以重复的 32-byte row hash 保留；空表和零字段 row 都有唯一 frame。Ordered table 的 `no`/sequence 语义由 ordered owner digest 表达，不污染 raw unordered content digest。
+
+Shared Kernel collection frame：
+
+```text
+framed_item = ULEB128(item_length) + item_bytes
+item_hash   = SHA256(domain("collection-item") + framed_item)
+
+sequence_frame =
+  ULEB128(item_count) + framed_item... in declared order
+
+multiset_or_set_frame =
+  ULEB128(item_count) + sorted(raw_item_hash_bytes...)
+
+keyed_collection_frame =
+  ULEB128(entry_count)
+  + entries sorted by canonical key bytes:
+      ULEB128(key_length) + key_bytes
+      + ULEB128(value_length) + value_bytes
+```
+
+- `sequence` 保留输入顺序，并使用 `sequence` domain。
+- `multiset` 使用 `multiset` domain，保留重复 item hash。
+- `set` 使用 `set` domain，发现重复 item hash 时失败。
+- `keyed-collection` 使用 `keyed-collection` domain，重复 canonical key 失败。
+
+Owner 必须声明使用哪一种 collection semantics；公共 serializer 不根据容器语言类型猜测。
+
+### 5.28 Cross-language normative vectors
+
+Contract vectors 独立于业务 scenario：
+
+```text
+vnext/fixtures/vectors/shared-kernel/canonical-encoding/v1/
+  vector-set.json
+  jcs.jsonl
+  scalar.jsonl
+  digest.jsonl
+  invalid.jsonl
+```
+
+`v1` 是被验证的真实 contract version，因此允许与未来版本并存。`vector-set.json` 声明 schema version、owner、contract/version、文件 closure 和 content digest，不保存 Python/Rust/Repository 实现入口；计算 closure digest 时排除 manifest 自身的 digest 字段，避免自引用。
+
+每个 vector 使用稳定 `case_id`，声明 operation、typed input 或 `input_utf8_hex`，以及 expected `canonical_bytes_hex`/DigestRef；invalid case 只固定 stable error code，不固定 exception class/message/stack。
+
+最低覆盖：
+
+- RFC 8785 JCS number/string/property-order cases、I-JSON invalid cases和 non-BMP key ordering。
+- Signed/unsigned extrema、column range overflow、decimal 等价 lexical forms。
+- Float normal/subnormal/negative-zero/boundary rounding 和 NaN/Infinity rejection。
+- Unicode、control escaping、binary、BIT leading zeros、invalid UTF-8。
+- Date/datetime/timestamp/time extrema、fraction trimming、timezone binding、zero/incomplete temporal 和 anomaly envelope。
+- Empty/zero-field row、field permutation、row permutation、duplicate row/key、sequence/set/multiset/keyed collection。
+- Non-minimal/overflow ULEB128、unknown tag、truncation 和 malformed length。
+- Semantic domain separation、child raw digest composition 和 raw blob digest distinction。
+
+Backend Python、Rust compute core 和 Repository Service 分别直接消费同一 vector set，并逐字节比较 output 与 stable error code；只比较最终 digest 不算通过。Property/fuzz tests 只能补充，不能替代 normative static vectors。
+
+普通 CI 不得自动生成/bless vector。Generator 只能形成 candidate diff，关键 bytes 必须人工审查并至少由 Python/Rust 两个独立实现验证。v1 发布后，修改既有 case 的 bytes、digest 或 success/error classification 必须发布 v2；只增加能由既有规范唯一推导的新 case 可以继续使用 v1。
+
+### 5.29 Intentional change、延后事项与验收基线
+
+本轮是对 legacy 和现有草案的显式 incompatible correction：
+
+- Legacy `canonical_json_bytes` 不是跨语言 byte contract；legacy scalar conversion 失败后保留 string、合并 `DATETIME/TIMESTAMP` 和 Unicode runtime lowercasing 均不继承。
+- 当前正式/目标文档广泛使用 `scalar_encoding_version`；Phase 0 formal 收口时统一重写为 `canonical_encoding_version`，不能只修改字段名而遗漏 JCS、frame 和 digest compatibility。
+- 现有文档中“没有额外 normalization 时 business digest 可以直接等于 raw digest”的表述与 domain separation 冲突；formal 整理时必须改为不同 semantic domain 分别计算，不能复用 DigestRef。
+- 上一轮 temporary 中“时间统一 UTC”的笼统表述已修正；只有 instant 使用 UTC，SQL civil/duration values 不转换。
+
+以下不再阻塞本 contract：
+
+- 具体 canonical SQL type registry 和 type alias 清单，由 parser/schema contract 细化。
+- `SourceLiteralAnomaly.reason` 完整枚举及哪些 owner policy 允许继续 storage projection。
+- 部署的 source/session timezone 配置值和 named-zone/tzdb distribution；parser contract 必须显式版本化，Shared Kernel 不加载。
+- 实现级 resource limit、streaming buffer 和 SIMD/Rust 优化；它们不能改变规范 bytes。
+
+Phase 0 退出前至少满足：vector schema/closure 可校验；Python、Rust、Repository 三方通过全部 valid/invalid vectors；同一 logical input 产生相同 bytes 和 digest；任何 byte contract 变化都由 version 变化和 digest compatibility 说明显式表达。
+
+## 6. 新重构原则：Raw Source Artifact 与 Canonical Dolt Repository（阶段性确认）
+
+### 6.1 原则与权威边界
+
+已确认本次不兼容重构不再要求 Dolt repository 单独具备“完全复原原始 SQL 数据库”的能力。新的原则是：
+
+> 不可变 SourcePackageArtifact 保存原始上传事实；Dolt 保存由版本化 storage projection 生成的 canonical business state。系统保证必要原始数据的完整性，但不要求 Dolt 中保留所有原始物理列和原始 DDL。
+
+权威关系为：
+
+```text
+Immutable SourcePackageArtifact
+  raw uploaded bytes / source provenance / replay authority
+        |
+        v
+parse + table rules + versioned storage projection
+        |
+        v
+Canonical RepositoryImportArtifact
+        |
+        v
+Dolt canonical business tables
+        |
+        v
+SnapshotManifest canonical readback
+```
+
+规则：
+
+- Submit 成功后，原始 SourcePackageArtifact 仍按已确认设计从 workspace retention 提升为 submission durable；新原则不删除原始上传 bytes。
+- Dolt commit 是已接受 canonical business state 的历史权威，不是原始 SQL bytes、原始列布局或原始 `CREATE TABLE` 的唯一副本。
+- 从 Dolt 导出的业务表默认是 canonical schema；若调用方需要原始上传包，应读取 SourcePackageArtifact，不能假设可以从 Dolt 逆向还原。
+- Source digest、storage projection digest、canonical business content digest、Repository commit hash 分属不同语义域，不能互相替代。
+- legacy 只用于提取原始行为、表规则和 fixture，不继承其 projection table、SQL patch 或 Dolt 内部结构，也不参与新设计的性能 benchmark 对比。
+
+### 6.2 Storage projection 不等同于临时 comparison projection
+
+已确认在 Repository import 前应用版本化 storage projection：
+
+```text
+parsed full-row facts
+  -> resolve frozen table rules
+  -> build canonical storage schema
+  -> validate storage eligibility
+  -> stream canonical rows
+  -> build RepositoryImportArtifact
+  -> Repository Service generic import/readback
+```
+
+Storage projection 决定 Dolt 长期保存的列、物理主键和结构事实；comparison projection 仍负责跨版本 schema alignment、selected value columns、ordered 语义和 records。两者必须来自同一 table-rules 语义源，但不能因为都叫 projection 就共用未区分职责的 DTO 或 cache。
+
+第一版列策略至少区分：
+
+```text
+PERSIST_BUSINESS
+  canonical business value/identity column
+
+RETAIN_FOR_STRUCTURE
+  不参与普通内容 modified 判定，但恢复结构语义需要
+
+DROP_FROM_STORAGE
+  已确认不影响业务身份、业务值、顺序、审计解释或恢复的波动列
+```
+
+只有 `DROP_FROM_STORAGE` 列会在写入 Dolt 前删除。删除理由、规则版本和 source/canonical schema digest 必须进入 CanonicalizationManifest。
+
+### 6.3 普通表的 canonical key 与行完整性
+
+已确认正常业务表经过规则修改 schema 后应具有可用、稳定的 effective key。第一版采用 fail-closed 设计，不为无效普通表建设通用 surrogate-key 或自动 keyless fallback。
+
+Canonical keyed table 写入前必须验证：
+
+- effective key 字段存在，并且没有被 `DROP_FROM_STORAGE`。
+- key tuple 不含 NULL 或业务空值，并在整张 canonical table 内唯一。
+- storage projection 前后 row count 相同。
+- 不通过 deduplicate、last-write-wins、覆盖或丢弃行来满足主键约束。
+- 所有未明确删除的列按 canonical scalar contract 完整保留。
+
+验证失败时：
+
+```text
+Preview
+  -> data semantics degraded/blocker with typed reason
+
+Submit
+  -> reject before Repository write effect
+  -> no Dolt commit
+  -> durable SourcePackageArtifact remains available
+```
+
+真正允许 keyless/multiset storage 的表必须由 ruleset 显式分类，不能作为 canonical key validation failure 的隐式退路。重复 key、缺失 key 和 projection 后 row count 变化必须进入 Phase 0 fixture/golden。
+
+### 6.4 Ordered 表保留 `no` 作为结构事实
+
+已确认第一版不为 ordered table 建立独立 numeric-position table 或 predecessor-edge table，也不依赖 Dolt 的隐式行顺序。
+
+Ordered canonical table 采用：
+
+```text
+gid  canonical primary key
+no   retained ordering/position fact
+business value columns
+```
+
+其中：
+
+- `no` 属于 `RETAIN_FOR_STRUCTURE`，不能按普通 volatile/ignored column 从 Dolt 删除。
+- `no` 不参与普通 row-content value digest 或普通 content modified 判定，但进入 ordering validation、ordered sequence、ordering digest 和 ordered provider。
+- History Compare/ordered read 必须显式按 `no` 恢复顺序；SQL/Dolt 未带 `ORDER BY` 的读取顺序不是 contract。
+- ordered semantic 仍由 ordered provider 计算，不能直接继承 Dolt native raw diff counts，尤其是 pseudo blank、position shift、move 和 interval。
+- 数字序号大范围漂移可能使 Dolt 产生较多 modified rows；基于该事件约千分之一的业务频率，第一版接受这项罕见存储噪声，以换取单表读取、readback 和完整性校验的显著简化。
+
+独立 position/edge storage 延后，只有真实历史证明 `no` 漂移显著贡献 Repository 容量，并且 benchmark 证明节省收益覆盖双表 join/遍历、readback 和校验成本时，才重新进入。
+
+### 6.5 Ordered `gid` 重建与 pseudo blank 范围
+
+已核实原始 SQL 中 ordered `gid` 类型为 `INT(11) UNSIGNED`。`(11)` 不改变 32-bit unsigned 整数范围；canonical table 继续使用 `INT UNSIGNED`，不为 pseudo blank 扩大到 BIGINT 或新增技术主键列。
+
+已确认 canonical identity domain：
+
+```text
+source gid = 0 / NULL / empty
+  blank input, canonicalizer must allocate pseudo gid
+
+canonical real gid
+  1 .. 3_999_999_999
+
+canonical pseudo gid
+  4_000_000_000 .. 4_294_967_295
+
+canonical gid = 0
+  forbidden
+```
+
+Pseudo 区间共提供 `294,967,296` 个值；真实业务 gid 从小到大使用且 pseudo blank 很少，第一版将 `4_000_000_000` 提升为正式 storage contract 边界，而不是只依赖经验上“通常不会冲突”。
+
+Pseudo gid 分配规则：
+
+```text
+validate and sort rows by no
+pre-scan every real gid
+first blank  -> 4_000_000_000
+second blank -> 4_000_000_001
+...
+```
+
+必须满足：
+
+- 原始真实 gid 必须位于 `1..3_999_999_999` 且唯一；原始值进入 pseudo 保留区间时输出 blocker，不能自动解释为 pseudo。
+- 只有原始 `0 / NULL / empty` 才能生成 pseudo gid。
+- `no` 必须为正数、唯一、连续；分配顺序只依赖规范化后的 `no`。
+- 分配不得使用 UUID、auto increment、Dolt 插入顺序、Python object identity 或随机值。
+- 相同 source、ruleset 和 policy version 必须生成相同 canonical gid、schema 和 digest。
+- pseudo blank 的正式业务语义仍是 `PSEUDO_BLANK`；高位 synthetic gid 只用于 canonical physical identity，不得作为真实业务 gid 展示。
+- ordered provider 仍按 stable-row interval 和 blank signature 解释 pseudo blank；Dolt 对 synthetic gid 的 native add/delete/modified 不是 ordered 业务 oracle。
+
+Canonical DDL 目标形状为：
+
+```sql
+gid INT UNSIGNED NOT NULL,
+no INT NOT NULL,
+PRIMARY KEY (gid)
+```
+
+具体 display width、secondary index 和 DDL 文本由后续 storage schema contract 决定，不进入当前业务语义基线。
+
+### 6.6 CanonicalizationManifest 与 readback
+
+已确认每次 Repository import 必须生成版本化 CanonicalizationManifest，并与 source artifact、import request 和 Repository readback evidence 绑定。至少记录：
+
+```text
+contract_version
+source_artifact_digest
+storage_projection_version
+ruleset_id/version/digest
+tables[]:
+  table_name
+  source_schema_digest
+  canonical_schema_digest
+  source_row_count
+  canonical_row_count
+  retained_columns
+  structural_columns
+  dropped_columns_with_reason
+  canonical_primary_key
+  canonical_content_digest
+  ordering_digest optional
+  ordered_identity_policy_version optional
+  real_gid_min/max optional
+  pseudo_gid_start/max/count optional
+manifest_digest
+```
+
+Repository readback 验证 canonical commit，而不是要求 Dolt 与原始 SQL schema 全字段相等：
+
+- per-table canonical schema digest、row count、content digest 和 ordering digest 与 import expectation 一致。
+- 普通表没有 dedup/overwrite/row loss。
+- ordered 表真实 gid 未修改，pseudo gid 位于保留区间，`gid=0` 不存在，主键唯一，`no` sequence 合法。
+- Repository journal 保存匹配的 canonicalization/readback manifest digest；业务 Finalize 只接受 VERIFIED evidence。
+- 原始 bytes、原始 DDL 或已删除列的审计需要回到 durable SourcePackageArtifact 和 source-side diagnostics。
+
+### 6.7 Storage projection/ruleset 升级的简化策略
+
+已确认项目生命周期内 storage projection 的物理列或主键规则升级属于极罕见场景。第一版复用现有 schema-change alignment，不建立 repository history migration/rebaseline 状态机。
+
+每个 commit 必须记录 `storage_projection_version + ruleset_digest`。比较策略：
+
+```text
+same storage projection version
+  -> normal canonical/native route when eligible
+
+different storage projection version
+  -> schema-change alignment
+  -> disable unsafe native data diff
+  -> compare shared compatible columns/effective key through streaming fallback
+  -> table-level degraded when safe alignment is impossible
+```
+
+规则：
+
+- 不回写旧 commit，不为罕见规则变化迁移整个 Repository 历史。
+- 主键集合发生变化时不能假设 Dolt native data diff 完整；必须 fallback 或 degraded。
+- 新规则开始保留旧 commit 已删除的列时，不能从 Dolt 猜测历史值；必要时从 durable SourcePackageArtifact 显式重算，普通路径可以给出明确 degraded。
+- schema change 必须标记来源，避免把 storage policy 升级误报为用户业务 DDL 风险：
+
+```text
+SOURCE_SCHEMA
+STORAGE_PROJECTION_POLICY
+BOTH
+```
+
+- 这种受控降级是已接受的简化，不允许静默输出看似精确但使用了不兼容 row identity 的 diff。
+
+### 6.8 Ownership 与 Repository Service 边界
+
+Table rules/storage projection capability 拥有 canonical schema、列策略、业务 key、ordered identity policy 和 CanonicalizationManifest 语义。Repository Service 继续保持通用：
+
+- 不理解 ignored/structural columns、pseudo blank、Workspace、Submission 或 ordered business semantics。
+- 只导入业务侧提供的 canonical RepositoryImportArtifact。
+- 只执行通用 commit/ref/operation journal、catalog、stream rows 和 versioned snapshot manifest readback。
+- Repository Service 可以校验 SQL schema、主键、row count 和内容 digest，但不能自行选择要删除的业务列或生成业务 pseudo gid。
+
+因此新原则不会把旧 projection 内部结构搬进 Repository Service，也不会破坏独立通用 Repository Service 的正式目标。
+
+### 6.9 Intentional change 与文档影响
+
+本原则属于显式 `INTENTIONAL_CHANGE`：
+
+- 旧行为以 Dolt 中原始/full-row schema 为主，并在比较时临时构建 projection table。
+- 新行为在 import 前一次生成 canonical storage form，Dolt 不再保证原始 schema/DDL 的完整复原。
+- 旧 `docs/backend-vnext/adr/0001-snapshot-table-and-dolt-import-boundary.md` 中“原始 CREATE TABLE 保留用于 Dolt import”的结论与本原则冲突；该旧文档只作为变更证据，Phase 0 结束后必须重新整理到 formal contract/ADR，不能直接改名、移动或静默沿用。
+- `refactoring/formal/plans/implementation-stages.md` 当前仍把旧实现性能列为 oracle；该表述与本轮决定冲突，Phase 0 收口整理 formal 时必须删除。当前 temporary 先记录新决定，不直接修改 formal baseline。
+- `SnapshotTableArtifact` 是否继续保存 full-row raw table facts，与 Dolt 是否保存 canonical table 是两个边界；后续正式文档必须避免把 raw snapshot、storage projection 和 comparison projection 合并为一个权威对象。
+- 新旧 Dolt commit 的兼容/迁移策略仍由 0F 决定；在决定前不得直接把 legacy raw commit 与新 canonical commit 当作同版本 repository state 比较。
+
+### 6.10 性能假设、验证证据与 fixture 范围
+
+已确认以下是待 benchmark 的设计假设，而不是已经成立的验收结论：
+
+- 删除真正 unstable/ignored columns 可以减少无业务变化时的 Dolt diff、chunk 增量和 Repository 容量。
+- import 前一次 canonicalization 可以减少 history/重复 comparison 构建 projection table 的 CPU、内存和临时 IO。
+- storage projection 本身会增加 Submit materialization 成本，必须与后续 diff/readback 节省一起评估。
+
+性能基线和门禁只评价新架构自身：
+
+- 不运行或维护“legacy implementation vs new implementation”的性能对比作为 Phase 0/切流门禁。
+- 不以旧实现耗时、吞吐、内存或磁盘占用作为新实现必须达到的相对基准，也不要求证明相对 speedup。
+- 第一条正确、串行、validation-passed 的新路径建立自身 baseline；后续优化与同一 workload、dataset、contract version 下的新架构已接受基线比较。
+- 性能验收由新系统的真实 workload、容量预算、用户可接受延迟、资源上限和回归阈值拥有；具体绝对目标在 0E 收口。
+- legacy 可以帮助识别真实业务旅程和数据规模，但旧 runner、旧 cache/provider 布局和旧测量口径不进入新 benchmark contract。
+
+本轮使用 Dolt `2.1.11` 做了一个方向性小实验：1 万 ordered rows、128-byte payload、中间插入导致后 5000 行序号漂移。结果为：
+
+| Storage shape | Baseline bytes | Insert growth bytes | Dolt row diff |
+| --- | ---: | ---: | --- |
+| 原表保留 `no` | 273,038 | 140,653 | 1 added + 5000 modified |
+| 独立 numeric position table | 305,676 | 52,517 | 1 added + 5000 modified |
+| predecessor edge table | 308,079 | 17,974 | 1 added + 1 modified |
+
+该实验只证明取舍方向：拆表可以隔离罕见序号漂移，但增加基线占用和每次读取/校验复杂度。结合约千分之一的漂移频率，第一版选择原表保留 `no`；正式结论仍需真实 dataset、多代次历史、GC 后磁盘、readback 和 History Compare benchmark。
+
+Phase 0 fixture/golden 至少需要覆盖：
+
+- ignored-only raw change 产生相同 canonical content/digest。
+- dropped column 不影响 canonical schema 之外的 row count 和 retained values。
+- duplicate/missing effective key 阻止 Submit，不发生 Repository effect。
+- ordered real gid 保持原值并成为主键。
+- ordered `0 / NULL / empty` gid 确定性映射到 `4_000_000_000+`。
+- 原始真实 gid `>=4_000_000_000` 返回 reserved-range blocker。
+- pseudo blank insert/delete、重复 materialization 和 readback digest 稳定。
+- `no`-only position shift 不产生普通 content modified，但产生正确 ordered semantics/ordering digest。
+- storage projection version change 进入 schema alignment/fallback，不错误使用 native data diff。
+- SourcePackageArtifact 可独立恢复原始上传 bytes，Dolt export 明确为 canonical schema。
+
+## 7. 后续待讨论
+
+0B 的主要业务状态、失败语义和异常 golden 范围，0C/0D 的 versioned fixture manifest、目录层级、scenario naming、golden 公共 envelope、canonical normalization、Shared Kernel 逐字节 encoding 与跨语言 vectors，以及 Raw Source Artifact + Canonical Dolt Repository 重构原则已形成阶段性结论。后续建议依次确认：
+
+1. Oracle runner、Repository fault injection adapter 和恢复 checkpoint execution protocol；不引入通用表达式 DSL。
+2. 最小可提交样本、裁剪 regression 样本与仓库外 benchmark dataset 的边界。
+3. Storage projection、Dolt import、post-commit canonical readback 的时间、吞吐、峰值内存和多代次存储基线。
 
 当前内容仍是 temporary discussion notes；0C/0D 收口后再按 ownership 重新整理为正式 contract/ADR，而不是直接移动或改名本文。
-
-
-
-继续重构项目 Phase 0 的讨论。
-
-请先完整阅读：
-- docs/backend-vnext/refactoring/temporary/phase-0/baseline-and-oracle-notes.md
-- docs/backend-vnext/refactoring/formal/plans/implementation-stages.md
-- docs/backend-vnext/testing-fixtures.md
-
-0B的业务状态、失败语义和异常fixture范围已经完成阶段性确认。
-现在进入0C/0D，先讨论：
-Versioned fixture manifest、目录层级和scenario naming。
-
-继续遵守：
-- 讨论结论写入temporary/
-- 阶段结束后重新整理到formal/，不能直接移动或改名
-- legacy只作为oracle
-- 优先简化，不继承旧实现内部结构

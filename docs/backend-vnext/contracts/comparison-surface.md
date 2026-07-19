@@ -1,10 +1,10 @@
 # Comparison Surface Contract
 
+> v2 增加 Dataset Replacement surface：`comparison_mode`、identity assessment ref/digest、`REPLACED`、`DATASET_REPLACEMENT` processing mode 与 `REPLACEMENT_SIDE_BY_SIDE`。两侧 snapshot 必须独立浏览，禁止构造 row pair。详见 `../capabilities/project-identity-and-dataset-replacement.md`。
+
 本文定义 backend vNext 第一版 `ComparisonSurface` contract。Surface 是面向前端和 Workbench 的 flow-neutral 展示结构：它消费 comparison/risk 的已完成事实和 artifact refs，不计算 diff，不计算 risk，不承载 upload、submit 或 history compare 的业务绑定语义。
 
-旧 `docs/shared-contracts/comparison-surface.md`、`comparison_surface/contracts.py` 和 preview bundle builder 中的相对路径、表级展示、risk refs、diagnostics refs 思路可作为 UX/展示语义参考；vNext contract 不继承旧模块依赖、preview identity、host path、cache ref 或 Workbench context。
-
-前后端简化策略见 `../frontend-surface-simplification.md`。第一版 surface 应保持 thin index；业务导航通过正式 projection artifacts 表达，不通过旧 Workbench adapter 或前端表名猜测实现。
+前后端简化策略见 `../frontend-surface-simplification.md`。Surface 保持 thin index；业务导航通过正式 projection artifacts 表达，不通过前端表名猜测实现。
 
 ## 范围
 
@@ -36,7 +36,7 @@ ComparisonFacts
   + diagnostics artifacts optional
   -> ComparisonSurfaceAssemblyInput
   -> ComparisonSurface
-  -> BundleAssembly / API response / Workbench adapter
+  -> BundleAssembly / API response / formal bundle loader
 ```
 
 规则：
@@ -56,24 +56,15 @@ ComparisonSurfaceAssemblyInput:
   risk_annotation_closure optional
   table_artifact_index optional
   diagnostics_refs optional
-  surface_contract_version
-  surface_profile
-  surface_options
   ref_scope:
     OPERATION_RELATIVE | BUNDLE_RELATIVE
 ```
 
-`surface_profile` 第一版：
-
-```text
-STANDARD_TABLE_BROWSER
-```
-
 规则：
 
-- 第一版只实现 `STANDARD_TABLE_BROWSER`。
-- Workbench read-only 属于前端 formal bundle loader 的消费方式，不进入 surface core profile。
-- `surface_options` 进入 `surface_digest`。
+- Workbench read-only 属于前端 formal bundle loader 的消费方式，不进入 surface core。
+- Surface 没有通用 options 容器；新增稳定语义必须进入显式类型字段和 contract version。
+- `surface_contract_version` 由 capability 当前版本常量固定，调用方不能覆盖。
 - operation id、workspace id、submission id、history request id、download URL、host path 不进入 digest。
 - `ref_scope` 只影响 ref 写法，不改变 facts digest。
 
@@ -86,6 +77,10 @@ ComparisonSurface:
   surface_id
   direction
   comparison_digest
+  comparison_mode
+  project_identity_status optional
+  project_identity_assessment_ref/digest optional
+  requires_submit_confirmation
   risk_evaluation_digest optional
   view
   tables:
@@ -103,8 +98,7 @@ ComparisonSurface:
 - `comparison_digest`。
 - `risk_evaluation_digest`，如果存在。
 - `surface_contract_version`。
-- `surface_profile`。
-- `surface_options`。
+- `comparison_mode`、project identity status、assessment digest 和 submit confirmation requirement。
 - 表级 surface semantic payload。
 - 被引用 artifact 的 manifest/content digest。
 
@@ -137,8 +131,13 @@ SurfaceView:
 规则：
 
 - `view_id` 是 bundle/API 内的局部展示 ID，不是业务 ID。
+- 同一个 bundle/API payload 内的 `view_id` 必须唯一。History compare 不得发布多个
+  `before_to_current` generic view；2 节点使用 `left_to_right`，3 节点使用
+  `left_to_middle` / `middle_to_right`。
 - Label 是展示辅助，不参与 comparison/risk identity。
-- History compare 的 `left_to_right`、`left_to_middle`、`middle_to_right` 属于 bundle 层 pair id，可映射为 surface `view_id`。
+- History compare 的 `left_to_right`、`left_to_middle`、`middle_to_right` 属于 bundle 层 pair id，
+  应映射为 surface `view_id`，并通过 `display_before_role` / `display_current_role` 暴露
+  `left` / `middle` / `right` 展示角色。
 
 ## SurfaceTable
 
@@ -231,7 +230,13 @@ diagnostics:
 - 所有 `*_ref` 必须是 operation-relative 或 bundle-relative logical ref。
 - 不允许 host path、cache-local path、repository ref、commit hash 或 Dolt internal path。
 - `records_ref` 不进入 `comparison_digest`；surface/bundle restore 可以重写。
+- `row_layout_digest` 是跨 operation snapshot parquet cache 的唯一持久命中 identity；
+  `fast_candidate_key` 不得出现在 surface refs 中，也不得作为持久 cache identity。它只服务于
+  同次 snapshot ref dedupe、cross-pair shared refs 和性能估算。
 - 如果 surface 暴露 records/risk refs，operation READY 前必须有完整 artifact closure。
+- `risk_refs.annotation_ref` 是表级 risk annotation sidecar 的 canonical ref；前端可用它把
+  ROW / ROW_PAIR / ROW_INTERVAL annotation 覆盖到具体行。只有 summary/table 级 annotation
+  且缺少 row identity/position 时，前端应展示表级风险，不得伪造具体行级样式。
 - `PARQUET` 是正式 row diff artifact 格式；`INLINE_SUMMARY` 只用于无 row records 的 summary-only/degraded/schema-only 表。
 - JSONL 不作为正式 row artifact 格式。
 
@@ -245,10 +250,12 @@ display:
     RECORDS_ONLY
     CURRENT_WITH_RECORDS
     DEGRADED_NOTICE
+    REPLACEMENT_SIDE_BY_SIDE
   table_processing_mode:
     STANDARD
     SCHEMA_ONLY
     DEGRADED
+    DATASET_REPLACEMENT
   replay_guarantee:
     EXACT
     SUMMARY_ONLY
@@ -269,6 +276,22 @@ compare:
 - `display` 只描述前端如何浏览已存在 artifacts，不触发后端计算。
 - `compare` 是 diagnostics/解释层信息，不是 ruleset 选择入口。
 - ignored columns 不生成 row risk；如需展示，作为 diagnostics/notice。
+
+Dataset Replacement table 额外发布：
+
+```text
+replacement_summary:
+  before:                         # 该侧无表时为 null
+    row_count
+    columns[]:
+      name
+      display_name
+      scalar_type optional
+      nullable optional
+  current:                        # 结构同 before；该侧无表时为 null
+```
+
+`replacement_summary` 只允许出现在 `table_processing_mode=DATASET_REPLACEMENT` 的表；它是前端在不解码全量 Parquet 的情况下展示双侧存在性、行数和 schema 差异的权威来源。存在空表必须发布非 null side 且 `row_count=0`，不得与缺表混淆。replacement 表格不得消费 records/risk annotations 构造行级 diff。
 
 ## Ordered Table 第一版策略
 
@@ -292,6 +315,13 @@ ordered_extension:
 - ordered provider 未实现时，surface 使用 `DEGRADED` / `DEGRADED_NOTICE`。
 - risk 使用 `ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED`。
 - 不把普通 key-based diff 伪装成 ordered semantic diff。
+- `ordered_extension.ordered_records_ref` 是 ordered records 的 canonical ref；前端必须按
+  ordered records contract 解析，不得把它交给标准 `INSERT` / `DELETE` / `UPDATE` records parser。
+- 当 surface 同时携带 `table_refs.current_table_ref` 和 ordered records 时，前端应按
+  `CURRENT_SLOTTED` 展示，使用 current snapshot rows 支持 full/diff/risk 过滤；只有缺少 snapshot
+  table refs 时才使用 records-only fallback。
+- 如果 ordered 表没有 `ordered_records_ref`，且 `records_refs.records_ref` 也为空，前端展示
+  `SUMMARY_ONLY` 摘要空态；这表示 surface 未发布行级 artifact，不表示读取失败。
 
 后续 `ORDERED_TABLE_COMPARE` 完成后，需要补充：
 
@@ -310,7 +340,8 @@ ordered_extension:
 - 普通表按 table/row/schema summary 输出。
 - Row records 不内联到 surface。
 - Surface 不包含 flow state。
-- Surface 不实现 cache，只保留 digest 和 future cache key 边界。
+- Surface 不实现 surface cache，只保留 digest 和 future cache key 边界。Snapshot parquet cache
+  属于 snapshot artifact capability；cache hit 恢复后仍必须表现为 bundle-relative parquet ref。
 - Ordered table 只预留 extension，不展开语义。
 
 后续可能变化：

@@ -79,6 +79,8 @@ backend_vnext/
 
 upload preview bundle 组装是正式能力，落在 `backend_vnext/capabilities/upload_preview_bundle/`。它从 vNext flow / operation / artifact 输出生成正式 preview index、surface、risk、projection、snapshot/diff Parquet bundle，并负责 bundle artifact closure；`api` 与 `flows` 只能编排调用它，不应内联 row artifact 写入、closure 校验或 sidecar payload 拼装细节。
 
+表格展示默认值落在独立的 `backend_vnext/capabilities/table_presentation/`。该能力只从 raw descriptor、effective diff key 和自身 versioned registry 生成展示投影；不得放入 comparison/table rules/risk，也不得依赖旧 `infrastructure.sql_ingestion`。Upload delivery 只消费完整投影，不自行猜测列宽、隐藏或冻结规则。
+
 ## 旧模块依赖规则
 
 新架构代码完全不依赖旧业务模块。
@@ -164,6 +166,9 @@ capabilities.risk_evaluation
 
 capabilities.surface_assembly
   ComparisonSurface, SurfaceTable projection, ref validation, surface digest
+
+capabilities.table_presentation
+  raw descriptor column presentation, versioned display registry, preview column contract
 
 capabilities.bundle_assembly
   ComparisonBundle, artifact closure, ref rewrite, Workbench adapter

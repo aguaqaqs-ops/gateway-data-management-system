@@ -184,6 +184,10 @@ Risk is layered:
 - Projection-level aggregation: summarizes table/row annotations for a business projection item, such as a secondary device.
 
 Projection-level aggregation may produce `risk_summary` and diagnostics, but it does not mutate the underlying `RiskFacts`, `RiskReport` or row records.
+For `SECONDARY_DEVICES`, ordinary device items aggregate only their business tabs. Shared point tables such as
+`device_st`, `device_mx` and `device_co` are split by `dev_addr`; `device_cfg` is split by `gid`. The `device`
+metadata table is represented only by the `metadata:device` item and must not raise the change or risk state of
+ordinary device items.
 
 ## Diagnostics Codes
 

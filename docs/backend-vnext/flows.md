@@ -44,8 +44,7 @@
 ```text
 receive preview package
   -> source_package_staging optional
-  -> sql_dump_source_resolution
-  -> snapshot_materialization
+  -> business source materialization (SQL + optional composite XML)
   -> comparison / risk / surface
   -> preview/workbench response
   -> PreviewInputBinding
@@ -57,6 +56,7 @@ receive preview package
 - 不创建 immutable repository ref。
 - 不推进 Submission 状态。
 - 同步结果只证明 preview 可展示，不证明数据已进入 Dolt。
+- 缺失 composite XML 等价于空公式集；非法 XML、孤儿公式或无法唯一识别特殊装置会在 materialization 阶段阻止 preview READY。
 
 响应后可启动异步 comparison core cache completion；upload 后也可再启动额外 warmup，见 `operations.md`。
 
@@ -139,8 +139,7 @@ receive SubmitSourcePackage
 ```text
 SubmitSourcePackage durable
   -> binding validation / replay validation
-  -> sql_dump_source_resolution
-  -> snapshot_materialization
+  -> business source materialization (SQL + optional composite XML)
   -> repository_import as FINALIZE_WRITE_CALLER
   -> readback validation
   -> hidden summary table write / validation
@@ -173,6 +172,7 @@ SubmitSourcePackage durable
 ```text
 repository refs
   -> hidden summary table readback
+  -> derived table readback (including composite_signal_point)
   -> table artifact cache lookup
   -> comparison / risk / surface / bundle
 ```

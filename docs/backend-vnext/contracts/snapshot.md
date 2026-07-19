@@ -59,6 +59,7 @@ SnapshotSummary:
     source_kind
     source_package_digest optional
     sql_source_digest optional
+    composite_logic_source_digest optional
     source_document_ref optional
     repository_ref optional
   diagnostics
@@ -123,8 +124,10 @@ SnapshotTableDescriptor:
   columns:
     - name
       display_name optional
+      column_comment optional
       scalar_type optional
       nullable optional
+  primary_key_columns
   compare_key_columns
   row_count
   materialization_stage: PROVISIONAL | FINAL
@@ -150,7 +153,9 @@ SnapshotTableDescriptor:
 规则：
 
 - `table_name` 和 `columns.name` 使用 canonical identifier。
-- `display_*` 保留原始 DDL 名称用于展示和诊断。
+- `display_*` 保留原始 DDL 标识符用于导入、展示和诊断；列注释单独保存在 `column_comment`，不得复用 `display_name`。
+- `primary_key_columns` 表达原始 DDL 主键；`compare_key_columns` 表达 table rules 解析后的比较键，两者可以不同。
+- `column_comment`、原始标识符和 presentation rules 不进入 compare schema、content、projection、risk 或 row-layout digest。
 - `source_ddl_digest` / `raw_ddl_digest` 不进入业务 `snapshot_digest`。
 - `fast_row_digest` 是只看 INSERT 数据块的快路径 hash，可作为 provisional dedup / routing 输入。
 - `fast_row_digest` 也可以作为 hidden summary table 的辅助 provenance / audit 字段，但不能替代 canonical digest 或 compare-ready 事实。
@@ -191,7 +196,8 @@ SnapshotProjectionDigest:
 - `FINAL_ONLY` 仅在 final materialization 中生成 `FINAL` authority；`PROVISIONAL_AND_FINAL` 保留当前 provisional + final 实验路径，不是正式 upload preview 默认成本。
 - `FINAL` authority 可用于正式/history/final comparison；`PROVISIONAL_FAST` 只允许 upload preview/provisional comparison 使用。
 - Comparison core 只有在实际 `projection_schema_digest`、ruleset/projection/scalar 版本和允许 authority 全部匹配时才能复用该摘要。
-- 摘要只能证明 projection rows 无需重新构造；projection digest 不替代 raw digest、canonical artifact ref 或 row artifact closure。
+- 摘要只能替代 projection logical digest 的 normalize/hash 计算，或在 before/current projection digest 相同的场景证明业务等价；需要行级 records 时仍必须读取 rows 并构造 projection rows。
+- Projection digest 不替代 raw digest、canonical artifact ref、row artifact closure 或行级 diff records。
 
 ### Provenance / Diagnostics
 

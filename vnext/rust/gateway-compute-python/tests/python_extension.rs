@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 #[test]
 fn extension_is_built_by_maturin() {
     assert_eq!(

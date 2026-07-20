@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use gateway_compute_core::double_nullable_i64;
 use pyo3::exceptions::{PyOverflowError, PyTypeError};
 use pyo3::prelude::*;

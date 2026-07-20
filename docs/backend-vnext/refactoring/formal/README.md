@@ -13,10 +13,13 @@
 
 - [Architecture and Refactoring Plan](architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](plans/implementation-stages.md)
+- [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)
 - [External Effect and Recovery Contract](contracts/external-effect-and-recovery.md)
 - [Shared Canonical Encoding Contract](contracts/shared-canonical-encoding.md)
+- [Canonical Encoding Normative Vector Schema](contracts/canonical-encoding-normative-vector-schema.md)
+- [Canonical Row Hash Compute Boundary Contract](contracts/canonical-row-hash-compute-boundary.md)
 - [Fixture Oracle and Conformance Contract](contracts/fixture-oracle-and-conformance.md)
 - [Canonical Storage and Repository Boundary Contract](contracts/canonical-storage-and-repository-boundary.md)
 - [Performance Measurement and Baseline Contract](contracts/performance-measurement-and-baseline.md)
@@ -31,6 +34,7 @@
 ## 权威关系
 
 - Architecture 定义总体边界与依赖方向；Implementation Stages 定义交付顺序和 gate。
+- Cross-stage policy定义不属于业务contract、但必须由工程和CI持续执行的安全、工具链与实现约束。
 - Contract 是字段语义、状态、byte contract、artifact、fixture 和 measurement 的 normative owner；ADR 只记录为何选择该方案，并链接 contract，不复制精确状态表或字段表。
 - 同一规则只在 owning contract 中定义。Architecture、计划和其他 contract 只引用，不建立第二份规范。
 - `temporary/` 保存讨论证据与 formalization mapping，不因内容 formalized 而移动、改名或删除；若 temporary 与旧 formal 冲突，以已经 Accepted 的 owner contract/ADR 为准。

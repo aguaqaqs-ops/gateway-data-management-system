@@ -16,7 +16,7 @@
 
 正式 oracle 根为 repository-level `vnext/fixtures/`。Scenario 按 `data/command/recovery` 执行语义组织，每个目录拥有无继承、无脚本的 declarative `scenario.yaml + input + expected` closure；stable dot ID、kebab path、subject 与 track 必须一致。Golden envelope 绑定唯一 semantic owner 与 contract version。
 
-Runner core 与 subject harness registry 分离；支持 reference/integration/process-crash/provider-matrix profiles、四态 result、typed single fault、failure/recovery checkpoints、stable-read barrier 和 test-only evidence bundle。Git correctness materials 与外部 benchmark datasets 严格分离。精确规则由 [Fixture Oracle and Conformance Contract](../contracts/fixture-oracle-and-conformance.md) 唯一规定。
+Runner core 与 subject harness registry 分离；支持 reference/integration/process-crash/provider-matrix profiles、四态 result、typed single fault、failure/recovery checkpoints、stable-read barrier 和 test-only evidence bundle。Git correctness materials 与外部 benchmark datasets 严格分离。Manifest/golden/protocol/result的精确schema与runner/harness authority由 [Fixture Oracle and Conformance Contract](../contracts/fixture-oracle-and-conformance.md) 唯一规定。
 
 ## Alternatives
 

@@ -369,6 +369,7 @@ Owner：对应 infrastructure adapter。
 | 对象/语义 | Owner | 主要消费者 |
 | --- | --- | --- |
 | `DigestRef`、CanonicalIdentifier、canonical encoding | Shared Kernel | 所有模块和跨语言实现 |
+| Canonical encoding vector-set/case schema、stable canonical invalid code | Shared Kernel | Python、Rust、Repository、Conformance Harness |
 | `FailureDescriptor.category/recovery/effect` | Shared Kernel | Application、Operations、Interfaces |
 | Submit/Review/Archive failure code、phase、details | 对应 Application use case | Operations、Interfaces、Fixtures |
 | `ArtifactRef`、manifest、closure | Artifacts | Capabilities、Operations、Interfaces |
@@ -404,7 +405,10 @@ Owner：对应 infrastructure adapter。
 | Cache registry/envelope | Cache module | Capability provider、Operations |
 | Cache payload schema | Payload-producing capability | Cache module、consumer capability |
 | Scenario manifest/runner result/evidence bundle | Conformance Harness | Python、Rust、Repository、CI |
+| Golden envelope、harness protocol、profile lifecycle/comparison authority | Conformance Harness | Subject harness、semantic owners、CI |
 | Scenario expected semantic content | 对应 Domain/Application/Capability contract owner | Conformance Harness |
+| `CanonicalTableRequest/Result`、Arrow mapping、`ComputeFailureEnvelope` | Canonical Row Hash capability | Python facade、Rust provider、Conformance Harness |
+| `CanonicalRowHashesArtifact` content schema/semantic digest | Canonical Row Hash capability | ArtifactStore、later data capabilities |
 | `BenchmarkBaselineRecord`/measurement semantics | Performance Measurement | Phase owners、CI、Architecture review |
 | `environment_profile_id` | Deployment/Repository Environment owner | Performance Measurement |
 
@@ -549,6 +553,10 @@ compatibility_window
 | --- | --- | --- |
 | `canonical_encoding_version` | Shared Kernel | JCS/scalar/frame/digest bytes |
 | `fixture_manifest_schema_version` | Conformance Harness | Scenario closure/validation |
+| `golden_envelope_schema_version` | Conformance Harness | Expected owner/schema/comparison envelope |
+| `harness_protocol_version` | Conformance Harness | Runner/harness request and observation DTO |
+| `vector_set_schema_version` | Shared Kernel | Canonical vector closure/case container |
+| Canonical-row-hash request/result/failure/Arrow mapping versions | Canonical Row Hash capability | PyO3 boundary and artifact content |
 | Scenario-bound semantic contract version | 对应 semantic owner | Golden expected meaning |
 | `storage_projection_version` + ruleset digest | Storage Projection/Table Rules | Canonical Dolt schema/content |
 | Repository wire/readback schema version | Repository Service | Import/journal/SnapshotManifest wire |
@@ -636,7 +644,15 @@ Persistence record 反向成为 domain model
 
 后续 Phase 1B Shared Semantic Contracts、Phase 1C Dependency Rules 和 Phase 1D Cross-process Contracts 必须遵守上述决策。
 
-## 14. 验收标准
+## 14. Phase 1 Executable Contract 正式决策
+
+1. Canonical vector schema由Shared Kernel拥有；scenario manifest/golden/harness/result由Conformance Harness拥有；Arrow physical mapping和compute DTO由对应capability拥有。
+2. `manifest_schema_version` 是scenario wire field；`fixture_manifest_schema_version` 是ownership/version-axis全名，不在manifest中形成第二个同义字段。
+3. Python/Rust是canonical encoding的两个独立实现；Repository必须直接消费同一vector closure，但可以复用owner发布的Shared Kernel Python package，不复制第三套算法。
+4. Harness不接收golden payload、不返回correctness status；runner唯一拥有expected/actual comparison与四态result。
+5. Python/Rust bulk边界统一为Arrow C Stream + versioned JCS bytes；test-only scalar union、Python object graph和ArtifactRef locator不得进入Rust core contract。
+
+## 15. 验收标准
 
 - 所有第一轮稳定 contract 都能在 ownership matrix 中找到唯一 owner。
 - Public、Persisted、Wire 三个维度已明确。

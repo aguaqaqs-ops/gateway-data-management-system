@@ -19,6 +19,8 @@ Backend vNext 同时包含两类变化特征不同的代码：
 
 本次为完整重构，可以从第一版固定 Arrow/Parquet、scalar、ordering 和 digest 边界。如果所有性能模块都先建设完整 Python 生产实现，后续再翻译 Rust，会产生重复投资和双实现分叉；如果所有 capability 都直接使用 Rust，又会降低业务规则迭代效率并放大 FFI、构建和调试风险。
 
+本项目整体仍是偏业务的gateway data management system，不是数据库内核、系统底层或极限低延迟平台。采用Rust不代表追求语言覆盖率或峰值性能；正确性、安全性、可维护性和可诊断性高于microbenchmark收益。
+
 ## Decision
 
 采用 Python 控制面、Rust 数据面的混合架构：
@@ -164,6 +166,12 @@ fallback and maintenance cost
 
 Operation worker、Python executor、Polars/Rayon 和 Repository worker 共享明确的资源预算。Rust provider 不按 CPU 数无条件开满线程；并发度通过 execution policy 或进程配置受控，串行与并行模式必须产生相同正式结果和 digest。
 
+### 8. 安全与优化约束
+
+First-party Rust采用Safe Rust硬门禁和stable pinned toolchain。Unsafe、panic捷径、nightly、手写SIMD/custom allocator、unchecked/raw-memory优化和新增native dependency的精确规则，由 [Rust Safety and Performance Policy](../policies/rust-safety-and-performance-policy.md) 唯一拥有。
+
+Rust进入标准保持“稳定、批量、可验证的数据面能力”，而不是“可能更快”。没有accepted业务容量缺口时，优先选择简单、串行、确定、可诊断的Safe Rust；任何未来first-party unsafe都必须先升级policy并由独立ADR批准，不存在临时例外。
+
 ## Alternatives Considered
 
 ### A. 所有模块先实现完整 Python 生产版
@@ -182,6 +190,10 @@ Operation worker、Python executor、Polars/Rayon 和 Repository worker 共享�
 
 暂不采用。网络服务会提前引入序列化、部署、认证、调度和故障恢复边界。第一阶段使用 PyO3；只有独立扩缩容、故障隔离或超大异步任务证明需要时，再评估 worker/service。
 
+### E. 为性能允许局部或临时 unsafe
+
+拒绝。当前业务与容量目标没有证明Safe Rust不足；局部unsafe会把未由compiler验证的safety obligation扩散到FFI、Arrow buffer和跨语言failure boundary。Deadline、示例代码或microbenchmark收益不能成为例外。
+
 ## Consequences
 
 正面影响：
@@ -191,6 +203,7 @@ Operation worker、Python executor、Polars/Rayon 和 Repository worker 共享�
 - Capability contract 对语言实现保持中立。
 - Arrow/Parquet 降低逐对象 FFI 和重复 materialization。
 - Python reference 为跨语言正确性提供可解释 oracle。
+- First-party Safe Rust硬门禁减少FFI/data-plane中的未验证内存安全义务。
 
 成本和风险：
 
@@ -199,6 +212,7 @@ Operation worker、Python executor、Polars/Rayon 和 Repository worker 共享�
 - Scalar、NULL、Decimal、datetime、ordering 和 digest 语义必须跨语言逐字节一致。
 - Polars、Rayon、Python executor 和 Operation worker 可能造成线程超卖。
 - Fallback 和滚动升级期间需要管理 provider/schema 兼容。
+- Workspace lint、dependency review和无panic production path增加前期工程约束，但换取更可预测的failure与维护成本。
 
 ## Required Verification
 
@@ -210,9 +224,14 @@ Operation worker、Python executor、Polars/Rayon 和 Repository worker 共享�
 - Wheel/image platform matrix tests。
 - 初始 route 的 component evidence，以及 accepted baseline 后后续优化的 capability-level 与 end-to-end vNext measurement。
 - Formal/CI 中不存在 legacy-vs-vNext performance gate。
+- 所有first-party Rust member继承Safe Rust/stable toolchain policy；production path不存在unsafe、panic/stub或local lint waiver。
+- 新native/build/proc-macro dependency和后续并行/SIMD/allocator优化满足policy review gate。
 
 ## Related Documents
 
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)
 - [Contract Taxonomy and Ownership](../contracts/contract-taxonomy-and-ownership.md)
+- [Canonical Row Hash Compute Boundary](../contracts/canonical-row-hash-compute-boundary.md)
+- [Canonical Encoding Normative Vector Schema](../contracts/canonical-encoding-normative-vector-schema.md)
+- [Rust Safety and Performance Policy](../policies/rust-safety-and-performance-policy.md)

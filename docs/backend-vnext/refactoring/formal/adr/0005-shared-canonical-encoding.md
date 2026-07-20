@@ -16,7 +16,7 @@ Python、Rust 和 Repository Service 必须对 scalar、manifest、row identity 
 
 发布统一 `canonical_encoding_version` bundle：JSON 使用 RFC 8785 JCS；table scalar 使用 tag + minimal ULEB128 length + canonical payload；CanonicalIdentifier 仅 ASCII upper-to-lower；temporal 区分 civil value、UTC instant 和 MySQL duration；invalid literal 只能成为 owner-declared anomaly 或 hard failure；semantic digest 使用 domain-separated SHA-256；row/collection 使用显式 framing 和集合语义。
 
-Python、Rust、Repository 直接消费同一组 static normative vectors并逐字节验证。精确 byte contract、tag registry 与 vectors 位于 [Shared Canonical Encoding Contract](../contracts/shared-canonical-encoding.md)。
+Python、Rust、Repository 直接消费同一组 static normative vectors并逐字节验证。精确 byte contract与tag registry位于 [Shared Canonical Encoding Contract](../contracts/shared-canonical-encoding.md)；vector manifest/case/closure/error schema位于 [Canonical Encoding Normative Vector Schema](../contracts/canonical-encoding-normative-vector-schema.md)。
 
 ## Alternatives
 

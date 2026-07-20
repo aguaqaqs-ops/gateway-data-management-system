@@ -75,6 +75,20 @@ wire     = "sha256:" || lowercase_hex(digest)
 
 `digest-kind` 使用 lower-kebab-case registry。组合 digest 使用 child raw 32-byte hash，不使用 wire hex。Raw blob integrity 仍是直接 SHA-256(raw bytes)，不加 semantic prefix；`raw-content` 与 `business-content` 永远分域，不能复用 DigestRef。
 
+v1 已登记的基础与 Phase 1 executable-contract digest kind：
+
+| Digest kind | Payload owner / purpose |
+| --- | --- |
+| `row` | Shared Kernel canonical row frame。 |
+| `raw-content` | Shared Kernel unordered row-hash multiset。 |
+| `collection-item` | Shared Kernel collection item framing。 |
+| `vector-set` | Shared Kernel canonical-encoding vector closure。 |
+| `table-schema` | Canonical Row Hash capability declared semantic schema。 |
+| `scenario-input` | Conformance Harness scenario input projection/closure。 |
+| `scenario-fixture` | Conformance Harness complete fixture projection/closure。 |
+
+新 kind 必须由 payload semantic owner 提议、由 Shared Kernel登记；不得以未登记字符串临时计算正式 DigestRef。
+
 ```text
 row_frame =
   ULEB128(field_count) +
@@ -132,7 +146,9 @@ vnext/fixtures/vectors/shared-kernel/canonical-encoding/v1/
   invalid.jsonl
 ```
 
-`vector-set.json` 声明 owner、contract/version、closure 和 content digest。Case 使用稳定 `case_id`；valid case 固定 canonical bytes/digest，invalid case只固定 stable error code。Python、Rust、Repository 必须直接消费同一向量并比较完整 bytes；只比较最终 digest 不算通过。
+`vector-set.json`、四类 JSONL case、test-only logical/typed scalar representation、closure digest和stable invalid code的唯一 schema authority是 [Canonical Encoding Normative Vector Schema](canonical-encoding-normative-vector-schema.md)。Case 使用稳定 `case_id`；valid case固定canonical bytes/digest，invalid case只固定stable error code。Python、Rust、Repository必须直接消费同一向量并比较完整bytes；只比较最终digest不算通过。
+
+Test-only scalar representation不得成为production FFI contract。Canonical Row Hash capability如何把Arrow physical value映射到本文logical scalar，由其owning compute-boundary contract版本化；Arrow metadata不得反向改写本文语义。
 
 普通 CI 不生成或 bless vectors。Generator 只产 candidate diff；关键 bytes 经人工审查及至少两个独立实现验证。v1 已有 case 的 bytes、digest 或 success/error classification 改变必须发布 v2；由既有规则唯一推导的新增 case可保留 v1。
 
@@ -152,6 +168,8 @@ Module public：是。Persisted：作为 version/digest marker 被持久化。Wi
 
 ## 9. 关联文档
 
+- [Canonical Encoding Normative Vector Schema](canonical-encoding-normative-vector-schema.md)
+- [Canonical Row Hash Compute Boundary](canonical-row-hash-compute-boundary.md)
 - [Fixture Oracle and Conformance](fixture-oracle-and-conformance.md)
 - [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
 - [ADR 0005](../adr/0005-shared-canonical-encoding.md)

@@ -45,6 +45,7 @@
 - 初始 production route 可包含满足稳定 contract、language-neutral oracle 与 component evidence 的 Rust provider；后续 Rust coverage、并行、cache 和 provider 优化不能先于 accepted vNext baseline。
 - 性能结果只统计 validation passed 的运行。
 - 优化不能改变 canonical scalar、排序、digest、records 或 diagnostics 语义。
+- Backend vNext是偏业务系统，不追求极限性能；Rust使用必须遵守 [Rust Safety and Performance Policy](../policies/rust-safety-and-performance-policy.md)，第一方默认零unsafe、stable toolchain、无panic捷径，且没有证据时优先简单Safe Rust。
 
 ### 1.4 阶段门禁
 
@@ -55,7 +56,7 @@
 ```text
 Phase 0  Baseline and Oracle
     |
-Phase 1  Contracts and Architecture Skeleton
+Phase 1  Executable Contracts and Walking Skeleton
     |
 Phase 2  Repository Service Foundation
     |
@@ -124,53 +125,112 @@ Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-s
 - 不根据单次 benchmark 决定 Rust 或并行策略。
 - 不要求尚不存在的 production path 产生 numeric baseline，也不建立 legacy-vs-vNext performance report。
 
-## 4. Phase 1：Contracts and Architecture Skeleton
+## 4. Phase 1：Executable Contracts and Walking Skeleton
 
 ### 目标
 
-固定第一批实现真正需要的语言无关共享语义、所有权规则和依赖方向，通过一个可复用 walking skeleton 建立新代码隔离区和最小 bootstrap；不提前完成后续阶段的全部 contract 与框架。
+把第一批Accepted语义变成language-neutral、可离线校验、可跨语言执行的contract，并通过一条可复用的真实data walking skeleton建立新代码隔离区。Phase 1固定最小边界，不提前实现完整业务流程、Repository transport、Operation runtime或通用框架。
 
-本阶段实现 [Shared Canonical Encoding](../contracts/shared-canonical-encoding.md) 与 [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md) 的最小 executable skeleton。
+Normative owner文档：
+
+- [Shared Canonical Encoding](../contracts/shared-canonical-encoding.md) 与 [Canonical Encoding Normative Vector Schema](../contracts/canonical-encoding-normative-vector-schema.md)。
+- [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md)。
+- [Canonical Row Hash Compute Boundary](../contracts/canonical-row-hash-compute-boundary.md)。
+- [Rust Safety and Performance Policy](../policies/rust-safety-and-performance-policy.md)。
 
 ### 主要工作
 
-- 固定 Contract Taxonomy/Ownership 和 `canonical_encoding_version`：JCS、identifier、scalar、NULL、temporal、ordering、row/collection framing、domain-separated digest 与 FailureDescriptor primitive。
-- 建立 `vnext/fixtures/vectors/shared-kernel/canonical-encoding/v1/` normative vectors、scenario manifest schema 和最小 conformance runner/harness skeleton。
-- 只定义 walking skeleton 所需的最小跨边界 envelope：ArtifactRef、contract/version marker、operation/job reference、repository ID/ref/commit reference；完整内容由对应 owner 阶段补齐。
-- 建立实际会被 walking skeleton 使用的最小 package/crate，不预创建完整目标目录树和空模块。
-- 建立最小依赖检查：禁止旧业务模块 import、Domain 反向依赖和 capability 内部越界；不先建设通用架构分析框架。
-- 建立一条可复用 walking skeleton：Python facade -> Arrow/PyO3 -> Rust batch kernel -> ArtifactRef/diagnostics round-trip。
-- Rust interop 第一版只支持预定首个部署目标，验证 GIL release、panic/error mapping 和 wheel/image 构建；完整平台矩阵在 Rust production provider 阶段补齐。
-- 为 Phase 3 首批 Rust kernel 固定 scalar、ordering、digest、Arrow/Parquet schema，以及 Python/Rust/Repository 共同消费的 language-neutral oracle 约束。
-- 只补充会阻塞 Phase 2/3 开工的 ADR；Repository transport、Operation persistence 等可由对应阶段在实现前收口，不为一次性完成 Phase 1 而提前决策。
+- 发布canonical encoding v1 static vectors：Python与Rust提供两份独立实现；Repository consumer直接发现并逐case消费同一vector root，但可复用Shared Kernel Python package，不复制第三套算法。
+- 发布scenario manifest、golden envelope、runner/harness protocol/result/evidence schema v1；Phase 1使用Python in-process harness registry，runner固定lifecycle且唯一负责comparison/result。
+- 建立唯一正式kernel `canonical_row_hashes_v1`：一个Arrow C Stream + JCS request/result bytes；覆盖全部canonical scalar kinds的Arrow mapping v1，拒绝complex/large/dictionary/extension types。
+- Python facade只把`RecordBatch | Table | RecordBatchReader`包装为保留chunk的reader；禁止`to_pylist/to_pydict`、逐row/scalar FFI、任意Python generator和自动`combine_chunks()`。
+- Rust core负责canonical row hashes/sort/table digest，native compute期间释放GIL；Python ArtifactStore负责Arrow IPC与generic `ArtifactRef`，并分离raw IPC hash和semantic content digest。
+- 建立实际被walking skeleton使用的最小package/crate、architecture/import test和首个Linux x86_64 glibc release wheel/image路径；不预创建空目录树或未使用抽象。
+- 将`unsafe_code=forbid`和stable-toolchain/production-no-panic policy提升到整个first-party Rust workspace；PyO3/Arrow只通过third-party safe API接入。
+- 只发布一条真实walking-skeleton `data` scenario。Command/recovery shape与lifecycle使用schema/fake-harness contract tests，不伪造尚无owner/public entrypoint的业务scenario。
 
 ### 交付物
 
-- 最小 Python package/Rust crate bootstrap，且均被 walking skeleton 实际使用。
-- Shared canonical encoding contract/normative vectors、scenario manifest schema、最小 conformance skeleton 和 boundary envelopes。
-- 最小 architecture/import tests。
-- 可复用 Python/Rust/Arrow/Artifact walking skeleton，不建设一次性 throwaway demo。
-- 首个部署目标的 Rust 构建、失败映射和 component execution evidence。
-- Blocking decision register 与必要 ADR。
+- Shared canonical encoding v1 vector closure、schema/validator和Python/Rust/Repository consumers。
+- Scenario/golden/protocol/result/evidence schema与最小runner/harness skeleton。
+- `canonical_row_hashes_v1` Python facade、Rust core/PyO3 adapter、Arrow mapping/failure envelope和ArtifactRef round-trip。
+- Real data scenario及`reference | integration | provider-matrix` required profile evidence。
+- Architecture/import tests、首个平台wheel/container evidence、component structural-performance evidence和清空的blocking decision register。
+- Rust safety/performance policy的workspace lint、dependency inventory和release evidence。
+
+### Gate classes
+
+| Gate | 运行时机 | 失败效果 | Authority |
+| --- | --- | --- | --- |
+| `PR-CORRECTNESS` | 每个相关PR；离线、确定、无外部网络 | 禁止合入 | Schema/closure、vectors、runner contract、architecture、Python/Rust/Repository unit/conformance。 |
+| `PR-NATIVE` | 每个相关PR；Linux x86_64 glibc | 禁止合入 | Release wheel import、Arrow C Stream/PyO3、GIL/failure、artifact round-trip。 |
+| `PHASE-EXIT-CONTAINER` | Phase-exit candidate的exact commit | 禁止宣布Phase 1完成 | Pinned image、wheel-in-image、health/native smoke、Compose和immutable build identity/evidence。 |
+
+外部registry/network故障可以在phase ledger记为`BLOCKED`，但不是runner第五种status，也不是pass。Phase exit只接受同一commit/toolchain/lock identity的完整证据；`Partially verified`不能宣布完成。
+
+### Required scenario/profile matrix
+
+| Material | Reference | Integration | Provider matrix | Process-crash |
+| --- | --- | --- | --- | --- |
+| Canonical encoding vectors | Python全量 | Repository consumer全量 | Python/Rust逐bytes全量 | 不适用 |
+| Canonical row-hash data scenario | Python reference小场景全量 | Python facade→PyO3/Rust→IPC ArtifactRef/reopen | Python/Rust覆盖全部Arrow mapping cases | Phase 1不声明required |
+| Manifest/golden conformance samples | Data/command/recovery valid+invalid schema fixtures | 不伪造业务integration | 不适用 | 只测protocol/schema，不冒充真实crash |
+| Runner/harness self-tests | Fake owner固定lifecycle/result precedence | Real walking-skeleton harness | Support/observation comparison | Process-control protocol unit tests only |
+
+只有canonical-row-hash `data` scenario进入正式scenario oracle root，其`required_profiles[]`固定为`integration | provider-matrix | reference`。Required cell未执行、缺case、返回`UNSUPPORTED`或非`PASSED`都使suite/phase gate失败。
+
+### 验收矩阵
+
+| Area | Required assertions | Gate/evidence |
+| --- | --- | --- |
+| Schema/YAML | JSON Schema 2020-12；strict JSON-compatible YAML；unknown/duplicate/alias/tag/multi-doc/non-JSON scalar fail closed；presentation不改semantic identity | `PR-CORRECTNESS` |
+| Manifest identity/closure | ID/track/subject/path可逆；path escape/symlink/undeclared asset失败；size/raw/input/fixture digest及self-exclusion正确 | `PR-CORRECTNESS` |
+| Golden | Manifest/envelope binding完全一致；kind决定inline/closure；owner schema validation、canonical exact compare和digest重算 | `PR-CORRECTNESS` |
+| Vectors | Closure/case schema/ID/ordering/error registry有效；Python/Rust/Repository coverage set一致、zero skip；valid比完整bytes、invalid比stable code | `PR-CORRECTNESS` |
+| Runner authority | Registry与fixed lifecycle；harness看不到golden且只返回actual；observation exact set；runner唯一compare | `PR-CORRECTNESS` |
+| Result/cleanup | 四态result；`UNSUPPORTED`仅preflight；无automatic retry；cleanup泄漏覆盖final status但保留comparison outcome | `PR-CORRECTNESS` |
+| Asset/security boundary | Harness只能用verified resolver读declared closure；host path、secret、stack和provider-private object不进入protocol/golden | `PR-CORRECTNESS` |
+| Arrow mapping | 每个canonical scalar kind的positive/null/boundary case；24-bit integer、decimal/temporal/BIT/anomaly映射；unsupported physical type拒绝 | `PR-NATIVE` |
+| Stream determinism | Empty/one/multi-batch；batch partition、input row/field order不改formal result；duplicate row hashes保留 | `PR-NATIVE` |
+| FFI/materialization | One native call per stream；owned C Stream import/export；零Python row/list/dict materialization；无generator/combine-chunks慢路径 | `PR-NATIVE` + component evidence |
+| GIL/failure | Compute/sort/digest期间其他Python thread可进展；request/version/schema/value/type/panic failure映射稳定、`effect=NONE` | `PR-NATIVE` |
+| Rust safety | 所有first-party member继承`unsafe_code=forbid`且crate root防御性forbid；stable toolchain；production path无`unwrap/expect/panic/todo/unimplemented`；无local waiver | `PR-CORRECTNESS` + `PR-NATIVE` |
+| Rust FFI/dependencies | PyO3/Arrow只用safe API；无手写C/PyCapsule/raw Arrow FFI；新增native/build/proc-macro dependency有lock、safe-boundary和回退review | `PR-NATIVE` + dependency evidence |
+| Artifact | IPC write/reopen；size/raw hash/schema/sorted hashes/semantic digest全量复验；corrupt/truncated/mismatch拒绝 | `PR-NATIVE` |
+| Identity separation | Provider/chunking可以产生不同IPC raw bytes，但formal semantic digest必须相同 | `PR-NATIVE` |
+| Architecture/build | vNext不import legacy；Rust core不依赖PyO3/filesystem/ArtifactStore；adapter单向依赖core；locks/fmt/lint/type/unit/release wheel通过 | `PR-CORRECTNESS` + `PR-NATIVE` |
+| Container | Pinned toolchain/base、release wheel in image、health/native smoke、Compose config和build identity | `PHASE-EXIT-CONTAINER` |
+| Structural performance | 记录版本、规模/batches、GIL证据、Python materialization count、input/hash-sort/output IPC memory breakdown；不声明numeric收益 | `PR-NATIVE` artifact + phase ledger |
+| Optimization restraint | Phase 1无nightly、unsafe、hand-written SIMD/intrinsics、custom allocator、unchecked/raw-memory path、unbounded parallelism或microbenchmark-only architecture | `PR-CORRECTNESS` + `PR-NATIVE` |
+| Governance | Vector candidate人工byte review + 两个独立实现；普通CI不bless；owner/版本明确；blocking decisions清空 | Phase-exit review |
+
+Property/fuzz tests补充static vectors，覆盖frame/ULEB128/scalar boundary/permutation；固定seed/budget可进入PR gate，长时间fuzz campaign不是每PR阻塞项。
 
 ### 退出条件
 
-- 新入口可以启动且不 import 旧业务模块。
-- Phase 1 最小 contract 可以独立序列化、反序列化和版本检查；未实现模块只有 owner/边界说明，不伪造完整 DTO。
-- Python/Rust/Repository 对 canonical bytes、stable invalid code、Arrow schema 和 digest fixture 有一致解释。
-- 已证明 Python 可以通过粗粒度 PyO3/Arrow 调用 Rust，释放 GIL，并将受控 failure 映射为稳定 error/diagnostics。
-- Walking skeleton 产生的 artifact 可按 digest 校验并通过引用恢复。
-- 依赖违规会在 CI 中失败。
+Phase 1只在以下条件全部满足时完成：
+
+1. Exit commit的`PR-CORRECTNESS`与`PR-NATIVE`全部通过。
+2. `PHASE-EXIT-CONTAINER`在同一commit/toolchain/lock identity通过并保存immutable evidence。
+3. Required matrix全部`PASSED`，无required `UNSUPPORTED`、missing run或retry覆盖。
+4. Python/Rust两份独立实现通过全部vectors，Repository直接通过同一root。
+5. Walking-skeleton artifact可按ref恢复并重新验证raw/semantic identity。
+6. 现有doubling/`to_pylist()` demo不再是public/formal path；若保留只能标注bootstrap evidence。
+7. Blocking register为空；无`UNRESOLVED`、formal内部冲突或未分配owner。
+8. 本阶段规则已按ownership写入formal；temporary讨论材料保留并标记Resolved。
+9. Rust workspace、release wheel和container evidence全部满足cross-stage Rust safety/performance policy。
+
+Phase exit不接受semantic waiver、`xfail`、advisory-only required lane、临时减少vector/profile coverage或以网络不可用代替通过。
 
 ### 本阶段不做
 
-- 不提前建立通用 workflow/DAG framework。
-- 不创建 `common`、`helpers`、`utils` 作为未归属代码容器。
-- 不一次性设计所有 HTTP、Repository、Operation 和 capability 完整 contract；它们由对应 owner 阶段按真实调用方收口。
-- 不建立未被首个纵切使用的 schema registry、codegen pipeline、provider registry 和 adapter hierarchy。
-- 不预创建完整目标目录树和空 package。
-- 不为 Phase 1 验收构建完整 OS/architecture wheel matrix。
-- 不实现完整业务流程。
+- 完整OS/architecture wheel matrix。
+- 真实process-crash/takeover journey。
+- Numeric throughput/latency baseline或Rust收益声明。
+- Rayon/parallel、timeout/cancel、external sort、SIMD、Parquet、独立Rust worker/service。
+- Nightly、first-party unsafe、手写intrinsic/custom allocator/raw-memory优化或任何临时safety waiver。
+- Phase 2 Repository transport/Dolt integration、完整业务command/recovery流程。
+- 通用workflow/DAG、schema registry/codegen、dynamic provider/plugin hierarchy、未使用目录树或无owner的`common/helpers/utils`。
 
 ## 5. Phase 2：Repository Service Foundation
 

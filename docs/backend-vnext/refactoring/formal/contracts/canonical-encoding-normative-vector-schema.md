@@ -181,8 +181,8 @@ source-literal-anomaly
 Conditional fields：
 
 - Integer：`bits: 8 | 16 | 24 | 32 | 64`；只用于 width/range validation，payload仍为固定 8 bytes。
-- Decimal：`precision`、`scale` 为非负 safe integer，且满足 owner-supported MySQL range。
-- Bit：`bit_width` 为正 safe integer。
+- Decimal：`precision` 为 `1..=65`、`scale` 为 `0..=30`且`scale <= precision`，镜像 Shared Canonical Encoding v1 的owner-declared MySQL range。
+- Bit：`bit_width` 为 `1..=64`，镜像 Shared Canonical Encoding v1 的`BIT(n)` range。
 - 其余 kind 禁止额外 type field。
 
 ### 7.2 Test-only source union

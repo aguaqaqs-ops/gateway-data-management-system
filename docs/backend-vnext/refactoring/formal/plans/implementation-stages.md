@@ -138,6 +138,8 @@ Normative owner文档：
 - [Canonical Row Hash Compute Boundary](../contracts/canonical-row-hash-compute-boundary.md)。
 - [Rust Safety and Performance Policy](../policies/rust-safety-and-performance-policy.md)。
 
+WP0–WP2的package/crate拓扑、依赖接入时点、candidate-to-normative发布流程和可执行gate见[Phase 1 Implementation Design and Delivery Plan](phase-1-implementation-design-and-delivery-plan.md)。该计划只拥有实施顺序与工程边界；canonical byte/schema语义仍以本节列出的owner contract为准。
+
 ### 主要工作
 
 - 发布canonical encoding v1 static vectors：Python与Rust提供两份独立实现；Repository consumer直接发现并逐case消费同一vector root，但可复用Shared Kernel Python package，不复制第三套算法。

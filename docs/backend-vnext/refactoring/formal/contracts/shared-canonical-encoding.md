@@ -53,6 +53,8 @@ ULEB128 必须最短；规范最大 payload length 为 `2^63-1`，实现可用�
 
 Integer 由 column schema 校验 width/signedness；`+`、leading zero 和 `-0` 归一为同一数值，越界失败。Decimal 禁止 exponent/`+`，删除冗余整数 leading zero 和小数 trailing zero，小于 1 时补整数 `0`，负零为 `0`；precision/scale 属于 schema digest，不进入 value payload。Float 按声明宽度 round-to-nearest ties-to-even；float32 先舍入为 binary32；负零变正零，subnormal 保留，NaN/Infinity 失败。
 
+v1 owner-declared numeric width固定为：signed/unsigned integer `8 | 16 | 24 | 32 | 64` bits；MySQL decimal precision `1..=65`、scale `0..=30`且`scale <= precision`；`BIT(n)` width `1..=64`。范围依据[MySQL DECIMAL characteristics](https://dev.mysql.com/doc/refman/8.4/en/precision-math-decimal-characteristics.html)与[MySQL numeric type syntax](https://dev.mysql.com/doc/refman/8.4/en/numeric-type-syntax.html)。这些是logical declared-type校验边界；Arrow provider可表达的更宽物理类型不会自动扩大canonical logical range。
+
 String 不 trim、case-fold 或 normalize；非法 UTF-8、surrogate/noncharacter 不可静默替换。Binary 原样保存。
 
 `DATE/DATETIME` 是 civil value；`DATETIME` 不转 UTC。`TIMESTAMP` encoder 只接受已解析 UTC instant，不读取机器 timezone/tzdb。`TIME` 是可负、可超过 24 小时的 MySQL duration（上限 838 小时）；0–99 hours 使用两位，100–838 使用三位，negative zero 变正零。Fraction 最多六位、去尾零，全零则省略。zero/incomplete date、leap second 和越界值只能成为 owner 允许的 anomaly 或 hard failure。Application/operation timestamp 不使用 table scalar tag，其 public contract 使用 RFC 3339 UTC instant。

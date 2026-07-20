@@ -13,6 +13,7 @@
 
 - [Architecture and Refactoring Plan](architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](plans/implementation-stages.md)
+- [Phase 1 Implementation Design and Delivery Plan](plans/phase-1-implementation-design-and-delivery-plan.md)
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)

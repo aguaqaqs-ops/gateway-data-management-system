@@ -199,7 +199,7 @@ Conditional fields：
 {"kind": "raw-logical-literal", "bytes_base64url": "AAE"}
 ```
 
-它表示 SQL unquote/unescape 后、type coercion 前的 logical literal；原 SQL token 不进入 vector input。
+它表示 SQL unquote/unescape 后、type coercion 前的 logical literal；原 SQL token 不进入 vector input。UTF-8/raw literal 的语言中立 grammar、允许集与 stable failure code 由 [Shared Canonical Encoding](shared-canonical-encoding.md) §3.1 唯一拥有；vector schema 不得另行放宽。
 
 ### 7.3 Typed value union
 
@@ -215,7 +215,7 @@ Conditional fields：
 | `string` | `text`。 |
 | `binary` / `bit` | `bytes_base64url`。 |
 | `date` / `datetime` / `timestamp` / `time-duration` | `text`，使用 Shared Contract 的 language-neutral typed textual form。 |
-| `source-literal-anomaly` | `envelope` JSON object。 |
+| `source-literal-anomaly` | 闭合 `envelope` object，shape 由 Shared Canonical Encoding v1 与本文 `anomalyEnvelope` schema 固定（四字段、`additionalProperties=false`、`declared_type` 为完整 DeclaredType descriptor）。 |
 
 Typed representation只用于 oracle input；production Arrow mapping 由 Canonical Row Hash Compute Boundary 拥有。
 
@@ -282,6 +282,7 @@ Invalid-only operation额外包含 `validate-scalar-frame`。v1 stable code regi
 CANONICAL_INVALID_UTF8
 CANONICAL_INVALID_UNICODE
 CANONICAL_UNICODE_NONCHARACTER
+CANONICAL_JCS_SYNTAX_INVALID
 CANONICAL_JCS_DUPLICATE_MEMBER
 CANONICAL_JCS_NUMBER_OUT_OF_RANGE
 CANONICAL_JCS_NON_FINITE_NUMBER

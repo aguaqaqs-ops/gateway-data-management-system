@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.canonical-encoding.invalid-case.v1",
+  "title": "Canonical Encoding Invalid Case v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_schema_version",
+    "case_id",
+    "operation",
+    "input",
+    "expected_error"
+  ],
+  "properties": {
+    "case_schema_version": {
+      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/caseSchemaVersion"
+    },
+    "case_id": {
+      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/caseId"
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "canonicalize-jcs",
+        "normalize-logical-literal",
+        "encode-typed-scalar",
+        "canonicalize-identifier",
+        "encode-row",
+        "encode-collection",
+        "semantic-digest",
+        "raw-blob-digest",
+        "validate-scalar-frame"
+      ]
+    },
+    "input": { "type": "object" },
+    "expected_error": {
+      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/expectedError"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "operation": { "const": "canonicalize-jcs" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["json_utf8_base64url"],
+            "properties": {
+              "json_utf8_base64url": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "normalize-logical-literal" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["declared_type", "source"],
+            "properties": {
+              "declared_type": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/declaredType"
+              },
+              "source": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/logicalLiteralSource"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "encode-typed-scalar" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/typedScalarInput"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "canonicalize-identifier" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["identifier"],
+            "properties": {
+              "identifier": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "encode-row" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["fields"],
+            "properties": {
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "declared_type", "typed_value"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "declared_type": {
+                      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/declaredType"
+                    },
+                    "typed_value": {
+                      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/typedValue"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "encode-collection" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["semantics"],
+            "properties": {
+              "semantics": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/collectionSemantics"
+              },
+              "items_base64url": {
+                "type": "array",
+                "items": {
+                  "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+                }
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["key_base64url", "value_base64url"],
+                  "properties": {
+                    "key_base64url": {
+                      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+                    },
+                    "value_base64url": {
+                      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "semantic-digest" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["digest_kind", "canonical_payload_base64url"],
+            "properties": {
+              "digest_kind": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/digestKind"
+              },
+              "canonical_payload_base64url": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "raw-blob-digest" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["raw_bytes_base64url"],
+            "properties": {
+              "raw_bytes_base64url": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "validate-scalar-frame" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["frame_base64url"],
+            "properties": {
+              "frame_base64url": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

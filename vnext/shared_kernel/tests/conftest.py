@@ -1,0 +1,1 @@
+"""Pytest configuration for gateway-shared-kernel."""

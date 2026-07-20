@@ -24,6 +24,8 @@ JSON-compatible DTO、manifest 和 digest payload 使用 RFC 8785 JCS。输入�
 
 JSON integer 限于 `[-(2^53)+1, (2^53)-1]`。`uint64`、高精度 decimal、binary 和 table temporal 必须使用 schema-declared string/typed representation。NaN、Infinity、duplicate key、lone surrogate、Unicode noncharacter 和 unknown field fail closed。Pretty JSON 在 equality/digest 前必须 schema validate 并转为 JCS bytes。
 
+JCS 输入在严格 UTF-8 解码后必须是语法合法的 JSON text。语法非法（截断、非法 token、trailing garbage 等）稳定失败为 `CANONICAL_JCS_SYNTAX_INVALID`；不得映射为 `CANONICAL_INVALID_UNICODE`。Duplicate member、I-JSON number 越界与 non-finite 仍使用既有 JCS number/duplicate codes。
+
 ## 3. Typed scalar frame
 
 ```text
@@ -59,7 +61,44 @@ String 不 trim、case-fold 或 normalize；非法 UTF-8、surrogate/noncharacte
 
 `DATE/DATETIME` 是 civil value；`DATETIME` 不转 UTC。`TIMESTAMP` encoder 只接受已解析 UTC instant，不读取机器 timezone/tzdb。`TIME` 是可负、可超过 24 小时的 MySQL duration（上限 838 小时）；0–99 hours 使用两位，100–838 使用三位，negative zero 变正零。Fraction 最多六位、去尾零，全零则省略。zero/incomplete date、leap second 和越界值只能成为 owner 允许的 anomaly 或 hard failure。Application/operation timestamp 不使用 table scalar tag，其 public contract 使用 RFC 3339 UTC instant。
 
-Anomaly envelope 至少包含 `declared_type`、无 padding base64url `raw_base64url`、`raw_encoding` 和 stable owner-defined `reason`。Raw bytes 是 SQL unquote/unescape 后、type coercion 前的 logical literal；原始 SQL token 由 SourcePackageArtifact 保存。
+v1 anomaly envelope 是闭合 object，恰好包含以下四个字段且 `additionalProperties` 禁止：
+
+| Field | Rule |
+| --- | --- |
+| `declared_type` | 完整 DeclaredType descriptor object（与 vector schema `declaredType` 同形），不得用裸字符串；须保留 integer bits、decimal precision/scale、BIT width。 |
+| `raw_base64url` | 无 padding base64url；字符集合法、不含 `=`、长度可解码，且 decode 后再 encode 与原串逐字符相等。 |
+| `raw_encoding` | 非空 Unicode 字符串。 |
+| `reason` | 非空 Unicode 字符串；stable owner-defined reason。 |
+
+整个 envelope 必须是严格 JSON-compatible tree（仅 `null` / `bool` / 有限 number / `string` / `array` / `object`；object key 必须是 string）。非法嵌套或宿主非 JSON 类型稳定失败为 `CANONICAL_ANOMALY_INVALID`。Raw bytes 是 SQL unquote/unescape 后、type coercion 前的 logical literal；原始 SQL token 由 SourcePackageArtifact 保存。扩展字段留给后续 canonical encoding / vector-schema 版本，v1 不得接受未知字段。
+
+### 3.1 Logical literal grammar（语言中立）
+
+`normalize-logical-literal` 的 UTF-8 / raw logical literal 在 type coercion 前必须满足本节 grammar。实现不得以宿主 `float()`、`isdigit()`、`\d` 或 locale-aware API 作为 grammar authority；必须使用显式 ASCII 规则。所有 digit 只能是 ASCII `0-9`；禁止任何 whitespace、underscore、全角数字或其他 Unicode Nd。
+
+| Kind | UTF-8 literal 允许集 | Raw literal 允许集 | Lexical failure code |
+| --- | --- | --- | --- |
+| `null` | 恰好 `""` 或 `null` | 恰好空 bytes | `CANONICAL_TYPE_MISMATCH` |
+| `boolean` | 恰好 `true` / `false` / `0` / `1`（大小写敏感） | 恰好单字节 `0x00` / `0x01` | `CANONICAL_TYPE_MISMATCH` |
+| signed/unsigned integer | 可选前导 `+`/`-`（unsigned 禁止 `-`），其后为 ASCII digits；允许 leading zero；禁止空白与 `_` | 与 UTF-8 相同（先严格 UTF-8 解码） | 空/非 digit → `CANONICAL_TYPE_MISMATCH`；越界 → `CANONICAL_INTEGER_OUT_OF_RANGE` |
+| `decimal` | 可选前导 `-`；整数与可选小数点分数；禁止 `+`、exponent、空白与 `_` | 同上 | `CANONICAL_DECIMAL_INVALID` |
+| `float32` / `float64` | 见下方 float grammar | 同上 | grammar 失败 → `CANONICAL_TYPE_MISMATCH`；NaN/Infinity/overflow-to-nonfinite → `CANONICAL_FLOAT_NON_FINITE` |
+| temporal kinds | 既有 textual form，且所有 digit 为 ASCII `0-9` | 同上 | `CANONICAL_TEMPORAL_INVALID` 或 `CANONICAL_TIME_OUT_OF_RANGE` |
+
+Float grammar（整段匹配，无前后空白）：
+
+```text
+float_literal =
+  [+-]? (
+      [0-9]+ ('.' [0-9]*)?
+    | '.' [0-9]+
+  )
+  ([eE][+-]?[0-9]+)?
+```
+
+Float 解析后按声明宽度 round-to-nearest ties-to-even。若舍入/packing 后变为非有限（含超出 binary32/binary64 有限范围），稳定失败为 `CANONICAL_FLOAT_NON_FINITE`；v1 不另增 float-range code。Integer/decimal/float 在解析前施加资源上限：digit 主体长度不得超过声明宽度所需最大十进制位数加上固定 leading-zero budget（实现固定为 16）；超长 → 对应 `TYPE_MISMATCH` / `DECIMAL_INVALID` / `TYPE_MISMATCH`。
+
+Typed encoder 入口必须校验底层宿主值的精确运行时类型（例如 boolean 必须是语言布尔，不得接受整数 `1`）；失败映射 `CANONICAL_TYPE_MISMATCH`。
 
 ## 4. CanonicalIdentifier
 

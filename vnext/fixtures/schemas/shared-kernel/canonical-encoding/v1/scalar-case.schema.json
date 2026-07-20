@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.canonical-encoding.scalar-case.v1",
+  "title": "Canonical Encoding Scalar Case v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_schema_version",
+    "case_id",
+    "operation",
+    "input",
+    "expected"
+  ],
+  "properties": {
+    "case_schema_version": {
+      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/caseSchemaVersion"
+    },
+    "case_id": {
+      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/caseId"
+    },
+    "operation": {
+      "type": "string",
+      "enum": ["normalize-logical-literal", "encode-typed-scalar"]
+    },
+    "input": { "type": "object" },
+    "expected": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "operation": { "const": "normalize-logical-literal" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["declared_type", "source"],
+            "properties": {
+              "declared_type": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/declaredType"
+              },
+              "source": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/logicalLiteralSource"
+              }
+            }
+          },
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "typed_value",
+              "payload_base64url",
+              "scalar_frame_base64url"
+            ],
+            "properties": {
+              "typed_value": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/typedValue"
+              },
+              "payload_base64url": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+              },
+              "scalar_frame_base64url": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "encode-typed-scalar" } },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/typedScalarInput"
+          },
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["payload_base64url", "scalar_frame_base64url"],
+            "properties": {
+              "payload_base64url": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+              },
+              "scalar_frame_base64url": {
+                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

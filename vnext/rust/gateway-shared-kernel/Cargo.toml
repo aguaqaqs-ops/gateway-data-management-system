@@ -1,0 +1,16 @@
+[package]
+name = "gateway-shared-kernel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Independent Shared Canonical Encoding primitives (Safe Rust)"
+
+[lib]
+name = "gateway_shared_kernel"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true

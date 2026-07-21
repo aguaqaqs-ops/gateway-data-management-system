@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! R5 integration test: load candidate vector set, validate closure, dispatch all cases.
+//! R5/R6 integration test: load normative vector set, validate closure, dispatch all cases.
 
 mod support;
 
@@ -8,9 +8,8 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use support::{
-    candidate::generate_python_candidate,
     closure::{case_ids_from_root, validate_vector_set},
-    temp_dir::TempDirGuard,
+    paths::normative_vector_root,
     vector_root::{
         VECTOR_ROOT_ENV, VectorRootError, resolve_vector_root_from_env,
         resolve_vector_root_from_path,
@@ -18,14 +17,13 @@ use support::{
 };
 
 #[test]
-fn rust_vector_conformance_matches_python_candidate() -> Result<(), String> {
-    let harness = resolve_vector_root_for_test()?;
-    let root = &harness.root;
-    let manifest = validate_vector_set(root, true)
+fn rust_vector_conformance_matches_normative_root() -> Result<(), String> {
+    let root = resolve_vector_root_for_test()?;
+    let manifest = validate_vector_set(&root, true)
         .map_err(|error| format!("vector set validation failed: {error}"))?;
 
-    let case_ids =
-        case_ids_from_root(root).map_err(|error| format!("failed to collect case ids: {error}"))?;
+    let case_ids = case_ids_from_root(&root)
+        .map_err(|error| format!("failed to collect case ids: {error}"))?;
     if case_ids.is_empty() {
         return Err("vector set must contain at least one case".to_string());
     }
@@ -56,28 +54,13 @@ fn rust_vector_conformance_matches_python_candidate() -> Result<(), String> {
     Ok(())
 }
 
-fn resolve_vector_root_for_test() -> Result<VectorRootHarness, String> {
+fn resolve_vector_root_for_test() -> Result<PathBuf, String> {
     match resolve_vector_root_from_env() {
-        Ok(root) => Ok(VectorRootHarness { root, _temp: None }),
-        Err(VectorRootError::EnvNotSet) => {
-            let temp = TempDirGuard::new("gateway-shared-kernel-candidate")?;
-            let candidate_dir = temp.path().join("candidate");
-            generate_python_candidate(&candidate_dir)
-                .map_err(|error| format!("failed to generate python candidate: {error}"))?;
-            let root = resolve_vector_root_from_path(&candidate_dir)
-                .map_err(|error| format!("failed to resolve generated candidate root: {error}"))?;
-            Ok(VectorRootHarness {
-                root,
-                _temp: Some(temp),
-            })
-        }
+        Ok(root) => Ok(root),
+        Err(VectorRootError::EnvNotSet) => resolve_vector_root_from_path(normative_vector_root())
+            .map_err(|error| format!("normative vector root resolution failed: {error}")),
         Err(error) => Err(format!("explicit vector root resolution failed: {error}")),
     }
-}
-
-struct VectorRootHarness {
-    root: PathBuf,
-    _temp: Option<TempDirGuard>,
 }
 
 #[test]

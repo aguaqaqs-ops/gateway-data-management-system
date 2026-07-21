@@ -15,6 +15,10 @@ def _utf8(text: str) -> dict[str, Any]:
     return {"kind": "utf8-logical-literal", "text": text}
 
 
+def _raw(data: bytes) -> dict[str, Any]:
+    return {"kind": "raw-logical-literal", "bytes_base64url": encode_base64url(data)}
+
+
 def _signed(bits: int) -> dict[str, Any]:
     return {"kind": "signed-integer", "bits": bits}
 
@@ -439,6 +443,26 @@ def scalar_seeds() -> list[CaseSeed]:
                 expected_error="CANONICAL_DECIMAL_INVALID",
             ),
             CaseSeed(
+                case_id="invalid.scalar.decimal.precision-exceeds",
+                bucket="invalid",
+                operation="normalize-logical-literal",
+                input={
+                    "declared_type": {"kind": "decimal", "precision": 10, "scale": 2},
+                    "source": _utf8("123456789.01"),
+                },
+                expected_error="CANONICAL_DECIMAL_INVALID",
+            ),
+            CaseSeed(
+                case_id="invalid.scalar.decimal.scale-exceeds",
+                bucket="invalid",
+                operation="normalize-logical-literal",
+                input={
+                    "declared_type": {"kind": "decimal", "precision": 10, "scale": 2},
+                    "source": _utf8("1.123"),
+                },
+                expected_error="CANONICAL_DECIMAL_INVALID",
+            ),
+            CaseSeed(
                 case_id="invalid.scalar.float32.nonfinite",
                 bucket="invalid",
                 operation="normalize-logical-literal",
@@ -496,6 +520,26 @@ def scalar_seeds() -> list[CaseSeed]:
                     },
                 },
                 expected_error="CANONICAL_ANOMALY_INVALID",
+            ),
+            CaseSeed(
+                case_id="invalid.scalar.string.invalid-utf8",
+                bucket="invalid",
+                operation="normalize-logical-literal",
+                input={
+                    "declared_type": {"kind": "string"},
+                    "source": _raw(b"\xff"),
+                },
+                expected_error="CANONICAL_INVALID_UTF8",
+            ),
+            CaseSeed(
+                case_id="invalid.scalar.string.noncharacter",
+                bucket="invalid",
+                operation="normalize-logical-literal",
+                input={
+                    "declared_type": {"kind": "string"},
+                    "source": _raw("\uFFFF".encode("utf-8")),
+                },
+                expected_error="CANONICAL_UNICODE_NONCHARACTER",
             ),
         ]
     )

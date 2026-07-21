@@ -55,16 +55,18 @@ cd "${RUST_ROOT}"
 
 export CARGO_NET_OFFLINE=true
 
-VECTOR_CANDIDATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gateway-vector-candidate.XXXXXX")"
-cleanup_vector_candidate() {
-  rm -rf "${VECTOR_CANDIDATE_DIR}"
-}
-trap cleanup_vector_candidate EXIT
+NORMATIVE_VECTOR_ROOT="${VNEXT_ROOT}/fixtures/vectors/shared-kernel/canonical-encoding/v1"
+if [[ ! -d "${NORMATIVE_VECTOR_ROOT}" ]]; then
+  echo "missing normative vector root: ${NORMATIVE_VECTOR_ROOT}" >&2
+  exit 1
+fi
 
 cd "${SHARED_KERNEL_ROOT}"
-echo "==> shared_kernel: generate ephemeral vector candidate for Rust conformance"
-uv run --offline --no-sync python -m gateway_shared_kernel.testing generate "${VECTOR_CANDIDATE_DIR}"
-export GATEWAY_SHARED_KERNEL_VECTOR_ROOT="${VECTOR_CANDIDATE_DIR}"
+echo "==> shared_kernel: validate normative vector set"
+uv run --offline --no-sync python -m gateway_shared_kernel.testing validate \
+  "${NORMATIVE_VECTOR_ROOT}"
+
+export GATEWAY_SHARED_KERNEL_VECTOR_ROOT="${NORMATIVE_VECTOR_ROOT}"
 
 cd "${RUST_ROOT}"
 

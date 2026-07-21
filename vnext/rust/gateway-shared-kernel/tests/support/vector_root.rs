@@ -79,12 +79,27 @@ impl std::error::Error for VectorRootError {
 /// Resolve a vector root from an explicit path argument.
 ///
 /// Symlink ancestors are rejected on the requested path before canonicalization.
+/// Relative paths are resolved against the process cwd first; if that fails, they
+/// are retried against the Rust workspace root (`vnext/rust`) so gate scripts can
+/// export paths like `../fixtures/vectors/...` from the workspace directory while
+/// `cargo test` runs with the member crate as cwd.
 pub fn resolve_vector_root_from_path(path: impl AsRef<Path>) -> Result<PathBuf, VectorRootError> {
     let requested = path.as_ref();
     if requested.as_os_str().is_empty() {
         return Err(VectorRootError::EmptyPath);
     }
 
+    match resolve_existing_vector_root(requested) {
+        Ok(resolved) => Ok(resolved),
+        Err(VectorRootError::NotFound(_)) if requested.is_relative() => {
+            let rust_workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+            resolve_existing_vector_root(&rust_workspace.join(requested))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn resolve_existing_vector_root(requested: &Path) -> Result<PathBuf, VectorRootError> {
     assert_no_symlink_ancestors(requested, "vector root").map_err(map_fs_safety_error)?;
 
     let metadata = match fs::metadata(requested) {

@@ -23,6 +23,12 @@ _REQUIRED_CASE_IDS: frozenset[str] = frozenset(
         "scalar.float64.subnormal",
         "scalar.float64.rounding-boundary",
         "invalid.scalar.float64.nonfinite",
+        # Decimal invalid precision/scale
+        "invalid.scalar.decimal.precision-exceeds",
+        "invalid.scalar.decimal.scale-exceeds",
+        # Scalar text invalid Unicode
+        "invalid.scalar.string.invalid-utf8",
+        "invalid.scalar.string.noncharacter",
         # ULEB128 length transition + overflow
         "scalar.frame.uleb128.length-127",
         "scalar.frame.uleb128.length-128",

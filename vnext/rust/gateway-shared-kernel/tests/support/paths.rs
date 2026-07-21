@@ -54,3 +54,9 @@ pub fn schema_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/schemas/shared-kernel/canonical-encoding/v1")
 }
+
+/// Fixed normative vector root published in the repository (WP2 R6).
+pub fn normative_vector_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/vectors/shared-kernel/canonical-encoding/v1")
+}

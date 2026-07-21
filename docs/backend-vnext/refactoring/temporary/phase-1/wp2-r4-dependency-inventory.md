@@ -72,9 +72,7 @@ sha2 v0.11.0
 
 ## 3. 计划依赖（仍未为本步入 lock）
 
-| Crate | 计划版本 | 预期首次使用 | 用途 |
-| --- | --- | --- | --- |
-| `base64` | `0.22.1` | R5（dev / integration-test only） | fixture `base64url` decode |
+无。R5 已引入 `base64==0.22.1`（dev-only）；见 `wp2-r5-dependency-inventory.md`。
 
 ## 4. Production 禁止依赖（整段 WP2）
 

@@ -7,7 +7,7 @@ mod support;
 use std::fs;
 use std::path::PathBuf;
 
-use support::{
+use support::vector_root::{
     VECTOR_ROOT_ENV, VectorRootError, resolve_vector_root_from_env,
     resolve_vector_root_from_os_var, resolve_vector_root_from_path,
 };
@@ -81,6 +81,7 @@ fn resolve_from_env_wrapper_returns_typed_result() -> Result<(), String> {
         Err(
             VectorRootError::EnvNotSet
             | VectorRootError::EnvEmpty
+            | VectorRootError::Symlink(_)
             | VectorRootError::NotFound(_)
             | VectorRootError::NotDirectory(_)
             | VectorRootError::Io { .. },

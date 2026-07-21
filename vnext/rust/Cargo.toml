@@ -20,6 +20,8 @@ serde_json = { version = "=1.0.150", features = ["float_roundtrip"] }
 serde_json_canonicalizer = "=0.3.2"
 sha2 = { version = "=0.11.0", default-features = false }
 thiserror = "=2.0.18"
+base64 = "=0.22.1"
+jsonschema = { version = "=0.48.2", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

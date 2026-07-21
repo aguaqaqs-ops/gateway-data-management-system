@@ -55,6 +55,19 @@ cd "${RUST_ROOT}"
 
 export CARGO_NET_OFFLINE=true
 
+VECTOR_CANDIDATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gateway-vector-candidate.XXXXXX")"
+cleanup_vector_candidate() {
+  rm -rf "${VECTOR_CANDIDATE_DIR}"
+}
+trap cleanup_vector_candidate EXIT
+
+cd "${SHARED_KERNEL_ROOT}"
+echo "==> shared_kernel: generate ephemeral vector candidate for Rust conformance"
+uv run --offline --no-sync python -m gateway_shared_kernel.testing generate "${VECTOR_CANDIDATE_DIR}"
+export GATEWAY_SHARED_KERNEL_VECTOR_ROOT="${VECTOR_CANDIDATE_DIR}"
+
+cd "${RUST_ROOT}"
+
 echo "==> cargo fmt --check"
 cargo fmt --check
 

@@ -12,7 +12,7 @@
 //! Hard rules:
 //! - Path enters Rust **only** through integration-test support.
 //! - Production `gateway_shared_kernel` must not read env, filesystem, or this module.
-//! - Full JSONL loader / case dispatcher is deferred to R5; R1 only fixes discovery.
+//! - Symlink ancestors are rejected **before** canonicalization.
 
 use std::env;
 use std::ffi::OsStr;
@@ -20,6 +20,8 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+
+use super::fs_safety::{FsSafetyError, assert_no_symlink_ancestors};
 
 /// Environment variable used by the harness to pass a vector root into Rust tests.
 ///
@@ -33,6 +35,7 @@ pub enum VectorRootError {
     EmptyPath,
     EnvNotSet,
     EnvEmpty,
+    Symlink(PathBuf),
     NotFound(PathBuf),
     NotDirectory(PathBuf),
     Io { path: PathBuf, source: io::Error },
@@ -44,6 +47,11 @@ impl fmt::Display for VectorRootError {
             Self::EmptyPath => f.write_str("vector root path is empty"),
             Self::EnvNotSet => write!(f, "environment variable {VECTOR_ROOT_ENV} is not set"),
             Self::EnvEmpty => write!(f, "environment variable {VECTOR_ROOT_ENV} is empty"),
+            Self::Symlink(path) => write!(
+                f,
+                "refusing vector root that involves symlink path {}",
+                path.display()
+            ),
             Self::NotFound(path) => write!(f, "vector root does not exist: {}", path.display()),
             Self::NotDirectory(path) => {
                 write!(f, "vector root is not a directory: {}", path.display())
@@ -70,13 +78,14 @@ impl std::error::Error for VectorRootError {
 
 /// Resolve a vector root from an explicit path argument.
 ///
-/// Symlink policy and closure validation are owned by the R5 loader; this
-/// function only requires an existing directory.
+/// Symlink ancestors are rejected on the requested path before canonicalization.
 pub fn resolve_vector_root_from_path(path: impl AsRef<Path>) -> Result<PathBuf, VectorRootError> {
     let requested = path.as_ref();
     if requested.as_os_str().is_empty() {
         return Err(VectorRootError::EmptyPath);
     }
+
+    assert_no_symlink_ancestors(requested, "vector root").map_err(map_fs_safety_error)?;
 
     let metadata = match fs::metadata(requested) {
         Ok(metadata) => metadata,
@@ -116,4 +125,16 @@ pub fn resolve_vector_root_from_os_var(value: Option<&OsStr>) -> Result<PathBuf,
 /// Resolve a vector root from [`VECTOR_ROOT_ENV`].
 pub fn resolve_vector_root_from_env() -> Result<PathBuf, VectorRootError> {
     resolve_vector_root_from_os_var(env::var_os(VECTOR_ROOT_ENV).as_deref())
+}
+
+fn map_fs_safety_error(error: FsSafetyError) -> VectorRootError {
+    match error {
+        FsSafetyError::Symlink { path, .. } => VectorRootError::Symlink(path),
+        FsSafetyError::Io { path, source } => VectorRootError::Io { path, source },
+        FsSafetyError::NotRegularFile { path, label }
+        | FsSafetyError::NotRegularDirectory { path, label } => VectorRootError::Io {
+            path,
+            source: io::Error::new(io::ErrorKind::InvalidInput, label),
+        },
+    }
 }

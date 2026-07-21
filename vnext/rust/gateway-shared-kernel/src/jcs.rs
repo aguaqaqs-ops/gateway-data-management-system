@@ -57,9 +57,6 @@ pub fn canonicalize_jcs(json_utf8: &[u8]) -> Result<Vec<u8>, CanonicalEncodingEr
 }
 
 /// Canonicalize an already-parsed JSON-compatible value (crate-internal helper).
-///
-/// Reserved for typed-value / R3 consumers that already hold a `serde_json::Value`.
-#[allow(dead_code)]
 pub(crate) fn canonicalize_json_value(value: &Value) -> Result<Vec<u8>, CanonicalEncodingError> {
     validate_unicode_tree(value)?;
     validate_ijson_numbers(value)?;

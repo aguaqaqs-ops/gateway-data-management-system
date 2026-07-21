@@ -21,8 +21,9 @@ impl TypeConstructionError {
 
 /// Closed declared-type registry, Rust-idiomatic enum form.
 ///
-/// Width / precision / scale range checks belong to R3-3A; R1 only fixes the
-/// public shape and module boundary.
+/// Prefer the validated constructors below. Direct variant construction is
+/// possible for pattern matching, but [`DeclaredType::validate`] / normalize
+/// reject out-of-range widths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclaredType {
     Null,
@@ -40,6 +41,160 @@ pub enum DeclaredType {
     Timestamp,
     TimeDuration,
     SourceLiteralAnomaly,
+}
+
+const INTEGER_BITS: &[u8] = &[8, 16, 24, 32, 64];
+
+impl DeclaredType {
+    pub fn null() -> Self {
+        Self::Null
+    }
+
+    pub fn boolean() -> Self {
+        Self::Boolean
+    }
+
+    pub fn signed_integer(bits: u8) -> Result<Self, TypeConstructionError> {
+        if !INTEGER_BITS.contains(&bits) {
+            return Err(TypeConstructionError::new(
+                "integer declared type requires bits in {8,16,24,32,64}",
+            ));
+        }
+        Ok(Self::SignedInteger { bits })
+    }
+
+    pub fn unsigned_integer(bits: u8) -> Result<Self, TypeConstructionError> {
+        if !INTEGER_BITS.contains(&bits) {
+            return Err(TypeConstructionError::new(
+                "integer declared type requires bits in {8,16,24,32,64}",
+            ));
+        }
+        Ok(Self::UnsignedInteger { bits })
+    }
+
+    pub fn decimal(precision: u8, scale: u8) -> Result<Self, TypeConstructionError> {
+        if !(1..=65).contains(&precision) || !(0..=30).contains(&scale) {
+            return Err(TypeConstructionError::new(
+                "decimal precision/scale out of owner range",
+            ));
+        }
+        if scale > precision {
+            return Err(TypeConstructionError::new(
+                "decimal scale must be <= precision",
+            ));
+        }
+        Ok(Self::Decimal { precision, scale })
+    }
+
+    pub fn float32() -> Self {
+        Self::Float32
+    }
+
+    pub fn float64() -> Self {
+        Self::Float64
+    }
+
+    pub fn string() -> Self {
+        Self::String
+    }
+
+    pub fn binary() -> Self {
+        Self::Binary
+    }
+
+    pub fn bit(bit_width: u8) -> Result<Self, TypeConstructionError> {
+        if !(1..=64).contains(&bit_width) {
+            return Err(TypeConstructionError::new(
+                "bit declared type requires bit_width in 1..=64",
+            ));
+        }
+        Ok(Self::Bit { bit_width })
+    }
+
+    pub fn date() -> Self {
+        Self::Date
+    }
+
+    pub fn datetime() -> Self {
+        Self::DateTime
+    }
+
+    pub fn timestamp() -> Self {
+        Self::Timestamp
+    }
+
+    pub fn time_duration() -> Self {
+        Self::TimeDuration
+    }
+
+    pub fn source_literal_anomaly() -> Self {
+        Self::SourceLiteralAnomaly
+    }
+
+    /// Formal kind string (vector / anomaly descriptor shape).
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            Self::Null => "null",
+            Self::Boolean => "boolean",
+            Self::SignedInteger { .. } => "signed-integer",
+            Self::UnsignedInteger { .. } => "unsigned-integer",
+            Self::Decimal { .. } => "decimal",
+            Self::Float32 => "float32",
+            Self::Float64 => "float64",
+            Self::String => "string",
+            Self::Binary => "binary",
+            Self::Bit { .. } => "bit",
+            Self::Date => "date",
+            Self::DateTime => "datetime",
+            Self::Timestamp => "timestamp",
+            Self::TimeDuration => "time-duration",
+            Self::SourceLiteralAnomaly => "source-literal-anomaly",
+        }
+    }
+
+    /// Re-check v1 owner width / precision / scale bounds.
+    pub fn validate(&self) -> Result<(), TypeConstructionError> {
+        match self {
+            Self::SignedInteger { bits } | Self::UnsignedInteger { bits } => {
+                if !INTEGER_BITS.contains(bits) {
+                    return Err(TypeConstructionError::new(
+                        "integer declared type requires bits in {8,16,24,32,64}",
+                    ));
+                }
+            }
+            Self::Decimal { precision, scale } => {
+                if !(1..=65).contains(precision) || !(0..=30).contains(scale) {
+                    return Err(TypeConstructionError::new(
+                        "decimal precision/scale out of owner range",
+                    ));
+                }
+                if scale > precision {
+                    return Err(TypeConstructionError::new(
+                        "decimal scale must be <= precision",
+                    ));
+                }
+            }
+            Self::Bit { bit_width } => {
+                if !(1..=64).contains(bit_width) {
+                    return Err(TypeConstructionError::new(
+                        "bit declared type requires bit_width in 1..=64",
+                    ));
+                }
+            }
+            Self::Null
+            | Self::Boolean
+            | Self::Float32
+            | Self::Float64
+            | Self::String
+            | Self::Binary
+            | Self::Date
+            | Self::DateTime
+            | Self::Timestamp
+            | Self::TimeDuration
+            | Self::SourceLiteralAnomaly => {}
+        }
+        Ok(())
+    }
 }
 
 /// UTF-8 logical literal input.

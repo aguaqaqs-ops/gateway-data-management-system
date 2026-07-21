@@ -1,9 +1,4 @@
 //! Minimal ULEB128 encode/decode for scalar and framing lengths.
-//!
-//! R2 lands the primitive; R3/R4 framing is the first production caller.
-//! Unit tests in this module exercise the R2 contract surface.
-
-#![allow(dead_code)] // pub(crate) API reserved for R3/R4 callers
 
 use crate::errors::{CanonicalEncodingError, CanonicalErrorCode};
 
@@ -40,6 +35,7 @@ pub(crate) fn encode_uleb128(value: u64) -> Result<Vec<u8>, CanonicalEncodingErr
 /// Decode a minimal ULEB128 starting at `offset`.
 ///
 /// Returns `(value, next_offset)`.
+#[allow(dead_code)] // R4/R5 frame validators are the first decode callers.
 pub(crate) fn decode_uleb128(
     data: &[u8],
     offset: usize,

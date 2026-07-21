@@ -51,7 +51,15 @@ ULEB128 必须最短；规范最大 payload length 为 `2^63-1`，实现可用�
 | `0x33` | time duration | `[-]HH:MM:SS[.fraction]` |
 | `0x7f` | source literal anomaly | JCS anomaly envelope |
 
-其余 tag 在 v1 保留，任何实现不得自行占用。
+v1 tag 分区（fail-closed）：
+
+```text
+assigned tags     = table above
+unassigned 0x00..=0x7F  -> CANONICAL_SCALAR_TAG_RESERVED
+0x80..=0xFF             -> CANONICAL_SCALAR_TAG_UNKNOWN
+```
+
+其余 tag 在 v1 不得自行占用；实现不得发明未登记分区。
 
 Integer 由 column schema 校验 width/signedness；`+`、leading zero 和 `-0` 归一为同一数值，越界失败。Decimal 禁止 exponent/`+`，删除冗余整数 leading zero 和小数 trailing zero，小于 1 时补整数 `0`，负零为 `0`；precision/scale 属于 schema digest，不进入 value payload。Float 按声明宽度 round-to-nearest ties-to-even；float32 先舍入为 binary32；负零变正零，subnormal 保留，NaN/Infinity 失败。
 

@@ -39,7 +39,13 @@
     },
     "integerBits": {
       "type": "integer",
-      "enum": [8, 16, 24, 32, 64]
+      "enum": [
+        8,
+        16,
+        24,
+        32,
+        64
+      ]
     },
     "stableErrorCode": {
       "type": "string",
@@ -74,9 +80,13 @@
     "expectedError": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["code"],
+      "required": [
+        "code"
+      ],
       "properties": {
-        "code": { "$ref": "#/$defs/stableErrorCode" }
+        "code": {
+          "$ref": "#/$defs/stableErrorCode"
+        }
       }
     },
     "declaredType": {
@@ -84,7 +94,9 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind"],
+          "required": [
+            "kind"
+          ],
           "properties": {
             "kind": {
               "type": "string",
@@ -107,32 +119,721 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "bits"],
+          "required": [
+            "kind",
+            "bits"
+          ],
           "properties": {
             "kind": {
               "type": "string",
-              "enum": ["signed-integer", "unsigned-integer"]
+              "enum": [
+                "signed-integer",
+                "unsigned-integer"
+              ]
             },
-            "bits": { "$ref": "#/$defs/integerBits" }
+            "bits": {
+              "$ref": "#/$defs/integerBits"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "precision", "scale"],
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
           "properties": {
-            "kind": { "const": "decimal" },
-            "precision": { "type": "integer", "minimum": 1, "maximum": 65 },
-            "scale": { "type": "integer", "minimum": 0, "maximum": 30 }
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 0
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "bit_width"],
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
           "properties": {
-            "kind": { "const": "bit" },
-            "bit_width": { "type": "integer", "minimum": 1, "maximum": 64 }
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 2
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 3,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 3
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 4,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 4
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 5
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 6,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 6
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 7,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 7
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 8
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 9,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 9
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 10
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 11,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 11
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 12,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 12
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 13,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 13
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 14,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 14
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 15,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 15
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 16,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 16
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 17,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 17
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 18,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 18
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 19,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 19
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 20
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 21,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 21
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 22,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 22
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 23,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 23
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 24,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 24
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 25,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 25
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 26,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 26
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 27,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 27
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 28,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 28
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 29,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 29
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "precision",
+            "scale"
+          ],
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "precision": {
+              "type": "integer",
+              "minimum": 30,
+              "maximum": 65
+            },
+            "scale": {
+              "const": 30
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "bit_width"
+          ],
+          "properties": {
+            "kind": {
+              "const": "bit"
+            },
+            "bit_width": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            }
           }
         }
       ]
@@ -142,19 +843,33 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "text"],
+          "required": [
+            "kind",
+            "text"
+          ],
           "properties": {
-            "kind": { "const": "utf8-logical-literal" },
-            "text": { "type": "string" }
+            "kind": {
+              "const": "utf8-logical-literal"
+            },
+            "text": {
+              "type": "string"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "bytes_base64url"],
+          "required": [
+            "kind",
+            "bytes_base64url"
+          ],
           "properties": {
-            "kind": { "const": "raw-logical-literal" },
-            "bytes_base64url": { "$ref": "#/$defs/base64url" }
+            "kind": {
+              "const": "raw-logical-literal"
+            },
+            "bytes_base64url": {
+              "$ref": "#/$defs/base64url"
+            }
           }
         }
       ]
@@ -164,76 +879,141 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind"],
-          "properties": { "kind": { "const": "null" } }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind", "value"],
+          "required": [
+            "kind"
+          ],
           "properties": {
-            "kind": { "const": "boolean" },
-            "value": { "type": "boolean" }
+            "kind": {
+              "const": "null"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "decimal"],
+          "required": [
+            "kind",
+            "value"
+          ],
+          "properties": {
+            "kind": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "decimal"
+          ],
           "properties": {
             "kind": {
               "type": "string",
-              "enum": ["signed-integer", "unsigned-integer", "decimal"]
+              "enum": [
+                "signed-integer",
+                "unsigned-integer",
+                "decimal"
+              ]
             },
-            "decimal": { "type": "string" }
+            "decimal": {
+              "type": "string"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "bits_hex"],
+          "required": [
+            "kind",
+            "bits_hex"
+          ],
           "properties": {
-            "kind": { "const": "float32" },
-            "bits_hex": { "$ref": "#/$defs/bitsHex8" }
+            "kind": {
+              "const": "float32"
+            },
+            "bits_hex": {
+              "$ref": "#/$defs/bitsHex8"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "bits_hex"],
+          "required": [
+            "kind",
+            "bits_hex"
+          ],
           "properties": {
-            "kind": { "const": "float64" },
-            "bits_hex": { "$ref": "#/$defs/bitsHex16" }
+            "kind": {
+              "const": "float64"
+            },
+            "bits_hex": {
+              "$ref": "#/$defs/bitsHex16"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "text"],
+          "required": [
+            "kind",
+            "text"
+          ],
           "properties": {
             "kind": {
               "type": "string",
-              "enum": ["string", "date", "datetime", "timestamp", "time-duration"]
+              "enum": [
+                "string",
+                "date",
+                "datetime",
+                "timestamp",
+                "time-duration"
+              ]
             },
-            "text": { "type": "string" }
+            "text": {
+              "type": "string"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "bytes_base64url"],
+          "required": [
+            "kind",
+            "bytes_base64url"
+          ],
           "properties": {
-            "kind": { "type": "string", "enum": ["binary", "bit"] },
-            "bytes_base64url": { "$ref": "#/$defs/base64url" }
+            "kind": {
+              "type": "string",
+              "enum": [
+                "binary",
+                "bit"
+              ]
+            },
+            "bytes_base64url": {
+              "$ref": "#/$defs/base64url"
+            }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "envelope"],
+          "required": [
+            "kind",
+            "envelope"
+          ],
           "properties": {
-            "kind": { "const": "source-literal-anomaly" },
-            "envelope": { "$ref": "#/$defs/anomalyEnvelope" }
+            "kind": {
+              "const": "source-literal-anomaly"
+            },
+            "envelope": {
+              "$ref": "#/$defs/anomalyEnvelope"
+            }
           }
         }
       ]
@@ -248,19 +1028,36 @@
         "reason"
       ],
       "properties": {
-        "declared_type": { "$ref": "#/$defs/declaredType" },
-        "raw_base64url": { "$ref": "#/$defs/base64url" },
-        "raw_encoding": { "type": "string", "minLength": 1 },
-        "reason": { "type": "string", "minLength": 1 }
+        "declared_type": {
+          "$ref": "#/$defs/declaredType"
+        },
+        "raw_base64url": {
+          "$ref": "#/$defs/base64url"
+        },
+        "raw_encoding": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "typedScalarInput": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["declared_type", "typed_value"],
+      "required": [
+        "declared_type",
+        "typed_value"
+      ],
       "properties": {
-        "declared_type": { "$ref": "#/$defs/declaredType" },
-        "typed_value": { "$ref": "#/$defs/typedValue" }
+        "declared_type": {
+          "$ref": "#/$defs/declaredType"
+        },
+        "typed_value": {
+          "$ref": "#/$defs/typedValue"
+        }
       }
     },
     "digestKind": {
@@ -277,7 +1074,12 @@
     },
     "collectionSemantics": {
       "type": "string",
-      "enum": ["sequence", "multiset", "set", "keyed-collection"]
+      "enum": [
+        "sequence",
+        "multiset",
+        "set",
+        "keyed-collection"
+      ]
     }
   }
 }

@@ -308,6 +308,15 @@ CANONICAL_COLLECTION_DUPLICATE_KEY
 
 错误 message、host exception class、parser library error 和 stack 不属于 normative output。多个条件同时非法时，由 operation schema 声明的 validation order 选择唯一 code；每个 invalid case 应尽量只触发一个原因。
 
+`validate-scalar-frame` 的 unknown/reserved tag 分区由 Shared Canonical Encoding Contract 拥有：
+
+```text
+unassigned 0x00..=0x7F -> CANONICAL_SCALAR_TAG_RESERVED
+0x80..=0xFF            -> CANONICAL_SCALAR_TAG_UNKNOWN
+```
+
+Vector-set / JSONL closure 必须在 schema validation 前以 strict JSON loader 拒绝 duplicate member；不得依赖宿主 `json.loads` 的 last-wins 行为。
+
 ## 10. Validation order
 
 固定顺序：

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 from hypothesis import given, settings, strategies as st
 
@@ -169,3 +170,37 @@ def test_digest_domain_separation_property(payload: bytes) -> None:
     assert raw_blob_digest(payload).raw_digest != digests[
         list(DigestKind).index(DigestKind.RAW_CONTENT)
     ]
+
+
+@_PROP
+@given(
+    st.dictionaries(
+        keys=st.text(
+            alphabet=st.characters(min_codepoint=97, max_codepoint=122),
+            min_size=1,
+            max_size=4,
+        ),
+        values=st.integers(min_value=-(2**53) + 1, max_value=(2**53) - 1),
+        max_size=5,
+    )
+)
+def test_jcs_idempotence_and_determinism(obj: dict[str, int]) -> None:
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+
+    reversed_obj = {key: obj[key] for key in reversed(list(obj))}
+    first = canonicalize_json_value(obj)
+    second = canonicalize_json_value(reversed_obj)
+    assert first == second
+    assert canonicalize_json_value(json.loads(first.decode("utf-8"))) == first
+
+
+@_PROP
+@given(st.integers(min_value=0, max_value=(1 << 63) - 1))
+def test_uleb128_minimality_roundtrip(value: int) -> None:
+    from gateway_shared_kernel.uleb128 import decode_uleb128, encode_uleb128
+
+    encoded = encode_uleb128(value)
+    decoded, next_offset = decode_uleb128(encoded)
+    assert decoded == value
+    assert next_offset == len(encoded)
+    assert encode_uleb128(decoded) == encoded

@@ -178,6 +178,17 @@ def test_declared_type_decimal_requires_precision_and_scale() -> None:
         validator.validate(invalid)
 
 
+def test_declared_type_decimal_enforces_scale_le_precision() -> None:
+    schema = {
+        "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/declaredType"
+    }
+    registry = _build_registry()
+    validator = Draft202012Validator(schema, registry=registry)
+    validator.validate({"kind": "decimal", "precision": 65, "scale": 30})
+    with pytest.raises(ValidationError):
+        validator.validate({"kind": "decimal", "precision": 1, "scale": 2})
+
+
 def test_base64url_schema_rejects_length_mod_4_eq_1() -> None:
     schema = {
         "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"

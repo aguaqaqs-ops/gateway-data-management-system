@@ -294,7 +294,7 @@ Candidate命令只能写入调用方显式传入的新空目录，并必须：
 - 固定四个JSONL path并按path bytes排序manifest entry。
 - 先写四个JSONL，验证count/size/direct SHA-256后最后写`vector-set.json`与semantic closure digest。
 
-Candidate case definitions是test/tooling source，不是第二个normative fixture。普通CI不运行generator；WP1产物保留out-of-tree，并明确标记“等待WP2独立确认”。
+Candidate case definitions是test/tooling source，不是第二个normative fixture。普通CI不向正式normative vector root生成、不bless、不覆盖；允许在临时目录运行ephemeral generate→validate smoke（例如pytest `tmp_path`），以验证generator/validator契约，且不得在worktree留下candidate产物。
 
 ### 5.4 Case coverage
 
@@ -319,6 +319,7 @@ Hypothesis以固定budget和deterministic配置补充JCS idempotence、encoding 
 - Candidate可离线生成并由独立read-only validator完整复验。
 - Python stable error code set与formal registry完全相等。
 - Generator前后fixed normative root和tracked worktree不变。
+- 普通CI可运行临时目录ephemeral candidate smoke，但不得写入正式vector root或bless。
 - WP1不创建或宣称正式normative vector closure。
 
 ## 6. WP2 — Independent Rust Core and Normative Publication

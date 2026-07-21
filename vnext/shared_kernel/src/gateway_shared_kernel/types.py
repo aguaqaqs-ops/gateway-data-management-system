@@ -315,7 +315,11 @@ FORMAL_COLLECTION_SEMANTICS: frozenset[CollectionSemantics] = frozenset(Collecti
 
 @dataclass(frozen=True, slots=True)
 class EncodedCollection:
-    """Canonical collection frame; digest is optional when owner requests one."""
+    """Canonical collection frame only.
+
+    Collection-level digests are computed separately via ``semantic_digest``
+    with an owner-registered ``DigestKind``; Shared Kernel has no generic
+    collection-frame digest kind.
+    """
 
     collection_frame: bytes
-    digest_ref: DigestRef | None = None

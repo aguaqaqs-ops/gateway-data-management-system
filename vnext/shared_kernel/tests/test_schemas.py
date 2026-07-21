@@ -218,3 +218,32 @@ def test_anomaly_envelope_schema_rejects_empty_object() -> None:
                 "reason": "owner-reason",
             }
         )
+
+
+def test_digest_case_encode_collection_frame_only() -> None:
+    """encode-collection expected is frame-only; digest_ref is rejected."""
+    validator = _validator_for("digest-case.schema.json")
+    valid = {
+        "case_schema_version": 1,
+        "case_id": "digest.collection.sequence.empty",
+        "operation": "encode-collection",
+        "input": {
+            "semantics": "sequence",
+            "items_base64url": [],
+        },
+        "expected": {
+            # ULEB128(0) == 0x00 → base64url "AA"
+            "collection_frame_base64url": "AA",
+        },
+    }
+    validator.validate(valid)
+
+    with_digest = {
+        **valid,
+        "expected": {
+            "collection_frame_base64url": "AA",
+            "digest_ref": "sha256:" + ("0" * 64),
+        },
+    }
+    with pytest.raises(ValidationError):
+        validator.validate(with_digest)

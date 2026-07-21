@@ -1,9 +1,11 @@
 """Gateway Shared Kernel production API."""
 
+from gateway_shared_kernel.digest import raw_blob_digest, semantic_digest
 from gateway_shared_kernel.errors import (
     CanonicalEncodingError,
     CanonicalErrorCode,
 )
+from gateway_shared_kernel.framing import encode_collection, encode_row
 from gateway_shared_kernel.identifier import canonicalize_identifier
 from gateway_shared_kernel.jcs import canonicalize_jcs
 from gateway_shared_kernel.scalar import encode_typed_scalar, normalize_logical_literal
@@ -75,6 +77,10 @@ __all__ = [
     "Utf8LogicalLiteral",
     "canonicalize_identifier",
     "canonicalize_jcs",
+    "encode_collection",
+    "encode_row",
     "encode_typed_scalar",
     "normalize_logical_literal",
+    "raw_blob_digest",
+    "semantic_digest",
 ]

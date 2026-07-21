@@ -256,11 +256,11 @@ Operation shape：
 
 - `canonicalize-identifier`：input `identifier`；expected `canonical_utf8_base64url`。
 - `encode-row`：input `fields[]`，每项为 `name + typed scalar input`；expected `row_frame_base64url + row_hash`。
-- `encode-collection`：input `semantics: sequence | multiset | set | keyed-collection` 和对应 base64url item/key/value；expected `collection_frame_base64url`，适用时包含 owner-requested digest。
-- `semantic-digest`：input `digest_kind + canonical_payload_base64url`；expected `raw_hash_base64url + digest_ref`。
+- `encode-collection`：input `semantics: sequence | multiset | set | keyed-collection` 和对应 base64url item/key/value；expected 仅 `collection_frame_base64url`。Collection-level digest 不在本 operation 输出。
+- `semantic-digest`：input `digest_kind + canonical_payload_base64url`；expected `raw_hash_base64url + digest_ref`。若 payload 是某条 `encode-collection`（或 `encode-row`）的 frame，case 必须引用或复制那条 case 已固定的 frame bytes，不得在验证运行时调用 encoder 生成 digest 输入。
 - `raw-blob-digest`：input `raw_bytes_base64url`；expected `digest_ref`，使用直接 SHA-256，不加 semantic prefix。
 
-Row fields 可以按任意 input order 提供；expected 必须证明 CanonicalIdentifier ordering。Multiset/set item input order可以任意；sequence 保留 input order。Duplicate 的保留/拒绝由 Shared Contract collection semantics 决定。
+Row fields 可以按任意 input order 提供；expected 必须证明 CanonicalIdentifier ordering。Multiset/set item input order可以任意；sequence 保留 input order。Duplicate 的保留/拒绝由 Shared Contract collection semantics 决定。Keyed key/value 与 collection item 均为 opaque bytes（见 Shared Canonical Encoding Contract）。
 
 ## 9. `invalid.jsonl` 与 error registry
 

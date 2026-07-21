@@ -153,9 +153,6 @@
             "properties": {
               "collection_frame_base64url": {
                 "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/base64url"
-              },
-              "digest_ref": {
-                "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/digestRef"
               }
             }
           }

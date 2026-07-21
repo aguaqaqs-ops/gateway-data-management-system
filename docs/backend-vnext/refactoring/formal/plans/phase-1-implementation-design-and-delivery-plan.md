@@ -105,6 +105,7 @@ EncodedScalar
 RowField
 EncodedRow
 CollectionSemantics
+EncodedCollection
 DigestKind
 SemanticDigest
 DigestRef
@@ -117,6 +118,7 @@ DigestRef
 - Error对象携带normative stable code；message、exception type和stack不参与conformance。
 - Result type显式命名并暴露所需的typed value、payload、完整frame、raw 32-byte digest和DigestRef；禁止含义不明的tuple或dict。
 - `DigestKind`是formal registry对应的closed enum，不接受临时string kind。
+- `EncodedCollection`只携带`collection_frame`；collection-level digest由调用方用已登记`DigestKind`经`semantic_digest`单独计算，不把 framing 与 owner digest 语义耦合。
 
 Production functions：
 

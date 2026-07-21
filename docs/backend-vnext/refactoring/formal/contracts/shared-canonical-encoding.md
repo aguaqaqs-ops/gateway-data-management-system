@@ -160,7 +160,7 @@ multiset_or_set_frame =
   ULEB128(item_count) + sorted(raw item_hash bytes)
 
 keyed_collection_frame =
-  ULEB128(entry_count) + entries sorted by canonical key bytes:
+  ULEB128(entry_count) + entries sorted by key bytes:
     ULEB128(key_length) + key_bytes +
     ULEB128(value_length) + value_bytes
 ```
@@ -170,7 +170,16 @@ Collection owner 必须显式选择：
 - `sequence`：count + length-framed items，保留顺序。
 - `multiset`：排序 raw item hash，保留重复。
 - `set`：同上，但重复 item hash 失败。
-- `keyed-collection`：按 canonical key bytes 排序 length-framed key/value，重复 key 失败。
+- `keyed-collection`：按 key bytes 的 unsigned lexicographic order 排序 length-framed key/value，重复 key 失败。
+
+Keyed collection 的 key/value 以及 sequence/multiset/set 的 item 均为 **opaque bytes**：
+
+- Semantic owner 必须在调用 Shared Kernel 之前完成所需 canonicalization。
+- Shared Kernel 不执行 CanonicalIdentifier fold、JCS、Unicode 校验或其他 normalization，也不要求 key/value/item 为合法 UTF-8。
+- 空 key、空 value、空 item 默认允许；若业务 owner 禁止，应在调用前验证。
+- 判重与排序只比较原始 key bytes（或 item hash），不做语义解释。
+
+Collection framing 本身不产生 collection-level `DigestRef`。若 owner 需要对 `collection_frame` 做 semantic digest，必须另行调用 `semantic_digest`，使用 owner 已登记的 `DigestKind`，并以确定的 frame bytes 作为 payload（向量中应引用或复制该 frame，而不是在验证时临时调用 `encode_collection` 生成 digest 输入）。
 
 Serializer 不根据宿主语言容器类型猜测 semantics。
 

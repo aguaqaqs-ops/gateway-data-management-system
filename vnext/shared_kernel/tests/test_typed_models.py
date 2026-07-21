@@ -91,5 +91,5 @@ def test_row_field_and_encoded_collection_shape() -> None:
     )
     assert field.name == "Id"
 
-    encoded = EncodedCollection(collection_frame=b"\x00", digest_ref=None)
-    assert encoded.digest_ref is None
+    encoded = EncodedCollection(collection_frame=b"\x00")
+    assert encoded.collection_frame == b"\x00"

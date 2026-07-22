@@ -4,6 +4,7 @@ set -euo pipefail
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUST_ROOT="${VNEXT_ROOT}/rust"
 SHARED_KERNEL_ROOT="${VNEXT_ROOT}/shared_kernel"
+REPOSITORY_ROOT="${VNEXT_ROOT}/repository_service"
 
 usage() {
   echo "usage: $0 bootstrap|correctness|native" >&2
@@ -67,6 +68,19 @@ uv run --offline --no-sync python -m gateway_shared_kernel.testing validate \
   "${NORMATIVE_VECTOR_ROOT}"
 
 export GATEWAY_SHARED_KERNEL_VECTOR_ROOT="${NORMATIVE_VECTOR_ROOT}"
+
+cd "${REPOSITORY_ROOT}"
+echo "==> repository_service: uv sync --locked --offline --all-groups"
+uv sync --locked --offline --all-groups
+
+echo "==> repository_service: ruff"
+uv run --offline --no-sync ruff check src tests
+
+echo "==> repository_service: mypy"
+uv run --offline --no-sync mypy
+
+echo "==> repository_service: pytest"
+uv run --offline --no-sync pytest -q
 
 cd "${RUST_ROOT}"
 

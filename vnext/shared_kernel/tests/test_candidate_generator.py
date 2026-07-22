@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from gateway_shared_kernel.testing import generate_candidate, validate_vector_set
-from gateway_shared_kernel.testing.closure import ClosureValidationError
+from gateway_shared_kernel.testing.closure import ClosureValidationError, load_validated_vector_set
 from gateway_shared_kernel.testing.paths import (
     CANDIDATE_MARKER_NAME,
     NORMATIVE_VECTOR_ROOT,
@@ -178,3 +178,19 @@ def test_rejects_jsonl_escaped_lone_surrogate_as_closure_error(tmp_path: Path) -
         validate_vector_set(out, execute_cases=False)
     assert not isinstance(exc_info.value, CanonicalEncodingError)
     assert isinstance(exc_info.value.__cause__, CanonicalEncodingError)
+
+
+def test_load_validated_vector_set_rejects_invalid_content_digest(tmp_path: Path) -> None:
+    import json
+
+    out = tmp_path / "candidate"
+    generate_candidate(out)
+    validate_vector_set(out, execute_cases=False)
+
+    manifest_path = out / "vector-set.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["vector_set_content_digest"] = "sha256:" + ("00" * 32)
+    manifest_path.write_text(json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8")
+
+    with pytest.raises(ClosureValidationError, match="vector_set_content_digest mismatch"):
+        load_validated_vector_set(out)

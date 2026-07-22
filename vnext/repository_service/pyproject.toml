@@ -19,8 +19,12 @@ gateway-repository-service = "gateway_repository_service:main"
 requires = ["uv_build>=0.11.28,<0.12.0"]
 build-backend = "uv_build"
 
+[tool.uv.sources]
+gateway-shared-kernel = { path = "../shared_kernel", editable = true }
+
 [dependency-groups]
 dev = [
+    "gateway-shared-kernel[conformance]",
     "hypothesis==6.156.6",
     "mypy==2.3.0",
     "pytest==9.1.1",
@@ -39,4 +43,9 @@ target-version = "py314"
 [tool.mypy]
 python_version = "3.14"
 strict = true
-files = ["src", "tests"]
+mypy_path = "src"
+files = ["src/gateway_repository_service", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*", "referencing", "referencing.*"]
+ignore_missing_imports = true

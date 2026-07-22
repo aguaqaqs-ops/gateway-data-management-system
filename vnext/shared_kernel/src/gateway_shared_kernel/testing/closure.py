@@ -32,45 +32,10 @@ class ClosureValidationError(ValueError):
     """Vector-set / JSONL closure failed validation."""
 
 
-def validate_vector_set(
-    root: Path,
-    *,
-    execute_cases: bool = True,
-) -> dict[str, Any]:
-    """Validate manifest, JSONL integrity, schemas, ordering, and optionally execute cases.
-
-    Per-file case order: parse line → schema validate → then ordering/uniqueness.
-    """
-    requested = Path(root).expanduser()
-    try:
-        assert_no_symlink_ancestors(requested, label="vector root")
-        assert_regular_directory(requested, label="vector root")
-    except ValueError as exc:
-        raise ClosureValidationError(str(exc)) from exc
-
-    if not requested.exists():
-        raise ClosureValidationError(f"vector root does not exist: {requested}")
-    _ = requested.resolve(strict=True)
-    manifest_path = requested / "vector-set.json"
-    try:
-        assert_regular_file(manifest_path, label="vector-set.json")
-    except ValueError as exc:
-        raise ClosureValidationError(str(exc)) from exc
-
-    try:
-        manifest = loads_object_rejecting_duplicates(
-            manifest_path.read_text(encoding="utf-8")
-        )
-    except (DuplicateMemberError, NonJsonConstantError, ValueError) as exc:
-        raise ClosureValidationError(f"vector-set.json: {exc}") from exc
-
-    try:
-        validate_vector_set_manifest(manifest)
-    except ValidationError as exc:
-        raise ClosureValidationError(
-            f"vector-set.json schema validation failed: {exc.message}"
-        ) from exc
-
+def _load_cases_for_manifest(
+    requested: Path,
+    manifest: dict[str, Any],
+) -> list[dict[str, Any]]:
     files = manifest["files"]
     if [entry["path"] for entry in files] != list(JSONL_FILES):
         raise ClosureValidationError("files[] path order must match fixed JSONL order")
@@ -102,7 +67,62 @@ def validate_vector_set(
         _assert_sorted_unique_case_ids(cases, path_name, seen_ids)
         all_cases.extend(cases)
 
+    return all_cases
+
+
+def load_validated_vector_set(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Load a fully validated vector-set snapshot as ``(manifest, cases)``.
+
+    Performs filesystem safety, manifest/schema validation, per-file hash/count
+    checks, case ordering/uniqueness, and ``vector_set_content_digest`` closure in
+    a single read pass. Callers that need both manifest and cases must use this
+    entrypoint so executed cases always belong to the validated closure.
+    """
+    requested = Path(root).expanduser()
+    try:
+        assert_no_symlink_ancestors(requested, label="vector root")
+        assert_regular_directory(requested, label="vector root")
+    except ValueError as exc:
+        raise ClosureValidationError(str(exc)) from exc
+
+    if not requested.exists():
+        raise ClosureValidationError(f"vector root does not exist: {requested}")
+    resolved = requested.resolve(strict=True)
+    manifest_path = resolved / "vector-set.json"
+    try:
+        assert_regular_file(manifest_path, label="vector-set.json")
+    except ValueError as exc:
+        raise ClosureValidationError(str(exc)) from exc
+
+    try:
+        manifest = loads_object_rejecting_duplicates(
+            manifest_path.read_text(encoding="utf-8")
+        )
+    except (DuplicateMemberError, NonJsonConstantError, ValueError) as exc:
+        raise ClosureValidationError(f"vector-set.json: {exc}") from exc
+
+    try:
+        validate_vector_set_manifest(manifest)
+    except ValidationError as exc:
+        raise ClosureValidationError(
+            f"vector-set.json schema validation failed: {exc.message}"
+        ) from exc
+
+    all_cases = _load_cases_for_manifest(resolved, manifest)
     _assert_content_digest(manifest)
+    return manifest, all_cases
+
+
+def validate_vector_set(
+    root: Path,
+    *,
+    execute_cases: bool = True,
+) -> dict[str, Any]:
+    """Validate manifest, JSONL integrity, schemas, ordering, and optionally execute cases.
+
+    Per-file case order: parse line → schema validate → then ordering/uniqueness.
+    """
+    manifest, all_cases = load_validated_vector_set(root)
 
     if execute_cases:
         for case in all_cases:

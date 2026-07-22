@@ -93,11 +93,11 @@ Declared semantic schema 是唯一 semantic authority；Arrow metadata不能扩�
 
 | Canonical semantic kind | Arrow physical type |
 | --- | --- |
-| null | Declared nullable field 的 validity bitmap |
+| null | `null`（Arrow `DataType::Null`）；`nullable` 必须为 `true`；semantic kind `null` 列所有行均为 null |
 | boolean | `bool` |
 | signed integer | 8/16/32/64-bit分别映射`int8/int16/int32/int64`；24-bit映射`int32`并额外校验24-bit范围 |
 | unsigned integer | 8/16/32/64-bit分别映射`uint8/uint16/uint32/uint64`；24-bit映射`uint32`并额外校验24-bit范围 |
-| decimal | precision 1–38使用`decimal128(p, s)`；39–76使用`decimal256(p, s)`；precision/scale必须与declared schema exact一致 |
+| decimal | precision 1–38使用`decimal128(p, s)`；39–65使用`decimal256(p, s)`；precision/scale必须与declared schema exact一致；logical precision 上限 65 与 [Shared Canonical Encoding](shared-canonical-encoding.md) 对齐 |
 | float32 / float64 | `float32 | float64` |
 | string | `utf8` |
 | binary | `binary` |
@@ -272,3 +272,10 @@ Module public：是。Persisted：Result metadata可进入 artifact manifest；r
 - Formal native path不存在 Python row materialization或第二个 object-graph entrypoint。
 - Failure envelope、GIL release和artifact recovery通过 dedicated native lane。
 - Rust core不依赖 PyO3、Python、filesystem或ArtifactStore；PyO3 adapter单向依赖 core。
+
+## 11. Change control
+
+| 日期 | 变更 | 理由 |
+| --- | --- | --- |
+| 2026-07-22 | §4 decimal Arrow mapping：`decimal256` precision 上界由 `76` 修正为 **`65`** | Formal 内部一致性：与 Shared Canonical Encoding owner-declared decimal precision `1..=65` 及现有 `DeclaredType` 校验边界对齐；不改变 WP0–WP2 已验收 canonical scalar bytes |
+| 2026-07-22 | §4 semantic kind `null`：physical type 明确为 Arrow `DataType::Null`（闭合集） | WP3 R1 设计收敛：原“validity bitmap”表述与 `null` kind 混用且未闭合 physical type；non-`null` kind 的 nullable slot 仍由各 physical type 的 validity bitmap 表达（§3 `nullable` 规则） |

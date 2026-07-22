@@ -7,8 +7,6 @@ from typing import Any, Type
 
 import pyarrow as pa
 
-from gateway_compute import canonical_row_hashes_v1
-
 CONTRACT_BINDING = {
     "contract_id": "gateway-vnext.canonical-row-hash-compute-boundary",
     "semantic_version": "1.0.0",
@@ -61,6 +59,36 @@ FAILURE_ENVELOPES: dict[str, bytes] = {
         b'"semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE",'
         b'"failure_schema_version":1,"retry_class":"NEVER","stage":"canonicalize"}'
     ),
+    "ARROW_STREAM_IMPORT_FAILED": (
+        b'{"code":"ARROW_STREAM_IMPORT_FAILED","contract_binding":'
+        b'{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary",'
+        b'"semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE",'
+        b'"failure_schema_version":1,"retry_class":"NEVER","stage":"arrow-import"}'
+    ),
+    "ROW_HASH_COMPUTE_FAILED": (
+        b'{"code":"ROW_HASH_COMPUTE_FAILED","contract_binding":'
+        b'{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary",'
+        b'"semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE",'
+        b'"failure_schema_version":1,"retry_class":"NEVER","stage":"compute"}'
+    ),
+    "RESOURCE_LIMIT_EXCEEDED": (
+        b'{"code":"RESOURCE_LIMIT_EXCEEDED","contract_binding":'
+        b'{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary",'
+        b'"semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE",'
+        b'"failure_schema_version":1,"retry_class":"SAFE_WITH_POLICY","stage":"compute"}'
+    ),
+    "ARROW_STREAM_EXPORT_FAILED": (
+        b'{"code":"ARROW_STREAM_EXPORT_FAILED","contract_binding":'
+        b'{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary",'
+        b'"semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE",'
+        b'"failure_schema_version":1,"retry_class":"NEVER","stage":"arrow-export"}'
+    ),
+    "NATIVE_PANIC": (
+        b'{"code":"NATIVE_PANIC","contract_binding":'
+        b'{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary",'
+        b'"semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE",'
+        b'"failure_schema_version":1,"retry_class":"SAFE_WITH_POLICY","stage":"compute"}'
+    ),
 }
 
 
@@ -106,13 +134,17 @@ def assert_failure_envelope(
 ) -> None:
     assert isinstance(exc, expected_type), type(exc)
     assert exc.code == expected_code
-    assert exc.stage == json.loads(FAILURE_ENVELOPES[expected_code].decode())["stage"]
+    golden = json.loads(FAILURE_ENVELOPES[expected_code].decode())
+    assert exc.stage == golden["stage"]
     envelope = exc.envelope_jcs
     assert envelope, "envelope_jcs must be non-empty"
     assert envelope == FAILURE_ENVELOPES[expected_code]
     golden = json.loads(FAILURE_ENVELOPES[expected_code].decode())
     parsed = json.loads(envelope.decode())
     assert parsed == golden
+    assert parsed["effect"] == "NONE"
+    assert parsed["failure_schema_version"] == 1
+    assert parsed["diagnostics"] == []
 
 
 def assert_row_hashes_sorted_unsigned_lexicographic(reader: pa.RecordBatchReader) -> None:

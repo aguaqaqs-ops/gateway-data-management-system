@@ -79,7 +79,8 @@ def test_failure_precedence_large_utf8_is_type_unsupported() -> None:
 def test_failure_precedence_utf8_with_binary_declared_is_schema_mismatch() -> None:
     fields = '[{"name":"s","nullable":false,"semantic_type":{"kind":"binary"}}]'
     request_jcs = minimal_request_jcs(fields)
-    batch = pa.record_batch([pa.array([b"hello"], type=pa.binary())], names=["s"])
+    schema = pa.schema([pa.field("s", pa.string(), nullable=False)])
+    batch = pa.record_batch([pa.array(["hello"], type=pa.string())], schema=schema)
     with pytest.raises(ComputeRequestError) as exc_info:
         canonical_row_hashes_v1(request_jcs, batch)
     assert_failure_envelope(
@@ -89,7 +90,28 @@ def test_failure_precedence_utf8_with_binary_declared_is_schema_mismatch() -> No
     )
 
 
-def test_nan_float_maps_with_full_envelope() -> None:
+def test_request_schema_invalid_maps_with_full_envelope() -> None:
+    with pytest.raises(ComputeRequestError) as exc_info:
+        canonical_row_hashes_v1(b"{not-json", empty_reader())
+    assert_failure_envelope(
+        exc_info.value,
+        expected_type=ComputeRequestError,
+        expected_code="COMPUTE_REQUEST_SCHEMA_INVALID",
+    )
+
+
+def test_schema_mismatch_maps_with_full_envelope() -> None:
+    fields = '[{"name":"v","nullable":false,"semantic_type":{"kind":"boolean"}}]'
+    request_jcs = minimal_request_jcs(fields)
+    batch = pa.record_batch([pa.array([1], type=pa.int8())], names=["v"])
+    with pytest.raises(ComputeRequestError) as exc_info:
+        canonical_row_hashes_v1(request_jcs, batch)
+    assert_failure_envelope(
+        exc_info.value,
+        expected_type=ComputeRequestError,
+        expected_code="ARROW_SCHEMA_MISMATCH",
+    )
+
     fields = '[{"name":"v","nullable":false,"semantic_type":{"kind":"float64"}}]'
     request_jcs = minimal_request_jcs(fields)
     schema = pa.schema([pa.field("v", pa.float64(), nullable=False)])

@@ -168,6 +168,244 @@ fn rejects_production_unwrap_shortcut() -> Result<(), String> {
     run_cargo_clippy_should_fail_with_code(&rust_root, "clippy::unwrap_used")
 }
 
+#[test]
+fn rejects_renamed_hook_workspace_member() -> Result<(), String> {
+    let root = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let rust_root = root.path().join("rust");
+    write_minimal_workspace(
+        &rust_root,
+        "gateway-compute-fault-inject",
+        true,
+        "#![forbid(unsafe_code)]\n",
+    )?;
+
+    let violations = gateway_architecture_check::check_production_release_inventory(&rust_root);
+    if violations.iter().any(|violation| {
+        violation.contains("gateway-compute-fault-inject")
+            && (violation.contains("unexpected workspace member")
+                || violation.contains("suspicious hook package"))
+    }) {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected renamed hook workspace member violation, got {violations:?}"
+        ))
+    }
+}
+
+#[test]
+fn rejects_compute_adapter_dep_on_renamed_hook_crate() -> Result<(), String> {
+    let root = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let rust_root = root.path().join("rust");
+    write_hooked_compute_workspace(&rust_root)?;
+
+    let violations = gateway_architecture_check::check_production_release_inventory(&rust_root);
+    if violations.iter().any(|violation| {
+        violation.contains("gateway-compute-python-impl")
+            && violation.contains("gateway-compute-fault-inject")
+    }) {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected adapter dependency on renamed hook crate violation, got {violations:?}"
+        ))
+    }
+}
+
+#[test]
+fn rejects_extra_hook_cdylib_target_in_compute_python_manifest() -> Result<(), String> {
+    let root = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let rust_root = root.path().join("rust");
+    write_compute_python_with_extra_hook_cdylib(&rust_root)?;
+
+    let violations = gateway_architecture_check::check_production_release_inventory(&rust_root);
+    if violations.iter().any(|violation| {
+        violation.contains("gateway-compute-python")
+            && (violation.contains("gateway_compute_hooks")
+                || violation.contains("test cdylib target"))
+    }) {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected extra hook cdylib target violation, got {violations:?}"
+        ))
+    }
+}
+
+fn write_hooked_compute_workspace(rust_root: &Path) -> Result<(), String> {
+    fs::create_dir_all(rust_root.join("gateway-compute-fault-inject/src"))
+        .map_err(|error| error.to_string())?;
+    fs::create_dir_all(rust_root.join("gateway-compute-python-impl/src"))
+        .map_err(|error| error.to_string())?;
+    fs::create_dir_all(rust_root.join("gateway-compute-core/src"))
+        .map_err(|error| error.to_string())?;
+
+    fs::write(
+        rust_root.join("Cargo.toml"),
+        r#"[workspace]
+members = [
+    "gateway-compute-core",
+    "gateway-compute-python-impl",
+    "gateway-compute-fault-inject",
+]
+resolver = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unstable_features = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+"#,
+    )
+    .map_err(|error| error.to_string())?;
+
+    fs::write(
+        rust_root.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"1.97.0\"\n",
+    )
+    .map_err(|error| error.to_string())?;
+
+    for (name, deps) in [
+        ("gateway-compute-core", ""),
+        ("gateway-compute-fault-inject", ""),
+        (
+            "gateway-compute-python-impl",
+            "gateway-compute-core = { path = \"../gateway-compute-core\" }\ngateway-compute-fault-inject = { path = \"../gateway-compute-fault-inject\" }\n",
+        ),
+    ] {
+        fs::write(
+            rust_root.join(name).join("Cargo.toml"),
+            format!(
+                r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+{deps}"#
+            ),
+        )
+        .map_err(|error| error.to_string())?;
+        fs::write(
+            rust_root.join(name).join("src/lib.rs"),
+            "#![forbid(unsafe_code)]\n",
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    bootstrap_fixture_workspace(rust_root)
+}
+
+fn write_compute_python_with_extra_hook_cdylib(rust_root: &Path) -> Result<(), String> {
+    fs::create_dir_all(rust_root.join("gateway-compute-python/src"))
+        .map_err(|error| error.to_string())?;
+    fs::create_dir_all(rust_root.join("gateway-compute-python-impl/src"))
+        .map_err(|error| error.to_string())?;
+    fs::create_dir_all(rust_root.join("gateway-compute-core/src"))
+        .map_err(|error| error.to_string())?;
+
+    fs::write(
+        rust_root.join("Cargo.toml"),
+        r#"[workspace]
+members = [
+    "gateway-compute-core",
+    "gateway-compute-python-impl",
+    "gateway-compute-python",
+]
+resolver = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unstable_features = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+"#,
+    )
+    .map_err(|error| error.to_string())?;
+
+    fs::write(
+        rust_root.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"1.97.0\"\n",
+    )
+    .map_err(|error| error.to_string())?;
+
+    for (name, manifest) in [
+        (
+            "gateway-compute-core",
+            r#"[package]
+name = "gateway-compute-core"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+"#,
+        ),
+        (
+            "gateway-compute-python-impl",
+            r#"[package]
+name = "gateway-compute-python-impl"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+gateway-compute-core = { path = "../gateway-compute-core" }
+"#,
+        ),
+        (
+            "gateway-compute-python",
+            r#"[package]
+name = "gateway-compute-python"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[lib]
+name = "gateway_compute"
+crate-type = ["cdylib", "rlib"]
+
+[[test]]
+name = "gateway_compute_hooks"
+path = "tests/hooks.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+gateway-compute-python-impl = { path = "../gateway-compute-python-impl" }
+"#,
+        ),
+    ] {
+        fs::write(rust_root.join(name).join("Cargo.toml"), manifest)
+            .map_err(|error| error.to_string())?;
+        fs::write(
+            rust_root.join(name).join("src/lib.rs"),
+            "#![forbid(unsafe_code)]\n",
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    bootstrap_fixture_workspace(rust_root)
+}
+
 fn write_minimal_workspace(
     rust_root: &Path,
     member_name: &str,
@@ -372,5 +610,40 @@ fn diagnostic_parser_ignores_non_json_lines() -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("unexpected parsed codes: {codes:?}"))
+    }
+}
+
+#[test]
+fn rejects_renamed_compute_hook_feature() -> Result<(), String> {
+    let root = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let rust_root = root.path().join("rust");
+    let manifest = rust_root.join("gateway-compute-python-impl/Cargo.toml");
+    fs::create_dir_all(manifest.parent().ok_or("missing parent")?)
+        .map_err(|error| error.to_string())?;
+    fs::write(
+        &manifest,
+        r#"[package]
+name = "gateway-compute-python-impl"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+fault-injection = []
+default = []
+"#,
+    )
+    .map_err(|error| error.to_string())?;
+
+    let violations =
+        gateway_architecture_check::check_forbidden_compute_test_hook_features(&rust_root);
+    if violations
+        .iter()
+        .any(|violation| violation.contains("fault-injection"))
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected renamed hook feature violation, got {violations:?}"
+        ))
     }
 }

@@ -34,6 +34,12 @@ pub fn run_checks(config: &CheckConfig) -> Result<(), Vec<String>> {
     violations.extend(check_forbidden_release_workspace_members(
         &config.rust_workspace_root,
     ));
+    violations.extend(check_forbidden_compute_test_hook_features(
+        &config.rust_workspace_root,
+    ));
+    violations.extend(check_production_release_inventory(
+        &config.rust_workspace_root,
+    ));
 
     if violations.is_empty() {
         Ok(())
@@ -349,6 +355,111 @@ fn check_crate_dependency_boundaries(rust_workspace_root: &Path) -> Vec<String> 
 
 const FORBIDDEN_RELEASE_WORKSPACE_MEMBERS: &[&str] = &["gateway-compute-python-hooks"];
 
+const FORBIDDEN_COMPUTE_HOOK_FEATURE_TOKENS: &[&str] = &[
+    "test-probe",
+    "test-hook",
+    "testhook",
+    "fault-inject",
+    "fault-injection",
+    "inject-fault",
+];
+
+pub fn is_suspicious_compute_hook_feature(feature_name: &str) -> bool {
+    let lowered = feature_name.replace('_', "-").to_ascii_lowercase();
+    FORBIDDEN_COMPUTE_HOOK_FEATURE_TOKENS
+        .iter()
+        .any(|token| lowered.contains(token))
+        || (lowered.contains("hook") && (lowered.contains("test") || lowered.contains("fault")))
+        || (lowered.contains("probe") && lowered.contains("test"))
+        || (lowered.contains("inject") && (lowered.contains("test") || lowered.contains("fault")))
+}
+
+pub fn is_suspicious_hook_package(name: &str) -> bool {
+    if FORBIDDEN_RELEASE_WORKSPACE_MEMBERS.contains(&name) {
+        return true;
+    }
+
+    let lowered = name.replace('_', "-").to_ascii_lowercase();
+    let has_hook = lowered.contains("hook");
+    let has_probe = lowered.contains("probe");
+    let has_fault = lowered.contains("fault");
+    let has_inject = lowered.contains("inject");
+
+    (has_hook && (has_probe || has_fault || has_inject))
+        || (has_probe && has_fault)
+        || (has_inject && (has_fault || has_hook))
+        || lowered.contains("fault-inject")
+        || lowered.contains("test-hook")
+        || lowered.contains("test-probe")
+}
+
+const ALLOWED_PRODUCTION_WORKSPACE_MEMBERS: &[&str] = &[
+    "gateway-architecture-check",
+    "gateway-compute-core",
+    "gateway-compute-python",
+    "gateway-compute-python-impl",
+    "gateway-shared-kernel",
+];
+
+const EXPECTED_COMPUTE_PYTHON_CDYLIB_TARGET: &str = "gateway_compute";
+
+fn collect_manifest_feature_names(contents: &str) -> Vec<String> {
+    let mut in_features = false;
+    let mut names = Vec::new();
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[features]" {
+            in_features = true;
+            continue;
+        }
+        if in_features && trimmed.starts_with('[') {
+            break;
+        }
+        if !in_features {
+            continue;
+        }
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((name, _)) = trimmed.split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        if !name.is_empty() {
+            names.push(name.to_string());
+        }
+    }
+    names
+}
+
+pub fn check_forbidden_compute_test_hook_features(rust_workspace_root: &Path) -> Vec<String> {
+    let mut violations = Vec::new();
+    let manifests = [
+        rust_workspace_root.join("gateway-compute-python-impl/Cargo.toml"),
+        rust_workspace_root.join("gateway-compute-python/Cargo.toml"),
+    ];
+
+    for manifest in manifests {
+        let contents = match fs::read_to_string(&manifest) {
+            Ok(contents) => contents,
+            Err(error) => {
+                violations.push(format!("failed to read {}: {error}", manifest.display()));
+                continue;
+            }
+        };
+        for feature in collect_manifest_feature_names(&contents) {
+            if is_suspicious_compute_hook_feature(&feature) {
+                violations.push(format!(
+                    "forbidden production test-hook feature `{feature}` in {}",
+                    manifest.display()
+                ));
+            }
+        }
+    }
+
+    violations
+}
+
 pub fn check_forbidden_release_workspace_members(rust_workspace_root: &Path) -> Vec<String> {
     let members = match discover_workspace_members(rust_workspace_root) {
         Ok(members) => members,
@@ -367,6 +478,202 @@ pub fn check_forbidden_release_workspace_members(rust_workspace_root: &Path) -> 
             }
         })
         .collect()
+}
+
+pub fn check_production_release_inventory(rust_workspace_root: &Path) -> Vec<String> {
+    let metadata = match fetch_cargo_metadata_with_deps(rust_workspace_root) {
+        Ok(metadata) => metadata,
+        Err(error) => return vec![error],
+    };
+    check_production_release_inventory_from_metadata(&metadata)
+}
+
+pub fn check_production_release_inventory_from_metadata(
+    metadata: &serde_json::Value,
+) -> Vec<String> {
+    let workspace_root = match metadata["workspace_root"].as_str() {
+        Some(root) => root,
+        None => return vec!["cargo metadata missing workspace_root".to_string()],
+    };
+
+    let packages = match metadata["packages"].as_array() {
+        Some(packages) => packages,
+        None => return vec!["cargo metadata missing packages".to_string()],
+    };
+
+    let package_dependencies = match package_resolved_dependency_names(metadata) {
+        Ok(map) => map,
+        Err(error) => return vec![error],
+    };
+
+    let mut violations = Vec::new();
+    let mut first_party_names = BTreeSet::new();
+
+    for package in packages {
+        let manifest_path = match package["manifest_path"].as_str() {
+            Some(path) => PathBuf::from(path),
+            None => continue,
+        };
+        if !manifest_path.starts_with(workspace_root) {
+            continue;
+        }
+
+        let name = match package["name"].as_str() {
+            Some(name) => name,
+            None => continue,
+        };
+        first_party_names.insert(name.to_string());
+
+        if !ALLOWED_PRODUCTION_WORKSPACE_MEMBERS.contains(&name) {
+            violations.push(format!(
+                "production release inventory contains unexpected workspace member `{name}`"
+            ));
+        }
+
+        if is_suspicious_hook_package(name) {
+            violations.push(format!(
+                "production release inventory contains suspicious hook package `{name}`"
+            ));
+        }
+
+        if name == "gateway-compute-python" {
+            violations.extend(check_compute_python_cdylib_targets(package, &manifest_path));
+        }
+    }
+
+    if let Some(dependencies) = package_dependencies.get("gateway-compute-python-impl") {
+        for dependency in dependencies {
+            if is_suspicious_hook_package(dependency) {
+                violations.push(format!(
+                    "gateway-compute-python-impl must not depend on suspicious hook package `{dependency}`"
+                ));
+            }
+        }
+    }
+
+    if first_party_names.is_empty() {
+        violations.push(
+            "production release inventory found no first-party workspace packages".to_string(),
+        );
+    }
+
+    violations
+}
+
+fn check_compute_python_cdylib_targets(
+    package: &serde_json::Value,
+    manifest_path: &Path,
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    let mut cdylib_targets = BTreeSet::new();
+
+    if let Some(targets) = package["targets"].as_array() {
+        for target in targets {
+            let is_cdylib = target["kind"].as_array().is_some_and(|kinds| {
+                kinds
+                    .iter()
+                    .filter_map(|kind| kind.as_str())
+                    .any(|kind| kind == "cdylib")
+            });
+            if !is_cdylib {
+                continue;
+            }
+
+            let target_name = target["name"].as_str().unwrap_or("<unknown>").to_string();
+            if is_suspicious_hook_package(&target_name) {
+                violations.push(format!(
+                    "gateway-compute-python must not define suspicious cdylib target `{target_name}`"
+                ));
+            }
+            cdylib_targets.insert(target_name);
+        }
+    }
+
+    if cdylib_targets.len() > 1 {
+        violations.push(format!(
+            "gateway-compute-python must define exactly one cdylib target, found {:?}",
+            cdylib_targets
+        ));
+    } else if cdylib_targets.len() == 1
+        && !cdylib_targets.contains(EXPECTED_COMPUTE_PYTHON_CDYLIB_TARGET)
+    {
+        violations.push(format!(
+            "gateway-compute-python cdylib target must be `{EXPECTED_COMPUTE_PYTHON_CDYLIB_TARGET}`"
+        ));
+    }
+
+    let manifest_contents = match fs::read_to_string(manifest_path) {
+        Ok(contents) => contents,
+        Err(error) => {
+            violations.push(format!(
+                "failed to read {} for cdylib inventory check: {error}",
+                manifest_path.display()
+            ));
+            return violations;
+        }
+    };
+
+    for test_target in collect_manifest_test_cdylib_targets(&manifest_contents) {
+        violations.push(format!(
+            "gateway-compute-python manifest must not declare test cdylib target `{test_target}`"
+        ));
+    }
+
+    violations
+}
+
+fn collect_manifest_test_cdylib_targets(contents: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut in_test = false;
+    let mut current_name: Option<String> = None;
+    let mut current_is_cdylib = false;
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[[test]]" {
+            if in_test
+                && current_is_cdylib
+                && let Some(name) = current_name.take()
+            {
+                names.push(name);
+            }
+            in_test = true;
+            current_name = None;
+            current_is_cdylib = false;
+            continue;
+        }
+        if in_test && trimmed.starts_with("[[") {
+            if current_is_cdylib && let Some(name) = current_name.take() {
+                names.push(name);
+            }
+            in_test = false;
+            current_name = None;
+            current_is_cdylib = false;
+            continue;
+        }
+        if !in_test {
+            continue;
+        }
+        if let Some((key, value)) = trimmed.split_once('=') {
+            let key = key.trim();
+            let value = value.trim().trim_matches('"');
+            if key == "name" {
+                current_name = Some(value.to_string());
+            }
+            if key == "crate-type" && value.contains("cdylib") {
+                current_is_cdylib = true;
+            }
+        }
+    }
+
+    if in_test
+        && current_is_cdylib
+        && let Some(name) = current_name
+    {
+        names.push(name);
+    }
+
+    names
 }
 
 fn package_resolved_dependency_names(
@@ -519,6 +826,10 @@ fn compute_python_line_violation(line: &str) -> Option<&'static str> {
     let trimmed = line.trim();
     if trimmed == "#![forbid(unsafe_code)]" {
         return None;
+    }
+    if trimmed.contains("feature = \"test-probes\"") || trimmed.contains("feature = \"test-hooks\"")
+    {
+        return Some("forbidden production test-hook feature gate");
     }
     if trimmed.contains("to_pylist") {
         return Some("forbidden materialization API `to_pylist`");
@@ -850,5 +1161,37 @@ mod tests {
         assert!(super::compute_python_line_violation("data.combine_chunks()").is_some());
         assert!(super::compute_python_line_violation("import gateway_shared_kernel").is_some());
         assert!(super::compute_python_line_violation("#![forbid(unsafe_code)]").is_none());
+    }
+
+    #[test]
+    fn suspicious_compute_hook_feature_detects_renamed_tokens() {
+        assert!(super::is_suspicious_compute_hook_feature("test-probes"));
+        assert!(super::is_suspicious_compute_hook_feature("fault-injection"));
+        assert!(super::is_suspicious_compute_hook_feature(
+            "custom_test_hook"
+        ));
+        assert!(!super::is_suspicious_compute_hook_feature("default"));
+    }
+
+    #[test]
+    fn suspicious_hook_package_detects_renamed_members() {
+        assert!(super::is_suspicious_hook_package(
+            "gateway-compute-python-hooks"
+        ));
+        assert!(super::is_suspicious_hook_package(
+            "gateway-compute-fault-inject"
+        ));
+        assert!(!super::is_suspicious_hook_package("gateway-compute-python"));
+    }
+
+    #[test]
+    fn production_release_inventory_is_clean() -> Result<(), String> {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+        let violations = super::check_production_release_inventory(&root);
+        if violations.is_empty() {
+            Ok(())
+        } else {
+            Err(violations.join("\n"))
+        }
     }
 }

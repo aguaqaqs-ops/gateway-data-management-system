@@ -14,12 +14,6 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = []
 extension-module = ["pyo3/extension-module", "gateway-compute-python-impl/extension-module"]
-test-probes = ["gateway-compute-python-impl/test-probes"]
-
-[[test]]
-name = "adapter_panic_matrix"
-path = "tests/adapter_panic_matrix.rs"
-required-features = ["test-probes"]
 
 [dependencies]
 gateway-compute-python-impl = { path = "../gateway-compute-python-impl" }

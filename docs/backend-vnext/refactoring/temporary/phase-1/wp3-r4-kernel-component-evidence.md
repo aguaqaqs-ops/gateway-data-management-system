@@ -1,15 +1,12 @@
 # WP3 R4 — Kernel Component GIL / Failure / Determinism Evidence
 
-状态：R4 sign-off evidence（post-review remediation + audit close-out）
+状态：R4 sign-off evidence（seventh external-review remediation, worktree — **未提交**）
 
 日期：2026-07-22
 
 Authority：
 
 - [WP3 R1 Arrow/PyO3 设计](wp3-r1-arrow-pyo3-design.md)（rev.3.1）§6、§8、§9、§10
-- [WP3 R2 Rust Core Evidence](wp3-r2-rust-core-evidence.md)
-- [WP3 R3 PyO3 Adapter Evidence](wp3-r3-pyo3-adapter-evidence.md)（round 6 + inherited doc fix）
-- [WP3–WP5 Checkout 计划](wp3-wp5-checkout-plan.md) §2、§4、§8
 - [Canonical Row Hash Compute Boundary](../../formal/contracts/canonical-row-hash-compute-boundary.md) §5–§7
 - [Rust Safety and Performance Policy](../../formal/policies/rust-safety-and-performance-policy.md)
 
@@ -17,258 +14,237 @@ Gate：**`PR-CORRECTNESS` + native-kernel component**；**非** `PR-NATIVE` / `g
 
 ## 1. Summary
 
-完成 WP3 R4 kernel component 级验证：合规 `test-probes` feature（非 hooks crate）、GIL 并发探针、import/compute/export panic→`NATIVE_PANIC` 矩阵、facade 路径 failure mapping / determinism 补全、release wheel smoke（empty + multi-batch + duplicate），以及 `gate.sh correctness` native-kernel component 段扩展。
+第七轮 remediation 闭合复审 Minor m1–m2：
+
+- **m1 共享 EXIT trap**：抽出 `wheel_smoke_on_exit`；production `wheel_smoke` 与 `wheel-trap-regression` 安装同一 trap；body=0/restore=99→99，body=42/restore=99→42；断言 tmp 删除与 `CARGO_TARGET_DIR` 恢复
+- **m2 历史 3.2MiB wheel tmp**：内容确认后删除 13 个目录；本轮准确路径 `/tmp/tmp.UVzt3YQdkt` 已清理；历史 wheel 查询（`/tmp/tmp.*` 下本项目 whl）为空
+
+继承第六轮：启动同步、42/40 双计数、7×352MiB 清理、deferred。
 
 ## 2. Identity / worktree
 
 | 项 | 值 |
 | --- | --- |
 | 基线（R3 sign-off） | `6b97ce8bcc08deb39c7bcbb6560cf79663feba5d` |
-| merge-base（baseline..HEAD） | `6b97ce8bcc08deb39c7bcbb6560cf79663feba5d` |
-| R4 sign-off HEAD | `4b9c1cf8826730810606194cb65a1043f7386322` |
-| R4 sign-off subject | `test(vnext): add WP3 R4 kernel component coverage` |
-| tracked patch SHA-256 | `git diff 6b97ce8..4b9c1cf` |
-| Normative fixture SHA | `8220e7e587b87a446803ac579e81a8d8b99a0f98cd29d1152c7793442f235c77`（未变） |
+| merge-base | `6b97ce8bcc08deb39c7bcbb6560cf79663feba5d` |
+| 已提交 R4 commits | `4b9c1cf`、`5dfeecd` |
+| remediation worktree | 基于 `5dfeecd` 的第七轮回修（未提交） |
+| **tracked patch SHA-256**（排除本 evidence） | `416a7d8b19920bbf1a2c356740c67d79c81e70b200d2174e491bf228279fb1b6` |
 
-## 3. R3 inherited correction
+**不记录** evidence 自引用 full-diff SHA。
 
-| 项 | 修正 |
+```bash
+git diff 6b97ce8 -- . \
+  ':(exclude)docs/backend-vnext/refactoring/temporary/phase-1/wp3-r4-kernel-component-evidence.md' \
+  | sha256sum
+# 416a7d8b19920bbf1a2c356740c67d79c81e70b200d2174e491bf228279fb1b6
+```
+
+### Untracked source manifest
+
+| 路径 | sha256 |
 | --- | --- |
-| R3 remediation 表 workspace 计数 | `224` → **`226`**（[wp3-r3-pyo3-adapter-evidence.md](wp3-r3-pyo3-adapter-evidence.md) L245） |
-| 归属 | **inherited R3 documentation correction**；**不计入** R4 新增测试 |
-| R4 workspace 增量 | R3 226 → R4 **234**（+8：panic 3、GIL 2、adapter 2、impl panic boundary 1） |
+| `kernel_component_tests.rs` | `251832f3d6b863b22f9b7fa9a8dfb47e0bc6f6461396aa9c173439ae52f30255` |
+| `gil_00_python_thread.rs` | `9e9d702340391f826cca305f6dcfa439e0407abdf5c2692f54987764213810a3` |
+| `gil_controller.rs` | `aa168dadfea1662cbb62a44387c7b1a7f588c8e91430f121a651aaa9c5108b98` |
+| `gil_probe.rs` | `f2564cee5a2fd1814b6a487995f5c1fef7dbaef4bc40c29d274314af75215798` |
+| `panic_matrix.rs` | `a8f7dabcd06c8baedd1a2c4aeb08ae629c84128ab4ec2ec34b6e1e3b7b7d768a` |
+| `support.rs` | `3cde4ae0d8b83a0e45f3b5485b5858235af2dc5a6ca25d17a2dcf740a66e1db8` |
+| `failure_goldens.rs` | `8c2001ca5152da092d0a78e3b46a3f61de1cb8865aed6fc6ec1c2a7d8a82b036` |
 
-## 4. 变更清单
+## 3. R3 inherited baseline
 
-### 新增
+| 指标 | R3 sign-off | 本轮 |
+| --- | ---: | --- |
+| Rust workspace | **224** | **239** |
+| R3 Python selected | 22 | gate backend **22** |
 
-- `vnext/rust/gateway-compute-python-impl/src/test_probes.rs`
-- `vnext/rust/gateway-compute-python/tests/common/mod.rs`
-- `vnext/rust/gateway-compute-python/tests/adapter_panic_matrix.rs`
-- `vnext/rust/gateway-compute-python/tests/gil_probe.rs`
-- `vnext/rust/gateway-compute-python/tests/test_component_support.py`
-- `vnext/rust/gateway-compute-python/tests/test_component_gil.py`
-- `vnext/rust/gateway-compute-python/tests/test_component_failure.py`
-- `vnext/rust/gateway-compute-python/tests/test_component_determinism.py`
-- `vnext/scripts/native_kernel_component.sh`
-- `docs/.../wp3-r4-kernel-component-evidence.md`
+## 4. 变更清单（baseline..worktree）
+
+### 新增（含 untracked）
+
+| 路径 | 说明 |
+| --- | --- |
+| `kernel_component_tests/*` | GIL / panic / Python 线程探针 |
+| `failure_goldens.rs` / `test_component_*.py` | golden + component suites |
+| `native_kernel_component.sh` | wheel-smoke / component-pytest / **wheel-trap-regression** |
+
+### 删除
+
+| 路径 | 说明 |
+| --- | --- |
+| `test_probes.rs`、旧 `gil_probe.rs`、`adapter_panic_matrix.rs` | 迁出 production / 并入 tests |
 
 ### 修改
 
-- `vnext/rust/gateway-compute-python-impl/{Cargo.toml,src/adapter.rs,src/lib.rs}`
-- `vnext/rust/gateway-compute-python/Cargo.toml`
-- `vnext/rust/gateway-compute-python/tests/adapter_errors.rs`
-- `vnext/rust/gateway-compute-python/tests/test_facade.py`（failure envelope 完整断言）
-- `vnext/scripts/gate.sh`
-- `docs/.../wp3-r3-pyo3-adapter-evidence.md`（inherited 224→226）
-
-## 5. GIL 区间与探针机制
-
-```text
-[GIL attached]  facade: _as_record_batch_reader
-[GIL attached]  PyRecordBatchReader::extract → into_reader()（import，含 panic boundary）
-[GIL detached]  parse_request + canonical_row_hashes_v1（含 panic boundary）
-[GIL attached]  PyRecordBatchReader::new → into_pyarrow()（export，含 panic boundary）
-```
-
-| 探针 | 机制 | release wheel |
-| --- | --- | --- |
-| Detached compute | Python `threading` progress + Rust `gil_probe.rs` 并发 `Python::attach` | 纯测试 target |
-| Import/export smoke | `test_empty_table_import_export_smoke` | 纯测试 |
-| Panic 三段 | `test-probes` feature + `adapter_panic_matrix.rs` | 无 feature 时不编译 |
-
-运行时证据：
-
-- Python：`test_component_gil.py::test_concurrent_python_thread_makes_progress_during_compute`（progress ≥ 1000）
-- Rust：`gil_probe.rs::concurrent_python_thread_makes_progress_during_native_compute`
-
-## 6. Fault-injection 隔离设计
-
-| 检查项 | 状态 |
+| 路径 | 说明 |
 | --- | --- |
-| production cdylib 无 `_test_*` / `_TEST_*` | ✅ |
-| `cargo build --workspace --release` 无 test-probes | ✅ |
-| `nm -D target/release/libgateway_compute.so` 无 test/probe 符号 | ✅ |
-| panic 仅在 `test_probes.rs` + `#[cfg(test)]` adapter 单测 | ✅ |
-| 无 hooks crate / 无 production global callback seam | ✅ |
-| gate 结束 installed hooks `[]` | ✅ |
+| `adapter.rs` / Cargo.toml / architecture-check | hooks、inventory、dev-deps |
+| `gate.sh` | `target/gate`、component Ruff、trap regression、wheel-smoke |
+| `native_kernel_component.sh` | finalize_exit、may_run 无关；restore 钩子；打印本轮 `tmp=` |
+| `gil_00_python_thread.rs` | `py.detach` 启动同步 + barrier 回归 |
+| `wp3-r3-pyo3-adapter-evidence.md` | R3 计数统一为 224 |
 
-机制：`gateway-compute-python-impl` feature `test-probes` + thread-local `PanicStage`；`adapter_panic_matrix` 使用 `required-features = ["test-probes"]`。
+## 5. GIL 探针机制（R4-A1）
 
-## 7. Failure mapping matrix
+权威证据为真实 Python 线程计数（非 `AttemptPending` smoke）：
 
-| Code | Facade/component | Adapter projection | Envelope exact bytes |
+| Stage | 协议 |
+| --- | --- |
+| Import / Export attached | 启动：`may_run` + `py.detach(wait_until_started)`；hold `observed==0`；release 后 `>=16` |
+| Parse / Compute detached | hold 期间 `>=16` |
+| 负向 | Parse + attached 协议必须失败 |
+| 启动同步回归 | `may_run` 在 `start()` 后仍 clear → detach 内 `set` → wait 仍成功 |
+
+## 6. Fault / wheel isolation
+
+| 检查 | 状态 |
+| --- | --- |
+| restore 成功+失败 → 非零（99） | ✅ 共享 `wheel_smoke_on_exit` + `wheel-trap-regression` |
+| body 失败+restore 失败 → 保留 body 码 | ✅ 同一 production trap |
+| 本轮 wheel tmp 打印并清理 | ✅ `wheel-smoke tmp=/tmp/tmp.UVzt3YQdkt`（gate 后不存在） |
+| 历史 352MiB ×7 + 3.2MiB ×13 wheel tmp | ✅ 已删除（见 §14） |
+| `/tmp/tmp.*` 下本项目 whl 查询 | ✅ **0** |
+
+## 7. Failure matrix（R4-A3）
+
+| Code | Golden | Python component | Rust |
 | --- | --- | --- | --- |
-| `COMPUTE_REQUEST_SCHEMA_INVALID` | `test_facade.py` | `adapter_errors.rs` | ✅ |
-| `COMPUTE_CONTRACT_VERSION_UNSUPPORTED` | `test_component_failure.py` | `adapter_errors.rs` native | ✅ |
-| `COMPUTE_CANONICAL_VERSION_UNSUPPORTED` | `test_component_failure.py` | — | ✅ |
-| `COMPUTE_ARROW_MAPPING_VERSION_UNSUPPORTED` | `test_component_failure.py` | — | ✅ |
-| `ARROW_STREAM_IMPORT_FAILED` | — | `adapter_errors.rs` native | ✅ |
-| `ARROW_TYPE_UNSUPPORTED` | `test_facade.py` + precedence | — | ✅ |
-| `ARROW_SCHEMA_MISMATCH` | `test_facade.py` + precedence | — | ✅ |
-| `CANONICAL_VALUE_INVALID` | `test_facade.py` + `test_component_failure.py` | `adapter_errors.rs` | ✅ |
-| `ROW_HASH_COMPUTE_FAILED` | — | `adapter_errors.rs` | ✅ |
-| `RESOURCE_LIMIT_EXCEEDED` | — | `adapter_errors.rs` | ✅（投影；无端到端触发，capability 未实现） |
-| `ARROW_STREAM_EXPORT_FAILED` | — | `adapter_errors.rs` | ✅（投影；真实 export 错误 defer） |
-| `NATIVE_PANIC` | — | `adapter_panic_matrix.rs` + `adapter_errors.rs` | ✅ |
+| `COMPUTE_REQUEST_SCHEMA_INVALID` | ✅ | ✅ | ✅ |
+| `COMPUTE_CONTRACT_VERSION_UNSUPPORTED` | ✅ | ✅ | ✅ |
+| `COMPUTE_CANONICAL_VERSION_UNSUPPORTED` | ✅ | ✅ | ✅ |
+| `COMPUTE_ARROW_MAPPING_VERSION_UNSUPPORTED` | ✅ | ✅ | ✅ |
+| `ARROW_SCHEMA_MISMATCH` | ✅ | ✅ | ✅ |
+| `ARROW_TYPE_UNSUPPORTED` | ✅ | ✅ precedence | ✅ |
+| `CANONICAL_VALUE_INVALID` | ✅ | facade | ✅ |
+| `ARROW_STREAM_IMPORT_FAILED` | ✅ | — | ✅ |
+| `ROW_HASH_COMPUTE_FAILED` | ✅ | — | ✅ |
+| `RESOURCE_LIMIT_EXCEEDED` | ✅ | — | ✅ |
+| `ARROW_STREAM_EXPORT_FAILED` | ✅ | — | ✅ |
+| `NATIVE_PANIC` | ✅ | — | ✅ Import/Compute/Export |
 
-Precedence：`large_utf8` → `ARROW_TYPE_UNSUPPORTED`；`utf8` + declared `binary` → `ARROW_SCHEMA_MISMATCH`（`test_component_failure.py`）。
+## 8. Determinism matrix（R4-A4）
 
-## 8. Stream determinism matrix（facade → extension → core）
-
-| Case | 测试 |
+| 测试 | 断言 |
 | --- | --- |
-| empty table | `test_facade.py` + wheel smoke |
-| zero-field table | `test_facade.py` |
-| one-row | `test_facade.py` |
-| multi-batch / partition | `test_facade.py` + `test_component_determinism.py` |
-| duplicate row hashes | `test_component_determinism.py` + wheel smoke |
-| input row permutation | `test_component_determinism.py` |
-| Arrow field-order permutation | `test_component_determinism.py` |
-| output lexicographic sort | `test_component_determinism.py` |
-| zero batches, declared schema | `test_component_determinism.py` |
-| serial ≥2 byte-identical | `test_facade.py` + `test_component_determinism.py` |
-| digest fields stable | `test_component_determinism.py` |
+| `test_duplicate_row_hashes_are_retained` | 同 hash ×2 |
+| `test_multi_batch_partition_matches_single_batch_row_hashes` | bytes 一致 |
+| `test_multi_batch_serial_execution_is_byte_identical` | 串行一致 |
+| `test_serial_execution_result_jcs_is_exact_bytes` | JCS 精确 |
+| `test_input_row_permutation_preserves_digests` | 置换不变 |
+| `test_field_order_permutation_is_invariant` | 字段序不变 |
+| `test_output_row_hashes_are_sorted_unsigned_lexicographic` | 排序 |
+| `test_zero_batches_with_declared_schema_succeeds` | row_count=0 |
+| `test_serial_execution_preserves_digest_fields` | digest 字段 |
 
-## 9. Production wheel identity
+## 9. Wheel identity
 
 | 项 | 值 |
 | --- | --- |
-| 构建命令 | `uv run maturin build --release --manifest-path gateway-compute-python/Cargo.toml --out <tmpdir>/dist` |
-| Wheel 文件名 | `gateway_compute_python-0.1.0-cp314-cp314-manylinux_2_34_x86_64.whl` |
-| Python ABI | CPython 3.14.6 |
-| Platform tag | `manylinux_2_34_x86_64` |
-| 安装位置 | `mktemp` 外构建；`uv pip install --force-reinstall <wheel>` |
-| Smoke cases | empty + multi-batch(3 rows) + duplicate(2 rows) |
-| 恢复 | `uv sync --reinstall-package gateway-compute-python` |
-| Wheel 无 test hooks | ✅ |
+| Wheel | `gateway_compute_python-0.1.0-cp314-cp314-manylinux_2_34_x86_64.whl` |
+| 本轮准确 tmp | `/tmp/tmp.UVzt3YQdkt`（gate 后已删除） |
+| `CARGO_TARGET_DIR` | `$tmp/cargo-target` |
+| maturin | `1.14.1` |
 
 ## 10. Lock identity
 
-| 组件 | 版本 | Lock |
-| --- | --- | --- |
-| Rust toolchain | 1.97.0 | `vnext/rust/rust-toolchain.toml` |
-| pyo3 | 0.29.0 | `vnext/rust/Cargo.lock` |
-| pyo3-arrow | 0.19.0 | 同上 |
-| arrow-* | 59.1.0 | 同上 |
-| Python | 3.14.6 | `vnext/shared_kernel/.python-version` |
-| pyarrow | 25.0.0 | `vnext/backend/uv.lock` |
-| maturin | 1.14.1 | `gateway-compute-python/pyproject.toml` / `uv.lock` |
+Rust `1.97.0`；pyo3 `0.29.0`；pyo3-arrow `0.19.0`；arrow `59.1.0`；pyarrow `25.0.0`；maturin `1.14.1`。
 
-## 11. Dependency / native / build-script delta
+## 11. Dependency delta
 
-| 变更 | 说明 |
-| --- | --- |
-| `gateway-compute-python-impl` feature `test-probes` | 测试专用 panic 注入；不进入 release default features |
-| `gateway-compute-python` feature `test-probes` | 透传 impl；`adapter_panic_matrix` `required-features` |
-| 无新 workspace member | ✅ |
-| 无新 proc-macro / build-script | ✅ |
-| `Cargo.lock` | 仅 test-probes feature 解析增量（无新第三方 crate） |
+无新增 production 第三方 crate。dev-dependencies：`gateway-compute-python-impl` / `gateway-compute-python` 的 arrow/pyo3-arrow/core（tests）；`Cargo.lock` membership 更新。
 
-## 12. 验证命令与结果
+## 12. 验证命令
+
+```bash
+cd vnext && bash scripts/gate.sh correctness
+# includes:
+#   native_kernel_component.sh wheel-trap-regression
+#   native_kernel_component.sh wheel-smoke   # prints wheel-smoke tmp=...
+cargo test -p gateway-compute-python-impl kernel_component_tests -- --test-threads=1
+
+# Full audit Python (42):
+cd vnext/backend && uv run --offline --no-sync pytest -q \
+  ../rust/gateway-compute-python/tests tests
+```
+
+## 13. 验证结果（第七轮 gate）
 
 | 命令 | Exit | 结果 |
 | --- | ---: | --- |
-| `cargo fmt --check` | 0 | 通过 |
-| `cargo clippy --locked --offline --workspace --all-targets --all-features -- -D warnings` | 0 | 通过 |
-| `cargo test --locked --offline --workspace --all-targets --features test-probes` | 0 | **234 passed** |
-| `cargo build --locked --offline --workspace --release` | 0 | 通过 |
-| `gateway-architecture-check` | 0 | 通过 |
-| `native_kernel_component.sh wheel-smoke` | 0 | empty + multi-batch + duplicate |
-| `native_kernel_component.sh component-pytest` | 0 | **17 passed** |
-| backend production pytest | 0 | **22 passed** |
-| `gate.sh correctness` | 0 | 全段绿 |
-| `gate.sh native` | 2 | `native gate is not implemented until WP4 R4` |
-
-```bash
-cd vnext/rust
-cargo fmt --check
-cargo clippy --locked --offline --workspace --all-targets --all-features -- -D warnings
-cargo test --locked --offline --workspace --all-targets --features test-probes
-cargo build --locked --offline --workspace --release
-cargo run --locked --offline -q --bin gateway-architecture-check -- \
-  --rust-workspace-root . --vnext-root ..
-
-cd /root/gateway-data-management-system
-vnext/scripts/native_kernel_component.sh wheel-smoke
-vnext/scripts/native_kernel_component.sh component-pytest
-
-cd vnext/backend
-uv sync --locked --offline --all-groups --reinstall-package gateway-compute-python
-uv run pytest -q \
-  ../rust/gateway-compute-python/tests/test_facade.py \
-  ../rust/gateway-compute-python/tests/test_production_extension.py \
-  tests/test_canonical_row_hash.py
-
-vnext/scripts/gate.sh correctness
-vnext/scripts/gate.sh native   # exit 2 expected
-```
-
-## 13. 测试计数
-
-| 层 | 文件 | 计数 |
-| --- | --- | ---: |
-| Rust adapter errors | `adapter_errors.rs` | 8 |
-| Rust panic matrix | `adapter_panic_matrix.rs` | 3 |
-| Rust GIL probe | `gil_probe.rs` | 2 |
-| Python component GIL | `test_component_gil.py` | 2 |
-| Python component failure | `test_component_failure.py` | 6 |
-| Python component determinism | `test_component_determinism.py` | 9 |
-| **R4 component 小计** | | **17** |
-| Python facade（R3） | `test_facade.py` | 19 |
-| Python production guard | `test_production_extension.py` | 1 |
-| Backend formal | `test_canonical_row_hash.py` | 2 |
-| **Rust workspace** | | **234** |
-
-R4 新增 Rust workspace 测试：**8**（相对 R3 226）；其中 inherited doc 不计入。
+| Rust workspace | 0 | **239** passed |
+| wheel-trap-regression | 0 | 共享 trap：99 / 42 + tmp/`CARGO_TARGET_DIR` 断言 |
+| wheel-smoke | 0 | tmp=`/tmp/tmp.UVzt3YQdkt` → 已清理 |
+| component-pytest | 0 | **18** |
+| backend selected | 0 | **22** |
+| **gate Python 精选合计** | 0 | **40**（18+22） |
+| **完整 Python** `tests` + `gateway-compute-python/tests` | 0 | **42** passed |
+| Ruff（含 component） | 0 | 通过 |
+| `gate.sh correctness` | 0 | 全绿 |
 
 ## 14. Gate 前后状态
 
-| 状态 | gate 前 | gate 后 |
-| --- | --- | --- |
-| source tree `.so` | 0 | 0 |
-| installed hooks | `[]` | `[]` |
-| installed extension | production editable | production editable（`uv sync --reinstall-package` 恢复） |
+| 检查 | 结果 |
+| --- | --- |
+| `vnext/.cache/cargo-target-gate` | 不存在 |
+| `vnext/rust/target/gate/release/libgateway_compute.so` | gate artifact |
+| 本轮 wheel tmp `/tmp/tmp.UVzt3YQdkt` | **已删除** |
+| trap regression tmp（`VZgrw8HXaE`、`e6pf1sczNs`） | **已删除** |
+| 历史 352MiB wheel tmp（`GyEzw9hCDI`、`KC2tF0FMCc`、`OqsebP9tru`、`PyJWWcmyc4`、`WsIEmBgFLd`、`aKR5CTRKDr`、`gYK4nYH5tN`） | **已删除**（约 2.4 GiB） |
+| 历史 3.2MiB wheel tmp ×13（`5anUT2n4wu`、`I1gijYGdjy`、`IRVotay3Zd`、`JkeXDrL7sb`、`KnLZP9gRxl`、`LorftoNoWT`、`N4ZGT67pvU`、`T071H5Bk56`、`UEuH0x7r5b`、`V6tTB0G94t`、`ZTxglcHHWr`、`di0EtiGJvx`、`qiuFzRSqXu`） | **已删除**（内容确认含同名 whl） |
+| `/tmp/tmp.*` 下 `gateway_compute_python-0.1.0-*.whl` | **0** |
+| 声明 | **不**声称“任意 `/tmp/tmp.*` 均不存在”；仅验证本轮准确路径与已识别历史 wheel 目录；未泛化删除其他 `/tmp/tmp.*` |
+| source `.so` / hooks | 0 / `[]` |
 
 ## 15. R4-A1～R4-A8 checklist
 
 | # | 项 | 状态 |
 | --- | --- | --- |
-| R4-A1 | GIL attached/detached 运行时探针 | ✅ |
-| R4-A2 | panic boundary + 合规 fault injection | ✅ |
-| R4-A3 | stable failure mapping（facade + adapter） | ✅ |
-| R4-A4 | stream determinism component matrix | ✅ |
-| R4-A5 | 粗粒度 C Stream 边界 | ✅ |
-| R4-A6 | production wheel smoke（empty/multi-batch/duplicate） | ✅ |
-| R4-A7 | Rust safety / release inventory | ✅ |
-| R4-A8 | Gate 命名边界（非 PR-NATIVE） | ✅ |
+| R4-A1 | GIL | ✅（detach 启动同步 + barrier 回归） |
+| R4-A2 | Panic | ✅ |
+| R4-A3 | Failure | ✅ |
+| R4-A4 | Determinism | ✅ |
+| R4-A5 | C Stream | ✅ |
+| R4-A6 | Wheel + 共享 EXIT trap 回归 | ✅ |
+| R4-A7 | Safety/lifecycle | ✅ |
+| R4-A8 | Gate/Ruff/naming | ✅ |
 
 ## 16. Deferred
 
-| 项 | 归属 |
-| --- | --- |
-| `RESOURCE_LIMIT_EXCEEDED` 端到端触发 | WP3 R5（capability 未实现） |
-| `ARROW_STREAM_EXPORT_FAILED` 真实 export 路径触发 | WP4+（无安全 corrupt IPC） |
-| export-phase GIL attached 独立 runtime 探针 | WP3 R5（R4 以 adapter 结构 + smoke 验收；见 §5） |
-| Python GIL 探针 `thread.join` 显式断言 | WP3 R5（R4 以 progress 阈值 + `stop` 同步验收） |
-| `gate.sh native` / 完整 `PR-NATIVE` | WP4 R4 |
-| Artifact IPC / reopen / corrupt IPC | WP4 |
-| Scenario YAML / harness / container | WP5 |
-| kernel-native component sign-off 归档 | WP3 R5 |
+| 项 | 归属 | 说明 |
+| --- | --- | --- |
+| Kernel-native sign-off / dependency inventory 扩展 | **WP3 R5** | 超出 R4 component 边界 |
+| ArtifactRef / IPC / corrupt IPC | **WP4** | 未实现 |
+| 细粒度 C Stream chunk / `gate.sh native` | **WP4 R4** | native 现 exit 2 占位 |
+| Scenario / harness / container / Phase 1 exit | **WP5** | Phase 1 范围外 |
+| Python 级 GIL 权威证据 | — | 已由 Rust probes 承担 |
 
-## 17. Remediation mapping（外部审核 → 本轮修复）
+## 17. Remediation mapping
+
+### 第七轮
 
 | Finding | 修复 |
 | --- | --- |
-| M1 failure mapping 不完整 | `test_component_failure.py` + `adapter_errors.rs` ROW_HASH + facade envelope 完整断言 |
-| M2 determinism matrix 缺口 | `test_component_determinism.py` 补 permutation / field-order / lex sort / declared-schema zero-batch / digest |
-| M3 wheel smoke 仅 empty | `native_kernel_component.sh` 增 multi-batch + duplicate |
-| M4 evidence 不完整 | 本文 §1–§17 补全 |
-| m1 GIL import/export 探针名实不符 | 重命名为 `test_empty_table_import_export_smoke` |
-| R3 inherited 224→226 | R3 evidence L245 + 本文 §3 |
-| audit M1 evidence HEAD 未记录 | 本文 §2 补 R4 sign-off HEAD / subject |
-| audit M2/M3 GIL export/join 探针 | defer §16 → WP3 R5 |
+| **m1** trap 回归未覆盖 production EXIT | 抽出 `wheel_smoke_on_exit`；regression 安装同一 trap |
+| **m2** 13×3.2MiB 历史 wheel tmp | 内容确认后删除；evidence + 历史 whl 查询为空 |
 
-**归属**：`PR-CORRECTNESS` + native-kernel component；**不是** `PR-NATIVE` / WP3 R5 sign-off。
+### 第六轮（继承）
 
-**审核结论**：`R4 REVIEW PASSED`（无 Blocking / Major；Minor 已 evidence close-out 或 defer R5）。
+| Finding | 修复 |
+| --- | --- |
+| **M1** 启动同步持 GIL 自旋 | `py.detach(wait_until_started)` + `may_run` barrier 回归 |
+| **M2** evidence 40/42、tmp、deferred | 双计数；删 7×352MiB；本轮精确 tmp；补全 WP3 R5/WP4/WP5 |
+| **m1** restore 无持久回归 | `wheel-trap-regression` 入 gate |
+
+### 第五轮（继承）
+
+Import/Export Python 线程权威；probe_stage lifecycle；restore 非零；Ruff；evidence manifest 初版。
+
+## 18. Sign-off boundary
+
+- **归属**：`PR-CORRECTNESS` + native-kernel component
+- **不是**：`PR-NATIVE` / WP3 R5 / WP4 / WP5
+- **工作区**：第七轮 remediation **未提交**（DO NOT COMMIT）
+- **权威 GIL**：`gil_00_python_thread.rs`（含启动同步）+ `gil_controller`/`gil_probe`
+- **权威 release**：`vnext/rust/target/gate/release/libgateway_compute.so` + §9 wheel
+- **权威 wheel cleanup**：`wheel_smoke_on_exit`（production + regression 共用）

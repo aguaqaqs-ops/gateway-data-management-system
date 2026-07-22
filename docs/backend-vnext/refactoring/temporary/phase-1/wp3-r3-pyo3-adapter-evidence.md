@@ -20,7 +20,7 @@ Gate：**`PR-CORRECTNESS`**（`vnext/scripts/gate.sh correctness`）；**非** `
 外部审核 remediation（round 6，2026-07-22）：
 
 - architecture gate 封闭反向依赖：`gateway-compute-core` / `gateway-shared-kernel` 均禁止依赖 `gateway-compute-python-impl`
-- evidence 计数与路径修正：workspace **226** passed；impl **4** `#[cfg(test)]`（adapter 1、errors 2、smoke 1）
+- evidence 计数与路径修正：workspace **224** passed；impl **4** `#[cfg(test)]`（adapter 1、errors 2、smoke 1）
 
 外部审核 remediation（round 5，2026-07-22）：
 
@@ -146,14 +146,14 @@ gateway-compute-python → gateway-compute-python-impl → gateway-compute-core 
 | --- | ---: | --- |
 | `cargo fmt --check` | 0 | 通过 |
 | `cargo clippy --locked --offline --workspace --all-targets --all-features -- -D warnings` | 0 | 通过 |
-| `cargo test --locked --offline --workspace --all-targets` | 0 | **226 passed** |
+| `cargo test --locked --offline --workspace --all-targets` | 0 | **224 passed** |
 | `cargo build --locked --offline --workspace --release` | 0 | 通过 |
 | `cargo metadata --locked --offline` | 0 | 通过 |
 | `uv sync --reinstall-package gateway-compute-python`（production） | 0 | 扩展无 `_test_*` / `_TEST_*` |
 | backend `ruff` | 0 | 通过 |
 | backend `mypy` | 0 | 8 source files 通过 |
 | backend production pytest | 0 | **22 passed** |
-| `gate.sh correctness` | 0 | shared-kernel 131、repository 5、Rust 226、R3 Python 22 |
+| `gate.sh correctness` | 0 | shared-kernel 131、repository 5、Rust 224、R3 Python 22 |
 | architecture check（impl policy + forbidden hook member） | 0 | 通过 |
 | `gate.sh native` | 2 | 正确提示 WP4 R4 |
 | `git diff --check b9c4725693b7afafb24dffe1c1ebfbf313e4baa3` | 0 | 通过 |
@@ -162,7 +162,7 @@ gateway-compute-python → gateway-compute-python-impl → gateway-compute-core 
 cd vnext/rust
 cargo fmt --check                                    # exit 0
 cargo clippy --locked --offline --workspace --all-targets --all-features -- -D warnings  # exit 0
-cargo test --locked --offline --workspace --all-targets  # exit 0, 226 passed (workspace)
+cargo test --locked --offline --workspace --all-targets  # exit 0, 224 passed (workspace)
 cargo build --locked --offline --workspace --release   # exit 0
 cargo metadata --locked --offline                      # exit 0
 
@@ -242,4 +242,4 @@ Rust `gateway-compute-python-impl`：`adapter.rs` **1** + `errors.rs` **2** + `l
 | Minor `.so` 残留 | 删除 source tree `.so`；`.gitignore` 保留 |
 | M1 hooks release artifact / panic waiver | 删除 hooks crate；defer Python fault injection 至 R4 |
 | M2 impl 绕过 architecture gate | impl 纳入 policy；core/shared-kernel 禁止 → impl 反向依赖 |
-| M3 evidence 漂移 | workspace **226**；impl **4** tests；路径/lock 描述对齐 |
+| M3 evidence 漂移 | workspace **224**；impl **4** tests；路径/lock 描述对齐 |

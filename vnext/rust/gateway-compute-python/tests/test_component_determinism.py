@@ -99,11 +99,12 @@ def test_input_row_permutation_preserves_digests() -> None:
         [pa.array([2, 1], type=pa.int32()), pa.array([20, 10], type=pa.int32())],
         schema=schema,
     )
-    _, result_a = canonical_row_hashes_v1(request_jcs, batch_a)
-    _, result_b = canonical_row_hashes_v1(request_jcs, batch_b)
+    output_a, result_a = canonical_row_hashes_v1(request_jcs, batch_a)
+    output_b, result_b = canonical_row_hashes_v1(request_jcs, batch_b)
     parsed_a = parse_result_jcs(result_a)
     parsed_b = parse_result_jcs(result_b)
     assert result_a == result_b
+    assert row_hash_column_bytes(output_a) == row_hash_column_bytes(output_b)
     assert parsed_a["raw_content_digest"] == parsed_b["raw_content_digest"]
     assert parsed_a["table_schema_digest"] == parsed_b["table_schema_digest"]
 
@@ -125,9 +126,10 @@ def test_field_order_permutation_is_invariant() -> None:
         schema=schema,
     )
     permuted = batch.select(["b", "a"])
-    _, result_a = canonical_row_hashes_v1(request_jcs, batch)
-    _, result_b = canonical_row_hashes_v1(request_jcs, permuted)
+    output_a, result_a = canonical_row_hashes_v1(request_jcs, batch)
+    output_b, result_b = canonical_row_hashes_v1(request_jcs, permuted)
     assert result_a == result_b
+    assert row_hash_column_bytes(output_a) == row_hash_column_bytes(output_b)
 
 
 def test_output_row_hashes_are_sorted_unsigned_lexicographic() -> None:

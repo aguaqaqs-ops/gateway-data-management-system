@@ -3,8 +3,8 @@
 pub mod adapter;
 pub mod errors;
 
-#[cfg(feature = "test-probes")]
-pub mod test_probes;
+#[cfg(test)]
+mod kernel_component_tests;
 
 pub use adapter::canonical_row_hashes_v1_native;
 pub use errors::{

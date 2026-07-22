@@ -55,6 +55,7 @@ uv run --offline --no-sync pytest -q --cov=gateway_shared_kernel --cov-report=te
 
 cd "${RUST_ROOT}"
 
+export CARGO_TARGET_DIR="${RUST_ROOT}/target/gate"
 export CARGO_NET_OFFLINE=true
 
 NORMATIVE_VECTOR_ROOT="${VNEXT_ROOT}/fixtures/vectors/shared-kernel/canonical-encoding/v1"
@@ -91,8 +92,8 @@ cargo fmt --check
 echo "==> cargo clippy --locked --offline --workspace --all-targets --all-features -- -D warnings"
 cargo clippy --locked --offline --workspace --all-targets --all-features -- -D warnings
 
-echo "==> cargo test --locked --offline --workspace --all-targets --features test-probes"
-cargo test --locked --offline --workspace --all-targets --features test-probes
+echo "==> cargo test --locked --offline --workspace --all-targets"
+cargo test --locked --offline --workspace --all-targets
 
 echo "==> cargo build --locked --offline --workspace --release"
 cargo build --locked --offline --workspace --release
@@ -104,6 +105,9 @@ cargo run --locked --offline --quiet --bin gateway-architecture-check -- \
 
 NATIVE_KERNEL_COMPONENT="${VNEXT_ROOT}/scripts/native_kernel_component.sh"
 chmod +x "${NATIVE_KERNEL_COMPONENT}"
+
+echo "==> native-kernel component: wheel EXIT trap regression"
+"${NATIVE_KERNEL_COMPONENT}" wheel-trap-regression
 
 echo "==> native-kernel component: release wheel smoke"
 "${NATIVE_KERNEL_COMPONENT}" wheel-smoke
@@ -154,7 +158,9 @@ echo "==> native-kernel component: facade determinism / failure / GIL probes"
 "${NATIVE_KERNEL_COMPONENT}" component-pytest
 
 echo "==> backend: ruff"
-uv run --offline --no-sync ruff check src tests
+uv run --offline --no-sync ruff check \
+  src tests \
+  "${COMPUTE_PYTHON_ROOT}/tests"
 
 echo "==> backend: mypy"
 uv run --offline --no-sync mypy

@@ -1,12 +1,15 @@
 #![forbid(unsafe_code)]
 #![allow(dead_code)]
 
+mod failure_goldens;
+
 use std::sync::{Arc, Once};
 
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, Schema};
-use gateway_compute_core::{ComputeFailure, ComputeFailureCode};
+use gateway_compute_core::ComputeFailureCode;
 use pyo3::prelude::*;
+use pyo3::types::PyAnyMethods;
 use pyo3_arrow::PyRecordBatchReader;
 
 extern crate gateway_compute as gw_compute;
@@ -51,10 +54,27 @@ pub fn is_exception_type(py: Python<'_>, err: &PyErr, type_name: &str) -> Result
         .map_err(|error| error.to_string())
 }
 
-pub fn expected_envelope(code: ComputeFailureCode) -> Result<Vec<u8>, String> {
-    ComputeFailure::new(code)
-        .to_envelope_jcs()
-        .map_err(|failure| format!("{failure:?}"))
+pub use failure_goldens::{golden_envelope, golden_exception_type};
+
+pub fn assert_golden_envelope(
+    py: Python<'_>,
+    py_err: PyErr,
+    code: ComputeFailureCode,
+) -> Result<(), String> {
+    assert!(is_exception_type(py, &py_err, golden_exception_type(code))?);
+    let value = py_err.value(py);
+    let observed_code: String = value
+        .getattr("code")
+        .map_err(|error: PyErr| error.to_string())?
+        .extract()
+        .map_err(|error: PyErr| error.to_string())?;
+    if observed_code != code.as_str() {
+        return Err(format!(
+            "expected code {}, got {observed_code}",
+            code.as_str()
+        ));
+    }
+    assert_envelope_exact(py, py_err, golden_envelope(code))
 }
 
 pub fn assert_envelope_exact(

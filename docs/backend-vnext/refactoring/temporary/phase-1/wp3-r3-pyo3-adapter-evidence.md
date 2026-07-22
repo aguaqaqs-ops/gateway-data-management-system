@@ -242,4 +242,4 @@ Rust `gateway-compute-python-impl`：`adapter.rs` **1** + `errors.rs` **2** + `l
 | Minor `.so` 残留 | 删除 source tree `.so`；`.gitignore` 保留 |
 | M1 hooks release artifact / panic waiver | 删除 hooks crate；defer Python fault injection 至 R4 |
 | M2 impl 绕过 architecture gate | impl 纳入 policy；core/shared-kernel 禁止 → impl 反向依赖 |
-| M3 evidence 漂移 | workspace **224**；impl **4** tests；路径/lock 描述对齐 |
+| M3 evidence 漂移 | workspace **226**；impl **4** tests；路径/lock 描述对齐 |

@@ -11,6 +11,7 @@ crate-type = ["rlib"]
 [features]
 default = []
 extension-module = ["pyo3/extension-module"]
+test-probes = []
 
 [dependencies]
 arrow-array.workspace = true

@@ -16,6 +16,8 @@ from gateway_compute import (
     canonical_row_hashes_v1,
 )
 
+from test_component_support import assert_failure_envelope, empty_reader
+
 OUTPUT_ROW_HASH_SCHEMA = pa.schema(
     [pa.field("row_hash", pa.binary(32), nullable=False)]
 )
@@ -145,12 +147,13 @@ def test_facade_input_shapes_are_equivalent(
 
 
 def test_invalid_request_jcs_raises_compute_request_error() -> None:
-    reader = pa.RecordBatchReader.from_batches(pa.schema([]), [])
     with pytest.raises(ComputeRequestError) as exc_info:
-        canonical_row_hashes_v1(b"{not-json", reader)
-    assert exc_info.value.code == "COMPUTE_REQUEST_SCHEMA_INVALID"
-    assert exc_info.value.envelope_jcs
-    assert json.loads(exc_info.value.envelope_jcs.decode())["diagnostics"] == []
+        canonical_row_hashes_v1(b"{not-json", empty_reader())
+    assert_failure_envelope(
+        exc_info.value,
+        expected_type=ComputeRequestError,
+        expected_code="COMPUTE_REQUEST_SCHEMA_INVALID",
+    )
 
 
 def test_schema_mismatch_raises_compute_request_error() -> None:
@@ -159,9 +162,11 @@ def test_schema_mismatch_raises_compute_request_error() -> None:
     batch = pa.record_batch([pa.array([1], type=pa.int8())], names=["v"])
     with pytest.raises(ComputeRequestError) as exc_info:
         canonical_row_hashes_v1(request_jcs, batch)
-    assert exc_info.value.code == "ARROW_SCHEMA_MISMATCH"
-    assert exc_info.value.envelope_jcs
-    assert json.loads(exc_info.value.envelope_jcs.decode())["diagnostics"] == []
+    assert_failure_envelope(
+        exc_info.value,
+        expected_type=ComputeRequestError,
+        expected_code="ARROW_SCHEMA_MISMATCH",
+    )
 
 
 def test_nan_float_raises_canonical_value_error() -> None:
@@ -171,8 +176,11 @@ def test_nan_float_raises_canonical_value_error() -> None:
     batch = pa.record_batch([pa.array([float("nan")], type=pa.float64())], schema=schema)
     with pytest.raises(CanonicalValueError) as exc_info:
         canonical_row_hashes_v1(request_jcs, batch)
-    assert exc_info.value.code == "CANONICAL_VALUE_INVALID"
-    assert exc_info.value.envelope_jcs
+    assert_failure_envelope(
+        exc_info.value,
+        expected_type=CanonicalValueError,
+        expected_code="CANONICAL_VALUE_INVALID",
+    )
 
 
 def test_large_utf8_raises_compute_request_error() -> None:
@@ -182,7 +190,11 @@ def test_large_utf8_raises_compute_request_error() -> None:
     batch = pa.record_batch([array], names=["s"])
     with pytest.raises(ComputeRequestError) as exc_info:
         canonical_row_hashes_v1(request_jcs, batch)
-    assert exc_info.value.code == "ARROW_TYPE_UNSUPPORTED"
+    assert_failure_envelope(
+        exc_info.value,
+        expected_type=ComputeRequestError,
+        expected_code="ARROW_TYPE_UNSUPPORTED",
+    )
 
 
 def test_invalid_input_raises_type_error() -> None:

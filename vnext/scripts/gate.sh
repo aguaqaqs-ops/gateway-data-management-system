@@ -91,8 +91,8 @@ cargo fmt --check
 echo "==> cargo clippy --locked --offline --workspace --all-targets --all-features -- -D warnings"
 cargo clippy --locked --offline --workspace --all-targets --all-features -- -D warnings
 
-echo "==> cargo test --locked --offline --workspace --all-targets"
-cargo test --locked --offline --workspace --all-targets
+echo "==> cargo test --locked --offline --workspace --all-targets --features test-probes"
+cargo test --locked --offline --workspace --all-targets --features test-probes
 
 echo "==> cargo build --locked --offline --workspace --release"
 cargo build --locked --offline --workspace --release
@@ -101,6 +101,12 @@ echo "==> architecture/policy check"
 cargo run --locked --offline --quiet --bin gateway-architecture-check -- \
   --rust-workspace-root "${RUST_ROOT}" \
   --vnext-root "${VNEXT_ROOT}"
+
+NATIVE_KERNEL_COMPONENT="${VNEXT_ROOT}/scripts/native_kernel_component.sh"
+chmod +x "${NATIVE_KERNEL_COMPONENT}"
+
+echo "==> native-kernel component: release wheel smoke"
+"${NATIVE_KERNEL_COMPONENT}" wheel-smoke
 
 cd "${BACKEND_ROOT}"
 COMPUTE_PYTHON_ROOT="${RUST_ROOT}/gateway-compute-python"
@@ -143,6 +149,9 @@ PY
 echo "==> backend: uv sync --locked --offline --all-groups --reinstall-package gateway-compute-python"
 uv sync --locked --offline --all-groups --reinstall-package gateway-compute-python
 cleanup_compute_python_source_so
+
+echo "==> native-kernel component: facade determinism / failure / GIL probes"
+"${NATIVE_KERNEL_COMPONENT}" component-pytest
 
 echo "==> backend: ruff"
 uv run --offline --no-sync ruff check src tests

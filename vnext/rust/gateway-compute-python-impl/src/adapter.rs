@@ -12,6 +12,9 @@ use pyo3_arrow::PyRecordBatchReader;
 
 use crate::errors::failure_to_pyerr;
 
+#[cfg(feature = "test-probes")]
+use crate::test_probes::{self, PanicStage};
+
 fn run_with_panic_boundary<F, T>(f: F) -> Result<T, ComputeFailure>
 where
     F: FnOnce() -> Result<T, ComputeFailure>,
@@ -27,6 +30,8 @@ fn import_arrow_stream(
     input_stream: &Bound<'_, PyAny>,
 ) -> Result<Box<dyn RecordBatchReader + Send>, ComputeFailure> {
     run_with_panic_boundary(|| {
+        #[cfg(feature = "test-probes")]
+        test_probes::maybe_panic(PanicStage::Import);
         PyRecordBatchReader::extract(input_stream.as_borrowed())
             .map_err(|_| ComputeFailure::new(ComputeFailureCode::ArrowStreamImportFailed))
             .and_then(|reader| {
@@ -43,6 +48,8 @@ fn export_arrow_stream(
     result_jcs: Vec<u8>,
 ) -> Result<(Py<PyAny>, Vec<u8>), ComputeFailure> {
     run_with_panic_boundary(|| {
+        #[cfg(feature = "test-probes")]
+        test_probes::maybe_panic(PanicStage::Export);
         PyRecordBatchReader::new(Box::new(reader))
             .into_pyarrow(py)
             .map(|output| (output.unbind(), result_jcs))
@@ -55,6 +62,8 @@ fn detached_parse_and_compute(
     boxed_reader: Box<dyn RecordBatchReader + Send>,
 ) -> Result<(OutputBatchReader, Vec<u8>), ComputeFailure> {
     run_with_panic_boundary(|| {
+        #[cfg(feature = "test-probes")]
+        test_probes::maybe_panic(PanicStage::Compute);
         let request = parse_request(request_jcs)?;
         canonical_row_hashes_v1(&request, boxed_reader).map(|output| {
             (
@@ -125,6 +134,22 @@ pub fn canonical_row_hashes_v1_native(
         },
         Err(failure) => Err(failure_to_pyerr(py, failure)),
     }
+}
+
+#[cfg(feature = "test-probes")]
+pub fn test_invoke_compute_panic_probe(
+    request_jcs: &[u8],
+    boxed_reader: Box<dyn RecordBatchReader + Send>,
+) -> Result<Vec<u8>, ComputeFailure> {
+    detached_parse_and_compute(request_jcs, boxed_reader).map(|(_reader, result_jcs)| result_jcs)
+}
+
+#[cfg(feature = "test-probes")]
+pub fn test_invoke_export_panic_probe(
+    py: Python<'_>,
+    result_jcs: Vec<u8>,
+) -> Result<(Py<PyAny>, Vec<u8>), ComputeFailure> {
+    export_arrow_stream(py, OutputBatchReader::new(vec![]), result_jcs)
 }
 
 #[cfg(test)]

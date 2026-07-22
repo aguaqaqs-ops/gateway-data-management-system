@@ -1,65 +1,17 @@
 #![forbid(unsafe_code)]
 
-use std::sync::Once;
+mod common;
 
 use gateway_compute_core::{ComputeFailure, ComputeFailureCode};
 use pyo3::prelude::*;
 use pyo3::types::PyInt;
 
-extern crate gateway_compute as gw_compute;
-
+use common::{
+    assert_envelope_exact, empty_arrow_stream, expected_envelope, is_exception_type, with_python,
+};
 use gw_compute::errors::failure_to_pyerr;
-use gw_compute::gateway_compute;
 
-static PYTHON_INIT: Once = Once::new();
-
-fn ensure_python() {
-    PYTHON_INIT.call_once(|| {
-        pyo3::append_to_inittab!(gateway_compute);
-        Python::initialize();
-    });
-}
-
-fn with_python<F>(f: F) -> Result<(), String>
-where
-    F: for<'py> FnOnce(Python<'py>) -> Result<(), String>,
-{
-    ensure_python();
-    Python::attach(f)
-}
-
-fn is_exception_type(py: Python<'_>, err: &PyErr, type_name: &str) -> Result<bool, String> {
-    let module = PyModule::import(py, "gateway_compute").map_err(|error| error.to_string())?;
-    let exc_type = module
-        .getattr(type_name)
-        .map_err(|error| error.to_string())?;
-    err.value(py)
-        .is_instance(&exc_type)
-        .map_err(|error| error.to_string())
-}
-
-fn expected_envelope(code: ComputeFailureCode) -> Result<Vec<u8>, String> {
-    ComputeFailure::new(code)
-        .to_envelope_jcs()
-        .map_err(|failure| format!("{failure:?}"))
-}
-
-fn assert_envelope_exact(py: Python<'_>, py_err: PyErr, expected_jcs: &[u8]) -> Result<(), String> {
-    let value = py_err.value(py);
-    let envelope: Vec<u8> = value
-        .getattr("envelope_jcs")
-        .map_err(|error: PyErr| error.to_string())?
-        .extract()
-        .map_err(|error: PyErr| error.to_string())?;
-    if envelope != expected_jcs {
-        return Err(format!(
-            "envelope mismatch:\nexpected: {}\ngot: {}",
-            String::from_utf8_lossy(expected_jcs),
-            String::from_utf8_lossy(&envelope)
-        ));
-    }
-    Ok(())
-}
+extern crate gateway_compute as gw_compute;
 
 #[test]
 fn failure_to_pyerr_maps_request_schema_invalid() -> Result<(), String> {
@@ -116,6 +68,59 @@ fn failure_to_pyerr_maps_native_panic() -> Result<(), String> {
             py,
             err,
             &expected_envelope(ComputeFailureCode::NativePanic)?,
+        )?;
+        Ok(())
+    })
+}
+
+#[test]
+fn failure_to_pyerr_maps_row_hash_compute_failed() -> Result<(), String> {
+    with_python(|py| {
+        let failure = ComputeFailure::new(ComputeFailureCode::RowHashComputeFailed);
+        let err = failure_to_pyerr(py, failure);
+        assert!(is_exception_type(py, &err, "ComputeError")?);
+        assert_envelope_exact(
+            py,
+            err,
+            &expected_envelope(ComputeFailureCode::RowHashComputeFailed)?,
+        )?;
+        Ok(())
+    })
+}
+
+#[test]
+fn failure_to_pyerr_maps_arrow_stream_export_failed() -> Result<(), String> {
+    with_python(|py| {
+        let failure = ComputeFailure::new(ComputeFailureCode::ArrowStreamExportFailed);
+        let err = failure_to_pyerr(py, failure);
+        assert!(is_exception_type(py, &err, "ComputeRequestError")?);
+        assert_envelope_exact(
+            py,
+            err,
+            &expected_envelope(ComputeFailureCode::ArrowStreamExportFailed)?,
+        )?;
+        Ok(())
+    })
+}
+
+#[test]
+fn native_maps_contract_version_unsupported() -> Result<(), String> {
+    with_python(|py| {
+        let request_jcs = br#"{"arrow_mapping_schema_version":1,"canonical_encoding_version":1,"contract_binding":{"contract_id":"x","semantic_version":"1.0.0"},"declared_table_schema":{"fields":[]},"request_schema_version":1}"#;
+        let module = PyModule::import(py, "gateway_compute").map_err(|error| error.to_string())?;
+        let func = module
+            .getattr("_canonical_row_hashes_v1_native")
+            .map_err(|error| error.to_string())?;
+        let reader = empty_arrow_stream(py)?;
+        let err = match func.call1((request_jcs, reader)) {
+            Ok(_) => return Err("expected contract version failure".to_string()),
+            Err(error) => error,
+        };
+        assert!(is_exception_type(py, &err, "ComputeRequestError")?);
+        assert_envelope_exact(
+            py,
+            err,
+            &expected_envelope(ComputeFailureCode::ComputeContractVersionUnsupported)?,
         )?;
         Ok(())
     })

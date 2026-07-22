@@ -3,6 +3,9 @@
 pub mod adapter;
 pub mod errors;
 
+#[cfg(feature = "test-probes")]
+pub mod test_probes;
+
 pub use adapter::canonical_row_hashes_v1_native;
 pub use errors::{
     CanonicalValueError, ComputeError, ComputeRequestError, ResourceLimitError, failure_to_pyerr,

@@ -1,6 +1,6 @@
 # WP3 R4 — Kernel Component GIL / Failure / Determinism Evidence
 
-状态：R4 implementation evidence（post-review remediation）
+状态：R4 sign-off evidence（post-review remediation + audit close-out）
 
 日期：2026-07-22
 
@@ -24,9 +24,10 @@ Gate：**`PR-CORRECTNESS` + native-kernel component**；**非** `PR-NATIVE` / `g
 | 项 | 值 |
 | --- | --- |
 | 基线（R3 sign-off） | `6b97ce8bcc08deb39c7bcbb6560cf79663feba5d` |
-| merge-base（baseline..worktree） | `6b97ce8bcc08deb39c7bcbb6560cf79663feba5d` |
-| 提交前 HEAD | `6b97ce8bcc08deb39c7bcbb6560cf79663feba5d`（R4 为单 commit worktree） |
-| tracked patch SHA-256 | 见 commit 时 `git diff 6b97ce8..HEAD` 输出 |
+| merge-base（baseline..HEAD） | `6b97ce8bcc08deb39c7bcbb6560cf79663feba5d` |
+| R4 sign-off HEAD | `4b9c1cf8826730810606194cb65a1043f7386322` |
+| R4 sign-off subject | `test(vnext): add WP3 R4 kernel component coverage` |
+| tracked patch SHA-256 | `git diff 6b97ce8..4b9c1cf` |
 | Normative fixture SHA | `8220e7e587b87a446803ac579e81a8d8b99a0f98cd29d1152c7793442f235c77`（未变） |
 
 ## 3. R3 inherited correction
@@ -248,6 +249,8 @@ R4 新增 Rust workspace 测试：**8**（相对 R3 226）；其中 inherited do
 | --- | --- |
 | `RESOURCE_LIMIT_EXCEEDED` 端到端触发 | WP3 R5（capability 未实现） |
 | `ARROW_STREAM_EXPORT_FAILED` 真实 export 路径触发 | WP4+（无安全 corrupt IPC） |
+| export-phase GIL attached 独立 runtime 探针 | WP3 R5（R4 以 adapter 结构 + smoke 验收；见 §5） |
+| Python GIL 探针 `thread.join` 显式断言 | WP3 R5（R4 以 progress 阈值 + `stop` 同步验收） |
 | `gate.sh native` / 完整 `PR-NATIVE` | WP4 R4 |
 | Artifact IPC / reopen / corrupt IPC | WP4 |
 | Scenario YAML / harness / container | WP5 |
@@ -263,5 +266,9 @@ R4 新增 Rust workspace 测试：**8**（相对 R3 226）；其中 inherited do
 | M4 evidence 不完整 | 本文 §1–§17 补全 |
 | m1 GIL import/export 探针名实不符 | 重命名为 `test_empty_table_import_export_smoke` |
 | R3 inherited 224→226 | R3 evidence L245 + 本文 §3 |
+| audit M1 evidence HEAD 未记录 | 本文 §2 补 R4 sign-off HEAD / subject |
+| audit M2/M3 GIL export/join 探针 | defer §16 → WP3 R5 |
 
 **归属**：`PR-CORRECTNESS` + native-kernel component；**不是** `PR-NATIVE` / WP3 R5 sign-off。
+
+**审核结论**：`R4 REVIEW PASSED`（无 Blocking / Major；Minor 已 evidence close-out 或 defer R5）。

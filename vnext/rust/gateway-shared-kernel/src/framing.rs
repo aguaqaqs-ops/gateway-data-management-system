@@ -6,7 +6,9 @@ use crate::digest::semantic_digest;
 use crate::errors::{CanonicalEncodingError, CanonicalErrorCode};
 use crate::identifier::canonicalize_identifier;
 use crate::scalar::encode_typed_scalar;
-use crate::types::{CollectionSemantics, DigestKind, EncodedCollection, EncodedRow, RowField};
+use crate::types::{
+    CollectionSemantics, DigestKind, EncodedCollection, EncodedRow, RowField, SemanticDigest,
+};
 use crate::uleb128::encode_uleb128;
 
 /// Encode a row: sort by CanonicalIdentifier UTF-8 bytes, then frame + digest.
@@ -174,10 +176,37 @@ fn item_hash(item_bytes: &[u8]) -> Result<[u8; 32], CanonicalEncodingError> {
     Ok(*digest.raw_digest())
 }
 
+fn encode_unordered_row_hashes_frame(
+    row_hashes: &[[u8; 32]],
+) -> Result<Vec<u8>, CanonicalEncodingError> {
+    let mut sorted: Vec<[u8; 32]> = row_hashes.to_vec();
+    sorted.sort();
+    let count = u64::try_from(sorted.len()).map_err(|_| {
+        CanonicalEncodingError::with_message(
+            CanonicalErrorCode::Uleb128Overflow,
+            "row hash count exceeds ULEB128 maximum",
+        )
+    })?;
+    let mut frame = encode_uleb128(count)?;
+    for hash in sorted {
+        frame.extend_from_slice(&hash);
+    }
+    Ok(frame)
+}
+
+/// Unordered raw-content digest over raw 32-byte row hashes (duplicates retained).
+pub fn unordered_row_hashes_content_digest(
+    row_hashes: &[[u8; 32]],
+) -> Result<SemanticDigest, CanonicalEncodingError> {
+    let frame = encode_unordered_row_hashes_frame(row_hashes)?;
+    semantic_digest(DigestKind::RawContent, &frame)
+}
+
 #[cfg(test)]
 mod tests {
     use super::encode_collection;
     use super::encode_row;
+    use super::unordered_row_hashes_content_digest;
     use crate::base64url::encode_base64url;
     use crate::digest::semantic_digest;
     use crate::errors::CanonicalErrorCode;
@@ -411,6 +440,60 @@ mod tests {
             encode_collection(CollectionSemantics::KeyedCollection, None, Some(&reversed))
                 .map_err(|error| error.to_string())?;
         assert_eq!(base.collection_frame, permuted.collection_frame);
+        Ok(())
+    }
+
+    #[test]
+    fn unordered_row_hashes_empty_table_matches_oracle() -> Result<(), String> {
+        let digest = unordered_row_hashes_content_digest(&[]).map_err(|error| error.to_string())?;
+        assert_eq!(encode_base64url(&[0x00]), "AA");
+        assert_eq!(
+            digest.digest_ref().as_str(),
+            "sha256:dff710f3604586654b1320ff0c6e161230cdce4f82ca41506110bc4a811fca63"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unordered_row_hashes_single_row_matches_manual_frame() -> Result<(), String> {
+        let row_hash = encode_row(&[]).map_err(|error| error.to_string())?;
+        let hashes = [*row_hash.raw_hash()];
+        let digest =
+            unordered_row_hashes_content_digest(&hashes).map_err(|error| error.to_string())?;
+        let mut frame = vec![0x01];
+        frame.extend_from_slice(&hashes[0]);
+        let expected =
+            semantic_digest(DigestKind::RawContent, &frame).map_err(|error| error.to_string())?;
+        assert_eq!(digest.digest_ref().as_str(), expected.digest_ref().as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn unordered_row_hashes_retains_duplicates() -> Result<(), String> {
+        let row_hash = encode_row(&[]).map_err(|error| error.to_string())?;
+        let hash = *row_hash.raw_hash();
+        let one =
+            unordered_row_hashes_content_digest(&[hash]).map_err(|error| error.to_string())?;
+        let two = unordered_row_hashes_content_digest(&[hash, hash])
+            .map_err(|error| error.to_string())?;
+        assert_ne!(one.digest_ref().as_str(), two.digest_ref().as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn unordered_row_hashes_permutation_invariant() -> Result<(), String> {
+        let row_a = encode_row(&[]).map_err(|error| error.to_string())?;
+        let row_b = encode_row(&[null_field("x")]).map_err(|error| error.to_string())?;
+        let hashes_a = [*row_a.raw_hash(), *row_b.raw_hash()];
+        let hashes_b = [*row_b.raw_hash(), *row_a.raw_hash()];
+        let digest_a =
+            unordered_row_hashes_content_digest(&hashes_a).map_err(|error| error.to_string())?;
+        let digest_b =
+            unordered_row_hashes_content_digest(&hashes_b).map_err(|error| error.to_string())?;
+        assert_eq!(
+            digest_a.digest_ref().as_str(),
+            digest_b.digest_ref().as_str()
+        );
         Ok(())
     }
 

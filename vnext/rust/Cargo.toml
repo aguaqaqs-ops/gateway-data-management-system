@@ -15,6 +15,10 @@ license = "LicenseRef-Proprietary"
 [workspace.dependencies]
 pyo3 = "=0.29.0"
 pyo3-arrow = "=0.19.0"
+arrow-array = "=59.1.0"
+arrow-buffer = "=59.1.0"
+arrow-data = "=59.1.0"
+arrow-schema = "=59.1.0"
 serde = "=1.0.229"
 serde_json = { version = "=1.0.150", features = ["float_roundtrip"] }
 serde_json_canonicalizer = "=0.3.2"

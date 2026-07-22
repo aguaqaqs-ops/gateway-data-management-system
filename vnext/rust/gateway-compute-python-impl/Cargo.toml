@@ -1,0 +1,23 @@
+[package]
+name = "gateway-compute-python-impl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "gateway_compute_impl"
+crate-type = ["rlib"]
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+arrow-array.workspace = true
+arrow-schema.workspace = true
+gateway-compute-core = { path = "../gateway-compute-core" }
+pyo3 = { workspace = true, features = ["auto-initialize"] }
+pyo3-arrow.workspace = true
+
+[lints]
+workspace = true

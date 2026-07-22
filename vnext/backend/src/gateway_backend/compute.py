@@ -1,15 +1,13 @@
 import pyarrow as pa
 
-from gateway_backend.artifacts import ArtifactRef, artifact_ref
+from gateway_compute import canonical_row_hashes_v1 as _native
 
 
-def double_first_column(batch: pa.RecordBatch) -> tuple[pa.RecordBatch, ArtifactRef]:
-    """Run the fixed-width numeric walking-skeleton kernel and identify its result."""
-    import gateway_compute
-
-    result = gateway_compute.double_first_column(batch)
-    if not isinstance(result, pa.RecordBatch):
-        raise TypeError("native compute returned a non-RecordBatch value")
-    return result, artifact_ref(
-        result.serialize().to_pybytes(), "application/vnd.apache.arrow.recordbatch"
-    )
+def canonical_row_hashes_v1(
+    request_jcs: bytes,
+    data: pa.RecordBatch | pa.Table | pa.RecordBatchReader,
+) -> tuple[pa.RecordBatchReader, bytes]:
+    output_stream, result_jcs = _native(request_jcs, data)
+    if not isinstance(output_stream, pa.RecordBatchReader):
+        raise TypeError("native compute returned a non-RecordBatchReader value")
+    return output_stream, result_jcs

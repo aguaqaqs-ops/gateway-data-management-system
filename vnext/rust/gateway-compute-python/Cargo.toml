@@ -9,9 +9,16 @@ workspace = true
 
 [lib]
 name = "gateway_compute"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module", "gateway-compute-python-impl/extension-module"]
 
 [dependencies]
+gateway-compute-python-impl = { path = "../gateway-compute-python-impl" }
+pyo3 = { workspace = true, features = ["auto-initialize"] }
+
+[dev-dependencies]
 gateway-compute-core = { path = "../gateway-compute-core" }
-pyo3 = { workspace = true, features = ["extension-module"] }
-pyo3-arrow.workspace = true
+pyo3 = { workspace = true, features = ["auto-initialize"] }

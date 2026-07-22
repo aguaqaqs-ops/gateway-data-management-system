@@ -17,3 +17,4 @@ logs/
 .ruff_cache/
 .coverage
 htmlcov/
+vnext/rust/gateway-compute-python/python/**/*.so

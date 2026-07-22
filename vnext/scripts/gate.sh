@@ -5,6 +5,7 @@ VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUST_ROOT="${VNEXT_ROOT}/rust"
 SHARED_KERNEL_ROOT="${VNEXT_ROOT}/shared_kernel"
 REPOSITORY_ROOT="${VNEXT_ROOT}/repository_service"
+BACKEND_ROOT="${VNEXT_ROOT}/backend"
 
 usage() {
   echo "usage: $0 bootstrap|correctness|native" >&2
@@ -24,7 +25,7 @@ case "${MODE}" in
     ;;
   correctness) ;;
   native)
-    echo "native gate is not implemented until WP3" >&2
+    echo "native gate is not implemented until WP4 R4" >&2
     exit 2
     ;;
   *)
@@ -100,5 +101,64 @@ echo "==> architecture/policy check"
 cargo run --locked --offline --quiet --bin gateway-architecture-check -- \
   --rust-workspace-root "${RUST_ROOT}" \
   --vnext-root "${VNEXT_ROOT}"
+
+cd "${BACKEND_ROOT}"
+COMPUTE_PYTHON_ROOT="${RUST_ROOT}/gateway-compute-python"
+
+cleanup_compute_python_source_so() {
+  local so
+  shopt -s globstar nullglob
+  for so in "${COMPUTE_PYTHON_ROOT}"/python/**/*.so; do
+    rm -f "${so}"
+  done
+  shopt -u globstar nullglob
+}
+
+assert_compute_python_source_tree_clean() {
+  local files=()
+  shopt -s globstar nullglob
+  files=( "${COMPUTE_PYTHON_ROOT}"/python/**/*.so )
+  shopt -u globstar nullglob
+  if ((${#files[@]} > 0)); then
+    echo "source package tree must not contain .so artifacts:" >&2
+    printf '  %s\n' "${files[@]}" >&2
+    exit 1
+  fi
+}
+
+assert_installed_extension_has_no_test_hooks() {
+  uv run --offline --no-sync python - <<'PY'
+import gateway_compute.gateway_compute as native
+
+bad = [
+    name
+    for name in dir(native)
+    if name.startswith("_test_") or name.startswith("_TEST_")
+]
+if bad:
+    raise SystemExit(f"production extension must not export test hooks: {bad}")
+PY
+}
+
+echo "==> backend: uv sync --locked --offline --all-groups --reinstall-package gateway-compute-python"
+uv sync --locked --offline --all-groups --reinstall-package gateway-compute-python
+cleanup_compute_python_source_so
+
+echo "==> backend: ruff"
+uv run --offline --no-sync ruff check src tests
+
+echo "==> backend: mypy"
+uv run --offline --no-sync mypy
+
+echo "==> backend: pytest production extension"
+assert_installed_extension_has_no_test_hooks
+assert_compute_python_source_tree_clean
+uv run --offline --no-sync pytest -q \
+  "${COMPUTE_PYTHON_ROOT}/tests/test_facade.py" \
+  "${COMPUTE_PYTHON_ROOT}/tests/test_production_extension.py" \
+  tests/test_canonical_row_hash.py
+
+assert_installed_extension_has_no_test_hooks
+assert_compute_python_source_tree_clean
 
 echo "correctness gate passed"

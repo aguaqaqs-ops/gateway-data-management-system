@@ -27,7 +27,11 @@ pub fn run_checks(config: &CheckConfig) -> Result<(), Vec<String>> {
     violations.extend(check_workspace_members(&config.rust_workspace_root));
     violations.extend(check_no_unstable_features(&config.rust_workspace_root));
     violations.extend(check_vnext_import_boundaries(&config.vnext_root));
+    violations.extend(check_compute_adapter_source_patterns(&config.vnext_root));
     violations.extend(check_crate_dependency_boundaries(
+        &config.rust_workspace_root,
+    ));
+    violations.extend(check_forbidden_release_workspace_members(
         &config.rust_workspace_root,
     ));
 
@@ -312,7 +316,7 @@ fn check_crate_dependency_boundaries(rust_workspace_root: &Path) -> Vec<String> 
         Err(error) => return vec![error],
     };
 
-    let package_dependencies = match package_dependency_map(&metadata) {
+    let package_dependencies = match package_resolved_dependency_names(&metadata) {
         Ok(map) => map,
         Err(error) => return vec![error],
     };
@@ -325,7 +329,10 @@ fn check_crate_dependency_boundaries(rust_workspace_root: &Path) -> Vec<String> 
             .unwrap_or_default();
 
         match member.name.as_str() {
-            "gateway-compute-core" | "gateway-compute-python" | "gateway-shared-kernel" => {
+            "gateway-compute-core"
+            | "gateway-compute-python"
+            | "gateway-compute-python-impl"
+            | "gateway-shared-kernel" => {
                 for dependency in &dependencies {
                     if let Some(violation) =
                         forbidden_dependency_violation(&member.name, dependency)
@@ -338,6 +345,74 @@ fn check_crate_dependency_boundaries(rust_workspace_root: &Path) -> Vec<String> 
         }
     }
     violations
+}
+
+const FORBIDDEN_RELEASE_WORKSPACE_MEMBERS: &[&str] = &["gateway-compute-python-hooks"];
+
+pub fn check_forbidden_release_workspace_members(rust_workspace_root: &Path) -> Vec<String> {
+    let members = match discover_workspace_members(rust_workspace_root) {
+        Ok(members) => members,
+        Err(error) => return vec![error],
+    };
+
+    FORBIDDEN_RELEASE_WORKSPACE_MEMBERS
+        .iter()
+        .filter_map(|forbidden| {
+            if members.iter().any(|member| member.name == *forbidden) {
+                Some(format!(
+                    "forbidden release workspace member `{forbidden}` must not be listed in workspace members"
+                ))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn package_resolved_dependency_names(
+    metadata: &serde_json::Value,
+) -> Result<std::collections::BTreeMap<String, BTreeSet<String>>, String> {
+    let packages = metadata["packages"]
+        .as_array()
+        .ok_or_else(|| "cargo metadata missing packages".to_string())?;
+
+    let mut id_to_name = std::collections::BTreeMap::new();
+    for package in packages {
+        let id = package["id"]
+            .as_str()
+            .ok_or_else(|| "cargo metadata package missing id".to_string())?;
+        let name = package["name"]
+            .as_str()
+            .ok_or_else(|| "cargo metadata package missing name".to_string())?;
+        id_to_name.insert(id.to_string(), name.to_string());
+    }
+
+    let nodes = metadata["resolve"]["nodes"]
+        .as_array()
+        .ok_or_else(|| "cargo metadata missing resolve.nodes".to_string())?;
+
+    let mut map = std::collections::BTreeMap::new();
+    for node in nodes {
+        let id = node["id"]
+            .as_str()
+            .ok_or_else(|| "resolve node missing id".to_string())?;
+        let Some(name) = id_to_name.get(id) else {
+            continue;
+        };
+
+        let mut dependencies = BTreeSet::new();
+        if let Some(deps) = node["deps"].as_array() {
+            for dep in deps {
+                let dep_id = dep["pkg"].as_str().unwrap_or_default();
+                if let Some(dep_name) = id_to_name.get(dep_id) {
+                    dependencies.insert(dep_name.clone());
+                }
+            }
+        }
+        map.insert(name.clone(), dependencies);
+    }
+
+    Ok(map)
 }
 
 fn fetch_cargo_metadata_with_deps(rust_workspace_root: &Path) -> Result<serde_json::Value, String> {
@@ -360,42 +435,16 @@ fn fetch_cargo_metadata_with_deps(rust_workspace_root: &Path) -> Result<serde_js
         .map_err(|error| format!("failed to parse cargo metadata JSON: {error}"))
 }
 
-fn package_dependency_map(
-    metadata: &serde_json::Value,
-) -> Result<std::collections::BTreeMap<String, Vec<String>>, String> {
-    let packages = metadata["packages"]
-        .as_array()
-        .ok_or_else(|| "cargo metadata missing packages".to_string())?;
-
-    let mut map = std::collections::BTreeMap::new();
-    for package in packages {
-        let name = package["name"]
-            .as_str()
-            .ok_or_else(|| "cargo metadata package missing name".to_string())?
-            .to_string();
-        let mut dependencies = BTreeSet::new();
-        if let Some(deps) = package["dependencies"].as_array() {
-            for dep in deps {
-                if let Some(dep_name) = dependency_crate_name(dep) {
-                    dependencies.insert(dep_name);
-                }
-            }
-        }
-        map.insert(name, dependencies.into_iter().collect());
-    }
-    Ok(map)
-}
-
-fn dependency_crate_name(dep: &serde_json::Value) -> Option<String> {
-    dep["name"].as_str().map(str::to_string)
-}
-
 fn forbidden_dependency_violation(crate_name: &str, dependency: &str) -> Option<String> {
     match crate_name {
         "gateway-compute-core" => {
             if matches!(
                 dependency,
-                "pyo3" | "pyo3-arrow" | "gateway-compute-python" | "gateway-artifact-store"
+                "pyo3"
+                    | "pyo3-arrow"
+                    | "gateway-compute-python"
+                    | "gateway-compute-python-impl"
+                    | "gateway-artifact-store"
             ) {
                 return Some(format!("{crate_name} must not depend on {dependency}"));
             }
@@ -405,25 +454,86 @@ fn forbidden_dependency_violation(crate_name: &str, dependency: &str) -> Option<
                 ));
             }
         }
-        "gateway-compute-python" => {
+        "gateway-compute-python" | "gateway-compute-python-impl" => {
             if dependency == "gateway-shared-kernel" {
-                return Some(
-                    "gateway-compute-python must not directly depend on gateway-shared-kernel"
-                        .to_string(),
-                );
+                return Some(format!(
+                    "{crate_name} must not directly depend on gateway-shared-kernel"
+                ));
             }
         }
         "gateway-shared-kernel"
             if dependency.starts_with("arrow-")
                 || dependency.starts_with("pyo3")
                 || dependency == "gateway-compute-core"
-                || dependency == "gateway-compute-python" =>
+                || dependency == "gateway-compute-python"
+                || dependency == "gateway-compute-python-impl" =>
         {
             return Some(format!(
                 "gateway-shared-kernel must not depend on {dependency}"
             ));
         }
         _ => {}
+    }
+    None
+}
+
+fn check_compute_adapter_source_patterns(vnext_root: &Path) -> Vec<String> {
+    let mut violations = Vec::new();
+    let roots = [
+        vnext_root.join("rust/gateway-compute-python-impl/src"),
+        vnext_root.join("rust/gateway-compute-python/src"),
+        vnext_root.join("rust/gateway-compute-python/python"),
+    ];
+
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        if let Err(error) = walk_source_files(&root, &mut |path| {
+            let contents = match fs::read_to_string(path) {
+                Ok(contents) => contents,
+                Err(error) => {
+                    violations.push(format!("failed to read {}: {error}", path.display()));
+                    return;
+                }
+            };
+
+            for (line_number, line) in contents.lines().enumerate() {
+                if let Some(reason) = compute_python_line_violation(line) {
+                    violations.push(format!(
+                        "gateway-compute adapter source policy violation in {}:{}: {reason} (`{line}`)",
+                        path.display(),
+                        line_number + 1
+                    ));
+                }
+            }
+        }) {
+            violations.push(error);
+        }
+    }
+
+    violations
+}
+
+fn compute_python_line_violation(line: &str) -> Option<&'static str> {
+    let trimmed = line.trim();
+    if trimmed == "#![forbid(unsafe_code)]" {
+        return None;
+    }
+    if trimmed.contains("to_pylist") {
+        return Some("forbidden materialization API `to_pylist`");
+    }
+    if trimmed.contains("to_pydict") {
+        return Some("forbidden materialization API `to_pydict`");
+    }
+    if trimmed.contains("combine_chunks") {
+        return Some("forbidden table materialization `combine_chunks`");
+    }
+    if trimmed.contains("gateway_shared_kernel") {
+        return Some("forbidden direct shared-kernel import");
+    }
+    if trimmed.contains("unsafe ") || trimmed.contains(" unsafe") || trimmed == "unsafe" {
+        return Some("forbidden `unsafe` usage");
     }
     None
 }
@@ -648,25 +758,7 @@ mod tests {
     }
 
     #[test]
-    fn dependency_crate_name_uses_package_identity_not_rename() -> Result<(), String> {
-        let dep = serde_json::json!({
-            "name": "serde",
-            "rename": "pyo3"
-        });
-        assert_eq!(
-            super::dependency_crate_name(&dep),
-            Some("serde".to_string())
-        );
-        Ok(())
-    }
-
-    #[test]
     fn renamed_pyo3_alias_does_not_bypass_forbidden_package_name() -> Result<(), String> {
-        let dep = serde_json::json!({
-            "name": "pyo3",
-            "rename": "safe_alias"
-        });
-        assert_eq!(super::dependency_crate_name(&dep), Some("pyo3".to_string()));
         assert!(super::forbidden_dependency_violation("gateway-compute-core", "pyo3").is_some());
         Ok(())
     }
@@ -687,23 +779,6 @@ mod tests {
     }
 
     #[test]
-    fn package_dependency_map_collects_dependencies() -> Result<(), String> {
-        let metadata = serde_json::json!({
-            "packages": [{
-                "name": "demo",
-                "dependencies": [
-                    {"name": "serde", "rename": null},
-                    {"name": "pyo3", "rename": null, "target": "cfg(windows)"}
-                ]
-            }]
-        });
-        let map = super::package_dependency_map(&metadata)?;
-        assert_eq!(map.get("demo").map(Vec::len), Some(2));
-        assert!(map["demo"].contains(&"pyo3".to_string()));
-        Ok(())
-    }
-
-    #[test]
     fn workspace_dependency_boundaries_are_clean() -> Result<(), String> {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
         let violations = super::check_crate_dependency_boundaries(&root);
@@ -715,16 +790,65 @@ mod tests {
     }
 
     #[test]
-    fn forbidden_dependency_fixture_is_detected() -> Result<(), String> {
-        let metadata = serde_json::json!({
-            "packages": [{
-                "name": "gateway-compute-core",
-                "dependencies": [{"name": "pyo3", "rename": null}]
-            }]
-        });
-        let map = super::package_dependency_map(&metadata)?;
-        let deps = map.get("gateway-compute-core").cloned().unwrap_or_default();
-        assert!(deps.iter().any(|name| name == "pyo3"));
+    fn compute_python_impl_shared_kernel_dependency_is_forbidden() -> Result<(), String> {
+        assert!(
+            super::forbidden_dependency_violation(
+                "gateway-compute-python-impl",
+                "gateway-shared-kernel"
+            )
+            .is_some()
+        );
         Ok(())
+    }
+
+    #[test]
+    fn compute_core_must_not_depend_on_compute_python_impl() -> Result<(), String> {
+        assert!(
+            super::forbidden_dependency_violation(
+                "gateway-compute-core",
+                "gateway-compute-python-impl"
+            )
+            .is_some()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn shared_kernel_must_not_depend_on_compute_python_impl() -> Result<(), String> {
+        assert!(
+            super::forbidden_dependency_violation(
+                "gateway-shared-kernel",
+                "gateway-compute-python-impl"
+            )
+            .is_some()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn package_resolved_dependency_names_follows_resolve_graph() -> Result<(), String> {
+        let metadata = serde_json::json!({
+            "packages": [
+                {"id": "path+0", "name": "gateway-compute-python-impl"},
+                {"id": "path+1", "name": "gateway-shared-kernel"}
+            ],
+            "resolve": {
+                "nodes": [
+                    {"id": "path+0", "deps": [{"pkg": "path+1"}]},
+                    {"id": "path+1", "deps": []}
+                ]
+            }
+        });
+        let map = super::package_resolved_dependency_names(&metadata)?;
+        assert!(map["gateway-compute-python-impl"].contains("gateway-shared-kernel"));
+        Ok(())
+    }
+
+    #[test]
+    fn compute_python_line_violation_detects_banned_patterns() {
+        assert!(super::compute_python_line_violation("values.to_pylist()").is_some());
+        assert!(super::compute_python_line_violation("data.combine_chunks()").is_some());
+        assert!(super::compute_python_line_violation("import gateway_shared_kernel").is_some());
+        assert!(super::compute_python_line_violation("#![forbid(unsafe_code)]").is_none());
     }
 }

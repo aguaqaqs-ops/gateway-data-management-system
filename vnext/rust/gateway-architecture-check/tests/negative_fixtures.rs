@@ -70,6 +70,91 @@ fn rejects_first_party_unsafe_in_member() -> Result<(), String> {
 }
 
 #[test]
+fn rejects_compute_python_impl_to_pylist_pattern() -> Result<(), String> {
+    let root = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let impl_src = root
+        .path()
+        .join("rust/gateway-compute-python-impl/src/lib.rs");
+    if let Some(parent) = impl_src.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(&impl_src, "fn demo() { let _ = values.to_pylist(); }\n")
+        .map_err(|error| error.to_string())?;
+
+    let config = CheckConfig {
+        rust_workspace_root: root.path().join("rust"),
+        vnext_root: root.path().to_path_buf(),
+    };
+
+    match run_checks(&config) {
+        Err(violations)
+            if violations
+                .iter()
+                .any(|violation| violation.contains("to_pylist")) =>
+        {
+            Ok(())
+        }
+        Ok(()) => Err("expected compute-python-impl to_pylist violation".to_string()),
+        Err(violations) => Err(format!("unexpected violations: {violations:?}")),
+    }
+}
+
+#[test]
+fn rejects_forbidden_hook_extension_workspace_member() -> Result<(), String> {
+    let root = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let rust_root = root.path().join("rust");
+    write_minimal_workspace(
+        &rust_root,
+        "gateway-compute-python-hooks",
+        true,
+        "#![forbid(unsafe_code)]\n",
+    )?;
+
+    bootstrap_fixture_workspace(&rust_root)?;
+
+    let violations =
+        gateway_architecture_check::check_forbidden_release_workspace_members(&rust_root);
+    if violations
+        .iter()
+        .any(|violation| violation.contains("gateway-compute-python-hooks"))
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected forbidden workspace member violation, got {violations:?}"
+        ))
+    }
+}
+
+#[test]
+fn rejects_compute_python_to_pylist_pattern() -> Result<(), String> {
+    let root = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let compute_src = root.path().join("rust/gateway-compute-python/src/lib.rs");
+    if let Some(parent) = compute_src.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(&compute_src, "fn demo() { let _ = values.to_pylist(); }\n")
+        .map_err(|error| error.to_string())?;
+
+    let config = CheckConfig {
+        rust_workspace_root: root.path().join("rust"),
+        vnext_root: root.path().to_path_buf(),
+    };
+
+    match run_checks(&config) {
+        Err(violations)
+            if violations
+                .iter()
+                .any(|violation| violation.contains("to_pylist")) =>
+        {
+            Ok(())
+        }
+        Ok(()) => Err("expected compute-python to_pylist violation".to_string()),
+        Err(violations) => Err(format!("unexpected violations: {violations:?}")),
+    }
+}
+
+#[test]
 fn rejects_production_unwrap_shortcut() -> Result<(), String> {
     let root = tempfile::tempdir().map_err(|error| error.to_string())?;
     let rust_root = root.path().join("rust");

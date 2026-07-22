@@ -2,6 +2,7 @@
 members = [
     "gateway-architecture-check",
     "gateway-compute-core",
+    "gateway-compute-python-impl",
     "gateway-compute-python",
     "gateway-shared-kernel",
 ]

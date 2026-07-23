@@ -38,7 +38,7 @@ Gate：**`PR-NATIVE`**（`vnext/scripts/gate.sh native`）；回归 **`PR-CORREC
 
 | 项 | 值 |
 | --- | --- |
-| implementation HEAD | `PLACEHOLDER_COMMIT_SHA` |
+| implementation HEAD | `d482385bb0da9ff95ee2e7ed129b67e1e5125100` |
 | branch | `main` |
 | worktree | R4 gate/tests/scripts + 本 evidence |
 | deterministic non-evidence patch SHA-256 | `e58e96c81bcd6b5025fb1a926a376d674e58d8f298d5adc96a895c64c3dc51ee` |

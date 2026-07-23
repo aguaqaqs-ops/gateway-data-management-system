@@ -38,6 +38,7 @@ CANONICAL_ROW_HASH_OUTPUT_SCHEMA = pa.schema(
     ]
 )
 MEDIA_TYPE = CANONICAL_ROW_HASHES_ARTIFACT.media_type
+IPC_STREAM_EOS_MARKER = b"\x00\x00\x00\x00"
 _RESULT_SCHEMA_VERSION = 1
 _RESULT_CANONICAL_ENCODING_VERSION = 1
 _RESULT_ARROW_MAPPING_SCHEMA_VERSION = 1
@@ -74,15 +75,14 @@ def write_row_hash_ipc_stream(reader: pa.RecordBatchReader) -> bytes:
 
 
 def open_row_hash_ipc_stream(raw_bytes: bytes) -> pa.RecordBatchReader:
-    """Open finalized Arrow IPC stream bytes as a RecordBatchReader."""
+    """Open finalized Arrow IPC stream bytes as a fail-closed RecordBatchReader."""
 
-    reader = pa.ipc.open_stream(raw_bytes)
-    _assert_reader_schema(reader.schema)
-    return reader
+    schema, batches = _read_validated_ipc_batches(raw_bytes)
+    return pa.RecordBatchReader.from_batches(schema, batches)
 
 
 def collect_row_hashes_from_ipc(raw_bytes: bytes) -> list[bytes]:
-    """Decode IPC bytes and collect raw 32-byte row hashes in stream order (tests only)."""
+    """Collect row hashes using the same fail-closed IPC validation as production verify."""
 
     row_buffer, row_count = _collect_row_hash_buffer_from_ipc(raw_bytes)
     if row_count == 0:
@@ -266,14 +266,51 @@ def _verify_ipc_bytes_match_content_manifest(
 
 
 def _collect_row_hash_buffer_from_ipc(raw_bytes: bytes) -> tuple[bytearray, int]:
-    reader = open_row_hash_ipc_stream(raw_bytes)
+    _schema, batches = _read_validated_ipc_batches(raw_bytes)
     row_buffer = bytearray()
-    for batch in reader:
+    for batch in batches:
         row_buffer.extend(_row_hash_values_buffer_from_batch(batch))
     row_count = len(row_buffer) // ROW_HASH_BYTE_WIDTH
     if len(row_buffer) != row_count * ROW_HASH_BYTE_WIDTH:
         raise CanonicalRowHashIpcError("row_hash buffer length is not an exact multiple of 32")
     return row_buffer, row_count
+
+
+def _assert_ipc_stream_eos_marker(raw_bytes: bytes) -> None:
+    if len(raw_bytes) < len(IPC_STREAM_EOS_MARKER) or not raw_bytes.endswith(IPC_STREAM_EOS_MARKER):
+        raise CanonicalRowHashIpcError("arrow ipc stream missing end marker")
+
+
+def _read_validated_ipc_batches(raw_bytes: bytes) -> tuple[pa.Schema, list[pa.RecordBatch]]:
+    _assert_ipc_stream_eos_marker(raw_bytes)
+    buffer_reader = pa.BufferReader(raw_bytes)
+    try:
+        reader = pa.ipc.open_stream(buffer_reader)
+    except pa.ArrowInvalid, pa.ArrowIOError, OSError, ValueError:
+        raise CanonicalRowHashIpcError("invalid arrow ipc stream") from None
+    try:
+        _assert_reader_schema(reader.schema)
+    except CanonicalRowHashIpcError:
+        raise
+    except Exception:
+        raise CanonicalRowHashIpcError("invalid arrow ipc stream") from None
+    batches: list[pa.RecordBatch] = []
+    try:
+        while True:
+            batch = reader.read_next_batch()
+            _row_hash_values_buffer_from_batch(batch)
+            batches.append(batch)
+    except StopIteration:
+        pass
+    except CanonicalRowHashIpcError:
+        raise
+    except pa.ArrowInvalid, pa.ArrowIOError, OSError, ValueError:
+        raise CanonicalRowHashIpcError("invalid arrow ipc stream") from None
+    except Exception:
+        raise CanonicalRowHashIpcError("invalid arrow ipc stream") from None
+    if buffer_reader.tell() != len(raw_bytes):
+        raise CanonicalRowHashIpcError("arrow ipc stream has unconsumed trailing bytes")
+    return reader.schema, batches
 
 
 def _verify_row_buffer_sorted_unsigned(buf: bytearray, row_count: int) -> None:

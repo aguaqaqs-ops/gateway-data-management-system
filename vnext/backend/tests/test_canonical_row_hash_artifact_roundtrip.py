@@ -28,6 +28,8 @@ from gateway_backend.compute import canonical_row_hashes_v1
 from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
 from gateway_shared_kernel import DigestRef
 
+pytestmark = pytest.mark.pr_native
+
 
 def minimal_request_jcs(fields_json: str) -> bytes:
     payload = {

@@ -25,8 +25,9 @@ case "${MODE}" in
     ;;
   correctness) ;;
   native)
-    echo "native gate is not implemented until WP4 R4" >&2
-    exit 2
+    NATIVE_PR_GATE="${VNEXT_ROOT}/scripts/native_pr_gate.sh"
+    chmod +x "${NATIVE_PR_GATE}"
+    exec "${NATIVE_PR_GATE}"
     ;;
   *)
     usage

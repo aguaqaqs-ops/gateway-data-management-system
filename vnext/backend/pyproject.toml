@@ -43,6 +43,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "pr_native: WP4 R4 PR-NATIVE artifact/data-path full-chain targeted suite",
+]
 
 [tool.ruff]
 line-length = 100
@@ -54,5 +57,5 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["gateway_compute", "pyarrow", "jsonschema", "jsonschema.*", "referencing", "referencing.*"]
+module = ["gateway_compute", "gateway_compute.exceptions", "pyarrow", "jsonschema", "jsonschema.*", "referencing", "referencing.*"]
 ignore_missing_imports = true

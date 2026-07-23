@@ -169,6 +169,20 @@ fn rejects_production_unwrap_shortcut() -> Result<(), String> {
 }
 
 #[test]
+fn rejects_production_panic_shortcut() -> Result<(), String> {
+    let root = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let rust_root = root.path().join("rust");
+    write_minimal_workspace(
+        &rust_root,
+        "bad-member",
+        true,
+        "#![forbid(unsafe_code)]\npub fn bad() { panic!(\"production shortcut\") }\n",
+    )?;
+
+    run_cargo_clippy_should_fail_with_code(&rust_root, "clippy::panic")
+}
+
+#[test]
 fn rejects_renamed_hook_workspace_member() -> Result<(), String> {
     let root = tempfile::tempdir().map_err(|error| error.to_string())?;
     let rust_root = root.path().join("rust");

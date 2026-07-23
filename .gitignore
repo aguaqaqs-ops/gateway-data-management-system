@@ -8,7 +8,7 @@ target/
 *.sqlite
 *.sqlite3
 *.db
-artifacts/
+/artifacts/
 runtime-data/
 dolt-data/
 logs/

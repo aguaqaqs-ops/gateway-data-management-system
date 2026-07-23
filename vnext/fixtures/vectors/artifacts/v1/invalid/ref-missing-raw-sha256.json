@@ -1,0 +1,16 @@
+{
+  "access_metadata": {
+    "resolver": "artifact-store"
+  },
+  "artifact_ref_schema_version": 1,
+  "content_contract": {
+    "contract_id": "gateway-vnext.canonical-row-hash-compute-boundary",
+    "semantic_version": "1.0.0"
+  },
+  "content_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "content_schema_id": "gateway-vnext.canonical-row-hash.canonical-row-hashes-artifact.v1",
+  "logical_ref": "gateway-vnext.artifacts/v1/ref/canonical-row-hash/example-0001",
+  "media_type": "application/vnd.apache.arrow.stream",
+  "retention_class": "operation",
+  "size_bytes": 27
+}

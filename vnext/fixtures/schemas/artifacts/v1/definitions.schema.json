@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.artifacts.definitions.v1",
+  "title": "Artifact Shared Definitions v1",
+  "$defs": {
+    "digestRef": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "logicalRef": {
+      "type": "string",
+      "maxLength": 223,
+      "pattern": "^gateway-vnext\\.artifacts/v1/ref/(?=[a-z0-9-]{1,63}/)[a-z0-9]+(?:-[a-z0-9]+)*/(?=[a-z0-9-]{1,128}$)[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "retentionClass": {
+      "type": "string",
+      "enum": ["operation", "staged-durable", "recomputable-cache"]
+    },
+    "accessMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resolver"],
+      "properties": {
+        "resolver": {
+          "type": "string",
+          "const": "artifact-store"
+        }
+      }
+    },
+    "contractBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_id", "semantic_version"],
+      "properties": {
+        "contract_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "semantic_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
+    }
+  }
+}

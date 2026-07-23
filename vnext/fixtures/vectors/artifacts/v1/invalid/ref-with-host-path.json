@@ -1,0 +1,18 @@
+{
+  "access_metadata": {
+    "resolver": "artifact-store"
+  },
+  "artifact_ref_schema_version": 1,
+  "content_contract": {
+    "contract_id": "gateway-vnext.canonical-row-hash-compute-boundary",
+    "semantic_version": "1.0.0"
+  },
+  "content_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "content_schema_id": "gateway-vnext.canonical-row-hash.canonical-row-hashes-artifact.v1",
+  "host_path": "/tmp/secret.arrow",
+  "logical_ref": "gateway-vnext.artifacts/v1/ref/canonical-row-hash/example-0001",
+  "media_type": "application/vnd.apache.arrow.stream",
+  "raw_sha256": "sha256:257a0191a8f55365597b56b691ef9608a86034a9226dff5f06c6b84029ed8ac5",
+  "retention_class": "operation",
+  "size_bytes": 27
+}

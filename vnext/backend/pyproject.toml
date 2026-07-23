@@ -10,6 +10,7 @@ requires-python = ">=3.14.6"
 dependencies = [
     "fastapi==0.139.0",
     "gateway-compute-python==0.1.0",
+    "gateway-shared-kernel==0.1.0",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
     "pyarrow==25.0.0",
@@ -18,6 +19,7 @@ dependencies = [
 
 [tool.uv.sources]
 gateway-compute-python = { path = "../rust/gateway-compute-python" }
+gateway-shared-kernel = { path = "../shared_kernel", editable = true }
 
 [project.scripts]
 gateway-backend = "gateway_backend:main"
@@ -30,6 +32,7 @@ build-backend = "uv_build"
 dev = [
     "httpx==0.28.1",
     "hypothesis==6.156.6",
+    "jsonschema==4.26.0",
     "maturin==1.14.1",
     "mypy==2.3.0",
     "pytest==9.1.1",
@@ -51,5 +54,5 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["gateway_compute", "pyarrow"]
+module = ["gateway_compute", "pyarrow", "jsonschema", "jsonschema.*", "referencing", "referencing.*"]
 ignore_missing_imports = true

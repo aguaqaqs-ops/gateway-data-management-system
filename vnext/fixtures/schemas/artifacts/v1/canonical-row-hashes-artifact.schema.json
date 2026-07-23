@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.artifacts.canonical-row-hashes-artifact.v1",
+  "title": "CanonicalRowHashesArtifact Content Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "content_schema_id",
+    "media_type",
+    "raw_content_digest",
+    "table_schema_digest",
+    "canonical_encoding_version",
+    "arrow_mapping_schema_version",
+    "contract_binding",
+    "result_schema_version",
+    "row_count"
+  ],
+  "properties": {
+    "content_schema_id": {
+      "type": "string",
+      "const": "gateway-vnext.canonical-row-hash.canonical-row-hashes-artifact.v1"
+    },
+    "media_type": {
+      "type": "string",
+      "const": "application/vnd.apache.arrow.stream"
+    },
+    "raw_content_digest": {
+      "$ref": "gateway-vnext.artifacts.definitions.v1#/$defs/digestRef"
+    },
+    "table_schema_digest": {
+      "$ref": "gateway-vnext.artifacts.definitions.v1#/$defs/digestRef"
+    },
+    "canonical_encoding_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "arrow_mapping_schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "contract_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_id", "semantic_version"],
+      "properties": {
+        "contract_id": {
+          "type": "string",
+          "const": "gateway-vnext.canonical-row-hash-compute-boundary"
+        },
+        "semantic_version": {
+          "type": "string",
+          "const": "1.0.0"
+        }
+      }
+    },
+    "result_schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "row_count": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)$"
+    }
+  }
+}

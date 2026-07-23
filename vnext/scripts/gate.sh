@@ -171,7 +171,7 @@ assert_compute_python_source_tree_clean
 uv run --offline --no-sync pytest -q \
   "${COMPUTE_PYTHON_ROOT}/tests/test_facade.py" \
   "${COMPUTE_PYTHON_ROOT}/tests/test_production_extension.py" \
-  tests/test_canonical_row_hash.py
+  tests/
 
 assert_installed_extension_has_no_test_hooks
 assert_compute_python_source_tree_clean

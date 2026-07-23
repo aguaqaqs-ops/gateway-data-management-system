@@ -1,3 +1,5 @@
+"""Architecture boundary tests."""
+
 from pathlib import Path
 
 
@@ -7,3 +9,53 @@ def test_vnext_source_does_not_import_legacy_code() -> None:
 
     for source in source_root.rglob("*.py"):
         assert not any(marker in source.read_text() for marker in forbidden), source
+
+
+def test_artifacts_module_does_not_import_gateway_compute() -> None:
+    artifacts_root = Path(__file__).parents[1] / "src" / "gateway_backend" / "artifacts"
+    for source in artifacts_root.rglob("*.py"):
+        text = source.read_text()
+        assert "gateway_compute" not in text, source
+        assert "canonical_row_hash_artifact" not in text, source
+        assert "gateway_shared_kernel.testing" not in text, source
+
+
+def test_compute_facade_does_not_reference_artifact_identity() -> None:
+    compute_source = Path(__file__).parents[1] / "src" / "gateway_backend" / "compute.py"
+    text = compute_source.read_text()
+    forbidden = ("ArtifactRef", "artifact_ref", "logical_ref", "ArtifactStore", "artifact_root")
+    assert not any(marker in text for marker in forbidden), compute_source
+
+
+def test_compute_python_extension_has_no_artifact_ref_types() -> None:
+    compute_python_root = Path(__file__).resolve().parents[2] / "rust" / "gateway-compute-python"
+    forbidden = ("ArtifactRef", "artifact_ref", "logical_ref", "artifact_root")
+    for source in list(compute_python_root.rglob("*.py")) + list(compute_python_root.rglob("*.rs")):
+        text = source.read_text()
+        assert not any(marker in text for marker in forbidden), source
+
+
+def test_rust_core_has_no_artifact_or_infrastructure_boundary() -> None:
+    rust_root = Path(__file__).resolve().parents[2] / "rust"
+    forbidden = (
+        "ArtifactRef",
+        "ArtifactManifest",
+        "logical_ref",
+        "retention_class",
+        "artifact_root",
+        "object_store",
+        "std::fs",
+        "std::path",
+        "std::env",
+    )
+    for crate_name in ("gateway-compute-core", "gateway-compute-python"):
+        for source in (rust_root / crate_name / "src").rglob("*.rs"):
+            text = source.read_text()
+            assert not any(marker in text for marker in forbidden), source
+
+
+def test_r1_production_artifact_api_has_no_deferred_stub() -> None:
+    source_root = Path(__file__).parents[1] / "src" / "gateway_backend"
+    for source in source_root.rglob("*.py"):
+        text = source.read_text()
+        assert "NotImplementedError" not in text, source

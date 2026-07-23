@@ -18,6 +18,16 @@ def test_artifacts_module_does_not_import_gateway_compute() -> None:
         assert "gateway_compute" not in text, source
         assert "canonical_row_hash_artifact" not in text, source
         assert "gateway_shared_kernel.testing" not in text, source
+        assert "LocalArtifactStore" not in text, source
+
+
+def test_local_artifact_store_lives_in_infrastructure_only() -> None:
+    artifacts_root = Path(__file__).parents[1] / "src" / "gateway_backend" / "artifacts"
+    infrastructure_root = Path(__file__).parents[1] / "src" / "gateway_backend" / "infrastructure"
+    assert not any(artifacts_root.rglob("local_store.py"))
+    assert list(infrastructure_root.rglob("local_store.py"))
+    local_store_source = (infrastructure_root / "artifact_store" / "local_store.py").read_text()
+    assert "class LocalArtifactStore" in local_store_source
 
 
 def test_compute_facade_does_not_reference_artifact_identity() -> None:
@@ -54,7 +64,17 @@ def test_rust_core_has_no_artifact_or_infrastructure_boundary() -> None:
             assert not any(marker in text for marker in forbidden), source
 
 
-def test_r1_production_artifact_api_has_no_deferred_stub() -> None:
+def test_r2_ipc_module_avoids_bulk_python_materialization() -> None:
+    ipc_source = Path(__file__).parents[1] / "src" / "gateway_backend" / "canonical_row_hash_ipc.py"
+    text = ipc_source.read_text()
+    forbidden = ("to_pylist(", "to_pydict(", ".as_py()", "_row_hashes_from_batch")
+    assert not any(marker in text for marker in forbidden), ipc_source
+    assert "unordered_row_hashes_content_digest_from_sorted_row_buffer" in text
+    assert "unordered_row_hashes_content_digest_from_row_buffer" not in text
+    assert "_collect_row_hash_buffer_from_ipc" in text
+
+
+def test_r2_production_modules_have_no_deferred_stub() -> None:
     source_root = Path(__file__).parents[1] / "src" / "gateway_backend"
     for source in source_root.rglob("*.py"):
         text = source.read_text()

@@ -14,6 +14,7 @@ from gateway_shared_kernel.types import (
     EncodedCollection,
     EncodedRow,
     RowField,
+    SemanticDigest,
 )
 from gateway_shared_kernel.uleb128 import encode_uleb128
 
@@ -187,3 +188,109 @@ def _assert_sequence(value: object, label: str) -> None:
             CanonicalErrorCode.CANONICAL_TYPE_MISMATCH,
             f"{label} must be a sequence",
         )
+
+
+_RAW_ROW_HASH_LEN = 32
+
+
+def encode_unordered_row_hashes_frame(row_hashes: Sequence[bytes]) -> bytes:
+    """Encode unordered table frame: ULEB128(count) + sorted 32-byte row hashes."""
+    _assert_sequence(row_hashes, "row_hashes")
+    hashes: list[bytes] = []
+    for index, item in enumerate(row_hashes):
+        if type(item) is not bytes:
+            raise CanonicalEncodingError(
+                CanonicalErrorCode.CANONICAL_TYPE_MISMATCH,
+                f"row_hashes[{index}] must be bytes",
+            )
+        if len(item) != _RAW_ROW_HASH_LEN:
+            raise CanonicalEncodingError(
+                CanonicalErrorCode.CANONICAL_FRAME_LENGTH_INVALID,
+                "row hash must be exactly 32 bytes",
+            )
+        hashes.append(item)
+    hashes.sort()
+    parts = bytearray(encode_uleb128(len(hashes)))
+    for item_hash in hashes:
+        parts.extend(item_hash)
+    return bytes(parts)
+
+
+def _sort_fixed_width_chunks_inplace(buf: bytearray, *, width: int) -> None:
+    if len(buf) % width != 0:
+        raise CanonicalEncodingError(
+            CanonicalErrorCode.CANONICAL_FRAME_LENGTH_INVALID,
+            "row buffer length must be a multiple of row hash width",
+        )
+    row_count = len(buf) // width
+    if row_count < 2:
+        return
+    order = sorted(range(row_count), key=lambda index: buf[index * width : (index + 1) * width])
+    if order == list(range(row_count)):
+        return
+    scratch = bytearray(buf)
+    for new_index, old_index in enumerate(order):
+        start = new_index * width
+        old_start = old_index * width
+        buf[start : start + width] = scratch[old_start : old_start + width]
+
+
+def encode_unordered_row_hashes_frame_from_row_buffer(
+    buf: bytes | bytearray,
+    row_count: int,
+) -> bytes:
+    """Encode unordered table frame from a contiguous 32-byte row-hash buffer."""
+    expected_len = row_count * _RAW_ROW_HASH_LEN
+    if len(buf) != expected_len:
+        raise CanonicalEncodingError(
+            CanonicalErrorCode.CANONICAL_FRAME_LENGTH_INVALID,
+            "row buffer length does not match row_count",
+        )
+    if row_count == 0:
+        return encode_uleb128(0)
+    working = bytearray(buf)
+    _sort_fixed_width_chunks_inplace(working, width=_RAW_ROW_HASH_LEN)
+    parts = bytearray(encode_uleb128(row_count))
+    parts.extend(working)
+    return bytes(parts)
+
+
+def encode_sorted_row_hashes_frame(buf: bytes | bytearray, row_count: int) -> bytes:
+    """Encode table frame from an already unsigned-sorted contiguous row-hash buffer."""
+    expected_len = row_count * _RAW_ROW_HASH_LEN
+    if len(buf) != expected_len:
+        raise CanonicalEncodingError(
+            CanonicalErrorCode.CANONICAL_FRAME_LENGTH_INVALID,
+            "row buffer length does not match row_count",
+        )
+    if row_count == 0:
+        return encode_uleb128(0)
+    parts = bytearray(encode_uleb128(row_count))
+    parts.extend(buf)
+    return bytes(parts)
+
+
+def unordered_row_hashes_content_digest(
+    row_hashes: Sequence[bytes],
+) -> SemanticDigest:
+    """Unordered raw-content digest over raw 32-byte row hashes (duplicates retained)."""
+    frame = encode_unordered_row_hashes_frame(row_hashes)
+    return semantic_digest(DigestKind.RAW_CONTENT, frame)
+
+
+def unordered_row_hashes_content_digest_from_row_buffer(
+    buf: bytes | bytearray,
+    row_count: int,
+) -> SemanticDigest:
+    """Unordered raw-content digest over a contiguous row-hash buffer."""
+    frame = encode_unordered_row_hashes_frame_from_row_buffer(buf, row_count)
+    return semantic_digest(DigestKind.RAW_CONTENT, frame)
+
+
+def unordered_row_hashes_content_digest_from_sorted_row_buffer(
+    buf: bytes | bytearray,
+    row_count: int,
+) -> SemanticDigest:
+    """Raw-content digest over an already unsigned-sorted contiguous row-hash buffer."""
+    frame = encode_sorted_row_hashes_frame(buf, row_count)
+    return semantic_digest(DigestKind.RAW_CONTENT, frame)

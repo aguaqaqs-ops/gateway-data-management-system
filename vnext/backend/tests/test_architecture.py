@@ -67,7 +67,13 @@ def test_rust_core_has_no_artifact_or_infrastructure_boundary() -> None:
 def test_r2_ipc_module_avoids_bulk_python_materialization() -> None:
     ipc_source = Path(__file__).parents[1] / "src" / "gateway_backend" / "canonical_row_hash_ipc.py"
     text = ipc_source.read_text()
-    forbidden = ("to_pylist(", "to_pydict(", ".as_py()", "_row_hashes_from_batch")
+    forbidden = (
+        "to_pylist(",
+        "to_pydict(",
+        ".as_py()",
+        "_row_hashes_from_batch",
+        "combine_chunks(",
+    )
     assert not any(marker in text for marker in forbidden), ipc_source
     assert "unordered_row_hashes_content_digest_from_sorted_row_buffer" in text
     assert "unordered_row_hashes_content_digest_from_row_buffer" not in text

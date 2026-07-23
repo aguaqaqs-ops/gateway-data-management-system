@@ -162,6 +162,7 @@ echo "==> backend: ruff"
 uv run --offline --no-sync ruff check \
   src tests \
   "${COMPUTE_PYTHON_ROOT}/tests"
+uv run --offline --no-sync ruff format --check src tests
 
 echo "==> backend: mypy"
 uv run --offline --no-sync mypy

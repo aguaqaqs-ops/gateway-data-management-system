@@ -7,6 +7,7 @@ import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pyarrow as pa
 import pytest
@@ -24,6 +25,7 @@ from gateway_backend.canonical_row_hash_ipc import (
     CanonicalRowHashIpcError,
     collect_row_hashes_from_ipc,
     content_manifest_from_compute_result,
+    open_row_hash_ipc_stream,
     persist_canonical_row_hash_stream,
     reopen_and_verify_canonical_row_hash_artifact,
     write_row_hash_ipc_stream,
@@ -31,7 +33,6 @@ from gateway_backend.canonical_row_hash_ipc import (
 from gateway_backend.compute import canonical_row_hashes_v1
 from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
 from gateway_compute import (
-    CanonicalValueError,
     ComputeRequestError,
     _canonical_row_hashes_v1_native,
 )
@@ -125,20 +126,13 @@ def test_backend_facade_non_nullable_null_slot_has_stable_failure() -> None:
     fields = '[{"name":"v","nullable":false,"semantic_type":{"kind":"signed-integer","bits":32}}]'
     schema = pa.schema([pa.field("v", pa.int32(), nullable=False)])
     batch = pa.record_batch([pa.array([None], type=pa.int32())], schema=schema)
-    with pytest.raises((CanonicalValueError, ComputeRequestError)) as exc_info:
+    with pytest.raises(ComputeRequestError) as exc_info:
         canonical_row_hashes_v1(minimal_request_jcs(fields), batch)
-    if isinstance(exc_info.value, CanonicalValueError):
-        assert_failure_envelope(
-            exc_info.value,
-            expected_type=CanonicalValueError,
-            expected_code="CANONICAL_VALUE_INVALID",
-        )
-    else:
-        assert_failure_envelope(
-            exc_info.value,
-            expected_type=ComputeRequestError,
-            expected_code="ARROW_STREAM_IMPORT_FAILED",
-        )
+    assert_failure_envelope(
+        exc_info.value,
+        expected_type=ComputeRequestError,
+        expected_code="ARROW_STREAM_IMPORT_FAILED",
+    )
 
 
 def test_backend_facade_arrow_stream_import_failure_has_stable_failure() -> None:
@@ -157,6 +151,99 @@ def test_backend_facade_rejects_invalid_python_input_before_persist() -> None:
     fields = '[{"name":"flag","nullable":true,"semantic_type":{"kind":"boolean"}}]'
     with pytest.raises(TypeError, match="data must be pyarrow"):
         canonical_row_hashes_v1(minimal_request_jcs(fields), 42)
+
+
+def _make_row_hash_output_reader() -> pa.RecordBatchReader:
+    schema = pa.schema([pa.field("row_hash", pa.binary(32), nullable=False)])
+    batch = pa.record_batch([pa.array([b"\x00" * 32], type=pa.binary(32))], schema=schema)
+    return pa.RecordBatchReader.from_batches(schema, [batch])
+
+
+def _failing_finalize_stream_class(exc: Exception) -> type[pa.BufferOutputStream]:
+    class FailingFinalizeStream(pa.BufferOutputStream):  # type: ignore[misc]
+        def getvalue(self) -> pa.Buffer:
+            raise exc
+
+    return FailingFinalizeStream
+
+
+@pytest.mark.parametrize(
+    ("failure_mode", "exc"),
+    [
+        ("sink", pa.ArrowInvalid("private /tmp/sink-create.ipc")),
+        ("stream", pa.ArrowInvalid("private /tmp/audit-secret.ipc")),
+        ("finalize", pa.ArrowInvalid("private /tmp/finalize.ipc")),
+        ("sink", pa.ArrowMemoryError("private /tmp/memory.ipc")),
+        ("stream", pa.ArrowTypeError("private /tmp/type.ipc")),
+        ("finalize", pa.ArrowCapacityError("private /tmp/capacity.ipc")),
+    ],
+    ids=[
+        "arrow_invalid_sink",
+        "arrow_invalid_stream",
+        "arrow_invalid_finalize",
+        "arrow_memory_sink",
+        "arrow_type_stream",
+        "arrow_capacity_finalize",
+    ],
+)
+def test_ipc_writer_failure_sanitizes_pyarrow_exceptions(
+    failure_mode: str,
+    exc: Exception,
+) -> None:
+    reader = _make_row_hash_output_reader()
+    if failure_mode == "sink":
+        patch_ctx = patch(
+            "gateway_backend.canonical_row_hash_ipc.pa.BufferOutputStream",
+            side_effect=exc,
+        )
+    elif failure_mode == "stream":
+        patch_ctx = patch(
+            "gateway_backend.canonical_row_hash_ipc.pa.ipc.new_stream",
+            side_effect=exc,
+        )
+    else:
+        patch_ctx = patch(
+            "gateway_backend.canonical_row_hash_ipc.pa.BufferOutputStream",
+            new=_failing_finalize_stream_class(exc),
+        )
+    with patch_ctx:
+        with pytest.raises(CanonicalRowHashIpcError, match="canonical row-hash ipc write failed"):
+            write_row_hash_ipc_stream(reader)
+        with pytest.raises(CanonicalRowHashIpcError) as exc_info:
+            write_row_hash_ipc_stream(reader)
+    assert_public_boundary_sanitized(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("patch_target", "exc"),
+    [
+        ("pa.BufferReader", pa.ArrowMemoryError("private /tmp/read-buffer.ipc")),
+        ("pa.RecordBatchReader", pa.ArrowTypeError("private /tmp/from-batches.ipc")),
+    ],
+    ids=["buffer_reader_memory", "from_batches_type"],
+)
+def test_ipc_reader_failure_sanitizes_pyarrow_exceptions(
+    patch_target: str,
+    exc: Exception,
+) -> None:
+    valid_ipc = write_row_hash_ipc_stream(_make_row_hash_output_reader())
+    if patch_target == "pa.RecordBatchReader":
+        with patch("gateway_backend.canonical_row_hash_ipc.pa.RecordBatchReader") as reader_cls:
+            reader_cls.from_batches.side_effect = exc
+            with pytest.raises(CanonicalRowHashIpcError, match="invalid arrow ipc stream"):
+                open_row_hash_ipc_stream(valid_ipc)
+            with pytest.raises(CanonicalRowHashIpcError) as exc_info:
+                open_row_hash_ipc_stream(valid_ipc)
+    else:
+        with patch(
+            f"gateway_backend.canonical_row_hash_ipc.{patch_target}",
+            side_effect=exc,
+        ):
+            with pytest.raises(CanonicalRowHashIpcError, match="invalid arrow ipc stream"):
+                open_row_hash_ipc_stream(valid_ipc)
+            with pytest.raises(CanonicalRowHashIpcError) as exc_info:
+                open_row_hash_ipc_stream(valid_ipc)
+    assert_public_boundary_sanitized(exc_info.value)
 
 
 def test_publish_row_count_mismatch_full_chain_has_no_put_effect() -> None:

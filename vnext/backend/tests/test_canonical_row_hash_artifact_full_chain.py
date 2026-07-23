@@ -9,20 +9,28 @@ import pyarrow as pa
 
 from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_to_json
 from gateway_backend.canonical_row_hash_ipc import (
+    CANONICAL_ROW_HASH_OUTPUT_SCHEMA,
     collect_row_hashes_from_ipc,
     content_manifest_from_compute_result,
     reopen_and_verify_canonical_row_hash_artifact,
+    write_row_hash_ipc_stream,
 )
+
+from ipc_negative_fixtures import reader_from_hashes
 from gateway_backend.compute import canonical_row_hashes_v1
 from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
 
 from pr_native_support import (
+    BOOLEAN_THREE_ROW_RESULT_JCS,
+    NULLABLE_STRING_THREE_ROW_RESULT_JCS,
+    assert_golden_compute_result,
     assert_independent_table_schema_digest_oracle,
     assert_multi_batch_input,
     assert_ref_json_has_no_host_paths,
     build_logical_ref_for_case,
     count_ipc_record_batches,
     minimal_request_jcs,
+    reader_from_batches,
     run_full_chain,
 )
 
@@ -122,17 +130,20 @@ def test_multi_batch_input_full_chain_preserves_semantic_identity() -> None:
     fields = [{"name": "flag", "nullable": True, "semantic_type": {"kind": "boolean"}}]
     batch_a = pa.record_batch([pa.array([True])], names=["flag"])
     batch_b = pa.record_batch([pa.array([False, False])], names=["flag"])
-    multi_input = pa.RecordBatchReader.from_batches(batch_a.schema, [batch_a, batch_b])
-    assert_multi_batch_input(multi_input)
+    batches = [batch_a, batch_b]
+    assert_multi_batch_input(batches=batches)
     store = InMemoryArtifactStore()
-    ref, _, _ = run_full_chain(
+    ref, content, result_jcs = run_full_chain(
         store,
         fields=fields,
-        data=multi_input,
+        data=reader_from_batches(batches),
         logical_ref=build_logical_ref_for_case("multi-batch-input"),
     )
-    raw_bytes = store.locate(ref)
-    assert count_ipc_record_batches(raw_bytes) >= 1
+    assert content.row_count == "3"
+    assert b'"row_count":"3"' in result_jcs
+    reopened_hashes = collect_row_hashes_from_ipc(store.locate(ref))
+    assert len(reopened_hashes) == 3
+    assert count_ipc_record_batches(store.locate(ref)) >= 1
 
 
 def test_nullable_string_smoke_full_chain() -> None:
@@ -149,6 +160,7 @@ def test_nullable_string_smoke_full_chain() -> None:
         data=batch,
         logical_ref=build_logical_ref_for_case("nullable-string"),
     )
+    assert_golden_compute_result(result_jcs, NULLABLE_STRING_THREE_ROW_RESULT_JCS)
     assert_independent_table_schema_digest_oracle(fields, result_jcs)
     assert_ref_json_has_no_host_paths(ref)
     reopened_hashes = collect_row_hashes_from_ipc(store.locate(ref))
@@ -198,3 +210,42 @@ def test_batch_partition_change_preserves_semantic_digest_full_chain() -> None:
     )
     assert single_content.raw_content_digest == multi_content.raw_content_digest
     assert single_content.table_schema_digest == multi_content.table_schema_digest
+
+
+def test_chunking_differs_raw_bytes_same_semantic_digest_full_chain() -> None:
+    fields = [{"name": "flag", "nullable": True, "semantic_type": {"kind": "boolean"}}]
+    output, result_jcs = canonical_row_hashes_v1(
+        minimal_request_jcs(json.dumps(fields)),
+        pa.table({"flag": [True, False, True]}),
+    )
+    content = content_manifest_from_compute_result(result_jcs)
+    assert_golden_compute_result(result_jcs, BOOLEAN_THREE_ROW_RESULT_JCS)
+    hashes = collect_row_hashes_from_ipc(write_row_hash_ipc_stream(output))
+    single_bytes = write_row_hash_ipc_stream(reader_from_hashes(hashes))
+    batch_a = pa.record_batch(
+        [pa.array([hashes[0]], type=pa.binary(32))],
+        schema=CANONICAL_ROW_HASH_OUTPUT_SCHEMA,
+    )
+    batch_b = pa.record_batch(
+        [pa.array(hashes[1:], type=pa.binary(32))],
+        schema=CANONICAL_ROW_HASH_OUTPUT_SCHEMA,
+    )
+    multi_bytes = write_row_hash_ipc_stream(
+        pa.RecordBatchReader.from_batches(CANONICAL_ROW_HASH_OUTPUT_SCHEMA, [batch_a, batch_b])
+    )
+    assert single_bytes != multi_bytes
+    store = InMemoryArtifactStore()
+    ref, multi_content, _ = run_full_chain(
+        store,
+        fields=fields,
+        data=reader_from_batches(
+            [
+                pa.record_batch([pa.array([True])], names=["flag"]),
+                pa.record_batch([pa.array([False, True])], names=["flag"]),
+            ]
+        ),
+        logical_ref=build_logical_ref_for_case("chunking-identity"),
+    )
+    assert content.raw_content_digest == multi_content.raw_content_digest
+    assert content.table_schema_digest == multi_content.table_schema_digest
+    assert count_ipc_record_batches(store.locate(ref)) >= 1

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import json
 import os
 from pathlib import Path
 
@@ -29,3 +30,17 @@ def test_installed_gateway_compute_origin_is_not_editable_source() -> None:
     version = importlib.metadata.version("gateway-compute-python")
     assert version
     assert gateway_compute.__version__
+
+    dist = importlib.metadata.distribution("gateway-compute-python")
+    direct_url = None
+    for path in dist.files or []:
+        if path.name == "direct_url.json":
+            direct_url = json.loads(dist.locate_file(path).read_text(encoding="utf-8"))
+            break
+    assert direct_url is not None, "direct_url.json missing"
+    url = direct_url.get("url", "")
+    assert url.endswith(".whl"), url
+    assert str(source_tree) not in url, url
+
+    expected_wheel_sha256 = os.environ.get("NATIVE_PR_WHEEL_SHA256")
+    assert expected_wheel_sha256, "gate must export NATIVE_PR_WHEEL_SHA256"

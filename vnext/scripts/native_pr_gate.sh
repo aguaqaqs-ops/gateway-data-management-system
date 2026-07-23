@@ -3,6 +3,7 @@ set -euo pipefail
 
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_ROOT="${VNEXT_ROOT}/backend"
+RUST_ROOT="${VNEXT_ROOT}/rust"
 COMPUTE_PYTHON_ROOT="${VNEXT_ROOT}/rust/gateway-compute-python"
 NATIVE_KERNEL_COMPONENT="${VNEXT_ROOT}/scripts/native_kernel_component.sh"
 
@@ -50,6 +51,106 @@ assert_compute_python_source_tree_clean() {
     printf '  %s\n' "${files[@]}" >&2
     exit 1
   fi
+}
+
+assert_cargo_lock_unchanged() {
+  if ! git -C "${VNEXT_ROOT}" diff --exit-code -- "${RUST_ROOT}/Cargo.lock" >/dev/null 2>&1; then
+    echo "Cargo.lock changed during native-pr gate" >&2
+    git -C "${VNEXT_ROOT}" diff -- "${RUST_ROOT}/Cargo.lock" >&2 || true
+    exit 1
+  fi
+}
+
+capture_wheel_identity() {
+  local wheel_path="$1"
+  local out_file="$2"
+  uv run --offline --no-sync python - "${wheel_path}" "${out_file}" "${VNEXT_ROOT}" <<'PY'
+import hashlib
+import importlib.metadata
+import json
+import sys
+from pathlib import Path
+
+import gateway_compute.gateway_compute as native
+
+wheel_path = Path(sys.argv[1])
+out_file = Path(sys.argv[2])
+repo_root = Path(sys.argv[3])
+source_tree = repo_root / "rust" / "gateway-compute-python"
+
+module_file = Path(native.__file__).resolve()
+if str(module_file).startswith(str(source_tree)):
+    raise SystemExit(f"extension must not load from source tree: {module_file}")
+
+wheel_sha256 = hashlib.sha256(wheel_path.read_bytes()).hexdigest()
+extension_sha256 = hashlib.sha256(module_file.read_bytes()).hexdigest()
+
+dist = importlib.metadata.distribution("gateway-compute-python")
+direct_url = None
+for path in dist.files or []:
+    if path.name == "direct_url.json":
+        direct_url = json.loads(dist.locate_file(path).read_text(encoding="utf-8"))
+        break
+
+if direct_url is None:
+    raise SystemExit("direct_url.json missing for gateway-compute-python")
+
+url = direct_url.get("url", "")
+if not url.endswith(".whl"):
+    raise SystemExit(f"expected wheel direct_url, got: {url}")
+if str(source_tree) in url:
+    raise SystemExit(f"direct_url must not reference source tree: {url}")
+
+identity = {
+    "wheel_path": str(wheel_path.resolve()),
+    "wheel_sha256": wheel_sha256,
+    "extension_sha256": extension_sha256,
+    "module_file": str(module_file),
+    "version": importlib.metadata.version("gateway-compute-python"),
+    "direct_url": direct_url,
+}
+out_file.write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+print("wheel identity captured:", wheel_sha256[:16], extension_sha256[:16])
+PY
+}
+
+assert_wheel_identity_unchanged() {
+  local baseline_file="$1"
+  local label="$2"
+  uv run --offline --no-sync python - "${baseline_file}" "${label}" <<'PY'
+import hashlib
+import importlib.metadata
+import json
+import sys
+from pathlib import Path
+
+import gateway_compute.gateway_compute as native
+
+baseline_file = Path(sys.argv[1])
+label = sys.argv[2]
+baseline = json.loads(baseline_file.read_text(encoding="utf-8"))
+
+module_file = Path(native.__file__).resolve()
+extension_sha256 = hashlib.sha256(module_file.read_bytes()).hexdigest()
+version = importlib.metadata.version("gateway-compute-python")
+
+if extension_sha256 != baseline["extension_sha256"]:
+    raise SystemExit(
+        f"wheel extension identity changed at {label}: "
+        f"{baseline['extension_sha256']} -> {extension_sha256}"
+    )
+if version != baseline["version"]:
+    raise SystemExit(
+        f"gateway-compute-python version changed at {label}: "
+        f"{baseline['version']} -> {version}"
+    )
+if str(module_file) != baseline["module_file"]:
+    raise SystemExit(
+        f"extension module path changed at {label}: "
+        f"{baseline['module_file']} -> {module_file}"
+    )
+print(f"wheel identity unchanged at {label}")
+PY
 }
 
 native_pr_finalize_exit() {
@@ -155,6 +256,7 @@ run_native_pr_gate_body() {
 
   NATIVE_PR_TMP="$(mktemp -d)"
   NATIVE_PR_SAVED_CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
+  NATIVE_PR_WHEEL_IDENTITY_FILE="${NATIVE_PR_TMP}/wheel-identity.json"
   echo "native-pr gate tmp=${NATIVE_PR_TMP}"
   trap native_pr_on_exit EXIT
 
@@ -162,15 +264,22 @@ run_native_pr_gate_body() {
   export UV_OFFLINE=true
   uv sync --locked --offline --all-groups
 
+  assert_cargo_lock_unchanged
+
   echo "==> native-pr: build release wheel"
   local python_interpreter wheel
   python_interpreter="$(uv run python -c 'import os, sys; print(os.path.realpath(sys.executable))')"
   export CARGO_TARGET_DIR="${NATIVE_PR_TMP}/cargo-target"
+  export CARGO_NET_OFFLINE=true
   uv run maturin build \
     --release \
+    --locked \
+    --offline \
     --manifest-path "${COMPUTE_PYTHON_ROOT}/Cargo.toml" \
     --out "${NATIVE_PR_TMP}/dist" \
     --interpreter "${python_interpreter}"
+
+  assert_cargo_lock_unchanged
 
   wheel="$(ls -1 "${NATIVE_PR_TMP}/dist"/*.whl | head -n 1)"
   echo "release wheel: ${wheel}"
@@ -178,37 +287,34 @@ run_native_pr_gate_body() {
   uv pip install --offline --force-reinstall "${wheel}"
   assert_installed_extension_has_no_test_hooks
   cleanup_compute_python_source_so
-
-  echo "==> native-pr: verify installed module origin"
-  uv run --offline --no-sync python - <<'PY'
-import importlib.metadata
-from pathlib import Path
-
-import gateway_compute
-import gateway_compute.gateway_compute as native
-
-module_file = Path(native.__file__).resolve()
-parts = set(module_file.parts)
-if "site-packages" not in parts and ".venv" not in parts:
-    raise SystemExit(f"production extension not installed in venv site-packages: {module_file}")
-print("module origin:", module_file)
-print("distribution:", importlib.metadata.version("gateway-compute-python"))
-print("native version:", gateway_compute.__version__)
-PY
+  capture_wheel_identity "${wheel}" "${NATIVE_PR_WHEEL_IDENTITY_FILE}"
 
   chmod +x "${NATIVE_KERNEL_COMPONENT}"
 
-  echo "==> native-pr: native-kernel component wheel smoke"
-  "${NATIVE_KERNEL_COMPONENT}" wheel-smoke
+  echo "==> native-pr: installed-wheel smoke (no rebuild/sync)"
+  "${NATIVE_KERNEL_COMPONENT}" wheel-smoke-installed
 
-  echo "==> native-pr: native-kernel component probes"
+  echo "==> native-pr: authoritative Rust kernel_component probes"
+  cd "${RUST_ROOT}"
+  export CARGO_NET_OFFLINE=true
+  cargo test --locked --offline --package gateway-compute-python-impl kernel_component
+
+  cd "${BACKEND_ROOT}"
+  assert_wheel_identity_unchanged "${NATIVE_PR_WHEEL_IDENTITY_FILE}" "after kernel_component tests"
+
+  echo "==> native-pr: native-kernel component facade probes"
   "${NATIVE_KERNEL_COMPONENT}" component-pytest
+
+  assert_wheel_identity_unchanged "${NATIVE_PR_WHEEL_IDENTITY_FILE}" "after component-pytest"
 
   echo "==> native-pr: PR-NATIVE artifact full-chain targeted suite"
   export GATE_PR_NATIVE=1
+  NATIVE_PR_WHEEL_SHA256="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["wheel_sha256"])' "${NATIVE_PR_WHEEL_IDENTITY_FILE}")"
+  export NATIVE_PR_WHEEL_SHA256
   uv run --offline --no-sync pytest -q --collect-only -m pr_native
   uv run --offline --no-sync pytest -q -m pr_native
 
+  assert_wheel_identity_unchanged "${NATIVE_PR_WHEEL_IDENTITY_FILE}" "after pr_native suite"
   assert_installed_extension_has_no_test_hooks
   assert_compute_python_source_tree_clean
   echo "native gate passed"

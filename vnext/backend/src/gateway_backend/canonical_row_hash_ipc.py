@@ -60,25 +60,38 @@ class CanonicalRowHashIpcError(ValueError):
     """Canonical row-hash IPC write, read, or verification failed."""
 
 
+_ARROW_PUBLIC_BOUNDARY_ERRORS = (pa.ArrowException, OSError, ValueError)
+
+
 def write_row_hash_ipc_stream(reader: pa.RecordBatchReader) -> bytes:
     """Serialize a canonical row-hash output stream to Arrow IPC stream bytes."""
 
-    _assert_reader_schema(reader.schema)
-    sink = pa.BufferOutputStream()
-    with pa.ipc.new_stream(sink, CANONICAL_ROW_HASH_OUTPUT_SCHEMA) as writer:
-        for batch in reader:
-            if not batch.schema.equals(CANONICAL_ROW_HASH_OUTPUT_SCHEMA, check_metadata=True):
-                raise CanonicalRowHashIpcError("batch schema does not match canonical output")
-            _assert_batch_has_no_null_row_hashes(batch)
-            writer.write_batch(batch)
-    return bytes(sink.getvalue().to_pybytes())
+    try:
+        _assert_reader_schema(reader.schema)
+        sink = pa.BufferOutputStream()
+        with pa.ipc.new_stream(sink, CANONICAL_ROW_HASH_OUTPUT_SCHEMA) as writer:
+            for batch in reader:
+                if not batch.schema.equals(CANONICAL_ROW_HASH_OUTPUT_SCHEMA, check_metadata=True):
+                    raise CanonicalRowHashIpcError("batch schema does not match canonical output")
+                _assert_batch_has_no_null_row_hashes(batch)
+                writer.write_batch(batch)
+        return bytes(sink.getvalue().to_pybytes())
+    except CanonicalRowHashIpcError:
+        raise
+    except _ARROW_PUBLIC_BOUNDARY_ERRORS:
+        raise CanonicalRowHashIpcError("canonical row-hash ipc write failed") from None
 
 
 def open_row_hash_ipc_stream(raw_bytes: bytes) -> pa.RecordBatchReader:
     """Open finalized Arrow IPC stream bytes as a fail-closed RecordBatchReader."""
 
-    schema, batches = _read_validated_ipc_batches(raw_bytes)
-    return pa.RecordBatchReader.from_batches(schema, batches)
+    try:
+        schema, batches = _read_validated_ipc_batches(raw_bytes)
+        return pa.RecordBatchReader.from_batches(schema, batches)
+    except CanonicalRowHashIpcError:
+        raise
+    except _ARROW_PUBLIC_BOUNDARY_ERRORS:
+        raise CanonicalRowHashIpcError("invalid arrow ipc stream") from None
 
 
 def collect_row_hashes_from_ipc(raw_bytes: bytes) -> list[bytes]:
@@ -283,34 +296,25 @@ def _assert_ipc_stream_eos_marker(raw_bytes: bytes) -> None:
 
 def _read_validated_ipc_batches(raw_bytes: bytes) -> tuple[pa.Schema, list[pa.RecordBatch]]:
     _assert_ipc_stream_eos_marker(raw_bytes)
-    buffer_reader = pa.BufferReader(raw_bytes)
     try:
+        buffer_reader = pa.BufferReader(raw_bytes)
         reader = pa.ipc.open_stream(buffer_reader)
-    except pa.ArrowInvalid, pa.ArrowIOError, OSError, ValueError:
-        raise CanonicalRowHashIpcError("invalid arrow ipc stream") from None
-    try:
         _assert_reader_schema(reader.schema)
+        batches: list[pa.RecordBatch] = []
+        try:
+            while True:
+                batch = reader.read_next_batch()
+                _row_hash_values_buffer_from_batch(batch)
+                batches.append(batch)
+        except StopIteration:
+            pass
+        if buffer_reader.tell() != len(raw_bytes):
+            raise CanonicalRowHashIpcError("arrow ipc stream has unconsumed trailing bytes")
+        return reader.schema, batches
     except CanonicalRowHashIpcError:
         raise
-    except Exception:
+    except _ARROW_PUBLIC_BOUNDARY_ERRORS:
         raise CanonicalRowHashIpcError("invalid arrow ipc stream") from None
-    batches: list[pa.RecordBatch] = []
-    try:
-        while True:
-            batch = reader.read_next_batch()
-            _row_hash_values_buffer_from_batch(batch)
-            batches.append(batch)
-    except StopIteration:
-        pass
-    except CanonicalRowHashIpcError:
-        raise
-    except pa.ArrowInvalid, pa.ArrowIOError, OSError, ValueError:
-        raise CanonicalRowHashIpcError("invalid arrow ipc stream") from None
-    except Exception:
-        raise CanonicalRowHashIpcError("invalid arrow ipc stream") from None
-    if buffer_reader.tell() != len(raw_bytes):
-        raise CanonicalRowHashIpcError("arrow ipc stream has unconsumed trailing bytes")
-    return reader.schema, batches
 
 
 def _verify_row_buffer_sorted_unsigned(buf: bytearray, row_count: int) -> None:
@@ -349,7 +353,7 @@ def _assert_batch_has_no_null_row_hashes(batch: pa.RecordBatch) -> None:
         raise CanonicalRowHashIpcError("unexpected batch schema")
     column = batch.column(0)
     if isinstance(column, pa.ChunkedArray):
-        column = column.combine_chunks()
+        raise CanonicalRowHashIpcError("row_hash column must be a contiguous array")
     validity = column.buffers()[0]
     if validity is not None and column.null_count > 0:
         raise CanonicalRowHashIpcError("row_hash column must not contain null values")
@@ -362,7 +366,7 @@ def _row_hash_values_buffer_from_batch(batch: pa.RecordBatch) -> bytes:
         raise CanonicalRowHashIpcError("unexpected batch schema")
     column = batch.column(0)
     if isinstance(column, pa.ChunkedArray):
-        column = column.combine_chunks()
+        raise CanonicalRowHashIpcError("row_hash column must be a contiguous array")
     if (
         not pa.types.is_fixed_size_binary(column.type)
         or column.type.byte_width != ROW_HASH_BYTE_WIDTH

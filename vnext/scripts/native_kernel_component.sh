@@ -4,15 +4,16 @@ set -euo pipefail
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_ROOT="${VNEXT_ROOT}/backend"
 COMPUTE_PYTHON_ROOT="${VNEXT_ROOT}/rust/gateway-compute-python"
+RUST_ROOT="${VNEXT_ROOT}/rust"
 
 usage() {
-  echo "usage: $0 wheel-smoke|component-pytest|wheel-trap-regression" >&2
+  echo "usage: $0 wheel-smoke|wheel-smoke-installed|component-pytest|wheel-trap-regression" >&2
   exit 2
 }
 
 MODE="${1:-}"
 case "${MODE}" in
-  wheel-smoke | component-pytest | wheel-trap-regression) ;;
+  wheel-smoke | wheel-smoke-installed | component-pytest | wheel-trap-regression) ;;
   *) usage ;;
 esac
 
@@ -48,6 +49,20 @@ bad = [
 if bad:
     raise SystemExit(f"production extension must not export test hooks: {bad}")
 PY
+}
+
+build_release_wheel() {
+  local out_dir="$1"
+  local python_interpreter
+  python_interpreter="$(uv run python -c 'import os, sys; print(os.path.realpath(sys.executable))')"
+  export CARGO_NET_OFFLINE=true
+  uv run maturin build \
+    --release \
+    --locked \
+    --offline \
+    --manifest-path "${COMPUTE_PYTHON_ROOT}/Cargo.toml" \
+    --out "${out_dir}" \
+    --interpreter "${python_interpreter}"
 }
 
 # Decide final exit code after wheel-smoke body + restore attempt.
@@ -95,7 +110,6 @@ wheel_smoke_exit_trap_regression() {
     mkdir -p "${CARGO_TARGET_DIR}"
     printf '%s\n' "${WHEEL_SMOKE_TMP}" >"${marker}"
     echo "regression tmp=${WHEEL_SMOKE_TMP}"
-    # Install the same production EXIT handler used by wheel_smoke.
     trap wheel_smoke_on_exit EXIT
     exit 0
   )
@@ -152,35 +166,8 @@ wheel_smoke_exit_trap_regression() {
   echo "wheel-smoke EXIT trap regression ok"
 }
 
-wheel_smoke() {
-  (
-    set -euo pipefail
-    local wheel
-    WHEEL_SMOKE_TMP="$(mktemp -d)"
-    WHEEL_SMOKE_SAVED_CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
-    echo "wheel-smoke tmp=${WHEEL_SMOKE_TMP}"
-    trap wheel_smoke_on_exit EXIT
-
-    cd "${BACKEND_ROOT}"
-    export UV_OFFLINE=true
-    uv sync --locked --offline --all-groups
-
-    echo "building release wheel into ${WHEEL_SMOKE_TMP}/dist"
-    local python_interpreter
-    python_interpreter="$(uv run python -c 'import os, sys; print(os.path.realpath(sys.executable))')"
-    export CARGO_TARGET_DIR="${WHEEL_SMOKE_TMP}/cargo-target"
-    uv run maturin build \
-      --release \
-      --manifest-path "${COMPUTE_PYTHON_ROOT}/Cargo.toml" \
-      --out "${WHEEL_SMOKE_TMP}/dist" \
-      --interpreter "${python_interpreter}"
-
-    wheel="$(ls -1 "${WHEEL_SMOKE_TMP}/dist"/*.whl | head -n 1)"
-  echo "release wheel: ${wheel}"
-
-  uv pip install --offline --force-reinstall "${wheel}"
-  assert_installed_extension_has_no_test_hooks
-
+run_installed_wheel_smoke_python() {
+  local wheel_label="${1:-installed-wheel}"
   uv run --offline --no-sync python - <<PY
 import importlib.metadata
 import json
@@ -219,7 +206,6 @@ def assert_sorted_unsigned_lexicographic(hashes):
     assert hashes == sorted(hashes)
 
 
-# empty table
 reader = pa.RecordBatchReader.from_batches(pa.schema([]), [])
 output, result_jcs = canonical_row_hashes_v1(request_jcs([]), reader)
 assert isinstance(output, pa.RecordBatchReader)
@@ -230,7 +216,6 @@ assert parsed["raw_content_digest"].startswith("sha256:")
 assert parsed["table_schema_digest"].startswith("sha256:")
 print("wheel-smoke: empty table ok")
 
-# multi-batch (3 rows)
 fields = [{"name": "v", "nullable": False, "semantic_type": {"kind": "string"}}]
 schema = pa.schema([pa.field("v", pa.string(), nullable=False)])
 multi_reader = pa.RecordBatchReader.from_batches(
@@ -251,7 +236,6 @@ assert parsed["raw_content_digest"].startswith("sha256:")
 assert parsed["table_schema_digest"].startswith("sha256:")
 print("wheel-smoke: multi-batch ok")
 
-# duplicate rows (same hash retained twice)
 dup_batch = pa.record_batch([pa.array(["x", "x"], type=pa.string())], schema=schema)
 dup_reader = pa.RecordBatchReader.from_batches(schema, [dup_batch])
 output, result_jcs = canonical_row_hashes_v1(request_jcs(fields), dup_reader)
@@ -262,11 +246,42 @@ assert hashes[0] == hashes[1]
 print("wheel-smoke: duplicate rows ok")
 
 print("wheel-smoke: installed wheel ok")
-print("wheel:", "${wheel}")
+print("wheel:", "${wheel_label}")
 print("python:", sys.version.split()[0])
 print("gateway_compute:", importlib.metadata.version("gateway-compute-python"))
 print("gateway_compute_native:", gateway_compute.__version__)
 PY
+}
+
+wheel_smoke_installed() {
+  cd "${BACKEND_ROOT}"
+  export UV_OFFLINE=true
+  run_installed_wheel_smoke_python "preinstalled"
+}
+
+wheel_smoke() {
+  (
+    set -euo pipefail
+    local wheel
+    WHEEL_SMOKE_TMP="$(mktemp -d)"
+    WHEEL_SMOKE_SAVED_CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
+    echo "wheel-smoke tmp=${WHEEL_SMOKE_TMP}"
+    trap wheel_smoke_on_exit EXIT
+
+    cd "${BACKEND_ROOT}"
+    export UV_OFFLINE=true
+    uv sync --locked --offline --all-groups
+
+    echo "building release wheel into ${WHEEL_SMOKE_TMP}/dist"
+    export CARGO_TARGET_DIR="${WHEEL_SMOKE_TMP}/cargo-target"
+    build_release_wheel "${WHEEL_SMOKE_TMP}/dist"
+
+    wheel="$(ls -1 "${WHEEL_SMOKE_TMP}/dist"/*.whl | head -n 1)"
+    echo "release wheel: ${wheel}"
+
+    uv pip install --offline --force-reinstall "${wheel}"
+    assert_installed_extension_has_no_test_hooks
+    run_installed_wheel_smoke_python "${wheel}"
   )
 }
 
@@ -281,6 +296,7 @@ component_pytest() {
 
 case "${MODE}" in
   wheel-smoke) wheel_smoke ;;
+  wheel-smoke-installed) wheel_smoke_installed ;;
   component-pytest) component_pytest ;;
   wheel-trap-regression) wheel_smoke_exit_trap_regression ;;
 esac

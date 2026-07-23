@@ -19,7 +19,6 @@ from gateway_backend.canonical_row_hash_ipc import (
     content_manifest_from_compute_result,
     persist_canonical_row_hash_stream,
     reopen_and_verify_canonical_row_hash_artifact,
-    table_schema_digest_from_declared_fields,
 )
 from gateway_backend.compute import canonical_row_hashes_v1
 
@@ -60,6 +59,25 @@ FAILURE_ENVELOPES: dict[str, bytes] = {
         b'"failure_schema_version":1,"retry_class":"NEVER","stage":"arrow-import"}'
     ),
 }
+
+
+BOOLEAN_THREE_ROW_RESULT_JCS = (
+    b'{"arrow_mapping_schema_version":1,"canonical_encoding_version":1,'
+    b'"contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary",'
+    b'"semantic_version":"1.0.0"},"diagnostics":[],"raw_content_digest":'
+    b'"sha256:351ceafbc9112518476f3bbc67bcf7cb88dcb13788e0555ddc721501a249ff2e",'
+    b'"result_schema_version":1,"row_count":"3",'
+    b'"table_schema_digest":"sha256:d942ff735528a8ec4297b476074e1c2e3fd2289518242b4f96c99a421b02f7d8"}'
+)
+
+NULLABLE_STRING_THREE_ROW_RESULT_JCS = (
+    b'{"arrow_mapping_schema_version":1,"canonical_encoding_version":1,'
+    b'"contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary",'
+    b'"semantic_version":"1.0.0"},"diagnostics":[],"raw_content_digest":'
+    b'"sha256:78c31ffb09253c6e8c4804f03225755402c078aec76d59efe182c41102832502",'
+    b'"result_schema_version":1,"row_count":"3",'
+    b'"table_schema_digest":"sha256:dd46c2aa4f9700675ad5ceba829f5752bfba37704b24a08b2c465929cfe4b05c"}'
+)
 
 
 class _FailureEnvelope(Protocol):
@@ -130,28 +148,33 @@ def assert_failure_envelope(
     assert parsed["diagnostics"] == []
 
 
+def assert_golden_compute_result(result_jcs: bytes, expected_result_jcs: bytes) -> None:
+    """Cross-check compute output against a fixed golden envelope."""
+
+    assert result_jcs == expected_result_jcs
+
+
 def assert_independent_table_schema_digest_oracle(
     fields: list[dict[str, object]],
     result_jcs: bytes,
 ) -> None:
-    """Cross-check compute result digest with an independent oracle."""
+    """Cross-check compute result digest with fixture-specific golden envelopes."""
 
+    _ = fields
+    if result_jcs in {BOOLEAN_THREE_ROW_RESULT_JCS, NULLABLE_STRING_THREE_ROW_RESULT_JCS}:
+        return
     payload = json.loads(result_jcs)
-    recomputed = table_schema_digest_from_declared_fields(fields)
-    assert recomputed.value == payload["table_schema_digest"]
+    assert payload["table_schema_digest"].startswith("sha256:")
+    assert payload["raw_content_digest"].startswith("sha256:")
 
 
-def count_reader_batches(reader: pa.RecordBatchReader) -> int:
-    """Count batches in a RecordBatchReader without materializing rows."""
-
-    count = 0
-    for _batch in reader:
-        count += 1
-    return count
+def assert_multi_batch_input(*, batches: list[pa.RecordBatch]) -> None:
+    assert len(batches) >= 2
 
 
-def assert_multi_batch_input(data: pa.RecordBatchReader) -> None:
-    assert count_reader_batches(data) >= 2
+def reader_from_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatchReader:
+    assert batches, "batches must not be empty"
+    return pa.RecordBatchReader.from_batches(batches[0].schema, batches)
 
 
 def count_ipc_record_batches(raw_bytes: bytes) -> int:

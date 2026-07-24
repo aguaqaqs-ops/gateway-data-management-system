@@ -51,10 +51,36 @@ def test_no_bless_or_writeback_helpers() -> None:
         assert "write_back" not in text, source
 
 
-def test_no_r2_runner_symbols_in_conformance_sources() -> None:
-    package_root = Path(__file__).resolve().parents[1] / "src" / "gateway_conformance"
-    forbidden = ("SubjectHarness", "preflight", "drive_recovery")
-    for source in package_root.rglob("*.py"):
+def test_runner_package_lives_under_conformance_harness() -> None:
+    runner_root = Path(__file__).resolve().parents[1] / "src" / "gateway_conformance" / "runner"
+    assert runner_root.is_dir()
+    assert "gateway_backend" not in str(runner_root)
+
+
+def test_fake_harness_not_in_formal_scenario_root() -> None:
+    fake_path = (
+        Path(__file__).resolve().parents[1] / "src" / "gateway_conformance" / "runner" / "fake"
+    )
+    formal = Path(__file__).resolve().parents[2] / "fixtures" / "scenarios"
+    assert fake_path.is_dir()
+    assert not str(fake_path).startswith(str(formal))
+
+
+def test_harness_sources_do_not_return_correctness_status_literals() -> None:
+    fake_root = (
+        Path(__file__).resolve().parents[1] / "src" / "gateway_conformance" / "runner" / "fake"
+    )
+    forbidden_returns = ('"PASSED"', '"ASSERTION_FAILED"', '"MATCH"', '"MISMATCH"')
+    for source in fake_root.rglob("*.py"):
+        text = source.read_text(encoding="utf-8")
+        for marker in forbidden_returns:
+            assert marker not in text, (source, marker)
+
+
+def test_runner_package_has_no_subprocess_or_dynamic_import() -> None:
+    runner_root = Path(__file__).resolve().parents[1] / "src" / "gateway_conformance" / "runner"
+    forbidden = ("importlib", "__import__", "subprocess")
+    for source in runner_root.rglob("*.py"):
         text = source.read_text(encoding="utf-8")
         for marker in forbidden:
             assert marker not in text, (source, marker)

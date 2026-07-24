@@ -13,9 +13,14 @@ from gateway_conformance.scenario.digest import (
 )
 from gateway_shared_kernel import raw_blob_digest
 
+from gateway_conformance.paths import VNEXT_ROOT
 from gateway_conformance.scenario.closure import ResolvedAsset, load_scenario_closure
 from gateway_conformance.scenario.validate import validate_scenario
 from support import build_valid_data_scenario, write_scenario_tree
+
+FORMAL_MIXED_SCALARS = (
+    VNEXT_ROOT / "fixtures" / "scenarios" / "data" / "canonical-row-hashes" / "mixed-scalars"
+)
 
 
 def test_stale_input_digest_rejected(tmp_path: Path) -> None:
@@ -121,3 +126,20 @@ def test_golden_pretty_format_does_not_change_fixture_digest(tmp_path: Path) -> 
     write_scenario_tree(root, manifest, golden_bytes=pretty_bytes)
     closure = load_scenario_closure(root)
     assert compute_fixture_content_digest(closure) == before
+
+
+def test_owner_closure_transport_fields_do_not_change_fixture_digest(tmp_path: Path) -> None:
+    import copy
+    import shutil
+    from dataclasses import replace
+
+    dest = tmp_path / "data" / "canonical-row-hashes" / "mixed-scalars"
+    shutil.copytree(FORMAL_MIXED_SCALARS, dest)
+    closure = load_scenario_closure(dest)
+    before = compute_fixture_content_digest(closure)
+    manifest = copy.deepcopy(closure.manifest)
+    owner = manifest["owner_closure_assets"][0]
+    owner["size_bytes"] = 999
+    owner["raw_sha256"] = "sha256:" + "f" * 64
+    tampered = replace(closure, manifest=manifest)
+    assert compute_fixture_content_digest(tampered) == before

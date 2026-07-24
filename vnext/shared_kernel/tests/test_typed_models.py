@@ -28,6 +28,7 @@ _EXPECTED_DIGEST_KINDS = frozenset(
         "scenario-input",
         "scenario-fixture",
         "run-evidence",
+        "canonical-table-result",
     }
 )
 

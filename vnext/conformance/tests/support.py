@@ -167,7 +167,8 @@ def write_scenario_tree(root: Path, manifest: dict[str, Any], *, golden_bytes: b
 
 
 def _manifest_to_yaml(manifest: dict[str, Any]) -> str:
-    lines = ["manifest_schema_version: 1"]
+    version = int(manifest["manifest_schema_version"])
+    lines = [f"manifest_schema_version: {version}"]
     lines.append(f"scenario_id: {manifest['scenario_id']}")
     lines.append(f"track: {manifest['track']}")
     lines.append("subject:")
@@ -216,6 +217,15 @@ def _manifest_to_yaml(manifest: dict[str, Any]) -> str:
                 lines.append(f"    content_digest: {asset['content_digest']}")
     else:
         lines.append("  []")
+    owner_closure = manifest.get("owner_closure_assets")
+    if owner_closure is not None:
+        lines.append("owner_closure_assets:")
+        for asset in owner_closure:
+            lines.append(f"  - logical_name: {asset['logical_name']}")
+            lines.append(f"    path: {asset['path']}")
+            lines.append(f"    media_type: {asset['media_type']}")
+            lines.append(f"    size_bytes: {asset['size_bytes']}")
+            lines.append(f"    raw_sha256: {asset['raw_sha256']}")
     lines.append("stimulus:")
     stimulus = manifest["stimulus"]
     lines.append(f"  contract_binding_id: {stimulus['contract_binding_id']}")
@@ -370,5 +380,36 @@ def build_valid_shared_structured_input_scenario(
     _payload, asset = ensure_shared_structured_asset(shared_root)
     manifest, golden_bytes = base_manifest(scenario_suffix="shared-structured-input")
     manifest["input_assets"] = [asset]
+    write_scenario_tree(root, manifest, golden_bytes=golden_bytes)
+    return manifest
+
+
+def build_valid_owner_closure_v2_scenario(root: Path) -> dict[str, Any]:
+    manifest, golden_bytes = base_manifest(scenario_suffix="owner-closure-v2")
+    manifest["manifest_schema_version"] = 2
+    input_bytes = b"owner-closure-v2-input"
+    owner_bytes = b'{"anchor":true}'
+    manifest["input_assets"] = [
+        {
+            "logical_name": "payload",
+            "path": "input/payload.bin",
+            "media_type": "application/octet-stream",
+            "size_bytes": len(input_bytes),
+            "raw_sha256": raw_blob_digest(input_bytes).value,
+        }
+    ]
+    manifest["owner_closure_assets"] = [
+        {
+            "logical_name": "oracle-anchor",
+            "path": "input/oracle-anchor.json",
+            "media_type": "application/json",
+            "size_bytes": len(owner_bytes),
+            "raw_sha256": raw_blob_digest(owner_bytes).value,
+        }
+    ]
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "input").mkdir(exist_ok=True)
+    (root / "input" / "payload.bin").write_bytes(input_bytes)
+    (root / "input" / "oracle-anchor.json").write_bytes(owner_bytes)
     write_scenario_tree(root, manifest, golden_bytes=golden_bytes)
     return manifest

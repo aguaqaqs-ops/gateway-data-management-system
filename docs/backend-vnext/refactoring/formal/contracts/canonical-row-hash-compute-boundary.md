@@ -177,6 +177,8 @@ Rows 按 raw hash bytes升序，duplicate保留。Chunking不是 semantic；cons
 
 示例 digest 是 shape placeholder。`row_count` 是 canonical unsigned decimal string，避免 JSON safe-integer ceiling。Diagnostics 是 compact、sanitized、non-semantic；不进入 schema/content digest，不能携带 row payload、host path、stack或 provider-private object。
 
+**Golden envelope owner identity：** Conformance 正式 scenario 的 `row-hashes` golden：manifest `expected[].content_digest`、golden envelope `content_digest`、inline `CanonicalTableResult` 的 owner digest（`DigestKind::canonical-table-result` = `semantic_digest(JCS(result \\ diagnostics))`）**三者必须相等**。与 §6 `raw_content_digest`（unordered row-hash multiset）、ArtifactRef transport digest 职责分离；golden 文件字节完整性由 `size_bytes` / `raw_sha256` 承担，不以 `content_digest` 表达传输绑定。实现与向量以 [shared-canonical-encoding.md](./shared-canonical-encoding.md) 与 shared-kernel digest vectors 为准。
+
 ## 7. Failure contract
 
 所有可恢复 deterministic failure 通过一个 versioned `ComputeFailureEnvelope` 映射：

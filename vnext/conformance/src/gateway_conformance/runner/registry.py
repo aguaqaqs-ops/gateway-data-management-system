@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from gateway_conformance.errors import ConformanceValidationError
 from gateway_conformance.runner.types import (
@@ -51,6 +51,14 @@ class SubjectHarness(Protocol):
 
 
 HarnessFactory = Callable[[], SubjectHarness]
+HarnessProvenance = Literal["production", "test-only"]
+
+
+FORMAL_PRODUCTION_SUBJECT_KEY = SubjectKey(
+    track="data",
+    subject_kind="capability",
+    subject_name="canonical-row-hashes",
+)
 
 
 class SubjectHarnessRegistry:
@@ -61,7 +69,24 @@ class SubjectHarnessRegistry:
         self._factories: dict[SubjectKey, HarnessFactory] = {}
         self._seen_instances: dict[SubjectKey, list[object]] = {}
 
-    def register(self, key: SubjectKey, factory: HarnessFactory) -> None:
+    def register(
+        self,
+        key: SubjectKey,
+        factory: HarnessFactory,
+        *,
+        harness_provenance: HarnessProvenance = "production",
+    ) -> None:
+        if key == FORMAL_PRODUCTION_SUBJECT_KEY:
+            if harness_provenance != "production":
+                raise ConformanceValidationError(
+                    "test-only harness cannot register for formal canonical-row-hashes subject"
+                )
+            from gateway_conformance.runner.fake.harness import FakeSubjectHarness
+
+            if isinstance(factory, type) and issubclass(factory, FakeSubjectHarness):
+                raise ConformanceValidationError(
+                    "fake harness cannot register for formal canonical-row-hashes subject"
+                )
         with self._lock:
             if key in self._factories:
                 raise ConformanceValidationError(f"duplicate harness registration for {key}")

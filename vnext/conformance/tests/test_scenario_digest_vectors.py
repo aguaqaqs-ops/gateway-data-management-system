@@ -20,6 +20,7 @@ from gateway_conformance.scenario.digest import (
 )
 from support import (
     build_valid_data_scenario,
+    build_valid_owner_closure_v2_scenario,
     build_valid_shared_structured_input_scenario,
     build_valid_structured_input_scenario,
 )
@@ -56,6 +57,7 @@ def _build_shared_structured(
         ("data", "minimal-data"),
         ("structured", "structured-input"),
         ("shared-structured", "shared-structured-input"),
+        ("owner-closure-v2", "owner-closure-v2"),
     ],
 )
 def test_normative_input_and_fixture_digests_match_vectors(
@@ -76,6 +78,8 @@ def test_normative_input_and_fixture_digests_match_vectors(
         build_valid_data_scenario(root)
     elif builder_name == "structured":
         build_valid_structured_input_scenario(root)
+    elif builder_name == "owner-closure-v2":
+        build_valid_owner_closure_v2_scenario(root)
     else:
         shared_root = tmp_path / "fixtures" / "shared"
         _build_shared_structured(root, shared_root=shared_root, monkeypatch=monkeypatch)
@@ -90,7 +94,10 @@ def test_normative_input_and_fixture_digests_match_vectors(
     )
 
 
-@pytest.mark.parametrize("case_id", ["minimal-data", "structured-input", "shared-structured-input"])
+@pytest.mark.parametrize(
+    "case_id",
+    ["minimal-data", "structured-input", "shared-structured-input", "owner-closure-v2"],
+)
 def test_independent_oracle_digest_from_fixed_preimage(case_id: str) -> None:
     """Oracle uses only shared-kernel digest API + fixed vector frame bytes."""
     input_rows = _load_jsonl(SCENARIO_DIGEST_VECTOR_ROOT / "input-digest.jsonl")
@@ -120,3 +127,23 @@ def test_shared_structured_closure_child_uses_owner_digest(
     assert asset.structured and asset.content_digest is not None
     entries = dict(_closure_entries(closure))
     assert entries[asset.relative_path.encode("utf-8")] == _digest_ref_to_raw(asset.content_digest)
+
+
+def test_owner_closure_v2_fixture_frame_ignores_owner_transport_metadata(
+    tmp_path: Path,
+) -> None:
+    import copy
+    from dataclasses import replace
+
+    from gateway_conformance.scenario.digest import fixture_collection_frame_bytes
+
+    root = tmp_path / "data" / "test-capability" / "owner-closure-v2"
+    build_valid_owner_closure_v2_scenario(root)
+    closure = load_scenario_closure(root)
+    before = fixture_collection_frame_bytes(closure)
+    manifest = copy.deepcopy(closure.manifest)
+    owner = manifest["owner_closure_assets"][0]
+    owner["size_bytes"] = 999
+    owner["raw_sha256"] = "sha256:" + "f" * 64
+    tampered = replace(closure, manifest=manifest)
+    assert fixture_collection_frame_bytes(tampered) == before

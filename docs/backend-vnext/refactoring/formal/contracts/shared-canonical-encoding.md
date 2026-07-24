@@ -136,6 +136,7 @@ v1 已登记的基础与 Phase 1 executable-contract digest kind：
 | `scenario-input` | Conformance Harness scenario input projection/closure。 |
 | `scenario-fixture` | Conformance Harness complete fixture projection/closure。 |
 | `run-evidence` | Conformance Harness RunEvidenceBundle v1 semantic projection；canonical payload = JCS(bundle \\ `content_digest`)。 |
+| `canonical-table-result` | Canonical Row Hash capability `CanonicalTableResult` v1 semantic projection；canonical payload = JCS(result \\ `diagnostics`)。manifest `expected[].content_digest`、golden envelope `content_digest` 与本 kind 计算的 owner digest **必须一致**；**不**与 ArtifactRef 的 `content_digest == raw_content_digest` 混用。传输完整性由 manifest `raw_sha256` / `size_bytes` 承担。Normative preimage 见 `fixtures/vectors/shared-kernel/canonical-encoding/v1/digest.jsonl`（含 `digest.semantic.canonical-table-result.mixed-scalars-golden`）。 |
 
 新 kind 必须由 payload semantic owner 提议、由 Shared Kernel登记；不得以未登记字符串临时计算正式 DigestRef。
 

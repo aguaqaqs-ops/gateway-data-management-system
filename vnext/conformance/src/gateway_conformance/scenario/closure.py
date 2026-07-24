@@ -38,6 +38,7 @@ class ScenarioClosure:
     manifest: dict[str, Any]
     declared_paths: dict[str, bytes]
     assets: dict[str, ResolvedAsset]
+    owner_closure_assets: dict[str, ResolvedAsset]
     golden_envelopes: dict[str, dict[str, Any]]
 
 
@@ -171,6 +172,42 @@ def _load_scenario_closure_with_root(requested: Path, scenario_root: SecureRoot)
         if shared_root is not None:
             shared_root.close()
 
+    owner_closure_assets: dict[str, ResolvedAsset] = {}
+    for asset in manifest.get("owner_closure_assets", []):
+        logical_name = str(asset["logical_name"])
+        if "path" not in asset:
+            raise ConformanceValidationError("owner_closure_assets must use scenario-local path")
+        if asset.get("content_binding") is not None:
+            raise ConformanceValidationError("owner_closure_asset must not declare content_binding")
+        scenario_root.assert_path_unchanged()
+        rel = str(asset["path"])
+        validate_posix_relative_path(rel, label=f"owner_closure_assets[{logical_name}].path")
+        label = relative_label(requested, requested / rel)
+        raw = scenario_root.read_regular_file(rel, label=label, max_bytes=SCENARIO_MAX_BYTES)
+        if rel in seen_closure_paths:
+            raise ConformanceValidationError(f"duplicate declared closure path: {rel}")
+        seen_closure_paths.add(rel)
+        declared_paths[rel] = raw
+        local_paths[rel] = raw
+        expected_size = int(asset["size_bytes"])
+        expected_hash = str(asset["raw_sha256"])
+        if len(raw) != expected_size:
+            raise ConformanceValidationError(
+                f"owner closure asset {logical_name} size_bytes mismatch"
+            )
+        if raw_blob_digest(raw).value != expected_hash:
+            raise ConformanceValidationError(
+                f"owner closure asset {logical_name} raw_sha256 mismatch"
+            )
+        owner_closure_assets[logical_name] = ResolvedAsset(
+            logical_name=logical_name,
+            relative_path=rel,
+            raw=raw,
+            media_type=str(asset["media_type"]),
+            structured=False,
+            content_digest=None,
+        )
+
     golden_envelopes: dict[str, dict[str, Any]] = {}
     for entry in manifest["expected"]:
         scenario_root.assert_path_unchanged()
@@ -210,6 +247,7 @@ def _load_scenario_closure_with_root(requested: Path, scenario_root: SecureRoot)
         manifest=manifest,
         declared_paths=declared_paths,
         assets=assets,
+        owner_closure_assets=owner_closure_assets,
         golden_envelopes=golden_envelopes,
     )
 

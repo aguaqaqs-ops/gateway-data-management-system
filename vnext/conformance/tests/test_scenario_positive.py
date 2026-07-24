@@ -67,6 +67,7 @@ def test_load_validated_scenario_does_not_mix_snapshots(
         manifest=second_manifest,
         declared_paths=first.declared_paths,
         assets=first.assets,
+        owner_closure_assets=first.owner_closure_assets,
         golden_envelopes=first.golden_envelopes,
     )
     loads = iter([first, second])

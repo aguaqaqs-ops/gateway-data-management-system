@@ -97,6 +97,18 @@ def assert_manifest_ordering(manifest: dict[str, Any]) -> None:
     for item in assets:
         assert_lower_kebab(str(item["logical_name"]), label="input_asset.logical_name")
 
+    owner_closure = manifest.get("owner_closure_assets", [])
+    owner_names = [str(item["logical_name"]) for item in owner_closure]
+    if owner_names:
+        assert_sorted_unique_bytes(owner_names, label="owner_closure_assets")
+        for item in owner_closure:
+            assert_lower_kebab(str(item["logical_name"]), label="owner_closure_asset.logical_name")
+        overlap = set(logical_names) & set(owner_names)
+        if overlap:
+            raise ConformanceValidationError(
+                "input_assets and owner_closure_assets share logical_name"
+            )
+
     expected = manifest["expected"]
     expectation_ids = [str(item["expectation_id"]) for item in expected]
     assert_sorted_unique_bytes(expectation_ids, label="expected")

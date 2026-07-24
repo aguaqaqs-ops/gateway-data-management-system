@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from gateway_conformance.errors import ConformanceValidationError
+from gateway_conformance.paths import VNEXT_ROOT
+from gateway_conformance.scenario.closure import load_scenario_closure
 from gateway_conformance.scenario.identity import (
     scenario_id_from_relative_path,
     scenario_path_from_id,
@@ -17,6 +19,11 @@ from support import (
     build_valid_data_scenario,
     structured_input_asset,
     write_scenario_tree,
+)
+
+
+FORMAL_MIXED_SCALARS = (
+    VNEXT_ROOT / "fixtures" / "scenarios" / "data" / "canonical-row-hashes" / "mixed-scalars"
 )
 
 
@@ -127,3 +134,58 @@ def test_duplicate_semantic_binding_tuple_rejected(tmp_path: Path) -> None:
     write_scenario_tree(root, manifest, golden_bytes=golden)
     with pytest.raises(ConformanceValidationError, match="duplicate semantic binding"):
         validate_scenario(root)
+
+
+def test_formal_owner_closure_unsorted_rejected(tmp_path: Path) -> None:
+    import copy
+    import shutil
+
+    from gateway_conformance.scenario.identity import assert_manifest_ordering
+
+    dest = tmp_path / "data" / "canonical-row-hashes" / "mixed-scalars"
+    shutil.copytree(FORMAL_MIXED_SCALARS, dest)
+    closure = load_scenario_closure(dest)
+    manifest = copy.deepcopy(closure.manifest)
+    manifest["owner_closure_assets"].append(
+        {
+            "logical_name": "aaa-anchor",
+            "path": "input/aaa-anchor.json",
+            "media_type": "application/json",
+            "size_bytes": 1,
+            "raw_sha256": "sha256:" + "0" * 64,
+        }
+    )
+    with pytest.raises(ConformanceValidationError, match="owner_closure_assets must be sorted"):
+        assert_manifest_ordering(manifest)
+
+
+def test_formal_owner_closure_duplicate_logical_name_rejected(tmp_path: Path) -> None:
+    import copy
+    import shutil
+
+    from gateway_conformance.scenario.identity import assert_manifest_ordering
+
+    dest = tmp_path / "data" / "canonical-row-hashes" / "mixed-scalars"
+    shutil.copytree(FORMAL_MIXED_SCALARS, dest)
+    closure = load_scenario_closure(dest)
+    manifest = copy.deepcopy(closure.manifest)
+    manifest["owner_closure_assets"].append(copy.deepcopy(manifest["owner_closure_assets"][0]))
+    with pytest.raises(
+        ConformanceValidationError, match="owner_closure_assets contains duplicates"
+    ):
+        assert_manifest_ordering(manifest)
+
+
+def test_formal_input_and_owner_logical_name_collision_rejected(tmp_path: Path) -> None:
+    import copy
+    import shutil
+
+    from gateway_conformance.scenario.identity import assert_manifest_ordering
+
+    dest = tmp_path / "data" / "canonical-row-hashes" / "mixed-scalars"
+    shutil.copytree(FORMAL_MIXED_SCALARS, dest)
+    closure = load_scenario_closure(dest)
+    manifest = copy.deepcopy(closure.manifest)
+    manifest["owner_closure_assets"][0]["logical_name"] = "table-stream"
+    with pytest.raises(ConformanceValidationError, match="share logical_name"):
+        assert_manifest_ordering(manifest)

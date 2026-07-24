@@ -12,13 +12,15 @@ from jsonschema.exceptions import ValidationError
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
-from gateway_conformance.paths import SCHEMA_FILES, SCHEMA_ROOT
+from gateway_conformance.paths import OWNER_REGISTRY_ROOT, SCHEMA_FILES, SCHEMA_ROOT
+from gateway_conformance.owner.schema_registry import validator_for_owner_schema
 from gateway_conformance.schemas import (
     validate_golden_envelope,
     validate_harness_protocol,
     validate_runner_result,
     validate_run_evidence,
     validate_scenario_manifest,
+    validator_for_schema_file,
 )
 
 
@@ -225,3 +227,123 @@ def test_harness_protocol_and_evidence_validate_minimal_shapes() -> None:
             "payload": {"storage": "inline", "value": {}},
         }
     )
+
+
+@pytest.mark.parametrize(
+    "schema_name",
+    [
+        "canonical-row-hash-capability.request.v1.schema.json",
+        "canonical-row-hash-capability.result.v1.schema.json",
+    ],
+)
+def test_owner_schema_refs_resolve_offline(schema_name: str) -> None:
+    path = OWNER_REGISTRY_ROOT / schema_name
+    validator_for_owner_schema(path)
+    Draft202012Validator.check_schema(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _minimal_canonical_table_request(*, nullable: bool, kind: str = "null") -> dict[str, Any]:
+    return {
+        "request_schema_version": 1,
+        "contract_binding": {
+            "contract_id": "gateway-vnext.canonical-row-hash-compute-boundary",
+            "semantic_version": "1.0.0",
+        },
+        "canonical_encoding_version": 1,
+        "arrow_mapping_schema_version": 1,
+        "declared_table_schema": {
+            "fields": [
+                {
+                    "name": "n",
+                    "nullable": nullable,
+                    "semantic_type": {"kind": kind},
+                }
+            ]
+        },
+    }
+
+
+def test_canonical_table_request_null_kind_requires_nullable_true() -> None:
+    from gateway_conformance.errors import ConformanceValidationError
+    from gateway_conformance.owner.validate import (
+        CANONICAL_TABLE_REQUEST_SCHEMA_ID,
+        validate_owner_payload,
+    )
+
+    validate_owner_payload(
+        _minimal_canonical_table_request(nullable=True),
+        owner="canonical-row-hash-capability",
+        contract_id="gateway-vnext.canonical-row-hash-compute-boundary",
+        semantic_version="1.0.0",
+        schema_id=CANONICAL_TABLE_REQUEST_SCHEMA_ID,
+        schema_version=1,
+    )
+    with pytest.raises(ConformanceValidationError):
+        validate_owner_payload(
+            _minimal_canonical_table_request(nullable=False),
+            owner="canonical-row-hash-capability",
+            contract_id="gateway-vnext.canonical-row-hash-compute-boundary",
+            semantic_version="1.0.0",
+            schema_id=CANONICAL_TABLE_REQUEST_SCHEMA_ID,
+            schema_version=1,
+        )
+
+
+def _minimal_v1_manifest_with_owner_closure() -> dict[str, Any]:
+    base = {
+        "manifest_schema_version": 1,
+        "scenario_id": "data.test-capability.minimal",
+        "track": "data",
+        "subject": {"kind": "capability", "name": "test-capability"},
+        "description": "test",
+        "provenance": {"kind": "HANDCRAFTED"},
+        "contract_bindings": [
+            {
+                "binding_id": "subject",
+                "owner": "test-capability",
+                "contract_id": "gateway-vnext.test-contract",
+                "semantic_version": "1.0.0",
+            }
+        ],
+        "canonical_encoding_version": 1,
+        "input_assets": [],
+        "stimulus": {
+            "contract_binding_id": "subject",
+            "payload": {"storage": "inline", "value": {"action": "run"}},
+        },
+        "input_digest": "sha256:" + "0" * 64,
+        "fixture_content_digest": "sha256:" + "0" * 64,
+        "expected": [
+            {
+                "expectation_id": "result",
+                "kind": "structured",
+                "path": "expected/result.golden.json",
+                "size_bytes": 1,
+                "raw_sha256": "sha256:" + "0" * 64,
+                "contract_binding": {
+                    "owner": "test-capability",
+                    "contract_id": "gateway-vnext.test-contract",
+                    "semantic_version": "1.0.0",
+                },
+                "content_digest": "sha256:" + "0" * 64,
+            }
+        ],
+        "required_profiles": ["integration"],
+        "legacy_classification": "NOT_APPLICABLE",
+    }
+    base["owner_closure_assets"] = []
+    return base
+
+
+def test_v1_manifest_schema_rejects_owner_closure_assets() -> None:
+    from jsonschema import ValidationError
+
+    manifest = _minimal_v1_manifest_with_owner_closure()
+    with pytest.raises(ValidationError):
+        validator_for_schema_file("scenario-manifest-v1.schema.json").validate(manifest)
+
+
+def test_v2_manifest_schema_accepts_owner_closure_assets() -> None:
+    manifest = _minimal_v1_manifest_with_owner_closure()
+    manifest["manifest_schema_version"] = 2
+    validator_for_schema_file("scenario-manifest-v2.schema.json").validate(manifest)

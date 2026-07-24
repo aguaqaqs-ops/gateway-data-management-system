@@ -64,6 +64,6 @@ def register_fake_harness(
 ) -> None:
     key = test_capability_key(track=track)
     if factory is None:
-        registry.register(key, FakeSubjectHarness)
+        registry.register(key, FakeSubjectHarness, harness_provenance="test-only")
     else:
-        registry.register(key, factory)
+        registry.register(key, factory, harness_provenance="test-only")

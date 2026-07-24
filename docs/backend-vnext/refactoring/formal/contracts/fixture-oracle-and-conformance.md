@@ -10,7 +10,7 @@ Owner：Conformance Harness；scenario expected content 由对应 semantic owner
 
 Semantic version：`1.0.0`
 
-Manifest schema version：`1`
+Manifest schema version：`1 | 2`
 
 Golden envelope schema version：`1`
 
@@ -52,7 +52,9 @@ Schema root：
 
 ```text
 vnext/fixtures/schemas/
+  definitions-v1.schema.json
   scenario-manifest-v1.schema.json
+  scenario-manifest-v2.schema.json
   golden-envelope-v1.schema.json
   harness-protocol-v1.schema.json
   runner-result-v1.schema.json
@@ -71,18 +73,18 @@ Top-level exact shape：
 
 ```yaml
 manifest_schema_version: 1
-scenario_id: data.canonical-row-hashes.mixed-scalars
+scenario_id: data.test-capability.minimal
 track: data
 subject:
   kind: capability
-  name: canonical-row-hashes
+  name: test-capability
 description: Stable human description.
 provenance:
   kind: HANDCRAFTED
 contract_bindings:
   - binding_id: subject
-    owner: canonical-row-hash-capability
-    contract_id: gateway-vnext.canonical-row-hash-compute-boundary
+    owner: test-capability
+    contract_id: gateway-vnext.test-contract
     semantic_version: 1.0.0
 canonical_encoding_version: 1
 input_assets: []
@@ -90,36 +92,52 @@ stimulus:
   contract_binding_id: subject
   payload:
     storage: inline
-    value: {}
+    value: {"action": "run"}
 input_digest: sha256:...
 fixture_content_digest: sha256:...
 expected:
-  - expectation_id: row-hashes
+  - expectation_id: result
     kind: structured
-    path: expected/row-hashes.golden.json
+    path: expected/result.golden.json
     size_bytes: 1
     raw_sha256: sha256:0000000000000000000000000000000000000000000000000000000000000000
     contract_binding:
-      owner: canonical-row-hash-capability
-      contract_id: gateway-vnext.canonical-row-hash-compute-boundary
+      owner: test-capability
+      contract_id: gateway-vnext.test-contract
       semantic_version: 1.0.0
     content_digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 required_profiles:
-  - integration
-  - provider-matrix
   - reference
 legacy_classification: NOT_APPLICABLE
 ```
 
-示例中的size和digest是shape placeholder，不是normative fixture value。
+示例中的size和digest是shape placeholder，不是normative fixture value。v1 closed manifest **不得**包含 `owner_closure_assets`（additionalProperties 拒绝）。
+
+### 4.0 Manifest schema v2（owner closure）
+
+Wire 在 v1 形状上增加可选 `owner_closure_assets[]`（validator-only local raw assets；见 §4.2）。Normative digest 向量见 `owner-closure-v2` case。
+
+```yaml
+manifest_schema_version: 2
+scenario_id: data.test-capability.owner-closure-v2
+# … v1 同形字段 …
+owner_closure_assets:
+  - logical_name: oracle-anchor
+    path: input/oracle-anchor.json
+    media_type: application/json
+    size_bytes: 1
+    raw_sha256: sha256:...
+```
+
+Phase 1 正式 v2 场景：`data.canonical-row-hashes.mixed-scalars`（canonical row-hash oracle；见 [Canonical Row Hash Compute Boundary](canonical-row-hash-compute-boundary.md)）。
 
 ### 4.1 Identity 与 ordering
 
-- `manifest_schema_version` 必须为 `1`。文档中的完整版本轴名是 `fixture_manifest_schema_version`；它不是第二个 wire field。
+- `manifest_schema_version` wire 值为 `1` 或 `2`（`fixture_manifest_schema_version` 为文档轴名，非第二 wire field）。**v1** closed manifest 不含 `owner_closure_assets`；**v2** 可选 `owner_closure_assets[]`（validator-only owner closure，见 §4.2）。
 - `scenario_id` 第一段、`track`、`subject.name` 与物理 path 必须可逆一致。
 - `subject.kind` v1为 `capability | journey`。
 - `contract_bindings[]` 以唯一 lower-kebab `binding_id` 标识，按 ID bytes升序；每项必须有唯一 owner、contract ID和semantic version，optional wire schema version只在owner contract声明时出现。
-- `input_assets[]` 按 `logical_name` bytes升序；`expected[]` 按 `expectation_id` bytes升序。
+- `input_assets[]` 按 `logical_name` bytes升序；`owner_closure_assets[]`（v2）按 `logical_name` bytes升序，且与 `input_assets` **全局** `logical_name` 不冲突；`expected[]` 按 `expectation_id` bytes升序。
 - `required_profiles[]` 是unique set，authoring按profile ID bytes升序，v1值为 `integration | process-crash | provider-matrix | reference`。
 - `contract_bindings[]`、`expected[]`和`required_profiles[]`各至少一项；`input_assets[]`可以为空。`description`必须是non-empty stable human text，但不作为semantic owner payload。
 - Unknown field、unknown enum、duplicate/canonical collision、unsorted declared set/list fail closed。
@@ -151,6 +169,8 @@ canonical_encoding_version optional; only for canonical JSON/structured content
 
 `path` 是scenario-local POSIX relative path；`ref` 是 `vnext/fixtures/shared/` 下content-addressed immutable ref。禁止absolute path、`..`、symlink和undeclared file。`raw_sha256`直接覆盖asset bytes；structured owner content可以另声明semantic `content_digest`。
 
+可选 `owner_closure_assets[]`：与 local input asset 同形的 raw 声明（禁止 `content_binding`）。计入 scenario closure 与 `fixture_content_digest`，**不**进入 `input_digest`，**不**暴露给 Conformance Harness `verified_assets` / `VerifiedAssetResolver`（owner/validator 专用材料）。
+
 `stimulus` 必须绑定一个 `contract_binding_id`，payload是关闭 union：
 
 ```text
@@ -181,7 +201,7 @@ canonical_encoding_version optional; only for canonical JSON/structured content
 
 1. **Projection**
    - `input` projection object：`contract_bindings`（仅 stimulus/fault/recovery 引用的 binding）、`stimulus`、`input_assets`（每项含 `logical_name`；structured 另含 `content_binding` canonical subset 与 owner `content_digest`；raw 另含 `raw_identity` = direct SHA-256 wire form）、以及可选 `fault` / `recovery_trigger`。
-   - `fixture` projection object：完整 manifest 的深拷贝，移除顶层 `input_digest` 与 `fixture_content_digest`；structured `input_assets[]` 与全部 `expected[]` 剥离 transport-only `size_bytes`/`raw_sha256`。
+   - `fixture` projection object：完整 manifest 的深拷贝，移除顶层 `input_digest` 与 `fixture_content_digest`；structured `input_assets[]`、可选 `owner_closure_assets[]` 与全部 `expected[]` 剥离 transport-only `size_bytes`/`raw_sha256`。
 2. **Keyed-collection frame**
    - 先追加 entry `(key=UTF-8("manifest"), value=JCS(projection))`。
    - `fixture` 另追加 child entries：scenario-local 非 `scenario.yaml`、非 `expected[]` path 的 input，按 path UTF-8 字节序；identity 为 structured owner `content_digest` 的 32-byte raw，或 raw asset 的 `SHA256(raw bytes)`；再追加每个 golden path，identity 为 envelope `content_digest` 的 32-byte raw。
@@ -483,6 +503,20 @@ Golden 更新必须显示 candidate diff、owner approval、intentional-change �
 Module public：是。Persisted：fixture/golden/evidence manifest。Wire：YAML/JCS JSON/owner artifact formats。
 
 Manifest schema、golden envelope schema、harness protocol/result/evidence schema与scenario-bound semantic contract分别版本化。目录变化不能伪装语义兼容；已发布ID不因重排目录而复用为另一场景。
+
+**Scenario manifest v2（WP5 R3 owner closure）治理记录：**
+
+```text
+change_reason: validator-only owner closure assets for R3 oracle materials
+semantic_change: fixture semantic identity 变化（owner_closure 进入 fixture projection/child entries 与 fixture_content_digest）；harness input_digest / verified_assets 语义不变
+wire_change: yes — new optional array on closed manifest (v2 only)
+digest/cache impact: owner_closure enters fixture_content_digest（manifest projection 剥离 transport size_bytes/raw_sha256）；owner raw 进入 fixture child entries；不进入 input_digest
+artifact/persistence impact: 新 schema 文件 scenario-manifest-v2；正式 R3 场景 manifest_schema_version 2；无 Repository 持久化 schema 变更
+Python/Rust/Repository impact: Python validate_scenario_manifest 按 version 分发；Rust/Python 共享 scenario-digest normative vectors（含 owner-closure-v2）；Repository 无变更
+compatibility_window: v1 consumers reject v2-only fields；v1 场景保持 manifest_schema_version 1
+migration/fallback: R3 formal 迁移至 v2；v1 不得承载 owner_closure_assets
+tests and golden fixtures: scenario-manifest v1/v2 schema tests；owner-closure-v2 digest 向量；WP5 R3 formal scenario；writer offline 复现
+```
 
 ## 11. 验收标准
 

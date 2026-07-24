@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gateway_conformance.paths import FORMAL_SCENARIO_ROOT, SCHEMA_ROOT
+from gateway_conformance.paths import SCHEMA_FILES, SCHEMA_ID_BY_FILE, SCHEMA_ROOT
 from gateway_conformance.sanitize import sanitize_message
 
 
@@ -86,9 +86,22 @@ def test_runner_package_has_no_subprocess_or_dynamic_import() -> None:
             assert marker not in text, (source, marker)
 
 
-def test_formal_scenario_root_not_polluted() -> None:
-    if FORMAL_SCENARIO_ROOT.exists():
-        assert list(FORMAL_SCENARIO_ROOT.rglob("scenario.yaml")) == []
+def test_formal_scenario_root_contains_only_authorized_data_scenario() -> None:
+    from gateway_conformance.scenario.discovery import (
+        AUTHORIZED_FORMAL_SCENARIO_IDS,
+        discover_formal_scenarios,
+        validate_formal_scenario_oracle,
+    )
+
+    roots = discover_formal_scenarios()
+    assert len(roots) == 1
+    manifests = validate_formal_scenario_oracle()
+    assert len(manifests) == 1
+    manifest = manifests[0]
+    assert manifest["scenario_id"] in AUTHORIZED_FORMAL_SCENARIO_IDS
+    assert manifest["subject"]["name"] == "canonical-row-hashes"
+    assert manifest["required_profiles"] == ["integration", "provider-matrix", "reference"]
+    assert manifest["track"] == "data"
 
 
 def test_sanitize_strips_absolute_paths() -> None:
@@ -164,3 +177,15 @@ def test_runner_result_public_api_requires_semantic_validator() -> None:
     source = Path(protocol_validate.__file__).read_text(encoding="utf-8")
     assert "def validate_runner_result_semantics" in source
     assert "validate_runner_result(result)" in source
+
+
+def test_scenario_manifest_schema_files_registered() -> None:
+    import json
+
+    required = ("scenario-manifest-v1.schema.json", "scenario-manifest-v2.schema.json")
+    for name in required:
+        assert name in SCHEMA_FILES
+        path = SCHEMA_ROOT / name
+        assert path.is_file(), name
+        document = json.loads(path.read_text(encoding="utf-8"))
+        assert document["$id"] == SCHEMA_ID_BY_FILE[name]

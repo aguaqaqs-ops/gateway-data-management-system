@@ -242,6 +242,33 @@
         {"$ref": "#/$defs/inputAssetShared"}
       ]
     },
+    "ownerClosureAssetLocal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_name",
+        "path",
+        "media_type",
+        "size_bytes",
+        "raw_sha256"
+      ],
+      "properties": {
+        "logical_name": {"$ref": "#/$defs/lowerKebab"},
+        "path": {"$ref": "#/$defs/posixRelativePath"},
+        "media_type": {"$ref": "#/$defs/nonEmptyString"},
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "raw_sha256": {"$ref": "#/$defs/digestRef"}
+      }
+    },
+    "ownerClosureAsset": {
+      "oneOf": [
+        {"$ref": "#/$defs/ownerClosureAssetLocal"}
+      ]
+    },
     "stimulusPayloadInline": {
       "type": "object",
       "additionalProperties": false,

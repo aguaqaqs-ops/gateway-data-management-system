@@ -1,6 +1,22 @@
 {
   "registry_schema_version": 1,
   "owners": {
+    "canonical-row-hash-capability": {
+      "contracts": {
+        "gateway-vnext.canonical-row-hash-compute-boundary@1.0.0": {
+          "schemas": {
+            "gateway-vnext.canonical-table-request.v1@1": {
+              "schema_file": "canonical-row-hash-capability.request.v1.schema.json",
+              "digest_kind": "scenario-input"
+            },
+            "gateway-vnext.canonical-table-result.v1@1": {
+              "schema_file": "canonical-row-hash-capability.result.v1.schema.json",
+              "digest_kind": "canonical-table-result"
+            }
+          }
+        }
+      }
+    },
     "test-capability": {
       "contracts": {
         "gateway-vnext.test-contract@1.0.0": {

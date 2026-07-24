@@ -10,11 +10,13 @@ requires-python = ">=3.14.6"
 dependencies = [
     "gateway-shared-kernel==0.1.0",
     "jsonschema==4.26.0",
+    "pyarrow==25.0.0",
     "ruamel.yaml==0.19.1",
 ]
 
 [project.optional-dependencies]
 conformance = []
+writer = ["gateway-compute-python==0.1.0"]
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]
@@ -22,6 +24,7 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 gateway-shared-kernel = { path = "../shared_kernel", editable = true }
+gateway-compute-python = { path = "../rust/gateway-compute-python" }
 
 [dependency-groups]
 dev = [
@@ -47,6 +50,10 @@ files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 module = ["support", "tests.support"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import jsonschema
@@ -17,11 +16,16 @@ from gateway_conformance.owner.registry import (
     resolve_owner_schema,
     schema_path_for,
 )
+from gateway_conformance.owner.schema_registry import validator_for_owner_schema
 from gateway_conformance.strict_json import loads_strict_json_bytes
+
+CANONICAL_TABLE_REQUEST_SCHEMA_ID = "gateway-vnext.canonical-table-request.v1"
+CANONICAL_TABLE_RESULT_SCHEMA_ID = "gateway-vnext.canonical-table-result.v1"
 
 _DIGEST_KIND_BY_NAME = {
     "scenario-input": DigestKind.SCENARIO_INPUT,
     "scenario-fixture": DigestKind.SCENARIO_FIXTURE,
+    "canonical-table-result": DigestKind.CANONICAL_TABLE_RESULT,
 }
 
 
@@ -33,9 +37,17 @@ def _digest_kind(name: str) -> DigestKind:
 
 
 def _load_schema_validator(contract: OwnerSchemaContract) -> Draft202012Validator:
-    schema_path = schema_path_for(contract)
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    return Draft202012Validator(schema)
+    return validator_for_owner_schema(schema_path_for(contract))
+
+
+def _digest_projection(value: Any, *, schema_id: str) -> Any:
+    if schema_id == CANONICAL_TABLE_RESULT_SCHEMA_ID:
+        if not isinstance(value, dict):
+            raise ConformanceValidationError("canonical table result must be an object")
+        projected = dict(value)
+        projected.pop("diagnostics", None)
+        return projected
+    return value
 
 
 def validate_owner_payload(
@@ -86,7 +98,8 @@ def compute_owner_content_digest(
         schema_id=schema_id,
         schema_version=schema_version,
     )
-    payload_bytes = canonicalize_json_value(value)
+    projected = _digest_projection(value, schema_id=schema_id)
+    payload_bytes = canonicalize_json_value(projected)
     kind = _digest_kind(contract.digest_kind)
     return semantic_digest(kind, payload_bytes).digest_ref.value
 

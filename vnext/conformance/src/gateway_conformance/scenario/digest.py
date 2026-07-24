@@ -51,6 +51,16 @@ def _manifest_projection_for_fixture(manifest: dict[str, Any]) -> dict[str, Any]
         item.pop("raw_sha256", None)
         expected.append(item)
     projected["expected"] = expected
+    owner_assets = []
+    for asset in projected.get("owner_closure_assets", []):
+        item = dict(asset)
+        item.pop("size_bytes", None)
+        item.pop("raw_sha256", None)
+        owner_assets.append(item)
+    if owner_assets:
+        projected["owner_closure_assets"] = owner_assets
+    elif "owner_closure_assets" in projected:
+        projected["owner_closure_assets"] = []
     return projected
 
 
@@ -92,6 +102,8 @@ def _input_projection(manifest: dict[str, Any], assets: dict[str, ResolvedAsset]
 def _closure_entries(closure: ScenarioClosure) -> list[tuple[bytes, bytes]]:
     expected_paths = {str(item["path"]) for item in closure.manifest["expected"]}
     assets_by_path = {asset.relative_path: asset for asset in closure.assets.values()}
+    for asset in closure.owner_closure_assets.values():
+        assets_by_path[asset.relative_path] = asset
 
     entries: list[tuple[bytes, bytes]] = []
     for rel_path, raw in sorted(
@@ -143,6 +155,36 @@ def compute_fixture_content_digest(closure: ScenarioClosure) -> str:
         entries,
         kind=DigestKind.SCENARIO_FIXTURE,
     )
+
+
+def _fixture_collection_frame(closure: ScenarioClosure) -> bytes:
+    manifest_projection = _manifest_projection_for_fixture(closure.manifest)
+    entries = _closure_entries(closure)
+    manifest_bytes = canonicalize_json_value(manifest_projection)
+    keyed_entries: list[tuple[bytes, bytes]] = [(b"manifest", manifest_bytes)]
+    keyed_entries.extend(entries)
+    collection = encode_collection(CollectionSemantics.KEYED_COLLECTION, entries=keyed_entries)
+    return collection.collection_frame
+
+
+def fixture_collection_frame_bytes(closure: ScenarioClosure) -> bytes:
+    """Normative preimage bytes for scenario-fixture digest (vectors/tests)."""
+    return _fixture_collection_frame(closure)
+
+
+def _input_collection_frame(manifest: dict[str, Any], assets: dict[str, ResolvedAsset]) -> bytes:
+    projection = _input_projection(manifest, assets)
+    manifest_bytes = canonicalize_json_value(projection)
+    keyed_entries: list[tuple[bytes, bytes]] = [(b"manifest", manifest_bytes)]
+    collection = encode_collection(CollectionSemantics.KEYED_COLLECTION, entries=keyed_entries)
+    return collection.collection_frame
+
+
+def input_collection_frame_bytes(
+    manifest: dict[str, Any], assets: dict[str, ResolvedAsset]
+) -> bytes:
+    """Normative preimage bytes for scenario-input digest (vectors/tests)."""
+    return _input_collection_frame(manifest, assets)
 
 
 def assert_digest_closure(closure: ScenarioClosure) -> None:

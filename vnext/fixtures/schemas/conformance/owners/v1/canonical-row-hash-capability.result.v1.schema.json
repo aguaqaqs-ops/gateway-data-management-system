@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.canonical-table-result.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "result_schema_version",
+    "contract_binding",
+    "canonical_encoding_version",
+    "arrow_mapping_schema_version",
+    "table_schema_digest",
+    "row_count",
+    "raw_content_digest",
+    "diagnostics"
+  ],
+  "properties": {
+    "result_schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "contract_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_id", "semantic_version"],
+      "properties": {
+        "contract_id": {
+          "type": "string",
+          "const": "gateway-vnext.canonical-row-hash-compute-boundary"
+        },
+        "semantic_version": {
+          "type": "string",
+          "const": "1.0.0"
+        }
+      }
+    },
+    "canonical_encoding_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "arrow_mapping_schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "table_schema_digest": {
+      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/digestRef"
+    },
+    "row_count": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "raw_content_digest": {
+      "$ref": "gateway-vnext.canonical-encoding.definitions.v1#/$defs/digestRef"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

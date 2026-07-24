@@ -355,6 +355,15 @@ def execute_scenario_run(
 
         key = subject_key_from_manifest(manifest)
         harness = registry.resolve(key)
+        from gateway_conformance.owner.canonical_row_hash import FORMAL_SCENARIO_ID
+        from gateway_conformance.runner.fake.harness import FakeSubjectHarness
+
+        if str(manifest.get("scenario_id")) == FORMAL_SCENARIO_ID and isinstance(
+            harness, FakeSubjectHarness
+        ):
+            raise ConformanceValidationError(
+                "fake harness cannot execute formal canonical-row-hash scenario"
+            )
         decision = harness.preflight(plan_harness)
         validate_support_decision(decision)
         state.runner_diagnostics.extend(

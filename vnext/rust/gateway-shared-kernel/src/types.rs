@@ -337,6 +337,7 @@ pub enum DigestKind {
     ScenarioInput,
     ScenarioFixture,
     RunEvidence,
+    CanonicalTableResult,
 }
 
 impl DigestKind {
@@ -350,6 +351,7 @@ impl DigestKind {
             Self::ScenarioInput => "scenario-input",
             Self::ScenarioFixture => "scenario-fixture",
             Self::RunEvidence => "run-evidence",
+            Self::CanonicalTableResult => "canonical-table-result",
         }
     }
 
@@ -374,6 +376,7 @@ pub const FORMAL_DIGEST_KINDS: &[DigestKind] = &[
     DigestKind::ScenarioInput,
     DigestKind::ScenarioFixture,
     DigestKind::RunEvidence,
+    DigestKind::CanonicalTableResult,
 ];
 
 /// Wire digest reference: `sha256:` + 64 lowercase hex characters.
@@ -636,6 +639,7 @@ mod tests {
             "scenario-input",
             "scenario-fixture",
             "run-evidence",
+            "canonical-table-result",
         ]
         .into_iter()
         .collect();

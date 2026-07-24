@@ -18,6 +18,9 @@ from gateway_conformance.scenario.identity import (
     assert_id_path_reversible,
     assert_manifest_ordering,
 )
+from gateway_conformance.owner.canonical_row_hash import (
+    assert_canonical_row_hash_scenario_semantics,
+)
 from gateway_conformance.scenario.policy import (
     assert_fault_legality,
     assert_provenance_policy,
@@ -35,6 +38,7 @@ def _validate_loaded_closure(closure: ScenarioClosure) -> dict[str, Any]:
     assert_fault_legality(manifest)
     assert_recovery_legality(manifest)
     validate_golden_bindings(manifest, closure.golden_envelopes)
+    assert_canonical_row_hash_scenario_semantics(manifest, closure)
     assert_digest_closure(closure)
     return manifest
 

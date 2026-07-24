@@ -1070,7 +1070,8 @@
         "table-schema",
         "scenario-input",
         "scenario-fixture",
-        "run-evidence"
+        "run-evidence",
+        "canonical-table-result"
       ]
     },
     "collectionSemantics": {

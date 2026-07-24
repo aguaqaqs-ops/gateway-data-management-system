@@ -22,6 +22,7 @@ SHARED_ASSET_MAX_BYTES = 5_242_880
 SCHEMA_FILES = (
     "definitions-v1.schema.json",
     "scenario-manifest-v1.schema.json",
+    "scenario-manifest-v2.schema.json",
     "golden-envelope-v1.schema.json",
     "harness-protocol-v1.schema.json",
     "runner-result-v1.schema.json",
@@ -31,6 +32,7 @@ SCHEMA_FILES = (
 SCHEMA_ID_BY_FILE = {
     "definitions-v1.schema.json": "gateway-vnext.fixture-oracle.definitions.v1",
     "scenario-manifest-v1.schema.json": "gateway-vnext.fixture-oracle.scenario-manifest.v1",
+    "scenario-manifest-v2.schema.json": "gateway-vnext.fixture-oracle.scenario-manifest.v2",
     "golden-envelope-v1.schema.json": "gateway-vnext.fixture-oracle.golden-envelope.v1",
     "harness-protocol-v1.schema.json": "gateway-vnext.fixture-oracle.harness-protocol.v1",
     "runner-result-v1.schema.json": "gateway-vnext.fixture-oracle.runner-result.v1",

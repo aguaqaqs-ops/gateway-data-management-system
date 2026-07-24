@@ -13,6 +13,7 @@ from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
 from gateway_conformance.paths import SCHEMA_FILES, SCHEMA_ROOT
+from gateway_conformance.errors import ConformanceValidationError
 
 
 def _load_json(path: Path) -> Any:
@@ -40,7 +41,16 @@ def validator_for_schema_file(schema_name: str) -> Draft202012Validator:
 
 
 def validate_scenario_manifest(manifest: dict[str, Any]) -> None:
-    validator_for_schema_file("scenario-manifest-v1.schema.json").validate(manifest)
+    version = manifest.get("manifest_schema_version")
+    if version == 1:
+        validator_for_schema_file("scenario-manifest-v1.schema.json").validate(manifest)
+        return
+    if version == 2:
+        validator_for_schema_file("scenario-manifest-v2.schema.json").validate(manifest)
+        return
+    raise ConformanceValidationError(
+        f"unsupported manifest_schema_version for scenario manifest: {version!r}"
+    )
 
 
 def validate_golden_envelope(envelope: dict[str, Any]) -> None:

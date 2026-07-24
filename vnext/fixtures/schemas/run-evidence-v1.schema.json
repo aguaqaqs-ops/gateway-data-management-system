@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.fixture-oracle.run-evidence.v1",
+  "title": "Run Evidence Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_evidence_schema_version",
+    "execution_key",
+    "run_id",
+    "environment_versions",
+    "fault_receipt",
+    "observations",
+    "checkpoint_results",
+    "cleanup",
+    "diagnostics",
+    "content_digest"
+  ],
+  "properties": {
+    "run_evidence_schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "execution_key": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/executionKey"
+    },
+    "run_id": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/nonEmptyString"
+    },
+    "environment_versions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component", "version"],
+        "properties": {
+          "component": {
+            "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/lowerKebab"
+          },
+          "version": {
+            "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/nonEmptyString"
+          }
+        }
+      }
+    },
+    "fault_receipt": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["armed", "consumed"],
+          "properties": {
+            "armed": {"type": "boolean"},
+            "consumed": {"type": "boolean"},
+            "diagnostics": {
+              "type": "array",
+              "items": {
+                "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/diagnostic"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "harness_protocol_version",
+          "expectation_id",
+          "observation_point",
+          "contract_binding",
+          "payload_descriptor",
+          "canonical_encoding_version",
+          "actual_content_digest",
+          "payload"
+        ],
+        "properties": {
+          "harness_protocol_version": {"const": 1},
+          "expectation_id": {
+            "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/lowerKebab"
+          },
+          "observation_point": {
+            "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/lowerKebab"
+          },
+          "contract_binding": {
+            "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/contractBinding"
+          },
+          "payload_descriptor": {
+            "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/payloadDescriptor"
+          },
+          "canonical_encoding_version": {"const": 1},
+          "actual_content_digest": {
+            "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/digestRef"
+          },
+          "payload": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["storage", "value"],
+                "properties": {
+                  "storage": {"const": "inline"},
+                  "value": {
+                    "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/jsonValue"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["storage", "ref"],
+                "properties": {
+                  "storage": {"const": "artifact-closure-ref"},
+                  "ref": {
+                    "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/nonEmptyString"
+                  }
+                }
+              }
+            ]
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/diagnostic"
+            }
+          }
+        }
+      }
+    },
+    "checkpoint_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["checkpoint", "outcome"],
+        "properties": {
+          "checkpoint": {
+            "type": "string",
+            "enum": ["after_failure", "after_recovery"]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["MATCH", "MISMATCH", "NOT_RUN"]
+          },
+          "content_digest": {
+            "oneOf": [
+              {"type": "null"},
+              {
+                "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/digestRef"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "cleanup": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/cleanupStatus"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/diagnostic"
+      }
+    },
+    "content_digest": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/digestRef"
+    }
+  }
+}

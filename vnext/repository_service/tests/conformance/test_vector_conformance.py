@@ -10,7 +10,7 @@ from gateway_shared_kernel.testing.paths import CANDIDATE_MARKER_NAME
 
 from .paths import NORMATIVE_VECTOR_ROOT, resolve_normative_vector_root
 
-EXPECTED_CASE_COUNT = 125
+EXPECTED_CASE_COUNT = 126
 
 
 def test_repository_uses_shared_kernel_dispatch_entrypoint() -> None:

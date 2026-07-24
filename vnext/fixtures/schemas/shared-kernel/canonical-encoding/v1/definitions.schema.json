@@ -1069,7 +1069,8 @@
         "vector-set",
         "table-schema",
         "scenario-input",
-        "scenario-fixture"
+        "scenario-fixture",
+        "run-evidence"
       ]
     },
     "collectionSemantics": {

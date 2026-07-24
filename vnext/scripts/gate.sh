@@ -85,6 +85,26 @@ uv run --offline --no-sync mypy
 echo "==> repository_service: pytest"
 uv run --offline --no-sync pytest -q
 
+CONFORMANCE_ROOT="${VNEXT_ROOT}/conformance"
+cd "${CONFORMANCE_ROOT}"
+echo "==> conformance: uv sync --locked --offline --all-groups"
+uv sync --locked --offline --all-groups
+
+echo "==> conformance: ruff"
+uv run --offline --no-sync ruff check src tests
+
+echo "==> conformance: ruff format --check"
+uv run --offline --no-sync ruff format --check src tests
+
+echo "==> conformance: mypy"
+uv run --offline --no-sync mypy
+
+echo "==> conformance: pytest"
+uv run --offline --no-sync pytest -q
+
+echo "==> conformance: pytest --collect-only"
+uv run --offline --no-sync pytest --collect-only -q
+
 cd "${RUST_ROOT}"
 
 echo "==> cargo fmt --check"

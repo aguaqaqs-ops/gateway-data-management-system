@@ -175,9 +175,24 @@ canonical_encoding_version optional; only for canonical JSON/structured content
 - Raw/binary asset：使用raw bytes/direct SHA-256。
 - Relative path按UTF-8 bytes排序并length-frame；mtime、absolute path、directory enumeration order不参与。
 
-`input_digest` 使用semantic digest kind `scenario-input`，覆盖canonical stimulus、fault/recovery trigger（若有）、相关contract binding和全部input asset logical content。
+#### Normative byte preimage（authority）
 
-`fixture_content_digest` 使用kind `scenario-fixture`，覆盖canonical manifest logical projection与全部input/golden/artifact closure。Projection移除 `input_digest`、`fixture_content_digest` 和structured asset的transport-only `size_bytes/raw_sha256`；structured formatting变化不改变fixture semantic digest，raw integrity仍独立验证。Raw/binary asset的direct hash继续进入closure identity。
+`input_digest` 与 `fixture_content_digest` 的 preimage 由下列算法唯一决定（实现不得另选 framing）：
+
+1. **Projection**
+   - `input` projection object：`contract_bindings`（仅 stimulus/fault/recovery 引用的 binding）、`stimulus`、`input_assets`（每项含 `logical_name`；structured 另含 `content_binding` canonical subset 与 owner `content_digest`；raw 另含 `raw_identity` = direct SHA-256 wire form）、以及可选 `fault` / `recovery_trigger`。
+   - `fixture` projection object：完整 manifest 的深拷贝，移除顶层 `input_digest` 与 `fixture_content_digest`；structured `input_assets[]` 与全部 `expected[]` 剥离 transport-only `size_bytes`/`raw_sha256`。
+2. **Keyed-collection frame**
+   - 先追加 entry `(key=UTF-8("manifest"), value=JCS(projection))`。
+   - `fixture` 另追加 child entries：scenario-local 非 `scenario.yaml`、非 `expected[]` path 的 input，按 path UTF-8 字节序；identity 为 structured owner `content_digest` 的 32-byte raw，或 raw asset 的 `SHA256(raw bytes)`；再追加每个 golden path，identity 为 envelope `content_digest` 的 32-byte raw。
+   - Shared asset 计入 fixture identity（path = shared ref 相对路径），但不计入 scenario-local 1 MiB 体积上限。
+   - 使用 Shared Kernel `keyed-collection` framing 编码上述 entries，得到 `collection_frame`。
+3. **Digest**
+   - `input_digest = semantic_digest("scenario-input", collection_frame)`
+   - `fixture_content_digest = semantic_digest("scenario-fixture", collection_frame)`
+   - wire 形式为 `sha256:` + lowercase hex。
+
+Normative vectors（`vnext/fixtures/vectors/conformance/scenario-digest/v1/`）固定完整 `collection_frame` bytes；Python 与 Rust 必须独立对同一 frame 复算 digest。
 
 ### 4.5 Provenance exact shape
 

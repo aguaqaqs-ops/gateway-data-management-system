@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.fixture-oracle.scenario-manifest.v1",
+  "title": "Scenario Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_schema_version",
+    "scenario_id",
+    "track",
+    "subject",
+    "description",
+    "provenance",
+    "contract_bindings",
+    "canonical_encoding_version",
+    "input_assets",
+    "stimulus",
+    "input_digest",
+    "fixture_content_digest",
+    "expected",
+    "required_profiles",
+    "legacy_classification"
+  ],
+  "properties": {
+    "manifest_schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "scenario_id": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/scenarioId"
+    },
+    "track": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/track"
+    },
+    "subject": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/subject"
+    },
+    "description": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/nonEmptyString"
+    },
+    "provenance": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/provenance"
+    },
+    "contract_bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/manifestContractBinding"
+      }
+    },
+    "canonical_encoding_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "input_assets": {
+      "type": "array",
+      "items": {
+        "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/inputAsset"
+      }
+    },
+    "stimulus": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/stimulus"
+    },
+    "fault": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/fault"
+    },
+    "recovery_trigger": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/recoveryTrigger"
+    },
+    "input_digest": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/digestRef"
+    },
+    "fixture_content_digest": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/digestRef"
+    },
+    "expected": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/expectedEntry"
+      }
+    },
+    "required_profiles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/profileId"
+      }
+    },
+    "legacy_classification": {
+      "$ref": "gateway-vnext.fixture-oracle.definitions.v1#/$defs/legacyClassification"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"track": {"const": "recovery"}},
+        "required": ["track"]
+      },
+      "then": {
+        "required": ["fault", "recovery_trigger"]
+      }
+    },
+    {
+      "if": {
+        "properties": {"track": {"enum": ["data", "command"]}},
+        "required": ["track"]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {"required": ["fault"]},
+            {"required": ["recovery_trigger"]}
+          ]
+        }
+      }
+    }
+  ]
+}

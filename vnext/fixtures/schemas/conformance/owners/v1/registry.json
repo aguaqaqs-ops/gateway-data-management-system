@@ -1,0 +1,29 @@
+{
+  "registry_schema_version": 1,
+  "owners": {
+    "test-capability": {
+      "contracts": {
+        "gateway-vnext.test-contract@1.0.0": {
+          "schemas": {
+            "gateway-vnext.test-result.v1@1": {
+              "schema_file": "test-capability.result.v1.schema.json",
+              "digest_kind": "scenario-input"
+            },
+            "gateway-vnext.test-table.v1@1": {
+              "schema_file": "test-capability.table.v1.schema.json",
+              "digest_kind": "scenario-input"
+            },
+            "gateway-vnext.test-recovery.v1@1": {
+              "schema_file": "test-capability.recovery.v1.schema.json",
+              "digest_kind": "scenario-input"
+            },
+            "gateway-vnext.test-artifact.v1@1": {
+              "schema_file": "test-capability.artifact.v1.schema.json",
+              "digest_kind": "scenario-input"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -135,6 +135,7 @@ v1 已登记的基础与 Phase 1 executable-contract digest kind：
 | `table-schema` | Canonical Row Hash capability declared semantic schema。 |
 | `scenario-input` | Conformance Harness scenario input projection/closure。 |
 | `scenario-fixture` | Conformance Harness complete fixture projection/closure。 |
+| `run-evidence` | Conformance Harness RunEvidenceBundle v1 semantic projection；canonical payload = JCS(bundle \\ `content_digest`)。 |
 
 新 kind 必须由 payload semantic owner 提议、由 Shared Kernel登记；不得以未登记字符串临时计算正式 DigestRef。
 

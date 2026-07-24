@@ -1,0 +1,24 @@
+{
+  "owners": {
+    "test-capability": {
+      "contracts": {
+        "gateway-vnext.test-contract@1.0.0": {
+          "kinds": ["restart", "retry"],
+          "profiles": ["reference", "integration", "process-crash"],
+          "parameters_schema": {
+            "type": "object",
+            "additionalProperties": false
+          }
+        },
+        "gateway-vnext.test-recovery-contract@1.0.0": {
+          "kinds": ["restart", "retry"],
+          "profiles": ["reference", "integration", "process-crash"],
+          "parameters_schema": {
+            "type": "object",
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  }
+}

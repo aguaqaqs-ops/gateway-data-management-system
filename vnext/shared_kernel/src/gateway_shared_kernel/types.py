@@ -222,6 +222,7 @@ class DigestKind(StrEnum):
     TABLE_SCHEMA = "table-schema"
     SCENARIO_INPUT = "scenario-input"
     SCENARIO_FIXTURE = "scenario-fixture"
+    RUN_EVIDENCE = "run-evidence"
 
 
 FORMAL_DIGEST_KINDS: frozenset[DigestKind] = frozenset(DigestKind)

@@ -1,0 +1,9 @@
+{
+  "vector_set_schema_version": 1,
+  "suite": "gateway-vnext.conformance.scenario-digest.v1",
+  "cases": [
+    {"case_id": "minimal-data", "input_digest_file": "input-digest.jsonl", "fixture_digest_file": "fixture-digest.jsonl"},
+    {"case_id": "structured-input", "input_digest_file": "input-digest.jsonl", "fixture_digest_file": "fixture-digest.jsonl"},
+    {"case_id": "shared-structured-input", "input_digest_file": "input-digest.jsonl", "fixture_digest_file": "fixture-digest.jsonl"}
+  ]
+}

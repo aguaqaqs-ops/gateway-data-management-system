@@ -27,6 +27,7 @@ _EXPECTED_DIGEST_KINDS = frozenset(
         "table-schema",
         "scenario-input",
         "scenario-fixture",
+        "run-evidence",
     }
 )
 

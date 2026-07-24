@@ -15,6 +15,8 @@ logs/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.cursor/
+.vscode/
 .coverage
 htmlcov/
 vnext/rust/gateway-compute-python/python/**/*.so

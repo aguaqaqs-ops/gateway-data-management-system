@@ -131,7 +131,7 @@ def test_provider_matrix_requires_provider_id() -> None:
 def test_reference_profile_rejects_non_null_provider_id() -> None:
     plan = cast(dict[str, Any], dict(_base_plan()))
     execution_key = cast(dict[str, Any], dict(plan["execution_key"]))
-    execution_key["provider_id"] = "python"
+    execution_key["provider_id"] = "python-reference"
     plan["execution_key"] = execution_key
     with pytest.raises(ConformanceValidationError):
         validate_harness_plan(plan)

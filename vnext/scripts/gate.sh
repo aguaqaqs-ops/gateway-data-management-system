@@ -87,8 +87,8 @@ uv run --offline --no-sync pytest -q
 
 CONFORMANCE_ROOT="${VNEXT_ROOT}/conformance"
 cd "${CONFORMANCE_ROOT}"
-echo "==> conformance: uv sync --locked --offline --all-groups --extra writer --reinstall-package gateway-compute-python"
-uv sync --locked --offline --all-groups --extra writer --reinstall-package gateway-compute-python
+echo "==> conformance: uv sync --locked --offline --all-groups --extra writer --extra matrix --reinstall-package gateway-compute-python"
+uv sync --locked --offline --all-groups --extra writer --extra matrix --reinstall-package gateway-compute-python
 
 echo "==> conformance: ruff"
 uv run --offline --no-sync ruff check src tests

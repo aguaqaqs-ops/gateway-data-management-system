@@ -9,6 +9,10 @@ import pyarrow as pa
 import pytest
 
 from gateway_conformance.errors import ConformanceValidationError
+from gateway_conformance.harness.canonical_row_hashes.mapping_inventory import (
+    REQUIRED_CASE_IDS,
+    iter_required_cases,
+)
 from gateway_conformance.owner.arrow_row_hash_oracle import (
     compute_row_hashes_from_ipc,
     compute_table_content_identity,
@@ -183,3 +187,13 @@ def test_oracle_rejects_zero_byte_trailing_on_valid_stream() -> None:
         compute_row_hashes_from_ipc(ipc + b"\x00\x00\x00\x00", fields)
     with pytest.raises(ConformanceValidationError, match="trailing bytes"):
         compute_row_hashes_from_ipc(ipc + b"garbage", fields)
+
+
+@pytest.mark.parametrize("case_id", sorted(REQUIRED_CASE_IDS))
+def test_oracle_inventory_case_positive(case_id: str) -> None:
+
+    case = next(item for item in iter_required_cases() if item.case_id == case_id)
+    fields = [dict(item) for item in case.declared_fields]
+    hashes = compute_row_hashes_from_ipc(case.ipc_bytes, fields)
+    assert len(hashes) == 1
+    assert len(hashes[0]) == 32

@@ -34,6 +34,18 @@ def declared_type_from_json(semantic_type: dict[str, Any]) -> DeclaredType:
         return DeclaredType(kind=DeclaredTypeKind.STRING)
     if kind == "binary":
         return DeclaredType(kind=DeclaredTypeKind.BINARY)
+    if kind == "bit":
+        return DeclaredType(kind=DeclaredTypeKind.BIT, bit_width=int(semantic_type["bit_width"]))
+    if kind == "date":
+        return DeclaredType(kind=DeclaredTypeKind.DATE)
+    if kind == "datetime":
+        return DeclaredType(kind=DeclaredTypeKind.DATETIME)
+    if kind == "timestamp":
+        return DeclaredType(kind=DeclaredTypeKind.TIMESTAMP)
+    if kind == "time-duration":
+        return DeclaredType(kind=DeclaredTypeKind.TIME_DURATION)
+    if kind == "source-literal-anomaly":
+        return DeclaredType(kind=DeclaredTypeKind.SOURCE_LITERAL_ANOMALY)
     raise ConformanceValidationError(f"unsupported semantic_type kind for oracle: {kind}")
 
 
@@ -96,13 +108,14 @@ def _check_mapping(
     bits: int | None,
     precision: int | None,
     scale: int | None,
+    nullable: bool = False,
 ) -> bool:
     import pyarrow.types as pat
 
     if _is_rejected_type(data_type):
         return False
     if declared_kind is DeclaredTypeKind.NULL:
-        return bool(pat.is_null(data_type))
+        return bool(nullable and pat.is_null(data_type))
     if declared_kind is DeclaredTypeKind.BOOLEAN:
         return bool(pat.is_boolean(data_type))
     if declared_kind is DeclaredTypeKind.SIGNED_INTEGER:
@@ -148,6 +161,23 @@ def _check_mapping(
     if declared_kind is DeclaredTypeKind.STRING:
         return bool(pat.is_string(data_type))
     if declared_kind is DeclaredTypeKind.BINARY:
+        return bool(pat.is_binary(data_type))
+    if declared_kind is DeclaredTypeKind.BIT:
+        return bool(pat.is_binary(data_type))
+    if declared_kind is DeclaredTypeKind.DATE:
+        return bool(pat.is_date32(data_type))
+    if declared_kind is DeclaredTypeKind.DATETIME:
+        return bool(pat.is_timestamp(data_type) and data_type.unit == "us" and data_type.tz is None)
+    if declared_kind is DeclaredTypeKind.TIMESTAMP:
+        return bool(
+            pat.is_timestamp(data_type)
+            and data_type.unit == "us"
+            and data_type.tz is not None
+            and str(data_type.tz) == "UTC"
+        )
+    if declared_kind is DeclaredTypeKind.TIME_DURATION:
+        return bool(pat.is_duration(data_type) and data_type.unit == "us")
+    if declared_kind is DeclaredTypeKind.SOURCE_LITERAL_ANOMALY:
         return bool(pat.is_binary(data_type))
     return False
 
@@ -204,6 +234,7 @@ def cross_check_stream_schema(
             bits=declared.bits,
             precision=declared.precision,
             scale=declared.scale,
+            nullable=nullable,
         ):
             raise ConformanceValidationError("arrow physical type mismatch")
         matched.add(canonical)

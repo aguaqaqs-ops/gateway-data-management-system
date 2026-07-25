@@ -58,7 +58,13 @@
     },
     "providerId": {
       "type": "string",
-      "enum": ["python", "rust", "repository"]
+      "enum": [
+        "python",
+        "python-reference",
+        "repository",
+        "rust",
+        "rust-native"
+      ]
     },
     "jsonValue": {
       "oneOf": [

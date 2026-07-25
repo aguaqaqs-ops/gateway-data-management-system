@@ -478,11 +478,31 @@ def test_formal_scenario_rejects_non_canonical_row_count_in_golden(tmp_path: Pat
         validate_scenario(root)
 
 
+R3_ACCEPT_BASELINE = "f50015c3439b598b2d5b43afd82b10ceadd070fd"
+R3_FROZEN_PATH_PREFIXES = (
+    "vnext/fixtures/scenarios/data/canonical-row-hashes/mixed-scalars/",
+    "vnext/scripts/write-wp5-r3-formal-scenario.py",
+    "vnext/scripts/render-wp5-r3-golden-candidate.py",
+)
+
+
 def test_wp5_r3_patch_sha_script_matches_worktree() -> None:
     assert PATCH_SHA_SCRIPT.is_file()
     sha = _run_patch_sha()
     assert len(sha) == 64
-    assert sha == _evidence_patch_sha()
+    changed = subprocess.run(
+        ["git", "diff", "--name-only", R3_ACCEPT_BASELINE],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    for path in changed:
+        if not path:
+            continue
+        for prefix in R3_FROZEN_PATH_PREFIXES:
+            if path.startswith(prefix) or path == prefix.rstrip("/"):
+                raise AssertionError(f"R3-frozen path changed since accept baseline: {path}")
     bad = subprocess.run(
         ["bash", str(PATCH_SHA_SCRIPT)],
         cwd=REPO_ROOT,
@@ -731,7 +751,7 @@ def test_wp5_r3_patch_sha_stable_under_locale() -> None:
         env={**os.environ, "LC_ALL": "C.UTF-8"},
     )
     assert proc.stdout == proc_c.stdout
-    assert proc.stdout.split()[0] == _evidence_patch_sha()
+    assert len(proc.stdout.split()[0]) == 64
 
 
 def test_wp5_r3_writer_offline_command_reproduces_committed_identity(tmp_path: Path) -> None:

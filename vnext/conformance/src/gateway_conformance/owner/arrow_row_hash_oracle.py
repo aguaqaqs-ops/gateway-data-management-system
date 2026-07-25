@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Sequence
+import json
+import math
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
 import pyarrow as pa
 from gateway_shared_kernel import (
+    AnomalyScalar,
     DeclaredType,
     DeclaredTypeKind,
     EncodedRow,
@@ -18,6 +21,7 @@ from gateway_shared_kernel import (
     TypedScalar,
     Utf8LogicalLiteral,
     canonicalize_identifier,
+    canonicalize_jcs,
     encode_row,
     normalize_logical_literal,
     unordered_row_hashes_content_digest,
@@ -33,6 +37,8 @@ from gateway_conformance.owner.arrow_mapping import (
 
 
 from gateway_conformance.owner.arrow_mapping import declared_type_from_json
+
+_ANOMALY_ENVELOPE_KEYS = frozenset({"declared_type", "raw_base64url", "raw_encoding", "reason"})
 
 
 def format_decimal_from_unscaled(unscaled: int, scale: int) -> str:
@@ -69,6 +75,149 @@ def decimal_unscaled_at_scale(value: Decimal, scale: int) -> int:
     return int(quantized.to_integral_value())
 
 
+def _format_float32(value: float) -> str:
+    if value == 0.0 and math.copysign(1.0, value) < 0:
+        return "-0"
+    return str(value)
+
+
+def _format_float64(value: float) -> str:
+    if value == 0.0 and math.copysign(1.0, value) < 0:
+        return "-0"
+    return str(value)
+
+
+def _civil_from_days(days: int) -> tuple[int, int, int]:
+    z = days + 719_468
+    era = z // 146_097 if z >= 0 else (z - 146_096) // 146_097
+    doe = z - era * 146_097
+    yoe = (doe - doe // 1_460 + doe // 36_524 - doe // 146_096) // 365
+    y = yoe + era * 400
+    doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+    mp = (5 * doy + 2) // 153
+    day = doy - (153 * mp + 2) // 5 + 1
+    month = mp + (3 if mp < 10 else -9)
+    year = y + (1 if month <= 2 else 0)
+    if year < 1:
+        raise ConformanceValidationError("date civil year out of range")
+    return int(year), int(month), int(day)
+
+
+def _days_to_date(days: int) -> str:
+    year, month, day = _civil_from_days(days)
+    return f"{year:04}-{month:02}-{day:02}"
+
+
+def _format_fraction(micro: int) -> str:
+    if micro == 0:
+        return ""
+    raw = f".{micro:06}"
+    return raw.rstrip("0")
+
+
+def _civil_from_micros(micros: int) -> tuple[int, int, int, int, int, int, int]:
+    days = micros // 86_400_000_000
+    day_micros = micros % 86_400_000_000
+    year, month, day = _civil_from_days(days)
+    total_seconds = day_micros // 1_000_000
+    micro = day_micros % 1_000_000
+    hour = total_seconds // 3600
+    minute = (total_seconds % 3600) // 60
+    second = total_seconds % 60
+    return year, month, day, hour, minute, second, micro
+
+
+def _micros_to_datetime(micros: int) -> str:
+    year, month, day, hour, minute, second, micro = _civil_from_micros(micros)
+    fraction = _format_fraction(micro)
+    return f"{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}{fraction}"
+
+
+def _micros_to_timestamp(micros: int) -> str:
+    year, month, day, hour, minute, second, micro = _civil_from_micros(micros)
+    fraction = _format_fraction(micro)
+    return f"{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}{fraction}Z"
+
+
+def _micros_to_duration(micros: int) -> str:
+    negative = micros < 0
+    abs_micros = abs(micros)
+    total_seconds = abs_micros // 1_000_000
+    micro = abs_micros % 1_000_000
+    seconds = total_seconds % 60
+    minutes = (total_seconds // 60) % 60
+    hours = total_seconds // 3600
+    fraction = _format_fraction(micro)
+    body = f"{hours:02}:{minutes:02}:{seconds:02}{fraction}"
+    return f"-{body}" if negative else body
+
+
+def _parse_anomaly_declared_type(value: Mapping[str, Any]) -> DeclaredType:
+    keys = set(value.keys())
+    kind = str(value["kind"])
+    if kind in {
+        "null",
+        "boolean",
+        "float32",
+        "float64",
+        "string",
+        "binary",
+        "date",
+        "datetime",
+        "timestamp",
+        "time-duration",
+        "source-literal-anomaly",
+    }:
+        if keys != {"kind"}:
+            raise ConformanceValidationError("anomaly declared_type keys mismatch")
+    elif kind in {"signed-integer", "unsigned-integer"}:
+        if keys != {"kind", "bits"}:
+            raise ConformanceValidationError("anomaly declared_type keys mismatch")
+    elif kind == "decimal":
+        if keys != {"kind", "precision", "scale"}:
+            raise ConformanceValidationError("anomaly declared_type keys mismatch")
+    elif kind == "bit":
+        if keys != {"kind", "bit_width"}:
+            raise ConformanceValidationError("anomaly declared_type keys mismatch")
+    else:
+        raise ConformanceValidationError("anomaly declared_type kind unsupported")
+    return declared_type_from_json(dict(value))
+
+
+def _extract_anomaly(column: pa.Array | pa.ChunkedArray, row_index: int) -> AnomalyScalar:
+    raw = column[row_index].as_py()
+    if not isinstance(raw, (bytes, bytearray)):
+        raise ConformanceValidationError("anomaly column must yield bytes")
+    try:
+        canonical = canonicalize_jcs(bytes(raw))
+    except Exception as exc:
+        raise ConformanceValidationError("anomaly envelope JCS invalid") from exc
+    try:
+        root = json.loads(canonical)
+    except json.JSONDecodeError as exc:
+        raise ConformanceValidationError("anomaly envelope must be JSON object") from exc
+    if not isinstance(root, dict):
+        raise ConformanceValidationError("anomaly envelope must be JSON object")
+    if set(root.keys()) != _ANOMALY_ENVELOPE_KEYS:
+        raise ConformanceValidationError("anomaly envelope keys mismatch")
+    declared_raw = root["declared_type"]
+    if not isinstance(declared_raw, dict):
+        raise ConformanceValidationError("anomaly declared_type must be object")
+    _parse_anomaly_declared_type(declared_raw)
+    for key in ("raw_base64url", "raw_encoding", "reason"):
+        if not isinstance(root[key], str):
+            raise ConformanceValidationError(f"anomaly {key} must be string")
+    return AnomalyScalar(envelope=dict(root))
+
+
+def _physical_int_at(column: pa.Array | pa.ChunkedArray, row_index: int) -> int:
+    scalar = column[row_index]
+    value = getattr(scalar, "value", None)
+    if isinstance(value, int):
+        return value
+    raise ConformanceValidationError("column physical value must be integer-backed")
+
+
 def _extract_typed_scalar(
     declared: DeclaredType,
     nullable: bool,
@@ -79,6 +228,9 @@ def _extract_typed_scalar(
         if not nullable:
             raise ConformanceValidationError("null value in non-nullable column")
         return NullScalar()
+
+    if declared.kind is DeclaredTypeKind.SOURCE_LITERAL_ANOMALY:
+        return _extract_anomaly(column, row_index)
 
     if declared.kind is DeclaredTypeKind.BOOLEAN:
         value = column[row_index].as_py()
@@ -105,6 +257,42 @@ def _extract_typed_scalar(
         unscaled = decimal_unscaled_at_scale(as_decimal, scale)
         literal = Utf8LogicalLiteral(text=format_decimal_from_unscaled(unscaled, scale))
         return normalize_logical_literal(declared, literal).typed_value
+    if declared.kind is DeclaredTypeKind.FLOAT32:
+        value = float(column[row_index].as_py())
+        if not math.isfinite(value):
+            raise ConformanceValidationError("float32 must be finite")
+        literal = Utf8LogicalLiteral(text=_format_float32(value))
+        return normalize_logical_literal(declared, literal).typed_value
+    if declared.kind is DeclaredTypeKind.FLOAT64:
+        value = float(column[row_index].as_py())
+        if not math.isfinite(value):
+            raise ConformanceValidationError("float64 must be finite")
+        literal = Utf8LogicalLiteral(text=_format_float64(value))
+        return normalize_logical_literal(declared, literal).typed_value
+    if declared.kind in {DeclaredTypeKind.BINARY, DeclaredTypeKind.BIT}:
+        raw = column[row_index].as_py()
+        if not isinstance(raw, (bytes, bytearray)):
+            raise ConformanceValidationError("binary column must yield bytes")
+        literal = RawLogicalLiteral(raw_bytes=bytes(raw))
+        return normalize_logical_literal(declared, literal).typed_value
+    if declared.kind is DeclaredTypeKind.DATE:
+        days = _physical_int_at(column, row_index)
+        literal = Utf8LogicalLiteral(text=_days_to_date(days))
+        return normalize_logical_literal(declared, literal).typed_value
+    if declared.kind is DeclaredTypeKind.DATETIME:
+        micros = _physical_int_at(column, row_index)
+        literal = Utf8LogicalLiteral(text=_micros_to_datetime(micros))
+        return normalize_logical_literal(declared, literal).typed_value
+    if declared.kind is DeclaredTypeKind.TIMESTAMP:
+        micros = _physical_int_at(column, row_index)
+        literal = Utf8LogicalLiteral(text=_micros_to_timestamp(micros))
+        return normalize_logical_literal(declared, literal).typed_value
+    if declared.kind is DeclaredTypeKind.TIME_DURATION:
+        micros = _physical_int_at(column, row_index)
+        literal = Utf8LogicalLiteral(text=_micros_to_duration(micros))
+        return normalize_logical_literal(declared, literal).typed_value
+    if declared.kind is DeclaredTypeKind.NULL:
+        raise ConformanceValidationError("null kind column must be null at slot")
     raise ConformanceValidationError(f"oracle extraction unsupported for {declared.kind.value}")
 
 

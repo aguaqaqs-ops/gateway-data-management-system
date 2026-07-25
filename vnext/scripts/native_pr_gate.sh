@@ -3,6 +3,7 @@ set -euo pipefail
 
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_ROOT="${VNEXT_ROOT}/backend"
+CONFORMANCE_ROOT="${VNEXT_ROOT}/conformance"
 RUST_ROOT="${VNEXT_ROOT}/rust"
 COMPUTE_PYTHON_ROOT="${VNEXT_ROOT}/rust/gateway-compute-python"
 NATIVE_KERNEL_COMPONENT="${VNEXT_ROOT}/scripts/native_kernel_component.sh"
@@ -24,6 +25,18 @@ restore_production_install() {
   cd "${BACKEND_ROOT}"
   export UV_OFFLINE=true
   uv sync --locked --offline --all-groups --reinstall-package gateway-compute-python
+  cleanup_compute_python_source_so
+}
+
+restore_conformance_production_install() {
+  if [[ "${NATIVE_PR_FORCE_RESTORE_CONFORMANCE_FAIL:-}" == "1" ]]; then
+    echo "injecting restore_conformance_production_install failure" >&2
+    return 98
+  fi
+  cd "${CONFORMANCE_ROOT}"
+  export UV_OFFLINE=true
+  uv sync --locked --offline --all-groups --extra writer --extra matrix \
+    --reinstall-package gateway-compute-python
   cleanup_compute_python_source_so
 }
 
@@ -156,12 +169,20 @@ PY
 native_pr_finalize_exit() {
   local body_ec="$1"
   local restore_ec="$2"
+  local conformance_restore_ec="${3:-0}"
   if [[ "${body_ec}" -eq 0 && "${restore_ec}" -ne 0 ]]; then
     echo "restore_production_install failed with exit ${restore_ec}" >&2
     return "${restore_ec}"
   fi
+  if [[ "${body_ec}" -eq 0 && "${conformance_restore_ec}" -ne 0 ]]; then
+    echo "restore_conformance_production_install failed with exit ${conformance_restore_ec}" >&2
+    return "${conformance_restore_ec}"
+  fi
   if [[ "${body_ec}" -ne 0 && "${restore_ec}" -ne 0 ]]; then
     echo "restore_production_install also failed: ${restore_ec}" >&2
+  fi
+  if [[ "${body_ec}" -ne 0 && "${conformance_restore_ec}" -ne 0 ]]; then
+    echo "restore_conformance_production_install also failed: ${conformance_restore_ec}" >&2
   fi
   return "${body_ec}"
 }
@@ -169,13 +190,15 @@ native_pr_finalize_exit() {
 native_pr_on_exit() {
   local ec=$?
   local restore_ec=0
+  local conformance_restore_ec=0
   restore_production_install || restore_ec=$?
+  restore_conformance_production_install || conformance_restore_ec=$?
   CARGO_TARGET_DIR="${NATIVE_PR_SAVED_CARGO_TARGET_DIR-}"
   if [[ -n "${NATIVE_PR_TMP:-}" ]]; then
     rm -rf "${NATIVE_PR_TMP}"
     NATIVE_PR_TMP=""
   fi
-  native_pr_finalize_exit "${ec}" "${restore_ec}"
+  native_pr_finalize_exit "${ec}" "${restore_ec}" "${conformance_restore_ec}"
   exit $?
 }
 
@@ -248,6 +271,35 @@ native_pr_exit_trap_regression() {
     echo "parent CARGO_TARGET_DIR mutated: ${CARGO_TARGET_DIR-}" >&2
     exit 1
   fi
+
+  echo "==> native-pr EXIT trap regression: body ok + conformance restore fail"
+  marker="$(mktemp)"
+  set +e
+  (
+    set -euo pipefail
+    export NATIVE_PR_FORCE_RESTORE_CONFORMANCE_FAIL=1
+    NATIVE_PR_TMP="$(mktemp -d)"
+    NATIVE_PR_SAVED_CARGO_TARGET_DIR="${saved_cargo_target_dir}"
+    export CARGO_TARGET_DIR="${NATIVE_PR_TMP}/cargo-target"
+    mkdir -p "${CARGO_TARGET_DIR}"
+    printf '%s\n' "${NATIVE_PR_TMP}" >"${marker}"
+    trap native_pr_on_exit EXIT
+    exit 0
+  )
+  final_ec=$?
+  set -e
+  tmp="$(cat "${marker}")"
+  rm -f "${marker}"
+  if [[ "${final_ec}" -ne 98 ]]; then
+    echo "expected exit 98 for conformance restore failure after success, got ${final_ec}" >&2
+    exit 1
+  fi
+  if [[ -e "${tmp}" ]]; then
+    echo "tmp not cleaned after conformance restore-failure: ${tmp}" >&2
+    exit 1
+  fi
+
+  unset NATIVE_PR_FORCE_RESTORE_CONFORMANCE_FAIL || true
   echo "native-pr EXIT trap regression ok"
 }
 
@@ -256,7 +308,8 @@ run_native_pr_gate_body() {
 
   NATIVE_PR_TMP="$(mktemp -d)"
   NATIVE_PR_SAVED_CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
-  NATIVE_PR_WHEEL_IDENTITY_FILE="${NATIVE_PR_TMP}/wheel-identity.json"
+  NATIVE_PR_WHEEL_IDENTITY_FILE="${NATIVE_PR_TMP}/wheel-identity-backend.json"
+  NATIVE_PR_CONFORMANCE_WHEEL_IDENTITY_FILE="${NATIVE_PR_TMP}/wheel-identity-conformance.json"
   echo "native-pr gate tmp=${NATIVE_PR_TMP}"
   trap native_pr_on_exit EXIT
 
@@ -315,6 +368,20 @@ run_native_pr_gate_body() {
   uv run --offline --no-sync pytest -q -m pr_native
 
   assert_wheel_identity_unchanged "${NATIVE_PR_WHEEL_IDENTITY_FILE}" "after pr_native suite"
+
+  echo "==> native-pr: WP5 R4 conformance pr_native matrix suite"
+  cd "${CONFORMANCE_ROOT}"
+  export UV_OFFLINE=true
+  uv sync --locked --offline --all-groups --extra matrix
+  uv pip install --offline --force-reinstall "${wheel}"
+  cleanup_compute_python_source_so
+  capture_wheel_identity "${wheel}" "${NATIVE_PR_CONFORMANCE_WHEEL_IDENTITY_FILE}"
+  uv run --offline --no-sync pytest -q --collect-only -m pr_native tests/test_wp5_r4_pr_native.py
+  uv run --offline --no-sync pytest -q -m pr_native tests/test_wp5_r4_pr_native.py
+  assert_wheel_identity_unchanged \
+    "${NATIVE_PR_CONFORMANCE_WHEEL_IDENTITY_FILE}" \
+    "conformance after wp5 r4 pr_native matrix"
+  cd "${BACKEND_ROOT}"
   assert_installed_extension_has_no_test_hooks
   assert_compute_python_source_tree_clean
   echo "native gate passed"

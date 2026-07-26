@@ -1,6 +1,6 @@
 # WP5 R4 — Canonical Row Hash Required Profile Matrix Evidence
 
-状态：**CONDITIONAL HOLD — awaiting independent external review**
+状态：**ACCEPTED / RESOLVED**（2026-07-27 Phase 1 closure review）
 
 日期：2026-07-25
 
@@ -16,7 +16,7 @@ Gate：**`PR-CORRECTNESS`** + **`PR-NATIVE`** 回归（`gate.sh correctness` / `
 | --- | --- |
 | 本轮范围 | 正式 `data.canonical-row-hashes.mixed-scalars` 的 4-cell required profile matrix；production harness；matrix planner/executor/aggregation；integration artifact full-chain；provider-matrix `python-reference` / `rust-native` |
 | **不是** | R5、Phase 1 exit、`PHASE-EXIT-CONTAINER`、第二个正式 scenario、repository row-hash provider、首次建立 `PR-NATIVE` |
-| 审核状态 | **CONDITIONAL HOLD**（不自报外部 PASS） |
+| 审核状态 | **ACCEPTED**；原 CONDITIONAL HOLD 已由 R5 exact-commit gates 与 Phase 1 closure review 解除 |
 
 ### 明确不包括
 
@@ -152,11 +152,13 @@ BASE=f50015c3439b598b2d5b43afd82b10ceadd070fd \
 
 ---
 
-## 12. Deferred
+## 12. Downstream closure
 
-- WP5 R5 Phase 1 exit 聚合
-- `PHASE-EXIT-CONTAINER`
-- process-crash 正式 scenario
+- WP5 R5 Phase 1 exit 聚合：**CLOSED**；exit source
+  `7702d2127712193a8a88e66ba614dc073922ac15`
+- `PHASE-EXIT-CONTAINER`：**PASSED**；immutable identity
+  `phase-exit-container-identity-95b3d7633caa7b536960552ba72e29b18bbe0fb6434d97b51b9cb40b9dde5f58.json`
+- process-crash 正式 scenario：仍属 Phase 1 明确 non-goal，不是 blocking item
 
 ---
 
@@ -172,6 +174,10 @@ BASE=f50015c3439b598b2d5b43afd82b10ceadd070fd \
 | null-slot / 24-bit | 5 null-slot + 2×24-bit 合法上界已进 inventory |
 | Evidence gate 计数 | reviewer-assisted fix：599→600（审核者 null-slot 复审 correctness） |
 | R3 patch SHA | f50015c frozen-path；R3 Evidence cumulative SHA 不变 |
+
+Phase 1 closure review 未发现需要重开的 R4 finding；四个 required cells 在
+exit source 的 correctness/native gates 中全部通过，zero required
+skip/xfail/`UNSUPPORTED`。
 
 ---
 

@@ -127,6 +127,12 @@ Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-s
 
 ## 4. Phase 1：Executable Contracts and Walking Skeleton
 
+阶段状态：**Completed**（2026-07-27）。Phase 1 exit source commit
+`7702d2127712193a8a88e66ba614dc073922ac15` 已在干净 exact commit 上通过
+`PR-CORRECTNESS`、`PR-NATIVE` 与 `PHASE-EXIT-CONTAINER`；最终签署、immutable
+identity 与九项退出条件核对见
+[Phase 1 Closure Sign-off](../../temporary/phase-1/phase-1-closure-signoff.md)。
+
 ### 目标
 
 把第一批Accepted语义变成language-neutral、可离线校验、可跨语言执行的contract，并通过一条可复用的真实data walking skeleton建立新代码隔离区。Phase 1固定最小边界，不提前实现完整业务流程、Repository transport、Operation runtime或通用框架。

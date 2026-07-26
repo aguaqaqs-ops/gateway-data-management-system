@@ -1,6 +1,6 @@
 # WP5 R3 — Canonical Row Hash Formal Scenario Evidence
 
-状态：**CONDITIONAL HOLD — awaiting independent external re-review**
+状态：**ACCEPTED / RESOLVED**（2026-07-27 Phase 1 closure review）
 
 日期：2026-07-24
 
@@ -16,7 +16,7 @@ Gate：**`PR-CORRECTNESS`**（`vnext/scripts/gate.sh correctness`）
 | --- | --- |
 | 本轮范围 | 正式 `data.canonical-row-hashes.mixed-scalars`（`manifest_schema_version: 2`）；`owner_closure_assets` 隔离 oracle；fixture 投影 strip owner transport；ordering/collision；IPC trailing；writer + install digest 门；formal 治理九字段；`owner-closure-v2` normative digest 向量 |
 | **不是** | R4 profile matrix PASSED；`PR-NATIVE` |
-| 审核状态 | **CONDITIONAL HOLD**（wire + doc/vector/gate 批次已交付；**不自报 PASS**） |
+| 审核状态 | **ACCEPTED**；原 CONDITIONAL HOLD 已由后续 R4/R5 exact-commit gates 与 Phase 1 closure review 解除 |
 
 ---
 
@@ -28,7 +28,7 @@ Gate：**`PR-CORRECTNESS`**（`vnext/scripts/gate.sh correctness`）
 | --- | --- |
 | BLK-003 (wire) | closed v1 manifest；v2 含 `owner_closure_assets`；`validate_scenario_manifest` 按版本分发 |
 | BLK-004 (transport) | `_manifest_projection_for_fixture` 对 owner 条目不纳入 `size_bytes`/`raw_sha256` |
-| MAJ-007 | `vnext/conformance` + `--extra writer`；自动可逆路径；`--install` published digest 门 — **待审方按 §3 Writer 复现签字** |
+| MAJ-007 | `vnext/conformance` + `--extra writer`；自动可逆路径；`--install` published digest 门 — 后续 correctness 回归与 closure review **已关闭** |
 | MAJ-009 | owner 排序/唯一；`logical_name` 跨集合冲突 fail-closed |
 | MIN-010 | IPC 任意 trailing 拒绝 |
 | BLK-001/002、MAJ-003/006/008、MIN-001/008/009、ADD-005 | 见历史 Evidence 行（不重开） |
@@ -101,10 +101,13 @@ BASE=97720ea1ce857e320090623372e746b1f12f38fc \
 
 | ID | 状态 |
 | --- | --- |
-| WP5-R3 wire (BLK-003/004 transport, MAJ-007/009, MIN-010) | 实现侧 **CLOSED（wire）**；**待独立重审** |
-| WP5-R3 doc-vector (governance BLK-003, vector BLK-004, MAJ-010) | 实现侧 **CLOSED**；**待独立重审** |
-| MIN-011 (`uv run --no-sync`) | 实现侧 **CLOSED** |
-| MAJ-007 writer 复现签字 | **待审方按 §3 执行** |
-| R4 matrix | deferred |
+| WP5-R3 wire (BLK-003/004 transport, MAJ-007/009, MIN-010) | **CLOSED / ACCEPTED** |
+| WP5-R3 doc-vector (governance BLK-003, vector BLK-004, MAJ-010) | **CLOSED / ACCEPTED** |
+| MIN-011 (`uv run --no-sync`) | **CLOSED / ACCEPTED** |
+| MAJ-007 writer 复现 | **CLOSED**；writer 与 published digest 路径已由后续 correctness 回归覆盖 |
+| R4 matrix | **CLOSED**；见 R4 evidence 与 Phase 1 closure sign-off |
 
-**注记（ADD-EV-001）：** 外部 HOLD 的 doc/vector/gate 项与 wire 项分列；勿将「wire 已修」等同于全部 BLK 对外闭合。
+**最终裁决：** 本文件保留原分批修复记录；Phase 1 closure review 没有发现仍需
+重开的 R3 finding。R3 scenario、writer、doc/vector 与 gate 均纳入
+`7702d2127712193a8a88e66ba614dc073922ac15` 的 exact-commit
+`PR-CORRECTNESS` / `PR-NATIVE` 回归。

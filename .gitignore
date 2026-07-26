@@ -20,3 +20,5 @@ logs/
 .coverage
 htmlcov/
 vnext/rust/gateway-compute-python/python/**/*.so
+vnext/backend/.phase-exit-build/
+docs/backend-vnext/refactoring/temporary/phase-1/artifacts/

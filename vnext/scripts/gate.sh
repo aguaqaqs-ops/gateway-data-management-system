@@ -8,7 +8,7 @@ REPOSITORY_ROOT="${VNEXT_ROOT}/repository_service"
 BACKEND_ROOT="${VNEXT_ROOT}/backend"
 
 usage() {
-  echo "usage: $0 bootstrap|correctness|native" >&2
+  echo "usage: $0 bootstrap|correctness|native|phase-exit-container" >&2
   exit 2
 }
 
@@ -28,6 +28,13 @@ case "${MODE}" in
     NATIVE_PR_GATE="${VNEXT_ROOT}/scripts/native_pr_gate.sh"
     chmod +x "${NATIVE_PR_GATE}"
     exec "${NATIVE_PR_GATE}"
+    ;;
+  phase-exit-container)
+    PHASE_EXIT_GATE="${VNEXT_ROOT}/scripts/phase_exit_container_gate.sh"
+    chmod +x "${PHASE_EXIT_GATE}"
+    REPO_ROOT="$(git -C "${VNEXT_ROOT}" rev-parse --show-toplevel)"
+    export EXPECTED_HEAD="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
+    exec "${PHASE_EXIT_GATE}" gate
     ;;
   *)
     usage

@@ -1,33 +1,27 @@
 services:
   backend:
-    build:
-      context: ..
-      dockerfile: backend/Dockerfile
+    image: ${PHASE_EXIT_IMAGE_TAG:?PHASE_EXIT_IMAGE_TAG required}
     ports:
-      - "8000:8000"
+      - "${GATEWAY_BACKEND_HOST_PORT:-18000}:8000"
     environment:
       GATEWAY_BACKEND_ARTIFACT_ROOT: /var/lib/gateway/artifacts
+      GATEWAY_SOURCE_REVISION: ${SOURCE_REVISION:?SOURCE_REVISION required}
+      GATEWAY_EXPECTED_WHEEL_SHA256: ${WHEEL_SHA256:?WHEEL_SHA256 required}
+      GATEWAY_EXPECTED_EXTENSION_SHA256: ${EXTENSION_SHA256:?EXTENSION_SHA256 required}
     volumes:
       - backend-artifacts:/var/lib/gateway/artifacts
-  worker:
-    build:
-      context: ..
-      dockerfile: backend/Dockerfile
-    command: ["python", "-c", "print('worker bootstrap')"]
-  repository-service:
-    build:
-      context: ..
-      dockerfile: repository_service/Dockerfile
-    profiles: ["phase-2"]
-    environment:
-      GATEWAY_REPOSITORY_DATA_ROOT: /var/lib/gateway/repository
-    volumes:
-      - repository-dolt:/var/lib/gateway/repository/dolt
-      - repository-registry:/var/lib/gateway/repository/registry
-      - repository-operation-journal:/var/lib/gateway/repository/operation-journal
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
 
 volumes:
   backend-artifacts:
-  repository-dolt:
-  repository-registry:
-  repository-operation-journal:

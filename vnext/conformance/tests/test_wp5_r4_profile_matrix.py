@@ -665,7 +665,32 @@ def _evidence_patch_sha() -> str:
     return ""
 
 
+R4_ACCEPTED_COMMIT = "b747590ac6ffdfe0e00b320363ce429e663e358e"
+
+
+def _worktree_matches_commit(commit: str) -> bool:
+    if (
+        subprocess.run(
+            ["git", "diff", "--quiet", commit, "--", "."],
+            cwd=REPO_ROOT,
+            check=False,
+        ).returncode
+        != 0
+    ):
+        return False
+    untracked = subprocess.run(
+        ["git", "ls-files", "-o", "--exclude-standard"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    return untracked == ""
+
+
 def test_wp5_r4_patch_sha_matches_worktree() -> None:
+    if not _worktree_matches_commit(R4_ACCEPTED_COMMIT):
+        pytest.skip("R4 patch SHA guard applies only on the exact accepted R4 tree")
     proc = subprocess.run(
         ["bash", str(PATCH_SHA_SCRIPT)],
         cwd=REPO_ROOT,

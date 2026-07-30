@@ -14,7 +14,11 @@
 
 ## Decision
 
-SubmitAttempt 与 ArchiveExecution 各自使用 `PREPARED/EFFECT_PENDING/FINALIZED/ABORTED` 四态，并以 T1 验收、T2 外部 effect、T3 业务 finalize 划分事务。Repository Service journal 和 full readback evidence 是 effect authority；恢复只按 `NOT_APPLIED/UNKNOWN/APPLIED` 分类推进。
+SubmitAttempt与ArchiveExecution各自使用
+`PREPARED/EFFECT_PENDING/FINALIZED/ABORTED`四态，并以T1验收、T2外部effect、T3
+业务finalize划分事务。Repository Service journal和caller-requested verification
+evidence是effect authority；恢复按`NOT_APPLIED/UNKNOWN/APPLIED/VERIFIED`事实推进。
+需要创建Submission的caller仍显式请求FULL并在T3检查matching SnapshotManifest。
 
 请求可能已被接受后必须先 reconcile，并复用原 operation、idempotency key、request/artifact digest；只有权威 `NOT_APPLIED` 才能重放原请求或 abort。Outbox record 与业务 finalize 同事务，delivery 独立。精确规则由 [External Effect and Recovery Contract](../contracts/external-effect-and-recovery.md) 唯一规定。
 
@@ -32,6 +36,8 @@ SubmitAttempt 与 ArchiveExecution 各自使用 `PREPARED/EFFECT_PENDING/FINALIZ
 ## Required Verification
 
 - 每个 request-acceptance 前后注入点的 restart/takeover tests。
-- `UNKNOWN/APPLIED` 不重发、不解锁；explicit `NOT_APPLIED` 才允许原 key replay。
+- `UNKNOWN/APPLIED`不重发；explicit`NOT_APPLIED`才允许原key replay。普通
+  verification mismatch可释放Repository store lane，但不自动释放business
+  occupancy。
 - Journal APPLIED/VERIFIED、T3 和 outbox delivery 之间 crash 后恰好一次业务结果。
-- Readback mismatch 保持 effect evidence 和占用。
+- Verification mismatch保留effect evidence；authority contradiction才quarantine。

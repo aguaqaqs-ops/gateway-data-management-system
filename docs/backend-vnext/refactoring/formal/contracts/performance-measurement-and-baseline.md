@@ -8,9 +8,9 @@ Contract ID：`gateway-vnext.performance-measurement-and-baseline`
 
 Owner：Performance Measurement owner；环境 profile 由 Deployment/Repository owners 共同维护
 
-Semantic version：`1.0.0`
+Semantic version：`2.0.0`
 
-Measurement contract version：`1`
+Measurement contract version：`2`
 
 ## 1. 目的与非目标
 
@@ -31,7 +31,7 @@ storage_projection
 repository_prepare
 dolt_apply
 commit
-post_commit_readback
+requested_verification
 verification_persist
 ```
 
@@ -44,9 +44,9 @@ verification_persist
 | Profile | 生产入口与重建边界 |
 | --- | --- |
 | `projection-build` | public storage projection；固定 SnapshotTableArtifact，每次 fresh manifest/import artifact |
-| `repository-effect` | public Repository client；固定 prebuilt import artifact，每次 fresh repository + full readback |
-| `canonical-write-e2e` | production Submit job；每次 projection/import/commit/readback |
-| `history-sequence` | production import/readback/CAS/cleanup；固定 immutable revision chain |
+| `repository-effect` | public Repository client；固定prebuilt import artifact和显式verification level；每次fresh repository |
+| `canonical-write-e2e` | production Submit job；每次projection/import/commit/requested verification |
+| `history-sequence` | production import/requested verification/ref publication/cleanup；固定immutable revision chain |
 
 Workload 独立报告，不做 composite score：`initial-load`、`canonical-no-change`、`sparse-business-change`、`row-churn`、`compatible-schema-change`、`normal-history-30`、`retention-stress-100`、`ordered-position-shift`、`storage-projection-upgrade`。
 
@@ -54,7 +54,10 @@ Accepted baseline 至少覆盖 typical dataset 的 initial/sparse/row-churn/sche
 
 ## 4. History retention 与 GC
 
-每代按生产机制 canonicalize、submit、full readback VERIFIED、mainline CAS/archive equivalent、清除 transient operation/staging refs、quiescence、计量。保留 mainline 可达正式历史和业务 retention 引用；不得每代重建 repository 或过度删除历史。
+每代按生产机制canonicalize、submit、完成该series声明的verification level、mainline
+checked/LWW publication、清除transient operation/staging refs、quiescence、计量。
+同一history series的verification/concurrency policy固定。保留mainline可达正式
+历史和业务retention引用；不得每代重建repository或过度删除历史。
 
 记录每 commit 增量、累计大小和 working high-water。30/100 sequence 完成并 quiescent 后执行固定 GC checkpoint，GC 不进入单次 Submit latency；报告 pre/post size、reclaimed bytes、duration 和 retained closure。
 
@@ -66,11 +69,17 @@ Storage 分为 SourcePackageArtifact store、Canonical Dolt repository（apparen
 
 单代 profile：1 warm-up + 至少 5 measured runs；报告 raw samples、median、MAD、min/max。少于 20 samples 不报告 p95；需要 p95 时至少 20。History profile 至少 3 条完整 fresh-repository sequence。不静默删除 outlier；失败样本与首次证据保留。
 
-Result 复用 `PASSED | ASSERTION_FAILED | HARNESS_ERROR | UNSUPPORTED`。只有正式路径、full readback、required metrics 和 cleanup 均完成的 PASSED 可进入 aggregate。
+Result复用`PASSED | ASSERTION_FAILED | HARNESS_ERROR | UNSUPPORTED`。只有正式路径、
+本次显式requested verification、required metrics和cleanup均完成的PASSED可进入
+aggregate。NONE/STRUCTURAL不是降级或豁免；它们进入各自独立series。
 
 ## 6. Baseline series 与 record
 
-`measurement_contract_version` 固定阶段、指标、denominator、eligibility、aggregation、cold/warm、GC 和 result schema。语义变化升级 version。Dataset/change chain、storage projection/ruleset/canonical encoding/readback、Dolt/Repository image/provider 或 environment profile 变化必须新建 series，不能判为同线 regression。
+`measurement_contract_version`固定阶段、指标、denominator、eligibility、aggregation、
+cold/warm、GC和result schema。语义变化升级version。Dataset/change chain、storage
+projection/ruleset/canonical encoding、verification level/policy version、
+concurrency mode、Dolt/Repository image/provider、ResourcePolicy或environment
+profile变化必须新建series，不能判为同线regression。
 
 `BenchmarkBaselineRecord` 状态独立于 execution result：
 
@@ -84,8 +93,10 @@ Record 是 immutable machine-readable JSON authority，至少含 baseline/supers
 
 首次 ACCEPTED 必须同时满足：
 
-1. Storage projection、RepositoryImportArtifact、SnapshotManifest 和 measurement contract 已版本化。
-2. Normative vectors、scenario、Repository conformance 和 full readback tests 通过。
+1. Storage projection、RepositoryImportArtifact、level-specific verification
+   evidence和measurement contract已版本化。
+2. Normative vectors、scenario、Repository conformance及该series requested
+   verification tests通过。
 3. Repository Service container 具备 public contract、health、persistent volume、restart recovery 和固定 image/Dolt identity。
 4. External dataset identity/validation 通过。
 5. 四 profile 只走 production public entrypoint，无 benchmark-only fast path。
@@ -97,7 +108,11 @@ Gate 前不能声称 accepted numeric baseline。首条正确路径本身可含�
 
 ## 8. Run validity
 
-Runner 只观察 production typed spans/counters，不调用 private step、绕过 journal/readback、直接改服务端目录、伪造 VERIFIED 或改变 batch/order/digest。Preflight 验证 machine isolation、single writer、quota/filesystem、disk headroom、health/quiescence 和无未声明 maintenance。Restart/OOM、异常 throttling、disk exhaustion 或 required metric gap 使 run 为 HARNESS_ERROR。
+Runner只观察production typed spans/counters，不调用private step、绕过journal/
+requested verification、直接改服务端目录、伪造VERIFIED或改变batch/order/digest。
+Preflight验证machine isolation、single writer、quota/filesystem、disk headroom、
+health/quiescence和无未声明maintenance。Restart/OOM、异常throttling、disk
+exhaustion或required metric gap使run为HARNESS_ERROR。
 
 ## 9. Classification 与验收标准
 
@@ -117,3 +132,4 @@ Module public：是。Persisted：baseline record；raw evidence 外部 content-
 - [ADR 0007](../adr/0007-vnext-performance-baseline-authority.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)
+- [Repository Service](repository-service.md)

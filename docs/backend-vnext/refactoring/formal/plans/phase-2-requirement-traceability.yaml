@@ -1,0 +1,351 @@
+schema_version: 1
+plan_id: gateway-vnext.phase-2-implementation-design-and-delivery-plan
+status: accepted
+as_of: "2026-07-30"
+decision_summary:
+  total: 148
+  accepted: 141
+  superseded: 7
+  open: 0
+requirements:
+  - requirement_id: P2-REQ-GOVERNANCE
+    description: Phase boundary, dual-store amendment, non-goals and design/gate governance
+    decision_ids:
+      - P2-R0-D02
+      - P2-R0-D04
+      - P2-R0-D05
+      - P2-R0-D06
+      - P2-R0-D07
+      - P2-R0-D08
+    formal_owners:
+      - formal/architecture/architecture-and-refactoring-plan.md
+      - formal/contracts/repository-service.md
+      - formal/plans/phase-2-implementation-design-and-delivery-plan.md
+    work_packages: [F0, WP0, WP5, WP7, WP9]
+    gates: [P2-PR-STATIC, P2-PR-CONTRACT, P2-PHASE-EXIT-CONTAINER]
+    evidence:
+      - formal-closure-manifest
+      - architecture-import-boundary
+      - current-versioned-independence
+      - exact-candidate-signoff
+  - requirement_id: P2-REQ-ARCHITECTURE
+    description: Service/container boundary, client topology, workload, auth and audit metadata
+    decision_ids:
+      - P2-R1-D01
+      - P2-R1-D02
+      - P2-R1-D03
+      - P2-R1-D04
+      - P2-R1-D05
+      - P2-R1-D06
+      - P2-R1-D09
+      - P2-R1-D10
+      - P2-R1-D11
+      - P2-R1-D12
+      - P2-R1-D13
+      - P2-R1-D14
+    formal_owners:
+      - formal/contracts/repository-service.md
+      - formal/adr/0008-generic-dual-store-and-caller-selected-rigor.md
+    work_packages: [WP0, WP1, WP3, WP4, WP5, WP6, WP7, WP9]
+    gates: [P2-PR-STATIC, P2-PR-CONTRACT, P2-PHASE-EXIT-CONTAINER]
+    evidence:
+      - three-package-dependency-report
+      - local-remote-canonical-observations
+      - store-scoped-concurrency
+      - auth-audit-redaction-matrix
+  - requirement_id: P2-REQ-API-IDENTITY
+    description: Public identity, wire, Current API, generation, capability and lifecycle surface
+    decision_ids:
+      - P2-R2-D01
+      - P2-R2-D02
+      - P2-R2-D03
+      - P2-R2-D04
+      - P2-R2-D05
+      - P2-R2-D06
+      - P2-R2-D07
+      - P2-R2-D09
+      - P2-R2-D10
+      - P2-R2-D13
+      - P2-R2-D14
+      - P2-R2-D15
+      - P2-R2-D16
+      - P2-R2-D17
+      - P2-R2-D18
+      - P2-R2-D19
+      - P2-R2-D20
+      - P2-R2-D21
+      - P2-R2-D22
+      - P2-R2-D23
+      - P2-R2-D24
+      - P2-R2-D25
+      - P2-R2-D26
+    formal_owners:
+      - formal/contracts/repository-service.md
+      - formal/contracts/contract-taxonomy-and-ownership.md
+    work_packages: [WP1, WP4, WP5, WP6, WP7, WP8]
+    gates: [P2-PR-STATIC, P2-PR-CONTRACT]
+    evidence:
+      - wire-schema-snapshots
+      - opaque-identity-relations
+      - current-api-transaction-observations
+      - authorization-coverage-inventory
+  - requirement_id: P2-REQ-READ-DATA-PLANE
+    description: Pinned read, Arrow stream, Parquet export, raw diff, ordering and integrity
+    decision_ids:
+      - P2-R3-D01
+      - P2-R3-D02
+      - P2-R3-D03
+      - P2-R3-D04
+      - P2-R3-D05
+      - P2-R3-D06
+      - P2-R3-D07
+      - P2-R3-D08
+      - P2-R3-D09
+      - P2-R3-D10
+    formal_owners:
+      - formal/contracts/repository-service.md
+      - formal/contracts/shared-canonical-encoding.md
+    work_packages: [WP1, WP5, WP6]
+    gates: [P2-PR-CONTRACT, P2-PR-RECOVERY]
+    evidence:
+      - framed-arrow-goldens
+      - pinned-snapshot-race-tests
+      - stream-backpressure-cancel
+      - parquet-artifact-integrity
+      - raw-diff-fallback
+  - requirement_id: P2-REQ-STORAGE-RUNTIME
+    description: Canonical replay, Dolt ownership, durable layout, registry and aggregate backup
+    decision_ids:
+      - P2-R4-D01
+      - P2-R4-D02
+      - P2-R4-D03
+      - P2-R4-D04
+      - P2-R4-D05
+      - P2-R4-D06
+    formal_owners:
+      - formal/contracts/repository-service.md
+      - formal/contracts/canonical-storage-and-repository-boundary.md
+      - formal/adr/0004-raw-source-artifact-and-canonical-dolt-storage.md
+    work_packages: [WP2, WP3, WP6, WP7, WP8]
+    gates: [P2-PR-CONTRACT, P2-PR-RECOVERY, P2-PHASE-EXIT-CONTAINER]
+    evidence:
+      - provider-feasibility-manifest
+      - canonical-replay-roundtrip
+      - cli-server-owner-exclusion
+      - registry-disk-reconciliation
+      - repository-aggregate-restore
+  - requirement_id: P2-REQ-WRITE-JOURNAL
+    description: Effect journal, idempotency, lease/fencing, ref and Current recovery
+    decision_ids:
+      - P2-R5-D01
+      - P2-R5-D02
+      - P2-R5-D03
+      - P2-R5-D04
+      - P2-R5-D05
+    formal_owners:
+      - formal/contracts/repository-service.md
+      - formal/contracts/external-effect-and-recovery.md
+    work_packages: [WP4, WP5, WP7]
+    gates: [P2-PR-CONTRACT, P2-PR-RECOVERY]
+    evidence:
+      - operation-journal-state-matrix
+      - idempotency-collision-and-compaction
+      - fencing-takeover
+      - ref-publication-evidence
+      - current-transaction-marker
+  - requirement_id: P2-REQ-FAILURE-RECOVERY
+    description: Failure/effect dimensions, reconciliation and caller-selected policy
+    decision_ids:
+      - P2-R6-D01
+      - P2-R6-D02
+      - P2-R6-D03
+      - P2-R6-D04
+      - P2-R6-D05
+      - P2-R6-D06
+      - P2-R6-D07
+      - P2-R6-D08
+      - P2-R6-D09
+      - P2-R6-D10
+      - P2-R6-D11
+      - P2-R6-D12
+      - P2-R6-D13
+      - P2-R6-D14
+      - P2-R6-D15
+    formal_owners:
+      - formal/contracts/repository-service.md
+      - formal/contracts/external-effect-and-recovery.md
+      - formal/contracts/business-lifecycle-and-state.md
+      - formal/adr/0003-external-effect-reconciliation.md
+      - formal/adr/0008-generic-dual-store-and-caller-selected-rigor.md
+    work_packages: [WP4, WP5, WP6, WP7]
+    gates: [P2-PR-CONTRACT, P2-PR-RECOVERY]
+    evidence:
+      - effect-classification-crash-matrix
+      - none-structural-full-matrix
+      - checked-lww-matrix
+      - exact-latest-at-start-matrix
+      - verification-failed-applied
+      - authority-contradiction-quarantine
+  - requirement_id: P2-REQ-RETENTION-MAINTENANCE
+    description: Retention, GC, backup/restore and delete lifecycle
+    decision_ids:
+      - P2-R7-D01
+      - P2-R7-D02
+      - P2-R7-D03
+      - P2-R7-D04
+      - P2-R7-D05
+      - P2-R7-D06
+    formal_owners:
+      - formal/contracts/repository-service.md
+    work_packages: [WP8]
+    gates: [P2-PR-CONTRACT, P2-PR-RECOVERY, P2-PHASE-EXIT-CONTAINER]
+    evidence:
+      - retention-root-inventory
+      - exact-gc-plan-checkpoints
+      - manifested-backup-restore
+      - incarnation-policy-activation
+      - delete-tombstone-purge
+  - requirement_id: P2-REQ-SECURITY-RESOURCE
+    description: Authentication, ACL, artifact/input safety, quotas, isolation and restore policy
+    decision_ids:
+      - P2-R8-D01
+      - P2-R8-D02
+      - P2-R8-D03
+      - P2-R8-D04
+      - P2-R8-D05
+      - P2-R8-D06
+      - P2-R8-D07
+      - P2-R8-D08
+      - P2-R8-D09
+      - P2-R8-D10
+    formal_owners:
+      - formal/contracts/repository-service.md
+    work_packages: [WP1, WP3, WP4, WP5, WP6, WP7, WP8, WP9]
+    gates: [P2-PR-STATIC, P2-PR-CONTRACT, P2-PR-RECOVERY, P2-PHASE-EXIT-CONTAINER]
+    evidence:
+      - route-action-authorization-inventory
+      - artifact-and-parser-negative-matrix
+      - finite-resource-policy
+      - redaction-scan
+      - restored-restricted-policy
+      - container-hardening-inspection
+  - requirement_id: P2-REQ-OPERATIONS
+    description: Observability, readiness, identity, capacity, ownership and reconciliation scheduling
+    decision_ids:
+      - P2-R9-D01
+      - P2-R9-D02
+      - P2-R9-D03
+      - P2-R9-D04
+      - P2-R9-D05
+      - P2-R9-D06
+      - P2-R9-D07
+      - P2-R9-D08
+      - P2-R9-D09
+    formal_owners:
+      - formal/contracts/repository-service.md
+      - formal/contracts/performance-measurement-and-baseline.md
+    work_packages: [WP2, WP3, WP4, WP6, WP7, WP8, WP9]
+    gates: [P2-PR-CONTRACT, P2-PR-RECOVERY, P2-PHASE-EXIT-CONTAINER]
+    evidence:
+      - typed-telemetry-and-audit
+      - readiness-degradation
+      - runtime-build-environment-identity
+      - verification-keyed-capacity-series
+      - durable-root-lock-epoch
+      - fair-reconciliation-cadence
+  - requirement_id: P2-REQ-GATES
+    description: Gate classes, conformance matrix, faults, security, compatibility and exact exit
+    decision_ids:
+      - P2-R10-D01
+      - P2-R10-D02
+      - P2-R10-D03
+      - P2-R10-D04
+      - P2-R10-D05
+      - P2-R10-D06
+      - P2-R10-D07
+      - P2-R10-D08
+      - P2-R10-D09
+      - P2-R10-D10
+      - P2-R10-D11
+      - P2-R10-D12
+      - P2-R10-D13
+    formal_owners:
+      - formal/contracts/fixture-oracle-and-conformance.md
+      - formal/contracts/repository-service.md
+      - formal/plans/phase-2-implementation-design-and-delivery-plan.md
+    work_packages: [WP0, WP1, WP2, WP4, WP5, WP6, WP7, WP8, WP9]
+    gates: [P2-PR-STATIC, P2-PR-CONTRACT, P2-PR-RECOVERY, P2-PHASE-EXIT-CONTAINER]
+    evidence:
+      - required-cell-coverage
+      - immutable-attempts
+      - typed-fault-receipts
+      - compatibility-snapshots
+      - phase1-protected-identity
+      - production-tls-container-exit
+  - requirement_id: P2-REQ-DELIVERY
+    description: WP/R dependency, physical ownership, handoffs, rollback and release execution
+    decision_ids:
+      - P2-R11-D01
+      - P2-R11-D02
+      - P2-R11-D03
+      - P2-R11-D04
+      - P2-R11-D05
+      - P2-R11-D06
+      - P2-R11-D07
+      - P2-R11-D08
+      - P2-R11-D09
+      - P2-R11-D10
+      - P2-R11-D11
+      - P2-R11-D12
+      - P2-R11-D13
+      - P2-R11-D14
+      - P2-R11-D15
+      - P2-R11-D16
+      - P2-R11-D17
+      - P2-R11-D18
+      - P2-R11-D19
+      - P2-R11-D20
+      - P2-R11-D21
+      - P2-R11-D22
+      - P2-R11-D23
+      - P2-R11-D24
+      - P2-R11-D25
+      - P2-R11-D26
+    formal_owners:
+      - formal/plans/phase-2-implementation-design-and-delivery-plan.md
+    work_packages: [F0, WP0, WP1, WP2, WP3, WP4, WP5, WP6, WP7, WP8, WP9]
+    gates: [P2-PR-STATIC, P2-PR-CONTRACT, P2-PR-RECOVERY, P2-PHASE-EXIT-CONTAINER]
+    evidence:
+      - revision-entry-exit-records
+      - physical-owner-report
+      - consumer-ready-checkpoint
+      - runbook-and-capacity-profile
+      - exact-candidate-signoff
+superseded_decisions:
+  - decision_id: P2-R0-D01
+    superseded_by: P2-R0-D06
+  - decision_id: P2-R0-D03
+    superseded_by: P2-R0-D07
+  - decision_id: P2-R1-D07
+    superseded_by: P2-R1-D10
+  - decision_id: P2-R1-D08
+    superseded_by: P2-R1-D11
+  - decision_id: P2-R2-D08
+    superseded_by: P2-R2-D16
+  - decision_id: P2-R2-D11
+    superseded_by: P2-R2-D17
+  - decision_id: P2-R2-D12
+    superseded_by: P2-R2-D20
+blocking_register:
+  - id: F0-B1
+    status: closed
+    evidence: user-confirmed-rounds-cdr-consumer-check-and-formalization
+  - id: F0-B2
+    status: closed
+    evidence: formal-supersession
+  - id: F0-B3
+    status: closed
+    evidence: this-traceability-file
+  - id: F0-B4
+    status: closed
+    evidence: formal/plans/phase-2-f0-validation-report.md

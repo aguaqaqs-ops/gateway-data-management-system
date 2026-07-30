@@ -10,7 +10,11 @@
 
 ## Context
 
-Phase 0 时完整 `storage projection -> Repository import -> full readback` 路径尚不存在，无法产生可信 numeric baseline。使用 legacy numbers 或小型方向性实验作为目标会混合不同架构、dataset、环境和计时边界，也会把兼容对比错误提升为性能门禁。
+Phase 0时完整
+`storage projection -> Repository import -> requested verification`
+路径尚不存在，无法产生可信numeric baseline。使用legacy numbers或小型方向性实验
+作为目标会混合不同架构、dataset、verification policy、环境和计时边界，也会把
+兼容对比错误提升为性能门禁。
 
 ## Decision
 
@@ -32,6 +36,7 @@ Phase 0 没有 numeric report，但形成可执行 capture contract。Repository
 ## Required Verification
 
 - Profile/workload/stage/metric schema 与 production entrypoint validation。
-- Container health、restart、volume、environment fingerprint 和 full readback gate。
+- Container health、restart、volume、environment fingerprint和requested
+  verification gate；不同verification level使用独立series。
 - Sample eligibility、multi-generation retention/GC 和 immutable record lifecycle tests。
 - Formal/CI 中不存在 legacy-vs-vNext performance gate。

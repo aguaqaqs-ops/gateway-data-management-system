@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.canonical-storage-and-repository-boundary`
 
 Owner：Table Rules/Storage Projection（canonical content）；Repository Service（generic repository effect）
 
-Semantic version：`1.0.0`
+Semantic version：`2.0.0`
 
 Storage projection version：`1`
 
@@ -19,7 +19,7 @@ Immutable SourcePackageArtifact (raw upload authority)
   -> parse + frozen table rules + storage projection
   -> CanonicalizationManifest + RepositoryImportArtifact
   -> Repository Service generic import/commit
-  -> full post-commit SnapshotManifest readback
+  -> caller-selected post-commit verification evidence
 ```
 
 SourcePackageArtifact 保存原始 bytes、provenance 和 replay authority。Dolt commit 保存 canonical business state，不保证复原原始 SQL schema、所有物理列或原始 DDL。Submit 成功时 source artifact retention 提升为 submission durable；读取原始输入必须回到该 artifact。
@@ -74,19 +74,68 @@ Table Rules/Storage Projection owner 拥有其语义。Repository Service 可以
 
 `SnapshotTableArtifact` 是 Preview 产生的 immutable full-row table facts。仅在尚未被接受的 current Preview 或 active SubmitAttempt 需要时持久 pin。AcceptSubmit T1 将 pin responsibility 从 Preview 原子转给 Attempt；历史 Preview 引用本身不继续 pin。Attempt 进入 `FINALIZED/ABORTED` 后释放 pin，artifact 转为可重算 cache material。第一版不长期保存重复 full-row archive。
 
-长期审计/恢复权威为 durable SourcePackageArtifact、accepted canonical Dolt commit、CanonicalizationManifest 和 SnapshotManifest。需要重算未 pin full-row facts 时，从 source artifact 按固定 parser/ruleset contract 重建。
+长期审计/恢复权威为durable SourcePackageArtifact、accepted canonical Dolt commit、
+CanonicalizationManifest和所请求level的verification evidence。需要重算未pin
+full-row facts时，从source artifact按固定parser/ruleset contract重建。
 
 Submit 从 exact Preview-bound SnapshotTableArtifact 开始，不重新解析 SQL。`RepositoryImportArtifact` 包含 canonical schema/rows 与 content digest；每个 Attempt 只构建一次并持久 checkpoint。Retry、takeover/reconcile 复用相同 ref/digest，不能重建后以新请求替换。
 
-若 Preview-bound canonical business digest 与 base 相同，AcceptSubmit 在 Attempt 前返回 `NO_CANONICAL_CHANGE`：不构建 RepositoryImportArtifact、不提升 source artifact retention、不调用 Repository。Attempt 终态后 RepositoryImportArtifact 也解除 durable pin；accepted commit 的长期 authority 由 SourcePackageArtifact、CanonicalizationManifest、SnapshotManifest 与 canonical Dolt history 共同提供。
+若Preview-bound canonical business digest与base相同，AcceptSubmit在Attempt前返回
+`NO_CANONICAL_CHANGE`：不构建RepositoryImportArtifact、不提升source artifact
+retention、不调用Repository。Attempt终态后RepositoryImportArtifact也解除durable
+pin；accepted commit的长期authority由SourcePackageArtifact、
+CanonicalizationManifest、所请求level的verification evidence与canonical Dolt
+history共同提供。
 
 ## 6. Repository import、journal 与 readback
 
-Repository Service 通过 public wire contract 接收 RepositoryImportArtifact，只执行通用 operation journal、writer serialization、Dolt apply/commit、ref/CAS、catalog/stream 和 readback。
+Repository Service通过public wire contract接收RepositoryImportArtifact，只执行
+通用operation journal、writer serialization、Dolt apply/commit、ref publication、
+catalog/stream和caller-requested verification。
 
-正常写路径必须从 committed ref 全量流式读取本次 commit 的全部 required canonical/protected tables，生成 versioned `SnapshotManifest`，校验每表 schema、row count、content/ordering digest 和 ordered invariants。不得复用 import input、内存 rows 或旧 VERIFIED evidence替代 normal readback。匹配后 journal 才进入 VERIFIED；业务 finalize 只接受 matching VERIFIED evidence。
+Caller必须显式选择`NONE | STRUCTURAL | FULL`且无server default。NONE只验证effect/
+publication evidence；STRUCTURAL从committed snapshot检查required table set、schema、
+row count和protected metadata；FULL再流式读取全部required canonical/protected rows，
+生成versioned`SnapshotManifest`并检查content/ordering digest和ordered invariants。
+完成requested level后journal进入VERIFIED；裸VERIFIED不代表FULL。需要FULL的业务
+finalize必须同时检查`completed_verification_level=FULL`和matching
+SnapshotManifest。
 
-RepositoryImportArtifact 是 Storage Projection owner 的 content contract；通用 artifact envelope 由 Artifacts owner 拥有；SnapshotManifest wire/readback schema 由 Repository Service 拥有，期望 canonical fields 的语义仍由 Storage Projection owner 定义。
+FULL不得复用import input、内存rows或旧VERIFIED evidence替代committed snapshot
+readback。NONE/STRUCTURAL不得隐式执行FULL scan。独立后验VerifyCommit不改写原
+operation或既有业务结果。
+
+RepositoryImportArtifact是Storage Projection owner的content contract；通用artifact
+envelope由Artifacts owner拥有；verification evidence wire schema由Repository
+Service拥有，期望canonical fields语义仍由Storage Projection owner定义。
+
+### 6.1 RepositoryImportArtifact v1 package
+
+V1 media type为
+`application/vnd.gateway.repository-import.v1+tar+zstd`。解压后必须恰有两个regular
+file，顺序固定：
+
+```text
+manifest.json
+replay.sql
+```
+
+禁止其他entry、absolute/traversal path、duplicate、link、device、FIFO和extended
+filesystem metadata。`manifest.json`是UTF-8 JCS JSON，至少包含content contract/
+storage projection/canonical encoding/ruleset identity、source artifact digest、
+ordered table list、每表schema/key/row count/content/ordering digest、replay raw
+SHA-256及CanonicalizationManifest digest。Artifact semantic content digest按已登记
+digest kind覆盖manifest canonical bytes与replay raw digest；tar/zstd偶然bytes只由
+ArtifactRef raw digest校验。
+
+`replay.sql`是Storage Projection生成的确定性snapshot replay，不是上传者原始SQL。
+V1 grammar只允许manifest表上的quoted identifier、`DROP TABLE IF EXISTS`、
+`CREATE TABLE`（closed logical-type mapping、declared primary key）和batched
+`INSERT ... VALUES`；statement/table/column顺序与manifest一致。禁止SELECT、generic
+expression、function、procedure、trigger、view、temporary object、ALTER、database/
+user/grant/system mutation、file/network access、extension和session setting。Literal
+必须按Shared Canonical Encoding和repository logical type mapping round-trip。
+Service在effect前增量验证package、grammar、statement/table/schema binding和limits。
 
 ## 7. Projection upgrade/schema alignment
 
@@ -108,7 +157,8 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 - Dropped-column-only change 得到相同 canonical business digest，且 no-change Submit 无 effect。
 - Missing/duplicate key、row loss、reserved gid、非法 no 全部 fail closed。
 - Pseudo gid 在重算、retry、Rust/Python 和 readback 后确定一致。
-- 每次正常 write 完成 full committed-ref SnapshotManifest readback 后才 VERIFIED。
+- 每次write完成caller-requested verification后才VERIFIED；需要FULL的consumer必须
+  取得matching committed-ref SnapshotManifest。
 - Attempt retry 复用相同 RepositoryImportArtifact；活跃期结束后 full-row pin 被释放。
 - Projection version change 使用 alignment/fallback，不错误使用 native diff。
 
@@ -116,6 +166,7 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 
 - [Shared Canonical Encoding](shared-canonical-encoding.md)
 - [External Effect and Recovery](external-effect-and-recovery.md)
+- [Repository Service](repository-service.md)
 - [ADR 0004](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)

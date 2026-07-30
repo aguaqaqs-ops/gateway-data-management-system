@@ -25,5 +25,8 @@ temporary/phase-1/
 - [Project Environment Preparation](project-environment-preparation.md)
 - [Phase 1 Closure Sign-off](phase-1/phase-1-closure-signoff.md)（Phase 1 已于
   2026-07-27 收口；其余 Phase 1 临时材料保留为历史证据）
+- [Phase 2 Interactive Design Session Guide](phase-2/interactive-design-session-guide.md)
+  （Round 0–11、Consolidated Review、consumer check与F0已于2026-07-30收口；
+  临时材料保留为decision history）
 
 不得把临时文档直接改名为正式文档；正式文档需要去除讨论过程，并重新表述 owner、规则、版本和验收标准。

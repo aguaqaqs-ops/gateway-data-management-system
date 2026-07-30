@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.fixture-oracle-and-conformance`
 
 Owner：Conformance Harness；scenario expected content 由对应 semantic owner 拥有
 
-Semantic version：`1.0.0`
+Semantic version：`1.1.0`
 
 Manifest schema version：`1 | 2`
 
@@ -498,6 +498,33 @@ External benchmark lane 使用同一 dataset identity、runner result和 correct
 
 Golden 更新必须显示 candidate diff、owner approval、intentional-change 分类、contract/version/digest 影响；普通测试运行禁止自动 bless。
 
+### 9.1 Phase 2 Repository profile matrix
+
+Repository Service conformance按owner-versioned matrix分层：
+
+| Layer | Fake | Local | Remote |
+| --- | --- | --- | --- |
+| semantic core | required | required | required |
+| real storage/provider | N/A | required | required |
+| HTTP/auth/stream/process/container | N/A | N/A | required |
+
+N/A必须在preflight matrix中声明；required cell不得用runtime skip、xfail或
+UNSUPPORTED通过。Fake不模拟Dolt/filesystem/restart guarantee；所有public v1
+semantics至少由Local和Remote共同证明。跨独立run比较owner-defined canonical
+observation和identity关系，不要求server-generated opaque ID bytes相同。
+
+Required scenarios至少覆盖caller-selected`NONE/STRUCTURAL/FULL`、
+`CHECK_EXPECTED/LAST_WRITE_WINS`、`EXACT/LATEST_AT_START`、artifact/stream
+integrity、idempotency、journal/fencing、UNKNOWN/restart、Current transaction
+marker、maintenance checkpoints、authorization/input/resource/container negative。
+Expected typed rejection或verification failure只要与golden匹配即可PASSED；无法形成
+可信observation或fault/cleanup失败仍是HARNESS_ERROR。
+
+Scenario result沿用本文四态；Phase 2 gate aggregate只使用
+`PASS | FAIL | BLOCKED`。BLOCKED仅允许semantic execution前的外部环境不可用，不
+允许assertion failure、missing required cell或cleanup leak。禁止automatic retry；
+显式same-key retry只能作为scenario stimulus。
+
 ## 10. Classification 与版本
 
 Module public：是。Persisted：fixture/golden/evidence manifest。Wire：YAML/JCS JSON/owner artifact formats。
@@ -539,3 +566,4 @@ tests and golden fixtures: scenario-manifest v1/v2 schema tests；owner-closure-
 - [ADR 0006](../adr/0006-language-neutral-fixture-oracle.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)
+- [Repository Service](repository-service.md)

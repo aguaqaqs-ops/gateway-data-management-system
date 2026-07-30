@@ -167,7 +167,7 @@ infrastructure adapters
 | 模块 | 主要职责 |
 | --- | --- |
 | `workspace` | Workspace OPEN/CLOSED 生命周期、UploadRevision、immutable PreviewResult、当前引用与占用。 |
-| `submission` | SubmitAttempt、VERIFIED 后的 Submission、PENDING/APPROVED/REJECTED/RETURNED/WITHDRAWN review projection。 |
+| `submission` | SubmitAttempt、business-required FULL evidence后的Submission、PENDING/APPROVED/REJECTED/RETURNED/WITHDRAWN review projection。 |
 | `archive` | Confirmation/AnomalyResolution、derived CandidateProjection、pure PreviewArchivePlan、frozen ArchivePlan、Execution/Result。 |
 | `baseline` | Immutable BaselineNode 与当前 BaselineHead pointer；不拥有 batch。 |
 | `history` | 历史比较请求和结果身份；不拥有通用 comparison 算法。 |
@@ -390,16 +390,16 @@ repository wire contracts
 
 ### 9.1 服务定位
 
-Repository Service 是通用表数据版本库，不理解本项目的 Workspace、Submission、Preview、Archive、Baseline、History、Snapshot、Risk 或 Bundle。
+Repository Service 是通用table repository，不理解本项目的 Workspace、Submission、Preview、Archive、Baseline、History、Snapshot、Risk 或 Bundle。它在同一RepositoryId下提供相互独立的Dolt-backed VersionedTableStore和SQLite-backed CurrentTableStore；caller显式选择store，Service不拥有persistence policy、不自动routing、不保证cross-store consistency。
 
 服务拥有：
 
 - Repository 生命周期和持久化目录。
-- commit、branch、tag、ref resolve 和原子 CAS 更新。
-- import、catalog、row stream、table export 和通用 native diff。
-- 单 repository writer lease 和并发控制。
-- repository operation、幂等、审计、cache 和 GC。
-- PREPARED/APPLIED/VERIFIED journal、full committed-ref SnapshotManifest readback 和 recovery evidence。
+- Versioned commit/ref/import/catalog/row stream/export和通用technical raw diff。
+- Current latest-only catalog/table、bulk replace和bounded row/field mutation。
+- store-scoped writer lease、caller-explicit concurrency和pinned read。
+- repository operation、幂等、typed audit event、cache、GC、backup/restore/delete。
+- PREPARED/APPLIED/VERIFIED journal、caller-selected verification evidence和recovery。
 - Dolt CLI/sql-server 生命周期、版本升级和存储恢复。
 
 业务系统拥有：
@@ -407,6 +407,7 @@ Repository Service 是通用表数据版本库，不理解本项目的 Workspace
 - 哪个 Workspace/Submission 可以写入。
 - 哪个 derived CandidateProjection/ArchivePlan 可以晋升主线。
 - ruleset、storage/comparison projection、CanonicalizationManifest、SnapshotSummary、Comparison 和 Risk 语义。
+- table应写入Versioned还是Current、是否dual-write及两侧是否等价。
 - 业务 retention、审批、权限和状态机。
 
 “Promote mainline”在业务侧完成候选校验，Repository Service 只执行通用原子操作：
@@ -421,35 +422,16 @@ CompareAndSetRef(
 )
 ```
 
-### 9.2 最小通用 API
+### 9.2 公共API
 
-控制面：
+公共面包含repository lifecycle/policy、repository-bound artifact、Versioned read/
+write/ref、Current latest-only table、cross-store inventory以及plan-before-execute
+maintenance。精确operation、identity、closed DTO、stream、failure和security规则由
+[Repository Service Contract](../contracts/repository-service.md)唯一规定。
 
-```text
-CreateRepository
-GetRepository
-SubmitImport
-GetOperation
-ResolveRef
-CreateRef
-CreateImmutableRef
-CompareAndSetRef
-DeleteRef
-GetCommit
-PlanGarbageCollection
-ExecuteGarbageCollection
-```
-
-数据面：
-
-```text
-GetCatalog(repository_id, commit_hash)
-StreamTableRows(repository_id, commit_hash, table, projection, cursor)
-ExportTable(repository_id, commit_hash, table, format)
-DiffRefs(repository_id, before_commit, current_commit, options)
-```
-
-外部 API 优先使用 immutable commit。客户端 `open_ref()` 可以保留为便利 API，但其语义是先 resolve，再让后续请求显式绑定 resolved commit；不依赖服务端进程内 Python session。
+Read必须显式选择`EXACT | LATEST_AT_START`并返回resolved immutable binding；
+mutable write必须显式选择`CHECK_EXPECTED | LAST_WRITE_WINS`。客户端`open_ref()`
+只是resolve + pinned commit便利封装，不创建server session。
 
 ### 9.3 Import 与 artifact
 
@@ -460,28 +442,39 @@ SubmitImport(
   repository_id,
   base_commit,
   target_ref,
-  expected_target_commit,
-  repository_import_artifact,
+  concurrency_mode,
+  expected_target_commit?,
+  repository_import_artifact_ref,
   artifact_digest,
+  verification_level,
   idempotency_key
 ) -> repository_operation_id
 ```
 
-成功结果返回 commit、ref、journal evidence 和 versioned SnapshotManifest，不返回服务端 `repository_path` 或 `run_dir`。业务侧先从 frozen Preview table facts 生成 canonical RepositoryImportArtifact；Repository Service 不解析原始业务 SQL、不选择 ignored column 或 pseudo gid。Normal write 必须 full scan committed ref 后才记录 VERIFIED。
+成功结果返回commit、ref、journal evidence、requested/completed verification及
+level-specific evidence，不返回服务端`repository_path`或`run_dir`。业务侧先从
+frozen Preview table facts生成canonical RepositoryImportArtifact；Repository
+Service不解析原始业务SQL、不选择ignored column或pseudo gid。Caller必须显式选择
+`NONE | STRUCTURAL | FULL`；需要业务T3 FULL evidence的consumer自行请求FULL并检查
+matching SnapshotManifest。
 
 大型 SQL、Parquet 和 export 不进入普通 JSON payload：
 
-- 控制请求使用 HTTP/gRPC。
-- 大文件使用对象存储 URI、预签名 URL 或流式上传。
+- 控制请求使用versioned HTTP closed schema。
+- 大文件使用authenticated repository-bound streaming upload；不接受URL、host path
+  或anonymous presigned URL。
 - 大规模 row read 使用流式协议或 Parquet artifact。
 - Artifact handle 至少包含 artifact ID、digest、size、media type 和可控生命周期。
 
 ### 9.4 容器与运行约束
 
-- 一个 repository 同时只有一个 writer owner。
+- 一个`(RepositoryId, StoreKind)`同时只有一个mutation writer owner；两个store可
+  并行，不同repository受node ResourcePolicy约束并行。
 - 多实例不得无协调共享可写 `.dolt` 目录。
-- ref 更新使用 expected commit/CAS，不能依赖客户端“先读后写”。
-- 单节点可使用 persistent volume 和 repository-local SQLite registry。
+- mutable publication由caller显式选择checked或LWW；immutable/protected/internal
+  resource始终fail closed。
+- v1使用单ASGI process、单durable-root lock、global registry SQLite和
+  per-repository control/current SQLite。
 - 多副本需要 repository ownership/sharding 和共享控制面 registry。
 - 固定 Dolt 版本；升级必须有兼容性检查、备份、迁移和回滚方案。
 - backup 覆盖 Dolt 数据、registry 和 operation journal，并定期执行恢复演练。
@@ -611,24 +604,22 @@ Phase 0  oracle + fixture/measurement contract and capture gate
 - 业务容器没有 Dolt 二进制，不挂载 repository volume。
 - 业务 contract 不出现 `repository_path`、`run_dir` 或服务端本地 artifact path。
 - Repository Service contract 不出现 Workspace、Submission、Archive、Baseline、History 等业务语义。
-- Repository 写操作具备幂等、CAS、审计、资源限制、备份和恢复能力。
-- Repository write 在 full readback VERIFIED 前不能产生 Submission/ArchiveResult，unknown effect 不 blind replay。
+- Repository写操作具备幂等、显式checked/LWW、typed audit、资源限制、备份和恢复
+  能力。
+- 需要FULL的业务consumer只有在`completed_verification_level=FULL`且matching
+  SnapshotManifest后才可finalize；unknown effect不blind replay。
 - Raw SourcePackageArtifact 与 canonical Dolt state 权威分离，storage/comparison projection 分离。
 - Python、Rust、Repository 通过同一 canonical encoding vectors 与 language-neutral fixture conformance。
 - 正式业务旅程、artifact closure、digest 和前端 contract 通过验收。
 
 ## 14. 待补 ADR
 
-以下 ADR 已完成：[最小持久状态（0002）](../adr/0002-minimal-persisted-business-state.md)、[external-effect reconciliation（0003）](../adr/0003-external-effect-reconciliation.md)、[raw artifact/canonical Dolt（0004）](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)、[shared canonical encoding（0005）](../adr/0005-shared-canonical-encoding.md)、[language-neutral fixture oracle（0006）](../adr/0006-language-neutral-fixture-oracle.md)和 [vNext performance baseline authority（0007）](../adr/0007-vnext-performance-baseline-authority.md)。仍待收口：
+以下 ADR 已完成：[最小持久状态（0002）](../adr/0002-minimal-persisted-business-state.md)、[external-effect reconciliation（0003）](../adr/0003-external-effect-reconciliation.md)、[raw artifact/canonical Dolt（0004）](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)、[shared canonical encoding（0005）](../adr/0005-shared-canonical-encoding.md)、[language-neutral fixture oracle（0006）](../adr/0006-language-neutral-fixture-oracle.md)、[vNext performance baseline authority（0007）](../adr/0007-vnext-performance-baseline-authority.md)和[generic dual-store/caller-selected rigor（0008）](../adr/0008-generic-dual-store-and-caller-selected-rigor.md)。
 
-1. Repository Service transport：REST、gRPC、Arrow Flight 或组合方案。
-2. 大型 import/export artifact 的存储、上传和授权方式。
-3. Repository ownership/sharding 与多副本 writer 模型。
-4. Repository operation/idempotency journal 的具体持久化技术（journal/evidence 语义已由 contract 固定）。
-5. Domain persistence 的数据库和 transaction/outbox 实现技术（原子语义已固定）。
-6. Repository transport-level Arrow/stream schema（canonical scalar/type/null/order 已固定）。
-7. Dolt 版本升级、repository format migration、legacy repository cutover compatibility 和 rollback 策略。
-8. `SnapshotSummary` hidden table 的物理写入方式；它仍是业务生成的普通版本化数据，Repository Service 不解释其业务内容。
+Phase 2已固定HTTP/framed Arrow/Parquet、repository-bound upload、single-root writer、
+SQLite journal和首个linux/amd64 platform。仍非Phase 2 v1范围的是multi-node
+sharding/shared writer、legacy repository cutover、额外platform/provider、
+resumable multipart/object storage，以及`SnapshotSummary`等业务table的生成规则。
 
 ## 15. 与现有文档的关系
 

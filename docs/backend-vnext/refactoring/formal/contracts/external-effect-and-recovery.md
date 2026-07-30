@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.external-effect-and-recovery`
 
 Owner：Submit/Archive Application（业务 execution）；Operations（通用执行）；Repository Service（effect evidence）
 
-Semantic version：`1.0.0`
+Semantic version：`2.0.0`
 
 ## 1. 目的与 owner 分界
 
@@ -51,7 +51,7 @@ T2 External effect (durable worker + Repository Service)
   reconcile uncertain outcomes
 
 T3 Finalize (business DB transaction)
-  require matching VERIFIED evidence
+  require matching evidence at the business-owner required verification level
   create Submission or ArchiveResult/BaselineNode
   transition execution and business refs atomically
   persist integration outbox record atomically
@@ -59,13 +59,17 @@ T3 Finalize (business DB transaction)
 
 Outbox delivery 发生在 T1/T3 commit 之后；业务状态与待投递 outbox record 必须同事务。正式故障点名称为 `after_business_finalize_before_outbox_delivery`。
 
-## 4. Repository journal 与 full evidence
+## 4. Repository journal 与 verification evidence
 
 每个外部请求具有 immutable idempotency key、request digest 和（适用时）RepositoryImportArtifact digest。Repository journal 至少区分：
 
 - `PREPARED`：请求被接受并获得确定 operation identity。
 - `APPLIED`：commit/ref effect 已形成，记录 before/after commit 等 effect evidence。
-- `VERIFIED`：operation-kind-specific verification 完成。Submit import 必须 full scan committed ref 并匹配 SnapshotManifest；Archive ref CAS 必须匹配 request digest、before/after commit 与当前 ref evidence，目标 commit 沿用 Submit 时已完成的内容验证，不重复全表扫描。
+- `VERIFIED`：caller-requested、operation-kind-specific verification完成。Submit
+  import由caller显式选择`NONE | STRUCTURAL | FULL`；裸VERIFIED不代表FULL。需要
+  business finalize的Submit显式请求FULL并检查completed level及matching
+  SnapshotManifest。Archive ref mutation匹配request digest、before/after commit与
+  current ref evidence，目标commit沿用Submit时已完成的内容验证，不重复全表扫描。
 
 Reconciler 的 effect classification 只允许：
 
@@ -73,7 +77,7 @@ Reconciler 的 effect classification 只允许：
 | --- | --- | --- |
 | `NOT_APPLIED` | 权威证明无 effect 且旧请求不再运行 | 使用原 key 重放，或 ABORT |
 | `UNKNOWN` | 证据不足或仍可能应用 | 保持 EFFECT_PENDING，继续查询/人工修复 |
-| `APPLIED` | effect 已发生，尚未 VERIFIED/finalized | readback、验证和 finalize；禁止重发 |
+| `APPLIED` | effect已发生，尚未完成requested verification/finalize | 按原request完成verification；禁止重发 |
 
 业务侧先查本地 Finalize 结果，再查 Repository journal/operation/commit/ref 证据。不得仅凭超时、连接中断、worker lease、HTTP code 或客户端异常推断 `NOT_APPLIED`。
 
@@ -85,11 +89,17 @@ Reconciler 的 effect classification 只允许：
 
 1. 加载 durable checkpoint 与 Repository operation identity。
 2. 查询 Repository journal/effect evidence。
-3. `VERIFIED/APPLIED` 时从相应 checkpoint 向前完成验证或 T3。
+3. `VERIFIED/APPLIED`时从相应checkpoint向前完成caller-requested verification；
+   只有满足business owner policy的evidence才进入T3。
 4. `UNKNOWN` 时继续 reconcile，不调用写 API。
 5. 仅有 explicit `NOT_APPLIED` evidence 时，才允许以原 key 重发原 bytes。
 
-任何 handler 不能把“重做整个 step”作为默认恢复策略。Readback mismatch 保留 effect evidence 和占用，不创建业务成功结果，也不伪装为可安全重试。
+任何handler不能把“重做整个step”作为默认恢复策略。Requested STRUCTURAL/FULL
+mismatch保留effect evidence，不创建业务成功结果，也不伪装为可安全重试。Repository
+operation可以终止为`FAILED + effect=APPLIED`，在持久failure evidence后释放对应
+Repository store mutation lane；它不自动回滚、不重发，也不替business owner决定
+是否释放T1 occupancy。只有authority contradiction或storage corruption才
+quarantine。
 
 ## 6. FailureDescriptor
 
@@ -144,7 +154,9 @@ Module public：是。Persisted：必须。Wire：business persistence + Reposit
 - T1/T3 的业务事实、Operation/outbox 原子性有 transaction tests。
 - 每个 request acceptance 后故障都从 journal/evidence 恢复，无 blind replay。
 - Repository restart、worker takeover、重复投递和 Finalize crash 最终只产生一个业务结果。
-- `UNKNOWN/APPLIED` 不释放占用；只有 VERIFIED finalize 或 explicit `NOT_APPLIED` abort 释放。
+- `UNKNOWN/APPLIED`不允许blind replay。Business occupancy只有在owner-required
+  evidence完成finalize或explicit `NOT_APPLIED` abort后释放；ordinary verification
+  mismatch可以释放Repository store lane但不自动释放business occupancy。
 - Python/Repository 对 request digest、operation identity 和 evidence status 的解释一致。
 - 故障场景使用正式 `...before_outbox_delivery` 名称。
 
@@ -156,3 +168,4 @@ Module public：是。Persisted：必须。Wire：business persistence + Reposit
 - [ADR 0003](../adr/0003-external-effect-reconciliation.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)
+- [Repository Service](repository-service.md)

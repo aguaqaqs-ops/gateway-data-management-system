@@ -14,6 +14,9 @@
 - [Architecture and Refactoring Plan](architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](plans/implementation-stages.md)
 - [Phase 1 Implementation Design and Delivery Plan](plans/phase-1-implementation-design-and-delivery-plan.md)
+- [Phase 2 Implementation Design and Delivery Plan](plans/phase-2-implementation-design-and-delivery-plan.md)
+- [Phase 2 Requirement Traceability](plans/phase-2-requirement-traceability.yaml)
+- [Phase 2 F0 Formal Closure Validation Report](plans/phase-2-f0-validation-report.md)
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)
@@ -23,6 +26,7 @@
 - [Canonical Row Hash Compute Boundary Contract](contracts/canonical-row-hash-compute-boundary.md)
 - [Fixture Oracle and Conformance Contract](contracts/fixture-oracle-and-conformance.md)
 - [Canonical Storage and Repository Boundary Contract](contracts/canonical-storage-and-repository-boundary.md)
+- [Repository Service Contract](contracts/repository-service.md)
 - [Performance Measurement and Baseline Contract](contracts/performance-measurement-and-baseline.md)
 - [ADR 0001: Python/Rust Hybrid Compute Strategy](adr/0001-python-rust-hybrid-compute-strategy.md)
 - [ADR 0002: Minimal Persisted Business State](adr/0002-minimal-persisted-business-state.md)
@@ -31,6 +35,7 @@
 - [ADR 0005: Shared Canonical Encoding](adr/0005-shared-canonical-encoding.md)
 - [ADR 0006: Language-Neutral Fixture Oracle](adr/0006-language-neutral-fixture-oracle.md)
 - [ADR 0007: vNext Performance Baseline Authority](adr/0007-vnext-performance-baseline-authority.md)
+- [ADR 0008: Generic Dual-Store Repository and Caller-Selected Rigor](adr/0008-generic-dual-store-and-caller-selected-rigor.md)
 
 ## 权威关系
 

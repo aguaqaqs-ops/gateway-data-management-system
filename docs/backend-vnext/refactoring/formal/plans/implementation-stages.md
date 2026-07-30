@@ -75,7 +75,10 @@ Phase 8  Shadow Traffic and Cutover
 Phase 9  Cleanup and Production Hardening
 ```
 
-Phase 2 至 Phase 4 可以在接口稳定后有限并行，但必须共同服务于 Phase 5 的纵切，而不是独立扩张范围。
+Phase 2完成WP7 consumer-ready checkpoint后，Phase 3详细交互设计可以与Phase 2
+WP8–WP9并行；Phase 3 production implementation必须等待Phase 2 clean exact-commit
+exit PASS。Phase 4及后续同样必须共同服务于Phase 5纵切，不得以“并行”为由静默
+修改已冻结Phase 2 contract或独立扩张范围。
 
 ## 3. Phase 0：Baseline and Oracle
 
@@ -244,81 +247,88 @@ Phase exit不接受semantic waiver、`xfail`、advisory-only required lane、临
 
 ### 目标
 
-优先建立真正可运行、独立、通用、容器化的 Repository Service，使业务系统不再依赖 Dolt CLI 和仓库本地路径，并提供 accepted baseline 所需的可测 production environment。
+优先建立真正可运行、独立、通用、容器化的Repository Service，使业务系统不再
+依赖Dolt CLI、SQLite文件或repository本地路径，并提供accepted baseline所需的
+可测production environment。
 
-Journal/recovery 与 canonical import/readback 分别遵守 [External Effect and Recovery](../contracts/external-effect-and-recovery.md) 和 [Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md)。
+完整实施顺序、revision、gate、evidence和rollback由
+[Phase 2 Implementation Design and Delivery Plan](phase-2-implementation-design-and-delivery-plan.md)
+拥有；public/persisted语义由
+[Repository Service Contract](../contracts/repository-service.md)拥有。Journal/
+recovery与canonical import分别遵守
+[External Effect and Recovery](../contracts/external-effect-and-recovery.md)和
+[Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md)。
 
 ### 2A：Contract 清理
 
-- 从 repository wire contract 移除 Workspace、Submission、Preview、Archive、Baseline 和 History 语义。
-- 合并重复 RepositoryRef、operation 和 timeout 类型。
-- 将“业务主线晋升”改为业务校验加通用 `CompareAndSetRef`。
-- 规定外部 contract 不返回 `repository_path`、`run_dir` 或服务端 artifact `Path`。
+- 建立`gateway-repository-contracts`、`gateway-repository-client`和
+  `gateway-repository-service`三包单向依赖。
+- 从wire移除Workspace、Submission、Preview、Archive、Baseline和History语义。
+- 固定opaque identity、closed action、typed problem/operation、version和
+  Fake/Local/Remote contract。
+- 外部contract不返回server path、run directory、provider command或本地Artifact
+  `Path`。
 
-### 2B：读侧
+### 2B：Durable foundation与lifecycle
 
-实现：
+- 固定single durable-root owner、global registry、per-repository control、
+  Dolt、lazy Current SQLite和artifact authority。
+- 先以真实Dolt 2.1.11、SQLite和target filesystem完成feasibility stop/go，再公开
+  lifecycle。
+- 实现Create/GetRepository、policy、artifact transfer、operation/journal、
+  idempotency、lease/fencing和evidence-first reconciliation。
 
-```text
-Create/GetRepository
-ResolveRef
-GetCommit
-GetCatalog
-StreamTableRows
-ExportTable
-DiffRefs
-```
+### 2C：Current与Versioned data plane
 
-读请求以 immutable commit 为一致性边界。客户端 `open_ref()` 只是 resolve + pinned commit 的便利封装，不依赖服务端 Python session。
+- CurrentTableStore提供latest-only catalog/table、bounded sync mutation、Arrow bulk
+  mutation和generation-pinned stream/export。
+- VersionedTableStore提供runtime coordination、commit/ref resolve、catalog、
+  commit-pinned stream、export和provider-neutral technical raw diff。
+- Direct stream使用bounded framed Arrow；durable export使用Parquet ArtifactRef；
+  大型input使用authenticated repository-bound upload。
+- Read由caller显式选择`EXACT | LATEST_AT_START`并返回resolved snapshot。
 
-### 2C：写侧
+### 2D：Versioned write与maintenance
 
-实现：
-
-```text
-SubmitImport
-GetOperation
-CreateRef
-CreateImmutableRef
-CompareAndSetRef
-DeleteRef
-Plan/ExecuteGarbageCollection
-```
-
-写侧包含单 repository writer lease、幂等键、PREPARED/APPLIED/VERIFIED operation journal、full committed-ref SnapshotManifest readback、审计和确定 effect classification。Restart/reconciliation 必须先读 evidence，不得重做可能已产生 effect 的请求。
-
-### 2D：客户端与部署
-
-- `FakeRepositoryClient` 用于 domain/application tests。
-- `LocalRepositoryClient` 用于早期 contract integration。
-- `RemoteRepositoryClient` 用于正式容器访问。
-- 大文件使用对象存储引用、预签名 URL 或流式传输，不进入普通 JSON。
-- Repository Service container 自己拥有 Dolt process/binary、registry、journal、repository volume 和 staging；第一版不另拆 Dolt container。
-- 建立持久 volume、Dolt/image identity 固定、readiness/liveness、graceful/non-graceful restart recovery、run-scoped fresh repository 和最小 backup/restore。
-- 暴露 typed measurement spans/counters 与 environment fingerprint；benchmark runner 只能走 production public client/wire contract。
+- Versioned import默认优先candidate为closed canonical SQL replay；Service直接
+  bounded消费artifact，不公开arbitrary SQL。
+- Mutable publication由caller显式选择
+  `CHECK_EXPECTED | LAST_WRITE_WINS`；Versioned import始终携带base CommitId。
+- Async content write由caller显式选择`NONE | STRUCTURAL | FULL`；VERIFIED表示
+  requested policy完成。需要FULL的业务consumer自行检查completed level和
+  SnapshotManifest。
+- 实现ref lifecycle、VerifyCommit、inventory、retention、GC、backup/restore、
+  repair和plan-before-execute delete。
 
 ### 交付物
 
-- Repository Service image。
-- Local/Remote client SDK。
-- Local/Remote contract test suite。
-- Repository operation、并发 CAS 和 restart recovery tests。
-- Full post-commit readback、journal evidence 与可测 container environment。
-- 最小运维 runbook。
+- 三个versioned Python distributions、Repository Service image和production Remote
+  SDK。
+- Current/Versioned public surface及Fake/Local/Remote conformance。
+- Static、Contract、Recovery和exact-commit Container exit gates。
+- Journal/effect/crash、verification/concurrency、security/resource和maintenance
+  evidence。
+- Production TLS/container topology、capacity characterization、runbook和immutable
+  sign-off。
 
 ### 退出条件
 
-- 业务侧仅使用 repository ID/ref/commit/artifact/operation ID。
-- Local 与 Remote 实现对相同 fixture 返回等价 catalog、rows、diff 和 commit。
-- 重复 import/CAS 请求有确定幂等结果。
-- 服务重启不会产生无法判断的半完成写入。
-- Normal write 只有 full readback manifest 匹配后才进入 VERIFIED；unknown outcome 保持可 reconcile。
+- 业务侧仅使用RepositoryId/ref/commit/artifact/operation/generation等public
+  identity。
+- 所有public v1行为至少由Local与Remote以owner-defined canonical observation证明。
+- 所有caller policy组合具备确定idempotency、journal、fencing、effect和recovery。
+- Restart不会blind replay；UNKNOWN保持可reconcile并只阻塞对应store lane。
+- Production Remote只经TLS ingress，service image/durable root/locks/identity固定。
+- 同一clean exact candidate通过全部Phase 2 gate和完整Phase 1 regression。
 
 ### 本阶段不做
 
-- Repository Service 不解释 SnapshotSummary、Comparison、Risk 或业务 hidden table。
-- 不实现业务 candidate selection 和 archive gate。
-- 第一版不追求多节点共享写入；先固定单 repository writer ownership。
+- Repository Service不解释SnapshotSummary、Comparison、Risk、业务hidden table或
+  candidate/archive workflow。
+- 不实现server-ownedstore routing、cross-store transaction/consistency、
+  arbitrary SQL/DDL或service-ownedaudit query。
+- 不实现multi-node shared writer、untrusted tenants共享root、legacy cutover、
+  resumable multipart/object storage或额外production platform。
 
 ## 6. Phase 3：Capability Foundation
 
@@ -326,7 +336,14 @@ Plan/ExecuteGarbageCollection
 
 建立可独立调用、独立测试、无环依赖的 capability 主链，并产出首个业务纵切需要的事实和 artifact。
 
-Storage/comparison projection、artifact retention、ordered identity 和 full-readback expectations 以 [Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md) 为准。
+Entry：Phase 2 WP7 consumer-ready checkpoint允许开始本阶段详细设计；production
+implementation要求Phase 2 exact-commit exit PASS。若consumer evidence需要改变
+Phase 2 public contract，必须显式reopen owning decision/contract。
+
+Storage/comparison projection、artifact retention、ordered identity和business
+verification policy以
+[Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md)
+及[Repository Service Contract](../contracts/repository-service.md)为准。
 
 ### 实现顺序
 
@@ -462,7 +479,7 @@ Workspace submit gate
   -> build/reuse one RepositoryImportArtifact
   -> Repository SubmitImport
   -> poll/checkpoint
-  -> full readback VERIFIED evidence (T2)
+  -> business-required FULL evidence (T2)
   -> create Submission/finalize Workspace (T3)
 ```
 

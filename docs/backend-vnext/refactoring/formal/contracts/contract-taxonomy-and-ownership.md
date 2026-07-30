@@ -2,7 +2,7 @@
 
 状态：正式设计（Accepted）
 
-阶段：Phase 0–1
+阶段：Phase 0–2收口；后续持续治理
 
 本文定义 backend vNext 重构后的 contract 分类、语义所有权、存放位置、依赖方向和变更治理。本文只固定长期规则，不记录讨论过程；讨论记录保留在对应的 `refactoring/temporary/phase-*/` 目录。
 
@@ -246,7 +246,7 @@ location-independent access metadata
 | `SnapshotTableArtifact` full-row facts | Snapshot Materialization capability |
 | `CanonicalizationManifest`、`RepositoryImportArtifact` | Table Rules/Storage Projection capability |
 | Comparison projection table | Comparison Projection capability |
-| `SnapshotManifest` readback envelope | Repository Service；canonical expected fields 由 Storage Projection 定义 |
+| Verification evidence union、`SnapshotManifest` FULL readback envelope | Repository Service；canonical expected fields由Storage Projection定义 |
 | Comparison records | Comparison capability |
 | Ordered records | Ordered Comparison capability |
 | Risk annotations/report | Risk capability |
@@ -281,19 +281,24 @@ SubmissionRepository
 
 Owner：独立 Repository Service。
 
+Normative contract：
+[Repository Service Contract](repository-service.md)。
+
 包含：
 
 ```text
 RepositoryId/Ref/Commit
+RepositoryIncarnationId/CurrentGeneration/ArtifactRef/OperationRef
 ResolveRef
 Create/GetRepository
 SubmitImport/GetOperation
 RepositoryOperationJournal/Evidence
-SnapshotManifest
-Create/Delete/CompareAndSetRef
+VerificationEvidence/SnapshotManifest
+Create/Delete/CompareAndSet/SetRef
 GetCatalog/StreamRows/ExportTable
 DiffRefs
-GC
+Current catalog/table/read/mutation/export
+Policy/Inventory/GC/Backup/Restore/Repair/Delete
 wire error and timeout semantics
 ```
 
@@ -380,7 +385,7 @@ Owner：对应 infrastructure adapter。
 | Storage column policy/key/ordered identity、`CanonicalizationManifest` | Table Rules/Storage Projection capability | Submit、Repository adapter、Fixtures |
 | Comparison `ProjectionSchema`、projection digest | Comparison Projection capability | Snapshot、Comparison、Cache |
 | `RepositoryImportArtifact` content schema | Storage Projection capability | Submit Attempt、Repository Service |
-| `SnapshotManifest` readback/journal schema | Repository Service | Repository adapter、Submit/Archive reconciliation |
+| Verification evidence union与`SnapshotManifest` FULL schema | Repository Service | Repository adapter、Submit/Archive reconciliation |
 | `ComparisonFacts`、standard records | Comparison capability | Risk、Surface、Bundle |
 | Ordered facts/records | Ordered Comparison capability | Risk、Surface、Bundle |
 | `RiskFacts`、`RiskReport` | Risk capability | Surface、Bundle、Application |
@@ -396,7 +401,7 @@ Owner：对应 infrastructure adapter。
 | `CandidateProjection`、`PreviewArchivePlan` | Archive Application read model | Interface、StartArchive |
 | `OperationRecord`、Step、Lease | Operations | Application jobs、Workers、Interface polling |
 | `SubmitFinalizeJobPayload` | Submission Application | Operations handler |
-| Repository ID/ref/commit/CAS wire semantics | Repository Service | Remote Repository adapter |
+| Repository identity/store/read/write/recovery wire semantics | Repository Service | Remote Repository adapter |
 | Business Repository Port | Consuming Application | Repository adapter/fake |
 | Archive mainline promotion decision | Archive Application | Repository Port |
 | Hidden SnapshotSummary table schema/content | Snapshot capability | Snapshot read/write adapter |
@@ -439,7 +444,7 @@ wire: none/json/http/grpc/arrow/parquet
 | `SnapshotTableArtifact` | yes by ref | current Preview/active Attempt only | Arrow/Parquet + manifest |
 | `RepositoryImportArtifact` | yes by ref | active Attempt/checkpoint | artifact stream + manifest |
 | `CanonicalizationManifest` | yes | required for accepted commit | JCS JSON |
-| `SnapshotManifest` | yes | required as VERIFIED evidence | Repository wire/JCS JSON |
+| Verification evidence | yes | required at requested level；SnapshotManifest仅FULL | Repository wire/JCS JSON |
 | `BenchmarkBaselineRecord` | yes | required when accepted | JCS JSON |
 
 `module_public=yes` 不等于必须跨语言序列化；`persisted=yes` 也不等于可以直接作为 HTTP response。
@@ -559,7 +564,7 @@ compatibility_window
 | Canonical-row-hash request/result/failure/Arrow mapping versions | Canonical Row Hash capability | PyO3 boundary and artifact content |
 | Scenario-bound semantic contract version | 对应 semantic owner | Golden expected meaning |
 | `storage_projection_version` + ruleset digest | Storage Projection/Table Rules | Canonical Dolt schema/content |
-| Repository wire/readback schema version | Repository Service | Import/journal/SnapshotManifest wire |
+| Repository wire/verification schema version | Repository Service | Import/journal/evidence wire |
 | `measurement_contract_version` | Performance Measurement | Stage/metric/eligibility/aggregation |
 | Baseline series identity | Performance Measurement + environment/data owners | 可比 dataset/environment/component 集合 |
 

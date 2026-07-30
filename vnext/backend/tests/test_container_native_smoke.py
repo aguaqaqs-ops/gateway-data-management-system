@@ -18,6 +18,8 @@ from gateway_backend.container_native_smoke import (
     assert_row_hash_column,
 )
 
+pytestmark = pytest.mark.phase_exit_container
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 

@@ -45,6 +45,7 @@ testpaths = ["tests"]
 pythonpath = ["src", "tests"]
 markers = [
     "pr_native: WP5 R4 rust-native matrix cell on release wheel (GATE_PR_NATIVE=1)",
+    "phase_exit_container: PHASE-EXIT-CONTAINER gate-owned static/identity/smoke regression tests",
 ]
 
 [tool.ruff]
@@ -57,7 +58,7 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["support", "tests.support"]
+module = ["support", "tests.support", "gate_ownership", "tests.gate_ownership"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

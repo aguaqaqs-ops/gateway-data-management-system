@@ -107,10 +107,10 @@ echo "==> conformance: mypy"
 uv run --offline --no-sync mypy
 
 echo "==> conformance: pytest"
-uv run --offline --no-sync pytest -q
+uv run --offline --no-sync pytest -q -m "not phase_exit_container"
 
 echo "==> conformance: pytest --collect-only"
-uv run --offline --no-sync pytest --collect-only -q
+uv run --offline --no-sync pytest --collect-only -q -m "not phase_exit_container"
 
 cd "${RUST_ROOT}"
 
@@ -197,7 +197,7 @@ uv run --offline --no-sync mypy
 echo "==> backend: pytest production extension"
 assert_installed_extension_has_no_test_hooks
 assert_compute_python_source_tree_clean
-uv run --offline --no-sync pytest -q \
+uv run --offline --no-sync pytest -q -m "not phase_exit_container" \
   "${COMPUTE_PYTHON_ROOT}/tests/test_facade.py" \
   "${COMPUTE_PYTHON_ROOT}/tests/test_production_extension.py" \
   tests/

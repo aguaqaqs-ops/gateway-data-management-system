@@ -14,6 +14,8 @@ from types import ModuleType
 
 import pytest
 
+pytestmark = pytest.mark.phase_exit_container
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 VNEXT_ROOT = REPO_ROOT / "vnext"
 GATE_SCRIPT = VNEXT_ROOT / "scripts" / "phase_exit_container_gate.sh"

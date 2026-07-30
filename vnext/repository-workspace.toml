@@ -1,0 +1,40 @@
+version = 1
+
+[members.gateway-repository-contracts]
+distribution = "gateway-repository-contracts"
+import_name = "gateway_repository_contracts"
+project_path = "vnext/repository_contracts"
+lock_path = "vnext/repository_contracts/uv.lock"
+allowed_runtime_dependencies = []
+
+[members.gateway-repository-client]
+distribution = "gateway-repository-client"
+import_name = "gateway_repository_client"
+project_path = "vnext/repository_client"
+lock_path = "vnext/repository_client/uv.lock"
+allowed_runtime_dependencies = ["gateway-repository-contracts"]
+
+[members.gateway-repository-service]
+distribution = "gateway-repository-service"
+import_name = "gateway_repository_service"
+project_path = "vnext/repository_service"
+lock_path = "vnext/repository_service/uv.lock"
+allowed_runtime_dependencies = ["gateway-repository-contracts"]
+
+[forbidden_imports.gateway-repository-contracts]
+names = ["gateway_repository_client", "gateway_repository_service"]
+
+[forbidden_imports.gateway-repository-client]
+names = ["gateway_repository_service"]
+
+[forbidden_imports.gateway-repository-service]
+names = ["gateway_repository_client"]
+
+[backend]
+project_path = "vnext/backend"
+forbidden_dependencies = ["gateway-repository-service"]
+forbidden_imports = ["gateway_repository_service"]
+
+[dependency_edges]
+gateway-repository-client = ["gateway-repository-contracts"]
+gateway-repository-service = ["gateway-repository-contracts"]

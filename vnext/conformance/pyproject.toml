@@ -41,11 +41,12 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src", "tests"]
+testpaths = ["tests", "phase2/tests"]
+pythonpath = ["src", "tests", "phase2"]
 markers = [
     "pr_native: WP5 R4 rust-native matrix cell on release wheel (GATE_PR_NATIVE=1)",
     "phase_exit_container: PHASE-EXIT-CONTAINER gate-owned static/identity/smoke regression tests",
+    "nested_cli: subprocess gate CLI tests excluded from nested static pytest runs",
 ]
 
 [tool.ruff]
@@ -55,10 +56,19 @@ target-version = "py314"
 [tool.mypy]
 python_version = "3.14"
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "phase2"]
 
 [[tool.mypy.overrides]]
 module = ["support", "tests.support", "gate_ownership", "tests.gate_ownership"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["gateway_conformance", "gateway_conformance.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["router", "gate"]
+disable_error_code = ["misc"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

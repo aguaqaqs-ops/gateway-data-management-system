@@ -1,0 +1,228 @@
+schema_id: gateway-vnext.affected-scope.v1
+schema_version: 1
+
+gates:
+  P2-PR-STATIC:
+    activation: active
+    owner: phase2-conformance
+  P2-PR-CONTRACT:
+    activation: inactive
+    owner: phase2-conformance
+  P2-PR-RECOVERY:
+    activation: inactive
+    owner: phase2-conformance
+  P2-PHASE-EXIT-CONTAINER:
+    activation: inactive
+    owner: phase2-deploy
+  PR-CORRECTNESS:
+    activation: external
+    owner: phase1-correctness
+  PR-NATIVE:
+    activation: external
+    owner: phase1-native
+
+unknown_path_gates:
+  - P2-PR-CONTRACT
+  - P2-PHASE-EXIT-CONTAINER
+  - P2-PR-RECOVERY
+  - P2-PR-STATIC
+  - PR-CORRECTNESS
+  - PR-NATIVE
+
+empty_change_set_policy: fail
+
+rules:
+  - id: backend-native
+    paths:
+      - vnext/backend/
+      - vnext/rust/
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+      - PR-NATIVE
+
+  - id: conformance-core
+    paths:
+      - vnext/conformance/src/
+      - vnext/conformance/tests/
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+
+  - id: deploy-topology
+    paths:
+      - vnext/deploy/
+    gates:
+      - P2-PR-STATIC
+      - P2-PHASE-EXIT-CONTAINER
+      - PR-CORRECTNESS
+
+  - id: docs-temporary-only
+    paths:
+      - docs/backend-vnext/refactoring/temporary/
+    gates: []
+    narrow: true
+
+  - id: fixtures
+    paths:
+      - vnext/fixtures/
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+
+  - id: formal-authority
+    paths:
+      - docs/backend-vnext/refactoring/formal/
+    gates:
+      - P2-PR-CONTRACT
+      - P2-PHASE-EXIT-CONTAINER
+      - P2-PR-RECOVERY
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+      - PR-NATIVE
+
+  - id: lock-build-backend-container-lock
+    paths:
+      - vnext/backend/uv.container.lock
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+      - PR-NATIVE
+
+  - id: lock-build-backend-lock
+    paths:
+      - vnext/backend/uv.lock
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+      - PR-NATIVE
+
+  - id: lock-build-backend-pyproject
+    paths:
+      - vnext/backend/pyproject.toml
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+      - PR-NATIVE
+
+  - id: lock-build-cargo-lock
+    paths:
+      - vnext/rust/Cargo.lock
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+      - PR-NATIVE
+
+  - id: lock-build-conformance-lock
+    paths:
+      - vnext/conformance/uv.lock
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+      - PR-NATIVE
+
+  - id: lock-build-conformance-pyproject
+    paths:
+      - vnext/conformance/pyproject.toml
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+      - PR-NATIVE
+
+  - id: lock-build-repository-client-lock
+    paths:
+      - vnext/repository_client/uv.lock
+    gates:
+      - P2-PR-CONTRACT
+      - P2-PR-STATIC
+
+  - id: lock-build-repository-client-pyproject
+    paths:
+      - vnext/repository_client/pyproject.toml
+    gates:
+      - P2-PR-CONTRACT
+      - P2-PR-STATIC
+
+  - id: lock-build-repository-contracts-lock
+    paths:
+      - vnext/repository_contracts/uv.lock
+    gates:
+      - P2-PR-CONTRACT
+      - P2-PR-STATIC
+
+  - id: lock-build-repository-contracts-pyproject
+    paths:
+      - vnext/repository_contracts/pyproject.toml
+    gates:
+      - P2-PR-CONTRACT
+      - P2-PR-STATIC
+
+  - id: lock-build-repository-service-lock
+    paths:
+      - vnext/repository_service/uv.lock
+    gates:
+      - P2-PR-CONTRACT
+      - P2-PR-STATIC
+
+  - id: lock-build-repository-service-pyproject
+    paths:
+      - vnext/repository_service/pyproject.toml
+    gates:
+      - P2-PR-CONTRACT
+      - P2-PR-STATIC
+
+  - id: lock-build-shared-kernel-lock
+    paths:
+      - vnext/shared_kernel/uv.lock
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+      - PR-NATIVE
+
+  - id: lock-build-shared-kernel-pyproject
+    paths:
+      - vnext/shared_kernel/pyproject.toml
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS
+      - PR-NATIVE
+
+  - id: phase2-conformance
+    paths:
+      - vnext/conformance/phase2/
+    gates:
+      - P2-PR-STATIC
+
+  - id: repository-client
+    paths:
+      - vnext/repository_client/
+    gates:
+      - P2-PR-CONTRACT
+      - P2-PR-STATIC
+
+  - id: repository-contracts
+    paths:
+      - vnext/repository_contracts/
+    gates:
+      - P2-PR-CONTRACT
+      - P2-PR-STATIC
+
+  - id: repository-service
+    paths:
+      - vnext/repository_service/
+    gates:
+      - P2-PR-CONTRACT
+      - P2-PR-STATIC
+
+  - id: repository-workspace
+    paths:
+      - vnext/repository-workspace.toml
+    gates:
+      - P2-PR-STATIC
+
+  - id: shared-kernel
+    paths:
+      - vnext/shared_kernel/
+    gates:
+      - P2-PR-STATIC
+      - PR-CORRECTNESS

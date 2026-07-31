@@ -1,53 +1,23 @@
-ARG PYTHON_RUNTIME_IMAGE
+FROM rust:1.97.0-bookworm AS builder
 ARG UV_VERSION=0.11.28
-ARG PYTHON_VERSION=3.14.6
-ARG UV_WHEEL_BASENAME
-ARG GATEWAY_COMPUTE_WHEEL_BASENAME
+RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
+WORKDIR /build/backend
+COPY backend/pyproject.toml backend/uv.lock backend/.python-version ./
+COPY rust /build/rust
+RUN uv python install 3.14.6
+RUN uv sync --frozen --no-install-project
+RUN uv run maturin build --release --manifest-path /build/rust/gateway-compute-python/Cargo.toml
 
-FROM ${PYTHON_RUNTIME_IMAGE} AS runtime
-ARG UV_VERSION
-ARG PYTHON_VERSION
-ARG SOURCE_REVISION
-ARG WHEEL_SHA256
-ARG EXTENSION_SHA256
-ARG UV_WHEEL_SHA256
-ARG UV_WHEEL_BASENAME
-ARG GATEWAY_COMPUTE_WHEEL_BASENAME
-LABEL org.opencontainers.image.revision="${SOURCE_REVISION}" \
-    gateway.vnext.phase="1" \
-    gateway.vnext.wheel.sha256="${WHEEL_SHA256}" \
-    gateway.vnext.extension.sha256="${EXTENSION_SHA256}" \
-    gateway.vnext.source.revision="${SOURCE_REVISION}"
-ENV GATEWAY_SOURCE_REVISION="${SOURCE_REVISION}" \
-    GATEWAY_EXPECTED_WHEEL_SHA256="${WHEEL_SHA256}" \
-    GATEWAY_EXPECTED_EXTENSION_SHA256="${EXTENSION_SHA256}" \
-    GATEWAY_INSTALLED_WHEEL_PATH="/opt/gateway/wheels/${GATEWAY_COMPUTE_WHEEL_BASENAME}"
-RUN python --version | grep -F "${PYTHON_VERSION}" >/dev/null
-RUN mkdir -p /opt/gateway/wheels
-COPY backend/.phase-exit-build/${UV_WHEEL_BASENAME} /opt/gateway/wheels/${UV_WHEEL_BASENAME}
-RUN printf '%s  /opt/gateway/wheels/%s\n' "${UV_WHEEL_SHA256}" "${UV_WHEEL_BASENAME}" | sha256sum -c -
-RUN pip install --no-cache-dir "/opt/gateway/wheels/${UV_WHEEL_BASENAME}"
-WORKDIR /app
-COPY shared_kernel /app/shared_kernel
+FROM python:3.14.6-slim-bookworm
+ARG UV_VERSION=0.11.28
+RUN pip install --no-cache-dir uv==${UV_VERSION}
 WORKDIR /app/backend
-COPY backend/pyproject.container.toml ./pyproject.toml
-COPY backend/uv.container.lock ./uv.lock
-COPY backend/.python-version ./
+COPY rust /app/rust
+COPY backend/pyproject.toml backend/uv.lock backend/.python-version ./
+RUN uv sync --frozen --no-install-project --no-dev
 COPY backend/src ./src
-COPY backend/.phase-exit-build/${GATEWAY_COMPUTE_WHEEL_BASENAME} /opt/gateway/wheels/${GATEWAY_COMPUTE_WHEEL_BASENAME}
-RUN printf '%s  /opt/gateway/wheels/%s\n' "${WHEEL_SHA256}" "${GATEWAY_COMPUTE_WHEEL_BASENAME}" | sha256sum -c -
-COPY backend/.phase-exit-build/container-deps-wheels /opt/gateway/wheels/deps/
-ENV UV_OFFLINE=1 \
-    UV_FIND_LINKS=/opt/gateway/wheels/deps
-RUN uv export --frozen --offline --no-dev --no-hashes --no-emit-project --no-emit-local \
-        --output-file /tmp/requirements.txt \
-    && uv venv .venv \
-    && uv pip install --python .venv/bin/python --offline --no-index \
-        --find-links /opt/gateway/wheels/deps --requirement /tmp/requirements.txt \
-    && uv pip install --python .venv/bin/python --reinstall "/opt/gateway/wheels/${GATEWAY_COMPUTE_WHEEL_BASENAME}"
-ENV PATH="/app/backend/.venv/bin:${PATH}" \
-    PYTHONPATH="/app/backend/src:/app/shared_kernel/src"
-EXPOSE 8000
-HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"
+COPY --from=builder /build/rust/target/wheels/*.whl /tmp/
+RUN .venv/bin/pip install /tmp/*.whl
+ENV PATH="/app/backend/.venv/bin:${PATH}" PYTHONPATH="/app/backend/src"
 CMD ["uvicorn", "gateway_backend.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

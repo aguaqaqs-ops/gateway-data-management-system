@@ -615,8 +615,6 @@ Phase 2完整设计已于2026-07-30完成以下停止点：
 
 - [Repository Service Contract](../../formal/contracts/repository-service.md)
 - [Phase 2 Implementation Design and Delivery Plan](../../formal/plans/phase-2-implementation-design-and-delivery-plan.md)
-- [Phase 2 Requirement Traceability](../../formal/plans/phase-2-requirement-traceability.yaml)
-- [Phase 2 F0 Validation Report](../../formal/plans/phase-2-f0-validation-report.md)
 - [ADR 0008](../../formal/adr/0008-generic-dual-store-and-caller-selected-rigor.md)
 
 本目录继续作为decision history，不再拥有implementation authority。若后续consumer、

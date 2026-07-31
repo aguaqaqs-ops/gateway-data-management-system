@@ -7,8 +7,6 @@ rust/target
 **/.ruff_cache
 **/*.so
 **/*.whl
-!backend/.phase-exit-build/
-!backend/.phase-exit-build/**
 rust/
 deploy/env/.env
 docs/

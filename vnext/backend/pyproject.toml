@@ -45,7 +45,6 @@ dev = [
 testpaths = ["tests"]
 markers = [
     "pr_native: WP4 R4 PR-NATIVE artifact/data-path full-chain targeted suite",
-    "phase_exit_container: PHASE-EXIT-CONTAINER gate-owned static/identity/smoke regression tests",
 ]
 
 [tool.ruff]

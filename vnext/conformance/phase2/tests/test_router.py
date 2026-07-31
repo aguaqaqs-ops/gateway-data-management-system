@@ -1231,10 +1231,24 @@ def test_nested_cli_marker_is_registered() -> None:
     assert isinstance(pytest.mark.nested_cli, MarkDecorator)
 
 
-def test_requires_clean_repo_marker_is_registered() -> None:
-    from _pytest.mark.structures import MarkDecorator
-
-    assert isinstance(pytest.mark.requires_clean_repo, MarkDecorator)
+def _collect_phase2_test_count(marker: str) -> int:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "-m",
+            marker,
+            "phase2/tests",
+        ],
+        cwd=CONFORMANCE_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return sum(1 for line in proc.stdout.splitlines() if "::" in line and "test_" in line)
 
 
 def test_static_checks_include_closure_lint() -> None:
@@ -1260,9 +1274,36 @@ def test_static_pytest_target_covers_phase2_tests_not_nested_cli() -> None:
     marker_positions = [index for index, arg in enumerate(pytest_check.argv) if arg == "-m"]
     assert marker_positions
     marker_expression = pytest_check.argv[marker_positions[-1] + 1]
-    assert "not nested_cli" in marker_expression
-    assert "not requires_clean_repo" in marker_expression
+    assert marker_expression == "not nested_cli"
+    assert "requires_clean_repo" not in marker_expression
     assert "test_router.py" not in pytest_check.argv
+
+
+def test_static_check_order_closure_before_pytest() -> None:
+    routing = routing_view_from_result(
+        route_changes([PathChange("vnext/conformance/phase2/closure.py", "modified")])
+    )
+    checks = _static_checks_for_routing(
+        routing, REPO_ROOT, ("vnext/conformance/phase2/closure.py",)
+    )
+    check_ids = [check.check_id for check in checks]
+    assert check_ids.index("static.closure") < check_ids.index("static.pytest")
+
+
+def test_static_pytest_collect_count_matches_non_nested_only() -> None:
+    routing = routing_view_from_result(
+        route_changes([PathChange("vnext/conformance/phase2/closure.py", "modified")])
+    )
+    checks = _static_checks_for_routing(
+        routing, REPO_ROOT, ("vnext/conformance/phase2/closure.py",)
+    )
+    pytest_check = next(check for check in checks if check.check_id == "static.pytest")
+    marker_positions = [index for index, arg in enumerate(pytest_check.argv) if arg == "-m"]
+    gate_marker = pytest_check.argv[marker_positions[-1] + 1]
+    non_nested_count = _collect_phase2_test_count("not nested_cli")
+    gate_count = _collect_phase2_test_count(gate_marker)
+    assert gate_count == non_nested_count
+    assert gate_count >= 265
 
 
 def test_static_checks_include_repository_contracts_on_hit() -> None:
@@ -1341,7 +1382,7 @@ def test_closure_only_failure_via_real_gate_execute(tmp_path: Path) -> None:
     assert "check:static.closure:exit=1" in result.diagnostics
     assert "check:static.ruff:exit=0" in result.diagnostics
     assert "check:static.mypy:exit=0" in result.diagnostics
-    assert "check:static.pytest:exit=0" in result.diagnostics
+    assert not any(item.startswith("check:static.pytest:") for item in result.diagnostics)
     closure_details = [
         item for item in result.diagnostics if item.startswith("detail:static.closure:")
     ]

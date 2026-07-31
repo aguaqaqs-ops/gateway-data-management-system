@@ -62,9 +62,9 @@ _WP0_CHECK_OBSERVATIONS = [
     for check_id in (
         "static.ruff",
         "static.mypy",
+        "static.closure",
         "static.pytest",
         "static.lock.conformance",
-        "static.closure",
     )
 ]
 
@@ -137,9 +137,9 @@ def _minimal_closure(**overrides: Any) -> dict[str, Any]:
                 "required_check_ids": [
                     "static.ruff",
                     "static.mypy",
+                    "static.closure",
                     "static.pytest",
                     "static.lock.conformance",
-                    "static.closure",
                 ],
             }
         ],
@@ -733,7 +733,6 @@ def _copy_traceability_fixture(tmp_path: Path, trace_text: str) -> Path:
 # Phase 1 protection tests 37-49
 
 
-@pytest.mark.requires_clean_repo
 def test_phase1_protection_current_repo_positive() -> None:
     assert verify_phase1_protection(REPO_ROOT).ok
 
@@ -875,7 +874,6 @@ def test_phase1_phase2_new_files_do_not_false_positive(tmp_path: Path) -> None:
     assert verify_phase1_protection(repo).ok
 
 
-@pytest.mark.requires_clean_repo
 def test_phase1_current_head_not_exit_source_still_passes() -> None:
     head = subprocess.run(
         ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
@@ -887,7 +885,6 @@ def test_phase1_current_head_not_exit_source_still_passes() -> None:
     assert verify_phase1_protection(REPO_ROOT).ok
 
 
-@pytest.mark.requires_clean_repo
 def test_phase1_does_not_require_current_locks_match_artifact() -> None:
     artifact_path = REPO_ROOT / IDENTITY_ARTIFACT_REL
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
@@ -920,7 +917,6 @@ def test_phase1_missing_baseline_fail_closed(tmp_path: Path) -> None:
 # Static/CLI tests 50-54 (55-56 in test_router.py)
 
 
-@pytest.mark.requires_clean_repo
 def test_cli_validate_positive() -> None:
     assert cli_validate(REPO_ROOT) == 0
 
@@ -931,7 +927,6 @@ def test_cli_validate_negative(tmp_path: Path) -> None:
     assert cli_validate(repo) == 1
 
 
-@pytest.mark.requires_clean_repo
 def test_cli_output_stable_json_no_traceback(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli_validate(REPO_ROOT)
     captured = capsys.readouterr()
@@ -942,7 +937,6 @@ def test_cli_output_stable_json_no_traceback(capsys: pytest.CaptureFixture[str])
     assert "/root/" not in captured.out
 
 
-@pytest.mark.requires_clean_repo
 def test_run_validate_matches_cli() -> None:
     assert run_validate(REPO_ROOT).ok
 

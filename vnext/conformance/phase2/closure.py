@@ -57,9 +57,9 @@ ACTIVE_STATIC_GATE = "P2-PR-STATIC"
 WP0_REQUIRED_CHECKS: tuple[str, ...] = (
     "static.ruff",
     "static.mypy",
+    "static.closure",
     "static.pytest",
     "static.lock.conformance",
-    "static.closure",
 )
 
 WP0_ACTIVE_REQUIREMENT: dict[str, Any] = {

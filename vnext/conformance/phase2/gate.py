@@ -464,6 +464,17 @@ def _static_checks_for_routing(
                 ),
                 StaticCheck("static.mypy", conformance_root, (python, "-m", "mypy", "phase2")),
                 StaticCheck(
+                    "static.closure",
+                    conformance_root,
+                    (
+                        python,
+                        str(conformance_root / "phase2" / "closure.py"),
+                        "validate",
+                        "--repo-root",
+                        str(repo_root),
+                    ),
+                ),
+                StaticCheck(
                     "static.pytest",
                     conformance_root,
                     (
@@ -474,19 +485,8 @@ def _static_checks_for_routing(
                         "-p",
                         "no:cacheprovider",
                         "-m",
-                        "not nested_cli and not requires_clean_repo",
+                        "not nested_cli",
                         "phase2/tests",
-                    ),
-                ),
-                StaticCheck(
-                    "static.closure",
-                    conformance_root,
-                    (
-                        python,
-                        str(conformance_root / "phase2" / "closure.py"),
-                        "validate",
-                        "--repo-root",
-                        str(repo_root),
                     ),
                 ),
                 StaticCheck(

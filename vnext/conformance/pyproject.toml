@@ -47,7 +47,6 @@ markers = [
     "pr_native: WP5 R4 rust-native matrix cell on release wheel (GATE_PR_NATIVE=1)",
     "phase_exit_container: PHASE-EXIT-CONTAINER gate-owned static/identity/smoke regression tests",
     "nested_cli: subprocess gate CLI tests excluded from nested static pytest runs",
-    "requires_clean_repo: closure repo-health tests excluded from gate static pytest",
 ]
 
 [tool.ruff]

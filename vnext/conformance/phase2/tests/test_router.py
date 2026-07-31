@@ -1255,6 +1255,43 @@ def test_static_pytest_target_covers_phase2_tests_not_nested_cli() -> None:
     assert "test_router.py" not in pytest_check.argv
 
 
+def test_static_checks_include_repository_contracts_on_hit() -> None:
+    routing = routing_view_from_result(
+        route_changes(
+            [
+                PathChange(
+                    "vnext/repository_contracts/src/gateway_repository_contracts/stream.py",
+                    "modified",
+                )
+            ]
+        )
+    )
+    checks = _static_checks_for_routing(
+        routing,
+        REPO_ROOT,
+        ("vnext/repository_contracts/src/gateway_repository_contracts/stream.py",),
+    )
+    check_ids = {check.check_id for check in checks}
+    assert {
+        "static.ruff.repository.contracts",
+        "static.mypy.repository.contracts",
+        "static.pytest.repository.contracts",
+    } <= check_ids
+
+
+def test_static_checks_exclude_repository_contracts_without_hit() -> None:
+    routing = routing_view_from_result(
+        route_changes([PathChange("vnext/conformance/phase2/closure.py", "modified")])
+    )
+    checks = _static_checks_for_routing(
+        routing, REPO_ROOT, ("vnext/conformance/phase2/closure.py",)
+    )
+    check_ids = {check.check_id for check in checks}
+    assert "static.ruff.repository.contracts" not in check_ids
+    assert "static.mypy.repository.contracts" not in check_ids
+    assert "static.pytest.repository.contracts" not in check_ids
+
+
 def test_closure_lint_failure_propagates_as_static_fail(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fail_closure(
         checks: list[StaticCheck], *, extra_checks: tuple[str, ...]
@@ -1275,6 +1312,7 @@ def test_closure_lint_failure_propagates_as_static_fail(monkeypatch: pytest.Monk
     assert any("static.closure" in item for item in result.diagnostics)
 
 
+@pytest.mark.nested_cli
 def test_closure_only_failure_via_real_gate_execute(tmp_path: Path) -> None:
     from test_closure import _clone_repo_fixture
 

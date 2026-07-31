@@ -511,6 +511,35 @@ def _static_checks_for_routing(
         or "vnext/repository-workspace.toml" in changed_paths
     )
     if repository_hit:
+        contracts_root = repo_root / "vnext" / "repository_contracts"
+        checks.extend(
+            [
+                StaticCheck(
+                    "static.ruff.repository.contracts",
+                    contracts_root,
+                    ("uv", "run", "--offline", "--no-sync", "ruff", "check", "src", "tests"),
+                ),
+                StaticCheck(
+                    "static.mypy.repository.contracts",
+                    contracts_root,
+                    ("uv", "run", "--offline", "--no-sync", "mypy"),
+                ),
+                StaticCheck(
+                    "static.pytest.repository.contracts",
+                    contracts_root,
+                    (
+                        "uv",
+                        "run",
+                        "--offline",
+                        "--no-sync",
+                        "pytest",
+                        "-q",
+                        "-p",
+                        "no:cacheprovider",
+                    ),
+                ),
+            ]
+        )
         for project in ("repository_contracts", "repository_client", "repository_service"):
             project_root = repo_root / "vnext" / project
             checks.append(

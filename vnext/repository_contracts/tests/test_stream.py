@@ -16,6 +16,7 @@ from gateway_repository_contracts.stream import (
     EmptyFrameMetadata,
     StreamCheckpointMetadata,
     StreamEndMetadata,
+    StreamDecoderFinish,
     StreamEnvelope,
     StreamErrorMetadata,
     StreamFrame,
@@ -412,14 +413,26 @@ def test_decoder_feed_in_chunks_then_finish() -> None:
     fed_frames: list[StreamFrame] = []
     for index in range(0, len(wire), 3):
         fed_frames.extend(decoder.feed(wire[index : index + 3]))
-    envelope = decoder.finish()
-    assert len(envelope.frames) == 4
+    receipt = decoder.finish()
+    assert isinstance(receipt, StreamDecoderFinish)
+    assert receipt.terminal_family is StreamFrameFamily.STREAM_END
+    assert receipt.stream_end is not None
     assert len(fed_frames) == 4
-    for fed, stored in zip(fed_frames, envelope.frames, strict=True):
-        assert fed.frame_family is stored.frame_family
-        if fed.frame_family is StreamFrameFamily.ARROW_BATCH:
-            assert fed.payload in {b"\x01", b"\x02"}
-            assert stored.payload == b"\x00"
+    assert not hasattr(receipt, "frames")
+    assert not hasattr(receipt, "to_wire_bytes")
+
+
+def test_decode_stream_collected_envelope_round_trips() -> None:
+    header = _versioned_header()
+    batch = _batch(b"x" * 1024)
+    end = _end((header, batch), row_count=1)
+    wire = encode_stream((header, batch, end))
+    envelope = decode_stream(wire)
+    assert envelope.to_wire_bytes() == wire
+    batch_frame = next(
+        frame for frame in envelope.frames if frame.frame_family is StreamFrameFamily.ARROW_BATCH
+    )
+    assert batch_frame.payload == b"x" * 1024
 
 
 def test_decoder_finish_rejects_non_canonical_control_jcs() -> None:

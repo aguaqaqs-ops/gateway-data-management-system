@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Self, cast
 
 from gateway_repository_contracts._stream_codec import (
@@ -43,6 +43,7 @@ __all__ = [
     "CurrentStreamHeaderMetadata",
     "EmptyFrameMetadata",
     "StreamCheckpointMetadata",
+    "StreamDecoderFinish",
     "StreamEndMetadata",
     "StreamEnvelope",
     "StreamErrorMetadata",
@@ -57,6 +58,7 @@ __all__ = [
     "encode_stream_frames",
     "validate_stream_integrity",
     "validate_stream_sequence",
+    "validate_stream_sequence_families",
     "validate_table_name",
 ]
 
@@ -144,7 +146,7 @@ def _freeze_frames(frames: Sequence[StreamFrame]) -> tuple[StreamFrame, ...]:
 
 
 def compute_frames_raw_sha256(frames: Sequence[StreamFrame]) -> str:
-    """Compute integrity digest over raw wire bytes of all non-terminal frames."""
+    """Compute integrity digest over canonical encoded wire bytes of all non-terminal frames."""
     if not frames:
         raise RepositoryContractError(
             RepositoryContractErrorCode.STREAM_INCOMPLETE,
@@ -158,10 +160,7 @@ def compute_frames_raw_sha256(frames: Sequence[StreamFrame]) -> str:
         )
     hasher = hashlib.sha256()
     for frame in frames[:-1]:
-        if frame.wire_bytes is not None:
-            hasher.update(frame.wire_bytes)
-        else:
-            hasher.update(encode_frame_wire_bytes(frame))
+        hasher.update(encode_frame_wire_bytes(frame))
     return hasher.hexdigest()
 
 
@@ -171,7 +170,6 @@ class StreamFrame:
     frame_version: int
     metadata: StreamFrameMetadata
     payload: bytes | None = None
-    wire_bytes: bytes | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.frame_version != STREAM_FRAME_VERSION:
@@ -180,12 +178,6 @@ class StreamFrame:
                 "frame_version mismatch",
             )
         _validate_frame_metadata(self.frame_family, self.metadata)
-        if self.wire_bytes is not None:
-            object.__setattr__(
-                self,
-                "wire_bytes",
-                _require_immutable_bytes(self.wire_bytes, label="wire_bytes"),
-            )
         if self.payload is not None:
             object.__setattr__(
                 self,
@@ -204,15 +196,22 @@ class StreamFrame:
 
 
 @dataclass(frozen=True, slots=True)
+class StreamDecoderFinish:
+    """Completion receipt after incremental stream decode lifecycle and integrity checks."""
+
+    terminal_family: StreamFrameFamily
+    stream_end: StreamEndMetadata | None = None
+    stream_error: StreamErrorMetadata | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class StreamEnvelope:
     frames: tuple[StreamFrame, ...]
-    _raw_integrity_verified: bool = field(default=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frames", _freeze_frames(self.frames))
         validate_stream_sequence(self.frames)
-        if not self._raw_integrity_verified:
-            validate_stream_integrity(self.frames)
+        validate_stream_integrity(self.frames)
 
     def to_wire_bytes(self) -> bytes:
         return encode_stream_bytes(self.frames)
@@ -237,24 +236,22 @@ def decode_stream(payload: bytes) -> StreamEnvelope:
     decoder = StreamFrameDecoder()
     frames = list(decoder.feed(payload))
     decoder.finish()
-    return StreamEnvelope(frames=tuple(frames), _raw_integrity_verified=True)
+    return StreamEnvelope(frames=tuple(frames))
 
 
-def validate_stream_sequence(frames: Sequence[StreamFrame]) -> None:
-    """Validate stream frame lifecycle rules at contract level."""
-    if not frames:
+def validate_stream_sequence_families(families: Sequence[StreamFrameFamily]) -> None:
+    """Validate stream frame lifecycle rules from frame family sequence."""
+    if not families:
         raise RepositoryContractError(
             RepositoryContractErrorCode.STREAM_INCOMPLETE,
             "stream missing header",
         )
-    if frames[0].frame_family is not StreamFrameFamily.STREAM_HEADER:
+    if families[0] is not StreamFrameFamily.STREAM_HEADER:
         raise RepositoryContractError(
             RepositoryContractErrorCode.STREAM_INVALID_SEQUENCE,
             "first frame must be STREAM_HEADER",
         )
-    header_count = sum(
-        1 for frame in frames if frame.frame_family is StreamFrameFamily.STREAM_HEADER
-    )
+    header_count = sum(1 for family in families if family is StreamFrameFamily.STREAM_HEADER)
     if header_count != 1:
         raise RepositoryContractError(
             RepositoryContractErrorCode.STREAM_DUPLICATE_HEADER,
@@ -263,8 +260,8 @@ def validate_stream_sequence(frames: Sequence[StreamFrame]) -> None:
 
     terminal_seen = False
     terminal_family: StreamFrameFamily | None = None
-    for index, frame in enumerate(frames):
-        if frame.frame_family not in STREAM_FRAME_FAMILIES:
+    for index, family in enumerate(families):
+        if family not in STREAM_FRAME_FAMILIES:
             raise RepositoryContractError(
                 RepositoryContractErrorCode.STREAM_UNKNOWN_FRAME,
                 "unknown frame family",
@@ -274,15 +271,15 @@ def validate_stream_sequence(frames: Sequence[StreamFrame]) -> None:
                 RepositoryContractErrorCode.STREAM_FRAME_AFTER_TERMINAL,
                 "frame after terminal",
             )
-        if frame.frame_family in _TERMINAL_FAMILIES:
+        if family in _TERMINAL_FAMILIES:
             terminal_seen = True
-            terminal_family = frame.frame_family
+            terminal_family = family
             if index == 0:
                 raise RepositoryContractError(
                     RepositoryContractErrorCode.STREAM_INVALID_SEQUENCE,
                     "terminal cannot be first frame",
                 )
-        elif frame.frame_family in _DATA_FAMILIES and index == 0:
+        elif family in _DATA_FAMILIES and index == 0:
             raise RepositoryContractError(
                 RepositoryContractErrorCode.STREAM_INVALID_SEQUENCE,
                 "data frame before header",
@@ -294,12 +291,17 @@ def validate_stream_sequence(frames: Sequence[StreamFrame]) -> None:
             "stream missing terminal frame",
         )
 
-    terminal_count = sum(1 for frame in frames if frame.frame_family in _TERMINAL_FAMILIES)
+    terminal_count = sum(1 for family in families if family in _TERMINAL_FAMILIES)
     if terminal_count > 1:
         raise RepositoryContractError(
             RepositoryContractErrorCode.STREAM_TERMINAL_CONFLICT,
             "multiple terminal frames",
         )
+
+
+def validate_stream_sequence(frames: Sequence[StreamFrame]) -> None:
+    """Validate stream frame lifecycle rules at contract level."""
+    validate_stream_sequence_families([frame.frame_family for frame in frames])
 
 
 def validate_stream_integrity(frames: Sequence[StreamFrame]) -> None:

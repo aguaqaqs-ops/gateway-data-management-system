@@ -23,7 +23,7 @@ from gateway_repository_contracts._stream_metadata import (
 )
 
 if TYPE_CHECKING:
-    from gateway_repository_contracts.stream import StreamEnvelope, StreamFrame
+    from gateway_repository_contracts.stream import StreamDecoderFinish, StreamFrame
 
 STREAM_FRAME_HEADER_SIZE = 6
 _FRAME_VERSION = 1
@@ -202,7 +202,6 @@ def decode_frame_wire_bytes(
     payload: _WireBuffer,
     *,
     offset: int = 0,
-    raw_wire: bytes | None = None,
 ) -> tuple[StreamFrame, int]:
     from gateway_repository_contracts.stream import STREAM_FRAME_VERSION, StreamFrame
 
@@ -222,7 +221,6 @@ def decode_frame_wire_bytes(
         )
     body = bytes(payload[body_start:body_end])
     next_offset = body_end
-    wire_bytes = raw_wire if raw_wire is not None else bytes(payload[offset:body_end])
     if frame_family is StreamFrameFamily.ARROW_BATCH:
         metadata: StreamFrameMetadata = EmptyFrameMetadata()
         batch_payload = body
@@ -234,26 +232,14 @@ def decode_frame_wire_bytes(
         frame_version=STREAM_FRAME_VERSION,
         metadata=metadata,
         payload=batch_payload,
-        wire_bytes=wire_bytes,
     )
     return frame, next_offset
 
 
-def _frame_for_envelope_storage(frame: StreamFrame) -> StreamFrame:
-    from gateway_repository_contracts.stream import STREAM_FRAME_VERSION, StreamFrame
-
-    if frame.frame_family is StreamFrameFamily.ARROW_BATCH:
-        return StreamFrame(
-            frame_family=frame.frame_family,
-            frame_version=STREAM_FRAME_VERSION,
-            metadata=EmptyFrameMetadata(),
-            payload=b"\x00",
-            wire_bytes=frame.wire_bytes,
-        )
-    return frame
-
-
-def _try_decode_frame_at(buffer: bytearray, offset: int) -> tuple[int, StreamFrame] | None:
+def _try_decode_frame_at(
+    buffer: bytearray,
+    offset: int,
+) -> tuple[int, StreamFrame, bytes] | None:
     if offset >= len(buffer):
         return None
     buffer_view = memoryview(buffer)
@@ -261,12 +247,8 @@ def _try_decode_frame_at(buffer: bytearray, offset: int) -> tuple[int, StreamFra
     if frame_size is None:
         return None
     raw_frame = bytes(buffer_view[offset : offset + frame_size])
-    frame, _ = decode_frame_wire_bytes(
-        buffer_view,
-        offset=offset,
-        raw_wire=raw_frame,
-    )
-    return frame_size, frame
+    frame, _ = decode_frame_wire_bytes(buffer_view, offset=offset)
+    return frame_size, frame, raw_frame
 
 
 @dataclass
@@ -274,7 +256,8 @@ class StreamFrameDecoder:
     """Incremental stream decoder with lifecycle and integrity validation on finish."""
 
     _buffer: bytearray = field(default_factory=bytearray, repr=False)
-    _sequence_frames: list[StreamFrame] = field(default_factory=list, repr=False)
+    _sequence_log: list[StreamFrameFamily] = field(default_factory=list, repr=False)
+    _terminal_metadata: StreamFrameMetadata | None = field(default=None, repr=False)
     _prefix_hasher: Any = field(default_factory=hashlib.sha256, repr=False)
     _finished: bool = field(default=False, repr=False)
 
@@ -298,27 +281,24 @@ class StreamFrameDecoder:
             decoded = _try_decode_frame_at(self._buffer, consumed)
             if decoded is None:
                 break
-            frame_size, frame = decoded
-            raw_frame = frame.wire_bytes
-            if raw_frame is None:
-                raise RepositoryContractError(
-                    RepositoryContractErrorCode.WIRE_INVALID_VALUE,
-                    "decoded frame missing wire bytes",
-                )
+            frame_size, frame, raw_frame = decoded
             if frame.frame_family not in _TERMINAL_FAMILIES:
                 self._prefix_hasher.update(raw_frame)
-            self._sequence_frames.append(_frame_for_envelope_storage(frame))
+            self._sequence_log.append(frame.frame_family)
+            if frame.frame_family in _TERMINAL_FAMILIES:
+                self._terminal_metadata = frame.metadata
             consumed += frame_size
             yield frame
         if consumed:
             del self._buffer[:consumed]
 
-    def finish(self) -> StreamEnvelope:
+    def finish(self) -> StreamDecoderFinish:
         """Validate stream lifecycle and integrity after all frames were consumed."""
         from gateway_repository_contracts.stream import (
+            StreamDecoderFinish,
             StreamEndMetadata,
-            StreamEnvelope,
-            validate_stream_sequence,
+            StreamErrorMetadata,
+            validate_stream_sequence_families,
         )
 
         if self._finished:
@@ -331,22 +311,35 @@ class StreamFrameDecoder:
                 RepositoryContractErrorCode.STREAM_INCOMPLETE,
                 "incomplete stream bytes",
             )
-        frames = tuple(self._sequence_frames)
-        validate_stream_sequence(frames)
-        terminal = frames[-1]
-        if terminal.frame_family is StreamFrameFamily.STREAM_END:
-            if not isinstance(terminal.metadata, StreamEndMetadata):
+        validate_stream_sequence_families(self._sequence_log)
+        terminal_family = self._sequence_log[-1]
+        stream_end: StreamEndMetadata | None = None
+        stream_error: StreamErrorMetadata | None = None
+        if terminal_family is StreamFrameFamily.STREAM_END:
+            if not isinstance(self._terminal_metadata, StreamEndMetadata):
                 raise RepositoryContractError(
                     RepositoryContractErrorCode.WIRE_INVALID_VALUE,
                     "STREAM_END metadata invalid",
                 )
-            if terminal.metadata.frames_raw_sha256 != self._prefix_hasher.hexdigest():
+            if self._terminal_metadata.frames_raw_sha256 != self._prefix_hasher.hexdigest():
                 raise RepositoryContractError(
                     RepositoryContractErrorCode.STREAM_INTEGRITY_MISMATCH,
                     "frames_raw_sha256 mismatch",
                 )
+            stream_end = self._terminal_metadata
+        elif terminal_family is StreamFrameFamily.STREAM_ERROR:
+            if not isinstance(self._terminal_metadata, StreamErrorMetadata):
+                raise RepositoryContractError(
+                    RepositoryContractErrorCode.WIRE_INVALID_VALUE,
+                    "STREAM_ERROR metadata invalid",
+                )
+            stream_error = self._terminal_metadata
         self._finished = True
-        return StreamEnvelope(frames=frames, _raw_integrity_verified=True)
+        return StreamDecoderFinish(
+            terminal_family=terminal_family,
+            stream_end=stream_end,
+            stream_error=stream_error,
+        )
 
 
 def encode_stream_frames(frames: Sequence[StreamFrame]) -> Iterator[bytes]:

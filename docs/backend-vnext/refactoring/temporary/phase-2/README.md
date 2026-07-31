@@ -1,12 +1,18 @@
 # Phase 2 Interactive Design — Working Index
 
-状态：**Resolved / Formalized — F0 PASS**
+状态：**Historical after WP1-R1 checkpoint / Superseded by ADR 0009**
 
 本文件只提供 Phase 2 交互设计的导航、阶段性一致性视图和恢复入口，不复制
 Decision Ledger 正文，也不是正式 contract。正式 Authority 顺序、访谈协议和
 Session State 以
 [interactive-design-session-guide.md](interactive-design-session-guide.md)
 为准。
+
+2026-07-31过渡：本目录的旧设计只继续支持正在进行的WP1-R1 checkpoint。WP1-R1
+完成后，安全、恢复、scope和交付规则由
+[ADR 0009](../../formal/adr/0009-proportional-assurance-and-trusted-internal-repository.md)
+替代；不得从本目录启动旧计划WP1-R2+。执行顺序见
+[Architecture Simplification Execution Plan](../architecture-simplification-execution-plan.md)。
 
 ## Document map
 

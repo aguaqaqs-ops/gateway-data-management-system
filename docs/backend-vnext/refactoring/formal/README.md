@@ -35,7 +35,8 @@
 - [ADR 0005: Shared Canonical Encoding](adr/0005-shared-canonical-encoding.md)
 - [ADR 0006: Language-Neutral Fixture Oracle](adr/0006-language-neutral-fixture-oracle.md)
 - [ADR 0007: vNext Performance Baseline Authority](adr/0007-vnext-performance-baseline-authority.md)
-- [ADR 0008: Generic Dual-Store Repository and Caller-Selected Rigor](adr/0008-generic-dual-store-and-caller-selected-rigor.md)
+- [ADR 0008: Generic Dual-Store Repository and Caller-Selected Rigor](adr/0008-generic-dual-store-and-caller-selected-rigor.md)（WP1-R1后被替代）
+- [ADR 0009: Proportional Assurance and Trusted Internal Repository](adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 
 ## 权威关系
 
@@ -43,7 +44,12 @@
 - Cross-stage policy定义不属于业务contract、但必须由工程和CI持续执行的安全、工具链与实现约束。
 - Contract 是字段语义、状态、byte contract、artifact、fixture 和 measurement 的 normative owner；ADR 只记录为何选择该方案，并链接 contract，不复制精确状态表或字段表。
 - 同一规则只在 owning contract 中定义。Architecture、计划和其他 contract 只引用，不建立第二份规范。
-- `temporary/` 保存讨论证据与 formalization mapping，不因内容 formalized 而移动、改名或删除；若 temporary 与旧 formal 冲突，以已经 Accepted 的 owner contract/ADR 为准。
+- `temporary/` 只保存活动中的讨论或执行协调，不拥有正式语义。结论formalized且执行
+  完成后应删除过期材料，Git历史作为归档；不得为保留历史再复制一套authority。
 - Legacy 只作为行为与 fixture 发现 oracle，不拥有 vNext 内部结构或性能目标。
 
 正式文档之间发生冲突时，应先暂停实现，明确语义 owner，并通过修改正式文档或新增 ADR 收口；不能依靠兼容代码长期维持两套含义。
+
+当前过渡：正在进行的旧设计WP1-R1由原Phase 2 contract/plan完成；WP1-R1之后的
+安全、恢复、范围和交付顺序由ADR 0009拥有。在精简后的owner contract/plan发布前，
+不得启动旧计划WP1-R2+。

@@ -1,6 +1,6 @@
 # Phase 2 Implementation Design and Delivery Plan
 
-状态：正式实施设计（Accepted）
+状态：过渡期正式实施设计（仅用于完成旧设计WP1-R1 checkpoint）
 
 日期：2026-07-30
 
@@ -10,6 +10,13 @@ Owner：Backend vNext Architecture（交付顺序、physical ownership、gate与
 public/persisted/effect语义仍由对应contract owner拥有
 
 详细范围：F0、WP0–WP9、37个review revision和exact-commit Phase exit
+
+2026-07-31过渡：WP1-R1完成后，本计划的WP1-R2–WP9、旧gate/traceability和
+exact-commit exit停止生效。后续顺序由
+[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
+固定，并由精简后的正式Phase 2 plan替代。执行协调见
+[Architecture Simplification Execution Plan](../../temporary/architecture-simplification-execution-plan.md)，
+该临时文档不拥有public或persisted语义。
 
 依赖：
 
@@ -23,6 +30,10 @@ public/persisted/effect语义仍由对应contract owner拥有
 - [Phase 2 Requirement Traceability](phase-2-requirement-traceability.yaml)
 
 ## 1. Goal, scope and delivery invariants
+
+本节及后续内容是2026-07-30旧设计记录，只在WP1-R1 checkpoint前保持实施约束。
+WP1-R1不得扩张到WP1-R2；machine-readable traceability在checkpoint前保持原样，
+之后随Phase 2 simplification统一删除或替代。
 
 本文把Phase 2收敛为：
 

@@ -1,6 +1,6 @@
 # Repository Service Contract
 
-状态：正式设计（Accepted）
+状态：过渡期正式设计（仅用于完成旧设计WP1-R1 checkpoint）
 
 日期：2026-07-30
 
@@ -14,6 +14,18 @@ storage、recovery、security和resource semantics）
 Semantic version：`1.0.0`
 
 Wire version：`1`
+
+## 0. Transition authority
+
+2026-07-31已接受
+[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)。
+本文完整内容只继续拥有正在进行的WP1-R1旧设计checkpoint。该checkpoint不发布、
+不建立wire兼容义务；完成后允许破坏性删除strict JSON、FailureDescriptor、custom
+stream envelope、schema snapshot和其他旧WP1-R1表面。
+
+WP1-R2及后续不得依据本文当前双存储、ACL、verification level、journal/fencing、
+maintenance或exact-evidence条款继续实现。Phase 2 simplification必须先发布精简后的
+Repository owner contract，再恢复修订后的WP1-R2。
 
 ## 1. Authority boundary
 

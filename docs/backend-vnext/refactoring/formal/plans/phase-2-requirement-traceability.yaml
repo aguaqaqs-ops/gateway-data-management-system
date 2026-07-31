@@ -1,3 +1,5 @@
+# Transitional: retained byte-for-byte in semantic content for the in-progress
+# old-design WP1-R1 checkpoint. ADR 0009 supersedes this mapping for WP1-R2+.
 schema_version: 1
 plan_id: gateway-vnext.phase-2-implementation-design-and-delivery-plan
 status: accepted

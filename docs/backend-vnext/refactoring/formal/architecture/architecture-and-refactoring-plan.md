@@ -4,6 +4,12 @@
 
 本文定义 backend vNext 整体重构的目标架构、模块边界和依赖规则。本文是重构总纲；详细实施阶段见 [Implementation Stages](../plans/implementation-stages.md)，精确语义由本目录的 owner-oriented contracts 和 ADR 规定。旧架构区的 `flows.md`、`operations.md`、`contracts/`、`capabilities/` 与 ADR 仅作为 legacy 证据；发生冲突时以本目录正式文档为准。
 
+2026-07-31过渡说明：安全、恢复、Repository Service范围和交付控制从WP1-R1
+checkpoint之后遵循
+[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)。
+现有Phase 2完整双存储、全量evidence和exact-commit设计只继续拥有正在进行的
+WP1-R1旧设计checkpoint；不得据此启动旧计划WP1-R2+。
+
 ## 1. 目标与范围
 
 本轮整体重构解决以下问题：
@@ -12,7 +18,8 @@
 - 保留 Snapshot、Comparison、Risk、Surface、Bundle 等可复用 capability，同时建立稳定公共契约，控制 capability 之间的依赖方向。
 - 将 Flow 收敛为 application use case，将 Operation 收敛为可持久化、可重试、可接管的通用执行机制。
 - 将基于 Dolt 的 repository 能力拆成独立、通用、容器化的 Repository Service，与当前项目业务彻底解耦。
-- 以最小持久业务事实和 derived projection 取代重复状态，以 immutable artifact + journal/evidence 支持可靠恢复。
+- 以最小持久业务事实和 derived projection 取代重复状态，以 immutable artifact、
+  数据库事务、幂等键和必要operation marker支持可重试主路径。
 - 让 SourcePackageArtifact 保存原始上传权威，Dolt 只保存 versioned storage projection 形成的 canonical business state。
 - 消除跨进程不可用的本地路径、Python 闭包状态和具体 Dolt CLI 对业务层的泄漏。
 - 通过契约测试、架构测试和分阶段替换完成迁移，不做一次性目录搬迁式重写。
@@ -23,6 +30,23 @@
 - 生产环境最终使用何种数据库、对象存储和部署编排平台。
 - 是否将所有 backend vNext 模块拆成独立进程。除 Repository Service 外，第一阶段仍以模块化单体为默认部署形态。
 - Legacy Dolt repository 的迁移或兼容策略；它是独立 cutover gate。
+
+### 1.1 适度保障原则
+
+- 安全、恢复、一致性和交付控制必须对应明确威胁、业务损失、已确认consumer或
+  可复现故障；没有依据时不预建通用框架。
+- 本项目默认是少量协作者、单一信任域和可信内网系统。业务正确性优先于形式化
+  evidence closure，允许罕见矛盾状态进入明确的人工修复。
+- 业务digest只表达owner定义的内容相等性；没有独立key/trust contract时，不得称为
+  签名、来源认证或防篡改证明。
+- 优先使用HTTP、OpenAPI、Arrow、数据库事务、容器和普通CI等标准能力；输入大小、
+  服务端路径、非root、`shell=False`和secret脱敏等低成本保护继续保留。
+- 新机制必须说明owner、当前consumer、失败成本、最小验收和重新进入条件。仅为
+  未来可能需要的CurrentTableStore、ACL、恢复或治理能力不得进入当前主路径。
+
+精确Repository信任边界、最小contract、恢复策略、Current扩展方式和过渡顺序由
+[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
+规定。
 
 ## 2. 总体结论
 
@@ -566,7 +590,10 @@ Repository wire contract 可以生成轻量 client SDK，但不得通过共享�
 ```text
 Phase 0  oracle + fixture/measurement contract and capture gate
   -> Phase 1  contracts and architecture skeleton
-  -> Phase 2  Repository Service foundation
+  -> Phase 2 WP1-R1 old-design checkpoint
+  -> Phase 2 contract/delivery simplification
+  -> Phase 0–1 assurance/evidence simplification
+  -> revised Phase 2 Repository Service foundation
   -> Phase 3  capability foundation
   -> Phase 4  durable Operation Runtime
   -> Phase 5  business vertical slices
@@ -576,19 +603,26 @@ Phase 0  oracle + fixture/measurement contract and capture gate
   -> Phase 9  cleanup and production hardening
 ```
 
-阶段不是纯水平层交付。Phase 1 至 Phase 4 只建设支撑首个纵切所需的最小基础；进入 Phase 5 后按 upload preview、submit、review、archive、history compare 的顺序形成可运行闭环。Phase 1 建立 canonical encoding/vectors 与最小 Rust/Arrow skeleton；Phase 2 优先建成真正可运行的 containerized Repository Service；Phase 3 允许符合门禁的热点直接交付 Rust production provider。首份 numeric baseline 在 Slice 5B 的正确容器化路径完成后立即捕获；Phase 6/7 的 Rust coverage、并行、cache 和 provider 优化收益声明必须等待该 accepted vNext baseline。
+阶段不是纯水平层交付。正在进行的WP1-R1按旧设计完成后只形成历史checkpoint；
+随后先重构Phase 2 contract与delivery skeleton，再清理Phase 0–1外围evidence体系，
+最后从修订后的WP1-R2恢复Phase 2。Phase 1 canonical bytes、Python/Rust核心和业务
+golden在清理中保持不变。修订后的Phase 2优先交付已知consumer所需的Versioned
+Repository纵切；CurrentTableStore等能力等待真实consumer。进入Phase 5后仍按
+upload preview、submit、review、archive、history compare形成业务闭环。
 
 ## 12. 验证策略
 
 每个 phase 至少覆盖：
 
 - Domain unit tests：状态机、不变量、policy。
-- Capability contract tests：输入、输出、digest、diagnostics 和版本。
+- Capability contract tests：当前consumer使用的输入、输出、业务digest和版本。
 - Architecture tests：禁止反向依赖、内部模块越界和旧模块 import。
-- Operation recovery tests：claim、lease、retry、cancel、crash takeover。
-- Repository client/server contract tests：local adapter 与 remote adapter 等价。
-- Language-neutral conformance：Python、Rust、Repository 共享 `vnext/fixtures/` scenarios/vectors 并逐字节验证。
-- Failure injection：网络中断、超时、重复请求、worker crash、Dolt process crash、磁盘不足；按 journal evidence 恢复。
+- Operation tests：事务、幂等、重试和明确的人工修复分支。
+- Repository client/server tests：HTTP contract、真实Dolt integration和已知consumer
+  end-to-end。
+- Canonical core：Python/Rust只共享少量稳定golden vectors并逐字节验证。
+- Failure tests：覆盖关键import的commit前中断、commit后响应丢失和矛盾状态；不建设
+  全故障点evidence matrix。
 - End-to-end journey：upload -> preview -> submit -> review -> archive -> history compare。
 - Measurement：correctness 优先，只有 validation-passed vNext production runs 可进入 aggregate；不运行 legacy 性能门禁。
 
@@ -604,22 +638,23 @@ Phase 0  oracle + fixture/measurement contract and capture gate
 - 业务容器没有 Dolt 二进制，不挂载 repository volume。
 - 业务 contract 不出现 `repository_path`、`run_dir` 或服务端本地 artifact path。
 - Repository Service contract 不出现 Workspace、Submission、Archive、Baseline、History 等业务语义。
-- Repository写操作具备幂等、显式checked/LWW、typed audit、资源限制、备份和恢复
-  能力。
-- 需要FULL的业务consumer只有在`completed_verification_level=FULL`且matching
-  SnapshotManifest后才可finalize；unknown effect不blind replay。
+- Repository首版只暴露Versioned-specific API；写操作具备CAS、幂等和operation
+  marker，矛盾结果显式进入人工修复。
+- Repository使用单一内网bearer token；不包含per-repository ACL、caller-selected
+  verification level或通用治理surface。
 - Raw SourcePackageArtifact 与 canonical Dolt state 权威分离，storage/comparison projection 分离。
-- Python、Rust、Repository 通过同一 canonical encoding vectors 与 language-neutral fixture conformance。
-- 正式业务旅程、artifact closure、digest 和前端 contract 通过验收。
+- Python/Rust canonical核心golden保持一致；普通fixture和CI不自建closure/evidence
+  digest。
+- 正式业务旅程、必要artifact hash、业务digest和前端contract通过验收。
 
 ## 14. 待补 ADR
 
-以下 ADR 已完成：[最小持久状态（0002）](../adr/0002-minimal-persisted-business-state.md)、[external-effect reconciliation（0003）](../adr/0003-external-effect-reconciliation.md)、[raw artifact/canonical Dolt（0004）](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)、[shared canonical encoding（0005）](../adr/0005-shared-canonical-encoding.md)、[language-neutral fixture oracle（0006）](../adr/0006-language-neutral-fixture-oracle.md)、[vNext performance baseline authority（0007）](../adr/0007-vnext-performance-baseline-authority.md)和[generic dual-store/caller-selected rigor（0008）](../adr/0008-generic-dual-store-and-caller-selected-rigor.md)。
+以下 ADR 已完成：[最小持久状态（0002）](../adr/0002-minimal-persisted-business-state.md)、[external-effect reconciliation（0003）](../adr/0003-external-effect-reconciliation.md)、[raw artifact/canonical Dolt（0004）](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)、[shared canonical encoding（0005）](../adr/0005-shared-canonical-encoding.md)、[language-neutral fixture oracle（0006）](../adr/0006-language-neutral-fixture-oracle.md)、[vNext performance baseline authority（0007）](../adr/0007-vnext-performance-baseline-authority.md)、[generic dual-store/caller-selected rigor（0008，WP1-R1后被替代）](../adr/0008-generic-dual-store-and-caller-selected-rigor.md)和[适度保障与可信内网Repository（0009）](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)。
 
-Phase 2已固定HTTP/framed Arrow/Parquet、repository-bound upload、single-root writer、
-SQLite journal和首个linux/amd64 platform。仍非Phase 2 v1范围的是multi-node
-sharding/shared writer、legacy repository cutover、额外platform/provider、
-resumable multipart/object storage，以及`SnapshotSummary`等业务table的生成规则。
+Phase 2修订方向已固定为HTTP/OpenAPI、raw Arrow IPC、repository-bound upload、
+single-root writer、最小operation marker和Versioned-only surface。CurrentTableStore、
+multi-node/shared writer、legacy cutover、额外platform/provider、resumable upload
+和复杂maintenance/security governance均需按ADR 0009重新进入。
 
 ## 15. 与现有文档的关系
 

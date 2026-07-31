@@ -1,12 +1,17 @@
 # ADR 0008: Generic Dual-Store Repository and Caller-Selected Rigor
 
-状态：Accepted
+状态：Superseded after WP1-R1 checkpoint by
+[ADR 0009](0009-proportional-assurance-and-trusted-internal-repository.md)
 
 日期：2026-07-30
 
 决策 owner：Repository Service Architecture
 
 关联阶段：Phase 2及后续Repository consumers
+
+过渡范围：本文只继续解释2026-07-30旧设计和正在进行的WP1-R1 checkpoint。
+WP1-R1完成后，不得以本文启动CurrentTableStore、caller-selected rigor、完整journal/
+fencing或对应WP1-R2+实现。
 
 ## Context
 

@@ -4,6 +4,12 @@
 
 本文把 [整体架构总纲](../architecture/architecture-and-refactoring-plan.md) 转换为可执行的重构阶段。阶段编号表示主要依赖顺序，不表示必须完成整个水平层后才能继续；每一阶段只建设下一条业务纵切所需的最小能力，并保持可运行、可验证和可回退。
 
+2026-07-31过渡：正在进行的WP1-R1按旧Phase 2计划完成后，先执行Phase 2
+contract/delivery skeleton简化，再执行Phase 0–1 assurance/evidence简化，之后才从
+修订后的WP1-R2恢复Phase 2。该顺序由
+[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
+拥有；本文现有Phase 2完整范围将在简化阶段统一改写。
+
 ## 1. 实施原则
 
 ### 1.1 从头实现的含义

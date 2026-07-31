@@ -382,9 +382,8 @@ def test_decoder_finish_rejects_duplicate_header() -> None:
     header = _versioned_header()
     wire = encode_frame_wire_bytes(header) + encode_frame_wire_bytes(header)
     decoder = StreamFrameDecoder()
-    list(decoder.feed(wire))
     with pytest.raises(RepositoryContractError) as exc:
-        decoder.finish()
+        list(decoder.feed(wire))
     assert exc.value.code is RepositoryContractErrorCode.STREAM_DUPLICATE_HEADER
 
 
@@ -420,6 +419,80 @@ def test_decoder_feed_in_chunks_then_finish() -> None:
     assert len(fed_frames) == 4
     assert not hasattr(receipt, "frames")
     assert not hasattr(receipt, "to_wire_bytes")
+
+
+def test_decoder_feed_close_then_resume() -> None:
+    header = _versioned_header()
+    batch = _batch()
+    end = _end((header, batch))
+    wire = encode_stream((header, batch, end))
+    decoder = StreamFrameDecoder()
+    feed_iter = decoder.feed(wire)
+    first = next(feed_iter)
+    assert first.frame_family is StreamFrameFamily.STREAM_HEADER
+    close = getattr(feed_iter, "close", None)
+    if close is not None:
+        close()
+    frames = list(decoder.feed(b""))
+    assert len(frames) == 2
+    assert frames[0].frame_family is StreamFrameFamily.ARROW_BATCH
+    assert frames[1].frame_family is StreamFrameFamily.STREAM_END
+    receipt = decoder.finish()
+    assert receipt.terminal_family is StreamFrameFamily.STREAM_END
+
+
+def test_decoder_feed_consumer_exception_commits() -> None:
+    header = _versioned_header()
+    batch = _batch()
+    end = _end((header, batch))
+    wire = encode_stream((header, batch, end))
+    decoder = StreamFrameDecoder()
+    with pytest.raises(RuntimeError, match="consumer failed"):
+        for _frame in decoder.feed(wire):
+            raise RuntimeError("consumer failed")
+    frames = list(decoder.feed(b""))
+    assert len(frames) == 2
+    receipt = decoder.finish()
+    assert receipt.terminal_family is StreamFrameFamily.STREAM_END
+
+
+def test_decoder_feed_rejects_overlapping_iterator() -> None:
+    header = _versioned_header()
+    end = _end((header,))
+    wire = encode_stream((header, end))
+    decoder = StreamFrameDecoder()
+    feed_iter = decoder.feed(wire)
+    next(feed_iter)
+    with pytest.raises(RepositoryContractError) as exc:
+        list(decoder.feed(wire))
+    assert exc.value.code is RepositoryContractErrorCode.WIRE_INVALID_VALUE
+    close = getattr(feed_iter, "close", None)
+    if close is not None:
+        close()
+
+
+def test_stream_decoder_finish_rejects_invalid_receipts() -> None:
+    header = _versioned_header()
+    end = _end((header,))
+    end_meta = end.metadata
+    assert isinstance(end_meta, StreamEndMetadata)
+    StreamDecoderFinish(
+        terminal_family=StreamFrameFamily.STREAM_END,
+        stream_end=end_meta,
+    )
+    StreamDecoderFinish(
+        terminal_family=StreamFrameFamily.STREAM_ERROR,
+        stream_error=StreamErrorMetadata(error_code="E", message="failed"),
+    )
+    with pytest.raises(RepositoryContractError):
+        StreamDecoderFinish(terminal_family=StreamFrameFamily.STREAM_HEADER)
+    with pytest.raises(RepositoryContractError):
+        StreamDecoderFinish(terminal_family=StreamFrameFamily.STREAM_END)
+    with pytest.raises(RepositoryContractError):
+        StreamDecoderFinish(
+            terminal_family=StreamFrameFamily.STREAM_ERROR,
+            stream_end=end_meta,
+        )
 
 
 def test_decode_stream_collected_envelope_round_trips() -> None:

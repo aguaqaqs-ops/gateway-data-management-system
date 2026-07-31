@@ -23,7 +23,11 @@ from gateway_repository_contracts._stream_metadata import (
 )
 
 if TYPE_CHECKING:
-    from gateway_repository_contracts.stream import StreamDecoderFinish, StreamFrame
+    from gateway_repository_contracts.stream import (
+        StreamDecoderFinish,
+        StreamFrame,
+        _StreamSequenceState,
+    )
 
 STREAM_FRAME_HEADER_SIZE = 6
 _FRAME_VERSION = 1
@@ -251,14 +255,21 @@ def _try_decode_frame_at(
     return frame_size, frame, raw_frame
 
 
+def _new_sequence_state() -> _StreamSequenceState:
+    from gateway_repository_contracts.stream import _StreamSequenceState
+
+    return _StreamSequenceState()
+
+
 @dataclass
 class StreamFrameDecoder:
     """Incremental stream decoder with lifecycle and integrity validation on finish."""
 
     _buffer: bytearray = field(default_factory=bytearray, repr=False)
-    _sequence_log: list[StreamFrameFamily] = field(default_factory=list, repr=False)
+    _sequence_state: _StreamSequenceState = field(default_factory=_new_sequence_state, repr=False)
     _terminal_metadata: StreamFrameMetadata | None = field(default=None, repr=False)
     _prefix_hasher: Any = field(default_factory=hashlib.sha256, repr=False)
+    _feed_active: bool = field(default=False, repr=False)
     _finished: bool = field(default=False, repr=False)
 
     def feed(self, chunk: bytes) -> Iterator[StreamFrame]:
@@ -268,29 +279,46 @@ class StreamFrameDecoder:
                 RepositoryContractErrorCode.WIRE_INVALID_VALUE,
                 "decoder already finished",
             )
+        if self._feed_active:
+            raise RepositoryContractError(
+                RepositoryContractErrorCode.WIRE_INVALID_VALUE,
+                "feed while iterator active",
+            )
         if type(chunk) is not bytes:
             raise RepositoryContractError(
                 RepositoryContractErrorCode.WIRE_INVALID_VALUE,
                 "chunk must be immutable bytes",
             )
         if not chunk:
-            return
-        self._buffer.extend(chunk)
+            if self._buffer:
+                return self._feed_chunk(b"")
+            return iter(())
+        return self._feed_chunk(chunk)
+
+    def _feed_chunk(self, chunk: bytes) -> Iterator[StreamFrame]:
+        from gateway_repository_contracts.stream import accept_stream_frame_family
+
+        if chunk:
+            self._buffer.extend(chunk)
         consumed = 0
-        while consumed < len(self._buffer):
-            decoded = _try_decode_frame_at(self._buffer, consumed)
-            if decoded is None:
-                break
-            frame_size, frame, raw_frame = decoded
-            if frame.frame_family not in _TERMINAL_FAMILIES:
-                self._prefix_hasher.update(raw_frame)
-            self._sequence_log.append(frame.frame_family)
-            if frame.frame_family in _TERMINAL_FAMILIES:
-                self._terminal_metadata = frame.metadata
-            consumed += frame_size
-            yield frame
-        if consumed:
-            del self._buffer[:consumed]
+        self._feed_active = True
+        try:
+            while consumed < len(self._buffer):
+                decoded = _try_decode_frame_at(self._buffer, consumed)
+                if decoded is None:
+                    break
+                frame_size, frame, raw_frame = decoded
+                if frame.frame_family not in _TERMINAL_FAMILIES:
+                    self._prefix_hasher.update(raw_frame)
+                accept_stream_frame_family(self._sequence_state, frame.frame_family)
+                if frame.frame_family in _TERMINAL_FAMILIES:
+                    self._terminal_metadata = frame.metadata
+                consumed += frame_size
+                yield frame
+        finally:
+            if consumed:
+                self._buffer = bytearray(self._buffer[consumed:])
+            self._feed_active = False
 
     def finish(self) -> StreamDecoderFinish:
         """Validate stream lifecycle and integrity after all frames were consumed."""
@@ -298,7 +326,7 @@ class StreamFrameDecoder:
             StreamDecoderFinish,
             StreamEndMetadata,
             StreamErrorMetadata,
-            validate_stream_sequence_families,
+            validate_stream_sequence_state_complete,
         )
 
         if self._finished:
@@ -311,8 +339,7 @@ class StreamFrameDecoder:
                 RepositoryContractErrorCode.STREAM_INCOMPLETE,
                 "incomplete stream bytes",
             )
-        validate_stream_sequence_families(self._sequence_log)
-        terminal_family = self._sequence_log[-1]
+        terminal_family = validate_stream_sequence_state_complete(self._sequence_state)
         stream_end: StreamEndMetadata | None = None
         stream_error: StreamErrorMetadata | None = None
         if terminal_family is StreamFrameFamily.STREAM_END:

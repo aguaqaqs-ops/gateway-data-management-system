@@ -203,6 +203,91 @@ class StreamDecoderFinish:
     stream_end: StreamEndMetadata | None = None
     stream_error: StreamErrorMetadata | None = None
 
+    def __post_init__(self) -> None:
+        if self.terminal_family is StreamFrameFamily.STREAM_END:
+            if self.stream_end is None or self.stream_error is not None:
+                raise RepositoryContractError(
+                    RepositoryContractErrorCode.WIRE_INVALID_VALUE,
+                    "STREAM_END receipt requires stream_end metadata only",
+                )
+            return
+        if self.terminal_family is StreamFrameFamily.STREAM_ERROR:
+            if self.stream_error is None or self.stream_end is not None:
+                raise RepositoryContractError(
+                    RepositoryContractErrorCode.WIRE_INVALID_VALUE,
+                    "STREAM_ERROR receipt requires stream_error metadata only",
+                )
+            return
+        raise RepositoryContractError(
+            RepositoryContractErrorCode.WIRE_INVALID_VALUE,
+            "terminal_family must be STREAM_END or STREAM_ERROR",
+        )
+
+
+@dataclass
+class _StreamSequenceState:
+    header_seen: bool = False
+    terminal_seen: bool = False
+    terminal_count: int = 0
+    frame_index: int = 0
+    terminal_family: StreamFrameFamily | None = None
+
+
+def accept_stream_frame_family(state: _StreamSequenceState, family: StreamFrameFamily) -> None:
+    """Incrementally validate one frame family; raise on lifecycle violation."""
+    if family not in STREAM_FRAME_FAMILIES:
+        raise RepositoryContractError(
+            RepositoryContractErrorCode.STREAM_UNKNOWN_FRAME,
+            "unknown frame family",
+        )
+    if state.terminal_seen:
+        raise RepositoryContractError(
+            RepositoryContractErrorCode.STREAM_FRAME_AFTER_TERMINAL,
+            "frame after terminal",
+        )
+    if family is StreamFrameFamily.STREAM_HEADER:
+        if state.header_seen:
+            raise RepositoryContractError(
+                RepositoryContractErrorCode.STREAM_DUPLICATE_HEADER,
+                "STREAM_HEADER must appear exactly once",
+            )
+        state.header_seen = True
+    elif family in _TERMINAL_FAMILIES:
+        if state.frame_index == 0:
+            raise RepositoryContractError(
+                RepositoryContractErrorCode.STREAM_INVALID_SEQUENCE,
+                "terminal cannot be first frame",
+            )
+        state.terminal_seen = True
+        state.terminal_count += 1
+        state.terminal_family = family
+    elif family in _DATA_FAMILIES and state.frame_index == 0:
+        raise RepositoryContractError(
+            RepositoryContractErrorCode.STREAM_INVALID_SEQUENCE,
+            "data frame before header",
+        )
+    state.frame_index += 1
+
+
+def validate_stream_sequence_state_complete(state: _StreamSequenceState) -> StreamFrameFamily:
+    """Validate incremental sequence state is complete at stream end."""
+    if not state.header_seen:
+        raise RepositoryContractError(
+            RepositoryContractErrorCode.STREAM_INCOMPLETE,
+            "stream missing header",
+        )
+    if not state.terminal_seen or state.terminal_family is None:
+        raise RepositoryContractError(
+            RepositoryContractErrorCode.STREAM_INCOMPLETE,
+            "stream missing terminal frame",
+        )
+    if state.terminal_count > 1:
+        raise RepositoryContractError(
+            RepositoryContractErrorCode.STREAM_TERMINAL_CONFLICT,
+            "multiple terminal frames",
+        )
+    return state.terminal_family
+
 
 @dataclass(frozen=True, slots=True)
 class StreamEnvelope:
@@ -251,52 +336,10 @@ def validate_stream_sequence_families(families: Sequence[StreamFrameFamily]) -> 
             RepositoryContractErrorCode.STREAM_INVALID_SEQUENCE,
             "first frame must be STREAM_HEADER",
         )
-    header_count = sum(1 for family in families if family is StreamFrameFamily.STREAM_HEADER)
-    if header_count != 1:
-        raise RepositoryContractError(
-            RepositoryContractErrorCode.STREAM_DUPLICATE_HEADER,
-            "STREAM_HEADER must appear exactly once",
-        )
-
-    terminal_seen = False
-    terminal_family: StreamFrameFamily | None = None
-    for index, family in enumerate(families):
-        if family not in STREAM_FRAME_FAMILIES:
-            raise RepositoryContractError(
-                RepositoryContractErrorCode.STREAM_UNKNOWN_FRAME,
-                "unknown frame family",
-            )
-        if terminal_seen:
-            raise RepositoryContractError(
-                RepositoryContractErrorCode.STREAM_FRAME_AFTER_TERMINAL,
-                "frame after terminal",
-            )
-        if family in _TERMINAL_FAMILIES:
-            terminal_seen = True
-            terminal_family = family
-            if index == 0:
-                raise RepositoryContractError(
-                    RepositoryContractErrorCode.STREAM_INVALID_SEQUENCE,
-                    "terminal cannot be first frame",
-                )
-        elif family in _DATA_FAMILIES and index == 0:
-            raise RepositoryContractError(
-                RepositoryContractErrorCode.STREAM_INVALID_SEQUENCE,
-                "data frame before header",
-            )
-
-    if not terminal_seen or terminal_family is None:
-        raise RepositoryContractError(
-            RepositoryContractErrorCode.STREAM_INCOMPLETE,
-            "stream missing terminal frame",
-        )
-
-    terminal_count = sum(1 for family in families if family in _TERMINAL_FAMILIES)
-    if terminal_count > 1:
-        raise RepositoryContractError(
-            RepositoryContractErrorCode.STREAM_TERMINAL_CONFLICT,
-            "multiple terminal frames",
-        )
+    state = _StreamSequenceState()
+    for family in families:
+        accept_stream_frame_family(state, family)
+    validate_stream_sequence_state_complete(state)
 
 
 def validate_stream_sequence(frames: Sequence[StreamFrame]) -> None:

@@ -474,7 +474,7 @@ def _static_checks_for_routing(
                         "-p",
                         "no:cacheprovider",
                         "-m",
-                        "not nested_cli",
+                        "not nested_cli and not requires_clean_repo",
                         "phase2/tests",
                     ),
                 ),

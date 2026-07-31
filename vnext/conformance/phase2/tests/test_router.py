@@ -1231,6 +1231,12 @@ def test_nested_cli_marker_is_registered() -> None:
     assert isinstance(pytest.mark.nested_cli, MarkDecorator)
 
 
+def test_requires_clean_repo_marker_is_registered() -> None:
+    from _pytest.mark.structures import MarkDecorator
+
+    assert isinstance(pytest.mark.requires_clean_repo, MarkDecorator)
+
+
 def test_static_checks_include_closure_lint() -> None:
     routing = routing_view_from_result(
         route_changes([PathChange("vnext/conformance/phase2/closure.py", "modified")])
@@ -1251,7 +1257,11 @@ def test_static_pytest_target_covers_phase2_tests_not_nested_cli() -> None:
     )
     pytest_check = next(check for check in checks if check.check_id == "static.pytest")
     assert "phase2/tests" in pytest_check.argv
-    assert "not nested_cli" in pytest_check.argv
+    marker_positions = [index for index, arg in enumerate(pytest_check.argv) if arg == "-m"]
+    assert marker_positions
+    marker_expression = pytest_check.argv[marker_positions[-1] + 1]
+    assert "not nested_cli" in marker_expression
+    assert "not requires_clean_repo" in marker_expression
     assert "test_router.py" not in pytest_check.argv
 
 

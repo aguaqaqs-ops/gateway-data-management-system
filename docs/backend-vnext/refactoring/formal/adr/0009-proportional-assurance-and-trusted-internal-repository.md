@@ -97,6 +97,46 @@ ServiceEpoch或`UNKNOWN/APPLIED/VERIFIED`状态机。
 未找到则使用原artifact和key重试一次；多commit、ref矛盾或无法判断时终止为
 `FAILED / MANUAL_RECOVERY_REQUIRED`，允许人工修复。
 
+### Synchronous create and upload
+
+`CreateRepository`和`UploadArtifact`是同步幂等操作，不创建Operation。
+
+- Create在server-owned staging初始化Dolt、initial empty commit和默认`main`，
+  完成后atomic publish；response loss通过idempotency返回原结果。
+- Upload在单个HTTP请求中bounded streaming、增量计算size/SHA并atomic publish；
+  不提供multipart或range resume。
+- `SubmitVersionedImport`是V1唯一异步业务Operation。
+
+Import的`expected_commit_id`同时是新commit parent和target ref CAS预期。V1不提供
+standalone `CompareAndSetVersionedRef`；rollback、promotion或审批发布出现真实
+consumer后再additive加入。
+
+### Artifact, capacity and disaster recovery
+
+已确认package通常10–100 MB、极端约200 MB；日常10–200次/天、极端1,000次/天，
+且峰值跨多个Repository，单Repository通常一周写入一次。Versioned commit永久保留，
+package只是临时输入：
+
+- success result持久化后删除本地package；
+- orphan和普通失败使用可配置TTL做best-effort cleanup；
+- RUNNING和`MANUAL_RECOVERY_REQUIRED`引用不得自动删除；
+- 上游业务流程独立推送外部package备份，Repository Service不集成备份系统。
+
+V1只建设简单的upload/import并发上限、per-repository single writer和free-disk
+admission，不建设通用ResourcePolicy或quota/accounting subsystem。Dolt对重复数据
+的实际增量存储必须测量，不提前承诺去重率。
+
+Repository Service不提供public backup/restore API。部署方对quiescent durable root
+做一致性volume snapshot并由operator恢复。恢复到最近snapshot之后允许人工重放
+外部package；CommitId可能改变且外部引用允许人工修正，不承诺RPO/RTO或每commit
+同步备份。
+
+### Compatibility activation
+
+T2/T3没有已发布wire兼容义务。T2只建立薄DTO骨架，不注册stub业务route或冻结
+OpenAPI snapshot。首个真实纵切从`/v1/`激活FastAPI OpenAPI；V1允许additive扩展，
+breaking field/semantics change使用`/v2/`。
+
 ### Future CurrentTableStore
 
 未来CurrentTableStore作为additive sibling capability加入，而不是现在预建generic
@@ -114,18 +154,18 @@ Current重新进入范围前必须具备真实caller、操作集合、数据生�
 
 ## Transition
 
-正在进行的WP1-R1继续按2026-07-30旧设计完成，并形成独立checkpoint。该checkpoint
-仅证明当时工作完成，不构成已发布wire contract，也不产生后续兼容义务。
+WP1-R1已按2026-07-30旧设计完成并形成独立checkpoint。该checkpoint仅证明当时
+工作完成，不构成已发布wire contract，也不产生后续兼容义务。
 
-WP1-R1 checkpoint之后：
+WP1-R1 checkpoint之后先完成Phase 2简化设计，再完成Phase 0–1同原则简化设计和
+cross-phase interface reconciliation。两阶段设计闭合后，Phase 0–2代码简化作为
+同一执行阶段分批提交，最后按新的最小Versioned计划恢复Phase 2 feature实现。
 
-1. 先执行Phase 2 contract和delivery skeleton简化；
-2. 在开始修订后的WP1-R2之前，执行Phase 0–1简化；
-3. 再按新的最小Versioned计划恢复Phase 2实现。
+先设计后联合清理避免Phase 2刚替换Artifact/contract，随后又因Phase 0–1 owner
+调整重复返工；“联合”只表示同一执行计划，不允许把删除压成一个不可审查的大提交。
 
-ADR 0008及现有Repository Service Contract、Phase 2 implementation plan和
-traceability只继续拥有WP1-R1旧checkpoint；其WP1-R2+语义由本ADR和后续精简后的
-owner contract/plan替代。
+ADR 0008、旧traceability和historical Phase 2材料只继续解释WP1-R1 checkpoint；
+WP1-R2+语义由本ADR、精简后的Repository Service Contract和Phase 2 plan拥有。
 
 ## Consequences
 
@@ -133,6 +173,8 @@ owner contract/plan替代。
   在checkpoint后破坏性删除或改写。
 - Phase 2不再以现有WP0 gate/closure、141项traceability和exact-commit exit作为
   交付前提。
+- Phase 0–2代码清理推迟到两阶段设计共同闭合，期间旧gate只代表历史checkpoint，
+  不得阻止正式设计更新。
 - 少量罕见故障可能需要人工修复；这是以显著降低实现和运维复杂度换取的明确选择。
 - 若信任边界升级为互不信任tenant、外网直连、法规防篡改或无人值守恢复，应新增
   ADR和威胁/故障验收场景，而不是静默恢复旧设计。
@@ -141,6 +183,9 @@ owner contract/plan替代。
 
 - 全局token的成功与失败路径通过HTTP集成测试。
 - Upload hash、package路径/大小、Versioned CAS、idempotency和固定commit read通过。
+- Create同步创建initial commit/main且response-loss幂等。
+- Upload同步流式处理通常10–100 MB、至少一个接近200 MB的边界样本。
 - Import覆盖commit前中断、commit后响应前中断和人工修复分支。
 - 标准Arrow IPC stream可被client直接读取，截断时由HTTP/Arrow失败。
+- Success package被清理，RUNNING/manual-recovery package不被误删。
 - Phase 0–1 canonical encoding bytes、Python/Rust核心golden保持不变。

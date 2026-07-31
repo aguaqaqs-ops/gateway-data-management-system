@@ -22,7 +22,7 @@ temporary/phase-1/
 当前讨论记录：
 
 - [Architecture Simplification Execution Plan](architecture-simplification-execution-plan.md)
-  （Active；协调WP1-R1 checkpoint、Phase 2简化和Phase 0–1后续简化）
+  （Active；先闭合Phase 0–2设计，再协调联合代码清理）
 - [Phase 0 Baseline and Oracle](phase-0/baseline-and-oracle-notes.md)
 - [Project Environment Preparation](project-environment-preparation.md)
 - [Phase 1 Closure Sign-off](phase-1/phase-1-closure-signoff.md)（Phase 1 已于
@@ -30,5 +30,7 @@ temporary/phase-1/
 - [Phase 2 Interactive Design Session Guide](phase-2/interactive-design-session-guide.md)
   （Round 0–11、Consolidated Review、consumer check与F0已于2026-07-30收口；
   旧设计只继续支持WP1-R1 checkpoint，之后由ADR 0009替代）
+- [T2 Phase 2 Simplification Implementation Checklist](phase-2/t2-simplification-implementation-checklist.md)
+  （D2已完成；代码执行等待Phase 0–1设计与cross-phase reconciliation）
 
 不得把临时文档直接改名为正式文档；正式文档需要去除讨论过程，并重新表述 owner、规则、版本和验收标准。

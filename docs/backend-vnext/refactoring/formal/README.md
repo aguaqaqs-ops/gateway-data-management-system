@@ -16,7 +16,9 @@
 - [Phase 1 Implementation Design and Delivery Plan](plans/phase-1-implementation-design-and-delivery-plan.md)
 - [Phase 2 Implementation Design and Delivery Plan](plans/phase-2-implementation-design-and-delivery-plan.md)
 - [Phase 2 Requirement Traceability](plans/phase-2-requirement-traceability.yaml)
+  （WP1-R1 legacy checkpoint；计划在Phase 0–2联合代码清理时删除）
 - [Phase 2 F0 Formal Closure Validation Report](plans/phase-2-f0-validation-report.md)
+  （WP1-R1 legacy checkpoint；不再是当前gate authority）
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)
@@ -50,6 +52,7 @@
 
 正式文档之间发生冲突时，应先暂停实现，明确语义 owner，并通过修改正式文档或新增 ADR 收口；不能依靠兼容代码长期维持两套含义。
 
-当前过渡：正在进行的旧设计WP1-R1由原Phase 2 contract/plan完成；WP1-R1之后的
-安全、恢复、范围和交付顺序由ADR 0009拥有。在精简后的owner contract/plan发布前，
-不得启动旧计划WP1-R2+。
+当前过渡：WP1-R1旧设计checkpoint已经完成。WP1-R2+旧contract、141项traceability、
+旧gate和exact-commit exit均已被ADR 0009、精简Repository Service Contract和
+精简Phase 2 plan替代。下一步先完成Phase 0–1同原则简化设计和cross-phase
+reconciliation，再分批执行Phase 0–2联合代码清理；不得从旧材料恢复实现。

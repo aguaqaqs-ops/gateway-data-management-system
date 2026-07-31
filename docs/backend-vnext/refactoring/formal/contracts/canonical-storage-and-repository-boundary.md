@@ -19,7 +19,7 @@ Immutable SourcePackageArtifact (raw upload authority)
   -> parse + frozen table rules + storage projection
   -> CanonicalizationManifest + RepositoryImportArtifact
   -> Repository Service generic import/commit
-  -> caller-selected post-commit verification evidence
+  -> structural import result + immutable CommitId
 ```
 
 SourcePackageArtifact 保存原始 bytes、provenance 和 replay authority。Dolt commit 保存 canonical business state，不保证复原原始 SQL schema、所有物理列或原始 DDL。Submit 成功时 source artifact retention 提升为 submission durable；读取原始输入必须回到该 artifact。
@@ -68,7 +68,9 @@ Source real gid 必须唯一并处于 real range；source `0 | NULL | empty` 才
 
 每次 import 的 manifest 至少记录：contract/storage projection version，source artifact digest，ruleset ID/version/digest；每表 source/canonical schema digest、source/canonical row count、retained/structural/dropped columns+reason、canonical key、canonical content digest、optional ordering digest/ordered identity policy 与 gid range/count；以及 manifest digest。
 
-Table Rules/Storage Projection owner 拥有其语义。Repository Service 可以校验 schema、key、row count 和 digest，但不得选择业务列、key、pseudo gid 或 ordered policy。
+Table Rules/Storage Projection owner拥有其语义。Repository Service只消费manifest中的
+required table、schema和row count做structural check；不验证业务content/ordering
+digest，也不得选择业务列、key、pseudo gid或ordered policy。
 
 ## 5. Artifact lifecycle
 
@@ -90,24 +92,23 @@ history共同提供。
 ## 6. Repository import、journal 与 readback
 
 Repository Service通过public wire contract接收RepositoryImportArtifact，只执行
-通用operation journal、writer serialization、Dolt apply/commit、ref publication、
-catalog/stream和caller-requested verification。
+writer serialization、Dolt apply/commit、operation marker、target ref CAS、catalog/
+stream和固定structural check。
 
-Caller必须显式选择`NONE | STRUCTURAL | FULL`且无server default。NONE只验证effect/
-publication evidence；STRUCTURAL从committed snapshot检查required table set、schema、
-row count和protected metadata；FULL再流式读取全部required canonical/protected rows，
-生成versioned`SnapshotManifest`并检查content/ordering digest和ordered invariants。
-完成requested level后journal进入VERIFIED；裸VERIFIED不代表FULL。需要FULL的业务
-finalize必须同时检查`completed_verification_level=FULL`和matching
-SnapshotManifest。
+Repository Service不提供`NONE | STRUCTURAL | FULL`或VerifyCommit。成功只表示：
 
-FULL不得复用import input、内存rows或旧VERIFIED evidence替代committed snapshot
-readback。NONE/STRUCTURAL不得隐式执行FULL scan。独立后验VerifyCommit不改写原
-operation或既有业务结果。
+1. upload size/raw SHA匹配；
+2. 带matching operation marker的commit存在；
+3. target ref指向该commit；
+4. committed table set、schema和row count匹配manifest。
+
+业务content/ordering digest在import前由Storage Projection owner计算和保存。业务
+流程是否额外读取immutable commit做诊断或复核，由其owner决定，不成为Repository
+Service通用verification状态。
 
 RepositoryImportArtifact是Storage Projection owner的content contract；通用artifact
-envelope由Artifacts owner拥有；verification evidence wire schema由Repository
-Service拥有，期望canonical fields语义仍由Storage Projection owner定义。
+引用由Artifacts owner拥有。Repository Service只解释structural fields，其他
+canonical fields语义仍由Storage Projection owner定义。
 
 ### 6.1 RepositoryImportArtifact v1 package
 
@@ -121,21 +122,15 @@ replay.sql
 ```
 
 禁止其他entry、absolute/traversal path、duplicate、link、device、FIFO和extended
-filesystem metadata。`manifest.json`是UTF-8 JCS JSON，至少包含content contract/
-storage projection/canonical encoding/ruleset identity、source artifact digest、
-ordered table list、每表schema/key/row count/content/ordering digest、replay raw
-SHA-256及CanonicalizationManifest digest。Artifact semantic content digest按已登记
-digest kind覆盖manifest canonical bytes与replay raw digest；tar/zstd偶然bytes只由
-ArtifactRef raw digest校验。
+filesystem metadata。`manifest.json`是UTF-8 JSON，至少向Repository Service提供
+ordered table list和每表schema/row count。Storage Projection可以保存自身的
+contract、ruleset、source/content/ordering digest，但这些字段的业务语义不由
+Repository Service解释。Package传输完整性只使用ArtifactRef size/raw SHA-256。
 
-`replay.sql`是Storage Projection生成的确定性snapshot replay，不是上传者原始SQL。
-V1 grammar只允许manifest表上的quoted identifier、`DROP TABLE IF EXISTS`、
-`CREATE TABLE`（closed logical-type mapping、declared primary key）和batched
-`INSERT ... VALUES`；statement/table/column顺序与manifest一致。禁止SELECT、generic
-expression、function、procedure、trigger、view、temporary object、ALTER、database/
-user/grant/system mutation、file/network access、extension和session setting。Literal
-必须按Shared Canonical Encoding和repository logical type mapping round-trip。
-Service在effect前增量验证package、grammar、statement/table/schema binding和limits。
+`replay.sql`是受信Storage Projection生成的确定性snapshot replay，不是外部用户
+提交的任意SQL。Repository Service将其限制在server-owned Repository/Dolt runtime
+内执行，不建设完整SQL grammar或semantic package validator。若信任边界改变为
+不可信上传者，必须重开ADR 0009。
 
 ## 7. Projection upgrade/schema alignment
 
@@ -157,8 +152,9 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 - Dropped-column-only change 得到相同 canonical business digest，且 no-change Submit 无 effect。
 - Missing/duplicate key、row loss、reserved gid、非法 no 全部 fail closed。
 - Pseudo gid 在重算、retry、Rust/Python 和 readback 后确定一致。
-- 每次write完成caller-requested verification后才VERIFIED；需要FULL的consumer必须
-  取得matching committed-ref SnapshotManifest。
+- 每次write成功都匹配operation commit、target ref和manifest table/schema/row count。
+- 业务digest继续由Storage Projection/业务owner验证，不转换成Repository
+  verification level。
 - Attempt retry 复用相同 RepositoryImportArtifact；活跃期结束后 full-row pin 被释放。
 - Projection version change 使用 alignment/fallback，不错误使用 native diff。
 

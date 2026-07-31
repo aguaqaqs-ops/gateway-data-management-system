@@ -8,6 +8,11 @@
 
 关联阶段：Phase 2、Phase 4、Slice 5B/5D
 
+2026-07-31 amendment：T1/T2/T3业务事务边界继续有效；Repository Service内部
+journal/effect classification、caller-selected verification和FULL evidence已由
+ADR 0009替代为四态Operation、matching commit marker、固定structural result和
+人工恢复分支。
+
 ## Context
 
 业务数据库与独立 Repository Service 之间没有分布式事务。请求发送后的 timeout、worker crash 或 lease takeover 无法证明 Repository 未接受请求。把 `RUNNING` step 整体重做可能重复 commit/CAS；把 Operation failure 当作业务终局又可能错误释放占用。
@@ -16,9 +21,9 @@
 
 SubmitAttempt与ArchiveExecution各自使用
 `PREPARED/EFFECT_PENDING/FINALIZED/ABORTED`四态，并以T1验收、T2外部effect、T3
-业务finalize划分事务。Repository Service journal和caller-requested verification
-evidence是effect authority；恢复按`NOT_APPLIED/UNKNOWN/APPLIED/VERIFIED`事实推进。
-需要创建Submission的caller仍显式请求FULL并在T3检查matching SnapshotManifest。
+业务finalize划分事务。Repository Service的SUCCEEDED operation、matching CommitId
+和target ref是effect result；业务content/digest facts仍由业务owner检查。Repository
+内部恢复使用matching commit marker，矛盾状态显式进入MANUAL_RECOVERY_REQUIRED。
 
 请求可能已被接受后必须先 reconcile，并复用原 operation、idempotency key、request/artifact digest；只有权威 `NOT_APPLIED` 才能重放原请求或 abort。Outbox record 与业务 finalize 同事务，delivery 独立。精确规则由 [External Effect and Recovery Contract](../contracts/external-effect-and-recovery.md) 唯一规定。
 
@@ -36,8 +41,6 @@ evidence是effect authority；恢复按`NOT_APPLIED/UNKNOWN/APPLIED/VERIFIED`事
 ## Required Verification
 
 - 每个 request-acceptance 前后注入点的 restart/takeover tests。
-- `UNKNOWN/APPLIED`不重发；explicit`NOT_APPLIED`才允许原key replay。普通
-  verification mismatch可释放Repository store lane，但不自动释放business
-  occupancy。
-- Journal APPLIED/VERIFIED、T3 和 outbox delivery 之间 crash 后恰好一次业务结果。
-- Verification mismatch保留effect evidence；authority contradiction才quarantine。
+- 已知Repository operation不blind replay；业务worker只查询原operation。
+- Repository SUCCEEDED result、T3和outbox delivery之间crash后恰好一次业务结果。
+- MANUAL_RECOVERY_REQUIRED不自动释放业务occupancy，由operator处理。

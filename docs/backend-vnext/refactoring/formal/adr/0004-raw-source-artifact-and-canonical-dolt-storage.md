@@ -8,6 +8,11 @@
 
 关联阶段：Phase 2、Phase 3、Slice 5A/5B
 
+2026-07-31 amendment：canonical content owner继续有效；Repository Service的
+caller-selected verification/FULL SnapshotManifest已由ADR 0009替代为固定
+table/schema/row-count structural check。Raw SourcePackageArtifact的最终retention
+在Phase 0–1同原则简化设计中复核。
+
 ## Context
 
 Legacy 要求 Dolt 尽量保存原始 SQL schema/data，并在比较时构建临时 projection table。该做法重复消耗 CPU/I/O，且不稳定列会放大无业务意义的历史 diff 和存储。原始上传 bytes 已可由 immutable artifact 独立保存，因此不需要让 Dolt 同时承担 raw package authority。
@@ -18,9 +23,9 @@ SourcePackageArtifact 是原始上传权威；Dolt 只保存由版本化 table r
 
 Ordered table第一版保留`no`，以`gid`为主键；real gid为
 `1..3_999_999_999`，blank pseudo gid从`4_000_000_000`确定分配。每次import绑定
-CanonicalizationManifest、immutable RepositoryImportArtifact和caller-selected
-verification evidence；需要业务FULL证明的consumer显式请求并检查post-commit
-SnapshotManifest。SnapshotTableArtifact只在current Preview/active Attempt期间pin；
+CanonicalizationManifest和immutable RepositoryImportArtifact。Repository只检查
+committed table/schema/row count；业务content digest由Storage Projection/业务
+owner持有。SnapshotTableArtifact只在current Preview/active Attempt期间pin；
 首版不长期复制full-row archive。精确规则由
 [Canonical Storage and Repository Boundary Contract](../contracts/canonical-storage-and-repository-boundary.md)
 唯一规定。
@@ -41,5 +46,5 @@ Dolt export 是 canonical schema，不能单独复原原始 DDL/删除列；原�
 
 - Raw artifact restore、canonical manifest、row-count/key 和 dropped-column fixtures。
 - Ordered gid/no、pseudo blank、position shift 和 reserved-range vectors。
-- Repository三档verification与需要FULL的business consumer conformance。
+- Repository structural result与business-owned digest边界。
 - Projection version mismatch 进入 alignment/fallback，不使用不安全 native diff。

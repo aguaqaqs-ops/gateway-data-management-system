@@ -1,55 +1,39 @@
 # Repository Service Contract
 
-状态：过渡期正式设计（仅用于完成旧设计WP1-R1 checkpoint）
+状态：Accepted Simplified Baseline
 
-日期：2026-07-30
+日期：2026-07-31
 
 阶段：Phase 2 Repository Service Foundation；Phase 3+ consumer
 
 Contract ID：`gateway-vnext.repository-service`
 
-Owner：Repository Service（public wire、repository effect、Current/Versioned generic
-storage、recovery、security和resource semantics）
+Owner：Repository Service（public wire、Versioned repository effect、import recovery
+和服务运行边界）
 
-Semantic version：`1.0.0`
+首个激活HTTP版本：`/v1/`
 
-Wire version：`1`
+## 1. Authority and scope
 
-## 0. Transition authority
+Repository Service是独立内网服务，保存Dolt-backed immutable table history。它不
+理解Workspace、Preview、Submission、Archive、Baseline、History、Snapshot、
+Comparison、Risk、Bundle、业务审批或business finalize。
 
-2026-07-31已接受
-[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)。
-本文完整内容只继续拥有正在进行的WP1-R1旧设计checkpoint。该checkpoint不发布、
-不建立wire兼容义务；完成后允许破坏性删除strict JSON、FailureDescriptor、custom
-stream envelope、schema snapshot和其他旧WP1-R1表面。
+V1只拥有：
 
-WP1-R2及后续不得依据本文当前双存储、ACL、verification level、journal/fencing、
-maintenance或exact-evidence条款继续实现。Phase 2 simplification必须先发布精简后的
-Repository owner contract，再恢复修订后的WP1-R2。
+- Repository创建和server-owned持久化目录；
+- repository-bound临时import artifact；
+- Versioned import、commit、ref、catalog和row stream；
+- import operation、幂等和有限启动恢复；
+- 服务健康、认证、容量admission和部署级恢复边界。
 
-## 1. Authority boundary
-
-Repository Service 是独立、通用、容器化的table repository。它提供两个显式、
-相互独立的store：
-
-- `VersionedTableStore`：Dolt-backed immutable commit history、ref、import、read、
-  export和technical raw diff；
-- `CurrentTableStore`：SQLite-backed latest-only catalog/table、bulk replace和bounded
-  row/field mutation。
-
-Caller在每次调用中显式选择store，并在自己的owner contract中保存table
-persistence policy。Service不判断哪个store是业务authority，不自动routing，
-不比较同名表，不保证dual-write或cross-store consistency。同一RepositoryId下
-同名表可以分别存在于两个store且内容不同。
-
-Service不拥有或解释Workspace、Preview、Submission、Archive、Baseline、History、
-Snapshot、Comparison、Risk、Surface、Bundle、业务审批或business finalize。
-它不提供arbitrary SQL/DDL、cross-table join、cross-store transaction、通用
-workflow/plugin framework或业务policy language。
+CurrentTableStore、cross-store inventory、通用query/diff/export、public GC、
+backup/restore/delete/repair、typed audit subsystem和multi-node writer不属于V1。
+未来Current作为additive sibling加入，不改变本合同的Versioned语义。
 
 ## 2. Component and dependency boundary
 
-正式Python distribution为：
+保留三个Python distribution：
 
 ```text
 gateway-repository-contracts
@@ -59,593 +43,302 @@ gateway-repository-contracts
   <- gateway-repository-service
 ```
 
-- `gateway-repository-contracts`只保存public DTO、closed enum、schema codec和
-  versioned contract assets，不含HTTP、storage、provider或业务规则。
-- `gateway-repository-client`拥有Repository Port、Fake与Remote SDK。
-- `gateway-repository-service`拥有application/domain、Local adapter、HTTP
-  transport、Dolt/SQLite/storage/runtime。
-- Backend/worker production只能依赖contracts/client，不依赖service。
+- `contracts`只保存薄Pydantic DTO、少量enum和共享类型，不依赖HTTP、Dolt、
+  filesystem或业务module。
+- `client`拥有Remote client和Backend可依赖的Repository Port adapter。
+- `service`拥有HTTP、application、Dolt、filesystem和operation实现。
+- Backend production不依赖或import `gateway-repository-service`。
 
-Local与Remote执行同一application semantics。Local只绕过HTTP serialization和
-bearer parsing，不绕过authorization、admission、idempotency、journal、fencing、
-provider effect或recovery。
+T2简化阶段只替换contracts和delivery skeleton，不注册返回占位结果的业务route。
+首个真实纵切实现时，FastAPI route生成的OpenAPI才成为激活wire authority。
 
-## 3. Public identity
+## 3. Trust and authentication
 
-| Identity | Rule |
+V1是单一信任域：
+
+- production使用一个global static bearer token；
+- 有效token可访问全部Repository；
+- 除`healthz`和部署限定的`readyz`外，所有业务route必须认证；
+- 不提供CallerIdentity、per-repository ACL、policy generation或存在性隐藏；
+- TLS由deployment ingress/sidecar拥有；
+- token泄漏等价于完整Repository写权限泄漏，这是已接受的边界。
+
+输入安全保留server-owned path、regular-file、size、路径穿越、secret/log脱敏和
+非shell执行检查。`replay.sql`由受信Backend生成；Service不建设完整SQL grammar、
+semantic package签名或防篡改体系。
+
+## 4. Contract and compatibility
+
+Pydantic model和激活route生成的FastAPI OpenAPI是HTTP wire authority。不维护：
+
+- 自定义strict JSON/JCS wire；
+- deep-freeze JSON tree；
+- 重复runtime validator；
+- 手写JSON Schema和schema snapshot hash；
+- 每个DTO独立version轴；
+- N/N-1 client兼容矩阵。
+
+T2/T3尚无兼容承诺，可破坏性修改。`/v1/`激活后允许新增route、可选请求字段和
+响应字段；删除字段、改变含义或改变必填性使用`/v2/`。
+
+Error统一为：
+
+```text
+code: string
+message: string
+details?: object
+request_id?: string
+```
+
+HTTP status表达请求层结果；不公开通用`category/phase/recovery/effect`状态空间。
+
+## 5. Public identity and value rules
+
+| Value | Rule |
 | --- | --- |
-| `RepositoryId` | server-generated canonical lowercase UUIDv7；opaque；删除后永不复用 |
-| `RepositoryIncarnationId` | restore后轮换；mutation必须绑定current incarnation |
-| `RepositoryOperationId` | server-generated UUIDv7；在operation retention内durable |
-| `OperationRef` | closed `CREATE`或`REPOSITORY` scope；后者同时携带RepositoryId |
-| `ArtifactId/ArtifactRef` | server-generated、repository-bound、带manifest/expiry |
-| `CommitId` | repository-scoped provider-generated opaque immutable token |
-| `IdempotencyKey` | caller-generated opaque value；不得由server静默生成不可复用key |
-| `CallerIdentity` | deployment-assigned stable identity；credential轮换不改变identity |
-| `RefName` | caller-selected case-sensitive restricted ASCII segmented name |
-| `CurrentTableGenerationId` | current table latest-state equality token |
-| `CurrentCatalogGenerationId` | current catalog equality token |
-| cursor | opaque、HMAC保护、最长8 KiB、15分钟TTL；不是durable identity |
+| `RepositoryId` | Service生成的普通UUID；caller不得解析时间或版本 |
+| `ArtifactId` | Service生成的普通UUID；只在所属Repository内有效 |
+| `RepositoryOperationId` | Service生成的普通UUID；只在所属Repository内查询 |
+| `CommitId` | Dolt生成的repository-scoped opaque string |
+| `RefName` | bounded string；V1只保证`main`存在 |
+| `IdempotencyKey` | caller生成的bounded opaque string |
+| provider token | bounded opaque string，不施加UUID或canonical grammar |
 
-Client不得解析UUID时间、CommitId/provider格式、cursor、storage key或path。所有
-public response禁止包含server path、Dolt/SQLite目录、run directory、CLI command、
-file descriptor或internal network locator。
+`RepositoryId`、`ArtifactId`和`RepositoryOperationId`可以直接使用`uuid.UUID`；
+不得为每个ID复制自定义比较、hash、wire parser和schema版本。
 
-`RefName`总计不超过255 ASCII bytes，单segment不超过63 bytes；禁止空segment、
-`.`、`..`、control character、backslash和reserved internal namespace。
-Mutable ref可显式checked或LWW更新；immutable ref创建后不得改绑，删除后同名
-immutable ref也不得绑定其他commit。Protected/internal/operation ref不能使用LWW。
-
-## 4. Public surface
-
-HTTP使用direct-resource `GET`与operation-specific closed action `POST`。禁止
-generic `/execute`、command bag或SQL endpoint。Public v1至少包含：
+## 6. V1 capability surface
 
 ```text
-Service:
-  GetServiceCapabilities
-  GetServiceResourceLimits
-  livez / readyz
-
-Repository lifecycle and policy:
-  CreateRepository
-  GetRepository
-  GetRepositoryPolicy
-  UpdateRepositoryPolicy
-  GetRepositoryResourceUsage
-  GetOperatorHealth
-  GetOperation
-
-Artifact:
-  UploadArtifact
-  DownloadArtifact
-
-Versioned metadata/read:
-  ResolveRef
-  GetCommit
-  GetCatalog
-  StreamTableRows
-  ExportTable
-  DiffRefs
-
-Versioned mutation:
-  SubmitImport
-  VerifyCommit
-  CreateRef
-  CreateImmutableRef
-  CompareAndSetRef
-  SetRef
-  DeleteRef
-
-Current:
-  GetCurrentCatalog
-  GetCurrentTable
-  StreamCurrentTableRows
-  ExportCurrentTable
-  CreateCurrentTable
-  ReplaceCurrentTable
-  ApplyCurrentTableMutations
-  SubmitCurrentTableMutationBatch
-  DropCurrentTable
-
-Cross-store inventory:
-  GetTableInventory
-
-Maintenance:
-  PlanGarbageCollection
-  ExecuteGarbageCollection
-  CreateBackup
-  RestoreRepository
-  ActivateRestoredRepositoryPolicy
-  InspectRepair
-  ResumeRepair
-  PlanDeleteRepository
-  ExecuteDeleteRepository
+CreateRepository
+UploadArtifact
+SubmitVersionedImport
+GetOperation
+ResolveVersionedRef
+GetVersionedCatalog(commit_id)
+StreamVersionedTableRows(commit_id)
+healthz
+readyz
 ```
 
-成功使用endpoint-specific closed schema并携带`wire_schema_version`。接受前failure
-使用`application/problem+json`和typed `FailureDescriptor`；接受后的状态、结果和
-failure由`GetOperation` representation拥有。HTTP status、message和`detail`不决定
-retry或effect。
+不提供独立`CompareAndSetVersionedRef`。当前consumer只需要import创建commit并
+原子发布target ref；rollback、promotion、审批发布或独立ref修复出现真实consumer
+后，可新增同步CAS API。
 
-未知optional field可以忽略；未知stable code按已知category/recovery/effect安全
-降级；未知recovery/effect必须fail closed，不自动重放mutation。改变既有field、
-closed enum、code或effect语义是breaking change。
+T2简化阶段定义DTO和语义但不激活上述业务route。首个真实实现统一使用`/v1/`。
 
-## 5. Common request policy
+## 7. CreateRepository
 
-Mutation必须携带caller `IdempotencyKey`。Idempotency scope为
-`CallerIdentity × RepositoryId/incarnation × Action × IdempotencyKey`；Create使用
-service/create scope。Request的versioned canonical digest覆盖所有semantic input，
-包括artifact digest、concurrency mode和verification level。Same key/same digest
-返回原result；same key/different digest为collision，不执行新effect。
+`CreateRepository`是同步、幂等操作。成功时必须：
 
-Mutable write必须显式且无default地选择：
+1. 由Service分配RepositoryId和server-owned staging目录；
+2. 初始化Dolt repository；
+3. 创建初始空commit和默认`main` ref；
+4. 原子发布repository目录；
+5. 返回`repository_id + default_ref + initial_commit_id`。
+
+响应丢失后，same key/same request返回原结果；same key/different request返回冲突。
+发布前失败不得产生可见Repository，允许清理明确的staging目录。
+
+不建立create operation、全局create journal、lease、fencing或后台executor。
+
+## 8. UploadArtifact
+
+Upload是同步、repository-bound、one-shot streaming操作。Caller声明：
 
 ```text
-concurrency_mode =
-  CHECK_EXPECTED(expected_commit_or_generation)
-  | LAST_WRITE_WINS
+media_type
+declared_size
+raw_sha256
+idempotency_key
 ```
 
-`CHECK_EXPECTED`在同一effect boundary验证expected token。`LAST_WRITE_WINS`由
-caller承担覆盖风险。Versioned import在两种mode下仍必须携带base CommitId；
-LWW只放宽target ref publication。Create uniqueness、immutable/protected/internal/
-operation ref和technical metadata不能用LWW绕过。
+Service边读边写staging file并增量计算size和SHA-256；完整close和匹配后使用
+同filesystem atomic rename发布ArtifactRef。不得把完整package读入内存，不接受
+URL、host path、file descriptor、bucket locator、anonymous presigned URL、
+multipart或range resume。
 
-Async content write必须显式且无default地选择：
+中途断连不发布partial artifact，caller完整重传。发布后响应丢失时，same key、
+same size和same SHA返回原ArtifactRef；不同内容冲突。
+
+已确认规模为通常10–100 MB、极端约200 MB。初始建议默认单包上限256 MiB并允许
+部署配置提高；该数值是可调admission默认值，不是稳定wire常量。
+
+## 9. Import package
+
+V1 package固定为`tar+zstd`，只包含：
 
 ```text
-verification_level = NONE | STRUCTURAL | FULL
+manifest.json
+replay.sql
 ```
 
-- `NONE`：不执行content readback；journal、effect attribution、atomic publication、
-  fencing和reconciliation仍强制。
-- `STRUCTURAL`：从committed snapshot检查required table set、schema、row count及
-  protected metadata。
-- `FULL`：再流式读取全部required canonical/protected rows并检查content/ordering
-  digest和ordered invariants。
+Service检查：
 
-`VERIFIED`只表示requested policy完成。Result、journal和audit必须记录requested/
-completed level、policy version及level-specific evidence。独立`VerifyCommit`是
-只读operation，不改写既有import operation或业务结果。
+- entry是固定名称的regular file；
+- 无absolute path、traversal、duplicate、link、device或额外required entry；
+- compressed和expanded size在部署上限内；
+- manifest具备table、schema和row count的基本结构；
+- upload bytes的raw size和SHA-256已匹配。
 
-Read/catalog/stream/export必须显式且无default地选择：
+业务digest和canonical content equality由Storage Projection/capability owner拥有。
+Repository Service不提供`NONE | STRUCTURAL | FULL`，不默认读取全部committed rows
+重算业务digest。
+
+外部原始package备份由上游流程拥有。Repository Service不调用、等待或查询外部
+备份系统。
+
+## 10. SubmitVersionedImport
+
+Import是V1唯一异步业务operation。请求至少包含：
 
 ```text
-read_binding = EXACT(commit_or_generation) | LATEST_AT_START(selector)
+repository_id
+artifact_ref
+target_ref
+expected_commit_id
+idempotency_key
 ```
 
-LATEST在真正打开provider snapshot时resolve；async export在worker开始获取snapshot
-时resolve。Response、stream、cursor和artifact必须返回resolved immutable
-CommitId或current generation。同一次read保持pinned；不同LATEST请求不承诺相同
-snapshot。
+V1只保证`target_ref = main`可用。`expected_commit_id`同时是：
 
-## 6. Logical table and data plane
+- 新commit的parent；
+- target ref发布时的CAS预期值。
 
-Versioned与Current共享Repository logical type system、TableSchema、projection、
-closed filter AST、ordering vocabulary和Arrow/Parquet mapping，但拥有独立wire
-request、snapshot identity、write、idempotency和recovery语义。
+Service不得提供LWW、force ref或独立publication mode。成功必须满足：
 
-V1 table/column name不超过64 Unicode scalar和256 UTF-8 bytes；每表不超过1024
-columns。Public index只允许declared primary key；不提供secondary-index management。
-Filter AST只支持bounded `eq/ne/lt/lte/gt/gte/in/is_null/and/or/not`，最大depth 16、
-nodes 256、IN values 1000。禁止function、aggregate、subquery和join。
+1. Dolt执行受信`replay.sql`；
+2. 创建带operation marker的新commit；
+3. committed catalog的table set、schema和row count匹配manifest；
+4. target ref仍指向`expected_commit_id`；
+5. CAS发布target ref到新commit；
+6. durable operation result保存commit_id和target ref。
 
-Public ordering不使用provider default collation：
+Package中高度重复的数据由Dolt内容寻址和结构共享利用；去重率必须在真实数据上
+测量，不能作为未经验证的容量保证。
 
-- string：有效UTF-8 binary/code-point order；
-- binary/BIT：unsigned bytes lexicographic；
-- numeric：数值顺序；
-- temporal：logical chronology；
-- boolean：`false < true`；
-- 每项显式ASC/DESC与NULLS FIRST/LAST。
+## 11. Operation, idempotency and recovery
 
-Direct row delivery使用Repository-owned framed Arrow IPC：
+Operation状态只有：
 
 ```text
-STREAM_HEADER
-ARROW_BATCH*
-CHECKPOINT*
-STREAM_END | STREAM_ERROR
+QUEUED | RUNNING | SUCCEEDED | FAILED
 ```
 
-Header绑定repository、store、resolved snapshot、table、declared schema/schema
-digest和query options。STREAM_END包含此前frames的raw SHA-256和最终row count；
-缺失或mismatch表示incomplete。Arrow frame uncompressed最大64 MiB，server target
-batch不超过8 MiB；v1不使用HTTP gzip或Arrow IPC compression。
-
-Cursor绑定repository、store、resolved snapshot、table、schema/projection/filter/
-order digest、wire version、next position和expiry。只有deterministic total order
-提供cursor；primary key必须是最终tie-breaker。Keyless table不提供resumable
-cursor。Current cursor只在generation仍current时有效；需要跨mutation保留结果时
-使用export artifact。
-
-Export为durable async operation，v1生成ZSTD Parquet ArtifactRef。DiffRefs由caller
-显式选择framed Arrow stream或Parquet artifact。`RepositoryRawDiff`只表达provider
-可完整证明的technical added/removed/modified；不能表达业务comparison。无法完整
-归一时返回table-level `UNSUPPORTED`且不返回partial records，caller回退为读取两个
-exact commits。
-
-Direct stream使用`provider reader -> bounded RecordBatch buffer -> HTTP writer`
-backpressure chain。Disconnect/deadline/cancel关闭reader并清理未发布bytes。未
-accept的read停止；已accept的durable operation不因client断连取消。Direct stream
-idle timeout为60秒、最长1小时。
-
-## 7. Artifact and import
-
-V1 artifact ingress只允许authenticated repository-bound one-shot streaming
-upload；不接受URL、URI、redirect、host path、FD、bucket locator或anonymous
-presigned URL。Caller声明media、size、raw digest、content contract、intended
-action和idempotency key；server增量测量并验证。完整close、size/digest、closed
-media/package manifest通过后才atomic publish ArtifactRef。
-
-Upload断连/restart不发布partial artifact；caller用原key完整重传。Publish后response
-丢失时same key/same digest返回原ArtifactRef。V1不提供multipart、parallel、range
-resume或download Range；download重新认证、授权并检查expiry。
-
-多文件package必须manifest-first，拒绝absolute/traversal、duplicate、symlink、
-hardlink、device/FIFO、NUL、unknown required entry，并限制compressed/expanded
-bytes、entry count和100:1 expansion ratio。
-
-`RepositoryImportArtifact v1`内容、media/package、manifest、digest和canonical SQL
-replay grammar由
-[Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
-唯一规定。Service只接受该registered content contract，增量执行owner schema、
-grammar、binding和resource validation，并直接bounded消费已发布artifact；不先
-转换为全表Python objects、JSON或第二份等价SQL。
-
-`SubmitImport`至少绑定：
-
-```text
-RepositoryId + RepositoryIncarnationId
-base CommitId
-target RefName
-concurrency_mode
-ArtifactRef + artifact/content digest + content contract version
-verification_level
-IdempotencyKey
-```
-
-成功result至少返回result CommitId、target publication evidence、requested/
-completed verification、level-specific evidence digest/ref和OperationRef。
-
-Current bulk/Create/Replace的input artifact为versioned Arrow IPC，adapter按bounded
-RecordBatch验证并batched bind至SQLite staging/shadow boundary；禁止全表
-`to_pylist()`或普通JSON。Durable export按batch写Parquet staging，完整close、
-manifest/hash/size/schema通过后才publish。
-
-## 8. CurrentTableStore
-
-Current只保存latest state，不提供历史generation查询。Catalog和每张table具有
-独立generation。Caller可读取descriptor/catalog并显式选择EXACT或LATEST_AT_START；
-EXACT旧generation在mutation后返回stale，不读取历史。
-
-`TableMutationBatch`只作用于一张table，closed variant覆盖insert、update、upsert和
-delete；batch all-or-nothing。任一duplicate/missing/existing/schema/key/constraint
-conflict使整batch失败且generation不变。V1没有BEST_EFFORT或partial prefix commit。
-
-小型`ApplyCurrentTableMutations`受4 MiB、1000 operations、100000 scalar cells
-硬限制，同步返回resulting generation。Rows、generation、request digest、
-idempotency result和effect marker在同一SQLite transaction提交；response loss后
-same key返回原result。该路径不增加verification level或全表scan。
-
-`CreateCurrentTable`、`ReplaceCurrentTable`、`SubmitCurrentTableMutationBatch`和
-schema replacement为async operation并显式选择verification level。`DropCurrentTable`
-没有content verification，但仍使用transaction/idempotency/effect evidence。
-每次operation只mutation一张Current table，不提供cross-table transaction。
-
-Async Current write由control journal记录PREPARED/EFFECT_STARTED；Current SQLite
-transaction原子提交data、generation、operation/idempotency/request digest和effect
-marker。Control推进前crash时，reconciler以Current marker恢复APPLIED，再执行caller
-requested verification。Control和Current SQLite不声明distributed transaction。
-
-## 9. Operation, journal and recovery
-
-Public status、internal phase、effect truth和cleanup是正交字段：
-
-```text
-status:
-  ACCEPTED | RUNNING | RECONCILING | SUCCEEDED
-  | FAILED | CANCELLED | ATTENTION_REQUIRED
-
-phase:
-  ACCEPT | PREPARE | EXECUTE | PUBLISH | VERIFY | RECONCILE | CLEANUP
-
-effect:
-  NONE | NOT_APPLIED | UNKNOWN | APPLIED | VERIFIED
-
-cleanup:
-  NOT_REQUIRED | PENDING | COMPLETE | FAILED_ATTENTION
-```
-
-`SUCCEEDED`要求requested verification完成。Requested STRUCTURAL/FULL mismatch可
-终止为`FAILED + effect=APPLIED`；持久failure evidence后释放对应store mutation
-lane，禁止自动重放或回滚。该failure本身不quarantine。只有journal、internal ref、
-commit marker、Current marker或provider authority相互矛盾，identity缺失，或真实
-storage corruption时才进入integrity failure、store/repository unavailable和
-operator repair。
-
-Mutation acceptance持久化operation、caller/action/policy generation、idempotency、
-request digest、repository/store/ref/table binding、precondition和artifact digest。
-实际调用provider或publication effect前持久化`EFFECT_STARTED`与fencing identity。
-State/evidence只单调推进，不覆盖旧事实。
-
-Effect classification：
-
-- request未accepted：`NONE`；
-- PREPARED且无EFFECT_STARTED，并证明executor已停止：`NOT_APPLIED`；
-- EFFECT_STARTED后缺少充分store evidence：`UNKNOWN`；
-- matching commit/ref/Current marker：`APPLIED`；
-- requested verification完成：`VERIFIED`。
-
-Timeout、HTTP/provider status、process exit、lease expiry、worker disappearance或
-client cancel不能单独证明NOT_APPLIED。UNKNOWN阻塞同一
-`(RepositoryId, StoreKind)` mutation lane，但不阻塞另一store、其他repository或
-合法pinned read。Reconciler只能按durable evidence继续、verify、repair或等待；
-不得换key、artifact或executor blind replay。
-
-Writer lease按`(RepositoryId, StoreKind)`串行mutation，并包含monotonic fencing
-token/ServiceEpoch。Current与Versioned可并行；不同repository受node ResourcePolicy
-约束并行。Reads使用pinned snapshot，不取得全程exclusive writer lock。
-
-Versioned import使用deterministic private operation ref、commit metadata和target
-publication evidence归因effect。Ref mutation保存before/after/current evidence；
-普通ref verification不重复无关content scan。
-
-## 10. Persisted authority and lifecycle
-
-| Authority | Persisted facts |
-| --- | --- |
-| deployment config/secrets | credential映射、global actions、ResourcePolicy、backup/TLS/collector config |
-| global registry SQLite | RepositoryId/storage key/lifecycle/format/create-delete operation/tombstone |
-| per-repository control SQLite | ACL、async journal/idempotency、lease/fencing、recovery/maintenance evidence |
-| Current SQLite | catalog/rows/generation、sync idempotency/effect marker |
-| Dolt repository | versioned tables、commit/ref和provider effect evidence |
-| artifact store | repository-bound published bytes/manifest/staging |
-| external audit collector | audit retention/index/query |
-| ephemeral memory | cache、connection、scheduler cursor、bounded buffers；不拥有durable fact |
-
-Repository aggregate包含registry record、control、Dolt、materialized Current及仍在
-retention内的artifact/evidence。Cache和scratch可重建。
-
-Create在global registry原子保存PROVISIONING、operation/idempotency/request digest
-和storage key；deterministic staging初始化control与Dolt，写identity/layout marker，
-验证closure后same-filesystem atomic publish，registry推进READY/APPLIED，再由formal
-path重开验证进入VERIFIED。无registry identity的目录不自动收编。
-
-Lifecycle：
-
-```text
-PROVISIONING -> READY
-READY -> RESTORING -> RESTORED_RESTRICTED -> READY
-READY -> DELETE_PLANNED -> DELETING -> DELETED(tombstone)
-```
-
-Restore验证manifested aggregate并生成新RepositoryIncarnationId。Restored ACL不会
-自动生效；global operator必须显式完整replacement policy后activate。Delete保留
-永久RepositoryId tombstone。Identity mismatch或authority contradictionfail closed。
-
-## 11. Retention, GC, backup and delete
-
-Nonterminal、UNKNOWN、ATTENTION_REQUIRED和authority-conflict evidence无TTL。
-Terminal完整request/journal/verification/diagnostic evidence保留30天，之后压缩为
-repository生命周期内持续可由GetOperation返回的terminal record。Compact record
-至少保存idempotency key hash/scope、request digest、operation/result identity、
-commit/generation、effect、requested/completed verification和evidence digest；
-永久compact tombstone阻止idempotency key重用。
-
-Export/Diff result artifact由caller显式选择1小时至30天TTL，无server hidden default。
-Import artifact/staging在nonterminal期间pin，known terminal后保留24小时再GC。
-Quarantine evidence、immutable-name tombstone和Repository deletion tombstone不自动
-过期。
-
-Versioned GC roots包括public refs、operation/recovery refs、active read/export/
-backup pins和terminal diagnostic holds。Current不保留旧generation。
-`PlanGarbageCollection`返回绑定root epoch、exact roots/candidates、digest和expiry的
-plan；Execute重新认证、检查current epoch/pins和maintenance barrier。Stale plan
-不得部分执行。GC中断按checkpoint resume/reconcile。
-
-Backup是quiescent repository aggregate manifest，覆盖registry identity、control、
-Dolt、Current和required artifact/evidence closure。Service只提供mechanism，不拥有
-backup schedule、RPO/RTO或remote backup policy。GC/purge后的数据只能由事先验证的
-backup恢复，不能用image rollback恢复。
-
-Quiescent backup request必须显式选择`REJECT_IF_BUSY`或finite`WAIT_UP_TO`，没有
-implicit/unbounded wait；production ResourcePolicy限制最大wait。Backup、restore
-drill和GC由deployment/operator controller外部调度，Service不内置cron或automatic
-maintenance scheduler。Deployment拥有versioned schedule、RPO/RTO/SLO和数值告警
-阈值；Phase 2只暴露last successful backup age、restore drill result/time、GC
-eligible/estimated bytes、maintenance backlog和recovery duration。
-
-Restore、GC和delete execute都要求closed operator action、current authorization、
-exact plan、非空reason、checkpoint和evidence。Service不实现双人审批、MFA或业务
-审批。
-
-## 12. Authentication, authorization and input safety
-
-`auth_mode = DISABLED | STATIC_BEARER`。DISABLED仅允许explicit dev/test；
-production必须STATIC_BEARER并经deployment-owned TLS ingress，否则fail readiness。
-Bearer格式为`<key-id>.<random-secret>`；secret file映射stable CallerIdentity并保存
-高熵token digest，constant-time验证。Current/next credential支持简单轮换。
-Service不拥有OIDC/JWKS、mTLS issuance或certificate lifecycle。
-
-Authorization default-deny：
-
-```text
-CallerIdentity × RepositoryId × closed Action
-```
-
-Deployment config只保存repository create/restore/break-glass等global actions。
-Per-repository control SQLite保存versioned concrete action grants；不保存role、
-wildcard、condition、table/row/column ACL。Create显式提供initial grants。
-Policy update使用expected policy generation和idempotency，并在同一control
-transaction提交new generation/result。
-
-Unauthenticated返回401；authenticated principal对repository无任何access返回404；
-已有repository access但缺当前action返回403。Authorization必须在provider、path、
-artifact或stream打开前完成。GetOperation/download等后续访问按current ACL重新
-授权；accepted operation按acceptance policy snapshot完成/reconcile，不因普通ACL
-撤销自动取消。
-
-Service不接受caller URL/path/FD、arbitrary SQL/DDL、archive unsafe entry、unknown
-required media/field/enum或unbounded parser input。Control JSON最大1 MiB。Upload
-最长2小时；idle timeout 60秒。所有size/count检查增量执行，不先完整buffer。
-
-普通log/trace/metric/error/audit禁止row/patch value、filter literal、artifact bytes、
-credential/secret、SQL/CLI command、internal path和unsanitized stack。Audit记录
-metadata、identity、digest、before/after token、counts、effect和timing。
-
-## 13. Resource and isolation contract
-
-Production必须配置finite ResourcePolicy，至少覆盖：
-
-- single artifact compressed/expanded bytes、tables/rows/package entries；
-- per-repository data/artifact/staging quota；
-- node disk high/critical watermark；
-- active upload/stream/async operation/Dolt runtime；
-- per-caller/per-repository queue depth；
-- verification/readback byte budget；
-- durable control/recovery emergency reserve。
-
-Effective limits通过typed service capability公开；caller只能预检，measured usage是
-authority且request不能提升limit。Malformed/oversized为400/413；caller/repository
-admission为429并带Retry-After；node/disk capacity为503，均在acceptance前不创建
-operation。Critical safety watermark可在effect未开始时终止为NOT_APPLIED；
-EFFECT_STARTED后仍按evidence-first recovery。
-
-V1是single trust-domain内部服务。RepositoryId提供logical isolation、quota和
-故障归属，不宣称同root内抵御恶意tenant。互不信任tenant必须使用独立service/
-durable root。`GetRepositoryResourceUsage`只投影已有accounting/scheduler事实，
-不扫描全库、不启动idle runtime、不保存history或声称精确共享CPU/memory归因。
-
-## 14. Runtime and deployment
-
-V1 production topology是single ASGI process、single durable-root owner和进程内
-bounded scheduler；不使用Celery、Redis、external queue、ORM或generic provider
-framework。Process取得durable-root OS exclusive lock后递增ServiceEpoch；失锁立即
-not-ready并终止。Deployment还必须保证single-writer volume和无重叠更新。
-
-`DoltRuntimeCoordinator`按活跃repository bounded启动：
-
-- 无active server时可使用offline `dolt sql -f` canonical replay；
-- 有active repository-scoped sql-server时该owner执行所有访问；
-- 同repository禁止CLI/server并发打开；
-- runtime只在无reader/writer/maintenance/recovery pin时evict。
-
-Startup验证build/storage identity和global authority，增量调度reconciliation，不
-遍历打开全部Dolt。`livez`只表示process/event loop；`readyz`表示可安全接纳至少
-部分workload。单repository quarantine不使整个service unready。
-
-Async writer lease初始TTL为30秒并每10秒renew；同process调度使用monotonic clock，
-持久wall timestamp只用于诊断和跨restart evidence排序。30/10秒可由versioned
-capacity evidence调整，但renew必须显著短于TTL且config validation fail closed。
-TTL到期或ServiceEpoch变化都不自动释放UNKNOWN；takeover仍先隔离旧executor并检查
-store evidence。
-
-SIGTERM使service立即not-ready并拒绝新mutation、upload、long stream和maintenance。
-Grace period默认60秒，production必须显式配置为10–300秒。Accepted operation停在
-durable checkpoint；EFFECT_STARTED后不能伪装cancel。Grace到期后退出，由新process
-reconcile。WAL checkpoint、runtime drain和非结果cleanup均best effort，不能无限
-延长shutdown。
-
-Startup control scan初始registry page size为100，最多并发打开4个repository control
-DB；普通scan不启动Dolt runtime。单operation recovery backoff为
-`1s/5s/30s/2m/5m`，之后上限5分钟；连续10次失败或30分钟没有新evidence进入
-ATTENTION_REQUIRED。Operator recheck复用原operation/reconciler，不创建新effect。
-
-Reconciliation scheduler按API on-demand、due nonterminal和background clean scan
-三类调度。Clean repository默认15分钟加`±20%` jitter再次eligible。初始4个
-control-scan permit中，background backlog存在时至少保留1个给oldest-last-scanned；
-其余优先API/due work。Cursor/cache可重建且不是authority；任何priority class都
-不得使background永久饥饿。Production可按capacity evidence调整finite cadence、
-jitter和permit，但必须保持oldest-first eventual scan。
-
-首个verified platform只包括`linux/amd64` OCI、pinned glibc Debian-family base、
-Python/uv/locks、Dolt 2.1.11 binary digest和通过验证的POSIX local volume profile。
-Unsupported OS/architecture/filesystem capability在startup fail readiness。未来
-platform必须独立完成image、filesystem crash/lock和container exit evidence。
-
-Production service以non-root、read-only rootfs、independent scratch/durable/backup
-mount、dropped capabilities、no-new-privileges、无Docker socket和default-deny
-egress运行。Service plaintext listener只在isolated internal network；client只能
-经pinned deployment-owned TLS ingress访问。
-
-## 15. Observability
-
-Service输出structured JSON log、W3C trace context、optional OTLP、low-cardinality
-OpenMetrics和versioned typed `security_audit` stdout event。RepositoryId不能作为
-Prometheus label；可在授权log/trace/audit中作为field。
-
-Audit event在已解析repository时携带RepositoryId、caller/action/operation/result/
-digest关联字段。External collector拥有持久化、索引、retention和查询；Service不
-新增audit database/query endpoint/outbox。Collector故障告警但不阻塞普通request，
-且不宣称零丢失合规delivery。
-
-RuntimeBuildIdentity与EnvironmentFingerprint分离。Capacity/benchmark按provider、
-verification、policy、dataset和environment建立独立series，不混合不同rigor的
-结果。
-
-## 16. Conformance and compatibility
-
-唯一Phase 2 gate class：
-
-```text
-P2-PR-STATIC
-P2-PR-CONTRACT
-P2-PR-RECOVERY
-P2-PHASE-EXIT-CONTAINER
-```
-
-Semantic-core cells在Fake/Local/Remote required；real storage/provider在Local/
-Remote required；HTTP/auth/stream/process/container只在Remote required。所有
-public v1 behavior至少由Local和Remote共同证明。Required cell不得skip、xfail、
-UNSUPPORTED、advisory或automatic retry。
-
-Required matrix至少覆盖：
-
-- NONE/STRUCTURAL/FULL成功和对应mismatch；
-- CHECK_EXPECTED成功/stale与LWW覆盖；
-- exact/latest-at-start pinned reads；
-- upload/stream integrity、backpressure、cancel/deadline；
-- idempotency collision、accept/effect/publish/verify crash；
-- UNKNOWN、restart、lease/fencing、Current transaction marker；
-- GC/backup/restore/delete checkpoints；
-- authorization/input/resource/redaction/container negatives；
-- N/N-1 additive wire compatibility和future persisted-state refusal。
-
-Gate attempt immutable，result只允许PASS/FAIL/BLOCKED。BLOCKED仅表示semantic
-execution前的外部环境不可用；assertion failure为FAIL。Retry创建新attempt并保留
-supersession history。
-
-Phase exit只聚合同一clean exact candidate commit构建的contracts/client/service/
-conformance artifacts、images、locks和environment evidence；任一tracked change
-产生新candidate并重跑全部Phase 2 gates及完整Phase 1 correctness/native regression。
-
-## 17. Reopen conditions
-
-以下变化必须由owner显式升级contract/ADR并重跑对应gate：
-
-- server-owned persistence routing、cross-store transaction或业务语义；
-- multi-node/shared-writer durable root；
-- untrusted tenants共享root；
-- new import/export codec、provider或platform；
-- resumable/multipart artifact transfer；
-- data-level ACL或external policy authority；
-- service-owned durable audit query/delivery；
-- historical Current generations、secondary index或general query；
-- verification、concurrency、read binding或effect classification语义改变。
-
-局部helper、private module、non-semantic batching或measurement-driven provider优化
-只要不改变public/persisted/effect contract，不要求升级semantic version。
-
-## 18. Related authority
+`GetOperation`使用`repository_id + operation_id`查询。Operation result和error必须
+足以让response-loss caller取得原结果。
 
+Mutation使用`idempotency_key + internal request fingerprint`：
+
+- same key/same fingerprint返回原接受结果或终态；
+- same key/different fingerprint返回冲突；
+- terminal failure后要发起新的业务尝试，caller使用新key。
+
+启动时只恢复遗留RUNNING import：
+
+1. 找到唯一matching operation commit且ref一致：补齐SUCCEEDED；
+2. 未找到matching commit：使用原artifact和原key自动重试一次；
+3. 多commit、ref矛盾、artifact缺失或无法判断：终止为
+   `FAILED / MANUAL_RECOVERY_REQUIRED`。
+
+不建设lease、fencing、ServiceEpoch、takeover或
+`UNKNOWN/APPLIED/VERIFIED`状态机。
+
+## 12. Artifact lifecycle
+
+Artifact是临时import输入，不是长期对象存储：
+
+- RUNNING operation引用的artifact不得清理；
+- import成功且operation结果已持久化后删除本地package；
+- orphan和普通失败artifact使用可配置TTL做best-effort清理；
+- 初始建议TTL为24小时；
+- `MANUAL_RECOVERY_REQUIRED`引用的artifact保留到人工处理；
+- 不提供public artifact delete、retention或GC API。
+
+Artifact清理失败不得改变已经成功的commit或operation结果；通过普通日志和磁盘
+admission暴露，不建立独立cleanup evidence状态机。
+
+## 13. Catalog and row stream
+
+Catalog和row stream必须绑定caller提供的immutable CommitId，不提供
+`LATEST_AT_START`。需要读取当前main时，caller先ResolveVersionedRef取得CommitId。
+
+`StreamVersionedTableRows`直接返回标准Arrow IPC stream HTTP body：
+
+- 不使用JSON/base64 frame envelope；
+- 不增加checkpoint frame或末尾内容SHA；
+- schema和截断由Arrow reader/HTTP失败表达；
+- server必须按RecordBatch bounded streaming，不全表materialize；
+- disconnect/cancel关闭provider reader。
+
+## 14. Concurrency and capacity
+
+运行模型为single ASGI process、single durable-root OS lock和per-repository
+process-local writer lock。不同Repository可以有限并行。
+
+已确认负载：
+
+- 日常10–200次upload/import；
+- 极端1,000次/天，分布在多个Repository；
+- 单Repository通常一周一次写入；
+- Versioned history永久保留，package不常驻。
+
+初始建议最多8个并发upload、4个跨Repository import worker和同Repository单writer，
+均为可调配置。极端负载是否可消化由真实Dolt import测量决定。
+
+保留简单的单包上限、并发上限和最低剩余磁盘admission。超限在接受新effect前返回
+429或503；不建设通用ResourcePolicy、per-caller quota或accounting subsystem。
+
+## 15. Persistence and disaster recovery
+
+Versioned commit history永久保留。Repository Service不提供public backup/restore
+API。部署方对整个quiescent durable root执行一致性volume snapshot并由operator
+恢复。
+
+恢复目标是最近一次volume snapshot。之后的package可以从外部备份人工重放，但
+CommitId可能改变，外部引用允许人工修正。Contract不承诺RPO、RTO、每commit同步
+备份或CommitId跨灾难无损保持。
+
+## 16. Future CurrentTableStore
+
+Current重新进入范围前必须有真实caller、操作集合、生命周期和验收场景。它作为
+additive sibling加入：
+
+- 共享RepositoryId、认证、ArtifactRef和基础Operation概念；
+- 拥有独立generation、mutation DTO、SQLite adapter和`/current/` route；
+- 不引入StoreKind mutation union、自动routing、dual-write或cross-store
+  transaction；
+- 通过repository layout format version做加法升级，不提前创建空SQLite文件。
+
+## 17. Required verification
+
+- contracts package只使用Pydantic/stdlib实现DTO、ID和error边界；
+- global bearer成功/失败路径通过HTTP集成测试；
+- create同步幂等、初始commit和atomic publication通过；
+- upload streaming、size/SHA、response loss和路径安全通过；
+- import CAS、operation marker、catalog结构检查和幂等通过；
+- commit前中断、commit后响应丢失和人工恢复分支通过；
+- raw Arrow IPC可由client直接读取，截断时由HTTP/Arrow失败；
+- package成功后清理且RUNNING/manual-recovery artifact不被删除；
+- Phase 0–1 canonical bytes、Python/Rust核心golden保持不变。
+
+## 18. Reopen conditions
+
+以下变化需要新增或修订ADR/contract：
+
+- untrusted tenant、外网直连或per-repository授权；
+- multi-node/shared writable root；
+- rollback、promotion或审批发布需要独立CAS；
+- resumable/multipart upload或外部对象存储；
+- public backup/restore/delete/repair；
+- exact CommitId灾难恢复、明确RPO/RTO；
+- CurrentTableStore或cross-store consistency；
+- Service-owned业务content verification；
+- package超过当前one-shot streaming能力。
+
+## 19. Related authority
+
+- [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
-- [Implementation Stages](../plans/implementation-stages.md)
 - [Phase 2 Implementation Design and Delivery Plan](../plans/phase-2-implementation-design-and-delivery-plan.md)
 - [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
-- [External Effect and Recovery](external-effect-and-recovery.md)
-- [Fixture Oracle and Conformance](fixture-oracle-and-conformance.md)
-- [Performance Measurement and Baseline](performance-measurement-and-baseline.md)
-- [ADR 0008](../adr/0008-generic-dual-store-and-caller-selected-rigor.md)

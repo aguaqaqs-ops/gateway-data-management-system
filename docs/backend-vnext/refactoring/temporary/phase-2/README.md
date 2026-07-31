@@ -14,6 +14,13 @@ Session State 以
 替代；不得从本目录启动旧计划WP1-R2+。执行顺序见
 [Architecture Simplification Execution Plan](../architecture-simplification-execution-plan.md)。
 
+WP1-R1现已完成。新的Phase 2 baseline由精简后的
+[Repository Service Contract](../../formal/contracts/repository-service.md)和
+[Phase 2 Implementation Plan](../../formal/plans/phase-2-implementation-design-and-delivery-plan.md)
+拥有；实施删除项见
+[T2 Simplification Checklist](t2-simplification-implementation-checklist.md)。
+本目录其余旧ledger、review和consumer check只保留历史上下文，不拥有当前语义。
+
 ## Document map
 
 | 文档 | 职责 |

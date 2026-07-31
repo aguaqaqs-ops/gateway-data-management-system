@@ -9,9 +9,9 @@
 
 关联阶段：Phase 2及后续Repository consumers
 
-过渡范围：本文只继续解释2026-07-30旧设计和正在进行的WP1-R1 checkpoint。
-WP1-R1完成后，不得以本文启动CurrentTableStore、caller-selected rigor、完整journal/
-fencing或对应WP1-R2+实现。
+过渡范围：本文只解释2026-07-30旧设计和已经完成的WP1-R1 checkpoint。不得以
+本文启动CurrentTableStore、caller-selected rigor、完整journal/fencing或对应
+WP1-R2+实现；当前语义见ADR 0009和精简Repository Service Contract。
 
 ## Context
 

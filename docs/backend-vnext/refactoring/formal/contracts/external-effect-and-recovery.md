@@ -10,6 +10,11 @@ Owner：Submit/Archive Application（业务 execution）；Operations（通用�
 
 Semantic version：`2.0.0`
 
+2026-07-31过渡：Repository Service effect遵循ADR 0009和精简Repository Service
+Contract。本文旧`PREPARED/APPLIED/VERIFIED` journal、FailureDescriptor和
+`NONE | STRUCTURAL | FULL`条款不再约束Repository V1；Phase 0–1简化设计将继续
+裁决业务Operation侧的状态和错误表达。
+
 ## 1. 目的与 owner 分界
 
 本文固定跨 Repository Service 写 effect 的事务、证据、失败和恢复规则。所有权按语义分离：
@@ -18,8 +23,8 @@ Semantic version：`2.0.0`
 | --- | --- |
 | SubmitAttempt/ArchiveExecution、命令验收、业务 finalize | 对应 Application/Domain |
 | Operation/Step、claim/lease/retry/checkpoint | Operations |
-| Repository operation journal、commit/ref/effect evidence | Repository Service |
-| FailureDescriptor 公共维度 | Shared Kernel |
+| Repository operation、commit marker、commit/ref result | Repository Service |
+| 业务Operation错误表达 | Operations/use case owner；Phase 0–1简化设计待收敛 |
 | stable code、phase、details schema | 对应 use case owner |
 
 Operation terminal status 不等于业务终局；FailureDescriptor 也不替代 Repository evidence。
@@ -46,12 +51,12 @@ T1 Accept/Start (business DB transaction)
 
 T2 External effect (durable worker + Repository Service)
   persist immutable request/artifact checkpoint
-  cross request-acceptance boundary once
-  journal PREPARED/APPLIED/VERIFIED evidence
-  reconcile uncertain outcomes
+  submit idempotent Versioned import once
+  poll repository-scoped operation
+  service reconciles matching commit marker or reports manual recovery
 
 T3 Finalize (business DB transaction)
-  require matching evidence at the business-owner required verification level
+  require matching SUCCEEDED result and business-owned package/digest facts
   create Submission or ArchiveResult/BaselineNode
   transition execution and business refs atomically
   persist integration outbox record atomically
@@ -59,47 +64,28 @@ T3 Finalize (business DB transaction)
 
 Outbox delivery 发生在 T1/T3 commit 之后；业务状态与待投递 outbox record 必须同事务。正式故障点名称为 `after_business_finalize_before_outbox_delivery`。
 
-## 4. Repository journal 与 verification evidence
+## 4. Repository operation result
 
-每个外部请求具有 immutable idempotency key、request digest 和（适用时）RepositoryImportArtifact digest。Repository journal 至少区分：
+每个import具有immutable idempotency key和Repository内部request fingerprint。
+Repository Operation只公开`QUEUED | RUNNING | SUCCEEDED | FAILED`。
 
-- `PREPARED`：请求被接受并获得确定 operation identity。
-- `APPLIED`：commit/ref effect 已形成，记录 before/after commit 等 effect evidence。
-- `VERIFIED`：caller-requested、operation-kind-specific verification完成。Submit
-  import由caller显式选择`NONE | STRUCTURAL | FULL`；裸VERIFIED不代表FULL。需要
-  business finalize的Submit显式请求FULL并检查completed level及matching
-  SnapshotManifest。Archive ref mutation匹配request digest、before/after commit与
-  current ref evidence，目标commit沿用Submit时已完成的内容验证，不重复全表扫描。
-
-Reconciler 的 effect classification 只允许：
-
-| Classification | 含义 | 允许动作 |
-| --- | --- | --- |
-| `NOT_APPLIED` | 权威证明无 effect 且旧请求不再运行 | 使用原 key 重放，或 ABORT |
-| `UNKNOWN` | 证据不足或仍可能应用 | 保持 EFFECT_PENDING，继续查询/人工修复 |
-| `APPLIED` | effect已发生，尚未完成requested verification/finalize | 按原request完成verification；禁止重发 |
-
-业务侧先查本地 Finalize 结果，再查 Repository journal/operation/commit/ref 证据。不得仅凭超时、连接中断、worker lease、HTTP code 或客户端异常推断 `NOT_APPLIED`。
+- SUCCEEDED返回matching CommitId和target ref；
+- FAILED返回简单error；
+- `MANUAL_RECOVERY_REQUIRED`表示commit/ref/artifact证据矛盾，需要operator；
+- timeout、连接中断或worker failure不等于Repository operation失败；
+- 业务侧先检查本地Finalize结果，再以原operation identity查询Repository。
 
 ## 5. Evidence-first recovery
 
-当请求可能已被 Repository 接受时，禁止 blind replay，禁止生成新 idempotency key，禁止重建另一份“逻辑等价”的 import artifact。恢复必须复用原 execution、operation、request digest、artifact ref 和 Repository key。
+当请求可能已被Repository接受时，业务worker禁止blind replay或生成新
+idempotency key；必须复用原operation identity查询。Repository Service启动恢复：
 
-`RUNNING`/lease expired step 的接管规则：
+1. 找到matching operation commit时补齐SUCCEEDED；
+2. 未找到matching commit时使用原artifact/key自动重试一次；
+3. 多commit、ref矛盾、artifact缺失或无法判断时FAILED /
+   MANUAL_RECOVERY_REQUIRED。
 
-1. 加载 durable checkpoint 与 Repository operation identity。
-2. 查询 Repository journal/effect evidence。
-3. `VERIFIED/APPLIED`时从相应checkpoint向前完成caller-requested verification；
-   只有满足business owner policy的evidence才进入T3。
-4. `UNKNOWN` 时继续 reconcile，不调用写 API。
-5. 仅有 explicit `NOT_APPLIED` evidence 时，才允许以原 key 重发原 bytes。
-
-任何handler不能把“重做整个step”作为默认恢复策略。Requested STRUCTURAL/FULL
-mismatch保留effect evidence，不创建业务成功结果，也不伪装为可安全重试。Repository
-operation可以终止为`FAILED + effect=APPLIED`，在持久failure evidence后释放对应
-Repository store mutation lane；它不自动回滚、不重发，也不替business owner决定
-是否释放T1 occupancy。只有authority contradiction或storage corruption才
-quarantine。
+业务worker只消费该终态；不自行推断commit是否存在。
 
 ## 6. FailureDescriptor
 

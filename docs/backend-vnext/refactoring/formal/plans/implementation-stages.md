@@ -4,11 +4,12 @@
 
 本文把 [整体架构总纲](../architecture/architecture-and-refactoring-plan.md) 转换为可执行的重构阶段。阶段编号表示主要依赖顺序，不表示必须完成整个水平层后才能继续；每一阶段只建设下一条业务纵切所需的最小能力，并保持可运行、可验证和可回退。
 
-2026-07-31过渡：正在进行的WP1-R1按旧Phase 2计划完成后，先执行Phase 2
-contract/delivery skeleton简化，再执行Phase 0–1 assurance/evidence简化，之后才从
-修订后的WP1-R2恢复Phase 2。该顺序由
+2026-07-31过渡：WP1-R1旧设计checkpoint完成后，先闭合Phase 2简化设计，再完成
+Phase 0–1同原则简化设计和cross-phase interface reconciliation；两阶段设计共同
+闭合后分批执行Phase 0–2联合代码清理，之后才恢复修订后的Phase 2 feature delivery。
+该顺序由
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
-拥有；本文现有Phase 2完整范围将在简化阶段统一改写。
+拥有。
 
 ## 1. 实施原则
 
@@ -81,10 +82,9 @@ Phase 8  Shadow Traffic and Cutover
 Phase 9  Cleanup and Production Hardening
 ```
 
-Phase 2完成WP7 consumer-ready checkpoint后，Phase 3详细交互设计可以与Phase 2
-WP8–WP9并行；Phase 3 production implementation必须等待Phase 2 clean exact-commit
-exit PASS。Phase 4及后续同样必须共同服务于Phase 5纵切，不得以“并行”为由静默
-修改已冻结Phase 2 contract或独立扩张范围。
+Phase 3 production implementation必须等待修订后的Phase 2最小consumer纵切通过。
+Phase 4及后续同样必须共同服务于Phase 5纵切，不得以“并行”为由静默修改已激活
+Phase 2 contract或独立扩张范围。
 
 ## 3. Phase 0：Baseline and Oracle
 
@@ -267,72 +267,60 @@ recovery与canonical import分别遵守
 
 ### 2A：Contract 清理
 
-- 建立`gateway-repository-contracts`、`gateway-repository-client`和
+- 保留`gateway-repository-contracts`、`gateway-repository-client`和
   `gateway-repository-service`三包单向依赖。
 - 从wire移除Workspace、Submission、Preview、Archive、Baseline和History语义。
-- 固定opaque identity、closed action、typed problem/operation、version和
-  Fake/Local/Remote contract。
+- 使用Pydantic DTO、普通UUID、bounded opaque token和简单error。
+- 删除strict JSON/JCS、FailureDescriptor、custom stream、Current identity和
+  handwritten schema snapshot。
+- 删除Phase 2 router/closure/attempt/traceability体系。
 - 外部contract不返回server path、run directory、provider command或本地Artifact
   `Path`。
 
 ### 2B：Durable foundation与lifecycle
 
-- 固定single durable-root owner、global registry、per-repository control、
-  Dolt、lazy Current SQLite和artifact authority。
-- 先以真实Dolt 2.1.11、SQLite和target filesystem完成feasibility stop/go，再公开
-  lifecycle。
-- 实现Create/GetRepository、policy、artifact transfer、operation/journal、
-  idempotency、lease/fencing和evidence-first reconciliation。
+- 固定single durable-root owner、Dolt、per-repository operation和临时artifact。
+- 以真实Dolt和target filesystem验证initial commit、replay、marker、CAS、stream、
+  atomic rename和增量存储。
+- CreateRepository同步创建initial empty commit和main。
+- UploadArtifact同步stream、增量校验size/SHA并atomic publish。
+- 不实现create/upload Operation、ACL、policy、lease、fencing或ServiceEpoch。
 
-### 2C：Current与Versioned data plane
+### 2C：Versioned write与read
 
-- CurrentTableStore提供latest-only catalog/table、bounded sync mutation、Arrow bulk
-  mutation和generation-pinned stream/export。
-- VersionedTableStore提供runtime coordination、commit/ref resolve、catalog、
-  commit-pinned stream、export和provider-neutral technical raw diff。
-- Direct stream使用bounded framed Arrow；durable export使用Parquet ArtifactRef；
-  大型input使用authenticated repository-bound upload。
-- Read由caller显式选择`EXACT | LATEST_AT_START`并返回resolved snapshot。
-
-### 2D：Versioned write与maintenance
-
-- Versioned import默认优先candidate为closed canonical SQL replay；Service直接
-  bounded消费artifact，不公开arbitrary SQL。
-- Mutable publication由caller显式选择
-  `CHECK_EXPECTED | LAST_WRITE_WINS`；Versioned import始终携带base CommitId。
-- Async content write由caller显式选择`NONE | STRUCTURAL | FULL`；VERIFIED表示
-  requested policy完成。需要FULL的业务consumer自行检查completed level和
-  SnapshotManifest。
-- 实现ref lifecycle、VerifyCommit、inventory、retention、GC、backup/restore、
-  repair和plan-before-execute delete。
+- Versioned import使用`manifest.json + replay.sql`固定package。
+- `expected_commit_id`同时是新commit parent和main ref CAS预期。
+- Operation只使用QUEUED/RUNNING/SUCCEEDED/FAILED。
+- 只检查upload size/SHA和committed table/schema/row count，不提供verification
+  level或full row rehash。
+- 提供ResolveVersionedRef、commit-pinned catalog和raw Arrow IPC stream。
+- 不提供standalone CAS、LATEST、diff/export/cursor或Current data plane。
 
 ### 交付物
 
-- 三个versioned Python distributions、Repository Service image和production Remote
-  SDK。
-- Current/Versioned public surface及Fake/Local/Remote conformance。
-- Static、Contract、Recovery和exact-commit Container exit gates。
-- Journal/effect/crash、verification/concurrency、security/resource和maintenance
-  evidence。
-- Production TLS/container topology、capacity characterization、runbook和immutable
-  sign-off。
+- 三个Python distributions、Repository Service image和Remote client。
+- 最小Versioned `/v1/` surface及FastAPI OpenAPI。
+- 普通lint/type/unit、HTTP/Dolt integration和Backend consumer e2e。
+- commit前中断、commit后response loss和manual recovery tests。
+- 典型10–100 MB及接近200 MB package容量记录。
+- 部署级global bearer、TLS入口和quiescent volume snapshot runbook。
 
 ### 退出条件
 
-- 业务侧仅使用RepositoryId/ref/commit/artifact/operation/generation等public
-  identity。
-- 所有public v1行为至少由Local与Remote以owner-defined canonical observation证明。
-- 所有caller policy组合具备确定idempotency、journal、fencing、effect和recovery。
-- Restart不会blind replay；UNKNOWN保持可reconcile并只阻塞对应store lane。
-- Production Remote只经TLS ingress，service image/durable root/locks/identity固定。
-- 同一clean exact candidate通过全部Phase 2 gate和完整Phase 1 regression。
+- 业务侧只使用RepositoryId/ref/commit/artifact/operation等public identity。
+- upload → import → poll → resolve → catalog/stream真实纵切通过。
+- CAS、幂等和matching commit recovery通过；矛盾状态显式人工恢复。
+- 成功package被删除，RUNNING/manual-recovery package不被误删。
+- Phase 0–1 canonical bytes、Python/Rust核心golden和Backend artifact主路径不变。
+- 普通CI通过，不生成closure/evidence/exact-candidate材料。
 
 ### 本阶段不做
 
 - Repository Service不解释SnapshotSummary、Comparison、Risk、业务hidden table或
   candidate/archive workflow。
-- 不实现server-ownedstore routing、cross-store transaction/consistency、
-  arbitrary SQL/DDL或service-ownedaudit query。
+- 不实现CurrentTableStore、server-owned store routing、cross-store consistency、
+  arbitrary SQL/DDL或service-owned audit query。
+- 不实现standalone ref CAS、public GC/backup/restore/delete/repair。
 - 不实现multi-node shared writer、untrusted tenants共享root、legacy cutover、
   resumable multipart/object storage或额外production platform。
 
@@ -342,9 +330,8 @@ recovery与canonical import分别遵守
 
 建立可独立调用、独立测试、无环依赖的 capability 主链，并产出首个业务纵切需要的事实和 artifact。
 
-Entry：Phase 2 WP7 consumer-ready checkpoint允许开始本阶段详细设计；production
-implementation要求Phase 2 exact-commit exit PASS。若consumer evidence需要改变
-Phase 2 public contract，必须显式reopen owning decision/contract。
+Entry：Phase 2最小Versioned consumer纵切通过。若consumer evidence需要改变
+Phase 2 public contract，必须显式reopen owning contract或ADR。
 
 Storage/comparison projection、artifact retention、ordered identity和business
 verification policy以
@@ -485,7 +472,7 @@ Workspace submit gate
   -> build/reuse one RepositoryImportArtifact
   -> Repository SubmitImport
   -> poll/checkpoint
-  -> business-required FULL evidence (T2)
+  -> structural import result + business-owned package/digest facts
   -> create Submission/finalize Workspace (T3)
 ```
 
@@ -495,13 +482,19 @@ Workspace submit gate
 
 ### Slice 5C：Review
 
-实现直接 approve、reject、withdraw、return 和 mutable ref release；不建设单独 start-review 动作或中间审核状态。领域状态变化归 Submission/Workspace，Repository Service 只执行通用 ref 操作。
+实现直接approve、reject、withdraw和return；不建设单独start-review动作或中间审核
+状态。领域状态变化归Submission/Workspace。若详细设计证明review必须独立移动或
+回退Repository ref，再按ADR 0009 reopen condition增加standalone CAS。
 
 退出条件：状态机、权限、幂等和 ref release conflict 全部由自动测试覆盖。
 
 ### Slice 5D：Archive
 
-实现从 approved Submission facts 派生 CandidateProjection、confirmation/anomaly resolution、纯读 PreviewArchivePlan 与 StartArchive execute gate。Preview 不持久化、不冻结；Start 才重新校验并冻结 ArchivePlan。使用 immutable BaselineNode + BaselineHead，不建设 batch。业务侧决定 target commit，Repository Service 仅执行 main ref CAS。
+实现从approved Submission facts派生CandidateProjection、
+confirmation/anomaly resolution、纯读PreviewArchivePlan与StartArchive execute
+gate。Preview不持久化、不冻结；Start才重新校验并冻结ArchivePlan。使用immutable
+BaselineNode + BaselineHead，不建设batch。若Archive需要把既有commit提升到main，
+必须先以真实consumer重开standalone CAS设计；不能假设V1已经提供。
 
 退出条件：并发 archive、base main conflict、重复执行和部分失败有确定结果，业务与 repository operation 可关联审计。
 

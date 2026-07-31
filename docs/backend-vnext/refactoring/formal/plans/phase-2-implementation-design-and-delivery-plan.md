@@ -118,7 +118,8 @@ Exit：contracts source和tests只表达当前Versioned语义，client/service�
 Exit：Phase 0–2代码简化形成一组可独立revert的提交，canonical业务结果不变。
 
 具体revision名称、依赖闭合和每步验证以DX plan的`S02-C1..C5`为准；本节R1..R4
-是scope grouping，不建立第二套提交顺序。
+是scope grouping，不建立第二套提交顺序。五轮跨对话执行使用
+[S02 Code Cleanup Execution Checklist](s02-code-cleanup-execution-checklist.md)。
 
 ## 5. Revised feature delivery
 

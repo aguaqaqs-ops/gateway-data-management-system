@@ -237,6 +237,9 @@ Kernel canonical corpus获得通过。
 
 每个revision独立提交并在其owner范围内保持green：
 
+五轮跨对话执行、定向验证和handoff格式见
+[S02 Code Cleanup Execution Checklist](s02-code-cleanup-execution-checklist.md)。
+
 1. `S02-C1 delivery-control removal`
    - 删除Phase 2 gate/router/closure/traceability运行时引用、命令和CI；
    - 恢复普通package test入口。

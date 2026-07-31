@@ -14,6 +14,7 @@
 - [Architecture and Refactoring Plan](architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](plans/implementation-stages.md)
 - [DX Cross-Phase Interface Reconciliation](plans/dx-cross-phase-interface-reconciliation.md)
+- [S02 Code Cleanup Execution Checklist](plans/s02-code-cleanup-execution-checklist.md)
 - [Phase 1 Implementation Design and Delivery Plan](plans/phase-1-implementation-design-and-delivery-plan.md)（历史设计）
 - [Phase 2 Implementation Design and Delivery Plan](plans/phase-2-implementation-design-and-delivery-plan.md)
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)

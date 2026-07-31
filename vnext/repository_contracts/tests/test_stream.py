@@ -486,6 +486,54 @@ def test_decoder_feed_rejects_precreated_overlapping_iterators() -> None:
     assert receipt.terminal_family is StreamFrameFamily.STREAM_END
 
 
+def _decoder_snapshot(
+    decoder: StreamFrameDecoder,
+) -> tuple[
+    bytes,
+    str,
+    object,
+    int,
+    int,
+    bool,
+]:
+    return (
+        bytes(decoder._buffer),
+        decoder._prefix_hasher.hexdigest(),
+        copy.deepcopy(decoder._sequence_state),
+        decoder._feed_lease_id,
+        decoder._next_lease_id,
+        decoder._finished,
+    )
+
+
+@pytest.mark.parametrize(
+    "late_chunk",
+    [
+        b"X",
+        pytest.param(None, id="full_batch_frame"),
+    ],
+)
+def test_decoder_feed_rejects_precreated_iterator_after_finish(
+    late_chunk: bytes | None,
+) -> None:
+    header = _versioned_header()
+    batch = _batch()
+    end = _end((header, batch))
+    wire = encode_stream((header, batch, end))
+    if late_chunk is None:
+        late_chunk = encode_frame_wire_bytes(batch)
+    decoder = StreamFrameDecoder()
+    late = decoder.feed(late_chunk)
+    list(decoder.feed(wire))
+    receipt = decoder.finish()
+    assert receipt.terminal_family is StreamFrameFamily.STREAM_END
+    snapshot = _decoder_snapshot(decoder)
+    with pytest.raises(RepositoryContractError) as exc:
+        list(late)
+    assert exc.value.code is RepositoryContractErrorCode.WIRE_INVALID_VALUE
+    assert _decoder_snapshot(decoder) == snapshot
+
+
 def test_decoder_feed_rejects_overlapping_iterator() -> None:
     header = _versioned_header()
     end = _end((header,))

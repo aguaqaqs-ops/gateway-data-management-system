@@ -274,6 +274,11 @@ class StreamFrameDecoder:
     _finished: bool = field(default=False, repr=False)
 
     def _acquire_feed_lease(self) -> int:
+        if self._finished:
+            raise RepositoryContractError(
+                RepositoryContractErrorCode.WIRE_INVALID_VALUE,
+                "decoder already finished",
+            )
         if self._feed_lease_id != 0:
             raise RepositoryContractError(
                 RepositoryContractErrorCode.WIRE_INVALID_VALUE,

@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.repository-service.problem.v1",
+  "title": "Repository Service Problem Details v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "title",
+    "status",
+    "detail",
+    "instance",
+    "failure",
+    "request_id",
+    "wire_schema_version"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "integer"
+    },
+    "detail": {
+      "type": "string",
+      "minLength": 1
+    },
+    "instance": {
+      "type": "string",
+      "minLength": 1
+    },
+    "failure": {
+      "$ref": "#/$defs/failureDescriptor"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "wire_schema_version": {
+      "const": 1
+    }
+  },
+  "$defs": {
+    "failureCategory": {
+      "type": "string",
+      "enum": [
+        "INVALID_REQUEST",
+        "FORBIDDEN",
+        "NOT_FOUND",
+        "STATE_CONFLICT",
+        "DEPENDENCY_FAILURE",
+        "INTEGRITY_FAILURE",
+        "INTERNAL_FAILURE"
+      ]
+    },
+    "recoveryAction": {
+      "type": "string",
+      "enum": [
+        "RETRY_COMMAND",
+        "RETRY_SAME_OPERATION",
+        "RECONCILE_SAME_OPERATION",
+        "NEW_USER_INPUT",
+        "OPERATOR_INTERVENTION",
+        "NO_RETRY"
+      ]
+    },
+    "effectClassification": {
+      "type": "string",
+      "enum": ["NOT_APPLIED", "UNKNOWN", "APPLIED", "NONE"]
+    },
+    "failureDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "category",
+        "phase",
+        "recovery",
+        "effect",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "$ref": "#/$defs/failureCategory"
+        },
+        "phase": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recovery": {
+          "$ref": "#/$defs/recoveryAction"
+        },
+        "effect": {
+          "$ref": "#/$defs/effectClassification"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": ["object", "array", "string", "number", "boolean", "null"]
+        },
+        "diagnostic_refs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

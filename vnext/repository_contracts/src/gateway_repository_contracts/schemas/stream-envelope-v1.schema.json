@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.repository-service.stream-envelope.v1",
+  "title": "Repository Service Stream Envelope v1",
+  "description": "Logical stream envelope contract snapshot with discriminated frames.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["envelope_version", "frames"],
+  "properties": {
+    "envelope_version": { "const": 1 },
+    "frames": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "gateway-vnext.repository-service.stream-metadata.v1#/$defs/streamFrameDocument"
+      }
+    }
+  }
+}

@@ -20,3 +20,15 @@ def test_lock_file_exists() -> None:
 def test_no_public_exports() -> None:
     module = importlib.import_module("gateway_repository_contracts")
     assert not hasattr(module, "__all__") or module.__all__ == ()
+
+
+def test_public_modules_importable() -> None:
+    for module_name in (
+        "gateway_repository_contracts.identities",
+        "gateway_repository_contracts.enums",
+        "gateway_repository_contracts.problem",
+        "gateway_repository_contracts.wire",
+        "gateway_repository_contracts.stream",
+        "gateway_repository_contracts.errors",
+    ):
+        importlib.import_module(module_name)

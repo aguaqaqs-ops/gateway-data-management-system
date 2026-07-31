@@ -1,0 +1,53 @@
+"""Stable contract error codes and exceptions for repository contracts."""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class RepositoryContractErrorCode(StrEnum):
+    """Closed stable error codes for repository contract validation."""
+
+    IDENTITY_INVALID = "IDENTITY_INVALID"
+    ENUM_UNKNOWN = "ENUM_UNKNOWN"
+    WIRE_INVALID_UTF8 = "WIRE_INVALID_UTF8"
+    WIRE_JSON_SYNTAX_INVALID = "WIRE_JSON_SYNTAX_INVALID"
+    WIRE_DUPLICATE_MEMBER = "WIRE_DUPLICATE_MEMBER"
+    WIRE_TRAILING_DATA = "WIRE_TRAILING_DATA"
+    WIRE_NON_OBJECT_ROOT = "WIRE_NON_OBJECT_ROOT"
+    WIRE_BOOL_AS_INT = "WIRE_BOOL_AS_INT"
+    WIRE_PAYLOAD_TOO_LARGE = "WIRE_PAYLOAD_TOO_LARGE"
+    WIRE_SCHEMA_VERSION_MISSING = "WIRE_SCHEMA_VERSION_MISSING"
+    WIRE_SCHEMA_VERSION_MISMATCH = "WIRE_SCHEMA_VERSION_MISMATCH"
+    WIRE_UNKNOWN_FIELD = "WIRE_UNKNOWN_FIELD"
+    WIRE_INVALID_VALUE = "WIRE_INVALID_VALUE"
+    JSON_INCOMPATIBLE_VALUE = "JSON_INCOMPATIBLE_VALUE"
+    JSON_CYCLE_DETECTED = "JSON_CYCLE_DETECTED"
+    JSON_NESTING_TOO_DEEP = "JSON_NESTING_TOO_DEEP"
+    STREAM_INCOMPLETE = "STREAM_INCOMPLETE"
+    STREAM_INVALID_SEQUENCE = "STREAM_INVALID_SEQUENCE"
+    STREAM_DUPLICATE_HEADER = "STREAM_DUPLICATE_HEADER"
+    STREAM_TERMINAL_CONFLICT = "STREAM_TERMINAL_CONFLICT"
+    STREAM_FRAME_AFTER_TERMINAL = "STREAM_FRAME_AFTER_TERMINAL"
+    STREAM_UNKNOWN_FRAME = "STREAM_UNKNOWN_FRAME"
+    STREAM_VERSION_MISMATCH = "STREAM_VERSION_MISMATCH"
+    STREAM_INVALID_PAYLOAD = "STREAM_INVALID_PAYLOAD"
+    STREAM_INTEGRITY_MISMATCH = "STREAM_INTEGRITY_MISMATCH"
+    SCHEMA_RESOURCE_FORBIDDEN = "SCHEMA_RESOURCE_FORBIDDEN"
+    SCHEMA_NOT_FOUND = "SCHEMA_NOT_FOUND"
+
+
+class RepositoryContractError(Exception):
+    """Production failure carrying a normative stable error code."""
+
+    def __init__(
+        self,
+        code: RepositoryContractErrorCode,
+        message: str = "",
+    ) -> None:
+        self.code = code
+        super().__init__(message or code.value)
+
+    @property
+    def stable_code(self) -> str:
+        return self.code.value

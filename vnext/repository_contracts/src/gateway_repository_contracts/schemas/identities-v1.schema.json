@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.repository-service.identities.v1",
+  "title": "Repository Service Identity Wire Shapes v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    }
+  },
+  "$defs": {
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "opaqueToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[\\x21-\\x7E]+$"
+    },
+    "cursorToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "pattern": "^[\\x21-\\x7E]+$"
+    },
+    "refName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^(?:(?!_)[A-Za-z0-9_-]{1,63})(?:/(?:(?!_)[A-Za-z0-9_-]{1,63}))*$"
+    },
+    "repositoryId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "repositoryOperationId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "artifactId": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "callerIdentity": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "repositoryIncarnationId": {
+      "$ref": "#/$defs/opaqueToken"
+    },
+    "commitId": {
+      "$ref": "#/$defs/opaqueToken"
+    },
+    "idempotencyKey": {
+      "$ref": "#/$defs/opaqueToken"
+    },
+    "currentTableGenerationId": {
+      "$ref": "#/$defs/opaqueToken"
+    },
+    "currentCatalogGenerationId": {
+      "$ref": "#/$defs/opaqueToken"
+    }
+  }
+}

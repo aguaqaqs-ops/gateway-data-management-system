@@ -15,10 +15,12 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "hypothesis==6.156.6",
+    "jsonschema==4.26.0",
     "mypy==2.3.0",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "ruff==0.15.21",
+    "rfc8785==0.1.4",
 ]
 
 [tool.pytest.ini_options]
@@ -32,3 +34,7 @@ target-version = "py314"
 python_version = "3.14"
 strict = true
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*", "rfc8785", "rfc8785.*"]
+ignore_missing_imports = true

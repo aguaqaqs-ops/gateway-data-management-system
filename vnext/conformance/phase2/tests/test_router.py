@@ -18,12 +18,17 @@ import pytest
 
 from gate import (
     ACTIVE_STATIC_GATE,
+    GateCommand,
     RevisionClosure,
     RoutingStatus,
+    StaticCheck,
     StaticStatus,
     TRUNCATION_MARKER,
+    _execute_static_checks,
+    _static_checks_for_routing,
     gate_result_to_dict,
     parse_gate_command,
+    routing_view_from_result,
     run_gate_command,
 )
 from router import (
@@ -276,13 +281,19 @@ def test_phase1_container_gate_not_in_taxonomy() -> None:
 
 
 def test_known_phase2_source_path_selects_static_and_contract() -> None:
-    gates = _route([PathCase("vnext/repository_service/src/gateway_repository_service/__init__.py")])
+    gates = _route(
+        [PathCase("vnext/repository_service/src/gateway_repository_service/__init__.py")]
+    )
     assert {"P2-PR-STATIC", "P2-PR-CONTRACT"} <= gates
 
 
 def test_formal_authority_expands_to_all_gates_without_phase1_container() -> None:
     gates = _route(
-        [PathCase("docs/backend-vnext/refactoring/formal/plans/phase-2-implementation-design-and-delivery-plan.md")]
+        [
+            PathCase(
+                "docs/backend-vnext/refactoring/formal/plans/phase-2-implementation-design-and-delivery-plan.md"
+            )
+        ]
     )
     assert set(ALL_GATES) <= gates
     assert PHASE1_CONTAINER_GATE not in gates
@@ -317,8 +328,12 @@ def test_workspace_inventory_selects_static() -> None:
 
 
 def test_shared_kernel_fixtures_and_conformance_core_select_correctness() -> None:
-    assert "PR-CORRECTNESS" in _route([PathCase("vnext/shared_kernel/src/gateway_shared_kernel/__init__.py")])
-    assert "PR-CORRECTNESS" in _route([PathCase("vnext/fixtures/schemas/definitions-v1.schema.json")])
+    assert "PR-CORRECTNESS" in _route(
+        [PathCase("vnext/shared_kernel/src/gateway_shared_kernel/__init__.py")]
+    )
+    assert "PR-CORRECTNESS" in _route(
+        [PathCase("vnext/fixtures/schemas/definitions-v1.schema.json")]
+    )
     assert "PR-CORRECTNESS" in _route(
         [PathCase("vnext/conformance/src/gateway_conformance/errors.py")]
     )
@@ -346,7 +361,9 @@ def test_unknown_path_fail_closed_expands_all_gates_without_phase1_container() -
 
 
 def test_deleted_file_still_routes_without_filesystem_check() -> None:
-    gates = _route([PathCase("vnext/repository_client/src/gateway_repository_client/__init__.py", "deleted")])
+    gates = _route(
+        [PathCase("vnext/repository_client/src/gateway_repository_client/__init__.py", "deleted")]
+    )
     assert {"P2-PR-STATIC", "P2-PR-CONTRACT"} <= gates
 
 
@@ -428,7 +445,10 @@ def test_invalid_paths_rejected(path: str, expected_code: RouterErrorCode) -> No
 
 
 def test_canonical_path_must_match_exactly() -> None:
-    assert validate_repo_relative_path("vnext/repository_client/a.py") == "vnext/repository_client/a.py"
+    assert (
+        validate_repo_relative_path("vnext/repository_client/a.py")
+        == "vnext/repository_client/a.py"
+    )
     with pytest.raises(RouterError) as exc:
         validate_repo_relative_path("./vnext/repository_client/a.py")
     assert exc.value.code is RouterErrorCode.NONCANONICAL_PATH
@@ -499,7 +519,10 @@ def test_execute_full_candidate_static_independent_with_incomplete_closure() -> 
                 "command": "execute",
                 "changes": [
                     {"path": "vnext/conformance/phase2/router.py", "status": "modified"},
-                    {"path": "vnext/shared_kernel/src/gateway_shared_kernel/__init__.py", "status": "modified"},
+                    {
+                        "path": "vnext/shared_kernel/src/gateway_shared_kernel/__init__.py",
+                        "status": "modified",
+                    },
                 ],
                 "repo_root": str(REPO_ROOT),
                 "static_checks": ["injected_failure"],
@@ -535,9 +558,7 @@ def test_active_static_failure_propagates_fail() -> None:
             {
                 "schema_version": 1,
                 "command": "execute",
-                "changes": [
-                    {"path": "vnext/conformance/phase2/router.py", "status": "modified"}
-                ],
+                "changes": [{"path": "vnext/conformance/phase2/router.py", "status": "modified"}],
                 "repo_root": str(REPO_ROOT),
                 "static_checks": ["injected_failure"],
             }
@@ -626,7 +647,9 @@ def test_worktree_snapshot_detects_index_mode_change(tmp_path: Path) -> None:
 
     before, error = _tracked_worktree_snapshot(repo)
     assert error is None
-    subprocess.run(["git", "update-index", "--chmod=+x", "a.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "update-index", "--chmod=+x", "a.txt"], cwd=repo, check=True, capture_output=True
+    )
     unchanged, mode_error = _worktree_unchanged(repo, before)
     assert mode_error is None
     assert unchanged is False
@@ -760,8 +783,12 @@ def test_worktree_snapshot_detects_modified_content_change(tmp_path: Path) -> No
 
 def _init_git_repo(repo: Path) -> None:
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@test"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "test"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test"], cwd=repo, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "test"], cwd=repo, check=True, capture_output=True
+    )
 
 
 def _commit_all(repo: Path, message: str = "init") -> None:
@@ -1014,9 +1041,7 @@ def test_worktree_snapshot_detects_dangling_symlink_target_change(tmp_path: Path
 
     before, error = _tracked_worktree_snapshot(repo)
     assert error is None
-    assert any(
-        item.startswith("content:link:symlink:") for item in before
-    )
+    assert any(item.startswith("content:link:symlink:") for item in before)
     link.unlink()
     link.symlink_to("missing-three")
     unchanged, mutation_error = _worktree_unchanged(repo, before)
@@ -1193,7 +1218,9 @@ def test_cli_execute_static_pass_without_injected_checks() -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
     payload = json.loads(proc.stdout)
     assert payload["static_status"] == "PASS"
-    static_outcomes = [item for item in payload["gate_outcomes"] if item["gate"] == ACTIVE_STATIC_GATE]
+    static_outcomes = [
+        item for item in payload["gate_outcomes"] if item["gate"] == ACTIVE_STATIC_GATE
+    ]
     assert static_outcomes
     assert static_outcomes[0]["status"] == "PASS"
 
@@ -1202,3 +1229,173 @@ def test_nested_cli_marker_is_registered() -> None:
     from _pytest.mark.structures import MarkDecorator
 
     assert isinstance(pytest.mark.nested_cli, MarkDecorator)
+
+
+def test_static_checks_include_closure_lint() -> None:
+    routing = routing_view_from_result(
+        route_changes([PathChange("vnext/conformance/phase2/closure.py", "modified")])
+    )
+    checks = _static_checks_for_routing(
+        routing, REPO_ROOT, ("vnext/conformance/phase2/closure.py",)
+    )
+    check_ids = [check.check_id for check in checks]
+    assert "static.closure" in check_ids
+
+
+def test_static_pytest_target_covers_phase2_tests_not_nested_cli() -> None:
+    routing = routing_view_from_result(
+        route_changes([PathChange("vnext/conformance/phase2/closure.py", "modified")])
+    )
+    checks = _static_checks_for_routing(
+        routing, REPO_ROOT, ("vnext/conformance/phase2/closure.py",)
+    )
+    pytest_check = next(check for check in checks if check.check_id == "static.pytest")
+    assert "phase2/tests" in pytest_check.argv
+    assert "not nested_cli" in pytest_check.argv
+    assert "test_router.py" not in pytest_check.argv
+
+
+def test_closure_lint_failure_propagates_as_static_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fail_closure(
+        checks: list[StaticCheck], *, extra_checks: tuple[str, ...]
+    ) -> tuple[StaticStatus, tuple[str, ...]]:
+        diagnostics = [f"check:{check.check_id}:exit=1" for check in checks]
+        return StaticStatus.FAIL, tuple(sorted(diagnostics))
+
+    monkeypatch.setattr("gate._execute_static_checks", _fail_closure)
+    result = run_gate_command(
+        GateCommand(
+            schema_version=1,
+            command="execute",
+            changes=(PathChange("vnext/conformance/phase2/closure.py", "modified"),),
+            repo_root=REPO_ROOT,
+        )
+    )
+    assert result.static_status is StaticStatus.FAIL
+    assert any("static.closure" in item for item in result.diagnostics)
+
+
+def test_closure_only_failure_via_real_gate_execute(tmp_path: Path) -> None:
+    from test_closure import _clone_repo_fixture
+
+    repo = _clone_repo_fixture(tmp_path)
+    pins = repo / "vnext/deploy/phase-1-image-pins.env"
+    pins.write_text(pins.read_text(encoding="utf-8") + "\n# mutated\n", encoding="utf-8")
+    result = run_gate_command(
+        GateCommand(
+            schema_version=1,
+            command="execute",
+            changes=(PathChange("vnext/conformance/phase2/closure.py", "modified"),),
+            repo_root=repo,
+        )
+    )
+    assert result.static_status is StaticStatus.FAIL
+    assert "check:static.closure:exit=1" in result.diagnostics
+    assert "check:static.ruff:exit=0" in result.diagnostics
+    assert "check:static.mypy:exit=0" in result.diagnostics
+    assert "check:static.pytest:exit=0" in result.diagnostics
+    closure_details = [
+        item for item in result.diagnostics if item.startswith("detail:static.closure:")
+    ]
+    assert closure_details
+    assert any("phase1.protection" in item for item in closure_details)
+    closure_script = repo / "vnext/conformance/phase2/closure.py"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(closure_script),
+            "validate",
+            "--repo-root",
+            str(repo),
+        ],
+        cwd=repo / "vnext/conformance",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 1
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is False
+    assert any("phase1.protection" in item for item in payload["diagnostics"])
+
+
+def test_closure_subprocess_pythonpath_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, str] = {}
+    cwd = CONFORMANCE_ROOT
+
+    def _capture_run(
+        argv: tuple[str, ...], *, cwd: Path, env: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
+        captured.update(env)
+        return subprocess.CompletedProcess(list(argv), 0, "", "")
+
+    monkeypatch.setattr("gate._run_subprocess", _capture_run)
+    monkeypatch.setenv("PYTHONPATH", "/should/not/inherit")
+
+    checks = [
+        StaticCheck(
+            "static.closure",
+            cwd,
+            (
+                sys.executable,
+                str(cwd / "phase2" / "closure.py"),
+                "validate",
+                "--repo-root",
+                str(REPO_ROOT),
+            ),
+        )
+    ]
+    _execute_static_checks(checks, extra_checks=())
+
+    expected = os.pathsep.join([str(cwd / "src"), str(cwd / "phase2")])
+    assert captured["PYTHONPATH"] == expected
+    assert "" not in captured["PYTHONPATH"].split(os.pathsep)
+    assert "/should/not/inherit" not in captured["PYTHONPATH"]
+
+
+def test_phase1_protection_failure_propagates_via_closure_check(tmp_path: Path) -> None:
+    from test_closure import _clone_repo_fixture
+
+    repo = _clone_repo_fixture(tmp_path)
+    pins = repo / "vnext/deploy/phase-1-image-pins.env"
+    pins.write_text(pins.read_text(encoding="utf-8") + "\n# mutated\n", encoding="utf-8")
+    closure_script = CONFORMANCE_ROOT / "phase2" / "closure.py"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(closure_script),
+            "validate",
+            "--repo-root",
+            str(repo),
+        ],
+        cwd=CONFORMANCE_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 1
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is False
+    assert any("phase1.protection" in item for item in payload["diagnostics"])
+
+
+def test_execute_gate_worktree_unchanged_with_closure_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _pass_fast(
+        checks: list[StaticCheck], *, extra_checks: tuple[str, ...]
+    ) -> tuple[StaticStatus, tuple[str, ...]]:
+        return StaticStatus.PASS, tuple(f"check:{check.check_id}:exit=0" for check in checks)
+
+    monkeypatch.setattr("gate._execute_static_checks", _pass_fast)
+    result = run_gate_command(
+        GateCommand(
+            schema_version=1,
+            command="execute",
+            changes=(PathChange("vnext/conformance/phase2/closure.py", "modified"),),
+            repo_root=REPO_ROOT,
+        )
+    )
+    assert result.static_status is StaticStatus.PASS
+    assert "tracked_worktree_mutated" not in result.diagnostics
+    assert any("static.closure" in item for item in result.diagnostics)

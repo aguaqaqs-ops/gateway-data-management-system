@@ -328,7 +328,9 @@ def parse_inventory(raw: Any) -> Inventory:
             raise RouterError(RouterErrorCode.INVALID_INVENTORY, detail=f"owner:{gate_name}")
         expected_owner = EXPECTED_GATE_OWNERS[gate_name]
         if owner != expected_owner:
-            raise RouterError(RouterErrorCode.INVALID_INVENTORY, detail=f"owner_mismatch:{gate_name}")
+            raise RouterError(
+                RouterErrorCode.INVALID_INVENTORY, detail=f"owner_mismatch:{gate_name}"
+            )
         gate_items.append((gate_name, str(activation)))
 
     unknown_path_gates = _parse_gate_list(

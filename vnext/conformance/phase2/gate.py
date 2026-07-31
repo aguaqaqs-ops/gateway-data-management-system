@@ -109,7 +109,6 @@ class StaticCheck:
     argv: tuple[str, ...]
 
 
-
 def _repo_root_from_default() -> Path:
     return Path(__file__).resolve().parents[3]
 
@@ -268,9 +267,7 @@ def _split_nul_records(raw: bytes) -> tuple[str, ...]:
     if not raw:
         return ()
     return tuple(
-        record.decode("utf-8", errors="surrogateescape")
-        for record in raw.split(b"\0")
-        if record
+        record.decode("utf-8", errors="surrogateescape") for record in raw.split(b"\0") if record
     )
 
 
@@ -462,7 +459,9 @@ def _static_checks_for_routing(
         python = sys.executable
         checks.extend(
             [
-                StaticCheck("static.ruff", conformance_root, (python, "-m", "ruff", "check", "phase2")),
+                StaticCheck(
+                    "static.ruff", conformance_root, (python, "-m", "ruff", "check", "phase2")
+                ),
                 StaticCheck("static.mypy", conformance_root, (python, "-m", "mypy", "phase2")),
                 StaticCheck(
                     "static.pytest",
@@ -476,7 +475,18 @@ def _static_checks_for_routing(
                         "no:cacheprovider",
                         "-m",
                         "not nested_cli",
-                        "phase2/tests/test_router.py",
+                        "phase2/tests",
+                    ),
+                ),
+                StaticCheck(
+                    "static.closure",
+                    conformance_root,
+                    (
+                        python,
+                        str(conformance_root / "phase2" / "closure.py"),
+                        "validate",
+                        "--repo-root",
+                        str(repo_root),
                     ),
                 ),
                 StaticCheck(
@@ -492,9 +502,14 @@ def _static_checks_for_routing(
         "vnext/repository_client/",
         "vnext/repository_service/",
     )
-    repository_hit = any(
-        _path_hits_prefix(path, prefix) for path in changed_paths for prefix in repository_prefixes
-    ) or "vnext/repository-workspace.toml" in changed_paths
+    repository_hit = (
+        any(
+            _path_hits_prefix(path, prefix)
+            for path in changed_paths
+            for prefix in repository_prefixes
+        )
+        or "vnext/repository-workspace.toml" in changed_paths
+    )
     if repository_hit:
         for project in ("repository_contracts", "repository_client", "repository_service"):
             project_root = repo_root / "vnext" / project
@@ -544,7 +559,13 @@ def _execute_static_checks(
         return StaticStatus.FAIL, tuple(sorted(diagnostics))
 
     for check in checks:
-        proc = _run_subprocess(check.argv, cwd=check.cwd, env=env)
+        check_env = env
+        if any(isinstance(arg, str) and "phase2/closure.py" in arg for arg in check.argv):
+            check_env = env.copy()
+            check_env["PYTHONPATH"] = os.pathsep.join(
+                [str(check.cwd / "src"), str(check.cwd / "phase2")]
+            )
+        proc = _run_subprocess(check.argv, cwd=check.cwd, env=check_env)
         diagnostics.append(f"check:{check.check_id}:exit={proc.returncode}")
         if proc.returncode != 0:
             detail = _format_check_detail(check.check_id, proc.stdout, proc.stderr)

@@ -1,0 +1,395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.phase2.gate-attempt.v1",
+  "title": "Phase 2 Gate Attempt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "gate_attempt_schema_version",
+    "attempt_id",
+    "gate_name",
+    "status",
+    "candidate_revision",
+    "candidate_identity",
+    "gate_identity",
+    "environment_binding",
+    "runtime_build_identity",
+    "environment_fingerprint",
+    "artifact_digests",
+    "image_digests",
+    "required_check_observations",
+    "fault_receipts",
+    "cleanup_result",
+    "evidence_binding",
+    "recorded_result"
+  ],
+  "properties": {
+    "gate_attempt_schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "attempt_id": {
+      "$ref": "#/$defs/attemptId"
+    },
+    "gate_name": {
+      "$ref": "#/$defs/gateName"
+    },
+    "status": {
+      "$ref": "#/$defs/gateStatus"
+    },
+    "candidate_revision": {
+      "$ref": "#/$defs/gitRevision"
+    },
+    "candidate_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "worktree_status"],
+      "properties": {
+        "revision": {
+          "$ref": "#/$defs/gitRevision"
+        },
+        "worktree_status": {
+          "type": "string",
+          "enum": ["clean"]
+        }
+      }
+    },
+    "gate_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate_name", "activation", "gate_schema_version"],
+      "properties": {
+        "gate_name": {
+          "$ref": "#/$defs/gateName"
+        },
+        "activation": {
+          "type": "string",
+          "enum": ["active", "inactive", "external"]
+        },
+        "gate_schema_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "environment_binding": {
+      "$ref": "#/$defs/lockDigestBinding"
+    },
+    "runtime_build_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["python_version", "uv_version"],
+      "properties": {
+        "python_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uv_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rustc_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "environment_fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host_python_version", "lock_digests"],
+      "properties": {
+        "host_python_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "host_uv_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lock_digests": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/lockDigestEntry"
+          }
+        }
+      }
+    },
+    "artifact_digests": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/pathDigestEntry"
+      }
+    },
+    "image_digests": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["image_ref", "digest"],
+        "properties": {
+          "image_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "$ref": "#/$defs/digestRef"
+          }
+        }
+      }
+    },
+    "required_check_observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/checkObservation"
+      }
+    },
+    "fault_receipts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/faultReceipt"
+      }
+    },
+    "cleanup_result": {
+      "$ref": "#/$defs/cleanupResult"
+    },
+    "evidence_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_ids"],
+      "properties": {
+        "evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/lowerKebab"
+          }
+        }
+      }
+    },
+    "recorded_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["diagnostics"],
+      "properties": {
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "block_reason": {
+      "type": "string",
+      "enum": [
+        "python_unavailable",
+        "uv_unavailable",
+        "worktree_snapshot_blocked",
+        "tracked_worktree_unavailable"
+      ]
+    },
+    "supersession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supersedes_attempt_id", "reason"],
+      "properties": {
+        "supersedes_attempt_id": {
+          "$ref": "#/$defs/attemptId"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "PASS"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "artifact_digests": {
+            "minItems": 1
+          },
+          "required_check_observations": {
+            "minItems": 1
+          },
+          "cleanup_result": {
+            "properties": {
+              "status": {
+                "const": "CLEAN"
+              }
+            },
+            "required": ["status"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "BLOCKED"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["block_reason"]
+      }
+    }
+  ],
+  "$defs": {
+    "gitRevision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digestRef": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "attemptId": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "lowerKebab": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "checkId": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+    },
+    "posixRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*\\.\\./)[^\\x00]+$"
+    },
+    "lockDigestEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "digest"],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/posixRelativePath"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestRef"
+        }
+      }
+    },
+    "lockDigestBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lock_digests"],
+      "properties": {
+        "lock_digests": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/lockDigestEntry"
+          }
+        }
+      }
+    },
+    "pathDigestEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "digest"],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/posixRelativePath"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestRef"
+        }
+      }
+    },
+    "checkObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_id", "outcome", "diagnostics"],
+      "properties": {
+        "check_id": {
+          "$ref": "#/$defs/checkId"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["PASS", "FAIL", "BLOCKED", "NOT_RUN"]
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "faultReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt_id", "outcome"],
+      "properties": {
+        "receipt_id": {
+          "$ref": "#/$defs/lowerKebab"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["CONSUMED", "NOT_ARMED", "HARNESS_ERROR"]
+        }
+      }
+    },
+    "cleanupResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "diagnostics"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["CLEAN", "LEAKED", "FAILED"]
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "gateName": {
+      "type": "string",
+      "enum": [
+        "P2-PR-STATIC",
+        "P2-PR-CONTRACT",
+        "P2-PR-RECOVERY",
+        "P2-PHASE-EXIT-CONTAINER",
+        "PR-CORRECTNESS",
+        "PR-NATIVE"
+      ]
+    },
+    "gateStatus": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "BLOCKED"]
+    }
+  }
+}

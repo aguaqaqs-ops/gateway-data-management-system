@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Self, cast
 
 from gateway_repository_contracts._stream_codec import (
@@ -158,7 +158,10 @@ def compute_frames_raw_sha256(frames: Sequence[StreamFrame]) -> str:
         )
     hasher = hashlib.sha256()
     for frame in frames[:-1]:
-        hasher.update(encode_frame_wire_bytes(frame))
+        if frame.wire_bytes is not None:
+            hasher.update(frame.wire_bytes)
+        else:
+            hasher.update(encode_frame_wire_bytes(frame))
     return hasher.hexdigest()
 
 
@@ -168,6 +171,7 @@ class StreamFrame:
     frame_version: int
     metadata: StreamFrameMetadata
     payload: bytes | None = None
+    wire_bytes: bytes | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.frame_version != STREAM_FRAME_VERSION:
@@ -176,6 +180,12 @@ class StreamFrame:
                 "frame_version mismatch",
             )
         _validate_frame_metadata(self.frame_family, self.metadata)
+        if self.wire_bytes is not None:
+            object.__setattr__(
+                self,
+                "wire_bytes",
+                _require_immutable_bytes(self.wire_bytes, label="wire_bytes"),
+            )
         if self.payload is not None:
             object.__setattr__(
                 self,
@@ -196,11 +206,13 @@ class StreamFrame:
 @dataclass(frozen=True, slots=True)
 class StreamEnvelope:
     frames: tuple[StreamFrame, ...]
+    _raw_integrity_verified: bool = field(default=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frames", _freeze_frames(self.frames))
         validate_stream_sequence(self.frames)
-        validate_stream_integrity(self.frames)
+        if not self._raw_integrity_verified:
+            validate_stream_integrity(self.frames)
 
     def to_wire_bytes(self) -> bytes:
         return encode_stream_bytes(self.frames)
@@ -223,9 +235,9 @@ def encode_stream(frames: Sequence[StreamFrame]) -> bytes:
 def decode_stream(payload: bytes) -> StreamEnvelope:
     """Decode binary wire bytes into a validated stream envelope."""
     decoder = StreamFrameDecoder()
-    for _frame in decoder.feed(payload):
-        pass
-    return decoder.finish()
+    frames = list(decoder.feed(payload))
+    decoder.finish()
+    return StreamEnvelope(frames=tuple(frames), _raw_integrity_verified=True)
 
 
 def validate_stream_sequence(frames: Sequence[StreamFrame]) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import struct
 
 import pytest
 
@@ -26,6 +27,7 @@ from gateway_repository_contracts.stream import (
     encode_stream_frames,
     validate_stream_sequence,
 )
+from gateway_repository_contracts._jcs import encode_jcs_bytes
 from gateway_repository_contracts._json import CONTROL_JSON_MAX_BYTES
 from gateway_repository_contracts._stream_codec import (
     decode_frame_wire_bytes,
@@ -407,11 +409,86 @@ def test_decoder_feed_in_chunks_then_finish() -> None:
     end = _end((header, batch1, batch2))
     wire = encode_stream((header, batch1, batch2, end))
     decoder = StreamFrameDecoder()
-    frames: list[StreamFrame] = []
+    fed_frames: list[StreamFrame] = []
     for index in range(0, len(wire), 3):
-        frames.extend(decoder.feed(wire[index : index + 3]))
+        fed_frames.extend(decoder.feed(wire[index : index + 3]))
     envelope = decoder.finish()
     assert len(envelope.frames) == 4
+    assert len(fed_frames) == 4
+    for fed, stored in zip(fed_frames, envelope.frames, strict=True):
+        assert fed.frame_family is stored.frame_family
+        if fed.frame_family is StreamFrameFamily.ARROW_BATCH:
+            assert fed.payload in {b"\x01", b"\x02"}
+            assert stored.payload == b"\x00"
+
+
+def test_decoder_finish_rejects_non_canonical_control_jcs() -> None:
+    header = _versioned_header()
+    canonical_header_wire = encode_frame_wire_bytes(header)
+    header_body = canonical_header_wire[6:]
+    padded_body = b" " + header_body + b" "
+    tampered_header = canonical_header_wire[:2] + struct.pack(">I", len(padded_body)) + padded_body
+    batch = _batch()
+    end = _end((header, batch))
+    # END digest matches canonical re-encode, but header wire is non-JCS.
+    end_wire = encode_frame_wire_bytes(end)
+    wire = tampered_header + encode_frame_wire_bytes(batch) + end_wire
+    decoder = StreamFrameDecoder()
+    with pytest.raises(RepositoryContractError) as exc:
+        list(decoder.feed(wire))
+    assert exc.value.code is RepositoryContractErrorCode.WIRE_JSON_SYNTAX_INVALID
+
+
+def test_decoder_raw_digest_detects_wire_tampering() -> None:
+    header = _versioned_header()
+    batch = _batch()
+    end = _end((header, batch))
+    wire = bytearray(encode_stream((header, batch, end)))
+    header_len = len(encode_frame_wire_bytes(header))
+    wire[header_len + 10] ^= 0x01
+    decoder = StreamFrameDecoder()
+    list(decoder.feed(bytes(wire)))
+    with pytest.raises(RepositoryContractError) as exc:
+        decoder.finish()
+    assert exc.value.code is RepositoryContractErrorCode.STREAM_INTEGRITY_MISMATCH
+
+
+def test_encode_stream_frames_rejects_incomplete_stream() -> None:
+    header = _versioned_header()
+    with pytest.raises(RepositoryContractError) as exc:
+        list(encode_stream_frames(()))
+    assert exc.value.code is RepositoryContractErrorCode.STREAM_INCOMPLETE
+    with pytest.raises(RepositoryContractError) as exc:
+        list(encode_stream_frames((header,)))
+    assert exc.value.code is RepositoryContractErrorCode.STREAM_INCOMPLETE
+
+
+def test_encode_stream_frames_rejects_wrong_end_digest() -> None:
+    header = _versioned_header()
+    batch = _batch()
+    bad_end = StreamFrame(
+        frame_family=StreamFrameFamily.STREAM_END,
+        frame_version=STREAM_FRAME_VERSION,
+        metadata=StreamEndMetadata(frames_raw_sha256="0" * 64, final_row_count=1),
+    )
+    with pytest.raises(RepositoryContractError) as exc:
+        list(encode_stream_frames((header, batch, bad_end)))
+    assert exc.value.code is RepositoryContractErrorCode.STREAM_INTEGRITY_MISMATCH
+
+
+def test_decoder_rejects_unknown_version_on_header_chunk() -> None:
+    header = struct.pack(">BBI", 2, 2, 64 * 1024 * 1024)
+    decoder = StreamFrameDecoder()
+    with pytest.raises(RepositoryContractError) as exc:
+        list(decoder.feed(header))
+    assert exc.value.code is RepositoryContractErrorCode.STREAM_VERSION_MISMATCH
+
+
+def test_canonical_jcs_matches_encode_jcs_bytes() -> None:
+    header = _versioned_header()
+    wire = encode_frame_wire_bytes(header)
+    body = wire[6:]
+    assert body == encode_jcs_bytes(header.metadata.to_wire_dict())
 
 
 def test_encode_stream_frames_yields_per_frame_chunks() -> None:

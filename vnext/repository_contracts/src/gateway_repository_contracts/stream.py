@@ -205,14 +205,17 @@ class StreamDecoderFinish:
 
     def __post_init__(self) -> None:
         if self.terminal_family is StreamFrameFamily.STREAM_END:
-            if self.stream_end is None or self.stream_error is not None:
+            if not isinstance(self.stream_end, StreamEndMetadata) or self.stream_error is not None:
                 raise RepositoryContractError(
                     RepositoryContractErrorCode.WIRE_INVALID_VALUE,
                     "STREAM_END receipt requires stream_end metadata only",
                 )
             return
         if self.terminal_family is StreamFrameFamily.STREAM_ERROR:
-            if self.stream_error is None or self.stream_end is not None:
+            if (
+                not isinstance(self.stream_error, StreamErrorMetadata)
+                or self.stream_end is not None
+            ):
                 raise RepositoryContractError(
                     RepositoryContractErrorCode.WIRE_INVALID_VALUE,
                     "STREAM_ERROR receipt requires stream_error metadata only",

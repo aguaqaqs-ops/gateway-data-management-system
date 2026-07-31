@@ -269,8 +269,24 @@ class StreamFrameDecoder:
     _sequence_state: _StreamSequenceState = field(default_factory=_new_sequence_state, repr=False)
     _terminal_metadata: StreamFrameMetadata | None = field(default=None, repr=False)
     _prefix_hasher: Any = field(default_factory=hashlib.sha256, repr=False)
-    _feed_active: bool = field(default=False, repr=False)
+    _feed_lease_id: int = field(default=0, repr=False)
+    _next_lease_id: int = field(default=1, repr=False)
     _finished: bool = field(default=False, repr=False)
+
+    def _acquire_feed_lease(self) -> int:
+        if self._feed_lease_id != 0:
+            raise RepositoryContractError(
+                RepositoryContractErrorCode.WIRE_INVALID_VALUE,
+                "feed while iterator active",
+            )
+        lease = self._next_lease_id
+        self._next_lease_id += 1
+        self._feed_lease_id = lease
+        return lease
+
+    def _release_feed_lease(self, lease: int) -> None:
+        if self._feed_lease_id == lease:
+            self._feed_lease_id = 0
 
     def feed(self, chunk: bytes) -> Iterator[StreamFrame]:
         """Feed wire bytes incrementally and yield complete decoded frames."""
@@ -278,11 +294,6 @@ class StreamFrameDecoder:
             raise RepositoryContractError(
                 RepositoryContractErrorCode.WIRE_INVALID_VALUE,
                 "decoder already finished",
-            )
-        if self._feed_active:
-            raise RepositoryContractError(
-                RepositoryContractErrorCode.WIRE_INVALID_VALUE,
-                "feed while iterator active",
             )
         if type(chunk) is not bytes:
             raise RepositoryContractError(
@@ -296,29 +307,32 @@ class StreamFrameDecoder:
         return self._feed_chunk(chunk)
 
     def _feed_chunk(self, chunk: bytes) -> Iterator[StreamFrame]:
-        from gateway_repository_contracts.stream import accept_stream_frame_family
+        def _iter() -> Iterator[StreamFrame]:
+            from gateway_repository_contracts.stream import accept_stream_frame_family
 
-        if chunk:
-            self._buffer.extend(chunk)
-        consumed = 0
-        self._feed_active = True
-        try:
-            while consumed < len(self._buffer):
-                decoded = _try_decode_frame_at(self._buffer, consumed)
-                if decoded is None:
-                    break
-                frame_size, frame, raw_frame = decoded
-                if frame.frame_family not in _TERMINAL_FAMILIES:
-                    self._prefix_hasher.update(raw_frame)
-                accept_stream_frame_family(self._sequence_state, frame.frame_family)
-                if frame.frame_family in _TERMINAL_FAMILIES:
-                    self._terminal_metadata = frame.metadata
-                consumed += frame_size
-                yield frame
-        finally:
-            if consumed:
-                self._buffer = bytearray(self._buffer[consumed:])
-            self._feed_active = False
+            lease = self._acquire_feed_lease()
+            consumed = 0
+            try:
+                if chunk:
+                    self._buffer.extend(chunk)
+                while consumed < len(self._buffer):
+                    decoded = _try_decode_frame_at(self._buffer, consumed)
+                    if decoded is None:
+                        break
+                    frame_size, frame, raw_frame = decoded
+                    if frame.frame_family not in _TERMINAL_FAMILIES:
+                        self._prefix_hasher.update(raw_frame)
+                    accept_stream_frame_family(self._sequence_state, frame.frame_family)
+                    if frame.frame_family in _TERMINAL_FAMILIES:
+                        self._terminal_metadata = frame.metadata
+                    consumed += frame_size
+                    yield frame
+            finally:
+                if consumed:
+                    self._buffer = bytearray(self._buffer[consumed:])
+                self._release_feed_lease(lease)
+
+        return _iter()
 
     def finish(self) -> StreamDecoderFinish:
         """Validate stream lifecycle and integrity after all frames were consumed."""

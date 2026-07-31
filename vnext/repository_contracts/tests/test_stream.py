@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import struct
+import copy
 
 import pytest
 
@@ -456,6 +457,35 @@ def test_decoder_feed_consumer_exception_commits() -> None:
     assert receipt.terminal_family is StreamFrameFamily.STREAM_END
 
 
+def test_decoder_feed_rejects_precreated_overlapping_iterators() -> None:
+    header = _versioned_header()
+    batch = _batch()
+    end = _end((header, batch))
+    wire = encode_stream((header, batch, end))
+    decoder = StreamFrameDecoder()
+    g1 = decoder.feed(wire)
+    g2 = decoder.feed(b"X")
+    first = next(g1)
+    assert first.frame_family is StreamFrameFamily.STREAM_HEADER
+    buffer_len = len(decoder._buffer)
+    digest = decoder._prefix_hasher.hexdigest()
+    sequence_state = copy.deepcopy(decoder._sequence_state)
+    lease_id = decoder._feed_lease_id
+    with pytest.raises(RepositoryContractError) as exc:
+        next(g2)
+    assert exc.value.code is RepositoryContractErrorCode.WIRE_INVALID_VALUE
+    assert len(decoder._buffer) == buffer_len
+    assert decoder._prefix_hasher.hexdigest() == digest
+    assert decoder._sequence_state == sequence_state
+    assert decoder._feed_lease_id == lease_id
+    remaining = list(g1)
+    assert len(remaining) == 2
+    assert remaining[0].frame_family is StreamFrameFamily.ARROW_BATCH
+    assert remaining[1].frame_family is StreamFrameFamily.STREAM_END
+    receipt = decoder.finish()
+    assert receipt.terminal_family is StreamFrameFamily.STREAM_END
+
+
 def test_decoder_feed_rejects_overlapping_iterator() -> None:
     header = _versioned_header()
     end = _end((header,))
@@ -492,6 +522,16 @@ def test_stream_decoder_finish_rejects_invalid_receipts() -> None:
         StreamDecoderFinish(
             terminal_family=StreamFrameFamily.STREAM_ERROR,
             stream_end=end_meta,
+        )
+    with pytest.raises(RepositoryContractError):
+        StreamDecoderFinish(
+            terminal_family=StreamFrameFamily.STREAM_END,
+            stream_end=object(),  # type: ignore[arg-type]
+        )
+    with pytest.raises(RepositoryContractError):
+        StreamDecoderFinish(
+            terminal_family=StreamFrameFamily.STREAM_ERROR,
+            stream_error=object(),  # type: ignore[arg-type]
         )
 
 

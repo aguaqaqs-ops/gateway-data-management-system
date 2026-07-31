@@ -1,12 +1,18 @@
 # ADR 0006: Language-Neutral Fixture Oracle
 
-状态：Accepted
+状态：Superseded by ADR 0010
 
 日期：2026-07-19
 
 决策 owner：Backend vNext Conformance Architecture
 
 关联阶段：Phase 0、Phase 1、Phase 8
+
+> 本文是历史决策记录，不再定义现行 contract。现行 correctness 规则见
+> [Correctness Golden and Fixture Contract](../contracts/fixture-oracle-and-conformance.md)
+> 与 [ADR 0010](0010-minimal-golden-and-ordinary-ci.md)：不再建设 generic scenario
+> manifest、closure、runner、harness/profile matrix、RunEvidence 或
+> exact-commit phase gate。
 
 ## Context
 

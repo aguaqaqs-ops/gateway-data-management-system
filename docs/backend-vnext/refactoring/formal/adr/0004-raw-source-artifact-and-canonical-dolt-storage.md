@@ -10,8 +10,10 @@
 
 2026-07-31 amendment：canonical content owner继续有效；Repository Service的
 caller-selected verification/FULL SnapshotManifest已由ADR 0009替代为固定
-table/schema/row-count structural check。Raw SourcePackageArtifact的最终retention
-在Phase 0–1同原则简化设计中复核。
+table/schema/row-count structural check。ADR 0010进一步确认：产生有效
+Submission/commit的SourcePackageArtifact保持submission durable；
+`NO_CANONICAL_CHANGE`不提升retention；完整CanonicalizationManifest由Backend
+durable保存，临时Repository package只携带结构字段和opaque manifest digest。
 
 ## Context
 
@@ -26,7 +28,10 @@ Ordered table第一版保留`no`，以`gid`为主键；real gid为
 CanonicalizationManifest和immutable RepositoryImportArtifact。Repository只检查
 committed table/schema/row count；业务content digest由Storage Projection/业务
 owner持有。SnapshotTableArtifact只在current Preview/active Attempt期间pin；
-首版不长期复制full-row archive。精确规则由
+首版不长期复制full-row archive。RepositoryImportArtifact在Backend store和
+Repository Service中分别使用不同nominal ref/ID scope；两种ref都只保留opaque ID、
+media type、size和raw SHA，semantic metadata属于上述业务manifest。
+精确规则由
 [Canonical Storage and Repository Boundary Contract](../contracts/canonical-storage-and-repository-boundary.md)
 唯一规定。
 
@@ -47,4 +52,6 @@ Dolt export 是 canonical schema，不能单独复原原始 DDL/删除列；原�
 - Raw artifact restore、canonical manifest、row-count/key 和 dropped-column fixtures。
 - Ordered gid/no、pseudo blank、position shift 和 reserved-range vectors。
 - Repository structural result与business-owned digest边界。
+- Durable SourcePackageArtifact、Backend CanonicalizationManifest与临时
+  structural package分离。
 - Projection version mismatch 进入 alignment/fallback，不使用不安全 native diff。

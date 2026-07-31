@@ -14,7 +14,10 @@ Semantic version：`1.0.0`
 
 ## 1. 范围与版本轴
 
-`canonical_encoding_version` 作为一个 bundle 同时固定 canonical JSON、typed scalar frame、identifier、row/collection framing 和 semantic digest。v1 不允许调用方混搭这些子层版本。Python Backend、Rust compute core 与 Repository Service 必须逐字节一致。
+`canonical_encoding_version`作为一个bundle同时固定canonical JSON、typed scalar
+frame、identifier、row/collection framing和semantic digest。v1不允许调用方混搭
+这些子层版本。Python reference与Rust compute core必须逐字节一致；Repository
+Service不实现这些bytes，也不消费canonical corpus。
 
 本 contract 不拥有 SQL parser 的 type alias/timezone policy、业务 anomaly reason、table rules、use-case error code 或 artifact content schema。
 
@@ -124,19 +127,19 @@ wire     = "sha256:" || lowercase_hex(digest)
 
 `digest-kind` 使用 lower-kebab-case registry。组合 digest 使用 child raw 32-byte hash，不使用 wire hex。Raw blob integrity 仍是直接 SHA-256(raw bytes)，不加 semantic prefix；`raw-content` 与 `business-content` 永远分域，不能复用 DigestRef。
 
-v1 已登记的基础与 Phase 1 executable-contract digest kind：
+v1当前保留的production digest kind：
 
 | Digest kind | Payload owner / purpose |
 | --- | --- |
 | `row` | Shared Kernel canonical row frame。 |
 | `raw-content` | Shared Kernel unordered row-hash multiset。 |
 | `collection-item` | Shared Kernel collection item framing。 |
-| `vector-set` | Shared Kernel canonical-encoding vector closure。 |
 | `table-schema` | Canonical Row Hash capability declared semantic schema。 |
-| `scenario-input` | Conformance Harness scenario input projection/closure。 |
-| `scenario-fixture` | Conformance Harness complete fixture projection/closure。 |
-| `run-evidence` | Conformance Harness RunEvidenceBundle v1 semantic projection；canonical payload = JCS(bundle \\ `content_digest`)。 |
-| `canonical-table-result` | Canonical Row Hash capability `CanonicalTableResult` v1 semantic projection；canonical payload = JCS(result \\ `diagnostics`)。manifest `expected[].content_digest`、golden envelope `content_digest` 与本 kind 计算的 owner digest **必须一致**；**不**与 ArtifactRef 的 `content_digest == raw_content_digest` 混用。传输完整性由 manifest `raw_sha256` / `size_bytes` 承担。Normative preimage 见 `fixtures/vectors/shared-kernel/canonical-encoding/v1/digest.jsonl`（含 `digest.semantic.canonical-table-result.mixed-scalars-golden`）。 |
+
+Phase 1历史使用的`vector-set`、`scenario-input`、`scenario-fixture`、
+`run-evidence`和`canonical-table-result`已由
+[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)删除。它们没有production
+consumer，不得继续用于fixture自证、CI evidence或ArtifactRef identity。
 
 新 kind 必须由 payload semantic owner 提议、由 Shared Kernel登记；不得以未登记字符串临时计算正式 DigestRef。
 
@@ -195,22 +198,27 @@ Serializer 不根据宿主语言容器类型猜测 semantics。
 
 ## 6. Normative vectors
 
-唯一跨语言向量根：
+唯一跨语言golden corpus：
 
 ```text
 vnext/fixtures/vectors/shared-kernel/canonical-encoding/v1/
-  vector-set.json
   jcs.jsonl
   scalar.jsonl
   digest.jsonl
   invalid.jsonl
 ```
 
-`vector-set.json`、四类 JSONL case、test-only logical/typed scalar representation、closure digest和stable invalid code的唯一 schema authority是 [Canonical Encoding Normative Vector Schema](canonical-encoding-normative-vector-schema.md)。Case 使用稳定 `case_id`；valid case固定canonical bytes/digest，invalid case只固定stable error code。Python、Rust、Repository必须直接消费同一向量并比较完整bytes；只比较最终digest不算通过。
+当前128个case作为普通只读test data保留。Case使用稳定`case_id`；valid case固定
+canonical bytes/digest，invalid case固定stable error code。Python与Rust使用各自
+薄loader直接消费同一corpus并比较完整bytes；只比较最终digest不算通过。
 
 Test-only scalar representation不得成为production FFI contract。Canonical Row Hash capability如何把Arrow physical value映射到本文logical scalar，由其owning compute-boundary contract版本化；Arrow metadata不得反向改写本文语义。
 
-普通 CI 不生成或 bless vectors。Generator 只产 candidate diff；关键 bytes 经人工审查及至少两个独立实现验证。v1 已有 case 的 bytes、digest 或 success/error classification 改变必须发布 v2；由既有规则唯一推导的新增 case可保留 v1。
+普通CI不生成或bless golden。v1已有case的bytes、digest或success/error
+classification改变必须发布v2；由既有规则唯一推导的新增case可保留v1。
+不维护vector manifest、closure digest、JSON Schema、candidate generator或
+Repository第三consumer。测试材料规则见
+[Correctness Golden and Fixture](fixture-oracle-and-conformance.md)。
 
 ## 7. Classification
 
@@ -220,7 +228,8 @@ Module public：是。Persisted：作为 version/digest marker 被持久化。Wi
 
 ## 8. 验收标准
 
-- Python、Rust、Repository 逐字节通过全部 valid/invalid normative vectors。
+- Python、Rust逐字节通过全部128个valid/invalid golden cases，case ID集合一致且
+  zero skip。
 - 覆盖 JCS 非 BMP ordering、数值 extrema、Unicode/binary、temporal/anomaly、row/collection、ULEB128 invalid 和 digest domain separation。
 - Property/fuzz tests 补充而不替代静态 vectors。
 - 同一 logical input 在不同语言、串并行模式和进程重启后得到相同 bytes/DigestRef。
@@ -228,10 +237,10 @@ Module public：是。Persisted：作为 version/digest marker 被持久化。Wi
 
 ## 9. 关联文档
 
-- [Canonical Encoding Normative Vector Schema](canonical-encoding-normative-vector-schema.md)
+- [Correctness Golden and Fixture](fixture-oracle-and-conformance.md)
 - [Canonical Row Hash Compute Boundary](canonical-row-hash-compute-boundary.md)
-- [Fixture Oracle and Conformance](fixture-oracle-and-conformance.md)
 - [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
 - [ADR 0005](../adr/0005-shared-canonical-encoding.md)
+- [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)

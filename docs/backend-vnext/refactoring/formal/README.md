@@ -13,32 +13,30 @@
 
 - [Architecture and Refactoring Plan](architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](plans/implementation-stages.md)
-- [Phase 1 Implementation Design and Delivery Plan](plans/phase-1-implementation-design-and-delivery-plan.md)
+- [DX Cross-Phase Interface Reconciliation](plans/dx-cross-phase-interface-reconciliation.md)
+- [Phase 1 Implementation Design and Delivery Plan](plans/phase-1-implementation-design-and-delivery-plan.md)（历史设计）
 - [Phase 2 Implementation Design and Delivery Plan](plans/phase-2-implementation-design-and-delivery-plan.md)
-- [Phase 2 Requirement Traceability](plans/phase-2-requirement-traceability.yaml)
-  （WP1-R1 legacy checkpoint；计划在Phase 0–2联合代码清理时删除）
-- [Phase 2 F0 Formal Closure Validation Report](plans/phase-2-f0-validation-report.md)
-  （WP1-R1 legacy checkpoint；不再是当前gate authority）
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)
 - [External Effect and Recovery Contract](contracts/external-effect-and-recovery.md)
 - [Shared Canonical Encoding Contract](contracts/shared-canonical-encoding.md)
-- [Canonical Encoding Normative Vector Schema](contracts/canonical-encoding-normative-vector-schema.md)
+- [Canonical Encoding Vector Schema — Historical](contracts/canonical-encoding-normative-vector-schema.md)
 - [Canonical Row Hash Compute Boundary Contract](contracts/canonical-row-hash-compute-boundary.md)
-- [Fixture Oracle and Conformance Contract](contracts/fixture-oracle-and-conformance.md)
+- [Correctness Golden and Fixture Contract](contracts/fixture-oracle-and-conformance.md)
 - [Canonical Storage and Repository Boundary Contract](contracts/canonical-storage-and-repository-boundary.md)
 - [Repository Service Contract](contracts/repository-service.md)
-- [Performance Measurement and Baseline Contract](contracts/performance-measurement-and-baseline.md)
+- [Performance Measurement Guidance](contracts/performance-measurement-and-baseline.md)
 - [ADR 0001: Python/Rust Hybrid Compute Strategy](adr/0001-python-rust-hybrid-compute-strategy.md)
 - [ADR 0002: Minimal Persisted Business State](adr/0002-minimal-persisted-business-state.md)
 - [ADR 0003: Evidence-First External Effect Reconciliation](adr/0003-external-effect-reconciliation.md)
 - [ADR 0004: Raw Source Artifact and Canonical Dolt Storage](adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)
 - [ADR 0005: Shared Canonical Encoding](adr/0005-shared-canonical-encoding.md)
-- [ADR 0006: Language-Neutral Fixture Oracle](adr/0006-language-neutral-fixture-oracle.md)
-- [ADR 0007: vNext Performance Baseline Authority](adr/0007-vnext-performance-baseline-authority.md)
+- [ADR 0006: Language-Neutral Fixture Oracle](adr/0006-language-neutral-fixture-oracle.md)（被ADR 0010替代）
+- [ADR 0007: vNext Performance Baseline Authority](adr/0007-vnext-performance-baseline-authority.md)（被ADR 0010替代）
 - [ADR 0008: Generic Dual-Store Repository and Caller-Selected Rigor](adr/0008-generic-dual-store-and-caller-selected-rigor.md)（WP1-R1后被替代）
 - [ADR 0009: Proportional Assurance and Trusted Internal Repository](adr/0009-proportional-assurance-and-trusted-internal-repository.md)
+- [ADR 0010: Minimal Golden and Ordinary CI](adr/0010-minimal-golden-and-ordinary-ci.md)
 
 ## 权威关系
 
@@ -52,7 +50,8 @@
 
 正式文档之间发生冲突时，应先暂停实现，明确语义 owner，并通过修改正式文档或新增 ADR 收口；不能依靠兼容代码长期维持两套含义。
 
-当前过渡：WP1-R1旧设计checkpoint已经完成。WP1-R2+旧contract、141项traceability、
-旧gate和exact-commit exit均已被ADR 0009、精简Repository Service Contract和
-精简Phase 2 plan替代。下一步先完成Phase 0–1同原则简化设计和cross-phase
-reconciliation，再分批执行Phase 0–2联合代码清理；不得从旧材料恢复实现。
+当前过渡：D01 Phase 0–1同原则简化设计与DX跨阶段接口协调均已收口。旧
+traceability/F0 report、generic conformance architecture、formal baseline lifecycle
+和exact-commit exit均不再是authority。下一步按
+[DX plan](plans/dx-cross-phase-interface-reconciliation.md)从`S02-C1`开始分批执行
+Phase 0–2联合代码清理；不得从历史材料恢复实现或直接跳到P2 feature delivery。

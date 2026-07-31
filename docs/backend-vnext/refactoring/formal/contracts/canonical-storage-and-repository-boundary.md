@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.canonical-storage-and-repository-boundary`
 
 Owner：Table Rules/Storage Projection（canonical content）；Repository Service（generic repository effect）
 
-Semantic version：`2.0.0`
+Semantic version：`3.0.0`
 
 Storage projection version：`1`
 
@@ -24,7 +24,8 @@ Immutable SourcePackageArtifact (raw upload authority)
 
 SourcePackageArtifact 保存原始 bytes、provenance 和 replay authority。Dolt commit 保存 canonical business state，不保证复原原始 SQL schema、所有物理列或原始 DDL。Submit 成功时 source artifact retention 提升为 submission durable；读取原始输入必须回到该 artifact。
 
-Source artifact digest、storage projection digest、canonical business digest、SnapshotManifest digest 和 Dolt commit hash 是不同语义域，不能互换。
+Source artifact digest、storage projection digest、canonical business digest、
+CanonicalizationManifest digest和Dolt commit hash是不同语义域，不能互换。
 
 ## 2. Storage 与 comparison projection
 
@@ -66,28 +67,42 @@ Source real gid 必须唯一并处于 real range；source `0 | NULL | empty` 才
 
 ## 4. CanonicalizationManifest
 
-每次 import 的 manifest 至少记录：contract/storage projection version，source artifact digest，ruleset ID/version/digest；每表 source/canonical schema digest、source/canonical row count、retained/structural/dropped columns+reason、canonical key、canonical content digest、optional ordering digest/ordered identity policy 与 gid range/count；以及 manifest digest。
+每次import的durable`CanonicalizationManifest`至少记录：contract/storage
+projection version，source artifact digest，ruleset ID/version/digest；每表
+source/canonical schema digest、source/canonical row count、
+retained/structural/dropped columns+reason、canonical key、canonical content
+digest、optional ordering digest/ordered identity policy与gid range/count；以及
+manifest digest。
 
 Table Rules/Storage Projection owner拥有其语义。Repository Service只消费manifest中的
 required table、schema和row count做structural check；不验证业务content/ordering
 digest，也不得选择业务列、key、pseudo gid或ordered policy。
 
+Backend必须在临时Repository import package可能被删除前durable保存
+CanonicalizationManifest。Repository package中的`manifest.json`只携带结构字段和
+opaque`canonicalization_manifest_digest`；它不是完整业务manifest，也不取得业务
+语义owner。
+
 ## 5. Artifact lifecycle
 
 `SnapshotTableArtifact` 是 Preview 产生的 immutable full-row table facts。仅在尚未被接受的 current Preview 或 active SubmitAttempt 需要时持久 pin。AcceptSubmit T1 将 pin responsibility 从 Preview 原子转给 Attempt；历史 Preview 引用本身不继续 pin。Attempt 进入 `FINALIZED/ABORTED` 后释放 pin，artifact 转为可重算 cache material。第一版不长期保存重复 full-row archive。
 
-长期审计/恢复权威为durable SourcePackageArtifact、accepted canonical Dolt commit、
-CanonicalizationManifest和所请求level的verification evidence。需要重算未pin
-full-row facts时，从source artifact按固定parser/ruleset contract重建。
+长期审计/恢复权威为durable SourcePackageArtifact、accepted canonical Dolt
+commit和CanonicalizationManifest。需要重算未pin full-row facts时，从source
+artifact按固定parser/ruleset contract重建。
 
-Submit 从 exact Preview-bound SnapshotTableArtifact 开始，不重新解析 SQL。`RepositoryImportArtifact` 包含 canonical schema/rows 与 content digest；每个 Attempt 只构建一次并持久 checkpoint。Retry、takeover/reconcile 复用相同 ref/digest，不能重建后以新请求替换。
+Submit从exact Preview-bound SnapshotTableArtifact开始，不重新解析SQL。
+`RepositoryImportArtifact`包含canonical schema/rows和临时structural manifest；
+每个Attempt只构建一次并持久checkpoint。Retry、takeover/reconcile先复用
+`BackendArtifactRef`与raw SHA完成upload，再复用Repository返回的独立
+`RepositoryArtifactRef`执行import；不能在unknown outcome后重建package或分配新key。
+两个ref字段同形但ID scope与nominal type不同，不能共享class或相互复制artifact ID。
 
 若Preview-bound canonical business digest与base相同，AcceptSubmit在Attempt前返回
 `NO_CANONICAL_CHANGE`：不构建RepositoryImportArtifact、不提升source artifact
 retention、不调用Repository。Attempt终态后RepositoryImportArtifact也解除durable
 pin；accepted commit的长期authority由SourcePackageArtifact、
-CanonicalizationManifest、所请求level的verification evidence与canonical Dolt
-history共同提供。
+CanonicalizationManifest与canonical Dolt history共同提供。
 
 ## 6. Repository import、journal 与 readback
 
@@ -106,9 +121,15 @@ Repository Service不提供`NONE | STRUCTURAL | FULL`或VerifyCommit。成功只
 流程是否额外读取immutable commit做诊断或复核，由其owner决定，不成为Repository
 Service通用verification状态。
 
-RepositoryImportArtifact是Storage Projection owner的content contract；通用artifact
-引用由Artifacts owner拥有。Repository Service只解释structural fields，其他
-canonical fields语义仍由Storage Projection owner定义。
+RepositoryImportArtifact是Storage Projection owner的content contract；minimal
+ArtifactRef只包含opaque ID、media type、size和raw SHA。Repository Service只解释
+structural fields，其他canonical fields语义仍由Storage Projection owner定义。
+
+Backend effect checkpoint必须先保存Backend package ref、durable manifest ref/digest、
+upload/import idempotency key、RepositoryId、target ref与expected commit；upload成功
+后追加Repository artifact ref，import接受后追加Repository operation ID。完整handoff
+顺序见
+[DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)。
 
 ### 6.1 RepositoryImportArtifact v1 package
 
@@ -122,10 +143,33 @@ replay.sql
 ```
 
 禁止其他entry、absolute/traversal path、duplicate、link、device、FIFO和extended
-filesystem metadata。`manifest.json`是UTF-8 JSON，至少向Repository Service提供
-ordered table list和每表schema/row count。Storage Projection可以保存自身的
-contract、ruleset、source/content/ordering digest，但这些字段的业务语义不由
-Repository Service解释。Package传输完整性只使用ArtifactRef size/raw SHA-256。
+filesystem metadata。`manifest.json`是UTF-8 JSON，最小shape为：
+
+```text
+package_version
+canonicalization_manifest_digest
+tables[]
+  name
+  schema
+    columns[]
+      name
+      sql_type
+      nullable
+    primary_key[]
+  row_count
+```
+
+`canonicalization_manifest_digest`由Storage Projection拥有，Repository只把它作为
+opaque关联值。完整contract、ruleset、source/content/ordering digest保存在Backend
+durable CanonicalizationManifest，不复制到临时package。Package传输完整性只使用
+minimal ArtifactRef的size/raw SHA-256。
+
+`package_version`固定为integer `1`；`row_count`是非负integer。`tables`按canonical
+table name bytes排序，table name唯一；`columns`保持DDL order且name唯一；
+`primary_key`按key order引用已声明column。`sql_type`是bounded normalized physical
+SQL type，`nullable`是boolean。Object unknown field、duplicate或invalid key
+reference全部拒绝。`manifest.json`使用strict UTF-8 JSON，但不要求JCS，也不建立
+package semantic/self digest。
 
 `replay.sql`是受信Storage Projection生成的确定性snapshot replay，不是外部用户
 提交的任意SQL。Repository Service将其限制在server-owned Repository/Dolt runtime
@@ -155,8 +199,17 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 - 每次write成功都匹配operation commit、target ref和manifest table/schema/row count。
 - 业务digest继续由Storage Projection/业务owner验证，不转换成Repository
   verification level。
-- Attempt retry 复用相同 RepositoryImportArtifact；活跃期结束后 full-row pin 被释放。
+- Attempt retry复用相同RepositoryImportArtifact ID和raw SHA；活跃期结束后
+  full-row pin被释放。
 - Projection version change 使用 alignment/fallback，不错误使用 native diff。
+- Accepted Submission的SourcePackageArtifact保持durable；
+  `NO_CANONICAL_CHANGE`输入不提升为submission durable。
+- Backend durable manifest与package中的opaque manifest digest一致；Repository只
+  解释table/schema/row-count。
+- Backend/Repository artifact ID不互换；跨upload的media type、size和raw SHA保持
+  exact一致。
+- Repository成功result原样echo artifact ID与manifest digest，Backend T3与
+  checkpoint/durable manifest核对后才finalize。
 
 ## 10. 关联文档
 
@@ -164,5 +217,7 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 - [External Effect and Recovery](external-effect-and-recovery.md)
 - [Repository Service](repository-service.md)
 - [ADR 0004](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)
+- [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)
+- [DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)

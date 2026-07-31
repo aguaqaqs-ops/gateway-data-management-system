@@ -8,13 +8,11 @@ Contract ID：`gateway-vnext.canonical-row-hash-compute-boundary`
 
 Owner：Canonical Row Hash capability
 
-Semantic version：`1.0.0`
+Semantic version：`2.0.0`
 
-Request/result schema version：`1`
+Boundary version：`2`
 
 Arrow mapping schema version：`1`
-
-Failure schema version：`1`
 
 依赖：[`gateway-vnext.shared-canonical-encoding`](shared-canonical-encoding.md)，canonical encoding version `1`
 
@@ -22,19 +20,23 @@ Failure schema version：`1`
 
 ## 1. 范围与 ownership
 
-本文拥有 `canonical_row_hashes_v1` capability 的 language-neutral request/result/failure、Arrow physical mapping、PyO3 coarse-grained call shape 和 row-hash artifact content schema。
+本文拥有`canonical_row_hashes_v2` capability的language-neutral
+request/result/failure、Arrow physical mapping、PyO3 coarse-grained call shape和
+row-hash artifact content schema。Canonical row/content bytes仍使用Shared
+Canonical Encoding v1。
 
 本文不拥有：
 
 - Canonical scalar/frame/row/table digest bytes；由 Shared Canonical Encoding 拥有。
-- Generic `ArtifactRef` envelope、storage locator 和 retention；由 Artifacts 拥有。
+- Backend `BackendArtifactRef` envelope、storage locator和retention policy；由
+  Artifacts拥有。
 - Python/Rust provider selection、Operation scheduling、Repository transport 或业务 table rules。
 - Projection、comparison、records、Parquet 或 cache schema。
 
 ## 2. Capability semantics
 
 ```text
-canonical_row_hashes_v1
+canonical_row_hashes_v2
   input: CanonicalTableRequest JCS bytes + Arrow RecordBatch stream
   output: sorted row-hash Arrow stream + CanonicalTableResult JCS bytes
 ```
@@ -47,7 +49,7 @@ canonical_row_hashes_v1
 4. 计算 raw 32-byte row hash。
 5. 按 raw bytes unsigned lexicographic sort，保留 duplicate row hash。
 6. 按 Shared Contract unordered table framing计算 `raw_content_digest`。
-7. 返回 sorted row-hash stream、table schema digest、row count 和 diagnostics。
+7. 返回 sorted row-hash stream、table schema digest、row count 和 raw content digest。
 
 Input row order、Arrow field order和 batch partition不改变 formal schema/content digest。Serial repeated execution必须逐 bytes确定。
 
@@ -57,35 +59,33 @@ Canonical JCS shape：
 
 ```json
 {
-  "request_schema_version": 1,
-  "contract_binding": {
-    "contract_id": "gateway-vnext.canonical-row-hash-compute-boundary",
-    "semantic_version": "1.0.0"
-  },
+  "boundary_version": 2,
   "canonical_encoding_version": 1,
-  "arrow_mapping_schema_version": 1,
-  "declared_table_schema": {
-    "fields": [
-      {
-        "name": "example",
-        "nullable": true,
-        "semantic_type": {"kind": "signed-integer", "bits": 64}
-      }
-    ]
-  }
+  "arrow_mapping_version": 1,
+  "declared_fields": [
+    {
+      "name": "example",
+      "nullable": true,
+      "semantic_type": {"kind": "signed-integer", "bits": 64}
+    }
+  ]
 }
 ```
 
 规则：
 
 - 所有 object unknown/duplicate field fail closed。
-- `fields[]` 是 authoring sequence；schema digest 和 row encoding按 CanonicalIdentifier UTF-8 bytes排序。
+- `boundary_version`、`canonical_encoding_version`和`arrow_mapping_version`必须为
+  当前支持值；不重复携带contract ID或semantic version。
+- `declared_fields[]`是authoring sequence；schema digest和row encoding按
+  CanonicalIdentifier UTF-8 bytes排序。
 - `name` 必须经过 Shared Kernel canonicalization；empty/invalid/collision失败。
 - `nullable=false` field 出现 null失败；`nullable=true` 不改变 non-null scalar tag。
-- Semantic type descriptor复用 Canonical Encoding Normative Vector Schema 的关闭 union。
+- Semantic type descriptor使用Shared Canonical Encoding定义的关闭union。
 - Request 不携带 table/business/Workspace/Submission identity、provider、thread count、timeout、host path、resource limit 或 artifact locator。
 
-`table_schema_digest` 使用 Shared Kernel semantic digest kind `table-schema`，payload 是按 canonical field name排序后的 declared schema JCS projection。
+`table_schema_digest`使用Shared Kernel semantic digest kind`table-schema`，payload
+是按canonical field name排序后的declared fields JCS projection。
 
 ## 4. Arrow mapping schema v1
 
@@ -125,7 +125,7 @@ Empty stream必须仍提供 schema。Zero row、zero field table均合法并按 
 Formal native entrypoint：
 
 ```text
-canonical_row_hashes_v1(
+canonical_row_hashes_v2(
   request_jcs: bytes,
   input: Arrow C Stream
 ) -> (
@@ -161,54 +161,39 @@ Rows 按 raw hash bytes升序，duplicate保留。Chunking不是 semantic；cons
 
 ```json
 {
-  "result_schema_version": 1,
-  "contract_binding": {
-    "contract_id": "gateway-vnext.canonical-row-hash-compute-boundary",
-    "semantic_version": "1.0.0"
-  },
-  "canonical_encoding_version": 1,
-  "arrow_mapping_schema_version": 1,
+  "boundary_version": 2,
   "table_schema_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "row_count": "0",
-  "raw_content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-  "diagnostics": []
+  "raw_content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 }
 ```
 
-示例 digest 是 shape placeholder。`row_count` 是 canonical unsigned decimal string，避免 JSON safe-integer ceiling。Diagnostics 是 compact、sanitized、non-semantic；不进入 schema/content digest，不能携带 row payload、host path、stack或 provider-private object。
+示例digest是shape placeholder。`row_count`是canonical unsigned decimal string，避免
+JSON safe-integer ceiling。Result不携带diagnostics、contract binding或重复的
+canonical/Arrow mapping version；provider diagnostics属于普通日志或exception
+details，不参与业务result。
 
-**Golden envelope owner identity：** Conformance 正式 scenario 的 `row-hashes` golden：manifest `expected[].content_digest`、golden envelope `content_digest`、inline `CanonicalTableResult` 的 owner digest（`DigestKind::canonical-table-result` = `semantic_digest(JCS(result \\ diagnostics))`）**三者必须相等**。与 §6 `raw_content_digest`（unordered row-hash multiset）、ArtifactRef transport digest 职责分离；golden 文件字节完整性由 `size_bytes` / `raw_sha256` 承担，不以 `content_digest` 表达传输绑定。实现与向量以 [shared-canonical-encoding.md](./shared-canonical-encoding.md) 与 shared-kernel digest vectors 为准。
+Golden直接比较sorted row hashes、`row_count`、`table_schema_digest`和
+`raw_content_digest`。不建立golden envelope、`canonical-table-result` wrapper
+digest或fixture self-digest。
 
 ## 7. Failure contract
 
-所有可恢复 deterministic failure 通过一个 versioned `ComputeFailureEnvelope` 映射：
+所有可恢复deterministic failure映射为最小`ComputeFailure`：
 
 ```json
 {
-  "failure_schema_version": 1,
-  "contract_binding": {
-    "contract_id": "gateway-vnext.canonical-row-hash-compute-boundary",
-    "semantic_version": "1.0.0"
-  },
   "code": "ARROW_SCHEMA_MISMATCH",
-  "stage": "schema",
-  "effect": "NONE",
-  "retry_class": "NEVER",
-  "diagnostics": []
+  "message": "input Arrow schema does not match declared fields",
+  "details": {}
 }
 ```
 
-Stage 关闭集：
-
-```text
-request | arrow-import | schema | canonicalize | compute | arrow-export
-```
-
-Stable code v1：
+Stable code：
 
 ```text
 COMPUTE_REQUEST_SCHEMA_INVALID
-COMPUTE_CONTRACT_VERSION_UNSUPPORTED
+COMPUTE_BOUNDARY_VERSION_UNSUPPORTED
 COMPUTE_CANONICAL_VERSION_UNSUPPORTED
 COMPUTE_ARROW_MAPPING_VERSION_UNSUPPORTED
 ARROW_STREAM_IMPORT_FAILED
@@ -221,9 +206,13 @@ ARROW_STREAM_EXPORT_FAILED
 NATIVE_PANIC
 ```
 
-Invalid request/schema/value使用 `retry_class=NEVER`；resource/native transient分类可以是 `SAFE_WITH_POLICY`。Pure compute始终 `effect=NONE`，但自动 retry仍由调用方 policy决定，adapter不得静默重试。
+`message`必须sanitized；`details`可选且由code解释。Pure compute没有外部effect，
+不再重复返回`effect=NONE`、stage或retry class。是否重试由caller policy决定，
+adapter不得静默重试。
 
-Python exception class只是 facade projection，不是 normative contract。Caught Rust panic映射为 `NATIVE_PANIC`。Allocator abort、segfault或无法捕获的 process termination不能伪装为普通 envelope；由 worker/process evidence记录，production takeover属于后续 Operation阶段。
+Python exception class只是facade projection，不是normative contract。Caught Rust
+panic映射为`NATIVE_PANIC`。Allocator abort、segfault或无法捕获的process
+termination不能伪装为普通failure；production takeover属于后续Operation阶段。
 
 ## 8. Artifact content boundary
 
@@ -233,35 +222,51 @@ Canonical Row Hash capability拥有 `CanonicalRowHashesArtifact` content：
 - Arrow schema：第 6 节 fixed schema。
 - Semantic content identity：`raw_content_digest`。
 - Associated schema identity：`table_schema_digest`。
-- Canonical/Arrow mapping version markers必须保存。
 
-Artifacts owner创建 generic `ArtifactRef`；Rust core/adapter不接收 locator/filesystem/object-store，也不创建 ref。Python facade/ArtifactStore：
+Artifacts owner创建minimal `BackendArtifactRef`；Rust core/adapter不接收
+locator/filesystem/object-store，也不创建ref：
+
+```text
+artifact_id
+media_type
+size_bytes
+raw_sha256
+```
+
+Capability result或content manifest保存`raw_content_digest`、
+`table_schema_digest`和所需boundary version。Retention与physical access是
+ArtifactStore/business policy，不进入ref identity。
+
+Python facade/ArtifactStore：
 
 ```text
 Rust Arrow stream
   -> Arrow IPC stream writer
-  -> ArtifactStore / ArtifactRef
-  -> reopen and verify raw bytes
-  -> decode schema/sorted row hashes
-  -> recompute semantic digest
+  -> ArtifactStore / BackendArtifactRef
+  -> ordinary reopen verifies size/raw SHA and Arrow schema
 ```
 
-IPC direct `raw_sha256` 和 semantic `raw_content_digest` 必须分离。Provider、PyArrow/Rust版本或 batch chunking造成不同 IPC bytes时，不构成 semantic mismatch；除非未来 artifact owner另外发布 exact IPC byte contract。
+IPC direct`raw_sha256`和semantic`raw_content_digest`必须分离。Provider、
+PyArrow/Rust版本或batch chunking造成不同IPC bytes时，不构成semantic mismatch。
+BackendArtifactRef不得保存host path。
 
-ArtifactRef/manifest不得保存 host path。Round-trip必须验证 size、raw hash、Arrow schema、sorted row hashes、table schema digest和semantic content digest；只验证文件存在不算通过。
+发布路径和golden/integration必须验证size、raw hash、Arrow schema、sorted row
+hashes、table schema digest和semantic content digest。普通reopen不再次遍历全部
+row hashes；完整semantic recompute只用于测试、诊断或明确不可信边界。
 
-## 9. Phase 1 structural performance evidence
+## 9. Structural engineering checks
 
-Phase 1 不设 numeric throughput/latency gate，但必须证明：
+普通tests必须证明：
 
 - One native call consumes multi-batch stream。
 - Python row/list/dict materialization count为零。
 - Rust compute/sort/digest主区间释放 GIL。
 - Empty/one/multi-batch、batch partition、field/input row permutation产生同一 formal result。
-- Memory evidence分离 input buffers、row-hash vector/sort和output IPC materialization；不声称 constant memory。
 - Invalid schema、unsupported type、panic、digest mismatch、corrupt/truncated artifact分类确定。
 
-Timeout/cancel API、Rayon、SIMD、external sort、Parquet、numeric benefit claim和独立 Rust worker/service不属于 Phase 1 contract。
+不生成memory breakdown、component evidence或phase sign-off。Timeout/cancel API、
+Rayon、SIMD、external sort、Parquet、numeric benefit claim和独立Rust
+worker/service不属于本boundary。
 
 ## 10. Classification 与验收
 
@@ -269,11 +274,13 @@ Module public：是。Persisted：Result metadata可进入 artifact manifest；r
 
 验收：
 
-- Python reference与Rust provider对所有 Arrow mapping fixtures得到相同 schema digest、sorted row hashes和content digest。
-- Full Shared Kernel vectors先于 capability conformance通过。
+- Python reference与Rust provider对保留golden得到相同schema digest、sorted row
+  hashes和content digest。
+- Full Shared Kernel golden corpus先于capability test通过。
 - Formal native path不存在 Python row materialization或第二个 object-graph entrypoint。
-- Failure envelope、GIL release和artifact recovery通过 dedicated native lane。
+- Minimal failure、GIL release和artifact round-trip通过普通native tests。
 - Rust core不依赖 PyO3、Python、filesystem或ArtifactStore；PyO3 adapter单向依赖 core。
+- 普通artifact reopen验证raw integrity和固定schema，不默认全量semantic rehash。
 
 ## 11. Change control
 
@@ -281,3 +288,4 @@ Module public：是。Persisted：Result metadata可进入 artifact manifest；r
 | --- | --- | --- |
 | 2026-07-22 | §4 decimal Arrow mapping：`decimal256` precision 上界由 `76` 修正为 **`65`** | Formal 内部一致性：与 Shared Canonical Encoding owner-declared decimal precision `1..=65` 及现有 `DeclaredType` 校验边界对齐；不改变 WP0–WP2 已验收 canonical scalar bytes |
 | 2026-07-22 | §4 semantic kind `null`：physical type 明确为 Arrow `DataType::Null`（闭合集） | WP3 R1 设计收敛：原“validity bitmap”表述与 `null` kind 混用且未闭合 physical type；non-`null` kind 的 nullable slot 仍由各 physical type 的 validity bitmap 表达（§3 `nullable` 规则） |
+| 2026-07-31 | Boundary v2、minimal failure/ArtifactRef和ordinary reopen | ADR 0010 Phase 0–1 proportional simplification；canonical scalar/row/content bytes不变 |

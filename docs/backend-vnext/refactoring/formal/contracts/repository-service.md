@@ -48,6 +48,8 @@ gateway-repository-contracts
 - `client`拥有Remote client和Backend可依赖的Repository Port adapter。
 - `service`拥有HTTP、application、Dolt、filesystem和operation实现。
 - Backend production不依赖或import `gateway-repository-service`。
+- `contracts/client/service`均不依赖Shared Kernel、Rust compute、Backend artifacts或
+  generic conformance distribution；Service也不依赖Client。
 
 T2简化阶段只替换contracts和delivery skeleton，不注册返回占位结果的业务route。
 首个真实纵切实现时，FastAPI route生成的OpenAPI才成为激活wire authority。
@@ -161,6 +163,24 @@ multipart或range resume。
 中途断连不发布partial artifact，caller完整重传。发布后响应丢失时，same key、
 same size和same SHA返回原ArtifactRef；不同内容冲突。
 
+V1 `RepositoryArtifactRef`只包含：
+
+```text
+artifact_id     opaque service-owned id
+media_type
+size_bytes
+raw_sha256
+```
+
+Repository不把table schema、row count、business digest、retention或access policy塞入
+ArtifactRef；这些语义分别属于canonicalization manifest、capability result和上游
+业务policy。
+
+Backend local `BackendArtifactRef`与本文DTO是不同nominal type。Upload request只
+传输bytes、media type、declared size/raw SHA和idempotency key；Repository必须分配
+新的repository-scoped ArtifactId。成功response的media type、size和raw SHA必须与
+Backend声明exact一致。
+
 已确认规模为通常10–100 MB、极端约200 MB。初始建议默认单包上限256 MiB并允许
 部署配置提高；该数值是可调admission默认值，不是稳定wire常量。
 
@@ -178,12 +198,35 @@ Service检查：
 - entry是固定名称的regular file；
 - 无absolute path、traversal、duplicate、link、device或额外required entry；
 - compressed和expanded size在部署上限内；
-- manifest具备table、schema和row count的基本结构；
+- manifest具备`package_version`、opaque
+  `canonicalization_manifest_digest`以及每张table的name/schema/row_count；
 - upload bytes的raw size和SHA-256已匹配。
 
 业务digest和canonical content equality由Storage Projection/capability owner拥有。
 Repository Service不提供`NONE | STRUCTURAL | FULL`，不默认读取全部committed rows
 重算业务digest。
+
+该package只是Repository import transport。Backend必须在清理package前持久化独立的
+`CanonicalizationManifest`；Repository只把其digest当opaque binding，不解释或重算
+业务语义。
+
+`package_version`固定为integer `1`。Manifest object使用closed Pydantic model：
+
+```text
+tables[]
+  name
+  schema
+    columns[]: name, sql_type, nullable
+    primary_key[]: column name in key order
+  row_count
+```
+
+`row_count`是非负integer；table/column name唯一；primary key只能引用已声明column。
+Tables按canonical name bytes排序，columns保持DDL order。`sql_type`是bounded
+normalized physical SQL type，Repository与Dolt catalog projection exact compare。
+JSON只要求strict UTF-8与closed shape，不要求JCS。Repository把
+`canonicalization_manifest_digest`作为bounded opaque string保存并原样返回，不
+import Shared Kernel `DigestRef`。
 
 外部原始package备份由上游流程拥有。Repository Service不调用、等待或查询外部
 备份系统。
@@ -213,6 +256,17 @@ Service不得提供LWW、force ref或独立publication mode。成功必须满足
 4. target ref仍指向`expected_commit_id`；
 5. CAS发布target ref到新commit；
 6. durable operation result保存commit_id和target ref。
+
+SUCCEEDED result还必须原样返回package绑定：
+
+```text
+artifact_id
+canonicalization_manifest_digest
+```
+
+Operation request fingerprint至少覆盖RepositoryId、RepositoryArtifactRef全部字段、
+target ref、expected commit和idempotency key。Backend必须核对result artifact ID、
+manifest digest、expected parent和target ref后才能业务finalize。
 
 Package中高度重复的数据由Dolt内容寻址和结构共享利用；去重率必须在真实数据上
 测量，不能作为未经验证的容量保证。
@@ -321,6 +375,8 @@ additive sibling加入：
 - raw Arrow IPC可由client直接读取，截断时由HTTP/Arrow失败；
 - package成功后清理且RUNNING/manual-recovery artifact不被删除；
 - Phase 0–1 canonical bytes、Python/Rust核心golden保持不变。
+- Repository package不依赖Shared Kernel/conformance；SUCCEEDED result的artifact与
+  manifest binding可由Backend T3核对。
 
 ## 18. Reopen conditions
 
@@ -342,3 +398,4 @@ additive sibling加入：
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Phase 2 Implementation Design and Delivery Plan](../plans/phase-2-implementation-design-and-delivery-plan.md)
 - [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
+- [DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)

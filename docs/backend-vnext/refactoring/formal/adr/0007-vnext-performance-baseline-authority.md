@@ -1,12 +1,18 @@
 # ADR 0007: vNext Performance Baseline Authority
 
-状态：Accepted
+状态：Superseded by ADR 0010
 
 日期：2026-07-19
 
 决策 owner：Backend vNext Performance Measurement
 
 关联阶段：Phase 0、Phase 2–8
+
+> 本文是历史决策记录，不再定义现行 performance gate。现行规则见
+> [Performance Measurement Guidance](../contracts/performance-measurement-and-baseline.md)
+> 与 [ADR 0010](0010-minimal-golden-and-ordinary-ci.md)：仅在 correctness-passed
+> production path 上记录 dataset/version、环境说明和 raw results，不建立 formal
+> baseline lifecycle、environment identity、evidence digest 或 capture gate。
 
 ## Context
 

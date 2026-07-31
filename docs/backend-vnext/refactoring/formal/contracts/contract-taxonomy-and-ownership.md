@@ -92,7 +92,6 @@ DigestRef
 CanonicalIdentifier
 scalar/null/decimal/datetime semantics
 canonical serialization
-FailureDescriptor category/recovery/effect primitives
 Diagnostic primitive
 ContractVersion primitive
 ```
@@ -100,8 +99,10 @@ ContractVersion primitive
 约束：
 
 - 只包含没有业务归属、被多个边界共同使用的稳定原语。
-- 不包含 Workspace/Submission 状态、use-case error code/phase/details、benchmark result、repository purpose 或 capability facts。
-- Python、Rust 和 Repository wire schema 必须对这些语义具有一致解释。
+- 不包含Workspace/Submission状态、generic FailureDescriptor、use-case error、
+  benchmark result、repository purpose或capability facts。
+- Python和Rust必须对canonical语义具有一致解释；Repository wire只使用自己实际
+  消费的普通UUID、opaque string和raw SHA。
 - Canonical bytes 的唯一规范见 [Shared Canonical Encoding](shared-canonical-encoding.md)；业务 use case 分别拥有自己的 stable failure code registry。
 
 ### 4.2 Domain Contract
@@ -169,7 +170,9 @@ BundleAssemblyInput/Result
 - Contract 必须 flow-neutral，不包含 Workspace、Submission、Archive 或 History request identity。
 - Capability 可以依赖上游 capability 的公共 contract，但禁止反向依赖和环。
 - Python reference、Rust、Dolt native 等 provider 共享同一 capability contract；语言或 provider 实现不拥有业务语义。Provider 类型不应泄漏到 application contract，除非调用方需要显式策略控制。
-- 满足稳定 contract、golden oracle、Arrow/Parquet 边界和性能证据的 capability 可以首版直接使用 Rust production provider；Python reference 可以只覆盖小规模正确性，不要求成为同等规模 production implementation。
+- 满足稳定contract、必要golden、Arrow/Parquet边界和真实测量需要的capability可以
+  首版直接使用Rust production provider；Python reference只覆盖小规模正确性，
+  不成为同等规模production implementation或自动fallback。
 - Python/Rust 具体分工和 provider 进入条件遵守 [ADR 0001](../adr/0001-python-rust-hybrid-compute-strategy.md)。
 
 允许的主依赖方向：
@@ -224,19 +227,24 @@ Operation Runtime 不解释 payload 中的 Workspace、Submission 或 Archive �
 
 Artifact contract 分为 envelope 与 content schema 两个 owner。
 
-`artifacts` 拥有通用 envelope：
+Backend `artifacts`拥有local envelope：
 
 ```text
-ArtifactRef
-ArtifactManifest
-ArtifactClosure
-logical_ref
-content_digest
-size
+BackendArtifactRef
+opaque artifact ID
 media_type
-retention class
-location-independent access metadata
+size_bytes
+raw SHA-256
 ```
+
+Repository Service wire独立拥有同形但不同nominal type/ID scope的
+`RepositoryArtifactRef`。两者不共享class或serialization module；Backend adapter
+通过upload显式映射bytes与raw integrity，Repository分配新ArtifactId。
+
+两种ArtifactRef都不包含capability semantic digest/contract/schema、retention或
+physical access metadata。Content metadata由capability result/owner manifest拥有；
+retention和locator由business/ArtifactStore policy拥有。不建立把owner content再次
+包进generic `ArtifactManifest`的组合模型。
 
 生产 artifact 的 capability 拥有内容 schema：
 
@@ -246,7 +254,6 @@ location-independent access metadata
 | `SnapshotTableArtifact` full-row facts | Snapshot Materialization capability |
 | `CanonicalizationManifest`、`RepositoryImportArtifact` | Table Rules/Storage Projection capability |
 | Comparison projection table | Comparison Projection capability |
-| Verification evidence union、`SnapshotManifest` FULL readback envelope | Repository Service；canonical expected fields由Storage Projection定义 |
 | Comparison records | Comparison capability |
 | Ordered records | Ordered Comparison capability |
 | Risk annotations/report | Risk capability |
@@ -287,20 +294,18 @@ Normative contract：
 包含：
 
 ```text
-RepositoryId/Ref/Commit
-RepositoryIncarnationId/CurrentGeneration/ArtifactRef/OperationRef
-ResolveRef
-Create/GetRepository
-SubmitImport/GetOperation
-RepositoryOperationJournal/Evidence
-VerificationEvidence/SnapshotManifest
-Create/Delete/CompareAndSet/SetRef
-GetCatalog/StreamRows/ExportTable
-DiffRefs
-Current catalog/table/read/mutation/export
-Policy/Inventory/GC/Backup/Restore/Repair/Delete
-wire error and timeout semantics
+RepositoryId/ArtifactId/OperationId/CommitId/RefName
+minimal RepositoryArtifactRef
+CreateRepository
+UploadArtifact
+SubmitVersionedImport/GetOperation
+ResolveVersionedRef
+GetVersionedCatalog/StreamVersionedTableRows
+simple error and timeout semantics
 ```
+
+Current、Diff/Export、standalone CAS、verification level、ACL/policy、
+GC/backup/restore/delete/repair不是V1 wire contract。
 
 禁止包含：
 
@@ -374,10 +379,10 @@ Owner：对应 infrastructure adapter。
 | 对象/语义 | Owner | 主要消费者 |
 | --- | --- | --- |
 | `DigestRef`、CanonicalIdentifier、canonical encoding | Shared Kernel | 所有模块和跨语言实现 |
-| Canonical encoding vector-set/case schema、stable canonical invalid code | Shared Kernel | Python、Rust、Repository、Conformance Harness |
-| `FailureDescriptor.category/recovery/effect` | Shared Kernel | Application、Operations、Interfaces |
-| Submit/Review/Archive failure code、phase、details | 对应 Application use case | Operations、Interfaces、Fixtures |
-| `ArtifactRef`、manifest、closure | Artifacts | Capabilities、Operations、Interfaces |
+| Canonical golden case shape、stable canonical invalid code | Shared Kernel | Python、Rust ordinary tests |
+| Submit/Review/Archive `code/message/details?` | 对应 Application use case | Operations、Interfaces、golden |
+| Minimal `BackendArtifactRef`（ID/media type/size/raw SHA） | Backend Artifacts | Capabilities、Operations、Interfaces |
+| Minimal `RepositoryArtifactRef`（Repository-scoped ID/media type/size/raw SHA） | Repository Service | Repository client、Backend adapter |
 | `SourcePackageArtifact` content/provenance/retention intent | Workspace Input/Application | Workspace、Submission、ArtifactStore |
 | `SnapshotTableArtifact` full-row facts/schema | Snapshot Materialization capability | Preview、Storage/Comparison Projection |
 | `Snapshot`、`SnapshotSummary` | Snapshot capability | Comparison、Application |
@@ -385,7 +390,6 @@ Owner：对应 infrastructure adapter。
 | Storage column policy/key/ordered identity、`CanonicalizationManifest` | Table Rules/Storage Projection capability | Submit、Repository adapter、Fixtures |
 | Comparison `ProjectionSchema`、projection digest | Comparison Projection capability | Snapshot、Comparison、Cache |
 | `RepositoryImportArtifact` content schema | Storage Projection capability | Submit Attempt、Repository Service |
-| Verification evidence union与`SnapshotManifest` FULL schema | Repository Service | Repository adapter、Submit/Archive reconciliation |
 | `ComparisonFacts`、standard records | Comparison capability | Risk、Surface、Bundle |
 | Ordered facts/records | Ordered Comparison capability | Risk、Surface、Bundle |
 | `RiskFacts`、`RiskReport` | Risk capability | Surface、Bundle、Application |
@@ -409,13 +413,10 @@ Owner：对应 infrastructure adapter。
 | HTTP preview/submit/archive DTO | HTTP Interface | External clients、Application mapping |
 | Cache registry/envelope | Cache module | Capability provider、Operations |
 | Cache payload schema | Payload-producing capability | Cache module、consumer capability |
-| Scenario manifest/runner result/evidence bundle | Conformance Harness | Python、Rust、Repository、CI |
-| Golden envelope、harness protocol、profile lifecycle/comparison authority | Conformance Harness | Subject harness、semantic owners、CI |
-| Scenario expected semantic content | 对应 Domain/Application/Capability contract owner | Conformance Harness |
-| `CanonicalTableRequest/Result`、Arrow mapping、`ComputeFailureEnvelope` | Canonical Row Hash capability | Python facade、Rust provider、Conformance Harness |
+| Canonical/business golden expected content | 对应 Domain/Application/Capability owner | Python/Rust ordinary tests |
+| `CanonicalTableRequest/Result`、Arrow mapping、minimal failure | Canonical Row Hash capability | Python facade、Rust provider |
 | `CanonicalRowHashesArtifact` content schema/semantic digest | Canonical Row Hash capability | ArtifactStore、later data capabilities |
-| `BenchmarkBaselineRecord`/measurement semantics | Performance Measurement | Phase owners、CI、Architecture review |
-| `environment_profile_id` | Deployment/Repository Environment owner | Performance Measurement |
+| Benchmark question/workload/result | 产生性能声明的Capability/Application owner | Runbook、architecture review |
 
 新增对象时必须先加入 ownership matrix 或在对应正式 contract 中声明 owner，不能通过放入 `shared` 目录回避归属决策。
 
@@ -444,8 +445,7 @@ wire: none/json/http/grpc/arrow/parquet
 | `SnapshotTableArtifact` | yes by ref | current Preview/active Attempt only | Arrow/Parquet + manifest |
 | `RepositoryImportArtifact` | yes by ref | active Attempt/checkpoint | artifact stream + manifest |
 | `CanonicalizationManifest` | yes | required for accepted commit | JCS JSON |
-| Verification evidence | yes | required at requested level；SnapshotManifest仅FULL | Repository wire/JCS JSON |
-| `BenchmarkBaselineRecord` | yes | required when accepted | JCS JSON |
+| Benchmark result | owner-selected | when a claim is retained | machine-readable result + report |
 
 `module_public=yes` 不等于必须跨语言序列化；`persisted=yes` 也不等于可以直接作为 HTTP response。
 
@@ -557,16 +557,11 @@ compatibility_window
 | Version axis | Owner | 主要影响 |
 | --- | --- | --- |
 | `canonical_encoding_version` | Shared Kernel | JCS/scalar/frame/digest bytes |
-| `fixture_manifest_schema_version` | Conformance Harness | Scenario closure/validation |
-| `golden_envelope_schema_version` | Conformance Harness | Expected owner/schema/comparison envelope |
-| `harness_protocol_version` | Conformance Harness | Runner/harness request and observation DTO |
-| `vector_set_schema_version` | Shared Kernel | Canonical vector closure/case container |
-| Canonical-row-hash request/result/failure/Arrow mapping versions | Canonical Row Hash capability | PyO3 boundary and artifact content |
-| Scenario-bound semantic contract version | 对应 semantic owner | Golden expected meaning |
+| Canonical-row-hash boundary/Arrow mapping versions | Canonical Row Hash capability | PyO3 boundary and artifact content |
+| Golden-bound semantic contract version | 对应 semantic owner | Expected business meaning |
 | `storage_projection_version` + ruleset digest | Storage Projection/Table Rules | Canonical Dolt schema/content |
-| Repository wire/verification schema version | Repository Service | Import/journal/evidence wire |
-| `measurement_contract_version` | Performance Measurement | Stage/metric/eligibility/aggregation |
-| Baseline series identity | Performance Measurement + environment/data owners | 可比 dataset/environment/component 集合 |
+| Repository HTTP API version | Repository Service | Import/operation/catalog/stream wire |
+| Owner benchmark runbook version | 产生性能声明的owner | Workload、metric和可比条件 |
 
 规则：
 
@@ -643,19 +638,30 @@ Persistence record 反向成为 domain model
 5. Artifact envelope 与 artifact content schema 分离。
 6. Business Repository Port 与 Repository Service wire contract 分离。
 7. Python/Rust provider 共享 capability contract，语言实现不取得 contract ownership；稳定热点允许采用 Rust production provider + Python 小规模 oracle。
-8. Shared Kernel 只拥有 FailureDescriptor 的公共维度，stable use-case code/phase/details 由对应 Application owner 管理。
+8. Shared Kernel不拥有generic FailureDescriptor；stable
+   `code/message/details?`由对应Application/Capability owner管理。
 9. Raw Source、full-row Snapshot、canonical import/readback 和 comparison projection 是不同 artifact/contract owner，不建立泛化 `Projection` authority。
-10. Fixture manifest、canonical encoding、storage projection、Repository wire 和 measurement 使用独立版本轴。
+10. Canonical encoding、storage projection、Repository wire和owner benchmark
+    使用独立版本轴；普通golden没有第二套self-identity轴。
 
 后续 Phase 1B Shared Semantic Contracts、Phase 1C Dependency Rules 和 Phase 1D Cross-process Contracts 必须遵守上述决策。
 
 ## 14. Phase 1 Executable Contract 正式决策
 
-1. Canonical vector schema由Shared Kernel拥有；scenario manifest/golden/harness/result由Conformance Harness拥有；Arrow physical mapping和compute DTO由对应capability拥有。
-2. `manifest_schema_version` 是scenario wire field；`fixture_manifest_schema_version` 是ownership/version-axis全名，不在manifest中形成第二个同义字段。
-3. Python/Rust是canonical encoding的两个独立实现；Repository必须直接消费同一vector closure，但可以复用owner发布的Shared Kernel Python package，不复制第三套算法。
-4. Harness不接收golden payload、不返回correctness status；runner唯一拥有expected/actual comparison与四态result。
-5. Python/Rust bulk边界统一为Arrow C Stream + versioned JCS bytes；test-only scalar union、Python object graph和ArtifactRef locator不得进入Rust core contract。
+1. Shared Kernel拥有canonical bytes和golden case语义；对应业务owner拥有business
+   golden expected content。
+2. Python/Rust是canonical encoding的两个独立实现，直接消费同一普通golden
+   corpus；Repository不是第三consumer。
+3. Python/Rust bulk边界统一为Arrow C Stream + minimal versioned JCS bytes；
+   test-only scalar union、Python object graph和ArtifactRef locator不得进入Rust core。
+4. Golden由普通pytest/Cargo test直接比较；不存在generic runner/harness/result或
+   evidence authority。
+5. ArtifactRef只拥有raw transport identity；semantic metadata由capability owner
+   保存。
+
+6. Backend与Repository ArtifactRef是不同nominal type；upload只保持media type、
+   size和raw SHA，artifact ID不跨scope复用。精确handoff见
+   [DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)。
 
 ## 15. 验收标准
 
@@ -668,4 +674,5 @@ Persistence record 反向成为 domain model
 - Python/Rust 边界不使用逐行 Python object graph 作为正式 contract。
 - Architecture tests 可以根据本规则检测禁止依赖。
 - Contract 变更具有 owner、版本、compatibility 和 golden test 要求。
-- SourcePackage、SnapshotTable、RepositoryImportArtifact、CanonicalizationManifest、SnapshotManifest 和 BenchmarkBaselineRecord 均能定位到唯一内容 owner。
+- SourcePackage、SnapshotTable、RepositoryImportArtifact和
+  CanonicalizationManifest均能定位到唯一内容owner。

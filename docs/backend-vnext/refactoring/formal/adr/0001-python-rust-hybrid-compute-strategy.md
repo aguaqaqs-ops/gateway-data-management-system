@@ -8,6 +8,13 @@
 
 关联阶段：Phase 1、Phase 3、Phase 6
 
+2026-07-31 amendment：由
+[ADR 0010](0010-minimal-golden-and-ordinary-ci.md)确认Python reference只用于小规模
+golden、property test和诊断；Rust是正式批量production provider。Python不作为
+自动runtime fallback，也不与Rust作为两套同等production实现演进。性能进入条件
+使用真实consumer、容量目标或普通production-path measurement，不再依赖formal
+baseline capture/evidence framework。
+
 ## Context
 
 Backend vNext 同时包含两类变化特征不同的代码：
@@ -79,9 +86,11 @@ Python reference implementation 用于：
 - 小规模 golden fixtures。
 - Property-based/differential tests。
 - 边界 case 和语义解释。
-- Rust provider 诊断和受控 fallback。
+- Rust provider诊断；需要fallback时由具体capability显式设计和验收。
 
-Python reference 不需要满足生产数据规模、吞吐和内存目标，也不与 Rust 长期作为两个同等权威的 production provider 演进。正式语义由 capability contract 和 golden fixtures 拥有，不由任一语言实现拥有。
+Python reference不需要满足生产数据规模、吞吐和内存目标，也不进入默认production
+runtime或automatic fallback。正式语义由capability contract和直接golden拥有，
+不由任一语言实现拥有。
 
 ### 3. 保留 Python 的范围
 
@@ -139,7 +148,8 @@ gateway-compute-worker     optional artifact-based worker/CLI
 - 算法相对稳定，不是仍在高频试错的业务规则。
 - Component profile、算法复杂度或 materialization evidence 表明它是明确的数据面热点；不使用 legacy performance benchmark 作为进入依据。
 - CI 能构建和测试目标平台 wheel/image。
-- 具有 Python reference、明确失败映射和受控 fallback。
+- 具有Python reference和明确失败映射；若声明fallback，必须有真实consumer与独立
+  验收。
 
 不满足条件时，先用 Python/Polars 验证语义和瓶颈，不为语言统一强行使用 Rust。第一条正确 production path 可以本身包含满足上述 contract、fixture 和 component evidence 的初始 Rust provider；这不需要先建立一个完整 Python production route。
 
@@ -147,7 +157,10 @@ gateway-compute-worker     optional artifact-based worker/CLI
 
 初始 Rust production provider 以稳定 contract、跨语言 fixture、正确性证据、粗粒度 Arrow 边界和 component evidence 进入，不需要与 legacy 实现进行性能 benchmark，也不需要尚不存在的 vNext numeric baseline。
 
-首条完整、validation-passed、containerized vNext production path 必须按 [Performance Measurement and Baseline Contract](../contracts/performance-measurement-and-baseline.md) 捕获 accepted baseline。此后 Rust coverage 扩张、provider 切换和专用性能优化才可以声明收益，并且必须同时通过 kernel 与端到端 measurement；微基准更快不足以成为采用依据。
+性能声明遵守
+[Performance Measurement Guidance](../contracts/performance-measurement-and-baseline.md)。
+Rust coverage扩张、provider切换和专用性能优化必须有真实consumer、容量目标或
+validation-passed production measurement；微基准更快不足以成为采用依据。
 
 后续候选至少记录：
 
@@ -211,7 +224,7 @@ Rust进入标准保持“稳定、批量、可验证的数据面能力”，而�
 - Native crash 可能终止 Python worker，需要 Operation Runtime 接管和重试。
 - Scalar、NULL、Decimal、datetime、ordering 和 digest 语义必须跨语言逐字节一致。
 - Polars、Rayon、Python executor 和 Operation worker 可能造成线程超卖。
-- Fallback 和滚动升级期间需要管理 provider/schema 兼容。
+- 滚动升级期间需要管理boundary/schema兼容；production不自动fallback到Python。
 - Workspace lint、dependency review和无panic production path增加前期工程约束，但换取更可预测的failure与维护成本。
 
 ## Required Verification
@@ -222,7 +235,8 @@ Rust进入标准保持“稳定、批量、可验证的数据面能力”，而�
 - Serial/parallel determinism tests。
 - Panic、timeout、cancel、native crash 和 worker takeover tests。
 - Wheel/image platform matrix tests。
-- 初始 route 的 component evidence，以及 accepted baseline 后后续优化的 capability-level 与 end-to-end vNext measurement。
+- 初始route的correctness与ordinary smoke；后续优化记录capability-level和end-to-end
+  dataset/version、环境说明与raw results。
 - Formal/CI 中不存在 legacy-vs-vNext performance gate。
 - 所有first-party Rust member继承Safe Rust/stable toolchain policy；production path不存在unsafe、panic/stub或local lint waiver。
 - 新native/build/proc-macro dependency和后续并行/SIMD/allocator优化满足policy review gate。
@@ -233,5 +247,5 @@ Rust进入标准保持“稳定、批量、可验证的数据面能力”，而�
 - [Implementation Stages](../plans/implementation-stages.md)
 - [Contract Taxonomy and Ownership](../contracts/contract-taxonomy-and-ownership.md)
 - [Canonical Row Hash Compute Boundary](../contracts/canonical-row-hash-compute-boundary.md)
-- [Canonical Encoding Normative Vector Schema](../contracts/canonical-encoding-normative-vector-schema.md)
+- [Canonical Encoding Vector Schema — Historical](../contracts/canonical-encoding-normative-vector-schema.md)
 - [Rust Safety and Performance Policy](../policies/rust-safety-and-performance-policy.md)

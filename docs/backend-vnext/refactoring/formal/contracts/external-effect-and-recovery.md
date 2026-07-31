@@ -8,12 +8,12 @@ Contract ID：`gateway-vnext.external-effect-and-recovery`
 
 Owner：Submit/Archive Application（业务 execution）；Operations（通用执行）；Repository Service（effect evidence）
 
-Semantic version：`2.0.0`
+Semantic version：`3.0.0`
 
 2026-07-31过渡：Repository Service effect遵循ADR 0009和精简Repository Service
-Contract。本文旧`PREPARED/APPLIED/VERIFIED` journal、FailureDescriptor和
-`NONE | STRUCTURAL | FULL`条款不再约束Repository V1；Phase 0–1简化设计将继续
-裁决业务Operation侧的状态和错误表达。
+Contract。本文旧`PREPARED/APPLIED/VERIFIED` Repository journal、
+`FailureDescriptor`和`NONE | STRUCTURAL | FULL`条款不再约束当前实现；Phase
+0–1错误表达已由ADR 0010收缩为owner-owned simple error。
 
 ## 1. 目的与 owner 分界
 
@@ -24,10 +24,11 @@ Contract。本文旧`PREPARED/APPLIED/VERIFIED` journal、FailureDescriptor和
 | SubmitAttempt/ArchiveExecution、命令验收、业务 finalize | 对应 Application/Domain |
 | Operation/Step、claim/lease/retry/checkpoint | Operations |
 | Repository operation、commit marker、commit/ref result | Repository Service |
-| 业务Operation错误表达 | Operations/use case owner；Phase 0–1简化设计待收敛 |
-| stable code、phase、details schema | 对应 use case owner |
+| 业务Operation错误表达 | Operations/use case owner |
+| stable code、message、optional details | 对应 use case owner |
 
-Operation terminal status 不等于业务终局；FailureDescriptor 也不替代 Repository evidence。
+Operation terminal status不等于业务终局；simple error也不替代Repository
+operation/commit/ref result。
 
 ## 2. Execution 四态
 
@@ -87,33 +88,28 @@ idempotency key；必须复用原operation identity查询。Repository Service�
 
 业务worker只消费该终态；不自行推断commit是否存在。
 
-## 6. FailureDescriptor
+## 6. Error boundary
 
-Shared Kernel 只定义下列公共、可序列化维度：
+Shared Kernel不拥有generic FailureDescriptor、category/recovery/effect taxonomy或
+统一业务ErrorCode registry。每个use case拥有最小错误：
 
 ```text
-FailureDescriptor
-  code
-  category
-  phase
-  recovery
-  effect
-  message
-  details
-  diagnostic_refs optional
-
-category: INVALID_REQUEST | FORBIDDEN | NOT_FOUND | STATE_CONFLICT |
-          DEPENDENCY_FAILURE | INTEGRITY_FAILURE | INTERNAL_FAILURE
-recovery: RETRY_COMMAND | RETRY_SAME_OPERATION | RECONCILE_SAME_OPERATION |
-          NEW_USER_INPUT | OPERATOR_INTERVENTION | NO_RETRY
-effect: NOT_APPLIED | UNKNOWN | APPLIED | NONE
+code
+message
+details optional
 ```
 
-Use case owner 必须定义 stable `code`、`phase` 和 typed `details` schema；Shared Kernel 不拥有统一业务 ErrorCode registry。`retryable` 若对外出现，只是由 `recovery` 派生的兼容字段，不是权威事实。Business Outcome、Command rejection、Execution failure 和 external-effect uncertainty 必须分离。
+HTTP status或Operation/Repository状态表达请求与执行结果。External-effect uncertainty
+由持久业务execution状态、Repository operation identity和commit/ref result表达，
+不复制进每个error object。
 
-最低必需 code 包括：Submit 的 stale/binding/idempotency/`NO_CANONICAL_CHANGE`、Repository outcome unknown、import rejection、readback integrity 和 finalize recovery；Review 的 stale/transition/reason；Archive 的 stale plan/selection/readiness、Repository outcome unknown、main ref drift 和 finalize recovery。完整枚举由对应 application contract 维护。
+Use case owner必须定义stable`code`和所需typed`details`。最低必需code包括：
+Submit的stale/binding/idempotency/`NO_CANONICAL_CHANGE`、Repository outcome
+unknown、import rejection和finalize recovery；Review的stale/transition/reason；
+Archive的stale plan/selection/readiness、Repository outcome unknown、main ref
+drift和finalize recovery。
 
-## 7. Fault 与 recovery conformance
+## 7. Fault and recovery tests
 
 稳定注入点为：
 
@@ -127,13 +123,19 @@ before_business_finalize
 after_business_finalize_before_outbox_delivery
 ```
 
-每个 recovery scenario 同时断言失败后 checkpoint 与恢复后终局，包括 execution/operation 状态、业务事实有无、Repository journal/ref/commit、Workspace/serialization occupancy、下一恢复动作和最终 event/artifact。注入通道只能在 test profile 启用；生产 request schema 不暴露 fault control。
+每个重要failure test同时断言失败后checkpoint与恢复后终局，包括
+execution/operation状态、业务事实有无、Repository operation/ref/commit、
+Workspace/serialization occupancy、下一恢复动作和最终event/artifact。测试使用
+owner-specific helper或integration test，不要求generic scenario runner、fault
+registry或RunEvidence。注入通道只能在test profile启用；production request schema
+不暴露fault control。
 
 ## 8. 版本与 wire 规则
 
 Module public：是。Persisted：必须。Wire：business persistence + Repository wire JSON/gRPC + artifact refs。
 
-改变四态含义、effect classification、T1/T2/T3 原子边界或 replay 合法性属于 breaking change。新增 use-case code 由其 owner 版本化，不要求提升 Shared Kernel primitive version，除非公共维度改变。
+改变四态含义、T1/T2/T3原子边界或replay合法性属于breaking change。新增
+use-case code由其owner版本化，不要求提升Shared Kernel version。
 
 ## 9. 验收标准
 
@@ -143,7 +145,7 @@ Module public：是。Persisted：必须。Wire：business persistence + Reposit
 - `UNKNOWN/APPLIED`不允许blind replay。Business occupancy只有在owner-required
   evidence完成finalize或explicit `NOT_APPLIED` abort后释放；ordinary verification
   mismatch可以释放Repository store lane但不自动释放business occupancy。
-- Python/Repository 对 request digest、operation identity 和 evidence status 的解释一致。
+- Python/Repository对request fingerprint、operation identity和result的解释一致。
 - 故障场景使用正式 `...before_outbox_delivery` 名称。
 
 ## 10. 关联文档
@@ -155,3 +157,4 @@ Module public：是。Persisted：必须。Wire：business persistence + Reposit
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)
 - [Repository Service](repository-service.md)
+- [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)

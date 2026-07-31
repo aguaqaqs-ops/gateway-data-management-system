@@ -12,7 +12,9 @@ Public/persisted语义：
 [Repository Service Contract](../contracts/repository-service.md)
 
 决策依据：
-[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
+[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
+[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)与
+[DX Reconciliation](dx-cross-phase-interface-reconciliation.md)
 
 ## 1. Goal and delivery boundary
 
@@ -64,6 +66,9 @@ Phase 0–1的KEEP/SIMPLIFY/REMOVE边界。`DX`只协调真正共享的ArtifactR
 canonical package、digest owner、CI和package依赖，不重新打开已确认的Repository
 信任、安全或恢复边界。
 
+当前状态：`D2`、`D01`与`DX`均已闭合；`S02-C1`是下一实施步骤。S02必须遵守DX
+确定的nominal ArtifactRef、package binding、依赖图、ordinary CI与五提交顺序。
+
 联合代码清理仍使用小提交和独立checkpoint，不允许一次大爆炸提交。
 
 ## 4. Simplification work packages
@@ -71,9 +76,9 @@ canonical package、digest owner、CI和package依赖，不重新打开已确认
 ### S02-R1 — Authority and reference cleanup
 
 - 以ADR 0009、精简Repository contract和本计划替代旧WP1-R2+ authority；
-- 从正式index移除旧141项traceability和F0 validation的当前authority地位；
+- 旧141项traceability和F0 validation formal文件已删除；
 - 旧temporary Phase 2 ledger只作为历史材料，不能被代码、CI或正式文档引用；
-- Phase 0–1设计完成后同步修正cross-stage artifact和canonical owner。
+- cross-stage artifact、canonical owner与package依赖以DX plan为唯一实施映射。
 
 Exit：全文搜索不存在仍要求旧dual-store、ACL、FULL verification或exact-exit的
 有效实现指令。
@@ -82,9 +87,10 @@ Exit：全文搜索不存在仍要求旧dual-store、ACL、FULL verification或e
 
 - 删除`vnext/conformance/phase2/`中的affected-scope router、gate、closure、
   Phase 1 protected-path检查、attempt/closure schema及其测试；
-- 删除旧machine-readable Phase 2 requirement traceability和F0 validation report；
+- 清除代码、CI和temporary索引对已删除Phase 2 requirement traceability/F0 report的
+  运行时依赖与链接；
 - 删除Phase 2专用gate/closure命令、脚本和CI引用；
-- 不影响Phase 0–1仍待设计裁决的canonical tests。
+- 保留DX已确认的128个canonical cases与Python/Rust owner tests。
 
 Exit：普通package commands可以直接运行，不再生成immutable attempt、closure
 digest或exact-candidate evidence。
@@ -110,6 +116,9 @@ Exit：contracts source和tests只表达当前Versioned语义，client/service�
 - 记录已删除文件、保留能力和后续feature入口。
 
 Exit：Phase 0–2代码简化形成一组可独立revert的提交，canonical业务结果不变。
+
+具体revision名称、依赖闭合和每步验证以DX plan的`S02-C1..C5`为准；本节R1..R4
+是scope grouping，不建立第二套提交顺序。
 
 ## 5. Revised feature delivery
 

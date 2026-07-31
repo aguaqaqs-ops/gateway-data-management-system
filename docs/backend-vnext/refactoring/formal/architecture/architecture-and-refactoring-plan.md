@@ -8,7 +8,11 @@
 Repository Service范围和交付控制遵循
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)。
 旧Phase 2完整双存储、全量evidence和exact-commit设计只解释历史checkpoint；
-不得据此启动旧计划WP1-R2+。
+不得据此启动旧计划WP1-R2+。D01 Phase 0–1简化设计已由
+[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)闭合；DX cross-phase
+interface reconciliation也已由
+[DX plan](../plans/dx-cross-phase-interface-reconciliation.md)闭合。当前下一步是
+`S02-C1`联合代码清理，不得跳到P2 feature delivery。
 
 ## 1. 目标与范围
 
@@ -97,13 +101,16 @@ Rust data plane
 
 原则：
 
-- 满足稳定 contract、language-neutral golden oracle、Arrow/Parquet 边界和 component evidence 的热点，可以在 Phase 3 直接使用 Rust production provider。
+- 满足稳定contract、必要golden与Arrow/Parquet边界的热点，可以在Phase 3直接使用
+  Rust production provider。
 - Python 为 Rust 内核保留小规模 reference oracle，不必建设同等规模的 Python production implementation。
+- production不自动fallback到Python，也不维持两套同等地位的production provider。
 - 已经完整落在 Polars native expression 的逻辑不因语言统一机械翻译 Rust；优先消除 Python 行级循环和对象 materialization。
 - 频繁变化的 domain/application/ruleset 保持 Python；大规模 facts extraction 与业务规则决策分离。
 - 第一阶段使用 PyO3 + Arrow 粗粒度调用；独立 Rust worker/service 必须由异步规模、隔离或扩缩容需求证明。
 - Operation Runtime 保持 Python 并统一管理持久 step、retry 和接管；Rust 只执行 capability 计算，不直接修改业务状态和 operation store。
-- 首条正确 production path 可以包含初始 Rust provider；后续 Rust coverage、provider 切换和性能优化必须等待 accepted vNext baseline，且不与 legacy 建性能门禁。
+- 首条正确production path可以包含初始Rust provider；后续优化只要求先通过正确性，
+  记录dataset/version、环境说明和raw results，且不与legacy建立性能门禁。
 
 详细决策、进入条件和替代方案见 [ADR 0001](../adr/0001-python-rust-hybrid-compute-strategy.md)。
 
@@ -114,9 +121,9 @@ Rust data plane
 - [Business Lifecycle and State](../contracts/business-lifecycle-and-state.md)
 - [External Effect and Recovery](../contracts/external-effect-and-recovery.md)
 - [Shared Canonical Encoding](../contracts/shared-canonical-encoding.md)
-- [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md)
+- [Correctness Golden and Fixture](../contracts/fixture-oracle-and-conformance.md)
 - [Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md)
-- [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)
+- [Performance Measurement Guidance](../contracts/performance-measurement-and-baseline.md)
 
 本总纲只描述这些 contract 的组合和依赖关系，不重新定义其字段或状态表。
 
@@ -332,8 +339,9 @@ table_rules --------------------------+-> storage_projection
    - TableReader、TableSet、row stream protocol。
    - 不把完整 Snapshot 业务语义泛化成通用 table model。
 4. `artifacts`
-   - logical ref、closure、records、ref rewrite 和 artifact relocation。
-   - 不包含 ComparisonSurface/RiskReport 到具体 bundle payload 的业务映射。
+   - Backend store-owned opaque ID、raw integrity、put/read和独立retention policy。
+   - 不拥有capability semantic metadata，不建设generic closure/ref rewrite或把
+     ComparisonSurface/RiskReport映射到具体bundle payload。
 
 不创建 `capabilities/common` 或 `capabilities/utils`。一个概念只有满足以下条件时才独立：
 
@@ -372,10 +380,10 @@ capabilities/comparison/
 只保留：
 
 - [canonical encoding](../contracts/shared-canonical-encoding.md)、identifier、digest 和 row/collection framing。
-- FailureDescriptor 的 category/recovery/effect 与最小 diagnostics primitive。
 - 与业务无关的 validation primitive。
 
-Use-case error code/phase/details、BenchmarkBaselineRecord、Workspace status、Repository operation purpose 等有明确归属的模型不得放入 shared kernel。
+Use-case error code/message/details、Workspace status、Repository operation purpose等
+有明确归属的模型不得放入shared kernel。
 
 ### 8.2 Contract 分类
 
@@ -394,14 +402,19 @@ capability contracts
 artifact content contracts
   source/snapshot/canonical import/comparison records
 
-conformance and measurement contracts
-  scenario/golden/evidence/baseline record
+correctness and measurement contracts
+  direct golden / benchmark record
 
 repository wire contracts
   repository service API and client SDK
 ```
 
-`ArtifactRef` 如果作为跨进程引用，必须具有稳定 wire schema；LocalArtifactStore、文件布局和本地 `Path` 仍属于 infrastructure。
+BackendArtifactRef与RepositoryArtifactRef分别只包含各自scope的opaque artifact
+id、`media_type`、`size_bytes`和`raw_sha256`；二者不共享nominal type，upload时
+Repository分配新ID。内容语义属于capability result或business manifest；
+retention/access属于store或业务policy。LocalArtifactStore、文件布局和本地`Path`
+仍属于infrastructure。精确映射见
+[DX Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)。
 
 ### 8.3 Persistence
 
@@ -578,11 +591,12 @@ Repository wire contract 可以生成轻量 client SDK，但不得通过共享�
 详细阶段、交付物、依赖关系和验收门禁见 [Implementation Stages](../plans/implementation-stages.md)。总体顺序为：
 
 ```text
-Phase 0  oracle + fixture/measurement contract and capture gate
+Phase 0  canonical cases + necessary business golden
   -> Phase 1  contracts and architecture skeleton
   -> Phase 2 WP1-R1 old-design checkpoint
   -> Phase 2 simplification design
-  -> Phase 0–1 simplification design
+  -> Phase 0–1 simplification design (D01 complete)
+  -> cross-phase interface reconciliation (DX complete)
   -> Phase 0–2 combined code simplification
   -> revised Phase 2 Repository Service foundation
   -> Phase 3  capability foundation
@@ -594,9 +608,9 @@ Phase 0  oracle + fixture/measurement contract and capture gate
   -> Phase 9  cleanup and production hardening
 ```
 
-阶段不是纯水平层交付。WP1-R1只形成历史checkpoint；随后先闭合Phase 2简化设计，
-再闭合Phase 0–1同原则设计和cross-phase interface reconciliation，最后把共享
-conformance、artifact和contract清理作为同一执行阶段分批提交。Phase 1 canonical
+阶段不是纯水平层交付。WP1-R1只形成历史checkpoint；Phase 2简化设计、Phase 0–1
+同原则设计与DX现已闭合。当前把共享conformance、artifact和contract清理作为同一
+执行阶段，按DX plan分批提交。Phase 1 canonical
 bytes、Python/Rust核心和业务golden在清理中保持不变。联合清理完成后按修订计划
 交付最小Versioned Repository纵切；CurrentTableStore等能力等待真实consumer。
 进入Phase 5后仍按upload preview、submit、review、archive、history compare形成
@@ -612,11 +626,13 @@ bytes、Python/Rust核心和业务golden在清理中保持不变。联合清理�
 - Operation tests：事务、幂等、重试和明确的人工修复分支。
 - Repository client/server tests：HTTP contract、真实Dolt integration和已知consumer
   end-to-end。
-- Canonical core：Python/Rust只共享少量稳定golden vectors并逐字节验证。
+- Canonical core：Python/Rust直接消费既有128个canonical cases并逐字节验证；
+  Repository不消费该corpus。
 - Failure tests：覆盖关键import的commit前中断、commit后响应丢失和矛盾状态；不建设
   全故障点evidence matrix。
 - End-to-end journey：upload -> preview -> submit -> review -> archive -> history compare。
-- Measurement：correctness 优先，只有 validation-passed vNext production runs 可进入 aggregate；不运行 legacy 性能门禁。
+- Measurement：correctness优先，只记录correctness-passed production path的
+  dataset/version、环境说明和raw results；不运行legacy性能门禁或formal capture gate。
 
 ## 13. 架构完成标准
 
@@ -639,9 +655,9 @@ bytes、Python/Rust核心和业务golden在清理中保持不变。联合清理�
   digest。
 - 正式业务旅程、必要artifact hash、业务digest和前端contract通过验收。
 
-## 14. 待补 ADR
+## 14. 已完成 ADR
 
-以下 ADR 已完成：[最小持久状态（0002）](../adr/0002-minimal-persisted-business-state.md)、[external-effect reconciliation（0003）](../adr/0003-external-effect-reconciliation.md)、[raw artifact/canonical Dolt（0004）](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)、[shared canonical encoding（0005）](../adr/0005-shared-canonical-encoding.md)、[language-neutral fixture oracle（0006）](../adr/0006-language-neutral-fixture-oracle.md)、[vNext performance baseline authority（0007）](../adr/0007-vnext-performance-baseline-authority.md)、[generic dual-store/caller-selected rigor（0008，WP1-R1后被替代）](../adr/0008-generic-dual-store-and-caller-selected-rigor.md)和[适度保障与可信内网Repository（0009）](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)。
+以下 ADR 已完成：[最小持久状态（0002）](../adr/0002-minimal-persisted-business-state.md)、[external-effect reconciliation（0003）](../adr/0003-external-effect-reconciliation.md)、[raw artifact/canonical Dolt（0004）](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)、[shared canonical encoding（0005）](../adr/0005-shared-canonical-encoding.md)、[language-neutral fixture oracle（0006，已被0010替代）](../adr/0006-language-neutral-fixture-oracle.md)、[vNext performance baseline authority（0007，已被0010替代）](../adr/0007-vnext-performance-baseline-authority.md)、[generic dual-store/caller-selected rigor（0008，WP1-R1后被替代）](../adr/0008-generic-dual-store-and-caller-selected-rigor.md)、[适度保障与可信内网Repository（0009）](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)和[最小golden与普通CI（0010）](../adr/0010-minimal-golden-and-ordinary-ci.md)。
 
 Phase 2修订方向已固定为HTTP/OpenAPI、raw Arrow IPC、repository-bound upload、
 single-root writer、最小operation marker和Versioned-only surface。CurrentTableStore、

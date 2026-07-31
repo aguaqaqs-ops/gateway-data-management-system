@@ -4,12 +4,12 @@
 
 本文把 [整体架构总纲](../architecture/architecture-and-refactoring-plan.md) 转换为可执行的重构阶段。阶段编号表示主要依赖顺序，不表示必须完成整个水平层后才能继续；每一阶段只建设下一条业务纵切所需的最小能力，并保持可运行、可验证和可回退。
 
-2026-07-31过渡：WP1-R1旧设计checkpoint完成后，先闭合Phase 2简化设计，再完成
-Phase 0–1同原则简化设计和cross-phase interface reconciliation；两阶段设计共同
-闭合后分批执行Phase 0–2联合代码清理，之后才恢复修订后的Phase 2 feature delivery。
-该顺序由
+2026-07-31过渡：Phase 2简化设计、D01 Phase 0–1同原则简化设计与DX cross-phase
+interface reconciliation均已闭合。下一步按
+[DX plan](dx-cross-phase-interface-reconciliation.md)从`S02-C1`开始分批执行
+Phase 0–2联合代码清理，最后才恢复修订后的Phase 2 feature delivery。该顺序由
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
-拥有。
+和[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)共同约束。
 
 ## 1. 实施原则
 
@@ -49,8 +49,11 @@ Phase 0–1同原则简化设计和cross-phase interface reconciliation；两阶
 ### 1.3 正确性先于性能
 
 - 第一版 capability 默认串行、确定性执行。
-- 初始 production route 可包含满足稳定 contract、language-neutral oracle 与 component evidence 的 Rust provider；后续 Rust coverage、并行、cache 和 provider 优化不能先于 accepted vNext baseline。
+- 初始 production route 使用满足稳定 contract 和必要 golden 的 Rust provider；
+  Python reference 只用于小规模测试和诊断，不是自动 fallback。
 - 性能结果只统计 validation passed 的运行。
+- 性能记录说明 dataset/version、环境和 raw results，不建立 formal baseline lifecycle
+  或 capture gate。
 - 优化不能改变 canonical scalar、排序、digest、records 或 diagnostics 语义。
 - Backend vNext是偏业务系统，不追求极限性能；Rust使用必须遵守 [Rust Safety and Performance Policy](../policies/rust-safety-and-performance-policy.md)，第一方默认零unsafe、stable toolchain、无panic捷径，且没有证据时优先简单Safe Rust。
 
@@ -90,7 +93,9 @@ Phase 2 contract或独立扩张范围。
 
 ### 目标
 
-固定新实现必须保持或有意改变的业务语义、数据契约、fixture/oracle 和 performance measurement contract；建立可重复 conformance 环境与 numeric baseline capture gate。同时识别可派生状态、重复事实、无真实调用方功能和无证据优化，形成明确的首版简化范围。
+固定新实现必须保持或有意改变的业务语义、数据契约、必要 golden 和简明
+performance measurement guidance。同时识别可派生状态、重复事实、无真实调用方
+功能和无证据优化，形成明确的首版简化范围。
 
 Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-state.md)、[External Effect](../contracts/external-effect-and-recovery.md)、[Canonical Encoding](../contracts/shared-canonical-encoding.md)、[Fixture Conformance](../contracts/fixture-oracle-and-conformance.md)、[Canonical Storage](../contracts/canonical-storage-and-repository-boundary.md)和 [Performance Measurement](../contracts/performance-measurement-and-baseline.md) contracts 分别拥有。
 
@@ -99,9 +104,12 @@ Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-s
 - 列出正式业务旅程：upload、preview、submit、review、archive、next baseline、history compare。
 - 固定 Workspace、UploadRevision、PreviewResult、SubmitAttempt、Submission Review、BaselineNode/Head、ArchivePlan/Execution/Result 的 owner、状态、generation gate、权限和失败语义。
 - 固定 SourcePackage raw authority、canonical Dolt storage、storage/comparison projection、SnapshotTableArtifact retention 和 Repository evidence 边界。
-- 在 `vnext/fixtures/` 定义 language-neutral scenario manifest、目录/命名、provenance、golden envelope、runner profile、fault/recovery checkpoint 和 CI lane。
-- 固定 JCS、typed scalar、identifier、row/collection framing、digest 与 Python/Rust/Repository normative vectors。
-- 定义 measurement stages、profiles、workloads、metrics、result eligibility、environment authority、baseline record lifecycle 和 first-capture gate；当前不伪造 numeric baseline。
+- 保留既有128个canonical cases和一个必要的mixed-scalar业务golden，由测试直接消费，
+  不建立generic scenario manifest、runner/harness/profile matrix或RunEvidence。
+- 固定JCS、typed scalar、identifier、row/collection framing、digest与Python/Rust
+  canonical cases；Repository不消费vector corpus。
+- 只为correctness-passed production path记录dataset/version、环境说明与raw results；
+  不建立formal baseline lifecycle、environment identity或first-capture gate。
 - 将 legacy 数据迁移/旧 Dolt compatibility 保留为独立 cutover gate，本阶段不决定策略。
 - 记录当前人工验收路径和已知旧 bug，不把旧 bug 自动作为新 contract。
 - 按 `KEEP / SIMPLIFY / DEFER / REMOVE` 审查现有状态、流程、provider、cache、compat 和前端操作；简化项必须说明被保留的业务事实与可恢复路径。
@@ -109,10 +117,10 @@ Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-s
 
 ### 交付物
 
-- Versioned fixture manifest、golden envelope 与 language-neutral conformance contract。
-- Shared canonical encoding contract 与 normative vector specification。
+- Correctness golden contract、既有canonical corpus与一个必要业务golden。
+- Shared canonical encoding contract。
 - Business lifecycle、external-effect/recovery、canonical storage 与 artifact retention contracts。
-- Benchmark Measurement Contract、workload/dataset identity、result schema 与 first accepted baseline capture gate。
+- 简明performance measurement guidance。
 - Flow journey/oracle audit 与 intentional-change register。
 - Legacy behavior audit 和 intentional change 清单。
 - First-version simplification register，记录 `KEEP / SIMPLIFY / DEFER / REMOVE`、owner、理由、风险和恢复方式。
@@ -120,7 +128,7 @@ Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-s
 
 ### 退出条件
 
-- fixture 可在隔离环境重复生成相同输入 digest。
+- canonical cases可由Python/Rust在隔离环境逐bytes重复验证。
 - 关键输出可做结构化比较，不依赖人工查看日志。
 - 每个旧新差异可归类为 old bug、new bug 或 intentional change。
 - 旧 Dolt migration/compatibility 已被明确隔离为单独 cutover gate，未被默认兼容或迁移。
@@ -135,6 +143,15 @@ Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-s
 - 不要求尚不存在的 production path 产生 numeric baseline，也不建立 legacy-vs-vNext performance report。
 
 ## 4. Phase 1：Executable Contracts and Walking Skeleton
+
+> 历史边界：本节以下记录2026-07-27原Phase 1 closure，便于解释已存在的代码与
+> checkpoint；其中generic conformance、Repository vector consumer、RunEvidence、
+> formal gate matrix、exact-commit identity和full semantic artifact reopen均不再是
+> 现行要求。现行D01设计由[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)、
+> [Correctness Golden Contract](../contracts/fixture-oracle-and-conformance.md)、
+> [Canonical Row Hash Boundary](../contracts/canonical-row-hash-compute-boundary.md)和
+> [Rust Policy](../policies/rust-safety-and-performance-policy.md)拥有。代码清理须等DX
+> 完成；不得以本历史节恢复已删除设计。
 
 阶段状态：**Completed**（2026-07-27）。Phase 1 exit source commit
 `7702d2127712193a8a88e66ba614dc073922ac15` 已在干净 exact commit 上通过
@@ -254,8 +271,8 @@ Phase exit不接受semantic waiver、`xfail`、advisory-only required lane、临
 ### 目标
 
 优先建立真正可运行、独立、通用、容器化的Repository Service，使业务系统不再
-依赖Dolt CLI、SQLite文件或repository本地路径，并提供accepted baseline所需的
-可测production environment。
+依赖Dolt CLI、SQLite文件或repository本地路径，并提供可做普通容量测量的真实
+production environment。
 
 完整实施顺序、revision、gate、evidence和rollback由
 [Phase 2 Implementation Design and Delivery Plan](phase-2-implementation-design-and-delivery-plan.md)
@@ -379,7 +396,7 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 - Capability contract、Python reference oracle 和按门禁选择的 production implementations。
 - 首批 Rust core/PyO3 providers 及跨语言 differential tests。
 - Capability-level unit、contract 和 benchmark tests。
-- Artifact schemas 和 closure validation。
+- Artifact schemas和普通round-trip validation。
 - 无环 capability dependency report。
 
 ### 退出条件
@@ -387,7 +404,7 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 - 每个 capability 可脱离 API、application 和 Operation Runtime 单独调用。
 - 相同输入、版本和 policy 产生稳定结果与 digest。
 - Rust production provider 与 Python reference 在 golden/property fixtures 上语义一致。
-- Python、Rust 和 Repository 对 canonical encoding normative vectors 逐字节一致。
+- Python/Rust直接消费既有canonical cases并逐字节一致；Repository不依赖该corpus。
 - Capability 不包含 Workspace、Submission、Archive、History request 等 flow identity。
 - 依赖图无环且无内部实现越界。
 
@@ -478,7 +495,10 @@ Workspace submit gate
 
 重点验证跨服务幂等、事务边界、补偿和 worker takeover。
 
-退出条件：重复请求、worker crash 和 Repository Service restart 不产生重复 submission/ref/commit；Repository 成功前不存在 Submission；unknown effect 不解锁或 blind replay。该 slice 通过 capture gate 后立即捕获首份 accepted vNext performance baseline。
+退出条件：重复请求、worker crash和Repository Service restart不产生重复
+submission/ref/commit；Repository成功前不存在Submission；unknown effect不解锁或
+blind replay。该slice correctness通过后可记录首份真实production-path容量结果，
+但不创建formal baseline lifecycle或capture gate。
 
 ### Slice 5C：Review
 
@@ -646,7 +666,8 @@ gateway-compute-worker     artifact-based worker/CLI
 
 1. 更新 schema/version。
 2. 更新 golden fixture。
-3. 更新 Python/Rust/Repository contract tests。
+3. 更新受影响owner implementation和consumer的contract tests；canonical bytes变更
+   固定要求Python/Rust，Repository只在自身wire/structural contract受影响时更新。
 4. 说明 cache/digest compatibility。
 5. 说明滚动升级期间的兼容窗口。
 

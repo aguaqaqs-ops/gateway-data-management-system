@@ -1,12 +1,18 @@
 # Phase 1 Implementation Design and Delivery Plan
 
-状态：正式实施设计（Accepted）
+状态：Historical — superseded by ADR 0010
 
 日期：2026-07-20
 
 适用阶段：Phase 1 — Executable Contracts and Walking Skeleton
 
 Owner：Backend vNext Architecture（交付顺序与工程边界）；具体byte/schema语义仍由关联contract owner拥有
+
+> 本计划记录原Phase 1 WP0–WP2设计与closure背景，不再作为当前实施或CI authority。
+> 现行D01边界见[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)和
+> [Implementation Stages](implementation-stages.md)。后续代码只能按DX完成后的联合
+> 清理计划修改；不得从本文恢复generic vector lifecycle、Repository consumer、
+> conformance runner/evidence或exact-commit gates。
 
 详细范围：WP0–WP2
 

@@ -161,6 +161,10 @@ WP1-R1 checkpoint之后先完成Phase 2简化设计，再完成Phase 0–1同原
 cross-phase interface reconciliation。两阶段设计闭合后，Phase 0–2代码简化作为
 同一执行阶段分批提交，最后按新的最小Versioned计划恢复Phase 2 feature实现。
 
+2026-07-31 follow-up：上述设计阶段现已全部闭合；cross-phase结果见
+[DX Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)。下一步从
+`S02-C1`开始联合代码清理，不直接启动Repository feature。
+
 先设计后联合清理避免Phase 2刚替换Artifact/contract，随后又因Phase 0–1 owner
 调整重复返工；“联合”只表示同一执行计划，不允许把删除压成一个不可审查的大提交。
 

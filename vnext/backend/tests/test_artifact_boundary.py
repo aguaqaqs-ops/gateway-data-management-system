@@ -27,7 +27,7 @@ from gateway_backend.canonical_row_hash_ipc import (
     reopen_and_verify_canonical_row_hash_artifact,
     write_row_hash_ipc_stream,
 )
-from gateway_backend.compute import canonical_row_hashes_v2
+from gateway_backend.compute import canonical_row_hashes_v1
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
 
@@ -68,10 +68,10 @@ def _empty_content() -> tuple[
     list[dict[str, object]],
 ]:
     fields: list[dict[str, object]] = []
-    output, result_jcs = canonical_row_hashes_v2(
+    output, result_jcs = canonical_row_hashes_v1(
         json.dumps(
             {
-                "boundary_version": 2,
+                "boundary_version": 1,
                 "canonical_encoding_version": 1,
                 "arrow_mapping_version": 1,
                 "declared_fields": fields,

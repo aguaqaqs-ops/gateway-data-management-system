@@ -5,7 +5,7 @@ mod support;
 use std::sync::Arc;
 
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
-use gateway_compute_core::{ComputeFailureCode, canonical_row_hashes_v2, parse_request};
+use gateway_compute_core::{ComputeFailureCode, canonical_row_hashes_v1, parse_request};
 
 use support::assert_envelope::{assert_envelope_fields, assert_failure_code};
 use support::batch_reader::VecBatchReader;
@@ -273,7 +273,7 @@ fn stream_import_failure_on_next() -> Result<(), String> {
             .map_err(|error| format!("{error:?}"))?;
     let schema = Arc::new(Schema::new(vec![Field::new("v", DataType::Boolean, false)]));
     let failure =
-        match canonical_row_hashes_v2(&request, ErrorBatchReader::new(schema).into_boxed()) {
+        match canonical_row_hashes_v1(&request, ErrorBatchReader::new(schema).into_boxed()) {
             Ok(_) => return Err("expected import failure".to_string()),
             Err(error) => error,
         };
@@ -286,7 +286,7 @@ fn request_pretty_json_is_accepted() -> Result<(), String> {
     let request =
         pretty_request(r#"[{"name":"v","nullable":false,"semantic_type":{"kind":"boolean"}}]"#)
             .map_err(|error| format!("{error:?}"))?;
-    let output = canonical_row_hashes_v2(
+    let output = canonical_row_hashes_v1(
         &request,
         VecBatchReader::new(vec![
             boolean_batch("v", false, vec![Some(true)]).map_err(|e| e.to_string())?,
@@ -396,25 +396,25 @@ fn serial_execution_is_byte_identical_multi_batch() -> Result<(), String> {
 
 #[test]
 fn failure_codes_for_request_versions() -> Result<(), String> {
-    let bad_boundary = br#"{"arrow_mapping_version":1,"boundary_version":1,"canonical_encoding_version":1,"declared_fields":[]}"#;
+    let bad_boundary = br#"{"arrow_mapping_version":1,"boundary_version":2,"canonical_encoding_version":1,"declared_fields":[]}"#;
     match parse_request(bad_boundary) {
         Err(error) if error.code == ComputeFailureCode::ComputeBoundaryVersionUnsupported => {}
         other => return Err(format!("unexpected boundary parse result: {other:?}")),
     }
 
-    let bad_canonical = br#"{"arrow_mapping_version":1,"boundary_version":2,"canonical_encoding_version":2,"declared_fields":[]}"#;
+    let bad_canonical = br#"{"arrow_mapping_version":1,"boundary_version":1,"canonical_encoding_version":2,"declared_fields":[]}"#;
     match parse_request(bad_canonical) {
         Err(error) if error.code == ComputeFailureCode::ComputeCanonicalVersionUnsupported => {}
         other => return Err(format!("unexpected canonical parse result: {other:?}")),
     }
 
-    let bad_mapping = br#"{"arrow_mapping_version":2,"boundary_version":2,"canonical_encoding_version":1,"declared_fields":[]}"#;
+    let bad_mapping = br#"{"arrow_mapping_version":2,"boundary_version":1,"canonical_encoding_version":1,"declared_fields":[]}"#;
     match parse_request(bad_mapping) {
         Err(error) if error.code == ComputeFailureCode::ComputeArrowMappingVersionUnsupported => {}
         other => return Err(format!("unexpected mapping parse result: {other:?}")),
     }
 
-    let bad_schema = br#"{"arrow_mapping_version":1,"boundary_version":2,"canonical_encoding_version":1,"declared_fields":[],"unknown":1}"#;
+    let bad_schema = br#"{"arrow_mapping_version":1,"boundary_version":1,"canonical_encoding_version":1,"declared_fields":[],"unknown":1}"#;
     match parse_request(bad_schema) {
         Err(error) if error.code == ComputeFailureCode::ComputeRequestSchemaInvalid => {}
         other => return Err(format!("unexpected schema parse result: {other:?}")),

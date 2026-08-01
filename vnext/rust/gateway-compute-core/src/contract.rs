@@ -1,3 +1,3 @@
-pub const BOUNDARY_VERSION: u32 = 2;
+pub const BOUNDARY_VERSION: u32 = 1;
 pub const CANONICAL_ENCODING_VERSION: u32 = 1;
 pub const ARROW_MAPPING_SCHEMA_VERSION: u32 = 1;

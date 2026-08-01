@@ -12,7 +12,7 @@ use crate::errors::{ComputeFailure, ComputeFailureCode};
 use crate::request::ParsedRequest;
 use crate::result::{CanonicalRowHashOutput, serialize_success_result};
 
-pub fn canonical_row_hashes_v2(
+pub fn canonical_row_hashes_v1(
     request: &ParsedRequest,
     mut input: Box<dyn RecordBatchReader + Send>,
 ) -> Result<CanonicalRowHashOutput, ComputeFailure> {

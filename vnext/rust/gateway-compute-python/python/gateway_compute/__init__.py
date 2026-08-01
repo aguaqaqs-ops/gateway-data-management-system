@@ -10,7 +10,7 @@ from gateway_compute.exceptions import (
     ComputeRequestError,
     ResourceLimitError,
 )
-from gateway_compute.gateway_compute import __version__, _canonical_row_hashes_v2_native
+from gateway_compute.gateway_compute import __version__, _canonical_row_hashes_v1_native
 
 __all__ = [
     "CanonicalValueError",
@@ -19,7 +19,7 @@ __all__ = [
     "ResourceLimitError",
     "__version__",
     "_as_record_batch_reader",
-    "canonical_row_hashes_v2",
+    "canonical_row_hashes_v1",
 ]
 
 
@@ -37,14 +37,14 @@ def _as_record_batch_reader(
     )
 
 
-def canonical_row_hashes_v2(
+def canonical_row_hashes_v1(
     request_jcs: bytes,
     data: pa.RecordBatch | pa.Table | pa.RecordBatchReader,
 ) -> tuple[pa.RecordBatchReader, bytes]:
     if not isinstance(request_jcs, bytes):
         raise TypeError("request_jcs must be bytes")
     reader = _as_record_batch_reader(data)
-    output_stream, result_jcs = _canonical_row_hashes_v2_native(request_jcs, reader)
+    output_stream, result_jcs = _canonical_row_hashes_v1_native(request_jcs, reader)
     if not isinstance(output_stream, pa.RecordBatchReader):
         raise TypeError("native compute returned a non-RecordBatchReader value")
     return output_stream, result_jcs

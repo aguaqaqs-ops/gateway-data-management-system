@@ -42,11 +42,11 @@ fn failure_to_pyerr_maps_all_stable_codes_to_independent_goldens() -> Result<(),
 #[test]
 fn native_maps_boundary_version_unsupported() -> Result<(), String> {
     with_python(|py| {
-        let request_jcs = br#"{"arrow_mapping_version":1,"boundary_version":1,"canonical_encoding_version":1,"declared_fields":[]}"#;
+        let request_jcs = br#"{"arrow_mapping_version":1,"boundary_version":2,"canonical_encoding_version":1,"declared_fields":[]}"#;
         let module = pyo3::types::PyModule::import(py, "gateway_compute")
             .map_err(|error| error.to_string())?;
         let func = module
-            .getattr("_canonical_row_hashes_v2_native")
+            .getattr("_canonical_row_hashes_v1_native")
             .map_err(|error| error.to_string())?;
         let reader = empty_arrow_stream(py)?;
         let err = match func.call1((request_jcs, reader)) {
@@ -67,7 +67,7 @@ fn native_rejects_non_arrow_input() -> Result<(), String> {
         let module = pyo3::types::PyModule::import(py, "gateway_compute")
             .map_err(|error| error.to_string())?;
         let func = module
-            .getattr("_canonical_row_hashes_v2_native")
+            .getattr("_canonical_row_hashes_v1_native")
             .map_err(|error| error.to_string())?;
         let bogus = PyInt::new(py, 42);
         let err = match func.call1((b"{}", bogus)) {

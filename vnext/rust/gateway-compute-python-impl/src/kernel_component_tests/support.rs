@@ -144,5 +144,5 @@ pub fn assert_golden_envelope(
 }
 
 pub fn minimal_empty_request_jcs() -> &'static [u8] {
-    br#"{"arrow_mapping_version":1,"boundary_version":2,"canonical_encoding_version":1,"declared_fields":[]}"#
+    br#"{"arrow_mapping_version":1,"boundary_version":1,"canonical_encoding_version":1,"declared_fields":[]}"#
 }

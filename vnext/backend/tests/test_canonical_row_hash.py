@@ -1,4 +1,4 @@
-"""Backend owner tests for the v2 canonical row-hash boundary."""
+"""Backend owner tests for the v1 canonical row-hash boundary."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import pyarrow as pa
 
 from gateway_backend.canonical_row_hash_ipc import collect_row_hashes_from_ipc, write_row_hash_ipc_stream
-from gateway_backend.compute import canonical_row_hashes_v2
+from gateway_backend.compute import canonical_row_hashes_v1
 
 MIXED_SCALAR_GOLDEN = (
     Path(__file__).resolve().parents[2]
@@ -22,7 +22,7 @@ MIXED_SCALAR_GOLDEN = (
 def request_for(fields: list[dict[str, object]]) -> bytes:
     return json.dumps(
         {
-            "boundary_version": 2,
+            "boundary_version": 1,
             "canonical_encoding_version": 1,
             "arrow_mapping_version": 1,
             "declared_fields": fields,
@@ -31,13 +31,13 @@ def request_for(fields: list[dict[str, object]]) -> bytes:
     ).encode()
 
 
-def test_backend_v2_result_has_only_owner_fields() -> None:
+def test_backend_v1_result_has_only_owner_fields() -> None:
     fields = [{"name": "v", "nullable": False, "semantic_type": {"kind": "boolean"}}]
     table = pa.Table.from_arrays(
         [pa.array([True])],
         schema=pa.schema([pa.field("v", pa.bool_(), nullable=False)]),
     )
-    output, result_jcs = canonical_row_hashes_v2(
+    output, result_jcs = canonical_row_hashes_v1(
         request_for(fields), table
     )
 
@@ -48,7 +48,7 @@ def test_backend_v2_result_has_only_owner_fields() -> None:
         "row_count",
         "raw_content_digest",
     }
-    assert result["boundary_version"] == 2
+    assert result["boundary_version"] == 1
     assert result["row_count"] == "1"
     assert len(collect_row_hashes_from_ipc(write_row_hash_ipc_stream(output))) == 1
 
@@ -60,7 +60,7 @@ def test_backend_mixed_scalar_golden_direct_owner_path() -> None:
         pa.BufferReader((MIXED_SCALAR_GOLDEN / "input.arrow-stream").read_bytes())
     ).read_all()
 
-    output, result_jcs = canonical_row_hashes_v2(request, table)
+    output, result_jcs = canonical_row_hashes_v1(request, table)
     result = json.loads(result_jcs)
     assert {
         "row_count": result["row_count"],

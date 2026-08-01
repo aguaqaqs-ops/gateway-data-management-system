@@ -9,9 +9,9 @@ from gateway_shared_kernel import DigestRef
 
 CANONICAL_ROW_HASHES_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
 CANONICAL_ROW_HASHES_CONTENT_SCHEMA_ID = (
-    "gateway-vnext.canonical-row-hash.canonical-row-hashes-artifact.v2"
+    "gateway-vnext.canonical-row-hash.canonical-row-hashes-artifact.v1"
 )
-CANONICAL_ROW_HASH_BOUNDARY_VERSION = 2
+CANONICAL_ROW_HASH_BOUNDARY_VERSION = 1
 CANONICAL_ENCODING_VERSION = 1
 ARROW_MAPPING_VERSION = 1
 _CANONICAL_UNSIGNED_DECIMAL = re.compile(r"^(?:0|[1-9][0-9]*)$")
@@ -36,7 +36,7 @@ class CanonicalRowHashesArtifactMetadata:
         if self.media_type != CANONICAL_ROW_HASHES_MEDIA_TYPE:
             raise ValueError("media_type mismatch")
         if self.boundary_version != CANONICAL_ROW_HASH_BOUNDARY_VERSION:
-            raise ValueError("boundary_version must be 2")
+            raise ValueError("boundary_version must be 1")
         if self.canonical_encoding_version != CANONICAL_ENCODING_VERSION:
             raise ValueError("canonical_encoding_version must be 1")
         if self.arrow_mapping_version != ARROW_MAPPING_VERSION:
@@ -142,13 +142,13 @@ def _validate_wire_dict(payload: dict[str, object]) -> None:
         "row_count",
     }
     if set(payload) != expected:
-        raise ValueError("canonical row-hash content fields do not match v2 schema")
+        raise ValueError("canonical row-hash content fields do not match v1 schema")
     if _require_string(payload, "content_schema_id") != CANONICAL_ROW_HASHES_CONTENT_SCHEMA_ID:
         raise ValueError("content_schema_id mismatch")
     if _require_string(payload, "media_type") != CANONICAL_ROW_HASHES_MEDIA_TYPE:
         raise ValueError("media_type mismatch")
     if _require_integer(payload, "boundary_version") != CANONICAL_ROW_HASH_BOUNDARY_VERSION:
-        raise ValueError("boundary_version must be 2")
+        raise ValueError("boundary_version must be 1")
     if _require_integer(payload, "canonical_encoding_version") != CANONICAL_ENCODING_VERSION:
         raise ValueError("canonical_encoding_version must be 1")
     if _require_integer(payload, "arrow_mapping_version") != ARROW_MAPPING_VERSION:

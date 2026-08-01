@@ -1,4 +1,4 @@
-//! Independent hardcoded failure JCS goldens for the v2 minimal failure contract.
+//! Independent hardcoded failure JCS goldens for the v1 minimal failure contract.
 
 use gateway_compute_core::ComputeFailureCode;
 

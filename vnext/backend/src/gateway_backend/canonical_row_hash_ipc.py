@@ -142,10 +142,10 @@ def content_manifest_from_compute_result(result_jcs: bytes) -> CanonicalRowHashe
     if not isinstance(payload, dict):
         raise CanonicalRowHashIpcError("compute result must be a JSON object")
     if set(payload) != _RESULT_EXPECTED_FIELDS:
-        raise CanonicalRowHashIpcError("compute result fields do not match v2 schema")
+        raise CanonicalRowHashIpcError("compute result fields do not match v1 schema")
     boundary_version = payload["boundary_version"]
     if type(boundary_version) is not int or boundary_version != CANONICAL_ROW_HASH_BOUNDARY_VERSION:
-        raise CanonicalRowHashIpcError("boundary_version must be 2")
+        raise CanonicalRowHashIpcError("boundary_version must be 1")
     if type(payload["table_schema_digest"]) is not str:
         raise CanonicalRowHashIpcError("table_schema_digest must be a string")
     if type(payload["raw_content_digest"]) is not str:

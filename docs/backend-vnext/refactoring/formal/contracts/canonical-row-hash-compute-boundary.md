@@ -8,9 +8,9 @@ Contract ID：`gateway-vnext.canonical-row-hash-compute-boundary`
 
 Owner：Canonical Row Hash capability
 
-Semantic version：`2.0.0`
+Semantic version：`1.0.0`
 
-Boundary version：`2`
+Boundary version：`1`
 
 Arrow mapping schema version：`1`
 
@@ -20,7 +20,7 @@ Arrow mapping schema version：`1`
 
 ## 1. 范围与 ownership
 
-本文拥有`canonical_row_hashes_v2` capability的language-neutral
+本文拥有`canonical_row_hashes_v1` capability的language-neutral
 request/result/failure、Arrow physical mapping、PyO3 coarse-grained call shape和
 row-hash artifact content schema。Canonical row/content bytes仍使用Shared
 Canonical Encoding v1。
@@ -36,7 +36,7 @@ Canonical Encoding v1。
 ## 2. Capability semantics
 
 ```text
-canonical_row_hashes_v2
+canonical_row_hashes_v1
   input: CanonicalTableRequest JCS bytes + Arrow RecordBatch stream
   output: sorted row-hash Arrow stream + CanonicalTableResult JCS bytes
 ```
@@ -59,7 +59,7 @@ Canonical JCS shape：
 
 ```json
 {
-  "boundary_version": 2,
+  "boundary_version": 1,
   "canonical_encoding_version": 1,
   "arrow_mapping_version": 1,
   "declared_fields": [
@@ -125,7 +125,7 @@ Empty stream必须仍提供 schema。Zero row、zero field table均合法并按 
 Formal native entrypoint：
 
 ```text
-canonical_row_hashes_v2(
+canonical_row_hashes_v1(
   request_jcs: bytes,
   input: Arrow C Stream
 ) -> (
@@ -161,7 +161,7 @@ Rows 按 raw hash bytes升序，duplicate保留。Chunking不是 semantic；cons
 
 ```json
 {
-  "boundary_version": 2,
+  "boundary_version": 1,
   "table_schema_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "row_count": "0",
   "raw_content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
@@ -289,3 +289,4 @@ Module public：是。Persisted：Result metadata可进入 artifact manifest；r
 | 2026-07-22 | §4 decimal Arrow mapping：`decimal256` precision 上界由 `76` 修正为 **`65`** | Formal 内部一致性：与 Shared Canonical Encoding owner-declared decimal precision `1..=65` 及现有 `DeclaredType` 校验边界对齐；不改变 WP0–WP2 已验收 canonical scalar bytes |
 | 2026-07-22 | §4 semantic kind `null`：physical type 明确为 Arrow `DataType::Null`（闭合集） | WP3 R1 设计收敛：原“validity bitmap”表述与 `null` kind 混用且未闭合 physical type；non-`null` kind 的 nullable slot 仍由各 physical type 的 validity bitmap 表达（§3 `nullable` 规则） |
 | 2026-07-31 | Boundary v2、minimal failure/ArtifactRef和ordinary reopen | ADR 0010 Phase 0–1 proportional simplification；canonical scalar/row/content bytes不变 |
+| 2026-08-01 | 首发 Canonical Row Hash v1 重基线 | 当前没有外部 consumer 或 durable compatibility 义务；删除 pre-baseline fallback，canonical scalar/row/content bytes不变 |

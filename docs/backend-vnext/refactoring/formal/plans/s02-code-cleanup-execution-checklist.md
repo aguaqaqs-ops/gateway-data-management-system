@@ -100,7 +100,7 @@ refactor(vnext): simplify canonical test ownership
 
 范围：
 
-- 切换Canonical Row Hash boundary v2；
+- 切换Canonical Row Hash boundary v1；
 - request/result/failure收缩到owning contract字段；
 - 用minimal `BackendArtifactRef`替换旧generic envelope；
 - 删除generic ArtifactManifest、ContentContract、ContractBinding及ref中的

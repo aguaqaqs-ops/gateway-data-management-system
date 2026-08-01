@@ -249,7 +249,7 @@ Kernel canonical corpus获得通过。
      Repository consumer和generic conformance distribution；
    - 把mixed-scalar golden迁回Backend/Rust owner tests。
 3. `S02-C3 compute and Backend artifact boundary`
-   - 切换Row Hash boundary v2；
+   - 切换Row Hash boundary v1；
    - 以minimal `BackendArtifactRef`替换旧generic envelope；
    - ordinary reopen只做raw integrity、Arrow parse和fixed schema。
 4. `S02-C4 thin Repository packages`

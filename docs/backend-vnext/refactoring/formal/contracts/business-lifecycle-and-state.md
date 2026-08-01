@@ -52,13 +52,16 @@ EFFECT_PENDING -----------> ABORTED
 
 - `PREPARED`：业务已验收并占用 Workspace，尚未跨越可能产生 effect 的边界。
 - `EFFECT_PENDING`：请求可能未发送、执行中、结果未知，或已应用但尚未完成 readback/业务 finalize。
-- `FINALIZED`：Repository evidence已完成Submit owner要求的FULL verification，且
+- `FINALIZED`：Repository result已完成Submit owner为该use case请求的verification，且
   恰好一个Submission已创建。
-- `ABORTED`：已经证明 effect 不存在，并保证原请求不再继续。
+- `ABORTED`：Repository stable outcome已经证明未发布，且原请求不再继续。
 
-只有`completed_verification_level=FULL`且matching SnapshotManifest的Repository
-evidence后才可创建`Submission`；裸VERIFIED、NONE/STRUCTURAL success或
-`FAILED + effect=APPLIED`均不足以finalize。失败Attempt不产生半完成Submission。
+只有matching SUCCEEDED result，且`requested_verification_policy ==
+completed_verification_policy`，artifact ID、CanonicalizationManifest digest、expected
+parent、target ref和unknown type policy均与T1 checkpoint一致后才可创建
+`Submission`。Repository verification不替代business-owned digest/binding validation；
+具体use case选择NONE、STRUCTURAL或FULL_SCAN在Phase 3/5 consumer设计时确定，不能由
+Repository擅自升级或降级。失败Attempt不产生半完成Submission。
 `Submission.submit_attempt_id`唯一。Finalize重放先返回既有Submission，再修正
 Workspace/Operation派生投影。
 
@@ -110,7 +113,7 @@ Review 状态与 archive 结果正交。Repository 临时 ref cleanup 是独立�
 
 - 每个对象、状态和 projection 能定位到上表唯一 owner。
 - Upload、Preview、Submit、Review、Archive 的 generation、idempotency 和并发测试通过。
-- Submit仅在FULL completed evidence后创建一个Submission；
+- Submit仅在requested/completed policy与全部T1 binding匹配后创建一个Submission；
   `NO_CANONICAL_CHANGE`无任何写effect。
 - Review 测试中不存在单独 start action 或中间审核状态。
 - Archive 只在 Start 时冻结，Candidate/PreviewArchivePlan 不落库。

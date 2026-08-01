@@ -1,8 +1,8 @@
 # Phase 2 Implementation Design and Delivery Plan
 
-状态：Accepted Simplified Baseline
+状态：Accepted — Complete P2 Design
 
-日期：2026-07-31
+日期：2026-08-02
 
 适用阶段：Phase 2 — Versioned Repository Service Foundation
 
@@ -16,10 +16,14 @@ Public/persisted语义：
 [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)与
 [DX Reconciliation](dx-cross-phase-interface-reconciliation.md)
 
+完整实现设计与逐轮执行：
+[P2 Versioned Repository Implementation Design](p2-versioned-repository-implementation-design.md)
+和[P2 Execution Checklist](p2-versioned-repository-execution-checklist.md)
+
 ## 1. Goal and delivery boundary
 
 Phase 2只交付当前Backend consumer需要的Dolt-backed Versioned repository，不再
-建设generic dual-store、细粒度ACL、全量verification、通用maintenance或
+建设generic dual-store、细粒度ACL、默认全量verification、通用maintenance或
 exact-commit evidence体系。
 
 本计划区分两个时段：
@@ -150,7 +154,8 @@ Exit：目标部署环境中create/import/read主机制可行。
 - global bearer；
 - healthz/readyz；
 - simple settings、error mapping和request ID；
-- 首次生成真实`/v1/`OpenAPI。
+- SQLite control DB lifecycle与forward-only migration；
+- 不注册stub业务route；只生成health/readiness OpenAPI。
 
 Exit：认证成功/失败、脱敏和service lifecycle integration通过。
 
@@ -158,6 +163,8 @@ Exit：认证成功/失败、脱敏和service lifecycle integration通过。
 
 - CreateRepository：staging初始化、initial commit/main、atomic publication和幂等；
 - UploadArtifact：bounded streaming、size/SHA、atomic publication、response-loss幂等；
+- 首次激活真实`/v1/` business OpenAPI；
+- PENDING/SUCCEEDED minimal ledger与startup reconciliation；
 - orphan/failed TTL和disk admission；
 - 不建立create/upload operation。
 
@@ -167,8 +174,11 @@ Exit：真实HTTP create/upload与restart tests通过。
 
 - durable repository-scoped operation；
 - global bounded worker pool和per-repository writer lock；
-- expected commit同时作为parent和target ref CAS；
-- operation commit marker、structural catalog verification和一次自动恢复；
+- expected commit同时作为parent和target ref mandatory CAS，private operation ref上先
+  replay/verify再发布；
+- caller-selected NONE/STRUCTURAL/FULL_SCAN（默认STRUCTURAL）与REJECT/STRINGIFY
+  （默认REJECT）；
+- operation commit marker、SQLite durable queue和受限一次自动恢复；
 - 矛盾状态终止为MANUAL_RECOVERY_REQUIRED。
 
 Exit：commit前中断、commit后响应丢失、CAS冲突和人工恢复分支通过。
@@ -179,8 +189,10 @@ Exit：commit前中断、commit后响应丢失、CAS冲突和人工恢复分支�
 - GetVersionedCatalog(commit_id)；
 - raw Arrow IPC StreamVersionedTableRows(commit_id)；
 - bounded RecordBatch streaming和disconnect cleanup。
+- 完成Remote client与contract-owned fixture consumer；不提前设计Phase 3业务能力。
 
-Exit：Backend通过Remote client完成upload → import → poll → resolve → catalog/stream。
+Exit：contract-owned fixture consumer通过Remote client完成upload → import → poll →
+resolve → catalog/stream；不import或预设计Phase 3 capability。
 
 ### P2-R6 — Operational closure
 
@@ -191,6 +203,9 @@ Exit：Backend通过Remote client完成upload → import → poll → resolve �
 - 普通CI和container smoke。
 
 Exit：已知consumer纵切、容量记录和人工恢复路径可执行。
+
+P2-R1至R6全部exit后Phase 2才完成，并在此后开始Phase 3完整设计。Phase 3设计不与P2
+实现穿插；R5 fixture consumer只是P2 contract test double，不是P3 capability设计。
 
 ## 6. Confirmed load and defaults
 
@@ -234,3 +249,6 @@ candidate或signature-like evidence。
 
 Phase 2只有在P2-R1–R6真实纵切通过后才完成。S02完成只表示旧设计已清理、具备
 按新计划实施的基础，不表示Repository业务能力已交付。
+
+当前设计判定：整个P2 design complete；P2-R1 ready，P2-R2–R6 design-ready但由前序
+round gate关闭。P2-R6通过前不得宣称Phase 2 implementation complete。

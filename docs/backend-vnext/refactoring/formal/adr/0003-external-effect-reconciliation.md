@@ -8,10 +8,10 @@
 
 关联阶段：Phase 2、Phase 4、Slice 5B/5D
 
-2026-07-31 amendment：T1/T2/T3业务事务边界继续有效；Repository Service内部
-journal/effect classification、caller-selected verification和FULL evidence已由
-ADR 0009替代为四态Operation、matching commit marker、固定structural result和
-人工恢复分支。
+2026-08-02 amendment：T1/T2/T3业务事务边界继续有效；Repository Service内部
+journal/effect classification与FULL evidence已由ADR 0009替代为四态Operation、
+caller-selected NONE/STRUCTURAL/FULL_SCAN、matching commit marker、stable未发布
+failure code和人工恢复分支。
 
 ## Context
 
@@ -25,7 +25,12 @@ SubmitAttempt与ArchiveExecution各自使用
 和target ref是effect result；业务content/digest facts仍由业务owner检查。Repository
 内部恢复使用matching commit marker，矛盾状态显式进入MANUAL_RECOVERY_REQUIRED。
 
-请求可能已被接受后必须先 reconcile，并复用原 operation、idempotency key、request/artifact digest；只有权威 `NOT_APPLIED` 才能重放原请求或 abort。Outbox record 与业务 finalize 同事务，delivery 独立。精确规则由 [External Effect and Recovery Contract](../contracts/external-effect-and-recovery.md) 唯一规定。
+请求可能已被接受后必须先reconcile，并复用原operation、idempotency key、
+request/artifact digest；只有Repository matching SUCCEEDED或普通未发布stable failure才
+允许业务finalize/abort，MANUAL_RECOVERY_REQUIRED继续占用。Repository自身仅在无
+matching commit且artifact完整时以原key自动重放一次。Outbox record与业务finalize
+同事务，delivery独立。精确规则由
+[External Effect and Recovery Contract](../contracts/external-effect-and-recovery.md)唯一规定。
 
 ## Alternatives
 
@@ -36,7 +41,10 @@ SubmitAttempt与ArchiveExecution各自使用
 
 ## Consequences
 
-重复投递、进程重启和网络不确定性可恢复到唯一业务终局，但需要持久 Repository journal、immutable artifact checkpoint、reconciler 和故障注入测试。`EFFECT_PENDING` 可能长时间占用资源，运维必须提供 attention/repair，而不能以 blind replay 快速解锁。
+重复投递、进程重启和网络不确定性可恢复到唯一业务终局，但需要durable Repository
+operation、immutable artifact checkpoint、reconciler和故障注入测试。
+`EFFECT_PENDING`可能长时间占用资源，运维必须提供attention/repair，而不能以blind
+replay快速解锁。
 
 ## Required Verification
 

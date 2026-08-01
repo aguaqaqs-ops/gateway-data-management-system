@@ -18,6 +18,8 @@
 - [Phase 1 Implementation Design and Delivery Plan](plans/phase-1-implementation-design-and-delivery-plan.md)（历史设计）
 - [Phase 2 Implementation Design and Delivery Plan](plans/phase-2-implementation-design-and-delivery-plan.md)
 - [P2-R1 Runtime and Provider Feasibility Contract](plans/p2-r1-runtime-provider-feasibility.md)
+- [P2 Versioned Repository Implementation Design](plans/p2-versioned-repository-implementation-design.md)
+- [P2 Versioned Repository Execution Checklist](plans/p2-versioned-repository-execution-checklist.md)
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)
@@ -52,8 +54,8 @@
 
 正式文档之间发生冲突时，应先暂停实现，明确语义 owner，并通过修改正式文档或新增 ADR 收口；不能依靠兼容代码长期维持两套含义。
 
-当前阶段：S02 已完成。D01 Phase 0–1同原则简化设计、DX跨阶段接口协调和联合代码清理
-均已收口。旧 traceability/F0 report、generic conformance architecture、formal
-baseline lifecycle 和 exact-commit exit 不再是 authority。下一入口为 `P2-R1`；不得从
-历史材料恢复实现或提前激活 P2-R2–R6。P2-R1 implementation contract已Accepted，
-当前可直接进入本轮feasibility实现，不需要再次打开Phase 2总体设计。
+当前阶段：S02已完成，P2整体设计已收口。旧traceability/F0 report、generic
+conformance architecture、formal baseline lifecycle和exact-commit exit不再是
+authority。下一入口为`P2-R1`；P2-R1 implementation ready，P2-R2–R6 design-ready但
+必须等待前序round gate，不得从历史材料恢复实现或跨轮激活。P3完整设计只在P2-R6
+通过后开始。

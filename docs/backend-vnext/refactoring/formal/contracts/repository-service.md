@@ -2,7 +2,7 @@
 
 状态：Accepted Simplified Baseline
 
-日期：2026-07-31
+日期：2026-08-02
 
 阶段：Phase 2 Repository Service Foundation；Phase 3+ consumer
 
@@ -65,6 +65,12 @@ V1是单一信任域：
 - TLS由deployment ingress/sidecar拥有；
 - token泄漏等价于完整Repository写权限泄漏，这是已接受的边界。
 
+Production token优先从只读secret file加载；environment只允许dev/test profile。
+Production缺失或空token必须启动失败。V1不支持hot rotation，token变更通过rolling
+restart完成。`healthz`是未认证liveness；`readyz`不使用业务bearer，但必须由部署网络
+限制访问。ready至少检查root lock、layout、control DB、provider、durable root可写和
+free-disk admission。
+
 输入安全保留server-owned path、regular-file、size、路径穿越、secret/log脱敏和
 非shell执行检查。`replay.sql`由受信Backend生成；Service不建设完整SQL grammar、
 semantic package签名或防篡改体系。
@@ -102,12 +108,18 @@ HTTP status表达请求层结果；不公开通用`category/phase/recovery/effec
 | `ArtifactId` | Service生成的普通UUID；只在所属Repository内有效 |
 | `RepositoryOperationId` | Service生成的普通UUID；只在所属Repository内查询 |
 | `CommitId` | Dolt生成的repository-scoped opaque string |
-| `RefName` | bounded string；V1只保证`main`存在 |
-| `IdempotencyKey` | caller生成的bounded opaque string |
+| `RefName` | V1 mutation与resolve只接受literal `main` |
+| `IdempotencyKey` | caller生成的1..255 UTF-8 opaque string |
 | provider token | bounded opaque string，不施加UUID或canonical grammar |
 
 `RepositoryId`、`ArtifactId`和`RepositoryOperationId`可以直接使用`uuid.UUID`；
 不得为每个ID复制自定义比较、hash、wire parser和schema版本。
+
+Table、column和primary-key column name均为1..64 Unicode code points；拒绝NUL、
+ASCII control和`/`、`\\`路径分隔符。Service比较catalog时exact、case-sensitive，不做
+Unicode normalization或case fold；访问Dolt必须使用driver/adapter的MySQL identifier
+quoting，禁止把identifier直接拼接进SQL。Row route的table name只允许query parameter，
+不得进入path segment。V1不接受caller自定义Repository display name。
 
 ## 6. V1 capability surface
 
@@ -122,6 +134,31 @@ StreamVersionedTableRows(commit_id)
 healthz
 readyz
 ```
+
+首个HTTP surface固定为：
+
+```text
+POST /v1/repositories
+POST /v1/repositories/{repository_id}/artifacts
+POST /v1/repositories/{repository_id}/versioned/imports
+GET  /v1/repositories/{repository_id}/operations/{operation_id}
+GET  /v1/repositories/{repository_id}/versioned/refs/{ref_name}
+GET  /v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog
+GET  /v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows?table_name=...
+GET  /healthz
+GET  /readyz
+```
+
+Upload route使用raw request body。`Content-Type`、`Content-Length`、
+`Idempotency-Key`和`X-Artifact-SHA256`是必需header；不使用multipart。Mutation的
+idempotency key只由header传输，其余request字段使用closed JSON model。
+
+成功status固定为create `201`、upload `201`、import accept/replay `202`、reads
+`200`。通用失败status为authentication `401`、malformed/validation `422`、not found
+`404`、idempotency/CAS conflict `409`、too large `413`、unsupported media `415`、
+admission concurrency `429`、provider/readiness/disk unavailable `503`。所有JSON错误
+（包括framework validation）必须映射为第4节SimpleError。每个response带server生成的
+opaque `X-Request-ID`；error body回显同一`request_id`，不信任caller输入覆盖它。
 
 不提供独立`CompareAndSetVersionedRef`。当前consumer只需要import创建commit并
 原子发布target ref；rollback、promotion、审批发布或独立ref修复出现真实consumer
@@ -142,7 +179,12 @@ T2简化阶段定义DTO和语义但不激活上述业务route。首个真实实�
 响应丢失后，same key/same request返回原结果；same key/different request返回冲突。
 发布前失败不得产生可见Repository，允许清理明确的staging目录。
 
-不建立create operation、全局create journal、lease、fencing或后台executor。
+不建立public create operation、通用effect journal、lease、fencing或后台executor。
+Create必须使用第11节SQLite最小幂等ledger：filesystem effect前持久化`PENDING`和已分配
+RepositoryId，atomic publication后持久化`SUCCEEDED`。Repository只有在SQLite
+`SUCCEEDED`和matching complete filesystem同时存在时可见；startup以layout marker
+reconcile `PENDING + complete directory`，`SUCCEEDED + missing directory`使ready失败并
+要求operator处理。
 
 ## 8. UploadArtifact
 
@@ -162,6 +204,11 @@ multipart或range resume。
 
 中途断连不发布partial artifact，caller完整重传。发布后响应丢失时，same key、
 same size和same SHA返回原ArtifactRef；不同内容冲突。
+
+Upload同样在filesystem effect前写入SQLite `PENDING`并分配ArtifactId，atomic rename
+后写入`SUCCEEDED`。Startup用published artifact的size/SHA reconcile PENDING；
+SQLite SUCCEEDED但ready artifact缺失或不匹配使ready失败。这里的最小ledger只服务
+同步幂等与crash reconciliation，不把create/upload变成异步Operation。
 
 V1 `RepositoryArtifactRef`只包含：
 
@@ -193,7 +240,7 @@ manifest.json
 replay.sql
 ```
 
-Service检查：
+Service对所有verification policy都检查：
 
 - entry是固定名称的regular file；
 - 无absolute path、traversal、duplicate、link、device或额外required entry；
@@ -203,8 +250,8 @@ Service检查：
 - upload bytes的raw size和SHA-256已匹配。
 
 业务digest和canonical content equality由Storage Projection/capability owner拥有。
-Repository Service不提供`NONE | STRUCTURAL | FULL`，不默认读取全部committed rows
-重算业务digest。
+Repository verification只按第10节检查Repository自身可读取性与manifest structural
+facts，任何level都不重算业务digest。
 
 该package只是Repository import transport。Backend必须在清理package前持久化独立的
 `CanonicalizationManifest`；Repository只把其digest当opaque binding，不解释或重算
@@ -228,6 +275,13 @@ JSON只要求strict UTF-8与closed shape，不要求JCS。Repository把
 `canonicalization_manifest_digest`作为bounded opaque string保存并原样返回，不
 import Shared Kernel `DigestRef`。
 
+Compressed upload默认上限256 MiB，expanded package默认上限4 GiB。Service必须在
+streaming extraction中同时限制entry count、单entry expanded size与total expanded
+size，不能先完整解压再检查。接受新upload/import前保留
+`max(5 GiB, durable volume容量的10%)` free space；import额外headroom由P2-R1测得的
+staging high-water与Dolt增长计算。上述值均可配置，P2-R1可在P2-R3激活wire前依据
+测量修订内部默认值。
+
 外部原始package备份由上游流程拥有。Repository Service不调用、等待或查询外部
 备份系统。
 
@@ -240,33 +294,94 @@ repository_id
 artifact_ref
 target_ref
 expected_commit_id
+verification_policy
+unknown_type_policy
 idempotency_key
 ```
 
-V1只保证`target_ref = main`可用。`expected_commit_id`同时是：
+`target_ref`必须是`main`。`expected_commit_id`必填并同时是：
 
 - 新commit的parent；
 - target ref发布时的CAS预期值。
 
-Service不得提供LWW、force ref或独立publication mode。成功必须满足：
+Service不得提供LWW、force ref、关闭CAS、table/schema CAS或独立publication mode。
+Import固定使用private operation ref：
 
-1. Dolt执行受信`replay.sql`；
-2. 创建带operation marker的新commit；
-3. committed catalog的table set、schema和row count匹配manifest；
-4. target ref仍指向`expected_commit_id`；
-5. CAS发布target ref到新commit；
-6. durable operation result保存commit_id和target ref。
+1. 确认`main == expected_commit_id`，从expected commit创建private operation ref；
+2. 在private ref执行受信`replay.sql`并创建唯一operation-marker commit；
+3. 对immutable candidate commit执行caller选择的verification；
+4. 再次确认`main == expected_commit_id`；
+5. 以expected commit为precondition CAS发布`main`到candidate commit；
+6. 持久化SUCCEEDED result后删除private ref并清理成功artifact。
+
+VerificationPolicy为：
+
+| Policy | Required behavior |
+| --- | --- |
+| `NONE` | 跳过candidate catalog structural/full scan；不跳过package safety、marker、parent与target CAS |
+| `STRUCTURAL` | 默认；exact核对user table set、column order/type/nullability、primary-key order与manifest row count |
+| `FULL_SCAN` | 包含STRUCTURAL；以bounded batches扫描全部user table，Arrow/type conversion成功且scanned row count等于manifest |
+
+Verification失败且`main`仍为expected commit时删除private ref并返回
+`VERIFICATION_FAILED_NOT_PUBLISHED`；`main`不得改变。若publication outcome、private
+ref或marker证据矛盾，保留恢复所需artifact/ref并终止为
+`MANUAL_RECOVERY_REQUIRED`。Request/operation持久化`requested_verification_policy`，
+SUCCEEDED result返回相同的`completed_verification_policy`；不得自动升降级。
+
+UnknownTypePolicy为`REJECT | STRINGIFY`，默认`REJECT`，与verification正交：
+
+- 已知normalized SQL type始终映射为exact Arrow type；不得因STRINGIFY而降级；
+- 未知type在REJECT下即使verification为NONE也在publication前以`IMPORT_REJECTED`
+  失败；read则返回type错误；
+- 未知type在STRINGIFY下使用Dolt/driver文本值转为Arrow `large_string`，NULL保持NULL，
+  field metadata至少包含`gateway.sql_type=<original>`与`gateway.lossy=true`；
+- 文本转换本身失败则操作/读取失败；STRINGIFY不承诺跨Dolt版本文本稳定性、
+  canonical equality或digest可比性。
+
+V1 exact mapping识别下列normalized SQL grammar；Service对Dolt catalog归一化后与
+manifest exact compare，并使用固定Arrow mapping：
+
+| Normalized SQL type | Arrow type |
+| --- | --- |
+| `BOOLEAN` | `bool` |
+| `TINYINT [UNSIGNED]` | `int8 | uint8` |
+| `SMALLINT [UNSIGNED]` | `int16 | uint16` |
+| `MEDIUMINT [UNSIGNED]` | `int32 | uint32`，并保持24-bit range |
+| `INT [UNSIGNED]` | `int32 | uint32` |
+| `BIGINT [UNSIGNED]` | `int64 | uint64` |
+| `DECIMAL(p,s)`，`p=1..65`、`s=0..30`、`s<=p` | `p<=38`为`decimal128(p,s)`，否则`decimal256(p,s)` |
+| `FLOAT` / `DOUBLE` | `float32 | float64` |
+| `BIT(n)`，`n=1..64` | `binary` + field metadata `gateway.bit_width=n` |
+| `DATE` | `date32` |
+| `TIME(fsp)`，`fsp=0..6` | `duration[us]` |
+| `DATETIME(fsp)`，`fsp=0..6` | `timestamp[us]`，无timezone |
+| `TIMESTAMP(fsp)`，`fsp=0..6` | `timestamp[us, UTC]` |
+| `CHAR(n)` / `VARCHAR(n)` / `TINYTEXT` / `TEXT` / `MEDIUMTEXT` / `LONGTEXT` | `utf8` |
+| `BINARY(n)` / `VARBINARY(n)` / `TINYBLOB` / `BLOB` / `MEDIUMBLOB` / `LONGBLOB` | `binary` |
+| `JSON` | `utf8` + field metadata `gateway.logical_type=json` |
+
+Nullability来自catalog/manifest field，不由Arrow value推断。Integer display width、
+ZEROFILL、character collation/charset modifier不属于normalized grammar。ENUM/SET、
+YEAR、spatial、vector和其他未列type均为unknown：manifest可携带其bounded normalized
+spelling，但只有caller显式STRINGIFY才允许publication/row conversion；STRUCTURAL仍
+要求manifest与catalog spelling exact一致。P2-R1 probe固定实际Dolt catalog spelling与
+driver value shape；adapter不得依据单个row值推断type或改变上述mapping。
 
 SUCCEEDED result还必须原样返回package绑定：
 
 ```text
 artifact_id
 canonicalization_manifest_digest
+expected_commit_id
+target_ref
+completed_verification_policy
+unknown_type_policy
 ```
 
 Operation request fingerprint至少覆盖RepositoryId、RepositoryArtifactRef全部字段、
-target ref、expected commit和idempotency key。Backend必须核对result artifact ID、
-manifest digest、expected parent和target ref后才能业务finalize。
+target ref、expected commit、verification policy、unknown type policy和idempotency key。
+Backend必须核对result artifact ID、manifest digest、expected parent、target ref、
+requested/completed verification和type policy后才能业务finalize。
 
 Package中高度重复的数据由Dolt内容寻址和结构共享利用；去重率必须在真实数据上
 测量，不能作为未经验证的容量保证。
@@ -284,19 +399,54 @@ QUEUED | RUNNING | SUCCEEDED | FAILED
 
 Mutation使用`idempotency_key + internal request fingerprint`：
 
-- same key/same fingerprint返回原接受结果或终态；
+- scope为`(mutation_kind, repository_id nullable, SHA-256(idempotency_key))`；create为
+  service-global，upload/import为repository-scoped且kind隔离；raw key不得写日志；
+- same key/same fingerprint返回原resource/body与原成功status：create重放`201`、
+  upload重放`201`、import即使已terminal也返回原operation ID和原`202`；caller通过
+  GetOperation读取当前状态；
 - same key/different fingerprint返回冲突；
 - terminal failure后要发起新的业务尝试，caller使用新key。
 
-启动时只恢复遗留RUNNING import：
+`service-state/repository-service.sqlite3`是唯一control DB，保存create/upload ledger、
+import queue/operation/result、idempotency fingerprint和recovery audit。启用WAL、
+`synchronous=FULL`、foreign keys和bounded busy timeout；migration使用transactional
+`PRAGMA user_version`只向前升级，遇到newer version启动失败。Control DB不保存table
+data，也不占用未来`current/<repository_key>/`的SQLite namespace。
 
-1. 找到唯一matching operation commit且ref一致：补齐SUCCEEDED；
-2. 未找到matching commit：使用原artifact和原key自动重试一次；
-3. 多commit、ref矛盾、artifact缺失或无法判断：终止为
+Import先在SQLite持久化QUEUED再返回202。Worker claim为RUNNING；graceful shutdown先
+停止intake，在短grace内等待active work，未完成RUNNING在下次startup reconcile。
+Startup规则为：
+
+1. QUEUED重新入队；
+2. 遗留RUNNING且`main`已指向唯一matching marker/parent commit时补齐SUCCEEDED；
+3. `main`仍为expected且private ref存在唯一matching candidate时，从已保存request继续
+   requested verification与CAS，不重复执行replay SQL；
+4. 完全未找到matching commit且artifact完整时，以原request/key自动重放最多一次；
+5. 正常validation/provider failure直接终止，不做隐藏通用retry；
+6. 多commit、ref矛盾、artifact缺失或无法判断时终止为
    `FAILED / MANUAL_RECOVERY_REQUIRED`。
 
 不建设lease、fencing、ServiceEpoch、takeover或
 `UNKNOWN/APPLIED/VERIFIED`状态机。
+
+Repository operation与idempotency metadata在Repository lifetime内永久保留；只清理
+artifact bytes、staging和可重建temporary data。Stable import failure code仅为：
+
+```text
+IMPORT_REJECTED
+EXPECTED_COMMIT_MISMATCH
+VERIFICATION_FAILED_NOT_PUBLISHED
+MANUAL_RECOVERY_REQUIRED
+```
+
+前三者在语义适当时允许caller abort或用新key开始新attempt；
+`MANUAL_RECOVERY_REQUIRED`不得释放业务occupancy。Repository不公开generic
+category/recovery/effect taxonomy。
+
+Private local admin CLI只用于`MANUAL_RECOVERY_REQUIRED`：必须停止service并取得root
+lock；默认只inspect，`--apply`只允许根据既有marker/ref/filesystem证据补记SUCCEEDED，
+或确认NOT_PUBLISHED后记FAILED。CLI不得force移动main、执行任意SQL或删除history，且
+每次apply写入control DB recovery audit record。
 
 ## 12. Artifact lifecycle
 
@@ -324,6 +474,12 @@ Catalog和row stream必须绑定caller提供的immutable CommitId，不提供
 - schema和截断由Arrow reader/HTTP失败表达；
 - server必须按RecordBatch bounded streaming，不全表materialize；
 - disconnect/cancel关闭provider reader。
+
+Row stream不保证row或batch ordering；需要稳定顺序的caller自行按业务key排序。Catalog
+返回normalized SQL type；row route要求caller显式传`unknown_type_policy`（省略时
+`REJECT`），并按第10节type mapping执行。Read result不继承某次import的type policy，
+因为同一immutable commit可由不同caller读取；response schema metadata使STRINGIFY
+降级可见。
 
 ## 14. Concurrency and capacity
 
@@ -367,6 +523,7 @@ process-local writer lock。不同Repository可以有限并行。
       ready/
 
   service-state/
+    repository-service.sqlite3
   provider/
 ```
 
@@ -374,8 +531,8 @@ process-local writer lock。不同Repository可以有限并行。
   提供的名称或路径片段；所有public response和log均不得暴露内部path。
 - `versioned/<repository_key>/`直接保存Dolt repository；sql-server候选的
   `data_dir`只允许指向`versioned/`。
-- `control/`拥有layout marker和进程生命周期lock；`service-state/`留给后续
-  create/upload/import幂等与operation状态，P2-R1不选择或创建其持久化实现。
+- `control/`拥有layout marker和进程生命周期lock；P2-R2+在`service-state/`惰性创建
+  第11节control DB。P2-R1 probe不得提前创建该数据库。
 - `artifacts/`是Repository-scoped临时transport；P2-R1只验证同filesystem staging
   与publication primitive，不提前实现UploadArtifact生命周期。
 - `provider/`只保存最终选中provider需要的server-owned config/runtime metadata，
@@ -424,6 +581,12 @@ Versioned commit history永久保留。Repository Service不提供public backup/
 API。部署方对整个quiescent durable root执行一致性volume snapshot并由operator
 恢复。
 
+Snapshot runbook顺序固定为：停止intake并等待/终止service-owned provider；停止
+Service；取得root lock；对SQLite执行WAL checkpoint并确认无open writer；quiesce
+durable filesystem；一次性snapshot整个data root。Restore必须恢复匹配的layout、
+control DB、artifact和完整Dolt tree，再启动相同支持版本并通过ready/integrity检查。
+不得只snapshot SQLite或单个Dolt repository。
+
 恢复目标是最近一次volume snapshot。之后的package可以从外部备份人工重放，但
 CommitId可能改变，外部引用允许人工修正。Contract不承诺RPO、RTO、每commit同步
 备份或CommitId跨灾难无损保持。
@@ -445,7 +608,10 @@ additive sibling加入：
 - global bearer成功/失败路径通过HTTP集成测试；
 - create同步幂等、初始commit和atomic publication通过；
 - upload streaming、size/SHA、response loss和路径安全通过；
-- import CAS、operation marker、catalog结构检查和幂等通过；
+- import mandatory commit CAS、private ref、NONE/STRUCTURAL/FULL_SCAN、
+  REJECT/STRINGIFY、operation marker和幂等通过；
+- SQLite PENDING/SUCCEEDED visibility、QUEUED/RUNNING restart和same-key original-status
+  replay通过；
 - commit前中断、commit后响应丢失和人工恢复分支通过；
 - raw Arrow IPC可由client直接读取，截断时由HTTP/Arrow失败；
 - package成功后清理且RUNNING/manual-recovery artifact不被删除；
@@ -464,7 +630,8 @@ additive sibling加入：
 - public backup/restore/delete/repair；
 - exact CommitId灾难恢复、明确RPO/RTO；
 - CurrentTableStore或cross-store consistency；
-- Service-owned业务content verification；
+- Service-owned业务digest、canonical equality或tamper-proof verification；
+- table/schema CAS、partial merge/rebase或detached import；
 - package超过当前one-shot streaming能力。
 
 ## 19. Related authority

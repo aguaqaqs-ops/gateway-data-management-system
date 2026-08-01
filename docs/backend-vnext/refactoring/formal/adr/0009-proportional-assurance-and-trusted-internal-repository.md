@@ -2,7 +2,7 @@
 
 状态：Accepted
 
-日期：2026-07-31
+日期：2026-08-02
 
 决策 owner：Backend vNext Architecture
 
@@ -78,24 +78,32 @@ Service只检查固定regular file、大小、路径安全、manifest基本结�
 `replay.sql`是受信Backend生成的内部输入，不建设完整SQL grammar和semantic package
 防篡改体系。
 
-Import成功检查固定为：
+Import采用caller-selected `NONE | STRUCTURAL | FULL_SCAN` verification，默认
+`STRUCTURAL`。简化的含义是拒绝默认全量校验、business digest、防篡改evidence和
+通用effect taxonomy，不是取消caller选择：
 
-1. upload bytes的size和raw SHA-256匹配；
-2. Dolt产生带operation marker的commit；
-3. target ref指向该commit；
-4. committed catalog的table set、schema和row count匹配manifest。
+- 所有level都强制upload size/raw SHA、package safety、operation marker、expected
+  parent和target ref CAS；
+- `STRUCTURAL`额外核对committed catalog的table set、schema和row count；
+- `FULL_SCAN`在private candidate commit上分批扫描全部user table，要求Arrow/type
+  conversion成功且实际row count匹配manifest；不重算canonical/business digest；
+- `NONE`跳过catalog structural/full scan，caller承担低保障选择的风险。
 
-不提供`NONE | STRUCTURAL | FULL`选择，也不默认全量读取rows重算content digest。
-业务no-change/comparison digest仍由相应capability owner拥有。
+验证在target ref publication之前完成。请求和operation保存requested policy，成功
+result返回completed policy；Backend finalize核对二者一致。业务no-change/comparison
+digest仍由相应capability owner拥有。
 
 Operation只使用`QUEUED | RUNNING | SUCCEEDED | FAILED`。Mutation通过
 `idempotency_key + internal request fingerprint`处理response-loss重放。单process
 使用durable-root OS lock和per-repository进程内写锁，不建设lease、fencing、
 ServiceEpoch或`UNKNOWN/APPLIED/VERIFIED`状态机。
 
-启动恢复只处理遗留RUNNING import：找到matching operation commit则补齐成功结果；
-未找到则使用原artifact和key重试一次；多commit、ref矛盾或无法判断时终止为
-`FAILED / MANUAL_RECOVERY_REQUIRED`，允许人工修复。
+启动恢复处理durable QUEUED/RUNNING import：QUEUED重新入队；遗留RUNNING在main已
+发布matching commit时补齐成功结果，在private ref存在唯一candidate时继续verification/
+CAS，完全未找到且artifact完整时使用原artifact和key自动重试一次；多commit、ref矛盾
+或无法判断时终止为
+`FAILED / MANUAL_RECOVERY_REQUIRED`。正常validation/provider failure直接终止，不做
+隐藏重试。
 
 ### Synchronous create and upload
 
@@ -107,9 +115,16 @@ ServiceEpoch或`UNKNOWN/APPLIED/VERIFIED`状态机。
   不提供multipart或range resume。
 - `SubmitVersionedImport`是V1唯一异步业务Operation。
 
-Import的`expected_commit_id`同时是新commit parent和target ref CAS预期。V1不提供
-standalone `CompareAndSetVersionedRef`；rollback、promotion或审批发布出现真实
-consumer后再additive加入。
+Import的`expected_commit_id`同时是新commit parent和target ref CAS预期，且V1始终
+必填，不提供LWW、force或关闭CAS的选项。table/schema CAS不在V1：commit CAS已经覆盖
+整个snapshot，允许无关table变化将引入partial merge/rebase语义。V1不提供standalone
+`CompareAndSetVersionedRef`；rollback、promotion或审批发布出现真实consumer后再
+additive加入。
+
+未知Dolt SQL type另由caller选择`REJECT | STRINGIFY`，默认`REJECT`。`STRINGIFY`只
+作为非严谨场景的显式逃生口：未知列以Dolt返回文本映射为Arrow `large_string`，保留
+NULL并标记原始SQL type与`lossy=true`；它不承诺跨Dolt版本的文本稳定性，也不产生
+canonical/business digest保证。该policy与verification正交并由result回显。
 
 ### Artifact, capacity and disaster recovery
 
@@ -190,6 +205,7 @@ WP1-R2+语义由本ADR、精简后的Repository Service Contract和Phase 2 plan�
 - Create同步创建initial commit/main且response-loss幂等。
 - Upload同步流式处理通常10–100 MB、至少一个接近200 MB的边界样本。
 - Import覆盖commit前中断、commit后响应前中断和人工修复分支。
+- NONE/STRUCTURAL/FULL_SCAN、REJECT/STRINGIFY和private-ref-before-publication矩阵通过。
 - 标准Arrow IPC stream可被client直接读取，截断时由HTTP/Arrow失败。
 - Success package被清理，RUNNING/manual-recovery package不被误删。
 - Phase 0–1 canonical encoding bytes、Python/Rust核心golden保持不变。

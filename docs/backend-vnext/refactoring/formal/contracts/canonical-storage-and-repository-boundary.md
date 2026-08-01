@@ -19,7 +19,7 @@ Immutable SourcePackageArtifact (raw upload authority)
   -> parse + frozen table rules + storage projection
   -> CanonicalizationManifest + RepositoryImportArtifact
   -> Repository Service generic import/commit
-  -> structural import result + immutable CommitId
+  -> caller-policy import result + immutable CommitId
 ```
 
 SourcePackageArtifact 保存原始 bytes、provenance 和 replay authority。Dolt commit 保存 canonical business state，不保证复原原始 SQL schema、所有物理列或原始 DDL。Submit 成功时 source artifact retention 提升为 submission durable；读取原始输入必须回到该 artifact。
@@ -106,20 +106,19 @@ CanonicalizationManifest与canonical Dolt history共同提供。
 
 ## 6. Repository import、journal 与 readback
 
-Repository Service通过public wire contract接收RepositoryImportArtifact，只执行
-writer serialization、Dolt apply/commit、operation marker、target ref CAS、catalog/
-stream和固定structural check。
+Repository Service通过public wire contract接收RepositoryImportArtifact，执行writer
+serialization、Dolt apply/commit、operation marker、mandatory commit CAS，以及caller
+选择的`NONE | STRUCTURAL | FULL_SCAN` verification。默认`STRUCTURAL`；精确含义由
+[Repository Service](repository-service.md)唯一拥有。
 
-Repository Service不提供`NONE | STRUCTURAL | FULL`或VerifyCommit。成功只表示：
+所有level都检查upload size/raw SHA、package safety、matching marker、expected parent
+和target CAS。`NONE`只跳过catalog检查；`STRUCTURAL`比较table/schema/row count；
+`FULL_SCAN`再以bounded batches读取全部user rows并验证type conversion与实际row
+count。任何level都不计算business content/ordering digest或防篡改evidence。
 
-1. upload size/raw SHA匹配；
-2. 带matching operation marker的commit存在；
-3. target ref指向该commit；
-4. committed table set、schema和row count匹配manifest。
-
-业务content/ordering digest在import前由Storage Projection owner计算和保存。业务
-流程是否额外读取immutable commit做诊断或复核，由其owner决定，不成为Repository
-Service通用verification状态。
+业务content/ordering digest在import前由Storage Projection owner计算和保存。Caller
+根据业务风险选择Repository verification level，并为低保障选择负责；Repository的
+FULL_SCAN仍不能替代业务digest validation。
 
 RepositoryImportArtifact是Storage Projection owner的content contract；minimal
 ArtifactRef只包含opaque ID、media type、size和raw SHA。Repository Service只解释
@@ -196,9 +195,10 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 - Dropped-column-only change 得到相同 canonical business digest，且 no-change Submit 无 effect。
 - Missing/duplicate key、row loss、reserved gid、非法 no 全部 fail closed。
 - Pseudo gid 在重算、retry、Rust/Python 和 readback 后确定一致。
-- 每次write成功都匹配operation commit、target ref和manifest table/schema/row count。
-- 业务digest继续由Storage Projection/业务owner验证，不转换成Repository
-  verification level。
+- 每次write成功都匹配operation commit、mandatory target CAS与requested/completed
+  Repository verification；STRUCTURAL/FULL_SCAN时匹配相应manifest facts。
+- 业务digest继续由Storage Projection/业务owner验证，不由Repository任一
+  verification level替代。
 - Attempt retry复用相同RepositoryImportArtifact ID和raw SHA；活跃期结束后
   full-row pin被释放。
 - Projection version change 使用 alignment/fallback，不错误使用 native diff。
@@ -208,8 +208,8 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
   解释table/schema/row-count。
 - Backend/Repository artifact ID不互换；跨upload的media type、size和raw SHA保持
   exact一致。
-- Repository成功result原样echo artifact ID与manifest digest，Backend T3与
-  checkpoint/durable manifest核对后才finalize。
+- Repository成功result原样echo artifact ID、manifest digest、parent/ref和completed
+  policies，Backend T3与checkpoint/durable manifest核对后才finalize。
 
 ## 10. 关联文档
 

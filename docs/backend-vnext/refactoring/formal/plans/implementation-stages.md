@@ -300,6 +300,8 @@ recovery与canonical import分别遵守
   atomic rename和增量存储。
 - CreateRepository同步创建initial empty commit和main。
 - UploadArtifact同步stream、增量校验size/SHA并atomic publish。
+- SQLite control DB保存同步mutation最小幂等ledger与async import queue/result；不保存
+  table data，也不占用未来Current component。
 - 不实现create/upload Operation、ACL、policy、lease、fencing或ServiceEpoch。
 
 ### 2C：Versioned write与read
@@ -307,8 +309,11 @@ recovery与canonical import分别遵守
 - Versioned import使用`manifest.json + replay.sql`固定package。
 - `expected_commit_id`同时是新commit parent和main ref CAS预期。
 - Operation只使用QUEUED/RUNNING/SUCCEEDED/FAILED。
-- 只检查upload size/SHA和committed table/schema/row count，不提供verification
-  level或full row rehash。
+- Caller选择NONE/STRUCTURAL/FULL_SCAN，默认STRUCTURAL；所有level强制package safety、
+  marker、expected parent和main CAS，FULL_SCAN只做bounded full read/type/row-count检查，
+  不做business digest rehash。
+- Unknown type默认REJECT，caller可显式STRINGIFY为lossy Arrow large_string；commit CAS
+  始终强制，不提供table/schema CAS或partial merge。
 - 提供ResolveVersionedRef、commit-pinned catalog和raw Arrow IPC stream。
 - 不提供standalone CAS、LATEST、diff/export/cursor或Current data plane。
 
@@ -346,8 +351,11 @@ recovery与canonical import分别遵守
 
 建立可独立调用、独立测试、无环依赖的 capability 主链，并产出首个业务纵切需要的事实和 artifact。
 
-Entry：Phase 2最小Versioned consumer纵切通过。若consumer evidence需要改变
-Phase 2 public contract，必须显式reopen owning contract或ADR。
+Entry：Phase 2 `P2-R1`至`P2-R6`全部完成且最小Versioned fixture-consumer纵切通过。
+P2实现期间不穿插Phase 3完整设计；P2-R5只实现contract-owned fixture consumer，不能
+借此提前决定业务capability或Submit verification policy。P2-R6 exit后才开始Phase 3
+完整设计。若consumer evidence需要改变Phase 2 public contract，必须显式reopen owning
+contract或ADR。
 
 Storage/comparison projection、artifact retention、ordered identity和business
 verification policy以
@@ -430,7 +438,10 @@ Operation 与业务 execution/effect evidence 的分界以 [External Effect and 
 - 大型 Comparison/Risk/Surface 结果必须通过 artifact/checkpoint 重载，不能依赖 Python 闭包。
 - 实现 retry、cancel、supersede、final failure 和 READY closure。
 - 建立 Repository remote operation 的 submit/poll/evidence checkpoint 模式，不占用线程阻塞等待。
-- Takeover `RUNNING` step 时先读取 durable checkpoint 与 Repository journal；`APPLIED/VERIFIED` 向前完成，`UNKNOWN` 只 reconcile，只有 explicit `NOT_APPLIED` evidence 才能用原 idempotency key replay。
+- Takeover `RUNNING` step时先读取durable checkpoint并以既有Repository operation ID
+  查询；SUCCEEDED进入T3，三种普通未发布stable failure允许abort，
+  MANUAL_RECOVERY_REQUIRED保持occupancy并等待operator。连接失败或timeout只继续查询，
+  不生成新key或blind replay。
 - 第一版保持顺序 step；只预留固定 fan-out/fan-in contract。
 
 ### 交付物
@@ -488,7 +499,7 @@ Workspace submit gate
   -> build/reuse one RepositoryImportArtifact
   -> Repository SubmitImport
   -> poll/checkpoint
-  -> structural import result + business-owned package/digest facts
+  -> policy-matching import result + business-owned package/digest facts
   -> create Submission/finalize Workspace (T3)
 ```
 

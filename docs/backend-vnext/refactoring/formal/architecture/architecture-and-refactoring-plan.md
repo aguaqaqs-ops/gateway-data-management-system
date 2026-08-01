@@ -298,7 +298,11 @@ worker
   -> publish READY or final failure
 ```
 
-跨 Repository Service 写 effect 必须采用 T1 业务验收、T2 journaled external effect、T3 VERIFIED 后业务 finalize。Worker 接管 `RUNNING` step 时先读取 Repository evidence；请求可能已接受后不得 blind replay。业务状态、Operation/outbox、effect evidence 的权威边界见 [External Effect and Recovery Contract](../contracts/external-effect-and-recovery.md)。
+跨Repository Service写effect必须采用T1业务验收、T2 durable external effect、T3核对
+matching SUCCEEDED result与requested/completed verification后业务finalize。Worker接管
+`RUNNING` step时先以既有operation identity查询Repository；请求可能已接受后不得
+blind replay。业务状态、Operation/outbox、effect result的权威边界见
+[External Effect and Recovery Contract](../contracts/external-effect-and-recovery.md)。
 
 ## 7. Capability 架构
 
@@ -448,7 +452,7 @@ CurrentTableStore或generic dual-store framework。
 - 哪个derived CandidateProjection/ArchivePlan可以生成import。
 - ruleset、storage/comparison projection、CanonicalizationManifest、SnapshotSummary、Comparison 和 Risk 语义。
 - 原始package向外部系统的备份。
-- 业务content digest、no-change判断和必要时的commit readback。
+- 业务content digest、no-change判断与选择Repository verification policy。
 - 业务 retention、审批、权限和状态机。
 
 独立CompareAndSetRef、rollback、promotion和审批发布等到出现真实consumer后再增加。
@@ -474,14 +478,18 @@ SubmitVersionedImport(
   artifact_ref,
   target_ref="main",
   expected_commit_id,
+  verification_policy="STRUCTURAL",
+  unknown_type_policy="REJECT",
   idempotency_key
 ) -> repository_operation_id
 ```
 
 `expected_commit_id`同时是新commit parent和target ref CAS预期。成功结果返回
-commit和ref，不返回服务端`repository_path`或`run_dir`。Service检查upload
-size/raw SHA、commit marker以及committed table/schema/row count，不提供
-verification level或全表业务digest readback。
+commit和ref，不返回服务端`repository_path`或`run_dir`。Service始终检查upload
+size/raw SHA、package safety、commit marker和mandatory commit CAS；caller选择
+NONE/STRUCTURAL/FULL_SCAN，默认STRUCTURAL。FULL_SCAN只做bounded read/type
+conversion/row-count检查，不提供业务digest或防篡改readback。未知type默认REJECT，
+caller可显式选择lossy STRINGIFY。
 
 Package固定为`manifest.json + replay.sql`的`tar+zstd`。`replay.sql`由受信Backend
 生成；Service只做固定文件、路径、大小和基本manifest检查。大型bytes不进入普通
@@ -612,7 +620,9 @@ Phase 0  canonical cases + necessary business golden
 同原则设计与DX现已闭合。当前把共享conformance、artifact和contract清理作为同一
 执行阶段，按DX plan分批提交。Phase 1 canonical
 bytes、Python/Rust核心和业务golden在清理中保持不变。联合清理完成后按修订计划
-交付最小Versioned Repository纵切；CurrentTableStore等能力等待真实consumer。
+交付最小Versioned Repository纵切；CurrentTableStore等能力等待真实consumer。Phase 3
+完整设计在P2-R1至P2-R6全部完成后开始；P2-R5只允许contract-owned fixture consumer，
+不提前设计Phase 3业务capability。
 进入Phase 5后仍按upload preview、submit、review、archive、history compare形成
 业务闭环。
 
@@ -648,8 +658,8 @@ bytes、Python/Rust核心和业务golden在清理中保持不变。联合清理�
 - Repository Service contract 不出现 Workspace、Submission、Archive、Baseline、History 等业务语义。
 - Repository首版只暴露Versioned-specific API；写操作具备CAS、幂等和operation
   marker，矛盾结果显式进入人工修复。
-- Repository使用单一内网bearer token；不包含per-repository ACL、caller-selected
-  verification level或通用治理surface。
+- Repository使用单一内网bearer token；不包含per-repository ACL或通用治理surface；
+  verification由caller显式选择且默认STRUCTURAL。
 - Raw SourcePackageArtifact 与 canonical Dolt state 权威分离，storage/comparison projection 分离。
 - Python/Rust canonical核心golden保持一致；普通fixture和CI不自建closure/evidence
   digest。

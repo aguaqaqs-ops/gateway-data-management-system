@@ -112,6 +112,9 @@ CLI与sql-server共享一个private Runner/Supervisor boundary：
 8. 分别以initial与new immutable CommitId读取，证明新commit可见且旧commit结果不变；
 9. 以fixed RecordBatch upper bound完成Arrow stream，记录time-to-first-batch、总rows、
    throughput和peak RSS；不得全表materialize；
+   同时记录known normalized SQL family的catalog spelling/driver value/Arrow mapping，
+   并验证一个unknown type在REJECT下失败、在STRINGIFY下保留NULL且输出带lossy metadata
+   的Arrow large_string；
 10. 在首批后取消stream，确认cursor/child及时关闭且下一次read不受污染；
 11. 重启provider和probe owner后重新验证commit、ref、marker、catalog和pinned read；
 12. 在repository rename前和rename后设置独立fault point。rename前失败不得出现visible
@@ -125,8 +128,8 @@ operation、worker pool或完整recovery state machine。
 
 至少使用以下workload：
 
-- `W0 correctness`：小型多表fixture，覆盖NULL、UTF-8、主要physical SQL type、单列与
-  复合primary key；
+- `W0 correctness`：小型多表fixture，覆盖NULL、UTF-8、Repository contract已知
+  normalized SQL family、一个unknown STRINGIFY样本、单列与复合primary key；
 - `W1 representative`：production-representative package，落在已确认10–100 MB范围，
   schema、row width、key/index和重复数据比例应接近当前consumer；
 - `W2 boundary`：至少一个接近200 MB的package；

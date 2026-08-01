@@ -26,7 +26,8 @@ DX确认：
 - 两种ref都只表达opaque location identity和raw transport integrity；
 - CanonicalizationManifest是Backend durable business authority，Repository import
   package是临时transport；
-- Repository只执行package structural validation，不依赖Shared Kernel或业务digest；
+- Repository执行package safety与caller-selected Repository verification，不依赖Shared
+  Kernel或业务digest；
 - semantic digest、raw SHA、Repository CommitId和idempotency key保持不同语义域；
 - ordinary package CI替代generic conformance/gate/evidence体系；
 - S02可以开始，并按本文规定的小批次顺序执行。
@@ -101,6 +102,8 @@ Storage Projection
 backend_package_ref
 canonicalization_manifest_ref
 canonicalization_manifest_digest
+requested_verification_policy
+unknown_type_policy
 upload_idempotency_key
 import_idempotency_key
 repository_id
@@ -146,21 +149,26 @@ closed shape、排序或validation规则；实现必须直接引用上述两个o
 
 - Storage Projection生成package并拥有manifest业务绑定；
 - Backend adapter只传输bytes与minimal raw integrity；
-- Repository按自己的contract验证结构、保存opaque manifest binding并执行import；
+- Repository按自己的contract验证package并执行caller-selected verification、保存
+  opaque manifest binding并执行import；
 - package不复制source/ruleset/projection/content/ordering digest；
 - Repository不使用Shared Kernel解析或重算任何business digest。
 
 Import operation request fingerprint至少绑定RepositoryId、RepositoryArtifactRef的
-全部字段、target ref、expected commit和idempotency key。成功result除operation、
-commit和target ref外，必须原样返回：
+全部字段、target ref、expected commit、verification policy、unknown type policy和
+idempotency key。成功result除operation、commit和target ref外，必须原样返回：
 
 ```text
 artifact_id
 canonicalization_manifest_digest
+expected_commit_id
+completed_verification_policy
+unknown_type_policy
 ```
 
-Backend T3必须同时核对artifact ID、manifest digest、expected parent和target ref；
-Repository的structural success不能替代business digest validation。
+Backend T3必须同时核对artifact ID、manifest digest、expected parent、target ref、
+requested/completed verification和unknown type policy；Repository任一verification
+success都不能替代business digest validation。
 
 ## 5. Digest and identity ownership
 

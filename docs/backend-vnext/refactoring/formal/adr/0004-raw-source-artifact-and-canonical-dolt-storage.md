@@ -8,9 +8,9 @@
 
 关联阶段：Phase 2、Phase 3、Slice 5A/5B
 
-2026-07-31 amendment：canonical content owner继续有效；Repository Service的
-caller-selected verification/FULL SnapshotManifest已由ADR 0009替代为固定
-table/schema/row-count structural check。ADR 0010进一步确认：产生有效
+2026-08-02 amendment：canonical content owner继续有效；Repository Service使用
+caller-selected NONE/STRUCTURAL/FULL_SCAN，默认STRUCTURAL，但任何level都不消费
+business digest或旧full-manifest evidence。ADR 0010进一步确认：产生有效
 Submission/commit的SourcePackageArtifact保持submission durable；
 `NO_CANONICAL_CHANGE`不提升retention；完整CanonicalizationManifest由Backend
 durable保存，临时Repository package只携带结构字段和opaque manifest digest。
@@ -25,9 +25,9 @@ SourcePackageArtifact 是原始上传权威；Dolt 只保存由版本化 table r
 
 Ordered table第一版保留`no`，以`gid`为主键；real gid为
 `1..3_999_999_999`，blank pseudo gid从`4_000_000_000`确定分配。每次import绑定
-CanonicalizationManifest和immutable RepositoryImportArtifact。Repository只检查
-committed table/schema/row count；业务content digest由Storage Projection/业务
-owner持有。SnapshotTableArtifact只在current Preview/active Attempt期间pin；
+CanonicalizationManifest和immutable RepositoryImportArtifact。Repository按caller
+选择执行自身verification；业务content digest由Storage Projection/业务owner持有。
+SnapshotTableArtifact只在current Preview/active Attempt期间pin；
 首版不长期复制full-row archive。RepositoryImportArtifact在Backend store和
 Repository Service中分别使用不同nominal ref/ID scope；两种ref都只保留opaque ID、
 media type、size和raw SHA，semantic metadata属于上述业务manifest。

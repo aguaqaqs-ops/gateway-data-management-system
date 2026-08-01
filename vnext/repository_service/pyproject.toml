@@ -9,12 +9,8 @@ authors = [
 requires-python = ">=3.14.6"
 dependencies = [
     "gateway-repository-contracts==0.1.0",
-    "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
 ]
-
-[project.scripts]
-gateway-repository-service = "gateway_repository_service:main"
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]
@@ -25,11 +21,8 @@ gateway-repository-contracts = { path = "../repository_contracts", editable = tr
 
 [dependency-groups]
 dev = [
-    "hypothesis==6.156.6",
     "mypy==2.3.0",
     "pytest==9.1.1",
-    "pytest-asyncio==1.4.0",
-    "pytest-cov==7.1.0",
     "ruff==0.15.21",
 ]
 
@@ -45,7 +38,3 @@ python_version = "3.14"
 strict = true
 mypy_path = "src"
 files = ["src/gateway_repository_service", "tests"]
-
-[[tool.mypy.overrides]]
-module = ["jsonschema", "jsonschema.*", "referencing", "referencing.*"]
-ignore_missing_imports = true

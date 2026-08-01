@@ -130,6 +130,25 @@ def test_forbidden_imports_inventory_present() -> None:
     }
 
 
+def test_repository_sources_do_not_import_non_repository_packages() -> None:
+    forbidden = (
+        "gateway_shared_kernel",
+        "gateway_backend",
+        "gateway_compute",
+        "gateway_conformance",
+    )
+    package_roots = (
+        REPO_ROOT / "vnext/repository_contracts/src",
+        REPO_ROOT / "vnext/repository_client/src",
+        REPO_ROOT / "vnext/repository_service/src",
+    )
+    for package_root in package_roots:
+        for source in package_root.rglob("*.py"):
+            text = source.read_text(encoding="utf-8")
+            for import_name in forbidden:
+                assert import_name not in text, source
+
+
 def test_backend_forbidden_dependency_and_import() -> None:
     inventory = _load_inventory()
     backend = inventory.get("backend", {})

@@ -1,1 +1,45 @@
-"""Gateway vNext Repository Service public contracts package."""
+"""Thin Versioned Repository Service DTOs."""
+
+from gateway_repository_contracts.errors import SimpleError
+from gateway_repository_contracts.versioned import (
+    CreateRepositoryRequest,
+    CreateRepositoryResponse,
+    GetOperationResponse,
+    GetVersionedCatalogResponse,
+    OperationStatus,
+    RepositoryArtifactRef,
+    ResolveVersionedRefRequest,
+    ResolveVersionedRefResponse,
+    SubmitVersionedImportRequest,
+    SubmitVersionedImportResponse,
+    StreamVersionedTableRowsRequest,
+    UploadArtifactRequest,
+    UploadArtifactResponse,
+    VersionedCatalog,
+    VersionedColumn,
+    VersionedImportResult,
+    VersionedOperation,
+    VersionedTable,
+)
+
+__all__ = [
+    "CreateRepositoryRequest",
+    "CreateRepositoryResponse",
+    "GetOperationResponse",
+    "GetVersionedCatalogResponse",
+    "OperationStatus",
+    "RepositoryArtifactRef",
+    "ResolveVersionedRefRequest",
+    "ResolveVersionedRefResponse",
+    "SimpleError",
+    "SubmitVersionedImportRequest",
+    "SubmitVersionedImportResponse",
+    "StreamVersionedTableRowsRequest",
+    "UploadArtifactRequest",
+    "UploadArtifactResponse",
+    "VersionedCatalog",
+    "VersionedColumn",
+    "VersionedImportResult",
+    "VersionedOperation",
+    "VersionedTable",
+]

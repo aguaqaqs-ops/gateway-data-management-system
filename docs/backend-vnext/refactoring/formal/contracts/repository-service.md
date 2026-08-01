@@ -343,6 +343,81 @@ process-local writer lock。不同Repository可以有限并行。
 保留简单的单包上限、并发上限和最低剩余磁盘admission。超限在接受新effect前返回
 429或503；不建设通用ResourcePolicy、per-caller quota或accounting subsystem。
 
+### 14.1 Durable-root layout and publication
+
+首个layout使用component-first结构，内部`layout_format_version`固定为integer `1`：
+
+```text
+<data_root>/
+  control/
+    layout.json
+    service.lock
+
+  versioned/
+    <repository_key>/
+
+  staging/
+    versioned/
+      <repository_key>.<nonce>/
+    artifacts/
+
+  artifacts/
+    <repository_key>/
+      staging/
+      ready/
+
+  service-state/
+  provider/
+```
+
+- `<repository_key>`是Service生成`RepositoryId`的lowercase UUID hex，不包含caller
+  提供的名称或路径片段；所有public response和log均不得暴露内部path。
+- `versioned/<repository_key>/`直接保存Dolt repository；sql-server候选的
+  `data_dir`只允许指向`versioned/`。
+- `control/`拥有layout marker和进程生命周期lock；`service-state/`留给后续
+  create/upload/import幂等与operation状态，P2-R1不选择或创建其持久化实现。
+- `artifacts/`是Repository-scoped临时transport；P2-R1只验证同filesystem staging
+  与publication primitive，不提前实现UploadArtifact生命周期。
+- `provider/`只保存最终选中provider需要的server-owned config/runtime metadata，
+  不保存caller secret或host path。
+- namespace按所属round惰性创建。P2-R1只使用disposable probe root；通过后固定首个
+  layout，P2-R2+才可在真实durable root激活相应namespace。
+
+未来CurrentTableStore只允许作为平级`current/<repository_key>/`component加法加入。
+当前不得创建`current/`、SQLite文件或Current marker，也不得为了目录复用引入
+StoreKind、generic store adapter、自动routing、dual-write或cross-store transaction。
+未来layout migration可以增加Current component，但不得搬迁或改写现有
+`versioned/` Dolt repository。`layout_format_version`是内部磁盘格式，不建立新的
+HTTP、package或DTO版本轴。
+
+首版支持Linux local或block-backed durable filesystem，包括经目标环境验证的Docker
+named volume。`control/`、`versioned/`、`staging/`、`artifacts/`、
+`service-state/`和`provider/`必须位于同一mounted filesystem。NFS、SMB、共享RWX
+volume、FUSE、tmpfs和container writable layer不属于首版production支持面；若目标
+部署需要其中任一项，必须重新执行P2-R1 filesystem probe并显式修订支持边界。
+
+Service在ASGI lifecycle开始时对`control/service.lock`取得非阻塞exclusive
+`flock`，并保持同一file descriptor直到进程退出。获取失败时进程不得进入ready；
+lock file本身不因正常或异常退出而删除。该lock是单一信任域内的advisory owner
+boundary，operator不得在Service运行时绕过它直接执行Dolt写命令。
+
+Service-owned publication使用以下barrier：
+
+1. 验证staging与target parent位于同一`st_dev`；
+2. 完成内容写入，并对Service-owned file执行flush和`fsync`；
+3. Dolt create场景等待provider正常完成，并在首次repository publication前同步
+   staged tree的regular file和directory；
+4. 在target不存在的前提下执行atomic rename；已存在target进入幂等、冲突或恢复
+   判断，不得静默覆盖；
+5. `fsync` source和target parent directory；
+6. 任一步失败均不得确认成功。
+
+`os.replace`只允许用于语义上允许替换的内部metadata，不用于新Repository或Artifact
+publication。Provider内部commit durability由Dolt拥有；Service的layout、artifact和
+状态publication继续遵守上述barrier。精确probe和provider selection由
+[P2-R1 Runtime and Provider Feasibility Contract](../plans/p2-r1-runtime-provider-feasibility.md)
+拥有。
+
 ## 15. Persistence and disaster recovery
 
 Versioned commit history永久保留。Repository Service不提供public backup/restore

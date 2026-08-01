@@ -134,6 +134,14 @@ Simplification完成后，Phase 2按纵切交付，不恢复旧WP编号和37 rev
 - filesystem staging、fsync和atomic rename；
 - 真实负载下测量Dolt import耗时和增量存储。
 
+本轮的component-first layout、target filesystem、offline CLI与sql-server matrix、
+受控process boundary、workload、hard gate和simplicity-first selection统一由
+[P2-R1 Runtime and Provider Feasibility Contract](p2-r1-runtime-provider-feasibility.md)
+拥有。实现不得从旧temporary Phase 2 ledger恢复其他provider/layout规则。
+
+当前状态：P2-R1 implementation design已闭合，本轮实现入口ready；P2-R1 feature和
+measurement尚未执行，P2-R2仍未开放。
+
 Exit：目标部署环境中create/import/read主机制可行。
 
 ### P2-R2 — Service shell and authentication

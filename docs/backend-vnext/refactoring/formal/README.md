@@ -17,6 +17,7 @@
 - [S02 Code Cleanup Execution Checklist](plans/s02-code-cleanup-execution-checklist.md)
 - [Phase 1 Implementation Design and Delivery Plan](plans/phase-1-implementation-design-and-delivery-plan.md)（历史设计）
 - [Phase 2 Implementation Design and Delivery Plan](plans/phase-2-implementation-design-and-delivery-plan.md)
+- [P2-R1 Runtime and Provider Feasibility Contract](plans/p2-r1-runtime-provider-feasibility.md)
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)
@@ -54,4 +55,5 @@
 当前阶段：S02 已完成。D01 Phase 0–1同原则简化设计、DX跨阶段接口协调和联合代码清理
 均已收口。旧 traceability/F0 report、generic conformance architecture、formal
 baseline lifecycle 和 exact-commit exit 不再是 authority。下一入口为 `P2-R1`；不得从
-历史材料恢复实现或提前激活 P2-R2–R6。
+历史材料恢复实现或提前激活 P2-R2–R6。P2-R1 implementation contract已Accepted，
+当前可直接进入本轮feasibility实现，不需要再次打开Phase 2总体设计。

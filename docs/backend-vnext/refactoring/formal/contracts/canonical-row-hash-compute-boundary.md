@@ -288,5 +288,4 @@ Module public：是。Persisted：Result metadata可进入 artifact manifest；r
 | --- | --- | --- |
 | 2026-07-22 | §4 decimal Arrow mapping：`decimal256` precision 上界由 `76` 修正为 **`65`** | Formal 内部一致性：与 Shared Canonical Encoding owner-declared decimal precision `1..=65` 及现有 `DeclaredType` 校验边界对齐；不改变 WP0–WP2 已验收 canonical scalar bytes |
 | 2026-07-22 | §4 semantic kind `null`：physical type 明确为 Arrow `DataType::Null`（闭合集） | WP3 R1 设计收敛：原“validity bitmap”表述与 `null` kind 混用且未闭合 physical type；non-`null` kind 的 nullable slot 仍由各 physical type 的 validity bitmap 表达（§3 `nullable` 规则） |
-| 2026-07-31 | Boundary v2、minimal failure/ArtifactRef和ordinary reopen | ADR 0010 Phase 0–1 proportional simplification；canonical scalar/row/content bytes不变 |
 | 2026-08-01 | 首发 Canonical Row Hash v1 重基线 | 当前没有外部 consumer 或 durable compatibility 义务；删除 pre-baseline fallback，canonical scalar/row/content bytes不变 |

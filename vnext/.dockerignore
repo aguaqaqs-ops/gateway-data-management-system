@@ -7,7 +7,6 @@ rust/target
 **/.ruff_cache
 **/*.so
 **/*.whl
-rust/
 deploy/env/.env
 docs/
 **/.cursor

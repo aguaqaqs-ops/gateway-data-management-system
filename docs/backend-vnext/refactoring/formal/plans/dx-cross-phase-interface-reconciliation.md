@@ -288,4 +288,4 @@ Kernel canonical corpus获得通过。
 - formal中D01、DX、S02状态一致；
 - 尚未修改代码、fixture、schema、lockfile或CI。
 
-DX完成后，下一步是`S02-C1`，不是直接开始P2 feature delivery。
+DX与S02现已完成，下一入口是`P2-R1`，不是直接开始后续 P2 feature delivery。

@@ -60,6 +60,6 @@ def test_v1_rejects_old_shape_and_unsupported_versions() -> None:
     assert bad_mapping.value.code == "COMPUTE_ARROW_MAPPING_VERSION_UNSUPPORTED"
 
 
-def test_v2_entrypoints_are_not_exposed() -> None:
+def test_legacy_entrypoints_are_not_exposed() -> None:
     assert not hasattr(gateway_compute, "canonical_row_hashes_v2")
     assert not hasattr(gateway_compute, "_canonical_row_hashes_v2_native")

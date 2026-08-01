@@ -4,10 +4,9 @@
 
 本文把 [整体架构总纲](../architecture/architecture-and-refactoring-plan.md) 转换为可执行的重构阶段。阶段编号表示主要依赖顺序，不表示必须完成整个水平层后才能继续；每一阶段只建设下一条业务纵切所需的最小能力，并保持可运行、可验证和可回退。
 
-2026-07-31过渡：Phase 2简化设计、D01 Phase 0–1同原则简化设计与DX cross-phase
-interface reconciliation均已闭合。下一步按
-[DX plan](dx-cross-phase-interface-reconciliation.md)从`S02-C1`开始分批执行
-Phase 0–2联合代码清理，最后才恢复修订后的Phase 2 feature delivery。该顺序由
+2026-08-01过渡：Phase 2简化设计、D01 Phase 0–1同原则简化设计、DX cross-phase
+interface reconciliation与S02联合代码清理均已闭合。下一入口为`P2-R1`，随后才按
+修订后的Phase 2 feature delivery恢复 Repository 能力。该顺序由
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 和[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)共同约束。
 

@@ -66,8 +66,9 @@ Phase 0–1的KEEP/SIMPLIFY/REMOVE边界。`DX`只协调真正共享的ArtifactR
 canonical package、digest owner、CI和package依赖，不重新打开已确认的Repository
 信任、安全或恢复边界。
 
-当前状态：`D2`、`D01`与`DX`均已闭合；`S02-C1`是下一实施步骤。S02必须遵守DX
-确定的nominal ArtifactRef、package binding、依赖图、ordinary CI与五提交顺序。
+当前状态：`D2`、`D01`、`DX`与`S02`均已闭合；下一入口为`P2-R1`。P2实现必须遵守DX
+确定的nominal ArtifactRef、package binding、依赖图与ordinary CI，不恢复旧五提交清理
+计划。
 
 联合代码清理仍使用小提交和独立checkpoint，不允许一次大爆炸提交。
 

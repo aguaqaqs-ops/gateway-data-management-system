@@ -51,6 +51,54 @@ if bad:
 PY
 }
 
+assert_installed_wheel_provenance() {
+  uv run --offline --no-sync python - <<'PY'
+import hashlib
+import importlib.metadata
+import json
+import os
+import sys
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+import gateway_compute
+import gateway_compute.gateway_compute as native
+
+source_root = Path(os.environ["NATIVE_KERNEL_SOURCE_ROOT"]).resolve()
+wheel_path = Path(os.environ["NATIVE_KERNEL_WHEEL_PATH"]).resolve()
+expected_sha256 = os.environ["NATIVE_KERNEL_WHEEL_SHA256"]
+module_file = Path(native.__file__).resolve()
+if module_file.is_relative_to(source_root):
+    raise SystemExit(f"native module came from editable/source tree: {module_file}")
+if not module_file.is_relative_to(Path(sys.prefix).resolve()):
+    raise SystemExit(f"native module is outside active environment: {module_file}")
+
+actual_sha256 = hashlib.sha256(wheel_path.read_bytes()).hexdigest()
+if actual_sha256 != expected_sha256:
+    raise SystemExit(f"wheel hash mismatch: {actual_sha256} != {expected_sha256}")
+
+dist = importlib.metadata.distribution("gateway-compute-python")
+direct_url = None
+for path in dist.files or []:
+    if path.name == "direct_url.json":
+        direct_url = json.loads(dist.locate_file(path).read_text(encoding="utf-8"))
+        break
+if not isinstance(direct_url, dict):
+    raise SystemExit("installed wheel is missing direct_url.json")
+origin_url = direct_url.get("url")
+if not isinstance(origin_url, str) or not origin_url.endswith(".whl"):
+    raise SystemExit(f"installed distribution origin is not a wheel: {origin_url!r}")
+origin_path = Path(unquote(urlparse(origin_url).path)).resolve()
+if origin_path != wheel_path:
+    raise SystemExit(f"installed wheel origin mismatch: {origin_path} != {wheel_path}")
+if not hasattr(gateway_compute, "canonical_row_hashes_v1"):
+    raise SystemExit("canonical_row_hashes_v1 is not importable from installed wheel")
+if hasattr(gateway_compute, "canonical_row_hashes_v2"):
+    raise SystemExit("legacy canonical_row_hashes_v2 leaked from installed wheel")
+print("wheel-smoke: provenance ok")
+PY
+}
+
 build_release_wheel() {
   local out_dir="$1"
   local python_interpreter
@@ -277,8 +325,12 @@ wheel_smoke() {
     wheel="$(ls -1 "${WHEEL_SMOKE_TMP}/dist"/*.whl | head -n 1)"
     echo "release wheel: ${wheel}"
 
+    export NATIVE_KERNEL_SOURCE_ROOT="${COMPUTE_PYTHON_ROOT}/python"
+    export NATIVE_KERNEL_WHEEL_PATH="${wheel}"
+    export NATIVE_KERNEL_WHEEL_SHA256="$(sha256sum "${wheel}" | awk '{print $1}')"
     uv pip install --offline --force-reinstall "${wheel}"
     assert_installed_extension_has_no_test_hooks
+    assert_installed_wheel_provenance
     run_installed_wheel_smoke_python "${wheel}"
   )
 }

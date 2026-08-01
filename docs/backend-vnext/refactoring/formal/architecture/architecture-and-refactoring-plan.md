@@ -4,15 +4,15 @@
 
 本文定义 backend vNext 整体重构的目标架构、模块边界和依赖规则。本文是重构总纲；详细实施阶段见 [Implementation Stages](../plans/implementation-stages.md)，精确语义由本目录的 owner-oriented contracts 和 ADR 规定。旧架构区的 `flows.md`、`operations.md`、`contracts/`、`capabilities/` 与 ADR 仅作为 legacy 证据；发生冲突时以本目录正式文档为准。
 
-2026-07-31过渡说明：WP1-R1旧设计checkpoint已经完成。安全、恢复、
+2026-08-01过渡说明：WP1-R1旧设计checkpoint已经完成。安全、恢复、
 Repository Service范围和交付控制遵循
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)。
 旧Phase 2完整双存储、全量evidence和exact-commit设计只解释历史checkpoint；
 不得据此启动旧计划WP1-R2+。D01 Phase 0–1简化设计已由
 [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)闭合；DX cross-phase
 interface reconciliation也已由
-[DX plan](../plans/dx-cross-phase-interface-reconciliation.md)闭合。当前下一步是
-`S02-C1`联合代码清理，不得跳到P2 feature delivery。
+[DX plan](../plans/dx-cross-phase-interface-reconciliation.md)闭合，S02联合代码清理已
+完成。当前下一入口为`P2-R1`，不得提前跳到后续 P2 feature delivery。
 
 ## 1. 目标与范围
 

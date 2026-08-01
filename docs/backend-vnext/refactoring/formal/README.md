@@ -51,8 +51,7 @@
 
 正式文档之间发生冲突时，应先暂停实现，明确语义 owner，并通过修改正式文档或新增 ADR 收口；不能依靠兼容代码长期维持两套含义。
 
-当前过渡：D01 Phase 0–1同原则简化设计与DX跨阶段接口协调均已收口。旧
-traceability/F0 report、generic conformance architecture、formal baseline lifecycle
-和exact-commit exit均不再是authority。下一步按
-[DX plan](plans/dx-cross-phase-interface-reconciliation.md)从`S02-C1`开始分批执行
-Phase 0–2联合代码清理；不得从历史材料恢复实现或直接跳到P2 feature delivery。
+当前阶段：S02 已完成。D01 Phase 0–1同原则简化设计、DX跨阶段接口协调和联合代码清理
+均已收口。旧 traceability/F0 report、generic conformance architecture、formal
+baseline lifecycle 和 exact-commit exit 不再是 authority。下一入口为 `P2-R1`；不得从
+历史材料恢复实现或提前激活 P2-R2–R6。

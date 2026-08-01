@@ -32,7 +32,6 @@ build-backend = "uv_build"
 dev = [
     "httpx==0.28.1",
     "hypothesis==6.156.6",
-    "jsonschema==4.26.0",
     "maturin==1.14.1",
     "mypy==2.3.0",
     "pytest==9.1.1",
@@ -43,9 +42,6 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = [
-    "pr_native: WP4 R4 PR-NATIVE artifact/data-path full-chain targeted suite",
-]
 
 [tool.ruff]
 line-length = 100
@@ -57,5 +53,5 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["gateway_compute", "gateway_compute.exceptions", "pyarrow", "jsonschema", "jsonschema.*", "referencing", "referencing.*"]
+module = ["gateway_compute", "gateway_compute.exceptions", "pyarrow"]
 ignore_missing_imports = true

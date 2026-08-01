@@ -5,7 +5,7 @@ use arrow_array::RecordBatch;
 use arrow_array::RecordBatchReader;
 use arrow_schema::{ArrowError, Schema};
 use gateway_compute_core::{
-    ComputeFailure, ComputeFailureCode, canonical_row_hashes_v1, parse_request,
+    ComputeFailure, ComputeFailureCode, canonical_row_hashes_v2, parse_request,
 };
 use pyo3::prelude::*;
 use pyo3_arrow::PyRecordBatchReader;
@@ -183,7 +183,7 @@ fn detached_parse_and_compute(
             test_hooks::maybe_panic(AdapterStage::Compute);
             test_hooks::maybe_hold(AdapterStage::Compute);
         }
-        canonical_row_hashes_v1(&request, boxed_reader).map(|output| {
+        canonical_row_hashes_v2(&request, boxed_reader).map(|output| {
             (
                 OutputBatchReader::new(output.output_batches),
                 output.result_jcs,
@@ -231,7 +231,7 @@ impl Iterator for OutputBatchReader {
     }
 }
 
-pub fn canonical_row_hashes_v1_native(
+pub fn canonical_row_hashes_v2_native(
     py: Python<'_>,
     request_jcs: &[u8],
     input_stream: &Bound<'_, PyAny>,

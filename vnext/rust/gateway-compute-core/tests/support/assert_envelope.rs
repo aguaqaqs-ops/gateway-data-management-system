@@ -21,9 +21,7 @@ pub fn assert_envelope_fields(
         object.get("code").and_then(Value::as_str),
         Some(expected.as_str())
     );
-    assert_eq!(
-        object.get("diagnostics").and_then(Value::as_array),
-        Some(&Vec::new())
-    );
+    assert!(object.get("message").and_then(Value::as_str).is_some());
+    assert_eq!(object.len(), 2);
     Ok(())
 }

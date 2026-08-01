@@ -351,7 +351,7 @@ pub(crate) fn run_python_thread_progress_suite() -> Result<(), String> {
                 .map_err(|error| error.to_string())?
                 .unbind();
             probe_python_thread_progress(py, stage, true, |py| {
-                adapter::canonical_row_hashes_v1_native(
+                adapter::canonical_row_hashes_v2_native(
                     py,
                     super::support::minimal_empty_request_jcs(),
                     stream.bind(py),
@@ -391,7 +391,7 @@ pub(crate) fn run_python_thread_progress_suite() -> Result<(), String> {
             .map_err(|error| error.to_string())?
             .unbind();
         probe_python_thread_progress(py, AdapterStage::Parse, false, |py| {
-            adapter::canonical_row_hashes_v1_native(
+            adapter::canonical_row_hashes_v2_native(
                 py,
                 super::support::minimal_empty_request_jcs(),
                 stream.bind(py),

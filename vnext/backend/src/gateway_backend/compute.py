@@ -1,9 +1,11 @@
+"""Backend facade for the v2 canonical row-hash capability."""
+
 import pyarrow as pa
 
-from gateway_compute import canonical_row_hashes_v1 as _native
+from gateway_compute import canonical_row_hashes_v2 as _native
 
 
-def canonical_row_hashes_v1(
+def canonical_row_hashes_v2(
     request_jcs: bytes,
     data: pa.RecordBatch | pa.Table | pa.RecordBatchReader,
 ) -> tuple[pa.RecordBatchReader, bytes]:

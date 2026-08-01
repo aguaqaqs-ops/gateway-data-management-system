@@ -176,21 +176,17 @@ import sys
 import pyarrow as pa
 
 import gateway_compute
-from gateway_compute import canonical_row_hashes_v1
+from gateway_compute import canonical_row_hashes_v2
 
 OUTPUT_ROW_HASH_SCHEMA = pa.schema([pa.field("row_hash", pa.binary(32), nullable=False)])
 
 
 def request_jcs(fields):
     payload = {
-        "request_schema_version": 1,
-        "contract_binding": {
-            "contract_id": "gateway-vnext.canonical-row-hash-compute-boundary",
-            "semantic_version": "1.0.0",
-        },
+        "boundary_version": 2,
         "canonical_encoding_version": 1,
-        "arrow_mapping_schema_version": 1,
-        "declared_table_schema": {"fields": fields},
+        "arrow_mapping_version": 1,
+        "declared_fields": fields,
     }
     return json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
 
@@ -207,7 +203,7 @@ def assert_sorted_unsigned_lexicographic(hashes):
 
 
 reader = pa.RecordBatchReader.from_batches(pa.schema([]), [])
-output, result_jcs = canonical_row_hashes_v1(request_jcs([]), reader)
+output, result_jcs = canonical_row_hashes_v2(request_jcs([]), reader)
 assert isinstance(output, pa.RecordBatchReader)
 assert b'"row_count":"0"' in result_jcs
 assert read_row_hashes(output) == []
@@ -225,7 +221,7 @@ multi_reader = pa.RecordBatchReader.from_batches(
         pa.record_batch([pa.array(["beta", "gamma"], type=pa.string())], schema=schema),
     ],
 )
-output, result_jcs = canonical_row_hashes_v1(request_jcs(fields), multi_reader)
+output, result_jcs = canonical_row_hashes_v2(request_jcs(fields), multi_reader)
 hashes = read_row_hashes(output)
 assert b'"row_count":"3"' in result_jcs
 assert len(hashes) == 3
@@ -238,7 +234,7 @@ print("wheel-smoke: multi-batch ok")
 
 dup_batch = pa.record_batch([pa.array(["x", "x"], type=pa.string())], schema=schema)
 dup_reader = pa.RecordBatchReader.from_batches(schema, [dup_batch])
-output, result_jcs = canonical_row_hashes_v1(request_jcs(fields), dup_reader)
+output, result_jcs = canonical_row_hashes_v2(request_jcs(fields), dup_reader)
 hashes = read_row_hashes(output)
 assert b'"row_count":"2"' in result_jcs
 assert len(hashes) == 2
@@ -289,9 +285,7 @@ component_pytest() {
   cd "${BACKEND_ROOT}"
   export UV_OFFLINE=true
   uv run --offline --no-sync pytest -q \
-    "${COMPUTE_PYTHON_ROOT}/tests/test_component_gil.py" \
-    "${COMPUTE_PYTHON_ROOT}/tests/test_component_determinism.py" \
-    "${COMPUTE_PYTHON_ROOT}/tests/test_component_failure.py"
+    "${COMPUTE_PYTHON_ROOT}/tests/test_v2.py"
 }
 
 case "${MODE}" in

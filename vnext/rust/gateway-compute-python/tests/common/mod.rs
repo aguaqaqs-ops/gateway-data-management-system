@@ -84,18 +84,12 @@ pub fn assert_envelope_exact(
 ) -> Result<(), String> {
     let value = py_err.value(py);
     let envelope: Vec<u8> = value
-        .getattr("envelope_jcs")
+        .getattr("failure_jcs")
         .map_err(|error: PyErr| error.to_string())?
         .extract()
         .map_err(|error: PyErr| error.to_string())?;
     if envelope.is_empty() {
-        return Err("envelope_jcs must be non-empty".to_string());
-    }
-    if !envelope
-        .windows(16)
-        .any(|window| window == br#""diagnostics":[]"#)
-    {
-        return Err("envelope must contain diagnostics=[]".to_string());
+        return Err("failure_jcs must be non-empty".to_string());
     }
     if envelope != expected_jcs {
         return Err(format!(
@@ -108,7 +102,7 @@ pub fn assert_envelope_exact(
 }
 
 pub fn minimal_empty_request_jcs() -> &'static [u8] {
-    br#"{"arrow_mapping_schema_version":1,"canonical_encoding_version":1,"contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"declared_table_schema":{"fields":[]},"request_schema_version":1}"#
+    br#"{"arrow_mapping_version":1,"boundary_version":2,"canonical_encoding_version":1,"declared_fields":[]}"#
 }
 
 pub struct EmptyBatchReader {

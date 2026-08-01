@@ -49,7 +49,7 @@ fn call_native(
     request_jcs: &[u8],
     input_stream: &Bound<'_, PyAny>,
 ) -> Result<Result<(), PyErr>, String> {
-    let err = match adapter::canonical_row_hashes_v1_native(py, request_jcs, input_stream) {
+    let err = match adapter::canonical_row_hashes_v2_native(py, request_jcs, input_stream) {
         Ok(_) => return Ok(Ok(())),
         Err(error) => error,
     };

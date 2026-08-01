@@ -48,7 +48,7 @@ impl Iterator for EmptyBatchReader {
 
 fn call_native_empty(py: Python<'_>, request_jcs: &[u8], stream: Py<PyAny>) -> Result<(), String> {
     let bound = stream.bind(py);
-    adapter::canonical_row_hashes_v1_native(py, request_jcs, bound)
+    adapter::canonical_row_hashes_v2_native(py, request_jcs, bound)
         .map(|_| ())
         .map_err(|error| error.to_string())
 }
@@ -107,7 +107,7 @@ fn kernel_component_gil_boundaries_inner() -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         let module = PyModule::import(py, "gateway_compute").map_err(|error| error.to_string())?;
         let func = module
-            .getattr("_canonical_row_hashes_v1_native")
+            .getattr("_canonical_row_hashes_v2_native")
             .map_err(|error| error.to_string())?;
         func.call1((minimal_empty_request_jcs(), stream))
             .map(|_| ())

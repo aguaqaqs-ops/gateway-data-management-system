@@ -2,12 +2,10 @@ use arrow_schema::ArrowError;
 use gateway_shared_kernel::{CanonicalEncodingError, canonicalize_jcs};
 use serde::Serialize;
 
-use crate::contract::{CONTRACT_ID, FAILURE_SCHEMA_VERSION, SEMANTIC_VERSION};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComputeFailureCode {
     ComputeRequestSchemaInvalid,
-    ComputeContractVersionUnsupported,
+    ComputeBoundaryVersionUnsupported,
     ComputeCanonicalVersionUnsupported,
     ComputeArrowMappingVersionUnsupported,
     ArrowStreamImportFailed,
@@ -24,7 +22,7 @@ impl ComputeFailureCode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ComputeRequestSchemaInvalid => "COMPUTE_REQUEST_SCHEMA_INVALID",
-            Self::ComputeContractVersionUnsupported => "COMPUTE_CONTRACT_VERSION_UNSUPPORTED",
+            Self::ComputeBoundaryVersionUnsupported => "COMPUTE_BOUNDARY_VERSION_UNSUPPORTED",
             Self::ComputeCanonicalVersionUnsupported => "COMPUTE_CANONICAL_VERSION_UNSUPPORTED",
             Self::ComputeArrowMappingVersionUnsupported => {
                 "COMPUTE_ARROW_MAPPING_VERSION_UNSUPPORTED"
@@ -40,30 +38,20 @@ impl ComputeFailureCode {
         }
     }
 
-    pub const fn stage(self) -> &'static str {
+    pub const fn message(self) -> &'static str {
         match self {
-            Self::ComputeRequestSchemaInvalid
-            | Self::ComputeContractVersionUnsupported
-            | Self::ComputeCanonicalVersionUnsupported
-            | Self::ComputeArrowMappingVersionUnsupported => "request",
-            Self::ArrowStreamImportFailed => "arrow-import",
-            Self::ArrowTypeUnsupported | Self::ArrowSchemaMismatch => "schema",
-            Self::CanonicalValueInvalid => "canonicalize",
-            Self::RowHashComputeFailed | Self::ResourceLimitExceeded | Self::NativePanic => {
-                "compute"
-            }
-            Self::ArrowStreamExportFailed => "arrow-export",
-        }
-    }
-
-    pub const fn effect(self) -> &'static str {
-        "NONE"
-    }
-
-    pub const fn retry_class(self) -> &'static str {
-        match self {
-            Self::ResourceLimitExceeded | Self::NativePanic => "SAFE_WITH_POLICY",
-            _ => "NEVER",
+            Self::ComputeRequestSchemaInvalid => "compute request schema is invalid",
+            Self::ComputeBoundaryVersionUnsupported => "compute boundary version is unsupported",
+            Self::ComputeCanonicalVersionUnsupported => "canonical encoding version is unsupported",
+            Self::ComputeArrowMappingVersionUnsupported => "Arrow mapping version is unsupported",
+            Self::ArrowStreamImportFailed => "Arrow stream import failed",
+            Self::ArrowTypeUnsupported => "Arrow type is unsupported",
+            Self::ArrowSchemaMismatch => "input Arrow schema does not match declared fields",
+            Self::CanonicalValueInvalid => "canonical value is invalid",
+            Self::RowHashComputeFailed => "canonical row hash computation failed",
+            Self::ResourceLimitExceeded => "compute resource limit exceeded",
+            Self::ArrowStreamExportFailed => "Arrow stream export failed",
+            Self::NativePanic => "native compute panicked",
         }
     }
 }
@@ -80,16 +68,8 @@ impl ComputeFailure {
 
     pub fn to_envelope_jcs(&self) -> Result<Vec<u8>, ComputeFailure> {
         let envelope = FailureEnvelope {
-            failure_schema_version: FAILURE_SCHEMA_VERSION,
-            contract_binding: ContractBinding {
-                contract_id: CONTRACT_ID.to_string(),
-                semantic_version: SEMANTIC_VERSION.to_string(),
-            },
             code: self.code.as_str().to_string(),
-            stage: self.code.stage().to_string(),
-            effect: self.code.effect().to_string(),
-            retry_class: self.code.retry_class().to_string(),
-            diagnostics: Vec::<String>::new(),
+            message: self.code.message().to_string(),
         };
         let json = serde_json::to_vec(&envelope)
             .map_err(|_| ComputeFailure::new(ComputeFailureCode::RowHashComputeFailed))?;
@@ -112,19 +92,8 @@ impl From<ArrowError> for ComputeFailure {
 
 #[derive(Debug, Serialize)]
 struct FailureEnvelope {
-    failure_schema_version: u32,
-    contract_binding: ContractBinding,
     code: String,
-    stage: String,
-    effect: String,
-    retry_class: String,
-    diagnostics: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct ContractBinding {
-    contract_id: String,
-    semantic_version: String,
+    message: String,
 }
 
 #[cfg(test)]
@@ -132,14 +101,15 @@ mod tests {
     use super::{ComputeFailure, ComputeFailureCode};
 
     #[test]
-    fn failure_envelope_has_empty_diagnostics() -> Result<(), String> {
+    fn failure_has_only_owning_fields() -> Result<(), String> {
         let failure = ComputeFailure::new(ComputeFailureCode::ArrowSchemaMismatch);
         let wire = failure
             .to_envelope_jcs()
             .map_err(|error| format!("{error:?}"))?;
         let text = String::from_utf8(wire).map_err(|error| error.to_string())?;
-        assert!(text.contains("\"diagnostics\":[]"));
         assert!(text.contains("ARROW_SCHEMA_MISMATCH"));
+        assert!(text.contains("\"message\":"));
+        assert!(!text.contains("contract_binding"));
         Ok(())
     }
 }

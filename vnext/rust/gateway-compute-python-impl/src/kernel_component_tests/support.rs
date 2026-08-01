@@ -61,40 +61,40 @@ pub fn is_exception_type(py: Python<'_>, err: &PyErr, type_name: &str) -> Result
 pub fn golden_envelope(code: ComputeFailureCode) -> &'static [u8] {
     match code {
         ComputeFailureCode::ComputeRequestSchemaInvalid => {
-            br#"{"code":"COMPUTE_REQUEST_SCHEMA_INVALID","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"request"}"#
+            br#"{"code":"COMPUTE_REQUEST_SCHEMA_INVALID","message":"compute request schema is invalid"}"#
         }
-        ComputeFailureCode::ComputeContractVersionUnsupported => {
-            br#"{"code":"COMPUTE_CONTRACT_VERSION_UNSUPPORTED","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"request"}"#
+        ComputeFailureCode::ComputeBoundaryVersionUnsupported => {
+            br#"{"code":"COMPUTE_BOUNDARY_VERSION_UNSUPPORTED","message":"compute boundary version is unsupported"}"#
         }
         ComputeFailureCode::ComputeCanonicalVersionUnsupported => {
-            br#"{"code":"COMPUTE_CANONICAL_VERSION_UNSUPPORTED","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"request"}"#
+            br#"{"code":"COMPUTE_CANONICAL_VERSION_UNSUPPORTED","message":"canonical encoding version is unsupported"}"#
         }
         ComputeFailureCode::ComputeArrowMappingVersionUnsupported => {
-            br#"{"code":"COMPUTE_ARROW_MAPPING_VERSION_UNSUPPORTED","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"request"}"#
+            br#"{"code":"COMPUTE_ARROW_MAPPING_VERSION_UNSUPPORTED","message":"Arrow mapping version is unsupported"}"#
         }
         ComputeFailureCode::ArrowStreamImportFailed => {
-            br#"{"code":"ARROW_STREAM_IMPORT_FAILED","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"arrow-import"}"#
+            br#"{"code":"ARROW_STREAM_IMPORT_FAILED","message":"Arrow stream import failed"}"#
         }
         ComputeFailureCode::ArrowTypeUnsupported => {
-            br#"{"code":"ARROW_TYPE_UNSUPPORTED","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"schema"}"#
+            br#"{"code":"ARROW_TYPE_UNSUPPORTED","message":"Arrow type is unsupported"}"#
         }
         ComputeFailureCode::ArrowSchemaMismatch => {
-            br#"{"code":"ARROW_SCHEMA_MISMATCH","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"schema"}"#
+            br#"{"code":"ARROW_SCHEMA_MISMATCH","message":"input Arrow schema does not match declared fields"}"#
         }
         ComputeFailureCode::CanonicalValueInvalid => {
-            br#"{"code":"CANONICAL_VALUE_INVALID","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"canonicalize"}"#
+            br#"{"code":"CANONICAL_VALUE_INVALID","message":"canonical value is invalid"}"#
         }
         ComputeFailureCode::RowHashComputeFailed => {
-            br#"{"code":"ROW_HASH_COMPUTE_FAILED","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"compute"}"#
+            br#"{"code":"ROW_HASH_COMPUTE_FAILED","message":"canonical row hash computation failed"}"#
         }
         ComputeFailureCode::ResourceLimitExceeded => {
-            br#"{"code":"RESOURCE_LIMIT_EXCEEDED","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"SAFE_WITH_POLICY","stage":"compute"}"#
+            br#"{"code":"RESOURCE_LIMIT_EXCEEDED","message":"compute resource limit exceeded"}"#
         }
         ComputeFailureCode::ArrowStreamExportFailed => {
-            br#"{"code":"ARROW_STREAM_EXPORT_FAILED","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"arrow-export"}"#
+            br#"{"code":"ARROW_STREAM_EXPORT_FAILED","message":"Arrow stream export failed"}"#
         }
         ComputeFailureCode::NativePanic => {
-            br#"{"code":"NATIVE_PANIC","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"SAFE_WITH_POLICY","stage":"compute"}"#
+            br#"{"code":"NATIVE_PANIC","message":"native compute panicked"}"#
         }
     }
 }
@@ -128,21 +128,21 @@ pub fn assert_golden_envelope(
             code.as_str()
         ));
     }
-    let envelope: Vec<u8> = value
-        .getattr("envelope_jcs")
+    let failure: Vec<u8> = value
+        .getattr("failure_jcs")
         .map_err(|error: PyErr| error.to_string())?
         .extract()
         .map_err(|error: PyErr| error.to_string())?;
-    if envelope != golden_envelope(code) {
+    if failure != golden_envelope(code) {
         return Err(format!(
-            "envelope mismatch:\nexpected: {}\ngot: {}",
+            "failure mismatch:\nexpected: {}\ngot: {}",
             String::from_utf8_lossy(golden_envelope(code)),
-            String::from_utf8_lossy(&envelope)
+            String::from_utf8_lossy(&failure)
         ));
     }
     Ok(())
 }
 
 pub fn minimal_empty_request_jcs() -> &'static [u8] {
-    br#"{"arrow_mapping_schema_version":1,"canonical_encoding_version":1,"contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"declared_table_schema":{"fields":[]},"request_schema_version":1}"#
+    br#"{"arrow_mapping_version":1,"boundary_version":2,"canonical_encoding_version":1,"declared_fields":[]}"#
 }

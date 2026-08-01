@@ -5,10 +5,7 @@ use gateway_shared_kernel::{
 };
 use serde_json::{Map, Value};
 
-use crate::contract::{
-    ARROW_MAPPING_SCHEMA_VERSION, CANONICAL_ENCODING_VERSION, CONTRACT_ID, REQUEST_SCHEMA_VERSION,
-    SEMANTIC_VERSION,
-};
+use crate::contract::{ARROW_MAPPING_SCHEMA_VERSION, BOUNDARY_VERSION, CANONICAL_ENCODING_VERSION};
 use crate::errors::{ComputeFailure, ComputeFailureCode};
 use crate::schema_digest::table_schema_digest;
 
@@ -56,22 +53,19 @@ pub fn parse_request(request_jcs: &[u8]) -> Result<ParsedRequest, ComputeFailure
     validate_closed_object(
         object,
         &[
-            "request_schema_version",
-            "contract_binding",
+            "boundary_version",
             "canonical_encoding_version",
-            "arrow_mapping_schema_version",
-            "declared_table_schema",
+            "arrow_mapping_version",
+            "declared_fields",
         ],
     )?;
 
-    let request_schema_version = required_u32(object, "request_schema_version")?;
-    if request_schema_version != REQUEST_SCHEMA_VERSION {
+    let boundary_version = required_u32(object, "boundary_version")?;
+    if boundary_version != BOUNDARY_VERSION {
         return Err(ComputeFailure::new(
-            ComputeFailureCode::ComputeRequestSchemaInvalid,
+            ComputeFailureCode::ComputeBoundaryVersionUnsupported,
         ));
     }
-
-    validate_contract_binding(required_object(object, "contract_binding")?)?;
 
     let canonical_encoding_version = required_u32(object, "canonical_encoding_version")?;
     if canonical_encoding_version != CANONICAL_ENCODING_VERSION {
@@ -80,16 +74,14 @@ pub fn parse_request(request_jcs: &[u8]) -> Result<ParsedRequest, ComputeFailure
         ));
     }
 
-    let arrow_mapping_schema_version = required_u32(object, "arrow_mapping_schema_version")?;
-    if arrow_mapping_schema_version != ARROW_MAPPING_SCHEMA_VERSION {
+    let arrow_mapping_version = required_u32(object, "arrow_mapping_version")?;
+    if arrow_mapping_version != ARROW_MAPPING_SCHEMA_VERSION {
         return Err(ComputeFailure::new(
             ComputeFailureCode::ComputeArrowMappingVersionUnsupported,
         ));
     }
 
-    let declared_table_schema = required_object(object, "declared_table_schema")?;
-    validate_closed_object(declared_table_schema, &["fields"])?;
-    let fields_value = required_array(declared_table_schema, "fields")?;
+    let fields_value = required_array(object, "declared_fields")?;
     let mut fields = Vec::with_capacity(fields_value.len());
     for field_value in fields_value {
         let field_object = field_value
@@ -132,23 +124,6 @@ pub(crate) fn check_canonical_name_collisions(
                 ComputeFailureCode::CanonicalValueInvalid,
             ));
         }
-    }
-    Ok(())
-}
-
-fn validate_contract_binding(object: &Map<String, Value>) -> Result<(), ComputeFailure> {
-    validate_closed_object(object, &["contract_id", "semantic_version"])?;
-    let contract_id = required_string(object, "contract_id")?;
-    let semantic_version = required_string(object, "semantic_version")?;
-    if contract_id != CONTRACT_ID {
-        return Err(ComputeFailure::new(
-            ComputeFailureCode::ComputeContractVersionUnsupported,
-        ));
-    }
-    if semantic_version != SEMANTIC_VERSION {
-        return Err(ComputeFailure::new(
-            ComputeFailureCode::ComputeContractVersionUnsupported,
-        ));
     }
     Ok(())
 }

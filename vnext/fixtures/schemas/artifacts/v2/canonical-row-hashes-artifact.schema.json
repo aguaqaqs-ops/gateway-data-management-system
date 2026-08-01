@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vnext.artifacts.canonical-row-hashes-artifact.v2",
+  "title": "CanonicalRowHashesArtifact Content Manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "content_schema_id",
+    "media_type",
+    "boundary_version",
+    "canonical_encoding_version",
+    "arrow_mapping_version",
+    "raw_content_digest",
+    "table_schema_digest",
+    "row_count"
+  ],
+  "properties": {
+    "content_schema_id": {
+      "const": "gateway-vnext.canonical-row-hash.canonical-row-hashes-artifact.v2"
+    },
+    "media_type": {
+      "const": "application/vnd.apache.arrow.stream"
+    },
+    "boundary_version": {
+      "type": "integer",
+      "const": 2
+    },
+    "canonical_encoding_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "arrow_mapping_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "raw_content_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "table_schema_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "row_count": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)$"
+    }
+  }
+}

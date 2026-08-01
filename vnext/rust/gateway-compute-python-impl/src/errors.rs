@@ -5,7 +5,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
 /// Canonical JCS bytes for `ROW_HASH_COMPUTE_FAILED`; used when live serialization fails.
-const ROW_HASH_COMPUTE_FAILED_ENVELOPE_JCS: &[u8] = br#"{"code":"ROW_HASH_COMPUTE_FAILED","contract_binding":{"contract_id":"gateway-vnext.canonical-row-hash-compute-boundary","semantic_version":"1.0.0"},"diagnostics":[],"effect":"NONE","failure_schema_version":1,"retry_class":"NEVER","stage":"compute"}"#;
+const ROW_HASH_COMPUTE_FAILED_FAILURE_JCS: &[u8] =
+    br#"{"code":"ROW_HASH_COMPUTE_FAILED","message":"canonical row hash computation failed"}"#;
 
 create_exception!(
     gateway_compute,
@@ -44,7 +45,7 @@ pub fn register_exceptions(module: &Bound<'_, PyModule>) -> PyResult<()> {
 pub fn failure_to_pyerr(py: Python<'_>, failure: ComputeFailure) -> PyErr {
     let (envelope_jcs, failure) = envelope_for_pyerr(failure);
     let code = failure.code.as_str();
-    let stage = failure.code.stage();
+    let message = failure.code.message();
 
     let py_err = match failure.code {
         ComputeFailureCode::CanonicalValueInvalid => CanonicalValueError::new_err(code),
@@ -55,7 +56,7 @@ pub fn failure_to_pyerr(py: Python<'_>, failure: ComputeFailure) -> PyErr {
         _ => ComputeRequestError::new_err(code),
     };
 
-    attach_failure_attrs(py, &py_err, &envelope_jcs, code, stage);
+    attach_failure_attrs(py, &py_err, &envelope_jcs, code, message);
     py_err
 }
 
@@ -63,7 +64,7 @@ fn envelope_for_pyerr(failure: ComputeFailure) -> (Vec<u8>, ComputeFailure) {
     match failure.to_envelope_jcs() {
         Ok(envelope_jcs) => (envelope_jcs, failure),
         Err(_) => (
-            ROW_HASH_COMPUTE_FAILED_ENVELOPE_JCS.to_vec(),
+            ROW_HASH_COMPUTE_FAILED_FAILURE_JCS.to_vec(),
             ComputeFailure::new(ComputeFailureCode::RowHashComputeFailed),
         ),
     }
@@ -88,12 +89,12 @@ fn attach_failure_attrs(
     py_err: &PyErr,
     envelope_jcs: &[u8],
     code: &str,
-    stage: &str,
+    message: &str,
 ) {
     let value = py_err.value(py);
-    let _ = value.setattr("envelope_jcs", PyBytes::new(py, envelope_jcs));
+    let _ = value.setattr("failure_jcs", PyBytes::new(py, envelope_jcs));
     let _ = value.setattr("code", code);
-    let _ = value.setattr("stage", stage);
+    let _ = value.setattr("message", message);
 }
 
 #[cfg(test)]
@@ -108,17 +109,18 @@ mod tests {
                 Ok(bytes) => bytes,
                 Err(failure) => panic!("live envelope: {failure:?}"),
             };
-        assert_eq!(live.as_slice(), ROW_HASH_COMPUTE_FAILED_ENVELOPE_JCS);
+        assert_eq!(live.as_slice(), ROW_HASH_COMPUTE_FAILED_FAILURE_JCS);
     }
 
     #[test]
     #[allow(clippy::panic)]
     fn static_fallback_envelope_is_non_empty_and_closed() {
-        assert!(!ROW_HASH_COMPUTE_FAILED_ENVELOPE_JCS.is_empty());
-        match std::str::from_utf8(ROW_HASH_COMPUTE_FAILED_ENVELOPE_JCS) {
+        assert!(!ROW_HASH_COMPUTE_FAILED_FAILURE_JCS.is_empty());
+        match std::str::from_utf8(ROW_HASH_COMPUTE_FAILED_FAILURE_JCS) {
             Ok(text) => {
                 assert!(text.contains("ROW_HASH_COMPUTE_FAILED"));
-                assert!(text.contains("\"diagnostics\":[]"));
+                assert!(text.contains("\"message\":"));
+                assert!(!text.contains("contract_binding"));
             }
             Err(error) => panic!("utf8: {error}"),
         }

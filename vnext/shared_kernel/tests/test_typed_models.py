@@ -23,12 +23,7 @@ _EXPECTED_DIGEST_KINDS = frozenset(
         "row",
         "raw-content",
         "collection-item",
-        "vector-set",
         "table-schema",
-        "scenario-input",
-        "scenario-fixture",
-        "run-evidence",
-        "canonical-table-result",
     }
 )
 

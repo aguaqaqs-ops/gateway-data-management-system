@@ -1,7 +1,0 @@
-{
-  "policies": {
-    "test-sanitization-policy": {
-      "versions": [1]
-    }
-  }
-}

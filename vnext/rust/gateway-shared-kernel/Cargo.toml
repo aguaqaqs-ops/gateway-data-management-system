@@ -21,5 +21,3 @@ thiserror.workspace = true
 
 [dev-dependencies]
 base64.workspace = true
-jsonschema.workspace = true
-serde_json_canonicalizer.workspace = true

@@ -19,6 +19,80 @@ use support::request::{minimal_request, pretty_request};
 use support::runner::{run_err, run_ok};
 
 #[test]
+fn mixed_scalar_golden_direct_owner_path() -> Result<(), String> {
+    let fields = r#"[
+      {"name":"z_label","nullable":true,"semantic_type":{"kind":"string"}},
+      {"name":"a_id","nullable":false,"semantic_type":{"kind":"signed-integer","bits":32}},
+      {"name":"m_flag","nullable":true,"semantic_type":{"kind":"boolean"}},
+      {"name":"amount","nullable":false,"semantic_type":{"kind":"decimal","precision":10,"scale":2}}
+    ]"#;
+    let batch = batch_with_fields(
+        vec![
+            Field::new("z_label", DataType::Utf8, true),
+            Field::new("a_id", DataType::Int32, false),
+            Field::new("m_flag", DataType::Boolean, true),
+            Field::new("amount", DataType::Decimal128(10, 2), false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![
+                Some("beta"),
+                Some("alpha"),
+                Some("beta"),
+            ])),
+            Arc::new(Int32Array::from(vec![Some(2), Some(1), Some(2)])),
+            Arc::new(BooleanArray::from(vec![Some(true), None, Some(true)])),
+            Arc::new(
+                Decimal128Array::from(vec![Some(1_250), Some(-300), Some(1_250)])
+                    .with_precision_and_scale(10, 2)
+                    .map_err(|error| error.to_string())?,
+            ),
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    let output = run_ok(fields, vec![batch])?;
+
+    let expected_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/golden/canonical-row-hash/mixed-scalars/expected.json"
+    );
+    let expected: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(expected_path).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let result: serde_json::Value =
+        serde_json::from_slice(&output.result_jcs).map_err(|error| error.to_string())?;
+    for key in ["row_count", "raw_content_digest", "table_schema_digest"] {
+        if result.get(key) != expected.get(key) {
+            return Err(format!("{key} differs from mixed scalar golden"));
+        }
+    }
+    let actual_hashes = row_hash_column_bytes(&output.output_batches[0])?
+        .into_iter()
+        .map(|bytes| {
+            bytes
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+    let expected_hashes = expected["sorted_row_hashes_hex"]
+        .as_array()
+        .ok_or_else(|| "expected sorted_row_hashes_hex array".to_string())?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or_else(|| "expected hash string".to_string())
+                .map(str::to_owned)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if actual_hashes != expected_hashes {
+        return Err("row hashes differ from mixed scalar golden".to_string());
+    }
+    Ok(())
+}
+
+#[test]
 fn empty_zero_field_table_succeeds() -> Result<(), String> {
     let output = run_ok(
         "[]",

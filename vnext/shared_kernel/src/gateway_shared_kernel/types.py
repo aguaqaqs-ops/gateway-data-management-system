@@ -218,12 +218,7 @@ class DigestKind(StrEnum):
     ROW = "row"
     RAW_CONTENT = "raw-content"
     COLLECTION_ITEM = "collection-item"
-    VECTOR_SET = "vector-set"
     TABLE_SCHEMA = "table-schema"
-    SCENARIO_INPUT = "scenario-input"
-    SCENARIO_FIXTURE = "scenario-fixture"
-    RUN_EVIDENCE = "run-evidence"
-    CANONICAL_TABLE_RESULT = "canonical-table-result"
 
 
 FORMAL_DIGEST_KINDS: frozenset[DigestKind] = frozenset(DigestKind)

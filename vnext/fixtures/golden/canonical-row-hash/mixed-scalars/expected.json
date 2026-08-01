@@ -1,0 +1,10 @@
+{
+  "row_count": "3",
+  "raw_content_digest": "sha256:daea1097910086ec87ab148789be747ccbb34a958548456adefe1e5d7e7fa158",
+  "table_schema_digest": "sha256:0d6c0579ef52cbdd310be9c95879d3d9dfc2d867271fd387fa9e66a0d34cc28e",
+  "sorted_row_hashes_hex": [
+    "5fb22cf4a152dd0032cdb1351b969fbeb1f7c5541b3508eb7a3ce9791dca1b2a",
+    "5fb22cf4a152dd0032cdb1351b969fbeb1f7c5541b3508eb7a3ce9791dca1b2a",
+    "63486516fb9d24442cc425163e98c2df7509403ce5384f594edcdf1a8e0636c5"
+  ]
+}

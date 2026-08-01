@@ -236,16 +236,11 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "jsonschema", marker = "extra == 'conformance'", specifier = "==4.26.0" },
-    { name = "rfc8785", specifier = "==0.1.4" },
-]
-provides-extras = ["conformance"]
+requires-dist = [{ name = "rfc8785", specifier = "==0.1.4" }]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "hypothesis", specifier = "==6.156.6" },
-    { name = "jsonschema", specifier = "==4.26.0" },
     { name = "mypy", specifier = "==2.3.0" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-cov", specifier = "==7.1.0" },

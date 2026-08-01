@@ -22,11 +22,9 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 gateway-repository-contracts = { path = "../repository_contracts", editable = true }
-gateway-shared-kernel = { path = "../shared_kernel", editable = true }
 
 [dependency-groups]
 dev = [
-    "gateway-shared-kernel[conformance]",
     "hypothesis==6.156.6",
     "mypy==2.3.0",
     "pytest==9.1.1",

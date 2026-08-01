@@ -332,12 +332,7 @@ pub enum DigestKind {
     Row,
     RawContent,
     CollectionItem,
-    VectorSet,
     TableSchema,
-    ScenarioInput,
-    ScenarioFixture,
-    RunEvidence,
-    CanonicalTableResult,
 }
 
 impl DigestKind {
@@ -346,12 +341,7 @@ impl DigestKind {
             Self::Row => "row",
             Self::RawContent => "raw-content",
             Self::CollectionItem => "collection-item",
-            Self::VectorSet => "vector-set",
             Self::TableSchema => "table-schema",
-            Self::ScenarioInput => "scenario-input",
-            Self::ScenarioFixture => "scenario-fixture",
-            Self::RunEvidence => "run-evidence",
-            Self::CanonicalTableResult => "canonical-table-result",
         }
     }
 
@@ -371,12 +361,7 @@ pub const FORMAL_DIGEST_KINDS: &[DigestKind] = &[
     DigestKind::Row,
     DigestKind::RawContent,
     DigestKind::CollectionItem,
-    DigestKind::VectorSet,
     DigestKind::TableSchema,
-    DigestKind::ScenarioInput,
-    DigestKind::ScenarioFixture,
-    DigestKind::RunEvidence,
-    DigestKind::CanonicalTableResult,
 ];
 
 /// Wire digest reference: `sha256:` + 64 lowercase hex characters.
@@ -630,19 +615,9 @@ mod tests {
     #[test]
     fn digest_kind_registry_matches_formal_contract() {
         let actual: BTreeSet<&str> = FORMAL_DIGEST_KINDS.iter().map(|k| k.as_str()).collect();
-        let expected: BTreeSet<&str> = [
-            "row",
-            "raw-content",
-            "collection-item",
-            "vector-set",
-            "table-schema",
-            "scenario-input",
-            "scenario-fixture",
-            "run-evidence",
-            "canonical-table-result",
-        ]
-        .into_iter()
-        .collect();
+        let expected: BTreeSet<&str> = ["row", "raw-content", "collection-item", "table-schema"]
+            .into_iter()
+            .collect();
         assert_eq!(actual, expected);
         assert_eq!(DigestKind::all().len(), expected.len());
     }

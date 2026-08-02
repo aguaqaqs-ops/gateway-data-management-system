@@ -13,8 +13,8 @@ COPY repository_contracts/src /repository_contracts/src
 RUN uv sync --frozen --no-install-project --all-groups
 COPY repository_service/src ./src
 RUN addgroup --system gateway && adduser --system --ingroup gateway gateway \
-    && mkdir -p /var/lib/gateway/repository \
-    && chown -R gateway:gateway /var/lib/gateway
+    && mkdir -p /home/gateway /var/lib/gateway/repository \
+    && chown -R gateway:gateway /home/gateway /var/lib/gateway
 USER gateway
 ENV HOME="/home/gateway"
 ENV PATH="/app/.venv/bin:${PATH}" PYTHONPATH="/app/src"

@@ -152,14 +152,28 @@ before any future round can be marked ready. This limitation reinforces the
 `no-go` result; no production provider selection is made.
 
 An additional controlled probe was performed on the supplied temporary
-internal Arch Linux host. It had x86_64, 16 CPUs, 62 GiB RAM, about 1.2 TiB
-free disk, Docker 29.6.2 and working GitHub/PyPI HEAD requests. The first
-legacy build attempt failed while creating a Docker bridge/veth endpoint with
-`operation not supported`. The `--network=host` retry reached the Dolt release
-download step, but the download made no progress for approximately eight
-minutes with zero CPU; the intermediate container was stopped and removed.
-The stopped build returned exit `137`. No target image or temporary build
-context remained on that host afterward.
+internal Arch Linux host. After a manual reboot it ran kernel `7.1.5`, with
+the `veth` module present; a manual veth pair and the Docker bridge endpoint
+both succeeded. The unchanged target Dockerfile then reached its Dolt
+download step using the normal bridge network, but the proxy closed the
+connection with `RemoteDisconnected`. A bounded host-side probe received only
+about 0.49 MB of the approximately 44 MB release in 30 seconds and timed out.
+This separates the former bridge/veth failure from the remaining external
+dependency transport failure.
+
+To isolate the image/runtime path, a non-production offline probe image was
+built with the exact Dolt 2.1.11 binary and the already-resolved Python
+environment injected as build inputs. That image built successfully on the
+Docker bridge. After adding the missing `/home/gateway` directory required by
+Dolt when `HOME` is set to that path, non-root runtime smoke passed and a W0
+matrix run completed 12 workflows (A/B, warm-up plus five measured runs) with
+all workflow correctness gates true. This was not the unchanged Dockerfile
+build and was not used to replace the full 60-record matrix decision.
+
+All remote probe images, volumes, containers and temporary contexts were
+removed after the test. The target image and the full image-based matrix are
+still not certified; dependency caching or an internal artifact mirror is
+required before repeating the exact build.
 
 ## Scope and limitations
 

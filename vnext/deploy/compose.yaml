@@ -16,14 +16,38 @@ services:
     command: ["python", "-c", "print('worker bootstrap')"]
   repository-probe:
     profiles: ["p2-r1"]
+    cgroup: host
+    cgroup_parent: ${GATEWAY_P2R1_CGROUP_PARENT:-gateway-p2r1-unconfigured.slice}
+    image: ${GATEWAY_P2R1_IMAGE:-gateway-p2r1-repository:dev}
+    entrypoint: []
     build:
       context: ..
       dockerfile: repository_service/Dockerfile
-    command: ["python", "-c", "print('repository probe image ready')"]
+    command: ["python", "-m", "gateway_repository_service.target_gate"]
     environment:
       GATEWAY_REPOSITORY_DATA_ROOT: /var/lib/gateway/repository
+      GATEWAY_REPOSITORY_CGROUP_ROOT: /sys/fs/cgroup/gateway-p2r1
+      GATEWAY_REPOSITORY_CGROUP_LAYOUT: /run/gateway-p2r1/cgroup-layout.json
+      GATEWAY_REPOSITORY_CGROUP_CONTROL_GROUP: ${GATEWAY_P2R1_CGROUP_CONTROL_GROUP:-}
+      GATEWAY_REPOSITORY_CGROUP_PARENT: ${GATEWAY_P2R1_CGROUP_PARENT:-gateway-p2r1-unconfigured.slice}
+      GATEWAY_P2R1_IMAGE_DIGEST: ${GATEWAY_P2R1_IMAGE_DIGEST:-}
+      GATEWAY_P2R1_BUILD_REVISION: ${GATEWAY_P2R1_BUILD_REVISION:-}
+      GATEWAY_P2R1_CACHE_CONDITION: ${GATEWAY_P2R1_CACHE_CONDITION:-}
+      GATEWAY_P2R1_LOCK_SHA256: ${GATEWAY_P2R1_LOCK_SHA256:-}
+      GATEWAY_P2R1_SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-}
+      GATEWAY_P2R1_PROVENANCE_VERIFIED: ${GATEWAY_P2R1_PROVENANCE_VERIFIED:-0}
+      GATEWAY_P2R1_PROVENANCE_MANIFEST: /run/gateway-p2r1/provenance.json
+      GATEWAY_P2R1_TARGET_CONTAINER: "1"
     volumes:
       - repository-data:/var/lib/gateway/repository
+      - type: bind
+        source: ${GATEWAY_P2R1_CGROUP_ROOT:-/sys/fs/cgroup/gateway-p2r1-unconfigured}
+        target: /sys/fs/cgroup/gateway-p2r1
+        read_only: false
+      - type: bind
+        source: ${GATEWAY_P2R1_RUN_DIR:-/run/gateway-p2r1-unconfigured}
+        target: /run/gateway-p2r1
+        read_only: true
 volumes:
   backend-artifacts:
   repository-data:

@@ -21,7 +21,15 @@ class RepositoryServiceSettings(BaseSettings):
     output_tail_bytes: int = 16 * 1024
     output_capture_bytes: int = 256 * 1024
     record_batch_rows: int = 1024
+    record_batch_row_bounds: tuple[int, ...] = (256, 1024)
+    record_batch_bytes: int = 4 * 1024 * 1024
+    connector_fetch_row_bound: int = 32
+    max_stream_line_bytes: int = 64 * 1024 * 1024
+    cgroup_root: Path | None = None
+    cgroup_layout: Path | None = None
+    memory_sample_interval_seconds: float = 0.01
     mysql_connector_version: str = "9.7.0"
+    measurement_methodology_version: str = "p2-r1-audit-corrective-v5"
 
     @field_validator("dolt_binary")
     @classmethod
@@ -42,11 +50,46 @@ class RepositoryServiceSettings(BaseSettings):
             raise ValueError("timeouts must be positive")
         return value
 
-    @field_validator("output_tail_bytes", "output_capture_bytes", "record_batch_rows")
+    @field_validator(
+        "output_tail_bytes",
+        "output_capture_bytes",
+        "record_batch_rows",
+        "record_batch_bytes",
+        "connector_fetch_row_bound",
+        "max_stream_line_bytes",
+    )
     @classmethod
     def _bounds_must_be_positive(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("bounds must be positive")
+        return value
+
+    @field_validator("record_batch_row_bounds")
+    @classmethod
+    def _row_bounds_must_be_positive(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if not value or any(item <= 0 for item in value):
+            raise ValueError("record_batch_row_bounds must contain positive values")
+        return value
+
+    @field_validator("memory_sample_interval_seconds")
+    @classmethod
+    def _sampling_interval_must_be_positive(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("memory_sample_interval_seconds must be positive")
+        return value
+
+    @field_validator("cgroup_root")
+    @classmethod
+    def _cgroup_root_must_be_absolute(cls, value: Path | None) -> Path | None:
+        if value is not None and not value.is_absolute():
+            raise ValueError("cgroup_root must be absolute")
+        return value
+
+    @field_validator("cgroup_layout")
+    @classmethod
+    def _cgroup_layout_must_be_absolute(cls, value: Path | None) -> Path | None:
+        if value is not None and not value.is_absolute():
+            raise ValueError("cgroup_layout must be absolute")
         return value
 
     @property

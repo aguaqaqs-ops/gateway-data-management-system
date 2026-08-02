@@ -1,0 +1,6 @@
+[Unit]
+Description=Dedicated cgroup slice for Gateway P2-R1 target runs
+
+# Delegate is intentionally not set on this slice. Each runner service owns
+# only its supervisor; the root launcher manages the Docker scope and its
+# sample subtree as a sibling under the per-run slice below this slice.

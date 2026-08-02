@@ -1,0 +1,975 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+import pickle
+import json
+import os
+import textwrap
+from pathlib import Path
+from typing import Callable, Iterator, cast
+
+import pyarrow as pa  # type: ignore[import-untyped]
+import pytest
+import gateway_repository_service.matrix as matrix_module
+import gateway_repository_service.process as process_module
+import gateway_repository_service.target_gate as target_gate_module
+
+from gateway_repository_service.arrow_mapping import (
+    ColumnCatalog,
+    TableCatalog,
+    UnknownTypePolicy,
+    arrow_type,
+)
+from gateway_repository_service.fixtures import (
+    ScaleWorkload,
+    Workload,
+    generate_fixture,
+    generate_scale_fixture,
+)
+from gateway_repository_service.layout import ProbeLayout
+from gateway_repository_service.matrix import (
+    BYTE_BOUND,
+    EXPECTED_SAMPLE_KINDS,
+    NORMAL_WORKLOADS,
+    ROW_BOUNDS,
+    SCALE_WORKLOADS,
+    _coverage,
+    _bounded_stream_gate,
+    _record_bounded_gate,
+    _measurement_metadata,
+    _observe_storage_record,
+    run_matrix,
+    _summarize,
+)
+from gateway_repository_service.process import (
+    CgroupTopology,
+    CgroupMemoryTracker,
+    DoltRunner,
+    ProcessBoundaryError,
+    ProcessStream,
+    MemorySampler,
+    WorkflowCgroupScope,
+    parse_dolt_version,
+    preflight_cgroup,
+    process_tree_pids,
+    windows_for_interval,
+    resolve_current_cgroup,
+)
+from gateway_repository_service.providers import (
+    OfflineCliProvider,
+    _safe_connector_fetch_size,
+    _parse_create_statement,
+    _parse_tagged_row,
+    _rows_bytes,
+    _tagged_select_list,
+)
+from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.workflow import Candidate, run_workflow_isolated
+import gateway_repository_service.workflow_worker as workflow_worker
+
+
+def test_sized_character_and_binary_types_are_known() -> None:
+    assert arrow_type("CHAR(4)", UnknownTypePolicy.REJECT)[0] == pa.string()
+    assert arrow_type("VARCHAR(32)", UnknownTypePolicy.REJECT)[0] == pa.string()
+    assert arrow_type("BINARY(2)", UnknownTypePolicy.REJECT)[0] == pa.binary()
+    assert arrow_type("VARBINARY(8)", UnknownTypePolicy.REJECT)[0] == pa.binary()
+
+
+def test_tagged_csv_distinguishes_null_empty_literal_and_binary() -> None:
+    table = TableCatalog(
+        "t",
+        (
+            ColumnCatalog("text_value", "VARCHAR(8)", True, None),
+            ColumnCatalog("bytes_value", "VARBINARY(8)", True, None),
+        ),
+        4,
+    )
+    _, header = _tagged_select_list(table)
+    assert header == [
+        "__gateway_null_0",
+        "__gateway_value_0",
+        "__gateway_null_1",
+        "__gateway_value_1",
+    ]
+    assert _parse_tagged_row(["1", "", "1", ""], table) == (None, None)
+    assert _parse_tagged_row(["0", "", "0", ""], table) == ("", b"")
+    assert _parse_tagged_row(["0", "NULL", "0", "00FF"], table) == ("NULL", b"\x00\xff")
+
+
+def test_pinned_create_parser_preserves_schema_mutation_shape() -> None:
+    old = _parse_create_statement(
+        "CREATE TABLE `records` (`id` int NOT NULL, `payload` varchar(8), PRIMARY KEY (`id`));",
+        2,
+    )
+    new = _parse_create_statement(
+        "CREATE TABLE `records` (`id` int NOT NULL, `payload` varchar(8), `extra` char(4) NULL, PRIMARY KEY (`id`));",
+        2,
+    )
+    assert [column.name for column in old.columns] == ["id", "payload"]
+    assert [column.name for column in new.columns] == ["id", "payload", "extra"]
+    assert old != new
+
+
+def test_provider_pinned_catalog_does_not_return_new_column_for_old_commit(tmp_path: Path) -> None:
+    settings = RepositoryServiceSettings()
+    layout = ProbeLayout.create(tmp_path / "root")
+    repository = layout.staging_repository("d" * 32, "schema")
+    provider = OfflineCliProvider(settings, layout, repository, DoltRunner(settings, layout.root))
+    provider.initialize_repository()
+    initial = provider.head()
+    old_sql = tmp_path / "old.sql"
+    old_sql.write_text("CREATE TABLE records (id INT NOT NULL PRIMARY KEY, payload VARCHAR(8));")
+    provider.replay(old_sql)
+    old_commit = provider.commit_marker("old")
+    new_sql = tmp_path / "new.sql"
+    new_sql.write_text("ALTER TABLE records ADD COLUMN extra CHAR(4) NULL;")
+    provider.replay(new_sql)
+    new_commit = provider.commit_marker("new")
+    old_catalog = provider.catalog(initial, old_commit)
+    new_catalog = provider.catalog(initial, new_commit)
+    assert [column.name for column in old_catalog[0].columns] == ["id", "payload"]
+    assert [column.name for column in new_catalog[0].columns] == ["id", "payload", "extra"]
+
+
+def test_scale_fixture_has_same_shape_and_deterministic_rows(tmp_path: Path) -> None:
+    first = generate_scale_fixture(tmp_path / "a", ScaleWorkload.S10)
+    second = generate_scale_fixture(tmp_path / "b", ScaleWorkload.S10)
+    assert first.expected_tables == second.expected_tables
+    assert first.replay_sql.read_bytes() == second.replay_sql.read_bytes()
+    assert first.expected_tables[0].columns == second.expected_tables[0].columns
+
+
+def test_process_stream_timeout_during_blocked_wait() -> None:
+    settings = RepositoryServiceSettings(output_capture_bytes=64)
+    runner = DoltRunner.__new__(DoltRunner)
+    runner.settings = settings
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(2)"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stream = ProcessStream(runner, process, "test_timeout", 0.05)
+    with pytest.raises(TimeoutError):
+        next(iter(stream))
+    assert process.poll() is not None
+
+
+def test_process_stream_rejects_unterminated_oversized_line() -> None:
+    settings = RepositoryServiceSettings(output_capture_bytes=32)
+    runner = DoltRunner.__new__(DoltRunner)
+    runner.settings = settings
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import sys,time; sys.stdout.write('x'*128); sys.stdout.flush(); time.sleep(1)"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stream = ProcessStream(runner, process, "test_line_bound", 1.0)
+    with pytest.raises(Exception, match="output limit"):
+        next(iter(stream))
+    assert process.poll() is not None
+
+
+def test_process_tree_and_cgroup_measurement_scope(tmp_path: Path) -> None:
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.2)"])
+    try:
+        assert child.pid in process_tree_pids(child.pid)
+    finally:
+        child.terminate()
+        child.wait()
+    cgroup = tmp_path / "cgroup"
+    cgroup.mkdir()
+    (cgroup / "memory.current").write_text("100")
+    (cgroup / "memory.peak").write_text("200")
+    (cgroup / "memory.stat").write_text("anon 70\nfile 30\n")
+    with CgroupMemoryTracker(cgroup) as tracker:
+        assert tracker.per_workflow
+        measurement = tracker.snapshot()
+        assert measurement.available
+        assert measurement.reset_current_baseline_bytes == 100
+        assert measurement.anon_bytes == 70
+        assert measurement.file_bytes == 30
+        assert measurement.baseline_anon_bytes == 70
+        assert measurement.baseline_file_bytes == 30
+        assert measurement.anon_delta_bytes == 0
+        assert measurement.file_delta_bytes == 0
+
+
+def test_cgroup_stat_baseline_and_delta_are_distinct(tmp_path: Path) -> None:
+    cgroup = tmp_path / "cgroup"
+    cgroup.mkdir()
+    (cgroup / "memory.current").write_text("100")
+    (cgroup / "memory.peak").write_text("200")
+    (cgroup / "memory.stat").write_text("anon 70\nfile 30\n")
+    with CgroupMemoryTracker(cgroup) as tracker:
+        (cgroup / "memory.stat").write_text("anon 90\nfile 50\n")
+        measurement = tracker.snapshot()
+    assert measurement.baseline_anon_bytes == 70
+    assert measurement.baseline_file_bytes == 30
+    assert measurement.anon_bytes == 90
+    assert measurement.file_bytes == 50
+    assert measurement.anon_delta_bytes == 20
+    assert measurement.file_delta_bytes == 20
+
+
+def test_resolve_current_cgroup_uses_actual_control_group(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    mount = tmp_path / "delegated"
+    exact = mount / "docker-test.scope"
+    exact.mkdir(parents=True)
+    monkeypatch.setenv(
+        "GATEWAY_REPOSITORY_CGROUP_CONTROL_GROUP",
+        "/system.slice/gateway-p2r1.slice",
+    )
+    monkeypatch.setattr(
+        process_module,
+        "current_cgroup_membership",
+        lambda _pid=None: "/system.slice/gateway-p2r1.slice/docker-test.scope",
+    )
+    assert resolve_current_cgroup(mount) == exact
+
+
+def test_cgroup_topology_requires_empty_root_sibling_paths() -> None:
+    topology = CgroupTopology.from_dict(
+        {
+            "layout_version": "p2-r1-cgroup-layout-v1",
+            "delegated_root": "/sys/fs/cgroup/gateway-p2r1/container.scope",
+            "supervisor": "/sys/fs/cgroup/gateway-p2r1/container.scope/supervisor",
+            "samples": "/sys/fs/cgroup/gateway-p2r1/container.scope/samples",
+            "parent_control_group": "/gateway-p2r1.slice/gateway-p2r1-runner.slice",
+            "slice_control_group": "/gateway-p2r1.slice",
+            "service_control_group": "/gateway-p2r1.slice/gateway-p2r1-runner.slice/runner.service",
+            "delegated_control_group": "/gateway-p2r1.slice/gateway-p2r1-runner.slice/container.scope",
+            "supervisor_control_group": "/gateway-p2r1.slice/gateway-p2r1-runner.slice/container.scope/supervisor",
+        }
+    )
+    assert topology.supervisor.parent == topology.delegated_root
+    assert topology.samples.parent == topology.delegated_root
+    with pytest.raises(Exception, match="siblings"):
+        CgroupTopology.from_dict(
+            {
+                "layout_version": "p2-r1-cgroup-layout-v1",
+                "delegated_root": "/root",
+                "supervisor": "/root/supervisor",
+                "samples": "/root/supervisor/samples",
+                "parent_control_group": "/parent/gateway-p2r1-runner.slice",
+                "slice_control_group": "/parent",
+                "service_control_group": "/parent/gateway-p2r1-runner.slice/runner.service",
+                "delegated_control_group": "/parent/gateway-p2r1-runner.slice/container",
+                "supervisor_control_group": "/parent/gateway-p2r1-runner.slice/container/supervisor",
+            }
+        )
+
+
+def test_formal_matrix_does_not_resolve_current_cgroup(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = matrix_module.run_matrix.__code__.co_names
+    assert "resolve_current_cgroup" not in source
+
+
+def test_target_gate_propagates_verified_supervisor_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    layout = {
+        "layout_version": "p2-r1-cgroup-layout-v1",
+        "delegated_root": "/sys/fs/cgroup/container.scope",
+        "supervisor": "/sys/fs/cgroup/container.scope/supervisor",
+        "samples": "/sys/fs/cgroup/container.scope/samples",
+        "parent_control_group": "/slice/gateway-p2r1-runner.slice",
+        "slice_control_group": "/slice",
+        "service_control_group": "/slice/gateway-p2r1-runner.slice/runner.service",
+        "delegated_control_group": "/slice/gateway-p2r1-runner.slice/container.scope",
+        "supervisor_control_group": "/slice/gateway-p2r1-runner.slice/container.scope/supervisor",
+    }
+    (tmp_path / "cgroup-layout.json").write_text(json.dumps(layout), encoding="utf-8")
+    (tmp_path / "argv.json").write_text(json.dumps(["--output", "/tmp/result.jsonl"]), encoding="utf-8")
+    (tmp_path / "release").touch()
+    monkeypatch.setenv("GATEWAY_P2R1_TARGET_CONTAINER", "1")
+    monkeypatch.setattr(
+        process_module,
+        "current_cgroup_membership",
+        lambda _pid=None: layout["supervisor_control_group"],
+    )
+    captured: dict[str, str | list[str]] = {}
+    monkeypatch.setattr(
+        os,
+        "execv",
+        lambda executable, argv: captured.update(executable=executable, argv=argv),
+    )
+    target_gate_module.main(tmp_path)
+    assert cast(list[str], captured["argv"])[-1] == "/tmp/result.jsonl"
+    assert os.environ["GATEWAY_REPOSITORY_CGROUP_LAYOUT_VERIFIED"] == "1"
+    assert (
+        os.environ["GATEWAY_REPOSITORY_CGROUP_SUPERVISOR_CONTROL_GROUP"]
+        == layout["supervisor_control_group"]
+    )
+    monkeypatch.delenv("GATEWAY_REPOSITORY_CGROUP_LAYOUT_VERIFIED", raising=False)
+    monkeypatch.delenv("GATEWAY_REPOSITORY_CGROUP_SUPERVISOR_CONTROL_GROUP", raising=False)
+    monkeypatch.delenv("GATEWAY_REPOSITORY_CGROUP_DELEGATED_CONTROL_GROUP", raising=False)
+
+
+def test_formal_workflow_requires_propagated_supervisor_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GATEWAY_P2R1_TARGET_CONTAINER", "1")
+    monkeypatch.delenv("GATEWAY_REPOSITORY_CGROUP_SUPERVISOR_CONTROL_GROUP", raising=False)
+    monkeypatch.delenv("GATEWAY_REPOSITORY_CGROUP_LAYOUT_VERIFIED", raising=False)
+    fixture = generate_fixture(tmp_path / "fixture", Workload.W0)
+    with pytest.raises(ProcessBoundaryError, match="cgroup identity"):
+        run_workflow_isolated(
+            RepositoryServiceSettings(cgroup_root=tmp_path / "cgroup"),
+            Candidate.A,
+            fixture,
+            sample_kind="warmup",
+        )
+    monkeypatch.delenv("GATEWAY_P2R1_TARGET_CONTAINER", raising=False)
+
+
+def test_launcher_uses_unique_project_for_every_compose_lifecycle_command() -> None:
+    launcher = Path(__file__).parents[2] / "deploy/p2r1-cache/p2r1-target-launcher.sh"
+    compose_lines = [
+        line.strip()
+        for line in launcher.read_text(encoding="utf-8").splitlines()
+        if "docker compose" in line
+    ]
+    assert compose_lines
+    assert all('-p "$PROJECT_NAME"' in line for line in compose_lines)
+    assert "down --remove-orphans" not in launcher.read_text(encoding="utf-8")
+
+
+def test_launcher_links_docker_to_per_run_slice_and_exports_before_down() -> None:
+    launcher = Path(__file__).parents[2] / "deploy/p2r1-cache/p2r1-target-launcher.sh"
+    source = launcher.read_text(encoding="utf-8")
+    compose = (launcher.parents[2] / "deploy/compose.yaml").read_text(encoding="utf-8")
+    assert 'systemctl show "$UNIT" -p ControlGroup --value' in source
+    assert 'GATEWAY_P2R1_CGROUP_PARENT="$PARENT_SLICE"' in source
+    assert 'grep -Eq \'^gateway-p2r1-[a-z0-9][a-z0-9_]*\\.slice$\'' in source
+    assert 'GATEWAY_P2R1_CGROUP_PARENT:-/gateway-p2r1-unconfigured.service' not in source
+    assert "cgroup_parent: ${GATEWAY_P2R1_CGROUP_PARENT:-gateway-p2r1-unconfigured.slice}" in compose
+    assert "    entrypoint: []" in compose
+    assert 'docker cp "$container_id:$raw_target"' in source
+    assert "--profile p2-r1 down -v" in source
+    assert "export_artifacts || true" not in source
+    assert "supervisor_cgroup/cgroup.subtree_control" not in source
+
+
+def test_launcher_stops_before_export_and_preserves_volume_on_failure() -> None:
+    launcher = Path(__file__).parents[2] / "deploy/p2r1-cache/p2r1-target-launcher.sh"
+    source = launcher.read_text(encoding="utf-8")
+    assert "stop_target_and_wait" in source
+    assert "docker stop -t 5" in source
+    assert "docker kill" in source
+    assert "down;" in source
+    assert "retaining probe volume" in source
+    assert "recovery quarantine project=" in source
+    assert 'ARTIFACT_EXPORT_FAILED" -eq 0' in source
+
+
+def test_launcher_uses_positive_clean_residual_predicates() -> None:
+    launcher = Path(__file__).parents[2] / "deploy/p2r1-cache/p2r1-target-launcher.sh"
+    source = launcher.read_text(encoding="utf-8")
+    assert "project_runtime_is_clean()" in source
+    assert "project_is_clean()" in source
+    assert "project_runtime_has_residuals" not in source
+    assert "project_has_residuals" not in source
+    assert "if project_is_clean; then" in source
+    assert "if project_runtime_is_clean; then" in source
+    assert "if ! project_is_clean; then" not in source
+    assert "if ! project_runtime_is_clean; then" not in source
+
+
+def test_launcher_run_id_cannot_add_a_systemd_slice_level() -> None:
+    launcher = Path(__file__).parents[2] / "deploy/p2r1-cache/p2r1-target-launcher.sh"
+    source = launcher.read_text(encoding="utf-8")
+    assert 'RUN_ID="$(date +%Y%m%d%H%M%S)_$$"' in source
+    assert 'RUN_ID="$(date +%Y%m%d%H%M%S)-$$"' not in source
+
+
+def test_launcher_cleanup_residual_semantics_with_stub_docker(tmp_path: Path) -> None:
+    """Exercise success/failure cleanup branches with project-scoped fake Docker state."""
+
+    launcher = Path(__file__).parents[2] / "deploy/p2r1-cache/p2r1-target-launcher.sh"
+    source = launcher.read_text(encoding="utf-8")
+    helpers = source[source.index("  project_runtime_is_clean()"): source.index("  cleanup_target()")]
+    cleanup = source[source.index("  cleanup_target()"): source.index("  on_exit()")]
+    script = textwrap.dedent(
+        """
+        set -eu
+        state="$FAKE_DOCKER_STATE"
+        log="$state/log"
+        docker() {
+          command="$1"
+          shift
+          case "$command" in
+            compose)
+              action=""
+              with_volume=0
+              for argument do
+                case "$argument" in
+                  ps) action="ps" ;;
+                  down) action="down" ;;
+                  -v) with_volume=1 ;;
+                esac
+              done
+              if test "$action" = ps; then
+                test -f "$state/container" && cat "$state/container"
+                return 0
+              fi
+              test "$action" = down || return 0
+              if test "${KEEP_CONTAINER_ON_DOWN:-0}" -eq 0; then rm -f "$state/container"; fi
+              if test "${KEEP_NETWORK_ON_DOWN:-0}" -eq 0; then rm -f "$state/network"; fi
+              if test "$with_volume" -eq 1; then
+                if test "${KEEP_VOLUME_ON_DOWN:-0}" -eq 0; then rm -f "$state/volume"; fi
+                echo down-v >> "$log"
+              else
+                if test "${REMOVE_VOLUME_ON_DOWN:-0}" -eq 1; then rm -f "$state/volume"; fi
+                echo down >> "$log"
+              fi
+              ;;
+            ps)
+              test -f "$state/container" && cat "$state/container"
+              ;;
+            network)
+              if test "${1:-}" = ls; then test -f "$state/network" && cat "$state/network"; fi
+              if test "${1:-}" = rm; then
+                test "${FORCE_CLEANUP_FAIL:-0}" -eq 0 && rm -f "$state/network"
+              fi
+              ;;
+            volume)
+              if test "${1:-}" = ls; then test -f "$state/volume" && cat "$state/volume"; fi
+                if test "${1:-}" = inspect; then test -f "$state/volume"; return $?; fi
+              if test "${1:-}" = rm; then
+                test "${FORCE_CLEANUP_FAIL:-0}" -eq 0 && rm -f "$state/volume"
+              fi
+              ;;
+            rm)
+              test "${FORCE_CLEANUP_FAIL:-0}" -eq 0 && rm -f "$state/container"
+              ;;
+          esac
+        }
+        stop_target_and_wait() { return 0; }
+        export_artifacts() { ARTIFACT_EXPORT_COMPLETE=1; return 0; }
+        cleanup_failed=0
+        """
+    ) + helpers + cleanup + textwrap.dedent(
+        """
+        cleanup_target || true
+        printf 'cleanup_failed=%s\\n' "$cleanup_failed"
+        test -f "$state/container" && echo container=present || echo container=absent
+        test -f "$state/network" && echo network=present || echo network=absent
+        test -f "$state/volume" && echo volume=present || echo volume=absent
+        """
+    )
+
+    scenarios = (
+        ({"target_status": "0", "KEEP_VOLUME_ON_DOWN": "1"}, "cleanup_failed=0\ncontainer=absent\nnetwork=absent\nvolume=absent"),
+        ({"target_status": "0", "KEEP_CONTAINER_ON_DOWN": "1"}, "cleanup_failed=0\ncontainer=absent\nnetwork=absent\nvolume=absent"),
+        ({"target_status": "1", "KEEP_CONTAINER_ON_DOWN": "1", "KEEP_NETWORK_ON_DOWN": "1"}, "cleanup_failed=0\ncontainer=absent\nnetwork=absent\nvolume=present"),
+        ({"target_status": "1", "REMOVE_VOLUME_ON_DOWN": "1"}, "cleanup_failed=1\ncontainer=absent\nnetwork=absent\nvolume=absent"),
+        ({"target_status": "0", "KEEP_CONTAINER_ON_DOWN": "1", "KEEP_NETWORK_ON_DOWN": "1", "KEEP_VOLUME_ON_DOWN": "1", "FORCE_CLEANUP_FAIL": "1"}, "cleanup_failed=1\ncontainer=present\nnetwork=present\nvolume=present"),
+    )
+    for settings, expected in scenarios:
+        state = tmp_path / settings["target_status"] / str(len(list(tmp_path.glob("*"))))
+        state.mkdir(parents=True)
+        for name, value in (("container", "cid"), ("network", "net"), ("volume", "vol")):
+            (state / name).write_text(value + "\n", encoding="utf-8")
+        env = os.environ.copy()
+        env.update(
+            {
+                "FAKE_DOCKER_STATE": str(state),
+                "PROJECT_NAME": "gateway-p2r1-test",
+                "COMPOSE_FILE": "compose.yaml",
+                "compose_started": "1",
+                "container_id": "cid",
+                "target_status": settings["target_status"],
+                "ARTIFACT_EXPORT_ATTEMPTED": "1",
+                "ARTIFACT_EXPORT_COMPLETE": "1" if settings["target_status"] == "0" else "0",
+                "ARTIFACT_EXPORT_FAILED": "0" if settings["target_status"] == "0" else "1",
+                "probe_volume_ids": "vol",
+                "container_cgroup": "",
+                "supervisor_cgroup": "",
+                "samples_cgroup": "",
+            }
+        )
+        env.update(settings)
+        result = subprocess.run(["sh", "-c", script], env=env, capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+        assert expected in result.stdout
+
+
+def test_utf8_row_bytes_use_encoded_length() -> None:
+    assert _rows_bytes([("😀", "中文")]) == len("😀中文".encode("utf-8"))
+
+
+def test_w3_is_annotated_before_raw_persistence() -> None:
+    baselines: dict[str, int] = {}
+    w1 = {
+        "candidate": Candidate.A.value,
+        "workload": "W1",
+        "sample_kind": "measured-1",
+        "logical_delta_bytes": 100,
+    }
+    w3 = {
+        "candidate": Candidate.A.value,
+        "workload": "W3-1pct",
+        "sample_kind": "measured-1",
+        "change_ratio": 0.01,
+        "logical_delta_bytes": 10,
+        "allocated_delta_bytes": 10,
+        "quiesce_status": "quiesced",
+    }
+    _observe_storage_record(w1, baselines)
+    _observe_storage_record(w3, baselines)
+    assert w3["storage_evidence_status"] == "available"
+    assert w3["w1_full_commit_logical_bytes"] == 100
+    assert w3["logical_delta_vs_w1_full_ratio"] == 0.1
+
+
+def test_provider_tracker_uses_sample_cgroup_root(tmp_path: Path) -> None:
+    root = tmp_path / "delegated"
+    root.mkdir()
+    (root / "memory.current").write_text("100")
+    (root / "memory.peak").write_text("200")
+    (root / "memory.stat").write_text("anon 100\nfile 0\n")
+    (root / "cgroup.procs").write_text("")
+    scope = WorkflowCgroupScope(root)
+    scope.create()
+    assert scope.path is not None
+    (scope.path / "memory.current").write_text("10")
+    (scope.path / "memory.peak").write_text("20")
+    (scope.path / "memory.stat").write_text("anon 10\nfile 0\n")
+    (scope.path / "cgroup.procs").write_text("")
+    try:
+        settings = RepositoryServiceSettings(cgroup_root=scope.path)
+        layout = ProbeLayout.create(tmp_path / "layout")
+        runner = DoltRunner.__new__(DoltRunner)
+        provider = OfflineCliProvider(settings, layout, tmp_path / "repo", runner)
+        assert provider.cgroup is not None
+        assert provider.cgroup.root == scope.path
+        provider.close()
+    finally:
+        for child in scope.path.iterdir() if scope.path is not None else ():
+            if child.name != "cgroup.procs":
+                child.unlink()
+        scope.active = False
+
+
+def test_memory_sampler_exposes_absolute_and_baseline_delta() -> None:
+    sampler = MemorySampler(
+        workflow_pid=1,
+        provider_pid=lambda: None,
+        cgroup=None,
+        interval_seconds=0.01,
+        baselines={
+            "workflow_process_tree": 100,
+            "provider_process_tree": 50,
+            "arrow_memory_pool": 10,
+            "cgroup": 0,
+        },
+    )
+    snapshots: Iterator[dict[str, int | None]] = iter(
+        [
+            {
+                "workflow_process_tree": 120,
+                "provider_process_tree": 70,
+                "arrow_memory_pool": 30,
+                "cgroup": 40,
+            },
+            {
+                "workflow_process_tree": 140,
+                "provider_process_tree": 80,
+                "arrow_memory_pool": 50,
+                "cgroup": 60,
+            },
+        ]
+    )
+    sampler._snapshot = lambda: next(snapshots)  # type: ignore[method-assign]
+    sampler.set_active(("first_10pct",))
+    delta = sampler.stop()
+    assert delta["workflow_process_tree"]["first_10pct"] == 40
+    assert sampler.absolute_peaks()["workflow_process_tree"]["first_10pct"] == 140
+
+
+def test_subset_and_missing_scaling_cannot_produce_go() -> None:
+    summary = _summarize([], RepositoryServiceSettings())
+    assert summary["round_exit"] == "no-go"
+    assert summary["selected_provider"] is None
+    matrix = summary["candidate_matrix"]
+    assert isinstance(matrix, dict)
+    assert all(result["bounded_stream_status"] == "inconclusive" for result in matrix.values())
+
+
+def test_s10_large_batch_overlaps_all_plateau_windows() -> None:
+    assert windows_for_interval(0, 1024, 10_000) == ("first_10pct",)
+    assert windows_for_interval(4_500, 5_500, 10_000) == ("middle_10pct",)
+    assert windows_for_interval(9_000, 10_000, 10_000) == ("final_10pct",)
+
+
+def test_coverage_rejects_duplicate_and_missing_scaling_keys() -> None:
+    rows = [
+        {
+            "matrix_kind": "scaling",
+            "candidate": "candidate_a_offline_cli",
+            "workload": "S10",
+            "record_batch_row_bound": 256,
+            "sample_kind": "warmup",
+        }
+    ] * 2
+    complete, reason, counts = _coverage(rows, "scaling")
+    assert not complete
+    assert "missing" in reason
+    assert counts["duplicates"] == 1
+
+
+def test_plateau_gate_requires_all_four_subjects_and_three_windows() -> None:
+    plateau: dict[str, dict[str, int | None]] = {
+        subject: {window: 100 for window in ("first_10pct", "middle_10pct", "final_10pct")}
+        for subject in (
+            "workflow_process_tree",
+            "provider_process_tree",
+            "arrow_memory_pool",
+            "cgroup",
+        )
+    }
+    record = {
+        "memory_evidence": {
+            "coverage": "available",
+            "baseline_coverage": True,
+            "cgroup_stat_coverage": True,
+        },
+        "plateau_peaks": plateau,
+        "plateau_peaks_absolute": {subject: dict(values) for subject, values in plateau.items()},
+    }
+    assert _record_bounded_gate(record)
+    plateau["cgroup"]["final_10pct"] = None
+    assert not _record_bounded_gate(record)
+
+
+def test_dolt_version_parser_is_exact() -> None:
+    assert parse_dolt_version("dolt version 2.1.11\n") == "2.1.11"
+    assert parse_dolt_version("dolt version 12.1.11\n") == "12.1.11"
+    assert parse_dolt_version("dolt version 2.1.11-dev\n") is None
+    assert parse_dolt_version("not a dolt version") is None
+
+
+def _complete_gate_records() -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    plateau = {
+        subject: {window: 100 for window in ("first_10pct", "middle_10pct", "final_10pct")}
+        for subject in (
+            "workflow_process_tree",
+            "provider_process_tree",
+            "arrow_memory_pool",
+            "cgroup",
+        )
+    }
+    absolute_plateau = {
+        subject: dict(values) for subject, values in plateau.items()
+    }
+    for candidate in Candidate:
+        for workload in NORMAL_WORKLOADS:
+            for sample in EXPECTED_SAMPLE_KINDS:
+                record: dict[str, object] = {
+                    "matrix_kind": "normal",
+                    "candidate": candidate.value,
+                    "workload": workload.value,
+                    "sample_kind": sample,
+                    "correctness": True,
+                    "error": None,
+                    "import_seconds": 1.0,
+                    "hard_gates": {"bounded_stream": True},
+                    "bounded_stream_record_gate": True,
+                    "memory_evidence": {
+                        "coverage": "available",
+                        "baseline_coverage": True,
+                        "cgroup_stat_coverage": True,
+                    },
+                    "plateau_peaks": plateau,
+                    "plateau_peaks_absolute": absolute_plateau,
+                    "metadata_complete": True,
+                    "logical_bytes_before": 100,
+                    "logical_bytes_after": 200,
+                    "allocated_bytes_before": 100,
+                    "allocated_bytes_after": 200,
+                    "storage_quiesced": True,
+                    "change_ratio": 0.01
+                    if workload.value == "W3-1pct"
+                    else 0.10
+                    if workload.value == "W3-10pct"
+                    else None,
+                    "logical_delta_bytes": 100
+                    if workload.value == "W1"
+                    else 10
+                    if workload.value.startswith("W3")
+                    else None,
+                    "allocated_delta_bytes": 100
+                    if workload.value == "W1"
+                    else 10
+                    if workload.value.startswith("W3")
+                    else None,
+                    "quiesce_status": "quiesced"
+                    if workload.value.startswith("W3")
+                    else "not_applicable",
+                }
+                records.append(record)
+        for scale in SCALE_WORKLOADS:
+            for bound in ROW_BOUNDS:
+                for sample in EXPECTED_SAMPLE_KINDS:
+                    records.append(
+                        {
+                            "matrix_kind": "scaling",
+                            "candidate": candidate.value,
+                            "workload": scale.value,
+                            "record_batch_row_bound": bound,
+                            "record_batch_byte_bound": BYTE_BOUND,
+                            "sample_kind": sample,
+                            "correctness": True,
+                            "error": None,
+                            "hard_gates": {"bounded_stream": True},
+                            "bounded_stream_record_gate": True,
+                            "memory_evidence": {
+                                "coverage": "available",
+                                "baseline_coverage": True,
+                                "cgroup_stat_coverage": True,
+                            },
+                            "plateau_peaks": plateau,
+                            "plateau_peaks_absolute": absolute_plateau,
+                            "metadata_complete": True,
+                        }
+                    )
+    return records
+
+
+def test_complete_formal_pass_selects_a_and_noise_is_aggregated() -> None:
+    records = _complete_gate_records()
+    noisy = next(
+        row
+        for row in records
+        if row.get("matrix_kind") == "scaling"
+        and row.get("candidate") == Candidate.A.value
+        and row.get("workload") == ScaleWorkload.S10.value
+        and row.get("record_batch_row_bound") == 256
+        and row.get("sample_kind") == "measured-1"
+    )
+    noisy["plateau_peaks"] = {
+        subject: {window: 50 for window in ("first_10pct", "middle_10pct", "final_10pct")}
+        for subject in ("workflow_process_tree", "provider_process_tree", "arrow_memory_pool", "cgroup")
+    }
+    summary = _summarize(records, RepositoryServiceSettings())
+    assert summary["selected_provider"] == Candidate.A.value
+    assert summary["p2_r1_exit"] == "go"
+    status, _, ratios = _bounded_stream_gate(Candidate.A.value, [r for r in records if r["matrix_kind"] == "scaling"])
+    assert status == "pass"
+    assert ratios["bound_256_workflow_process_tree_first_10pct_ratio"] == 1.0
+
+
+def test_warmup_correctness_failure_blocks_selection() -> None:
+    records = _complete_gate_records()
+    warmup = next(
+        row
+        for row in records
+        if row.get("candidate") == Candidate.A.value
+        and row.get("workload") == "W0"
+        and row.get("sample_kind") == "warmup"
+    )
+    warmup["correctness"] = False
+    summary = _summarize(records, RepositoryServiceSettings())
+    assert summary["selected_provider"] == Candidate.B.value
+    matrix = cast(dict[str, dict[str, object]], summary["candidate_matrix"])
+    assert cast(int, matrix[Candidate.A.value]["correctness_failures"]) > 0
+
+
+def test_formal_cgroup_preflight_fails_closed_without_delegation(tmp_path: Path) -> None:
+    with pytest.raises(Exception, match="delegated cgroup"):
+        preflight_cgroup(tmp_path)
+
+
+def test_preflight_rejects_supervisor_outside_declared_parent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GATEWAY_REPOSITORY_CGROUP_CONTROL_GROUP", "/gateway-p2r1.slice")
+    with pytest.raises(Exception, match="delegated cgroup parent"):
+        preflight_cgroup(tmp_path)
+
+
+def test_formal_runner_preflight_fails_before_creating_artifacts(tmp_path: Path) -> None:
+    output = tmp_path / "audit-rerun.jsonl"
+    with pytest.raises(Exception, match="delegated cgroup"):
+        run_matrix(
+            RepositoryServiceSettings(cgroup_root=tmp_path),
+            output,
+            image_digest="sha256:test",
+            build_revision="test",
+            cache_condition="test",
+        )
+    assert not output.exists()
+
+
+def test_formal_runner_retains_incomplete_raw(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    output = tmp_path / "incomplete.jsonl"
+
+    def fake_preflight(_: Path | None) -> None:
+        return
+
+    def fake_collect(*args: object, **kwargs: object) -> list[dict[str, object]]:
+        sink = cast(Callable[[dict[str, object]], None], kwargs["record_sink"])
+        sink({"record_type": "measurement", "sample_kind": "warmup"})
+        raise RuntimeError("synthetic collection stop")
+
+    monkeypatch.setattr(matrix_module, "preflight_cgroup", fake_preflight)
+    monkeypatch.setattr(matrix_module, "_collect_normal_records", fake_collect)
+    with pytest.raises(RuntimeError, match="synthetic collection stop"):
+        matrix_module.run_matrix(
+            RepositoryServiceSettings(cgroup_root=tmp_path),
+            output,
+            image_digest="sha256:" + "0" * 64,
+            build_revision="a" * 40,
+            cache_condition="retained-dependency-cache",
+        )
+    assert output.exists()
+    raw = output.read_text(encoding="utf-8").splitlines()
+    assert '"record_type": "run_status"' in raw[-1]
+    assert not output.with_suffix(".summary.json").exists()
+    assert not output.with_suffix(".md").exists()
+
+
+def test_finalization_rejects_stale_raw_w3_annotation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    output = tmp_path / "stale-w3.jsonl"
+
+    monkeypatch.setattr(matrix_module, "preflight_cgroup", lambda _: None)
+
+    def fake_normal(*args: object, **kwargs: object) -> list[dict[str, object]]:
+        sink = cast(Callable[[dict[str, object]], None], kwargs["record_sink"])
+        record: dict[str, object] = {
+            "record_type": "measurement",
+            "candidate": Candidate.A.value,
+            "workload": "W3-1pct",
+            "sample_kind": "measured-1",
+            "change_ratio": 0.01,
+            "logical_delta_bytes": 1,
+            "allocated_delta_bytes": 1,
+            "quiesce_status": "quiesced",
+        }
+        sink(record)
+        record["logical_delta_bytes"] = 2
+        return [record]
+
+    monkeypatch.setattr(matrix_module, "_collect_normal_records", fake_normal)
+    monkeypatch.setattr(matrix_module, "_collect_scaling_records", lambda *args, **kwargs: [])
+    with pytest.raises(RuntimeError, match="persisted raw records"):
+        run_matrix(
+            RepositoryServiceSettings(cgroup_root=tmp_path),
+            output,
+            image_digest="sha256:" + "0" * 64,
+            build_revision="a" * 40,
+            cache_condition="retained-dependency-cache",
+        )
+    assert '"status": "incomplete"' in output.read_text(encoding="utf-8")
+    assert not output.with_suffix(".summary.json").exists()
+
+
+def test_raw_reservation_is_exclusive(tmp_path: Path) -> None:
+    output = tmp_path / "reserved.jsonl"
+    handle = matrix_module._reserve_raw(output)
+    try:
+        with pytest.raises(FileExistsError):
+            matrix_module._reserve_raw(output)
+    finally:
+        handle.close()
+
+
+def test_worker_result_is_atomically_published(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    payload_path = tmp_path / "payload.pickle"
+    result_path = tmp_path / "result.pickle"
+    with payload_path.open("wb") as handle:
+        pickle.dump({"value": 7}, handle)
+    monkeypatch.setattr(workflow_worker, "_run_workflow_in_process", lambda **_: {"ok": True})
+    monkeypatch.setattr(sys, "argv", ["workflow_worker", str(payload_path), str(result_path)])
+    workflow_worker.main()
+    with result_path.open("rb") as handle:
+        assert pickle.load(handle) == {"ok": True}
+    assert not list(tmp_path.glob(".result.pickle.*.tmp"))
+
+
+def test_true_scale_growth_fails_conservative_ratio_gate() -> None:
+    records = _complete_gate_records()
+    for row in records:
+        if (
+            row.get("candidate") == Candidate.A.value
+            and row.get("matrix_kind") == "scaling"
+            and row.get("workload") == ScaleWorkload.S100.value
+        ):
+            plateau = {
+                subject: dict(values)
+                for subject, values in cast(
+                    dict[str, dict[str, int]], row["plateau_peaks"]
+                ).items()
+            }
+            plateau["workflow_process_tree"] = {
+                window: 200 for window in ("first_10pct", "middle_10pct", "final_10pct")
+            }
+            row["plateau_peaks"] = plateau
+    status, reason, _ = _bounded_stream_gate(
+        Candidate.A.value, [row for row in records if row["matrix_kind"] == "scaling"]
+    )
+    assert status == "fail"
+    assert "ratio" in reason
+
+
+def test_all_zero_delta_scale_evidence_is_bounded() -> None:
+    records = _complete_gate_records()
+    for row in records:
+        if row.get("matrix_kind") == "scaling":
+            row["plateau_peaks"] = {
+                subject: {window: 0 for window in ("first_10pct", "middle_10pct", "final_10pct")}
+                for subject in ("workflow_process_tree", "provider_process_tree", "arrow_memory_pool", "cgroup")
+            }
+    status, reason, ratios = _bounded_stream_gate(
+        Candidate.A.value, [row for row in records if row["matrix_kind"] == "scaling"]
+    )
+    assert status == "pass"
+    assert "within" in reason
+    assert ratios["bound_256_cgroup_first_10pct_ratio"] == 1.0
+
+
+def test_mixed_zero_and_positive_scale_evidence_is_inconclusive() -> None:
+    records = _complete_gate_records()
+    for row in records:
+        if (
+            row.get("matrix_kind") == "scaling"
+            and row.get("candidate") == Candidate.A.value
+            and row.get("workload") == ScaleWorkload.S10.value
+        ):
+            row["plateau_peaks"] = {
+                subject: {window: 0 for window in ("first_10pct", "middle_10pct", "final_10pct")}
+                for subject in ("workflow_process_tree", "provider_process_tree", "arrow_memory_pool", "cgroup")
+            }
+    status, reason, _ = _bounded_stream_gate(
+        Candidate.A.value, [row for row in records if row["matrix_kind"] == "scaling"]
+    )
+    assert status == "inconclusive"
+    assert "zero/positive" in reason
+
+
+def test_connector_fetch_size_is_width_aware() -> None:
+    bounded = TableCatalog(
+        "bounded",
+        (ColumnCatalog("payload", "VARCHAR(2048)", False, None),),
+        100,
+    )
+    unbounded = TableCatalog(
+        "unbounded",
+        (ColumnCatalog("payload", "BLOB", True, None),),
+        100,
+    )
+    settings = RepositoryServiceSettings(connector_fetch_row_bound=32)
+    assert 1 < _safe_connector_fetch_size(bounded, settings) <= 32
+    assert _safe_connector_fetch_size(unbounded, settings) == 1
+
+
+def test_fake_provenance_is_not_complete() -> None:
+    metadata = _measurement_metadata(
+        RepositoryServiceSettings(),
+        image_digest="sha256:test",
+        build_revision="test",
+        cache_condition="test",
+    )
+    assert metadata["metadata_complete"] is False

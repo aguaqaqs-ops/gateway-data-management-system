@@ -12,6 +12,14 @@ The current pinned artifact is:
 /dolt/2.1.11/dolt-linux-amd64.tar.gz
 ```
 
+The source Dockerfile verifies the downloaded Dolt archive with the pinned
+SHA-256 before extraction and verifies the repository-service lockfile. The
+dependency-base Dockerfile additionally requires `DOLT_BINARY_SHA256` for the
+preloaded binary, verifies the cached uv wheel and lockfile, checks exact Dolt
+and uv versions, and runs `uv pip check` plus package imports. Obtain the
+binary checksum from the retained cache with `sha256sum offline-assets/dolt`
+and pass it explicitly when rebuilding that base image.
+
 The remote development host also retains a dependency-base image containing
 the lock-resolved Python 3.14 environment, Dolt 2.1.11 and uv 0.11.28. It is a
 build accelerator, not a production release image; keep it when cleaning probe
@@ -36,6 +44,103 @@ The formal probe's test named volume, matrix container and temporary build
 contexts may be removed after results are copied. The two image tags above and
 the versioned cache artifacts must remain available for subsequent source-only
 rebuilds.
+
+## Delegated cgroup setup
+
+The target image does not create host cgroups and does not run privileged. The
+authoritative path is an installed systemd service. `Delegate=yes` is on the
+service, never on the `.slice`; the launcher obtains the slice's actual
+`ControlGroup` dynamically and does not derive a path from the unit name.
+
+```sh
+sudo install -m 0644 gateway-p2r1.slice gateway-p2r1-runner@.service \
+  /etc/systemd/system/
+sudo install -m 0755 p2r1-target-launcher.sh \
+  /usr/local/libexec/gateway-p2r1-target-launcher.sh
+sudo systemctl daemon-reload
+```
+
+The service uses `DelegateSubgroup=supervisor` for its own supervisor process.
+Docker's systemd driver receives only the valid per-run slice unit name as
+`cgroup_parent`; it cannot receive a service `ControlGroup` filesystem path.
+The launcher obtains both the service and per-run slice `ControlGroup` values
+for ancestry evidence, then requires the Docker scope to be a sibling of the
+runner service under that per-run slice. A container placed inside the runner
+service subtree or under another slice is rejected.
+
+The launcher starts one gated target container, resolves its real PID and
+exact Docker cgroup, then creates this topology inside that cgroup before
+releasing the gate:
+
+```text
+container delegated root (empty, memory+pids enabled)
+├── supervisor (target gate/matrix PID)
+└── samples (empty, memory+pids enabled)
+    └── gateway-p2r1-<sample> (worker PID)
+```
+
+The complete verified ancestry is:
+
+```text
+gateway-p2r1.slice
+└── gateway-p2r1-<run>.slice
+    ├── gateway-p2r1-runner@<run>.service
+    └── docker-<id>.scope
+        ├── supervisor
+        └── samples
+```
+
+All direct container PIDs are moved to `supervisor` before either the
+delegated root or `samples` enables controllers. The target receives the
+launcher-written, read-only `cgroup-layout.json`; formal matrix code uses its
+`samples` path and never infers a sample root from the current supervisor
+process. The target gate propagates the verified supervisor ControlGroup to
+the matrix process. Any topology, permission, migration or cleanup failure
+stops the run.
+
+The Compose profile uses `cgroup: host`, the dynamic per-run slice name as
+`cgroup_parent`, and a read-write bind mount of the resolved per-run slice at
+`/sys/fs/cgroup/gateway-p2r1`.
+The provenance manifest and target gate are separate read-only/controlled
+mounts. `cgroup: private`, a static bind mount, or a direct `docker compose`
+invocation is not formal delegation evidence.
+
+The launcher is the authoritative target-container path. Each invocation gets
+a validated unique Compose project name (`gateway-p2r1-<run-id>`); every
+`up`, `ps`, `logs`, and `down` command carries that project name, so cleanup
+cannot stop `backend`, `worker`, another project, or a concurrent probe:
+
+```sh
+cd /root/gateway-data-management-system
+vnext/deploy/p2r1-cache/p2r1-target-launcher.sh \
+  --output /var/lib/gateway/repository/audit-rerun/p2-r1.jsonl \
+  --image-digest sha256:<image-id> \
+  --build-revision <source-revision> \
+  --cache-condition retained-dependency-cache
+```
+
+The launcher obtains the immutable image ID and labels from Docker, requires a
+clean worktree, creates a read-only provenance manifest, and passes verified
+metadata into the container. It rejects dirty source, stale labels, missing
+source-tree/lock/version labels, missing manifest, and non-systemd Docker.
+Do not replace a failed preflight with `privileged` or a host-wide cgroup mount.
+
+The matrix writes its output inside the probe container/volume using the
+absolute `--output` path. The launcher first stops and reaps the target, then
+copies the raw JSONL, summary JSON and Markdown report to the same host
+destination using no-replace publication and fsync barriers. Exported raw
+JSONL is parsed line-by-line and failed targets must end with an
+`incomplete/no-go` terminal record. Only after all three artifacts pass size,
+digest and publication checks does cleanup run `down -v` for the unique
+project. If the target or export fails, cleanup omits `-v` and retains the
+source volume plus its staging path for recovery. Cache images and dependency
+artifacts are not removed.
+
+Failed runs are an explicit recovery quarantine, not a successful cleanup. The
+launcher prints the exact Compose project, retained volume ID(s), and staging
+path. After copying or otherwise recovering the evidence, remove only that
+project's retained volume and verify its container, network, volume, and cgroup
+objects are gone; do not use a shared-project `down --remove-orphans` command.
 
 ## Remote host setup
 
@@ -69,6 +174,10 @@ docker build \
   --build-arg HTTP_PROXY \
   --build-arg HTTPS_PROXY \
   --build-arg NO_PROXY=172.17.0.1,localhost,127.0.0.1 \
+  --build-arg BUILD_REVISION="$(git rev-parse HEAD)" \
+  --build-arg SOURCE_TREE_SHA256="sha256:$(git archive HEAD | sha256sum | cut -d' ' -f1)" \
+  --build-arg MYSQL_CONNECTOR_VERSION=9.7.0 \
+  --build-arg PYARROW_VERSION=25.0.0 \
   --tag gateway-p2r1-repository:dev \
   --file repository_service/Dockerfile .
 ```
@@ -84,6 +193,30 @@ available, the formal Dockerfile can reuse it without network downloads:
 docker build --network=host \
   --build-arg BASE_IMAGE=gateway-p2r1-repository:dependency-base-python3.14-dolt2.1.11-uv0.11.28 \
   --build-arg USE_PRELOADED_DEPENDENCIES=1 \
+  --build-arg BUILD_REVISION="$(git rev-parse HEAD)" \
+  --build-arg SOURCE_TREE_SHA256="sha256:$(git archive HEAD | sha256sum | cut -d' ' -f1)" \
+  --build-arg MYSQL_CONNECTOR_VERSION=9.7.0 \
+  --build-arg PYARROW_VERSION=25.0.0 \
   --tag gateway-p2r1-repository:dev \
   --file repository_service/Dockerfile .
+```
+
+## Probe commands
+
+Local source checks must use an explicit diagnostic subset:
+
+```sh
+uv run --offline --no-sync python -m gateway_repository_service.matrix \
+  --diagnostic --workloads W0 \
+  --output /tmp/p2-r1-diagnostic-w0.jsonl
+```
+
+The only formal entry point is the complete 132-record launcher command below.
+It requires the delegated cgroup and verified image/build metadata. Its output
+must use a new `audit-rerun` path and never overwrite historical artifacts:
+
+```sh
+vnext/deploy/p2r1-cache/p2r1-target-launcher.sh \
+  --output /var/lib/gateway/repository/audit-rerun/p2-r1.jsonl \
+  --runs 5
 ```

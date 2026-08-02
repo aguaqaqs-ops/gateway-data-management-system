@@ -8,6 +8,11 @@
 
 Owner：Backend vNext Architecture（provider选择、feasibility probe、P2-R1退出判断）
 
+Measurement methodology version：`p2-r1-audit-corrective-v5`
+
+历史 2026-08-02 raw/summary 的 bounded-stream 结论按审核结论标记为
+`measurement-method-invalid/inconclusive`；本 authority 修订不回写或覆盖历史文件。
+
 Runtime/layout owner：
 [Repository Service Contract](../contracts/repository-service.md#141-durable-root-layout-and-publication)
 
@@ -151,8 +156,101 @@ synthetic及其与真实业务不可比项。P2-R1 measurement是provider/compon
 - W3的1%/10%增量storage及相对W1 full commit的比例；
 - correctness result、raw samples、summary calculation和known limitations。
 
+### 6.1 Same-shape bounded-stream methodology
+
+`W1`与`W2`不得用于total-size scaling比较。`W2`保留为宽行、接近200 MB的boundary
+workload，只用于记录boundary safety和资源峰值。bounded-stream证据必须增加同shape、
+同schema、同payload width、同NULL分布、同key/index和同value distribution的确定性
+synthetic workload：`S10`（10,000 rows）、`S40`（40,000 rows）和`S100`
+（100,000 rows）。
+
+每个candidate在每个scale上分别使用row bound `256`和`1024`，并使用固定
+byte-aware bound `4 MiB`；每条raw record必须写入methodology version、row bound和
+byte bound。每次stream必须记录first/middle/final三个10% batch window的plateau
+peak，不能只写一个全局RSS值。
+
+working-set evidence必须分别覆盖：
+
+- workflow Python process tree；
+- provider/server descendant process tree；
+- Arrow memory-pool peak；
+- cgroup current/peak及其是否能按workflow reset/隔离。
+
+对每个row bound及每个memory subject，先对每个scale的五次measured run取保守peak，再以
+三个scale aggregate计算`max_scale_peak / min_scale_peak`。所有scale、row bound、plateau window和memory
+subject都存在且比例不超过`1.5`才是bounded gate pass；任何缺失、cgroup只能提供
+cumulative peak或subject scope不可靠均为`inconclusive`，不得产生`go`。
+
+delegated cgroup必须由宿主/systemd预先创建并授予target用户写权限；Compose使用
+`cgroup: host`和read-write bind mount暴露专用subtree。`cgroup: private`不等于
+delegation。formal runner必须先执行真实create/attach/memory-read/delete preflight；
+preflight失败时不得创建fixture或消耗matrix时间。每个sample由父supervisor fork/exec
+新worker，父runner自身不得迁移进workflow cgroup；worker退出后child cgroup仍有PID、
+无法迁回或无法删除都属于cleanup failure。
+
+`--workloads`等子集运行可以用于诊断，但不能产生`go`。summary必须验证两个candidate
+均覆盖完整W0/W1/W2/W3、warm-up和五次measured sample，以及完整S10/S40/S100和两个
+row bound的scale coverage。
+
+正式入口只有统一的`run_matrix()`：一次运行必须在同一个raw JSONL中写入常规60条和
+scaling72条记录，并联合生成唯一summary和Markdown decision report。每个
+candidate/workload/bound/sample key必须唯一；每个组合必须exactly one warmup和five
+measured。缺失、重复、失败sample或subset运行都只能是`inconclusive/no-go`，不能因局部
+记录产生`go`。诊断API和CLI的`--workloads`不得生成formal decision语义。
+
+正式summary必须由完整 raw records 动态计算并写入
+`measurement_outcome`、`proposed_provider`、`selected_provider`、`p2_r1_exit`、
+`next_round_ready`和`p2_r2_ready`。尚未执行新的 formal rerun 时，外部状态继续沿用
+历史`no-go`，不得伪造新的正式summary；artifact路径存在时fail closed，不覆盖历史
+raw/summary/report。
+
+target gate在释放前必须读取并验证layout中的supervisor/delegated ControlGroup，并在
+`execv()` matrix前设置formal workflow使用的supervisor identity。formal target缺少该
+identity或layout verification时必须fail closed。launcher只授权container root的
+`cgroup.procs`和samples child creation所需的最小权限；supervisor目录及root/samples
+的`cgroup.subtree_control`保持root-owned。
+
+target container必须通过安装式`gateway-p2r1-runner@.service`、专用per-run slice、Compose
+`cgroup_parent`和root launcher进入per-run slice下的Docker scope；`Delegate=yes`只允许
+位于service，不允许位于`.slice`。Docker systemd driver只接受合法slice unit name作为
+`cgroup_parent`，不能传入service的ControlGroup filesystem路径。launcher动态取得per-run
+slice和runner service的真实ControlGroup，用于ancestry证据；Docker scope必须是service的
+sibling，而不是service subtree的子节点。父slice只用于顶层ancestry校验，不是measurement
+root。container若位于service subtree或其他slice，必须fail closed。仅有`cgroup: host`或
+bind mount不构成delegation。sampler
+提供delegated cgroup root；每个workflow创建独立child cgroup，用同一`memory.peak` FD
+执行reset/read，并记录reset后的current baseline。若无法创建或隔离，coverage为
+`unavailable/inconclusive`，不得通过bounded gate。plateau raw严格按subject/window保存：
+workflow process tree、provider/server descendant tree、Arrow memory pool和cgroup各自的
+first/middle/final 10%峰值，并同时保存query前absolute baseline与
+`max(0, current-baseline)` delta；bounded gate只使用delta plateau。cgroup还必须保存
+`memory.stat` anon/file和stream-level peak，累计peak不得复用为window evidence。sampler
+覆盖execute/fetch、Arrow转换、yield和cursor close等瞬时阶段。
+
+batch窗口按batch覆盖的row区间计入：first `[0,ceil(10%))`、middle
+`[floor(45%),ceil(55%))`、final `[floor(90%),total)`。4 MiB是普通decoded payload上限；
+单个不可拆分row超过上限时单独成batch，并写入`oversized_single_row`、row bytes和原因。
+Candidate B使用受控小粒度fetch，不能先无条件materialize完整row bound。
+`connector_fetch_row_bound=32`只是上限；实际fetch size必须按catalog可证明的最大row
+width计算，TEXT/BLOB等无界类型退化为单行fetch。普通fetch payload不得超过4 MiB；唯一
+oversized row必须单独fetch并写入raw evidence。
+
+W3继续记录logical/allocated storage、change ratio和full-rewrite limitation，但不把
+任何固定增量比例作为未经authority批准的hard gate。
+
+formal runner在preflight成功后立即以`open("x")`预留raw JSONL，每条record flush/fsync；
+长跑异常必须保留已写records和`incomplete/no-go` terminal status，只有完整coverage才
+发布summary/report。worker result必须临时文件fsync后atomic rename且要求正常零退出。
+formal provenance必须来自launcher读取的实际image ID、immutable image labels、clean
+source revision/tree digest和lock SHA，并以只读manifest挂载到target；自由CLI字符串或
+普通环境变量不构成完整metadata。`p2-r1-audit-corrective-v5`还要求delta plateau接受
+合法零值：三个scale全为零时ratio为1.0，零/正混合时为`inconclusive`。
+
 sql-server background statistics必须关闭或单独隔离，避免把provider stats写入误算为
-canonical Dolt增量。测量完成后停止provider并quiesce filesystem再读取storage数据。
+canonical Dolt增量。测量完成后停止provider、关闭cursor/connection、wait/reap所有child
+并quiesce filesystem，再读取storage数据；W3还必须在base commit关闭/quiesce后读取
+baseline，重开provider完成delta/new commit后再次关闭/quiesce读取after。W3记录storage
+evidence和full-rewrite limitation，但不设置未经authority批准的固定比例hard gate。
 
 ## 7. Acceptance and selection
 
@@ -160,7 +258,9 @@ canonical Dolt增量。测量完成后停止provider并quiesce filesystem再读�
 
 - 第5节全部workflow通过，zero skip/xfail；
 - W0、W1和W2均在60分钟probe safety limit内完成；
-- W1/W2 stream的内存随RecordBatch bound保持有界，不随全表size线性累积；
+- same-shape S10/S40/S100在row bound 256/1024和4 MiB byte bound下的全部working-set
+  subjects通过1.5 plateau ratio；缺失证据只能为inconclusive；W2只作为wide-row
+  boundary safety记录，不参与total-size scaling gate；
 - cancellation、restart、root-lock exclusion和rename fault point通过；
 - W1按4 workers、70% target utilization和五次measured run中的最慢成功样本计算：
 
@@ -179,7 +279,8 @@ projected_daily_capacity = 4 * 86400 * 0.70 / max_measured_import_seconds
 1. candidate未通过任一hard gate则淘汰；
 2. Candidate A通过全部hard gate时选择offline CLI；
 3. 只有Candidate A失败而Candidate B通过时选择sql-server + locked driver；
-4. 两者均失败时P2-R1为`no-go`，不得进入P2-R2；
+4. 任一candidate coverage不完整、bounded证据inconclusive或两者均失败时，P2-R1为
+   `no-go`，不得进入P2-R2；
 5. 两者均通过时仍选择Candidate A，Candidate B结果只作为未来真实read/concurrency
    压力触发后的备选记录。
 
@@ -188,18 +289,32 @@ hard gate。不得以主观“更现代”或单次最快样本替代上述顺�
 
 ## 8. Deliverables and verification
 
+正式 artifacts 在container删除前必须从project-scoped named volume导出：launcher先停止
+并确认container已reap，再使用`docker cp`取得raw、summary和Markdown report，在host
+output parent同一filesystem内完成逐行完整性、size、digest、fsync和no-replace publication。
+非零target必须保留末尾`incomplete/no-go` terminal status；导出失败不得报告formal成功。
+只有三份artifact全部发布成功且target零退出时，才能对当前唯一Compose project执行
+`down -v`，并验证container、volume、network和cgroup均无残留。target异常或导出失败时
+只能执行不带`-v`的project-scoped runtime cleanup，并保留source volume和staging路径；
+cleanup失败不得清空运行状态或影响其他project。
+
 P2-R1必须提交：
 
 - private layout/lock/fsync/process/provider probe code及其unit/integration tests；
 - two-candidate matrix runner和相同fixture/workload入口；
-- raw measurement result与简短Markdown decision；
+- machine-readable raw measurement result与简短Markdown decision；raw必须保留失败样本、
+  memory subject scope、plateau windows和methodology metadata；
 - target container/volume smoke；
 - ordinary repository-service lock、ruff、strict mypy和pytest结果；
 - `git diff --check`和全文旧provider/layout引用搜索。
 
 Measurement文件是普通工程记录，不生成evidence digest、baseline状态机、gate attempt或
-exact-commit bundle。Probe产生的repository、container和volume必须清理，不得把
-runtime data提交到Git。
+exact-commit bundle。成功运行产生的probe repository、container和volume必须立即清理，
+不得把runtime data提交到Git。target异常或artifact publication失败时，source volume
+进入显式quarantine/recovery状态，不得为满足“清理”而删除原始evidence；launcher必须
+输出project name、volume ID和staging path。人工恢复并确认artifact已保存后，使用该
+project/volume identity执行明确的volume cleanup，并再次验证container、network、volume
+和cgroup无残留。
 
 P2-R1 exit只有两种：
 

@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 import selectors
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import BinaryIO, Iterator, Self
+from typing import BinaryIO, Callable, Iterator, Self
+
+import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.settings import RepositoryServiceSettings
 
@@ -32,6 +39,696 @@ def process_rss_kib(pid: int) -> int:
             if len(fields) >= 2:
                 return int(fields[1])
     return 0
+
+
+def process_tree_pids(pid: int) -> tuple[int, ...]:
+    """Return a best-effort snapshot of ``pid`` and all descendants."""
+
+    pending = [pid]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        children_path = Path(f"/proc/{current}/task/{current}/children")
+        try:
+            children = [int(value) for value in children_path.read_text().split()]
+        except (FileNotFoundError, OSError, ValueError):
+            children = []
+        pending.extend(children)
+    return tuple(sorted(seen))
+
+
+def process_tree_rss_kib(pid: int) -> int:
+    return sum(process_rss_kib(child) for child in process_tree_pids(pid))
+
+
+class WorkflowCgroupScope:
+    """Own one delegated child cgroup without moving the supervisor into it."""
+
+    def __init__(self, root: Path | None) -> None:
+        self.root = root.resolve() if root is not None else None
+        self.path: Path | None = None
+        self.active = False
+
+    def create(self) -> Path:
+        if self.root is None or not self.root.is_dir():
+            raise ProcessBoundaryError("delegated cgroup root is unavailable")
+        candidate = self.root / f"gateway-p2r1-{uuid.uuid4().hex}"
+        try:
+            candidate.mkdir()
+        except (FileExistsError, OSError, PermissionError) as exc:
+            try:
+                candidate.rmdir()
+            except OSError:
+                pass
+            raise ProcessBoundaryError("cannot create delegated workflow cgroup") from exc
+        self.path = candidate
+        self.active = True
+        return candidate
+
+    def attach(self, pid: int) -> None:
+        if not self.active or self.path is None:
+            raise ProcessBoundaryError("workflow cgroup is not active")
+        procs = self.path / "cgroup.procs"
+        try:
+            procs.write_text(str(pid), encoding="ascii")
+            members = {int(value) for value in procs.read_text(encoding="ascii").split()}
+        except (OSError, ValueError) as exc:
+            raise ProcessBoundaryError("cannot attach worker to delegated cgroup") from exc
+        if pid not in members:
+            raise ProcessBoundaryError("worker PID was not observed in delegated cgroup")
+
+    def cleanup(self) -> None:
+        if not self.active or self.path is None:
+            return
+        try:
+            members = self.path.joinpath("cgroup.procs").read_text(encoding="ascii").split()
+        except OSError as exc:
+            raise ProcessBoundaryError("cannot inspect workflow cgroup during cleanup") from exc
+        if members:
+            raise ProcessBoundaryError("workflow cgroup still contains processes")
+        try:
+            self.path.rmdir()
+        except OSError as exc:
+            raise ProcessBoundaryError("cannot remove workflow cgroup") from exc
+        self.active = False
+
+    def __enter__(self) -> "WorkflowCgroupScope":
+        self.create()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.cleanup()
+
+
+def current_cgroup_membership(pid: int | None = None) -> str | None:
+    process_id = os.getpid() if pid is None else pid
+    try:
+        lines = Path(f"/proc/{process_id}/cgroup").read_text(encoding="ascii").splitlines()
+    except (FileNotFoundError, OSError):
+        return None
+    for line in lines:
+        fields = line.split(":", 2)
+        if len(fields) == 3 and fields[0] == "0":
+            return fields[2]
+    return None
+
+
+def cgroup_scope_identity(root: Path) -> str:
+    """Return a stable opaque identity without publishing a host cgroup path."""
+
+    return "sha256:" + hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class CgroupTopology:
+    """The launcher-authorized cgroup topology visible to the target."""
+
+    delegated_root: Path
+    supervisor: Path
+    samples: Path
+    parent_control_group: str
+    slice_control_group: str
+    service_control_group: str
+    delegated_control_group: str
+    supervisor_control_group: str
+    layout_version: str
+
+    @classmethod
+    def from_dict(cls, value: dict[str, object]) -> "CgroupTopology":
+        def path_field(name: str) -> Path:
+            raw = value.get(name)
+            if not isinstance(raw, str) or not raw.startswith("/"):
+                raise ProcessBoundaryError(f"cgroup layout field {name} is not absolute")
+            return Path(raw).resolve()
+
+        def control_group_field(name: str) -> str:
+            raw = value.get(name)
+            if not isinstance(raw, str) or not raw.startswith("/"):
+                raise ProcessBoundaryError(
+                    f"cgroup layout field {name} is not an absolute ControlGroup"
+                )
+            return raw.rstrip("/") or "/"
+
+        layout_version = value.get("layout_version")
+        if not isinstance(layout_version, str) or not layout_version:
+            raise ProcessBoundaryError("cgroup layout version is missing")
+        delegated_root = path_field("delegated_root")
+        supervisor = path_field("supervisor")
+        samples = path_field("samples")
+        if supervisor.parent != delegated_root or samples.parent != delegated_root:
+            raise ProcessBoundaryError("supervisor and samples are not delegated-root siblings")
+        if supervisor == samples or delegated_root in (supervisor, samples):
+            raise ProcessBoundaryError("cgroup layout has invalid sibling topology")
+        return cls(
+            delegated_root=delegated_root,
+            supervisor=supervisor,
+            samples=samples,
+            parent_control_group=control_group_field("parent_control_group"),
+            slice_control_group=control_group_field("slice_control_group"),
+            service_control_group=control_group_field("service_control_group"),
+            delegated_control_group=control_group_field("delegated_control_group"),
+            supervisor_control_group=control_group_field("supervisor_control_group"),
+            layout_version=layout_version,
+        )
+
+
+def load_cgroup_topology(path: Path | None) -> CgroupTopology | None:
+    """Load the launcher-produced topology; no inferred formal root is allowed."""
+
+    if path is None:
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
+        raise ProcessBoundaryError("cgroup layout manifest is unavailable") from exc
+    if not isinstance(value, dict):
+        raise ProcessBoundaryError("cgroup layout manifest is not an object")
+    return CgroupTopology.from_dict(value)
+
+
+def resolve_current_cgroup(root_mount: Path, *, pid: int | None = None) -> Path:
+    """Resolve the exact cgroup containing ``pid`` below a delegated mount.
+
+    Target containers receive a delegated service-subtree mount, while ``/proc``
+    exposes the host-relative cgroup path. The launcher supplies the service's
+    actual ControlGroup, so this function can map the process suffix into the mount
+    without ever deriving a host path from a unit name.
+    """
+
+    root = root_mount.resolve()
+    process_id = os.getpid() if pid is None else pid
+    try:
+        direct_members = {
+            int(value)
+            for value in (root / "cgroup.procs").read_text(encoding="ascii").split()
+        }
+    except (FileNotFoundError, OSError, ValueError):
+        direct_members = set()
+    if process_id in direct_members:
+        return root
+    membership = current_cgroup_membership(pid)
+    if membership is None:
+        raise ProcessBoundaryError("current process cgroup membership is unavailable")
+    control_group = os.environ.get("GATEWAY_REPOSITORY_CGROUP_CONTROL_GROUP")
+    if control_group:
+        normalized = control_group.rstrip("/") or "/"
+        if membership != normalized and not membership.startswith(normalized + "/"):
+            raise ProcessBoundaryError(
+                "current process is outside the delegated cgroup parent ControlGroup"
+            )
+        suffix = membership[len(normalized) :].lstrip("/")
+        candidate = root / suffix if suffix else root
+    elif root == Path("/sys/fs/cgroup"):
+        candidate = root / membership.lstrip("/")
+    else:
+        # Local unit tests and diagnostic callers may already pass the exact
+        # cgroup directory. Formal target invocations always provide the
+        # ControlGroup metadata above.
+        candidate = root
+    if not candidate.is_dir():
+        raise ProcessBoundaryError("exact current cgroup directory is unavailable")
+    return candidate
+
+
+def fork_exec_gated(argv: list[str]) -> tuple[int, int]:
+    """Fork a session leader that cannot exec until its parent releases a pipe."""
+
+    if not argv or any("\x00" in item for item in argv):
+        raise ProcessBoundaryError("invalid gated process argv")
+    gate_read, gate_write = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        os.close(gate_write)
+        try:
+            os.setsid()
+            if os.read(gate_read, 1) != b"1":
+                raise RuntimeError("gated process release was not received")
+            os.close(gate_read)
+            os.execv(argv[0], argv)
+        finally:
+            os._exit(127)
+    os.close(gate_read)
+    return pid, gate_write
+
+
+def release_gated_process(gate_write: int) -> None:
+    try:
+        os.write(gate_write, b"1")
+    finally:
+        os.close(gate_write)
+
+
+def terminate_process_group_and_reap(pid: int, grace_seconds: float = 2.0) -> None:
+    """Terminate a gated/exec'd process group and always reap its direct child."""
+
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    deadline = time.monotonic() + grace_seconds
+    while time.monotonic() < deadline:
+        try:
+            waited, _ = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if waited == pid:
+            return
+        time.sleep(0.01)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        os.waitpid(pid, 0)
+    except ChildProcessError:
+        pass
+
+
+def _direct_cgroup_pids(path: Path) -> set[int]:
+    try:
+        return {
+            int(value)
+            for value in (path / "cgroup.procs").read_text(encoding="ascii").split()
+        }
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        raise ProcessBoundaryError("cannot read cgroup.procs") from exc
+
+
+def _enabled_controllers(path: Path) -> set[str]:
+    try:
+        return set((path / "cgroup.subtree_control").read_text(encoding="ascii").split())
+    except (FileNotFoundError, OSError) as exc:
+        raise ProcessBoundaryError("cannot read cgroup.subtree_control") from exc
+
+
+def _require_cgroup_files(path: Path) -> None:
+    if not path.is_dir() or not all(
+        (path / name).is_file()
+        for name in (
+            "memory.current",
+            "memory.peak",
+            "memory.stat",
+            "cgroup.procs",
+            "cgroup.threads",
+            "cgroup.subtree_control",
+        )
+    ):
+        raise ProcessBoundaryError("delegated cgroup memory controls are unavailable")
+
+
+def preflight_cgroup(
+    root: Path | None, topology: CgroupTopology | None = None
+) -> Path:
+    """Exercise real cgroup creation, migration, memory reads, and cleanup."""
+
+    if root is None:
+        raise ProcessBoundaryError("formal runner requires a delegated cgroup root")
+    if topology is not None:
+        root_path = topology.samples
+        if root.resolve() != topology.samples:
+            raise ProcessBoundaryError("formal sample root does not match cgroup layout")
+        delegated_root = topology.delegated_root
+        supervisor = topology.supervisor
+        current_membership = current_cgroup_membership()
+        if current_membership != topology.supervisor_control_group:
+            raise ProcessBoundaryError("current matrix PID is not in the supervisor cgroup")
+        if topology.supervisor_control_group != topology.delegated_control_group + "/supervisor":
+            raise ProcessBoundaryError("supervisor ControlGroup is not under delegated root")
+        if topology.parent_control_group != topology.slice_control_group and not topology.parent_control_group.startswith(
+            topology.slice_control_group.rstrip("/") + "/"
+        ):
+            raise ProcessBoundaryError("per-run slice is outside the declared parent slice")
+        if topology.service_control_group.rsplit("/", 1)[0] != topology.parent_control_group:
+            raise ProcessBoundaryError("runner service is not a per-run slice sibling")
+        if topology.delegated_control_group.rsplit("/", 1)[0] != topology.parent_control_group:
+            raise ProcessBoundaryError("container cgroup is not a per-run slice sibling")
+        if topology.delegated_control_group.startswith(
+            topology.service_control_group.rstrip("/") + "/"
+        ):
+            raise ProcessBoundaryError("container cgroup must not be inside runner service subtree")
+        _require_cgroup_files(delegated_root)
+        _require_cgroup_files(supervisor)
+        _require_cgroup_files(root_path)
+        if _direct_cgroup_pids(delegated_root) or _direct_cgroup_pids(root_path):
+            raise ProcessBoundaryError("delegated root and samples must have no direct processes")
+        if os.getpid() not in _direct_cgroup_pids(supervisor):
+            raise ProcessBoundaryError("current matrix PID is not a direct supervisor member")
+        for cgroup in (delegated_root, root_path):
+            if not {"memory", "pids"}.issubset(_enabled_controllers(cgroup)):
+                raise ProcessBoundaryError("delegated cgroup controllers are not enabled")
+    else:
+        root_path = resolve_current_cgroup(root.resolve()) if os.environ.get(
+            "GATEWAY_REPOSITORY_CGROUP_CONTROL_GROUP"
+        ) else root.resolve()
+        delegated_root = root_path
+        supervisor = None
+    if not root_path.is_dir():
+        raise ProcessBoundaryError("delegated cgroup root is unavailable")
+    expected_parent = os.environ.get("GATEWAY_REPOSITORY_CGROUP_CONTROL_GROUP")
+    membership = current_cgroup_membership()
+    if expected_parent and (
+        membership is None
+        or (membership != expected_parent and not membership.startswith(expected_parent.rstrip("/") + "/"))
+    ):
+        raise ProcessBoundaryError("target supervisor is not under the delegated cgroup parent")
+    if topology is None:
+        _require_cgroup_files(root_path)
+    scope = WorkflowCgroupScope(root_path)
+    worker_pid: int | None = None
+    gate_write: int | None = None
+    try:
+        scope.create()
+        cgroup_path = scope.path
+        if cgroup_path is None:
+            raise ProcessBoundaryError("workflow cgroup path was not created")
+        if topology is not None:
+            _require_cgroup_files(cgroup_path)
+        elif not all(
+            (cgroup_path / name).is_file()
+            for name in ("memory.current", "memory.peak", "memory.stat", "cgroup.procs")
+        ):
+            raise ProcessBoundaryError(
+                "delegated cgroup memory controls are unavailable"
+            )
+        worker_pid, gate_write = fork_exec_gated(
+            [sys.executable, "-c", "import time; time.sleep(0.2)"]
+        )
+        scope.attach(worker_pid)
+        members = {
+            int(value)
+            for value in (cgroup_path / "cgroup.procs").read_text(encoding="ascii").split()
+        }
+        if worker_pid not in members:
+            raise ProcessBoundaryError("preflight worker PID was not observed in child cgroup")
+        if topology is not None:
+            if os.getpid() not in _direct_cgroup_pids(supervisor):  # type: ignore[arg-type]
+                raise ProcessBoundaryError("matrix PID left supervisor during preflight")
+        if cgroup_path is None:
+            raise ProcessBoundaryError("workflow cgroup path was not created")
+        tracker = CgroupMemoryTracker(cgroup_path)
+        try:
+            snapshot = tracker.snapshot()
+            if not tracker.per_workflow or not snapshot.available:
+                raise ProcessBoundaryError("delegated cgroup memory controls are unavailable")
+        finally:
+            tracker.close()
+        if gate_write is not None:
+            release_gated_process(gate_write)
+            gate_write = None
+        waited, status = os.waitpid(worker_pid, 0)
+        if waited != worker_pid or status != 0:
+            raise ProcessBoundaryError("preflight worker did not exit normally")
+        worker_pid = None
+        scope.cleanup()
+        if topology is not None and (
+            _direct_cgroup_pids(root_path) or _direct_cgroup_pids(delegated_root)
+        ):
+            raise ProcessBoundaryError("delegated cgroup topology retained a direct process")
+        return root_path
+    except BaseException:
+        if gate_write is not None:
+            try:
+                os.close(gate_write)
+            except OSError:
+                pass
+        if worker_pid is not None:
+            terminate_process_group_and_reap(worker_pid)
+        if scope.active:
+            scope.cleanup()
+        raise
+
+
+@dataclass(frozen=True)
+class CgroupMemoryMeasurement:
+    current_bytes: int | None
+    peak_bytes: int | None
+    baseline_peak_bytes: int | None
+    reset_current_baseline_bytes: int | None
+    anon_bytes: int | None
+    file_bytes: int | None
+    baseline_anon_bytes: int | None
+    baseline_file_bytes: int | None
+    anon_delta_bytes: int | None
+    file_delta_bytes: int | None
+    scope_identity: str
+    available: bool
+    per_workflow: bool
+
+
+class CgroupMemoryTracker:
+    """Read cgroup v2 memory without pretending cumulative peaks are per-run."""
+
+    def __init__(self, root: Path = Path("/sys/fs/cgroup")) -> None:
+        self.root = root
+        self.current_path = root / "memory.current"
+        self.peak_path = root / "memory.peak"
+        self.baseline_peak = self._read(self.peak_path)
+        self._peak_fd: int | None = None
+        self.reset_baseline = self._reset_peak()
+        self.reset_current_baseline = self._read(self.current_path)
+        self.reset_stat = self._read_stat(self.root / "memory.stat")
+        self.scope_identity = cgroup_scope_identity(self.root)
+        self.per_workflow = self.reset_baseline is not None
+
+    @staticmethod
+    def _read_stat(path: Path) -> dict[str, int]:
+        try:
+            lines = path.read_text(encoding="ascii").splitlines()
+        except (FileNotFoundError, OSError):
+            return {}
+        result: dict[str, int] = {}
+        for line in lines:
+            key, _, value = line.partition(" ")
+            try:
+                result[key] = int(value.strip())
+            except ValueError:
+                continue
+        return result
+
+    @staticmethod
+    def _read(path: Path) -> int | None:
+        try:
+            value = path.read_text(encoding="utf-8").strip()
+        except (FileNotFoundError, OSError, ValueError):
+            return None
+        if value == "max":
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    def _read_fd(self, descriptor: int) -> int | None:
+        try:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            value = os.read(descriptor, 128).decode("ascii", errors="strict").strip()
+            if value == "max":
+                return None
+            return int(value)
+        except (OSError, ValueError, UnicodeError):
+            return None
+
+    def _reset_peak(self) -> int | None:
+        try:
+            descriptor = os.open(
+                self.peak_path,
+                os.O_RDWR | getattr(os, "O_CLOEXEC", 0),
+            )
+            os.write(descriptor, b"0")
+            baseline = self._read_fd(descriptor)
+            if baseline is None:
+                os.close(descriptor)
+                return None
+            self._peak_fd = descriptor
+            return baseline
+        except (FileNotFoundError, OSError, PermissionError, ValueError, UnicodeError):
+            if "descriptor" in locals():
+                os.close(descriptor)
+            return None
+
+    def close(self) -> None:
+        if self._peak_fd is not None:
+            os.close(self._peak_fd)
+            self._peak_fd = None
+
+    def __enter__(self) -> "CgroupMemoryTracker":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
+
+    def snapshot(self) -> CgroupMemoryMeasurement:
+        current = self._read(self.current_path)
+        peak = self._read_fd(self._peak_fd) if self._peak_fd is not None else None
+        stat = self._read_stat(self.root / "memory.stat")
+        anon = stat.get("anon")
+        file_bytes = stat.get("file")
+        baseline_anon = self.reset_stat.get("anon")
+        baseline_file = self.reset_stat.get("file")
+        return CgroupMemoryMeasurement(
+            current_bytes=current,
+            peak_bytes=peak,
+            baseline_peak_bytes=self.reset_baseline,
+            reset_current_baseline_bytes=self.reset_current_baseline,
+            anon_bytes=anon,
+            file_bytes=file_bytes,
+            baseline_anon_bytes=baseline_anon,
+            baseline_file_bytes=baseline_file,
+            anon_delta_bytes=(max(0, anon - baseline_anon)
+                              if anon is not None and baseline_anon is not None else None),
+            file_delta_bytes=(max(0, file_bytes - baseline_file)
+                              if file_bytes is not None and baseline_file is not None else None),
+            scope_identity=self.scope_identity,
+            available=current is not None and peak is not None,
+            per_workflow=self.per_workflow,
+        )
+
+
+WINDOW_NAMES = ("first_10pct", "middle_10pct", "final_10pct")
+MEMORY_SUBJECTS = (
+    "workflow_process_tree",
+    "provider_process_tree",
+    "arrow_memory_pool",
+    "cgroup",
+)
+
+
+def windows_for_interval(start_row: int, end_row: int, total_rows: int) -> tuple[str, ...]:
+    total = max(total_rows, 1)
+    ranges = {
+        "first_10pct": (0, max(1, (total * 10 + 99) // 100)),
+        "middle_10pct": ((total * 45) // 100, (total * 55 + 99) // 100),
+        "final_10pct": ((total * 90) // 100, total),
+    }
+    return tuple(
+        name
+        for name, (window_start, window_end) in ranges.items()
+        if start_row < window_end and end_row > window_start
+    )
+
+
+class MemorySampler:
+    """Collect independent subject high-water marks for active row windows."""
+
+    def __init__(
+        self,
+        workflow_pid: int,
+        provider_pid: Callable[[], int | None],
+        cgroup: CgroupMemoryTracker | None,
+        interval_seconds: float,
+        baselines: dict[str, int | None] | None = None,
+    ) -> None:
+        self.workflow_pid = workflow_pid
+        self.provider_pid = provider_pid
+        self.cgroup = cgroup
+        self.interval_seconds = interval_seconds
+        self.baselines = baselines or {}
+        self._active: set[str] = set()
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._peaks: dict[str, dict[str, int | None]] = {
+            subject: {window: None for window in WINDOW_NAMES}
+            for subject in MEMORY_SUBJECTS
+        }
+        self.global_peaks: dict[str, int | None] = {
+            subject: None for subject in MEMORY_SUBJECTS
+        }
+        self._absolute_peaks: dict[str, dict[str, int | None]] = {
+            subject: {window: None for window in WINDOW_NAMES}
+            for subject in MEMORY_SUBJECTS
+        }
+        self.global_delta_peaks: dict[str, int | None] = {
+            subject: None for subject in MEMORY_SUBJECTS
+        }
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self.sample()
+            self._stop.wait(self.interval_seconds)
+
+    def _snapshot(self) -> dict[str, int | None]:
+        provider_pid = self.provider_pid()
+        cgroup = self.cgroup.snapshot() if self.cgroup is not None else None
+        return {
+            "workflow_process_tree": process_tree_rss_kib(self.workflow_pid),
+            "provider_process_tree": process_tree_rss_kib(provider_pid) if provider_pid else 0,
+            "arrow_memory_pool": pa.default_memory_pool().bytes_allocated(),
+            "cgroup": cgroup.current_bytes if cgroup is not None else None,
+        }
+
+    def sample(self, windows: tuple[str, ...] | None = None) -> None:
+        snapshot = self._snapshot()
+        with self._lock:
+            targets = set(windows) if windows is not None else set(self._active)
+            for subject, value in snapshot.items():
+                if value is not None:
+                    self.global_peaks[subject] = max(self.global_peaks[subject] or 0, value)
+                    baseline = self.baselines.get(subject)
+                    delta = max(0, value - baseline) if baseline is not None else None
+                    if delta is not None:
+                        self.global_delta_peaks[subject] = max(
+                            self.global_delta_peaks[subject] or 0, delta
+                        )
+                else:
+                    delta = None
+                for window in targets:
+                    if value is not None:
+                        self._absolute_peaks[subject][window] = max(
+                            self._absolute_peaks[subject][window] or 0, value
+                        )
+                        if delta is not None:
+                            self._peaks[subject][window] = max(
+                                self._peaks[subject][window] or 0, delta
+                            )
+
+    def set_active(self, windows: tuple[str, ...]) -> None:
+        with self._lock:
+            self._active = set(windows)
+        self.sample(windows)
+
+    def stop(self) -> dict[str, dict[str, int | None]]:
+        self.sample()
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=max(1.0, self.interval_seconds * 20))
+        with self._lock:
+            return {
+                subject: dict(values) for subject, values in self._peaks.items()
+            }
+
+    def absolute_peaks(self) -> dict[str, dict[str, int | None]]:
+        with self._lock:
+            return {
+                subject: dict(values) for subject, values in self._absolute_peaks.items()
+            }
+
+
+_DOLT_VERSION_RE = re.compile(
+    r"(?mi)^\s*dolt version\s+(?P<version>\d+\.\d+\.\d+)(?=\s|$)"
+)
+
+
+def parse_dolt_version(version_text: str) -> str | None:
+    match = _DOLT_VERSION_RE.search(version_text)
+    return match.group("version") if match is not None else None
 
 
 @dataclass(frozen=True)
@@ -96,7 +793,7 @@ class DoltRunner:
             capture_stdout=True,
         )
         version_text = result.stdout.decode("utf-8", errors="replace")
-        if self.settings.dolt_version not in version_text:
+        if parse_dolt_version(version_text) != self.settings.dolt_version:
             raise ProcessBoundaryError("Dolt exact version check failed")
 
     def run(
@@ -133,7 +830,13 @@ class DoltRunner:
         process, stdin_handle = self._start(command_kind, args, cwd=cwd, stdin_path=stdin_path)
         if stdin_handle is not None:
             stdin_handle.close()
-        return ProcessStream(self, process, command_kind, timeout)
+        return ProcessStream(
+            self,
+            process,
+            command_kind,
+            timeout,
+            max_line_bytes=self.settings.max_stream_line_bytes,
+        )
 
     def _start(
         self,
@@ -321,18 +1024,21 @@ class ProcessStream:
         process: subprocess.Popen[bytes],
         command_kind: str,
         timeout: float,
+        *,
+        max_line_bytes: int | None = None,
     ) -> None:
         self.runner = runner
         self.process = process
         self.command_kind = command_kind
         self.timeout = timeout
+        self.max_line_bytes = max_line_bytes or runner.settings.output_capture_bytes
         self.started = time.monotonic()
-        self.start_rss_kib = process_rss_kib(process.pid)
+        self.start_rss_kib = process_tree_rss_kib(process.pid)
         self.stderr_tail = _Tail(runner.settings.output_tail_bytes)
         self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self._stderr_thread.start()
         self._monitor_stop = threading.Event()
-        self.peak_rss_kib = 0
+        self.peak_rss_kib = self.start_rss_kib
         self._monitor_thread = threading.Thread(target=self._monitor_rss, daemon=True)
         self._monitor_thread.start()
         self._closed = False
@@ -348,24 +1054,56 @@ class ProcessStream:
 
     def _monitor_rss(self) -> None:
         while not self._monitor_stop.is_set():
-            self.peak_rss_kib = max(self.peak_rss_kib, process_rss_kib(self.process.pid))
+            self.peak_rss_kib = max(self.peak_rss_kib, process_tree_rss_kib(self.process.pid))
             self._monitor_stop.wait(0.02)
 
     def __iter__(self) -> Iterator[bytes]:
         if self.process.stdout is None:
             raise ProcessBoundaryError("stream stdout was not created")
+        file_descriptor = self.process.stdout.fileno()
+        os.set_blocking(file_descriptor, False)
+        selector = selectors.DefaultSelector()
+        selector.register(file_descriptor, selectors.EVENT_READ)
+        pending = bytearray()
         while True:
-            if time.monotonic() - self.started > self.timeout:
+            remaining = self.timeout - (time.monotonic() - self.started)
+            if remaining <= 0:
+                selector.close()
                 self.close(cancelled=True)
                 raise TimeoutError(f"{self.command_kind} exceeded timeout")
-            line = self.process.stdout.readline()
-            if not line:
-                break
-            if len(line) > self.runner.settings.output_capture_bytes:
+            events = selector.select(timeout=min(0.05, remaining))
+            if not events:
+                continue
+            try:
+                data = os.read(file_descriptor, 65536)
+            except BlockingIOError:
+                continue
+            if not data:
+                selector.unregister(file_descriptor)
+                selector.close()
+                if pending:
+                    if len(pending) > self.max_line_bytes:
+                        self.close(cancelled=True)
+                        raise ProcessBoundaryError("stream line exceeded bounded output limit")
+                    yield bytes(pending)
+                self.close()
+                return
+            pending.extend(data)
+            if len(pending) > self.max_line_bytes and b"\n" not in pending:
+                selector.close()
                 self.close(cancelled=True)
                 raise ProcessBoundaryError("stream line exceeded bounded output limit")
-            yield line
-        self.close()
+            while True:
+                newline = pending.find(b"\n")
+                if newline < 0:
+                    break
+                line = bytes(pending[: newline + 1])
+                del pending[: newline + 1]
+                if len(line) > self.max_line_bytes:
+                    selector.close()
+                    self.close(cancelled=True)
+                    raise ProcessBoundaryError("stream line exceeded bounded output limit")
+                yield line
 
     def close(self, *, cancelled: bool = False) -> CommandResult:
         if self._closed:

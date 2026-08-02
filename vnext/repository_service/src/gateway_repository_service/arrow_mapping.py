@@ -47,6 +47,8 @@ class TableCatalog:
 _DECIMAL = re.compile(r"^DECIMAL\((\d+),(\d+)\)$")
 _BIT = re.compile(r"^BIT\((\d+)\)$")
 _TEMPORAL = re.compile(r"^(TIME|DATETIME|TIMESTAMP)\((\d+)\)$")
+_SIZED_CHARACTER = re.compile(r"^(CHAR|VARCHAR)\(\d+\)$")
+_SIZED_BINARY = re.compile(r"^(BINARY|VARBINARY)\(\d+\)$")
 _CHARACTER = {
     "CHAR",
     "VARCHAR",
@@ -66,7 +68,7 @@ _BINARY = {
 
 
 def normalize_sql_type(data_type: str, column_type: str) -> str:
-    """Normalize the Dolt information_schema spelling used by the contract."""
+    """Normalize the Dolt catalog spelling used by the contract."""
 
     raw = " ".join(column_type.upper().split())
     raw = re.sub(r"\s+COLLATE\s+[^ ]+", "", raw)
@@ -88,7 +90,13 @@ def normalize_sql_type(data_type: str, column_type: str) -> str:
         base = raw.removesuffix(" UNSIGNED")
         if base in {"TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"}:
             return f"{base} UNSIGNED"
-    if raw in _CHARACTER or raw in _BINARY or raw in {"BOOLEAN", "JSON", "FLOAT", "DOUBLE", "DATE"}:
+    if (
+        raw in _CHARACTER
+        or raw in _BINARY
+        or _SIZED_CHARACTER.fullmatch(raw) is not None
+        or _SIZED_BINARY.fullmatch(raw) is not None
+        or raw in {"BOOLEAN", "JSON", "FLOAT", "DOUBLE", "DATE"}
+    ):
         return raw
     if raw in {"TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"}:
         return raw
@@ -142,9 +150,9 @@ def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, d
         if not 1 <= width <= 64:
             raise UnknownSqlTypeError(f"invalid BIT type: {sql_type}")
         return pa.binary(), {b"gateway.bit_width": str(width).encode("ascii")}
-    if upper in _CHARACTER:
+    if upper in _CHARACTER or _SIZED_CHARACTER.fullmatch(upper) is not None:
         return pa.string(), {}
-    if upper in _BINARY:
+    if upper in _BINARY or _SIZED_BINARY.fullmatch(upper) is not None:
         return pa.binary(), {}
     if upper == "JSON":
         return pa.string(), {b"gateway.logical_type": b"json"}
@@ -176,7 +184,7 @@ def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
     if pa.types.is_date32(arrow):
         if isinstance(value, dt.date):
             return value
-        return dt.date.fromisoformat(str(value))
+        return dt.date.fromisoformat(str(value).replace("T", " ").split(" ", 1)[0])
     if pa.types.is_duration(arrow):
         if isinstance(value, dt.timedelta):
             return value

@@ -76,6 +76,23 @@ def test_atomic_publication_fault_points_are_fail_closed(tmp_path: Path) -> None
     assert (target_after / "payload").read_text(encoding="utf-8") == "payload"
 
 
+def test_atomic_publication_no_replace_preserves_existing_target(tmp_path: Path) -> None:
+    layout = ProbeLayout.create(tmp_path / "root")
+    staging = layout.staging_repository("c" * 32, "source")
+    (staging / "payload").write_text("new", encoding="utf-8")
+    target = layout.published_repository("c" * 32)
+    target.mkdir(parents=True)
+    (target / "payload").write_text("old", encoding="utf-8")
+    try:
+        atomic_publish(staging, target)
+    except FileExistsError:
+        pass
+    else:
+        raise AssertionError("no-replace publication did not fail")
+    assert (target / "payload").read_text(encoding="utf-8") == "old"
+    assert (staging / "payload").read_text(encoding="utf-8") == "new"
+
+
 def test_runner_validates_exact_dolt_version(tmp_path: Path) -> None:
     layout = ProbeLayout.create(tmp_path / "root")
     runner = DoltRunner(RepositoryServiceSettings(), layout.root)

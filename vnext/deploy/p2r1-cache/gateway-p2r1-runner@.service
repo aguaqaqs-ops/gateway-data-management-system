@@ -1,0 +1,15 @@
+[Unit]
+Description=Gateway P2-R1 delegated target runner (%i)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=exec
+Delegate=yes
+DelegateSubgroup=supervisor
+Slice=gateway-p2r1-%i.slice
+KillMode=mixed
+TimeoutStartSec=infinity
+TimeoutStopSec=120
+EnvironmentFile=-/run/gateway-p2r1/%i/environment
+ExecStart=/bin/sh /usr/local/libexec/gateway-p2r1-target-launcher.sh --service-run %i

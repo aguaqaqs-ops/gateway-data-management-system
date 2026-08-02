@@ -1,16 +1,45 @@
 FROM python:3.14.6-slim-bookworm
 
+ARG DOLT_VERSION=2.1.11
+ARG UV_VERSION=0.11.28
+ARG DOLT_BINARY_SHA256
+ARG UV_WHEEL_SHA256=49fe42df9f42056037473f3876adec1615709b57d3470ed39178ff420f3afb9f
+ARG UV_LOCK_SHA256=fce9185b59b654729670c618c352f9f7a458fb2de40bbd2e088158e81a771e65
+ARG BUILD_REVISION=unknown
+ARG SOURCE_TREE_SHA256=unknown
+ARG MYSQL_CONNECTOR_VERSION=9.7.0
+ARG PYARROW_VERSION=25.0.0
+
 COPY offline-assets/dolt /usr/local/bin/dolt
 COPY offline-assets/uv.whl /tmp/uv-0.11.28-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-RUN chmod 0755 /usr/local/bin/dolt \
+COPY repository_service/uv.lock /tmp/gateway-repository-uv.lock
+RUN test -n "${DOLT_BINARY_SHA256}" \
+    && echo "${DOLT_BINARY_SHA256}  /usr/local/bin/dolt" | sha256sum -c - \
+    && echo "${UV_WHEEL_SHA256}  /tmp/uv-0.11.28-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl" | sha256sum -c - \
+    && test "$(sha256sum /tmp/gateway-repository-uv.lock | cut -d ' ' -f1)" = "${UV_LOCK_SHA256}" \
+    && chmod 0755 /usr/local/bin/dolt \
     && python -m pip install --no-cache-dir --no-index /tmp/uv-0.11.28-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl \
     && rm -f /tmp/uv-0.11.28-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
 
 COPY repository_service/.venv /app/.venv
-RUN mkdir -p /home/gateway \
+RUN test -x "$(command -v python3.14)" \
+    && if [ ! -x /app/.venv/bin/python ]; then \
+         ln -sf "$(command -v python3.14)" /app/.venv/bin/python; \
+       fi \
+    && test -x /app/.venv/bin/python \
+    && test "$(/usr/local/bin/dolt version | awk '$1 == "dolt" && $2 == "version" && $3 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ { print $3; exit }')" = "${DOLT_VERSION}" \
+    && test "$(uv --version | awk '{print $2}')" = "${UV_VERSION}" \
+    && uv pip check --python /app/.venv/bin/python \
+    && /app/.venv/bin/python -c "import pyarrow, pydantic, mysql.connector" \
+    && mkdir -p /home/gateway \
     && chmod 0755 /home/gateway
 
 LABEL org.opencontainers.image.title="gateway-p2r1-repository-dependency-base" \
-      gateway.p2r1.dolt-version="2.1.11" \
-      gateway.p2r1.uv-version="0.11.28" \
+      gateway.p2r1.dolt-version="${DOLT_VERSION}" \
+      gateway.p2r1.uv-version="${UV_VERSION}" \
+      gateway.p2r1.uv-lock-sha256="${UV_LOCK_SHA256}" \
+      org.opencontainers.image.revision="${BUILD_REVISION}" \
+      gateway.p2r1.source-tree-sha256="${SOURCE_TREE_SHA256}" \
+      gateway.p2r1.mysql-connector-version="${MYSQL_CONNECTOR_VERSION}" \
+      gateway.p2r1.pyarrow-version="${PYARROW_VERSION}" \
       gateway.p2r1.cache-policy="retain-for-development-rebuilds"

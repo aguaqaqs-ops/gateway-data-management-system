@@ -18,9 +18,17 @@ class Workload(StrEnum):
     W3_10 = "W3-10pct"
 
 
+class ScaleWorkload(StrEnum):
+    """Same-shape scaling series; deliberately excluded from the legacy matrix."""
+
+    S10 = "S10"
+    S40 = "S40"
+    S100 = "S100"
+
+
 @dataclass(frozen=True)
 class Fixture:
-    workload: Workload
+    workload: StrEnum
     replay_sql: Path
     expected_tables: tuple[TableCatalog, ...]
     rows: int
@@ -49,6 +57,22 @@ def generate_fixture(root: Path, workload: Workload) -> Fixture:
         replay_sql=replay,
         expected_tables=tables,
         rows=sum(table.row_count for table in tables),
+        package_bytes=replay.stat().st_size,
+        dataset_id=f"synthetic-{workload.value}-{digest[:16]}",
+    )
+
+
+def generate_scale_fixture(root: Path, workload: ScaleWorkload) -> Fixture:
+    rows = {ScaleWorkload.S10: 10_000, ScaleWorkload.S40: 40_000, ScaleWorkload.S100: 100_000}[workload]
+    root.mkdir(parents=True, exist_ok=True)
+    replay = root / f"{workload.value}.replay.sql"
+    tables = _write_representative(replay, rows, 170)
+    digest = hashlib.sha256(replay.read_bytes()).hexdigest()
+    return Fixture(
+        workload=workload,
+        replay_sql=replay,
+        expected_tables=tables,
+        rows=rows,
         package_bytes=replay.stat().st_size,
         dataset_id=f"synthetic-{workload.value}-{digest[:16]}",
     )

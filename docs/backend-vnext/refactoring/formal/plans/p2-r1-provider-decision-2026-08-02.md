@@ -15,6 +15,47 @@ all hard gates. This report is a feasibility result only. It is not a
 production SLO, and the synthetic workloads must not be used to infer real
 business-data deduplication or import behavior.
 
+## Meaning of this `no-go`
+
+This `no-go` is scoped to the current development-equivalent measurement
+environment. It means that the implementation, with the tested Candidate A/B
+paths and the tested resource/filesystem profile, has not yet earned permission
+to enter P2-R2 under the formal gates. It does not mean that either provider is
+proven impossible in the final production environment, and it does not select
+an alternative provider.
+
+The final production runtime is expected to have stronger compute and I/O
+capacity than this development environment. Faster CPUs, more available memory
+and higher-throughput storage may reduce import duration, improve rows/second
+and move the capacity projection above its threshold. Those gains are not
+assumed by this report: they must be demonstrated by repeating the same matrix
+with the production-equivalent CPU, memory limit, filesystem and volume
+backend. A stronger machine also cannot by itself waive the bounded-stream
+memory rule, correctness checks, cancellation cleanup, or the target-image
+smoke requirement.
+
+In particular, the failed results mean:
+
+- Candidate A and B both failed the tested bounded-stream rule. The W2 RSS
+  increase was too large relative to W1, so this run did not demonstrate that
+  memory remains bounded as workload size grows. This is a failed feasibility
+  observation, not a claim that production memory will necessarily grow in the
+  same way; the implementation and the production-equivalent runtime both need
+  to be re-measured.
+- Candidate B also projected `930.74/day`, below the formal `1000/day` gate.
+  This is a calculation from the measured W1 timings and duty-cycle rule, not a
+  production SLO or a forecast that production will remain below 1000/day.
+- The target Dockerfile image was not certified because the external Dolt
+  download stalled. This is an environment/build verification failure, not a
+  Dolt provider correctness failure. The equivalent named-volume matrix passed,
+  but the exact built image and non-root image smoke still need to pass.
+
+Accordingly, the actionable conclusion is: keep the round at `no-go`, do not
+start P2-R2 from this evidence, and repeat the gates after either improving the
+streaming/memory behavior or running the unchanged probe on a production-like
+host. A `go` decision requires the formal gates to pass in that re-run; stronger
+production hardware is a reason to re-test, not an automatic waiver.
+
 ## Matrix result
 
 The matrix was run as one warm-up plus five measured samples for each of W0,
@@ -90,7 +131,9 @@ package environment. The source and package mounts were read-only and the
 matrix ran as root because this was an equivalent smoke environment, not the
 final image. The filesystem probe reported `ext2/ext3` for the named-volume
 mount (the backend was recorded as `named-volume-ext4`). The matrix completed
-with 60 records and no remaining Dolt process or zombie child.
+with 60 records and no remaining Dolt process or zombie child. The machine
+readable summary marks this environment as `development-equivalent-smoke` and
+`production_environment_assessed: false`.
 
 ## Target-image limitation
 

@@ -40,10 +40,14 @@
   "measurement_environment": {
     "cpu_count": 16,
     "dolt_version": "2.1.11",
+    "environment_class": "development-equivalent-smoke",
     "filesystem": "ext2/ext3",
+    "production_environment_assessed": false,
     "python_version": "3.14.6"
   },
+  "decision_scope": "current_measurement_environment_only",
   "next_round_ready": false,
+  "production_retest_required": true,
   "records": 60,
   "round": "P2-R1",
   "round_exit": "no-go",

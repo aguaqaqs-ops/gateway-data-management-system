@@ -206,7 +206,11 @@ def _summarize(records: list[dict[str, object]], settings: RepositoryServiceSett
             "python_version": platform.python_version(),
             "cpu_count": os.cpu_count(),
             "filesystem": _filesystem_type(),
+            "environment_class": "development-equivalent-smoke",
+            "production_environment_assessed": False,
         },
+        "decision_scope": "current_measurement_environment_only",
+        "production_retest_required": True,
     }
 
 
@@ -235,6 +239,7 @@ def _markdown(summary: dict[str, object]) -> str:
         [
             "",
             "All workloads are deterministic synthetic fixtures. Results are feasibility measurements, not production SLOs.",
+            "The no-go decision applies to this development-equivalent measurement environment only; a stronger production CPU/IO/memory profile may improve latency and throughput, but does not waive bounded-memory, correctness, or target-image gates. Re-run the matrix in a production-equivalent environment before making a production decision.",
             "",
         ]
     )

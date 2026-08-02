@@ -14,5 +14,16 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
     command: ["python", "-c", "print('worker bootstrap')"]
+  repository-probe:
+    profiles: ["p2-r1"]
+    build:
+      context: ..
+      dockerfile: repository_service/Dockerfile
+    command: ["python", "-c", "print('repository probe image ready')"]
+    environment:
+      GATEWAY_REPOSITORY_DATA_ROOT: /var/lib/gateway/repository
+    volumes:
+      - repository-data:/var/lib/gateway/repository
 volumes:
   backend-artifacts:
+  repository-data:

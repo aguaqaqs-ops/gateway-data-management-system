@@ -1,0 +1,52 @@
+{
+  "candidate_matrix": {
+    "candidate_a_offline_cli": {
+      "bounded_stream_gate": false,
+      "capacity_gate": true,
+      "capacity_projection_imports_per_day": 1786.1160322746155,
+      "hard_gate": false,
+      "incremental_storage_gate": true,
+      "max_w1_import_seconds": 135.4447279060114,
+      "result": "fail",
+      "safety_limit": true,
+      "workflow": true,
+      "workloads": [
+        "W0",
+        "W1",
+        "W2",
+        "W3-10pct",
+        "W3-1pct"
+      ]
+    },
+    "candidate_b_sql_server": {
+      "bounded_stream_gate": false,
+      "capacity_gate": false,
+      "capacity_projection_imports_per_day": 930.7388872770479,
+      "hard_gate": false,
+      "incremental_storage_gate": true,
+      "max_w1_import_seconds": 259.92252317699604,
+      "result": "fail",
+      "safety_limit": true,
+      "workflow": true,
+      "workloads": [
+        "W0",
+        "W1",
+        "W2",
+        "W3-10pct",
+        "W3-1pct"
+      ]
+    }
+  },
+  "measurement_environment": {
+    "cpu_count": 16,
+    "dolt_version": "2.1.11",
+    "filesystem": "ext2/ext3",
+    "python_version": "3.14.6"
+  },
+  "next_round_ready": false,
+  "records": 60,
+  "round": "P2-R1",
+  "round_exit": "no-go",
+  "selected_provider": null,
+  "selection_reason": "both candidates failed at least one hard gate"
+}

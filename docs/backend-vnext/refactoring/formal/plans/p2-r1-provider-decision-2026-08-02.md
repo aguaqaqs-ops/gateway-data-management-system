@@ -15,6 +15,12 @@ all hard gates. This report is a feasibility result only. It is not a
 production SLO, and the synthetic workloads must not be used to infer real
 business-data deduplication or import behavior.
 
+The exact target Dockerfile image was subsequently built from the retained
+dependency-base image and completed the same 60-record matrix on a real named
+volume. The target-image raw records and summary are preserved alongside this
+report; the provider decision remains `no-go` because both candidates still
+fail the bounded-stream gate.
+
 ## Meaning of this `no-go`
 
 This `no-go` is scoped to the current development-equivalent measurement
@@ -42,13 +48,10 @@ In particular, the failed results mean:
   observation, not a claim that production memory will necessarily grow in the
   same way; the implementation and the production-equivalent runtime both need
   to be re-measured.
-- Candidate B also projected `930.74/day`, below the formal `1000/day` gate.
-  This is a calculation from the measured W1 timings and duty-cycle rule, not a
-  production SLO or a forecast that production will remain below 1000/day.
-- The target Dockerfile image was not certified because the external Dolt
-  download stalled. This is an environment/build verification failure, not a
-  Dolt provider correctness failure. The equivalent named-volume matrix passed,
-  but the exact built image and non-root image smoke still need to pass.
+- Both candidates cleared the current W1 capacity projection gate in the
+  target-image run. This is a calculation from measured W1 timings and the
+  duty-cycle rule, not a production SLO or a forecast that production will
+  remain above the threshold.
 
 Accordingly, the actionable conclusion is: keep the round at `no-go`, do not
 start P2-R2 from this evidence, and repeat the gates after either improving the
@@ -65,26 +68,29 @@ marker uniqueness checks passed for every completed sample.
 
 | Candidate | W1 max import | Capacity projection | 60-minute safety | Incremental storage | Bounded stream | Hard gate |
 |---|---:|---:|---:|---:|---:|---:|
-| A offline CLI | 135.44 s | 1786.12/day | pass | pass | fail | fail |
-| B sql-server | 259.92 s | 930.74/day | pass | pass | fail | fail |
+| A offline CLI | 81.26 s | 2977.16/day | pass | pass | fail | fail |
+| B sql-server | 219.11 s | 1104.12/day | pass | pass | fail | fail |
 
 The capacity projection uses the formal feasibility formula with a 70% duty
 cycle. It is deliberately reported only as a projection.
 
 ### Failed gates
 
-- Candidate A W1 measured stream RSS delta peaked at `168136 KiB`; W2 peaked
-  at `580488 KiB`. The bounded-stream rule permits at most twice the W1 peak
+- Candidate A W1 measured stream RSS delta peaked at `181288 KiB`; W2 peaked
+  at `607024 KiB`. The bounded-stream rule permits at most twice the W1 peak
   (or 64 MiB, whichever is larger), so A fails this gate.
-- Candidate B W1 measured stream RSS delta peaked at `29756 KiB`; W2 peaked at
-  `443596 KiB`, so B fails the same bounded-stream rule.
-- Candidate B's W1 capacity projection is `930.74/day`, below the hard gate
-  of `1000/day`.
+- Candidate B W1 measured stream RSS delta peaked at `24620 KiB`; W2 peaked at
+  `443008 KiB`, so B fails the same bounded-stream rule.
 
-The raw records preserve all measured samples and failure fields in
+The original development-equivalent raw records preserve all measured samples
+and failure fields in
 [`p2-r1-provider-measurements-2026-08-02.jsonl`](./p2-r1-provider-measurements-2026-08-02.jsonl).
 The machine-readable decision summary is
 [`p2-r1-provider-summary-2026-08-02.json`](./p2-r1-provider-summary-2026-08-02.json).
+The exact target-image matrix is preserved in
+[`p2-r1-target-image-measurements-2026-08-02.jsonl`](./p2-r1-target-image-measurements-2026-08-02.jsonl)
+with summary
+[`p2-r1-target-image-summary-2026-08-02.json`](./p2-r1-target-image-summary-2026-08-02.json).
 
 ## Implementation covered by this probe
 
@@ -125,31 +131,32 @@ Passed locally in `vnext/repository_service`:
 - required primitive tests for root-lock exclusion, same-device layout,
   restart/reopen behavior, and before/after rename faults.
 
-The named-volume matrix used a Python 3.14.6 slim target container, a real
-Docker named volume, the exact Dolt 2.1.11 binary, and the repository service
-package environment. The source and package mounts were read-only and the
-matrix ran as root because this was an equivalent smoke environment, not the
-final image. The filesystem probe reported `ext2/ext3` for the named-volume
-mount (the backend was recorded as `named-volume-ext4`). The matrix completed
-with 60 records and no remaining Dolt process or zombie child. The machine
-readable summary marks this environment as `development-equivalent-smoke` and
-`production_environment_assessed: false`.
+The target-image named-volume matrix used the retained dependency-base image,
+the exact Dolt 2.1.11 binary, the repository-service environment and the
+image's non-root `gateway` user. The real Docker named volume reported XFS;
+the backend was recorded as `remote-named-volume`. Both candidates completed
+all 30 records (one warm-up plus five measured samples for each of five
+workloads), with correctness, restart, cancellation cleanup, pinned revision
+reads, catalog checks, marker parent and marker uniqueness checks passing.
+The matrix ended with no remaining Dolt process or zombie child. The
+machine-readable summary marks this environment as
+`development-equivalent-smoke` and `production_environment_assessed: false`.
 
-## Target-image limitation
+## Target-image result and retained cache
 
-The target Dockerfile image build was attempted but did not complete because
-the environment stalled on external downloads:
+The target Dockerfile image was built successfully by reusing a retained
+dependency-base image containing the exact Dolt 2.1.11 binary, uv 0.11.28 and
+the lock-resolved Python environment. The image was tagged for the 2026-08-02
+probe, passed non-root version/settings smoke and completed the full named-
+volume matrix above. This certifies the tested target-image path for P2-R1
+feasibility; it does not override the bounded-stream failure or make a
+production SLO claim.
 
-1. the normal build stalled without progress during `apt-get update`;
-2. the `--network=host` retry stalled at the same package-index step;
-3. after replacing apt/curl with Python URL retrieval, the retry stalled while
-   downloading the GitHub Dolt release.
-
-The equivalent named-volume container matrix above is therefore useful for
-provider feasibility, but it does not certify the Dockerfile-built runtime.
-The target-image build and the exact non-root image smoke remain required
-before any future round can be marked ready. This limitation reinforces the
-`no-go` result; no production provider selection is made.
+The development host retains the versioned internal Dolt/uv artifact cache,
+the dependency-base image and the successfully built target image for future
+source-only rebuilds. Probe cleanup removed only the matrix container, test
+named volume and temporary build contexts; it did not remove the cache or
+retained images.
 
 An additional controlled probe was performed on the supplied temporary
 internal Arch Linux host. After a manual reboot it ran kernel `7.1.5`, with
@@ -170,10 +177,13 @@ matrix run completed 12 workflows (A/B, warm-up plus five measured runs) with
 all workflow correctness gates true. This was not the unchanged Dockerfile
 build and was not used to replace the full 60-record matrix decision.
 
-All remote probe images, volumes, containers and temporary contexts were
-removed after the test. The target image and the full image-based matrix are
-still not certified; dependency caching or an internal artifact mirror is
-required before repeating the exact build.
+The earlier external-download failure remains useful as transport history:
+the remote Docker bridge/veth path was repaired and the original build then
+reached dependency retrieval, where the configured proxy stalled. The
+versioned internal cache and dependency-base path now remove that external
+transport dependency from source-only rebuilds. A future dependency version
+update must add a new retained cache artifact and rebuild the dependency-base
+image before repeating the formal target-image probe.
 
 ## Scope and limitations
 

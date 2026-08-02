@@ -1,0 +1,21 @@
+[Unit]
+Description=Gateway P2-R1 persistent dependency artifact cache
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gateway-p2r1-cache
+Group=gateway-p2r1-cache
+WorkingDirectory=/var/lib/gateway/p2r1-dependency-cache
+ExecStart=/usr/bin/python -m http.server 18080 --bind 172.17.0.1 --directory /var/lib/gateway/p2r1-dependency-cache
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/gateway/p2r1-dependency-cache
+
+[Install]
+WantedBy=multi-user.target

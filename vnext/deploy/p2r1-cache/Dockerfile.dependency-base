@@ -1,0 +1,16 @@
+FROM python:3.14.6-slim-bookworm
+
+COPY offline-assets/dolt /usr/local/bin/dolt
+COPY offline-assets/uv.whl /tmp/uv-0.11.28-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+RUN chmod 0755 /usr/local/bin/dolt \
+    && python -m pip install --no-cache-dir --no-index /tmp/uv-0.11.28-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl \
+    && rm -f /tmp/uv-0.11.28-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+
+COPY repository_service/.venv /app/.venv
+RUN mkdir -p /home/gateway \
+    && chmod 0755 /home/gateway
+
+LABEL org.opencontainers.image.title="gateway-p2r1-repository-dependency-base" \
+      gateway.p2r1.dolt-version="2.1.11" \
+      gateway.p2r1.uv-version="0.11.28" \
+      gateway.p2r1.cache-policy="retain-for-development-rebuilds"

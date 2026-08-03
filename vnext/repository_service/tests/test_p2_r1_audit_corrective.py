@@ -69,6 +69,7 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.workflow import (
     Candidate,
     _expected_representative_flag,
+    _workflow_correctness,
     run_workflow_isolated,
 )
 import gateway_repository_service.workflow_worker as workflow_worker
@@ -202,6 +203,27 @@ def test_representative_flag_oracle_matches_fixture_index_distribution() -> None
     assert _expected_representative_flag(3) is False
     assert _expected_representative_flag(18) is None
     assert _expected_representative_flag(19) is False
+
+
+def test_bounded_evidence_failure_does_not_mask_workflow_correctness() -> None:
+    assert _workflow_correctness(
+        {
+            "workflow": True,
+            "cancellation": True,
+            "restart": True,
+            "unknown_type": True,
+            "bounded_stream": False,
+        }
+    )
+    assert not _workflow_correctness(
+        {
+            "workflow": False,
+            "cancellation": True,
+            "restart": True,
+            "unknown_type": True,
+            "bounded_stream": True,
+        }
+    )
 
 
 def test_workflow_cgroup_cleanup_terminates_residual_members(

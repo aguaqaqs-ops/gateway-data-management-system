@@ -545,7 +545,8 @@ class OfflineCliProvider:
         baseline_cgroup = self.cgroup.snapshot() if self.cgroup is not None else None
         baseline_arrow = pa.default_memory_pool().bytes_allocated()
         peak_arrow = baseline_arrow
-        workflow_peak = process_tree_rss_kib(os.getpid())
+        baseline_workflow = process_tree_rss_kib(os.getpid())
+        workflow_peak = baseline_workflow
         sampler: MemorySampler | None = None
         rows_seen = 0
         oversized_single_row = False
@@ -664,7 +665,7 @@ class OfflineCliProvider:
                 "cgroup_per_workflow": final_cgroup.per_workflow if final_cgroup else False,
                 "plateau_peaks": plateau,
                 "plateau_peaks_absolute": self.last_plateau_peaks_absolute,
-                "baseline_workflow_process_tree_rss_kib": workflow_peak,
+                "baseline_workflow_process_tree_rss_kib": baseline_workflow,
                 "baseline_provider_process_tree_rss_kib": baseline_provider,
                 "baseline_arrow_memory_pool_bytes": baseline_arrow,
                 "oversized_single_row": oversized_single_row,
@@ -872,7 +873,8 @@ class SqlServerProvider:
         )
         baseline_arrow = pa.default_memory_pool().bytes_allocated()
         baseline_cgroup = self.cgroup.snapshot() if self.cgroup is not None else None
-        workflow_peak = process_tree_rss_kib(os.getpid())
+        baseline_workflow = process_tree_rss_kib(os.getpid())
+        workflow_peak = baseline_workflow
         sampler: MemorySampler | None = None
         cursor: Any = None
         peak_rss = baseline_rss
@@ -983,6 +985,8 @@ class SqlServerProvider:
             self.last_stream_metrics = {
                 "workflow_process_tree_rss_kib": workflow_peak,
                 "provider_process_tree_rss_kib": peak_rss,
+                "baseline_workflow_process_tree_rss_kib": baseline_workflow,
+                "baseline_provider_process_tree_rss_kib": baseline_rss,
                 "arrow_memory_pool_peak_bytes": peak_arrow,
                 "arrow_memory_pool_baseline_bytes": baseline_arrow,
                 "cgroup_current_bytes": final_cgroup.current_bytes if final_cgroup else None,

@@ -607,7 +607,7 @@ def _run_locked(
         storage_quiesced = True
         hard_gates["restart"] = True
         hard_gates["workflow"] = True
-        correctness = all(hard_gates.values())
+        correctness = _workflow_correctness(hard_gates)
     except Exception as exc:
         error = type(exc).__name__ + ": " + _sanitize_error(str(exc))
     finally:
@@ -828,3 +828,17 @@ def _expected_representative_flag(row_id: int) -> bool | None:
 
     index = row_id - 1
     return None if index % 17 == 0 else bool(index % 2)
+
+
+def _workflow_correctness(hard_gates: dict[str, bool]) -> bool:
+    """Return provider correctness without conflating scaling evidence.
+
+    Bounded-stream plateau coverage is evaluated by the unified scaling gate;
+    it is not a row-value correctness failure for a normal workload whose
+    tiny stream cannot populate every plateau window.
+    """
+
+    return all(
+        hard_gates.get(name) is True
+        for name in ("workflow", "cancellation", "restart", "unknown_type")
+    )

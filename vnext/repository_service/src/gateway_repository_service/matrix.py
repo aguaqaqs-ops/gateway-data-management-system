@@ -97,6 +97,7 @@ def run_matrix(
     image_digest: str | None = None,
     build_revision: str | None = None,
     cache_condition: str | None = None,
+    restart_before_stream: bool = False,
 ) -> dict[str, object]:
     """Run the only formal P2-R1 matrix.
 
@@ -110,6 +111,8 @@ def run_matrix(
         raise ValueError("formal P2-R1 requires exactly five measured runs")
     if not diagnostic and selected != NORMAL_WORKLOADS:
         raise ValueError("workload subsets are diagnostic-only")
+    if restart_before_stream and not diagnostic:
+        raise ValueError("pre-stream restart is diagnostic-only")
     target_container = os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") == "1"
     probe_data_root = _resolve_probe_data_root(settings, data_root, target_container)
     if not diagnostic or target_container:
@@ -193,6 +196,7 @@ def run_matrix(
                 image_digest=image_digest,
                 build_revision=build_revision,
                 cache_condition=cache_condition,
+                restart_before_stream=restart_before_stream,
                 record_sink=persist_record,
             )
         )
@@ -207,6 +211,7 @@ def run_matrix(
                     build_revision=build_revision,
                     cache_condition=cache_condition,
                     isolated=True,
+                    restart_before_stream=restart_before_stream,
                     record_sink=persist_record,
                 )
             )
@@ -276,6 +281,7 @@ def _collect_normal_records(
     image_digest: str | None,
     build_revision: str | None,
     cache_condition: str | None,
+    restart_before_stream: bool = False,
     record_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
@@ -300,6 +306,7 @@ def _collect_normal_records(
                     run_unknown_reject=workload == Workload.W0,
                     base_fixture=base_fixture,
                     root_parent=probe_root,
+                    restart_before_stream=restart_before_stream,
                 )
                 record = _record(
                         fixture,
@@ -325,6 +332,7 @@ def _collect_scaling_records(
     image_digest: str | None,
     build_revision: str | None,
     cache_condition: str | None,
+    restart_before_stream: bool = False,
     record_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
@@ -347,6 +355,7 @@ def _collect_scaling_records(
                         sample_kind=sample_kind,
                         run_unknown_reject=False,
                         root_parent=probe_root,
+                        restart_before_stream=restart_before_stream,
                     )
                     record = _record(
                             fixture,
@@ -980,6 +989,7 @@ def run_scaling_diagnostic(
     image_digest: str | None = None,
     build_revision: str | None = None,
     cache_condition: str | None = None,
+    restart_before_stream: bool = False,
 ) -> dict[str, object]:
     """Run scaling records as diagnostic-only evidence."""
 
@@ -1006,6 +1016,7 @@ def run_scaling_diagnostic(
             build_revision=build_revision,
             cache_condition=cache_condition,
             isolated=False,
+            restart_before_stream=restart_before_stream,
         )
     finally:
         fixture_context.cleanup()
@@ -1459,6 +1470,7 @@ def main() -> None:
     parser.add_argument("--image-digest")
     parser.add_argument("--build-revision")
     parser.add_argument("--cache-condition")
+    parser.add_argument("--restart-before-stream", action="store_true")
     parser.add_argument("--diagnostic", action="store_true")
     parser.add_argument("--workloads", nargs="+", choices=[workload.value for workload in Workload])
     args = parser.parse_args()
@@ -1479,6 +1491,7 @@ def main() -> None:
         image_digest=args.image_digest,
         build_revision=args.build_revision,
         cache_condition=args.cache_condition,
+        restart_before_stream=args.restart_before_stream,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
 

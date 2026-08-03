@@ -129,6 +129,7 @@ def run_workflow(
     run_unknown_reject: bool = True,
     base_fixture: Fixture | None = None,
     root_parent: Path | None = None,
+    restart_before_stream: bool = False,
 ) -> WorkflowMeasurement:
     """Run a diagnostic workflow in the current process.
 
@@ -145,6 +146,7 @@ def run_workflow(
         run_unknown_reject=run_unknown_reject,
         base_fixture=base_fixture,
         root_parent=root_parent,
+        restart_before_stream=restart_before_stream,
     )
 
 
@@ -157,6 +159,7 @@ def _run_workflow_in_process(
     run_unknown_reject: bool = True,
     base_fixture: Fixture | None = None,
     root_parent: Path | None = None,
+    restart_before_stream: bool = False,
 ) -> WorkflowMeasurement:
     if root_parent is not None:
         root_parent.mkdir(parents=True, exist_ok=True)
@@ -174,6 +177,7 @@ def _run_workflow_in_process(
                 sample_kind=sample_kind,
                 run_unknown_reject=run_unknown_reject,
                 base_fixture=base_fixture,
+                restart_before_stream=restart_before_stream,
             )
 
 
@@ -186,6 +190,7 @@ def run_workflow_isolated(
     run_unknown_reject: bool = True,
     base_fixture: Fixture | None = None,
     root_parent: Path | None = None,
+    restart_before_stream: bool = False,
 ) -> WorkflowMeasurement:
     """Run one sample in a fresh exec'd worker attached to its own cgroup."""
 
@@ -235,6 +240,7 @@ def run_workflow_isolated(
                         "run_unknown_reject": run_unknown_reject,
                         "base_fixture": base_fixture,
                         "root_parent": root_parent,
+                        "restart_before_stream": restart_before_stream,
                     },
                     handle,
                     protocol=pickle.HIGHEST_PROTOCOL,
@@ -479,6 +485,7 @@ def _run_locked(
     sample_kind: str,
     run_unknown_reject: bool,
     base_fixture: Fixture | None,
+    restart_before_stream: bool = False,
 ) -> WorkflowMeasurement:
     initial_commit: str | None = None
     new_commit: str | None = None
@@ -716,6 +723,20 @@ def _run_locked(
             )
             provider.open()
             provider_shutdown = False
+
+        if restart_before_stream:
+            provider.close()
+            provider = None
+            provider_shutdown = True
+            provider = _make_provider(
+                settings, layout, target, DoltRunner(settings, layout.root), candidate
+            )
+            provider.open()
+            provider_shutdown = False
+            if provider.head() != new_commit:
+                raise ProviderError("pre-stream restart changed the main ref")
+            if provider.catalog(initial_commit, new_commit) != actual_catalog:
+                raise ProviderError("pre-stream restart changed the catalog")
 
         stream_start = time.monotonic()
         first_seen = False

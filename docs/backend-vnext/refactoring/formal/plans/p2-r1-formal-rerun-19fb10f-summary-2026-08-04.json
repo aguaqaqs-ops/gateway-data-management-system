@@ -1,0 +1,202 @@
+{
+  "candidate_matrix": {
+    "candidate_a_offline_cli": {
+      "bounded_stream_gate": false,
+      "bounded_stream_ratios": {
+        "bound_256_workflow_process_tree_first_10pct_S10": 175948.0,
+        "bound_256_workflow_process_tree_first_10pct_S100": 269688.0,
+        "bound_256_workflow_process_tree_first_10pct_S40": 221768.0,
+        "bound_256_workflow_process_tree_first_10pct_ratio": 1.532771045990861
+      },
+      "bounded_stream_reason": "workflow_process_tree/first_10pct ratio exceeded 1.5",
+      "bounded_stream_status": "fail",
+      "capacity_gate": true,
+      "capacity_projection_imports_per_day": 3002.4580434825516,
+      "correctness_failures": 0,
+      "execution_errors": 0,
+      "hard_gate": false,
+      "matrix_coverage_complete": true,
+      "max_w1_import_seconds": 80.57398188298976,
+      "metadata_complete": true,
+      "performance_excluded_warmups": 11,
+      "raw_gate_consistent": true,
+      "result": "fail",
+      "safety_limit": true,
+      "storage_provenance_complete": true,
+      "storage_provenance_reason": "complete",
+      "w3_full_commit_ratios": [
+        0.014610876764626872,
+        0.014610911036784267,
+        0.014610999165188997,
+        0.014611053021436334,
+        0.01461113625381858,
+        0.014612345571372384,
+        0.16171581362581466,
+        0.1617172432643803,
+        0.1617547272125258,
+        0.16175488878126779,
+        0.16175516785454944,
+        0.16175521681477428
+      ],
+      "w3_storage_recorded": true,
+      "workflow": true,
+      "workloads": [
+        "W0",
+        "W1",
+        "W2",
+        "W3-10pct",
+        "W3-1pct"
+      ]
+    },
+    "candidate_b_sql_server": {
+      "bounded_stream_gate": false,
+      "bounded_stream_ratios": {
+        "bound_256_workflow_process_tree_first_10pct_S10": 9924.0,
+        "bound_256_workflow_process_tree_first_10pct_S100": 16128.0,
+        "bound_256_workflow_process_tree_first_10pct_S40": 20268.0,
+        "bound_256_workflow_process_tree_first_10pct_ratio": 2.042321644498186
+      },
+      "bounded_stream_reason": "workflow_process_tree/first_10pct ratio exceeded 1.5",
+      "bounded_stream_status": "fail",
+      "capacity_gate": true,
+      "capacity_projection_imports_per_day": 2366.758238834299,
+      "correctness_failures": 0,
+      "execution_errors": 0,
+      "hard_gate": false,
+      "matrix_coverage_complete": true,
+      "max_w1_import_seconds": 102.21576332999393,
+      "metadata_complete": true,
+      "performance_excluded_warmups": 11,
+      "raw_gate_consistent": true,
+      "result": "fail",
+      "safety_limit": true,
+      "storage_provenance_complete": true,
+      "storage_provenance_reason": "complete",
+      "w3_full_commit_ratios": [
+        0.014640977993338855,
+        0.01464105197296816,
+        0.014641106224696316,
+        0.014641150612473898,
+        0.014641160476424473,
+        0.014648573235280798,
+        0.16216011206000233,
+        0.1621726935289594,
+        0.1621729549236496,
+        0.16217305356315537,
+        0.16217306342710594,
+        0.1621730831550071
+      ],
+      "w3_storage_recorded": true,
+      "workflow": true,
+      "workloads": [
+        "W0",
+        "W1",
+        "W2",
+        "W3-10pct",
+        "W3-1pct"
+      ]
+    }
+  },
+  "correctness_failures": 0,
+  "coverage": {
+    "complete": true,
+    "normal": {
+      "actual": 60,
+      "complete": true,
+      "duplicates": 0,
+      "expected": 60,
+      "extra": 0,
+      "missing": 0,
+      "reason": "complete"
+    },
+    "scaling": {
+      "actual": 72,
+      "complete": true,
+      "duplicates": 0,
+      "expected": 72,
+      "extra": 0,
+      "missing": 0,
+      "reason": "complete"
+    }
+  },
+  "decision_kind": "formal",
+  "decision_scope": "current_measurement_environment_only",
+  "execution_errors": 0,
+  "formal_decision": true,
+  "measurement_environment": {
+    "build_revisions": [
+      "19fb10fb733cd5e43c6fe7a13b743fc9b90edf41"
+    ],
+    "cpu_count": 16,
+    "dolt_actual_versions": [
+      "2.1.11"
+    ],
+    "dolt_version": "2.1.11",
+    "environment_class": "development-equivalent-smoke",
+    "filesystem_types": [
+      "xfs"
+    ],
+    "image_digests": [
+      "sha256:8641fbb2adeff7888a973fdd7a6a66b7a06a85ba27e54ec15834937a8d621068"
+    ],
+    "mysql_connector_versions": [
+      "9.7.0"
+    ],
+    "production_environment_assessed": false,
+    "python_version": "3.14.6",
+    "storage_mount_verified": true,
+    "storage_root_identities": [
+      "sha256:647ff76f7ff94d8a5339ef4b6e39de52ef2ae354c8c88148cf93e744ee5b949f"
+    ],
+    "volume_backends": [
+      "volume"
+    ]
+  },
+  "measurement_outcome": "no-go",
+  "methodology": {
+    "absolute_plateau_preserved": true,
+    "bounded_peak_semantics": "baseline_adjusted_delta",
+    "bounded_ratio_limit": 1.5,
+    "byte_bound": 4194304,
+    "connector_fetch_row_bound": 32,
+    "connector_fetch_semantics": "width_aware_at_most_configured_bound",
+    "memory_subjects": [
+      "workflow_process_tree",
+      "provider_process_tree",
+      "arrow_memory_pool",
+      "cgroup"
+    ],
+    "oversized_single_row": "allowed as a separate batch and recorded",
+    "plateau_windows": [
+      "first_10pct",
+      "middle_10pct",
+      "final_10pct"
+    ],
+    "row_bounds": [
+      256,
+      1024
+    ],
+    "same_shape_scales": [
+      "S10",
+      "S40",
+      "S100"
+    ],
+    "version": "p2-r1-audit-corrective-v6",
+    "w2_role": "wide-row-boundary-only; excluded from total-size scaling gate",
+    "w3_role": "storage-observation-only; quiesced measurement; no fixed ratio hard gate"
+  },
+  "next_round_ready": false,
+  "normal_records": 60,
+  "p2_r1_exit": "no-go",
+  "p2_r2_ready": false,
+  "performance_excluded_warmups": 22,
+  "production_retest_required": true,
+  "proposed_provider": null,
+  "records": 60,
+  "round": "P2-R1",
+  "round_exit": "no-go",
+  "sample_failures": 0,
+  "scaling_records": 72,
+  "selected_provider": null,
+  "selection_reason": "coverage, failure, or hard gate prevented provider selection"
+}

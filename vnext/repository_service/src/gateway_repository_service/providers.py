@@ -25,6 +25,7 @@ from gateway_repository_service.arrow_mapping import (
 )
 from gateway_repository_service.layout import ProbeLayout
 from gateway_repository_service.process import (
+    CgroupMemoryMeasurement,
     CgroupMemoryTracker,
     DoltRunner,
     MemorySampler,
@@ -54,6 +55,70 @@ def _baseline_memory_metrics(
         "baseline_arrow_memory_pool_bytes": arrow_memory_pool_bytes,
         "cgroup_baseline_current_bytes": cgroup_current_bytes,
     }
+
+
+def _memory_stat_delta(current: int | None, baseline: int | None) -> int | None:
+    """Return non-negative stream memory-stat growth when both samples exist."""
+
+    if current is None or baseline is None:
+        return None
+    return max(0, current - baseline)
+
+
+def _cgroup_stream_metrics(
+    workflow_baseline: CgroupMemoryMeasurement | None,
+    stream_baseline: CgroupMemoryMeasurement | None,
+    final: CgroupMemoryMeasurement | None,
+) -> dict[str, int | bool | str | None]:
+    """Build cgroup fields with separate workflow and stream baselines.
+
+    The tracker is created before fixture import, so its reset stat is a
+    workflow-level baseline.  Stream evidence must instead compare the final
+    stat with the snapshot taken immediately before the measured query.
+    """
+
+    stream_anon = stream_baseline.anon_bytes if stream_baseline else None
+    stream_file = stream_baseline.file_bytes if stream_baseline else None
+    return {
+        "cgroup_current_bytes": final.current_bytes if final else None,
+        "cgroup_peak_bytes": final.peak_bytes if final else None,
+        "cgroup_baseline_peak_bytes": (
+            workflow_baseline.peak_bytes if workflow_baseline else None
+        ),
+        "cgroup_reset_current_baseline_bytes": (
+            final.reset_current_baseline_bytes if final else None
+        ),
+        "cgroup_stream_baseline_current_bytes": (
+            stream_baseline.current_bytes if stream_baseline else None
+        ),
+        "cgroup_stat_anon_bytes": final.anon_bytes if final else None,
+        "cgroup_stat_file_bytes": final.file_bytes if final else None,
+        "cgroup_baseline_stat_anon_bytes": stream_anon,
+        "cgroup_baseline_stat_file_bytes": stream_file,
+        "cgroup_workflow_baseline_stat_anon_bytes": (
+            workflow_baseline.baseline_anon_bytes if workflow_baseline else None
+        ),
+        "cgroup_workflow_baseline_stat_file_bytes": (
+            workflow_baseline.baseline_file_bytes if workflow_baseline else None
+        ),
+        "cgroup_stat_anon_delta_bytes": _memory_stat_delta(
+            final.anon_bytes if final else None, stream_anon
+        ),
+        "cgroup_stat_file_delta_bytes": _memory_stat_delta(
+            final.file_bytes if final else None, stream_file
+        ),
+        "cgroup_scope_identity": final.scope_identity if final else None,
+        "cgroup_per_workflow": final.per_workflow if final else False,
+    }
+
+
+def _pending_row_windows(
+    rows_seen: int, pending_index: int, total_rows: int
+) -> tuple[str, ...]:
+    """Return windows for the pending row, not for the last emitted batch."""
+
+    row_start = rows_seen + pending_index
+    return windows_for_interval(row_start, row_start + 1, total_rows)
 
 
 class Provider(Protocol):
@@ -558,7 +623,10 @@ class OfflineCliProvider:
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF '{commit_id}';\n",
         )
         stream: ProcessStream | None = None
-        baseline_cgroup = self.cgroup.snapshot() if self.cgroup is not None else None
+        workflow_baseline_cgroup = (
+            self.cgroup.snapshot() if self.cgroup is not None else None
+        )
+        stream_baseline_cgroup: CgroupMemoryMeasurement | None = None
         baseline_arrow = pa.default_memory_pool().bytes_allocated()
         peak_arrow = baseline_arrow
         baseline_workflow = process_tree_rss_kib(os.getpid())
@@ -577,6 +645,9 @@ class OfflineCliProvider:
                 stdin_path=query,
             )
             baseline_provider = process_tree_rss_kib(stream.process.pid)
+            stream_baseline_cgroup = (
+                self.cgroup.snapshot() if self.cgroup is not None else None
+            )
             sampler = MemorySampler(
                 os.getpid(),
                 lambda: stream.process.pid if stream is not None else None,
@@ -586,7 +657,11 @@ class OfflineCliProvider:
                     "workflow_process_tree": workflow_peak,
                     "provider_process_tree": baseline_provider,
                     "arrow_memory_pool": baseline_arrow,
-                    "cgroup": baseline_cgroup.current_bytes if baseline_cgroup else None,
+                    "cgroup": (
+                        stream_baseline_cgroup.current_bytes
+                        if stream_baseline_cgroup
+                        else None
+                    ),
                 },
             )
             sampler.start()
@@ -632,9 +707,12 @@ class OfflineCliProvider:
                     yield emit([parsed])
                     sampler.sample()
                 else:
+                    pending_index = len(rows)
                     rows.append(parsed)
                     rows_bytes += parsed_bytes
-                    sampler.sample(windows_for_interval(rows_seen, rows_seen + 1, table.row_count))
+                    sampler.set_active(
+                        _pending_row_windows(rows_seen, pending_index, table.row_count)
+                    )
             if rows:
                 yield emit(rows)
             result = stream.close()
@@ -656,35 +734,20 @@ class OfflineCliProvider:
                 "provider_process_tree_rss_kib": stream.peak_rss_kib,
                 "arrow_memory_pool_peak_bytes": peak_arrow,
                 "arrow_memory_pool_baseline_bytes": baseline_arrow,
-                "cgroup_current_bytes": final_cgroup.current_bytes if final_cgroup else None,
-                "cgroup_peak_bytes": final_cgroup.peak_bytes if final_cgroup else None,
-                "cgroup_baseline_peak_bytes": baseline_cgroup.peak_bytes if baseline_cgroup else None,
-                "cgroup_reset_current_baseline_bytes": final_cgroup.reset_current_baseline_bytes if final_cgroup else None,
-                "cgroup_stat_anon_bytes": final_cgroup.anon_bytes if final_cgroup else None,
-                "cgroup_stat_file_bytes": final_cgroup.file_bytes if final_cgroup else None,
-                "cgroup_baseline_stat_anon_bytes": (
-                    baseline_cgroup.baseline_anon_bytes if baseline_cgroup else None
-                ),
-                "cgroup_baseline_stat_file_bytes": (
-                    baseline_cgroup.baseline_file_bytes if baseline_cgroup else None
-                ),
-                "cgroup_stat_anon_delta_bytes": (
-                    final_cgroup.anon_delta_bytes if final_cgroup else None
-                ),
-                "cgroup_stat_file_delta_bytes": (
-                    final_cgroup.file_delta_bytes if final_cgroup else None
-                ),
-                "cgroup_scope_identity": (
-                    final_cgroup.scope_identity if final_cgroup else None
-                ),
-                "cgroup_per_workflow": final_cgroup.per_workflow if final_cgroup else False,
                 "plateau_peaks": plateau,
                 "plateau_peaks_absolute": self.last_plateau_peaks_absolute,
                 **_baseline_memory_metrics(
                     baseline_workflow,
                     baseline_provider,
                     baseline_arrow,
-                    baseline_cgroup.current_bytes if baseline_cgroup else None,
+                    stream_baseline_cgroup.current_bytes
+                    if stream_baseline_cgroup
+                    else None,
+                ),
+                **_cgroup_stream_metrics(
+                    workflow_baseline_cgroup,
+                    stream_baseline_cgroup,
+                    final_cgroup,
                 ),
                 "oversized_single_row": oversized_single_row,
                 "oversized_row_bytes": oversized_row_bytes,
@@ -698,6 +761,51 @@ class OfflineCliProvider:
                 plateau = sampler.stop()
                 self.last_plateau_peaks = plateau
                 self.last_plateau_peaks_absolute = sampler.absolute_peaks()
+            if stream is not None:
+                stream.close()
+            query.unlink(missing_ok=True)
+
+    def discard_table_to_devnull(
+        self, commit_id: str, table: TableCatalog
+    ) -> dict[str, int | str]:
+        """Run the stream SELECT while bypassing CSV and Arrow conversion.
+
+        This is diagnostic-only evidence for separating Dolt CLI working-set
+        growth from the Python framing/conversion path.
+        """
+
+        select_list, _ = _tagged_select_list(table)
+        query = _write_query(
+            self.query_directory,
+            f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF '{commit_id}';\n",
+        )
+        stream: ProcessStream | None = None
+        discarded_bytes = 0
+        try:
+            stream = self.runner.stream(
+                "row_stream_discard",
+                ["sql", "--result-format=csv", "--binary-as-hex"],
+                cwd=self.repository,
+                timeout=self.settings.import_timeout_seconds,
+                stdin_path=query,
+            )
+            with open(os.devnull, "wb") as sink:
+                for chunk in stream:
+                    sink.write(chunk)
+                    discarded_bytes += len(chunk)
+            result = stream.close()
+            if result.exit_code != 0:
+                raise ProviderError("Dolt discard stream failed")
+            return {
+                "mode": "discard_to_devnull",
+                "discarded_bytes": discarded_bytes,
+                "provider_start_rss_anon_kib": stream.start_rss_anon_kib,
+                "provider_start_rss_file_kib": stream.start_rss_file_kib,
+                "provider_peak_rss_anon_kib": stream.peak_rss_anon_kib,
+                "provider_peak_rss_file_kib": stream.peak_rss_file_kib,
+                "provider_peak_rss_kib": stream.peak_rss_kib,
+            }
+        finally:
             if stream is not None:
                 stream.close()
             query.unlink(missing_ok=True)
@@ -890,14 +998,17 @@ class SqlServerProvider:
             else 0
         )
         baseline_arrow = pa.default_memory_pool().bytes_allocated()
-        baseline_cgroup = self.cgroup.snapshot() if self.cgroup is not None else None
+        workflow_baseline_cgroup = (
+            self.cgroup.snapshot() if self.cgroup is not None else None
+        )
+        stream_baseline_cgroup: CgroupMemoryMeasurement | None = None
         baseline_workflow = process_tree_rss_kib(os.getpid())
         workflow_peak = baseline_workflow
         sampler: MemorySampler | None = None
         cursor: Any = None
         peak_rss = baseline_rss
         peak_arrow = baseline_arrow
-        peak_cgroup = baseline_cgroup.peak_bytes if baseline_cgroup and baseline_cgroup.peak_bytes else 0
+        peak_cgroup = 0
         batch_index = 0
         exhausted = False
         rows_seen = 0
@@ -905,6 +1016,15 @@ class SqlServerProvider:
         oversized_row_bytes: int | None = None
         max_fetched_payload_bytes = 0
         try:
+            # Open/execute the cursor before taking the measured stream
+            # baseline.  Query setup is therefore excluded from the stream
+            # memory-stat delta while provider RSS remains explicitly tracked
+            # from its pre-query baseline.
+            fetch_size = _safe_connector_fetch_size(table, self.settings)
+            cursor = self._call(self._open_cursor(table.name, commit_id))
+            stream_baseline_cgroup = (
+                self.cgroup.snapshot() if self.cgroup is not None else None
+            )
             sampler = MemorySampler(
                 os.getpid(),
                 lambda: self.supervisor.process.pid if self.supervisor.process is not None else None,
@@ -914,7 +1034,11 @@ class SqlServerProvider:
                     "workflow_process_tree": workflow_peak,
                     "provider_process_tree": baseline_rss,
                     "arrow_memory_pool": baseline_arrow,
-                    "cgroup": baseline_cgroup.current_bytes if baseline_cgroup else None,
+                    "cgroup": (
+                        stream_baseline_cgroup.current_bytes
+                        if stream_baseline_cgroup
+                        else None
+                    ),
                 },
             )
             sampler.start()
@@ -922,8 +1046,6 @@ class SqlServerProvider:
             # Fetch a small, explicit connector bound. The splitter consumes
             # the returned rows immediately and never materializes a
             # row-bound-sized pending result.
-            fetch_size = _safe_connector_fetch_size(table, self.settings)
-            cursor = self._call(self._open_cursor(table.name, commit_id))
             pending: list[tuple[Any, ...]] = []
             pending_bytes = 0
 
@@ -974,10 +1096,13 @@ class SqlServerProvider:
                         yield emit([candidate])
                         sampler.sample()
                     else:
+                        pending_index = len(pending)
                         pending.append(candidate)
                         pending_bytes += candidate_bytes
-                        sampler.sample(
-                            windows_for_interval(rows_seen, rows_seen + 1, table.row_count)
+                        sampler.set_active(
+                            _pending_row_windows(
+                                rows_seen, pending_index, table.row_count
+                            )
                         )
             if pending:
                 yield emit(pending)
@@ -1007,27 +1132,6 @@ class SqlServerProvider:
                 "baseline_provider_process_tree_rss_kib": baseline_rss,
                 "arrow_memory_pool_peak_bytes": peak_arrow,
                 "arrow_memory_pool_baseline_bytes": baseline_arrow,
-                "cgroup_current_bytes": final_cgroup.current_bytes if final_cgroup else None,
-                "cgroup_peak_bytes": peak_cgroup,
-                "cgroup_reset_current_baseline_bytes": final_cgroup.reset_current_baseline_bytes if final_cgroup else None,
-                "cgroup_stat_anon_bytes": final_cgroup.anon_bytes if final_cgroup else None,
-                "cgroup_stat_file_bytes": final_cgroup.file_bytes if final_cgroup else None,
-                "cgroup_baseline_stat_anon_bytes": (
-                    baseline_cgroup.baseline_anon_bytes if baseline_cgroup else None
-                ),
-                "cgroup_baseline_stat_file_bytes": (
-                    baseline_cgroup.baseline_file_bytes if baseline_cgroup else None
-                ),
-                "cgroup_stat_anon_delta_bytes": (
-                    final_cgroup.anon_delta_bytes if final_cgroup else None
-                ),
-                "cgroup_stat_file_delta_bytes": (
-                    final_cgroup.file_delta_bytes if final_cgroup else None
-                ),
-                "cgroup_scope_identity": (
-                    final_cgroup.scope_identity if final_cgroup else None
-                ),
-                "cgroup_per_workflow": final_cgroup.per_workflow if final_cgroup else False,
                 "cleanup_connection_reset": reset,
                 "batch_count": batch_index,
                 "connector_fetch_row_bound": self.settings.connector_fetch_row_bound,
@@ -1041,7 +1145,14 @@ class SqlServerProvider:
                     baseline_workflow,
                     baseline_rss,
                     baseline_arrow,
-                    baseline_cgroup.current_bytes if baseline_cgroup else None,
+                    stream_baseline_cgroup.current_bytes
+                    if stream_baseline_cgroup
+                    else None,
+                ),
+                **_cgroup_stream_metrics(
+                    workflow_baseline_cgroup,
+                    stream_baseline_cgroup,
+                    final_cgroup,
                 ),
                 "oversized_single_row": oversized_single_row,
                 "oversized_row_bytes": oversized_row_bytes,

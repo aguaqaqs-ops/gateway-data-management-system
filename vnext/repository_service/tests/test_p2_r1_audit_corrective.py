@@ -49,6 +49,7 @@ from gateway_repository_service.matrix import (
 )
 from gateway_repository_service.process import (
     CgroupTopology,
+    CgroupMemoryMeasurement,
     CgroupMemoryTracker,
     DoltRunner,
     ProcessBoundaryError,
@@ -58,6 +59,8 @@ from gateway_repository_service.process import (
     parse_dolt_version,
     preflight_cgroup,
     process_tree_pids,
+    process_rss_breakdown_kib,
+    process_tree_rss_breakdown_kib,
     windows_for_interval,
     resolve_current_cgroup,
 )
@@ -65,8 +68,10 @@ from gateway_repository_service.providers import (
     OfflineCliProvider,
     _safe_connector_fetch_size,
     _baseline_memory_metrics,
+    _cgroup_stream_metrics,
     _parse_create_statement,
     _parse_tagged_row,
+    _pending_row_windows,
     _rows_bytes,
     _tagged_select_list,
 )
@@ -122,6 +127,71 @@ def test_provider_baseline_metrics_use_one_canonical_schema() -> None:
         "baseline_arrow_memory_pool_bytes": 0,
         "cgroup_baseline_current_bytes": 44,
     }
+
+
+def test_cgroup_stat_delta_uses_stream_baseline_and_retains_workflow_baseline() -> None:
+    workflow = CgroupMemoryMeasurement(
+        current_bytes=100,
+        peak_bytes=120,
+        baseline_peak_bytes=90,
+        reset_current_baseline_bytes=100,
+        anon_bytes=70,
+        file_bytes=30,
+        baseline_anon_bytes=40,
+        baseline_file_bytes=20,
+        anon_delta_bytes=30,
+        file_delta_bytes=10,
+        scope_identity="sha256:" + "a" * 64,
+        available=True,
+        per_workflow=True,
+    )
+    stream = CgroupMemoryMeasurement(
+        current_bytes=200,
+        peak_bytes=220,
+        baseline_peak_bytes=90,
+        reset_current_baseline_bytes=100,
+        anon_bytes=140,
+        file_bytes=80,
+        baseline_anon_bytes=40,
+        baseline_file_bytes=20,
+        anon_delta_bytes=100,
+        file_delta_bytes=60,
+        scope_identity="sha256:" + "a" * 64,
+        available=True,
+        per_workflow=True,
+    )
+    final = CgroupMemoryMeasurement(
+        current_bytes=250,
+        peak_bytes=280,
+        baseline_peak_bytes=90,
+        reset_current_baseline_bytes=100,
+        anon_bytes=155,
+        file_bytes=95,
+        baseline_anon_bytes=40,
+        baseline_file_bytes=20,
+        anon_delta_bytes=115,
+        file_delta_bytes=75,
+        scope_identity="sha256:" + "a" * 64,
+        available=True,
+        per_workflow=True,
+    )
+    metrics = _cgroup_stream_metrics(workflow, stream, final)
+    assert metrics["cgroup_workflow_baseline_stat_anon_bytes"] == 40
+    assert metrics["cgroup_workflow_baseline_stat_file_bytes"] == 20
+    assert metrics["cgroup_baseline_stat_anon_bytes"] == 140
+    assert metrics["cgroup_baseline_stat_file_bytes"] == 80
+    assert metrics["cgroup_stat_anon_delta_bytes"] == 15
+    assert metrics["cgroup_stat_file_delta_bytes"] == 15
+
+
+def test_pending_row_windows_advance_within_1024_row_batches() -> None:
+    total_rows = 10_000
+    assert _pending_row_windows(0, 999, total_rows) == ("first_10pct",)
+    assert _pending_row_windows(0, 1_000, total_rows) == ()
+    assert _pending_row_windows(4_096, 403, total_rows) == ()
+    assert _pending_row_windows(4_096, 404, total_rows) == ("middle_10pct",)
+    assert _pending_row_windows(8_192, 807, total_rows) == ()
+    assert _pending_row_windows(8_192, 808, total_rows) == ("final_10pct",)
 
 
 def test_baseline_coverage_requires_canonical_arrow_field() -> None:
@@ -914,6 +984,15 @@ def test_provider_tracker_uses_sample_cgroup_root(tmp_path: Path) -> None:
             if child.name != "cgroup.procs":
                 child.unlink()
         scope.active = False
+
+
+def test_process_rss_breakdown_reports_anon_and_file_components() -> None:
+    current = process_rss_breakdown_kib(os.getpid())
+    tree = process_tree_rss_breakdown_kib(os.getpid())
+    assert set(current) == {"rss_anon_kib", "rss_file_kib"}
+    assert set(tree) == {"rss_anon_kib", "rss_file_kib"}
+    assert all(value >= 0 for value in current.values())
+    assert all(value >= 0 for value in tree.values())
 
 
 def test_memory_sampler_exposes_absolute_and_baseline_delta() -> None:

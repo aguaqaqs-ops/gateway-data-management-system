@@ -41,6 +41,29 @@ def process_rss_kib(pid: int) -> int:
     return 0
 
 
+def process_rss_breakdown_kib(pid: int) -> dict[str, int]:
+    """Read the anonymous/file RSS components exposed by procfs."""
+
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return {"rss_anon_kib": 0, "rss_file_kib": 0}
+    values = {"RssAnon:": "rss_anon_kib", "RssFile:": "rss_file_kib"}
+    result = {key: 0 for key in values.values()}
+    for line in status.splitlines():
+        field, _, value = line.partition(":")
+        output_key = values.get(f"{field}:")
+        if output_key is None:
+            continue
+        parts = value.split()
+        if parts:
+            try:
+                result[output_key] = int(parts[0])
+            except ValueError:
+                continue
+    return result
+
+
 def process_tree_pids(pid: int) -> tuple[int, ...]:
     """Return a best-effort snapshot of ``pid`` and all descendants."""
 
@@ -62,6 +85,15 @@ def process_tree_pids(pid: int) -> tuple[int, ...]:
 
 def process_tree_rss_kib(pid: int) -> int:
     return sum(process_rss_kib(child) for child in process_tree_pids(pid))
+
+
+def process_tree_rss_breakdown_kib(pid: int) -> dict[str, int]:
+    result = {"rss_anon_kib": 0, "rss_file_kib": 0}
+    for child in process_tree_pids(pid):
+        measurement = process_rss_breakdown_kib(child)
+        for key in result:
+            result[key] += measurement[key]
+    return result
 
 
 class WorkflowCgroupScope:
@@ -1093,11 +1125,16 @@ class ProcessStream:
         self.max_line_bytes = max_line_bytes or runner.settings.output_capture_bytes
         self.started = time.monotonic()
         self.start_rss_kib = process_tree_rss_kib(process.pid)
+        start_breakdown = process_tree_rss_breakdown_kib(process.pid)
+        self.start_rss_anon_kib = start_breakdown["rss_anon_kib"]
+        self.start_rss_file_kib = start_breakdown["rss_file_kib"]
         self.stderr_tail = _Tail(runner.settings.output_tail_bytes)
         self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self._stderr_thread.start()
         self._monitor_stop = threading.Event()
         self.peak_rss_kib = self.start_rss_kib
+        self.peak_rss_anon_kib = self.start_rss_anon_kib
+        self.peak_rss_file_kib = self.start_rss_file_kib
         self._monitor_thread = threading.Thread(target=self._monitor_rss, daemon=True)
         self._monitor_thread.start()
         self._closed = False
@@ -1114,6 +1151,13 @@ class ProcessStream:
     def _monitor_rss(self) -> None:
         while not self._monitor_stop.is_set():
             self.peak_rss_kib = max(self.peak_rss_kib, process_tree_rss_kib(self.process.pid))
+            breakdown = process_tree_rss_breakdown_kib(self.process.pid)
+            self.peak_rss_anon_kib = max(
+                self.peak_rss_anon_kib, breakdown["rss_anon_kib"]
+            )
+            self.peak_rss_file_kib = max(
+                self.peak_rss_file_kib, breakdown["rss_file_kib"]
+            )
             self._monitor_stop.wait(0.02)
 
     def __iter__(self) -> Iterator[bytes]:

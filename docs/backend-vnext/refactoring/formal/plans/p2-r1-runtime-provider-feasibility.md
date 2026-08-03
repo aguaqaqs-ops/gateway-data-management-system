@@ -8,7 +8,7 @@
 
 Owner：Backend vNext Architecture（provider选择、feasibility probe、P2-R1退出判断）
 
-Measurement methodology version：`p2-r1-audit-corrective-v5`
+Measurement methodology version：`p2-r1-audit-corrective-v6`
 
 历史 2026-08-02 raw/summary 的 bounded-stream 结论按审核结论标记为
 `measurement-method-invalid/inconclusive`；本 authority 修订不回写或覆盖历史文件。
@@ -248,9 +248,22 @@ source revision/tree digest和lock SHA，并以只读manifest挂载到target；�
 
 sql-server background statistics必须关闭或单独隔离，避免把provider stats写入误算为
 canonical Dolt增量。测量完成后停止provider、关闭cursor/connection、wait/reap所有child
-并quiesce filesystem，再读取storage数据；W3还必须在base commit关闭/quiesce后读取
-baseline，重开provider完成delta/new commit后再次关闭/quiesce读取after。W3记录storage
-evidence和full-rewrite limitation，但不设置未经authority批准的固定比例hard gate。
+并quiesce filesystem，再读取storage数据。W3必须记录四个有序的quiesced snapshot：
+`base_post_commit_close`、`base_post_restart_validation`、`delta_post_commit_close`和
+`delta_post_restart_validation`；正式可比delta固定为最后一个减去第二个，同时保留
+`base_restart_delta`、`delta_commit_delta`和`delta_restart_delta`。每个snapshot使用
+`lstat`、排除symlink并按`(st_dev, st_ino)`对硬链接去重，记录relative path、inode、
+`st_size`、`st_blocks`和link count；snapshot缺失、顺序错误、provider未关闭或未quiesce
+时只能为inconclusive。allocated delta是允许正、零、负的有符号净块变化，负值标记
+`physical_reclamation_observed`，语义固定为`signed_net_allocated_blocks`，不引入epsilon、
+noise floor或固定比例hard gate。
+
+target volume provenance必须由root launcher通过`docker inspect`证明：data root恰有一个
+可写`volume` mount，volume label归属本次唯一Compose project，destination与settings
+完全一致，filesystem和opaque storage-root identity写入只读typed storage-layout manifest。
+matrix只接受该manifest，不接受`GATEWAY_P2R1_VOLUME_BACKEND`环境变量作为独立证明；summary
+的filesystem、volume backend、storage-root identity和mount verification必须聚合自raw records，
+不得测量matrix cwd。
 
 ## 7. Acceptance and selection
 

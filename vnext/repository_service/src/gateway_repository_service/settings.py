@@ -29,7 +29,7 @@ class RepositoryServiceSettings(BaseSettings):
     cgroup_layout: Path | None = None
     memory_sample_interval_seconds: float = 0.01
     mysql_connector_version: str = "9.7.0"
-    measurement_methodology_version: str = "p2-r1-audit-corrective-v5"
+    measurement_methodology_version: str = "p2-r1-audit-corrective-v6"
 
     @field_validator("dolt_binary")
     @classmethod

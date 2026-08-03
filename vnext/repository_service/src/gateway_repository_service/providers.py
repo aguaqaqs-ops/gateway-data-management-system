@@ -40,6 +40,22 @@ class ProviderError(RuntimeError):
     """Provider execution or correctness failure."""
 
 
+def _baseline_memory_metrics(
+    workflow_process_tree_rss_kib: int | None,
+    provider_process_tree_rss_kib: int | None,
+    arrow_memory_pool_bytes: int | None,
+    cgroup_current_bytes: int | None,
+) -> dict[str, int | None]:
+    """Return the canonical baseline metrics shared by both providers."""
+
+    return {
+        "baseline_workflow_process_tree_rss_kib": workflow_process_tree_rss_kib,
+        "baseline_provider_process_tree_rss_kib": provider_process_tree_rss_kib,
+        "baseline_arrow_memory_pool_bytes": arrow_memory_pool_bytes,
+        "cgroup_baseline_current_bytes": cgroup_current_bytes,
+    }
+
+
 class Provider(Protocol):
     repository: Path
 
@@ -661,13 +677,15 @@ class OfflineCliProvider:
                 "cgroup_scope_identity": (
                     final_cgroup.scope_identity if final_cgroup else None
                 ),
-                "cgroup_baseline_current_bytes": baseline_cgroup.current_bytes if baseline_cgroup else None,
                 "cgroup_per_workflow": final_cgroup.per_workflow if final_cgroup else False,
                 "plateau_peaks": plateau,
                 "plateau_peaks_absolute": self.last_plateau_peaks_absolute,
-                "baseline_workflow_process_tree_rss_kib": baseline_workflow,
-                "baseline_provider_process_tree_rss_kib": baseline_provider,
-                "baseline_arrow_memory_pool_bytes": baseline_arrow,
+                **_baseline_memory_metrics(
+                    baseline_workflow,
+                    baseline_provider,
+                    baseline_arrow,
+                    baseline_cgroup.current_bytes if baseline_cgroup else None,
+                ),
                 "oversized_single_row": oversized_single_row,
                 "oversized_row_bytes": oversized_row_bytes,
                 "byte_bound_reason": "single_indivisible_row" if oversized_single_row else None,
@@ -1009,7 +1027,6 @@ class SqlServerProvider:
                 "cgroup_scope_identity": (
                     final_cgroup.scope_identity if final_cgroup else None
                 ),
-                "cgroup_baseline_current_bytes": baseline_cgroup.current_bytes if baseline_cgroup else None,
                 "cgroup_per_workflow": final_cgroup.per_workflow if final_cgroup else False,
                 "cleanup_connection_reset": reset,
                 "batch_count": batch_index,
@@ -1020,6 +1037,12 @@ class SqlServerProvider:
                 or (fetch_size == 1 and oversized_single_row),
                 "plateau_peaks": plateau,
                 "plateau_peaks_absolute": self.last_plateau_peaks_absolute,
+                **_baseline_memory_metrics(
+                    baseline_workflow,
+                    baseline_rss,
+                    baseline_arrow,
+                    baseline_cgroup.current_bytes if baseline_cgroup else None,
+                ),
                 "oversized_single_row": oversized_single_row,
                 "oversized_row_bytes": oversized_row_bytes,
                 "byte_bound_reason": "single_indivisible_row" if oversized_single_row else None,

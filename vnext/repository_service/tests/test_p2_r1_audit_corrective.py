@@ -40,6 +40,10 @@ from gateway_repository_service.matrix import (
     _record_bounded_gate,
     _measurement_metadata,
     _observe_storage_record,
+    _candidate_storage_provenance,
+    _resolve_probe_data_root,
+    _validate_target_storage_root,
+    _w3_lifecycle_evidence_valid,
     run_matrix,
     _summarize,
 )
@@ -60,16 +64,22 @@ from gateway_repository_service.process import (
 from gateway_repository_service.providers import (
     OfflineCliProvider,
     _safe_connector_fetch_size,
+    _baseline_memory_metrics,
     _parse_create_statement,
     _parse_tagged_row,
     _rows_bytes,
     _tagged_select_list,
 )
 from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.storage import StorageLayout, StorageLayoutError
+from gateway_repository_service.filesystem import storage_root_identity
+from gateway_repository_service.filesystem import storage_snapshot
 from gateway_repository_service.workflow import (
     Candidate,
     _expected_representative_flag,
     _wait_worker,
+    _baseline_memory_coverage,
+    _storage_delta,
     _workflow_correctness,
     run_workflow_isolated,
 )
@@ -102,6 +112,143 @@ def test_tagged_csv_distinguishes_null_empty_literal_and_binary() -> None:
     assert _parse_tagged_row(["1", "", "1", ""], table) == (None, None)
     assert _parse_tagged_row(["0", "", "0", ""], table) == ("", b"")
     assert _parse_tagged_row(["0", "NULL", "0", "00FF"], table) == ("NULL", b"\x00\xff")
+
+
+def test_provider_baseline_metrics_use_one_canonical_schema() -> None:
+    metrics = _baseline_memory_metrics(11, 22, 0, 44)
+    assert metrics == {
+        "baseline_workflow_process_tree_rss_kib": 11,
+        "baseline_provider_process_tree_rss_kib": 22,
+        "baseline_arrow_memory_pool_bytes": 0,
+        "cgroup_baseline_current_bytes": 44,
+    }
+
+
+def test_baseline_coverage_requires_canonical_arrow_field() -> None:
+    complete = _baseline_memory_metrics(11, 22, 0, 44)
+    assert _baseline_memory_coverage(dict(complete))
+
+    legacy_only = dict(complete)
+    del legacy_only["baseline_arrow_memory_pool_bytes"]
+    legacy_only["arrow_memory_pool_baseline_bytes"] = 0
+    assert not _baseline_memory_coverage(legacy_only)
+
+
+def test_target_probe_root_uses_settings_data_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = tmp_path / "named-volume"
+    root.mkdir()
+    manifest = StorageLayout(
+        "p2-r1-storage-layout-v1",
+        root,
+        root,
+        "volume",
+        True,
+        "project_repository-data",
+        "project",
+        storage_root_identity(root),
+        "xfs",
+    )
+    monkeypatch.setattr(matrix_module, "_load_storage_layout", lambda: manifest)
+    monkeypatch.setenv("GATEWAY_P2R1_PROJECT_NAME", "project")
+    settings = RepositoryServiceSettings(data_root=root)
+    assert _resolve_probe_data_root(settings, None, True) == root
+    assert _resolve_probe_data_root(settings, None, False) is None
+    with pytest.raises(RuntimeError, match="data root"):
+        _resolve_probe_data_root(settings, tmp_path / "explicit", True)
+
+
+def test_target_probe_root_rejects_overlay_or_unverified_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "named-volume"
+    root.mkdir()
+    manifest = StorageLayout(
+        "p2-r1-storage-layout-v1",
+        root,
+        root,
+        "volume",
+        True,
+        "project_repository-data",
+        "project",
+        storage_root_identity(root),
+        "overlayfs",
+    )
+    monkeypatch.setattr(matrix_module, "_load_storage_layout", lambda: manifest)
+    monkeypatch.setenv("GATEWAY_P2R1_PROJECT_NAME", "project")
+    with pytest.raises(RuntimeError, match="overlayfs"):
+        _validate_target_storage_root(root)
+    readonly = StorageLayout(
+        "p2-r1-storage-layout-v1",
+        root,
+        root,
+        "volume",
+        False,
+        "project_repository-data",
+        "project",
+        storage_root_identity(root),
+        "xfs",
+    )
+    monkeypatch.setattr(matrix_module, "_load_storage_layout", lambda: readonly)
+    with pytest.raises(RuntimeError, match="writable named volume"):
+        _validate_target_storage_root(root)
+
+
+def test_volume_backend_environment_alone_cannot_prove_target_mount(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "named-volume"
+    root.mkdir()
+    monkeypatch.setenv("GATEWAY_P2R1_VOLUME_BACKEND", "named-volume")
+    monkeypatch.delenv("GATEWAY_P2R1_STORAGE_LAYOUT", raising=False)
+    monkeypatch.setattr(matrix_module, "_load_storage_layout", lambda: None)
+    with pytest.raises(RuntimeError, match="manifest"):
+        _validate_target_storage_root(root)
+
+
+def test_summary_storage_environment_comes_from_raw_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        matrix_module,
+        "_filesystem_type",
+        lambda _path=Path("."): (_ for _ in ()).throw(AssertionError("cwd was measured")),
+    )
+    summary = _summarize(
+        [
+            {
+                "filesystem_type": "xfs",
+                "volume_backend": "volume",
+                "storage_root_identity": "sha256:" + "1" * 64,
+                "storage_mount_verified": True,
+            }
+        ],
+        RepositoryServiceSettings(),
+    )
+    environment = summary["measurement_environment"]
+    assert isinstance(environment, dict)
+    assert environment["filesystem_types"] == ["xfs"]
+    assert environment["volume_backends"] == ["volume"]
+    assert environment["storage_mount_verified"] is True
+
+
+def test_storage_layout_rejects_wrong_project_or_destination(tmp_path: Path) -> None:
+    root = tmp_path / "volume"
+    root.mkdir()
+    manifest = StorageLayout(
+        "p2-r1-storage-layout-v1",
+        root,
+        root,
+        "volume",
+        True,
+        "project_repository-data",
+        "project",
+        storage_root_identity(root),
+        "xfs",
+    )
+    with pytest.raises(StorageLayoutError, match="another Compose project"):
+        manifest.validate_root(root, project="other")
+    with pytest.raises(StorageLayoutError, match="data root"):
+        manifest.validate_root(tmp_path / "other", project="project")
 
 
 def test_pinned_create_parser_preserves_schema_mutation_shape() -> None:
@@ -574,6 +721,88 @@ def test_utf8_row_bytes_use_encoded_length() -> None:
     assert _rows_bytes([("😀", "中文")]) == len("😀中文".encode("utf-8"))
 
 
+_TEST_STORAGE_IDENTITY = "sha256:" + "1" * 64
+_TEST_W3_SNAPSHOT_STAGES = (
+    "base_post_commit_close",
+    "base_post_restart_validation",
+    "delta_post_commit_close",
+    "delta_post_restart_validation",
+)
+_TEST_W3_DELTA_STAGES = {
+    "base_restart_delta": (
+        "base_post_commit_close",
+        "base_post_restart_validation",
+    ),
+    "delta_commit_delta": (
+        "base_post_restart_validation",
+        "delta_post_commit_close",
+    ),
+    "delta_restart_delta": (
+        "delta_post_commit_close",
+        "delta_post_restart_validation",
+    ),
+    "comparable_delta": (
+        "base_post_restart_validation",
+        "delta_post_restart_validation",
+    ),
+}
+
+
+def _valid_w3_evidence() -> dict[str, object]:
+    snapshots: dict[str, dict[str, object]] = {
+        stage: {
+            "stage": stage,
+            "complete": True,
+            "provider_closed": True,
+            "server_reaped": True,
+            "quiesce_status": "quiesced",
+            "logical_bytes": 110
+            if stage in {"delta_post_commit_close", "delta_post_restart_validation"}
+            else 100,
+            "allocated_bytes": 110
+            if stage in {"delta_post_commit_close", "delta_post_restart_validation"}
+            else 100,
+            "files": [],
+            "storage_root_identity": _TEST_STORAGE_IDENTITY,
+        }
+        for stage in _TEST_W3_SNAPSHOT_STAGES
+    }
+    evidence: dict[str, object] = {
+        "storage_snapshots": snapshots,
+    }
+    _rebuild_w3_deltas(evidence)
+    deltas = cast(dict[str, dict[str, object]], evidence["storage_deltas"])
+    evidence.update(
+        {
+            "storage_snapshot_complete": True,
+            "storage_lifecycle_complete": True,
+            "storage_snapshot_order": list(_TEST_W3_SNAPSHOT_STAGES),
+            "base_restart_delta": deltas["base_restart_delta"],
+            "delta_commit_delta": deltas["delta_commit_delta"],
+            "delta_restart_delta": deltas["delta_restart_delta"],
+            "comparable_delta": deltas["comparable_delta"],
+        }
+    )
+    return evidence
+
+
+def _rebuild_w3_deltas(evidence: dict[str, object]) -> None:
+    snapshots = cast(dict[str, dict[str, object]], evidence["storage_snapshots"])
+    deltas = {
+        name: _storage_delta(snapshots[before], snapshots[after])
+        for name, (before, after) in _TEST_W3_DELTA_STAGES.items()
+    }
+    evidence["storage_deltas"] = deltas
+    evidence.update(
+        {
+            "base_restart_delta": deltas["base_restart_delta"],
+            "delta_commit_delta": deltas["delta_commit_delta"],
+            "delta_restart_delta": deltas["delta_restart_delta"],
+            "comparable_delta": deltas["comparable_delta"],
+        }
+    )
+
+
 def test_w3_is_annotated_before_raw_persistence() -> None:
     baselines: dict[str, int] = {}
     w1 = {
@@ -590,12 +819,72 @@ def test_w3_is_annotated_before_raw_persistence() -> None:
         "logical_delta_bytes": 10,
         "allocated_delta_bytes": 10,
         "quiesce_status": "quiesced",
+        "storage_snapshot_complete": True,
+        "storage_lifecycle_complete": True,
+        "storage_mount_verified": True,
+        "storage_root_identity": "sha256:" + "1" * 64,
+        "storage_snapshot_order": [
+            "base_post_commit_close",
+            "base_post_restart_validation",
+            "delta_post_commit_close",
+            "delta_post_restart_validation",
+        ],
     }
+    w3.update(_valid_w3_evidence())
     _observe_storage_record(w1, baselines)
     _observe_storage_record(w3, baselines)
     assert w3["storage_evidence_status"] == "available"
     assert w3["w1_full_commit_logical_bytes"] == 100
     assert w3["logical_delta_vs_w1_full_ratio"] == 0.1
+
+
+def test_storage_delta_preserves_signed_physical_reclamation() -> None:
+    before = {
+        "stage": "base_post_restart_validation",
+        "logical_bytes": 100,
+        "allocated_bytes": 200,
+        "files": [],
+    }
+    after = {
+        "stage": "delta_post_restart_validation",
+        "logical_bytes": 120,
+        "allocated_bytes": 180,
+        "files": [],
+    }
+    delta = _storage_delta(before, after)
+    assert delta["logical_delta_bytes"] == 20
+    assert delta["allocated_delta_bytes"] == -20
+    assert delta["allocated_delta_semantics"] == "signed_net_allocated_blocks"
+    assert delta["physical_reclamation_observed"] is True
+
+
+def test_w3_storage_missing_lifecycle_is_inconclusive() -> None:
+    record = {
+        "candidate": Candidate.B.value,
+        "workload": "W3-1pct",
+        "sample_kind": "measured-1",
+        "logical_delta_bytes": 10,
+        "allocated_delta_bytes": -10,
+        "quiesce_status": "quiesced",
+        "change_ratio": 0.01,
+    }
+    baselines = {Candidate.B.value: 100}
+    _observe_storage_record(record, baselines)
+    assert record["storage_evidence_status"] == "inconclusive"
+
+
+def test_storage_snapshot_excludes_symlink_and_deduplicates_hardlink(tmp_path: Path) -> None:
+    root = tmp_path / "storage"
+    root.mkdir()
+    source = root / "source.bin"
+    source.write_bytes(b"payload")
+    os.link(source, root / "hardlink.bin")
+    (root / "symlink.bin").symlink_to(source)
+    snapshot = storage_snapshot(root)
+    assert snapshot["complete"] is True
+    assert snapshot["logical_bytes"] == len(b"payload")
+    assert len(snapshot["files"]) == 1
+    assert snapshot["files"][0]["relative_path"] in {"source.bin", "hardlink.bin"}
 
 
 def test_provider_tracker_uses_sample_cgroup_root(tmp_path: Path) -> None:
@@ -760,6 +1049,11 @@ def _complete_gate_records() -> list[dict[str, object]]:
                     "plateau_peaks": plateau,
                     "plateau_peaks_absolute": absolute_plateau,
                     "metadata_complete": True,
+                    "storage_mount_verified": True,
+                    "volume_backend": "volume",
+                    "filesystem_type": "xfs",
+                    "storage_root_identity": _TEST_STORAGE_IDENTITY,
+                    "storage_layout_version": "p2-r1-storage-layout-v1",
                     "logical_bytes_before": 100,
                     "logical_bytes_after": 200,
                     "allocated_bytes_before": 100,
@@ -784,6 +1078,8 @@ def _complete_gate_records() -> list[dict[str, object]]:
                     if workload.value.startswith("W3")
                     else "not_applicable",
                 }
+                if workload.value.startswith("W3"):
+                    record.update(_valid_w3_evidence())
                 records.append(record)
         for scale in SCALE_WORKLOADS:
             for bound in ROW_BOUNDS:
@@ -808,9 +1104,264 @@ def _complete_gate_records() -> list[dict[str, object]]:
                             "plateau_peaks": plateau,
                             "plateau_peaks_absolute": absolute_plateau,
                             "metadata_complete": True,
+                            "storage_mount_verified": True,
+                            "volume_backend": "volume",
+                            "filesystem_type": "xfs",
+                            "storage_root_identity": _TEST_STORAGE_IDENTITY,
+                            "storage_layout_version": "p2-r1-storage-layout-v1",
                         }
                     )
     return records
+
+
+@pytest.mark.parametrize("workload", ["W0", "W1", "W2", "W3-1pct", "S10"])
+def test_candidate_storage_provenance_covers_normal_and_scaling_records(
+    workload: str,
+) -> None:
+    records = _complete_gate_records()
+    target = next(
+        row
+        for row in records
+        if row.get("candidate") == Candidate.A.value
+        and row.get("workload") == workload
+        and (workload not in {scale.value for scale in SCALE_WORKLOADS} or row.get("record_batch_row_bound") == 256)
+        and row.get("sample_kind") == "warmup"
+    )
+    target["storage_mount_verified"] = False
+    summary = _summarize(records, RepositoryServiceSettings())
+    candidate_matrix = cast(dict[str, dict[str, object]], summary["candidate_matrix"])
+    candidate = candidate_matrix[Candidate.A.value]
+    assert candidate["storage_provenance_complete"] is False
+    assert candidate["hard_gate"] is False
+    assert summary["selected_provider"] != Candidate.A.value
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("volume_backend", "unknown"),
+        ("filesystem_type", "overlayfs"),
+        ("storage_root_identity", "not-an-identity"),
+        ("storage_layout_version", "p2-r1-storage-layout-v0"),
+    ],
+)
+def test_candidate_storage_provenance_rejects_invalid_canonical_fields(
+    field: str, value: object
+) -> None:
+    records = _complete_gate_records()
+    target = next(row for row in records if row.get("candidate") == Candidate.A.value)
+    target[field] = value
+    complete, reason = _candidate_storage_provenance(records, Candidate.A.value)
+    assert complete is False
+    assert reason != "complete"
+    summary = _summarize(records, RepositoryServiceSettings())
+    matrix = cast(dict[str, dict[str, object]], summary["candidate_matrix"])
+    assert matrix[Candidate.A.value]["hard_gate"] is False
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda evidence: evidence["storage_snapshots"]["base_post_commit_close"].__setitem__("stage", "wrong"),
+        lambda evidence: evidence["storage_snapshots"]["base_post_commit_close"].__setitem__("complete", False),
+        lambda evidence: evidence["storage_snapshots"]["base_post_commit_close"].__setitem__("provider_closed", False),
+        lambda evidence: evidence["storage_snapshots"]["base_post_commit_close"].__setitem__("server_reaped", False),
+        lambda evidence: evidence["storage_snapshots"]["base_post_commit_close"].__setitem__("quiesce_status", "pending"),
+        lambda evidence: evidence["storage_snapshots"]["base_post_commit_close"].__setitem__("storage_root_identity", "sha256:" + "2" * 64),
+        lambda evidence: evidence["storage_snapshots"]["base_post_commit_close"].__setitem__("files", {}),
+        lambda evidence: evidence["storage_deltas"]["comparable_delta"].__setitem__("before_stage", "wrong"),
+        lambda evidence: evidence["storage_deltas"]["comparable_delta"].__setitem__("allocated_delta_semantics", "unsigned"),
+        lambda evidence: evidence["storage_deltas"]["comparable_delta"].__setitem__("changed_files", {}),
+    ],
+)
+def test_w3_raw_lifecycle_tampering_is_inconclusive(mutator: Callable[[dict[str, object]], None]) -> None:
+    evidence = _valid_w3_evidence()
+    mutator(evidence)
+    record: dict[str, object] = {
+        "candidate": Candidate.A.value,
+        "workload": "W3-1pct",
+        "sample_kind": "measured-1",
+        "storage_root_identity": _TEST_STORAGE_IDENTITY,
+        "storage_mount_verified": True,
+        "logical_delta_bytes": 10,
+        "allocated_delta_bytes": 10,
+        "change_ratio": 0.01,
+        **evidence,
+    }
+    assert _w3_lifecycle_evidence_valid(record) is False
+    baselines = {Candidate.A.value: 100}
+    _observe_storage_record(record, baselines)
+    assert record["storage_evidence_status"] == "inconclusive"
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda evidence: evidence["storage_deltas"]["comparable_delta"].__setitem__(
+            "logical_delta_bytes", 11
+        ),
+        lambda evidence: evidence["storage_deltas"]["comparable_delta"].__setitem__(
+            "allocated_delta_bytes", 11
+        ),
+    ],
+)
+def test_w3_delta_arithmetic_tampering_is_rejected(
+    mutator: Callable[[dict[str, object]], None],
+) -> None:
+    evidence = _valid_w3_evidence()
+    mutator(evidence)
+    record = {
+        "storage_root_identity": _TEST_STORAGE_IDENTITY,
+        **evidence,
+    }
+    assert _w3_lifecycle_evidence_valid(record) is False
+
+
+def test_w3_changed_files_are_derived_from_snapshot_difference() -> None:
+    evidence = _valid_w3_evidence()
+    snapshots = cast(dict[str, dict[str, object]], evidence["storage_snapshots"])
+    before_file = {
+        "relative_path": "data.bin",
+        "inode": 10,
+        "st_size": 4,
+        "st_blocks": 1,
+        "link_count": 1,
+    }
+    after_file = {**before_file, "inode": 11, "st_size": 8}
+    snapshots["base_post_restart_validation"]["files"] = [before_file]
+    snapshots["delta_post_commit_close"]["files"] = [after_file]
+    snapshots["delta_post_restart_validation"]["files"] = [after_file]
+    _rebuild_w3_deltas(evidence)
+    record = {
+        "storage_root_identity": _TEST_STORAGE_IDENTITY,
+        **evidence,
+    }
+    assert _w3_lifecycle_evidence_valid(record) is True
+    comparable = cast(dict[str, object], record["storage_deltas"])["comparable_delta"]
+    assert cast(dict[str, object], comparable)["changed_files"] == [
+        {"relative_path": "data.bin", "before": before_file, "after": after_file}
+    ]
+
+
+@pytest.mark.parametrize(
+    "changed_files",
+    [
+        [
+            {
+                "relative_path": "outside.bin",
+                "before": None,
+                "after": {
+                    "relative_path": "outside.bin",
+                    "inode": 1,
+                    "st_size": 1,
+                    "st_blocks": 1,
+                    "link_count": 1,
+                },
+            }
+        ],
+        [
+            {
+                "relative_path": "data.bin",
+                "before": None,
+                "after": None,
+            }
+        ],
+        [
+            {
+                "relative_path": "data.bin",
+                "before": None,
+                "after": {
+                    "relative_path": "data.bin",
+                    "inode": 1,
+                    "st_size": 1,
+                    "st_blocks": 1,
+                    "link_count": 1,
+                },
+            },
+            {
+                "relative_path": "data.bin",
+                "before": None,
+                "after": {
+                    "relative_path": "data.bin",
+                    "inode": 1,
+                    "st_size": 1,
+                    "st_blocks": 1,
+                    "link_count": 1,
+                },
+            },
+        ],
+    ],
+)
+def test_w3_changed_files_tampering_is_rejected(
+    changed_files: list[dict[str, object]],
+) -> None:
+    evidence = _valid_w3_evidence()
+    deltas = cast(dict[str, dict[str, object]], evidence["storage_deltas"])
+    deltas["comparable_delta"]["changed_files"] = changed_files
+    record = {
+        "storage_root_identity": _TEST_STORAGE_IDENTITY,
+        **evidence,
+    }
+    assert _w3_lifecycle_evidence_valid(record) is False
+
+
+@pytest.mark.parametrize("extra_key", ["extra_delta"])
+def test_w3_delta_key_set_is_exact(extra_key: str) -> None:
+    evidence = _valid_w3_evidence()
+    deltas = cast(dict[str, dict[str, object]], evidence["storage_deltas"])
+    deltas[extra_key] = dict(deltas["comparable_delta"])
+    record = {
+        "storage_root_identity": _TEST_STORAGE_IDENTITY,
+        **evidence,
+    }
+    assert _w3_lifecycle_evidence_valid(record) is False
+
+
+def test_w3_snapshot_identity_is_independent_from_volume_root_identity() -> None:
+    record: dict[str, object] = {
+        "candidate": Candidate.A.value,
+        "workload": "W3-1pct",
+        "sample_kind": "measured-1",
+        "storage_root_identity": "sha256:" + "9" * 64,
+        "storage_mount_verified": True,
+        "logical_delta_bytes": 10,
+        "allocated_delta_bytes": 0,
+        "change_ratio": 0.01,
+        "quiesce_status": "quiesced",
+        **_valid_w3_evidence(),
+    }
+    snapshots = cast(dict[str, dict[str, object]], record["storage_snapshots"])
+    for snapshot in snapshots.values():
+        snapshot["storage_root_identity"] = "sha256:" + "8" * 64
+    assert _w3_lifecycle_evidence_valid(record) is True
+    _observe_storage_record(record, {Candidate.A.value: 100})
+    assert record["storage_evidence_status"] == "available"
+
+
+@pytest.mark.parametrize("allocated_delta", [-10, 0, 10])
+def test_w3_signed_allocated_delta_allows_reclamation_and_zero(
+    allocated_delta: int,
+) -> None:
+    evidence = _valid_w3_evidence()
+    snapshots = cast(dict[str, dict[str, object]], evidence["storage_snapshots"])
+    for stage in ("delta_post_commit_close", "delta_post_restart_validation"):
+        snapshots[stage]["allocated_bytes"] = 100 + allocated_delta
+    _rebuild_w3_deltas(evidence)
+    record: dict[str, object] = {
+        "candidate": Candidate.A.value,
+        "workload": "W3-1pct",
+        "sample_kind": "measured-1",
+        "storage_root_identity": _TEST_STORAGE_IDENTITY,
+        "storage_mount_verified": True,
+        "logical_delta_bytes": 10,
+        "allocated_delta_bytes": allocated_delta,
+        "change_ratio": 0.01,
+        "quiesce_status": "quiesced",
+        **evidence,
+    }
+    _observe_storage_record(record, {Candidate.A.value: 100})
+    assert record["storage_evidence_status"] == "available"
+    assert record["physical_reclamation_observed"] is (allocated_delta < 0)
 
 
 def test_complete_formal_pass_selects_a_and_noise_is_aggregated() -> None:

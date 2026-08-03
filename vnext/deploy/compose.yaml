@@ -37,7 +37,9 @@ services:
       GATEWAY_P2R1_SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-}
       GATEWAY_P2R1_PROVENANCE_VERIFIED: ${GATEWAY_P2R1_PROVENANCE_VERIFIED:-0}
       GATEWAY_P2R1_PROVENANCE_MANIFEST: /run/gateway-p2r1/provenance.json
+      GATEWAY_P2R1_STORAGE_LAYOUT: /run/gateway-p2r1/storage-layout.json
       GATEWAY_P2R1_TARGET_CONTAINER: "1"
+      GATEWAY_P2R1_PROJECT_NAME: ${GATEWAY_P2R1_PROJECT_NAME:-gateway-p2r1-unconfigured}
     volumes:
       - repository-data:/var/lib/gateway/repository
       - type: bind

@@ -87,6 +87,80 @@ manifest = {
     "project_name": sys.argv[11],
     "manifest_version": "p2-r1-provenance-v2",
 }
+
+temporary = target.with_name(f".{target.name}.tmp")
+with temporary.open("w", encoding="utf-8") as handle:
+    json.dump(manifest, handle, sort_keys=True, indent=2)
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+os.replace(temporary, target)
+PY
+  chmod 0444 "$target"
+}
+
+write_storage_layout() {
+  target=$1
+  container_id=$2
+  project_name=$3
+  destination=$4
+  mounts=$(docker inspect --format '{{json .Mounts}}' "$container_id") \
+    || fail "cannot inspect target container mounts"
+  volume_name=$(python3 - "$mounts" "$destination" "$project_name" <<'PY'
+import json
+import sys
+
+mounts = json.loads(sys.argv[1])
+destination = sys.argv[2]
+matches = [mount for mount in mounts if mount.get("Destination") == destination]
+if len(matches) != 1:
+    raise SystemExit("target data root must have exactly one mount")
+mount = matches[0]
+if mount.get("Type") != "volume" or mount.get("RW") is not True:
+    raise SystemExit("target data root is not a writable named volume")
+name = mount.get("Name")
+if not isinstance(name, str) or not name:
+    raise SystemExit("target volume name is missing")
+print(name)
+PY
+) || fail "target volume mount validation failed"
+  volume_json=$(docker volume inspect --format '{{json .}}' "$volume_name") \
+    || fail "cannot inspect target probe volume"
+  filesystem_type=$(docker exec "$container_id" stat -f -c '%T' "$destination") \
+    || fail "cannot inspect target volume filesystem"
+  root_identity_raw=$(docker exec "$container_id" stat -c '%d:%i' "$destination") \
+    || fail "cannot inspect target volume root identity"
+  root_identity=$(printf '%s' "$root_identity_raw" | sha256sum | awk '{print "sha256:" $1}')
+  python3 - "$target" "$destination" "$volume_name" "$project_name" \
+    "$filesystem_type" "$root_identity" "$volume_json" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+target = Path(sys.argv[1])
+destination = sys.argv[2]
+volume_name = sys.argv[3]
+project = sys.argv[4]
+filesystem_type = sys.argv[5]
+root_identity = sys.argv[6]
+volume = json.loads(sys.argv[7])
+labels = volume.get("Labels") or {}
+if labels.get("com.docker.compose.project") != project:
+    raise SystemExit("target volume is not owned by this Compose project")
+if volume.get("Name") != volume_name:
+    raise SystemExit("docker volume identity changed during inspection")
+manifest = {
+    "storage_layout_version": "p2-r1-storage-layout-v1",
+    "data_root": destination,
+    "destination": destination,
+    "mount_type": "volume",
+    "read_write": True,
+    "volume_name": volume_name,
+    "volume_project": project,
+    "storage_root_identity": root_identity,
+    "filesystem_type": filesystem_type,
+}
 temporary = target.with_name(f".{target.name}.tmp")
 with temporary.open("w", encoding="utf-8") as handle:
     json.dump(manifest, handle, sort_keys=True, indent=2)
@@ -636,6 +710,8 @@ service_run() {
     "$supervisor_visible" "$samples_visible" "$SLICE_CONTROL_GROUP" \
     "$TOP_SLICE_CONTROL_GROUP" "$SERVICE_CONTROL_GROUP" "$container_membership" \
     "$container_membership/supervisor"
+  write_storage_layout "$run_dir/storage-layout.json" "$container_id" \
+    "$PROJECT_NAME" "/var/lib/gateway/repository"
   export GATEWAY_P2R1_CONTAINER_RELATIVE="$container_relative"
   export GATEWAY_P2R1_CGROUP_LAYOUT="$run_dir/cgroup-layout.json"
   : > "$run_dir/release"

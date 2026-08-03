@@ -8,16 +8,23 @@ import pickle
 import signal
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 from uuid import UUID, uuid4
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.arrow_mapping import UnknownSqlTypeError, UnknownTypePolicy, TableCatalog
-from gateway_repository_service.filesystem import filesystem_quiesce, tree_storage_bytes
+from gateway_repository_service.filesystem import (
+    StorageSnapshot,
+    filesystem_quiesce,
+    storage_snapshot,
+    tree_storage_bytes,
+)
 from gateway_repository_service.fixtures import Fixture, Workload
 from gateway_repository_service.layout import ProbeLayout, repository_key
 from gateway_repository_service.locking import DurableRootLock
@@ -73,6 +80,9 @@ class WorkflowMeasurement:
     allocated_bytes_after: int
     staging_high_water_bytes: int
     storage_quiesced: bool
+    storage_snapshots: dict[str, dict[str, object]]
+    storage_deltas: dict[str, dict[str, object]]
+    storage_snapshot_complete: bool
     error: str | None
 
     def as_dict(self) -> dict[str, object]:
@@ -103,6 +113,9 @@ class WorkflowMeasurement:
             "allocated_bytes_after": self.allocated_bytes_after,
             "staging_high_water_bytes": self.staging_high_water_bytes,
             "storage_quiesced": self.storage_quiesced,
+            "storage_snapshots": self.storage_snapshots,
+            "storage_deltas": self.storage_deltas,
+            "storage_snapshot_complete": self.storage_snapshot_complete,
             "error": self.error,
         }
 
@@ -318,6 +331,95 @@ def _terminate_worker(pid: int, settings: RepositoryServiceSettings) -> None:
     DoltRunner.reap_adopted_dolt_children()
 
 
+W3_STORAGE_SNAPSHOT_ORDER = (
+    "base_post_commit_close",
+    "base_post_restart_validation",
+    "delta_post_commit_close",
+    "delta_post_restart_validation",
+)
+
+
+def _quiesced_storage_snapshot(
+    root: Path, target: Path, stage: str, *, provider_closed: bool
+) -> dict[str, object]:
+    """Capture one comparable storage point only after provider shutdown."""
+
+    if not provider_closed:
+        raise ProviderError(f"storage snapshot {stage} taken while provider is open")
+    DoltRunner.reap_adopted_dolt_children()
+    filesystem_quiesce(root)
+    snapshot: StorageSnapshot = storage_snapshot(target)
+    if not snapshot["complete"]:
+        raise ProviderError(f"storage snapshot {stage} is incomplete")
+    result: dict[str, object] = dict(snapshot)
+    result.update(
+        {
+            "stage": stage,
+            "quiesce_status": "quiesced",
+            "provider_closed": True,
+            "server_reaped": True,
+        }
+    )
+    return result
+
+
+def _storage_delta(
+    before: dict[str, object], after: dict[str, object]
+) -> dict[str, object]:
+    logical_before = before.get("logical_bytes")
+    logical_after = after.get("logical_bytes")
+    allocated_before = before.get("allocated_bytes")
+    allocated_after = after.get("allocated_bytes")
+    if not all(
+        isinstance(value, int)
+        for value in (logical_before, logical_after, allocated_before, allocated_after)
+    ):
+        raise ProviderError("storage snapshot delta has incomplete byte totals")
+    logical_before_int = cast(int, logical_before)
+    logical_after_int = cast(int, logical_after)
+    allocated_before_int = cast(int, allocated_before)
+    allocated_after_int = cast(int, allocated_after)
+    before_items = before.get("files")
+    after_items = after.get("files")
+    before_list = before_items if isinstance(before_items, list) else []
+    after_list = after_items if isinstance(after_items, list) else []
+    before_files = {
+        str(item.get("relative_path")): item
+        for item in before_list
+        if isinstance(item, dict) and isinstance(item.get("relative_path"), str)
+    }
+    after_files = {
+        str(item.get("relative_path")): item
+        for item in after_list
+        if isinstance(item, dict) and isinstance(item.get("relative_path"), str)
+    }
+    changed_files = [
+        {
+            "relative_path": path,
+            "before": before_files.get(path),
+            "after": after_files.get(path),
+        }
+        for path in sorted(set(before_files) | set(after_files))
+        if before_files.get(path) != after_files.get(path)
+    ]
+    return {
+        "before_stage": before.get("stage"),
+        "after_stage": after.get("stage"),
+        "logical_delta_bytes": logical_after_int - logical_before_int,
+        "allocated_delta_bytes": allocated_after_int - allocated_before_int,
+        "allocated_delta_semantics": "signed_net_allocated_blocks",
+        "physical_reclamation_observed": allocated_after_int - allocated_before_int < 0,
+        "changed_files": changed_files,
+    }
+
+
+def _snapshot_bytes(snapshot: dict[str, object], key: str) -> int:
+    value = snapshot.get(key)
+    if not isinstance(value, int):
+        raise ProviderError(f"storage snapshot field {key} is incomplete")
+    return value
+
+
 def _failed_measurement(
     candidate: Candidate, fixture: Fixture, sample_kind: str, error: str
 ) -> WorkflowMeasurement:
@@ -361,6 +463,9 @@ def _failed_measurement(
         allocated_bytes_after=0,
         staging_high_water_bytes=0,
         storage_quiesced=False,
+        storage_snapshots={},
+        storage_deltas={},
+        storage_snapshot_complete=False,
         error=error,
     )
 
@@ -377,6 +482,7 @@ def _run_locked(
 ) -> WorkflowMeasurement:
     initial_commit: str | None = None
     new_commit: str | None = None
+    base_catalog: tuple[TableCatalog, ...] = ()
     provider: Provider | None = None
     error: str | None = None
     correctness = False
@@ -424,6 +530,9 @@ def _run_locked(
     logical_after = 0
     allocated_after = 0
     storage_quiesced = False
+    storage_snapshots: dict[str, dict[str, object]] = {}
+    storage_deltas: dict[str, dict[str, object]] = {}
+    storage_snapshot_complete = False
     provider_shutdown = False
     try:
         repository_id = UUID(int=uuid4().int)
@@ -457,13 +566,18 @@ def _run_locked(
             expected_parent = base_commit
         marker = f"gateway-versioned-import operation_id={uuid4()}"
         if base_fixture is not None:
-            # W3's baseline is measured only after the base commit provider is
-            # stopped and the filesystem has been quiesced.
+            # W3 uses four symmetric, quiesced points.  The first two describe
+            # the base lifecycle; the delta is applied only after the base
+            # restart validation has been measured.
             provider.close()
             provider = None
             provider_shutdown = True
-            filesystem_quiesce(layout.root)
-            logical_before, allocated_before = tree_storage_bytes(target)
+            storage_snapshots["base_post_commit_close"] = _quiesced_storage_snapshot(
+                layout.root,
+                target,
+                "base_post_commit_close",
+                provider_closed=provider_shutdown,
+            )
             provider = _make_provider(
                 settings, layout, target, DoltRunner(settings, layout.root), candidate
             )
@@ -471,6 +585,40 @@ def _run_locked(
             provider_shutdown = False
             if provider.head() != expected_parent:
                 raise ProviderError("reopen did not preserve W3 base commit")
+            initial_catalog = provider.catalog(initial_commit, initial_commit)
+            if initial_catalog:
+                raise ProviderError("initial commit unexpectedly contained user tables")
+            base_catalog = provider.catalog(initial_commit, expected_parent)
+            _assert_catalog_exact(base_catalog, base_fixture)
+            base_rows = _stream_and_validate(provider, expected_parent, base_catalog, base_fixture)
+            if base_rows != base_fixture.rows:
+                raise ProviderError("base pinned read row count mismatch")
+            provider.close()
+            provider = None
+            provider_shutdown = True
+            storage_snapshots["base_post_restart_validation"] = _quiesced_storage_snapshot(
+                layout.root,
+                target,
+                "base_post_restart_validation",
+                provider_closed=provider_shutdown,
+            )
+            storage_deltas["base_restart_delta"] = _storage_delta(
+                storage_snapshots["base_post_commit_close"],
+                storage_snapshots["base_post_restart_validation"],
+            )
+            logical_before = _snapshot_bytes(
+                storage_snapshots["base_post_restart_validation"], "logical_bytes"
+            )
+            allocated_before = _snapshot_bytes(
+                storage_snapshots["base_post_restart_validation"], "allocated_bytes"
+            )
+            provider = _make_provider(
+                settings, layout, target, DoltRunner(settings, layout.root), candidate
+            )
+            provider.open()
+            provider_shutdown = False
+            if provider.head() != expected_parent:
+                raise ProviderError("base commit changed before delta replay")
             provider.replay(fixture.replay_sql)
         new_commit = provider.commit_marker(marker)
         import_seconds = time.monotonic() - import_started
@@ -485,14 +633,89 @@ def _run_locked(
             raise ProviderError("initial commit unexpectedly contained user tables")
         actual_catalog = provider.catalog(initial_commit, new_commit)
         _assert_catalog_exact(actual_catalog, fixture)
+        if base_fixture is not None and expected_parent is None:
+            raise ProviderError("base commit was not created")
+
         if base_fixture is not None:
-            if expected_parent is None:
-                raise ProviderError("base commit was not created")
-            base_catalog = provider.catalog(initial_commit, expected_parent)
-            _assert_catalog_exact(base_catalog, base_fixture)
-            base_rows = _stream_and_validate(provider, expected_parent, base_catalog, base_fixture)
-            if base_rows != base_fixture.rows:
-                raise ProviderError("base pinned read row count mismatch")
+            # Measure the commit-only point, validate the new immutable state,
+            # then measure the symmetric post-restart point.  The final reopen
+            # below is intentionally reserved for stream/cancel evidence.
+            provider.close()
+            provider = None
+            provider_shutdown = True
+            storage_snapshots["delta_post_commit_close"] = _quiesced_storage_snapshot(
+                layout.root,
+                target,
+                "delta_post_commit_close",
+                provider_closed=provider_shutdown,
+            )
+            provider = _make_provider(
+                settings, layout, target, DoltRunner(settings, layout.root), candidate
+            )
+            provider.open()
+            provider_shutdown = False
+            if provider.head() != new_commit or provider.marker_count(marker) != 1:
+                raise ProviderError("delta restart did not preserve commit/ref/marker")
+            if provider.catalog(initial_commit, new_commit) != actual_catalog:
+                raise ProviderError("delta restart catalog changed")
+            if provider.catalog(initial_commit, initial_commit) != initial_catalog:
+                raise ProviderError("delta restart changed old immutable catalog")
+            if provider.catalog(initial_commit, expected_parent) != base_catalog:
+                raise ProviderError("delta restart changed base immutable catalog")
+            delta_rows = _stream_and_validate(provider, new_commit, actual_catalog, fixture)
+            if delta_rows != fixture.rows:
+                raise ProviderError("delta restart new pinned read row count mismatch")
+            base_rows_restart = _stream_and_validate(
+                provider, expected_parent, base_catalog, base_fixture
+            )
+            if base_rows_restart != base_fixture.rows:
+                raise ProviderError("delta restart old pinned read row count mismatch")
+            provider.close()
+            provider = None
+            provider_shutdown = True
+            storage_snapshots["delta_post_restart_validation"] = _quiesced_storage_snapshot(
+                layout.root,
+                target,
+                "delta_post_restart_validation",
+                provider_closed=provider_shutdown,
+            )
+            storage_deltas["delta_commit_delta"] = _storage_delta(
+                storage_snapshots["base_post_restart_validation"],
+                storage_snapshots["delta_post_commit_close"],
+            )
+            storage_deltas["delta_restart_delta"] = _storage_delta(
+                storage_snapshots["delta_post_commit_close"],
+                storage_snapshots["delta_post_restart_validation"],
+            )
+            storage_deltas["comparable_delta"] = _storage_delta(
+                storage_snapshots["base_post_restart_validation"],
+                storage_snapshots["delta_post_restart_validation"],
+            )
+            logical_before = _snapshot_bytes(
+                storage_snapshots["base_post_restart_validation"], "logical_bytes"
+            )
+            allocated_before = _snapshot_bytes(
+                storage_snapshots["base_post_restart_validation"], "allocated_bytes"
+            )
+            logical_after = _snapshot_bytes(
+                storage_snapshots["delta_post_restart_validation"], "logical_bytes"
+            )
+            allocated_after = _snapshot_bytes(
+                storage_snapshots["delta_post_restart_validation"], "allocated_bytes"
+            )
+            storage_snapshot_complete = all(
+                bool(storage_snapshots.get(stage, {}).get("complete"))
+                and storage_snapshots[stage].get("quiesce_status") == "quiesced"
+                and storage_snapshots[stage].get("provider_closed") is True
+                for stage in W3_STORAGE_SNAPSHOT_ORDER
+            )
+            if not storage_snapshot_complete:
+                raise ProviderError("W3 storage snapshot lifecycle is incomplete")
+            provider = _make_provider(
+                settings, layout, target, DoltRunner(settings, layout.root), candidate
+            )
+            provider.open()
+            provider_shutdown = False
 
         stream_start = time.monotonic()
         first_seen = False
@@ -530,12 +753,7 @@ def _run_locked(
         )
         memory_evidence["plateau_peaks"] = plateau_peaks
         memory_evidence["plateau_peaks_absolute"] = plateau_peaks_absolute
-        memory_evidence["baseline_coverage"] = bool(
-            memory_evidence.get("baseline_workflow_process_tree_rss_kib") is not None
-            and memory_evidence.get("baseline_provider_process_tree_rss_kib") is not None
-            and memory_evidence.get("baseline_arrow_memory_pool_bytes") is not None
-            and memory_evidence.get("cgroup_baseline_current_bytes") is not None
-        )
+        memory_evidence["baseline_coverage"] = _baseline_memory_coverage(memory_evidence)
         memory_evidence["cgroup_stat_coverage"] = bool(
             memory_evidence.get("cgroup_stat_anon_bytes") is not None
             and memory_evidence.get("cgroup_stat_file_bytes") is not None
@@ -595,26 +813,27 @@ def _run_locked(
         provider.close()
         provider = None
         provider_shutdown = True
-        restart_runner = DoltRunner(settings, layout.root)
-        restarted = _make_provider(settings, layout, target, restart_runner, candidate)
-        restarted.open()
-        provider_shutdown = False
-        try:
-            if restarted.head() != new_commit or restarted.marker_count(marker) != 1:
-                raise ProviderError("restart did not preserve commit/ref/marker")
-            if restarted.catalog(initial_commit, new_commit) != actual_catalog:
-                raise ProviderError("restart catalog changed")
-            if restarted.catalog(initial_commit, initial_commit) != initial_catalog:
-                raise ProviderError("restart changed old immutable catalog")
-            if base_fixture is not None and restarted.catalog(initial_commit, expected_parent) != base_catalog:
-                raise ProviderError("restart changed base immutable catalog")
-        finally:
-            restarted.close()
-            provider_shutdown = True
-        filesystem_quiesce(layout.root)
-        logical_after, allocated_after = tree_storage_bytes(target)
-        storage_quiesced = True
-        hard_gates["restart"] = True
+        if base_fixture is None:
+            restart_runner = DoltRunner(settings, layout.root)
+            restarted = _make_provider(settings, layout, target, restart_runner, candidate)
+            restarted.open()
+            provider_shutdown = False
+            try:
+                if restarted.head() != new_commit or restarted.marker_count(marker) != 1:
+                    raise ProviderError("restart did not preserve commit/ref/marker")
+                if restarted.catalog(initial_commit, new_commit) != actual_catalog:
+                    raise ProviderError("restart catalog changed")
+                if restarted.catalog(initial_commit, initial_commit) != initial_catalog:
+                    raise ProviderError("restart changed old immutable catalog")
+            finally:
+                restarted.close()
+                provider_shutdown = True
+            filesystem_quiesce(layout.root)
+            logical_after, allocated_after = tree_storage_bytes(target)
+            storage_quiesced = True
+        else:
+            storage_quiesced = storage_snapshot_complete
+        hard_gates["restart"] = storage_quiesced
         hard_gates["workflow"] = True
         correctness = _workflow_correctness(hard_gates)
     except Exception as exc:
@@ -669,6 +888,9 @@ def _run_locked(
         allocated_bytes_after=allocated_after,
         staging_high_water_bytes=staging_high_water,
         storage_quiesced=storage_quiesced,
+        storage_snapshots=storage_snapshots,
+        storage_deltas=storage_deltas,
+        storage_snapshot_complete=storage_snapshot_complete if base_fixture is not None else True,
         error=error,
     )
 
@@ -837,6 +1059,20 @@ def _expected_representative_flag(row_id: int) -> bool | None:
 
     index = row_id - 1
     return None if index % 17 == 0 else bool(index % 2)
+
+
+def _baseline_memory_coverage(memory_evidence: Mapping[str, object]) -> bool:
+    """Require all canonical per-workflow baseline subjects to be present."""
+
+    return all(
+        memory_evidence.get(field) is not None
+        for field in (
+            "baseline_workflow_process_tree_rss_kib",
+            "baseline_provider_process_tree_rss_kib",
+            "baseline_arrow_memory_pool_bytes",
+            "cgroup_baseline_current_bytes",
+        )
+    )
 
 
 def _workflow_correctness(hard_gates: dict[str, bool]) -> bool:

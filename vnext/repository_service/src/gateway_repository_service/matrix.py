@@ -34,8 +34,11 @@ from gateway_repository_service.process import (
 )
 from gateway_repository_service.publication import atomic_publish_file
 from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.storage import StorageLayout, StorageLayoutError
+from gateway_repository_service.filesystem import storage_root_identity
 from gateway_repository_service.workflow import (
     Candidate,
+    W3_STORAGE_SNAPSHOT_ORDER,
     WorkflowMeasurement,
     run_workflow,
     run_workflow_isolated,
@@ -53,6 +56,26 @@ SCALE_WORKLOADS = tuple(ScaleWorkload)
 ROW_BOUNDS = (256, 1024)
 BYTE_BOUND = 4 * 1024 * 1024
 EXPECTED_SAMPLE_KINDS = ("warmup", *(f"measured-{index}" for index in range(1, 6)))
+STORAGE_LAYOUT_VERSION = "p2-r1-storage-layout-v1"
+STORAGE_IDENTITY_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
+W3_DELTA_STAGE_PAIRS = {
+    "base_restart_delta": (
+        "base_post_commit_close",
+        "base_post_restart_validation",
+    ),
+    "delta_commit_delta": (
+        "base_post_restart_validation",
+        "delta_post_commit_close",
+    ),
+    "delta_restart_delta": (
+        "delta_post_commit_close",
+        "delta_post_restart_validation",
+    ),
+    "comparable_delta": (
+        "base_post_restart_validation",
+        "delta_post_restart_validation",
+    ),
+}
 
 
 class MatrixInterrupted(RuntimeError):
@@ -88,6 +111,7 @@ def run_matrix(
     if not diagnostic and selected != NORMAL_WORKLOADS:
         raise ValueError("workload subsets are diagnostic-only")
     target_container = os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") == "1"
+    probe_data_root = _resolve_probe_data_root(settings, data_root, target_container)
     if not diagnostic or target_container:
         topology = load_cgroup_topology(settings.cgroup_layout)
         cgroup_input = (
@@ -115,7 +139,7 @@ def run_matrix(
     fixture_context = tempfile.TemporaryDirectory(prefix="gateway-p2r1-fixtures-")
     root_context = (
         tempfile.TemporaryDirectory(prefix="gateway-p2r1-target-")
-        if data_root is None
+        if probe_data_root is None
         else None
     )
     def persist_record(record: dict[str, object]) -> None:
@@ -152,7 +176,11 @@ def run_matrix(
 
     try:
         fixture_root = Path(fixture_context.name)
-        probe_root = data_root if data_root is not None else Path(root_context.name)  # type: ignore[union-attr]
+        probe_root = (
+            probe_data_root
+            if probe_data_root is not None
+            else Path(root_context.name)  # type: ignore[union-attr]
+        )
         normal_workloads = selected if diagnostic else NORMAL_WORKLOADS
         records.extend(
             _collect_normal_records(
@@ -344,6 +372,19 @@ def _record(
     metadata: dict[str, object] | None = None,
 ) -> dict[str, object]:
     data = measurement.as_dict()
+    target_container = os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") == "1"
+    storage_layout = _load_storage_layout() if target_container else None
+    try:
+        root_identity = storage_root_identity(filesystem_path)
+    except OSError:
+        root_identity = ""
+    filesystem = _filesystem_type(filesystem_path)
+    mount_verified = bool(
+        storage_layout is not None
+        and storage_layout.filesystem_type == filesystem
+        and storage_layout.storage_root_identity == root_identity
+        and storage_layout.data_root.resolve() == filesystem_path.resolve()
+    )
     data.update(
         {
             "dataset_id": fixture.dataset_id,
@@ -352,8 +393,18 @@ def _record(
             "fixture_rows": fixture.rows,
             "python_version": platform.python_version(),
             "cpu_count": os.cpu_count(),
-            "filesystem_type": _filesystem_type(filesystem_path),
-            "volume_backend": os.environ.get("GATEWAY_P2R1_VOLUME_BACKEND", "unknown"),
+            "filesystem_type": filesystem,
+            "volume_backend": storage_layout.mount_type
+            if mount_verified and storage_layout is not None
+            else ("unknown" if target_container else os.environ.get("GATEWAY_P2R1_VOLUME_BACKEND", "unknown")),
+            "storage_root_identity": root_identity,
+            "storage_mount_verified": mount_verified if target_container else False,
+            "storage_layout_version": storage_layout.storage_layout_version
+            if storage_layout is not None
+            else None,
+            "storage_volume_project": storage_layout.volume_project
+            if storage_layout is not None
+            else None,
             "memory_limit_bytes": _memory_limit_bytes(),
             "methodology_version": metadata.get(
                 "measurement_methodology_version", "unknown"
@@ -426,6 +477,50 @@ def _filesystem_type(path: Path = Path(".")) -> str:
     return result.stdout.strip() or "unknown"
 
 
+def _resolve_probe_data_root(
+    settings: RepositoryServiceSettings,
+    data_root: Path | None,
+    target_container: bool,
+) -> Path | None:
+    """Select the storage root without measuring target overlay storage."""
+
+    probe_root = data_root
+    if probe_root is None and target_container:
+        probe_root = settings.data_root
+    if probe_root is None:
+        return None
+    if target_container:
+        _validate_target_storage_root(probe_root)
+    return probe_root
+
+
+def _validate_target_storage_root(root: Path) -> None:
+    """Require target measurements to use the launcher-verified named volume."""
+
+    if not root.is_absolute():
+        raise RuntimeError("target storage root must be absolute")
+    storage_layout = _load_storage_layout()
+    if storage_layout is None:
+        raise RuntimeError("launcher storage layout manifest is missing")
+    try:
+        storage_layout.validate_root(
+            root,
+            project=os.environ.get("GATEWAY_P2R1_PROJECT_NAME"),
+        )
+    except StorageLayoutError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def _load_storage_layout() -> StorageLayout | None:
+    path_value = os.environ.get("GATEWAY_P2R1_STORAGE_LAYOUT")
+    if not path_value:
+        return None
+    try:
+        return StorageLayout.load(Path(path_value))
+    except StorageLayoutError:
+        return None
+
+
 def _memory_limit_bytes() -> int | None:
     path = Path("/sys/fs/cgroup/memory.max")
     if not path.is_file():
@@ -465,6 +560,9 @@ def _measurement_metadata(
     verified_lock = os.environ.get("GATEWAY_P2R1_LOCK_SHA256")
     verified_tree = os.environ.get("GATEWAY_P2R1_SOURCE_TREE_SHA256")
     manifest = _load_provenance_manifest()
+    target_container = os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") == "1"
+    storage_layout = _load_storage_layout() if target_container else None
+    storage_manifest_valid = not target_container or storage_layout is not None
     provenance_flag = os.environ.get("GATEWAY_P2R1_PROVENANCE_VERIFIED") == "1"
     provenance_verified = provenance_flag and manifest is not None
     cli_matches_verified = (
@@ -519,6 +617,10 @@ def _measurement_metadata(
         "provenance_verified": provenance_verified,
         "provenance_manifest": manifest if manifest is not None else {},
         "provenance_manifest_valid": manifest_valid,
+        "storage_manifest_valid": storage_manifest_valid,
+        "storage_layout_version": storage_layout.storage_layout_version
+        if storage_layout is not None
+        else None,
         "measurement_methodology_version": settings.measurement_methodology_version,
         "metadata_complete": bool(
             actual_dolt == settings.dolt_version
@@ -532,6 +634,7 @@ def _measurement_metadata(
             and cli_matches_verified
             and actual_lock is not None
             and verified_lock == actual_lock
+            and storage_manifest_valid
         ),
     }
 
@@ -545,6 +648,152 @@ def _load_provenance_manifest() -> dict[str, object] | None:
     except (OSError, ValueError, json.JSONDecodeError):
         return None
     return cast(dict[str, object], value) if isinstance(value, dict) else None
+
+
+def _valid_storage_identity(value: object) -> bool:
+    return isinstance(value, str) and STORAGE_IDENTITY_PATTERN.fullmatch(value) is not None
+
+
+def _valid_storage_file(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    relative_path = value.get("relative_path")
+    if not _valid_relative_path(relative_path):
+        return False
+    return (
+        isinstance(relative_path, str)
+        and isinstance(value.get("inode"), int)
+        and isinstance(value.get("st_size"), int)
+        and isinstance(value.get("st_blocks"), int)
+        and isinstance(value.get("link_count"), int)
+    )
+
+
+def _valid_relative_path(value: object) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    relative = Path(value)
+    return not relative.is_absolute() and relative != Path(".") and ".." not in relative.parts
+
+
+def _storage_file_map(value: object) -> dict[str, dict[str, object]] | None:
+    if not isinstance(value, list):
+        return None
+    result: dict[str, dict[str, object]] = {}
+    for item in value:
+        if not _valid_storage_file(item):
+            return None
+        entry = cast(dict[str, object], item)
+        relative_path = cast(str, entry["relative_path"])
+        if relative_path in result:
+            return None
+        result[relative_path] = entry
+    return result
+
+
+def _valid_changed_files(value: object) -> bool:
+    if not isinstance(value, list):
+        return False
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict) or not isinstance(item.get("relative_path"), str):
+            return False
+        relative_path = cast(str, item["relative_path"])
+        if not _valid_relative_path(relative_path):
+            return False
+        if relative_path in seen:
+            return False
+        seen.add(relative_path)
+        before = item.get("before")
+        after = item.get("after")
+        if before is None and after is None:
+            return False
+        if before is not None and not _valid_storage_file(before):
+            return False
+        if after is not None and not _valid_storage_file(after):
+            return False
+    return True
+
+
+def _w3_lifecycle_evidence_valid(record: dict[str, object]) -> bool:
+    """Validate W3 lifecycle evidence from raw snapshots, not derived flags."""
+
+    snapshots = record.get("storage_snapshots")
+    deltas = record.get("storage_deltas")
+    if not isinstance(snapshots, dict) or not isinstance(deltas, dict):
+        return False
+    if list(snapshots.keys()) != list(W3_STORAGE_SNAPSHOT_ORDER):
+        return False
+    if set(deltas.keys()) != set(W3_DELTA_STAGE_PAIRS):
+        return False
+
+    identities: set[str] = set()
+    snapshot_values: dict[str, dict[str, object]] = {}
+    snapshot_files: dict[str, dict[str, dict[str, object]]] = {}
+    for stage in W3_STORAGE_SNAPSHOT_ORDER:
+        snapshot = snapshots.get(stage)
+        if not isinstance(snapshot, dict):
+            return False
+        snapshot_values[stage] = cast(dict[str, object], snapshot)
+        if (
+            snapshot.get("stage") != stage
+            or snapshot.get("complete") is not True
+            or snapshot.get("provider_closed") is not True
+            or snapshot.get("server_reaped") is not True
+            or snapshot.get("quiesce_status") != "quiesced"
+        ):
+            return False
+        if not all(
+            isinstance(snapshot.get(name), int)
+            for name in ("logical_bytes", "allocated_bytes")
+        ):
+            return False
+        files = _storage_file_map(snapshot.get("files"))
+        if files is None:
+            return False
+        snapshot_files[stage] = files
+        identity = snapshot.get("storage_root_identity")
+        if not _valid_storage_identity(identity):
+            return False
+        identities.add(cast(str, identity))
+
+    if len(identities) != 1:
+        return False
+    for name, (before_stage, after_stage) in W3_DELTA_STAGE_PAIRS.items():
+        delta = deltas.get(name)
+        if not isinstance(delta, dict):
+            return False
+        if (
+            delta.get("before_stage") != before_stage
+            or delta.get("after_stage") != after_stage
+            or not isinstance(delta.get("logical_delta_bytes"), int)
+            or not isinstance(delta.get("allocated_delta_bytes"), int)
+            or delta.get("logical_delta_bytes")
+            != cast(int, snapshot_values[after_stage]["logical_bytes"])
+            - cast(int, snapshot_values[before_stage]["logical_bytes"])
+            or delta.get("allocated_delta_bytes")
+            != cast(int, snapshot_values[after_stage]["allocated_bytes"])
+            - cast(int, snapshot_values[before_stage]["allocated_bytes"])
+            or delta.get("allocated_delta_semantics") != "signed_net_allocated_blocks"
+            or delta.get("physical_reclamation_observed")
+            != (cast(int, delta.get("allocated_delta_bytes")) < 0)
+            or not _valid_changed_files(delta.get("changed_files"))
+        ):
+            return False
+        before_files = snapshot_files[before_stage]
+        after_files = snapshot_files[after_stage]
+        expected_changed_files = [
+            {
+                "relative_path": relative_path,
+                "before": before_files.get(relative_path),
+                "after": after_files.get(relative_path),
+            }
+            for relative_path in sorted(set(before_files) | set(after_files))
+            if before_files.get(relative_path) != after_files.get(relative_path)
+        ]
+        if delta.get("changed_files") != expected_changed_files:
+            return False
+    return True
 
 
 def _storage_fields(record: dict[str, object]) -> dict[str, object]:
@@ -564,10 +813,32 @@ def _storage_fields(record: dict[str, object]) -> dict[str, object]:
         if isinstance(allocated_after, int) and isinstance(allocated_before, int)
         else None
     )
+    raw_deltas = record.get("storage_deltas")
+    deltas = raw_deltas if isinstance(raw_deltas, dict) else {}
+    comparable = deltas.get("comparable_delta")
+    if isinstance(comparable, dict):
+        comparable_logical = comparable.get("logical_delta_bytes")
+        comparable_allocated = comparable.get("allocated_delta_bytes")
+        if isinstance(comparable_logical, int):
+            logical_delta = comparable_logical
+        if isinstance(comparable_allocated, int):
+            allocated_delta = comparable_allocated
+    snapshots = record.get("storage_snapshots")
+    lifecycle_valid = _w3_lifecycle_evidence_valid(record)
+    snapshot_complete = lifecycle_valid
+    snapshot_order = (
+        list(snapshots.keys()) if isinstance(snapshots, dict) else []
+    )
+    w3_lifecycle_complete = lifecycle_valid
+    physical_reclamation = (
+        isinstance(allocated_delta, int) and allocated_delta < 0
+    )
     return {
         "change_ratio": change_ratio,
         "logical_delta_bytes": logical_delta,
         "allocated_delta_bytes": allocated_delta,
+        "allocated_delta_semantics": "signed_net_allocated_blocks",
+        "physical_reclamation_observed": physical_reclamation,
         "quiesce_status": "quiesced"
         if record.get("storage_quiesced") is True
         else "unavailable",
@@ -577,6 +848,15 @@ def _storage_fields(record: dict[str, object]) -> dict[str, object]:
         "full_rewrite_explanation": "pending W1 comparison"
         if change_ratio is not None
         else None,
+        "storage_snapshots": snapshots if isinstance(snapshots, dict) else {},
+        "storage_deltas": deltas,
+        "storage_snapshot_order": snapshot_order,
+        "storage_snapshot_complete": snapshot_complete,
+        "storage_lifecycle_complete": w3_lifecycle_complete,
+        "base_restart_delta": deltas.get("base_restart_delta"),
+        "delta_commit_delta": deltas.get("delta_commit_delta"),
+        "delta_restart_delta": deltas.get("delta_restart_delta"),
+        "comparable_delta": comparable,
         "storage_evidence_status": "pending" if change_ratio is not None else "not_applicable",
     }
 
@@ -596,6 +876,21 @@ def _observe_storage_record(record: dict[str, object], full_by_candidate: dict[s
         )
     if record.get("change_ratio") is None:
         return
+    derived_storage = _storage_fields(record)
+    for key in (
+        "storage_snapshots",
+        "storage_deltas",
+        "storage_snapshot_order",
+        "storage_snapshot_complete",
+        "storage_lifecycle_complete",
+        "base_restart_delta",
+        "delta_commit_delta",
+        "delta_restart_delta",
+        "comparable_delta",
+        "allocated_delta_semantics",
+        "physical_reclamation_observed",
+    ):
+        record.setdefault(key, derived_storage[key])
     full = full_by_candidate.get(candidate)
     delta = record.get("logical_delta_bytes")
     record["w1_full_commit_logical_bytes"] = full
@@ -616,7 +911,10 @@ def _observe_storage_record(record: dict[str, object], full_by_candidate: dict[s
         if record.get("quiesce_status") == "quiesced"
         and isinstance(record.get("allocated_delta_bytes"), int)
         and delta > 0
-        and int(cast(int, record["allocated_delta_bytes"])) > 0
+        and record.get("storage_snapshot_complete") is True
+        and record.get("storage_lifecycle_complete") is True
+        and _w3_lifecycle_evidence_valid(record)
+        and record.get("storage_mount_verified") is True
         else "inconclusive"
     )
 
@@ -625,6 +923,37 @@ def _annotate_storage(records: list[dict[str, object]]) -> None:
     full_by_candidate: dict[str, int] = {}
     for record in records:
         _observe_storage_record(record, full_by_candidate)
+
+
+def _candidate_storage_provenance(
+    records: list[dict[str, object]], candidate: str
+) -> tuple[bool, str]:
+    candidate_rows = [
+        row
+        for row in records
+        if row.get("candidate") == candidate
+        and row.get("matrix_kind", "normal") in {"normal", "scaling"}
+    ]
+    if not candidate_rows:
+        return False, "candidate has no measurement records"
+    identities: set[str] = set()
+    for row in candidate_rows:
+        if row.get("storage_mount_verified") is not True:
+            return False, "storage mount is not verified for every record"
+        if row.get("volume_backend") != "volume":
+            return False, "storage backend is not a verified named volume"
+        filesystem_type = row.get("filesystem_type")
+        if not isinstance(filesystem_type, str) or filesystem_type.lower() in {"", "unknown", "overlayfs"}:
+            return False, "storage filesystem is unavailable or overlayfs"
+        identity = row.get("storage_root_identity")
+        if not _valid_storage_identity(identity):
+            return False, "storage root identity is invalid"
+        identities.add(cast(str, identity))
+        if row.get("storage_layout_version") != STORAGE_LAYOUT_VERSION:
+            return False, "storage layout version is invalid"
+    if len(identities) != 1:
+        return False, "storage root identity is inconsistent"
+    return True, "complete"
 
 
 def _read_raw_records(output: Path) -> list[dict[str, object]]:
@@ -816,7 +1145,11 @@ def _summarize(
             and isinstance(row.get("logical_delta_bytes"), int)
             and int(cast(int, row["logical_delta_bytes"])) > 0
             and isinstance(row.get("allocated_delta_bytes"), int)
-            and int(cast(int, row["allocated_delta_bytes"])) > 0
+            and row.get("allocated_delta_semantics") == "signed_net_allocated_blocks"
+            and row.get("storage_snapshot_complete") is True
+            and row.get("storage_lifecycle_complete") is True
+            and _w3_lifecycle_evidence_valid(row)
+            and row.get("storage_mount_verified") is True
             for row in w3_rows
         )
         bounded_status, bounded_reason, bounded_ratios = _bounded_stream_gate(
@@ -824,6 +1157,9 @@ def _summarize(
         )
         candidate_rows = [row for row in all_records if row.get("candidate") == candidate.value]
         failure_counts = _failure_counts(candidate_rows)
+        storage_provenance_complete, storage_provenance_reason = _candidate_storage_provenance(
+            all_records, candidate.value
+        )
         metadata_complete = bool(candidate_rows) and all(
             row.get("metadata_complete") is True for row in candidate_rows
         )
@@ -841,6 +1177,7 @@ def _summarize(
             and safety
             and capacity >= 1000
             and w3_storage
+            and storage_provenance_complete
             and metadata_complete
             and raw_gate_consistent
             and bounded_status == "pass"
@@ -854,6 +1191,8 @@ def _summarize(
             "capacity_projection_imports_per_day": capacity,
             "capacity_gate": capacity >= 1000,
             "w3_storage_recorded": w3_storage,
+            "storage_provenance_complete": storage_provenance_complete,
+            "storage_provenance_reason": storage_provenance_reason,
             "w3_full_commit_ratios": sorted(
                 {
                     float(cast(int | float, row["logical_delta_vs_w1_full_ratio"]))
@@ -876,6 +1215,20 @@ def _summarize(
     selected = Candidate.A.value if a_pass else Candidate.B.value if b_pass else None
     outcome = "go" if selected is not None else "no-go"
     failure_counts = _failure_counts(all_records)
+    filesystem_types = sorted(
+        {str(row.get("filesystem_type")) for row in all_records if row.get("filesystem_type")}
+    )
+    volume_backends = sorted(
+        {str(row.get("volume_backend")) for row in all_records if row.get("volume_backend")}
+    )
+    storage_root_identities = sorted(
+        {
+            str(row.get("storage_root_identity"))
+            for row in all_records
+            if row.get("storage_root_identity")
+        }
+    )
+    storage_mount_values = [row.get("storage_mount_verified") for row in all_records]
     return {
         "round": "P2-R1",
         "measurement_outcome": outcome,
@@ -929,7 +1282,11 @@ def _summarize(
             "build_revisions": sorted({str(row.get("build_revision")) for row in all_records}),
             "python_version": platform.python_version(),
             "cpu_count": os.cpu_count(),
-            "filesystem": _filesystem_type(),
+            "filesystem_types": filesystem_types,
+            "volume_backends": volume_backends,
+            "storage_root_identities": storage_root_identities,
+            "storage_mount_verified": bool(storage_mount_values)
+            and all(value is True for value in storage_mount_values),
             "environment_class": "development-equivalent-smoke",
             "production_environment_assessed": False,
         },

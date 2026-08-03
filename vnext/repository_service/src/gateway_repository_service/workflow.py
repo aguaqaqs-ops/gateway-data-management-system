@@ -197,7 +197,10 @@ def run_workflow_isolated(
         temp_root = Path(temporary)
         payload_path = temp_root / "payload.pickle"
         result_path = temp_root / "result.pickle"
-        scope = WorkflowCgroupScope(settings.cgroup_root)
+        scope = WorkflowCgroupScope(
+            settings.cgroup_root,
+            grace_seconds=settings.terminate_grace_seconds,
+        )
         pid: int | None = None
         gate_write: int | None = None
         status: int | None = None
@@ -815,6 +818,13 @@ def _assert_fixture_values(
             expected_payload = f"payload-{(row_id - 1) % 1000:04d}-" + ("x" * payload_width)
         if row.get("payload") != expected_payload:
             raise ProviderError("representative row oracle mismatch")
-        expected_flag = None if (row_id - 1) % 17 == 0 else bool(row_id % 2)
+        expected_flag = _expected_representative_flag(row_id)
         if row.get("flag") != expected_flag:
             raise ProviderError("representative NULL/value oracle mismatch")
+
+
+def _expected_representative_flag(row_id: int) -> bool | None:
+    """Return the representative fixture flag for a one-based row id."""
+
+    index = row_id - 1
+    return None if index % 17 == 0 else bool(index % 2)

@@ -5,6 +5,7 @@ import sys
 import pickle
 import json
 import os
+import signal
 import textwrap
 from pathlib import Path
 from typing import Callable, Iterator, cast
@@ -65,7 +66,11 @@ from gateway_repository_service.providers import (
     _tagged_select_list,
 )
 from gateway_repository_service.settings import RepositoryServiceSettings
-from gateway_repository_service.workflow import Candidate, run_workflow_isolated
+from gateway_repository_service.workflow import (
+    Candidate,
+    _expected_representative_flag,
+    run_workflow_isolated,
+)
 import gateway_repository_service.workflow_worker as workflow_worker
 
 
@@ -189,6 +194,42 @@ def test_process_tree_and_cgroup_measurement_scope(tmp_path: Path) -> None:
         assert measurement.baseline_file_bytes == 30
         assert measurement.anon_delta_bytes == 0
         assert measurement.file_delta_bytes == 0
+
+
+def test_representative_flag_oracle_matches_fixture_index_distribution() -> None:
+    assert _expected_representative_flag(1) is None
+    assert _expected_representative_flag(2) is True
+    assert _expected_representative_flag(3) is False
+    assert _expected_representative_flag(18) is None
+    assert _expected_representative_flag(19) is False
+
+
+def test_workflow_cgroup_cleanup_terminates_residual_members(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "samples"
+    root.mkdir()
+    scope = WorkflowCgroupScope(root, grace_seconds=0.01)
+    scope.create()
+    assert scope.path is not None
+    procs = scope.path / "cgroup.procs"
+    procs.write_text("123\n", encoding="ascii")
+    killed: list[tuple[int, signal.Signals]] = []
+    def fake_kill(pid: int, signum: int) -> None:
+        killed.append((pid, signal.Signals(signum)))
+        procs.write_text("", encoding="ascii")
+
+    monkeypatch.setattr(os, "kill", fake_kill)
+    real_rmdir = os.rmdir
+
+    def fake_rmdir(path: str | os.PathLike[str]) -> None:
+        Path(path).joinpath("cgroup.procs").unlink()
+        real_rmdir(path)
+
+    monkeypatch.setattr(os, "rmdir", fake_rmdir)
+    scope.cleanup()
+    assert killed == [(123, signal.SIGTERM)]
+    assert not scope.active
 
 
 def test_cgroup_stat_baseline_and_delta_are_distinct(tmp_path: Path) -> None:

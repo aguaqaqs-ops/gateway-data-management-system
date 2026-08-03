@@ -67,8 +67,9 @@ def process_tree_rss_kib(pid: int) -> int:
 class WorkflowCgroupScope:
     """Own one delegated child cgroup without moving the supervisor into it."""
 
-    def __init__(self, root: Path | None) -> None:
+    def __init__(self, root: Path | None, *, grace_seconds: float = 2.0) -> None:
         self.root = root.resolve() if root is not None else None
+        self.grace_seconds = grace_seconds
         self.path: Path | None = None
         self.active = False
 
@@ -100,15 +101,73 @@ class WorkflowCgroupScope:
         if pid not in members:
             raise ProcessBoundaryError("worker PID was not observed in delegated cgroup")
 
+    def _members(self) -> set[int]:
+        if self.path is None:
+            return set()
+        try:
+            return {
+                int(value)
+                for value in self.path.joinpath("cgroup.procs")
+                .read_text(encoding="ascii")
+                .split()
+            }
+        except (OSError, ValueError) as exc:
+            raise ProcessBoundaryError("cannot inspect workflow cgroup during cleanup") from exc
+
+    @staticmethod
+    def _member_details(members: set[int]) -> str:
+        details: list[str] = []
+        for pid in sorted(members):
+            try:
+                status = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+                closing = status.rfind(")")
+                state = status[closing + 2 : closing + 3]
+                comm = status[status.find("(") + 1 : closing]
+            except (FileNotFoundError, OSError, ValueError):
+                state = "?"
+                comm = "gone"
+            details.append(f"pid={pid},state={state},comm={comm[:64]}")
+        return ";".join(details)
+
+    def _terminate_members(self, members: set[int]) -> None:
+        for pid in sorted(members):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                continue
+
+    def _kill_members(self, members: set[int]) -> None:
+        for pid in sorted(members):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                continue
+
     def cleanup(self) -> None:
         if not self.active or self.path is None:
             return
-        try:
-            members = self.path.joinpath("cgroup.procs").read_text(encoding="ascii").split()
-        except OSError as exc:
-            raise ProcessBoundaryError("cannot inspect workflow cgroup during cleanup") from exc
+        deadline = time.monotonic() + self.grace_seconds
+        members = self._members()
+        while members and time.monotonic() < deadline:
+            time.sleep(0.02)
+            members = self._members()
         if members:
-            raise ProcessBoundaryError("workflow cgroup still contains processes")
+            self._terminate_members(members)
+            deadline = time.monotonic() + self.grace_seconds
+            while members and time.monotonic() < deadline:
+                time.sleep(0.02)
+                members = self._members()
+        if members:
+            self._kill_members(members)
+            deadline = time.monotonic() + self.grace_seconds
+            while members and time.monotonic() < deadline:
+                time.sleep(0.02)
+                members = self._members()
+        if members:
+            details = self._member_details(members)
+            raise ProcessBoundaryError(
+                f"workflow cgroup still contains processes ({details})"
+            )
         try:
             self.path.rmdir()
         except OSError as exc:

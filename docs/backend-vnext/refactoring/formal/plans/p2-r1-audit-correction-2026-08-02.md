@@ -164,6 +164,34 @@ container/network；随后已精确停止该 run 的 service/slice，删除该 p
 和空 staging，并确认无 container、network、volume、slice/cgroup 残留。其他 Docker
 project、dependency cache 和 image 未修改。
 
+## Interrupted formal rerun diagnostic
+
+在修复前 commit `e75fa3f` 上启动的远端 formal rerun 因预计耗时过长而受控中断，
+不构成完整 132-record evidence。该轮使用 image
+`sha256:640021056acddfe89a27ab81a679b318a0ac727f58bb5a220860033008a1eca8`，
+provenance 为同一 commit、source tree
+`sha256:02a84566a292e831ded3a7784b119660d7ed45a15dcf7da7297c5eb3362825d3`、
+lock SHA `fce9185b59b654729670c618c352f9f7a458fb2de40bbd2e088158e81a771e65`，
+cache condition 为 `retained-dependency-cache`。
+
+partial raw 保留于远端 staging：
+
+```text
+/var/lib/gateway/repository/audit-rerun/.p2-r1-export-20260803073414_1504884.FzJgWA/raw.jsonl
+records: 22
+bytes: 96559
+sha256: cba26b732f2772334de86e27e22c18fefd1857049a55b701c45950954e5cb330
+```
+
+其中包含 14 条 representative NULL oracle failure、7 条 workflow cgroup cleanup
+failure 和 1 条 `MatrixInterrupted`；该 project 的 source volume 保留，container、
+network、sample cgroup 和 per-run slice 已清理。该 raw 仅用于修复诊断，不得进入 provider
+selection 或覆盖任何历史 artifact。
+
+后续修复确认了 representative flag expected-value 使用了错误的 row-id 奇偶基准，
+并将 sample cgroup cleanup 改为有界等待、逐 PID terminate/kill/reap 和残留诊断；修复后
+必须重新完成定向 smoke，再使用新的 audit-rerun 路径执行完整矩阵。
+
 ## Execution boundary
 
 当前 authoritative project state 仍为 `no-go`、`selected_provider=none`、不进入 P2-R2。

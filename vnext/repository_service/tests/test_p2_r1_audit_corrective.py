@@ -69,6 +69,7 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.workflow import (
     Candidate,
     _expected_representative_flag,
+    _wait_worker,
     _workflow_correctness,
     run_workflow_isolated,
 )
@@ -224,6 +225,21 @@ def test_bounded_evidence_failure_does_not_mask_workflow_correctness() -> None:
             "bounded_stream": True,
         }
     )
+
+
+def test_worker_wait_reaps_adopted_dolt_children(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reaped: list[bool] = []
+    monkeypatch.setattr(
+        DoltRunner,
+        "reap_adopted_dolt_children",
+        staticmethod(lambda: reaped.append(True)),
+    )
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    status = _wait_worker(child.pid, RepositoryServiceSettings())
+    assert os.waitstatus_to_exitcode(status) == 0
+    assert reaped
 
 
 def test_workflow_cgroup_cleanup_terminates_residual_members(

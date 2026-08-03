@@ -243,6 +243,11 @@ def run_workflow_isolated(
             release_gated_process(gate_write)
             gate_write = None
             status = _wait_worker(pid, worker_settings)
+            # A worker launched in the container PID namespace can orphan a
+            # short-lived Dolt helper to matrix PID 1.  Reap those adopted
+            # children from the supervisor before inspecting/removing the
+            # sample cgroup.
+            DoltRunner.reap_adopted_dolt_children()
             if status != 0:
                 worker_error = f"worker exited abnormally (status={status})"
         except BaseException as exc:
@@ -257,6 +262,7 @@ def run_workflow_isolated(
         finally:
             if pid is not None and status is None:
                 _terminate_worker(pid, settings)
+            DoltRunner.reap_adopted_dolt_children()
             try:
                 scope.cleanup()
             except ProcessBoundaryError as exc:
@@ -299,14 +305,17 @@ def _wait_worker(pid: int, settings: RepositoryServiceSettings) -> int:
     while time.monotonic() < deadline:
         waited, status = os.waitpid(pid, os.WNOHANG)
         if waited == pid:
+            DoltRunner.reap_adopted_dolt_children()
             return status
         time.sleep(0.02)
     _terminate_worker(pid, settings)
+    DoltRunner.reap_adopted_dolt_children()
     return -signal.SIGKILL
 
 
 def _terminate_worker(pid: int, settings: RepositoryServiceSettings) -> None:
     terminate_process_group_and_reap(pid, settings.terminate_grace_seconds)
+    DoltRunner.reap_adopted_dolt_children()
 
 
 def _failed_measurement(

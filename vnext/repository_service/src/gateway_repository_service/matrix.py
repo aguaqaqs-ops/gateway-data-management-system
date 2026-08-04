@@ -40,6 +40,7 @@ from gateway_repository_service.workflow import (
     Candidate,
     W3_STORAGE_SNAPSHOT_ORDER,
     WorkflowMeasurement,
+    run_offline_discard_diagnostic,
     run_workflow,
     run_workflow_isolated,
 )
@@ -995,18 +996,40 @@ def run_scaling_diagnostic(
 
     if measured_runs != 5:
         raise ValueError("P2-R1 requires exactly five measured runs")
+    target_container = os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") == "1"
+    probe_data_root = _resolve_probe_data_root(settings, data_root, target_container)
+    isolated = target_container
+    if target_container:
+        topology = load_cgroup_topology(settings.cgroup_layout)
+        cgroup_input = (
+            topology.samples
+            if topology is not None
+            else settings.cgroup_root or Path("/sys/fs/cgroup")
+        )
+        sample_root = (
+            preflight_cgroup(cgroup_input, topology)
+            if topology is not None
+            else preflight_cgroup(cgroup_input)
+        )
+        if topology is not None and sample_root != topology.samples:
+            raise RuntimeError("cgroup preflight returned a non-topology sample root")
+        settings = settings.model_copy(update={"cgroup_root": sample_root})
     _ensure_artifacts_absent(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, object]] = []
     fixture_context = tempfile.TemporaryDirectory(prefix="gateway-p2r1-scaling-fixtures-")
     root_context = (
         tempfile.TemporaryDirectory(prefix="gateway-p2r1-scaling-target-")
-        if data_root is None
+        if probe_data_root is None
         else None
     )
     try:
         fixture_root = Path(fixture_context.name)
-        probe_root = data_root if data_root is not None else Path(root_context.name)  # type: ignore[union-attr]
+        probe_root = (
+            probe_data_root
+            if probe_data_root is not None
+            else Path(root_context.name)  # type: ignore[union-attr]
+        )
         records = _collect_scaling_records(
             settings,
             fixture_root,
@@ -1015,7 +1038,7 @@ def run_scaling_diagnostic(
             image_digest=image_digest,
             build_revision=build_revision,
             cache_condition=cache_condition,
-            isolated=False,
+            isolated=isolated,
             restart_before_stream=restart_before_stream,
         )
     finally:
@@ -1035,6 +1058,62 @@ def run_scaling_diagnostic(
             "p2_r2_ready": False,
         }
     )
+    _write_artifacts(output, records, summary)
+    return summary
+
+
+def run_offline_discard_diagnostic_matrix(
+    settings: RepositoryServiceSettings,
+    output: Path,
+    *,
+    data_root: Path | None = None,
+) -> dict[str, object]:
+    """Run Candidate A same-SELECT discard evidence for S10/S40/S100.
+
+    This is deliberately separate from the formal matrix: it does not emit
+    bounded-stream records or make a provider decision.
+    """
+
+    _ensure_artifacts_absent(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fixture_context = tempfile.TemporaryDirectory(
+        prefix="gateway-p2r1-discard-fixtures-"
+    )
+    root_context = (
+        tempfile.TemporaryDirectory(prefix="gateway-p2r1-discard-target-")
+        if data_root is None
+        else None
+    )
+    records: list[dict[str, object]] = []
+    try:
+        fixture_root = Path(fixture_context.name)
+        probe_root = (
+            data_root
+            if data_root is not None
+            else Path(root_context.name)  # type: ignore[union-attr]
+        )
+        for scale in SCALE_WORKLOADS:
+            fixture = generate_scale_fixture(fixture_root, scale)
+            records.append(
+                run_offline_discard_diagnostic(
+                    settings, fixture, root_parent=probe_root
+                )
+            )
+    finally:
+        fixture_context.cleanup()
+        if root_context is not None:
+            root_context.cleanup()
+    summary: dict[str, object] = {
+        "decision_kind": "diagnostic",
+        "diagnostic_kind": "offline_cli_discard_to_devnull",
+        "formal_decision": False,
+        "p2_r1_exit": "no-go",
+        "round_exit": "diagnostic-no-go",
+        "selected_provider": None,
+        "next_round_ready": False,
+        "p2_r2_ready": False,
+        "records": len(records),
+    }
     _write_artifacts(output, records, summary)
     return summary
 
@@ -1472,27 +1551,62 @@ def main() -> None:
     parser.add_argument("--cache-condition")
     parser.add_argument("--restart-before-stream", action="store_true")
     parser.add_argument("--diagnostic", action="store_true")
+    parser.add_argument("--scaling-diagnostic", action="store_true")
+    parser.add_argument("--offline-discard-diagnostic", action="store_true")
     parser.add_argument("--workloads", nargs="+", choices=[workload.value for workload in Workload])
     args = parser.parse_args()
     if args.workloads and not args.diagnostic:
         parser.error("--workloads is diagnostic-only; add --diagnostic")
+    diagnostic_modes = sum(
+        bool(value)
+        for value in (
+            args.diagnostic,
+            args.scaling_diagnostic,
+            args.offline_discard_diagnostic,
+        )
+    )
+    if diagnostic_modes > 1:
+        parser.error("diagnostic modes are mutually exclusive")
+    if args.workloads and (args.scaling_diagnostic or args.offline_discard_diagnostic):
+        parser.error("--workloads is only valid with --diagnostic")
+    if args.restart_before_stream and not (
+        args.diagnostic or args.scaling_diagnostic
+    ):
+        parser.error("--restart-before-stream requires a workflow diagnostic")
     workloads = (
         tuple(Workload(value) for value in args.workloads)
         if args.workloads
         else NORMAL_WORKLOADS
     )
-    summary = run_matrix(
-        RepositoryServiceSettings(),
-        args.output,
-        data_root=args.data_root,
-        workloads=workloads,
-        measured_runs=args.runs,
-        diagnostic=args.diagnostic,
-        image_digest=args.image_digest,
-        build_revision=args.build_revision,
-        cache_condition=args.cache_condition,
-        restart_before_stream=args.restart_before_stream,
-    )
+    settings = RepositoryServiceSettings()
+    if args.scaling_diagnostic:
+        summary = run_scaling_diagnostic(
+            settings,
+            args.output,
+            data_root=args.data_root,
+            measured_runs=args.runs,
+            image_digest=args.image_digest,
+            build_revision=args.build_revision,
+            cache_condition=args.cache_condition,
+            restart_before_stream=args.restart_before_stream,
+        )
+    elif args.offline_discard_diagnostic:
+        summary = run_offline_discard_diagnostic_matrix(
+            settings, args.output, data_root=args.data_root
+        )
+    else:
+        summary = run_matrix(
+            settings,
+            args.output,
+            data_root=args.data_root,
+            workloads=workloads,
+            measured_runs=args.runs,
+            diagnostic=args.diagnostic,
+            image_digest=args.image_digest,
+            build_revision=args.build_revision,
+            cache_condition=args.cache_condition,
+            restart_before_stream=args.restart_before_stream,
+        )
     print(json.dumps(summary, indent=2, sort_keys=True))
 
 

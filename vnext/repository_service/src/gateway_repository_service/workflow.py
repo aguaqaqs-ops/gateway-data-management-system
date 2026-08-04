@@ -928,6 +928,64 @@ def _make_provider(
     return SqlServerProvider(settings, layout, repository, runner)
 
 
+def run_offline_discard_diagnostic(
+    settings: RepositoryServiceSettings,
+    fixture: Fixture,
+    *,
+    root_parent: Path | None = None,
+) -> dict[str, object]:
+    """Measure Candidate A's SELECT path without CSV or Arrow conversion."""
+
+    if root_parent is not None:
+        root_parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(
+        prefix="gateway-p2r1-discard-",
+        dir=str(root_parent) if root_parent is not None else None,
+    ) as temporary:
+        root = Path(temporary) / "data-root"
+        layout = ProbeLayout.create(root)
+        with DurableRootLock(layout.service_lock):
+            repository_id = UUID(int=uuid4().int)
+            key = repository_key(repository_id)
+            staged = layout.staging_repository(key, uuid4().hex[:12])
+            common = OfflineCliProvider(
+                settings, layout, staged, DoltRunner(settings, layout.root)
+            )
+            common.initialize_repository()
+            target = layout.published_repository(key)
+            layout.assert_publication_devices(staged, target.parent)
+            atomic_publish(staged, target)
+            provider = OfflineCliProvider(
+                settings,
+                layout,
+                target,
+                DoltRunner(settings, layout.root),
+            )
+            try:
+                provider.open()
+                initial_commit = provider.head()
+                provider.replay(fixture.replay_sql)
+                new_commit = provider.commit_marker(
+                    f"gateway-p2r1-discard operation_id={uuid4()}"
+                )
+                catalog = provider.catalog(initial_commit, new_commit)
+                _assert_catalog_exact(catalog, fixture)
+                tables = [
+                    provider.discard_table_to_devnull(new_commit, table)
+                    for table in catalog
+                ]
+                return {
+                    "candidate": Candidate.A.value,
+                    "workload": fixture.workload.value,
+                    "fixture_rows": fixture.rows,
+                    "new_commit_id": new_commit,
+                    "tables": tables,
+                    "diagnostic_kind": "offline_cli_discard_to_devnull",
+                }
+            finally:
+                provider.close()
+
+
 def _sanitize_error(message: str) -> str:
     return re.sub(r"/[A-Za-z0-9_.:/-]+", "<path>", message)[:512]
 

@@ -9,6 +9,7 @@ by this archive note.
 - Remote run: `20260805011107_2971199`
 - Compose project: `gateway-p2r1-20260805011107_2971199`
 - Source commit: `80aff3e6ff92e6d21aaa7fe73c9a2feafdc1efce`
+- Source tree digest: `sha256:ab97a6d628f24ede8ff4ed0adb24a0749d186e990b51073bffed0a0bc4ceeab1`
 - Image ID: `sha256:ddc7a41226ea50997ebaa8ec2c3227aa9b83adc7ee3bc1f226d661bf051cea98`
 - Methodology: `p2-r1-audit-corrective-v8`
 - Lock SHA-256: `fce9185b59b654729670c618c352f9f7a458fb2de40bbd2e088158e81a771e65`
@@ -17,6 +18,7 @@ by this archive note.
 - mysql-connector-python: `9.7.0`
 - PyArrow: `25.0.0`
 - Storage: verified writable named volume, XFS
+- Cache condition: `retained-dependency-cache`
 - Cgroup safety limit: `8 GiB` exact; effective sample limit also `8 GiB`
 
 The remote journal records a wall-clock duration of approximately 2 h 20 m 36

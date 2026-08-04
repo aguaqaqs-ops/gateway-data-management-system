@@ -725,18 +725,22 @@ def _run_locked(
             provider_shutdown = False
 
         if restart_before_stream:
-            provider.close()
+            if provider is None:
+                raise ProviderError("pre-stream restart has no active provider")
+            previous_provider = provider
             provider = None
             provider_shutdown = True
-            provider = _make_provider(
-                settings, layout, target, DoltRunner(settings, layout.root), candidate
+            provider = _restart_provider_for_stream(
+                settings,
+                layout,
+                target,
+                candidate,
+                previous_provider,
+                initial_commit=initial_commit,
+                new_commit=new_commit,
+                actual_catalog=actual_catalog,
             )
-            provider.open()
             provider_shutdown = False
-            if provider.head() != new_commit:
-                raise ProviderError("pre-stream restart changed the main ref")
-            if provider.catalog(initial_commit, new_commit) != actual_catalog:
-                raise ProviderError("pre-stream restart changed the catalog")
 
         stream_start = time.monotonic()
         first_seen = False
@@ -926,6 +930,37 @@ def _make_provider(
     if candidate == Candidate.A:
         return OfflineCliProvider(settings, layout, repository, runner)
     return SqlServerProvider(settings, layout, repository, runner)
+
+
+def _restart_provider_for_stream(
+    settings: RepositoryServiceSettings,
+    layout: ProbeLayout,
+    target: Path,
+    candidate: Candidate,
+    provider: Provider,
+    *,
+    initial_commit: str,
+    new_commit: str,
+    actual_catalog: tuple[TableCatalog, ...],
+) -> Provider:
+    """Reopen a clean provider before the diagnostic stream begins."""
+
+    provider.close()
+    replacement: Provider | None = None
+    try:
+        replacement = _make_provider(
+            settings, layout, target, DoltRunner(settings, layout.root), candidate
+        )
+        replacement.open()
+        if replacement.head() != new_commit:
+            raise ProviderError("pre-stream restart changed the main ref")
+        if replacement.catalog(initial_commit, new_commit) != actual_catalog:
+            raise ProviderError("pre-stream restart changed the catalog")
+        return replacement
+    except BaseException:
+        if replacement is not None:
+            replacement.close()
+        raise
 
 
 def run_offline_discard_diagnostic(

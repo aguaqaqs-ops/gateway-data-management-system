@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import re
 import subprocess
 import sys
 import pickle
@@ -8,12 +10,14 @@ import os
 import signal
 import textwrap
 from pathlib import Path
-from typing import Callable, Iterator, cast
+from types import SimpleNamespace
+from typing import Any, Callable, Iterator, cast
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 import gateway_repository_service.matrix as matrix_module
 import gateway_repository_service.process as process_module
+import gateway_repository_service.providers as providers_module
 import gateway_repository_service.target_gate as target_gate_module
 
 from gateway_repository_service.arrow_mapping import (
@@ -67,6 +71,7 @@ from gateway_repository_service.process import (
 )
 from gateway_repository_service.providers import (
     OfflineCliProvider,
+    SqlServerProvider,
     _safe_connector_fetch_size,
     _baseline_memory_metrics,
     _cgroup_stream_metrics,
@@ -87,10 +92,356 @@ from gateway_repository_service.workflow import (
     _baseline_memory_coverage,
     _storage_delta,
     _workflow_correctness,
+    _restart_provider_for_stream,
     run_workflow_isolated,
 )
 import gateway_repository_service.workflow_worker as workflow_worker
 import gateway_repository_service.workflow as workflow_module
+
+
+def test_authority_methodology_version_matches_settings() -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    authority = repository_root / (
+        "docs/backend-vnext/refactoring/formal/plans/"
+        "p2-r1-runtime-provider-feasibility.md"
+    )
+    match = re.search(
+        r"Measurement methodology version[:：]\s*`([^`]+)`",
+        authority.read_text(encoding="utf-8"),
+    )
+    assert match is not None
+    assert match.group(1) == RepositoryServiceSettings().measurement_methodology_version
+
+
+def _test_plateau_peaks() -> dict[str, dict[str, int]]:
+    return {
+        subject: {
+            "first_10pct": 1,
+            "middle_10pct": 1,
+            "final_10pct": 1,
+        }
+        for subject in (
+            "workflow_process_tree",
+            "provider_process_tree",
+            "arrow_memory_pool",
+            "cgroup",
+        )
+    }
+
+
+def test_candidate_a_sampler_spawn_and_provider_baseline_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    events: list[str] = []
+
+    class FakeSampler:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            events.append("sampler-start")
+
+        def set_active(self, _windows: object) -> None:
+            pass
+
+        def set_baseline(self, subject: str, _value: int) -> None:
+            if subject == "provider_process_tree":
+                events.append("provider-baseline-injection")
+
+        def sample(self, _windows: object = None) -> None:
+            pass
+
+        def stop(self) -> dict[str, dict[str, int]]:
+            return _test_plateau_peaks()
+
+        def absolute_peaks(self) -> dict[str, dict[str, int]]:
+            return _test_plateau_peaks()
+
+    class FakeStream:
+        process = SimpleNamespace(pid=123)
+        start_rss_kib = 1
+        peak_rss_kib = 1
+
+        def __iter__(self) -> Iterator[bytes]:
+            yield b"__gateway_null_0,__gateway_value_0\n"
+            yield b"0,value\n"
+
+        def close(self) -> SimpleNamespace:
+            return SimpleNamespace(exit_code=0)
+
+    class FakeRunner:
+        def stream(self, *_args: object, **_kwargs: object) -> FakeStream:
+            events.append("cli-spawn")
+            return FakeStream()
+
+    monkeypatch.setattr(providers_module, "MemorySampler", FakeSampler)
+
+    def fake_rss(pid: int) -> int:
+        if pid == 123:
+            events.append("provider-baseline")
+        return 1
+
+    monkeypatch.setattr(providers_module, "process_tree_rss_kib", fake_rss)
+    provider: Any = OfflineCliProvider.__new__(OfflineCliProvider)
+    provider.settings = RepositoryServiceSettings(record_batch_rows=1)
+    provider.repository = tmp_path / "repo"
+    provider.query_directory = tmp_path
+    provider.runner = FakeRunner()
+    provider.cgroup = None
+    provider.last_stream_peak_rss_kib = 0
+    provider.last_stream_rss_delta_kib = 0
+    provider.last_stream_metrics = {}
+    provider.last_plateau_peaks = _test_plateau_peaks()
+    provider.last_plateau_peaks_absolute = _test_plateau_peaks()
+    table = TableCatalog("t", (ColumnCatalog("value", "VARCHAR(8)", False, None),), 1)
+
+    list(provider.stream_table("commit", table, UnknownTypePolicy.REJECT))
+
+    assert events.index("sampler-start") < events.index("cli-spawn")
+    assert events.index("cli-spawn") < events.index("provider-baseline")
+    assert events.index("provider-baseline") < events.index("provider-baseline-injection")
+
+
+def test_candidate_b_sampler_precedes_cursor_execute(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    events: list[str] = []
+
+    class FakeSampler:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            events.append("sampler-start")
+
+        def set_active(self, _windows: object) -> None:
+            pass
+
+        def sample(self, _windows: object = None) -> None:
+            pass
+
+        def stop(self) -> dict[str, dict[str, int]]:
+            return _test_plateau_peaks()
+
+        def absolute_peaks(self) -> dict[str, dict[str, int]]:
+            return _test_plateau_peaks()
+
+    class FakeCursor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def fetchmany(self, _size: int) -> list[tuple[str, ...]]:
+            self.calls += 1
+            return [("value",)] if self.calls == 1 else []
+
+        async def close(self) -> None:
+            pass
+
+    cursor = FakeCursor()
+
+    async def open_cursor(_table: str, _commit_id: str) -> FakeCursor:
+        events.append("cursor-execute")
+        return cursor
+
+    monkeypatch.setattr(providers_module, "MemorySampler", FakeSampler)
+    monkeypatch.setattr(providers_module, "process_tree_rss_kib", lambda _pid: 1)
+    provider: Any = SqlServerProvider.__new__(SqlServerProvider)
+    provider.settings = RepositoryServiceSettings(record_batch_rows=1)
+    provider.repository = tmp_path / "repo"
+    provider.query_directory = tmp_path
+    provider.supervisor = SimpleNamespace(process=SimpleNamespace(pid=456))
+    provider.cgroup = None
+    provider.last_stream_peak_rss_kib = 0
+    provider.last_stream_rss_delta_kib = 0
+    provider.last_stream_metrics = {}
+    provider.last_plateau_peaks = _test_plateau_peaks()
+    provider.last_plateau_peaks_absolute = _test_plateau_peaks()
+    provider._open_cursor = open_cursor
+    provider._call = lambda coroutine: asyncio.run(coroutine)
+    table = TableCatalog("t", (ColumnCatalog("value", "VARCHAR(8)", False, None),), 1)
+
+    list(provider.stream_table("commit", table, UnknownTypePolicy.REJECT))
+
+    assert events.index("sampler-start") < events.index("cursor-execute")
+
+
+def test_restart_diagnostic_closes_old_opens_new_then_streams(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    events: list[str] = []
+
+    class FakeProvider:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def close(self) -> None:
+            events.append(f"{self.name}-close")
+
+        def open(self) -> None:
+            events.append(f"{self.name}-open")
+
+        def head(self) -> str:
+            return "new"
+
+        def catalog(self, _initial: str, _new: str) -> tuple[TableCatalog, ...]:
+            return ()
+
+        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[Any]:
+            events.append(f"{self.name}-stream")
+            return iter(())
+
+    replacement = FakeProvider("new")
+
+    def fake_factory(*_args: object, **_kwargs: object) -> FakeProvider:
+        events.append("new-provider")
+        return replacement
+
+    monkeypatch.setattr(workflow_module, "_make_provider", fake_factory)
+    layout = ProbeLayout.create(tmp_path / "layout")
+    old: Any = FakeProvider("old")
+    current = _restart_provider_for_stream(
+        RepositoryServiceSettings(),
+        layout,
+        tmp_path / "target",
+        Candidate.B,
+        old,
+        initial_commit="initial",
+        new_commit="new",
+        actual_catalog=(),
+    )
+    list(current.stream_table("new", TableCatalog("t", (), 0), UnknownTypePolicy.REJECT))
+
+    assert events == ["old-close", "new-provider", "new-open", "new-stream"]
+
+
+def test_discard_diagnostic_uses_target_root_and_persists_provenance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    target_root = tmp_path / "named-volume-root"
+    target_root.mkdir()
+    captured_roots: list[Path] = []
+    digest = "sha256:" + "a" * 64
+    revision = "b" * 40
+
+    monkeypatch.setenv("GATEWAY_P2R1_TARGET_CONTAINER", "1")
+    monkeypatch.setattr(
+        matrix_module,
+        "_resolve_probe_data_root",
+        lambda _settings, _data_root, target: target_root if target else None,
+    )
+    monkeypatch.setattr(
+        matrix_module,
+        "_measurement_metadata",
+        lambda *_args, **_kwargs: {
+            "measurement_methodology_version": "p2-r1-audit-corrective-v7",
+            "image_digest": digest,
+            "build_revision": revision,
+            "cache_condition": "retained-dependency-cache",
+            "metadata_complete": True,
+        },
+    )
+    monkeypatch.setattr(
+        matrix_module,
+        "_diagnostic_storage_metadata",
+        lambda _root, *, target_container: {
+            "filesystem_type": "xfs",
+            "volume_backend": "volume",
+            "storage_root_identity": _TEST_STORAGE_IDENTITY,
+            "storage_mount_verified": target_container,
+            "storage_layout_version": "p2-r1-storage-layout-v1",
+            "storage_volume_project": "gateway-p2r1-test",
+        },
+    )
+
+    def fake_discard(
+        _settings: RepositoryServiceSettings,
+        fixture: Any,
+        *,
+        root_parent: Path,
+    ) -> dict[str, object]:
+        captured_roots.append(root_parent)
+        return {
+            "candidate": Candidate.A.value,
+            "workload": fixture.workload.value,
+            "fixture_rows": fixture.rows,
+        }
+
+    monkeypatch.setattr(matrix_module, "run_offline_discard_diagnostic", fake_discard)
+    output = tmp_path / "discard.jsonl"
+    summary = matrix_module.run_offline_discard_diagnostic_matrix(
+        RepositoryServiceSettings(),
+        output,
+        image_digest=digest,
+        build_revision=revision,
+        cache_condition="retained-dependency-cache",
+    )
+
+    assert captured_roots == [target_root] * len(SCALE_WORKLOADS)
+    assert summary["methodology_version"] == "p2-r1-audit-corrective-v7"
+    environment = cast(dict[str, object], summary["measurement_environment"])
+    assert environment["image_digests"] == [digest]
+    assert environment["build_revisions"] == [revision]
+    assert environment["storage_mount_verified"] is True
+    raw = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert len(raw) == len(SCALE_WORKLOADS)
+    assert all(row["image_digest"] == digest for row in raw)
+    assert all(row["build_revision"] == revision for row in raw)
+    assert all(row["storage_mount_verified"] is True for row in raw)
+
+
+@pytest.mark.parametrize("failure_stage", ["open", "head", "catalog"])
+def test_restart_replacement_closes_on_validation_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure_stage: str
+) -> None:
+    events: list[str] = []
+
+    class FailingReplacement:
+        def open(self) -> None:
+            events.append("replacement-open")
+            if failure_stage == "open":
+                raise RuntimeError("open failure")
+
+        def head(self) -> str:
+            events.append("replacement-head")
+            if failure_stage == "head":
+                raise RuntimeError("head failure")
+            return "new"
+
+        def catalog(self, _initial: str, _new: str) -> tuple[TableCatalog, ...]:
+            events.append("replacement-catalog")
+            if failure_stage == "catalog":
+                raise RuntimeError("catalog failure")
+            return ()
+
+        def close(self) -> None:
+            events.append("replacement-close")
+
+    class PreviousProvider:
+        def close(self) -> None:
+            events.append("previous-close")
+
+    replacement = FailingReplacement()
+    monkeypatch.setattr(
+        workflow_module,
+        "_make_provider",
+        lambda *_args, **_kwargs: replacement,
+    )
+    layout = ProbeLayout.create(tmp_path / "layout")
+
+    with pytest.raises(RuntimeError):
+        _restart_provider_for_stream(
+            RepositoryServiceSettings(),
+            layout,
+            tmp_path / "target",
+            Candidate.B,
+            cast(Any, PreviousProvider()),
+            initial_commit="initial",
+            new_commit="new",
+            actual_catalog=(),
+        )
+
+    assert events[0] == "previous-close"
+    assert events[-1] == "replacement-close"
 
 
 def test_sized_character_and_binary_types_are_known() -> None:

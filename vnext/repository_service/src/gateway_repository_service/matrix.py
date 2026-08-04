@@ -438,6 +438,48 @@ def _record(
     return data
 
 
+def _diagnostic_storage_metadata(
+    filesystem_path: Path, *, target_container: bool
+) -> dict[str, object]:
+    """Attach the same storage provenance shape used by workflow records.
+
+    The discard diagnostic has no ``WorkflowMeasurement`` to pass through
+    ``_record``.  Keep its storage evidence explicit so target diagnostics
+    cannot silently move back to an overlay or temporary filesystem.
+    """
+
+    try:
+        root_identity = storage_root_identity(filesystem_path)
+    except OSError:
+        root_identity = ""
+    filesystem = _filesystem_type(filesystem_path)
+    storage_layout = _load_storage_layout() if target_container else None
+    mount_verified = bool(
+        target_container
+        and storage_layout is not None
+        and storage_layout.mount_type == "volume"
+        and storage_layout.read_write
+        and storage_layout.filesystem_type == filesystem
+        and storage_layout.storage_root_identity == root_identity
+        and storage_layout.data_root.resolve() == filesystem_path.resolve()
+        and storage_layout.destination.resolve() == filesystem_path.resolve()
+    )
+    return {
+        "filesystem_type": filesystem,
+        "volume_backend": storage_layout.mount_type
+        if mount_verified and storage_layout is not None
+        else "unknown",
+        "storage_root_identity": root_identity,
+        "storage_mount_verified": mount_verified,
+        "storage_layout_version": storage_layout.storage_layout_version
+        if storage_layout is not None
+        else None,
+        "storage_volume_project": storage_layout.volume_project
+        if storage_layout is not None
+        else None,
+    }
+
+
 def _ensure_artifacts_absent(output: Path) -> None:
     targets = (output, output.with_suffix(".summary.json"), output.with_suffix(".md"))
     existing = [str(path) for path in targets if path.exists()]
@@ -1072,6 +1114,9 @@ def run_offline_discard_diagnostic_matrix(
     output: Path,
     *,
     data_root: Path | None = None,
+    image_digest: str | None = None,
+    build_revision: str | None = None,
+    cache_condition: str | None = None,
 ) -> dict[str, object]:
     """Run Candidate A same-SELECT discard evidence for S10/S40/S100.
 
@@ -1084,41 +1129,102 @@ def run_offline_discard_diagnostic_matrix(
     fixture_context = tempfile.TemporaryDirectory(
         prefix="gateway-p2r1-discard-fixtures-"
     )
+    target_container = os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") == "1"
+    probe_data_root = _resolve_probe_data_root(settings, data_root, target_container)
+    metadata = _measurement_metadata(
+        settings,
+        image_digest=image_digest,
+        build_revision=build_revision,
+        cache_condition=cache_condition,
+    )
     root_context = (
         tempfile.TemporaryDirectory(prefix="gateway-p2r1-discard-target-")
-        if data_root is None
+        if probe_data_root is None
         else None
     )
     records: list[dict[str, object]] = []
     try:
         fixture_root = Path(fixture_context.name)
         probe_root = (
-            data_root
-            if data_root is not None
+            probe_data_root
+            if probe_data_root is not None
             else Path(root_context.name)  # type: ignore[union-attr]
         )
         for scale in SCALE_WORKLOADS:
             fixture = generate_scale_fixture(fixture_root, scale)
-            records.append(
-                run_offline_discard_diagnostic(
-                    settings, fixture, root_parent=probe_root
+            record = run_offline_discard_diagnostic(
+                settings, fixture, root_parent=probe_root
+            )
+            record.update(metadata)
+            record.update(
+                {
+                    "methodology_version": settings.measurement_methodology_version,
+                    "matrix_kind": "scaling",
+                    "storage_probe_root": "target-data-root"
+                    if target_container
+                    else "diagnostic-temporary-root",
+                }
+            )
+            record.update(
+                _diagnostic_storage_metadata(
+                    probe_root, target_container=target_container
                 )
             )
+            records.append(record)
     finally:
         fixture_context.cleanup()
         if root_context is not None:
             root_context.cleanup()
-    summary: dict[str, object] = {
-        "decision_kind": "diagnostic",
-        "diagnostic_kind": "offline_cli_discard_to_devnull",
-        "formal_decision": False,
-        "p2_r1_exit": "no-go",
-        "round_exit": "diagnostic-no-go",
-        "selected_provider": None,
-        "next_round_ready": False,
-        "p2_r2_ready": False,
-        "records": len(records),
-    }
+    filesystem_types = sorted(
+        {str(row["filesystem_type"]) for row in records if row.get("filesystem_type")}
+    )
+    volume_backends = sorted(
+        {str(row["volume_backend"]) for row in records if row.get("volume_backend")}
+    )
+    storage_root_identities = sorted(
+        {
+            str(row["storage_root_identity"])
+            for row in records
+            if row.get("storage_root_identity")
+        }
+    )
+    summary = _summarize([], settings, scaling_records=records)
+    measurement_environment = summary.get("measurement_environment")
+    if not isinstance(measurement_environment, dict):
+        measurement_environment = {}
+    measurement_environment.update(
+        {
+            "filesystem_types": filesystem_types,
+            "volume_backends": volume_backends,
+            "storage_root_identities": storage_root_identities,
+            "storage_mount_verified": bool(records)
+            and all(row.get("storage_mount_verified") is True for row in records),
+            "storage_layout_versions": sorted(
+                {
+                    str(row["storage_layout_version"])
+                    for row in records
+                    if row.get("storage_layout_version")
+                }
+            ),
+        }
+    )
+    summary["measurement_environment"] = measurement_environment
+    summary.update(
+        {
+            "decision_kind": "diagnostic",
+            "diagnostic_kind": "offline_cli_discard_to_devnull",
+            "formal_decision": False,
+            "p2_r1_exit": "no-go",
+            "round_exit": "diagnostic-no-go",
+            "selected_provider": None,
+            "next_round_ready": False,
+            "p2_r2_ready": False,
+            "records": len(records),
+            "methodology_version": settings.measurement_methodology_version,
+            "metadata_complete": bool(records)
+            and all(row.get("metadata_complete") is True for row in records),
+        }
+    )
     _write_artifacts(output, records, summary)
     return summary
 
@@ -1610,7 +1716,12 @@ def main() -> None:
         )
     elif args.offline_discard_diagnostic:
         summary = run_offline_discard_diagnostic_matrix(
-            settings, args.output, data_root=args.data_root
+            settings,
+            args.output,
+            data_root=args.data_root,
+            image_digest=args.image_digest,
+            build_revision=args.build_revision,
+            cache_condition=args.cache_condition,
         )
     else:
         summary = run_matrix(

@@ -8,7 +8,7 @@
 
 Owner：Backend vNext Architecture（provider选择、feasibility probe、P2-R1退出判断）
 
-Measurement methodology version：`p2-r1-audit-corrective-v6`
+Measurement methodology version：`p2-r1-audit-corrective-v7`
 
 历史 2026-08-02 raw/summary 的 bounded-stream 结论按审核结论标记为
 `measurement-method-invalid/inconclusive`；本 authority 修订不回写或覆盖历史文件。
@@ -254,8 +254,9 @@ formal runner在preflight成功后立即以`open("x")`预留raw JSONL，每条re
 发布summary/report。worker result必须临时文件fsync后atomic rename且要求正常零退出。
 formal provenance必须来自launcher读取的实际image ID、immutable image labels、clean
 source revision/tree digest和lock SHA，并以只读manifest挂载到target；自由CLI字符串或
-普通环境变量不构成完整metadata。`p2-r1-audit-corrective-v5`还要求delta plateau接受
-合法零值：三个scale全为零时ratio为1.0，零/正混合时为`inconclusive`。
+普通环境变量不构成完整metadata。自`p2-r1-audit-corrective-v5`起，delta plateau接受
+合法零值；v7继续沿用该语义：三个scale全为零时ratio为1.0，零/正混合时为
+`inconclusive`。
 
 sql-server background statistics必须关闭或单独隔离，避免把provider stats写入误算为
 canonical Dolt增量。测量完成后停止provider、关闭cursor/connection、wait/reap所有child

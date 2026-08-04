@@ -21,6 +21,7 @@ from gateway_repository_service.arrow_mapping import (
     TableCatalog,
     UnknownTypePolicy,
     arrow_type,
+    normalize_rows,
     record_batch,
     normalize_sql_type,
 )
@@ -792,7 +793,8 @@ class OfflineCliProvider:
 
             for row in reader:
                 parsed = _parse_tagged_row(row, table)
-                parsed_bytes = _row_bytes(parsed)
+                normalized = normalize_rows(table, [parsed], policy)[0]
+                parsed_bytes = _row_bytes(normalized)
                 if rows and (
                     len(rows) >= self.settings.record_batch_rows
                     or rows_bytes + parsed_bytes > self.settings.record_batch_bytes
@@ -804,11 +806,11 @@ class OfflineCliProvider:
                 if parsed_bytes > self.settings.record_batch_bytes:
                     oversized_single_row = True
                     oversized_row_bytes = max(oversized_row_bytes or 0, parsed_bytes)
-                    yield emit([parsed])
+                    yield emit([normalized])
                     sampler.sample()
                 else:
                     pending_index = len(rows)
-                    rows.append(parsed)
+                    rows.append(normalized)
                     rows_bytes += parsed_bytes
                     sampler.set_active(
                         _pending_row_windows(rows_seen, pending_index, table.row_count)
@@ -1280,7 +1282,7 @@ class SqlServerProvider:
                     break
                 fetched_payload = 0
                 for raw_candidate in rows:
-                    candidate = tuple(raw_candidate)
+                    candidate = normalize_rows(table, [tuple(raw_candidate)], policy)[0]
                     candidate_bytes = _row_bytes(candidate)
                     fetched_payload += candidate_bytes
                     max_fetched_payload_bytes = max(max_fetched_payload_bytes, fetched_payload)

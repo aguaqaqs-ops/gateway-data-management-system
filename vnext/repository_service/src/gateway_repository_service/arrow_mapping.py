@@ -212,12 +212,38 @@ def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
     return str(value) if not isinstance(value, str) else value
 
 
+def normalize_rows(
+    catalog: TableCatalog,
+    rows: Iterable[tuple[Any, ...]],
+    policy: UnknownTypePolicy,
+) -> list[tuple[Any, ...]]:
+    """Normalize provider rows using the exact values emitted to Arrow.
+
+    Candidate A receives tagged-CSV text while Candidate B receives connector
+    Python values.  Keeping this conversion in one place makes decoded payload
+    accounting and batch splitting independent of the provider framing.
+    """
+
+    columns = catalog.columns
+    normalized: list[tuple[Any, ...]] = []
+    for row in rows:
+        if len(row) != len(columns):
+            raise ValueError("row column count does not match catalog")
+        normalized.append(
+            tuple(
+                convert_value(row[index], column.sql_type, policy)
+                for index, column in enumerate(columns)
+            )
+        )
+    return normalized
+
+
 def record_batch(
     catalog: TableCatalog,
     rows: Iterable[tuple[Any, ...]],
     policy: UnknownTypePolicy,
 ) -> pa.RecordBatch:
-    row_list = list(rows)
+    row_list = normalize_rows(catalog, rows, policy)
     arrays: list[pa.Array] = []
     fields: list[pa.Field] = []
     for index, column in enumerate(catalog.columns):

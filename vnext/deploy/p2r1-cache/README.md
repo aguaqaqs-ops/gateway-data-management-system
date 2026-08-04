@@ -227,3 +227,13 @@ vnext/deploy/p2r1-cache/p2r1-target-launcher.sh \
 Candidate B is reserved in v8 and may only be exercised through the separate
 diagnostic-only `--reserved-b-w0-smoke` entry point; it is not part of the 66
 records and cannot select a provider.
+
+Before formal review, Candidate A can be exercised through the matching
+diagnostic-only v8 smoke. It uses the v8 1 MiB batch bound and 8 GiB sample
+ceiling, writes one W0 record, and cannot select a provider:
+
+```sh
+vnext/deploy/p2r1-cache/p2r1-target-launcher.sh \
+  --output /var/lib/gateway/repository/v8-smoke/a-w0.jsonl \
+  --v8-a-w0-smoke
+```

@@ -27,6 +27,7 @@ from gateway_repository_service.arrow_mapping import (
     TableCatalog,
     UnknownTypePolicy,
     arrow_type,
+    normalize_rows,
 )
 from gateway_repository_service.fixtures import (
     ScaleWorkload,
@@ -60,6 +61,7 @@ from gateway_repository_service.matrix import (
     _support_envelope,
     run_a_paired_devnull_diagnostic,
     run_matrix,
+    run_v8_a_w0_smoke,
     run_v8_matrix,
     run_scaling_diagnostic,
     _summarize,
@@ -2436,6 +2438,28 @@ def test_v8_rows_bytes_have_deterministic_null_utf8_binary_scalar_semantics() ->
     assert _rows_bytes([(None, "世界", b"\x00\xff", 42)]) == 6 + 2 + 2
 
 
+def test_v8_provider_rows_share_arrow_normalized_payload_accounting() -> None:
+    table = TableCatalog(
+        "payloads",
+        (
+            ColumnCatalog("number", "INT", False, None),
+            ColumnCatalog("text", "VARCHAR(32)", True, None),
+            ColumnCatalog("flag", "BOOLEAN", True, None),
+            ColumnCatalog("blob", "BINARY(2)", True, None),
+        ),
+        1,
+    )
+    policy = UnknownTypePolicy.STRINGIFY
+    candidate_a = normalize_rows(
+        table, [("7", "世界", "TRUE", b"\x00\xff")], policy
+    )
+    candidate_b = normalize_rows(
+        table, [(7, "世界", True, b"\x00\xff")], policy
+    )
+    assert candidate_a == candidate_b
+    assert _rows_bytes(candidate_a) == _rows_bytes(candidate_b)
+
+
 def _v8_memory_evidence_for_test(peak: int = 100) -> dict[str, object]:
     plateau = {
         subject: {
@@ -2496,6 +2520,9 @@ def _v8_record_for_test(
         "max_batch_rows": 1,
         "max_batch_bytes": 1,
         "oversized_single_row": False,
+        "oversized_row_count": 0,
+        "max_oversized_row_bytes": 0,
+        "byte_bound_reason": None,
         "encoded_line_applicable": False,
         "encoded_line_bound_valid": None,
         "metadata_complete": True,
@@ -2604,6 +2631,10 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
             "batch_count": 1,
             "max_batch_rows": 2,
             "max_batch_bytes": 2,
+            "max_row_bytes": 1,
+            "oversized_row_count": 0,
+            "max_oversized_row_bytes": 0,
+            "byte_bound_reason": None,
             "record_batch_byte_bound": V8_BYTE_BOUND,
             "record_batch_row_bound": 1024,
             "oversized_single_row": False,
@@ -2616,6 +2647,10 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
         "batch_count": 1,
         "max_batch_rows": 2,
         "max_batch_bytes": 6,
+        "max_row_bytes": 3,
+        "oversized_row_count": 0,
+        "max_oversized_row_bytes": 0,
+        "byte_bound_reason": None,
         "oversized_single_row": False,
         "batch_contract_valid": False,
         "batch_contract_violation_count": 1,
@@ -2781,6 +2816,68 @@ def test_v8_runner_is_a_only_and_publishes_exact_66_records(
     assert summary["expected_records"] == 66
     assert summary["candidate_b_status"] == "reserved_not_evaluated"
     assert summary["selected_provider"] == Candidate.A.value
+
+
+def test_v8_a_w0_smoke_is_a_only_v8_and_diagnostic(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GATEWAY_P2R1_TARGET_CONTAINER", "1")
+    sample_root = tmp_path / "samples"
+    sample_root.mkdir()
+    data_root = tmp_path / "repository"
+    data_root.mkdir()
+    monkeypatch.setattr(matrix_module, "_resolve_probe_data_root", lambda *_args, **_kwargs: data_root)
+    monkeypatch.setattr(matrix_module, "load_cgroup_topology", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(matrix_module, "preflight_cgroup", lambda *_args, **_kwargs: sample_root)
+
+    def fake_normal(*args: object, **kwargs: object) -> list[dict[str, object]]:
+        assert cast(tuple[Candidate, ...], kwargs["candidates"]) == (Candidate.A,)
+        assert cast(int, kwargs["byte_bound"]) == V8_BYTE_BOUND
+        row = _v8_record_for_test(
+            matrix_kind="normal",
+            workload=Workload.W0.value,
+            sample_kind="warmup",
+        )
+        sink = cast(Callable[[dict[str, object]], None], kwargs["record_sink"])
+        sink(row)
+        return [row]
+
+    monkeypatch.setattr(matrix_module, "_collect_normal_records", fake_normal)
+    output = tmp_path / "a-w0.jsonl"
+    summary = run_v8_a_w0_smoke(RepositoryServiceSettings(cgroup_root=sample_root), output)
+    assert summary["diagnostic_only"] is True
+    assert summary["formal_decision"] is False
+    assert summary["selected_provider"] is None
+    assert summary["methodology_version"] == V8_METHODOLOGY
+    raw = json.loads(output.read_text(encoding="utf-8").splitlines()[0])
+    assert raw["diagnostic_only"] is True
+    assert raw["record_batch_byte_bound"] == V8_BYTE_BOUND
+    assert raw["candidate"] == Candidate.A.value
+
+
+def test_v8_record_contract_and_w2_split_are_hard_requirements() -> None:
+    record = _v8_record_for_test(
+        matrix_kind="normal",
+        workload=Workload.W2.value,
+        sample_kind="warmup",
+    )
+    assert matrix_module._v8_record_contract_valid(record) is True
+    record["record_batch_row_bound"] = 256
+    assert matrix_module._v8_record_contract_valid(record) is False
+    record["record_batch_row_bound"] = 1024
+    record["methodology_version"] = "p2-r1-audit-corrective-v7"
+    assert matrix_module._v8_record_contract_valid(record) is False
+    record["methodology_version"] = V8_METHODOLOGY
+    record["oversized_row_count"] = 1
+    record["oversized_single_row"] = True
+    record["max_oversized_row_bytes"] = V8_BYTE_BOUND + 1
+    record["max_row_bytes"] = V8_BYTE_BOUND + 1
+    record["max_batch_bytes"] = V8_BYTE_BOUND + 1
+    record["total_stream_payload_bytes"] = V8_BYTE_BOUND + 1
+    record["byte_bound_reason"] = "single_indivisible_row"
+    assert _v8_batch_contract_valid(record) is True
+    record["byte_bound_reason"] = None
+    assert _v8_batch_contract_valid(record) is False
 
 
 def test_v8_support_envelope_uses_commit_fixture_size(tmp_path: Path) -> None:

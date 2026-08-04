@@ -410,6 +410,99 @@ def run_v8_matrix(
         raw_handle.close()
 
 
+def run_v8_a_w0_smoke(
+    settings: RepositoryServiceSettings,
+    output: Path,
+    *,
+    image_digest: str | None = None,
+    build_revision: str | None = None,
+    cache_condition: str | None = None,
+) -> dict[str, object]:
+    """Run exactly one diagnostic-only Candidate A v8 W0 sample."""
+
+    if os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") != "1":
+        raise RuntimeError("v8 A smoke requires the verified target container")
+    if settings.v8_measurement_methodology_version != V8_METHODOLOGY:
+        raise RuntimeError("v8 methodology setting does not match the v8 contract")
+    smoke_settings = settings.model_copy(
+        update={
+            "measurement_methodology_version": settings.v8_measurement_methodology_version,
+            "record_batch_rows": 1024,
+            "record_batch_bytes": settings.v8_record_batch_bytes,
+        }
+    )
+    probe_root = _resolve_probe_data_root(smoke_settings, None, True)
+    topology = load_cgroup_topology(smoke_settings.cgroup_layout)
+    cgroup_input = topology.samples if topology is not None else smoke_settings.cgroup_root
+    if cgroup_input is None:
+        raise RuntimeError("v8 A smoke requires delegated cgroup topology")
+    sample_root = preflight_cgroup(
+        cgroup_input,
+        topology,
+        memory_limit_bytes=V8_MEMORY_LIMIT_BYTES,
+    )
+    smoke_settings = smoke_settings.model_copy(update={"cgroup_root": sample_root})
+    _ensure_artifacts_absent(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    raw_handle = _reserve_raw(output)
+    fixture_context = tempfile.TemporaryDirectory(prefix="gateway-p2r1-a-smoke-")
+    root_context = tempfile.TemporaryDirectory(prefix="gateway-p2r1-a-smoke-root-") if probe_root is None else None
+    written = 0
+
+    def sink(record: dict[str, object]) -> None:
+        nonlocal written
+        record.update(
+            {
+                "diagnostic_only": True,
+                "formal_decision": False,
+                "formal_status": "no-go",
+            }
+        )
+        raw_handle.write(json.dumps(record, sort_keys=True) + "\n")
+        raw_handle.flush()
+        os.fsync(raw_handle.fileno())
+        written += 1
+
+    try:
+        fixture_root = Path(fixture_context.name)
+        actual_root = probe_root or Path(root_context.name)  # type: ignore[union-attr]
+        records = _collect_normal_records(
+            smoke_settings,
+            fixture_root,
+            actual_root,
+            (Workload.W0,),
+            0,
+            isolated=True,
+            image_digest=image_digest,
+            build_revision=build_revision,
+            cache_condition=cache_condition,
+            candidates=(Candidate.A,),
+            byte_bound=V8_BYTE_BOUND,
+            record_sink=sink,
+        )
+        summary = _summarize_v8(records, smoke_settings)
+        summary.update(
+            {
+                "diagnostic_only": True,
+                "decision_kind": "diagnostic",
+                "formal_decision": False,
+                "formal_status": "no-go",
+                "selected_provider": None,
+                "proposed_provider": None,
+                "next_round_ready": False,
+                "p2_r2_ready": False,
+                "raw_records_written": written,
+            }
+        )
+        _publish_v8_summary_report(output, summary)
+        return summary
+    finally:
+        fixture_context.cleanup()
+        if root_context is not None:
+            root_context.cleanup()
+        raw_handle.close()
+
+
 def run_reserved_b_w0_smoke(
     settings: RepositoryServiceSettings,
     output: Path,
@@ -451,6 +544,14 @@ def run_reserved_b_w0_smoke(
 
     def sink(record: dict[str, object]) -> None:
         nonlocal written
+        record.update(
+            {
+                "diagnostic_only": True,
+                "formal_decision": False,
+                "formal_status": "no-go",
+                "candidate_b_status": "reserved_not_evaluated",
+            }
+        )
         raw_handle.write(json.dumps(record, sort_keys=True) + "\n")
         raw_handle.flush()
         os.fsync(raw_handle.fileno())
@@ -2041,12 +2142,30 @@ def _v8_expected_keys(matrix_kind: str) -> set[tuple[str, ...]]:
     }
 
 
-def _v8_record_key(row: dict[str, object], matrix_kind: str) -> tuple[str, ...]:
+def _v8_record_key(row: dict[str, object], _matrix_kind: str) -> tuple[str, ...]:
     return (
         str(row.get("candidate")),
         str(row.get("workload")),
-        str(row.get("record_batch_row_bound")) if matrix_kind == "scaling" else "1024",
+        str(row.get("record_batch_row_bound")),
         str(row.get("sample_kind")),
+    )
+
+
+def _v8_record_contract_valid(row: dict[str, object]) -> bool:
+    """Validate per-record v8 identity before using it for coverage or gates."""
+
+    matrix_kind = row.get("matrix_kind")
+    row_bound = row.get("record_batch_row_bound")
+    return bool(
+        row.get("candidate") == Candidate.A.value
+        and matrix_kind in {"normal", "scaling"}
+        and row.get("methodology_version") == V8_METHODOLOGY
+        and row.get("record_batch_byte_bound") == V8_BYTE_BOUND
+        and isinstance(row_bound, int)
+        and (
+            (matrix_kind == "normal" and row_bound == 1024)
+            or (matrix_kind == "scaling" and row_bound in ROW_BOUNDS)
+        )
     )
 
 
@@ -2110,6 +2229,11 @@ def _v8_batch_contract_valid(row: dict[str, object]) -> bool:
     batch_count = row.get("batch_count")
     max_batch_rows = row.get("max_batch_rows")
     max_batch_bytes = row.get("max_batch_bytes")
+    max_row_bytes = row.get("max_row_bytes")
+    oversized_single_row = row.get("oversized_single_row")
+    oversized_row_count = row.get("oversized_row_count")
+    max_oversized_row_bytes = row.get("max_oversized_row_bytes")
+    byte_bound_reason = row.get("byte_bound_reason")
     row_bound = row.get("record_batch_row_bound")
     byte_bound = row.get("record_batch_byte_bound")
     basic = (
@@ -2121,7 +2245,11 @@ def _v8_batch_contract_valid(row: dict[str, object]) -> bool:
             batch_count,
             max_batch_rows,
             max_batch_bytes,
+            max_row_bytes,
+            oversized_row_count,
+            max_oversized_row_bytes,
         ))
+        and isinstance(oversized_single_row, bool)
         and isinstance(row_bound, int)
         and isinstance(byte_bound, int)
         and byte_bound == V8_BYTE_BOUND
@@ -2129,18 +2257,46 @@ def _v8_batch_contract_valid(row: dict[str, object]) -> bool:
     if not basic:
         return False
     assert isinstance(total_rows, int)
+    assert isinstance(payload_bytes, int)
     assert isinstance(batch_count, int)
     assert isinstance(max_batch_rows, int)
     assert isinstance(max_batch_bytes, int)
+    assert isinstance(max_row_bytes, int)
+    assert isinstance(oversized_single_row, bool)
+    assert isinstance(oversized_row_count, int)
+    assert isinstance(max_oversized_row_bytes, int)
     assert isinstance(row_bound, int)
     assert isinstance(byte_bound, int)
+    if max_row_bytes > max_batch_bytes or max_batch_bytes > payload_bytes:
+        return False
+    if oversized_row_count == 0:
+        if oversized_single_row or max_oversized_row_bytes != 0 or byte_bound_reason is not None:
+            return False
+    elif (
+        not oversized_single_row
+        or max_oversized_row_bytes <= byte_bound
+        or max_oversized_row_bytes > max_row_bytes
+        or byte_bound_reason != "single_indivisible_row"
+    ):
+        return False
+    if oversized_row_count > total_rows:
+        return False
     if total_rows == 0:
-        if batch_count != 0 or max_batch_rows != 0 or max_batch_bytes != 0:
+        if (
+            batch_count != 0
+            or max_batch_rows != 0
+            or max_batch_bytes != 0
+            or max_row_bytes != 0
+            or oversized_row_count != 0
+            or max_oversized_row_bytes != 0
+        ):
             return False
     elif batch_count == 0 or max_batch_rows < 1 or max_batch_rows > row_bound:
         return False
-    oversized = row.get("oversized_single_row") is True
+    oversized = oversized_single_row
     if max_batch_bytes > byte_bound and not oversized:
+        return False
+    if oversized and max_batch_rows != 1:
         return False
     if row.get("encoded_line_applicable") is True and (
         row.get("encoded_line_bound_valid") is not True
@@ -2203,7 +2359,7 @@ def _v8_capacity_advisory(
     ]
     if not values:
         return "unavailable", None
-    projection = 4 * 86400 * 0.70 / max(values)
+    projection = 2 * 86400 * 0.70 / max(values)
     return ("within_reference" if projection >= 1000 else "below_reference"), projection
 
 
@@ -2212,6 +2368,7 @@ def _v8_resource_advisory(
 ) -> dict[str, object]:
     exceedances: list[dict[str, object]] = []
     observed: list[int] = []
+    missing_evidence = False
     for row in records:
         evidence = row.get("memory_evidence")
         peak = (
@@ -2220,12 +2377,13 @@ def _v8_resource_advisory(
             else None
         )
         if not isinstance(peak, int):
+            missing_evidence = True
             continue
         observed.append(peak)
         reference = (
             3 * 1024 * 1024 * 1024
             if row.get("workload") == Workload.W2.value
-            else 2_500 * 1024 * 1024
+            else 2684354560
         )
         if peak > reference:
             exceedances.append(
@@ -2243,7 +2401,13 @@ def _v8_resource_advisory(
         "recommended_concurrency": 2,
         "observed_max_workflow_cgroup_peak_bytes": max(observed) if observed else None,
         "exceedances": exceedances,
-        "status": "above_reference" if exceedances else "within_reference",
+        "status": (
+            "unavailable"
+            if missing_evidence or not records
+            else "above_reference"
+            if exceedances
+            else "within_reference"
+        ),
         "affects_formal_decision": False,
     }
 
@@ -2257,7 +2421,7 @@ def _summarize_v8(
     scaling_complete, scaling_counts = _v8_coverage(records, "scaling")
     candidate_rows = [row for row in records if row.get("candidate") == Candidate.A.value]
     record_set_valid = len(records) == 66 and all(
-        row.get("candidate") == Candidate.A.value for row in records
+        _v8_record_contract_valid(row) for row in records
     )
     failures = _failure_counts(candidate_rows)
     storage_complete, storage_reason = _candidate_storage_provenance(
@@ -2271,6 +2435,12 @@ def _summarize_v8(
     )
     batch_complete = bool(candidate_rows) and all(
         _v8_batch_contract_valid(row) for row in candidate_rows
+    )
+    w2_rows = [row for row in candidate_rows if row.get("workload") == Workload.W2.value]
+    w2_byte_split_complete = bool(w2_rows) and all(
+        isinstance(row.get("max_batch_rows"), int)
+        and cast(int, row["max_batch_rows"]) < 1024
+        for row in w2_rows
     )
     memory_complete = bool(candidate_rows) and all(
         _v8_memory_evidence_valid(row) for row in candidate_rows
@@ -2300,6 +2470,7 @@ def _summarize_v8(
         and not _sample_failures(candidate_rows)
         and workflow_gates
         and batch_complete
+        and w2_byte_split_complete
         and memory_complete
         and w3_complete
         and storage_complete
@@ -2319,6 +2490,7 @@ def _summarize_v8(
         "status": "evaluated",
         "workloads": sorted({str(row.get("workload")) for row in candidate_rows}),
         "matrix_coverage_complete": normal_complete and scaling_complete,
+        "record_contract_complete": record_set_valid,
         "batch_safety_gate": batch_complete,
         "bounded_stream_gate": batch_complete,
         "bounded_stream_gate_semantics": "batch_contract_v8",
@@ -2332,6 +2504,7 @@ def _summarize_v8(
         "support_envelope_complete": support_envelope_complete,
         "metadata_complete": metadata_complete,
         "memory_evidence_complete": memory_complete,
+        "w2_byte_split_complete": w2_byte_split_complete,
         **failures,
         "hard_gate": hard_gate,
         "result": "pass" if hard_gate else "fail",
@@ -2380,6 +2553,7 @@ def _summarize_v8(
         "resource_advisory": resource_advisory,
         "resource_advisory_status": resource_advisory["status"],
         "capacity_advisory_status": capacity_status,
+        "capacity_advisory_concurrency": 2,
         "methodology": {
             "version": settings.measurement_methodology_version,
             "candidates": [Candidate.A.value],
@@ -2387,6 +2561,7 @@ def _summarize_v8(
             "normal_row_bound": 1024,
             "row_bounds": list(ROW_BOUNDS),
             "byte_bound": V8_BYTE_BOUND,
+            "capacity_concurrency": 2,
             "bounded_stream_gate_semantics": "batch_contract_v8",
             "ratio_semantics": "observation_only",
             "memory_limit_bytes": V8_MEMORY_LIMIT_BYTES,
@@ -2579,6 +2754,7 @@ def main() -> None:
     parser.add_argument("--scaling-diagnostic", action="store_true")
     parser.add_argument("--offline-discard-diagnostic", action="store_true")
     parser.add_argument("--a-paired-diagnostic", action="store_true")
+    parser.add_argument("--v8-a-w0-smoke", action="store_true")
     parser.add_argument("--reserved-b-w0-smoke", action="store_true")
     parser.add_argument("--workloads", nargs="+", choices=[workload.value for workload in Workload])
     args = parser.parse_args()
@@ -2587,6 +2763,7 @@ def main() -> None:
         or args.scaling_diagnostic
         or args.offline_discard_diagnostic
         or args.a_paired_diagnostic
+        or args.v8_a_w0_smoke
         or args.workloads
         or args.candidates
         or args.restart_before_stream
@@ -2597,6 +2774,7 @@ def main() -> None:
         or args.scaling_diagnostic
         or args.offline_discard_diagnostic
         or args.a_paired_diagnostic
+        or args.v8_a_w0_smoke
         or args.workloads
         or args.candidates
     ):
@@ -2610,6 +2788,7 @@ def main() -> None:
             args.scaling_diagnostic,
             args.offline_discard_diagnostic,
             args.a_paired_diagnostic,
+            args.v8_a_w0_smoke,
             args.reserved_b_w0_smoke,
         )
     )
@@ -2619,6 +2798,7 @@ def main() -> None:
         args.scaling_diagnostic
         or args.offline_discard_diagnostic
         or args.a_paired_diagnostic
+        or args.v8_a_w0_smoke
     ):
         parser.error("--workloads is only valid with --diagnostic")
     if args.restart_before_stream and not (
@@ -2644,6 +2824,14 @@ def main() -> None:
             args.output,
             data_root=args.data_root,
             measured_runs=args.runs,
+            image_digest=args.image_digest,
+            build_revision=args.build_revision,
+            cache_condition=args.cache_condition,
+        )
+    elif args.v8_a_w0_smoke:
+        summary = run_v8_a_w0_smoke(
+            settings,
+            args.output,
             image_digest=args.image_digest,
             build_revision=args.build_revision,
             cache_condition=args.cache_condition,

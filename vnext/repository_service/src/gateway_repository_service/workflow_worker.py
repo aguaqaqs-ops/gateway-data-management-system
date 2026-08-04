@@ -8,7 +8,10 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-from gateway_repository_service.workflow import _run_workflow_in_process
+from gateway_repository_service.workflow import (
+    _run_offline_discard_in_process,
+    _run_workflow_in_process,
+)
 
 
 def main() -> None:
@@ -16,7 +19,17 @@ def main() -> None:
     result_path = Path(sys.argv[2])
     with payload_path.open("rb") as handle:
         payload = pickle.load(handle)
-    measurement = _run_workflow_in_process(**payload)
+    operation = payload.pop("worker_operation", "workflow")
+    if operation == "discard":
+        discard_payload = {
+            key: payload[key]
+            for key in ("settings", "fixture", "sample_kind", "root_parent")
+        }
+        measurement: object = _run_offline_discard_in_process(**discard_payload)
+    elif operation == "workflow":
+        measurement = _run_workflow_in_process(**payload)
+    else:
+        raise ValueError(f"unknown worker operation: {operation}")
     temporary = result_path.with_name(f".{result_path.name}.{uuid4().hex}.tmp")
     with temporary.open("wb") as handle:
         pickle.dump(measurement, handle, protocol=pickle.HIGHEST_PROTOCOL)

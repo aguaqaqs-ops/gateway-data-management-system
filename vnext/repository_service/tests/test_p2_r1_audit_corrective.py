@@ -48,6 +48,7 @@ from gateway_repository_service.matrix import (
     _resolve_probe_data_root,
     _validate_target_storage_root,
     _w3_lifecycle_evidence_valid,
+    run_a_paired_devnull_diagnostic,
     run_matrix,
     run_scaling_diagnostic,
     _summarize,
@@ -2108,3 +2109,132 @@ def test_fake_provenance_is_not_complete() -> None:
         cache_condition="test",
     )
     assert metadata["metadata_complete"] is False
+
+
+def test_memory_sampler_time_fraction_windows_keep_absolute_and_delta() -> None:
+    sampler = MemorySampler(
+        workflow_pid=1,
+        provider_pid=lambda: None,
+        cgroup=None,
+        interval_seconds=0.01,
+        baselines={
+            "workflow_process_tree": 100,
+            "provider_process_tree": 50,
+            "arrow_memory_pool": 10,
+            "cgroup": 1000,
+            "cgroup_anon_bytes": 200,
+            "cgroup_file_bytes": 300,
+        },
+        record_history=True,
+    )
+    sampler._history = [  # noqa: SLF001 - deterministic sampler fixture
+        (
+            100.5,
+            {
+                "workflow_process_tree": 120,
+                "provider_process_tree": 70,
+                "arrow_memory_pool": 30,
+                "cgroup": 1100,
+            },
+            {"anon_bytes": 220, "file_bytes": 340},
+        ),
+        (
+            105.0,
+            {
+                "workflow_process_tree": 140,
+                "provider_process_tree": 90,
+                "arrow_memory_pool": 40,
+                "cgroup": 1300,
+            },
+            {"anon_bytes": 260, "file_bytes": 380},
+        ),
+        (
+            109.5,
+            {
+                "workflow_process_tree": 160,
+                "provider_process_tree": 110,
+                "arrow_memory_pool": 50,
+                "cgroup": 1500,
+            },
+            {"anon_bytes": 300, "file_bytes": 420},
+        ),
+    ]
+    result = sampler.time_fraction_peaks(100.0, 110.0)
+    delta = cast(dict[str, dict[str, int | None]], result["plateau_peaks"])
+    absolute = cast(
+        dict[str, dict[str, int | None]], result["plateau_peaks_absolute"]
+    )
+    stat_delta = cast(
+        dict[str, dict[str, int | None]], result["memory_stat_plateau"]
+    )
+    assert result["window_basis"] == "time_fraction"
+    assert delta["workflow_process_tree"]["first_10pct"] == 20
+    assert delta["workflow_process_tree"]["middle_10pct"] == 40
+    assert delta["workflow_process_tree"]["final_10pct"] == 60
+    assert absolute["cgroup"]["middle_10pct"] == 1300
+    assert stat_delta["anon_bytes"]["final_10pct"] == 100
+
+
+def test_a_paired_devnull_diagnostic_is_no_go_and_keeps_variants(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(matrix_module, "SCALE_WORKLOADS", (ScaleWorkload.S10,))
+    monkeypatch.setattr(matrix_module, "ROW_BOUNDS", (256,))
+    monkeypatch.setattr(
+        matrix_module, "EXPECTED_SAMPLE_KINDS", ("warmup", "measured-1")
+    )
+    monkeypatch.setattr(matrix_module, "_collect_scaling_records", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(matrix_module, "_summarize", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        matrix_module,
+        "_write_artifacts",
+        lambda output, records, _summary: output.write_text(
+            "".join(json.dumps(row) + "\n" for row in records), encoding="utf-8"
+        ),
+    )
+    monkeypatch.setattr(
+        matrix_module,
+        "_measurement_metadata",
+        lambda *_args, **_kwargs: {"metadata_complete": True},
+    )
+    monkeypatch.setattr(
+        matrix_module,
+        "_diagnostic_storage_metadata",
+        lambda *_args, **_kwargs: {
+            "filesystem_type": "xfs",
+            "volume_backend": "volume",
+            "storage_root_identity": "sha256:" + "a" * 64,
+            "storage_mount_verified": True,
+            "storage_layout_version": "p2-r1-storage-layout-v1",
+            "storage_volume_project": "diagnostic-project",
+        },
+    )
+
+    def fake_discard(*_args: object, **kwargs: object) -> dict[str, object]:
+        return {
+            "candidate": Candidate.A.value,
+            "workload": ScaleWorkload.S10.value,
+            "sample_kind": kwargs["sample_kind"],
+            "correctness": True,
+            "memory_evidence": {
+                "coverage": "available",
+                "window_basis": "time_fraction",
+            },
+            "plateau_peaks": _test_plateau_peaks(),
+            "plateau_peaks_absolute": _test_plateau_peaks(),
+            "error": None,
+        }
+
+    monkeypatch.setattr(
+        matrix_module, "run_offline_discard_workflow_isolated", fake_discard
+    )
+    monkeypatch.setattr(matrix_module, "run_offline_discard_diagnostic", fake_discard)
+    summary = run_a_paired_devnull_diagnostic(
+        RepositoryServiceSettings(), tmp_path / "a-paired.jsonl"
+    )
+    assert summary["diagnostic_kind"] == "candidate_a_paired_devnull"
+    assert summary["selected_provider"] is None
+    assert summary["p2_r1_exit"] == "no-go"
+    assert summary["devnull_records"] == 2
+    raw = (tmp_path / "a-paired.jsonl").read_text(encoding="utf-8").splitlines()
+    assert all(json.loads(line).get("diagnostic_variant") == "devnull" for line in raw)

@@ -22,6 +22,7 @@ from gateway_repository_service.arrow_mapping import UnknownSqlTypeError, Unknow
 from gateway_repository_service.filesystem import (
     StorageSnapshot,
     filesystem_quiesce,
+    storage_root_identity,
     storage_snapshot,
     tree_storage_bytes,
 )
@@ -191,7 +192,8 @@ def run_workflow_isolated(
     base_fixture: Fixture | None = None,
     root_parent: Path | None = None,
     restart_before_stream: bool = False,
-) -> WorkflowMeasurement:
+    worker_operation: str = "workflow",
+) -> WorkflowMeasurement | dict[str, object]:
     """Run one sample in a fresh exec'd worker attached to its own cgroup."""
 
     if settings.cgroup_root is None:
@@ -241,6 +243,7 @@ def run_workflow_isolated(
                         "base_fixture": base_fixture,
                         "root_parent": root_parent,
                         "restart_before_stream": restart_before_stream,
+                        "worker_operation": worker_operation,
                     },
                     handle,
                     protocol=pickle.HIGHEST_PROTOCOL,
@@ -296,27 +299,61 @@ def run_workflow_isolated(
             details = "; ".join(
                 value for value in (worker_error, cleanup_error) if value is not None
             )
+            if worker_operation == "discard":
+                return _failed_discard_measurement(candidate, fixture, sample_kind, details)
             return _failed_measurement(candidate, fixture, sample_kind, details)
         if worker_error is None and result_path.is_file():
             try:
                 with result_path.open("rb") as handle:
                     result = pickle.load(handle)
-                if not isinstance(result, WorkflowMeasurement):
+                if not isinstance(
+                    result, dict if worker_operation == "discard" else WorkflowMeasurement
+                ):
                     raise TypeError("worker result has an unexpected type")
                 return result
             except (EOFError, OSError, pickle.PickleError, TypeError, ValueError) as exc:
+                if worker_operation == "discard":
+                    return _failed_discard_measurement(
+                        candidate,
+                        fixture,
+                        sample_kind,
+                        f"worker result invalid: {type(exc).__name__}",
+                    )
                 return _failed_measurement(
                     candidate,
                     fixture,
                     sample_kind,
                     f"worker result invalid: {type(exc).__name__}",
                 )
-        return _failed_measurement(
-            candidate,
-            fixture,
-            sample_kind,
-            f"worker exited without a result (status={status})",
-        )
+        error = f"worker exited without a result (status={status})"
+        if worker_operation == "discard":
+            return _failed_discard_measurement(candidate, fixture, sample_kind, error)
+        return _failed_measurement(candidate, fixture, sample_kind, error)
+
+
+def run_offline_discard_workflow_isolated(
+    settings: RepositoryServiceSettings,
+    fixture: Fixture,
+    *,
+    sample_kind: str,
+    root_parent: Path | None = None,
+) -> dict[str, object]:
+    result = run_workflow_isolated(
+        settings,
+        Candidate.A,
+        fixture,
+        sample_kind=sample_kind,
+        root_parent=root_parent,
+        worker_operation="discard",
+    )
+    if isinstance(result, dict):
+        return result
+    return _failed_discard_measurement(
+        Candidate.A,
+        fixture,
+        sample_kind,
+        "discard worker returned a workflow measurement",
+    )
 
 
 def _wait_worker(pid: int, settings: RepositoryServiceSettings) -> int:
@@ -476,6 +513,50 @@ def _failed_measurement(
     )
 
 
+def _failed_discard_measurement(
+    candidate: Candidate, fixture: Fixture, sample_kind: str, error: str
+) -> dict[str, object]:
+    plateau = {
+        subject: {window: None for window in ("first_10pct", "middle_10pct", "final_10pct")}
+        for subject in ("workflow_process_tree", "provider_process_tree", "arrow_memory_pool", "cgroup")
+    }
+    return {
+        "candidate": candidate.value,
+        "workload": fixture.workload.value,
+        "sample_kind": sample_kind,
+        "correctness": False,
+        "hard_gates": {"workflow": False, "cancellation": False, "restart": False},
+        "initial_commit_id": None,
+        "new_commit_id": None,
+        "total_rows": 0,
+        "time_to_first_batch_seconds": None,
+        "total_stream_seconds": None,
+        "stream_peak_rss_kib": 0,
+        "stream_rss_delta_kib": 0,
+        "memory_evidence": {"coverage": "unavailable", "plateau_peaks": plateau},
+        "plateau_peaks": plateau,
+        "plateau_peaks_absolute": {
+            subject: dict(values) for subject, values in plateau.items()
+        },
+        "provider_startup_seconds": None,
+        "import_seconds": None,
+        "rows_per_second": None,
+        "peak_rss_kib": 0,
+        "cancel_cleanup_seconds": None,
+        "logical_bytes_before": 0,
+        "logical_bytes_after": 0,
+        "allocated_bytes_before": 0,
+        "allocated_bytes_after": 0,
+        "staging_high_water_bytes": 0,
+        "storage_quiesced": False,
+        "storage_snapshots": {},
+        "storage_deltas": {},
+        "storage_snapshot_complete": False,
+        "diagnostic_correctness_scope": "catalog_and_exit_only",
+        "error": error,
+    }
+
+
 def _run_locked(
     settings: RepositoryServiceSettings,
     candidate: Candidate,
@@ -540,6 +621,7 @@ def _run_locked(
     storage_snapshots: dict[str, dict[str, object]] = {}
     storage_deltas: dict[str, dict[str, object]] = {}
     storage_snapshot_complete = False
+    restart_evidence: dict[str, object] = {}
     provider_shutdown = False
     try:
         repository_id = UUID(int=uuid4().int)
@@ -730,6 +812,8 @@ def _run_locked(
             previous_provider = provider
             provider = None
             provider_shutdown = True
+            restart_started = time.monotonic()
+            before_identity = _provider_identity(previous_provider)
             provider = _restart_provider_for_stream(
                 settings,
                 layout,
@@ -741,6 +825,18 @@ def _run_locked(
                 actual_catalog=actual_catalog,
             )
             provider_shutdown = False
+            restart_evidence = {
+                "enabled": True,
+                "before_provider_identity": before_identity,
+                "after_provider_identity": _provider_identity(provider),
+                "identity_changed": before_identity != _provider_identity(provider),
+                "shutdown_reap_quiesce": True,
+                "duration_seconds": time.monotonic() - restart_started,
+                "head_preserved": provider.head() == new_commit,
+                "catalog_preserved": provider.catalog(initial_commit, new_commit)
+                == actual_catalog,
+                "storage_identity": storage_root_identity(target),
+            }
 
         stream_start = time.monotonic()
         first_seen = False
@@ -766,6 +862,8 @@ def _run_locked(
         if first_batch_seconds is None or stream_seconds <= 0:
             raise ProviderError("stream did not produce a measurable batch")
         memory_evidence = dict(getattr(provider, "last_stream_metrics", {}))
+        if restart_evidence:
+            memory_evidence["restart_diagnostic"] = restart_evidence
         plateau_peaks = dict(
             getattr(
                 provider,
@@ -963,10 +1061,21 @@ def _restart_provider_for_stream(
         raise
 
 
-def run_offline_discard_diagnostic(
+def _provider_identity(provider: Provider) -> dict[str, object]:
+    supervisor = getattr(provider, "supervisor", None)
+    process = getattr(supervisor, "process", None)
+    pid = getattr(process, "pid", None)
+    return {
+        "provider_type": type(provider).__name__,
+        "server_pid": pid if isinstance(pid, int) else None,
+    }
+
+
+def _run_offline_discard_in_process(
     settings: RepositoryServiceSettings,
     fixture: Fixture,
     *,
+    sample_kind: str = "diagnostic",
     root_parent: Path | None = None,
 ) -> dict[str, object]:
     """Measure Candidate A's SELECT path without CSV or Arrow conversion."""
@@ -1009,16 +1118,106 @@ def run_offline_discard_diagnostic(
                     provider.discard_table_to_devnull(new_commit, table)
                     for table in catalog
                 ]
+                metrics = dict(provider.last_stream_metrics)
+                plateau = dict(provider.last_plateau_peaks)
+                plateau_absolute = dict(provider.last_plateau_peaks_absolute)
+                metrics["coverage"] = (
+                    "available"
+                    if metrics.get("cgroup_per_workflow") is True
+                    and metrics.get("baseline_arrow_memory_pool_bytes") is not None
+                    and all(
+                        all(value is not None for value in values.values())
+                        for values in plateau.values()
+                    )
+                    and all(
+                        all(value is not None for value in values.values())
+                        for values in cast(
+                            dict[str, dict[str, int | None]],
+                            metrics.get("memory_stat_plateau", {}),
+                        ).values()
+                    )
+                    else "inconclusive"
+                )
+                provider_result = tables[-1] if tables else {}
                 return {
                     "candidate": Candidate.A.value,
                     "workload": fixture.workload.value,
+                    "sample_kind": sample_kind,
                     "fixture_rows": fixture.rows,
                     "new_commit_id": new_commit,
                     "tables": tables,
+                    "correctness": all(
+                        isinstance(table, dict)
+                        and table.get("timed_out") is False
+                        for table in tables
+                    ),
+                    "hard_gates": {
+                        "workflow": True,
+                        "cancellation": True,
+                        "restart": True,
+                    },
+                    "error": None,
+                    "stream_peak_rss_kib": int(
+                        metrics.get("provider_process_tree_rss_kib", 0)
+                    ),
+                    "stream_rss_delta_kib": int(
+                        metrics.get("provider_process_tree_rss_kib", 0)
+                        - metrics.get("baseline_provider_process_tree_rss_kib", 0)
+                    ),
+                    "peak_rss_kib": int(
+                        metrics.get("provider_process_tree_rss_kib", 0)
+                    ),
+                    "total_rows": fixture.rows,
+                    "memory_evidence": metrics,
+                    "plateau_peaks": plateau,
+                    "plateau_peaks_absolute": plateau_absolute,
+                    "provider_startup_seconds": None,
+                    "import_seconds": None,
+                    "rows_per_second": None,
+                    "time_to_first_batch_seconds": None,
+                    "total_stream_seconds": (
+                        float(cast(int | float, provider_result["duration_seconds"]))
+                        if isinstance(provider_result, dict)
+                        and isinstance(provider_result.get("duration_seconds"), (int, float))
+                        else None
+                    ),
+                    "cancel_cleanup_seconds": None,
+                    "initial_commit_id": initial_commit,
+                    "logical_bytes_before": 0,
+                    "logical_bytes_after": 0,
+                    "allocated_bytes_before": 0,
+                    "allocated_bytes_after": 0,
+                    "staging_high_water_bytes": 0,
+                    "storage_quiesced": False,
+                    "storage_snapshots": {},
+                    "storage_deltas": {},
+                    "storage_snapshot_complete": False,
+                    "diagnostic_correctness_scope": "catalog_and_exit_only",
                     "diagnostic_kind": "offline_cli_discard_to_devnull",
                 }
             finally:
                 provider.close()
+
+
+def run_offline_discard_diagnostic(
+    settings: RepositoryServiceSettings,
+    fixture: Fixture,
+    *,
+    sample_kind: str = "diagnostic",
+    root_parent: Path | None = None,
+) -> dict[str, object]:
+    """Run one direct-DEVNULL diagnostic in the current process.
+
+    Formal matrix code never calls this helper; target diagnostics use the
+    isolated wrapper so the provider tracker is attached to the sample cgroup.
+    """
+
+    return _run_offline_discard_in_process(
+        settings,
+        fixture,
+        sample_kind=sample_kind,
+        root_parent=root_parent,
+    )
 
 
 def _sanitize_error(message: str) -> str:

@@ -721,12 +721,14 @@ class MemorySampler:
         cgroup: CgroupMemoryTracker | None,
         interval_seconds: float,
         baselines: dict[str, int | None] | None = None,
+        record_history: bool = False,
     ) -> None:
         self.workflow_pid = workflow_pid
         self.provider_pid = provider_pid
         self.cgroup = cgroup
         self.interval_seconds = interval_seconds
         self.baselines = baselines or {}
+        self.record_history = record_history
         self._active: set[str] = set()
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -745,6 +747,14 @@ class MemorySampler:
         self.global_delta_peaks: dict[str, int | None] = {
             subject: None for subject in MEMORY_SUBJECTS
         }
+        self._history: list[
+            tuple[float, dict[str, int | None], dict[str, int | None]]
+        ] = []
+        self._latest_cgroup_details: dict[str, int | None] = {
+            "current_bytes": None,
+            "anon_bytes": None,
+            "file_bytes": None,
+        }
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -758,6 +768,11 @@ class MemorySampler:
     def _snapshot(self) -> dict[str, int | None]:
         provider_pid = self.provider_pid()
         cgroup = self.cgroup.snapshot() if self.cgroup is not None else None
+        self._latest_cgroup_details = {
+            "current_bytes": cgroup.current_bytes if cgroup is not None else None,
+            "anon_bytes": cgroup.anon_bytes if cgroup is not None else None,
+            "file_bytes": cgroup.file_bytes if cgroup is not None else None,
+        }
         return {
             "workflow_process_tree": process_tree_rss_kib(self.workflow_pid),
             "provider_process_tree": process_tree_rss_kib(provider_pid) if provider_pid else 0,
@@ -767,7 +782,16 @@ class MemorySampler:
 
     def sample(self, windows: tuple[str, ...] | None = None) -> None:
         snapshot = self._snapshot()
+        sampled_at = time.monotonic()
         with self._lock:
+            if self.record_history:
+                self._history.append(
+                    (
+                        sampled_at,
+                        dict(snapshot),
+                        dict(self._latest_cgroup_details),
+                    )
+                )
             targets = set(windows) if windows is not None else set(self._active)
             for subject, value in snapshot.items():
                 if value is not None:
@@ -816,6 +840,75 @@ class MemorySampler:
             return {
                 subject: dict(values) for subject, values in self._absolute_peaks.items()
             }
+
+    def time_fraction_peaks(
+        self, started_at: float, finished_at: float
+    ) -> dict[str, object]:
+        """Classify optional history into diagnostic time-fraction windows.
+
+        This is intentionally diagnostic-only.  Direct DEVNULL has no row
+        framing, so it cannot claim formal row-window evidence.
+        """
+
+        duration = max(finished_at - started_at, 1e-9)
+        windows = {
+            "first_10pct": (0.0, 0.10),
+            "middle_10pct": (0.45, 0.55),
+            "final_10pct": (0.90, 1.0),
+        }
+        absolute: dict[str, dict[str, int | None]] = {
+            subject: {window: None for window in windows}
+            for subject in MEMORY_SUBJECTS
+        }
+        delta: dict[str, dict[str, int | None]] = {
+            subject: {window: None for window in windows}
+            for subject in MEMORY_SUBJECTS
+        }
+        stat_absolute: dict[str, dict[str, int | None]] = {
+            key: {window: None for window in windows}
+            for key in ("anon_bytes", "file_bytes")
+        }
+        stat_delta: dict[str, dict[str, int | None]] = {
+            key: {window: None for window in windows}
+            for key in ("anon_bytes", "file_bytes")
+        }
+        with self._lock:
+            history = list(self._history)
+        for sampled_at, snapshot, details in history:
+            fraction = (sampled_at - started_at) / duration
+            for window, (lower, upper) in windows.items():
+                if not (lower <= fraction <= upper):
+                    continue
+                for subject in MEMORY_SUBJECTS:
+                    value = snapshot.get(subject)
+                    if value is not None:
+                        current = absolute[subject][window]
+                        absolute[subject][window] = max(current or 0, value)
+                        baseline = self.baselines.get(subject)
+                        if baseline is not None:
+                            current_delta = delta[subject][window]
+                            delta[subject][window] = max(
+                                current_delta or 0, max(0, value - baseline)
+                            )
+                for key in ("anon_bytes", "file_bytes"):
+                    value = details.get(key)
+                    if value is None:
+                        continue
+                    current = stat_absolute[key][window]
+                    stat_absolute[key][window] = max(current or 0, value)
+                    baseline = self.baselines.get(f"cgroup_{key}")
+                    if baseline is not None:
+                        current_delta = stat_delta[key][window]
+                        stat_delta[key][window] = max(
+                            current_delta or 0, max(0, value - baseline)
+                        )
+        return {
+            "plateau_peaks": delta,
+            "plateau_peaks_absolute": absolute,
+            "memory_stat_plateau": stat_delta,
+            "memory_stat_plateau_absolute": stat_absolute,
+            "window_basis": "time_fraction",
+        }
 
 
 _DOLT_VERSION_RE = re.compile(

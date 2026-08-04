@@ -8,9 +8,10 @@ import json
 import os
 import re
 import threading
+import time
 from collections.abc import Coroutine, Iterator
 from pathlib import Path
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar, cast
 from uuid import uuid4
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -770,7 +771,7 @@ class OfflineCliProvider:
 
     def discard_table_to_devnull(
         self, commit_id: str, table: TableCatalog
-    ) -> dict[str, int | str]:
+    ) -> dict[str, object]:
         """Run the stream SELECT while bypassing CSV and Arrow conversion.
 
         This is diagnostic-only evidence for separating Dolt CLI working-set
@@ -783,7 +784,43 @@ class OfflineCliProvider:
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF '{commit_id}';\n",
         )
         discard: DiscardProcess | None = None
+        sampler: MemorySampler | None = None
+        started_at = time.monotonic()
+        stream_baseline_cgroup = (
+            self.cgroup.snapshot() if self.cgroup is not None else None
+        )
+        baseline_arrow = pa.default_memory_pool().bytes_allocated()
+        baseline_workflow = process_tree_rss_kib(os.getpid())
         try:
+            # Start before spawn so CLI setup and query execution are covered.
+            sampler = MemorySampler(
+                os.getpid(),
+                lambda: discard.process.pid if discard is not None else None,
+                self.cgroup,
+                self.settings.memory_sample_interval_seconds,
+                baselines={
+                    "workflow_process_tree": baseline_workflow,
+                    "provider_process_tree": None,
+                    "arrow_memory_pool": baseline_arrow,
+                    "cgroup": (
+                        stream_baseline_cgroup.current_bytes
+                        if stream_baseline_cgroup
+                        else None
+                    ),
+                    "cgroup_anon_bytes": (
+                        stream_baseline_cgroup.anon_bytes
+                        if stream_baseline_cgroup
+                        else None
+                    ),
+                    "cgroup_file_bytes": (
+                        stream_baseline_cgroup.file_bytes
+                        if stream_baseline_cgroup
+                        else None
+                    ),
+                },
+                record_history=True,
+            )
+            sampler.start()
             discard = self.runner.discard(
                 "row_stream_discard",
                 ["sql", "--result-format=csv", "--binary-as-hex"],
@@ -791,7 +828,66 @@ class OfflineCliProvider:
                 timeout=self.settings.import_timeout_seconds,
                 stdin_path=query,
             )
+            sampler.set_baseline(
+                "provider_process_tree",
+                process_tree_rss_kib(discard.process.pid),
+            )
             result = discard.close()
+            finished_at = time.monotonic()
+            sampler.sample()
+            window_metrics = sampler.time_fraction_peaks(started_at, finished_at)
+            final_cgroup = self.cgroup.snapshot() if self.cgroup is not None else None
+            self.last_stream_peak_rss_kib = result.provider_peak_rss_kib
+            self.last_stream_rss_delta_kib = max(
+                0, result.provider_peak_rss_kib - result.provider_start_rss_kib
+            )
+            self.last_plateau_peaks = cast(
+                dict[str, dict[str, int | None]],
+                window_metrics["plateau_peaks"],
+            )
+            self.last_plateau_peaks_absolute = cast(
+                dict[str, dict[str, int | None]],
+                window_metrics["plateau_peaks_absolute"],
+            )
+            self.last_stream_metrics = {
+                "workflow_process_tree_rss_kib": baseline_workflow,
+                "provider_process_tree_rss_kib": result.provider_peak_rss_kib,
+                "provider_start_rss_kib": result.provider_start_rss_kib,
+                "provider_start_rss_anon_kib": result.provider_start_rss_anon_kib,
+                "provider_start_rss_file_kib": result.provider_start_rss_file_kib,
+                "provider_peak_rss_anon_kib": result.provider_peak_rss_anon_kib,
+                "provider_peak_rss_file_kib": result.provider_peak_rss_file_kib,
+                "arrow_memory_pool_baseline_bytes": baseline_arrow,
+                "arrow_memory_pool_peak_bytes": baseline_arrow,
+                "plateau_peaks": self.last_plateau_peaks,
+                "plateau_peaks_absolute": self.last_plateau_peaks_absolute,
+                "memory_stat_plateau": window_metrics["memory_stat_plateau"],
+                "memory_stat_plateau_absolute": window_metrics[
+                    "memory_stat_plateau_absolute"
+                ],
+                "window_basis": "time_fraction",
+                **_baseline_memory_metrics(
+                    baseline_workflow,
+                    result.provider_start_rss_kib,
+                    baseline_arrow,
+                    stream_baseline_cgroup.current_bytes
+                    if stream_baseline_cgroup
+                    else None,
+                ),
+                "query_before_baseline": _baseline_memory_metrics(
+                    baseline_workflow,
+                    result.provider_start_rss_kib,
+                    baseline_arrow,
+                    stream_baseline_cgroup.current_bytes
+                    if stream_baseline_cgroup
+                    else None,
+                ),
+                **_cgroup_stream_metrics(
+                    stream_baseline_cgroup,
+                    stream_baseline_cgroup,
+                    final_cgroup,
+                ),
+            }
             if result.exit_code != 0:
                 raise ProviderError("Dolt discard stream failed")
             return {
@@ -803,8 +899,12 @@ class OfflineCliProvider:
                 "provider_peak_rss_file_kib": result.provider_peak_rss_file_kib,
                 "provider_peak_rss_kib": result.provider_peak_rss_kib,
                 "timed_out": result.timed_out,
+                "stderr_tail": result.stderr_tail.decode("utf-8", errors="replace"),
+                "duration_seconds": result.duration_seconds,
             }
         finally:
+            if sampler is not None and not self.last_stream_metrics:
+                sampler.stop()
             if discard is not None:
                 discard.close()
             query.unlink(missing_ok=True)

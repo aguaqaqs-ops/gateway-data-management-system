@@ -41,6 +41,7 @@ from gateway_repository_service.workflow import (
     W3_STORAGE_SNAPSHOT_ORDER,
     WorkflowMeasurement,
     run_offline_discard_diagnostic,
+    run_offline_discard_workflow_isolated,
     run_workflow,
     run_workflow_isolated,
 )
@@ -311,7 +312,7 @@ def _collect_normal_records(
                 )
                 record = _record(
                         fixture,
-                        measurement,
+                        cast(WorkflowMeasurement, measurement),
                         probe_root,
                         matrix_kind="normal",
                         row_bound=settings.record_batch_rows,
@@ -362,7 +363,7 @@ def _collect_scaling_records(
                     )
                     record = _record(
                             fixture,
-                            measurement,
+                            cast(WorkflowMeasurement, measurement),
                             probe_root,
                             matrix_kind="scaling",
                             row_bound=bound,
@@ -1109,6 +1110,184 @@ def run_scaling_diagnostic(
     return summary
 
 
+def _discard_diagnostic_record(
+    fixture: Fixture,
+    measurement: dict[str, object],
+    probe_root: Path,
+    *,
+    row_bound: int,
+    metadata: dict[str, object],
+) -> dict[str, object]:
+    target_container = os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") == "1"
+    record = dict(measurement)
+    record.update(
+        {
+            "candidate": Candidate.A.value,
+            "workload": fixture.workload.value,
+            "dataset_id": fixture.dataset_id,
+            "synthetic": fixture.synthetic,
+            "package_bytes": fixture.package_bytes,
+            "fixture_rows": fixture.rows,
+            "python_version": platform.python_version(),
+            "cpu_count": os.cpu_count(),
+            "matrix_kind": "scaling",
+            "diagnostic_variant": "devnull",
+            "record_batch_row_bound": row_bound,
+            "record_batch_byte_bound": BYTE_BOUND,
+            "row_bound_applied": False,
+            "cache_state": "warmup"
+            if measurement.get("sample_kind") == "warmup"
+            else "warm",
+        }
+    )
+    record.update(_diagnostic_storage_metadata(probe_root, target_container=target_container))
+    record.update(metadata)
+    record["methodology_version"] = metadata.get(
+        "measurement_methodology_version", "unknown"
+    )
+    record["metadata_complete"] = bool(metadata.get("metadata_complete"))
+    record["bounded_stream_record_gate"] = False
+    record["diagnostic_only"] = True
+    return record
+
+
+def run_a_paired_devnull_diagnostic(
+    settings: RepositoryServiceSettings,
+    output: Path,
+    *,
+    data_root: Path | None = None,
+    measured_runs: int = 5,
+    image_digest: str | None = None,
+    build_revision: str | None = None,
+    cache_condition: str | None = None,
+) -> dict[str, object]:
+    """Compare Candidate A streaming with direct-DEVNULL output.
+
+    This diagnostic is intentionally not part of formal selection.  Direct
+    DEVNULL uses time-fraction windows because its stdout carries no row
+    framing; the raw records state that explicitly.
+    """
+
+    if measured_runs != 5:
+        raise ValueError("P2-R1 requires exactly five measured runs")
+    target_container = os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") == "1"
+    probe_data_root = _resolve_probe_data_root(settings, data_root, target_container)
+    if target_container:
+        topology = load_cgroup_topology(settings.cgroup_layout)
+        cgroup_input = topology.samples if topology is not None else settings.cgroup_root
+        if cgroup_input is None:
+            raise RuntimeError("target diagnostic requires delegated cgroup topology")
+        sample_root = preflight_cgroup(cgroup_input, topology)
+        settings = settings.model_copy(update={"cgroup_root": sample_root})
+    _ensure_artifacts_absent(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fixture_context = tempfile.TemporaryDirectory(prefix="gateway-p2r1-a-paired-fixtures-")
+    root_context = (
+        tempfile.TemporaryDirectory(prefix="gateway-p2r1-a-paired-target-")
+        if probe_data_root is None
+        else None
+    )
+    metadata = _measurement_metadata(
+        settings,
+        image_digest=image_digest,
+        build_revision=build_revision,
+        cache_condition=cache_condition,
+    )
+    records: list[dict[str, object]] = []
+    try:
+        fixture_root = Path(fixture_context.name)
+        probe_root = (
+            probe_data_root
+            if probe_data_root is not None
+            else Path(root_context.name)  # type: ignore[union-attr]
+        )
+        streaming_records = _collect_scaling_records(
+            settings,
+            fixture_root,
+            probe_root,
+            measured_runs,
+            image_digest=image_digest,
+            build_revision=build_revision,
+            cache_condition=cache_condition,
+            candidates=(Candidate.A,),
+            isolated=True if target_container else False,
+        )
+        for record in streaming_records:
+            record["diagnostic_variant"] = "streaming"
+            record["diagnostic_only"] = True
+        records.extend(streaming_records)
+        for scale in SCALE_WORKLOADS:
+            fixture = generate_scale_fixture(fixture_root, scale)
+            for bound in ROW_BOUNDS:
+                bound_settings = settings.model_copy(
+                    update={"record_batch_rows": bound, "record_batch_bytes": BYTE_BOUND}
+                )
+                for sample_kind in EXPECTED_SAMPLE_KINDS:
+                    if target_container:
+                        measurement = run_offline_discard_workflow_isolated(
+                            bound_settings,
+                            fixture,
+                            sample_kind=sample_kind,
+                            root_parent=probe_root,
+                        )
+                    else:
+                        measurement = run_offline_discard_diagnostic(
+                            bound_settings,
+                            fixture,
+                            sample_kind=sample_kind,
+                            root_parent=probe_root,
+                        )
+                    records.append(
+                        _discard_diagnostic_record(
+                            fixture,
+                            measurement,
+                            probe_root,
+                            row_bound=bound,
+                            metadata=metadata,
+                        )
+                    )
+    finally:
+        fixture_context.cleanup()
+        if root_context is not None:
+            root_context.cleanup()
+    streaming_records = [
+        row for row in records if row.get("diagnostic_variant") == "streaming"
+    ]
+    summary = _summarize([], settings, scaling_records=streaming_records)
+    summary.update(
+        {
+            "decision_kind": "diagnostic",
+            "diagnostic_kind": "candidate_a_paired_devnull",
+            "diagnostic_variants": ["streaming", "devnull"],
+            "formal_decision": False,
+            "p2_r1_exit": "no-go",
+            "round_exit": "diagnostic-no-go",
+            "selected_provider": None,
+            "proposed_provider": None,
+            "next_round_ready": False,
+            "p2_r2_ready": False,
+            "records": len(records),
+            "streaming_records": len(streaming_records),
+            "devnull_records": len(records) - len(streaming_records),
+            "unique_measurement_keys": len(
+                {
+                    (
+                        row.get("candidate"),
+                        row.get("diagnostic_variant"),
+                        row.get("workload"),
+                        row.get("record_batch_row_bound"),
+                        row.get("sample_kind"),
+                    )
+                    for row in records
+                }
+            ),
+            "window_basis": "time_fraction for direct DEVNULL; row_fraction for streaming",
+        }
+    )
+    _write_artifacts(output, records, summary)
+    return summary
+
+
 def run_offline_discard_diagnostic_matrix(
     settings: RepositoryServiceSettings,
     output: Path,
@@ -1669,6 +1848,7 @@ def main() -> None:
     parser.add_argument("--diagnostic", action="store_true")
     parser.add_argument("--scaling-diagnostic", action="store_true")
     parser.add_argument("--offline-discard-diagnostic", action="store_true")
+    parser.add_argument("--a-paired-diagnostic", action="store_true")
     parser.add_argument("--workloads", nargs="+", choices=[workload.value for workload in Workload])
     args = parser.parse_args()
     if args.workloads and not args.diagnostic:
@@ -1679,11 +1859,16 @@ def main() -> None:
             args.diagnostic,
             args.scaling_diagnostic,
             args.offline_discard_diagnostic,
+            args.a_paired_diagnostic,
         )
     )
     if diagnostic_modes > 1:
         parser.error("diagnostic modes are mutually exclusive")
-    if args.workloads and (args.scaling_diagnostic or args.offline_discard_diagnostic):
+    if args.workloads and (
+        args.scaling_diagnostic
+        or args.offline_discard_diagnostic
+        or args.a_paired_diagnostic
+    ):
         parser.error("--workloads is only valid with --diagnostic")
     if args.restart_before_stream and not (
         args.diagnostic or args.scaling_diagnostic
@@ -1719,6 +1904,16 @@ def main() -> None:
             settings,
             args.output,
             data_root=args.data_root,
+            image_digest=args.image_digest,
+            build_revision=args.build_revision,
+            cache_condition=args.cache_condition,
+        )
+    elif args.a_paired_diagnostic:
+        summary = run_a_paired_devnull_diagnostic(
+            settings,
+            args.output,
+            data_root=args.data_root,
+            measured_runs=args.runs,
             image_digest=args.image_digest,
             build_revision=args.build_revision,
             cache_condition=args.cache_condition,

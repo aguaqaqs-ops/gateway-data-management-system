@@ -12,7 +12,6 @@ docs/
 **/.cursor
 **/.vscode
 conformance/
-repository_service/
 fixtures/
 scripts/
 target/

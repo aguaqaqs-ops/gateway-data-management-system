@@ -45,6 +45,7 @@ from gateway_repository_service.matrix import (
     _validate_target_storage_root,
     _w3_lifecycle_evidence_valid,
     run_matrix,
+    run_scaling_diagnostic,
     _summarize,
 )
 from gateway_repository_service.process import (
@@ -89,6 +90,7 @@ from gateway_repository_service.workflow import (
     run_workflow_isolated,
 )
 import gateway_repository_service.workflow_worker as workflow_worker
+import gateway_repository_service.workflow as workflow_module
 
 
 def test_sized_character_and_binary_types_are_known() -> None:
@@ -993,6 +995,79 @@ def test_process_rss_breakdown_reports_anon_and_file_components() -> None:
     assert set(tree) == {"rss_anon_kib", "rss_file_kib"}
     assert all(value >= 0 for value in current.values())
     assert all(value >= 0 for value in tree.values())
+
+
+def test_memory_sampler_accepts_provider_baseline_after_spawn() -> None:
+    sampler = MemorySampler(
+        workflow_pid=os.getpid(),
+        provider_pid=lambda: None,
+        cgroup=None,
+        interval_seconds=0.01,
+        baselines={"provider_process_tree": None},
+    )
+    sampler.set_baseline("provider_process_tree", 123)
+    assert sampler.baselines["provider_process_tree"] == 123
+
+
+def test_discard_runner_attaches_stdout_directly_to_devnull(tmp_path: Path) -> None:
+    settings = RepositoryServiceSettings(output_tail_bytes=64)
+    runner = DoltRunner.__new__(DoltRunner)
+    runner.settings = settings
+    runner.server_root = tmp_path
+    runner.home = tmp_path / "home"
+    runner.home.mkdir()
+    runner.settings = settings.model_copy(update={"dolt_binary": Path(sys.executable)})
+    discard = runner.discard(
+        "discard-test",
+        ["-c", "import sys; sys.stdout.write('x' * 4000000)"],
+        cwd=tmp_path,
+        timeout=2.0,
+    )
+    assert discard.process.stdout is None
+    result = discard.close()
+    assert result.exit_code == 0
+    assert result.timed_out is False
+    assert result.provider_peak_rss_anon_kib >= 0
+    assert result.provider_peak_rss_file_kib >= 0
+
+
+def test_scaling_diagnostic_defaults_to_candidate_b(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_collect(*_args: object, **kwargs: object) -> list[dict[str, object]]:
+        captured["candidates"] = kwargs["candidates"]
+        return []
+
+    monkeypatch.setattr(matrix_module, "_collect_scaling_records", fake_collect)
+    summary = run_scaling_diagnostic(
+        RepositoryServiceSettings(), tmp_path / "scaling.jsonl"
+    )
+    assert captured["candidates"] == (Candidate.B,)
+    assert summary["selected_provider"] is None
+    assert summary["p2_r1_exit"] == "no-go"
+
+
+def test_restart_before_stream_is_forwarded_to_worker_api(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(*_args: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(workflow_module, "_run_workflow_in_process", fake_run)
+    fixture = generate_scale_fixture(tmp_path, ScaleWorkload.S10)
+    workflow_module.run_workflow(
+        RepositoryServiceSettings(),
+        Candidate.B,
+        fixture,
+        sample_kind="diagnostic",
+        restart_before_stream=True,
+    )
+    assert captured["restart_before_stream"] is True
 
 
 def test_memory_sampler_exposes_absolute_and_baseline_delta() -> None:

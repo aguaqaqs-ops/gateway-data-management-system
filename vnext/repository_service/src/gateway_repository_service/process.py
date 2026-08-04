@@ -795,6 +795,12 @@ class MemorySampler:
             self._active = set(windows)
         self.sample(windows)
 
+    def set_baseline(self, subject: str, value: int | None) -> None:
+        """Inject a subject baseline immediately after its process is spawned."""
+
+        with self._lock:
+            self.baselines[subject] = value
+
     def stop(self) -> dict[str, dict[str, int | None]]:
         self.sample()
         self._stop.set()
@@ -929,6 +935,34 @@ class DoltRunner:
             max_line_bytes=self.settings.max_stream_line_bytes,
         )
 
+    def discard(
+        self,
+        command_kind: str,
+        args: list[str],
+        *,
+        cwd: Path,
+        timeout: float,
+        stdin_path: Path | None = None,
+    ) -> "DiscardProcess":
+        """Run a diagnostic stream with child stdout directly attached to DEVNULL."""
+
+        devnull = open(os.devnull, "wb")
+        try:
+            process, stdin_handle = self._start(
+                command_kind,
+                args,
+                cwd=cwd,
+                stdin_path=stdin_path,
+                stdout_target=devnull,
+            )
+        except BaseException:
+            devnull.close()
+            raise
+        devnull.close()
+        if stdin_handle is not None:
+            stdin_handle.close()
+        return DiscardProcess(self, process, command_kind, timeout)
+
     def _start(
         self,
         command_kind: str,
@@ -936,6 +970,7 @@ class DoltRunner:
         *,
         cwd: Path,
         stdin_path: Path | None,
+        stdout_target: BinaryIO | int | None = None,
     ) -> tuple[subprocess.Popen[bytes], BinaryIO | None]:
         resolved_cwd = cwd.resolve()
         if not resolved_cwd.is_relative_to(self.server_root):
@@ -960,7 +995,7 @@ class DoltRunner:
                 cwd=resolved_cwd,
                 env=environment,
                 stdin=stdin_handle,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.PIPE if stdout_target is None else stdout_target,
                 stderr=subprocess.PIPE,
                 shell=False,
                 close_fds=True,
@@ -1104,6 +1139,118 @@ class DoltRunner:
                 os.waitpid(pid, os.WNOHANG)
             except (ChildProcessError, FileNotFoundError, OSError, ValueError):
                 continue
+
+
+@dataclass(frozen=True)
+class DiscardResult:
+    command_kind: str
+    exit_code: int
+    duration_seconds: float
+    stderr_tail: bytes
+    timed_out: bool
+    provider_start_rss_kib: int
+    provider_peak_rss_kib: int
+    provider_start_rss_anon_kib: int
+    provider_start_rss_file_kib: int
+    provider_peak_rss_anon_kib: int
+    provider_peak_rss_file_kib: int
+
+
+class DiscardProcess:
+    """Supervise a child whose stdout is directly attached to DEVNULL."""
+
+    def __init__(
+        self,
+        runner: DoltRunner,
+        process: subprocess.Popen[bytes],
+        command_kind: str,
+        timeout: float,
+    ) -> None:
+        self.runner = runner
+        self.process = process
+        self.command_kind = command_kind
+        self.timeout = timeout
+        self.started = time.monotonic()
+        self.start_rss_kib = process_tree_rss_kib(process.pid)
+        start_breakdown = process_tree_rss_breakdown_kib(process.pid)
+        self.start_rss_anon_kib = start_breakdown["rss_anon_kib"]
+        self.start_rss_file_kib = start_breakdown["rss_file_kib"]
+        self.peak_rss_kib = self.start_rss_kib
+        self.peak_rss_anon_kib = self.start_rss_anon_kib
+        self.peak_rss_file_kib = self.start_rss_file_kib
+        self.stderr_tail = _Tail(runner.settings.output_tail_bytes)
+        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._stderr_thread.start()
+        self._monitor_stop = threading.Event()
+        self._monitor_thread = threading.Thread(target=self._monitor, daemon=True)
+        self._monitor_thread.start()
+        self._closed = False
+
+    def _drain_stderr(self) -> None:
+        if self.process.stderr is None:
+            return
+        while True:
+            data = self.process.stderr.read(65536)
+            if not data:
+                return
+            self.stderr_tail.append(data)
+
+    def _monitor(self) -> None:
+        while not self._monitor_stop.is_set():
+            self.peak_rss_kib = max(
+                self.peak_rss_kib, process_tree_rss_kib(self.process.pid)
+            )
+            breakdown = process_tree_rss_breakdown_kib(self.process.pid)
+            self.peak_rss_anon_kib = max(
+                self.peak_rss_anon_kib, breakdown["rss_anon_kib"]
+            )
+            self.peak_rss_file_kib = max(
+                self.peak_rss_file_kib, breakdown["rss_file_kib"]
+            )
+            self._monitor_stop.wait(0.02)
+
+    def close(self) -> DiscardResult:
+        if self._closed:
+            return DiscardResult(
+                self.command_kind,
+                self.process.returncode if self.process.returncode is not None else -1,
+                time.monotonic() - self.started,
+                self.stderr_tail.value(),
+                False,
+                self.start_rss_kib,
+                self.peak_rss_kib,
+                self.start_rss_anon_kib,
+                self.start_rss_file_kib,
+                self.peak_rss_anon_kib,
+                self.peak_rss_file_kib,
+            )
+        timed_out = False
+        deadline = self.started + self.timeout
+        while self.process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if self.process.poll() is None:
+            timed_out = True
+            self.runner.terminate_and_reap(self.process)
+        else:
+            self.process.wait()
+            self.runner.reap_adopted_dolt_children()
+        self._monitor_stop.set()
+        self._monitor_thread.join(timeout=max(1.0, self.runner.settings.terminate_grace_seconds * 2))
+        self._stderr_thread.join(timeout=max(1.0, self.runner.settings.terminate_grace_seconds * 2))
+        self._closed = True
+        return DiscardResult(
+            self.command_kind,
+            self.process.returncode if self.process.returncode is not None else -1,
+            time.monotonic() - self.started,
+            self.stderr_tail.value(),
+            timed_out,
+            self.start_rss_kib,
+            self.peak_rss_kib,
+            self.start_rss_anon_kib,
+            self.start_rss_file_kib,
+            self.peak_rss_anon_kib,
+            self.peak_rss_file_kib,
+        )
 
 
 class ProcessStream:

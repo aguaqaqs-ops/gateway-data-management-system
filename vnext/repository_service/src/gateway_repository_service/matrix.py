@@ -333,6 +333,7 @@ def _collect_scaling_records(
     image_digest: str | None,
     build_revision: str | None,
     cache_condition: str | None,
+    candidates: tuple[Candidate, ...] | None = None,
     restart_before_stream: bool = False,
     record_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> list[dict[str, object]]:
@@ -340,7 +341,8 @@ def _collect_scaling_records(
     metadata = _measurement_metadata(
         settings, image_digest=image_digest, build_revision=build_revision, cache_condition=cache_condition
     )
-    for candidate in Candidate:
+    selected_candidates = tuple(Candidate) if candidates is None else candidates
+    for candidate in selected_candidates:
         for scale in SCALE_WORKLOADS:
             fixture = generate_scale_fixture(fixture_root, scale)
             for bound in ROW_BOUNDS:
@@ -990,6 +992,7 @@ def run_scaling_diagnostic(
     image_digest: str | None = None,
     build_revision: str | None = None,
     cache_condition: str | None = None,
+    candidates: tuple[Candidate, ...] = (Candidate.B,),
     restart_before_stream: bool = False,
 ) -> dict[str, object]:
     """Run scaling records as diagnostic-only evidence."""
@@ -1038,6 +1041,7 @@ def run_scaling_diagnostic(
             image_digest=image_digest,
             build_revision=build_revision,
             cache_condition=cache_condition,
+            candidates=candidates,
             isolated=isolated,
             restart_before_stream=restart_before_stream,
         )
@@ -1050,6 +1054,7 @@ def run_scaling_diagnostic(
     summary.update(
         {
             "decision_kind": "diagnostic",
+            "diagnostic_candidates": [candidate.value for candidate in candidates],
             "formal_decision": False,
             "p2_r1_exit": "no-go",
             "round_exit": "diagnostic-no-go",
@@ -1550,6 +1555,11 @@ def main() -> None:
     parser.add_argument("--build-revision")
     parser.add_argument("--cache-condition")
     parser.add_argument("--restart-before-stream", action="store_true")
+    parser.add_argument(
+        "--candidates",
+        nargs="+",
+        choices=[candidate.value for candidate in Candidate],
+    )
     parser.add_argument("--diagnostic", action="store_true")
     parser.add_argument("--scaling-diagnostic", action="store_true")
     parser.add_argument("--offline-discard-diagnostic", action="store_true")
@@ -1573,6 +1583,13 @@ def main() -> None:
         args.diagnostic or args.scaling_diagnostic
     ):
         parser.error("--restart-before-stream requires a workflow diagnostic")
+    candidates = (
+        tuple(Candidate(value) for value in args.candidates)
+        if args.candidates
+        else (Candidate.B,)
+    )
+    if args.candidates and not args.scaling_diagnostic:
+        parser.error("--candidates is only valid with --scaling-diagnostic")
     workloads = (
         tuple(Workload(value) for value in args.workloads)
         if args.workloads
@@ -1588,6 +1605,7 @@ def main() -> None:
             image_digest=args.image_digest,
             build_revision=args.build_revision,
             cache_condition=args.cache_condition,
+            candidates=candidates,
             restart_before_stream=args.restart_before_stream,
         )
     elif args.offline_discard_diagnostic:

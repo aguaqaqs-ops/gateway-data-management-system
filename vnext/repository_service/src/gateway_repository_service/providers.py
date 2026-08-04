@@ -27,6 +27,7 @@ from gateway_repository_service.layout import ProbeLayout
 from gateway_repository_service.process import (
     CgroupMemoryMeasurement,
     CgroupMemoryTracker,
+    DiscardProcess,
     DoltRunner,
     MemorySampler,
     ProcessStream,
@@ -626,17 +627,39 @@ class OfflineCliProvider:
         workflow_baseline_cgroup = (
             self.cgroup.snapshot() if self.cgroup is not None else None
         )
-        stream_baseline_cgroup: CgroupMemoryMeasurement | None = None
+        query_baseline_cgroup = (
+            self.cgroup.snapshot() if self.cgroup is not None else None
+        )
+        stream_baseline_cgroup = query_baseline_cgroup
         baseline_arrow = pa.default_memory_pool().bytes_allocated()
         peak_arrow = baseline_arrow
         baseline_workflow = process_tree_rss_kib(os.getpid())
         workflow_peak = baseline_workflow
         sampler: MemorySampler | None = None
+        baseline_provider = 0
         rows_seen = 0
         oversized_single_row = False
         oversized_row_bytes: int | None = None
         old_field_limit = csv.field_size_limit()
         try:
+            sampler = MemorySampler(
+                os.getpid(),
+                lambda: stream.process.pid if stream is not None else None,
+                self.cgroup,
+                self.settings.memory_sample_interval_seconds,
+                baselines={
+                    "workflow_process_tree": workflow_peak,
+                    "provider_process_tree": None,
+                    "arrow_memory_pool": baseline_arrow,
+                    "cgroup": (
+                        query_baseline_cgroup.current_bytes
+                        if query_baseline_cgroup
+                        else None
+                    ),
+                },
+            )
+            sampler.start()
+            sampler.set_active(("first_10pct",))
             stream = self.runner.stream(
                 "row_stream",
                 ["sql", "--result-format=csv", "--binary-as-hex"],
@@ -645,27 +668,7 @@ class OfflineCliProvider:
                 stdin_path=query,
             )
             baseline_provider = process_tree_rss_kib(stream.process.pid)
-            stream_baseline_cgroup = (
-                self.cgroup.snapshot() if self.cgroup is not None else None
-            )
-            sampler = MemorySampler(
-                os.getpid(),
-                lambda: stream.process.pid if stream is not None else None,
-                self.cgroup,
-                self.settings.memory_sample_interval_seconds,
-                baselines={
-                    "workflow_process_tree": workflow_peak,
-                    "provider_process_tree": baseline_provider,
-                    "arrow_memory_pool": baseline_arrow,
-                    "cgroup": (
-                        stream_baseline_cgroup.current_bytes
-                        if stream_baseline_cgroup
-                        else None
-                    ),
-                },
-            )
-            sampler.start()
-            sampler.set_active(("first_10pct",))
+            sampler.set_baseline("provider_process_tree", baseline_provider)
             csv.field_size_limit(self.settings.max_stream_line_bytes)
             reader = csv.reader((line.decode("utf-8") for line in stream), strict=True)
             header = next(reader, None)
@@ -779,35 +782,31 @@ class OfflineCliProvider:
             self.query_directory,
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF '{commit_id}';\n",
         )
-        stream: ProcessStream | None = None
-        discarded_bytes = 0
+        discard: DiscardProcess | None = None
         try:
-            stream = self.runner.stream(
+            discard = self.runner.discard(
                 "row_stream_discard",
                 ["sql", "--result-format=csv", "--binary-as-hex"],
                 cwd=self.repository,
                 timeout=self.settings.import_timeout_seconds,
                 stdin_path=query,
             )
-            with open(os.devnull, "wb") as sink:
-                for chunk in stream:
-                    sink.write(chunk)
-                    discarded_bytes += len(chunk)
-            result = stream.close()
+            result = discard.close()
             if result.exit_code != 0:
                 raise ProviderError("Dolt discard stream failed")
             return {
                 "mode": "discard_to_devnull",
-                "discarded_bytes": discarded_bytes,
-                "provider_start_rss_anon_kib": stream.start_rss_anon_kib,
-                "provider_start_rss_file_kib": stream.start_rss_file_kib,
-                "provider_peak_rss_anon_kib": stream.peak_rss_anon_kib,
-                "provider_peak_rss_file_kib": stream.peak_rss_file_kib,
-                "provider_peak_rss_kib": stream.peak_rss_kib,
+                "stdout_target": "/dev/null",
+                "provider_start_rss_anon_kib": result.provider_start_rss_anon_kib,
+                "provider_start_rss_file_kib": result.provider_start_rss_file_kib,
+                "provider_peak_rss_anon_kib": result.provider_peak_rss_anon_kib,
+                "provider_peak_rss_file_kib": result.provider_peak_rss_file_kib,
+                "provider_peak_rss_kib": result.provider_peak_rss_kib,
+                "timed_out": result.timed_out,
             }
         finally:
-            if stream is not None:
-                stream.close()
+            if discard is not None:
+                discard.close()
             query.unlink(missing_ok=True)
 
     def marker_parent(self, marker: str) -> str | None:
@@ -1016,12 +1015,10 @@ class SqlServerProvider:
         oversized_row_bytes: int | None = None
         max_fetched_payload_bytes = 0
         try:
-            # Open/execute the cursor before taking the measured stream
-            # baseline.  Query setup is therefore excluded from the stream
-            # memory-stat delta while provider RSS remains explicitly tracked
-            # from its pre-query baseline.
             fetch_size = _safe_connector_fetch_size(table, self.settings)
-            cursor = self._call(self._open_cursor(table.name, commit_id))
+            # Query-before baseline and sampler start intentionally precede
+            # cursor.execute so execute/fetch/Arrow/yield are one measured
+            # interval.  The same snapshot is used for memory.stat deltas.
             stream_baseline_cgroup = (
                 self.cgroup.snapshot() if self.cgroup is not None else None
             )
@@ -1043,6 +1040,7 @@ class SqlServerProvider:
             )
             sampler.start()
             sampler.set_active(("first_10pct",))
+            cursor = self._call(self._open_cursor(table.name, commit_id))
             # Fetch a small, explicit connector bound. The splitter consumes
             # the returned rows immediately and never materializes a
             # row-bound-sized pending result.

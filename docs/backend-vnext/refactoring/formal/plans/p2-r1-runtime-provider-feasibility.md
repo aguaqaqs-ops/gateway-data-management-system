@@ -225,7 +225,18 @@ workflow process tree、provider/server descendant tree、Arrow memory pool和cg
 first/middle/final 10%峰值，并同时保存query前absolute baseline与
 `max(0, current-baseline)` delta；bounded gate只使用delta plateau。cgroup还必须保存
 `memory.stat` anon/file和stream-level peak，累计peak不得复用为window evidence。sampler
-覆盖execute/fetch、Arrow转换、yield和cursor close等瞬时阶段。
+覆盖execute/fetch、Arrow转换、yield和cursor close等瞬时阶段。v7将query-before
+baseline定义为：Candidate A 在CLI spawn前、Candidate B 在`cursor.execute()`前取得，
+并从该时点启动first-window sampler；A在子进程spawn后立即注入provider baseline。
+pending-row active window按`rows_seen + pending_index`逐行推进，batch跨越窗口时立即
+更新active window。restart-before-stream diagnostic只属于诊断探索证据，不属于formal
+decision evidence，不能产生provider selection或P2-R2 readiness。
+
+Provider-specific diagnostics are not formal decision evidence. The scaling diagnostic
+accepts an explicit candidate tuple and defaults to Candidate B for the restart experiment;
+the formal `run_matrix()` remains fixed to both candidates. Candidate A's discard diagnostic
+must attach Dolt stdout directly to `/dev/null` and supervise stderr, timeout, RSS
+`RssAnon`/`RssFile`, termination and reap without Python stdout framing.
 
 batch窗口按batch覆盖的row区间计入：first `[0,ceil(10%))`、middle
 `[floor(45%),ceil(55%))`、final `[floor(90%),total)`。4 MiB是普通decoded payload上限；

@@ -1,6 +1,6 @@
 # P2-R1 Runtime and Provider Feasibility Contract
 
-状态：Accepted
+状态：Accepted; v8 additive decision rules are authoritative for the next rerun
 
 日期：2026-08-01
 
@@ -8,7 +8,12 @@
 
 Owner：Backend vNext Architecture（provider选择、feasibility probe、P2-R1退出判断）
 
-Measurement methodology version：`p2-r1-audit-corrective-v7`
+Measurement methodology version：`p2-r1-audit-corrective-v8`
+
+v7 historical artifacts remain frozen under `p2-r1-audit-corrective-v7`. The v8
+implementation contract is defined by the approved
+[v8 Authority and Implementation Brief](p2-r1-v8-authority-and-implementation-brief.md)
+and the superseding rules in this document.
 
 历史 2026-08-02 raw/summary 的 bounded-stream 结论按审核结论标记为
 `measurement-method-invalid/inconclusive`；本 authority 修订不回写或覆盖历史文件。
@@ -347,7 +352,95 @@ P2-R1 exit只有两种：
   P2-R2；
 - `no-go`：没有candidate通过，保持P2-R2未开始并回到具体失败机制讨论。
 
-## 9. Non-goals
+## 9. v8 superseding formal decision contract
+
+The v8 formal runner is an explicit A-only run. It must publish exactly 66 raw
+measurement records:
+
+```text
+normal:   W0/W1/W2/W3-1pct/W3-10pct × (warmup + 5 measured) = 30
+scaling:  S10/S40/S100 × row bound 256/1024 × (warmup + 5 measured) = 36
+```
+
+Normal records use row bound `1024` and effective decoded byte bound `1048576`.
+Scaling records use row bounds `256` and `1024`, both with effective byte bound
+`1048576`. A failed sample retains its coverage key and is a hard execution or
+correctness failure; it is not deleted or replaced to manufacture complete
+coverage.
+
+Candidate B is represented only as `candidate_b_status=reserved_not_evaluated`.
+It is not missing, failed or inconclusive, is excluded from the 66-record
+coverage, and cannot participate in selection. B may run one diagnostic-only W0
+smoke with `formal_decision=false`.
+
+The v8 hard gates are execution/correctness, commit-pinned catalog and value
+fidelity, cancellation/restart/publication/cleanup, storage provenance and W3
+lifecycle, actual row/byte batch contract, oversized-row evidence, complete
+artifacts/provenance, complete absolute memory evidence, timeout/OOM/process and
+cgroup cleanup. Missing memory evidence is a hard evidence-completeness failure.
+
+The following are advisory only and must not mechanically reject Candidate A:
+the `1.5x` scale ratio, provider/workflow/cgroup absolute memory, anon/file
+memory, capacity projection and concurrency/service-memory recommendations.
+The v8 compatibility alias `bounded_stream_gate` equals the batch safety gate and
+must be labeled `bounded_stream_gate_semantics=batch_contract_v8`; it must not
+represent the ratio. `capacity_gate` is not a v8 hard gate.
+
+Each record must contain the workflow-aggregated decoded payload contract:
+
+```text
+total_rows, total_stream_payload_bytes, max_row_bytes,
+batch_count, max_batch_rows, max_batch_bytes,
+oversized_single_row, oversized_row_count, max_oversized_row_bytes,
+batch_contract_valid, batch_contract_violation_count
+```
+
+The canonical `_row_bytes()` counts NULL as zero, strings as UTF-8 bytes,
+binary values as raw bytes and other normalized scalars as UTF-8 bytes of their
+string form. Tagged-CSV encoded line safety is recorded separately from decoded
+payload. A batch above 1 MiB is legal only when it contains exactly one
+indivisible oversized row and remains below `max_stream_line_bytes`.
+
+The supported envelope is simultaneous and commit-pinned:
+
+```text
+validated:          total_rows_at_commit <= 100000,
+                    max_table_rows <= 100000,
+                    replay SQL <= 200 MiB
+controlled_preview: total_rows_at_commit <= 1000000,
+                    max_table_rows <= 1000000,
+                    replay SQL <= 200 MiB
+```
+
+For advisory purposes, v8 records the sample-child workflow cgroup absolute
+`memory.peak`. The references are 2.5 GiB ordinary workflow, 3 GiB W2 boundary,
+8 GiB service, 16 GiB four-worker burst and recommended concurrency 2. These
+values do not affect selection. The formal target must set and read back
+sample-child `memory.max=8589934592`; any lower finite ancestor limit or missing
+hierarchy verification is a hard preflight failure. Raw records include both
+`memory_limit_bytes` and `effective_memory_limit_bytes`.
+
+v8 decision aliases are dynamically derived from raw records:
+
+```text
+measurement_outcome = formal_status
+p2_r1_exit = formal_status
+round_exit = formal_status
+proposed_provider = selected_provider
+next_round_ready = p2_r2_ready
+records/normal_records/scaling_records/unique_measurement_keys = actual counts
+performance_excluded_warmups = actual warmup count
+expected_records = 66, expected_normal_records = 30,
+expected_scaling_records = 36, expected_warmups = 11
+```
+
+Only when all A hard gates and exact coverage pass may the dynamic result be
+`go` with `selected_provider=candidate_a_offline_cli`; otherwise it is `no-go`
+with `selected_provider=null`, `candidate_b_status=reserved_not_evaluated` and
+`p2_r2_ready=false`. The external project remains no-go until the resulting
+artifacts are independently reviewed.
+
+## 10. Non-goals
 
 本轮不得：
 

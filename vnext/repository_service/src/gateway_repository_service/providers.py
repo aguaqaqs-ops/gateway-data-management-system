@@ -84,6 +84,11 @@ def _cgroup_stream_metrics(
     return {
         "cgroup_current_bytes": final.current_bytes if final else None,
         "cgroup_peak_bytes": final.peak_bytes if final else None,
+        "cgroup_memory_peak_bytes": final.peak_bytes if final else None,
+        "memory_limit_bytes": final.memory_limit_bytes if final else None,
+        "effective_memory_limit_bytes": (
+            final.effective_memory_limit_bytes if final else None
+        ),
         "cgroup_baseline_peak_bytes": (
             workflow_baseline.peak_bytes if workflow_baseline else None
         ),
@@ -407,15 +412,22 @@ def _parse_tagged_row(row: list[str], table: TableCatalog) -> tuple[Any, ...]:
 
 
 def _rows_bytes(rows: list[tuple[Any, ...]]) -> int:
-    """Conservative pre-Arrow bound for the in-flight Python row batch."""
+    """Return canonical decoded payload bytes for a row batch.
+
+    This deliberately excludes CSV framing, SQL text, Arrow metadata and
+    allocator overhead.  Both providers use this function for the v8 batch
+    contract so their payload measurements are comparable.
+    """
 
     return sum(
         sum(
-            len(value.encode("utf-8"))
+            0
+            if value is None
+            else len(value.encode("utf-8"))
             if isinstance(value, str)
             else len(value)
             if isinstance(value, bytes)
-            else 16
+            else len(str(value).encode("utf-8"))
             for value in row
         )
         for row in rows
@@ -494,6 +506,71 @@ def _empty_plateau_peaks() -> dict[str, dict[str, int | None]]:
             "cgroup",
         )
     }
+
+
+def _empty_batch_metrics(*, encoded_line_applicable: bool) -> dict[str, object]:
+    return {
+        "total_rows": 0,
+        "total_stream_payload_bytes": 0,
+        "max_row_bytes": 0,
+        "batch_count": 0,
+        "max_batch_rows": 0,
+        "max_batch_bytes": 0,
+        "oversized_single_row": False,
+        "oversized_row_count": 0,
+        "max_oversized_row_bytes": 0,
+        "batch_contract_valid": True,
+        "batch_contract_violation_count": 0,
+        "encoded_line_bound": None,
+        "max_encoded_line_bytes": 0,
+        "encoded_line_bound_valid": None,
+        "encoded_line_applicable": encoded_line_applicable,
+    }
+
+
+def _metric_int(metrics: dict[str, object], key: str) -> int:
+    value = metrics.get(key)
+    return int(value) if isinstance(value, (int, float, str)) else 0
+
+
+def _observe_batch_metrics(
+    metrics: dict[str, object],
+    rows: list[tuple[Any, ...]],
+    *,
+    row_bound: int,
+    byte_bound: int,
+) -> int:
+    payload_bytes = _rows_bytes(rows)
+    row_count = len(rows)
+    row_sizes = [_row_bytes(row) for row in rows]
+    row_bytes = max(row_sizes, default=0)
+    metrics["total_rows"] = _metric_int(metrics, "total_rows") + row_count
+    metrics["total_stream_payload_bytes"] = (
+        _metric_int(metrics, "total_stream_payload_bytes") + payload_bytes
+    )
+    metrics["max_row_bytes"] = max(_metric_int(metrics, "max_row_bytes"), row_bytes)
+    metrics["batch_count"] = _metric_int(metrics, "batch_count") + 1
+    metrics["max_batch_rows"] = max(_metric_int(metrics, "max_batch_rows"), row_count)
+    metrics["max_batch_bytes"] = max(_metric_int(metrics, "max_batch_bytes"), payload_bytes)
+    oversized_rows = [size for size in row_sizes if size > byte_bound]
+    if oversized_rows:
+        metrics["oversized_row_count"] = _metric_int(
+            metrics, "oversized_row_count"
+        ) + len(oversized_rows)
+        metrics["max_oversized_row_bytes"] = max(
+            _metric_int(metrics, "max_oversized_row_bytes"), max(oversized_rows)
+        )
+    oversized_single_row = row_count == 1 and bool(oversized_rows)
+    metrics["oversized_single_row"] = bool(metrics["oversized_single_row"]) or oversized_single_row
+    valid = 1 <= row_count <= row_bound and (
+        payload_bytes <= byte_bound or oversized_single_row
+    )
+    if not valid:
+        metrics["batch_contract_valid"] = False
+        metrics["batch_contract_violation_count"] = (
+            _metric_int(metrics, "batch_contract_violation_count") + 1
+        )
+    return payload_bytes
 
 
 def _iter_fixture_sql(path: Path) -> Iterator[str]:
@@ -641,6 +718,9 @@ class OfflineCliProvider:
         rows_seen = 0
         oversized_single_row = False
         oversized_row_bytes: int | None = None
+        batch_metrics = _empty_batch_metrics(encoded_line_applicable=True)
+        batch_metrics["encoded_line_bound"] = self.settings.max_stream_line_bytes
+        batch_metrics["encoded_line_bound_valid"] = True
         old_field_limit = csv.field_size_limit()
         try:
             sampler = MemorySampler(
@@ -671,7 +751,17 @@ class OfflineCliProvider:
             baseline_provider = process_tree_rss_kib(stream.process.pid)
             sampler.set_baseline("provider_process_tree", baseline_provider)
             csv.field_size_limit(self.settings.max_stream_line_bytes)
-            reader = csv.reader((line.decode("utf-8") for line in stream), strict=True)
+            def decode_line(line: bytes) -> str:
+                line_bytes = len(line)
+                batch_metrics["max_encoded_line_bytes"] = max(
+                    _metric_int(batch_metrics, "max_encoded_line_bytes"), line_bytes
+                )
+                if line_bytes > self.settings.max_stream_line_bytes:
+                    batch_metrics["encoded_line_bound_valid"] = False
+                    raise ProviderError("tagged CSV encoded line exceeded safety bound")
+                return line.decode("utf-8")
+
+            reader = csv.reader((decode_line(line) for line in stream), strict=True)
             header = next(reader, None)
             if header is None:
                 return
@@ -691,6 +781,12 @@ class OfflineCliProvider:
                 peak_arrow = max(peak_arrow, pa.default_memory_pool().bytes_allocated())
                 workflow_peak = max(workflow_peak, process_tree_rss_kib(os.getpid()))
                 sampler.sample(windows)
+                _observe_batch_metrics(
+                    batch_metrics,
+                    chunk,
+                    row_bound=self.settings.record_batch_rows,
+                    byte_bound=self.settings.record_batch_bytes,
+                )
                 rows_seen = end
                 return batch
 
@@ -756,6 +852,7 @@ class OfflineCliProvider:
                 "oversized_single_row": oversized_single_row,
                 "oversized_row_bytes": oversized_row_bytes,
                 "byte_bound_reason": "single_indivisible_row" if oversized_single_row else None,
+                **batch_metrics,
             }
             if result.exit_code != 0:
                 raise ProviderError("Dolt row stream failed")
@@ -1114,6 +1211,7 @@ class SqlServerProvider:
         oversized_single_row = False
         oversized_row_bytes: int | None = None
         max_fetched_payload_bytes = 0
+        batch_metrics = _empty_batch_metrics(encoded_line_applicable=False)
         try:
             fetch_size = _safe_connector_fetch_size(table, self.settings)
             # Query-before baseline and sampler start intentionally precede
@@ -1164,6 +1262,12 @@ class SqlServerProvider:
                     current = self.cgroup.snapshot()
                     peak_cgroup = max(peak_cgroup, current.peak_bytes or 0)
                 sampler.sample(windows)
+                _observe_batch_metrics(
+                    batch_metrics,
+                    chunk,
+                    row_bound=self.settings.record_batch_rows,
+                    byte_bound=self.settings.record_batch_bytes,
+                )
                 rows_seen = end
                 return batch
 
@@ -1255,6 +1359,7 @@ class SqlServerProvider:
                 "oversized_single_row": oversized_single_row,
                 "oversized_row_bytes": oversized_row_bytes,
                 "byte_bound_reason": "single_indivisible_row" if oversized_single_row else None,
+                **batch_metrics,
             }
 
     async def _open_cursor(self, table: str, commit_id: str) -> Any:

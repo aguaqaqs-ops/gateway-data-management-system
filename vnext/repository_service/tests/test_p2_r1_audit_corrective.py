@@ -37,10 +37,12 @@ from gateway_repository_service.fixtures import (
 from gateway_repository_service.layout import ProbeLayout
 from gateway_repository_service.matrix import (
     BYTE_BOUND,
+    V8_BYTE_BOUND,
     EXPECTED_SAMPLE_KINDS,
     NORMAL_WORKLOADS,
     ROW_BOUNDS,
     SCALE_WORKLOADS,
+    V8_METHODOLOGY,
     _coverage,
     _bounded_stream_gate,
     _record_bounded_gate,
@@ -50,8 +52,15 @@ from gateway_repository_service.matrix import (
     _resolve_probe_data_root,
     _validate_target_storage_root,
     _w3_lifecycle_evidence_valid,
+    _v8_batch_contract_valid,
+    _v8_coverage,
+    _v8_resource_advisory,
+    _v8_ratio_observation,
+    _summarize_v8,
+    _support_envelope,
     run_a_paired_devnull_diagnostic,
     run_matrix,
+    run_v8_matrix,
     run_scaling_diagnostic,
     _summarize,
 )
@@ -83,6 +92,7 @@ from gateway_repository_service.providers import (
     _parse_tagged_row,
     _pending_row_windows,
     _rows_bytes,
+    _observe_batch_metrics,
     _tagged_select_list,
 )
 from gateway_repository_service.settings import RepositoryServiceSettings
@@ -114,7 +124,7 @@ def test_authority_methodology_version_matches_settings() -> None:
         authority.read_text(encoding="utf-8"),
     )
     assert match is not None
-    assert match.group(1) == RepositoryServiceSettings().measurement_methodology_version
+    assert match.group(1) == RepositoryServiceSettings().v8_measurement_methodology_version
 
 
 def _test_plateau_peaks() -> dict[str, dict[str, int]]:
@@ -2420,3 +2430,359 @@ def test_a_paired_devnull_diagnostic_is_no_go_and_keeps_variants(
     assert summary["devnull_records"] == 2
     raw = (tmp_path / "a-paired.jsonl").read_text(encoding="utf-8").splitlines()
     assert all(json.loads(line).get("diagnostic_variant") == "devnull" for line in raw)
+
+
+def test_v8_rows_bytes_have_deterministic_null_utf8_binary_scalar_semantics() -> None:
+    assert _rows_bytes([(None, "世界", b"\x00\xff", 42)]) == 6 + 2 + 2
+
+
+def _v8_memory_evidence_for_test(peak: int = 100) -> dict[str, object]:
+    plateau = {
+        subject: {
+            "first_10pct": 0,
+            "middle_10pct": 0,
+            "final_10pct": 0,
+        }
+        for subject in (
+            "workflow_process_tree",
+            "provider_process_tree",
+            "arrow_memory_pool",
+            "cgroup",
+        )
+    }
+    return {
+        "coverage": "available",
+        "baseline_coverage": True,
+        "cgroup_stat_coverage": True,
+        "plateau_peaks": plateau,
+        "plateau_peaks_absolute": plateau,
+        "memory_limit_bytes": 8 * 1024 * 1024 * 1024,
+        "effective_memory_limit_bytes": 8 * 1024 * 1024 * 1024,
+        "cgroup_memory_peak_bytes": peak,
+    }
+
+
+def _v8_record_for_test(
+    *,
+    matrix_kind: str,
+    workload: str,
+    sample_kind: str,
+    row_bound: int = 1024,
+    correctness: bool = True,
+    error: str | None = None,
+) -> dict[str, object]:
+    record: dict[str, object] = {
+        "candidate": Candidate.A.value,
+        "matrix_kind": matrix_kind,
+        "workload": workload,
+        "sample_kind": sample_kind,
+        "record_batch_row_bound": row_bound,
+        "record_batch_byte_bound": V8_BYTE_BOUND,
+        "correctness": correctness,
+        "error": error,
+        "hard_gates": {
+            "workflow": correctness,
+            "cancellation": correctness,
+            "restart": correctness,
+            "unknown_type": correctness,
+        },
+        "memory_evidence": _v8_memory_evidence_for_test(),
+        "total_rows": 1,
+        "batch_count": 1,
+        "batch_contract_valid": True,
+        "batch_contract_violation_count": 0,
+        "total_stream_payload_bytes": 1,
+        "max_row_bytes": 1,
+        "max_batch_rows": 1,
+        "max_batch_bytes": 1,
+        "oversized_single_row": False,
+        "encoded_line_applicable": False,
+        "encoded_line_bound_valid": None,
+        "metadata_complete": True,
+        "storage_mount_verified": True,
+        "volume_backend": "volume",
+        "filesystem_type": "xfs",
+        "storage_root_identity": "sha256:" + "a" * 64,
+        "storage_layout_version": "p2-r1-storage-layout-v1",
+        "support_envelope": "validated",
+        "methodology_version": V8_METHODOLOGY,
+    }
+    if workload in {Workload.W3_1.value, Workload.W3_10.value}:
+        record.update(
+            {
+                **_valid_w3_evidence(),
+                "storage_evidence_status": "available",
+                "storage_snapshot_complete": True,
+                "storage_mount_verified": True,
+            }
+        )
+    return record
+
+
+def test_v8_coverage_retains_failed_key_but_fails_decision() -> None:
+    records = [
+        _v8_record_for_test(
+            matrix_kind="normal",
+            workload=workload.value,
+            sample_kind=sample,
+            correctness=not (workload == Workload.W1 and sample == "measured-1"),
+            error="ProviderError" if workload == Workload.W1 and sample == "measured-1" else None,
+        )
+        for workload in NORMAL_WORKLOADS
+        for sample in EXPECTED_SAMPLE_KINDS
+    ]
+    records.extend(
+        _v8_record_for_test(
+            matrix_kind="scaling",
+            workload=scale.value,
+            row_bound=bound,
+            sample_kind=sample,
+        )
+        for scale in SCALE_WORKLOADS
+        for bound in ROW_BOUNDS
+        for sample in EXPECTED_SAMPLE_KINDS
+    )
+    normal_complete, normal_counts = _v8_coverage(records, "normal")
+    scaling_complete, scaling_counts = _v8_coverage(records, "scaling")
+    assert normal_complete is True
+    assert scaling_complete is True
+    assert normal_counts["actual"] == 30
+    assert scaling_counts["actual"] == 36
+    summary = _summarize_v8(records, RepositoryServiceSettings())
+    assert summary["records"] == 66
+    assert summary["unique_measurement_keys"] == 66
+    assert summary["formal_status"] == "no-go"
+    assert summary["selected_provider"] is None
+    assert summary["candidate_b_status"] == "reserved_not_evaluated"
+
+
+def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
+    metrics: dict[str, object] = {
+        "total_rows": 0,
+        "total_stream_payload_bytes": 0,
+        "max_row_bytes": 0,
+        "batch_count": 0,
+        "max_batch_rows": 0,
+        "max_batch_bytes": 0,
+        "oversized_single_row": False,
+        "oversized_row_count": 0,
+        "max_oversized_row_bytes": 0,
+        "batch_contract_valid": True,
+        "batch_contract_violation_count": 0,
+    }
+    _observe_batch_metrics(metrics, [("x" * 5,)], row_bound=1024, byte_bound=4)
+    _observe_batch_metrics(metrics, [("y" * 6,)], row_bound=1024, byte_bound=4)
+    assert metrics["oversized_single_row"] is True
+    assert metrics["oversized_row_count"] == 2
+    assert metrics["batch_contract_valid"] is True
+    assert metrics["max_oversized_row_bytes"] == 6
+    invalid_metrics: dict[str, object] = {
+        "total_rows": 0,
+        "total_stream_payload_bytes": 0,
+        "max_row_bytes": 0,
+        "batch_count": 0,
+        "max_batch_rows": 0,
+        "max_batch_bytes": 0,
+        "oversized_single_row": False,
+        "oversized_row_count": 0,
+        "max_oversized_row_bytes": 0,
+        "batch_contract_valid": True,
+        "batch_contract_violation_count": 0,
+    }
+    _observe_batch_metrics(
+        invalid_metrics, [("a" * 3,), ("b" * 3,)], row_bound=1024, byte_bound=4
+    )
+    assert invalid_metrics["oversized_single_row"] is False
+    assert invalid_metrics["batch_contract_valid"] is False
+    assert invalid_metrics["batch_contract_violation_count"] == 1
+    assert _v8_batch_contract_valid(
+        {
+            "batch_contract_valid": True,
+            "batch_contract_violation_count": 0,
+            "total_rows": 2,
+            "total_stream_payload_bytes": 2,
+            "batch_count": 1,
+            "max_batch_rows": 2,
+            "max_batch_bytes": 2,
+            "record_batch_byte_bound": V8_BYTE_BOUND,
+            "record_batch_row_bound": 1024,
+            "oversized_single_row": False,
+        }
+    ) is True
+
+    invalid_multi_row: dict[str, object] = {
+        "total_rows": 2,
+        "total_stream_payload_bytes": 6,
+        "batch_count": 1,
+        "max_batch_rows": 2,
+        "max_batch_bytes": 6,
+        "oversized_single_row": False,
+        "batch_contract_valid": False,
+        "batch_contract_violation_count": 1,
+        "record_batch_row_bound": 1024,
+        "record_batch_byte_bound": V8_BYTE_BOUND,
+    }
+    assert _v8_batch_contract_valid(invalid_multi_row) is False
+
+
+def test_v8_ratio_is_advisory_and_resource_includes_failed_evidence() -> None:
+    rows: list[dict[str, object]] = []
+    for scale in SCALE_WORKLOADS:
+        for bound in ROW_BOUNDS:
+            for sample in (f"measured-{index}" for index in range(1, 6)):
+                row = _v8_record_for_test(
+                    matrix_kind="scaling",
+                    workload=scale.value,
+                    sample_kind=sample,
+                    row_bound=bound,
+                )
+                row["memory_evidence"] = _v8_memory_evidence_for_test(
+                    2_000_000_000 if scale == ScaleWorkload.S100 else 100
+                )
+                rows.append(row)
+    status, ratios, reason = _v8_ratio_observation(rows)
+    assert status in {"pass", "warning"}
+    assert reason is None
+    assert ratios
+    advisory = _v8_resource_advisory(rows)
+    assert advisory["observed_max_workflow_cgroup_peak_bytes"] == 2_000_000_000
+    assert advisory["affects_formal_decision"] is False
+
+
+def test_v8_ratio_warning_does_not_enter_the_hard_gate() -> None:
+    records = [
+        _v8_record_for_test(
+            matrix_kind="normal",
+            workload=workload.value,
+            sample_kind=sample,
+        )
+        for workload in NORMAL_WORKLOADS
+        for sample in EXPECTED_SAMPLE_KINDS
+    ]
+    records.extend(
+        _v8_record_for_test(
+            matrix_kind="scaling",
+            workload=scale.value,
+            row_bound=bound,
+            sample_kind=sample,
+        )
+        for scale in SCALE_WORKLOADS
+        for bound in ROW_BOUNDS
+        for sample in EXPECTED_SAMPLE_KINDS
+    )
+    for row in records:
+        if row["matrix_kind"] == "scaling" and row["workload"] == ScaleWorkload.S100.value:
+            evidence = _v8_memory_evidence_for_test(2_000_000_000)
+            plateau = cast(dict[str, dict[str, int]], evidence["plateau_peaks"])
+            absolute = cast(
+                dict[str, dict[str, int]], evidence["plateau_peaks_absolute"]
+            )
+            for subject in plateau:
+                for window in plateau[subject]:
+                    plateau[subject][window] = 200
+                    absolute[subject][window] = 200
+            row["memory_evidence"] = evidence
+            row["plateau_peaks"] = plateau
+            row["plateau_peaks_absolute"] = absolute
+    summary = _summarize_v8(records, RepositoryServiceSettings())
+    candidate = cast(dict[str, dict[str, object]], summary["candidate_matrix"])[Candidate.A.value]
+    assert candidate["scale_ratio_observation"] == "warning"
+    assert candidate["hard_gate"] is True
+    assert summary["selected_provider"] == Candidate.A.value
+
+
+def test_v8_runner_is_a_only_and_publishes_exact_66_records(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GATEWAY_P2R1_TARGET_CONTAINER", "1")
+    sample_root = tmp_path / "samples"
+    sample_root.mkdir()
+    data_root = tmp_path / "repository"
+    data_root.mkdir()
+    monkeypatch.setattr(
+        matrix_module,
+        "_resolve_probe_data_root",
+        lambda *_args, **_kwargs: data_root,
+    )
+    monkeypatch.setattr(
+        matrix_module,
+        "load_cgroup_topology",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        matrix_module,
+        "preflight_cgroup",
+        lambda *_args, **_kwargs: sample_root,
+    )
+    calls: list[tuple[str, tuple[Candidate, ...], int]] = []
+
+    def fake_normal(
+        _settings: RepositoryServiceSettings,
+        _fixture_root: Path,
+        _probe_root: Path,
+        workloads: tuple[Workload, ...],
+        _measured_runs: int,
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        selected = cast(tuple[Candidate, ...], kwargs["candidates"])
+        byte_bound = cast(int, kwargs["byte_bound"])
+        calls.append(("normal", selected, byte_bound))
+        rows = [
+            _v8_record_for_test(
+                matrix_kind="normal",
+                workload=workload.value,
+                sample_kind=sample,
+            )
+            for workload in workloads
+            for sample in EXPECTED_SAMPLE_KINDS
+        ]
+        sink = cast(Callable[[dict[str, object]], None], kwargs["record_sink"])
+        for row in rows:
+            sink(row)
+        return rows
+
+    def fake_scaling(
+        _settings: RepositoryServiceSettings,
+        _fixture_root: Path,
+        _probe_root: Path,
+        _measured_runs: int,
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        selected = cast(tuple[Candidate, ...], kwargs["candidates"])
+        byte_bound = cast(int, kwargs["byte_bound"])
+        calls.append(("scaling", selected, byte_bound))
+        rows = [
+            _v8_record_for_test(
+                matrix_kind="scaling",
+                workload=scale.value,
+                row_bound=bound,
+                sample_kind=sample,
+            )
+            for scale in SCALE_WORKLOADS
+            for bound in ROW_BOUNDS
+            for sample in EXPECTED_SAMPLE_KINDS
+        ]
+        sink = cast(Callable[[dict[str, object]], None], kwargs["record_sink"])
+        for row in rows:
+            sink(row)
+        return rows
+
+    monkeypatch.setattr(matrix_module, "_collect_normal_records", fake_normal)
+    monkeypatch.setattr(matrix_module, "_collect_scaling_records", fake_scaling)
+    output = tmp_path / "v8" / "p2-r1-v8.jsonl"
+    summary = run_v8_matrix(
+        RepositoryServiceSettings(cgroup_root=sample_root), output
+    )
+    assert calls == [
+        ("normal", (Candidate.A,), V8_BYTE_BOUND),
+        ("scaling", (Candidate.A,), V8_BYTE_BOUND),
+    ]
+    assert summary["records"] == 66
+    assert summary["expected_records"] == 66
+    assert summary["candidate_b_status"] == "reserved_not_evaluated"
+    assert summary["selected_provider"] == Candidate.A.value
+
+
+def test_v8_support_envelope_uses_commit_fixture_size(tmp_path: Path) -> None:
+    fixture = generate_scale_fixture(tmp_path, ScaleWorkload.S100)
+    assert _support_envelope(fixture) == "validated"

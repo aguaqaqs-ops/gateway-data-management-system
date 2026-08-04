@@ -99,9 +99,16 @@ def process_tree_rss_breakdown_kib(pid: int) -> dict[str, int]:
 class WorkflowCgroupScope:
     """Own one delegated child cgroup without moving the supervisor into it."""
 
-    def __init__(self, root: Path | None, *, grace_seconds: float = 2.0) -> None:
+    def __init__(
+        self,
+        root: Path | None,
+        *,
+        grace_seconds: float = 2.0,
+        memory_limit_bytes: int | None = None,
+    ) -> None:
         self.root = root.resolve() if root is not None else None
         self.grace_seconds = grace_seconds
+        self.memory_limit_bytes = memory_limit_bytes
         self.path: Path | None = None
         self.active = False
 
@@ -119,6 +126,26 @@ class WorkflowCgroupScope:
             raise ProcessBoundaryError("cannot create delegated workflow cgroup") from exc
         self.path = candidate
         self.active = True
+        if self.memory_limit_bytes is not None:
+            try:
+                (candidate / "memory.max").write_text(
+                    str(self.memory_limit_bytes), encoding="ascii"
+                )
+                configured = (candidate / "memory.max").read_text(
+                    encoding="ascii"
+                ).strip()
+            except OSError as exc:
+                self.active = False
+                candidate.rmdir()
+                raise ProcessBoundaryError(
+                    "cannot configure workflow cgroup memory safety ceiling"
+                ) from exc
+            if configured != str(self.memory_limit_bytes):
+                self.active = False
+                candidate.rmdir()
+                raise ProcessBoundaryError(
+                    "workflow cgroup memory safety ceiling was not verified"
+                )
         return candidate
 
     def attach(self, pid: int) -> None:
@@ -436,7 +463,10 @@ def _require_cgroup_files(path: Path) -> None:
 
 
 def preflight_cgroup(
-    root: Path | None, topology: CgroupTopology | None = None
+    root: Path | None,
+    topology: CgroupTopology | None = None,
+    *,
+    memory_limit_bytes: int | None = None,
 ) -> Path:
     """Exercise real cgroup creation, migration, memory reads, and cleanup."""
 
@@ -492,7 +522,7 @@ def preflight_cgroup(
         raise ProcessBoundaryError("target supervisor is not under the delegated cgroup parent")
     if topology is None:
         _require_cgroup_files(root_path)
-    scope = WorkflowCgroupScope(root_path)
+    scope = WorkflowCgroupScope(root_path, memory_limit_bytes=memory_limit_bytes)
     worker_pid: int | None = None
     gate_write: int | None = None
     try:
@@ -529,6 +559,14 @@ def preflight_cgroup(
             snapshot = tracker.snapshot()
             if not tracker.per_workflow or not snapshot.available:
                 raise ProcessBoundaryError("delegated cgroup memory controls are unavailable")
+            if memory_limit_bytes is not None and (
+                snapshot.memory_limit_bytes != memory_limit_bytes
+                or snapshot.effective_memory_limit_bytes is None
+                or snapshot.effective_memory_limit_bytes < memory_limit_bytes
+            ):
+                raise ProcessBoundaryError(
+                    "delegated cgroup memory safety ceiling is not effective"
+                )
         finally:
             tracker.close()
         if gate_write is not None:
@@ -572,6 +610,8 @@ class CgroupMemoryMeasurement:
     scope_identity: str
     available: bool
     per_workflow: bool
+    memory_limit_bytes: int | None = None
+    effective_memory_limit_bytes: int | None = None
 
 
 class CgroupMemoryTracker:
@@ -588,6 +628,20 @@ class CgroupMemoryTracker:
         self.reset_stat = self._read_stat(self.root / "memory.stat")
         self.scope_identity = cgroup_scope_identity(self.root)
         self.per_workflow = self.reset_baseline is not None
+        self.memory_limit_bytes = self._read(self.root / "memory.max")
+        self.effective_memory_limit_bytes = self._effective_memory_limit()
+
+    def _effective_memory_limit(self) -> int | None:
+        limits: list[int] = []
+        current = self.root
+        while current != current.parent:
+            if not (current / "memory.max").is_file():
+                break
+            value = self._read(current / "memory.max")
+            if value is not None:
+                limits.append(value)
+            current = current.parent
+        return min(limits) if limits else None
 
     @staticmethod
     def _read_stat(path: Path) -> dict[str, int]:
@@ -685,6 +739,8 @@ class CgroupMemoryTracker:
             scope_identity=self.scope_identity,
             available=current is not None and peak is not None,
             per_workflow=self.per_workflow,
+            memory_limit_bytes=self.memory_limit_bytes,
+            effective_memory_limit_bytes=self.effective_memory_limit_bytes,
         )
 
 

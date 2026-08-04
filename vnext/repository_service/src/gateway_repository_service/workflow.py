@@ -63,6 +63,7 @@ class WorkflowMeasurement:
     initial_commit_id: str | None
     new_commit_id: str | None
     total_rows: int
+    batch_metrics: dict[str, object]
     time_to_first_batch_seconds: float | None
     total_stream_seconds: float | None
     stream_peak_rss_kib: int
@@ -96,6 +97,7 @@ class WorkflowMeasurement:
             "initial_commit_id": self.initial_commit_id,
             "new_commit_id": self.new_commit_id,
             "total_rows": self.total_rows,
+            **self.batch_metrics,
             "time_to_first_batch_seconds": self.time_to_first_batch_seconds,
             "total_stream_seconds": self.total_stream_seconds,
             "stream_peak_rss_kib": self.stream_peak_rss_kib,
@@ -220,6 +222,12 @@ def run_workflow_isolated(
         scope = WorkflowCgroupScope(
             settings.cgroup_root,
             grace_seconds=settings.terminate_grace_seconds,
+            memory_limit_bytes=(
+                settings.v8_memory_safety_ceiling_bytes
+                if settings.measurement_methodology_version
+                == settings.v8_measurement_methodology_version
+                else None
+            ),
         )
         pid: int | None = None
         gate_write: int | None = None
@@ -463,6 +471,86 @@ def _snapshot_bytes(snapshot: dict[str, object], key: str) -> int:
     return value
 
 
+def _empty_batch_metrics() -> dict[str, object]:
+    return {
+        "total_stream_payload_bytes": 0,
+        "max_row_bytes": 0,
+        "batch_count": 0,
+        "max_batch_rows": 0,
+        "max_batch_bytes": 0,
+        "oversized_single_row": False,
+        "oversized_row_count": 0,
+        "max_oversized_row_bytes": 0,
+        "batch_contract_valid": False,
+        "batch_contract_violation_count": 0,
+        "encoded_line_bound": None,
+        "max_encoded_line_bytes": 0,
+        "encoded_line_bound_valid": None,
+        "encoded_line_applicable": None,
+    }
+
+
+def _batch_metric_int(metrics: Mapping[str, object], key: str) -> int:
+    value = metrics.get(key)
+    return int(value) if isinstance(value, (int, float, str)) else 0
+
+
+def _merge_batch_metrics(
+    total: dict[str, object], current: Mapping[str, object]
+) -> None:
+    total["total_stream_payload_bytes"] = (
+        _batch_metric_int(total, "total_stream_payload_bytes")
+        + _batch_metric_int(current, "total_stream_payload_bytes")
+    )
+    total["max_row_bytes"] = max(
+        _batch_metric_int(total, "max_row_bytes"),
+        _batch_metric_int(current, "max_row_bytes"),
+    )
+    total["batch_count"] = _batch_metric_int(total, "batch_count") + _batch_metric_int(
+        current, "batch_count"
+    )
+    total["max_batch_rows"] = max(
+        _batch_metric_int(total, "max_batch_rows"),
+        _batch_metric_int(current, "max_batch_rows"),
+    )
+    total["max_batch_bytes"] = max(
+        _batch_metric_int(total, "max_batch_bytes"),
+        _batch_metric_int(current, "max_batch_bytes"),
+    )
+    total["oversized_single_row"] = bool(total["oversized_single_row"]) or bool(
+        current.get("oversized_single_row", False)
+    )
+    total["oversized_row_count"] = _batch_metric_int(
+        total, "oversized_row_count"
+    ) + _batch_metric_int(current, "oversized_row_count")
+    total["max_oversized_row_bytes"] = max(
+        _batch_metric_int(total, "max_oversized_row_bytes"),
+        _batch_metric_int(current, "max_oversized_row_bytes"),
+    )
+    total["batch_contract_valid"] = bool(total["batch_contract_valid"]) and bool(
+        current.get("batch_contract_valid", False)
+    )
+    total["batch_contract_violation_count"] = (
+        _batch_metric_int(total, "batch_contract_violation_count")
+        + _batch_metric_int(current, "batch_contract_violation_count")
+    )
+    if current.get("encoded_line_applicable") is True:
+        total["encoded_line_applicable"] = True
+        total["encoded_line_bound"] = current.get("encoded_line_bound")
+        total["max_encoded_line_bytes"] = max(
+            _batch_metric_int(total, "max_encoded_line_bytes"),
+            _batch_metric_int(current, "max_encoded_line_bytes"),
+        )
+        current_valid = current.get("encoded_line_bound_valid")
+        total["encoded_line_bound_valid"] = (
+            bool(total["encoded_line_bound_valid"])
+            if total["encoded_line_bound_valid"] is not None
+            else True
+        ) and current_valid is True
+    elif total["encoded_line_applicable"] is None:
+        total["encoded_line_applicable"] = current.get("encoded_line_applicable")
+
+
 def _failed_measurement(
     candidate: Candidate, fixture: Fixture, sample_kind: str, error: str
 ) -> WorkflowMeasurement:
@@ -488,6 +576,7 @@ def _failed_measurement(
         initial_commit_id=None,
         new_commit_id=None,
         total_rows=0,
+        batch_metrics=_empty_batch_metrics(),
         time_to_first_batch_seconds=None,
         total_stream_seconds=None,
         stream_peak_rss_kib=0,
@@ -587,6 +676,8 @@ def _run_locked(
     import_seconds: float | None = None
     cancel_seconds: float | None = None
     total_rows = 0
+    batch_metrics = _empty_batch_metrics()
+    batch_metrics["batch_contract_valid"] = True
     stream_peak_rss_kib = 0
     stream_rss_delta_kib = 0
     plateau_peaks: dict[str, dict[str, int | None]] = {
@@ -848,6 +939,10 @@ def _run_locked(
                 _assert_batch_contract(batch, table)
                 _assert_fixture_values(fixture, table.name, batch.to_pylist())
                 total_rows += batch.num_rows
+            _merge_batch_metrics(
+                batch_metrics,
+                cast(Mapping[str, object], getattr(provider, "last_stream_metrics", {})),
+            )
         stream_seconds = time.monotonic() - stream_start
         stream_peak_rss_kib = int(getattr(provider, "last_stream_peak_rss_kib", 0))
         stream_rss_delta_kib = int(getattr(provider, "last_stream_rss_delta_kib", 0))
@@ -895,6 +990,10 @@ def _run_locked(
             else "inconclusive"
         )
         hard_gates["bounded_stream"] = memory_evidence["coverage"] == "available"
+        hard_gates["bounded_stream"] = bool(hard_gates["bounded_stream"]) and bool(
+            batch_metrics["batch_contract_valid"]
+            and _batch_metric_int(batch_metrics, "batch_contract_violation_count") == 0
+        )
 
         first_table = actual_catalog[0]
         cancelled = provider.stream_table(new_commit, first_table, UnknownTypePolicy.STRINGIFY)
@@ -993,6 +1092,7 @@ def _run_locked(
         initial_commit_id=initial_commit,
         new_commit_id=new_commit,
         total_rows=total_rows,
+        batch_metrics=batch_metrics,
         time_to_first_batch_seconds=first_batch_seconds,
         total_stream_seconds=stream_seconds,
         stream_peak_rss_kib=stream_peak_rss_kib,

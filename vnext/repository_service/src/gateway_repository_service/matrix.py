@@ -57,6 +57,9 @@ NORMAL_WORKLOADS = (
 SCALE_WORKLOADS = tuple(ScaleWorkload)
 ROW_BOUNDS = (256, 1024)
 BYTE_BOUND = 4 * 1024 * 1024
+V8_BYTE_BOUND = 1 * 1024 * 1024
+V8_METHODOLOGY = "p2-r1-audit-corrective-v8"
+V8_MEMORY_LIMIT_BYTES = 8 * 1024 * 1024 * 1024
 EXPECTED_SAMPLE_KINDS = ("warmup", *(f"measured-{index}" for index in range(1, 6)))
 STORAGE_LAYOUT_VERSION = "p2-r1-storage-layout-v1"
 STORAGE_IDENTITY_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
@@ -139,8 +142,8 @@ def run_matrix(
     records: list[dict[str, object]] = []
     written_records = 0
     status_written = False
-    contexts_cleaned = False
     storage_baselines: dict[str, int] = {}
+    contexts_cleaned = False
     fixture_context = tempfile.TemporaryDirectory(prefix="gateway-p2r1-fixtures-")
     root_context = (
         tempfile.TemporaryDirectory(prefix="gateway-p2r1-target-")
@@ -272,6 +275,232 @@ def run_matrix(
                 raw_handle.close()
 
 
+def run_v8_matrix(
+    settings: RepositoryServiceSettings,
+    output: Path,
+    *,
+    data_root: Path | None = None,
+    measured_runs: int = 5,
+    image_digest: str | None = None,
+    build_revision: str | None = None,
+    cache_condition: str | None = None,
+) -> dict[str, object]:
+    """Run the versioned A-only v8 formal matrix.
+
+    The legacy runner remains available for v7 diagnostics.  This entry point
+    is deliberately explicit so a v7 command cannot silently produce a v8
+    decision or change the candidate set.
+    """
+
+    if measured_runs != 5:
+        raise ValueError("v8 formal requires exactly five measured runs")
+    if os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") != "1":
+        raise RuntimeError("v8 formal requires the verified target container")
+    if settings.v8_measurement_methodology_version != V8_METHODOLOGY:
+        raise RuntimeError("v8 methodology setting does not match the v8 contract")
+    target_container = True
+    v8_settings = settings.model_copy(
+        update={
+            "measurement_methodology_version": settings.v8_measurement_methodology_version,
+            "record_batch_rows": 1024,
+            "record_batch_bytes": settings.v8_record_batch_bytes,
+        }
+    )
+    probe_data_root = _resolve_probe_data_root(v8_settings, data_root, target_container)
+    topology = load_cgroup_topology(v8_settings.cgroup_layout)
+    cgroup_input = topology.samples if topology is not None else v8_settings.cgroup_root
+    if cgroup_input is None:
+        raise RuntimeError("v8 formal requires delegated cgroup topology")
+    sample_root = preflight_cgroup(
+        cgroup_input,
+        topology,
+        memory_limit_bytes=V8_MEMORY_LIMIT_BYTES,
+    )
+    if topology is not None and sample_root != topology.samples:
+        raise RuntimeError("v8 preflight returned a non-topology sample root")
+    v8_settings = v8_settings.model_copy(update={"cgroup_root": sample_root})
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_artifacts_absent(output)
+    raw_handle = _reserve_raw(output)
+    fixture_context = tempfile.TemporaryDirectory(prefix="gateway-p2r1-v8-fixtures-")
+    root_context = tempfile.TemporaryDirectory(prefix="gateway-p2r1-v8-target-") if probe_data_root is None else None
+    records: list[dict[str, object]] = []
+    written_records = 0
+    status_written = False
+    storage_baselines: dict[str, int] = {}
+
+    def persist_record(record: dict[str, object]) -> None:
+        nonlocal written_records
+        _observe_storage_record(record, storage_baselines)
+        raw_handle.write(json.dumps(record, sort_keys=True) + "\n")
+        raw_handle.flush()
+        os.fsync(raw_handle.fileno())
+        written_records += 1
+
+    def persist_status(error: BaseException) -> None:
+        nonlocal status_written
+        if status_written:
+            return
+        raw_handle.write(
+            json.dumps(
+                {
+                    "record_type": "run_status",
+                    "status": "incomplete",
+                    "formal_status": "no-go",
+                    "selected_provider": None,
+                    "error": type(error).__name__,
+                    "records_written": written_records,
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        raw_handle.flush()
+        os.fsync(raw_handle.fileno())
+        status_written = True
+
+    try:
+        fixture_root = Path(fixture_context.name)
+        probe_root = probe_data_root or Path(root_context.name)  # type: ignore[union-attr]
+        records.extend(
+            _collect_normal_records(
+                v8_settings,
+                fixture_root,
+                probe_root,
+                NORMAL_WORKLOADS,
+                measured_runs,
+                isolated=True,
+                image_digest=image_digest,
+                build_revision=build_revision,
+                cache_condition=cache_condition,
+                candidates=(Candidate.A,),
+                byte_bound=V8_BYTE_BOUND,
+                record_sink=persist_record,
+            )
+        )
+        records.extend(
+            _collect_scaling_records(
+                v8_settings,
+                fixture_root,
+                probe_root,
+                measured_runs,
+                isolated=True,
+                image_digest=image_digest,
+                build_revision=build_revision,
+                cache_condition=cache_condition,
+                candidates=(Candidate.A,),
+                byte_bound=V8_BYTE_BOUND,
+                record_sink=persist_record,
+            )
+        )
+        fixture_context.cleanup()
+        if root_context is not None:
+            root_context.cleanup()
+        persisted = _read_raw_records(output)
+        summary = _summarize_v8(persisted, v8_settings)
+        _publish_v8_summary_report(output, summary)
+        return summary
+    except BaseException as exc:
+        persist_status(exc)
+        raise
+    finally:
+        fixture_context.cleanup()
+        if root_context is not None:
+            root_context.cleanup()
+        raw_handle.close()
+
+
+def run_reserved_b_w0_smoke(
+    settings: RepositoryServiceSettings,
+    output: Path,
+    *,
+    image_digest: str | None = None,
+    build_revision: str | None = None,
+    cache_condition: str | None = None,
+) -> dict[str, object]:
+    """Run exactly one diagnostic-only Candidate B W0 sample."""
+
+    if os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") != "1":
+        raise RuntimeError("reserved B smoke requires the verified target container")
+    if settings.v8_measurement_methodology_version != V8_METHODOLOGY:
+        raise RuntimeError("v8 methodology setting does not match the v8 contract")
+    smoke_settings = settings.model_copy(
+        update={
+            "measurement_methodology_version": settings.v8_measurement_methodology_version,
+            "record_batch_rows": 1024,
+            "record_batch_bytes": settings.v8_record_batch_bytes,
+        }
+    )
+    probe_root = _resolve_probe_data_root(smoke_settings, None, True)
+    topology = load_cgroup_topology(smoke_settings.cgroup_layout)
+    cgroup_input = topology.samples if topology is not None else smoke_settings.cgroup_root
+    if cgroup_input is None:
+        raise RuntimeError("reserved B smoke requires delegated cgroup topology")
+    sample_root = preflight_cgroup(
+        cgroup_input,
+        topology,
+        memory_limit_bytes=V8_MEMORY_LIMIT_BYTES,
+    )
+    smoke_settings = smoke_settings.model_copy(update={"cgroup_root": sample_root})
+    _ensure_artifacts_absent(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    raw_handle = _reserve_raw(output)
+    fixture_context = tempfile.TemporaryDirectory(prefix="gateway-p2r1-b-smoke-")
+    root_context = tempfile.TemporaryDirectory(prefix="gateway-p2r1-b-smoke-root-") if probe_root is None else None
+    written = 0
+
+    def sink(record: dict[str, object]) -> None:
+        nonlocal written
+        raw_handle.write(json.dumps(record, sort_keys=True) + "\n")
+        raw_handle.flush()
+        os.fsync(raw_handle.fileno())
+        written += 1
+
+    try:
+        fixture_root = Path(fixture_context.name)
+        actual_root = probe_root or Path(root_context.name)  # type: ignore[union-attr]
+        records = _collect_normal_records(
+            smoke_settings,
+            fixture_root,
+            actual_root,
+            (Workload.W0,),
+            0,
+            isolated=True,
+            image_digest=image_digest,
+            build_revision=build_revision,
+            cache_condition=cache_condition,
+            candidates=(Candidate.B,),
+            byte_bound=V8_BYTE_BOUND,
+            record_sink=sink,
+        )
+        summary = {
+            "diagnostic_only": True,
+            "formal_decision": False,
+            "formal_status": "no-go",
+            "selected_provider": None,
+            "p2_r2_ready": False,
+            "candidate_b_status": "reserved_not_evaluated",
+            "records": len(records),
+            "expected_records": 1,
+            "candidate_matrix": {
+                Candidate.B.value: {
+                    "status": "reserved_not_evaluated",
+                    "hard_gate": None,
+                    "result": "not_evaluated",
+                }
+            },
+            "raw_records_written": written,
+            "methodology_version": smoke_settings.measurement_methodology_version,
+        }
+        _publish_v8_summary_report(output, summary)
+        return summary
+    finally:
+        fixture_context.cleanup()
+        if root_context is not None:
+            root_context.cleanup()
+        raw_handle.close()
+
+
 def _collect_normal_records(
     settings: RepositoryServiceSettings,
     fixture_root: Path,
@@ -284,13 +513,17 @@ def _collect_normal_records(
     build_revision: str | None,
     cache_condition: str | None,
     restart_before_stream: bool = False,
+    candidates: tuple[Candidate, ...] | None = None,
+    byte_bound: int | None = None,
     record_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     metadata = _measurement_metadata(
         settings, image_digest=image_digest, build_revision=build_revision, cache_condition=cache_condition
     )
-    for candidate in Candidate:
+    selected_candidates = tuple(Candidate) if candidates is None else candidates
+    effective_byte_bound = BYTE_BOUND if byte_bound is None else byte_bound
+    for candidate in selected_candidates:
         for workload in workloads:
             fixture = generate_fixture(fixture_root, workload)
             base_fixture = (
@@ -316,6 +549,7 @@ def _collect_normal_records(
                         probe_root,
                         matrix_kind="normal",
                         row_bound=settings.record_batch_rows,
+                        byte_bound=effective_byte_bound,
                         metadata=metadata,
                     )
                 records.append(record)
@@ -335,6 +569,7 @@ def _collect_scaling_records(
     build_revision: str | None,
     cache_condition: str | None,
     candidates: tuple[Candidate, ...] | None = None,
+    byte_bound: int | None = None,
     restart_before_stream: bool = False,
     record_sink: Callable[[dict[str, object]], None] | None = None,
 ) -> list[dict[str, object]]:
@@ -343,12 +578,16 @@ def _collect_scaling_records(
         settings, image_digest=image_digest, build_revision=build_revision, cache_condition=cache_condition
     )
     selected_candidates = tuple(Candidate) if candidates is None else candidates
+    effective_byte_bound = BYTE_BOUND if byte_bound is None else byte_bound
     for candidate in selected_candidates:
         for scale in SCALE_WORKLOADS:
             fixture = generate_scale_fixture(fixture_root, scale)
             for bound in ROW_BOUNDS:
                 bound_settings = settings.model_copy(
-                    update={"record_batch_rows": bound, "record_batch_bytes": BYTE_BOUND}
+                    update={
+                        "record_batch_rows": bound,
+                        "record_batch_bytes": effective_byte_bound,
+                    }
                 )
                 for sample_kind in EXPECTED_SAMPLE_KINDS[: measured_runs + 1]:
                     workflow_runner = run_workflow_isolated if isolated else run_workflow
@@ -367,12 +606,34 @@ def _collect_scaling_records(
                             probe_root,
                             matrix_kind="scaling",
                             row_bound=bound,
+                            byte_bound=effective_byte_bound,
                             metadata=metadata,
                         )
                     records.append(record)
                     if record_sink is not None:
                         record_sink(record)
     return records
+
+
+def _support_envelope(fixture: Fixture) -> str:
+    total_rows = fixture.rows
+    max_table_rows = max(
+        (table.row_count for table in fixture.expected_tables), default=0
+    )
+    package_bytes = fixture.package_bytes
+    if (
+        total_rows <= 100_000
+        and max_table_rows <= 100_000
+        and package_bytes <= 200 * 1024 * 1024
+    ):
+        return "validated"
+    if (
+        total_rows <= 1_000_000
+        and max_table_rows <= 1_000_000
+        and package_bytes <= 200 * 1024 * 1024
+    ):
+        return "controlled_preview"
+    return "out_of_range"
 
 
 def _record(
@@ -382,6 +643,7 @@ def _record(
     *,
     matrix_kind: str,
     row_bound: int,
+    byte_bound: int = BYTE_BOUND,
     metadata: dict[str, object] | None = None,
 ) -> dict[str, object]:
     data = measurement.as_dict()
@@ -404,6 +666,12 @@ def _record(
             "synthetic": fixture.synthetic,
             "package_bytes": fixture.package_bytes,
             "fixture_rows": fixture.rows,
+            "total_rows_at_commit": fixture.rows,
+            "max_table_rows": max(
+                (table.row_count for table in fixture.expected_tables), default=0
+            ),
+            "import_package_bytes": fixture.package_bytes,
+            "support_envelope": _support_envelope(fixture),
             "python_version": platform.python_version(),
             "cpu_count": os.cpu_count(),
             "filesystem_type": filesystem,
@@ -426,7 +694,7 @@ def _record(
             else "unknown",
             "matrix_kind": matrix_kind,
             "record_batch_row_bound": row_bound,
-            "record_batch_byte_bound": BYTE_BOUND,
+            "record_batch_byte_bound": byte_bound,
             "cache_state": "warmup"
             if measurement.sample_kind == "warmup"
             else "warm",
@@ -434,8 +702,19 @@ def _record(
     )
     if metadata is not None:
         data.update(metadata)
+    memory_evidence = data.get("memory_evidence")
+    if isinstance(memory_evidence, dict):
+        data["memory_limit_bytes"] = memory_evidence.get(
+            "memory_limit_bytes", data.get("memory_limit_bytes")
+        )
+        data["effective_memory_limit_bytes"] = memory_evidence.get(
+            "effective_memory_limit_bytes"
+        )
     data.update(_storage_fields(data))
-    data["bounded_stream_record_gate"] = _record_bounded_gate(data)
+    if data.get("methodology_version") == V8_METHODOLOGY:
+        data["bounded_stream_record_gate"] = _v8_batch_contract_valid(data)
+    else:
+        data["bounded_stream_record_gate"] = _record_bounded_gate(data)
     return data
 
 
@@ -514,6 +793,61 @@ def _publish_summary_report(output: Path, summary: dict[str, object]) -> None:
     finally:
         for temporary, _ in staged:
             temporary.unlink(missing_ok=True)
+
+
+def _publish_v8_summary_report(output: Path, summary: dict[str, object]) -> None:
+    summary_path = output.with_suffix(".summary.json")
+    report_path = output.with_suffix(".md")
+    staged: list[tuple[Path, Path]] = []
+    try:
+        for target, content in (
+            (summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n"),
+            (report_path, _markdown_v8(summary)),
+        ):
+            temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+            with temporary.open("x", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            staged.append((temporary, target))
+        for temporary, target in staged:
+            atomic_publish_file(temporary, target)
+    finally:
+        for temporary, _ in staged:
+            temporary.unlink(missing_ok=True)
+
+
+def _markdown_v8(summary: dict[str, object]) -> str:
+    matrix = cast(dict[str, dict[str, object]], summary["candidate_matrix"])
+    candidate_a = matrix.get(
+        Candidate.A.value,
+        {
+            "batch_safety_gate": "n/a",
+            "scale_ratio_observation": "n/a",
+            "capacity_advisory_status": "n/a",
+            "hard_gate": None,
+            "result": "not_evaluated",
+        },
+    )
+    lines = [
+        "# P2-R1 v8 Provider Feasibility Decision",
+        "",
+        f"- formal_status: `{summary['formal_status']}`",
+        f"- selected_provider: `{summary['selected_provider']}`",
+        "- candidate_b_status: `reserved_not_evaluated`",
+        f"- p2_r2_ready: `{summary['p2_r2_ready']}`",
+        f"- records: `{summary['records']}` / expected `66`",
+        "",
+        "| Candidate | Batch safety | Ratio observation | Capacity advisory | Hard gate | Result |",
+        "|---|---:|---:|---:|---:|---:|",
+        f"| {Candidate.A.value} | {candidate_a['batch_safety_gate']} | "
+        f"{candidate_a['scale_ratio_observation']} | {candidate_a['capacity_advisory_status']} | "
+        f"{candidate_a['hard_gate']} | {candidate_a['result']} |",
+        f"| {Candidate.B.value} | n/a | n/a | n/a | null | not_evaluated |",
+        "",
+        "Ratio, absolute resource and capacity values are advisory in v8; safety, correctness, lifecycle, storage, provenance, batch and cleanup failures remain hard no-go conditions.",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _write_artifacts(
@@ -1692,6 +2026,384 @@ def _summarize(
     }
 
 
+def _v8_expected_keys(matrix_kind: str) -> set[tuple[str, ...]]:
+    if matrix_kind == "normal":
+        return {
+            (Candidate.A.value, workload.value, "1024", sample)
+            for workload in NORMAL_WORKLOADS
+            for sample in EXPECTED_SAMPLE_KINDS
+        }
+    return {
+        (Candidate.A.value, scale.value, str(bound), sample)
+        for scale in SCALE_WORKLOADS
+        for bound in ROW_BOUNDS
+        for sample in EXPECTED_SAMPLE_KINDS
+    }
+
+
+def _v8_record_key(row: dict[str, object], matrix_kind: str) -> tuple[str, ...]:
+    return (
+        str(row.get("candidate")),
+        str(row.get("workload")),
+        str(row.get("record_batch_row_bound")) if matrix_kind == "scaling" else "1024",
+        str(row.get("sample_kind")),
+    )
+
+
+def _v8_complete_memory_peaks(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+
+    def valid_peak(item: object) -> bool:
+        return isinstance(item, (int, float)) and float(item) >= 0
+
+    return all(
+        isinstance(value.get(subject), dict)
+        and all(
+            valid_peak(cast(dict[str, object], value[subject]).get(window))
+            for window in WINDOW_NAMES
+        )
+        for subject in MEMORY_SUBJECTS
+    )
+
+
+def _v8_coverage(
+    records: list[dict[str, object]], matrix_kind: str
+) -> tuple[bool, dict[str, int | bool | str]]:
+    expected = _v8_expected_keys(matrix_kind)
+    selected = [row for row in records if row.get("matrix_kind") == matrix_kind]
+    actual = {_v8_record_key(row, matrix_kind) for row in selected}
+    duplicates = len(selected) != len(actual)
+    complete = not duplicates and actual == expected
+    return complete, {
+        "complete": complete,
+        "expected": len(expected),
+        "actual": len(selected),
+        "unique": len(actual),
+        "duplicates": int(duplicates),
+        "missing": len(expected - actual),
+        "extra": len(actual - expected),
+    }
+
+
+def _v8_memory_evidence_valid(row: dict[str, object]) -> bool:
+    evidence = row.get("memory_evidence")
+    if not isinstance(evidence, dict):
+        return False
+    return bool(
+        evidence.get("coverage") == "available"
+        and evidence.get("baseline_coverage") is True
+        and evidence.get("cgroup_stat_coverage") is True
+        and _v8_complete_memory_peaks(evidence.get("plateau_peaks"))
+        and _v8_complete_memory_peaks(evidence.get("plateau_peaks_absolute"))
+        and evidence.get("memory_limit_bytes") == V8_MEMORY_LIMIT_BYTES
+        and isinstance(evidence.get("effective_memory_limit_bytes"), int)
+        and cast(int, evidence["effective_memory_limit_bytes"]) >= V8_MEMORY_LIMIT_BYTES
+        and isinstance(evidence.get("cgroup_memory_peak_bytes"), int)
+        and cast(int, evidence["cgroup_memory_peak_bytes"]) >= 0
+    )
+
+
+def _v8_batch_contract_valid(row: dict[str, object]) -> bool:
+    total_rows = row.get("total_rows")
+    payload_bytes = row.get("total_stream_payload_bytes")
+    batch_count = row.get("batch_count")
+    max_batch_rows = row.get("max_batch_rows")
+    max_batch_bytes = row.get("max_batch_bytes")
+    row_bound = row.get("record_batch_row_bound")
+    byte_bound = row.get("record_batch_byte_bound")
+    basic = (
+        row.get("batch_contract_valid") is True
+        and row.get("batch_contract_violation_count") == 0
+        and all(isinstance(value, int) and value >= 0 for value in (
+            total_rows,
+            payload_bytes,
+            batch_count,
+            max_batch_rows,
+            max_batch_bytes,
+        ))
+        and isinstance(row_bound, int)
+        and isinstance(byte_bound, int)
+        and byte_bound == V8_BYTE_BOUND
+    )
+    if not basic:
+        return False
+    assert isinstance(total_rows, int)
+    assert isinstance(batch_count, int)
+    assert isinstance(max_batch_rows, int)
+    assert isinstance(max_batch_bytes, int)
+    assert isinstance(row_bound, int)
+    assert isinstance(byte_bound, int)
+    if total_rows == 0:
+        if batch_count != 0 or max_batch_rows != 0 or max_batch_bytes != 0:
+            return False
+    elif batch_count == 0 or max_batch_rows < 1 or max_batch_rows > row_bound:
+        return False
+    oversized = row.get("oversized_single_row") is True
+    if max_batch_bytes > byte_bound and not oversized:
+        return False
+    if row.get("encoded_line_applicable") is True and (
+        row.get("encoded_line_bound_valid") is not True
+        or not isinstance(row.get("max_encoded_line_bytes"), int)
+        or not isinstance(row.get("encoded_line_bound"), int)
+        or cast(int, row["max_encoded_line_bytes"])
+        > cast(int, row["encoded_line_bound"])
+    ):
+        return False
+    return True
+
+
+def _v8_ratio_observation(
+    records: list[dict[str, object]],
+) -> tuple[str, dict[str, float], str | None]:
+    if not records or any(not _v8_memory_evidence_valid(row) for row in records):
+        return "unavailable", {}, "required absolute memory evidence is incomplete"
+    measured = [
+        row
+        for row in records
+        if row.get("matrix_kind") == "scaling"
+        and str(row.get("sample_kind", "")).startswith("measured-")
+    ]
+    ratios: dict[str, float] = {}
+    status = "pass"
+    for bound in ROW_BOUNDS:
+        for subject in MEMORY_SUBJECTS:
+            for window in WINDOW_NAMES:
+                scale_peaks: dict[str, float] = {}
+                for scale in SCALE_WORKLOADS:
+                    values = [
+                        _plateau_value(row, subject, window)
+                        for row in measured
+                        if row.get("record_batch_row_bound") == bound
+                        and row.get("workload") == scale.value
+                    ]
+                    if len(values) != 5:
+                        return "unavailable", ratios, "missing measured scale evidence"
+                    scale_peaks[scale.value] = max(values)
+                peaks = list(scale_peaks.values())
+                minimum = min(peaks)
+                ratio = 1.0 if max(peaks) == 0 else float("inf") if minimum == 0 else max(peaks) / minimum
+                ratios[f"bound_{bound}_{subject}_{window}_ratio"] = ratio
+                for scale_name, value in scale_peaks.items():
+                    ratios[f"bound_{bound}_{subject}_{window}_{scale_name}"] = value
+                if ratio > 1.5:
+                    status = "warning"
+    return status, ratios, None
+
+
+def _v8_capacity_advisory(
+    records: list[dict[str, object]],
+) -> tuple[str, float | None]:
+    values = [
+        float(cast(int | float, row["import_seconds"]))
+        for row in records
+        if row.get("workload") == Workload.W1.value
+        and str(row.get("sample_kind", "")).startswith("measured-")
+        and isinstance(row.get("import_seconds"), (int, float))
+    ]
+    if not values:
+        return "unavailable", None
+    projection = 4 * 86400 * 0.70 / max(values)
+    return ("within_reference" if projection >= 1000 else "below_reference"), projection
+
+
+def _v8_resource_advisory(
+    records: list[dict[str, object]],
+) -> dict[str, object]:
+    exceedances: list[dict[str, object]] = []
+    observed: list[int] = []
+    for row in records:
+        evidence = row.get("memory_evidence")
+        peak = (
+            evidence.get("cgroup_memory_peak_bytes")
+            if isinstance(evidence, dict)
+            else None
+        )
+        if not isinstance(peak, int):
+            continue
+        observed.append(peak)
+        reference = (
+            3 * 1024 * 1024 * 1024
+            if row.get("workload") == Workload.W2.value
+            else 2_500 * 1024 * 1024
+        )
+        if peak > reference:
+            exceedances.append(
+                {
+                    "record_key": _v8_record_key(row, str(row.get("matrix_kind"))),
+                    "observed_peak_bytes": peak,
+                    "reference_bytes": reference,
+                }
+            )
+    return {
+        "ordinary_workflow_reference_bytes": 2684354560,
+        "boundary_workflow_reference_bytes": 3221225472,
+        "service_reference_bytes": 8589934592,
+        "four_worker_burst_reference_bytes": 17179869184,
+        "recommended_concurrency": 2,
+        "observed_max_workflow_cgroup_peak_bytes": max(observed) if observed else None,
+        "exceedances": exceedances,
+        "status": "above_reference" if exceedances else "within_reference",
+        "affects_formal_decision": False,
+    }
+
+
+def _summarize_v8(
+    records: list[dict[str, object]], settings: RepositoryServiceSettings
+) -> dict[str, object]:
+    normal = [row for row in records if row.get("matrix_kind") == "normal"]
+    scaling = [row for row in records if row.get("matrix_kind") == "scaling"]
+    normal_complete, normal_counts = _v8_coverage(records, "normal")
+    scaling_complete, scaling_counts = _v8_coverage(records, "scaling")
+    candidate_rows = [row for row in records if row.get("candidate") == Candidate.A.value]
+    record_set_valid = len(records) == 66 and all(
+        row.get("candidate") == Candidate.A.value for row in records
+    )
+    failures = _failure_counts(candidate_rows)
+    storage_complete, storage_reason = _candidate_storage_provenance(
+        records, Candidate.A.value
+    )
+    support_envelope_complete = bool(candidate_rows) and all(
+        row.get("support_envelope") == "validated" for row in candidate_rows
+    )
+    metadata_complete = bool(candidate_rows) and all(
+        row.get("metadata_complete") is True for row in candidate_rows
+    )
+    batch_complete = bool(candidate_rows) and all(
+        _v8_batch_contract_valid(row) for row in candidate_rows
+    )
+    memory_complete = bool(candidate_rows) and all(
+        _v8_memory_evidence_valid(row) for row in candidate_rows
+    )
+    w3_rows = [
+        row for row in normal
+        if row.get("workload") in {Workload.W3_1.value, Workload.W3_10.value}
+    ]
+    w3_complete = bool(w3_rows) and all(
+        row.get("storage_evidence_status") == "available"
+        and row.get("storage_snapshot_complete") is True
+        and _w3_lifecycle_evidence_valid(row)
+        for row in w3_rows
+    )
+    workflow_gates = all(
+        isinstance(row.get("hard_gates"), dict)
+        and all(
+            cast(dict[str, object], row["hard_gates"]).get(name) is True
+            for name in ("workflow", "cancellation", "restart", "unknown_type")
+        )
+        for row in candidate_rows
+    )
+    hard_gate = bool(
+        record_set_valid
+        and normal_complete
+        and scaling_complete
+        and not _sample_failures(candidate_rows)
+        and workflow_gates
+        and batch_complete
+        and memory_complete
+        and w3_complete
+        and storage_complete
+        and support_envelope_complete
+        and metadata_complete
+    )
+    ratio_status, ratios, ratio_reason = _v8_ratio_observation(scaling)
+    capacity_status, capacity_projection = _v8_capacity_advisory(records)
+    resource_advisory = _v8_resource_advisory(records)
+    outcome = "go" if hard_gate else "no-go"
+    actual_warmups = sum(row.get("sample_kind") == "warmup" for row in records)
+    unique_keys = {
+        (str(row.get("matrix_kind")), _v8_record_key(row, str(row.get("matrix_kind"))))
+        for row in records
+    }
+    candidate_entry = {
+        "status": "evaluated",
+        "workloads": sorted({str(row.get("workload")) for row in candidate_rows}),
+        "matrix_coverage_complete": normal_complete and scaling_complete,
+        "batch_safety_gate": batch_complete,
+        "bounded_stream_gate": batch_complete,
+        "bounded_stream_gate_semantics": "batch_contract_v8",
+        "scale_ratio_observation": ratio_status,
+        "scale_ratio_reason": ratio_reason,
+        "scale_ratios": ratios,
+        "capacity_advisory_status": capacity_status,
+        "capacity_projection_imports_per_day": capacity_projection,
+        "storage_provenance_complete": storage_complete,
+        "storage_provenance_reason": storage_reason,
+        "support_envelope_complete": support_envelope_complete,
+        "metadata_complete": metadata_complete,
+        "memory_evidence_complete": memory_complete,
+        **failures,
+        "hard_gate": hard_gate,
+        "result": "pass" if hard_gate else "fail",
+    }
+    candidate_b = {
+        "status": "reserved_not_evaluated",
+        "hard_gate": None,
+        "result": "not_evaluated",
+    }
+    return {
+        "round": "P2-R1",
+        "methodology_version": settings.measurement_methodology_version,
+        "formal_status": outcome,
+        "measurement_outcome": outcome,
+        "p2_r1_exit": outcome,
+        "round_exit": outcome,
+        "selected_provider": Candidate.A.value if hard_gate else None,
+        "proposed_provider": Candidate.A.value if hard_gate else None,
+        "next_round_ready": hard_gate,
+        "p2_r2_ready": hard_gate,
+        "candidate_b_status": "reserved_not_evaluated",
+        "formal_decision": True,
+        "production_retest_required": hard_gate,
+        "candidate_matrix": {
+            Candidate.A.value: candidate_entry,
+            Candidate.B.value: candidate_b,
+        },
+        "records": len(records),
+        "normal_records": len(normal),
+        "scaling_records": len(scaling),
+        "unique_measurement_keys": len(unique_keys),
+        "performance_excluded_warmups": actual_warmups,
+        "expected_records": 66,
+        "expected_normal_records": 30,
+        "expected_scaling_records": 36,
+        "expected_warmups": 11,
+        "execution_errors": failures["execution_errors"],
+        "correctness_failures": failures["correctness_failures"],
+        "sample_failures": _sample_failures(records),
+        "coverage": {
+            "normal": normal_counts,
+            "scaling": scaling_counts,
+            "complete": normal_complete and scaling_complete,
+            "record_set_valid": record_set_valid,
+        },
+        "resource_advisory": resource_advisory,
+        "resource_advisory_status": resource_advisory["status"],
+        "capacity_advisory_status": capacity_status,
+        "methodology": {
+            "version": settings.measurement_methodology_version,
+            "candidates": [Candidate.A.value],
+            "reserved_candidates": [Candidate.B.value],
+            "normal_row_bound": 1024,
+            "row_bounds": list(ROW_BOUNDS),
+            "byte_bound": V8_BYTE_BOUND,
+            "bounded_stream_gate_semantics": "batch_contract_v8",
+            "ratio_semantics": "observation_only",
+            "memory_limit_bytes": V8_MEMORY_LIMIT_BYTES,
+        },
+        "measurement_environment": {
+            "dolt_version": settings.dolt_version,
+            "image_digests": sorted({str(row.get("image_digest")) for row in records}),
+            "build_revisions": sorted({str(row.get("build_revision")) for row in records}),
+            "filesystem_types": sorted({str(row.get("filesystem_type")) for row in records}),
+            "volume_backends": sorted({str(row.get("volume_backend")) for row in records}),
+            "storage_mount_verified": all(
+                row.get("storage_mount_verified") is True for row in records
+            ),
+        },
+    }
+
+
 def _bounded_stream_gate(
     candidate: str, records: list[dict[str, object]]
 ) -> tuple[str, str, dict[str, float]]:
@@ -1851,6 +2563,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_matrix_signal)
     parser = argparse.ArgumentParser(description="Run the P2-R1 Dolt provider matrix")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--v8-formal", action="store_true")
     parser.add_argument("--data-root", type=Path)
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--image-digest")
@@ -1866,8 +2579,28 @@ def main() -> None:
     parser.add_argument("--scaling-diagnostic", action="store_true")
     parser.add_argument("--offline-discard-diagnostic", action="store_true")
     parser.add_argument("--a-paired-diagnostic", action="store_true")
+    parser.add_argument("--reserved-b-w0-smoke", action="store_true")
     parser.add_argument("--workloads", nargs="+", choices=[workload.value for workload in Workload])
     args = parser.parse_args()
+    if args.v8_formal and (
+        args.diagnostic
+        or args.scaling_diagnostic
+        or args.offline_discard_diagnostic
+        or args.a_paired_diagnostic
+        or args.workloads
+        or args.candidates
+        or args.restart_before_stream
+    ):
+        parser.error("--v8-formal cannot be combined with diagnostic options")
+    if args.reserved_b_w0_smoke and (
+        args.v8_formal
+        or args.scaling_diagnostic
+        or args.offline_discard_diagnostic
+        or args.a_paired_diagnostic
+        or args.workloads
+        or args.candidates
+    ):
+        parser.error("reserved B W0 smoke is a standalone diagnostic")
     if args.workloads and not args.diagnostic:
         parser.error("--workloads is diagnostic-only; add --diagnostic")
     diagnostic_modes = sum(
@@ -1877,6 +2610,7 @@ def main() -> None:
             args.scaling_diagnostic,
             args.offline_discard_diagnostic,
             args.a_paired_diagnostic,
+            args.reserved_b_w0_smoke,
         )
     )
     if diagnostic_modes > 1:
@@ -1904,7 +2638,25 @@ def main() -> None:
         else NORMAL_WORKLOADS
     )
     settings = RepositoryServiceSettings()
-    if args.scaling_diagnostic:
+    if args.v8_formal:
+        summary = run_v8_matrix(
+            settings,
+            args.output,
+            data_root=args.data_root,
+            measured_runs=args.runs,
+            image_digest=args.image_digest,
+            build_revision=args.build_revision,
+            cache_condition=args.cache_condition,
+        )
+    elif args.reserved_b_w0_smoke:
+        summary = run_reserved_b_w0_smoke(
+            settings,
+            args.output,
+            image_digest=args.image_digest,
+            build_revision=args.build_revision,
+            cache_condition=args.cache_condition,
+        )
+    elif args.scaling_diagnostic:
         summary = run_scaling_diagnostic(
             settings,
             args.output,

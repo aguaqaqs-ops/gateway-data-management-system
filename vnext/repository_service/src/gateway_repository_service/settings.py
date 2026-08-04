@@ -23,13 +23,16 @@ class RepositoryServiceSettings(BaseSettings):
     record_batch_rows: int = 1024
     record_batch_row_bounds: tuple[int, ...] = (256, 1024)
     record_batch_bytes: int = 4 * 1024 * 1024
+    v8_record_batch_bytes: int = 1 * 1024 * 1024
     connector_fetch_row_bound: int = 32
     max_stream_line_bytes: int = 64 * 1024 * 1024
+    v8_memory_safety_ceiling_bytes: int = 8 * 1024 * 1024 * 1024
     cgroup_root: Path | None = None
     cgroup_layout: Path | None = None
     memory_sample_interval_seconds: float = 0.01
     mysql_connector_version: str = "9.7.0"
     measurement_methodology_version: str = "p2-r1-audit-corrective-v7"
+    v8_measurement_methodology_version: str = "p2-r1-audit-corrective-v8"
 
     @field_validator("dolt_binary")
     @classmethod
@@ -55,8 +58,10 @@ class RepositoryServiceSettings(BaseSettings):
         "output_capture_bytes",
         "record_batch_rows",
         "record_batch_bytes",
+        "v8_record_batch_bytes",
         "connector_fetch_row_bound",
         "max_stream_line_bytes",
+        "v8_memory_safety_ceiling_bytes",
     )
     @classmethod
     def _bounds_must_be_positive(cls, value: int) -> int:

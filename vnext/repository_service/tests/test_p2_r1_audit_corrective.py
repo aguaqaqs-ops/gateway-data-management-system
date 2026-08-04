@@ -2471,6 +2471,7 @@ def test_v8_provider_shape_normalizes_temporal_numeric_values_identically() -> N
             ColumnCatalog("time", "TIME(6)", False, None),
             ColumnCatalog("decimal_value", "DECIMAL(10,2)", False, None),
             ColumnCatalog("float_value", "FLOAT", False, None),
+            ColumnCatalog("bits", "BIT(8)", False, None),
         ),
         1,
     )
@@ -2478,7 +2479,16 @@ def test_v8_provider_shape_normalizes_temporal_numeric_values_identically() -> N
     timezone = dt.timezone(dt.timedelta(hours=2))
     candidate_a = normalize_rows(
         table,
-        [("2025-01-01 12:00:00+02:00", "2025-01-01 12:00:00", "01:02:03", "12.50", "1.5")],
+        [
+            (
+                "2025-01-01 12:00:00+02:00",
+                "2025-01-01 12:00:00",
+                "01:02:03",
+                "12.50",
+                "1.5",
+                "aa",
+            )
+        ],
         policy,
     )
     candidate_b = normalize_rows(
@@ -2490,6 +2500,7 @@ def test_v8_provider_shape_normalizes_temporal_numeric_values_identically() -> N
                 dt.timedelta(hours=1, minutes=2, seconds=3),
                 decimal.Decimal("12.50"),
                 1.5,
+                170,
             )
         ],
         policy,

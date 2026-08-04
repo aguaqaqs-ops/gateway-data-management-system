@@ -204,6 +204,27 @@ def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
                 return parsed.replace(tzinfo=dt.timezone.utc)
             return parsed.astimezone(dt.timezone.utc)
         return parsed
+    bit_match = _BIT.match(upper)
+    if bit_match is not None:
+        width = int(bit_match.group(1))
+        byte_length = (width + 7) // 8
+        if isinstance(value, (bytes, bytearray, memoryview)):
+            raw = bytes(value)
+        elif isinstance(value, int):
+            raw = value.to_bytes(byte_length, "big", signed=False)
+        else:
+            text = str(value)
+            if text.startswith(("0x", "0X")):
+                raw = bytes.fromhex(text[2:])
+            elif len(text) % 2 == 0 and text and all(
+                character in "0123456789abcdefABCDEF" for character in text
+            ):
+                raw = bytes.fromhex(text)
+            else:
+                raw = int(text, 0).to_bytes(byte_length, "big", signed=False)
+        if len(raw) > byte_length:
+            raise ValueError("BIT value exceeds catalog width")
+        return raw.rjust(byte_length, b"\x00")
     if pa.types.is_binary(arrow):
         if isinstance(value, bytes):
             return value

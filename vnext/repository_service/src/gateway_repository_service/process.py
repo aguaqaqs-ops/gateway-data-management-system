@@ -1272,6 +1272,7 @@ class DiscardProcess:
         self.peak_rss_anon_kib = self.start_rss_anon_kib
         self.peak_rss_file_kib = self.start_rss_file_kib
         self.stderr_tail = _Tail(runner.settings.output_tail_bytes)
+        self._lifecycle_lock = threading.Lock()
         self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self._stderr_thread.start()
         self._monitor_stop = threading.Event()
@@ -1290,17 +1291,31 @@ class DiscardProcess:
 
     def _monitor(self) -> None:
         while not self._monitor_stop.is_set():
-            self.peak_rss_kib = max(
-                self.peak_rss_kib, process_tree_rss_kib(self.process.pid)
-            )
-            breakdown = process_tree_rss_breakdown_kib(self.process.pid)
-            self.peak_rss_anon_kib = max(
-                self.peak_rss_anon_kib, breakdown["rss_anon_kib"]
-            )
-            self.peak_rss_file_kib = max(
-                self.peak_rss_file_kib, breakdown["rss_file_kib"]
-            )
+            with self._lifecycle_lock:
+                if self._monitor_stop.is_set():
+                    return
+                self.peak_rss_kib = max(
+                    self.peak_rss_kib, process_tree_rss_kib(self.process.pid)
+                )
+                breakdown = process_tree_rss_breakdown_kib(self.process.pid)
+                self.peak_rss_anon_kib = max(
+                    self.peak_rss_anon_kib, breakdown["rss_anon_kib"]
+                )
+                self.peak_rss_file_kib = max(
+                    self.peak_rss_file_kib, breakdown["rss_file_kib"]
+                )
             self._monitor_stop.wait(0.02)
+
+    def _stop_rss_monitor(self) -> None:
+        """Stop sampling before any caller can wait/reap the child."""
+
+        with self._lifecycle_lock:
+            self._monitor_stop.set()
+        # The monitor performs all procfs reads while holding the lifecycle
+        # lock.  Acquiring the lock above therefore proves that an in-flight
+        # sample has finished; an unbounded join then guarantees that no
+        # monitor iteration can race a subsequent reap or PID reuse.
+        self._monitor_thread.join()
 
     def close(self) -> DiscardResult:
         if self._closed:
@@ -1319,16 +1334,23 @@ class DiscardProcess:
             )
         timed_out = False
         deadline = self.started + self.timeout
-        while self.process.poll() is None and time.monotonic() < deadline:
+        process_finished = False
+        while True:
+            with self._lifecycle_lock:
+                process_finished = self.process.poll() is not None
+            if process_finished:
+                break
+            if time.monotonic() >= deadline:
+                break
             time.sleep(0.02)
-        if self.process.poll() is None:
+        if not process_finished:
             timed_out = True
+            self._stop_rss_monitor()
             self.runner.terminate_and_reap(self.process)
         else:
+            self._stop_rss_monitor()
             self.process.wait()
             self.runner.reap_adopted_dolt_children()
-        self._monitor_stop.set()
-        self._monitor_thread.join(timeout=max(1.0, self.runner.settings.terminate_grace_seconds * 2))
         self._stderr_thread.join(timeout=max(1.0, self.runner.settings.terminate_grace_seconds * 2))
         self._closed = True
         return DiscardResult(
@@ -1369,6 +1391,7 @@ class ProcessStream:
         self.start_rss_anon_kib = start_breakdown["rss_anon_kib"]
         self.start_rss_file_kib = start_breakdown["rss_file_kib"]
         self.stderr_tail = _Tail(runner.settings.output_tail_bytes)
+        self._lifecycle_lock = threading.Lock()
         self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self._stderr_thread.start()
         self._monitor_stop = threading.Event()
@@ -1390,15 +1413,41 @@ class ProcessStream:
 
     def _monitor_rss(self) -> None:
         while not self._monitor_stop.is_set():
-            self.peak_rss_kib = max(self.peak_rss_kib, process_tree_rss_kib(self.process.pid))
-            breakdown = process_tree_rss_breakdown_kib(self.process.pid)
-            self.peak_rss_anon_kib = max(
-                self.peak_rss_anon_kib, breakdown["rss_anon_kib"]
-            )
-            self.peak_rss_file_kib = max(
-                self.peak_rss_file_kib, breakdown["rss_file_kib"]
-            )
+            with self._lifecycle_lock:
+                if self._monitor_stop.is_set():
+                    return
+                self.peak_rss_kib = max(
+                    self.peak_rss_kib, process_tree_rss_kib(self.process.pid)
+                )
+                breakdown = process_tree_rss_breakdown_kib(self.process.pid)
+                self.peak_rss_anon_kib = max(
+                    self.peak_rss_anon_kib, breakdown["rss_anon_kib"]
+                )
+                self.peak_rss_file_kib = max(
+                    self.peak_rss_file_kib, breakdown["rss_file_kib"]
+                )
             self._monitor_stop.wait(0.02)
+
+    def _stop_rss_monitor(self) -> None:
+        """Stop sampling before any caller can wait/reap the child."""
+
+        with self._lifecycle_lock:
+            self._monitor_stop.set()
+        # See DiscardProcess._stop_rss_monitor: procfs sampling and child
+        # lifecycle operations are serialized by this lock.
+        self._monitor_thread.join()
+
+    @property
+    def running_pid(self) -> int | None:
+        """Return the child PID only while it is still owned and running.
+
+        The sampler can take one final sample after the stream reader has
+        reaped the child.  Returning a reaped PID would allow a later process
+        reusing that numeric PID to be misattributed to the Dolt stream.
+        """
+
+        with self._lifecycle_lock:
+            return self.process.pid if self.process.poll() is None else None
 
     def __iter__(self) -> Iterator[bytes]:
         if self.process.stdout is None:
@@ -1459,14 +1508,15 @@ class ProcessStream:
                 stderr_tail=self.stderr_tail.value(),
                 cancelled=cancelled,
             )
-        if self.process.poll() is None:
+        with self._lifecycle_lock:
+            process_running = self.process.poll() is None
+        self._stop_rss_monitor()
+        if process_running:
             self.runner.terminate_and_reap(self.process)
         else:
             self.process.wait()
             self.runner.reap_adopted_dolt_children()
         self._stderr_thread.join(timeout=self.runner.settings.terminate_grace_seconds)
-        self._monitor_stop.set()
-        self._monitor_thread.join(timeout=self.runner.settings.terminate_grace_seconds)
         if self.process.stdout is not None:
             self.process.stdout.close()
         if self.process.stderr is not None:

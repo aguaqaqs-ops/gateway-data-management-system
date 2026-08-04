@@ -9,6 +9,8 @@ import json
 import os
 import signal
 import textwrap
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator, cast
@@ -57,6 +59,7 @@ from gateway_repository_service.process import (
     CgroupTopology,
     CgroupMemoryMeasurement,
     CgroupMemoryTracker,
+    DiscardProcess,
     DoltRunner,
     ProcessBoundaryError,
     ProcessStream,
@@ -137,7 +140,7 @@ def test_candidate_a_sampler_spawn_and_provider_baseline_order(
 
     class FakeSampler:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
-            pass
+            self.provider_pid = cast(Callable[[], int | None], _args[1])
 
         def start(self) -> None:
             events.append("sampler-start")
@@ -153,21 +156,35 @@ def test_candidate_a_sampler_spawn_and_provider_baseline_order(
             pass
 
         def stop(self) -> dict[str, dict[str, int]]:
+            assert self.provider_pid() is None
+            events.append("reaped-provider-not-sampled")
             return _test_plateau_peaks()
 
         def absolute_peaks(self) -> dict[str, dict[str, int]]:
             return _test_plateau_peaks()
 
+    class FakeProcess:
+        pid = 123
+        returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
     class FakeStream:
-        process = SimpleNamespace(pid=123)
+        process = FakeProcess()
         start_rss_kib = 1
         peak_rss_kib = 1
+
+        @property
+        def running_pid(self) -> int | None:
+            return self.process.pid if self.process.poll() is None else None
 
         def __iter__(self) -> Iterator[bytes]:
             yield b"__gateway_null_0,__gateway_value_0\n"
             yield b"0,value\n"
 
         def close(self) -> SimpleNamespace:
+            self.process.returncode = 0
             return SimpleNamespace(exit_code=0)
 
     class FakeRunner:
@@ -201,6 +218,171 @@ def test_candidate_a_sampler_spawn_and_provider_baseline_order(
     assert events.index("sampler-start") < events.index("cli-spawn")
     assert events.index("cli-spawn") < events.index("provider-baseline")
     assert events.index("provider-baseline") < events.index("provider-baseline-injection")
+    assert "reaped-provider-not-sampled" in events
+
+
+def test_process_stream_running_pid_excludes_reaped_child() -> None:
+    class FakeProcess:
+        pid = 123
+        returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+    stream: Any = ProcessStream.__new__(ProcessStream)
+    stream.process = FakeProcess()
+    stream._lifecycle_lock = threading.Lock()
+    assert stream.running_pid == 123
+    stream.process.returncode = 0
+    assert stream.running_pid is None
+
+
+@pytest.mark.parametrize("process_kind", ("stream", "discard"))
+def test_internal_rss_monitor_stops_before_process_reap(
+    process_kind: str,
+) -> None:
+    events: list[str] = []
+
+    class FakeProcess:
+        pid = 123
+        returncode: int | None = None
+        stdout = None
+        stderr = None
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self) -> None:
+            events.append("wait")
+            self.returncode = 0
+
+    process = FakeProcess()
+    def terminate_and_reap(_process: object) -> None:
+        events.append("reap")
+        process.returncode = 0
+
+    runner = SimpleNamespace(
+        settings=SimpleNamespace(
+            terminate_grace_seconds=0.01,
+        ),
+        terminate_and_reap=terminate_and_reap,
+        reap_adopted_dolt_children=lambda: events.append("adopted-reap"),
+    )
+    obj: Any = (
+        ProcessStream.__new__(ProcessStream)
+        if process_kind == "stream"
+        else DiscardProcess.__new__(DiscardProcess)
+    )
+    obj.runner = runner
+    obj.process = process
+    obj.command_kind = "test"
+    obj.started = time.monotonic() - 1
+    obj.timeout = 0
+    obj._closed = False
+    obj._lifecycle_lock = threading.Lock()
+    obj._stop_rss_monitor = lambda: events.append("monitor-stop")
+    obj._stderr_thread = SimpleNamespace(join=lambda **_kwargs: events.append("stderr-join"))
+    obj.stderr_tail = SimpleNamespace(value=lambda: b"")
+    obj.start_rss_kib = 0
+    obj.peak_rss_kib = 0
+    obj.start_rss_anon_kib = 0
+    obj.start_rss_file_kib = 0
+    obj.peak_rss_anon_kib = 0
+    obj.peak_rss_file_kib = 0
+
+    obj.close()
+
+    assert events.index("monitor-stop") < events.index("reap")
+
+
+@pytest.mark.parametrize("process_kind", ("stream", "discard"))
+def test_internal_rss_monitor_cannot_sample_after_stop_before_reap(
+    process_kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stopped internal monitor cannot attribute a reused PID to the child."""
+
+    sample_started = threading.Event()
+    release_sample = threading.Event()
+    sampled_returncodes: list[int | None] = []
+
+    class FakeProcess:
+        pid = 123
+        returncode: int | None = None
+
+    process = FakeProcess()
+
+    def sample(_pid: int) -> int:
+        sampled_returncodes.append(process.returncode)
+        sample_started.set()
+        release_sample.wait(timeout=1.0)
+        return 1
+
+    monkeypatch.setattr(process_module, "process_tree_rss_kib", sample)
+    monkeypatch.setattr(
+        process_module,
+        "process_tree_rss_breakdown_kib",
+        lambda _pid: {"rss_anon_kib": 1, "rss_file_kib": 0},
+    )
+
+    obj: Any = (
+        ProcessStream.__new__(ProcessStream)
+        if process_kind == "stream"
+        else DiscardProcess.__new__(DiscardProcess)
+    )
+    obj.process = process
+    obj._lifecycle_lock = threading.Lock()
+    obj._monitor_stop = threading.Event()
+    obj._monitor_thread = threading.Thread(
+        target=(obj._monitor_rss if process_kind == "stream" else obj._monitor),
+        daemon=True,
+    )
+    obj.peak_rss_kib = 0
+    obj.peak_rss_anon_kib = 0
+    obj.peak_rss_file_kib = 0
+    obj._monitor_thread.start()
+    assert sample_started.wait(timeout=1.0)
+
+    stopper = threading.Thread(target=obj._stop_rss_monitor)
+    stopper.start()
+    release_sample.set()
+    stopper.join(timeout=1.0)
+    assert not stopper.is_alive()
+    assert not obj._monitor_thread.is_alive()
+
+    # Simulate wait/reap and immediate PID reuse only after the monitor has
+    # joined.  No sample may be attributed to the post-reap process.
+    process.returncode = 0
+    time.sleep(0.03)
+    assert sampled_returncodes == [None]
+
+
+def test_scaling_diagnostic_publishes_total_record_count(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    records = [
+        {
+            "candidate": Candidate.B.value,
+            "workload": "S10",
+            "record_batch_row_bound": 256,
+            "sample_kind": "warmup",
+            "matrix_kind": "scaling",
+        },
+        {
+            "candidate": Candidate.B.value,
+            "workload": "S10",
+            "record_batch_row_bound": 256,
+            "sample_kind": "measured-1",
+            "matrix_kind": "scaling",
+        },
+    ]
+    monkeypatch.setattr(matrix_module, "_collect_scaling_records", lambda *_args, **_kwargs: records)
+    monkeypatch.setattr(matrix_module, "_annotate_storage", lambda _records: None)
+    monkeypatch.setattr(matrix_module, "_summarize", lambda *_args, **_kwargs: {"records": 0})
+    monkeypatch.setattr(matrix_module, "_write_artifacts", lambda *_args, **_kwargs: None)
+    summary = run_scaling_diagnostic(RepositoryServiceSettings(), tmp_path / "scaling.jsonl")
+    assert summary["records"] == 2
+    assert summary["scaling_records"] == 2
+    assert summary["unique_measurement_keys"] == 2
 
 
 def test_candidate_b_sampler_precedes_cursor_execute(

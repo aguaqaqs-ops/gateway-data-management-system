@@ -1,0 +1,162 @@
+{
+  "candidate_matrix": {
+    "candidate_a_offline_cli": {
+      "bounded_stream_gate": false,
+      "bounded_stream_ratios": {},
+      "bounded_stream_reason": "incomplete, duplicate, or unexpected scaling sample coverage",
+      "bounded_stream_status": "inconclusive",
+      "capacity_gate": false,
+      "capacity_projection_imports_per_day": 0.0,
+      "correctness_failures": 0,
+      "execution_errors": 0,
+      "hard_gate": false,
+      "matrix_coverage_complete": false,
+      "max_w1_import_seconds": null,
+      "metadata_complete": false,
+      "performance_excluded_warmups": 0,
+      "raw_gate_consistent": true,
+      "result": "fail",
+      "safety_limit": false,
+      "storage_provenance_complete": false,
+      "storage_provenance_reason": "candidate has no measurement records",
+      "w3_full_commit_ratios": [],
+      "w3_storage_recorded": false,
+      "workflow": false,
+      "workloads": []
+    },
+    "candidate_b_sql_server": {
+      "bounded_stream_gate": false,
+      "bounded_stream_ratios": {
+        "bound_256_workflow_process_tree_first_10pct_S10": 18096.0,
+        "bound_256_workflow_process_tree_first_10pct_S100": 13888.0,
+        "bound_256_workflow_process_tree_first_10pct_S40": 10116.0,
+        "bound_256_workflow_process_tree_first_10pct_ratio": 1.7888493475682088
+      },
+      "bounded_stream_reason": "workflow_process_tree/first_10pct ratio exceeded 1.5",
+      "bounded_stream_status": "fail",
+      "capacity_gate": false,
+      "capacity_projection_imports_per_day": 0.0,
+      "correctness_failures": 0,
+      "execution_errors": 0,
+      "hard_gate": false,
+      "matrix_coverage_complete": false,
+      "max_w1_import_seconds": null,
+      "metadata_complete": true,
+      "performance_excluded_warmups": 6,
+      "raw_gate_consistent": true,
+      "result": "fail",
+      "safety_limit": false,
+      "storage_provenance_complete": true,
+      "storage_provenance_reason": "complete",
+      "w3_full_commit_ratios": [],
+      "w3_storage_recorded": false,
+      "workflow": false,
+      "workloads": []
+    }
+  },
+  "correctness_failures": 0,
+  "coverage": {
+    "complete": false,
+    "normal": {
+      "actual": 0,
+      "complete": false,
+      "duplicates": 0,
+      "expected": 60,
+      "extra": 0,
+      "missing": 60,
+      "reason": "missing/duplicate/extra sample keys"
+    },
+    "scaling": {
+      "actual": 36,
+      "complete": false,
+      "duplicates": 0,
+      "expected": 72,
+      "extra": 0,
+      "missing": 36,
+      "reason": "missing/duplicate/extra sample keys"
+    }
+  },
+  "decision_kind": "diagnostic",
+  "decision_scope": "current_measurement_environment_only",
+  "diagnostic_candidates": [
+    "candidate_b_sql_server"
+  ],
+  "execution_errors": 0,
+  "formal_decision": false,
+  "measurement_environment": {
+    "build_revisions": [
+      "50f05cf6e394bfea48d1a7e4cb6c1959a9879396"
+    ],
+    "cpu_count": 16,
+    "dolt_actual_versions": [
+      "2.1.11"
+    ],
+    "dolt_version": "2.1.11",
+    "environment_class": "development-equivalent-smoke",
+    "filesystem_types": [
+      "xfs"
+    ],
+    "image_digests": [
+      "sha256:a535fc14dce409fc4bfdce44ad59043f8a576811f5c7a207a7ee3aa1b129e89c"
+    ],
+    "mysql_connector_versions": [
+      "9.7.0"
+    ],
+    "production_environment_assessed": false,
+    "python_version": "3.14.6",
+    "storage_mount_verified": true,
+    "storage_root_identities": [
+      "sha256:72f25ba182f82f46995474f97238934fbd923355269dfa105de62cdc46fdb205"
+    ],
+    "volume_backends": [
+      "volume"
+    ]
+  },
+  "measurement_outcome": "no-go",
+  "methodology": {
+    "absolute_plateau_preserved": true,
+    "bounded_peak_semantics": "baseline_adjusted_delta",
+    "bounded_ratio_limit": 1.5,
+    "byte_bound": 4194304,
+    "connector_fetch_row_bound": 32,
+    "connector_fetch_semantics": "width_aware_at_most_configured_bound",
+    "memory_subjects": [
+      "workflow_process_tree",
+      "provider_process_tree",
+      "arrow_memory_pool",
+      "cgroup"
+    ],
+    "oversized_single_row": "allowed as a separate batch and recorded",
+    "plateau_windows": [
+      "first_10pct",
+      "middle_10pct",
+      "final_10pct"
+    ],
+    "row_bounds": [
+      256,
+      1024
+    ],
+    "same_shape_scales": [
+      "S10",
+      "S40",
+      "S100"
+    ],
+    "version": "p2-r1-audit-corrective-v7",
+    "w2_role": "wide-row-boundary-only; excluded from total-size scaling gate",
+    "w3_role": "storage-observation-only; quiesced measurement; no fixed ratio hard gate"
+  },
+  "next_round_ready": false,
+  "normal_records": 0,
+  "p2_r1_exit": "no-go",
+  "p2_r2_ready": false,
+  "performance_excluded_warmups": 6,
+  "production_retest_required": true,
+  "proposed_provider": null,
+  "records": 0,
+  "round": "P2-R1",
+  "round_exit": "diagnostic-no-go",
+  "sample_failures": 0,
+  "scaling_records": 36,
+  "selected_provider": null,
+  "selection_reason": "coverage, failure, or hard gate prevented provider selection"
+}

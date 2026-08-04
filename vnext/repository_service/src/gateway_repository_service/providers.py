@@ -645,7 +645,7 @@ class OfflineCliProvider:
         try:
             sampler = MemorySampler(
                 os.getpid(),
-                lambda: stream.process.pid if stream is not None else None,
+                lambda: stream.running_pid if stream is not None else None,
                 self.cgroup,
                 self.settings.memory_sample_interval_seconds,
                 baselines={

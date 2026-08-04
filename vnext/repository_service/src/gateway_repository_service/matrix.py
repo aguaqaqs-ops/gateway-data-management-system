@@ -1104,6 +1104,23 @@ def run_scaling_diagnostic(
             "selected_provider": None,
             "next_round_ready": False,
             "p2_r2_ready": False,
+            # _summarize() uses ``records`` for the normal-matrix count.  A
+            # scaling-only diagnostic must expose its actual raw count too;
+            # preserve ``scaling_records`` for compatibility and make the
+            # diagnostic total unambiguous for future artifacts.
+            "records": len(records),
+            "scaling_records": len(records),
+            "unique_measurement_keys": len(
+                {
+                    (
+                        row.get("candidate"),
+                        row.get("workload"),
+                        row.get("record_batch_row_bound"),
+                        row.get("sample_kind"),
+                    )
+                    for row in records
+                }
+            ),
         }
     )
     _write_artifacts(output, records, summary)

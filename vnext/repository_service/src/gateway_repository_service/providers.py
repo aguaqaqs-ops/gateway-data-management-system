@@ -520,6 +520,7 @@ def _empty_batch_metrics(*, encoded_line_applicable: bool) -> dict[str, object]:
         "oversized_single_row": False,
         "oversized_row_count": 0,
         "max_oversized_row_bytes": 0,
+        "oversized_batch_count": 0,
         "batch_contract_valid": True,
         "batch_contract_violation_count": 0,
         "encoded_line_bound": None,
@@ -563,6 +564,10 @@ def _observe_batch_metrics(
         )
     oversized_single_row = row_count == 1 and bool(oversized_rows)
     metrics["oversized_single_row"] = bool(metrics["oversized_single_row"]) or oversized_single_row
+    if oversized_single_row:
+        metrics["oversized_batch_count"] = _metric_int(
+            metrics, "oversized_batch_count"
+        ) + 1
     valid = 1 <= row_count <= row_bound and (
         payload_bytes <= byte_bound or oversized_single_row
     )

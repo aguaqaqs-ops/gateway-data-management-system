@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
+import decimal
 import re
 import subprocess
 import sys
@@ -2460,6 +2462,42 @@ def test_v8_provider_rows_share_arrow_normalized_payload_accounting() -> None:
     assert _rows_bytes(candidate_a) == _rows_bytes(candidate_b)
 
 
+def test_v8_provider_shape_normalizes_temporal_numeric_values_identically() -> None:
+    table = TableCatalog(
+        "shapes",
+        (
+            ColumnCatalog("ts", "TIMESTAMP(6)", False, None),
+            ColumnCatalog("dt", "DATETIME(6)", False, None),
+            ColumnCatalog("time", "TIME(6)", False, None),
+            ColumnCatalog("decimal_value", "DECIMAL(10,2)", False, None),
+            ColumnCatalog("float_value", "FLOAT", False, None),
+        ),
+        1,
+    )
+    policy = UnknownTypePolicy.STRINGIFY
+    timezone = dt.timezone(dt.timedelta(hours=2))
+    candidate_a = normalize_rows(
+        table,
+        [("2025-01-01 12:00:00+02:00", "2025-01-01 12:00:00", "01:02:03", "12.50", "1.5")],
+        policy,
+    )
+    candidate_b = normalize_rows(
+        table,
+        [
+            (
+                dt.datetime(2025, 1, 1, 12, tzinfo=timezone),
+                dt.datetime(2025, 1, 1, 12),
+                dt.timedelta(hours=1, minutes=2, seconds=3),
+                decimal.Decimal("12.50"),
+                1.5,
+            )
+        ],
+        policy,
+    )
+    assert candidate_a == candidate_b
+    assert _rows_bytes(candidate_a) == _rows_bytes(candidate_b)
+
+
 def _v8_memory_evidence_for_test(peak: int = 100) -> dict[str, object]:
     plateau = {
         subject: {
@@ -2522,6 +2560,7 @@ def _v8_record_for_test(
         "oversized_single_row": False,
         "oversized_row_count": 0,
         "max_oversized_row_bytes": 0,
+        "oversized_batch_count": 0,
         "byte_bound_reason": None,
         "encoded_line_applicable": False,
         "encoded_line_bound_valid": None,
@@ -2594,6 +2633,7 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
         "oversized_single_row": False,
         "oversized_row_count": 0,
         "max_oversized_row_bytes": 0,
+        "oversized_batch_count": 0,
         "batch_contract_valid": True,
         "batch_contract_violation_count": 0,
     }
@@ -2603,6 +2643,7 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
     assert metrics["oversized_row_count"] == 2
     assert metrics["batch_contract_valid"] is True
     assert metrics["max_oversized_row_bytes"] == 6
+    assert metrics["oversized_batch_count"] == 2
     invalid_metrics: dict[str, object] = {
         "total_rows": 0,
         "total_stream_payload_bytes": 0,
@@ -2613,6 +2654,7 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
         "oversized_single_row": False,
         "oversized_row_count": 0,
         "max_oversized_row_bytes": 0,
+        "oversized_batch_count": 0,
         "batch_contract_valid": True,
         "batch_contract_violation_count": 0,
     }
@@ -2634,6 +2676,7 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
             "max_row_bytes": 1,
             "oversized_row_count": 0,
             "max_oversized_row_bytes": 0,
+            "oversized_batch_count": 0,
             "byte_bound_reason": None,
             "record_batch_byte_bound": V8_BYTE_BOUND,
             "record_batch_row_bound": 1024,
@@ -2650,6 +2693,7 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
         "max_row_bytes": 3,
         "oversized_row_count": 0,
         "max_oversized_row_bytes": 0,
+        "oversized_batch_count": 0,
         "byte_bound_reason": None,
         "oversized_single_row": False,
         "batch_contract_valid": False,
@@ -2658,6 +2702,36 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
         "record_batch_byte_bound": V8_BYTE_BOUND,
     }
     assert _v8_batch_contract_valid(invalid_multi_row) is False
+
+    mixed: dict[str, object] = {
+        "total_rows": 0,
+        "total_stream_payload_bytes": 0,
+        "max_row_bytes": 0,
+        "batch_count": 0,
+        "max_batch_rows": 0,
+        "max_batch_bytes": 0,
+        "oversized_single_row": False,
+        "oversized_row_count": 0,
+        "max_oversized_row_bytes": 0,
+        "oversized_batch_count": 0,
+        "batch_contract_valid": True,
+        "batch_contract_violation_count": 0,
+    }
+    _observe_batch_metrics(
+        mixed, [("a",)] * 100, row_bound=1024, byte_bound=V8_BYTE_BOUND
+    )
+    _observe_batch_metrics(
+        mixed, [("b" * (V8_BYTE_BOUND + 1),)], row_bound=1024, byte_bound=V8_BYTE_BOUND
+    )
+    mixed.update(
+        {
+            "byte_bound_reason": "single_indivisible_row",
+            "record_batch_byte_bound": V8_BYTE_BOUND,
+            "record_batch_row_bound": 1024,
+        }
+    )
+    assert mixed["max_batch_rows"] == 100
+    assert _v8_batch_contract_valid(mixed) is True
 
 
 def test_v8_ratio_is_advisory_and_resource_includes_failed_evidence() -> None:
@@ -2853,6 +2927,11 @@ def test_v8_a_w0_smoke_is_a_only_v8_and_diagnostic(
     assert raw["diagnostic_only"] is True
     assert raw["record_batch_byte_bound"] == V8_BYTE_BOUND
     assert raw["candidate"] == Candidate.A.value
+    report = output.with_suffix(".md").read_text(encoding="utf-8")
+    assert "status: `diagnostic_only`" in report
+    assert "| Result |" in report
+    assert "| not_evaluated |" in report
+    assert "| fail |" not in report
 
 
 def test_v8_record_contract_and_w2_split_are_hard_requirements() -> None:
@@ -2870,6 +2949,7 @@ def test_v8_record_contract_and_w2_split_are_hard_requirements() -> None:
     record["methodology_version"] = V8_METHODOLOGY
     record["oversized_row_count"] = 1
     record["oversized_single_row"] = True
+    record["oversized_batch_count"] = 1
     record["max_oversized_row_bytes"] = V8_BYTE_BOUND + 1
     record["max_row_bytes"] = V8_BYTE_BOUND + 1
     record["max_batch_bytes"] = V8_BYTE_BOUND + 1

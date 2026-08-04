@@ -480,6 +480,16 @@ def run_v8_a_w0_smoke(
             byte_bound=V8_BYTE_BOUND,
             record_sink=sink,
         )
+        smoke_pass = len(records) == 1 and all(
+            record.get("correctness") is True
+            and record.get("error") is None
+            and _v8_record_contract_valid(record)
+            and _v8_batch_contract_valid(record)
+            and _v8_memory_evidence_valid(record)
+            and record.get("storage_mount_verified") is True
+            and record.get("metadata_complete") is True
+            for record in records
+        )
         summary = _summarize_v8(records, smoke_settings)
         summary.update(
             {
@@ -492,6 +502,19 @@ def run_v8_a_w0_smoke(
                 "next_round_ready": False,
                 "p2_r2_ready": False,
                 "raw_records_written": written,
+                "smoke_status": "pass" if smoke_pass else "fail",
+                "candidate_matrix": {
+                    Candidate.A.value: {
+                        "status": "diagnostic_only",
+                        "hard_gate": None,
+                        "result": "not_evaluated",
+                    },
+                    Candidate.B.value: {
+                        "status": "reserved_not_evaluated",
+                        "hard_gate": None,
+                        "result": "not_evaluated",
+                    },
+                },
             }
         )
         _publish_v8_summary_report(output, summary)
@@ -592,6 +615,7 @@ def run_reserved_b_w0_smoke(
             },
             "raw_records_written": written,
             "methodology_version": smoke_settings.measurement_methodology_version,
+            "smoke_status": "pass" if len(records) == 1 and records[0].get("correctness") is True else "fail",
         }
         _publish_v8_summary_report(output, summary)
         return summary
@@ -920,6 +944,30 @@ def _publish_v8_summary_report(output: Path, summary: dict[str, object]) -> None
 
 def _markdown_v8(summary: dict[str, object]) -> str:
     matrix = cast(dict[str, dict[str, object]], summary["candidate_matrix"])
+    if summary.get("diagnostic_only") is True:
+        return "\n".join(
+            [
+                "# P2-R1 v8 Diagnostic Smoke",
+                "",
+                "- status: `diagnostic_only`",
+                f"- smoke_status: `{summary.get('smoke_status', 'unknown')}`",
+                f"- formal_status: `{summary['formal_status']}`",
+                f"- formal_decision: `{summary['formal_decision']}`",
+                f"- selected_provider: `{summary['selected_provider']}`",
+                f"- records: `{summary['records']}` / expected `1`",
+                "",
+                "| Candidate | Status | Hard gate | Result |",
+                "|---|---|---:|---|",
+                *[
+                    f"| {candidate} | {entry.get('status')} | "
+                    f"{entry.get('hard_gate')} | {entry.get('result')} |"
+                    for candidate, entry in matrix.items()
+                ],
+                "",
+                "This smoke is diagnostic-only and cannot select a provider or authorize P2-R2.",
+                "",
+            ]
+        )
     candidate_a = matrix.get(
         Candidate.A.value,
         {
@@ -2233,6 +2281,7 @@ def _v8_batch_contract_valid(row: dict[str, object]) -> bool:
     oversized_single_row = row.get("oversized_single_row")
     oversized_row_count = row.get("oversized_row_count")
     max_oversized_row_bytes = row.get("max_oversized_row_bytes")
+    oversized_batch_count = row.get("oversized_batch_count")
     byte_bound_reason = row.get("byte_bound_reason")
     row_bound = row.get("record_batch_row_bound")
     byte_bound = row.get("record_batch_byte_bound")
@@ -2248,6 +2297,7 @@ def _v8_batch_contract_valid(row: dict[str, object]) -> bool:
             max_row_bytes,
             oversized_row_count,
             max_oversized_row_bytes,
+            oversized_batch_count,
         ))
         and isinstance(oversized_single_row, bool)
         and isinstance(row_bound, int)
@@ -2265,6 +2315,7 @@ def _v8_batch_contract_valid(row: dict[str, object]) -> bool:
     assert isinstance(oversized_single_row, bool)
     assert isinstance(oversized_row_count, int)
     assert isinstance(max_oversized_row_bytes, int)
+    assert isinstance(oversized_batch_count, int)
     assert isinstance(row_bound, int)
     assert isinstance(byte_bound, int)
     if max_row_bytes > max_batch_bytes or max_batch_bytes > payload_bytes:
@@ -2281,6 +2332,8 @@ def _v8_batch_contract_valid(row: dict[str, object]) -> bool:
         return False
     if oversized_row_count > total_rows:
         return False
+    if oversized_batch_count != oversized_row_count or oversized_batch_count > batch_count:
+        return False
     if total_rows == 0:
         if (
             batch_count != 0
@@ -2295,8 +2348,6 @@ def _v8_batch_contract_valid(row: dict[str, object]) -> bool:
         return False
     oversized = oversized_single_row
     if max_batch_bytes > byte_bound and not oversized:
-        return False
-    if oversized and max_batch_rows != 1:
         return False
     if row.get("encoded_line_applicable") is True and (
         row.get("encoded_line_bound_valid") is not True
@@ -2440,6 +2491,8 @@ def _summarize_v8(
     w2_byte_split_complete = bool(w2_rows) and all(
         isinstance(row.get("max_batch_rows"), int)
         and cast(int, row["max_batch_rows"]) < 1024
+        and isinstance(row.get("max_batch_bytes"), int)
+        and cast(int, row["max_batch_bytes"]) <= V8_BYTE_BOUND
         for row in w2_rows
     )
     memory_complete = bool(candidate_rows) and all(

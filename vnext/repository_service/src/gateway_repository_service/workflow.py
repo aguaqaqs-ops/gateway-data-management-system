@@ -481,6 +481,7 @@ def _empty_batch_metrics() -> dict[str, object]:
         "oversized_single_row": False,
         "oversized_row_count": 0,
         "max_oversized_row_bytes": 0,
+        "oversized_batch_count": 0,
         "batch_contract_valid": False,
         "batch_contract_violation_count": 0,
         "encoded_line_bound": None,
@@ -523,6 +524,9 @@ def _merge_batch_metrics(
     total["oversized_row_count"] = _batch_metric_int(
         total, "oversized_row_count"
     ) + _batch_metric_int(current, "oversized_row_count")
+    total["oversized_batch_count"] = _batch_metric_int(
+        total, "oversized_batch_count"
+    ) + _batch_metric_int(current, "oversized_batch_count")
     total["max_oversized_row_bytes"] = max(
         _batch_metric_int(total, "max_oversized_row_bytes"),
         _batch_metric_int(current, "max_oversized_row_bytes"),

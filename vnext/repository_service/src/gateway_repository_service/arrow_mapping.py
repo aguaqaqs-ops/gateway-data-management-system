@@ -194,11 +194,15 @@ def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
         hours, minutes, seconds = (int(parts[0]), int(parts[1]), float(parts[2]))
         return sign * dt.timedelta(hours=hours, minutes=minutes, seconds=seconds)
     if pa.types.is_timestamp(arrow):
-        if isinstance(value, dt.datetime):
-            return value
-        parsed = dt.datetime.fromisoformat(str(value).replace(" ", "T"))
-        if upper.startswith("TIMESTAMP") and parsed.tzinfo is None:
-            return parsed.replace(tzinfo=dt.timezone.utc)
+        parsed = (
+            value
+            if isinstance(value, dt.datetime)
+            else dt.datetime.fromisoformat(str(value).replace(" ", "T"))
+        )
+        if upper.startswith("TIMESTAMP"):
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=dt.timezone.utc)
+            return parsed.astimezone(dt.timezone.utc)
         return parsed
     if pa.types.is_binary(arrow):
         if isinstance(value, bytes):

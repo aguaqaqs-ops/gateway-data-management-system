@@ -211,12 +211,19 @@ uv run --offline --no-sync python -m gateway_repository_service.matrix \
   --output /tmp/p2-r1-diagnostic-w0.jsonl
 ```
 
-The only formal entry point is the complete 132-record launcher command below.
-It requires the delegated cgroup and verified image/build metadata. Its output
-must use a new `audit-rerun` path and never overwrite historical artifacts:
+The v7 historical formal entry point produced 132 records and remains frozen.
+The current formal entry point is the explicit v8 A-only command below: it
+produces 66 records (30 normal + 36 scaling), requires the delegated cgroup and
+verified image/build metadata, and must use a new `audit-rerun` path without
+overwriting historical artifacts:
 
 ```sh
 vnext/deploy/p2r1-cache/p2r1-target-launcher.sh \
   --output /var/lib/gateway/repository/audit-rerun/p2-r1.jsonl \
+  --v8-formal \
   --runs 5
 ```
+
+Candidate B is reserved in v8 and may only be exercised through the separate
+diagnostic-only `--reserved-b-w0-smoke` entry point; it is not part of the 66
+records and cannot select a provider.

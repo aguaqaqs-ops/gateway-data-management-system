@@ -42,22 +42,10 @@ class RepositoryArtifactRef(_VersionedModel):
     raw_sha256: Sha256String
 
 
-class CreateRepositoryRequest(_VersionedModel):
-    idempotency_key: BoundedOpaqueString
-
-
 class CreateRepositoryResponse(_VersionedModel):
     repository_id: UUID
     default_ref: RefNameString
     initial_commit_id: BoundedOpaqueString
-
-
-class UploadArtifactRequest(_VersionedModel):
-    repository_id: UUID
-    media_type: MediaTypeString
-    declared_size: NonNegativeInt
-    raw_sha256: Sha256String
-    idempotency_key: BoundedOpaqueString
 
 
 class UploadArtifactResponse(_VersionedModel):

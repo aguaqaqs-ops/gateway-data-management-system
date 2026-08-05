@@ -115,7 +115,6 @@ def test_import_result_echoes_opaque_manifest_binding() -> None:
         ("media_type", ""),
         ("raw_sha256", "not-a-sha"),
         ("size_bytes", -1),
-        ("idempotency_key", ""),
     ],
 )
 def test_bounded_and_integrity_fields_reject_invalid_values(
@@ -125,3 +124,23 @@ def test_bounded_and_integrity_fields_reject_invalid_values(
     values[field] = value
     with pytest.raises(ValidationError):
         RepositoryArtifactRef(**values)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("idempotency_key", ""),
+        ("expected_commit_id", ""),
+    ],
+)
+def test_import_request_rejects_invalid_bounded_fields(field: str, value: object) -> None:
+    payload: dict[str, object] = {
+        "repository_id": str(REPOSITORY_ID),
+        "artifact_ref": artifact_ref().model_dump(),
+        "target_ref": "main",
+        "expected_commit_id": "commit-0",
+        "idempotency_key": "import-1",
+    }
+    payload[field] = value
+    with pytest.raises(ValidationError):
+        SubmitVersionedImportRequest.model_validate(payload)

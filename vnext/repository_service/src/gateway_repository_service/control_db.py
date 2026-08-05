@@ -7,6 +7,33 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
 
+from gateway_repository_service.mutation_store import configure_connection
+
+_MIGRATION_V2_DDL = """
+CREATE TABLE mutation_idempotency (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mutation_kind TEXT NOT NULL CHECK (
+        mutation_kind IN ('create_repository', 'upload_artifact')
+    ),
+    repository_scope TEXT NOT NULL DEFAULT '',
+    key_hash BLOB NOT NULL CHECK (length(key_hash) = 32),
+    request_fingerprint BLOB NOT NULL,
+    terminal_not_published INTEGER NOT NULL DEFAULT 0 CHECK (terminal_not_published IN (0, 1)),
+    created_at TEXT NOT NULL,
+    UNIQUE (mutation_kind, repository_scope, key_hash)
+);
+
+CREATE TABLE synchronous_mutation_effects (
+    effect_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    idempotency_id INTEGER NOT NULL UNIQUE REFERENCES mutation_idempotency(id),
+    resource_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('PENDING', 'SUCCEEDED')),
+    response_status INTEGER,
+    response_body TEXT,
+    updated_at TEXT NOT NULL
+);
+"""
+
 
 class ControlDbError(RuntimeError):
     """Raised when the control database cannot be opened or migrated."""
@@ -36,6 +63,7 @@ class ControlStore:
             timeout=busy_timeout_ms / 1000.0,
             check_same_thread=False,
         )
+        configure_connection(connection)
         try:
             connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
             connection.execute("PRAGMA foreign_keys = ON")
@@ -97,8 +125,10 @@ class ControlStore:
 
     @staticmethod
     def _apply_migration_step(connection: sqlite3.Connection, target_version: int) -> None:
-        del connection
         if target_version == 1:
+            return
+        if target_version == 2:
+            connection.executescript(_MIGRATION_V2_DDL)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

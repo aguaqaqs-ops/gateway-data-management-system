@@ -1,8 +1,14 @@
 """Thin Versioned Repository Service DTOs."""
 
 from gateway_repository_contracts.errors import SimpleError
+from gateway_repository_contracts.headers import (
+    DEFAULT_MAX_UPLOAD_BYTES,
+    REPOSITORY_IMPORT_MEDIA_TYPE,
+    IdempotencyKeyString,
+    UploadRequestHeaders,
+    validate_upload_content_length,
+)
 from gateway_repository_contracts.versioned import (
-    CreateRepositoryRequest,
     CreateRepositoryResponse,
     GetOperationResponse,
     GetVersionedCatalogResponse,
@@ -13,7 +19,6 @@ from gateway_repository_contracts.versioned import (
     SubmitVersionedImportRequest,
     SubmitVersionedImportResponse,
     StreamVersionedTableRowsRequest,
-    UploadArtifactRequest,
     UploadArtifactResponse,
     VersionedCatalog,
     VersionedColumn,
@@ -23,10 +28,12 @@ from gateway_repository_contracts.versioned import (
 )
 
 __all__ = [
-    "CreateRepositoryRequest",
+    "DEFAULT_MAX_UPLOAD_BYTES",
+    "REPOSITORY_IMPORT_MEDIA_TYPE",
     "CreateRepositoryResponse",
     "GetOperationResponse",
     "GetVersionedCatalogResponse",
+    "IdempotencyKeyString",
     "OperationStatus",
     "RepositoryArtifactRef",
     "ResolveVersionedRefRequest",
@@ -35,11 +42,12 @@ __all__ = [
     "SubmitVersionedImportRequest",
     "SubmitVersionedImportResponse",
     "StreamVersionedTableRowsRequest",
-    "UploadArtifactRequest",
     "UploadArtifactResponse",
+    "UploadRequestHeaders",
     "VersionedCatalog",
     "VersionedColumn",
     "VersionedImportResult",
     "VersionedOperation",
     "VersionedTable",
+    "validate_upload_content_length",
 ]

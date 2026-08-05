@@ -14,6 +14,7 @@ from gateway_repository_service.capacity import (
 from gateway_repository_service.control_db import ControlStore
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock
+from gateway_repository_service.mutation_store import MutationStore, configure_connection
 from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate
 from gateway_repository_service.settings import RepositoryServiceSettings
 
@@ -28,6 +29,7 @@ class ServiceRuntime:
     layout: DurableLayout
     root_lock: DurableRootLock
     control_store: ControlStore
+    mutation_store: MutationStore
     provider_gate: OfflineCliCapabilityGate
     auth_state: AuthState
 
@@ -46,6 +48,8 @@ class ServiceRuntime:
                 busy_timeout_ms=settings.sqlite_busy_timeout_ms,
             )
             stack.callback(control_store.close)
+            configure_connection(control_store.connection)
+            mutation_store = MutationStore(control_store.connection)
             provider_gate = OfflineCliCapabilityGate.verify(settings, layout)
             if not is_durable_root_writable(layout.service_state):
                 raise ServiceStartupError("durable root is not writable")
@@ -57,6 +61,7 @@ class ServiceRuntime:
                 layout=layout,
                 root_lock=root_lock,
                 control_store=control_store,
+                mutation_store=mutation_store,
                 provider_gate=provider_gate,
                 auth_state=AuthState(bearer_token=bearer_token),
             )

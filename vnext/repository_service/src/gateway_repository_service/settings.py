@@ -54,8 +54,10 @@ class RepositoryServiceSettings(BaseSettings):
     v8_measurement_methodology_version: str = "p2-r1-audit-corrective-v8"
     min_free_disk_bytes: int = 5 * 1024 * 1024 * 1024
     min_free_disk_fraction: float = 0.10
+    max_upload_bytes: int = 256 * 1024 * 1024
+    artifact_ttl_seconds: int = 24 * 60 * 60
     sqlite_busy_timeout_ms: int = 5000
-    control_db_user_version: int = 1
+    control_db_user_version: int = 2
 
     @field_validator("dolt_binary")
     @classmethod
@@ -86,6 +88,8 @@ class RepositoryServiceSettings(BaseSettings):
         "max_stream_line_bytes",
         "v8_memory_safety_ceiling_bytes",
         "min_free_disk_bytes",
+        "max_upload_bytes",
+        "artifact_ttl_seconds",
         "sqlite_busy_timeout_ms",
         "control_db_user_version",
     )

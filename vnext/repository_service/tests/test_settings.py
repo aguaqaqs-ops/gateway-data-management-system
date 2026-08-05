@@ -46,3 +46,17 @@ def test_settings_str_redacts_bearer_token_for_logging(tmp_path: Path, caplog: p
         logger.info("%s", settings)
     assert "logging-secret-token" not in caplog.text
     assert "<redacted>" in caplog.text
+
+
+def test_default_upload_and_ttl_settings() -> None:
+    settings = RepositoryServiceSettings()
+    assert settings.max_upload_bytes == 256 * 1024 * 1024
+    assert settings.artifact_ttl_seconds == 24 * 60 * 60
+    assert settings.control_db_user_version == 2
+
+
+@pytest.mark.parametrize("field", ["max_upload_bytes", "artifact_ttl_seconds", "control_db_user_version"])
+def test_positive_bounds_reject_zero(tmp_path: Path, field: str) -> None:
+    kwargs: dict[str, int] = {field: 0}
+    with pytest.raises(ValueError):
+        RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]

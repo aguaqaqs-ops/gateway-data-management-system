@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, Request
 
@@ -40,7 +41,7 @@ def register_repository_routes(app: FastAPI) -> None:
             mutation_store=runtime.mutation_store,
         )
         response = command.execute(idempotency_key)
-        runtime.refresh_consistency_watch()
+        runtime.register_succeeded_create(UUID(str(response.repository_id)))
         return response
 
 

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from uuid import UUID
 
 from gateway_repository_service.auth_state import AuthState
 from gateway_repository_service.capacity import (
@@ -15,10 +16,9 @@ from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, Contr
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.mutation_reconciliation import (
-    ConsistencyWatch,
+    MutableConsistencyWatch,
     ReconciliationError,
     SynchronousMutationReconciler,
-    build_consistency_watch,
     filesystem_watch_failures,
 )
 from gateway_repository_service.mutation_store import MutationStore, configure_connection
@@ -40,7 +40,10 @@ class ServiceRuntime:
     provider_gate: OfflineCliCapabilityGate
     auth_state: AuthState
     reconciliation_failures: tuple[str, ...] = ()
-    consistency_watch: ConsistencyWatch = ConsistencyWatch((), ())
+    consistency_watch: MutableConsistencyWatch = field(
+        default_factory=MutableConsistencyWatch,
+        repr=False,
+    )
 
     @classmethod
     def start(cls, settings: RepositoryServiceSettings) -> "ServiceRuntime":
@@ -79,7 +82,7 @@ class ServiceRuntime:
                 provider_gate=provider_gate,
                 auth_state=AuthState(bearer_token=bearer_token),
                 reconciliation_failures=reconciliation.blocking_failures,
-                consistency_watch=reconciliation.consistency_watch,
+                consistency_watch=MutableConsistencyWatch.from_watch(reconciliation.consistency_watch),
             )
         except ReconciliationError as exc:
             raise ServiceStartupError(str(exc)) from exc
@@ -96,8 +99,16 @@ class ServiceRuntime:
         if self.root_lock.is_held():
             self.root_lock.release()
 
-    def refresh_consistency_watch(self) -> None:
-        self.consistency_watch = build_consistency_watch(self.mutation_store)
+    def register_succeeded_create(self, repository_id: UUID) -> None:
+        self.consistency_watch.register_succeeded_create(repository_id)
+
+    def register_succeeded_upload(
+        self,
+        repository_id: UUID,
+        artifact_id: UUID,
+        size_bytes: int,
+    ) -> None:
+        self.consistency_watch.register_succeeded_upload(repository_id, artifact_id, size_bytes)
 
     def _readiness_failure(self) -> str | None:
         try:
@@ -107,7 +118,7 @@ class ServiceRuntime:
                 return "control database is unavailable"
             if self.reconciliation_failures:
                 return "mutation ledger and filesystem are inconsistent"
-            if filesystem_watch_failures(self.consistency_watch, self.layout):
+            if filesystem_watch_failures(self.consistency_watch.snapshot(), self.layout):
                 return "mutation ledger and filesystem are inconsistent"
             if not self._provider_ready():
                 return "provider is unavailable"

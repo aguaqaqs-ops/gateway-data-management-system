@@ -72,7 +72,12 @@ def register_artifact_routes(app: FastAPI) -> None:
                 yield chunk
 
         response = await command.execute(repository_id, headers, body_stream())
-        runtime.refresh_consistency_watch()
+        artifact_ref = response.artifact_ref
+        runtime.register_succeeded_upload(
+            repository_id,
+            UUID(str(artifact_ref.artifact_id)),
+            artifact_ref.size_bytes,
+        )
         return response
 
 

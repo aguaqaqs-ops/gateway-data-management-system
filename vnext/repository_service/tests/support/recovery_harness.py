@@ -309,7 +309,7 @@ def replay_create(
         mutation_store=runtime.mutation_store,
     )
     response = command.execute(idempotency_key)
-    runtime.refresh_consistency_watch()
+    runtime.register_succeeded_create(UUID(str(response.repository_id)))
     return response
 
 
@@ -328,7 +328,12 @@ async def replay_upload(
     )
     body = cast(AsyncIterator[bytes], UploadBody(payload))
     response = await command.execute(repository_id, headers, body)
-    runtime.refresh_consistency_watch()
+    artifact_ref = response.artifact_ref
+    runtime.register_succeeded_upload(
+        repository_id,
+        UUID(str(artifact_ref.artifact_id)),
+        artifact_ref.size_bytes,
+    )
     return response
 
 

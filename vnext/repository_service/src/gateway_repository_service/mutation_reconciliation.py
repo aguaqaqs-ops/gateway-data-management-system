@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID
 
@@ -65,6 +66,48 @@ def build_consistency_watch(mutation_store: MutationStore) -> ConsistencyWatch:
         create_repository_ids=tuple(create_repository_ids),
         upload_artifacts=tuple(upload_artifacts),
     )
+
+
+@dataclass
+class MutableConsistencyWatch:
+    """Thread-safe, monotonic consistency watch for runtime readiness probes."""
+
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _create_repository_ids: set[UUID] = field(default_factory=set, repr=False)
+    _upload_artifacts: dict[tuple[UUID, UUID], int] = field(default_factory=dict, repr=False)
+
+    def register_succeeded_create(self, repository_id: UUID) -> None:
+        with self._lock:
+            self._create_repository_ids.add(repository_id)
+
+    def register_succeeded_upload(
+        self,
+        repository_id: UUID,
+        artifact_id: UUID,
+        size_bytes: int,
+    ) -> None:
+        with self._lock:
+            self._upload_artifacts[(repository_id, artifact_id)] = size_bytes
+
+    def snapshot(self) -> ConsistencyWatch:
+        with self._lock:
+            return ConsistencyWatch(
+                create_repository_ids=tuple(self._create_repository_ids),
+                upload_artifacts=tuple(
+                    (repository_id, artifact_id, size_bytes)
+                    for (repository_id, artifact_id), size_bytes in self._upload_artifacts.items()
+                ),
+            )
+
+    @classmethod
+    def from_watch(cls, watch: ConsistencyWatch) -> MutableConsistencyWatch:
+        mutable = cls()
+        mutable._create_repository_ids = set(watch.create_repository_ids)
+        mutable._upload_artifacts = {
+            (repository_id, artifact_id): size_bytes
+            for repository_id, artifact_id, size_bytes in watch.upload_artifacts
+        }
+        return mutable
 
 
 def filesystem_watch_failures(

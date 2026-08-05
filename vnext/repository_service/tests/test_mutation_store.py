@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE
-from gateway_repository_service.control_db import ControlStore
+from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.mutation_fingerprints import (
     CREATE_REPOSITORY_FINGERPRINT_V1,
     create_repository_fingerprint_v1,
@@ -38,7 +38,7 @@ SHA256 = "a" * 64
 @pytest.fixture
 def store(tmp_path: Path) -> MutationStore:
     db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-    control_store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+    control_store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
     control_store.close()
     connection = sqlite3.connect(db_path)
     configure_connection(connection)
@@ -209,6 +209,34 @@ def test_terminal_not_published_blocks_new_effect_for_pending(store: MutationSto
         )
 
 
+def test_mark_succeeded_rejects_terminal_not_published_effect(store: MutationStore) -> None:
+    scope = _create_scope()
+    key_hash = IdempotencyKeyHash.from_raw_key("create-terminal-then-succeed")
+    fingerprint = create_repository_fingerprint_v1()
+    pending = store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=uuid4(),
+    )
+    store.mark_terminal_not_published(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        effect_id=pending.effect_id,
+    )
+
+    with pytest.raises(TerminalTransitionRejected, match="cannot succeed"):
+        store.mark_succeeded(
+            pending.effect_id,
+            response_body={
+                "repository_id": str(pending.resource_id),
+                "default_ref": "main",
+                "initial_commit_id": "commit-1",
+            },
+        )
+
+
 def test_terminal_not_published_rejects_succeeded_effect(store: MutationStore) -> None:
     scope = _create_scope()
     key_hash = IdempotencyKeyHash.from_raw_key("create-succeeded")
@@ -295,7 +323,7 @@ def test_duplicate_pending_claim_is_rejected(store: MutationStore) -> None:
 
 def test_concurrent_same_key_claim_has_single_effect_owner_on_shared_connection(tmp_path: Path) -> None:
     db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-    ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000).close()
+    ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000).close()
 
     connection = sqlite3.connect(db_path, timeout=5.0, check_same_thread=False)
     configure_connection(connection)
@@ -372,6 +400,35 @@ def test_schema_rejects_pending_effect_with_response(store: MutationStore) -> No
             """
             UPDATE synchronous_mutation_effects
             SET response_status = 201, response_body = '{}'
+            WHERE effect_id = ?
+            """,
+            (pending.effect_id,),
+        )
+        store._connection.commit()
+
+
+def test_schema_trigger_prevents_terminal_then_succeeded_raw_sql(store: MutationStore) -> None:
+    scope = _create_scope()
+    key_hash = IdempotencyKeyHash.from_raw_key("create-trigger-guard")
+    fingerprint = create_repository_fingerprint_v1()
+    pending = store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=uuid4(),
+    )
+    store.mark_terminal_not_published(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        effect_id=pending.effect_id,
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store._connection.execute(
+            """
+            UPDATE synchronous_mutation_effects
+            SET status = 'SUCCEEDED', response_status = 201, response_body = '{}'
             WHERE effect_id = ?
             """,
             (pending.effect_id,),

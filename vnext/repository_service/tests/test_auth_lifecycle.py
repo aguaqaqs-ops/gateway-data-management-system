@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from typing import cast
 
 from gateway_repository_service.app import create_app
-from gateway_repository_service.control_db import ControlDbNewerVersionError, ControlStore
+from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlDbNewerVersionError, ControlStore
 from gateway_repository_service.layout import DurableLayout, LAYOUT_FORMAT_VERSION
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.process import DoltRunner, process_tree_pids
@@ -320,13 +320,13 @@ class TestLayoutValidation:
 
 
 class TestControlDatabase:
-    def test_migration_initializes_user_version_three(self, tmp_path: Path) -> None:
+    def test_migration_initializes_current_user_version(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
         try:
             version = store.connection.execute("PRAGMA user_version").fetchone()
             assert version is not None
-            assert int(version[0]) == 3
+            assert int(version[0]) == CONTROL_DB_USER_VERSION
             journal_mode = store.connection.execute("PRAGMA journal_mode").fetchone()
             assert str(journal_mode[0]).upper() == "WAL"
             foreign_keys = store.connection.execute("PRAGMA foreign_keys").fetchone()
@@ -350,10 +350,20 @@ class TestControlDatabase:
             assert "create_repository" in str(idempotency_sql)
             assert "upload_artifact" in str(idempotency_sql)
             assert "response_status = 201" in str(effects_sql)
+            triggers = {
+                row[0]
+                for row in store.connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+                ).fetchall()
+            }
+            assert triggers == {
+                "prevent_succeeded_when_terminal",
+                "prevent_terminal_when_succeeded",
+            }
         finally:
             store.close()
 
-    def test_migration_upgrades_version_one_to_three(self, tmp_path: Path) -> None:
+    def test_migration_upgrades_version_one_to_current(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         db_path.parent.mkdir(parents=True)
         connection = sqlite3.connect(db_path)
@@ -361,10 +371,10 @@ class TestControlDatabase:
         connection.commit()
         connection.close()
 
-        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
         try:
             version = store.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == 3
+            assert int(version[0]) == CONTROL_DB_USER_VERSION
         finally:
             store.close()
 
@@ -379,11 +389,29 @@ class TestControlDatabase:
         finally:
             store.close()
 
+    def test_migration_upgrades_version_three_to_four(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000).close()
+
+        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+        try:
+            version = store.connection.execute("PRAGMA user_version").fetchone()
+            assert int(version[0]) == CONTROL_DB_USER_VERSION
+            triggers = {
+                row[0]
+                for row in store.connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+                ).fetchall()
+            }
+            assert "prevent_succeeded_when_terminal" in triggers
+        finally:
+            store.close()
+
     def test_migration_reopen_is_idempotent(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        first = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        first = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
         first.close()
-        second = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        second = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
         second.close()
 
     def test_migration_rolls_back_on_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -397,7 +425,7 @@ class TestControlDatabase:
 
         monkeypatch.setattr(ControlStore, "_apply_migration_step", staticmethod(failing_step))
         with pytest.raises(RuntimeError, match="migration failure"):
-            ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
         connection = sqlite3.connect(db_path)
         version = connection.execute("PRAGMA user_version").fetchone()
@@ -409,7 +437,7 @@ class TestControlDatabase:
         assert tables == []
 
         monkeypatch.undo()
-        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
         store.close()
 
     def test_migration_v2_rolls_back_when_second_statement_fails(
@@ -432,7 +460,7 @@ class TestControlDatabase:
             staticmethod(failing_v2_execute),
         )
         with pytest.raises(RuntimeError, match="second ddl failure"):
-            ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
         connection = sqlite3.connect(db_path)
         version = connection.execute("PRAGMA user_version").fetchone()
@@ -449,7 +477,7 @@ class TestControlDatabase:
         assert in_transaction is False
 
         monkeypatch.undo()
-        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
         store.close()
 
     def test_migration_v3_rolls_back_when_mid_script_fails(
@@ -500,7 +528,7 @@ class TestControlDatabase:
         connection.commit()
         connection.close()
         with pytest.raises(ControlDbNewerVersionError):
-            ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
 
 class TestProviderLifecycle:

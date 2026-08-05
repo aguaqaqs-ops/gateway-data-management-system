@@ -9,6 +9,8 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
+CONTROL_DB_USER_VERSION = 4
+
 _MIGRATION_V2_STATEMENTS: tuple[str, ...] = (
     """
     CREATE TABLE mutation_idempotency (
@@ -117,6 +119,39 @@ _MIGRATION_V3_STATEMENTS: tuple[str, ...] = (
     "ALTER TABLE synchronous_mutation_effects_v3 RENAME TO synchronous_mutation_effects",
 )
 
+_MIGRATION_V4_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TRIGGER prevent_succeeded_when_terminal
+    BEFORE UPDATE ON synchronous_mutation_effects
+    FOR EACH ROW
+    WHEN NEW.status = 'SUCCEEDED'
+    BEGIN
+        SELECT RAISE(ABORT, 'terminal-not-published effects cannot succeed')
+        WHERE EXISTS (
+            SELECT 1
+            FROM mutation_idempotency
+            WHERE id = NEW.idempotency_id
+              AND terminal_not_published = 1
+        );
+    END
+    """,
+    """
+    CREATE TRIGGER prevent_terminal_when_succeeded
+    BEFORE UPDATE ON mutation_idempotency
+    FOR EACH ROW
+    WHEN NEW.terminal_not_published = 1
+    BEGIN
+        SELECT RAISE(ABORT, 'succeeded effects cannot be marked terminal-not-published')
+        WHERE EXISTS (
+            SELECT 1
+            FROM synchronous_mutation_effects
+            WHERE idempotency_id = NEW.id
+              AND status = 'SUCCEEDED'
+        );
+    END
+    """,
+)
+
 
 class ControlDbError(RuntimeError):
     """Raised when the control database cannot be opened or migrated."""
@@ -220,6 +255,9 @@ class ControlStore:
             return
         if target_version == 3:
             ControlStore._execute_statements(connection, _MIGRATION_V3_STATEMENTS)
+            return
+        if target_version == 4:
+            ControlStore._execute_statements(connection, _MIGRATION_V4_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

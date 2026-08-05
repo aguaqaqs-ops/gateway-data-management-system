@@ -226,6 +226,14 @@ class MutationStore:
                 return self._effect_from_row(row)
             if row["status"] != EffectStatus.PENDING.value:
                 raise MutationStoreError(f"effect {effect_id} is not pending")
+            idempotency_row = self._fetch_idempotency_row_by_id(int(row["idempotency_id"]))
+            if idempotency_row is None:
+                raise MutationStoreError(f"idempotency row for effect {effect_id} does not exist")
+            if bool(idempotency_row["terminal_not_published"]):
+                raise TerminalTransitionRejected(
+                    scope=self._scope_from_idempotency_row(idempotency_row),
+                    reason="terminal-not-published effects cannot succeed",
+                )
             now = _utc_now_iso()
             self._connection.execute(
                 """
@@ -317,6 +325,26 @@ class MutationStore:
             except Exception:
                 self._connection.rollback()
                 raise
+
+    def _fetch_idempotency_row_by_id(self, idempotency_id: int) -> sqlite3.Row | None:
+        cursor = self._connection.execute(
+            """
+            SELECT id, mutation_kind, repository_scope, request_fingerprint, terminal_not_published
+            FROM mutation_idempotency
+            WHERE id = ?
+            """,
+            (idempotency_id,),
+        )
+        row = cursor.fetchone()
+        return cast(sqlite3.Row | None, row)
+
+    @staticmethod
+    def _scope_from_idempotency_row(row: sqlite3.Row) -> IdempotencyScope:
+        mutation_kind = MutationKind(str(row["mutation_kind"]))
+        repository_scope = str(row["repository_scope"])
+        if mutation_kind == MutationKind.CREATE_REPOSITORY:
+            return IdempotencyScope.for_create()
+        return IdempotencyScope.for_upload(UUID(repository_scope))
 
     def _fetch_idempotency_row(
         self,

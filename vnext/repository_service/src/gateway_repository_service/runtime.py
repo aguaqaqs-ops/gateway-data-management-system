@@ -11,7 +11,7 @@ from gateway_repository_service.capacity import (
     has_free_disk_admission,
     is_durable_root_writable,
 )
-from gateway_repository_service.control_db import ControlStore
+from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.mutation_store import MutationStore, configure_connection
@@ -44,7 +44,7 @@ class ServiceRuntime:
             stack.callback(root_lock.release)
             control_store = ControlStore.open(
                 settings.control_db_path,
-                expected_version=settings.control_db_user_version,
+                expected_version=CONTROL_DB_USER_VERSION,
                 busy_timeout_ms=settings.sqlite_busy_timeout_ms,
             )
             stack.callback(control_store.close)

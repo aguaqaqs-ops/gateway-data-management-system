@@ -3,6 +3,8 @@ import logging
 
 import pytest
 
+from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION
+from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings, SettingsError
 
 
@@ -52,11 +54,37 @@ def test_default_upload_and_ttl_settings() -> None:
     settings = RepositoryServiceSettings()
     assert settings.max_upload_bytes == 256 * 1024 * 1024
     assert settings.artifact_ttl_seconds == 24 * 60 * 60
-    assert settings.control_db_user_version == 3
 
 
-@pytest.mark.parametrize("field", ["max_upload_bytes", "artifact_ttl_seconds", "control_db_user_version"])
+def test_control_db_user_version_is_not_configurable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GATEWAY_REPOSITORY_CONTROL_DB_USER_VERSION", "1")
+    settings = RepositoryServiceSettings(data_root=tmp_path / "root", profile="test", bearer_token="token")
+    assert not hasattr(settings, "control_db_user_version")
+    assert CONTROL_DB_USER_VERSION == 4
+
+
+@pytest.mark.parametrize("field", ["max_upload_bytes", "artifact_ttl_seconds"])
 def test_positive_bounds_reject_zero(tmp_path: Path, field: str) -> None:
     kwargs: dict[str, int] = {field: 0}
     with pytest.raises(ValueError):
         RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]
+
+
+@pytest.mark.skipif(
+    not Path("/usr/local/bin/dolt").exists(),
+    reason="dolt executable is unavailable",
+)
+def test_runtime_uses_code_control_db_user_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GATEWAY_REPOSITORY_CONTROL_DB_USER_VERSION", "1")
+    settings = RepositoryServiceSettings(
+        data_root=tmp_path / "root",
+        profile="test",
+        bearer_token="token",
+        dolt_binary=Path("/usr/local/bin/dolt"),
+    )
+    runtime = ServiceRuntime.start(settings)
+    try:
+        version = runtime.control_store.connection.execute("PRAGMA user_version").fetchone()
+        assert int(version[0]) == CONTROL_DB_USER_VERSION
+    finally:
+        runtime.shutdown()

@@ -275,6 +275,24 @@ class MutationStore:
             assert effect.response_body is not None
             return effect.response_status, effect.response_body
 
+    def has_succeeded_create(self, repository_id: UUID) -> bool:
+        with self._transaction():
+            cursor = self._connection.execute(
+                """
+                SELECT e.status
+                FROM synchronous_mutation_effects AS e
+                JOIN mutation_idempotency AS i ON i.id = e.idempotency_id
+                WHERE i.mutation_kind = ?
+                  AND i.repository_scope = ''
+                  AND e.resource_id = ?
+                """,
+                (MutationKind.CREATE_REPOSITORY.value, str(repository_id)),
+            )
+            for row in cursor.fetchall():
+                if str(row["status"]) == EffectStatus.SUCCEEDED.value:
+                    return True
+            return False
+
     def mark_terminal_not_published(
         self,
         scope: IdempotencyScope,

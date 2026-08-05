@@ -41,9 +41,13 @@ class DurableLayout:
 
     @classmethod
     def create_service(cls, data_root: Path) -> "DurableLayout":
-        """Activate the R2 service shell namespaces only."""
+        """Activate the service shell and synchronous mutation staging namespaces."""
 
-        return cls._create(data_root, probe_namespaces=False)
+        layout = cls._create(data_root, probe_namespaces=False)
+        for directory in (layout.staging_versioned, layout.staging_artifacts):
+            directory.mkdir(parents=True, exist_ok=True)
+        layout.assert_same_filesystem()
+        return layout
 
     @classmethod
     def create_for_probe(cls, data_root: Path) -> "DurableLayout":
@@ -139,6 +143,8 @@ class DurableLayout:
         paths = [self.control, self.versioned, self.service_state, self.provider]
         if self.probe_namespaces:
             paths.extend((self.staging, self.artifacts))
+        elif self.staging_versioned.exists() or self.staging_artifacts.exists():
+            paths.append(self.staging)
         devices = {os.stat(path).st_dev for path in paths if path.exists()}
         if len(devices) != 1:
             raise RuntimeError("publication components must share one filesystem")

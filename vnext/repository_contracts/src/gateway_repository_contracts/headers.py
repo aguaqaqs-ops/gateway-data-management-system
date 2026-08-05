@@ -20,6 +20,12 @@ class _HeaderModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class CreateRequestHeaders(_HeaderModel):
+    """Required headers for synchronous repository creation."""
+
+    idempotency_key: IdempotencyKeyString
+
+
 class UploadRequestHeaders(_HeaderModel):
     """Required headers for raw-body artifact upload."""
 

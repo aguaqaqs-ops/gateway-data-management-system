@@ -24,4 +24,5 @@ def test_lock_file_exists() -> None:
 
 def test_no_public_exports() -> None:
     module = importlib.import_module("gateway_repository_client")
-    assert not hasattr(module, "__all__") or module.__all__ == ()
+    assert module.__all__
+    assert "RepositoryClient" in module.__all__

@@ -1,4 +1,4 @@
-"""Filesystem publication barriers used only by the P2-R1 probe."""
+"""Filesystem publication barriers for durable repository and artifact effects."""
 
 from __future__ import annotations
 

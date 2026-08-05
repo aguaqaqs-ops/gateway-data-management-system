@@ -3,6 +3,7 @@
 from gateway_repository_contracts.errors import SimpleError
 from gateway_repository_contracts.headers import (
     REPOSITORY_IMPORT_MEDIA_TYPE,
+    CreateRequestHeaders,
     IdempotencyKeyString,
     UploadRequestHeaders,
     validate_upload_content_length,
@@ -28,6 +29,7 @@ from gateway_repository_contracts.versioned import (
 
 __all__ = [
     "REPOSITORY_IMPORT_MEDIA_TYPE",
+    "CreateRequestHeaders",
     "CreateRepositoryResponse",
     "GetOperationResponse",
     "GetVersionedCatalogResponse",

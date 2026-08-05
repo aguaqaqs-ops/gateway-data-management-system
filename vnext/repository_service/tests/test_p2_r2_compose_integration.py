@@ -114,22 +114,43 @@ def test_compose_repository_service_healthcheck_uses_python_readyz() -> None:
     assert "jq" not in service
 
 
-def test_production_openapi_only_exposes_health_routes() -> None:
+def test_production_openapi_only_exposes_allowed_routes() -> None:
     from gateway_repository_service.app import create_app
     from support.http_harness import create_test_client
 
     client = create_test_client(create_app(enable_lifecycle=False))
     paths = client.get("/openapi.json").json()["paths"]
-    assert set(paths.keys()) == {"/healthz", "/readyz"}
+    assert set(paths.keys()) == {"/healthz", "/readyz", "/v1/repositories"}
+
+
+ALLOWED_V1_ROUTE_FILES = {
+    SRC_ROOT / "http" / "routes" / "repositories.py",
+}
+
+
+def test_source_tree_only_registers_allowed_v1_routes() -> None:
+    v1_pattern = re.compile(r'@.*\.(get|post|put|patch|delete|route)\(\s*["\']/v1/', re.I)
+    offenders: list[str] = []
+    for path in SRC_ROOT.rglob("*.py"):
+        if path.name.startswith("test_"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        if not v1_pattern.search(text):
+            continue
+        if path not in ALLOWED_V1_ROUTE_FILES:
+            offenders.append(str(path.relative_to(REPO_ROOT)))
+    assert not offenders, f"found unexpected v1 route registration in: {offenders}"
+
+    repositories = (SRC_ROOT / "http" / "routes" / "repositories.py").read_text(encoding="utf-8")
+    assert '/v1/repositories' in repositories
+    assert "/v1/repositories/" not in repositories
 
 
 @pytest.mark.parametrize(
     ("pattern", "description"),
     [
-        (r'@.*\.(get|post|put|patch|delete|route)\(\s*["\']/v1/', "v1 route registration"),
         (r'@.*\.(get|post|put|patch|delete|route)\(\s*["\']/v2/', "v2 route registration"),
         (r'@.*\.(get|post|put|patch|delete|route)\(\s*["\']/_test', "test route registration"),
-        (r'add_api_route\(\s*["\']/v1/', "v1 add_api_route"),
         (r'add_api_route\(\s*["\']/v2/', "v2 add_api_route"),
         (r'add_api_route\(\s*["\']/_test', "test add_api_route"),
     ],

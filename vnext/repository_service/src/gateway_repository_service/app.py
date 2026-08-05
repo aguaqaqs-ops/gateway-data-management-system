@@ -13,6 +13,7 @@ from gateway_repository_service.http.errors import register_exception_handlers, 
 from gateway_repository_service.http.middleware import RequestIdMiddleware
 from gateway_repository_service.http.readiness import DefaultReadiness, LifecycleReadiness, ReadinessPort
 from gateway_repository_service.http.routes.probes import register_probe_routes
+from gateway_repository_service.http.routes.repositories import register_repository_routes
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings
 
@@ -56,5 +57,6 @@ def create_app(
     app.add_middleware(ServerErrorMiddleware, handler=server_exception_handler, debug=False)
     register_exception_handlers(app)
     register_probe_routes(app)
+    register_repository_routes(app)
 
     return app

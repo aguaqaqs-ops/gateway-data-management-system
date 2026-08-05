@@ -22,36 +22,12 @@ from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.process import DoltRunner, process_tree_pids
 from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate, ProviderUnavailableError
 from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
-from gateway_repository_service.settings import RepositoryServiceSettings, SettingsError
+from gateway_repository_service.settings import SettingsError
 from support.http_harness import create_test_client, create_test_http_app
 
 
-def _lifecycle_settings(
-    tmp_path: Path,
-    *,
-    profile: str = "test",
-    bearer_token: str | None = "test-bearer-token",
-    bearer_token_file: Path | None = None,
-    dolt_binary: Path | None = None,
-    dolt_version: str = "2.1.11",
-    min_free_disk_bytes: int | None = None,
-) -> RepositoryServiceSettings:
-    data_root = tmp_path / "data-root"
-    kwargs: dict[str, object] = {
-        "profile": profile,
-        "data_root": data_root,
-        "bearer_token": bearer_token,
-        "bearer_token_file": bearer_token_file,
-        "dolt_binary": dolt_binary or Path("/usr/local/bin/dolt"),
-        "dolt_version": dolt_version,
-    }
-    if min_free_disk_bytes is not None:
-        kwargs["min_free_disk_bytes"] = min_free_disk_bytes
-    return RepositoryServiceSettings(**kwargs)  # type: ignore[arg-type]
-
-
-def _dolt_available() -> bool:
-    return Path("/usr/local/bin/dolt").is_file()
+from support.lifecycle_harness import dolt_available as _dolt_available
+from support.lifecycle_harness import lifecycle_settings as _lifecycle_settings
 
 
 @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
@@ -264,7 +240,7 @@ class TestBearerHarness:
         settings = _lifecycle_settings(tmp_path)
         client = create_test_client(create_app(settings, enable_lifecycle=False))
         paths = client.get("/openapi.json").json()["paths"]
-        assert set(paths.keys()) == {"/healthz", "/readyz"}
+        assert set(paths.keys()) == {"/healthz", "/readyz", "/v1/repositories"}
 
 
 class TestRootLockContention:
@@ -302,11 +278,12 @@ class TestLayoutValidation:
         with pytest.raises(RuntimeError, match="unsupported layout_format_version"):
             DurableLayout.create_for_probe(root)
 
-    def test_service_layout_does_not_create_probe_namespaces(self, tmp_path: Path) -> None:
+    def test_service_layout_creates_mutation_staging_not_probe_artifacts(self, tmp_path: Path) -> None:
         layout = DurableLayout.create_service(tmp_path / "root")
-        assert not layout.staging_versioned.exists()
-        assert not layout.staging_artifacts.exists()
+        assert layout.staging_versioned.is_dir()
+        assert layout.staging_artifacts.is_dir()
         assert not layout.artifacts.exists()
+        assert not layout.probe_namespaces
 
     def test_probe_layout_creates_probe_namespaces(self, tmp_path: Path) -> None:
         layout = DurableLayout.create_for_probe(tmp_path / "root")

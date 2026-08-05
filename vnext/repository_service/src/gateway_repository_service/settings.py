@@ -1,7 +1,23 @@
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class SettingsError(RuntimeError):
+    """Raised when service settings fail closed validation."""
+
+
+def _read_token_file(path: Path) -> str | None:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SettingsError("bearer token file is unavailable") from exc
+    token = raw.strip()
+    return token or None
 
 
 class RepositoryServiceSettings(BaseSettings):
@@ -9,6 +25,9 @@ class RepositoryServiceSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="GATEWAY_REPOSITORY_")
 
+    profile: Literal["production", "development", "test"] = "test"
+    bearer_token_file: Path | None = None
+    bearer_token: str | None = None
     data_root: Path = Path("runtime-data/repository")
     dolt_binary: Path = Path("/usr/local/bin/dolt")
     dolt_version: str = "2.1.11"
@@ -33,6 +52,10 @@ class RepositoryServiceSettings(BaseSettings):
     mysql_connector_version: str = "9.7.0"
     measurement_methodology_version: str = "p2-r1-audit-corrective-v7"
     v8_measurement_methodology_version: str = "p2-r1-audit-corrective-v8"
+    min_free_disk_bytes: int = 5 * 1024 * 1024 * 1024
+    min_free_disk_fraction: float = 0.10
+    sqlite_busy_timeout_ms: int = 5000
+    control_db_user_version: int = 1
 
     @field_validator("dolt_binary")
     @classmethod
@@ -62,6 +85,9 @@ class RepositoryServiceSettings(BaseSettings):
         "connector_fetch_row_bound",
         "max_stream_line_bytes",
         "v8_memory_safety_ceiling_bytes",
+        "min_free_disk_bytes",
+        "sqlite_busy_timeout_ms",
+        "control_db_user_version",
     )
     @classmethod
     def _bounds_must_be_positive(cls, value: int) -> int:
@@ -83,6 +109,13 @@ class RepositoryServiceSettings(BaseSettings):
             raise ValueError("memory_sample_interval_seconds must be positive")
         return value
 
+    @field_validator("min_free_disk_fraction")
+    @classmethod
+    def _disk_fraction_must_be_valid(cls, value: float) -> float:
+        if not 0 < value <= 1:
+            raise ValueError("min_free_disk_fraction must be in (0, 1]")
+        return value
+
     @field_validator("cgroup_root")
     @classmethod
     def _cgroup_root_must_be_absolute(cls, value: Path | None) -> Path | None:
@@ -100,3 +133,33 @@ class RepositoryServiceSettings(BaseSettings):
     @property
     def author(self) -> str:
         return f"{self.author_name} <{self.author_email}>"
+
+    @property
+    def control_db_path(self) -> Path:
+        return self.data_root / "service-state" / "repository-service.sqlite3"
+
+    def resolve_bearer_token(self) -> str:
+        if self.profile == "production":
+            if self.bearer_token_file is None:
+                raise SettingsError("production bearer token file is required")
+            token = _read_token_file(self.bearer_token_file)
+            if token is None:
+                raise SettingsError("production bearer token file is missing or empty")
+            return token
+
+        if self.bearer_token_file is not None:
+            token = _read_token_file(self.bearer_token_file)
+            if token is not None:
+                return token
+        if self.bearer_token is not None and self.bearer_token.strip():
+            return self.bearer_token.strip()
+        raise SettingsError("development or test bearer token is required")
+
+    def redacted_dump(self) -> dict[str, Any]:
+        data = self.model_dump()
+        if data.get("bearer_token"):
+            data["bearer_token"] = "<redacted>"
+        return data
+
+    def __repr__(self) -> str:
+        return f"RepositoryServiceSettings({self.redacted_dump()})"

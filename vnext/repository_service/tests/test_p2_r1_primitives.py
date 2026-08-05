@@ -11,7 +11,7 @@ from gateway_repository_service.arrow_mapping import (
     UnknownTypePolicy,
     arrow_type,
 )
-from gateway_repository_service.layout import ProbeLayout
+from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.publication import FaultPoint, atomic_publish
 from gateway_repository_service.process import DoltRunner
@@ -19,7 +19,7 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 
 
 def test_component_first_layout_has_one_device_and_no_current_or_sqlite(tmp_path: Path) -> None:
-    layout = ProbeLayout.create(tmp_path / "root")
+    layout = DurableLayout.create(tmp_path / "root")
     layout.assert_same_filesystem()
     assert layout.layout_marker.is_file()
     assert layout.service_lock.parent.name == "control"
@@ -29,7 +29,7 @@ def test_component_first_layout_has_one_device_and_no_current_or_sqlite(tmp_path
 
 
 def test_root_lock_is_exclusive_and_reacquirable(tmp_path: Path) -> None:
-    layout = ProbeLayout.create(tmp_path / "root")
+    layout = DurableLayout.create(tmp_path / "root")
     lock = DurableRootLock(layout.service_lock).acquire()
     script = """
 import sys
@@ -51,7 +51,7 @@ raise SystemExit(0)
 
 
 def test_atomic_publication_fault_points_are_fail_closed(tmp_path: Path) -> None:
-    layout = ProbeLayout.create(tmp_path / "root")
+    layout = DurableLayout.create(tmp_path / "root")
     before = layout.staging_repository("a" * 32, "before")
     (before / "payload").write_text("payload", encoding="utf-8")
     target_before = layout.published_repository("a" * 32)
@@ -77,7 +77,7 @@ def test_atomic_publication_fault_points_are_fail_closed(tmp_path: Path) -> None
 
 
 def test_atomic_publication_no_replace_preserves_existing_target(tmp_path: Path) -> None:
-    layout = ProbeLayout.create(tmp_path / "root")
+    layout = DurableLayout.create(tmp_path / "root")
     staging = layout.staging_repository("c" * 32, "source")
     (staging / "payload").write_text("new", encoding="utf-8")
     target = layout.published_repository("c" * 32)
@@ -94,7 +94,7 @@ def test_atomic_publication_no_replace_preserves_existing_target(tmp_path: Path)
 
 
 def test_runner_validates_exact_dolt_version(tmp_path: Path) -> None:
-    layout = ProbeLayout.create(tmp_path / "root")
+    layout = DurableLayout.create(tmp_path / "root")
     runner = DoltRunner(RepositoryServiceSettings(), layout.root)
     assert runner.settings.dolt_version == "2.1.11"
 

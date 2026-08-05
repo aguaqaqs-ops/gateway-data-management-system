@@ -27,7 +27,7 @@ from gateway_repository_service.filesystem import (
     tree_storage_bytes,
 )
 from gateway_repository_service.fixtures import Fixture, Workload
-from gateway_repository_service.layout import ProbeLayout, repository_key
+from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.process import (
     DoltRunner,
@@ -170,7 +170,7 @@ def _run_workflow_in_process(
         prefix="gateway-p2r1-", dir=str(root_parent) if root_parent is not None else None
     ) as temporary:
         root = Path(temporary) / "data-root"
-        layout = ProbeLayout.create(root)
+        layout = DurableLayout.create(root)
         with DurableRootLock(layout.service_lock):
             return _run_locked(
                 settings,
@@ -654,7 +654,7 @@ def _run_locked(
     settings: RepositoryServiceSettings,
     candidate: Candidate,
     fixture: Fixture,
-    layout: ProbeLayout,
+    layout: DurableLayout,
     *,
     sample_kind: str,
     run_unknown_reject: bool,
@@ -1124,7 +1124,7 @@ def _run_locked(
 
 def _make_provider(
     settings: RepositoryServiceSettings,
-    layout: ProbeLayout,
+    layout: DurableLayout,
     repository: Path,
     runner: DoltRunner,
     candidate: Candidate,
@@ -1136,7 +1136,7 @@ def _make_provider(
 
 def _restart_provider_for_stream(
     settings: RepositoryServiceSettings,
-    layout: ProbeLayout,
+    layout: DurableLayout,
     target: Path,
     candidate: Candidate,
     provider: Provider,
@@ -1191,7 +1191,7 @@ def _run_offline_discard_in_process(
         dir=str(root_parent) if root_parent is not None else None,
     ) as temporary:
         root = Path(temporary) / "data-root"
-        layout = ProbeLayout.create(root)
+        layout = DurableLayout.create(root)
         with DurableRootLock(layout.service_lock):
             repository_id = UUID(int=uuid4().int)
             key = repository_key(repository_id)

@@ -25,7 +25,7 @@ from gateway_repository_service.arrow_mapping import (
     record_batch,
     normalize_sql_type,
 )
-from gateway_repository_service.layout import ProbeLayout
+from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import (
     CgroupMemoryMeasurement,
     CgroupMemoryTracker,
@@ -614,7 +614,7 @@ class OfflineCliProvider:
     def __init__(
         self,
         settings: RepositoryServiceSettings,
-        layout: ProbeLayout,
+        layout: DurableLayout,
         repository: Path,
         runner: DoltRunner,
     ) -> None:
@@ -1096,7 +1096,7 @@ class SqlServerProvider:
     def __init__(
         self,
         settings: RepositoryServiceSettings,
-        layout: ProbeLayout,
+        layout: DurableLayout,
         repository: Path,
         runner: DoltRunner,
     ) -> None:

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from gateway_repository_service.app import create_app
+from gateway_repository_service.http.auth import require_bearer_token
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.http.readiness import ReadinessPort
 from gateway_repository_service.settings import RepositoryServiceSettings
@@ -51,11 +52,15 @@ def create_test_http_app(
     *,
     readiness: ReadinessPort | None = None,
 ) -> FastAPI:
-    app = create_app(settings, readiness=readiness)
+    app = create_app(settings, readiness=readiness, enable_lifecycle=False)
 
     @app.post("/_test/validate")
     def validation_probe(body: _ValidationProbeBody) -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/_test/auth-required")
+    def auth_required_probe(_token: Annotated[str, Depends(require_bearer_token)]) -> dict[str, str]:
+        return {"status": "authorized"}
 
     @app.get("/_test/service-error")
     def service_error_probe() -> dict[str, str]:

@@ -20,11 +20,7 @@ def register_probe_routes(app: FastAPI) -> None:
         if readiness.is_ready():
             return JSONResponse(content={"status": "ready"})
 
-        message = (
-            readiness.not_ready_message()
-            if isinstance(readiness, DefaultReadiness)
-            else "service is not ready"
-        )
+        message = readiness.not_ready_message()
         return simple_error_response(
             request,
             code="SERVICE_NOT_READY",

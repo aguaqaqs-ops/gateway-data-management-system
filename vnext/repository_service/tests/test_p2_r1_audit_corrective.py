@@ -37,7 +37,7 @@ from gateway_repository_service.fixtures import (
     generate_fixture,
     generate_scale_fixture,
 )
-from gateway_repository_service.layout import ProbeLayout
+from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.matrix import (
     BYTE_BOUND,
     V8_BYTE_BOUND,
@@ -494,7 +494,7 @@ def test_restart_diagnostic_closes_old_opens_new_then_streams(
         return replacement
 
     monkeypatch.setattr(workflow_module, "_make_provider", fake_factory)
-    layout = ProbeLayout.create(tmp_path / "layout")
+    layout = DurableLayout.create(tmp_path / "layout")
     old: Any = FakeProvider("old")
     current = _restart_provider_for_stream(
         RepositoryServiceSettings(),
@@ -623,7 +623,7 @@ def test_restart_replacement_closes_on_validation_failure(
         "_make_provider",
         lambda *_args, **_kwargs: replacement,
     )
-    layout = ProbeLayout.create(tmp_path / "layout")
+    layout = DurableLayout.create(tmp_path / "layout")
 
     with pytest.raises(RuntimeError):
         _restart_provider_for_stream(
@@ -887,7 +887,7 @@ def test_pinned_create_parser_preserves_schema_mutation_shape() -> None:
 
 def test_provider_pinned_catalog_does_not_return_new_column_for_old_commit(tmp_path: Path) -> None:
     settings = RepositoryServiceSettings()
-    layout = ProbeLayout.create(tmp_path / "root")
+    layout = DurableLayout.create(tmp_path / "root")
     repository = layout.staging_repository("d" * 32, "schema")
     provider = OfflineCliProvider(settings, layout, repository, DoltRunner(settings, layout.root))
     provider.initialize_repository()
@@ -1523,7 +1523,7 @@ def test_provider_tracker_uses_sample_cgroup_root(tmp_path: Path) -> None:
     (scope.path / "cgroup.procs").write_text("")
     try:
         settings = RepositoryServiceSettings(cgroup_root=scope.path)
-        layout = ProbeLayout.create(tmp_path / "layout")
+        layout = DurableLayout.create(tmp_path / "layout")
         runner = DoltRunner.__new__(DoltRunner)
         provider = OfflineCliProvider(settings, layout, tmp_path / "repo", runner)
         assert provider.cgroup is not None

@@ -1,4 +1,4 @@
-"""Private component-first filesystem layout for the P2-R1 disposable probe."""
+"""Private component-first filesystem layout for the durable repository root."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def repository_key(repository_id: UUID) -> str:
 
 
 @dataclass(frozen=True)
-class ProbeLayout:
+class DurableLayout:
     root: Path
     control: Path
     versioned: Path
@@ -39,7 +39,7 @@ class ProbeLayout:
         return self.control / "service.lock"
 
     @classmethod
-    def create(cls, data_root: Path) -> "ProbeLayout":
+    def create(cls, data_root: Path) -> "DurableLayout":
         root = data_root.expanduser().resolve()
         control = root / "control"
         versioned = root / "versioned"

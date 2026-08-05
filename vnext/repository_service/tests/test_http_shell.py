@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from gateway_repository_service.app import create_app
+from gateway_repository_service.http.readiness import ReadinessPort
+from gateway_repository_service.settings import RepositoryServiceSettings
 from support.http_harness import (
     assert_request_id_header,
     create_test_client,
@@ -20,9 +23,20 @@ class _ReadyReadiness:
     def is_ready(self) -> bool:
         return True
 
+    def not_ready_message(self) -> str:
+        return "service is not ready"
+
+
+def _shell_app(
+    *,
+    settings: RepositoryServiceSettings | None = None,
+    readiness: ReadinessPort | None = None,
+) -> FastAPI:
+    return create_app(settings, readiness=readiness, enable_lifecycle=False)
+
 
 def test_healthz_returns_200() -> None:
-    response = create_test_client(create_app()).get("/healthz")
+    response = create_test_client(_shell_app()).get("/healthz")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
@@ -30,7 +44,7 @@ def test_healthz_returns_200() -> None:
 
 
 def test_readyz_default_returns_503() -> None:
-    response = create_test_client(create_app()).get("/readyz")
+    response = create_test_client(_shell_app()).get("/readyz")
 
     assert response.status_code == 503
     body = response.json()
@@ -41,7 +55,7 @@ def test_readyz_default_returns_503() -> None:
 
 
 def test_readyz_injected_ready_returns_200() -> None:
-    response = create_test_client(create_app(readiness=_ReadyReadiness())).get("/readyz")
+    response = create_test_client(_shell_app(readiness=_ReadyReadiness())).get("/readyz")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
@@ -154,7 +168,7 @@ def test_nested_validation_errors_are_sanitized() -> None:
 
 
 def test_openapi_only_health_routes() -> None:
-    response = create_test_client(create_app()).get("/openapi.json")
+    response = create_test_client(_shell_app()).get("/openapi.json")
 
     assert response.status_code == 200
     paths = response.json()["paths"]
@@ -162,14 +176,14 @@ def test_openapi_only_health_routes() -> None:
 
 
 def test_docs_and_redoc_disabled() -> None:
-    client = create_test_client(create_app())
+    client = create_test_client(_shell_app())
 
     assert client.get("/docs").status_code == 404
     assert client.get("/redoc").status_code == 404
 
 
 def test_production_app_has_no_forbidden_routes() -> None:
-    response = create_test_client(create_app()).get("/openapi.json")
+    response = create_test_client(_shell_app()).get("/openapi.json")
     paths = response.json()["paths"]
 
     for path in paths:

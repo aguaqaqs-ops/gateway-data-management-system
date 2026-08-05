@@ -46,6 +46,23 @@ def test_create_repository_accepts_empty_body(tmp_path: Path) -> None:
     assert response.status_code == 201
 
 
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_create_repository_rejects_non_empty_json_body(tmp_path: Path) -> None:
+    settings = lifecycle_settings(tmp_path)
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/repositories",
+            headers=_auth_headers(idempotency_key="reject-body"),
+            json={"ignored": "value"},
+        )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "REQUEST_VALIDATION_FAILED"
+    assert body["message"] == "request body must be empty"
+    assert_request_id_header(response)
+
+
 def test_create_repository_missing_idempotency_key_returns_422(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:

@@ -124,11 +124,16 @@ class CreateRepositoryCommand:
         except IdempotencyTerminalNotPublished as exc:
             raise _idempotency_conflict() from exc
         except FileExistsError as exc:
+            _cleanup_staging(staged)
             raise _idempotency_conflict() from exc
         except Exception:
-            if staged is not None and staged.exists():
-                shutil.rmtree(staged, ignore_errors=True)
+            _cleanup_staging(staged)
             raise
+
+
+def _cleanup_staging(staged: Path | None) -> None:
+    if staged is not None and staged.exists():
+        shutil.rmtree(staged, ignore_errors=True)
 
 
 def _response_from_effect(response_body: dict[str, object] | None) -> CreateRepositoryResponse:

@@ -74,3 +74,54 @@ async def test_create_repository_surfaces_non_retryable_error() -> None:
     assert exc_info.value.status_code == 409
     assert exc_info.value.error.code == "IDEMPOTENCY_CONFLICT"
     assert exc_info.value.error.request_id == "req-409"
+
+
+@pytest.mark.asyncio
+async def test_create_repository_rejects_http_200() -> None:
+    attempts = {"count": 0}
+    repository_id = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        return httpx.Response(
+            200,
+            json={
+                "repository_id": repository_id,
+                "default_ref": "main",
+                "initial_commit_id": "abc123",
+            },
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(RepositoryClientError) as exc_info:
+        await client.create_repository(idempotency_key="http-200-key")
+
+    assert attempts["count"] == 1
+    assert exc_info.value.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_retry_idempotent_request_does_not_retry_409() -> None:
+    attempts = {"count": 0}
+
+    async def operation() -> None:
+        attempts["count"] += 1
+        request = httpx.Request("POST", "http://repository.test/v1/repositories")
+        response = httpx.Response(
+            409,
+            json={"code": "IDEMPOTENCY_CONFLICT", "message": "conflict"},
+            request=request,
+        )
+        response.raise_for_status()
+
+    with pytest.raises(httpx.HTTPStatusError):
+        from gateway_repository_client.retry import retry_idempotent_request
+
+        await retry_idempotent_request(operation)
+
+    assert attempts["count"] == 1

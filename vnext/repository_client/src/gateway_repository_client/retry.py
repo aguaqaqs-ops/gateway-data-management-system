@@ -33,8 +33,8 @@ async def retry_idempotent_request(
         except httpx.TransportError:
             if attempt >= max_attempts:
                 raise
-        except httpx.HTTPStatusError:
-            if attempt >= max_attempts:
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in RETRYABLE_STATUS_CODES or attempt >= max_attempts:
                 raise
         except RepositoryClientError as exc:
             if exc.status_code not in RETRYABLE_STATUS_CODES or attempt >= max_attempts:

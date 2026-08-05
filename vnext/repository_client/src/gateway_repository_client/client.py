@@ -48,7 +48,7 @@ class RepositoryClient:
 
 
 def _parse_create_response(response: httpx.Response) -> CreateRepositoryResponse:
-    if response.is_success:
+    if response.status_code == 201:
         return CreateRepositoryResponse.model_validate(response.json())
 
     error = _parse_simple_error(response)

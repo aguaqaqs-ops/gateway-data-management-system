@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, Header, Request
 from gateway_repository_contracts import CreateRepositoryResponse
 from gateway_repository_service.create_repository.command import CreateRepositoryCommand
 from gateway_repository_service.http.auth import require_bearer_token
+from gateway_repository_service.http.body_guard import require_empty_body
 from gateway_repository_service.http.readiness_guard import require_service_ready
 from gateway_repository_service.runtime import ServiceRuntime
 
@@ -29,6 +30,7 @@ def register_repository_routes(app: FastAPI) -> None:
         request: Request,
         _authorized: Annotated[None, Depends(require_bearer_token)],
         _ready: Annotated[None, Depends(require_service_ready)],
+        _empty_body: Annotated[None, Depends(require_empty_body)],
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=255)],
     ) -> CreateRepositoryResponse:
         runtime = _runtime_from_state(request)

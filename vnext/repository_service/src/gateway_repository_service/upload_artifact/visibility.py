@@ -16,6 +16,19 @@ def artifact_ready_path(layout: DurableLayout, repository_id: UUID, artifact_id:
     return ready / artifact_id.hex
 
 
+def has_ready_artifact_size(
+    layout: DurableLayout,
+    repository_id: UUID,
+    artifact_id: UUID,
+    *,
+    size_bytes: int,
+) -> bool:
+    """Return True when the ready artifact file exists with the expected size."""
+
+    ready_path = artifact_ready_path(layout, repository_id, artifact_id)
+    return ready_path.is_file() and ready_path.stat().st_size == size_bytes
+
+
 def has_published_artifact_file(
     layout: DurableLayout,
     repository_id: UUID,

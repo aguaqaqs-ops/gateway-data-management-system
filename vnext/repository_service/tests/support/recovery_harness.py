@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import sqlite3
+import subprocess
+import sys
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 from uuid import UUID
@@ -18,23 +21,18 @@ from gateway_repository_contracts import (
     UploadRequestHeaders,
 )
 from gateway_repository_service.create_repository.command import CreateRepositoryCommand
-from gateway_repository_service.create_repository.ports import NoOpCreateRepositoryFaultInjector
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.layout import DurableLayout, repository_key
-from gateway_repository_service.mutation_fingerprints import (
-    create_repository_fingerprint_v1,
-    upload_artifact_fingerprint_v1,
-)
 from gateway_repository_service.mutation_store import (
     EffectStatus,
     IdempotencyScope,
     MutationStore,
+    configure_connection,
 )
-from gateway_repository_service.publication import FaultPoint
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.command import UploadArtifactCommand
-from gateway_repository_service.upload_artifact.ports import NoOpUploadArtifactFaultInjector
+from support.crash_recovery_worker import CRASH_EXIT_CODE
 from support.lifecycle_harness import lifecycle_settings
 from support.upload_harness import upload_sha256
 
@@ -55,67 +53,13 @@ UploadFaultPoint = Literal[
     "after_succeeded",
 ]
 
-
-class CreateFaultInjector(NoOpCreateRepositoryFaultInjector):
-    def __init__(self, point: CreateFaultPoint) -> None:
-        self._point = point
-
-    def after_pending(self) -> None:
-        if self._point == "after_pending":
-            raise RuntimeError("fault injected after pending")
-
-    def after_staging(self) -> None:
-        if self._point == "after_staging":
-            raise RuntimeError("fault injected after staging")
-
-    def after_dolt_init(self) -> None:
-        if self._point == "after_dolt_init":
-            raise RuntimeError("fault injected after dolt init")
-
-    def publication_fault(self) -> FaultPoint:
-        if self._point == "before_rename":
-            return FaultPoint.BEFORE_RENAME
-        if self._point == "after_rename":
-            return FaultPoint.AFTER_RENAME
-        return FaultPoint.NONE
-
-    def after_succeeded_before_response(self) -> None:
-        if self._point == "after_succeeded":
-            raise RuntimeError("fault injected after succeeded")
+_WORKER = Path(__file__).with_name("crash_recovery_worker.py")
 
 
-class UploadFaultInjector(NoOpUploadArtifactFaultInjector):
-    def __init__(self, point: UploadFaultPoint) -> None:
-        self._point = point
-
-    def after_pending(self) -> None:
-        if self._point == "after_pending":
-            raise RuntimeError("fault injected after pending")
-
-    def after_partial_body(self) -> None:
-        if self._point == "after_partial_body":
-            raise RuntimeError("fault injected after partial body")
-
-    def after_complete_close(self) -> None:
-        if self._point == "after_complete_close":
-            raise RuntimeError("fault injected after complete close")
-
-    def publication_fault(self) -> FaultPoint:
-        if self._point == "before_rename":
-            return FaultPoint.BEFORE_RENAME
-        if self._point == "after_rename":
-            return FaultPoint.AFTER_RENAME
-        return FaultPoint.NONE
-
-    def after_succeeded_before_response(self) -> None:
-        if self._point == "after_succeeded":
-            raise RuntimeError("fault injected after succeeded")
-
-
-@dataclass
 class UploadBody:
-    payload: bytes
-    _sent: bool = False
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+        self._sent = False
 
     def __aiter__(self) -> UploadBody:
         return self
@@ -124,7 +68,7 @@ class UploadBody:
         if self._sent:
             raise StopAsyncIteration
         self._sent = True
-        return self.payload
+        return self._payload
 
 
 def start_runtime(tmp_path: Path) -> tuple[RepositoryServiceSettings, ServiceRuntime]:
@@ -136,10 +80,172 @@ def restart_runtime(settings: RepositoryServiceSettings) -> ServiceRuntime:
     return ServiceRuntime.start(settings)
 
 
+def layout_for_settings(settings: RepositoryServiceSettings) -> DurableLayout:
+    return DurableLayout.create_service(settings.data_root)
+
+
+def _worker_env() -> dict[str, str]:
+    env = os.environ.copy()
+    tests_root = str(_WORKER.parent.parent)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = tests_root if not existing else f"{tests_root}{os.pathsep}{existing}"
+    return env
+
+
+def _worker_command(*args: str) -> list[str]:
+    return [sys.executable, str(_WORKER), *args]
+
+
+def _run_worker(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        _worker_command(*args),
+        check=False,
+        capture_output=True,
+        text=True,
+        env=_worker_env(),
+    )
+
+
+def setup_create_subprocess(
+    settings: RepositoryServiceSettings,
+    *,
+    idempotency_key: str,
+) -> subprocess.CompletedProcess[str]:
+    return _run_worker(
+        "--data-root",
+        str(settings.data_root),
+        "--dolt-binary",
+        str(settings.dolt_binary),
+        "--dolt-version",
+        settings.dolt_version,
+        "--mode",
+        "setup_create",
+        "--idempotency-key",
+        idempotency_key,
+    )
+
+
+def crash_create_subprocess(
+    settings: RepositoryServiceSettings,
+    *,
+    idempotency_key: str,
+    point: CreateFaultPoint,
+) -> subprocess.CompletedProcess[str]:
+    completed = _run_worker(
+        "--data-root",
+        str(settings.data_root),
+        "--dolt-binary",
+        str(settings.dolt_binary),
+        "--dolt-version",
+        settings.dolt_version,
+        "--mode",
+        "crash_create",
+        "--idempotency-key",
+        idempotency_key,
+        "--fault-point",
+        point,
+    )
+    assert completed.returncode == CRASH_EXIT_CODE, completed.stderr
+    return completed
+
+
+def crash_upload_subprocess(
+    settings: RepositoryServiceSettings,
+    *,
+    repository_id: UUID,
+    idempotency_key: str,
+    payload: bytes,
+    point: UploadFaultPoint,
+) -> subprocess.CompletedProcess[str]:
+    completed = _run_worker(
+        "--data-root",
+        str(settings.data_root),
+        "--dolt-binary",
+        str(settings.dolt_binary),
+        "--dolt-version",
+        settings.dolt_version,
+        "--mode",
+        "crash_upload",
+        "--idempotency-key",
+        idempotency_key,
+        "--fault-point",
+        point,
+        "--repository-id",
+        str(repository_id),
+        "--payload-hex",
+        payload.hex(),
+    )
+    assert completed.returncode == CRASH_EXIT_CODE, completed.stderr
+    return completed
+
+
+def setup_repository_for_upload(
+    settings: RepositoryServiceSettings,
+    *,
+    idempotency_key: str = "recovery-create",
+) -> UUID:
+    completed = setup_create_subprocess(settings, idempotency_key=idempotency_key)
+    assert completed.returncode == 0, completed.stderr
+    return get_create_resource_id(settings, idempotency_key)
+
+
+def open_mutation_store(settings: RepositoryServiceSettings) -> MutationStore:
+    connection = sqlite3.connect(settings.control_db_path)
+    configure_connection(connection)
+    return MutationStore(connection)
+
+
 def count_effects(store: MutationStore) -> int:
     row = store._connection.execute("SELECT COUNT(*) FROM synchronous_mutation_effects").fetchone()
     assert row is not None
     return int(row[0])
+
+
+def get_create_resource_id(settings: RepositoryServiceSettings, idempotency_key: str) -> UUID:
+    store = open_mutation_store(settings)
+    try:
+        key_hash = MutationStore.hash_idempotency_key(idempotency_key)
+        row = store._connection.execute(
+            """
+            SELECT e.resource_id
+            FROM synchronous_mutation_effects AS e
+            JOIN mutation_idempotency AS i ON i.id = e.idempotency_id
+            WHERE i.mutation_kind = 'create_repository'
+              AND i.repository_scope = ''
+              AND i.key_hash = ?
+            """,
+            (key_hash.digest,),
+        ).fetchone()
+        assert row is not None
+        return UUID(str(row["resource_id"]))
+    finally:
+        store._connection.close()
+
+
+def get_upload_resource_id(
+    settings: RepositoryServiceSettings,
+    repository_id: UUID,
+    idempotency_key: str,
+) -> UUID:
+    store = open_mutation_store(settings)
+    try:
+        scope = IdempotencyScope.for_upload(repository_id)
+        key_hash = MutationStore.hash_idempotency_key(idempotency_key)
+        row = store._connection.execute(
+            """
+            SELECT e.resource_id
+            FROM synchronous_mutation_effects AS e
+            JOIN mutation_idempotency AS i ON i.id = e.idempotency_id
+            WHERE i.mutation_kind = 'upload_artifact'
+              AND i.repository_scope = ?
+              AND i.key_hash = ?
+            """,
+            (scope.repository_scope(), key_hash.digest),
+        ).fetchone()
+        assert row is not None
+        return UUID(str(row["resource_id"]))
+    finally:
+        store._connection.close()
 
 
 def is_terminal_not_published(
@@ -183,22 +289,6 @@ def effect_status(
     return EffectStatus(str(row["status"]))
 
 
-def run_create_until_fault(
-    runtime: ServiceRuntime,
-    *,
-    idempotency_key: str,
-    point: CreateFaultPoint,
-) -> None:
-    command = CreateRepositoryCommand(
-        settings=runtime.settings,
-        layout=runtime.layout,
-        mutation_store=runtime.mutation_store,
-        fault_injector=CreateFaultInjector(point),
-    )
-    with pytest.raises(RuntimeError):
-        command.execute(idempotency_key)
-
-
 def upload_request_headers(*, idempotency_key: str, payload: bytes) -> UploadRequestHeaders:
     return UploadRequestHeaders(
         content_type=REPOSITORY_IMPORT_MEDIA_TYPE,
@@ -206,26 +296,6 @@ def upload_request_headers(*, idempotency_key: str, payload: bytes) -> UploadReq
         idempotency_key=idempotency_key,
         artifact_sha256=upload_sha256(payload),
     )
-
-
-async def run_upload_until_fault(
-    runtime: ServiceRuntime,
-    *,
-    repository_id: UUID,
-    idempotency_key: str,
-    payload: bytes,
-    point: UploadFaultPoint,
-) -> None:
-    headers = upload_request_headers(idempotency_key=idempotency_key, payload=payload)
-    command = UploadArtifactCommand(
-        settings=runtime.settings,
-        layout=runtime.layout,
-        mutation_store=runtime.mutation_store,
-        fault_injector=UploadFaultInjector(point),
-    )
-    with pytest.raises(RuntimeError):
-        body = cast(AsyncIterator[bytes], UploadBody(payload))
-        await command.execute(repository_id, headers, body)
 
 
 def replay_create(
@@ -283,11 +353,6 @@ async def assert_upload_replay_conflict(
     assert exc_info.value.code == "IDEMPOTENCY_CONFLICT"
 
 
-def create_repository_for_upload(runtime: ServiceRuntime, *, idempotency_key: str = "recovery-create") -> UUID:
-    response = replay_create(runtime, idempotency_key=idempotency_key)
-    return UUID(str(response.repository_id))
-
-
 def staging_dirs_for_key(layout: DurableLayout, repository_id: UUID) -> list[Path]:
     key = repository_key(repository_id)
     return list(layout.staging_versioned.glob(f"{key}.*"))
@@ -297,18 +362,6 @@ def upload_staging_files(layout: DurableLayout, repository_id: UUID, artifact_id
     key = repository_key(repository_id)
     staging_dir, _ready = layout.repository_artifact_directories(key)
     return list(staging_dir.glob(f"{artifact_id.hex}.*"))
-
-
-def upload_fingerprint(payload: bytes) -> bytes:
-    return upload_artifact_fingerprint_v1(
-        media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
-        declared_size=len(payload),
-        raw_sha256_hex=upload_sha256(payload),
-    )
-
-
-def create_fingerprint() -> bytes:
-    return create_repository_fingerprint_v1()
 
 
 def assert_no_sensitive_leaks(
@@ -323,11 +376,79 @@ def assert_no_sensitive_leaks(
 
 def ready_client(runtime: ServiceRuntime) -> TestClient:
     from gateway_repository_service.app import create_app
+    from gateway_repository_service.http.readiness import LifecycleReadiness
 
     app = create_app(runtime.settings, enable_lifecycle=False)
     app.state.runtime = runtime
     app.state.auth_state = runtime.auth_state
-    from gateway_repository_service.http.readiness import LifecycleReadiness
-
     app.state.readiness = LifecycleReadiness(runtime)
     return TestClient(app)
+
+
+def assert_create_crash_disk_evidence(
+    settings: RepositoryServiceSettings,
+    *,
+    repository_id: UUID,
+    idempotency_key: str,
+    point: CreateFaultPoint,
+) -> None:
+    layout = layout_for_settings(settings)
+    published = layout.published_repository(repository_key(repository_id))
+    staging = staging_dirs_for_key(layout, repository_id)
+    if point == "after_pending":
+        assert staging == []
+        assert not published.exists()
+    elif point == "after_staging":
+        assert staging
+        assert not (staging[0] / ".dolt").exists()
+        assert not published.exists()
+    elif point in {"after_dolt_init", "before_rename"}:
+        assert staging
+        assert (staging[0] / ".dolt").is_dir()
+        assert not published.exists()
+    elif point == "after_rename":
+        assert published.is_dir()
+        assert (published / ".dolt").is_dir()
+    elif point == "after_succeeded":
+        assert published.is_dir()
+        store = open_mutation_store(settings)
+        try:
+            assert (
+                effect_status(
+                    store,
+                    scope=IdempotencyScope.for_create(),
+                    idempotency_key=idempotency_key,
+                )
+                == EffectStatus.SUCCEEDED
+            )
+        finally:
+            store._connection.close()
+
+
+def assert_upload_crash_disk_evidence(
+    settings: RepositoryServiceSettings,
+    *,
+    repository_id: UUID,
+    artifact_id: UUID,
+    payload: bytes,
+    point: UploadFaultPoint,
+) -> None:
+    layout = layout_for_settings(settings)
+    from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
+
+    ready_path = artifact_ready_path(layout, repository_id, artifact_id)
+    staging_files = upload_staging_files(layout, repository_id, artifact_id)
+    if point == "after_pending":
+        assert staging_files == []
+        assert not ready_path.exists()
+    elif point == "after_partial_body":
+        assert staging_files
+        assert staging_files[0].stat().st_size < len(payload)
+        assert not ready_path.exists()
+    elif point in {"after_complete_close", "before_rename"}:
+        assert staging_files
+        assert staging_files[0].stat().st_size == len(payload)
+        assert not ready_path.exists()
+    elif point in {"after_rename", "after_succeeded"}:
+        assert ready_path.is_file()
+        assert ready_path.stat().st_size == len(payload)

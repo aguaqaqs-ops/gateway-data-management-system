@@ -14,7 +14,10 @@ from gateway_repository_service.capacity import (
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock
-from gateway_repository_service.mutation_reconciliation import SynchronousMutationReconciler
+from gateway_repository_service.mutation_reconciliation import (
+    ReconciliationError,
+    SynchronousMutationReconciler,
+)
 from gateway_repository_service.mutation_store import MutationStore, configure_connection
 from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate
 from gateway_repository_service.settings import RepositoryServiceSettings
@@ -73,6 +76,8 @@ class ServiceRuntime:
                 auth_state=AuthState(bearer_token=bearer_token),
                 reconciliation_failures=reconciliation.blocking_failures,
             )
+        except ReconciliationError as exc:
+            raise ServiceStartupError(str(exc)) from exc
         except ServiceStartupError:
             raise
         except Exception as exc:
@@ -92,11 +97,13 @@ class ServiceRuntime:
                 return "root lock is not held"
             if not self._control_db_ready():
                 return "control database is unavailable"
+            if self.reconciliation_failures:
+                return "mutation ledger and filesystem are inconsistent"
             consistency = SynchronousMutationReconciler(
                 settings=self.settings,
                 layout=self.layout,
                 mutation_store=self.mutation_store,
-            ).consistency_failures()
+            ).consistency_failures_bounded()
             if consistency:
                 return "mutation ledger and filesystem are inconsistent"
             if not self._provider_ready():

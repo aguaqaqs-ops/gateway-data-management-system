@@ -202,7 +202,12 @@ class UploadArtifactCommand:
         repository_id: UUID,
         headers: UploadRequestHeaders,
     ) -> None:
-        if not is_repository_visible(self._mutation_store, self._layout, repository_id):
+        if not is_repository_visible(
+            self._mutation_store,
+            self._layout,
+            repository_id,
+            settings=self._settings,
+        ):
             raise _repository_not_found()
         try:
             validate_upload_content_length(

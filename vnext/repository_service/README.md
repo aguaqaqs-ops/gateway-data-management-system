@@ -33,12 +33,30 @@ python -m uvicorn gateway_repository_service.app:create_app \
 ```bash
 export GATEWAY_P2R2_BEARER_TOKEN_FILE=/path/to/token   # chmod 0400
 docker compose -f vnext/deploy/compose.yaml --profile p2-r2 config
-docker compose -f vnext/deploy/compose.yaml --profile p2-r2 up -d
+docker compose -f vnext/deploy/compose.yaml --profile p2-r2 up -d repository-service
 ```
 
 Compose 将 secret 只读挂载到 `/run/secrets/repository-bearer-token`，并使用独立 named
 volume `repository-service-data` 挂载到 `/var/lib/gateway/repository`。healthcheck 使用
 镜像内 Python 标准库访问 `/readyz`。
+
+Docker Compose 的 file-backed secret 在 Linux 上是 bind mount；`uid`、`gid` 和 `mode`
+不会替宿主机文件改变 owner。宿主机 token 文件必须由镜像内 `gateway` UID/GID 所有并
+保持不可写，否则 non-root service 会收到 `bearer token file is unavailable`。构建镜像后
+可用以下命令取得 UID/GID，再以 root provision 临时或生产 secret：
+
+```bash
+IMAGE=$(docker compose -f vnext/deploy/compose.yaml --profile p2-r2 \
+  images -q repository-service)
+test -n "$IMAGE"
+GATEWAY_UID=$(docker run --rm --entrypoint id "$IMAGE" -u gateway)
+GATEWAY_GID=$(docker run --rm --entrypoint id "$IMAGE" -g gateway)
+sudo chown "$GATEWAY_UID:$GATEWAY_GID" /path/to/token
+sudo chmod 0400 /path/to/token
+```
+
+生产 secret driver 必须提供等价的 non-root readable、read-only mount；不得通过把 token
+设为 world-readable 来绕过权限错误。
 
 缺少 production secret 时 lifespan fail closed，服务不会进入 ready 状态。
 

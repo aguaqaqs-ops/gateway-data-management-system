@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from gateway_repository_service.app import create_app
+from gateway_repository_service.create_repository.command import CreateRepositoryCommand
 from gateway_repository_service.settings import RepositoryServiceSettings
-from support.http_harness import assert_request_id_header, create_test_client
+from support.http_harness import (
+    assert_request_id_header,
+    create_create_route_test_app,
+    create_test_client,
+)
 from support.lifecycle_harness import dolt_available, lifecycle_settings
 
 ALLOWED_OPENAPI_PATHS = {"/healthz", "/readyz", "/v1/repositories"}
@@ -46,10 +52,14 @@ def test_create_repository_accepts_empty_body(tmp_path: Path) -> None:
     assert response.status_code == 201
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
 def test_create_repository_rejects_non_empty_json_body(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
-    with TestClient(create_app(settings)) as client:
+    client = create_test_client(create_create_route_test_app(settings))
+    with patch.object(
+        CreateRepositoryCommand,
+        "execute",
+        side_effect=AssertionError("create command must not run"),
+    ):
         response = client.post(
             "/v1/repositories",
             headers=_auth_headers(idempotency_key="reject-body"),
@@ -60,6 +70,52 @@ def test_create_repository_rejects_non_empty_json_body(tmp_path: Path) -> None:
     body = response.json()
     assert body["code"] == "REQUEST_VALIDATION_FAILED"
     assert body["message"] == "request body must be empty"
+    assert_request_id_header(response)
+
+
+def test_create_repository_rejects_large_content_length_without_side_effects(
+    tmp_path: Path,
+) -> None:
+    settings = lifecycle_settings(tmp_path)
+    client = create_test_client(create_create_route_test_app(settings))
+    with patch.object(
+        CreateRepositoryCommand,
+        "execute",
+        side_effect=AssertionError("create command must not run"),
+    ):
+        response = client.post(
+            "/v1/repositories",
+            headers={
+                **_auth_headers(idempotency_key="reject-large-content-length"),
+                "Content-Length": "10000000",
+            },
+            content=b"",
+        )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "REQUEST_VALIDATION_FAILED"
+    assert_request_id_header(response)
+
+
+def test_create_repository_rejects_chunked_body_on_first_chunk(tmp_path: Path) -> None:
+    settings = lifecycle_settings(tmp_path)
+    client = create_test_client(create_create_route_test_app(settings))
+
+    with patch.object(
+        CreateRepositoryCommand,
+        "execute",
+        side_effect=AssertionError("create command must not run"),
+    ):
+        response = client.post(
+            "/v1/repositories",
+            headers=_auth_headers(idempotency_key="reject-chunked-body"),
+            content=iter([b"part1", b"part2"]),
+        )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "REQUEST_VALIDATION_FAILED"
     assert_request_id_header(response)
 
 

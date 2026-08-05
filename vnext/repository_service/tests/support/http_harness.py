@@ -16,6 +16,14 @@ from gateway_repository_service.http.readiness import ReadinessPort
 from gateway_repository_service.settings import RepositoryServiceSettings
 
 
+class ReadyReadiness:
+    def is_ready(self) -> bool:
+        return True
+
+    def not_ready_message(self) -> str:
+        return "service is not ready"
+
+
 class _ValidationProbeBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -46,6 +54,13 @@ class _NestedOuterBody(BaseModel):
 
 def create_test_client(app: FastAPI) -> TestClient:
     return TestClient(app, raise_server_exceptions=False)
+
+
+def create_create_route_test_app(settings: RepositoryServiceSettings) -> FastAPI:
+    app = create_app(settings, enable_lifecycle=False)
+    app.state.auth_state = AuthState(bearer_token=settings.resolve_bearer_token())
+    app.state.readiness = ReadyReadiness()
+    return app
 
 
 def create_test_http_app(

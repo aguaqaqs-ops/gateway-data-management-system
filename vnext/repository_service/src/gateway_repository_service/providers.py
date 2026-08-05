@@ -672,6 +672,19 @@ class OfflineCliProvider:
             raise ProviderError("Dolt did not return main hash")
         return str(_value(rows[0], "commit_id", 0))
 
+    def commit_reachable_from_main(self, commit_id: str) -> bool:
+        head = self.head()
+        if commit_id == head:
+            return True
+        rows = self._query_json(
+            "commit_reachable",
+            "SELECT COUNT(*) AS reachable FROM dolt_log "
+            f"WHERE commit_hash = {_commit_literal(commit_id)};\n",
+        )
+        if not rows:
+            raise ProviderError("Dolt did not return ancestry result")
+        return int(_value(rows[0], "reachable", 0)) > 0
+
     def catalog(self, base_commit_id: str, target_commit_id: str) -> tuple[TableCatalog, ...]:
         diff_sql = (
             "SELECT * FROM dolt_schema_diff("

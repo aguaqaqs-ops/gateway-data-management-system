@@ -308,7 +308,9 @@ def replay_create(
         layout=runtime.layout,
         mutation_store=runtime.mutation_store,
     )
-    return command.execute(idempotency_key)
+    response = command.execute(idempotency_key)
+    runtime.refresh_consistency_watch()
+    return response
 
 
 async def replay_upload(
@@ -325,7 +327,9 @@ async def replay_upload(
         mutation_store=runtime.mutation_store,
     )
     body = cast(AsyncIterator[bytes], UploadBody(payload))
-    return await command.execute(repository_id, headers, body)
+    response = await command.execute(repository_id, headers, body)
+    runtime.refresh_consistency_watch()
+    return response
 
 
 def assert_create_replay_conflict(runtime: ServiceRuntime, *, idempotency_key: str) -> None:
@@ -402,7 +406,11 @@ def assert_create_crash_disk_evidence(
         assert staging
         assert not (staging[0] / ".dolt").exists()
         assert not published.exists()
-    elif point in {"after_dolt_init", "before_rename"}:
+    elif point == "after_dolt_init":
+        assert staging
+        assert (staging[0] / ".dolt").is_dir()
+        assert not published.exists()
+    elif point == "before_rename":
         assert staging
         assert (staging[0] / ".dolt").is_dir()
         assert not published.exists()
@@ -445,7 +453,11 @@ def assert_upload_crash_disk_evidence(
         assert staging_files
         assert staging_files[0].stat().st_size < len(payload)
         assert not ready_path.exists()
-    elif point in {"after_complete_close", "before_rename"}:
+    elif point == "after_complete_close":
+        assert staging_files
+        assert staging_files[0].stat().st_size == len(payload)
+        assert not ready_path.exists()
+    elif point == "before_rename":
         assert staging_files
         assert staging_files[0].stat().st_size == len(payload)
         assert not ready_path.exists()

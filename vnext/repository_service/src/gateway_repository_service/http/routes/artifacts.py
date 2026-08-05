@@ -71,7 +71,9 @@ def register_artifact_routes(app: FastAPI) -> None:
             async for chunk in request.stream():
                 yield chunk
 
-        return await command.execute(repository_id, headers, body_stream())
+        response = await command.execute(repository_id, headers, body_stream())
+        runtime.refresh_consistency_watch()
+        return response
 
 
 def _runtime_from_state(request: Request) -> ServiceRuntime:

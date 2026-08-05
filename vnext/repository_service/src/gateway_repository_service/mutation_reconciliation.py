@@ -11,9 +11,9 @@ from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE
 
 from gateway_repository_service.create_repository.visibility import (
     DEFAULT_REF,
-    create_response_matches_filesystem,
+    create_repository_matches_ledger_full,
     has_published_repository_tree,
-    read_published_repository_head,
+    read_published_repository_head_strict,
 )
 from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.mutation_fingerprints import parse_upload_artifact_fingerprint_v1
@@ -36,8 +36,54 @@ class ReconciliationError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class ConsistencyWatch:
+    create_repository_ids: tuple[UUID, ...]
+    upload_artifacts: tuple[tuple[UUID, UUID, int], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ReconciliationResult:
     blocking_failures: tuple[str, ...]
+    consistency_watch: ConsistencyWatch
+
+
+def build_consistency_watch(mutation_store: MutationStore) -> ConsistencyWatch:
+    create_repository_ids: list[UUID] = []
+    upload_artifacts: list[tuple[UUID, UUID, int]] = []
+    for effect in mutation_store.iter_effects_by_status(EffectStatus.SUCCEEDED):
+        if effect.scope.mutation_kind == MutationKind.CREATE_REPOSITORY:
+            create_repository_ids.append(effect.resource_id)
+            continue
+        repository_id = effect.scope.repository_id
+        if repository_id is None:
+            continue
+        lifecycle = mutation_store.get_artifact_lifecycle(effect.resource_id)
+        if lifecycle is None:
+            continue
+        upload_artifacts.append((repository_id, effect.resource_id, lifecycle.size_bytes))
+    return ConsistencyWatch(
+        create_repository_ids=tuple(create_repository_ids),
+        upload_artifacts=tuple(upload_artifacts),
+    )
+
+
+def filesystem_watch_failures(
+    watch: ConsistencyWatch,
+    layout: DurableLayout,
+) -> tuple[str, ...]:
+    blocking: list[str] = []
+    for repository_id in watch.create_repository_ids:
+        if not has_published_repository_tree(layout, repository_id):
+            blocking.append(f"published repository {repository_id} is missing")
+    for repository_id, artifact_id, size_bytes in watch.upload_artifacts:
+        if not has_ready_artifact_size(
+            layout,
+            repository_id,
+            artifact_id,
+            size_bytes=size_bytes,
+        ):
+            blocking.append(f"ready artifact {artifact_id} is missing or truncated")
+    return tuple(blocking)
 
 
 class SynchronousMutationReconciler:
@@ -63,7 +109,10 @@ class SynchronousMutationReconciler:
             else:
                 self._reconcile_pending_upload(effect)
 
-        return ReconciliationResult(blocking_failures=self.consistency_failures_full())
+        return ReconciliationResult(
+            blocking_failures=self.consistency_failures_full(),
+            consistency_watch=build_consistency_watch(self._mutation_store),
+        )
 
     def consistency_failures_full(self) -> tuple[str, ...]:
         return self._consistency_failures(verify_upload_sha=True)
@@ -80,7 +129,7 @@ class SynchronousMutationReconciler:
         blocking: list[str] = []
         for effect in self._mutation_store.iter_effects_by_status(EffectStatus.SUCCEEDED):
             if effect.scope.mutation_kind == MutationKind.CREATE_REPOSITORY:
-                if not create_response_matches_filesystem(
+                if not create_repository_matches_ledger_full(
                     settings=self._settings,
                     layout=self._layout,
                     repository_id=effect.resource_id,
@@ -127,7 +176,7 @@ class SynchronousMutationReconciler:
         repository_id = effect.resource_id
         if has_published_repository_tree(self._layout, repository_id):
             try:
-                initial_commit_id = read_published_repository_head(
+                initial_commit_id = read_published_repository_head_strict(
                     self._settings,
                     self._layout,
                     repository_id,
@@ -136,14 +185,17 @@ class SynchronousMutationReconciler:
                 raise ReconciliationError(
                     f"failed to read head for pending create effect {effect.effect_id}"
                 ) from exc
-            if initial_commit_id is not None:
-                response_body = {
-                    "repository_id": str(repository_id),
-                    "default_ref": DEFAULT_REF,
-                    "initial_commit_id": initial_commit_id,
-                }
-                self._mutation_store.mark_succeeded(effect.effect_id, response_body=response_body)
-                return
+            if initial_commit_id is None:
+                raise ReconciliationError(
+                    f"published repository tree exists but main head is unavailable for effect {effect.effect_id}"
+                )
+            response_body = {
+                "repository_id": str(repository_id),
+                "default_ref": DEFAULT_REF,
+                "initial_commit_id": initial_commit_id,
+            }
+            self._mutation_store.mark_succeeded(effect.effect_id, response_body=response_body)
+            return
 
         self._cleanup_create_staging(repository_id)
         self._assert_create_staging_absent(repository_id)

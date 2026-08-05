@@ -15,8 +15,11 @@ from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, Contr
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.mutation_reconciliation import (
+    ConsistencyWatch,
     ReconciliationError,
     SynchronousMutationReconciler,
+    build_consistency_watch,
+    filesystem_watch_failures,
 )
 from gateway_repository_service.mutation_store import MutationStore, configure_connection
 from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate
@@ -37,6 +40,7 @@ class ServiceRuntime:
     provider_gate: OfflineCliCapabilityGate
     auth_state: AuthState
     reconciliation_failures: tuple[str, ...] = ()
+    consistency_watch: ConsistencyWatch = ConsistencyWatch((), ())
 
     @classmethod
     def start(cls, settings: RepositoryServiceSettings) -> "ServiceRuntime":
@@ -75,6 +79,7 @@ class ServiceRuntime:
                 provider_gate=provider_gate,
                 auth_state=AuthState(bearer_token=bearer_token),
                 reconciliation_failures=reconciliation.blocking_failures,
+                consistency_watch=reconciliation.consistency_watch,
             )
         except ReconciliationError as exc:
             raise ServiceStartupError(str(exc)) from exc
@@ -91,6 +96,9 @@ class ServiceRuntime:
         if self.root_lock.is_held():
             self.root_lock.release()
 
+    def refresh_consistency_watch(self) -> None:
+        self.consistency_watch = build_consistency_watch(self.mutation_store)
+
     def _readiness_failure(self) -> str | None:
         try:
             if not self.root_lock.is_held():
@@ -99,12 +107,7 @@ class ServiceRuntime:
                 return "control database is unavailable"
             if self.reconciliation_failures:
                 return "mutation ledger and filesystem are inconsistent"
-            consistency = SynchronousMutationReconciler(
-                settings=self.settings,
-                layout=self.layout,
-                mutation_store=self.mutation_store,
-            ).consistency_failures_bounded()
-            if consistency:
+            if filesystem_watch_failures(self.consistency_watch, self.layout):
                 return "mutation ledger and filesystem are inconsistent"
             if not self._provider_ready():
                 return "provider is unavailable"

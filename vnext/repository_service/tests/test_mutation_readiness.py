@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from unittest.mock import patch
@@ -12,6 +13,9 @@ import pytest
 from gateway_repository_service.create_repository.visibility import is_repository_visible
 from gateway_repository_service.layout import repository_key
 from gateway_repository_service.mutation_store import EffectStatus, IdempotencyScope
+from gateway_repository_service.process import DoltRunner
+from gateway_repository_service.providers import OfflineCliProvider
+from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.upload_artifact import visibility as upload_visibility
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path, is_artifact_visible
 from support.lifecycle_harness import dolt_available, lifecycle_settings
@@ -37,12 +41,7 @@ def test_readiness_fails_when_succeeded_create_repository_missing(tmp_path: Path
         assert runtime.is_ready()
         published = runtime.layout.published_repository(repository_key(repository_id))
         shutil.rmtree(published)
-        assert not is_repository_visible(
-            runtime.mutation_store,
-            runtime.layout,
-            repository_id,
-            settings=runtime.settings,
-        )
+        assert not is_repository_visible(runtime.mutation_store, runtime.layout, repository_id)
         assert not runtime.is_ready()
         with ready_client(runtime) as client:
             ready = client.get("/readyz")
@@ -52,23 +51,23 @@ def test_readiness_fails_when_succeeded_create_repository_missing(tmp_path: Path
         runtime.shutdown()
 
 
-def test_readiness_fails_when_succeeded_create_head_mismatches_ledger(tmp_path: Path) -> None:
+def test_startup_marks_unreadable_create_head_inconsistent(tmp_path: Path) -> None:
     settings, runtime = start_runtime(tmp_path)
     try:
-        response = replay_create(runtime, idempotency_key="readiness-head-mismatch")
+        response = replay_create(runtime, idempotency_key="startup-head-unreadable")
         repository_id = UUID(str(response.repository_id))
         published = runtime.layout.published_repository(repository_key(repository_id))
         shutil.rmtree(published / ".dolt")
         (published / ".dolt").mkdir()
-        assert not is_repository_visible(
-            runtime.mutation_store,
-            runtime.layout,
-            repository_id,
-            settings=runtime.settings,
-        )
-        assert not runtime.is_ready()
     finally:
         runtime.shutdown()
+
+    restarted = ServiceRuntime.start(settings)
+    try:
+        assert restarted.reconciliation_failures
+        assert not restarted.is_ready()
+    finally:
+        restarted.shutdown()
 
 
 def test_readiness_fails_when_succeeded_upload_artifact_missing(tmp_path: Path) -> None:
@@ -131,6 +130,95 @@ def test_readiness_bounded_probe_does_not_rehash_artifacts(tmp_path: Path) -> No
         runtime.shutdown()
 
 
+def test_readiness_probe_does_not_invoke_dolt_cli_or_scan_ledger(tmp_path: Path) -> None:
+    settings, runtime = start_runtime(tmp_path)
+    try:
+        replay_create(runtime, idempotency_key="readiness-no-cli")
+        with patch.object(
+            OfflineCliProvider,
+            "head",
+            wraps=OfflineCliProvider.head,
+        ) as head_spy, patch.object(
+            runtime.mutation_store,
+            "iter_effects_by_status",
+            wraps=runtime.mutation_store.iter_effects_by_status,
+        ) as ledger_spy:
+            head_spy.reset_mock()
+            ledger_spy.reset_mock()
+            with ready_client(runtime) as client:
+                for _ in range(3):
+                    assert client.get("/readyz").status_code == 200
+            head_spy.assert_not_called()
+            ledger_spy.assert_not_called()
+    finally:
+        runtime.shutdown()
+
+
+def test_create_remains_consistent_after_main_advances(tmp_path: Path) -> None:
+    settings, runtime = start_runtime(tmp_path)
+    try:
+        response = replay_create(runtime, idempotency_key="advanced-main")
+        repository_id = UUID(str(response.repository_id))
+        initial_commit_id = response.initial_commit_id
+        published = runtime.layout.published_repository(repository_key(repository_id))
+        runner = DoltRunner(runtime.settings, runtime.layout.root)
+        provider = OfflineCliProvider(runtime.settings, runtime.layout, published, runner)
+        advance_sql = tmp_path / "advance-main.sql"
+        advance_sql.write_text(
+            "CREATE TABLE advance_probe (id INT NOT NULL PRIMARY KEY);",
+            encoding="utf-8",
+        )
+        provider.replay(advance_sql)
+        provider.commit_marker("advance-main")
+        assert provider.head() != initial_commit_id
+        assert provider.commit_reachable_from_main(initial_commit_id)
+    finally:
+        runtime.shutdown()
+
+    restarted = restart_runtime(settings)
+    try:
+        assert is_repository_visible(restarted.mutation_store, restarted.layout, repository_id)
+        assert restarted.is_ready()
+    finally:
+        restarted.shutdown()
+
+
+def test_startup_marks_bad_initial_commit_inconsistent(tmp_path: Path) -> None:
+    settings, runtime = start_runtime(tmp_path)
+    try:
+        response = replay_create(runtime, idempotency_key="startup-bad-initial-check")
+        repository_id = UUID(str(response.repository_id))
+        runtime.control_store.connection.execute(
+            """
+            UPDATE synchronous_mutation_effects
+            SET response_body = ?
+            WHERE resource_id = ?
+            """,
+            (
+                json.dumps(
+                    {
+                        "repository_id": str(repository_id),
+                        "default_ref": "main",
+                        "initial_commit_id": "deadbeefdeadbeefdeadbeefdeadbeef",
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+                str(repository_id),
+            ),
+        )
+        runtime.control_store.connection.commit()
+    finally:
+        runtime.shutdown()
+
+    restarted = ServiceRuntime.start(settings)
+    try:
+        assert restarted.reconciliation_failures
+        assert not restarted.is_ready()
+    finally:
+        restarted.shutdown()
+
+
 def test_readiness_recovers_after_pending_create_reconciled(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     idempotency_key = "readiness-reconcile-create"
@@ -143,12 +231,7 @@ def test_readiness_recovers_after_pending_create_reconciled(tmp_path: Path) -> N
             scope=IdempotencyScope.for_create(),
             idempotency_key=idempotency_key,
         ) == EffectStatus.SUCCEEDED
-        assert is_repository_visible(
-            runtime.mutation_store,
-            runtime.layout,
-            repository_id,
-            settings=runtime.settings,
-        )
+        assert is_repository_visible(runtime.mutation_store, runtime.layout, repository_id)
         assert runtime.is_ready()
         with ready_client(runtime) as client:
             ready = client.get("/readyz")

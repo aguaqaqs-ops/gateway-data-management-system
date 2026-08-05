@@ -39,7 +39,9 @@ def register_repository_routes(app: FastAPI) -> None:
             layout=runtime.layout,
             mutation_store=runtime.mutation_store,
         )
-        return command.execute(idempotency_key)
+        response = command.execute(idempotency_key)
+        runtime.refresh_consistency_watch()
+        return response
 
 
 def _runtime_from_state(request: Request) -> ServiceRuntime:

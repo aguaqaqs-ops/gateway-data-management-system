@@ -8,8 +8,10 @@ from unittest.mock import patch
 
 import pytest
 
+from gateway_repository_service.create_repository.visibility import has_published_repository_tree
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import EffectStatus, IdempotencyScope
+from gateway_repository_service.providers import ProviderError
 from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
 from support.lifecycle_harness import dolt_available, lifecycle_settings
 from support.recovery_harness import (
@@ -80,3 +82,28 @@ def test_startup_fails_when_upload_staging_cleanup_fails(tmp_path: Path) -> None
         assert not is_terminal_not_published(store, scope=scope, idempotency_key=idempotency_key)
     finally:
         store._connection.close()
+
+
+def test_startup_fails_when_pending_create_head_read_fails(tmp_path: Path) -> None:
+    settings = lifecycle_settings(tmp_path)
+    idempotency_key = "pending-head-read-fail"
+    crash_create_subprocess(settings, idempotency_key=idempotency_key, point="after_rename")
+    repository_id = get_create_resource_id(settings, idempotency_key)
+    layout = DurableLayout.create_service(settings.data_root)
+    assert has_published_repository_tree(layout, repository_id)
+
+    with patch(
+        "gateway_repository_service.create_repository.visibility.OfflineCliProvider.head",
+        side_effect=ProviderError("dolt head read failed"),
+    ):
+        with pytest.raises(ServiceStartupError):
+            ServiceRuntime.start(settings)
+
+    store = open_mutation_store(settings)
+    try:
+        scope = IdempotencyScope.for_create()
+        assert effect_status(store, scope=scope, idempotency_key=idempotency_key) == EffectStatus.PENDING
+        assert not is_terminal_not_published(store, scope=scope, idempotency_key=idempotency_key)
+    finally:
+        store._connection.close()
+    assert has_published_repository_tree(layout, repository_id)

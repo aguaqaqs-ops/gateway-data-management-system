@@ -15,7 +15,13 @@ from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE, UploadReq
 from gateway_repository_service.create_repository.adapters import FilesystemPublicationAdapter
 from gateway_repository_service.create_repository.command import CreateRepositoryCommand
 from gateway_repository_service.create_repository.ports import NoOpCreateRepositoryFaultInjector
-from gateway_repository_service.publication import FaultPoint, atomic_publish, atomic_publish_file
+from gateway_repository_service.publication import (
+    FaultPoint,
+    atomic_publish,
+    atomic_publish_file,
+    prepare_directory_publish,
+    prepare_file_publish,
+)
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.adapters import ArtifactFilesystemPublicationAdapter
@@ -46,6 +52,11 @@ class CrashFilesystemPublicationAdapter(FilesystemPublicationAdapter):
     ) -> None:
         del fault
         if self._point == "before_rename":
+            if target.exists():
+                raise FileExistsError(target)
+            if staging.stat().st_dev != target.parent.stat().st_dev:
+                raise OSError("staging and target parent are on different filesystems")
+            prepare_directory_publish(staging)
             _crash()
         atomic_publish(staging, target, fault=FaultPoint.NONE)
         if self._point == "after_rename":
@@ -65,6 +76,9 @@ class CrashArtifactPublicationAdapter(ArtifactFilesystemPublicationAdapter):
     ) -> None:
         del fault
         if self._point == "before_rename":
+            if target.exists():
+                raise FileExistsError(target)
+            prepare_file_publish(staging)
             _crash()
         atomic_publish_file(staging, target, fault=FaultPoint.NONE)
         if self._point == "after_rename":

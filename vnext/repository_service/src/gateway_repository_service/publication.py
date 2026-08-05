@@ -28,6 +28,21 @@ def fsync_tree(root: Path) -> None:
     _fsync_directory(root)
 
 
+def prepare_directory_publish(staging: Path) -> None:
+    """Durably sync a staged directory tree before atomic rename."""
+
+    fsync_tree(staging)
+    _fsync_directory(staging.parent)
+
+
+def prepare_file_publish(staging: Path) -> None:
+    """Durably sync a staged file before atomic rename."""
+
+    with staging.open("rb") as handle:
+        os.fsync(handle.fileno())
+    _fsync_directory(staging.parent)
+
+
 def atomic_publish(
     staging: Path,
     target: Path,
@@ -39,8 +54,7 @@ def atomic_publish(
         raise FileExistsError(target)
     if same_filesystem and staging.stat().st_dev != target.parent.stat().st_dev:
         raise OSError("staging and target parent are on different filesystems")
-    fsync_tree(staging)
-    _fsync_directory(staging.parent)
+    prepare_directory_publish(staging)
     if fault == FaultPoint.BEFORE_RENAME:
         raise RuntimeError("fault injected before publication rename")
     _rename_noreplace(staging, target)
@@ -60,9 +74,7 @@ def atomic_publish_file(
 
     if target.exists():
         raise FileExistsError(target)
-    with staging.open("rb") as handle:
-        os.fsync(handle.fileno())
-    _fsync_directory(staging.parent)
+    prepare_file_publish(staging)
     if fault == FaultPoint.BEFORE_RENAME:
         raise RuntimeError("fault injected before publication rename")
     _rename_noreplace(staging, target)

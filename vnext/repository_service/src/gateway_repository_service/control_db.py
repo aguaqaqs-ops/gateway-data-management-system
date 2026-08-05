@@ -31,7 +31,11 @@ class ControlStore:
         busy_timeout_ms: int,
     ) -> Self:
         path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(path, timeout=busy_timeout_ms / 1000.0)
+        connection = sqlite3.connect(
+            path,
+            timeout=busy_timeout_ms / 1000.0,
+            check_same_thread=False,
+        )
         try:
             connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
             connection.execute("PRAGMA foreign_keys = ON")

@@ -22,6 +22,7 @@ async def _default_lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: RepositoryServiceSettings = app.state.settings
     runtime = ServiceRuntime.start(settings)
     app.state.runtime = runtime
+    app.state.auth_state = runtime.auth_state
     app.state.readiness = LifecycleReadiness(runtime)
     try:
         yield

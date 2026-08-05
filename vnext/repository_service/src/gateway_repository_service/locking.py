@@ -18,16 +18,22 @@ class DurableRootLock:
         self.path = path
         self._fd: int | None = None
 
+    def is_held(self) -> bool:
+        return self._fd is not None
+
     def acquire(self) -> Self:
         if self._fd is not None:
             raise RuntimeError("root lock is already held")
         fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
-        os.set_inheritable(fd, False)
         try:
+            os.set_inheritable(fd, False)
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             os.close(fd)
             raise RootLockBusy("durable root lock is held") from exc
+        except BaseException:
+            os.close(fd)
+            raise
         self._fd = fd
         return self
 

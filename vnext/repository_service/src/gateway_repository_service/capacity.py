@@ -51,14 +51,24 @@ def measure_disk_admission(root: Path, settings: RepositoryServiceSettings) -> D
     )
 
 
-def assert_durable_root_writable(service_state: Path) -> None:
+def is_durable_root_writable(service_state: Path) -> bool:
     service_state.mkdir(parents=True, exist_ok=True)
     probe = service_state / f".write-probe-{uuid4().hex}"
     try:
         probe.write_text("ok", encoding="utf-8")
         probe.unlink()
-    except OSError as exc:
-        raise CapacityAdmissionError("durable root is not writable") from exc
+    except OSError:
+        return False
+    return True
+
+
+def assert_durable_root_writable(service_state: Path) -> None:
+    if not is_durable_root_writable(service_state):
+        raise CapacityAdmissionError("durable root is not writable")
+
+
+def has_free_disk_admission(root: Path, settings: RepositoryServiceSettings) -> bool:
+    return measure_disk_admission(root, settings).admitted
 
 
 def assert_free_disk_admission(root: Path, settings: RepositoryServiceSettings) -> DiskAdmission:

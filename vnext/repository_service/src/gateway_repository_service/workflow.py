@@ -170,7 +170,7 @@ def _run_workflow_in_process(
         prefix="gateway-p2r1-", dir=str(root_parent) if root_parent is not None else None
     ) as temporary:
         root = Path(temporary) / "data-root"
-        layout = DurableLayout.create(root)
+        layout = DurableLayout.create_for_probe(root)
         with DurableRootLock(layout.service_lock):
             return _run_locked(
                 settings,
@@ -1191,7 +1191,7 @@ def _run_offline_discard_in_process(
         dir=str(root_parent) if root_parent is not None else None,
     ) as temporary:
         root = Path(temporary) / "data-root"
-        layout = DurableLayout.create(root)
+        layout = DurableLayout.create_for_probe(root)
         with DurableRootLock(layout.service_lock):
             repository_id = UUID(int=uuid4().int)
             key = repository_key(repository_id)

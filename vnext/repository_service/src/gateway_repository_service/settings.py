@@ -25,7 +25,7 @@ class RepositoryServiceSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="GATEWAY_REPOSITORY_")
 
-    profile: Literal["production", "development", "test"] = "test"
+    profile: Literal["production", "development", "test"] = "production"
     bearer_token_file: Path | None = None
     bearer_token: str | None = None
     data_root: Path = Path("runtime-data/repository")

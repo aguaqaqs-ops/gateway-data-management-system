@@ -8,9 +8,12 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from typing import cast
 
 from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import ControlDbNewerVersionError, ControlStore
@@ -18,7 +21,7 @@ from gateway_repository_service.layout import DurableLayout, LAYOUT_FORMAT_VERSI
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.process import DoltRunner, process_tree_pids
 from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate, ProviderUnavailableError
-from gateway_repository_service.runtime import ServiceRuntime
+from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
 from gateway_repository_service.settings import RepositoryServiceSettings, SettingsError
 from support.http_harness import create_test_client, create_test_http_app
 
@@ -31,16 +34,20 @@ def _lifecycle_settings(
     bearer_token_file: Path | None = None,
     dolt_binary: Path | None = None,
     dolt_version: str = "2.1.11",
+    min_free_disk_bytes: int | None = None,
 ) -> RepositoryServiceSettings:
     data_root = tmp_path / "data-root"
-    return RepositoryServiceSettings(
-        profile=profile,  # type: ignore[arg-type]
-        data_root=data_root,
-        bearer_token=bearer_token,
-        bearer_token_file=bearer_token_file,
-        dolt_binary=dolt_binary or Path("/usr/local/bin/dolt"),
-        dolt_version=dolt_version,
-    )
+    kwargs: dict[str, object] = {
+        "profile": profile,
+        "data_root": data_root,
+        "bearer_token": bearer_token,
+        "bearer_token_file": bearer_token_file,
+        "dolt_binary": dolt_binary or Path("/usr/local/bin/dolt"),
+        "dolt_version": dolt_version,
+    }
+    if min_free_disk_bytes is not None:
+        kwargs["min_free_disk_bytes"] = min_free_disk_bytes
+    return RepositoryServiceSettings(**kwargs)  # type: ignore[arg-type]
 
 
 def _dolt_available() -> bool:
@@ -54,7 +61,6 @@ class TestLifecycleIntegration:
         runtime = ServiceRuntime.start(settings)
         try:
             assert runtime.is_ready()
-            assert runtime.state.disk_admission is not None
             assert (settings.control_db_path).is_file()
         finally:
             runtime.shutdown()
@@ -73,6 +79,55 @@ class TestLifecycleIntegration:
         runtime.shutdown()
         with DurableRootLock(lock_path):
             pass
+
+
+class TestStartupFailure:
+    def test_missing_production_token_aborts_runtime_start(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path, profile="production", bearer_token="env-only")
+        with pytest.raises(ServiceStartupError, match="production bearer token file is required"):
+            ServiceRuntime.start(settings)
+
+    def test_missing_production_token_aborts_lifespan(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path, profile="production", bearer_token="env-only")
+        with pytest.raises(ServiceStartupError):
+            with TestClient(create_app(settings)):
+                pass
+
+    def test_lock_contention_aborts_startup(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
+        layout = DurableLayout.create_service(settings.data_root)
+        holder = DurableRootLock(layout.service_lock).acquire()
+        try:
+            with pytest.raises(ServiceStartupError, match="durable root lock is held"):
+                ServiceRuntime.start(settings)
+        finally:
+            holder.release()
+
+    def test_corrupt_control_db_aborts_startup_and_releases_lock(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
+        layout = DurableLayout.create_service(settings.data_root)
+        settings.control_db_path.write_bytes(b"not-a-database")
+        with pytest.raises(ServiceStartupError):
+            ServiceRuntime.start(settings)
+        with DurableRootLock(layout.service_lock):
+            pass
+
+    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    def test_provider_failure_aborts_startup(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path, dolt_binary=Path("/nonexistent/dolt"))
+        with pytest.raises(ServiceStartupError, match="dolt executable is unavailable"):
+            ServiceRuntime.start(settings)
+
+    def test_newer_control_db_aborts_startup(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
+        DurableLayout.create_service(settings.data_root)
+        settings.control_db_path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(settings.control_db_path)
+        connection.execute("PRAGMA user_version = 99")
+        connection.commit()
+        connection.close()
+        with pytest.raises(ServiceStartupError, match="newer than supported"):
+            ServiceRuntime.start(settings)
 
 
 class TestSettingsProfile:
@@ -164,6 +219,41 @@ class TestBearerHarness:
         body = response.text
         assert secret not in body
 
+    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    def test_token_file_change_does_not_hot_rotate(self, tmp_path: Path) -> None:
+        token_file = tmp_path / "token"
+        token_file.write_text("first-token\n", encoding="utf-8")
+        settings = _lifecycle_settings(
+            tmp_path,
+            bearer_token=None,
+            bearer_token_file=token_file,
+        )
+        with TestClient(create_app(settings)) as client:
+            app = cast(FastAPI, client.app)
+            auth_state = app.state.auth_state
+            assert auth_state.bearer_token == "first-token"
+            token_file.write_text("second-token\n", encoding="utf-8")
+            assert auth_state.bearer_token == "first-token"
+            cached_auth = auth_state
+
+        harness_app = create_test_http_app(settings)
+        harness_app.state.auth_state = cached_auth
+        harness = create_test_client(harness_app)
+        assert (
+            harness.get(
+                "/_test/auth-required",
+                headers={"Authorization": "Bearer first-token"},
+            ).status_code
+            == 200
+        )
+        assert (
+            harness.get(
+                "/_test/auth-required",
+                headers={"Authorization": "Bearer second-token"},
+            ).status_code
+            == 401
+        )
+
     def test_production_openapi_excludes_test_routes(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         client = create_test_client(create_app(settings, enable_lifecycle=False))
@@ -172,20 +262,8 @@ class TestBearerHarness:
 
 
 class TestRootLockContention:
-    def test_second_lock_holder_fails_startup(self, tmp_path: Path) -> None:
-        settings = _lifecycle_settings(tmp_path)
-        layout = DurableLayout.create(settings.data_root)
-        holder = DurableRootLock(layout.service_lock).acquire()
-        try:
-            runtime = ServiceRuntime.start(settings)
-            assert not runtime.is_ready()
-            assert "durable root lock is held" in runtime.not_ready_message()
-            runtime.shutdown()
-        finally:
-            holder.release()
-
     def test_subprocess_cannot_acquire_held_lock(self, tmp_path: Path) -> None:
-        layout = DurableLayout.create(tmp_path / "root")
+        layout = DurableLayout.create_for_probe(tmp_path / "root")
         holder = DurableRootLock(layout.service_lock).acquire()
         script = """
 import sys
@@ -210,16 +288,28 @@ raise SystemExit(0)
 class TestLayoutValidation:
     def test_newer_layout_format_version_fails_closed(self, tmp_path: Path) -> None:
         root = tmp_path / "root"
-        layout = DurableLayout.create(root)
+        layout = DurableLayout.create_for_probe(root)
         marker = layout.layout_marker
         payload = json.loads(marker.read_text(encoding="utf-8"))
         payload["layout_format_version"] = LAYOUT_FORMAT_VERSION + 1
         marker.write_text(json.dumps(payload) + "\n", encoding="utf-8")
         with pytest.raises(RuntimeError, match="unsupported layout_format_version"):
-            DurableLayout.create(root)
+            DurableLayout.create_for_probe(root)
+
+    def test_service_layout_does_not_create_probe_namespaces(self, tmp_path: Path) -> None:
+        layout = DurableLayout.create_service(tmp_path / "root")
+        assert not layout.staging_versioned.exists()
+        assert not layout.staging_artifacts.exists()
+        assert not layout.artifacts.exists()
+
+    def test_probe_layout_creates_probe_namespaces(self, tmp_path: Path) -> None:
+        layout = DurableLayout.create_for_probe(tmp_path / "root")
+        assert layout.staging_versioned.is_dir()
+        assert layout.staging_artifacts.is_dir()
+        assert layout.artifacts.is_dir()
 
     def test_layout_create_does_not_create_control_db(self, tmp_path: Path) -> None:
-        layout = DurableLayout.create(tmp_path / "root")
+        layout = DurableLayout.create_service(tmp_path / "root")
         assert not (layout.service_state / "repository-service.sqlite3").exists()
 
 
@@ -250,77 +340,81 @@ class TestControlDatabase:
         with pytest.raises(ControlDbNewerVersionError):
             ControlStore.open(db_path, expected_version=1, busy_timeout_ms=1000)
 
-    def test_runtime_not_ready_when_control_db_is_newer(self, tmp_path: Path) -> None:
-        settings = _lifecycle_settings(tmp_path)
-        db_path = settings.control_db_path
-        DurableLayout.create(settings.data_root)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(db_path)
-        connection.execute("PRAGMA user_version = 99")
-        connection.commit()
-        connection.close()
-        runtime = ServiceRuntime.start(settings)
-        try:
-            assert not runtime.is_ready()
-            assert "newer than supported" in runtime.not_ready_message()
-        finally:
-            runtime.shutdown()
-
 
 class TestProviderLifecycle:
     @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
     def test_capability_gate_verifies_exact_version(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
-        layout = DurableLayout.create(settings.data_root)
+        layout = DurableLayout.create_for_probe(settings.data_root)
         gate = OfflineCliCapabilityGate.verify(settings, layout)
         assert gate.verified_version == "2.1.11"
 
     def test_missing_executable_fails_closed(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path, dolt_binary=Path("/nonexistent/dolt"))
-        layout = DurableLayout.create(settings.data_root)
+        layout = DurableLayout.create_for_probe(settings.data_root)
         with pytest.raises(ProviderUnavailableError, match="unavailable"):
             OfflineCliCapabilityGate.verify(settings, layout)
 
     @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
     def test_version_mismatch_fails_closed(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path, dolt_version="0.0.1")
-        layout = DurableLayout.create(settings.data_root)
+        layout = DurableLayout.create_for_probe(settings.data_root)
         with pytest.raises(ProviderUnavailableError):
             OfflineCliCapabilityGate.verify(settings, layout)
 
     @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
     def test_provider_check_reaps_child_processes(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
-        layout = DurableLayout.create(settings.data_root)
+        layout = DurableLayout.create_for_probe(settings.data_root)
         before = set(process_tree_pids(os.getpid()))
         OfflineCliCapabilityGate.verify(settings, layout)
         after = set(process_tree_pids(os.getpid()))
         assert after.issubset(before)
 
 
-class TestReadinessFailures:
-    def test_missing_bearer_token_prevents_ready(self, tmp_path: Path) -> None:
-        settings = _lifecycle_settings(tmp_path, bearer_token=None)
+class TestDynamicReadiness:
+    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    def test_closed_control_db_makes_runtime_not_ready(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
         runtime = ServiceRuntime.start(settings)
         try:
+            assert runtime.is_ready()
+            runtime.control_store.close()
             assert not runtime.is_ready()
-            assert "bearer token is required" in runtime.not_ready_message()
+            assert "control database is unavailable" in runtime.not_ready_message()
         finally:
             runtime.shutdown()
 
     @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
-    def test_readyz_returns_503_when_token_missing(self, tmp_path: Path) -> None:
-        settings = _lifecycle_settings(tmp_path, bearer_token=None)
+    def test_readyz_returns_503_when_control_db_closed(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
         with TestClient(create_app(settings)) as client:
+            assert client.get("/readyz").status_code == 200
+            runtime = cast(FastAPI, client.app).state.runtime
+            runtime.control_store.close()
             response = client.get("/readyz")
             assert response.status_code == 503
             assert response.json()["code"] == "SERVICE_NOT_READY"
+            assert "control database is unavailable" in response.json()["message"]
+
+    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    def test_readyz_returns_503_when_free_disk_admission_fails(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
+        with TestClient(create_app(settings)) as client:
+            assert client.get("/readyz").status_code == 200
+            with patch(
+                "gateway_repository_service.runtime.has_free_disk_admission",
+                return_value=False,
+            ):
+                response = client.get("/readyz")
+            assert response.status_code == 503
+            assert "free disk admission failed" in response.json()["message"]
 
 
 @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
 def test_dolt_runner_version_check_reaps_children(tmp_path: Path) -> None:
     settings = _lifecycle_settings(tmp_path)
-    layout = DurableLayout.create(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.data_root)
     before = set(process_tree_pids(os.getpid()))
     DoltRunner(settings, layout.root)
     after = set(process_tree_pids(os.getpid()))

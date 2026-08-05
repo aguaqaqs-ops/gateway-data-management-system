@@ -8,39 +8,37 @@ from typing import Annotated
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from gateway_repository_service.auth_state import AuthState
 from gateway_repository_service.http.errors import ServiceError
-from gateway_repository_service.settings import RepositoryServiceSettings
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def _settings_from_request(request: Request) -> RepositoryServiceSettings:
-    settings = getattr(request.app.state, "settings", None)
-    if not isinstance(settings, RepositoryServiceSettings):
+def _auth_state_from_request(request: Request) -> AuthState:
+    auth_state = getattr(request.app.state, "auth_state", None)
+    if not isinstance(auth_state, AuthState):
         raise ServiceError(
             code="SERVICE_NOT_READY",
-            message="service settings are unavailable",
+            message="service authentication is unavailable",
             status_code=503,
         )
-    return settings
+    return auth_state
 
 
 def require_bearer_token(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)],
-) -> str:
-    settings = _settings_from_request(request)
-    expected = settings.resolve_bearer_token()
+) -> None:
+    auth_state = _auth_state_from_request(request)
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise ServiceError(
             code="UNAUTHENTICATED",
             message="missing or invalid bearer token",
             status_code=401,
         )
-    if not hmac.compare_digest(credentials.credentials, expected):
+    if not hmac.compare_digest(credentials.credentials, auth_state.bearer_token):
         raise ServiceError(
             code="UNAUTHENTICATED",
             message="missing or invalid bearer token",
             status_code=401,
         )
-    return credentials.credentials

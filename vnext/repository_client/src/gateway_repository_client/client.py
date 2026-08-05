@@ -61,7 +61,7 @@ class RepositoryClient:
         idempotency_key: str,
         media_type: str,
         raw_sha256: str,
-        body: bytes | RewindableBody | NonRewindableBody,
+        body: UploadBodySource | bytes | bytearray | RewindableBody | NonRewindableBody,
     ) -> UploadArtifactResponse:
         source = coerce_upload_body_source(body)
         resolved_repository_id = UUID(str(repository_id))

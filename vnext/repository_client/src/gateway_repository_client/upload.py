@@ -28,6 +28,8 @@ class RewindableBody(Protocol):
 
 
 class NonRewindableBody(Protocol):
+    declared_size: int
+
     def read(self, size: int = -1) -> bytes: ...
 
 
@@ -44,10 +46,13 @@ class UploadBodySource:
 
 
 def coerce_upload_body_source(
-    body: bytes | bytearray | RewindableBody | NonRewindableBody,
+    body: UploadBodySource | bytes | bytearray | RewindableBody | NonRewindableBody,
     *,
     chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
 ) -> UploadBodySource:
+    if isinstance(body, UploadBodySource):
+        return body
+
     if isinstance(body, (bytes, bytearray)):
         payload = bytes(body)
         return UploadBodySource(
@@ -66,10 +71,14 @@ def coerce_upload_body_source(
         )
 
     if callable(getattr(body, "read", None)):
+        nonrewindable = cast(NonRewindableBody, body)
         return UploadBodySource(
-            declared_size=_nonrewindable_declared_size(body),
+            declared_size=_nonrewindable_declared_size(nonrewindable),
             rewindable=False,
-            _open_chunks=lambda: _iter_nonrewindable_chunks(body, chunk_size=chunk_size),
+            _open_chunks=lambda: _iter_nonrewindable_chunks(
+                nonrewindable,
+                chunk_size=chunk_size,
+            ),
         )
 
     raise NonRewindableUploadSourceError(
@@ -100,14 +109,19 @@ def _rewindable_declared_size(body: RewindableBody) -> int:
 
 
 def _nonrewindable_declared_size(body: NonRewindableBody) -> int:
-    if hasattr(body, "declared_size"):
-        declared_size = getattr(body, "declared_size")
-        if isinstance(declared_size, int) and declared_size >= 0:
-            return declared_size
-    raise NonRewindableUploadSourceError(
-        status_code=0,
-        message="nonrewindable upload source must expose declared_size",
-    )
+    try:
+        declared_size = body.declared_size
+    except AttributeError as exc:
+        raise NonRewindableUploadSourceError(
+            status_code=0,
+            message="nonrewindable upload source must expose declared_size",
+        ) from exc
+    if declared_size < 0:
+        raise NonRewindableUploadSourceError(
+            status_code=0,
+            message="upload source declared size is invalid",
+        )
+    return declared_size
 
 
 def _iter_bytes_chunks(payload: bytes, *, chunk_size: int) -> Iterator[bytes]:

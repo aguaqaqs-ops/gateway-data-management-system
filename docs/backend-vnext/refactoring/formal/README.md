@@ -18,6 +18,8 @@
 - [Phase 1 Implementation Design and Delivery Plan](plans/phase-1-implementation-design-and-delivery-plan.md)（历史设计）
 - [Phase 2 Implementation Design and Delivery Plan](plans/phase-2-implementation-design-and-delivery-plan.md)
 - [P2-R1 Runtime and Provider Feasibility Contract](plans/p2-r1-runtime-provider-feasibility.md)
+- [P2-R1 v8 Formal Go Decision](plans/p2-r1-v8-go-decision-2026-08-05.md)
+- [P2-R1 v8 Formal Archive](plans/p2-r1-v8-formal-80aff3e-2026-08-05/README.md)
 - [P2 Versioned Repository Implementation Design](plans/p2-versioned-repository-implementation-design.md)
 - [P2 Versioned Repository Execution Checklist](plans/p2-versioned-repository-execution-checklist.md)
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
@@ -56,6 +58,6 @@
 
 当前阶段：S02已完成，P2整体设计已收口。旧traceability/F0 report、generic
 conformance architecture、formal baseline lifecycle和exact-commit exit不再是
-authority。下一入口为`P2-R1`；P2-R1 implementation ready，P2-R2–R6 design-ready但
-必须等待前序round gate，不得从历史材料恢复实现或跨轮激活。P3完整设计只在P2-R6
-通过后开始。
+authority。P2-R1 v8 formal 已通过，默认 provider 为Candidate A offline CLI，
+Candidate B保留但默认禁用；当前入口为已授权的`P2-R2`。P2-R3–R6仍必须等待各自
+前序round gate，不得从历史材料恢复实现或跨轮激活。P3完整设计只在P2-R6通过后开始。

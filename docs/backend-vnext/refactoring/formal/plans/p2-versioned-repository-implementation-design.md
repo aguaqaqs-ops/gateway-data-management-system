@@ -189,9 +189,10 @@ P2-R6 cleanup/capacity/snapshot/container operational closure
 
 ## 21. Risks, reopen conditions and P3 timing
 
-已知风险是P2-R1尚未给出provider与真实capacity结果、STRINGIFY文本受Dolt版本影响、
-single-node恢复依赖operator且无RPO/RTO保证。这些是实现/测量风险，不是未决架构问题。
-若P2-R1两个provider均失败则P2为no-go并只重开失败机制；若出现untrusted tenant、
+已知风险包括production retest尚未完成、STRINGIFY文本受Dolt版本影响、single-node
+恢复依赖operator且无RPO/RTO保证。这些是实现/测量风险，不是未决架构问题。P2-R1
+v8 formal 已选择Candidate A offline CLI作为默认 provider，Candidate B保留但默认禁用；
+若出现untrusted tenant、
 shared writer、partial merge/table CAS、object storage或Current真实consumer，按Repository
 contract reopen condition另行设计。
 
@@ -200,5 +201,5 @@ P2-R6全部exit通过后，才开始P3 capability的完整`grill-me`/design阶�
 真实P2 client与stream行为选择各业务use case的verification policy，而不反向预建P2
 feature。
 
-结论：整个P2在设计层面完备，`P2-R1 implementation ready = yes`；P2-R2至R6是
-design-ready但必须遵守顺序gate，不能提前实现。
+结论：整个P2在设计层面完备，`P2-R1 implementation ready = yes`，v8 exit=`go`；
+P2-R2已授权进入实施入口，P2-R3至R6仍必须遵守顺序gate，不能跨轮提前激活。

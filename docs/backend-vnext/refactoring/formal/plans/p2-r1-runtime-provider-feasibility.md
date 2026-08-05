@@ -1,6 +1,6 @@
 # P2-R1 Runtime and Provider Feasibility Contract
 
-状态：Accepted; v8 additive decision rules are authoritative for the next rerun
+状态：Accepted; v8 formal decision approved; P2-R2 authorized
 
 日期：2026-08-01
 
@@ -15,6 +15,21 @@ implementation contract is defined by the approved
 [v8 Authority and Implementation Brief](p2-r1-v8-authority-and-implementation-brief.md)
 and the superseding rules in this document.
 
+当前有效决定见 [P2-R1 v8 Formal Go Decision](p2-r1-v8-go-decision-2026-08-05.md)：
+
+```text
+formal_status = go
+selected_provider = candidate_a_offline_cli
+default_provider = candidate_a_offline_cli
+candidate_b_status = reserved_not_evaluated
+candidate_b_sql_server = preserved_but_disabled_by_default
+p2_r2_status = authorized
+production_retest_required = true
+```
+
+Baseline revisions are source commit `80aff3e6ff92e6d21aaa7fe73c9a2feafdc1efce`
+and formal artifact archive commits `d7a0aa7`, `67a0d05`.
+
 历史 2026-08-02 raw/summary 的 bounded-stream 结论按审核结论标记为
 `measurement-method-invalid/inconclusive`；本 authority 修订不回写或覆盖历史文件。
 
@@ -26,13 +41,14 @@ Measurement owner：
 
 ## 1. Goal and boundary
 
-P2-R1只回答目标Linux容器与durable filesystem中，Repository Service能否以真实Dolt
+P2-R1回答目标Linux容器与durable filesystem中，Repository Service能否以真实Dolt
 完成create/import/read主机制，以及offline CLI或service-owned sql-server哪一条路径
-进入P2-R2+。
+进入P2-R2+。当前已按v8 formal go决定默认采用Candidate A，并授权P2-R2进入后续实施。
 
 本轮允许实现private adapter、probe、fixture、fault point和measurement runbook；不
 注册HTTP route，不生成`/v1/` OpenAPI，不实现client、production create/upload/import
-operation，不创建长期Repository durable data，也不进入P2-R2。
+operation，不创建长期Repository durable data。P2-R2的service shell/auth/control
+lifecycle由roadmap另行实施。
 
 P2-R1结果只对实际记录的Dolt版本、container image、filesystem/storage class和
 workload成立。目标部署条件改变时必须重跑相关probe，不得把一次开发机结果扩张为
@@ -437,8 +453,8 @@ expected_scaling_records = 36, expected_warmups = 11
 Only when all A hard gates and exact coverage pass may the dynamic result be
 `go` with `selected_provider=candidate_a_offline_cli`; otherwise it is `no-go`
 with `selected_provider=null`, `candidate_b_status=reserved_not_evaluated` and
-`p2_r2_ready=false`. The external project remains no-go until the resulting
-artifacts are independently reviewed.
+`p2_r2_ready=false`. The v8 artifacts passed independent review; the resulting
+approved decision is recorded in the v8 go decision record above.
 
 ## 10. Non-goals
 

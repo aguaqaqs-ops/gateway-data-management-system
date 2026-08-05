@@ -1,5 +1,10 @@
 # P2-R1 Formal No-Go Decision Record
 
+> Historical decision: this 2026-08-04 no-go result's original decision body is
+> retained unchanged as
+> historical evidence and has been superseded by the approved
+> [P2-R1 v8 Formal Go Decision](p2-r1-v8-go-decision-2026-08-05.md).
+
 - Decision: `no-go`
 - Selected provider: `null`
 - P2-R2 ready: `false`

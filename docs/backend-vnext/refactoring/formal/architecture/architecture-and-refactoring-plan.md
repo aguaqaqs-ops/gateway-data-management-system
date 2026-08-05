@@ -12,7 +12,8 @@ Repository Service范围和交付控制遵循
 [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)闭合；DX cross-phase
 interface reconciliation也已由
 [DX plan](../plans/dx-cross-phase-interface-reconciliation.md)闭合，S02联合代码清理已
-完成。当前下一入口为`P2-R1`，不得提前跳到后续 P2 feature delivery。
+完成。P2-R1 v8 formal 已通过，当前下一入口为已授权的`P2-R2`；默认 provider 为
+Candidate A offline CLI，Candidate B保留但默认禁用。
 
 ## 1. 目标与范围
 

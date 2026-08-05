@@ -1,15 +1,25 @@
 # P2-R1 v8 Authority and Implementation Brief
 
-状态：审核通过的实现基线，待纳入 formal authority 并实现。本文档只定义
-v8 的决策规则和实现边界，不改变当前
-formal artifacts、authority、代码或 provider 状态。
+状态：审核通过的 v8 实现基线；formal decision 已完成并纳入 authority。
+本文档继续定义 v8 的决策规则和实现边界，当前结果见
+[P2-R1 v8 Formal Go Decision](p2-r1-v8-go-decision-2026-08-05.md)。
 
-当前项目状态仍为：
+formal run 前的项目状态为：
 
 ```text
 formal_status = no-go
 selected_provider = null
 enter_p2_r2 = false
+```
+
+formal run 已通过审核后的当前状态为：
+
+```text
+formal_status = go
+selected_provider = candidate_a_offline_cli
+candidate_b_status = reserved_not_evaluated
+p2_r2_status = authorized
+production_retest_required = true
 ```
 
 ## 1. 目的与决策原则
@@ -106,8 +116,8 @@ restart-before-stream 作为默认正式流程。Candidate B 保留代码、配�
 证据，但不在本轮默认启用；只有未来业务明确需要 long-lived server 或
 concurrent-read 时，才单独提出启用、测试和决策。
 
-这只是 v8 规则提案。完成 v8 formal 并通过审核前，不得把 A 写入 production
-provider，也不得进入 P2-R2。
+该默认策略已由 v8 formal go decision 采用。Candidate A 仍需在生产等效环境和
+实际业务样本上完成 production retest；在该复测前不得宣称 production activation。
 
 ## 5. Batch contract
 

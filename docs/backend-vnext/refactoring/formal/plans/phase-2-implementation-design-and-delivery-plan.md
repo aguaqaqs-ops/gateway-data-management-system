@@ -70,9 +70,9 @@ Phase 0–1的KEEP/SIMPLIFY/REMOVE边界。`DX`只协调真正共享的ArtifactR
 canonical package、digest owner、CI和package依赖，不重新打开已确认的Repository
 信任、安全或恢复边界。
 
-当前状态：`D2`、`D01`、`DX`与`S02`均已闭合；下一入口为`P2-R1`。P2实现必须遵守DX
-确定的nominal ArtifactRef、package binding、依赖图与ordinary CI，不恢复旧五提交清理
-计划。
+当前状态：`D2`、`D01`、`DX`与`S02`均已闭合；P2-R1 v8 formal 已通过，下一入口为
+`P2-R2`。P2实现必须遵守DX确定的nominal ArtifactRef、package binding、依赖图与
+ordinary CI，不恢复旧五提交清理计划。
 
 联合代码清理仍使用小提交和独立checkpoint，不允许一次大爆炸提交。
 
@@ -143,8 +143,9 @@ Simplification完成后，Phase 2按纵切交付，不恢复旧WP编号和37 rev
 [P2-R1 Runtime and Provider Feasibility Contract](p2-r1-runtime-provider-feasibility.md)
 拥有。实现不得从旧temporary Phase 2 ledger恢复其他provider/layout规则。
 
-当前状态：P2-R1 implementation design已闭合，本轮实现入口ready；P2-R1 feature和
-measurement尚未执行，P2-R2仍未开放。
+当前状态：P2-R1 implementation、v8 formal measurement和审核已完成；默认 provider
+为Candidate A offline CLI，Candidate B保留但默认禁用；P2-R2已授权。
+P2-R1基线为source revision `80aff3e`，formal artifact commits `d7a0aa7`和`67a0d05`。
 
 Exit：目标部署环境中create/import/read主机制可行。
 
@@ -250,5 +251,6 @@ candidate或signature-like evidence。
 Phase 2只有在P2-R1–R6真实纵切通过后才完成。S02完成只表示旧设计已清理、具备
 按新计划实施的基础，不表示Repository业务能力已交付。
 
-当前设计判定：整个P2 design complete；P2-R1 ready，P2-R2–R6 design-ready但由前序
-round gate关闭。P2-R6通过前不得宣称Phase 2 implementation complete。
+当前设计判定：整个P2 design complete；P2-R1 v8 exit=`go`，P2-R2已授权并进入实施入口，
+P2-R3–R6仍按顺序受前序 round gate约束。P2-R6通过前不得宣称Phase 2 implementation
+complete。

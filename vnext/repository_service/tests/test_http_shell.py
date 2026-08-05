@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+from fastapi.testclient import TestClient
+
 from gateway_repository_service.app import create_app
 from support.http_harness import (
     assert_request_id_header,
@@ -90,6 +93,20 @@ def test_unhandled_exception_returns_internal_error() -> None:
     request_id = assert_request_id_header(response)
     assert body["request_id"] == request_id
     assert response.headers["content-type"].startswith("application/json")
+
+
+def test_unhandled_exception_propagates_when_raise_server_exceptions_true() -> None:
+    client = TestClient(create_test_http_app(), raise_server_exceptions=True)
+
+    with pytest.raises(RuntimeError, match="probe"):
+        client.get("/_test/unhandled-error")
+
+
+def test_unhandled_exception_propagates_with_default_test_client() -> None:
+    client = TestClient(create_test_http_app())
+
+    with pytest.raises(RuntimeError, match="probe"):
+        client.get("/_test/unhandled-error")
 
 
 def test_custom_validator_failure_returns_422_not_500() -> None:

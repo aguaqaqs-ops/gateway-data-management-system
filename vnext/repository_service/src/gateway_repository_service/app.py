@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from starlette.middleware.errors import ServerErrorMiddleware
 
-from gateway_repository_service.http.errors import register_exception_handlers
+from gateway_repository_service.http.errors import register_exception_handlers, server_exception_handler
 from gateway_repository_service.http.middleware import RequestIdMiddleware
 from gateway_repository_service.http.readiness import DefaultReadiness, ReadinessPort
 from gateway_repository_service.http.routes.probes import register_probe_routes
@@ -29,6 +30,7 @@ def create_app(
     app.state.readiness = readiness_port
 
     app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(ServerErrorMiddleware, handler=server_exception_handler, debug=False)
     register_exception_handlers(app)
     register_probe_routes(app)
 

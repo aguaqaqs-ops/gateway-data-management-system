@@ -10,8 +10,6 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
-from gateway_repository_service.http.errors import internal_error_response
-
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
     """Attach a server-generated opaque request ID to every response."""
@@ -26,9 +24,6 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         request_id = uuid4().hex
         request.state.request_id = request_id
-        try:
-            response = await call_next(request)
-        except Exception:
-            response = internal_error_response(request)
+        response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response

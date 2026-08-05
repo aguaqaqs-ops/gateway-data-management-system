@@ -100,6 +100,11 @@ def internal_error_response(request: Request) -> JSONResponse:
     )
 
 
+async def server_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    del exc
+    return internal_error_response(request)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def request_validation_exception_handler(
@@ -138,11 +143,3 @@ def register_exception_handlers(app: FastAPI) -> None:
             message=str(exc.detail),
             status_code=exc.status_code,
         )
-
-    @app.exception_handler(Exception)
-    async def unhandled_exception_handler(
-        request: Request,
-        exc: Exception,
-    ) -> JSONResponse:
-        del exc
-        return internal_error_response(request)

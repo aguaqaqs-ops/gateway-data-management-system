@@ -156,7 +156,8 @@ Exit：目标部署环境中create/import/read主机制可行。
 - healthz/readyz；
 - simple settings、error mapping和request ID；
 - SQLite control DB lifecycle与forward-only migration；
-- 不注册stub业务route；只生成health/readiness OpenAPI。
+- 不注册stub业务route；只生成health/readiness OpenAPI；
+- 不启动import worker pool（延至P2-R4）。
 
 Exit：认证成功/失败、脱敏和service lifecycle integration通过。
 

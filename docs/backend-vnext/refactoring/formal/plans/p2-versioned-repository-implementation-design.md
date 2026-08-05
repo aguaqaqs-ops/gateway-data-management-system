@@ -72,9 +72,10 @@ offline CLI或sql-server。P2-R1不得创建production control DB或激活HTTP�
 ## 7. Service lifecycle and configuration
 
 P2-R2 composition root按顺序：load/validate settings → validate layout marker → acquire
-root lock → migrate/open control DB → start selected provider → start worker pool → become
-ready。Shutdown先停止intake，再给active import短grace，关闭cursor/provider/control DB，
-最后释放root lock。Production缺token、layout版本过新、lock被占用、DB不可迁移或
+root lock → migrate/open control DB → verify selected provider capability → become ready。
+P2-R2不创建import worker pool；bounded import worker lifecycle在P2-R4激活。Shutdown先
+停止intake，关闭cursor/provider/control DB，最后释放root lock；provider子进程必须
+terminate/wait/reap。Production缺token、layout版本过新、lock被占用、DB不可迁移或
 provider不可用均fail closed。
 
 ## 8. Authentication and request boundary

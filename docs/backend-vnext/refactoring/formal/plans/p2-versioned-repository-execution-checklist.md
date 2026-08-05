@@ -77,7 +77,8 @@ provider decision。
 
 Allowed：contracts shared DTO/enums/errors；FastAPI composition/lifecycle；settings；bearer；
 healthz/readyz；request ID/error mapping；control DB migration/open/close；selected provider
-lifecycle。禁止注册任何stub业务route；真实`/v1/` OpenAPI从R3首个业务route开始。
+capability check与subprocess shutdown/reap。禁止注册任何stub业务route；禁止创建import
+worker pool（worker lifecycle属R4）；真实`/v1/` OpenAPI从R3首个业务route开始。
 
 Suggested green commits：
 

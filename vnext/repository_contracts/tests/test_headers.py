@@ -9,7 +9,6 @@ import pytest
 from pydantic import ValidationError
 
 from gateway_repository_contracts import (
-    DEFAULT_MAX_UPLOAD_BYTES,
     REPOSITORY_IMPORT_MEDIA_TYPE,
     UploadRequestHeaders,
     validate_upload_content_length,
@@ -17,6 +16,8 @@ from gateway_repository_contracts import (
 from gateway_repository_contracts.versioned import CreateRepositoryResponse, UploadArtifactResponse
 
 SHA256 = "a" * 64
+THREE_HUNDRED_MIB = 300 * 1024 * 1024
+FIVE_HUNDRED_TWELVE_MIB = 512 * 1024 * 1024
 
 
 def test_create_repository_has_no_json_request_model() -> None:
@@ -35,15 +36,15 @@ def test_repository_import_media_type_is_fixed_tar_zstd() -> None:
     assert REPOSITORY_IMPORT_MEDIA_TYPE == "application/vnd.gateway.repository-import.v1+tar+zstd"
 
 
-def test_upload_request_headers_accept_valid_boundary() -> None:
+def test_upload_request_headers_accept_large_content_length_shape_only() -> None:
     headers = UploadRequestHeaders(
         content_type=REPOSITORY_IMPORT_MEDIA_TYPE,
-        content_length=DEFAULT_MAX_UPLOAD_BYTES,
+        content_length=THREE_HUNDRED_MIB,
         idempotency_key="x" * 255,
         artifact_sha256=SHA256,
     )
 
-    assert headers.content_length == DEFAULT_MAX_UPLOAD_BYTES
+    assert headers.content_length == THREE_HUNDRED_MIB
 
 
 @pytest.mark.parametrize(
@@ -52,7 +53,6 @@ def test_upload_request_headers_accept_valid_boundary() -> None:
         ("content_type", "application/gzip"),
         ("content_type", "application/vnd.gateway.repository-import.v1+tar+gz"),
         ("content_length", -1),
-        ("content_length", DEFAULT_MAX_UPLOAD_BYTES + 1),
         ("idempotency_key", ""),
         ("idempotency_key", "x" * 256),
         ("artifact_sha256", "not-a-sha"),
@@ -73,8 +73,9 @@ def test_upload_request_headers_reject_invalid_values(field: str, value: object)
 
 def test_validate_upload_content_length_uses_deployment_bound() -> None:
     assert validate_upload_content_length(100, max_upload_bytes=256) == 100
+    assert validate_upload_content_length(THREE_HUNDRED_MIB, max_upload_bytes=FIVE_HUNDRED_TWELVE_MIB) == THREE_HUNDRED_MIB
     with pytest.raises(ValueError, match="configured upload limit"):
-        validate_upload_content_length(300, max_upload_bytes=256)
+        validate_upload_content_length(THREE_HUNDRED_MIB, max_upload_bytes=256 * 1024 * 1024)
 
 
 def test_create_and_upload_responses_keep_closed_shapes() -> None:
@@ -107,6 +108,7 @@ def test_public_exports_do_not_include_removed_request_models() -> None:
     assert "CreateRepositoryRequest" not in exported
     assert "UploadArtifactRequest" not in exported
     assert "UploadRequestHeaders" in exported
+    assert "DEFAULT_MAX_UPLOAD_BYTES" not in exported
 
 
 def test_versioned_module_has_no_create_or_upload_request_models() -> None:

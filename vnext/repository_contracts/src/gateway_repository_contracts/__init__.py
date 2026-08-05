@@ -2,7 +2,6 @@
 
 from gateway_repository_contracts.errors import SimpleError
 from gateway_repository_contracts.headers import (
-    DEFAULT_MAX_UPLOAD_BYTES,
     REPOSITORY_IMPORT_MEDIA_TYPE,
     IdempotencyKeyString,
     UploadRequestHeaders,
@@ -28,7 +27,6 @@ from gateway_repository_contracts.versioned import (
 )
 
 __all__ = [
-    "DEFAULT_MAX_UPLOAD_BYTES",
     "REPOSITORY_IMPORT_MEDIA_TYPE",
     "CreateRepositoryResponse",
     "GetOperationResponse",

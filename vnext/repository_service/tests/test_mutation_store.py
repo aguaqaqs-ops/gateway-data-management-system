@@ -25,19 +25,20 @@ from gateway_repository_service.mutation_store import (
     IdempotencyTerminalNotPublished,
     MutationKind,
     MutationStore,
+    MutationStoreError,
+    TerminalTransitionRejected,
     configure_connection,
 )
 
 REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
 OTHER_REPOSITORY_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
 SHA256 = "a" * 64
-OTHER_SHA256 = "b" * 64
 
 
 @pytest.fixture
 def store(tmp_path: Path) -> MutationStore:
     db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-    control_store = ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000)
+    control_store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
     control_store.close()
     connection = sqlite3.connect(db_path)
     configure_connection(connection)
@@ -45,14 +46,11 @@ def store(tmp_path: Path) -> MutationStore:
 
 
 def _create_scope() -> IdempotencyScope:
-    return IdempotencyScope(mutation_kind=MutationKind.CREATE_REPOSITORY)
+    return IdempotencyScope.for_create()
 
 
 def _upload_scope(repository_id: UUID = REPOSITORY_ID) -> IdempotencyScope:
-    return IdempotencyScope(
-        mutation_kind=MutationKind.UPLOAD_ARTIFACT,
-        repository_id=repository_id,
-    )
+    return IdempotencyScope.for_upload(repository_id)
 
 
 def _upload_fingerprint(*, declared_size: int = 12, raw_sha256_hex: str = SHA256) -> bytes:
@@ -84,6 +82,13 @@ def test_idempotency_key_hash_repr_does_not_include_raw_key() -> None:
     assert "IdempotencyKeyHash(" in rendered
 
 
+def test_invalid_scope_combinations_are_rejected() -> None:
+    with pytest.raises(ValueError, match="must not include repository_id"):
+        IdempotencyScope(mutation_kind=MutationKind.CREATE_REPOSITORY, repository_id=REPOSITORY_ID)
+    with pytest.raises(ValueError, match="requires repository_id"):
+        IdempotencyScope(mutation_kind=MutationKind.UPLOAD_ARTIFACT)
+
+
 def test_same_key_same_fingerprint_replays_stored_response(store: MutationStore) -> None:
     scope = _create_scope()
     key_hash = IdempotencyKeyHash.from_raw_key("create-1")
@@ -101,11 +106,7 @@ def test_same_key_same_fingerprint_replays_stored_response(store: MutationStore)
         fingerprint=fingerprint,
         resource_id=resource_id,
     )
-    store.mark_succeeded(
-        pending.effect_id,
-        response_status=201,
-        response_body=response_body,
-    )
+    store.mark_succeeded(pending.effect_id, response_body=response_body)
 
     replay = store.get_stored_response(scope, key_hash=key_hash, fingerprint=fingerprint)
     assert replay == (201, response_body)
@@ -176,19 +177,28 @@ def test_pending_to_succeeded_lifecycle(store: MutationStore) -> None:
 
     succeeded = store.mark_succeeded(
         pending.effect_id,
-        response_status=201,
         response_body={"repository_id": str(pending.resource_id), "default_ref": "main", "initial_commit_id": "c1"},
     )
     assert succeeded.status == EffectStatus.SUCCEEDED
     assert succeeded.response_status == 201
 
 
-def test_terminal_not_published_blocks_new_effect(store: MutationStore) -> None:
+def test_terminal_not_published_blocks_new_effect_for_pending(store: MutationStore) -> None:
     scope = _create_scope()
     key_hash = IdempotencyKeyHash.from_raw_key("create-terminal")
     fingerprint = create_repository_fingerprint_v1()
-    store.claim_or_lookup(scope, key_hash=key_hash, fingerprint=fingerprint)
-    store.mark_terminal_not_published(scope, key_hash=key_hash)
+    pending = store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=uuid4(),
+    )
+    store.mark_terminal_not_published(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        effect_id=pending.effect_id,
+    )
 
     with pytest.raises(IdempotencyTerminalNotPublished):
         store.allocate_pending(
@@ -196,6 +206,75 @@ def test_terminal_not_published_blocks_new_effect(store: MutationStore) -> None:
             key_hash=key_hash,
             fingerprint=fingerprint,
             resource_id=uuid4(),
+        )
+
+
+def test_terminal_not_published_rejects_succeeded_effect(store: MutationStore) -> None:
+    scope = _create_scope()
+    key_hash = IdempotencyKeyHash.from_raw_key("create-succeeded")
+    fingerprint = create_repository_fingerprint_v1()
+    pending = store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=uuid4(),
+    )
+    response_body = {
+        "repository_id": str(pending.resource_id),
+        "default_ref": "main",
+        "initial_commit_id": "commit-1",
+    }
+    store.mark_succeeded(pending.effect_id, response_body=response_body)
+
+    with pytest.raises(TerminalTransitionRejected):
+        store.mark_terminal_not_published(
+            scope,
+            key_hash=key_hash,
+            fingerprint=fingerprint,
+            effect_id=pending.effect_id,
+        )
+
+    replay = store.get_stored_response(scope, key_hash=key_hash, fingerprint=fingerprint)
+    assert replay == (201, response_body)
+
+
+def test_terminal_not_published_rejects_fingerprint_mismatch(store: MutationStore) -> None:
+    scope = _create_scope()
+    key_hash = IdempotencyKeyHash.from_raw_key("create-mismatch")
+    fingerprint = create_repository_fingerprint_v1()
+    pending = store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=uuid4(),
+    )
+
+    with pytest.raises(FingerprintConflict):
+        store.mark_terminal_not_published(
+            scope,
+            key_hash=key_hash,
+            fingerprint=fingerprint + b"x",
+            effect_id=pending.effect_id,
+        )
+
+
+def test_terminal_not_published_rejects_wrong_effect_id(store: MutationStore) -> None:
+    scope = _create_scope()
+    key_hash = IdempotencyKeyHash.from_raw_key("create-wrong-effect")
+    fingerprint = create_repository_fingerprint_v1()
+    pending = store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=uuid4(),
+    )
+
+    with pytest.raises(MutationStoreError, match="does not exist"):
+        store.mark_terminal_not_published(
+            scope,
+            key_hash=key_hash,
+            fingerprint=fingerprint,
+            effect_id=pending.effect_id + 999,
         )
 
 
@@ -214,17 +293,18 @@ def test_duplicate_pending_claim_is_rejected(store: MutationStore) -> None:
         )
 
 
-def test_concurrent_same_key_claim_has_single_effect_owner(tmp_path: Path) -> None:
+def test_concurrent_same_key_claim_has_single_effect_owner_on_shared_connection(tmp_path: Path) -> None:
     db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-    ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000).close()
+    ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000).close()
+
+    connection = sqlite3.connect(db_path, timeout=5.0, check_same_thread=False)
+    configure_connection(connection)
+    mutation_store = MutationStore(connection)
 
     barrier = threading.Barrier(2)
     results: list[EffectStatus | BaseException] = []
 
     def worker() -> None:
-        connection = sqlite3.connect(db_path, timeout=5.0, check_same_thread=False)
-        configure_connection(connection)
-        mutation_store = MutationStore(connection)
         scope = _create_scope()
         key_hash = IdempotencyKeyHash.from_raw_key("concurrent-key")
         fingerprint = create_repository_fingerprint_v1()
@@ -239,20 +319,24 @@ def test_concurrent_same_key_claim_has_single_effect_owner(tmp_path: Path) -> No
             results.append(effect.status)
         except BaseException as exc:
             results.append(exc)
-        finally:
-            connection.close()
 
     threads = [threading.Thread(target=worker) for _ in range(2)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
+    connection.close()
 
     successes = [item for item in results if isinstance(item, EffectStatus)]
     failures = [item for item in results if isinstance(item, BaseException)]
     assert len(successes) == 1
     assert len(failures) == 1
     assert isinstance(failures[0], DuplicateEffectClaim)
+    assert not any(
+        isinstance(item, sqlite3.OperationalError)
+        and "cannot start a transaction within a transaction" in str(item)
+        for item in failures
+    )
 
 
 def test_claim_or_lookup_returns_existing_effect(store: MutationStore) -> None:
@@ -270,6 +354,29 @@ def test_claim_or_lookup_returns_existing_effect(store: MutationStore) -> None:
     assert claim.is_new is False
     assert claim.effect is not None
     assert claim.effect.effect_id == pending.effect_id
+
+
+def test_schema_rejects_pending_effect_with_response(store: MutationStore) -> None:
+    scope = _create_scope()
+    key_hash = IdempotencyKeyHash.from_raw_key("schema-pending")
+    fingerprint = create_repository_fingerprint_v1()
+    pending = store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=uuid4(),
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store._connection.execute(
+            """
+            UPDATE synchronous_mutation_effects
+            SET response_status = 201, response_body = '{}'
+            WHERE effect_id = ?
+            """,
+            (pending.effect_id,),
+        )
+        store._connection.commit()
 
 
 def test_mutation_store_sql_does_not_persist_raw_key() -> None:

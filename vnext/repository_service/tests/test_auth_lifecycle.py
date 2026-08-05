@@ -320,13 +320,13 @@ class TestLayoutValidation:
 
 
 class TestControlDatabase:
-    def test_migration_initializes_user_version_two(self, tmp_path: Path) -> None:
+    def test_migration_initializes_user_version_three(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        store = ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000)
+        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
         try:
             version = store.connection.execute("PRAGMA user_version").fetchone()
             assert version is not None
-            assert int(version[0]) == 2
+            assert int(version[0]) == 3
             journal_mode = store.connection.execute("PRAGMA journal_mode").fetchone()
             assert str(journal_mode[0]).upper() == "WAL"
             foreign_keys = store.connection.execute("PRAGMA foreign_keys").fetchone()
@@ -341,10 +341,19 @@ class TestControlDatabase:
                 if row[0] != "sqlite_sequence"
             }
             assert tables == {"mutation_idempotency", "synchronous_mutation_effects"}
+            idempotency_sql = store.connection.execute(
+                "SELECT sql FROM sqlite_master WHERE name = 'mutation_idempotency'"
+            ).fetchone()[0]
+            effects_sql = store.connection.execute(
+                "SELECT sql FROM sqlite_master WHERE name = 'synchronous_mutation_effects'"
+            ).fetchone()[0]
+            assert "create_repository" in str(idempotency_sql)
+            assert "upload_artifact" in str(idempotency_sql)
+            assert "response_status = 201" in str(effects_sql)
         finally:
             store.close()
 
-    def test_migration_upgrades_version_one_to_two(self, tmp_path: Path) -> None:
+    def test_migration_upgrades_version_one_to_three(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         db_path.parent.mkdir(parents=True)
         connection = sqlite3.connect(db_path)
@@ -352,18 +361,29 @@ class TestControlDatabase:
         connection.commit()
         connection.close()
 
-        store = ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000)
+        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
         try:
             version = store.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == 2
+            assert int(version[0]) == 3
+        finally:
+            store.close()
+
+    def test_migration_upgrades_version_two_to_three(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000).close()
+
+        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        try:
+            version = store.connection.execute("PRAGMA user_version").fetchone()
+            assert int(version[0]) == 3
         finally:
             store.close()
 
     def test_migration_reopen_is_idempotent(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        first = ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000)
+        first = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
         first.close()
-        second = ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000)
+        second = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
         second.close()
 
     def test_migration_rolls_back_on_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -377,7 +397,7 @@ class TestControlDatabase:
 
         monkeypatch.setattr(ControlStore, "_apply_migration_step", staticmethod(failing_step))
         with pytest.raises(RuntimeError, match="migration failure"):
-            ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000)
+            ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
 
         connection = sqlite3.connect(db_path)
         version = connection.execute("PRAGMA user_version").fetchone()
@@ -389,7 +409,87 @@ class TestControlDatabase:
         assert tables == []
 
         monkeypatch.undo()
-        store = ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000)
+        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        store.close()
+
+    def test_migration_v2_rolls_back_when_second_statement_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        original_execute_statements = ControlStore._execute_statements
+
+        def failing_v2_execute(
+            connection: sqlite3.Connection, statements: tuple[str, ...]
+        ) -> None:
+            if statements and "mutation_idempotency" in statements[0]:
+                original_execute_statements(connection, (statements[0],))
+                raise RuntimeError("second ddl failure")
+            original_execute_statements(connection, statements)
+
+        monkeypatch.setattr(
+            ControlStore,
+            "_execute_statements",
+            staticmethod(failing_v2_execute),
+        )
+        with pytest.raises(RuntimeError, match="second ddl failure"):
+            ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+
+        connection = sqlite3.connect(db_path)
+        version = connection.execute("PRAGMA user_version").fetchone()
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        in_transaction = connection.in_transaction
+        connection.close()
+        assert int(version[0]) == 0
+        assert tables == set()
+        assert in_transaction is False
+
+        monkeypatch.undo()
+        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        store.close()
+
+    def test_migration_v3_rolls_back_when_mid_script_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000).close()
+        original_execute_statements = ControlStore._execute_statements
+
+        def failing_v3_execute(
+            connection: sqlite3.Connection, statements: tuple[str, ...]
+        ) -> None:
+            if statements and "mutation_idempotency_v3" in statements[0]:
+                original_execute_statements(connection, statements[:2])
+                raise RuntimeError("v3 migration failure")
+            original_execute_statements(connection, statements)
+
+        monkeypatch.setattr(
+            ControlStore,
+            "_execute_statements",
+            staticmethod(failing_v3_execute),
+        )
+        with pytest.raises(RuntimeError, match="v3 migration failure"):
+            ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+
+        connection = sqlite3.connect(db_path)
+        version = connection.execute("PRAGMA user_version").fetchone()
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+            if row[0] != "sqlite_sequence"
+        }
+        connection.close()
+        assert int(version[0]) == 2
+        assert tables == {"mutation_idempotency", "synchronous_mutation_effects"}
+
+        monkeypatch.undo()
+        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
         store.close()
 
     def test_newer_user_version_fails_closed(self, tmp_path: Path) -> None:
@@ -400,7 +500,7 @@ class TestControlDatabase:
         connection.commit()
         connection.close()
         with pytest.raises(ControlDbNewerVersionError):
-            ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000)
+            ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
 
 
 class TestProviderLifecycle:

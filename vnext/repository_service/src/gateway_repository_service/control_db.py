@@ -9,30 +9,113 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-_MIGRATION_V2_DDL = """
-CREATE TABLE mutation_idempotency (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    mutation_kind TEXT NOT NULL CHECK (
-        mutation_kind IN ('create_repository', 'upload_artifact')
-    ),
-    repository_scope TEXT NOT NULL DEFAULT '',
-    key_hash BLOB NOT NULL CHECK (length(key_hash) = 32),
-    request_fingerprint BLOB NOT NULL,
-    terminal_not_published INTEGER NOT NULL DEFAULT 0 CHECK (terminal_not_published IN (0, 1)),
-    created_at TEXT NOT NULL,
-    UNIQUE (mutation_kind, repository_scope, key_hash)
-);
+_MIGRATION_V2_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE mutation_idempotency (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mutation_kind TEXT NOT NULL CHECK (
+            mutation_kind IN ('create_repository', 'upload_artifact')
+        ),
+        repository_scope TEXT NOT NULL DEFAULT '',
+        key_hash BLOB NOT NULL CHECK (length(key_hash) = 32),
+        request_fingerprint BLOB NOT NULL,
+        terminal_not_published INTEGER NOT NULL DEFAULT 0 CHECK (terminal_not_published IN (0, 1)),
+        created_at TEXT NOT NULL,
+        UNIQUE (mutation_kind, repository_scope, key_hash)
+    )
+    """,
+    """
+    CREATE TABLE synchronous_mutation_effects (
+        effect_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        idempotency_id INTEGER NOT NULL UNIQUE REFERENCES mutation_idempotency(id),
+        resource_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('PENDING', 'SUCCEEDED')),
+        response_status INTEGER,
+        response_body TEXT,
+        updated_at TEXT NOT NULL
+    )
+    """,
+)
 
-CREATE TABLE synchronous_mutation_effects (
-    effect_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    idempotency_id INTEGER NOT NULL UNIQUE REFERENCES mutation_idempotency(id),
-    resource_id TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('PENDING', 'SUCCEEDED')),
-    response_status INTEGER,
-    response_body TEXT,
-    updated_at TEXT NOT NULL
-);
-"""
+_MIGRATION_V3_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE mutation_idempotency_v3 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mutation_kind TEXT NOT NULL CHECK (
+            mutation_kind IN ('create_repository', 'upload_artifact')
+        ),
+        repository_scope TEXT NOT NULL DEFAULT '',
+        key_hash BLOB NOT NULL CHECK (length(key_hash) = 32),
+        request_fingerprint BLOB NOT NULL,
+        terminal_not_published INTEGER NOT NULL DEFAULT 0 CHECK (terminal_not_published IN (0, 1)),
+        created_at TEXT NOT NULL,
+        CHECK (
+            (mutation_kind = 'create_repository' AND repository_scope = '')
+            OR (mutation_kind = 'upload_artifact' AND repository_scope != '')
+        ),
+        UNIQUE (mutation_kind, repository_scope, key_hash)
+    )
+    """,
+    """
+    CREATE TABLE synchronous_mutation_effects_v3 (
+        effect_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        idempotency_id INTEGER NOT NULL UNIQUE REFERENCES mutation_idempotency_v3(id),
+        resource_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('PENDING', 'SUCCEEDED')),
+        response_status INTEGER,
+        response_body TEXT,
+        updated_at TEXT NOT NULL,
+        CHECK (
+            (status = 'PENDING' AND response_status IS NULL AND response_body IS NULL)
+            OR (status = 'SUCCEEDED' AND response_status = 201 AND response_body IS NOT NULL)
+        )
+    )
+    """,
+    """
+    INSERT INTO mutation_idempotency_v3 (
+        id,
+        mutation_kind,
+        repository_scope,
+        key_hash,
+        request_fingerprint,
+        terminal_not_published,
+        created_at
+    )
+    SELECT
+        id,
+        mutation_kind,
+        repository_scope,
+        key_hash,
+        request_fingerprint,
+        terminal_not_published,
+        created_at
+    FROM mutation_idempotency
+    """,
+    """
+    INSERT INTO synchronous_mutation_effects_v3 (
+        effect_id,
+        idempotency_id,
+        resource_id,
+        status,
+        response_status,
+        response_body,
+        updated_at
+    )
+    SELECT
+        effect_id,
+        idempotency_id,
+        resource_id,
+        status,
+        response_status,
+        response_body,
+        updated_at
+    FROM synchronous_mutation_effects
+    """,
+    "DROP TABLE synchronous_mutation_effects",
+    "DROP TABLE mutation_idempotency",
+    "ALTER TABLE mutation_idempotency_v3 RENAME TO mutation_idempotency",
+    "ALTER TABLE synchronous_mutation_effects_v3 RENAME TO synchronous_mutation_effects",
+)
 
 
 class ControlDbError(RuntimeError):
@@ -124,11 +207,19 @@ class ControlStore:
         return expected_version
 
     @staticmethod
+    def _execute_statements(connection: sqlite3.Connection, statements: tuple[str, ...]) -> None:
+        for statement in statements:
+            connection.execute(statement)
+
+    @staticmethod
     def _apply_migration_step(connection: sqlite3.Connection, target_version: int) -> None:
         if target_version == 1:
             return
         if target_version == 2:
-            connection.executescript(_MIGRATION_V2_DDL)
+            ControlStore._execute_statements(connection, _MIGRATION_V2_STATEMENTS)
+            return
+        if target_version == 3:
+            ControlStore._execute_statements(connection, _MIGRATION_V3_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

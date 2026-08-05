@@ -5,13 +5,16 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from contextlib import contextmanager
+import threading
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, cast
 from uuid import UUID
+
+SYNCHRONOUS_MUTATION_SUCCESS_STATUS = 201
 
 
 class MutationKind(StrEnum):
@@ -52,6 +55,14 @@ class DuplicateEffectClaim(MutationStoreError):
         super().__init__(f"idempotency scope already has an effect owner for {scope!r}")
 
 
+class TerminalTransitionRejected(MutationStoreError):
+    """Raised when a terminal-not-published transition is not allowed."""
+
+    def __init__(self, *, scope: "IdempotencyScope", reason: str) -> None:
+        self.scope = scope
+        super().__init__(f"terminal transition rejected for {scope!r}: {reason}")
+
+
 @dataclass(frozen=True, slots=True)
 class IdempotencyKeyHash:
     digest: bytes
@@ -72,6 +83,20 @@ class IdempotencyKeyHash:
 class IdempotencyScope:
     mutation_kind: MutationKind
     repository_id: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if self.mutation_kind == MutationKind.CREATE_REPOSITORY and self.repository_id is not None:
+            raise ValueError("create_repository scope must not include repository_id")
+        if self.mutation_kind == MutationKind.UPLOAD_ARTIFACT and self.repository_id is None:
+            raise ValueError("upload_artifact scope requires repository_id")
+
+    @classmethod
+    def for_create(cls) -> "IdempotencyScope":
+        return cls(mutation_kind=MutationKind.CREATE_REPOSITORY)
+
+    @classmethod
+    def for_upload(cls, repository_id: UUID) -> "IdempotencyScope":
+        return cls(mutation_kind=MutationKind.UPLOAD_ARTIFACT, repository_id=repository_id)
 
     def repository_scope(self) -> str:
         return "" if self.repository_id is None else self.repository_id.hex
@@ -104,6 +129,7 @@ class ClaimResult:
 class MutationStore:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
+        self._lock = threading.Lock()
 
     @staticmethod
     def hash_idempotency_key(raw_key: str) -> IdempotencyKeyHash:
@@ -191,13 +217,7 @@ class MutationStore:
                 response_body=None,
             )
 
-    def mark_succeeded(
-        self,
-        effect_id: int,
-        *,
-        response_status: int,
-        response_body: dict[str, Any],
-    ) -> EffectRecord:
+    def mark_succeeded(self, effect_id: int, *, response_body: dict[str, Any]) -> EffectRecord:
         with self._transaction():
             row = self._fetch_effect_by_id(effect_id)
             if row is None:
@@ -215,7 +235,7 @@ class MutationStore:
                 """,
                 (
                     EffectStatus.SUCCEEDED.value,
-                    response_status,
+                    SYNCHRONOUS_MUTATION_SUCCESS_STATUS,
                     json.dumps(response_body, separators=(",", ":"), sort_keys=True),
                     now,
                     effect_id,
@@ -247,11 +267,37 @@ class MutationStore:
             assert effect.response_body is not None
             return effect.response_status, effect.response_body
 
-    def mark_terminal_not_published(self, scope: IdempotencyScope, *, key_hash: IdempotencyKeyHash) -> None:
+    def mark_terminal_not_published(
+        self,
+        scope: IdempotencyScope,
+        *,
+        key_hash: IdempotencyKeyHash,
+        fingerprint: bytes,
+        effect_id: int,
+    ) -> None:
         with self._transaction():
             row = self._fetch_idempotency_row(scope, key_hash)
             if row is None:
                 raise MutationStoreError(f"idempotency scope {scope!r} does not exist")
+            if row["request_fingerprint"] != fingerprint:
+                raise FingerprintConflict(scope=scope)
+
+            effect_row = self._fetch_effect_by_id(effect_id)
+            if effect_row is None:
+                raise MutationStoreError(f"effect {effect_id} does not exist")
+            if int(effect_row["idempotency_id"]) != int(row["id"]):
+                raise MutationStoreError(f"effect {effect_id} does not belong to idempotency scope")
+            if effect_row["status"] == EffectStatus.SUCCEEDED.value:
+                raise TerminalTransitionRejected(
+                    scope=scope,
+                    reason="succeeded effects cannot be marked terminal-not-published",
+                )
+            if effect_row["status"] != EffectStatus.PENDING.value:
+                raise TerminalTransitionRejected(
+                    scope=scope,
+                    reason="only pending effects can be marked terminal-not-published",
+                )
+
             self._connection.execute(
                 """
                 UPDATE mutation_idempotency
@@ -263,13 +309,14 @@ class MutationStore:
 
     @contextmanager
     def _transaction(self) -> Iterator[None]:
-        self._connection.execute("BEGIN IMMEDIATE")
-        try:
-            yield
-            self._connection.commit()
-        except Exception:
-            self._connection.rollback()
-            raise
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+                self._connection.commit()
+            except Exception:
+                self._connection.rollback()
+                raise
 
     def _fetch_idempotency_row(
         self,

@@ -57,7 +57,7 @@ class RepositoryServiceSettings(BaseSettings):
     max_upload_bytes: int = 256 * 1024 * 1024
     artifact_ttl_seconds: int = 24 * 60 * 60
     sqlite_busy_timeout_ms: int = 5000
-    control_db_user_version: int = 2
+    control_db_user_version: int = 3
 
     @field_validator("dolt_binary")
     @classmethod

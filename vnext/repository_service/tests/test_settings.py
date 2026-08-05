@@ -52,7 +52,7 @@ def test_default_upload_and_ttl_settings() -> None:
     settings = RepositoryServiceSettings()
     assert settings.max_upload_bytes == 256 * 1024 * 1024
     assert settings.artifact_ttl_seconds == 24 * 60 * 60
-    assert settings.control_db_user_version == 2
+    assert settings.control_db_user_version == 3
 
 
 @pytest.mark.parametrize("field", ["max_upload_bytes", "artifact_ttl_seconds", "control_db_user_version"])

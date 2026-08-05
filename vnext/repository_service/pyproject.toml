@@ -8,9 +8,11 @@ authors = [
 ]
 requires-python = ">=3.14.6"
 dependencies = [
+    "fastapi==0.139.0",
     "gateway-repository-contracts==0.1.0",
     "pyarrow==25.0.0",
     "pydantic-settings==2.14.2",
+    "uvicorn==0.51.0",
 ]
 
 [build-system]
@@ -22,6 +24,7 @@ gateway-repository-contracts = { path = "../repository_contracts", editable = tr
 
 [dependency-groups]
 dev = [
+    "httpx==0.28.1",
     "mypy==2.3.0",
     "mysql-connector-python==9.7.0",
     "pytest==9.1.1",
@@ -30,6 +33,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 
 [tool.ruff]
 line-length = 100

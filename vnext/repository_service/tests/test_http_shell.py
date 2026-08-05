@@ -167,7 +167,12 @@ def test_nested_validation_errors_are_sanitized() -> None:
     assert_request_id_header(response)
 
 
-ALLOWED_OPENAPI_PATHS = {"/healthz", "/readyz", "/v1/repositories"}
+ALLOWED_OPENAPI_PATHS = {
+    "/healthz",
+    "/readyz",
+    "/v1/repositories",
+    "/v1/repositories/{repository_id}/artifacts",
+}
 
 
 def test_openapi_only_health_and_create_routes() -> None:
@@ -191,7 +196,7 @@ def test_production_app_has_no_forbidden_routes() -> None:
 
     for path in paths:
         if path.startswith("/v1/"):
-            assert path == "/v1/repositories"
+            assert path in ALLOWED_OPENAPI_PATHS
             continue
         assert not path.startswith("/v2/")
         assert "/_test" not in path

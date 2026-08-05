@@ -120,11 +120,17 @@ def test_production_openapi_only_exposes_allowed_routes() -> None:
 
     client = create_test_client(create_app(enable_lifecycle=False))
     paths = client.get("/openapi.json").json()["paths"]
-    assert set(paths.keys()) == {"/healthz", "/readyz", "/v1/repositories"}
+    assert set(paths.keys()) == {
+        "/healthz",
+        "/readyz",
+        "/v1/repositories",
+        "/v1/repositories/{repository_id}/artifacts",
+    }
 
 
 ALLOWED_V1_ROUTE_FILES = {
     SRC_ROOT / "http" / "routes" / "repositories.py",
+    SRC_ROOT / "http" / "routes" / "artifacts.py",
 }
 
 

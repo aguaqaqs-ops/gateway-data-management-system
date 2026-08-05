@@ -18,7 +18,12 @@ from support.http_harness import (
 )
 from support.lifecycle_harness import dolt_available, lifecycle_settings
 
-ALLOWED_OPENAPI_PATHS = {"/healthz", "/readyz", "/v1/repositories"}
+ALLOWED_OPENAPI_PATHS = {
+    "/healthz",
+    "/readyz",
+    "/v1/repositories",
+    "/v1/repositories/{repository_id}/artifacts",
+}
 
 
 def _auth_headers(*, token: str = "test-bearer-token", idempotency_key: str = "create-key-1") -> dict[str, str]:

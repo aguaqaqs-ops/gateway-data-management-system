@@ -9,7 +9,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 5
+CONTROL_DB_USER_VERSION = 6
 
 _MIGRATION_V2_STATEMENTS: tuple[str, ...] = (
     """
@@ -149,6 +149,25 @@ _MIGRATION_V4_STATEMENTS: tuple[str, ...] = (
               AND status = 'SUCCEEDED'
         );
     END
+    """,
+)
+
+
+_MIGRATION_V6_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE artifact_lifecycle (
+        artifact_id TEXT PRIMARY KEY,
+        repository_scope TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+        raw_sha256 TEXT NOT NULL CHECK (length(raw_sha256) = 64),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX artifact_lifecycle_repository_scope_idx
+    ON artifact_lifecycle (repository_scope)
     """,
 )
 
@@ -313,6 +332,9 @@ class ControlStore:
         if target_version == 5:
             ControlStore._validate_no_terminal_succeeded_contradictions(connection)
             ControlStore._execute_statements(connection, _MIGRATION_V5_STATEMENTS)
+            return
+        if target_version == 6:
+            ControlStore._execute_statements(connection, _MIGRATION_V6_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

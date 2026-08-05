@@ -240,7 +240,12 @@ class TestBearerHarness:
         settings = _lifecycle_settings(tmp_path)
         client = create_test_client(create_app(settings, enable_lifecycle=False))
         paths = client.get("/openapi.json").json()["paths"]
-        assert set(paths.keys()) == {"/healthz", "/readyz", "/v1/repositories"}
+        assert set(paths.keys()) == {
+            "/healthz",
+            "/readyz",
+            "/v1/repositories",
+            "/v1/repositories/{repository_id}/artifacts",
+        }
 
 
 class TestRootLockContention:
@@ -347,7 +352,11 @@ class TestControlDatabase:
                 ).fetchall()
                 if row[0] != "sqlite_sequence"
             }
-            assert tables == {"mutation_idempotency", "synchronous_mutation_effects"}
+            assert tables == {
+                "artifact_lifecycle",
+                "mutation_idempotency",
+                "synchronous_mutation_effects",
+            }
             idempotency_sql = store.connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name = 'mutation_idempotency'"
             ).fetchone()[0]

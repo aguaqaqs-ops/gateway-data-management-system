@@ -50,7 +50,12 @@ def atomic_publish(
         raise RuntimeError("fault injected after publication rename")
 
 
-def atomic_publish_file(staging: Path, target: Path) -> None:
+def atomic_publish_file(
+    staging: Path,
+    target: Path,
+    *,
+    fault: FaultPoint = FaultPoint.NONE,
+) -> None:
     """Publish one already-written file without replacing an existing target."""
 
     if target.exists():
@@ -58,9 +63,13 @@ def atomic_publish_file(staging: Path, target: Path) -> None:
     with staging.open("rb") as handle:
         os.fsync(handle.fileno())
     _fsync_directory(staging.parent)
+    if fault == FaultPoint.BEFORE_RENAME:
+        raise RuntimeError("fault injected before publication rename")
     _rename_noreplace(staging, target)
     _fsync_directory(staging.parent)
     _fsync_directory(target.parent)
+    if fault == FaultPoint.AFTER_RENAME:
+        raise RuntimeError("fault injected after publication rename")
 
 
 def _fsync_directory(path: Path) -> None:

@@ -118,6 +118,15 @@ class EffectRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ArtifactLifecycleRecord:
+    artifact_id: UUID
+    repository_id: UUID
+    media_type: str
+    size_bytes: int
+    raw_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class ClaimResult:
     idempotency_id: int
     is_new: bool
@@ -217,7 +226,13 @@ class MutationStore:
                 response_body=None,
             )
 
-    def mark_succeeded(self, effect_id: int, *, response_body: dict[str, Any]) -> EffectRecord:
+    def mark_succeeded(
+        self,
+        effect_id: int,
+        *,
+        response_body: dict[str, Any],
+        artifact_lifecycle: ArtifactLifecycleRecord | None = None,
+    ) -> EffectRecord:
         with self._transaction():
             row = self._fetch_effect_by_id(effect_id)
             if row is None:
@@ -249,6 +264,8 @@ class MutationStore:
                     effect_id,
                 ),
             )
+            if artifact_lifecycle is not None:
+                self._upsert_artifact_lifecycle(artifact_lifecycle, now=now)
             updated = self._fetch_effect_by_id(effect_id)
             assert updated is not None
             return self._effect_from_row(updated)
@@ -287,6 +304,28 @@ class MutationStore:
                   AND e.resource_id = ?
                 """,
                 (MutationKind.CREATE_REPOSITORY.value, str(repository_id)),
+            )
+            for row in cursor.fetchall():
+                if str(row["status"]) == EffectStatus.SUCCEEDED.value:
+                    return True
+            return False
+
+    def has_succeeded_upload(self, repository_id: UUID, artifact_id: UUID) -> bool:
+        with self._transaction():
+            cursor = self._connection.execute(
+                """
+                SELECT e.status
+                FROM synchronous_mutation_effects AS e
+                JOIN mutation_idempotency AS i ON i.id = e.idempotency_id
+                WHERE i.mutation_kind = ?
+                  AND i.repository_scope = ?
+                  AND e.resource_id = ?
+                """,
+                (
+                    MutationKind.UPLOAD_ARTIFACT.value,
+                    repository_id.hex,
+                    str(artifact_id),
+                ),
             )
             for row in cursor.fetchall():
                 if str(row["status"]) == EffectStatus.SUCCEEDED.value:
@@ -450,6 +489,36 @@ class MutationStore:
                 int(row["response_status"]) if row["response_status"] is not None else None
             ),
             response_body=response_body,
+        )
+
+    def _upsert_artifact_lifecycle(self, record: ArtifactLifecycleRecord, *, now: str) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO artifact_lifecycle (
+                artifact_id,
+                repository_scope,
+                media_type,
+                size_bytes,
+                raw_sha256,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(artifact_id) DO UPDATE SET
+                repository_scope = excluded.repository_scope,
+                media_type = excluded.media_type,
+                size_bytes = excluded.size_bytes,
+                raw_sha256 = excluded.raw_sha256,
+                updated_at = excluded.updated_at
+            """,
+            (
+                str(record.artifact_id),
+                record.repository_id.hex,
+                record.media_type,
+                record.size_bytes,
+                record.raw_sha256,
+                now,
+                now,
+            ),
         )
 
 

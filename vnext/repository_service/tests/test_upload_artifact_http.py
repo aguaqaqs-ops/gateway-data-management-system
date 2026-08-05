@@ -320,6 +320,28 @@ def test_upload_artifact_returns_404_for_missing_repository(tmp_path: Path) -> N
     assert response.json()["code"] == "REPOSITORY_NOT_FOUND"
 
 
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_upload_artifact_returns_503_when_disk_measurement_unavailable(tmp_path: Path) -> None:
+    settings = lifecycle_settings(tmp_path)
+    payload = b"x"
+    with TestClient(create_app(settings)) as client:
+        repository_id = create_repository(client, idempotency_key="create-disk-unavailable")
+        with patch(
+            "gateway_repository_service.upload_artifact.command.assert_upload_disk_admission",
+            side_effect=__import__(
+                "gateway_repository_service.capacity",
+                fromlist=["CapacityAdmissionError"],
+            ).CapacityAdmissionError("durable root disk measurement is unavailable"),
+        ), patch.object(MutationStore, "allocate_pending", side_effect=AssertionError("must not run")):
+            response = client.post(
+                f"/v1/repositories/{repository_id}/artifacts",
+                headers=upload_headers(idempotency_key="disk-unavailable", payload=payload),
+                content=payload,
+            )
+    assert response.status_code == 503
+    assert response.json()["code"] == "DISK_ADMISSION_DENIED"
+
+
 def test_upload_artifact_requires_auth(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     client = _route_test_client(settings)

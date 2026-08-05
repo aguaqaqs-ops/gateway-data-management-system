@@ -92,3 +92,13 @@ def test_upload_disk_admission_rejects_negative_declared_size(tmp_path: Path) ->
     settings = _settings(tmp_path)
     with pytest.raises(ValueError, match="declared_size"):
         measure_upload_disk_admission(tmp_path, settings, declared_size=-1)
+
+
+def test_assert_upload_disk_admission_maps_statvfs_oserror(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    with patch(
+        "gateway_repository_service.capacity.os.statvfs",
+        side_effect=OSError("disk measurement failed"),
+    ):
+        with pytest.raises(CapacityAdmissionError, match="disk measurement is unavailable"):
+            assert_upload_disk_admission(tmp_path, settings, declared_size=0)

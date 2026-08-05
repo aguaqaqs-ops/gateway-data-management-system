@@ -128,7 +128,10 @@ def assert_upload_disk_admission(
     *,
     declared_size: int,
 ) -> DiskAdmission:
-    admission = measure_upload_disk_admission(root, settings, declared_size=declared_size)
+    try:
+        admission = measure_upload_disk_admission(root, settings, declared_size=declared_size)
+    except OSError as exc:
+        raise CapacityAdmissionError("durable root disk measurement is unavailable") from exc
     if not admission.admitted:
         raise CapacityAdmissionError(
             "durable root free disk after upload would be below admission threshold"

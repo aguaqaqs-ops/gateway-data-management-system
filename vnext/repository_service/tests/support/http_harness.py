@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI
-from pydantic import BaseModel, ConfigDict
+from fastapi.testclient import TestClient
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from gateway_repository_service.app import create_app
 from gateway_repository_service.http.errors import ServiceError
@@ -17,6 +18,32 @@ class _ValidationProbeBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     required_field: str
+
+
+class _CustomValidatorBody(BaseModel):
+    value: str
+
+    @field_validator("value")
+    @classmethod
+    def reject_value(cls, value: str) -> str:
+        del cls
+        raise ValueError("rejected")
+
+
+class _NestedInnerBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inner_field: str
+
+
+class _NestedOuterBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nested: _NestedInnerBody
+
+
+def create_test_client(app: FastAPI) -> TestClient:
+    return TestClient(app, raise_server_exceptions=False)
 
 
 def create_test_http_app(
@@ -38,6 +65,18 @@ def create_test_http_app(
             status_code=418,
             details={"probe": True},
         )
+
+    @app.get("/_test/unhandled-error")
+    def unhandled_error_probe() -> dict[str, str]:
+        raise RuntimeError("probe")
+
+    @app.post("/_test/custom-validator")
+    def custom_validator_probe(body: _CustomValidatorBody) -> dict[str, str]:
+        return {"status": "ok", "value": body.value}
+
+    @app.post("/_test/nested-validate")
+    def nested_validation_probe(body: _NestedOuterBody) -> dict[str, str]:
+        return {"status": "ok", "inner": body.nested.inner_field}
 
     return app
 

@@ -24,7 +24,7 @@ gateway-repository-contracts = { path = "../repository_contracts", editable = tr
 
 [dependency-groups]
 dev = [
-    "httpx==0.28.1",
+    "httpx2==2.9.1",
     "mypy==2.3.0",
     "mysql-connector-python==9.7.0",
     "pytest==9.1.1",
@@ -34,6 +34,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]
+filterwarnings = [
+    "error::starlette.exceptions.StarletteDeprecationWarning",
+]
 
 [tool.ruff]
 line-length = 100

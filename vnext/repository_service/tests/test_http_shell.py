@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fastapi.testclient import TestClient
-
 from gateway_repository_service.app import create_app
-from support.http_harness import assert_request_id_header, create_test_http_app
+from support.http_harness import (
+    assert_request_id_header,
+    create_test_client,
+    create_test_http_app,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,7 +19,7 @@ class _ReadyReadiness:
 
 
 def test_healthz_returns_200() -> None:
-    response = TestClient(create_app()).get("/healthz")
+    response = create_test_client(create_app()).get("/healthz")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
@@ -25,7 +27,7 @@ def test_healthz_returns_200() -> None:
 
 
 def test_readyz_default_returns_503() -> None:
-    response = TestClient(create_app()).get("/readyz")
+    response = create_test_client(create_app()).get("/readyz")
 
     assert response.status_code == 503
     body = response.json()
@@ -36,7 +38,7 @@ def test_readyz_default_returns_503() -> None:
 
 
 def test_readyz_injected_ready_returns_200() -> None:
-    response = TestClient(create_app(readiness=_ReadyReadiness())).get("/readyz")
+    response = create_test_client(create_app(readiness=_ReadyReadiness())).get("/readyz")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
@@ -44,7 +46,7 @@ def test_readyz_injected_ready_returns_200() -> None:
 
 
 def test_request_id_on_success_and_error() -> None:
-    client = TestClient(create_test_http_app())
+    client = create_test_client(create_test_http_app())
 
     health = client.get("/healthz")
     ready = client.get("/readyz")
@@ -55,7 +57,7 @@ def test_request_id_on_success_and_error() -> None:
 
 
 def test_validation_maps_to_simple_error() -> None:
-    response = TestClient(create_test_http_app()).post("/_test/validate", json={})
+    response = create_test_client(create_test_http_app()).post("/_test/validate", json={})
 
     assert response.status_code == 422
     body = response.json()
@@ -67,7 +69,7 @@ def test_validation_maps_to_simple_error() -> None:
 
 
 def test_service_error_maps_to_simple_error() -> None:
-    response = TestClient(create_test_http_app()).get("/_test/service-error")
+    response = create_test_client(create_test_http_app()).get("/_test/service-error")
 
     assert response.status_code == 418
     body = response.json()
@@ -78,8 +80,64 @@ def test_service_error_maps_to_simple_error() -> None:
     assert body["request_id"] == request_id
 
 
+def test_unhandled_exception_returns_internal_error() -> None:
+    response = create_test_client(create_test_http_app()).get("/_test/unhandled-error")
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["code"] == "INTERNAL_ERROR"
+    assert body["message"] == "internal server error"
+    request_id = assert_request_id_header(response)
+    assert body["request_id"] == request_id
+    assert response.headers["content-type"].startswith("application/json")
+
+
+def test_custom_validator_failure_returns_422_not_500() -> None:
+    response = create_test_client(create_test_http_app()).post(
+        "/_test/custom-validator",
+        json={"value": "anything"},
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "REQUEST_VALIDATION_FAILED"
+    errors = body["details"]["errors"]
+    assert len(errors) >= 1
+    for item in errors:
+        assert set(item.keys()) == {"loc", "type", "msg"}
+        assert "ctx" not in item
+        assert "input" not in item
+    request_id = assert_request_id_header(response)
+    assert body["request_id"] == request_id
+
+
+def test_invalid_json_returns_422_with_request_id() -> None:
+    response = create_test_client(create_test_http_app()).post(
+        "/_test/validate",
+        content=b"{not-json",
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "REQUEST_VALIDATION_FAILED"
+    assert_request_id_header(response)
+
+
+def test_nested_validation_errors_are_sanitized() -> None:
+    response = create_test_client(create_test_http_app()).post("/_test/nested-validate", json={})
+
+    assert response.status_code == 422
+    body = response.json()
+    errors = body["details"]["errors"]
+    assert any("nested" in error["loc"] for error in errors)
+    for item in errors:
+        assert set(item.keys()) == {"loc", "type", "msg"}
+    assert_request_id_header(response)
+
+
 def test_openapi_only_health_routes() -> None:
-    response = TestClient(create_app()).get("/openapi.json")
+    response = create_test_client(create_app()).get("/openapi.json")
 
     assert response.status_code == 200
     paths = response.json()["paths"]
@@ -87,14 +145,14 @@ def test_openapi_only_health_routes() -> None:
 
 
 def test_docs_and_redoc_disabled() -> None:
-    client = TestClient(create_app())
+    client = create_test_client(create_app())
 
     assert client.get("/docs").status_code == 404
     assert client.get("/redoc").status_code == 404
 
 
 def test_production_app_has_no_forbidden_routes() -> None:
-    response = TestClient(create_app()).get("/openapi.json")
+    response = create_test_client(create_app()).get("/openapi.json")
     paths = response.json()["paths"]
 
     for path in paths:

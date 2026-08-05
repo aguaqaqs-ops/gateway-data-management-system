@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -10,6 +11,11 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from gateway_repository_contracts import SimpleError
+
+INTERNAL_ERROR_CODE = "INTERNAL_ERROR"
+INTERNAL_ERROR_MESSAGE = "internal server error"
+
+ValidationErrorDetail = dict[str, str | list[str | int]]
 
 
 class ServiceError(Exception):
@@ -37,6 +43,30 @@ def _request_id(request: Request) -> str | None:
     return str(request_id)
 
 
+def sanitize_validation_errors(errors: Sequence[Any]) -> list[ValidationErrorDetail]:
+    """Return JSON-safe validation details without input, ctx or url."""
+
+    sanitized: list[ValidationErrorDetail] = []
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        loc = error.get("loc", ())
+        if isinstance(loc, (list, tuple)):
+            normalized_loc: list[str | int] = [
+                item if isinstance(item, int) else str(item) for item in loc
+            ]
+        else:
+            normalized_loc = [str(loc)]
+        sanitized.append(
+            {
+                "loc": normalized_loc,
+                "type": str(error.get("type", "value_error")),
+                "msg": str(error.get("msg", "validation error")),
+            }
+        )
+    return sanitized
+
+
 def simple_error_response(
     request: Request,
     *,
@@ -61,6 +91,15 @@ def simple_error_response(
     return response
 
 
+def internal_error_response(request: Request) -> JSONResponse:
+    return simple_error_response(
+        request,
+        code=INTERNAL_ERROR_CODE,
+        message=INTERNAL_ERROR_MESSAGE,
+        status_code=500,
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def request_validation_exception_handler(
@@ -72,7 +111,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             code="REQUEST_VALIDATION_FAILED",
             message="request validation failed",
             status_code=422,
-            details={"errors": exc.errors()},
+            details={"errors": sanitize_validation_errors(exc.errors())},
         )
 
     @app.exception_handler(ServiceError)
@@ -99,3 +138,11 @@ def register_exception_handlers(app: FastAPI) -> None:
             message=str(exc.detail),
             status_code=exc.status_code,
         )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        del exc
+        return internal_error_response(request)

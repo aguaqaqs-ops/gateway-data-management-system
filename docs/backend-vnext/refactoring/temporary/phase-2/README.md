@@ -21,6 +21,16 @@ WP1-R1现已完成。新的Phase 2 baseline由精简后的
 [T2 Simplification Checklist](t2-simplification-implementation-checklist.md)。
 本目录其余旧ledger、review和consumer check只保留历史上下文，不拥有当前语义。
 
+## Current implementation coordination
+
+以下文档是精简后正式baseline的临时执行辅助，不恢复本目录旧WP1-R2+设计，也不拥有
+contract语义：
+
+| 文档 | 职责 |
+| --- | --- |
+| [P2-R3 Synchronous Create and Upload Execution Plan](p2-r3-synchronous-create-upload-execution-plan.md) | 当前P2-R3阶段边界、checkout顺序、fault/restart matrix、gate与handoff |
+| [P2-R3 Staged Implementation Task Prompts](p2-r3-implementation-task-prompts.md) | S1-S5独立代码实现任务提示词；必须结合上一阶段handoff使用 |
+
 ## Document map
 
 | 文档 | 职责 |

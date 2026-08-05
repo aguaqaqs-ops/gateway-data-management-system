@@ -407,6 +407,85 @@ def test_schema_rejects_pending_effect_with_response(store: MutationStore) -> No
         store._connection.commit()
 
 
+def test_schema_trigger_prevents_insert_succeeded_when_terminal(store: MutationStore) -> None:
+    connection = store._connection
+    connection.execute(
+        """
+        INSERT INTO mutation_idempotency (
+            mutation_kind,
+            repository_scope,
+            key_hash,
+            request_fingerprint,
+            terminal_not_published,
+            created_at
+        ) VALUES ('create_repository', '', ?, ?, 1, '2026-08-05T00:00:00+00:00')
+        """,
+        (b"\x02" * 32, b"insert-guard-fingerprint"),
+    )
+    idempotency_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            """
+            INSERT INTO synchronous_mutation_effects (
+                idempotency_id,
+                resource_id,
+                status,
+                response_status,
+                response_body,
+                updated_at
+            ) VALUES (?, ?, 'SUCCEEDED', 201, '{}', '2026-08-05T00:00:00+00:00')
+            """,
+            (idempotency_id, str(uuid4())),
+        )
+        connection.commit()
+
+
+def test_schema_trigger_prevents_insert_terminal_when_succeeded(store: MutationStore) -> None:
+    scope = _create_scope()
+    key_hash = IdempotencyKeyHash.from_raw_key("insert-terminal-guard")
+    fingerprint = create_repository_fingerprint_v1()
+    pending = store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=uuid4(),
+    )
+    store.mark_succeeded(
+        pending.effect_id,
+        response_body={
+            "repository_id": str(pending.resource_id),
+            "default_ref": "main",
+            "initial_commit_id": "commit-1",
+        },
+    )
+    connection = store._connection
+    idempotency_id = int(
+        connection.execute(
+            "SELECT idempotency_id FROM synchronous_mutation_effects WHERE effect_id = ?",
+            (pending.effect_id,),
+        ).fetchone()[0]
+    )
+    connection.execute("DELETE FROM mutation_idempotency WHERE id = ?", (idempotency_id,))
+
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            """
+            INSERT INTO mutation_idempotency (
+                id,
+                mutation_kind,
+                repository_scope,
+                key_hash,
+                request_fingerprint,
+                terminal_not_published,
+                created_at
+            ) VALUES (?, 'create_repository', '', ?, ?, 1, '2026-08-05T00:00:00+00:00')
+            """,
+            (idempotency_id, key_hash.digest, fingerprint),
+        )
+        connection.commit()
+
+
 def test_schema_trigger_prevents_terminal_then_succeeded_raw_sql(store: MutationStore) -> None:
     scope = _create_scope()
     key_hash = IdempotencyKeyHash.from_raw_key("create-trigger-guard")

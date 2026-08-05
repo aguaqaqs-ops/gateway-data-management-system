@@ -9,7 +9,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 4
+CONTROL_DB_USER_VERSION = 5
 
 _MIGRATION_V2_STATEMENTS: tuple[str, ...] = (
     """
@@ -153,6 +153,40 @@ _MIGRATION_V4_STATEMENTS: tuple[str, ...] = (
 )
 
 
+_MIGRATION_V5_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TRIGGER prevent_insert_succeeded_when_terminal
+    BEFORE INSERT ON synchronous_mutation_effects
+    FOR EACH ROW
+    WHEN NEW.status = 'SUCCEEDED'
+    BEGIN
+        SELECT RAISE(ABORT, 'terminal-not-published effects cannot succeed')
+        WHERE EXISTS (
+            SELECT 1
+            FROM mutation_idempotency
+            WHERE id = NEW.idempotency_id
+              AND terminal_not_published = 1
+        );
+    END
+    """,
+    """
+    CREATE TRIGGER prevent_insert_terminal_when_succeeded
+    BEFORE INSERT ON mutation_idempotency
+    FOR EACH ROW
+    WHEN NEW.terminal_not_published = 1
+    BEGIN
+        SELECT RAISE(ABORT, 'succeeded effects cannot be marked terminal-not-published')
+        WHERE EXISTS (
+            SELECT 1
+            FROM synchronous_mutation_effects
+            WHERE idempotency_id = NEW.id
+              AND status = 'SUCCEEDED'
+        );
+    END
+    """,
+)
+
+
 class ControlDbError(RuntimeError):
     """Raised when the control database cannot be opened or migrated."""
 
@@ -247,6 +281,23 @@ class ControlStore:
             connection.execute(statement)
 
     @staticmethod
+    def _validate_no_terminal_succeeded_contradictions(connection: sqlite3.Connection) -> None:
+        row = connection.execute(
+            """
+            SELECT COUNT(*) AS contradiction_count
+            FROM mutation_idempotency AS m
+            INNER JOIN synchronous_mutation_effects AS e ON e.idempotency_id = m.id
+            WHERE m.terminal_not_published = 1
+              AND e.status = 'SUCCEEDED'
+            """
+        ).fetchone()
+        if row is not None and int(row[0]) > 0:
+            raise ControlDbError(
+                "control database has terminal-not-published succeeded contradictions; "
+                "operator intervention is required before migration"
+            )
+
+    @staticmethod
     def _apply_migration_step(connection: sqlite3.Connection, target_version: int) -> None:
         if target_version == 1:
             return
@@ -258,6 +309,10 @@ class ControlStore:
             return
         if target_version == 4:
             ControlStore._execute_statements(connection, _MIGRATION_V4_STATEMENTS)
+            return
+        if target_version == 5:
+            ControlStore._validate_no_terminal_succeeded_contradictions(connection)
+            ControlStore._execute_statements(connection, _MIGRATION_V5_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

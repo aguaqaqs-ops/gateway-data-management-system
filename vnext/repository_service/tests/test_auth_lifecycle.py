@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from typing import cast
 
 from gateway_repository_service.app import create_app
-from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlDbNewerVersionError, ControlStore
+from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlDbError, ControlDbNewerVersionError, ControlStore
 from gateway_repository_service.layout import DurableLayout, LAYOUT_FORMAT_VERSION
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.process import DoltRunner, process_tree_pids
@@ -320,6 +320,36 @@ class TestLayoutValidation:
 
 
 class TestControlDatabase:
+    def _seed_terminal_succeeded_contradiction(self, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            INSERT INTO mutation_idempotency (
+                mutation_kind,
+                repository_scope,
+                key_hash,
+                request_fingerprint,
+                terminal_not_published,
+                created_at
+            ) VALUES ('create_repository', '', ?, ?, 1, '2026-08-05T00:00:00+00:00')
+            """,
+            (b"\x01" * 32, b"legacy-fingerprint"),
+        )
+        idempotency_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+        connection.execute(
+            """
+            INSERT INTO synchronous_mutation_effects (
+                idempotency_id,
+                resource_id,
+                status,
+                response_status,
+                response_body,
+                updated_at
+            ) VALUES (?, ?, 'SUCCEEDED', 201, '{}', '2026-08-05T00:00:00+00:00')
+            """,
+            (idempotency_id, "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"),
+        )
+        connection.commit()
+
     def test_migration_initializes_current_user_version(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
@@ -359,6 +389,8 @@ class TestControlDatabase:
             assert triggers == {
                 "prevent_succeeded_when_terminal",
                 "prevent_terminal_when_succeeded",
+                "prevent_insert_succeeded_when_terminal",
+                "prevent_insert_terminal_when_succeeded",
             }
         finally:
             store.close()
@@ -390,6 +422,35 @@ class TestControlDatabase:
             store.close()
 
     def test_migration_upgrades_version_three_to_four(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000).close()
+
+        store = ControlStore.open(db_path, expected_version=4, busy_timeout_ms=1000)
+        try:
+            version = store.connection.execute("PRAGMA user_version").fetchone()
+            assert int(version[0]) == 4
+        finally:
+            store.close()
+
+    def test_migration_upgrades_version_four_to_five(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        ControlStore.open(db_path, expected_version=4, busy_timeout_ms=1000).close()
+
+        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+        try:
+            version = store.connection.execute("PRAGMA user_version").fetchone()
+            assert int(version[0]) == CONTROL_DB_USER_VERSION
+            triggers = {
+                row[0]
+                for row in store.connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+                ).fetchall()
+            }
+            assert "prevent_insert_succeeded_when_terminal" in triggers
+        finally:
+            store.close()
+
+    def test_migration_upgrades_version_three_to_four_legacy(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000).close()
 
@@ -529,6 +590,95 @@ class TestControlDatabase:
         connection.close()
         with pytest.raises(ControlDbNewerVersionError):
             ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+
+    def test_migration_v5_fails_on_contradictory_v3_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        try:
+            self._seed_terminal_succeeded_contradiction(store.connection)
+        finally:
+            store.close()
+
+        with pytest.raises(ControlDbError, match="terminal-not-published succeeded contradictions"):
+            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+
+        connection = sqlite3.connect(db_path)
+        version = connection.execute("PRAGMA user_version").fetchone()
+        triggers = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            ).fetchall()
+        }
+        connection.close()
+        assert int(version[0]) == 3
+        assert "prevent_insert_succeeded_when_terminal" not in triggers
+
+    def test_migration_v5_fails_on_contradictory_v4_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
+        try:
+            self._seed_terminal_succeeded_contradiction(store.connection)
+        finally:
+            store.close()
+        ControlStore.open(db_path, expected_version=4, busy_timeout_ms=1000).close()
+
+        with pytest.raises(ControlDbError, match="terminal-not-published succeeded contradictions"):
+            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+
+        connection = sqlite3.connect(db_path)
+        version = connection.execute("PRAGMA user_version").fetchone()
+        triggers = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            ).fetchall()
+        }
+        connection.close()
+        assert int(version[0]) == 4
+        assert "prevent_insert_succeeded_when_terminal" not in triggers
+
+    def test_migration_v5_rollback_when_insert_trigger_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        ControlStore.open(db_path, expected_version=4, busy_timeout_ms=1000).close()
+        original_execute_statements = ControlStore._execute_statements
+
+        def failing_v5_execute(
+            connection: sqlite3.Connection, statements: tuple[str, ...]
+        ) -> None:
+            if statements and "prevent_insert_succeeded_when_terminal" in statements[0]:
+                original_execute_statements(connection, (statements[0],))
+                raise RuntimeError("v5 trigger failure")
+            original_execute_statements(connection, statements)
+
+        monkeypatch.setattr(
+            ControlStore,
+            "_execute_statements",
+            staticmethod(failing_v5_execute),
+        )
+        with pytest.raises(RuntimeError, match="v5 trigger failure"):
+            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+
+        connection = sqlite3.connect(db_path)
+        version = connection.execute("PRAGMA user_version").fetchone()
+        triggers = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            ).fetchall()
+        }
+        connection.close()
+        assert int(version[0]) == 4
+        assert triggers == {
+            "prevent_succeeded_when_terminal",
+            "prevent_terminal_when_succeeded",
+        }
+
+        monkeypatch.undo()
+        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+        store.close()
 
 
 class TestProviderLifecycle:

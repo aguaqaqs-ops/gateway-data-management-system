@@ -74,17 +74,20 @@ class ServiceRuntime:
             self.root_lock.release()
 
     def _readiness_failure(self) -> str | None:
-        if not self.root_lock.is_held():
-            return "root lock is not held"
-        if not self._control_db_ready():
-            return "control database is unavailable"
-        if not self._provider_ready():
-            return "provider is unavailable"
-        if not is_durable_root_writable(self.layout.service_state):
-            return "durable root is not writable"
-        if not has_free_disk_admission(self.layout.root, self.settings):
-            return "free disk admission failed"
-        return None
+        try:
+            if not self.root_lock.is_held():
+                return "root lock is not held"
+            if not self._control_db_ready():
+                return "control database is unavailable"
+            if not self._provider_ready():
+                return "provider is unavailable"
+            if not is_durable_root_writable(self.layout.service_state):
+                return "durable root is not writable"
+            if not has_free_disk_admission(self.layout.root, self.settings):
+                return "free disk admission failed"
+            return None
+        except Exception:
+            return "readiness check failed"
 
     def _control_db_ready(self) -> bool:
         if not self.control_store.is_open():

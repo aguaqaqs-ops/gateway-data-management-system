@@ -179,6 +179,12 @@ class TestSettingsProfile:
         assert "super-secret-token" not in rendered
         assert "<redacted>" in rendered
 
+    def test_settings_str_redacts_bearer_token(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path, bearer_token="super-secret-token")
+        assert "super-secret-token" not in str(settings)
+        assert "super-secret-token" not in f"{settings}"
+        assert "<redacted>" in str(settings)
+
 
 class TestBearerHarness:
     def test_missing_token_returns_401(self, tmp_path: Path) -> None:
@@ -409,6 +415,54 @@ class TestDynamicReadiness:
                 response = client.get("/readyz")
             assert response.status_code == 503
             assert "free disk admission failed" in response.json()["message"]
+
+    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    def test_readyz_returns_503_when_statvfs_raises(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
+        with TestClient(create_app(settings)) as client:
+            assert client.get("/readyz").status_code == 200
+            with patch(
+                "gateway_repository_service.capacity.os.statvfs",
+                side_effect=OSError("disk unavailable"),
+            ):
+                response = client.get("/readyz")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["code"] == "SERVICE_NOT_READY"
+            assert body["message"] == "free disk admission failed"
+            assert "disk unavailable" not in body["message"]
+
+    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    def test_readyz_returns_503_when_write_probe_raises(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
+        with TestClient(create_app(settings)) as client:
+            assert client.get("/readyz").status_code == 200
+            with patch(
+                "gateway_repository_service.capacity.Path.mkdir",
+                side_effect=OSError("read-only filesystem"),
+            ):
+                response = client.get("/readyz")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["code"] == "SERVICE_NOT_READY"
+            assert body["message"] == "durable root is not writable"
+            assert "read-only filesystem" not in body["message"]
+
+    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    def test_readyz_returns_503_when_readiness_check_raises(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
+        with TestClient(create_app(settings)) as client:
+            assert client.get("/readyz").status_code == 200
+            with patch(
+                "gateway_repository_service.runtime.is_durable_root_writable",
+                side_effect=RuntimeError("unexpected probe failure"),
+            ):
+                response = client.get("/readyz")
+            assert response.status_code == 503
+            body = response.json()
+            assert body["code"] == "SERVICE_NOT_READY"
+            assert body["message"] == "readiness check failed"
+            assert "unexpected probe failure" not in body["message"]
 
 
 @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")

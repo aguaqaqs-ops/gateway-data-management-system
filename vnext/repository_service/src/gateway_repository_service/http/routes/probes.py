@@ -17,10 +17,12 @@ def register_probe_routes(app: FastAPI) -> None:
     @app.get("/readyz", response_model=None)
     def readyz(request: Request) -> JSONResponse:
         readiness = _readiness_from_state(request)
-        if readiness.is_ready():
-            return JSONResponse(content={"status": "ready"})
-
-        message = readiness.not_ready_message()
+        try:
+            if readiness.is_ready():
+                return JSONResponse(content={"status": "ready"})
+            message = readiness.not_ready_message()
+        except Exception:
+            message = "readiness check failed"
         return simple_error_response(
             request,
             code="SERVICE_NOT_READY",

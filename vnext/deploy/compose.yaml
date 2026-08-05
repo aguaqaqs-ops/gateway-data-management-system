@@ -50,6 +50,34 @@ services:
         source: ${GATEWAY_P2R1_RUN_DIR:-/run/gateway-p2r1-unconfigured}
         target: /run/gateway-p2r1
         read_only: true
+  repository-service:
+    profiles: ["p2-r2"]
+    build:
+      context: ..
+      dockerfile: repository_service/Dockerfile
+    environment:
+      GATEWAY_REPOSITORY_PROFILE: production
+      GATEWAY_REPOSITORY_DATA_ROOT: /var/lib/gateway/repository
+      GATEWAY_REPOSITORY_DOLT_BINARY: /usr/local/bin/dolt
+      GATEWAY_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
+    secrets:
+      - repository-bearer-token
+    volumes:
+      - repository-service-data:/var/lib/gateway/repository
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz')
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+secrets:
+  repository-bearer-token:
+    file: ${GATEWAY_P2R2_BEARER_TOKEN_FILE:-/dev/null}
 volumes:
   backend-artifacts:
   repository-data:
+  repository-service-data:

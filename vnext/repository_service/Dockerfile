@@ -3,7 +3,7 @@ FROM ${BASE_IMAGE}
 ARG UV_VERSION=0.11.28
 ARG DOLT_VERSION=2.1.11
 ARG DOLT_SHA256=7e5583b7e35ad329fe3f4705cf51db29be583bd50fd801516237d593210524d3
-ARG UV_LOCK_SHA256=fce9185b59b654729670c618c352f9f7a458fb2de40bbd2e088158e81a771e65
+ARG UV_LOCK_SHA256=ca8b401adfa2c8304aaf083c1c4798f45555ce5f4ff99097f57b0f9fc912ac54
 ARG BUILD_REVISION=unknown
 ARG SOURCE_TREE_SHA256=unknown
 ARG MYSQL_CONNECTOR_VERSION=9.7.0
@@ -54,4 +54,4 @@ LABEL org.opencontainers.image.revision="${BUILD_REVISION}" \
       gateway.p2r1.uv-version="${UV_VERSION}" \
       gateway.p2r1.uv-lock-sha256="${UV_LOCK_SHA256}" \
       gateway.p2r1.cache-policy="retain-for-development-rebuilds"
-CMD ["python", "-c", "from gateway_repository_service import RepositoryServiceSettings; print(RepositoryServiceSettings())"]
+CMD ["python", "-m", "uvicorn", "gateway_repository_service.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

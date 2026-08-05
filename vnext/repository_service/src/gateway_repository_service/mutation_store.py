@@ -135,6 +135,19 @@ class ClaimResult:
     terminal_not_published: bool
 
 
+@dataclass(frozen=True, slots=True)
+class StoredEffectView:
+    effect_id: int
+    idempotency_id: int
+    scope: IdempotencyScope
+    key_hash: IdempotencyKeyHash
+    fingerprint: bytes
+    terminal_not_published: bool
+    resource_id: UUID
+    status: EffectStatus
+    response_body: dict[str, Any] | None
+
+
 class MutationStore:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
@@ -331,6 +344,69 @@ class MutationStore:
                 if str(row["status"]) == EffectStatus.SUCCEEDED.value:
                     return True
             return False
+
+    def iter_effects_by_status(self, status: EffectStatus) -> list[StoredEffectView]:
+        with self._transaction():
+            cursor = self._connection.execute(
+                """
+                SELECT
+                    e.effect_id,
+                    e.idempotency_id,
+                    e.resource_id,
+                    e.status,
+                    e.response_body,
+                    i.mutation_kind,
+                    i.repository_scope,
+                    i.key_hash,
+                    i.request_fingerprint,
+                    i.terminal_not_published
+                FROM synchronous_mutation_effects AS e
+                JOIN mutation_idempotency AS i ON i.id = e.idempotency_id
+                WHERE e.status = ?
+                ORDER BY e.effect_id
+                """,
+                (status.value,),
+            )
+            views: list[StoredEffectView] = []
+            for row in cursor.fetchall():
+                response_body = None
+                if row["response_body"] is not None:
+                    response_body = json.loads(str(row["response_body"]))
+                views.append(
+                    StoredEffectView(
+                        effect_id=int(row["effect_id"]),
+                        idempotency_id=int(row["idempotency_id"]),
+                        scope=self._scope_from_idempotency_row(row),
+                        key_hash=IdempotencyKeyHash(bytes(row["key_hash"])),
+                        fingerprint=bytes(row["request_fingerprint"]),
+                        terminal_not_published=bool(row["terminal_not_published"]),
+                        resource_id=UUID(str(row["resource_id"])),
+                        status=EffectStatus(str(row["status"])),
+                        response_body=response_body,
+                    )
+                )
+            return views
+
+    def get_artifact_lifecycle(self, artifact_id: UUID) -> ArtifactLifecycleRecord | None:
+        with self._transaction():
+            cursor = self._connection.execute(
+                """
+                SELECT artifact_id, repository_scope, media_type, size_bytes, raw_sha256
+                FROM artifact_lifecycle
+                WHERE artifact_id = ?
+                """,
+                (str(artifact_id),),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return ArtifactLifecycleRecord(
+                artifact_id=UUID(str(row["artifact_id"])),
+                repository_id=UUID(str(row["repository_scope"])),
+                media_type=str(row["media_type"]),
+                size_bytes=int(row["size_bytes"]),
+                raw_sha256=str(row["raw_sha256"]),
+            )
 
     def mark_terminal_not_published(
         self,

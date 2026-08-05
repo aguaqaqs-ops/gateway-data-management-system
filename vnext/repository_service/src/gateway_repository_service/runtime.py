@@ -14,6 +14,7 @@ from gateway_repository_service.capacity import (
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock
+from gateway_repository_service.mutation_reconciliation import SynchronousMutationReconciler
 from gateway_repository_service.mutation_store import MutationStore, configure_connection
 from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate
 from gateway_repository_service.settings import RepositoryServiceSettings
@@ -32,6 +33,7 @@ class ServiceRuntime:
     mutation_store: MutationStore
     provider_gate: OfflineCliCapabilityGate
     auth_state: AuthState
+    reconciliation_failures: tuple[str, ...] = ()
 
     @classmethod
     def start(cls, settings: RepositoryServiceSettings) -> "ServiceRuntime":
@@ -51,6 +53,11 @@ class ServiceRuntime:
             configure_connection(control_store.connection)
             mutation_store = MutationStore(control_store.connection)
             provider_gate = OfflineCliCapabilityGate.verify(settings, layout)
+            reconciliation = SynchronousMutationReconciler(
+                settings=settings,
+                layout=layout,
+                mutation_store=mutation_store,
+            ).reconcile()
             if not is_durable_root_writable(layout.service_state):
                 raise ServiceStartupError("durable root is not writable")
             if not has_free_disk_admission(layout.root, settings):
@@ -64,6 +71,7 @@ class ServiceRuntime:
                 mutation_store=mutation_store,
                 provider_gate=provider_gate,
                 auth_state=AuthState(bearer_token=bearer_token),
+                reconciliation_failures=reconciliation.blocking_failures,
             )
         except ServiceStartupError:
             raise
@@ -84,6 +92,13 @@ class ServiceRuntime:
                 return "root lock is not held"
             if not self._control_db_ready():
                 return "control database is unavailable"
+            consistency = SynchronousMutationReconciler(
+                settings=self.settings,
+                layout=self.layout,
+                mutation_store=self.mutation_store,
+            ).consistency_failures()
+            if consistency:
+                return "mutation ledger and filesystem are inconsistent"
             if not self._provider_ready():
                 return "provider is unavailable"
             if not is_durable_root_writable(self.layout.service_state):

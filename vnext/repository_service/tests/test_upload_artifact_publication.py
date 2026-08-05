@@ -14,20 +14,12 @@ from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.publication import FaultPoint
 from gateway_repository_service.upload_artifact.adapters import ArtifactFilesystemPublicationAdapter
 from gateway_repository_service.upload_artifact.command import UploadArtifactCommand
+from gateway_repository_service.upload_artifact.ports import NoOpUploadArtifactFaultInjector
 from support.lifecycle_harness import dolt_available, lifecycle_settings
 from support.upload_harness import create_repository, upload_headers
 
 
-class _BeforeRenameFaultInjector:
-    def after_pending(self) -> None:
-        return None
-
-    def after_partial_body(self) -> None:
-        return None
-
-    def after_complete_close(self) -> None:
-        return None
-
+class _BeforeRenameFaultInjector(NoOpUploadArtifactFaultInjector):
     def publication_fault(self) -> FaultPoint:
         return FaultPoint.BEFORE_RENAME
 

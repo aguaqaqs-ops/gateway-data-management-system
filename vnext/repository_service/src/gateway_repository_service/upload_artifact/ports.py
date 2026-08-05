@@ -49,6 +49,9 @@ class UploadArtifactFaultInjector(Protocol):
     def publication_fault(self) -> FaultPoint:
         """Return the publication fault point to inject, if any."""
 
+    def after_succeeded_before_response(self) -> None:
+        """Inject a fault after SUCCEEDED is durably written and before returning."""
+
 
 class NoOpUploadArtifactFaultInjector:
     """Default injector that does not inject faults."""
@@ -64,3 +67,6 @@ class NoOpUploadArtifactFaultInjector:
 
     def publication_fault(self) -> FaultPoint:
         return FaultPoint.NONE
+
+    def after_succeeded_before_response(self) -> None:
+        return None

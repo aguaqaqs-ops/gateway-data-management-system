@@ -10,12 +10,13 @@ from gateway_repository_service.create_repository.adapters import FilesystemPubl
 from gateway_repository_service.create_repository.command import CreateRepositoryCommand
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.create_repository.ports import NoOpCreateRepositoryFaultInjector
 from gateway_repository_service.publication import FaultPoint
 from gateway_repository_service.runtime import ServiceRuntime
 from support.lifecycle_harness import dolt_available, lifecycle_settings
 
 
-class _BeforeRenameFaultInjector:
+class _BeforeRenameFaultInjector(NoOpCreateRepositoryFaultInjector):
     def publication_fault(self) -> FaultPoint:
         return FaultPoint.BEFORE_RENAME
 

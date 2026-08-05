@@ -100,10 +100,14 @@ class CreateRepositoryCommand:
         if effect.status == EffectStatus.SUCCEEDED:
             return _response_from_effect(effect.response_body)
 
+        self._fault_injector.after_pending()
+
         key = repository_key(repository_id)
         staged = self._layout.staging_repository(key, uuid4().hex[:12])
+        self._fault_injector.after_staging()
         try:
             initial_commit_id = self._create_port.initialize_and_head(staged)
+            self._fault_injector.after_dolt_init()
             target = self._layout.published_repository(key)
             self._layout.assert_publication_devices(staged, target.parent)
             self._publication_port.publish(
@@ -118,6 +122,7 @@ class CreateRepositoryCommand:
                 "initial_commit_id": initial_commit_id,
             }
             self._mutation_store.mark_succeeded(effect.effect_id, response_body=response_body)
+            self._fault_injector.after_succeeded_before_response()
             return CreateRepositoryResponse.model_validate(response_body)
         except FingerprintConflict as exc:
             raise _idempotency_conflict() from exc

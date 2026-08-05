@@ -178,6 +178,7 @@ class UploadArtifactCommand:
                     raw_sha256=headers.artifact_sha256,
                 ),
             )
+            self._fault_injector.after_succeeded_before_response()
             return UploadArtifactResponse.model_validate(response_body)
         except FingerprintConflict as exc:
             raise _idempotency_conflict() from exc

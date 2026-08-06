@@ -276,6 +276,22 @@ file；文件名由Service常量决定，不直接使用archive path创建filesy
 前检查counter，失败时关闭reader、删除可重建staging并保留原Repository artifact。
 `manifest.json`可以在完整写入staging并确认不超过16 MiB后做有界内存解析。
 
+V1不限制合法zstd frame是否启用content checksum。Checksum trailer属于compressed frame
+metadata，不计入decompressed tar stream；当expanded counter恰好达到上限但decoder仍需消费
+checksum trailer或frame terminator时，实现必须继续以bounded zero/one-byte output probe完成合法
+EOF判定。若decoder在probe时`needs_input`且compressed artifact尚未到物理EOF，必须先读取下一
+个有界compressed chunk再继续probe；只有物理输入耗尽仍未到合法EOF时才可判定frame incomplete。
+任何新增decompressed output仍按越界拒绝，metadata消费不得增加decompressed counter。该probe
+只在expanded budget恰好耗尽时触发；metadata应按既定有界compressed chunk推进，不得退化为逐字节
+读取compressed artifact或无界递归。Required regression必须使用启用content checksum、checksum
+trailer跨64 KiB input read boundary且decoder output恰好等于配置上限的合法package，防止把“需要
+更多compressed metadata”误判为truncated frame。
+
+Tar logical EOF至少包含两个连续512-byte zero blocks。为兼容stdlib `tarfile`的record padding，
+第二个EOF block后允许任意数量的完整512-byte全零block；这些bytes仍计入decoder stream counter。
+EOF后的partial block或任一非零byte均属于malformed trailing data并拒绝，不得把“全零”单独作为
+接受partial tail的充分条件。
+
 四类size counter必须独立：
 
 | Counter | Default | Meaning |
@@ -514,6 +530,29 @@ marker = gateway-versioned-import operation_id=<canonical UUID>
 Provider必须以server-owned repository cwd运行Dolt CLI；`replay.sql`只通过只读file
 descriptor/stdin传入，不进入argv、log或memory bytes。不建设SQL parser，因为package由
 受信Storage Projection owner生成；若trust boundary改变必须重开ADR 0009。
+
+S4 provider实现约束（Round-4 remediation）：
+
+- `replay_sql(private_ref, ...)` 要求调用方已 checkout 到同名 private ref；provider 在 replay
+  前后校验当前 branch 仍为 `private_ref`，否则 `ImportProviderError`；**不**在 replay 内自动
+  checkout，避免在 `main` 上误执行 replay SQL。
+- `read_catalog(candidate)` 通过 `dolt_log AS OF {candidate}` 解析 direct parent；parent 缺失或
+  malformed 必须 `ImportProviderError`，禁止静默空 catalog。
+- catalog projection 在 target revision 枚举全部 user tables（`SHOW FULL TABLES AS OF` +
+  `SHOW CREATE TABLE ... AS OF` + `COUNT(*) AS OF`），覆盖 schema-stable data-only 增量；不得仅
+  依赖 `dolt_schema_diff` 作为主路径。
+- `inspect_marker` / `read_catalog` / `stream_table` 将 `CandidateAError`、`ProcessBoundaryError`、
+  `csv.Error`、`UnicodeDecodeError` 等边界失败统一包装为 `ImportProviderError`；marker 探测期
+  的 provider/validation 失败归类为 `ambiguous`。
+- `csv.field_size_limit` 在进程级一次性提升到 stream line bound，stream 迭代内不得 per-stream
+  恢复，避免并发 stream 竞态。
+
+S4进入provider实现前必须保持S3 package boundary为green，并增加一项cross-stage regression：
+启用zstd content checksum、让checksum/frame trailer跨compressed input chunk、令decoder output
+恰好等于配置上限，package仍必须成功；增加一个完整512-byte zero padding block仍成功，而
+1/511/513-byte partial zero tail和任一非零trailing仍失败。该回归只冻结§6既有语义，不把package
+validator接入provider，也不扩大S4 production scope；若回归失败，S4先标记no-go并单独修复S3
+边界，不得在provider提交中静默改变package contract。
 
 ## 11. Private ref and mandatory main CAS
 
@@ -802,6 +841,8 @@ Package tests：
 - entry count/order/name/type；
 - traversal、duplicate、link、device、FIFO、PAX、extra/trailing；
 - compressed、manifest、replay、payload-total和decoder-stream exact boundary±1；
+- checksum-enabled zstd frame跨compressed chunk且equal decoder boundary成功；
+- 双tar EOF后完整512-byte zero padding兼容，partial/non-zero trailing拒绝；
 - bounded chunking且不materialize完整entry；
 - raw size/SHA mismatch和cleanup。
 

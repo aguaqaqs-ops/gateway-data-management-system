@@ -2507,3 +2507,37 @@ def test_metadata_empty_structured_rejects_column_collision(
     ):
         with pytest.raises(ImportProviderError, match="duplicate column names"):
             import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(
+    "stdout",
+    (
+        b'{"rows":[{"Table_type":"BASE TABLE","Tables_in":"t"}]}',
+        b'{"rows":[],"columns":[{"name":"Table_type"},{"name":"Tables_in_"}]}',
+        b'{"rows":[],"columns":[{"name":"Table_type"},{"name":"Tables_inside"}]}',
+        b'{"rows":[],"columns":[{"name":"Table_type"},{"name":"Tables_index"}]}',
+    ),
+)
+def test_catalog_tables_rejects_invalid_tables_in_prefix(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE bad_tables_prefix (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_tables"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="Tables_in_"):
+            import_provider.read_catalog(candidate)

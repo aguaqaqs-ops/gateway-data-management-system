@@ -119,6 +119,11 @@ def _create_statement_from_show_row(row: dict[str, Any]) -> str:
 
 
 _ALLOWED_SHOW_TABLE_TYPES = frozenset({"BASE TABLE", "VIEW"})
+_TABLES_IN_COLUMN_PREFIX = "tables_in_"
+
+
+def _is_show_tables_in_key(key: str) -> bool:
+    return key.startswith(_TABLES_IN_COLUMN_PREFIX) and len(key) > len(_TABLES_IN_COLUMN_PREFIX)
 
 
 def _normalized_row_keys(row: dict[str, Any]) -> set[str]:
@@ -150,7 +155,7 @@ def _parse_show_tables_row(row: dict[str, Any], kind: str) -> tuple[str, str]:
         raise DoltCliError(f"Dolt {kind} row schema mismatch: expected 2 columns, got {len(keys)}")
     if "table_type" not in keys:
         raise DoltCliError(f"Dolt {kind} row schema mismatch: missing Table_type")
-    tables_in = [key for key in keys if key.startswith("tables_in")]
+    tables_in = [key for key in keys if _is_show_tables_in_key(key)]
     if len(tables_in) != 1:
         raise DoltCliError(f"Dolt {kind} row schema mismatch: missing unique Tables_in_* column")
     normalized_to_original = {key.lower(): key for key in row}
@@ -237,7 +242,7 @@ def _validate_metadata_columns(kind: str, columns: Any) -> None:
             )
         if "table_type" not in keys:
             raise DoltCliError(f"Dolt {kind} envelope column schema mismatch: missing Table_type")
-        tables_in = [key for key in keys if key.startswith("tables_in")]
+        tables_in = [key for key in keys if _is_show_tables_in_key(key)]
         if len(tables_in) != 1:
             raise DoltCliError(
                 f"Dolt {kind} envelope column schema mismatch: missing unique Tables_in_* column"

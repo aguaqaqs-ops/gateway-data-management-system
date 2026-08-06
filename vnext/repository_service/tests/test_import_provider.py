@@ -239,6 +239,52 @@ def _candidate_on_private_ref(
     return private_ref, marker, expected, candidate
 
 
+def _malformed_json_command_result(stdout: bytes, command_kind: str) -> CommandResult:
+    return CommandResult(
+        command_kind=command_kind,
+        exit_code=0,
+        duration_seconds=0.0,
+        stdout=stdout,
+        stdout_tail=stdout,
+        stderr_tail=b"",
+        timed_out=False,
+    )
+
+
+def _run_cli_malformed_json_side_effect(
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+    *,
+    kinds: frozenset[str],
+) -> object:
+    original_run_cli = import_provider._cli.run_cli
+
+    def side_effect(
+        kind: str,
+        args: list[str],
+        timeout: float,
+        *,
+        stdin_path: Path | None = None,
+    ) -> CommandResult:
+        if kind in kinds:
+            return _malformed_json_command_result(stdout, kind)
+        return original_run_cli(kind, args, timeout, stdin_path=stdin_path)
+
+    return side_effect
+
+
+MALFORMED_JSON_SHAPES: tuple[tuple[bytes, str], ...] = (
+    (b'{"rows":[],"columns":null}', "NoneType"),
+    (b'{"rows":[],"columns":"bad"}', "expected 1"),
+    (b'{"rows":"bad","columns":[{"name":"x"}]}', "Dolt JSON rows was not a list"),
+)
+
+MARKER_FAULT_JSON_SHAPES: tuple[tuple[bytes, str], ...] = (
+    (b'{"rows":[],"columns":null}', "NoneType"),
+    (b'{"rows":"bad","columns":[{"name":"x"}]}', "Dolt JSON rows was not a list"),
+)
+
+
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
 def test_dolt_integration_private_ref_marker_publish_and_cleanup(
     import_layout: DurableLayout,
@@ -1710,3 +1756,101 @@ def test_read_ref_rejects_whitespace_commit_id(
     with patch.object(import_provider._cli, "query_json", side_effect=whitespace_commit_rows):
         with pytest.raises(ImportProviderError, match="invalid"):
             import_provider.read_ref(IMPORT_MAIN_REF)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(("stdout", "match"), MALFORMED_JSON_SHAPES)
+def test_read_ref_malformed_json_metadata_is_typed(
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+    match: str,
+) -> None:
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"read_ref"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match=match):
+            import_provider.read_ref(IMPORT_MAIN_REF)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(("stdout", "match"), MALFORMED_JSON_SHAPES)
+def test_read_catalog_malformed_json_metadata_is_typed(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+    match: str,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_catalog (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"candidate_parent"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match=match):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(("stdout", "match"), MARKER_FAULT_JSON_SHAPES)
+def test_inspect_marker_malformed_json_metadata_is_ambiguous(
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+    match: str,
+) -> None:
+    marker = derive_operation_marker(OPERATION_ID)
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"marker_scan"}),
+        ),
+    ):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(("stdout", "match"), MARKER_FAULT_JSON_SHAPES)
+def test_publish_main_malformed_json_read_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+    match: str,
+) -> None:
+    _, _, expected, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_publish (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"read_ref"}),
+        ),
+    ):
+        result = import_provider.publish_main(expected, candidate)
+
+    assert isinstance(result, PublishMainAmbiguous)

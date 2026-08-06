@@ -63,6 +63,7 @@ _IMPORT_PROVIDER_FAULTS = (
     CandidateAError,
     ProcessBoundaryError,
     ValueError,
+    TypeError,
     IndexError,
     OSError,
 )

@@ -202,8 +202,13 @@ def _validate_metadata_rows(kind: str, rows: list[dict[str, Any]]) -> None:
             _require_exact_row_keys(row, expected, kind)
         return
     if kind == "catalog_tables":
+        seen_table_names: set[str] = set()
         for row in rows:
-            _parse_show_tables_row(row, kind)
+            table_name, _ = _parse_show_tables_row(row, kind)
+            if table_name in seen_table_names:
+                raise DoltCliError(f"Dolt {kind} returned duplicate table names")
+            seen_table_names.add(table_name)
+        return
 
 
 def _column_names_from_envelope(columns: Any, kind: str) -> list[str]:

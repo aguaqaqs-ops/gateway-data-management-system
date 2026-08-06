@@ -2569,3 +2569,59 @@ def test_read_catalog_preserves_embedded_space_table_name(
     )
     names = {table.name for table in import_provider.read_catalog(candidate)}
     assert "embedded space" in names
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_tables_rejects_duplicate_object_rows(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE duplicate_source (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    stdout = (
+        b'[{"Tables_in_import-repo":"duplicate_source","Table_type":"BASE TABLE"},'
+        b' {"Tables_in_import-repo":"duplicate_source","Table_type":"BASE TABLE"}]'
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_tables"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="duplicate table names"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_tables_rejects_duplicate_structured_rows(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE duplicate_source (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    stdout = (
+        b'{"rows":[["duplicate_source","BASE TABLE"],["duplicate_source","BASE TABLE"]],'
+        b'"columns":[{"name":"Tables_in_import-repo"},{"name":"Table_type"}]}'
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_tables"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="duplicate table names"):
+            import_provider.read_catalog(candidate)

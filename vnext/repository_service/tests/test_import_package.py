@@ -1086,3 +1086,35 @@ def test_rejects_non_strict_manifest_scalars(
     artifact_path = tmp_path / "artifact.tar.zst"
     with pytest.raises(ImportPackageRejected, match=match):
         validate_package(artifact_path, staging_dir, settings, build_package_bytes(manifest=manifest))
+
+
+def test_manifest_accepts_point_srid_normalized_sql_type(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    manifest = {
+        "package_version": 1,
+        "canonicalization_manifest_digest": "manifest-digest-spatial",
+        "tables": [
+            {
+                "name": "spatial_pt",
+                "schema": {
+                    "columns": [
+                        {"name": "geom", "sql_type": "POINT SRID 4326", "nullable": False},
+                        {"name": "id", "sql_type": "BIGINT", "nullable": False},
+                    ],
+                    "primary_key": ["id"],
+                },
+                "row_count": 0,
+            }
+        ],
+    }
+    replay_sql = (
+        b"CREATE TABLE spatial_pt (geom POINT SRID 4326 NOT NULL, "
+        b"id BIGINT NOT NULL PRIMARY KEY);\n"
+    )
+    payload = build_package_bytes(manifest=manifest, replay_sql=replay_sql)
+    artifact_path = tmp_path / "artifact.tar.zst"
+    result = validate_package(artifact_path, staging_dir, settings, payload)
+    assert result.manifest.tables[0].table_schema.columns[0].sql_type == "POINT SRID 4326"

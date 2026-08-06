@@ -366,7 +366,9 @@ Nullability来自catalog/manifest field，不由Arrow value推断。Integer disp
 ZEROFILL、character collation/charset modifier不属于normalized grammar。ENUM/SET、
 YEAR、spatial、vector和其他未列type均为unknown：manifest可携带其bounded normalized
 spelling，但只有caller显式STRINGIFY才允许publication/row conversion；STRUCTURAL仍
-要求manifest与catalog spelling exact一致。P2-R1 probe固定实际Dolt catalog spelling与
+要求manifest与catalog spelling exact一致。spatial type带SRID时normalized spelling为
+`TYPE SRID n`（例如`POINT SRID 4326`），catalog从Dolt version comment形态归一化到该
+形式。P2-R1 probe固定实际Dolt catalog spelling与
 driver value shape；adapter不得依据单个row值推断type或改变上述mapping。
 
 SUCCEEDED result还必须原样返回package绑定：

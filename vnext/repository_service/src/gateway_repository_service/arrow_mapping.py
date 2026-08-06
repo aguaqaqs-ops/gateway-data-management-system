@@ -100,6 +100,9 @@ def normalize_sql_type(data_type: str, column_type: str) -> str:
         return raw
     if raw in {"TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"}:
         return raw
+    srid_match = re.match(r"^([A-Z]+)\s+/\*!\d+\s+SRID\s+(\d+)\s*\*/\s*$", raw)
+    if srid_match is not None:
+        return f"{srid_match.group(1)} SRID {srid_match.group(2)}"
     return raw
 
 

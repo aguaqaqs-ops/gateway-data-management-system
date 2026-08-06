@@ -2962,6 +2962,25 @@ def test_catalog_count_rejects_descriptor_case_collision_keys(
             "multiple primary key",
         ),
         ("CREATE TABLE t (`id` BIGINT, FULLTEXT garbage);", "constraint was malformed"),
+        ("CREATE TABLE t (`id` BIGINT, KEY idx ());", "constraint was malformed"),
+        ("CREATE TABLE t (`n` INT, CHECK ());", "constraint was malformed"),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY () REFERENCES parent (`id`));",
+            "constraint was malformed",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY (`id`) REFERENCES parent ());",
+            "constraint was malformed",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY (`id`) REFERENCES parent (`id`) "
+            "ON DELETE CASCADE ON DELETE RESTRICT);",
+            "constraint was malformed",
+        ),
+        ("CREATE TABLE t (`id` INT PRIMARY KEY PRIMARY KEY);", "invalid pinned DDL column definition"),
+        ("CREATE TABLE t (`id` INT DEFAULT 1 DEFAULT 2);", "invalid pinned DDL column definition"),
+        ("CREATE TABLE t (`id` INT NULL NOT NULL);", "invalid pinned DDL column definition"),
+        ("CREATE TABLE t (`id` INT NULL PRIMARY KEY);", "primary key column is nullable"),
     ),
 )
 def test_parse_create_statement_rejects_additional_malformed_ddl(ddl: str, match: str) -> None:
@@ -3013,6 +3032,25 @@ def _catalog_create_injection_test(
             "multiple primary key",
         ),
         ("CREATE TABLE t (`id` BIGINT, FULLTEXT garbage);", "constraint was malformed"),
+        ("CREATE TABLE t (`id` BIGINT, KEY idx ());", "constraint was malformed"),
+        ("CREATE TABLE t (`n` INT, CHECK ());", "constraint was malformed"),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY () REFERENCES parent (`id`));",
+            "constraint was malformed",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY (`id`) REFERENCES parent ());",
+            "constraint was malformed",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY (`id`) REFERENCES parent (`id`) "
+            "ON DELETE CASCADE ON DELETE RESTRICT);",
+            "constraint was malformed",
+        ),
+        ("CREATE TABLE t (`id` INT PRIMARY KEY PRIMARY KEY);", "invalid pinned DDL column definition"),
+        ("CREATE TABLE t (`id` INT DEFAULT 1 DEFAULT 2);", "invalid pinned DDL column definition"),
+        ("CREATE TABLE t (`id` INT NULL NOT NULL);", "invalid pinned DDL column definition"),
+        ("CREATE TABLE t (`id` INT NULL PRIMARY KEY);", "primary key column is nullable"),
     ),
 )
 def test_read_catalog_rejects_malformed_create_ddl_injection(
@@ -3054,3 +3092,142 @@ def test_catalog_create_rejects_malformed_column_names(
     ):
         with pytest.raises(ImportProviderError, match="row schema mismatch|Table and Create Table"):
             import_provider.read_catalog(candidate)
+
+
+def test_parse_create_statement_accepts_balanced_default_expression() -> None:
+    table = _parse_create_statement(
+        "CREATE TABLE t (`n` INT DEFAULT (1 + 2), `id` BIGINT NOT NULL PRIMARY KEY);",
+        0,
+    )
+    columns = {column.name: column.sql_type for column in table.columns}
+    assert columns["n"] == "INT"
+    assert columns["id"] == "BIGINT"
+
+
+def test_parse_create_statement_accepts_default_and_on_update_modifiers() -> None:
+    table = _parse_create_statement(
+        "CREATE TABLE t ("
+        "`ts` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
+        "`id` BIGINT NOT NULL PRIMARY KEY);",
+        0,
+    )
+    columns = {column.name: column.sql_type for column in table.columns}
+    assert columns["ts"] == "TIMESTAMP"
+    assert columns["id"] == "BIGINT"
+
+
+def test_parse_create_statement_on_update_only_splits_sql_type() -> None:
+    table = _parse_create_statement(
+        "CREATE TABLE t ("
+        "`ts` TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6), "
+        "`id` BIGINT NOT NULL PRIMARY KEY);",
+        0,
+    )
+    columns = {column.name: column.sql_type for column in table.columns}
+    assert columns["ts"] == "TIMESTAMP(6)"
+
+
+def test_parse_create_statement_accepts_index_comment_and_check_not_enforced() -> None:
+    table = _parse_create_statement(
+        "CREATE TABLE t ("
+        "`code` VARCHAR(16) NOT NULL, "
+        "`n` INT NOT NULL, "
+        "KEY idx (`code`) COMMENT 'idx comment', "
+        "CHECK ((`n` > 0)) /*!80016 NOT ENFORCED */, "
+        "`id` BIGINT NOT NULL PRIMARY KEY);",
+        0,
+    )
+    assert [column.name for column in table.columns] == ["code", "n", "id"]
+
+
+def test_parse_create_statement_normalizes_spatial_srid_type() -> None:
+    table = _parse_create_statement(
+        "CREATE TABLE t (`geom` POINT /*!80003 SRID 4326 */ NOT NULL, "
+        "`id` BIGINT NOT NULL PRIMARY KEY);",
+        0,
+    )
+    columns = {column.name: column.sql_type for column in table.columns}
+    assert columns["geom"] == "POINT SRID 4326"
+
+
+def test_parse_create_statement_normalizes_dolt_trailing_srid_version_comment() -> None:
+    table = _parse_create_statement(
+        "CREATE TABLE t (`geom` point NOT NULL /*!80003 SRID 4326 */, "
+        "`id` BIGINT NOT NULL PRIMARY KEY);",
+        0,
+    )
+    columns = {column.name: column.sql_type for column in table.columns}
+    assert columns["geom"] == "POINT SRID 4326"
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_accepts_default_expression_modifier(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql=(
+            "CREATE TABLE default_expr (n INT DEFAULT (1 + 2), "
+            "id BIGINT NOT NULL PRIMARY KEY);\n"
+        ),
+    )
+    catalog = import_provider.read_catalog(candidate)
+    columns = {column.name: column.sql_type for column in catalog[0].columns}
+    assert columns["n"] == "INT"
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_accepts_timestamp_on_update_modifier(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql=(
+            "CREATE TABLE ts_col (ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP "
+            "ON UPDATE CURRENT_TIMESTAMP, id BIGINT NOT NULL PRIMARY KEY);\n"
+        ),
+    )
+    catalog = import_provider.read_catalog(candidate)
+    columns = {column.name: column.sql_type for column in catalog[0].columns}
+    assert columns["ts"] == "TIMESTAMP"
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_accepts_index_comment_and_check_not_enforced(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql=(
+            "CREATE TABLE constraint_opts (code VARCHAR(16) NOT NULL, n INT NOT NULL, "
+            "KEY idx (code) COMMENT 'idx comment', "
+            "CHECK (n > 0) NOT ENFORCED, "
+            "id BIGINT NOT NULL PRIMARY KEY);\n"
+        ),
+    )
+    catalog = import_provider.read_catalog(candidate)
+    assert [column.name for column in catalog[0].columns] == ["code", "n", "id"]
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_normalizes_point_srid_for_manifest_roundtrip(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql=(
+            "CREATE TABLE spatial_pt (geom POINT SRID 4326 NOT NULL, "
+            "id BIGINT NOT NULL PRIMARY KEY);\n"
+        ),
+    )
+    catalog = import_provider.read_catalog(candidate)
+    columns = {column.name: column.sql_type for column in catalog[0].columns}
+    assert columns["geom"] == "POINT SRID 4326"

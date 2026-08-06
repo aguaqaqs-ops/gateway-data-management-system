@@ -152,6 +152,15 @@ def _parse_create_statement(ddl: str, row_count: int) -> TableCatalog:
         if re.search(r"\bPRIMARY\s+KEY\b", tail, re.I):
             primary_key.append(column_name)
         columns.append(ColumnCatalog(column_name, normalize_sql_type(sql_type, sql_type), nullable, None))
+    column_names = [column.name for column in columns]
+    if len(column_names) != len(set(column_names)):
+        raise ProviderError("pinned CREATE TABLE has duplicate column names")
+    if len(primary_key) != len(set(primary_key)):
+        raise ProviderError("pinned CREATE TABLE primary key has duplicate column names")
+    declared_columns = set(column_names)
+    for pk_name in primary_key:
+        if pk_name not in declared_columns:
+            raise ProviderError("pinned CREATE TABLE primary key references unknown column")
     positions = {name: index for index, name in enumerate(primary_key, 1)}
     columns = [
         ColumnCatalog(column.name, column.sql_type, column.nullable, positions.get(column.name))

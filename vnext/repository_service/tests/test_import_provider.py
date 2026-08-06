@@ -22,7 +22,7 @@ from gateway_repository_service.arrow_mapping import (
 from gateway_repository_service.candidate_a.dolt_cli import DoltCliError
 from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import IMPORT_MAIN_REF
-from gateway_repository_service.candidate_a.sql import ProviderError
+from gateway_repository_service.candidate_a.sql import ProviderError, _parse_create_statement
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import CommandResult, DoltRunner, ProcessBoundaryError
 from gateway_repository_service.providers import OfflineCliProvider
@@ -2624,4 +2624,45 @@ def test_catalog_tables_rejects_duplicate_structured_rows(
         ),
     ):
         with pytest.raises(ImportProviderError, match="duplicate table names"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.parametrize(
+    ("ddl", "match"),
+    (
+        ("CREATE TABLE t (`id` BIGINT, `id` BIGINT);", "duplicate column names"),
+        ("CREATE TABLE t (`id` BIGINT, PRIMARY KEY (`missing`));", "references unknown column"),
+        ("CREATE TABLE t (`id` BIGINT, PRIMARY KEY (`id`, `id`));", "primary key has duplicate"),
+    ),
+)
+def test_parse_create_statement_rejects_invalid_schema_invariants(ddl: str, match: str) -> None:
+    with pytest.raises(ProviderError, match=match):
+        _parse_create_statement(ddl, 0)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_rejects_duplicate_column_ddl(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE valid_target (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    stdout = (
+        b'{"rows":[{"Table":"valid_target",'
+        b'"Create Table":"CREATE TABLE `valid_target` (`id` BIGINT, `id` BIGINT);"}]}'
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_create"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="duplicate column names"):
             import_provider.read_catalog(candidate)

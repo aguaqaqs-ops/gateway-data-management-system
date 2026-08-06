@@ -245,7 +245,25 @@ class _CompressedArtifactSource:
             return False
         if not self._decompressor.needs_input:
             return self._probe_decoder_at_budget_limit()
+        if self._compressed_buffer or not self._input_exhausted:
+            self._feed_compressed_for_probe()
+            return self._probe_decoder_at_budget_limit()
         raise ImportPackageRejected("import package zstd frame is incomplete")
+
+    def _feed_compressed_for_probe(self) -> None:
+        if self._compressed_buffer:
+            chunk = self._compressed_buffer
+            self._compressed_buffer = b""
+        else:
+            chunk = self._read_compressed_chunk()
+        if not chunk:
+            return
+        try:
+            self._decompressor.decompress(chunk, max_length=1)
+        except EOFError:
+            if not self._decompressor.eof:
+                raise ImportPackageRejected("import package zstd frame is incomplete") from None
+        self._compressed_buffer = self._decompressor.unused_data
 
     def _accept_decompressed(self, output: bytes) -> bool:
         self._decompressed_stream_bytes += len(output)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import UUID
 import csv
 import threading
@@ -1510,3 +1510,187 @@ def test_concurrent_streams_with_over_128k_field(
     )
     import_provider.checkout_private_ref(private_ref)
     import_provider.delete_private_ref(private_ref, expected_candidate=candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_stream_timeout_is_typed(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("id", "BIGINT", False, 0),),
+        0,
+    )
+    candidate = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    def timeout_stream(*args: object, **kwargs: object) -> Iterator[pa.RecordBatch]:
+        def _gen() -> Iterator[pa.RecordBatch]:
+            raise TimeoutError("row_stream exceeded timeout")
+            yield pa.record_batch({"id": pa.array([], type=pa.int64())})  # pragma: no cover
+
+        return _gen()
+
+    with patch.object(import_provider._cli, "stream_table", side_effect=timeout_stream):
+        with pytest.raises(ImportProviderError, match="timeout"):
+            list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_publish_oserror_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, expected, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE publish_os (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    main_before = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    with patch.object(
+        import_provider._runner,
+        "run",
+        side_effect=FileNotFoundError("dolt disappeared"),
+    ):
+        result = import_provider.publish_main(expected, candidate)
+
+    assert isinstance(result, PublishMainAmbiguous)
+    assert import_provider.read_ref(IMPORT_MAIN_REF) == main_before
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_arrow_type_error_is_typed(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("id", "BIGINT", False, 0),),
+        0,
+    )
+    candidate = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    def arrow_fault_stream(*args: object, **kwargs: object) -> Iterator[pa.RecordBatch]:
+        def _gen() -> Iterator[pa.RecordBatch]:
+            raise pa.ArrowTypeError("arrow conversion shape")
+            yield pa.record_batch({"id": pa.array([], type=pa.int64())})  # pragma: no cover
+
+        return _gen()
+
+    with patch.object(import_provider._cli, "stream_table", side_effect=arrow_fault_stream):
+        with pytest.raises(ImportProviderError, match="arrow conversion"):
+            list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_stream_timeout_closes_once(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("id", "BIGINT", False, 0),),
+        0,
+    )
+    candidate = import_provider.read_ref(IMPORT_MAIN_REF)
+    stream = MagicMock()
+    stream.__iter__ = MagicMock(side_effect=TimeoutError("row_stream exceeded timeout"))
+    stream.close.return_value = CommandResult(
+        command_kind="row_stream",
+        exit_code=0,
+        duration_seconds=0.0,
+        stdout=b"",
+        stdout_tail=b"",
+        stderr_tail=b"",
+        timed_out=False,
+    )
+
+    with patch.object(import_provider._cli.runner, "stream", return_value=stream):
+        with pytest.raises(TimeoutError, match="timeout"):
+            list(
+                import_provider._cli.stream_table(
+                    candidate,
+                    table,
+                    ArrowUnknownTypePolicy.STRINGIFY,
+                )
+            )
+
+    assert stream.close.call_count == 1
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_duplicate_parent_rows(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE dup_parent (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    original_query_json = import_provider._cli.query_json
+
+    def duplicate_parent_rows(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "candidate_parent":
+            return [{"parents": "parent1"}, {"parents": "parent2"}]
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=duplicate_parent_rows):
+        with pytest.raises(ImportProviderError, match="candidate_parent"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_row_count_rejects_malformed_scalar(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE bad_count (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    original_query_json = import_provider._cli.query_json
+
+    for raw_count in (-1, 1.5, True):
+        def malformed_count_rows(
+            kind: str,
+            sql: str,
+            *,
+            revision: str | None = None,
+        ) -> list[dict[str, object]]:
+            if kind == "catalog_count":
+                return [{"row_count": raw_count}]
+            return original_query_json(kind, sql, revision=revision)
+
+        with patch.object(
+            import_provider._cli,
+            "query_json",
+            side_effect=malformed_count_rows,
+        ):
+            with pytest.raises(ImportProviderError, match="invalid catalog_count"):
+                import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_ref_rejects_whitespace_commit_id(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    original_query_json = import_provider._cli.query_json
+
+    def whitespace_commit_rows(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "read_ref":
+            return [{"commit_id": " abc "}]
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=whitespace_commit_rows):
+        with pytest.raises(ImportProviderError, match="invalid"):
+            import_provider.read_ref(IMPORT_MAIN_REF)

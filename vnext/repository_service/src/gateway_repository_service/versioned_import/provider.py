@@ -48,7 +48,9 @@ def _as_import_provider_error(exc: BaseException) -> ImportProviderError:
             CandidateAError,
             ProcessBoundaryError,
             ValueError,
+            TypeError,
             IndexError,
+            OSError,
             csv.Error,
             UnicodeDecodeError,
         ),
@@ -62,15 +64,20 @@ _IMPORT_PROVIDER_FAULTS = (
     ProcessBoundaryError,
     ValueError,
     IndexError,
+    OSError,
 )
 
 _STREAM_PROVIDER_FAULTS = (
     CandidateAError,
     ProcessBoundaryError,
     ValueError,
+    TypeError,
+    OSError,
     csv.Error,
     UnicodeDecodeError,
 )
+
+_PUBLISH_AMBIGUOUS_FAULTS = (*_IMPORT_PROVIDER_FAULTS, ImportProviderError)
 
 
 class CandidateAImportProvider:
@@ -99,9 +106,9 @@ class CandidateAImportProvider:
             )
             row = _require_exactly_one_row(rows, "read_ref")
             raw = value(row, "commit_id", 0)
-            if not isinstance(raw, str) or not raw.strip():
+            if not isinstance(raw, str) or raw == "":
                 raise ImportProviderError("Dolt did not return ref hash")
-            return validate_commit_id(raw.strip())
+            return validate_commit_id(raw)
         except _IMPORT_PROVIDER_FAULTS as exc:
             raise _as_import_provider_error(exc) from exc
 
@@ -210,9 +217,8 @@ class CandidateAImportProvider:
                 "SELECT parents FROM dolt_log AS OF "
                 f"{commit_literal(safe_candidate)} WHERE commit_hash = {commit_literal(safe_candidate)};\n",
             )
-            if not rows:
-                raise ImportProviderError("candidate commit is missing from immutable log")
-            parent = parse_log_parent_field(value(rows[0], "parents", 0))
+            parent_row = _require_exactly_one_row(rows, "candidate_parent")
+            parent = parse_log_parent_field(value(parent_row, "parents", 0))
             if parent is None:
                 raise ImportProviderError("candidate parent is missing or malformed")
             return self._cli.catalog(parent, safe_candidate)
@@ -249,7 +255,7 @@ class CandidateAImportProvider:
         safe_candidate = validate_commit_id(candidate)
         try:
             actual = self.read_ref(IMPORT_MAIN_REF)
-        except ImportProviderError:
+        except _PUBLISH_AMBIGUOUS_FAULTS:
             return PublishMainAmbiguous()
         if actual != safe_expected:
             return PublishMainMismatch(actual=actual)
@@ -261,16 +267,14 @@ class CandidateAImportProvider:
                 self._settings.import_timeout_seconds,
                 capture_stdout=True,
             )
-        except _IMPORT_PROVIDER_FAULTS:
-            return PublishMainAmbiguous()
-        except ImportProviderError:
+        except _PUBLISH_AMBIGUOUS_FAULTS:
             return PublishMainAmbiguous()
         if result.timed_out or result.exit_code != 0:
             return PublishMainAmbiguous()
 
         try:
             readback = self.read_ref(IMPORT_MAIN_REF)
-        except ImportProviderError:
+        except _PUBLISH_AMBIGUOUS_FAULTS:
             return PublishMainAmbiguous()
         if readback != safe_candidate:
             return PublishMainAmbiguous()

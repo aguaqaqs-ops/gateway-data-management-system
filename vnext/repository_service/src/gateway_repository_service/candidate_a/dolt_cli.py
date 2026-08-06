@@ -113,6 +113,24 @@ def _require_exactly_one_row(rows: list[dict[str, Any]], kind: str) -> dict[str,
     return rows[0]
 
 
+def _parse_non_negative_row_count(raw: Any, kind: str) -> int:
+    if isinstance(raw, bool):
+        raise DoltCliError(f"invalid {kind} row_count: {raw!r}")
+    if isinstance(raw, int):
+        if raw < 0:
+            raise DoltCliError(f"invalid {kind} row_count: {raw!r}")
+        return raw
+    if isinstance(raw, float):
+        if raw < 0 or not raw.is_integer():
+            raise DoltCliError(f"invalid {kind} row_count: {raw!r}")
+        return int(raw)
+    if isinstance(raw, str):
+        if not raw or not raw.isdigit():
+            raise DoltCliError(f"invalid {kind} row_count: {raw!r}")
+        return int(raw)
+    raise DoltCliError(f"invalid {kind} row_count: {raw!r}")
+
+
 _csv_field_limit_applied = False
 
 
@@ -175,10 +193,7 @@ class CandidateADoltCli:
             )
             count_row = _require_exactly_one_row(count_rows, "catalog_count")
             raw_count = value(count_row, "row_count", 0)
-            try:
-                row_count = int(raw_count)
-            except (TypeError, ValueError) as exc:
-                raise DoltCliError(f"invalid catalog_count row_count: {raw_count!r}") from exc
+            row_count = _parse_non_negative_row_count(raw_count, "catalog_count")
             tables.append(_parse_create_statement(ddl, row_count))
         return tuple(sorted(tables, key=lambda table: table.name))
 

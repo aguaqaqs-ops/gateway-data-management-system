@@ -14,13 +14,14 @@ from gateway_repository_service.arrow_mapping import (
     arrow_type,
     normalize_sql_type,
 )
+from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import commit_literal
 
 # Re-export for probe providers that import _commit_literal from providers.
 _commit_literal = commit_literal
 
 
-class ProviderError(RuntimeError):
+class ProviderError(CandidateAError):
     """Candidate A SQL/catalog execution failure shared with probe providers."""
 
 

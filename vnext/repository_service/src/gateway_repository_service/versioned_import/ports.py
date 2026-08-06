@@ -64,6 +64,7 @@ class VersionedImportProvider(Protocol):
 
     def replay_sql(
         self,
+        private_ref: str,
         replay_path: Path,
         cancellation: CancellationCallback | None = None,
     ) -> None: ...

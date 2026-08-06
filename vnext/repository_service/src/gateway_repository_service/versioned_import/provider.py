@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 from gateway_repository_contracts import UnknownTypePolicy
 from gateway_repository_service.arrow_mapping import TableCatalog, UnknownTypePolicy as ArrowUnknownTypePolicy
 from gateway_repository_service.candidate_a.dolt_cli import CandidateADoltCli, DoltCliError, value
+from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import (
     IMPORT_MAIN_REF,
     commit_literal,
@@ -20,8 +22,9 @@ from gateway_repository_service.candidate_a.ref_validation import (
     validate_private_ref_name,
     validate_readable_ref_name,
 )
+from gateway_repository_service.candidate_a.sql import ProviderError
 from gateway_repository_service.layout import DurableLayout
-from gateway_repository_service.process import CommandResult, DoltRunner
+from gateway_repository_service.process import CommandResult, DoltRunner, ProcessBoundaryError
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.ports import (
@@ -35,6 +38,16 @@ from gateway_repository_service.versioned_import.ports import (
     PublishMainPublished,
     PublishMainResult,
 )
+
+
+def _as_import_provider_error(exc: BaseException) -> ImportProviderError:
+    if isinstance(exc, ImportProviderError):
+        return exc
+    if isinstance(exc, (CandidateAError, ProviderError, DoltCliError, ProcessBoundaryError)):
+        return ImportProviderError(str(exc))
+    if isinstance(exc, (csv.Error, UnicodeDecodeError)):
+        return ImportProviderError(str(exc))
+    return ImportProviderError(str(exc))
 
 
 class CandidateAImportProvider:
@@ -91,16 +104,22 @@ class CandidateAImportProvider:
 
     def replay_sql(
         self,
+        private_ref: str,
         replay_path: Path,
         cancellation: CancellationCallback | None = None,
     ) -> None:
+        validate_private_ref_name(private_ref)
         if cancellation is not None and cancellation():
             raise ImportProviderError("import replay cancelled before start")
         safe_path = self._validate_replay_path(replay_path)
+        if self._current_branch() != private_ref:
+            raise ImportProviderError("replay requires private ref checkout")
         try:
             self._cli.replay(safe_path)
         except DoltCliError as exc:
             raise ImportProviderError(str(exc)) from exc
+        if self._current_branch() != private_ref:
+            raise ImportProviderError("replay left private ref checkout")
 
     def commit_operation_marker(self, private_ref: str, marker: str) -> str:
         validate_private_ref_name(private_ref)
@@ -155,7 +174,7 @@ class CandidateAImportProvider:
             if not refs:
                 return MarkerInspectionAmbiguous()
             return MarkerInspectionUnique(candidate=candidate, parent=parent, refs=refs)
-        except DoltCliError:
+        except (DoltCliError, ProviderError, ValueError, ImportProviderError):
             return MarkerInspectionAmbiguous()
 
     def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
@@ -163,16 +182,17 @@ class CandidateAImportProvider:
         try:
             rows = self._cli.query_json(
                 "candidate_parent",
-                f"SELECT parents FROM dolt_log WHERE commit_hash = {commit_literal(safe_candidate)};\n",
+                "SELECT parents FROM dolt_log AS OF "
+                f"{commit_literal(safe_candidate)} WHERE commit_hash = {commit_literal(safe_candidate)};\n",
             )
             if not rows:
-                return ()
+                raise ImportProviderError("candidate commit is missing from immutable log")
             parent = parse_log_parent_field(value(rows[0], "parents", 0))
             if parent is None:
-                return ()
+                raise ImportProviderError("candidate parent is missing or malformed")
             return self._cli.catalog(parent, safe_candidate)
-        except DoltCliError as exc:
-            raise ImportProviderError(str(exc)) from exc
+        except (DoltCliError, ProviderError, ValueError) as exc:
+            raise _as_import_provider_error(exc) from exc
 
     def stream_table(
         self,
@@ -187,15 +207,15 @@ class CandidateAImportProvider:
                 table,
                 ArrowUnknownTypePolicy(policy),
             )
-        except DoltCliError as exc:
-            raise ImportProviderError(str(exc)) from exc
+        except (DoltCliError, ProviderError, ValueError) as exc:
+            raise _as_import_provider_error(exc) from exc
 
         def _emit() -> Iterator[pa.RecordBatch]:
             try:
                 for batch in iterator:
                     yield batch
-            except DoltCliError as exc:
-                raise ImportProviderError(str(exc)) from exc
+            except (DoltCliError, ProviderError, ValueError, ProcessBoundaryError, csv.Error, UnicodeDecodeError) as exc:
+                raise _as_import_provider_error(exc) from exc
 
         return _emit()
 

@@ -6,14 +6,22 @@ from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID
+import threading
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 
 from gateway_repository_contracts import UnknownTypePolicy
-from gateway_repository_service.arrow_mapping import ColumnCatalog, TableCatalog
+from gateway_repository_service.arrow_mapping import (
+    ColumnCatalog,
+    TableCatalog,
+    UnknownTypePolicy as ArrowUnknownTypePolicy,
+)
+from gateway_repository_service.candidate_a.dolt_cli import DoltCliError
+from gateway_repository_service.candidate_a.ref_validation import IMPORT_MAIN_REF
+from gateway_repository_service.candidate_a.sql import ProviderError
 from gateway_repository_service.layout import DurableLayout
-from gateway_repository_service.process import CommandResult, DoltRunner
+from gateway_repository_service.process import CommandResult, DoltRunner, ProcessBoundaryError
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.models import (
@@ -30,8 +38,6 @@ from gateway_repository_service.versioned_import.ports import (
     PublishMainPublished,
 )
 from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
-from gateway_repository_service.candidate_a.ref_validation import IMPORT_MAIN_REF
-from gateway_repository_service.candidate_a.dolt_cli import DoltCliError
 from support.lifecycle_harness import dolt_available, lifecycle_settings
 
 
@@ -57,7 +63,12 @@ class FakeImportProvider:
         if private_ref not in self.refs:
             raise RuntimeError("missing private ref")
 
-    def replay_sql(self, replay_path: Path, cancellation: CancellationCallback | None = None) -> None:
+    def replay_sql(
+        self,
+        private_ref: str,
+        replay_path: Path,
+        cancellation: CancellationCallback | None = None,
+    ) -> None:
         if cancellation is not None and cancellation():
             raise RuntimeError("cancelled")
 
@@ -220,7 +231,7 @@ def _candidate_on_private_ref(
     expected = provider.read_ref("main")
     provider.create_private_ref(private_ref, expected)
     provider.checkout_private_ref(private_ref)
-    provider.replay_sql(_staging_replay_path(layout, "replay.sql", table_sql))
+    provider.replay_sql(private_ref, _staging_replay_path(layout, "replay.sql", table_sql))
     candidate = provider.commit_operation_marker(private_ref, marker)
     return private_ref, marker, expected, candidate
 
@@ -329,7 +340,7 @@ def test_replay_rejects_path_outside_staging(
     outside = tmp_path / "outside.sql"
     outside.write_text("SELECT 1;\n", encoding="utf-8")
     with pytest.raises(ImportProviderError, match="staging"):
-        import_provider.replay_sql(outside)
+        import_provider.replay_sql(derive_private_ref_name(OPERATION_ID), outside)
 
 
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
@@ -445,7 +456,7 @@ def test_dolt_replay_uses_stdin_without_leaking_sql_path(
         )
 
     with patch.object(import_provider._runner, "run", side_effect=recording_run):
-        import_provider.replay_sql(replay_sql)
+        import_provider.replay_sql(private_ref, replay_sql)
 
     replay_args = next(args for args in captured if "sql" in args)
     assert secret_sql not in " ".join(replay_args)
@@ -624,7 +635,7 @@ def test_replay_cancellation_before_start(
     )
 
     with pytest.raises(ImportProviderError, match="cancelled"):
-        import_provider.replay_sql(replay_sql, cancellation=lambda: True)
+        import_provider.replay_sql(private_ref, replay_sql, cancellation=lambda: True)
 
     assert import_provider.read_ref(IMPORT_MAIN_REF) == expected
     tables = import_provider._cli.query_json("show_tables", "SHOW TABLES;\n")
@@ -831,3 +842,222 @@ raise SystemExit(0)
     )
     assert production_result.returncode == 0, production_result.stdout + production_result.stderr
     assert probe_result.returncode == 0, probe_result.stdout + probe_result.stderr
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_replay_requires_private_ref(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    expected = import_provider.read_ref(IMPORT_MAIN_REF)
+    import_provider.create_private_ref(private_ref, expected)
+    replay_sql = _staging_replay_path(
+        import_layout,
+        "accidental.sql",
+        "CREATE TABLE accidentally_on_main (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with pytest.raises(ImportProviderError, match="private ref checkout"):
+        import_provider.replay_sql(private_ref, replay_sql)
+
+    assert import_provider.read_ref(IMPORT_MAIN_REF) == expected
+    tables = import_provider._cli.query_json("show_tables", "SHOW TABLES;\n")
+    table_names = {
+        str(row.get("Tables_in_import-repo", row.get("Table", ""))) for row in tables
+    }
+    assert "accidentally_on_main" not in table_names
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_private_candidate_after_checkout_main(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref, marker, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE private_only (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    import_provider._run_cli(
+        "checkout_main_for_catalog_probe",
+        ["checkout", IMPORT_MAIN_REF],
+        import_provider._settings.metadata_timeout_seconds,
+    )
+
+    catalog = import_provider.read_catalog(candidate)
+    assert any(table.name == "private_only" for table in catalog)
+
+    import_provider.checkout_private_ref(private_ref)
+    import_provider.delete_private_ref(private_ref, expected_candidate=candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_data_only_increment(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    marker = derive_operation_marker(OPERATION_ID)
+    expected = import_provider.read_ref(IMPORT_MAIN_REF)
+    import_provider.create_private_ref(private_ref, expected)
+    import_provider.checkout_private_ref(private_ref)
+    import_provider.replay_sql(
+        private_ref,
+        _staging_replay_path(
+            import_layout,
+            "base_records.sql",
+            "CREATE TABLE records (id BIGINT NOT NULL PRIMARY KEY);\nINSERT INTO records VALUES (1);\n",
+        ),
+    )
+    import_provider.commit_operation_marker(private_ref, marker)
+    import_provider.replay_sql(
+        private_ref,
+        _staging_replay_path(import_layout, "update_records.sql", "UPDATE records SET id = 2;\n"),
+    )
+    candidate = import_provider.commit_operation_marker(private_ref, marker)
+
+    catalog = import_provider.read_catalog(candidate)
+    records = next(table for table in catalog if table.name == "records")
+    assert records.row_count == 1
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_invalid_parent_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE invalid_parent (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    original_query_json = import_provider._cli.query_json
+
+    def invalid_parent_log(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        rows = original_query_json(kind, sql, revision=revision)
+        if kind == "marker_scan" and revision == private_ref:
+            rows[0]["parents"] = "not-a-valid-commit-id!!!"
+        return rows
+
+    with patch.object(import_provider._cli, "query_json", side_effect=invalid_parent_log):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_branch_list_failure_is_ambiguous(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    marker = derive_operation_marker(OPERATION_ID)
+
+    with patch.object(import_provider, "_branch_names", side_effect=ImportProviderError("Dolt branch list failed")):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_helper_failure_is_typed(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE catalog_fail (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "catalog",
+        side_effect=ProviderError("malformed catalog"),
+    ):
+        with pytest.raises(ImportProviderError, match="malformed catalog"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_stream_timeout_and_parser_failures_are_typed(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("id", "BIGINT", False, 0),),
+        0,
+    )
+    candidate = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    def failing_stream(*args: object, **kwargs: object) -> Iterator[pa.RecordBatch]:
+        def _gen() -> Iterator[pa.RecordBatch]:
+            raise ProcessBoundaryError("stream line exceeded bounded output limit")
+            yield pa.record_batch({"id": pa.array([], type=pa.int64())})  # pragma: no cover
+
+        return _gen()
+
+    with patch.object(import_provider._cli, "stream_table", side_effect=failing_stream):
+        with pytest.raises(ImportProviderError, match="bounded output"):
+            list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_concurrent_streams_keep_field_limit(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    import csv
+
+    private_ref, marker, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE stream_rows (payload VARCHAR(12000) NOT NULL, id BIGINT NOT NULL PRIMARY KEY);\n"
+        "INSERT INTO stream_rows VALUES (REPEAT('x', 10000), 1);\n",
+    )
+    table = TableCatalog(
+        "stream_rows",
+        (
+            ColumnCatalog("payload", "VARCHAR(12000)", False, None),
+            ColumnCatalog("id", "BIGINT", False, 0),
+        ),
+        1,
+    )
+    recorded_limits: list[int] = []
+    lock = threading.Lock()
+    original_stream_table = import_provider._cli.stream_table
+
+    def recording_stream(
+        commit_id: str,
+        table: TableCatalog,
+        policy: ArrowUnknownTypePolicy,
+    ) -> Iterator[pa.RecordBatch]:
+        with lock:
+            recorded_limits.append(csv.field_size_limit())
+        return original_stream_table(commit_id, table, policy)
+
+    errors: list[BaseException] = []
+
+    def consume() -> None:
+        try:
+            with patch.object(import_provider._cli, "stream_table", side_effect=recording_stream):
+                list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=consume), threading.Thread(target=consume)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    assert recorded_limits
+    assert all(
+        limit >= import_provider._settings.max_stream_line_bytes for limit in recorded_limits
+    )

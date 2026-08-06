@@ -18,9 +18,9 @@ from gateway_repository_service.arrow_mapping import (
     normalize_rows,
     record_batch,
 )
+from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import commit_literal, validate_commit_id
 from gateway_repository_service.candidate_a.sql import (
-    _catalog_from_schema_diff,
     _metric_int,
     _observe_batch_metrics,
     _parse_create_statement,
@@ -34,7 +34,7 @@ from gateway_repository_service.process import CommandResult, DoltRunner, Proces
 from gateway_repository_service.settings import RepositoryServiceSettings
 
 
-class DoltCliError(RuntimeError):
+class DoltCliError(CandidateAError):
     """Candidate A Dolt CLI execution failure."""
 
 
@@ -90,6 +90,34 @@ def value(row: dict[str, Any], name: str, index: int | None = None) -> Any:
     raise DoltCliError(f"missing result column {name}")
 
 
+def _table_name_from_show_row(row: dict[str, Any]) -> str:
+    for key, cell in row.items():
+        lowered = key.lower()
+        if lowered == "table_type":
+            continue
+        if lowered.startswith("tables_in") or lowered == "table":
+            return str(cell)
+    raise DoltCliError("SHOW TABLES row did not contain a table name")
+
+
+def _create_statement_from_show_row(row: dict[str, Any]) -> str:
+    for key, cell in row.items():
+        if key.lower().replace(" ", "") == "createtable":
+            return str(cell)
+    raise DoltCliError("SHOW CREATE TABLE did not return DDL")
+
+
+_csv_field_limit_applied = False
+
+
+def _ensure_csv_field_limit(limit: int) -> None:
+    global _csv_field_limit_applied
+    if _csv_field_limit_applied:
+        return
+    csv.field_size_limit(max(csv.field_size_limit(), limit))
+    _csv_field_limit_applied = True
+
+
 class CandidateADoltCli:
     """Narrow Candidate A offline CLI session without probe measurement wrappers."""
 
@@ -105,6 +133,7 @@ class CandidateADoltCli:
         self.repository = repository
         self.runner = runner
         self.query_directory = layout.staging_artifacts
+        _ensure_csv_field_limit(settings.max_stream_line_bytes)
 
     def replay(self, replay_sql: Path) -> None:
         self.run_cli(
@@ -115,26 +144,30 @@ class CandidateADoltCli:
         )
 
     def catalog(self, base_commit_id: str, target_commit_id: str) -> tuple[TableCatalog, ...]:
-        safe_base = validate_commit_id(base_commit_id)
+        validate_commit_id(base_commit_id)
         safe_target = validate_commit_id(target_commit_id)
-        diff_sql = (
-            "SELECT * FROM dolt_schema_diff("
-            f"{commit_literal(safe_base)}, {commit_literal(safe_target)});\n"
+        target_literal = commit_literal(safe_target)
+        show_rows = self.query_json(
+            "catalog_tables",
+            f"SHOW FULL TABLES AS OF {target_literal};\n",
         )
-        diff = self.query_json("catalog_schema_diff", diff_sql)
-        counts: dict[str, int] = {}
-        ddl_tables = [
-            _parse_create_statement(str(value(row, "to_create_statement")), 0).name
-            for row in diff
-            if row.get("to_create_statement") not in (None, "")
-        ]
-        for table in ddl_tables:
+        tables: list[TableCatalog] = []
+        for row in show_rows:
+            if str(row.get("Table_type", "BASE TABLE")).upper() != "BASE TABLE":
+                continue
+            table_name = _table_name_from_show_row(row)
+            create_rows = self.query_json(
+                "catalog_create",
+                f"SHOW CREATE TABLE {quote_identifier(table_name)} AS OF {target_literal};\n",
+            )
+            ddl = _create_statement_from_show_row(create_rows[0])
             count_rows = self.query_json(
                 "catalog_count",
-                f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table)} AS OF {commit_literal(safe_target)};\n",
+                f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table_name)} AS OF {target_literal};\n",
             )
-            counts[table] = int(value(count_rows[0], "row_count", 0))
-        return _catalog_from_schema_diff(diff, counts)
+            row_count = int(value(count_rows[0], "row_count", 0))
+            tables.append(_parse_create_statement(ddl, row_count))
+        return tuple(sorted(tables, key=lambda table: table.name))
 
     def stream_table(
         self,
@@ -156,8 +189,8 @@ class CandidateADoltCli:
             "max_encoded_line_bytes": 0,
             "encoded_line_bound_valid": True,
             "encoded_line_bound": self.settings.max_stream_line_bytes,
+            "oversized_single_row": False,
         }
-        old_field_limit = csv.field_size_limit()
         try:
             stream = self.runner.stream(
                 "row_stream",
@@ -166,7 +199,6 @@ class CandidateADoltCli:
                 timeout=self.settings.import_timeout_seconds,
                 stdin_path=query,
             )
-            csv.field_size_limit(self.settings.max_stream_line_bytes)
 
             def decode_line(line: bytes) -> str:
                 line_bytes = len(line)
@@ -225,7 +257,6 @@ class CandidateADoltCli:
             if result.exit_code != 0 or result.timed_out:
                 raise DoltCliError("Dolt row stream failed")
         finally:
-            csv.field_size_limit(old_field_limit)
             if stream is not None and not stream_closed:
                 stream.close()
             query.unlink(missing_ok=True)

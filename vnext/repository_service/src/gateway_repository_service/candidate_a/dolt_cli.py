@@ -107,6 +107,12 @@ def _create_statement_from_show_row(row: dict[str, Any]) -> str:
     raise DoltCliError("SHOW CREATE TABLE did not return DDL")
 
 
+def _require_exactly_one_row(rows: list[dict[str, Any]], kind: str) -> dict[str, Any]:
+    if len(rows) != 1:
+        raise DoltCliError(f"Dolt {kind} returned {len(rows)} rows, expected 1")
+    return rows[0]
+
+
 _csv_field_limit_applied = False
 
 
@@ -160,12 +166,16 @@ class CandidateADoltCli:
                 "catalog_create",
                 f"SHOW CREATE TABLE {quote_identifier(table_name)} AS OF {target_literal};\n",
             )
-            ddl = _create_statement_from_show_row(create_rows[0])
+            ddl = _create_statement_from_show_row(
+                _require_exactly_one_row(create_rows, "catalog_create")
+            )
             count_rows = self.query_json(
                 "catalog_count",
                 f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table_name)} AS OF {target_literal};\n",
             )
-            row_count = int(value(count_rows[0], "row_count", 0))
+            row_count = int(
+                value(_require_exactly_one_row(count_rows, "catalog_count"), "row_count", 0)
+            )
             tables.append(_parse_create_statement(ddl, row_count))
         return tuple(sorted(tables, key=lambda table: table.name))
 

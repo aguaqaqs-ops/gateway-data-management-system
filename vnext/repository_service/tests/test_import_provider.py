@@ -18,6 +18,7 @@ from gateway_repository_service.arrow_mapping import (
     UnknownTypePolicy as ArrowUnknownTypePolicy,
 )
 from gateway_repository_service.candidate_a.dolt_cli import DoltCliError
+from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import IMPORT_MAIN_REF
 from gateway_repository_service.candidate_a.sql import ProviderError
 from gateway_repository_service.layout import DurableLayout
@@ -1061,3 +1062,152 @@ def test_concurrent_streams_keep_field_limit(
     assert all(
         limit >= import_provider._settings.max_stream_line_bytes for limit in recorded_limits
     )
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_process_boundary_is_ambiguous(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    marker = derive_operation_marker(OPERATION_ID)
+
+    with patch.object(
+        import_provider,
+        "_branch_names",
+        side_effect=ProcessBoundaryError("process boundary"),
+    ):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_empty_create_or_count_is_typed(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE empty_create (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    original_query_json = import_provider._cli.query_json
+
+    def empty_create_rows(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "catalog_create":
+            return []
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=empty_create_rows):
+        with pytest.raises(ImportProviderError, match="catalog_create"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_process_boundary_is_typed(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE catalog_boundary (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "query_json",
+        side_effect=ProcessBoundaryError("process boundary"),
+    ):
+        with pytest.raises(ImportProviderError, match="process boundary"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_generic_candidate_a_error_is_typed(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE generic_error (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "catalog",
+        side_effect=CandidateAError("generic neutral failure"),
+    ):
+        with pytest.raises(ImportProviderError, match="generic neutral failure"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_replay_process_boundary_is_typed(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    expected = import_provider.read_ref(IMPORT_MAIN_REF)
+    import_provider.create_private_ref(private_ref, expected)
+    import_provider.checkout_private_ref(private_ref)
+    replay_sql = _staging_replay_path(
+        import_layout,
+        "replay_boundary.sql",
+        "CREATE TABLE replay_fault (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=ProcessBoundaryError("process boundary"),
+    ):
+        with pytest.raises(ImportProviderError, match="process boundary"):
+            import_provider.replay_sql(private_ref, replay_sql)
+
+    assert import_provider.read_ref(IMPORT_MAIN_REF) == expected
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_ref_process_boundary_is_typed(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=ProcessBoundaryError("process boundary"),
+    ):
+        with pytest.raises(ImportProviderError, match="process boundary"):
+            import_provider.read_ref(IMPORT_MAIN_REF)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_multiple_or_malformed_rows(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE malformed_count (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    original_query_json = import_provider._cli.query_json
+
+    def duplicate_count_rows(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "catalog_count":
+            return [{"row_count": 1}, {"row_count": 2}]
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=duplicate_count_rows):
+        with pytest.raises(ImportProviderError, match="catalog_count"):
+            import_provider.read_catalog(candidate)

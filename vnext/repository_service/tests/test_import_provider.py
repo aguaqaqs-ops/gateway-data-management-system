@@ -2541,3 +2541,31 @@ def test_catalog_tables_rejects_invalid_tables_in_prefix(
     ):
         with pytest.raises(ImportProviderError, match="Tables_in_"):
             import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_preserves_leading_space_table_name(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE ` leading` (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    names = {table.name for table in import_provider.read_catalog(candidate)}
+    assert " leading" in names
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_preserves_embedded_space_table_name(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE `embedded space` (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    names = {table.name for table in import_provider.read_catalog(candidate)}
+    assert "embedded space" in names

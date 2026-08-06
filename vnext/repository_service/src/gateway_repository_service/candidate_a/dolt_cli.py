@@ -67,9 +67,9 @@ def json_rows(payload: Any) -> list[dict[str, Any]]:
                     name = column.get("name", column.get("Name"))
                 else:
                     name = column
-                if not isinstance(name, str) or not name.strip():
+                if not isinstance(name, str) or name == "":
                     raise DoltCliError("Dolt JSON column name is missing or empty")
-                names.append(name.strip())
+                names.append(name)
             if len(names) != len(set(names)):
                 raise DoltCliError("Dolt JSON column names are not unique")
             raw_rows = payload["rows"]
@@ -166,9 +166,9 @@ def _parse_show_tables_row(row: dict[str, Any], kind: str) -> tuple[str, str]:
     if table_type not in _ALLOWED_SHOW_TABLE_TYPES:
         raise DoltCliError(f"Dolt {kind} Table_type is not recognized: {raw_type!r}")
     raw_name = row[normalized_to_original[tables_in[0]]]
-    if not isinstance(raw_name, str) or not raw_name.strip():
+    if not isinstance(raw_name, str) or raw_name == "":
         raise DoltCliError(f"Dolt {kind} table name is missing or invalid")
-    return raw_name.strip(), table_type
+    return raw_name, table_type
 
 
 def _require_show_create_row(row: dict[str, Any], table_name: str, kind: str) -> None:
@@ -215,9 +215,9 @@ def _column_names_from_envelope(columns: Any, kind: str) -> list[str]:
             name = column.get("name", column.get("Name"))
         else:
             name = column
-        if not isinstance(name, str) or not name.strip():
+        if not isinstance(name, str) or name == "":
             raise DoltCliError("Dolt JSON column name is missing or empty")
-        names.append(name.strip())
+        names.append(name)
     if len(names) != len({name.lower() for name in names}):
         raise DoltCliError(f"Dolt {kind} envelope has duplicate column names")
     return names

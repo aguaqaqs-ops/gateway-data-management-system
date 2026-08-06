@@ -2394,3 +2394,116 @@ def test_inspect_marker_rejects_duplicate_refs(
         inspection = import_provider.inspect_marker(marker)
 
     assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_rejects_whitespace_parent(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE whitespace_parent (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[{"parents":" deadbeef "}]}',
+            kinds=frozenset({"candidate_parent"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="candidate parent"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_tables_empty_structured_rejects_wrong_columns(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE empty_tables_schema (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[],"columns":[{"name":"not_table_type"},{"name":"Tables_in_db"}]}',
+            kinds=frozenset({"catalog_tables"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="envelope column schema"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_ref_empty_structured_rejects_wrong_columns(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[],"columns":[{"name":"not_commit_id"}]}',
+            kinds=frozenset({"read_ref"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="envelope column schema"):
+            import_provider.read_ref(IMPORT_MAIN_REF)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_candidate_parent_empty_structured_rejects_wrong_columns(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE empty_parent_schema (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[],"columns":[{"name":"not_parents"}]}',
+            kinds=frozenset({"candidate_parent"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="envelope column schema"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_metadata_empty_structured_rejects_column_collision(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE empty_column_collision (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[],"columns":[{"name":"ROW_COUNT"},{"name":"row_count"}]}',
+            kinds=frozenset({"catalog_count"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="duplicate column names"):
+            import_provider.read_catalog(candidate)

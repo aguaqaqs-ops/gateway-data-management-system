@@ -15,7 +15,6 @@ from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import (
     IMPORT_MAIN_REF,
     commit_literal,
-    parse_log_parent_field,
     parse_marker_parent_field,
     validate_commit_id,
     validate_operation_marker,
@@ -234,7 +233,12 @@ class CandidateAImportProvider:
                 f"{commit_literal(safe_candidate)} WHERE commit_hash = {commit_literal(safe_candidate)};\n",
             )
             parent_row = _require_exactly_one_row(rows, "candidate_parent")
-            parent = parse_log_parent_field(value(parent_row, "parents", 0))
+            raw_parents = value(parent_row, "parents", 0)
+            if not isinstance(raw_parents, str) or not raw_parents:
+                raise ImportProviderError("candidate parent is missing or malformed")
+            if raw_parents != raw_parents.strip():
+                raise ImportProviderError("candidate parent is missing or malformed")
+            parent = parse_marker_parent_field(raw_parents)
             if parent is None:
                 raise ImportProviderError("candidate parent is missing or malformed")
             return self._cli.catalog(parent, safe_candidate)

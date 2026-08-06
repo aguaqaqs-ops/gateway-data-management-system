@@ -201,6 +201,49 @@ def _validate_metadata_rows(kind: str, rows: list[dict[str, Any]]) -> None:
             _parse_show_tables_row(row, kind)
 
 
+def _column_names_from_envelope(columns: Any, kind: str) -> list[str]:
+    if not isinstance(columns, list):
+        raise DoltCliError("Dolt JSON columns was not a list")
+    names: list[str] = []
+    for column in columns:
+        if isinstance(column, dict):
+            name = column.get("name", column.get("Name"))
+        else:
+            name = column
+        if not isinstance(name, str) or not name.strip():
+            raise DoltCliError("Dolt JSON column name is missing or empty")
+        names.append(name.strip())
+    if len(names) != len({name.lower() for name in names}):
+        raise DoltCliError(f"Dolt {kind} envelope has duplicate column names")
+    return names
+
+
+def _validate_metadata_columns(kind: str, columns: Any) -> None:
+    names = _column_names_from_envelope(columns, kind)
+    if kind in _EXACT_METADATA_ROW_SCHEMAS:
+        expected = _EXACT_METADATA_ROW_SCHEMAS[kind]
+        actual = {name.lower() for name in names}
+        if actual != expected:
+            raise DoltCliError(
+                f"Dolt {kind} envelope column schema mismatch: "
+                f"got {sorted(actual)}, expected {sorted(expected)}"
+            )
+        return
+    if kind == "catalog_tables":
+        keys = {name.lower() for name in names}
+        if len(keys) != 2:
+            raise DoltCliError(
+                f"Dolt {kind} envelope column schema mismatch: expected 2 columns, got {len(keys)}"
+            )
+        if "table_type" not in keys:
+            raise DoltCliError(f"Dolt {kind} envelope column schema mismatch: missing Table_type")
+        tables_in = [key for key in keys if key.startswith("tables_in")]
+        if len(tables_in) != 1:
+            raise DoltCliError(
+                f"Dolt {kind} envelope column schema mismatch: missing unique Tables_in_* column"
+            )
+
+
 def _decode_metadata_json(stdout: bytes) -> Any:
     def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         if len(pairs) != len({key for key, _ in pairs}):
@@ -412,8 +455,11 @@ class CandidateADoltCli:
                 stdin_path=query,
             )
             try:
-                rows = json_rows(_decode_metadata_json(result.stdout))
+                decoded = _decode_metadata_json(result.stdout)
+                rows = json_rows(decoded)
                 _validate_metadata_rows(kind, rows)
+                if isinstance(decoded, dict) and "rows" in decoded and "columns" in decoded:
+                    _validate_metadata_columns(kind, decoded["columns"])
                 return rows
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 raise DoltCliError("Dolt metadata was not valid JSON") from exc

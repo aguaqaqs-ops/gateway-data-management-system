@@ -26,6 +26,12 @@ class CreateRequestHeaders(_HeaderModel):
     idempotency_key: IdempotencyKeyString
 
 
+class ImportRequestHeaders(_HeaderModel):
+    """Required headers for async versioned import submission."""
+
+    idempotency_key: IdempotencyKeyString
+
+
 class UploadRequestHeaders(_HeaderModel):
     """Required headers for raw-body artifact upload."""
 

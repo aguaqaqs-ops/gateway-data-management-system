@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, TypeAlias
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import StringConstraints
 
@@ -18,6 +18,7 @@ RefNameString: TypeAlias = Annotated[
     str,
     StringConstraints(min_length=1, max_length=255),
 ]
+MainRefLiteral: TypeAlias = Literal["main"]
 TableNameString: TypeAlias = Annotated[
     str,
     StringConstraints(min_length=1, max_length=255),

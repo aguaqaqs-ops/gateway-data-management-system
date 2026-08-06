@@ -8,13 +8,15 @@ verification.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, NonNegativeInt
+from pydantic import BaseModel, ConfigDict, NonNegativeInt, model_validator
 
 from gateway_repository_contracts.errors import SimpleError
 from gateway_repository_contracts.types import (
     BoundedOpaqueString,
+    MainRefLiteral,
     MediaTypeString,
     RefNameString,
     Sha256String,
@@ -31,6 +33,17 @@ class OperationStatus(StrEnum):
     RUNNING = "RUNNING"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
+
+
+class VerificationPolicy(StrEnum):
+    NONE = "NONE"
+    STRUCTURAL = "STRUCTURAL"
+    FULL_SCAN = "FULL_SCAN"
+
+
+class UnknownTypePolicy(StrEnum):
+    REJECT = "REJECT"
+    STRINGIFY = "STRINGIFY"
 
 
 class RepositoryArtifactRef(_VersionedModel):
@@ -55,9 +68,10 @@ class UploadArtifactResponse(_VersionedModel):
 class SubmitVersionedImportRequest(_VersionedModel):
     repository_id: UUID
     artifact_ref: RepositoryArtifactRef
-    target_ref: RefNameString
+    target_ref: MainRefLiteral
     expected_commit_id: BoundedOpaqueString
-    idempotency_key: BoundedOpaqueString
+    verification_policy: VerificationPolicy = VerificationPolicy.STRUCTURAL
+    unknown_type_policy: UnknownTypePolicy = UnknownTypePolicy.REJECT
 
 
 class SubmitVersionedImportResponse(_VersionedModel):
@@ -66,9 +80,12 @@ class SubmitVersionedImportResponse(_VersionedModel):
 
 class VersionedImportResult(_VersionedModel):
     commit_id: BoundedOpaqueString
-    target_ref: RefNameString
+    target_ref: MainRefLiteral
     artifact_id: UUID
     canonicalization_manifest_digest: BoundedOpaqueString
+    expected_commit_id: BoundedOpaqueString
+    completed_verification_policy: VerificationPolicy
+    unknown_type_policy: UnknownTypePolicy
 
 
 class VersionedOperation(_VersionedModel):
@@ -76,6 +93,19 @@ class VersionedOperation(_VersionedModel):
     status: OperationStatus
     result: VersionedImportResult | None = None
     error: SimpleError | None = None
+
+    @model_validator(mode="after")
+    def _validate_result_error_invariant(self) -> Self:
+        if self.status in {OperationStatus.QUEUED, OperationStatus.RUNNING}:
+            if self.result is not None or self.error is not None:
+                raise ValueError("QUEUED and RUNNING operations must not include result or error")
+        elif self.status == OperationStatus.SUCCEEDED:
+            if self.result is None or self.error is not None:
+                raise ValueError("SUCCEEDED operations require result and must not include error")
+        elif self.status == OperationStatus.FAILED:
+            if self.result is not None or self.error is None:
+                raise ValueError("FAILED operations require error and must not include result")
+        return self
 
 
 class GetOperationResponse(_VersionedModel):

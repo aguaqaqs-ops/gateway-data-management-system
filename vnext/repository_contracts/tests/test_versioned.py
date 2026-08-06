@@ -13,11 +13,15 @@ from gateway_repository_contracts import (
     RepositoryArtifactRef,
     SimpleError,
     SubmitVersionedImportRequest,
+    UnknownTypePolicy,
+    VerificationPolicy,
     VersionedImportResult,
+    VersionedOperation,
 )
 
 REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
 ARTIFACT_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
+OPERATION_ID = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11")
 SHA256 = "a" * 64
 
 
@@ -28,6 +32,31 @@ def artifact_ref() -> RepositoryArtifactRef:
         size_bytes=12,
         raw_sha256=SHA256,
     )
+
+
+def import_request_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "repository_id": str(REPOSITORY_ID),
+        "artifact_ref": artifact_ref().model_dump(),
+        "target_ref": "main",
+        "expected_commit_id": "commit-0",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def import_result_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "commit_id": "commit-1",
+        "target_ref": "main",
+        "artifact_id": str(ARTIFACT_ID),
+        "canonicalization_manifest_digest": "manifest-digest-1",
+        "expected_commit_id": "commit-0",
+        "completed_verification_policy": "STRUCTURAL",
+        "unknown_type_policy": "REJECT",
+    }
+    payload.update(overrides)
+    return payload
 
 
 def test_repository_artifact_ref_has_only_raw_transport_fields() -> None:
@@ -85,28 +114,72 @@ def test_operation_status_is_the_simplified_v1_set() -> None:
     }
 
 
+def test_verification_policy_values() -> None:
+    assert {policy.value for policy in VerificationPolicy} == {
+        "NONE",
+        "STRUCTURAL",
+        "FULL_SCAN",
+    }
+
+
+def test_unknown_type_policy_values() -> None:
+    assert {policy.value for policy in UnknownTypePolicy} == {
+        "REJECT",
+        "STRINGIFY",
+    }
+
+
 def test_import_request_keeps_repository_and_artifact_scopes_distinct() -> None:
-    request = SubmitVersionedImportRequest(
-        repository_id=REPOSITORY_ID,
-        artifact_ref=artifact_ref(),
-        target_ref="main",
-        expected_commit_id="commit-0",
-        idempotency_key="import-1",
-    )
+    request = SubmitVersionedImportRequest.model_validate(import_request_payload())
 
     assert request.repository_id == REPOSITORY_ID
     assert request.artifact_ref.artifact_id == ARTIFACT_ID
+    assert "idempotency_key" not in request.model_dump()
 
 
-def test_import_result_echoes_opaque_manifest_binding() -> None:
-    result = VersionedImportResult(
-        commit_id="commit-1",
-        target_ref="main",
-        artifact_id=ARTIFACT_ID,
-        canonicalization_manifest_digest="manifest-digest-1",
+def test_import_request_defaults_policies_to_structural_and_reject() -> None:
+    request = SubmitVersionedImportRequest.model_validate(import_request_payload())
+
+    assert request.verification_policy == VerificationPolicy.STRUCTURAL
+    assert request.unknown_type_policy == UnknownTypePolicy.REJECT
+
+
+def test_import_request_accepts_explicit_policies() -> None:
+    request = SubmitVersionedImportRequest.model_validate(
+        import_request_payload(
+            verification_policy="FULL_SCAN",
+            unknown_type_policy="STRINGIFY",
+        )
     )
 
+    assert request.verification_policy == VerificationPolicy.FULL_SCAN
+    assert request.unknown_type_policy == UnknownTypePolicy.STRINGIFY
+
+
+@pytest.mark.parametrize("target_ref", ["feature", ""])
+def test_import_request_rejects_non_main_target_ref(target_ref: str) -> None:
+    with pytest.raises(ValidationError):
+        SubmitVersionedImportRequest.model_validate(
+            import_request_payload(target_ref=target_ref)
+        )
+
+
+def test_import_result_echoes_full_binding() -> None:
+    result = VersionedImportResult.model_validate(import_result_payload())
+
     assert result.canonicalization_manifest_digest == "manifest-digest-1"
+    assert result.expected_commit_id == "commit-0"
+    assert result.completed_verification_policy == VerificationPolicy.STRUCTURAL
+    assert result.unknown_type_policy == UnknownTypePolicy.REJECT
+    assert set(result.model_dump()) == {
+        "commit_id",
+        "target_ref",
+        "artifact_id",
+        "canonicalization_manifest_digest",
+        "expected_commit_id",
+        "completed_verification_policy",
+        "unknown_type_policy",
+    }
 
 
 @pytest.mark.parametrize(
@@ -126,21 +199,89 @@ def test_bounded_and_integrity_fields_reject_invalid_values(
         RepositoryArtifactRef(**values)
 
 
+def test_import_request_rejects_invalid_expected_commit_id() -> None:
+    with pytest.raises(ValidationError):
+        SubmitVersionedImportRequest.model_validate(
+            import_request_payload(expected_commit_id="")
+        )
+
+
+def test_import_request_rejects_body_idempotency_key() -> None:
+    with pytest.raises(ValidationError):
+        SubmitVersionedImportRequest.model_validate(
+            import_request_payload(idempotency_key="import-1")
+        )
+
+
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("status", "result", "error"),
     [
-        ("idempotency_key", ""),
-        ("expected_commit_id", ""),
+        (OperationStatus.QUEUED, None, None),
+        (OperationStatus.RUNNING, None, None),
+        (
+            OperationStatus.SUCCEEDED,
+            import_result_payload(),
+            None,
+        ),
+        (
+            OperationStatus.FAILED,
+            None,
+            {
+                "code": "IMPORT_REJECTED",
+                "message": "manifest rejected",
+            },
+        ),
     ],
 )
-def test_import_request_rejects_invalid_bounded_fields(field: str, value: object) -> None:
-    payload: dict[str, object] = {
-        "repository_id": str(REPOSITORY_ID),
-        "artifact_ref": artifact_ref().model_dump(),
-        "target_ref": "main",
-        "expected_commit_id": "commit-0",
-        "idempotency_key": "import-1",
-    }
-    payload[field] = value
+def test_versioned_operation_accepts_valid_status_result_error_combinations(
+    status: OperationStatus,
+    result: dict[str, object] | None,
+    error: dict[str, object] | None,
+) -> None:
+    operation = VersionedOperation.model_validate(
+        {
+            "operation_id": str(OPERATION_ID),
+            "status": status.value,
+            "result": result,
+            "error": error,
+        }
+    )
+
+    assert operation.status == status
+    assert operation.result is None if result is None else operation.result is not None
+    assert operation.error is None if error is None else operation.error is not None
+
+
+@pytest.mark.parametrize(
+    ("status", "result", "error"),
+    [
+        (OperationStatus.QUEUED, import_result_payload(), None),
+        (OperationStatus.RUNNING, None, {"code": "IMPORT_REJECTED", "message": "x"}),
+        (OperationStatus.SUCCEEDED, None, None),
+        (
+            OperationStatus.SUCCEEDED,
+            import_result_payload(),
+            {"code": "IMPORT_REJECTED", "message": "x"},
+        ),
+        (OperationStatus.FAILED, import_result_payload(), None),
+        (
+            OperationStatus.FAILED,
+            None,
+            None,
+        ),
+    ],
+)
+def test_versioned_operation_rejects_invalid_status_result_error_combinations(
+    status: OperationStatus,
+    result: dict[str, object] | None,
+    error: dict[str, object] | None,
+) -> None:
     with pytest.raises(ValidationError):
-        SubmitVersionedImportRequest.model_validate(payload)
+        VersionedOperation.model_validate(
+            {
+                "operation_id": str(OPERATION_ID),
+                "status": status.value,
+                "result": result,
+                "error": error,
+            }
+        )

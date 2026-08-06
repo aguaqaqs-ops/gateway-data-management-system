@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from gateway_repository_contracts import (
     REPOSITORY_IMPORT_MEDIA_TYPE,
     CreateRequestHeaders,
+    ImportRequestHeaders,
     UploadRequestHeaders,
     validate_upload_content_length,
 )
@@ -39,6 +40,20 @@ def test_create_request_headers_accept_valid_idempotency_key() -> None:
 def test_create_request_headers_reject_invalid_idempotency_key(value: str) -> None:
     with pytest.raises(ValidationError):
         CreateRequestHeaders(idempotency_key=value)
+
+
+def test_import_request_headers_accept_valid_idempotency_key() -> None:
+    headers = ImportRequestHeaders(idempotency_key="import-key-1")
+    assert headers.idempotency_key == "import-key-1"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "x" * 256],
+)
+def test_import_request_headers_reject_invalid_idempotency_key(value: str) -> None:
+    with pytest.raises(ValidationError):
+        ImportRequestHeaders(idempotency_key=value)
 
 
 def test_upload_artifact_has_no_json_request_model() -> None:
@@ -123,6 +138,7 @@ def test_public_exports_do_not_include_removed_request_models() -> None:
     assert "CreateRepositoryRequest" not in exported
     assert "UploadArtifactRequest" not in exported
     assert "CreateRequestHeaders" in exported
+    assert "ImportRequestHeaders" in exported
     assert "UploadRequestHeaders" in exported
     assert "DEFAULT_MAX_UPLOAD_BYTES" not in exported
 

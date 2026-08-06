@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import json
 import os
 import re
 import threading
@@ -38,6 +37,7 @@ from gateway_repository_service.process import (
     windows_for_interval,
 )
 from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.versioned_import.dolt_cli import CandidateADoltCli, DoltCliError
 
 
 class ProviderError(RuntimeError):
@@ -633,6 +633,7 @@ class OfflineCliProvider:
         )
         self.last_plateau_peaks = _empty_plateau_peaks()
         self.last_plateau_peaks_absolute = _empty_plateau_peaks()
+        self._candidate_cli = CandidateADoltCli(settings, layout, repository, runner)
 
     def initialize_repository(self) -> None:
         self._run(
@@ -650,12 +651,10 @@ class OfflineCliProvider:
         return
 
     def replay(self, replay_sql: Path) -> None:
-        self._run(
-            "replay",
-            ["sql", "--result-format=csv"],
-            self.settings.import_timeout_seconds,
-            stdin_path=replay_sql,
-        )
+        try:
+            self._candidate_cli.replay(replay_sql)
+        except DoltCliError as exc:
+            raise ProviderError(str(exc)) from exc
 
     def commit_marker(self, marker: str) -> str:
         self._run("stage", ["add", "--all"], self.settings.metadata_timeout_seconds)
@@ -686,24 +685,10 @@ class OfflineCliProvider:
         return int(_value(rows[0], "reachable", 0)) > 0
 
     def catalog(self, base_commit_id: str, target_commit_id: str) -> tuple[TableCatalog, ...]:
-        diff_sql = (
-            "SELECT * FROM dolt_schema_diff("
-            f"{_commit_literal(base_commit_id)}, {_commit_literal(target_commit_id)});\n"
-        )
-        diff = self._query_json("catalog_schema_diff", diff_sql)
-        counts: dict[str, int] = {}
-        ddl_tables = [
-            _parse_create_statement(str(_value(row, "to_create_statement")), 0).name
-            for row in diff
-            if row.get("to_create_statement") not in (None, "")
-        ]
-        for table in ddl_tables:
-            count_rows = self._query_json(
-                "catalog_count",
-                f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table)} AS OF {_commit_literal(target_commit_id)};\n",
-            )
-            counts[table] = int(_value(count_rows[0], "row_count", 0))
-        return _catalog_from_schema_diff(diff, counts)
+        try:
+            return self._candidate_cli.catalog(base_commit_id, target_commit_id)
+        except DoltCliError as exc:
+            raise ProviderError(str(exc)) from exc
 
     def stream_table(
         self,
@@ -1049,17 +1034,10 @@ class OfflineCliProvider:
         return
 
     def _query_json(self, kind: str, sql: str, revision: str | None = None) -> list[dict[str, Any]]:
-        query = _write_query(self.query_directory, sql)
-        args = [] if revision is None else [f"--branch={revision}"]
-        args.extend(["sql", "--result-format=json"])
         try:
-            result = self._run(kind, args, self.settings.metadata_timeout_seconds, stdin_path=query)
-            try:
-                return _json_rows(json.loads(result.stdout.decode("utf-8")))
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise ProviderError("Dolt metadata was not valid JSON") from exc
-        finally:
-            query.unlink(missing_ok=True)
+            return self._candidate_cli.query_json(kind, sql, revision=revision)
+        except DoltCliError as exc:
+            raise ProviderError(str(exc)) from exc
 
     def _run(
         self,
@@ -1069,17 +1047,10 @@ class OfflineCliProvider:
         *,
         stdin_path: Path | None = None,
     ) -> Any:
-        result = self.runner.run(
-            kind,
-            args,
-            cwd=self.repository,
-            timeout=timeout,
-            stdin_path=stdin_path,
-            capture_stdout=True,
-        )
-        if result.timed_out or result.exit_code != 0:
-            raise ProviderError(f"Dolt command failed: {kind}")
-        return result
+        try:
+            return self._candidate_cli.run_cli(kind, args, timeout, stdin_path=stdin_path)
+        except DoltCliError as exc:
+            raise ProviderError(str(exc)) from exc
 
 
 T = TypeVar("T")

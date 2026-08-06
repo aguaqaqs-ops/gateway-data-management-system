@@ -1,0 +1,289 @@
+"""Candidate A offline CLI adapter for Versioned import ref primitives."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from pathlib import Path
+
+import pyarrow as pa  # type: ignore[import-untyped]
+
+from gateway_repository_contracts import UnknownTypePolicy
+from gateway_repository_service.arrow_mapping import TableCatalog, UnknownTypePolicy as ArrowUnknownTypePolicy
+from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.process import CommandResult, DoltRunner
+from gateway_repository_service.providers import ProviderError, _commit_literal
+from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.versioned_import.dolt_cli import (
+    CandidateADoltCli,
+    DoltCliError,
+    value,
+)
+from gateway_repository_service.versioned_import.models import (
+    IMPORT_MAIN_REF,
+    parse_single_parent,
+    validate_import_ref_name,
+    validate_operation_marker,
+)
+from gateway_repository_service.versioned_import.ports import (
+    CancellationCallback,
+    MarkerInspection,
+    MarkerInspectionAmbiguous,
+    MarkerInspectionUnique,
+    MarkerInspectionZero,
+    PublishMainAmbiguous,
+    PublishMainMismatch,
+    PublishMainPublished,
+    PublishMainResult,
+)
+
+
+class CandidateAImportProvider:
+    """Production-owned Candidate A adapter for import private refs and main CAS."""
+
+    def __init__(
+        self,
+        settings: RepositoryServiceSettings,
+        layout: DurableLayout,
+        repository: Path,
+        runner: DoltRunner,
+    ) -> None:
+        self._settings = settings
+        self._layout = layout
+        self._repository = repository
+        self._runner = runner
+        self._cli = CandidateADoltCli(settings, layout, repository, runner)
+        self._staging_root = layout.staging_artifacts.resolve()
+
+    def read_ref(self, ref_name: str) -> str:
+        safe_ref = validate_import_ref_name(ref_name)
+        try:
+            rows = self._cli.query_json(
+                "read_ref",
+                f"SELECT HASHOF('{safe_ref}') AS commit_id;\n",
+            )
+        except DoltCliError as exc:
+            raise ProviderError(str(exc)) from exc
+        if not rows:
+            raise ProviderError("Dolt did not return ref hash")
+        return str(value(rows[0], "commit_id", 0))
+
+    def create_private_ref(self, private_ref: str, expected_commit: str) -> None:
+        validate_import_ref_name(private_ref)
+        if private_ref in self._branch_names():
+            existing = self.read_ref(private_ref)
+            if existing == expected_commit:
+                return
+            raise ProviderError("private ref exists at wrong commit")
+        self._run_cli(
+            "create_private_ref",
+            ["branch", private_ref, expected_commit],
+            self._settings.metadata_timeout_seconds,
+        )
+
+    def checkout_private_ref(self, private_ref: str) -> None:
+        validate_import_ref_name(private_ref)
+        self._run_cli(
+            "checkout_private_ref",
+            ["checkout", private_ref],
+            self._settings.metadata_timeout_seconds,
+        )
+
+    def replay_sql(
+        self,
+        replay_path: Path,
+        cancellation: CancellationCallback | None = None,
+    ) -> None:
+        if cancellation is not None and cancellation():
+            raise ProviderError("import replay cancelled before start")
+        safe_path = self._validate_replay_path(replay_path)
+        try:
+            self._cli.replay(safe_path)
+        except DoltCliError as exc:
+            raise ProviderError(str(exc)) from exc
+
+    def commit_operation_marker(self, private_ref: str, marker: str) -> str:
+        validate_import_ref_name(private_ref)
+        validate_operation_marker(marker)
+        current = self._current_branch()
+        if current != private_ref:
+            self.checkout_private_ref(private_ref)
+        before = self.read_ref(private_ref)
+        self._run_cli(
+            "stage_marker",
+            ["add", "--all"],
+            self._settings.metadata_timeout_seconds,
+        )
+        self._run_cli(
+            "operation_marker_commit",
+            ["commit", "--message", marker, f"--author={self._settings.author}"],
+            self._settings.import_timeout_seconds,
+        )
+        after = self.read_ref(private_ref)
+        if after == before:
+            raise ProviderError("marker commit did not advance private ref")
+        return after
+
+    def inspect_marker(self, marker: str) -> MarkerInspection:
+        validate_operation_marker(marker)
+        evidence: dict[tuple[str, str], set[str]] = {}
+        for branch_name in self._branch_names():
+            rows = self._cli.query_json(
+                "marker_scan",
+                "SELECT commit_hash, message, parents FROM dolt_log;\n",
+                revision=branch_name,
+            )
+            for row in rows:
+                if str(value(row, "message", 1)) != marker:
+                    continue
+                candidate = str(value(row, "commit_hash", 0))
+                parent = parse_single_parent(str(value(row, "parents", 0)))
+                if parent is None:
+                    return MarkerInspectionAmbiguous()
+                key = (candidate, parent)
+                evidence.setdefault(key, set()).add(branch_name)
+
+        if not evidence:
+            return MarkerInspectionZero()
+        if len(evidence) != 1:
+            return MarkerInspectionAmbiguous()
+
+        (candidate, parent), _ = next(iter(evidence.items()))
+        refs = self._refs_for_commit(candidate)
+        return MarkerInspectionUnique(candidate=candidate, parent=parent, refs=refs)
+
+    def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        rows = self._cli.query_json(
+            "candidate_parent",
+            f"SELECT parents FROM dolt_log WHERE commit_hash = {_commit_literal(candidate)};\n",
+        )
+        if not rows:
+            return ()
+        parent = parse_single_parent(str(value(rows[0], "parents", 0)))
+        if parent is None:
+            return ()
+        try:
+            return self._cli.catalog(parent, candidate)
+        except DoltCliError as exc:
+            raise ProviderError(str(exc)) from exc
+
+    def stream_table(
+        self,
+        candidate: str,
+        table: TableCatalog,
+        policy: UnknownTypePolicy,
+    ) -> Iterator[pa.RecordBatch]:
+        try:
+            return self._cli.stream_table(candidate, table, ArrowUnknownTypePolicy(policy))
+        except DoltCliError as exc:
+            raise ProviderError(str(exc)) from exc
+
+    def publish_main(self, expected_commit: str, candidate: str) -> PublishMainResult:
+        try:
+            actual = self.read_ref(IMPORT_MAIN_REF)
+        except ProviderError:
+            return PublishMainAmbiguous()
+        if actual != expected_commit:
+            return PublishMainMismatch(actual=actual)
+
+        result = self._runner.run(
+            "publish_main_force",
+            ["branch", "-f", IMPORT_MAIN_REF, candidate],
+            cwd=self._repository,
+            timeout=self._settings.import_timeout_seconds,
+            capture_stdout=True,
+        )
+        if result.timed_out or result.exit_code != 0:
+            return PublishMainAmbiguous()
+
+        try:
+            readback = self.read_ref(IMPORT_MAIN_REF)
+        except ProviderError:
+            return PublishMainAmbiguous()
+        if readback != candidate:
+            return PublishMainAmbiguous()
+        return PublishMainPublished()
+
+    def delete_private_ref(
+        self,
+        private_ref: str,
+        expected_candidate: str | None = None,
+    ) -> None:
+        validate_import_ref_name(private_ref)
+        if private_ref not in self._branch_names():
+            return
+        if expected_candidate is not None:
+            actual = self.read_ref(private_ref)
+            if actual != expected_candidate:
+                raise ProviderError("private ref candidate mismatch")
+        self._run_cli(
+            "checkout_main_for_delete",
+            ["checkout", IMPORT_MAIN_REF],
+            self._settings.metadata_timeout_seconds,
+        )
+        self._run_cli(
+            "delete_private_ref",
+            ["branch", "-D", private_ref],
+            self._settings.metadata_timeout_seconds,
+        )
+
+    def _validate_replay_path(self, replay_path: Path) -> Path:
+        resolved = replay_path.resolve()
+        if not resolved.is_relative_to(self._staging_root):
+            raise ProviderError("replay path outside server-owned staging")
+        if not resolved.is_file():
+            raise ProviderError("replay path is not a regular file")
+        return resolved
+
+    def _current_branch(self) -> str:
+        result = self._runner.run(
+            "current_branch",
+            ["branch", "--show-current"],
+            cwd=self._repository,
+            timeout=self._settings.metadata_timeout_seconds,
+            capture_stdout=True,
+        )
+        if result.timed_out or result.exit_code != 0:
+            raise ProviderError("Dolt did not return current branch")
+        return result.stdout.decode("utf-8", errors="replace").strip()
+
+    def _branch_names(self) -> tuple[str, ...]:
+        result = self._runner.run(
+            "branch_list",
+            ["branch", "--list"],
+            cwd=self._repository,
+            timeout=self._settings.metadata_timeout_seconds,
+            capture_stdout=True,
+        )
+        if result.timed_out or result.exit_code != 0:
+            raise ProviderError("Dolt branch list failed")
+        names: list[str] = []
+        for line in result.stdout.decode("utf-8", errors="replace").splitlines():
+            stripped = line.strip().lstrip("*").strip()
+            if stripped:
+                names.append(stripped)
+        return tuple(names)
+
+    def _refs_for_commit(self, candidate: str) -> tuple[str, ...]:
+        rows = self._cli.query_json(
+            "refs_for_commit",
+            f"SELECT name FROM dolt_branches WHERE hash = {_commit_literal(candidate)};\n",
+        )
+        return tuple(str(value(row, "name", 0)) for row in rows)
+
+    def _run_cli(
+        self,
+        kind: str,
+        args: list[str],
+        timeout: float,
+        *,
+        stdin_path: Path | None = None,
+    ) -> CommandResult:
+        try:
+            return self._cli.run_cli(
+                kind,
+                args,
+                timeout,
+                stdin_path=stdin_path,
+            )
+        except DoltCliError as exc:
+            raise ProviderError(str(exc)) from exc

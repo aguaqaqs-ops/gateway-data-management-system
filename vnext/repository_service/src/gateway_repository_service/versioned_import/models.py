@@ -44,6 +44,12 @@ _MAX_MANIFEST_SQL_TYPE_LENGTH = 1024
 _BOUNDED_UNKNOWN_SQL_TYPE = re.compile(r"^[A-Za-z0-9_(),.' +\\-]+$")
 
 VERSIONED_IMPORT_FINGERPRINT_PREFIX_V1 = b"versioned_import/v1\x00"
+IMPORT_MAIN_REF = "main"
+IMPORT_PRIVATE_REF_PATTERN = re.compile(r"^gateway-import-[0-9a-f]{32}$")
+IMPORT_OPERATION_MARKER_PATTERN = re.compile(
+    r"^gateway-versioned-import operation_id="
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
 MANUAL_RECOVERY_REQUIRED_CODE = "MANUAL_RECOVERY_REQUIRED"
 ORDINARY_TERMINAL_ERROR_CODES = frozenset({
     "IMPORT_REJECTED",
@@ -266,6 +272,27 @@ def derive_private_ref_name(operation_id: UUID) -> str:
 
 def derive_operation_marker(operation_id: UUID) -> str:
     return f"gateway-versioned-import operation_id={operation_id}"
+
+
+def validate_import_ref_name(ref_name: str) -> str:
+    if ref_name == IMPORT_MAIN_REF:
+        return ref_name
+    if IMPORT_PRIVATE_REF_PATTERN.fullmatch(ref_name):
+        return ref_name
+    raise ValueError("import ref name is invalid")
+
+
+def validate_operation_marker(marker: str) -> str:
+    if IMPORT_OPERATION_MARKER_PATTERN.fullmatch(marker):
+        return marker
+    raise ValueError("operation marker is invalid")
+
+
+def parse_single_parent(parents_field: str) -> str | None:
+    parents = [part.strip() for part in parents_field.split(",") if part.strip()]
+    if len(parents) != 1:
+        return None
+    return parents[0]
 
 
 def versioned_import_fingerprint_v1(

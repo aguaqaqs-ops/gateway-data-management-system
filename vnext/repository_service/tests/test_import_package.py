@@ -112,6 +112,13 @@ def compress_zstd(payload: bytes) -> bytes:
     return compression.zstd.compress(payload)
 
 
+def compress_zstd_with_checksum(payload: bytes) -> bytes:
+    return compression.zstd.compress(
+        payload,
+        options={compression.zstd.CompressionParameter.checksum_flag: 1},
+    )
+
+
 def build_package_bytes(
     *,
     manifest: dict[str, object] | None = None,
@@ -730,6 +737,37 @@ def test_rejects_invalid_utf8_tar_header(
     artifact_path = tmp_path / "artifact.tar.zst"
     with pytest.raises(ImportPackageRejected, match="tar header is invalid"):
         validate_package(artifact_path, staging_dir, settings, compress_zstd(tar_bytes))
+
+
+def test_accepts_checksum_enabled_frame_at_exact_decoder_boundary_with_chunked_read(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tar_bytes = valid_tar_bytes()
+    compressed = compress_zstd_with_checksum(tar_bytes)
+    monkeypatch.setattr(
+        "gateway_repository_service.versioned_import.package._COMPRESSED_READ_CHUNK_BYTES",
+        len(compressed) - 4,
+    )
+    local_settings = settings.model_copy(
+        update={"max_decompressed_tar_stream_bytes": len(tar_bytes)}
+    )
+    artifact_path = tmp_path / "artifact.tar.zst"
+    result = validate_package(artifact_path, staging_dir, local_settings, compressed)
+    assert result.manifest.package_version == 1
+
+
+def test_accepts_full_zero_padding_block_after_tar_eof(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    tar_bytes = valid_tar_bytes() + (b"\x00" * 512)
+    artifact_path = tmp_path / "artifact.tar.zst"
+    result = validate_package(artifact_path, staging_dir, settings, compress_zstd(tar_bytes))
+    assert result.manifest.package_version == 1
 
 
 @pytest.mark.parametrize("extra_zero_bytes", [1, 511, 513])

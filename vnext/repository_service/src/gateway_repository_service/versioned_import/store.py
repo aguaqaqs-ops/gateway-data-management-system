@@ -26,6 +26,7 @@ from gateway_repository_service.versioned_import.models import (
     ImportReplayCountRejected,
     ImportRequestBinding,
     ManualCorrectionDecision,
+    ORDINARY_TERMINAL_ERROR_CODES,
     RecoveryAuditAction,
     StoredImportOperation,
     derive_operation_marker,
@@ -33,6 +34,7 @@ from gateway_repository_service.versioned_import.models import (
     is_manual_recovery_error,
     is_protected_operation_status,
     utc_now_iso,
+    validate_result_matches_operation_row,
 )
 
 
@@ -40,7 +42,11 @@ class ImportOperationStore:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
         self._lock = threading.Lock()
-        self._mutation_store = MutationStore(connection)
+        self._mutation_store = MutationStore(connection, transaction_lock=self._lock)
+
+    @property
+    def mutation_store(self) -> MutationStore:
+        return self._mutation_store
 
     def claim_or_enqueue(
         self,
@@ -64,6 +70,7 @@ class ImportOperationStore:
 
             new_operation_id = operation_id or uuid4()
             now = utc_now_iso()
+            enqueue_sequence = self._allocate_enqueue_sequence(binding.repository_id)
             private_ref_name = derive_private_ref_name(new_operation_id)
             operation_marker = derive_operation_marker(new_operation_id)
             self._connection.execute(
@@ -86,13 +93,14 @@ class ImportOperationStore:
                     operation_marker,
                     canonicalization_manifest_digest,
                     automatic_replay_count,
+                    enqueue_sequence,
                     result_json,
                     error_json,
                     created_at,
                     started_at,
                     updated_at,
                     completed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, NULL, ?, NULL, ?, NULL)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, NULL, NULL, ?, NULL, ?, NULL)
                 """,
                 (
                     str(new_operation_id),
@@ -110,6 +118,7 @@ class ImportOperationStore:
                     OperationStatus.QUEUED.value,
                     private_ref_name,
                     operation_marker,
+                    enqueue_sequence,
                     now,
                     now,
                 ),
@@ -145,7 +154,7 @@ class ImportOperationStore:
                 FROM repository_import_operations
                 WHERE repository_scope = ?
                   AND status = ?
-                ORDER BY created_at ASC, operation_id ASC
+                ORDER BY enqueue_sequence ASC
                 LIMIT 1
                 """,
                 (repository_id.hex, OperationStatus.QUEUED.value),
@@ -171,6 +180,7 @@ class ImportOperationStore:
                 raise ImportOperationTransitionRejected(
                     f"operation {operation_id} is not running"
                 )
+            validate_result_matches_operation_row(row, result)
             now = utc_now_iso()
             assert validated.result is not None
             result_json = json.dumps(
@@ -204,6 +214,7 @@ class ImportOperationStore:
                 UUID(str(row["artifact_id"])),
                 operation_id=operation_id,
                 consumed_at=now,
+                repository_id=UUID(str(row["repository_scope"])),
             )
             updated = self._fetch_by_operation_id(operation_id)
             if updated is None:
@@ -312,6 +323,7 @@ class ImportOperationStore:
                     error=None,
                 )
                 assert validated.result is not None
+                validate_result_matches_operation_row(row, final_result)
                 result_json = json.dumps(
                     validated.result.model_dump(mode="json"),
                     separators=(",", ":"),
@@ -344,6 +356,7 @@ class ImportOperationStore:
                     current.artifact_id,
                     operation_id=operation_id,
                     consumed_at=now,
+                    repository_id=current.repository_id,
                 )
                 audit_action = RecoveryAuditAction.INSPECT_APPLY_SUCCESS
                 final_status = OperationStatus.SUCCEEDED.value
@@ -356,6 +369,10 @@ class ImportOperationStore:
                 if final_error.request_id is not None:
                     raise ImportOperationStoreError(
                         "persisted operation error request_id must be empty"
+                    )
+                if final_error.code not in ORDINARY_TERMINAL_ERROR_CODES:
+                    raise ImportOperationTransitionRejected(
+                        "manual NOT_PUBLISHED correction requires an ordinary stable error code"
                     )
                 validated = self._validate_terminal_result(
                     operation_id,
@@ -446,7 +463,7 @@ class ImportOperationStore:
                 SELECT operation_id, status, error_json
                 FROM repository_import_operations
                 WHERE artifact_id = ?
-                ORDER BY created_at ASC, operation_id ASC
+                ORDER BY enqueue_sequence ASC
                 """,
                 (str(artifact_id),),
             )
@@ -472,6 +489,19 @@ class ImportOperationStore:
     def mark_artifact_bytes_deleted(self, artifact_id: UUID) -> None:
         with self._transaction():
             self._mutation_store.record_artifact_bytes_deleted(artifact_id, deleted_at=utc_now_iso())
+
+    def _allocate_enqueue_sequence(self, repository_id: UUID) -> int:
+        row = self._connection.execute(
+            """
+            SELECT COALESCE(MAX(enqueue_sequence), 0) + 1 AS next_sequence
+            FROM repository_import_operations
+            WHERE repository_scope = ?
+            """,
+            (repository_id.hex,),
+        ).fetchone()
+        if row is None:
+            raise ImportOperationStoreError("failed to allocate enqueue sequence")
+        return int(row["next_sequence"])
 
     def _claim_if_queued_locked(self, operation_id: UUID) -> StoredImportOperation | None:
         row = self._fetch_by_operation_id(operation_id)

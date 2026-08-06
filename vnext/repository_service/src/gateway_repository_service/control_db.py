@@ -9,7 +9,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 7
+CONTROL_DB_USER_VERSION = 8
 
 _MIGRATION_V2_STATEMENTS: tuple[str, ...] = (
     """
@@ -241,6 +241,34 @@ _MIGRATION_V7_STATEMENTS: tuple[str, ...] = (
 )
 
 
+_MIGRATION_V8_STATEMENTS: tuple[str, ...] = (
+    """
+    ALTER TABLE repository_import_operations
+    ADD COLUMN enqueue_sequence INTEGER
+    """,
+    """
+    UPDATE repository_import_operations
+    SET enqueue_sequence = (
+        SELECT COUNT(*)
+        FROM repository_import_operations AS earlier
+        WHERE earlier.repository_scope = repository_import_operations.repository_scope
+          AND (
+              earlier.created_at < repository_import_operations.created_at
+              OR (
+                  earlier.created_at = repository_import_operations.created_at
+                  AND earlier.rowid < repository_import_operations.rowid
+              )
+          )
+    ) + 1
+    """,
+    "DROP INDEX repository_import_operations_claim_idx",
+    """
+    CREATE INDEX repository_import_operations_claim_idx
+    ON repository_import_operations (repository_scope, status, enqueue_sequence)
+    """,
+)
+
+
 _MIGRATION_V5_STATEMENTS: tuple[str, ...] = (
     """
     CREATE TRIGGER prevent_insert_succeeded_when_terminal
@@ -407,6 +435,9 @@ class ControlStore:
             return
         if target_version == 7:
             ControlStore._execute_statements(connection, _MIGRATION_V7_STATEMENTS)
+            return
+        if target_version == 8:
+            ControlStore._execute_statements(connection, _MIGRATION_V8_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

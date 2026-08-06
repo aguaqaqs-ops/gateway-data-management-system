@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-import time
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -19,9 +18,13 @@ from gateway_repository_contracts import (
     VersionedImportResult,
 )
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
+from gateway_repository_service.mutation_fingerprints import create_repository_fingerprint_v1
 from gateway_repository_service.mutation_store import (
+    EffectStatus,
+    IdempotencyScope,
     IdempotencyKeyHash,
     MutationStore,
+    MutationStoreError,
     configure_connection,
 )
 from gateway_repository_service.versioned_import import (
@@ -38,6 +41,8 @@ REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
 ARTIFACT_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
 OPERATION_ID = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11")
 OTHER_OPERATION_ID = UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c11")
+LARGER_UUID_OPERATION_ID = OTHER_OPERATION_ID
+SMALLER_UUID_OPERATION_ID = OPERATION_ID
 SHA256 = "a" * 64
 MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
 
@@ -48,7 +53,8 @@ def stores(tmp_path: Path) -> tuple[ImportOperationStore, MutationStore]:
     ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000).close()
     connection = sqlite3.connect(db_path, timeout=5.0, check_same_thread=False)
     configure_connection(connection)
-    return ImportOperationStore(connection), MutationStore(connection)
+    import_store = ImportOperationStore(connection)
+    return import_store, import_store.mutation_store
 
 
 def _artifact_ref(*, artifact_id: UUID = ARTIFACT_ID) -> RepositoryArtifactRef:
@@ -218,19 +224,26 @@ def test_same_key_different_fingerprint_conflicts(stores: tuple[ImportOperationS
         )
 
 
-def test_claim_next_queued_is_fifo(stores: tuple[ImportOperationStore, MutationStore]) -> None:
+def test_claim_next_queued_is_fifo(
+    stores: tuple[ImportOperationStore, MutationStore],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     store, _ = stores
-    _enqueue(store, key="fifo-1", operation_id=OPERATION_ID)
-    time.sleep(0.01)
-    _enqueue(store, key="fifo-2", operation_id=OTHER_OPERATION_ID)
+    fixed_now = "2026-08-06T00:00:00+00:00"
+    monkeypatch.setattr(
+        "gateway_repository_service.versioned_import.store.utc_now_iso",
+        lambda: fixed_now,
+    )
+    _enqueue(store, key="fifo-1", operation_id=LARGER_UUID_OPERATION_ID)
+    _enqueue(store, key="fifo-2", operation_id=SMALLER_UUID_OPERATION_ID)
 
     first = store.claim_next_queued(REPOSITORY_ID)
     second = store.claim_next_queued(REPOSITORY_ID)
 
     assert first is not None
     assert second is not None
-    assert first.operation_id == OPERATION_ID
-    assert second.operation_id == OTHER_OPERATION_ID
+    assert first.operation_id == LARGER_UUID_OPERATION_ID
+    assert second.operation_id == SMALLER_UUID_OPERATION_ID
     assert first.status == OperationStatus.RUNNING
     assert second.status == OperationStatus.RUNNING
 
@@ -443,3 +456,140 @@ def test_terminal_transition_rejects_invalid_status(
 
     with pytest.raises(ImportOperationTransitionRejected):
         store.mark_succeeded(OPERATION_ID, result=_import_result())
+
+
+def test_concurrent_import_and_mutation_store_on_shared_connection(tmp_path: Path) -> None:
+    db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+    ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000).close()
+    connection = sqlite3.connect(db_path, timeout=5.0, check_same_thread=False)
+    configure_connection(connection)
+    import_store = ImportOperationStore(connection)
+    mutation_store = import_store.mutation_store
+
+    barrier = threading.Barrier(2)
+    results: list[object] = []
+
+    def import_worker() -> None:
+        binding = _binding()
+        key_hash = IdempotencyKeyHash.from_raw_key("shared-connection-import")
+        fingerprint = _fingerprint(binding, key_hash)
+        barrier.wait()
+        try:
+            import_store.claim_or_enqueue(
+                binding,
+                key_hash=key_hash,
+                fingerprint=fingerprint,
+                operation_id=OPERATION_ID,
+            )
+            results.append("import-ok")
+        except BaseException as exc:
+            results.append(exc)
+
+    def mutation_worker() -> None:
+        barrier.wait()
+        try:
+            effect = mutation_store.allocate_pending(
+                IdempotencyScope.for_create(),
+                key_hash=IdempotencyKeyHash.from_raw_key("shared-connection-create"),
+                fingerprint=create_repository_fingerprint_v1(),
+                resource_id=uuid4(),
+            )
+            results.append(effect.status)
+        except BaseException as exc:
+            results.append(exc)
+
+    threads = [threading.Thread(target=import_worker), threading.Thread(target=mutation_worker)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    connection.close()
+
+    assert results.count("import-ok") == 1
+    statuses = [item for item in results if isinstance(item, EffectStatus)]
+    failures = [item for item in results if isinstance(item, BaseException)]
+    assert statuses == [EffectStatus.PENDING]
+    assert failures == []
+
+
+def test_mark_succeeded_rejects_mismatched_artifact_id(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+
+    with pytest.raises(ImportOperationTransitionRejected, match="artifact_id"):
+        store.mark_succeeded(
+            OPERATION_ID,
+            result=_import_result(artifact_id=uuid4()),
+        )
+
+
+def test_manual_correction_succeeded_rejects_mismatched_expected_commit_id(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_failed(
+        OPERATION_ID,
+        error=SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual"),
+    )
+
+    mismatched = _import_result()
+    mismatched = mismatched.model_copy(update={"expected_commit_id": "commit-9"})
+
+    with pytest.raises(ImportOperationTransitionRejected, match="expected_commit_id"):
+        store.apply_manual_correction(
+            OPERATION_ID,
+            decision=ManualCorrectionDecision.SUCCEEDED,
+            evidence_summary={"summary": "published"},
+            final_result=mismatched,
+        )
+
+
+def test_mark_succeeded_without_artifact_lifecycle_row_fails_and_stays_running(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+
+    with pytest.raises(MutationStoreError, match="artifact lifecycle row is missing"):
+        store.mark_succeeded(OPERATION_ID, result=_import_result())
+
+    operation = store.get_operation(REPOSITORY_ID, OPERATION_ID)
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert operation is not None
+    assert operation.status == OperationStatus.RUNNING
+    assert lifecycle is None
+
+
+def test_not_published_correction_rejects_manual_code_and_writes_no_audit(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_failed(
+        OPERATION_ID,
+        error=SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual"),
+    )
+
+    with pytest.raises(ImportOperationTransitionRejected, match="ordinary stable error code"):
+        store.apply_manual_correction(
+            OPERATION_ID,
+            decision=ManualCorrectionDecision.NOT_PUBLISHED,
+            evidence_summary={"summary": "still manual"},
+            final_error=SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual"),
+        )
+
+    assert store.has_unresolved_manual_barrier(REPOSITORY_ID) is True
+    audit_count = mutation_store._connection.execute(
+        "SELECT COUNT(*) FROM repository_import_recovery_audit WHERE operation_id = ?",
+        (str(OPERATION_ID),),
+    ).fetchone()
+    assert int(audit_count[0]) == 0

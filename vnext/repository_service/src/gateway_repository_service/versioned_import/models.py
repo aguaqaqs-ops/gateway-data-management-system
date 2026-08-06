@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -20,6 +21,11 @@ from gateway_repository_service.mutation_store import IdempotencyKeyHash
 
 VERSIONED_IMPORT_FINGERPRINT_PREFIX_V1 = b"versioned_import/v1\x00"
 MANUAL_RECOVERY_REQUIRED_CODE = "MANUAL_RECOVERY_REQUIRED"
+ORDINARY_TERMINAL_ERROR_CODES = frozenset({
+    "IMPORT_REJECTED",
+    "EXPECTED_COMMIT_MISMATCH",
+    "VERIFICATION_FAILED_NOT_PUBLISHED",
+})
 
 
 class ImportOperationStoreError(RuntimeError):
@@ -140,6 +146,28 @@ def is_protected_operation_status(status: OperationStatus, error: SimpleError | 
     if status in {OperationStatus.QUEUED, OperationStatus.RUNNING}:
         return True
     return status == OperationStatus.FAILED and is_manual_recovery_error(error)
+
+
+def validate_result_matches_operation_row(
+    row: sqlite3.Row,
+    result: VersionedImportResult,
+) -> None:
+    if str(row["artifact_id"]) != str(result.artifact_id):
+        raise ImportOperationTransitionRejected("result artifact_id does not match operation request")
+    if str(row["target_ref"]) != result.target_ref:
+        raise ImportOperationTransitionRejected("result target_ref does not match operation request")
+    if str(row["expected_commit_id"]) != result.expected_commit_id:
+        raise ImportOperationTransitionRejected(
+            "result expected_commit_id does not match operation request"
+        )
+    if str(row["requested_verification_policy"]) != result.completed_verification_policy.value:
+        raise ImportOperationTransitionRejected(
+            "result completed_verification_policy does not match operation request"
+        )
+    if str(row["unknown_type_policy"]) != result.unknown_type_policy.value:
+        raise ImportOperationTransitionRejected(
+            "result unknown_type_policy does not match operation request"
+        )
 
 
 def utc_now_iso() -> str:

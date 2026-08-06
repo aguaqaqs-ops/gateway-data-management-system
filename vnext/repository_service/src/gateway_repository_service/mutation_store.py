@@ -152,9 +152,14 @@ class StoredEffectView:
 
 
 class MutationStore:
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        transaction_lock: threading.Lock | None = None,
+    ) -> None:
         self._connection = connection
-        self._lock = threading.Lock()
+        self._lock = transaction_lock if transaction_lock is not None else threading.Lock()
 
     @staticmethod
     def hash_idempotency_key(raw_key: str) -> IdempotencyKeyHash:
@@ -437,17 +442,27 @@ class MutationStore:
         *,
         operation_id: UUID,
         consumed_at: str,
+        repository_id: UUID,
     ) -> None:
-        self._connection.execute(
+        cursor = self._connection.execute(
             """
             UPDATE artifact_lifecycle
             SET consumed_by_operation_id = COALESCE(consumed_by_operation_id, ?),
                 consumed_at = COALESCE(consumed_at, ?),
                 updated_at = ?
             WHERE artifact_id = ?
+              AND repository_scope = ?
             """,
-            (str(operation_id), consumed_at, consumed_at, str(artifact_id)),
+            (
+                str(operation_id),
+                consumed_at,
+                consumed_at,
+                str(artifact_id),
+                repository_id.hex,
+            ),
         )
+        if cursor.rowcount != 1:
+            raise MutationStoreError("artifact lifecycle row is missing or scope mismatch")
 
     def record_artifact_bytes_deleted(self, artifact_id: UUID, *, deleted_at: str) -> None:
         self._connection.execute(

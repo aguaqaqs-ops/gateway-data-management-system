@@ -30,7 +30,8 @@ from gateway_repository_service.versioned_import.ports import (
     PublishMainPublished,
 )
 from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
-from gateway_repository_service.versioned_import.ref_validation import IMPORT_MAIN_REF
+from gateway_repository_service.candidate_a.ref_validation import IMPORT_MAIN_REF
+from gateway_repository_service.candidate_a.dolt_cli import DoltCliError
 from support.lifecycle_harness import dolt_available, lifecycle_settings
 
 
@@ -527,54 +528,6 @@ def test_read_catalog_rejects_commit_id_injection(
     assert import_provider.read_ref(IMPORT_MAIN_REF) == main_hash
 
 
-def test_production_import_does_not_load_probe_modules() -> None:
-    import os
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    src_root = Path(__file__).resolve().parents[1] / "src"
-    script = """
-import os
-import sys
-import types
-import importlib
-from pathlib import Path
-
-src_root = Path(os.environ["SRC_ROOT"])
-service_pkg = src_root / "gateway_repository_service"
-sys.path.insert(0, str(src_root))
-
-def make_pkg(name: str, path: Path) -> None:
-    module = types.ModuleType(name)
-    module.__path__ = [str(path)]
-    sys.modules[name] = module
-
-make_pkg("gateway_repository_service", service_pkg)
-make_pkg("gateway_repository_service.versioned_import", service_pkg / "versioned_import")
-
-importlib.import_module("gateway_repository_service.versioned_import.provider")
-blocked = (
-    "gateway_repository_service.providers",
-    "gateway_repository_service.workflow",
-)
-for name in blocked:
-    if name in sys.modules:
-        raise SystemExit(name)
-raise SystemExit(0)
-"""
-    env = os.environ.copy()
-    env["SRC_ROOT"] = str(src_root)
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        check=False,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
 def test_marker_conflicting_candidates_are_ambiguous(
     import_layout: DurableLayout,
@@ -677,3 +630,204 @@ def test_replay_cancellation_before_start(
     tables = import_provider._cli.query_json("show_tables", "SHOW TABLES;\n")
     table_names = {str(row.get("Tables_in_import-repo", row.get("Table", ""))) for row in tables}
     assert "cancel_probe" not in table_names
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_stream_missing_table_nonzero_is_typed_error(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    main_hash = import_provider.read_ref(IMPORT_MAIN_REF)
+    table = TableCatalog(
+        "missing_table_probe",
+        (ColumnCatalog("id", "BIGINT", False, 0),),
+        0,
+    )
+
+    with pytest.raises(ImportProviderError):
+        list(import_provider.stream_table(main_hash, table, UnknownTypePolicy.STRINGIFY))
+
+    assert import_provider.read_ref(IMPORT_MAIN_REF) == main_hash
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_stream_iteration_error_is_wrapped_as_import_provider_error(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("id", "BIGINT", False, 0),),
+        0,
+    )
+    main_hash = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    def failing_stream(*args: object, **kwargs: object) -> Iterator[pa.RecordBatch]:
+        def _gen() -> Iterator[pa.RecordBatch]:
+            raise DoltCliError("stream failed mid-iteration")
+            yield pa.record_batch({"id": pa.array([], type=pa.int64())})  # pragma: no cover
+
+        return _gen()
+
+    with patch.object(import_provider._cli, "stream_table", side_effect=failing_stream):
+        with pytest.raises(ImportProviderError, match="stream failed"):
+            list(import_provider.stream_table(main_hash, table, UnknownTypePolicy.STRINGIFY))
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_scan_timeout_returns_ambiguous(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    marker = derive_operation_marker(OPERATION_ID)
+
+    with patch.object(
+        import_provider._cli,
+        "query_json",
+        side_effect=DoltCliError("Dolt command failed: marker_scan"),
+    ):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_scan_invalid_json_returns_ambiguous(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    marker = derive_operation_marker(OPERATION_ID)
+
+    def invalid_json_query(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        raise DoltCliError("Dolt metadata was not valid JSON")
+
+    with patch.object(import_provider._cli, "query_json", side_effect=invalid_json_query):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_parent_query_failure_is_typed(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    candidate = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    with patch.object(
+        import_provider._cli,
+        "query_json",
+        side_effect=DoltCliError("Dolt command failed: candidate_parent"),
+    ):
+        with pytest.raises(ImportProviderError, match="candidate_parent"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_null_parent_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE null_parent (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    original_query_json = import_provider._cli.query_json
+
+    def null_parent_log(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        rows = original_query_json(kind, sql, revision=revision)
+        if kind == "marker_scan" and revision == private_ref:
+            rows[0]["parents"] = None
+        return rows
+
+    with patch.object(import_provider._cli, "query_json", side_effect=null_parent_log):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+def test_import_production_does_not_import_probe_and_probe_does_not_import_versioned_import() -> None:
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    src_root = Path(__file__).resolve().parents[1] / "src"
+    production_script = """
+import os
+import sys
+import types
+import importlib
+from pathlib import Path
+
+src_root = Path(os.environ["SRC_ROOT"])
+service_pkg = src_root / "gateway_repository_service"
+sys.path.insert(0, str(src_root))
+
+def make_pkg(name: str, path: Path) -> None:
+    module = types.ModuleType(name)
+    module.__path__ = [str(path)]
+    sys.modules[name] = module
+
+make_pkg("gateway_repository_service", service_pkg)
+make_pkg("gateway_repository_service.versioned_import", service_pkg / "versioned_import")
+
+importlib.import_module("gateway_repository_service.versioned_import.provider")
+blocked = (
+    "gateway_repository_service.providers",
+    "gateway_repository_service.workflow",
+)
+for name in blocked:
+    if name in sys.modules:
+        raise SystemExit(name)
+raise SystemExit(0)
+"""
+    probe_script = """
+import os
+import sys
+import types
+import importlib
+from pathlib import Path
+
+src_root = Path(os.environ["SRC_ROOT"])
+service_pkg = src_root / "gateway_repository_service"
+sys.path.insert(0, str(src_root))
+
+def make_pkg(name: str, path: Path) -> None:
+    module = types.ModuleType(name)
+    module.__path__ = [str(path)]
+    sys.modules[name] = module
+
+make_pkg("gateway_repository_service", service_pkg)
+
+importlib.import_module("gateway_repository_service.providers")
+for name in sys.modules:
+    if name.startswith("gateway_repository_service.versioned_import"):
+        raise SystemExit(name)
+raise SystemExit(0)
+"""
+    env = os.environ.copy()
+    env["SRC_ROOT"] = str(src_root)
+    production_result = subprocess.run(
+        [sys.executable, "-c", production_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    probe_result = subprocess.run(
+        [sys.executable, "-c", probe_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert production_result.returncode == 0, production_result.stdout + production_result.stderr
+    assert probe_result.returncode == 0, probe_result.stdout + probe_result.stderr

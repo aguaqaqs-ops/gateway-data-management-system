@@ -1,4 +1,4 @@
-"""Production-owned Candidate A Dolt CLI primitives for import and probe reuse."""
+"""Candidate A Dolt CLI primitives shared by probe and production import paths."""
 
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ from gateway_repository_service.arrow_mapping import (
     normalize_rows,
     record_batch,
 )
-from gateway_repository_service.dolt_candidate_a_sql import (
+from gateway_repository_service.candidate_a.ref_validation import commit_literal, validate_commit_id
+from gateway_repository_service.candidate_a.sql import (
     _catalog_from_schema_diff,
     _metric_int,
     _observe_batch_metrics,
@@ -31,7 +32,6 @@ from gateway_repository_service.dolt_candidate_a_sql import (
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import CommandResult, DoltRunner, ProcessStream
 from gateway_repository_service.settings import RepositoryServiceSettings
-from gateway_repository_service.versioned_import.ref_validation import commit_literal, validate_commit_id
 
 
 class DoltCliError(RuntimeError):
@@ -151,6 +151,7 @@ class CandidateADoltCli:
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF {commit_literal(safe_commit_id)};\n",
         )
         stream: ProcessStream | None = None
+        stream_closed = False
         batch_metrics: dict[str, object] = {
             "max_encoded_line_bytes": 0,
             "encoded_line_bound_valid": True,
@@ -181,6 +182,10 @@ class CandidateADoltCli:
             reader = csv.reader((decode_line(line) for line in stream), strict=True)
             header = next(reader, None)
             if header is None:
+                result = stream.close()
+                stream_closed = True
+                if result.exit_code != 0 or result.timed_out:
+                    raise DoltCliError("Dolt row stream failed")
                 return
             if header != expected_header:
                 raise DoltCliError("tagged CSV header mismatch")
@@ -216,11 +221,12 @@ class CandidateADoltCli:
             if rows:
                 yield emit(rows)
             result = stream.close()
-            if result.exit_code != 0:
+            stream_closed = True
+            if result.exit_code != 0 or result.timed_out:
                 raise DoltCliError("Dolt row stream failed")
         finally:
             csv.field_size_limit(old_field_limit)
-            if stream is not None:
+            if stream is not None and not stream_closed:
                 stream.close()
             query.unlink(missing_ok=True)
 

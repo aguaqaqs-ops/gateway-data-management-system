@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 from uuid import UUID
 
 IMPORT_MAIN_REF = "main"
@@ -66,3 +67,12 @@ def parse_single_parent(parents_field: str) -> str | None:
     if len(parents) != 1:
         return None
     return parents[0]
+
+
+def parse_log_parent_field(raw: Any) -> str | None:
+    if raw is None or not isinstance(raw, str) or not raw.strip():
+        return None
+    parent = parse_single_parent(raw.strip())
+    if parent is None:
+        return None
+    return validate_commit_id(parent)

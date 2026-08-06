@@ -34,7 +34,8 @@ from gateway_repository_service.process import (
     process_tree_rss_kib,
     windows_for_interval,
 )
-from gateway_repository_service.dolt_candidate_a_sql import (
+from gateway_repository_service.candidate_a.dolt_cli import CandidateADoltCli, DoltCliError
+from gateway_repository_service.candidate_a.sql import (
     ProviderError,
     _catalog_from_schema_diff,
     _commit_literal,
@@ -48,7 +49,6 @@ from gateway_repository_service.dolt_candidate_a_sql import (
     quote_identifier,
 )
 from gateway_repository_service.settings import RepositoryServiceSettings
-from gateway_repository_service.versioned_import.dolt_cli import CandidateADoltCli, DoltCliError
 
 __all__ = [
     "OfflineCliProvider",

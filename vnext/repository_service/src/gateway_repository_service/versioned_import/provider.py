@@ -9,25 +9,21 @@ import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_contracts import UnknownTypePolicy
 from gateway_repository_service.arrow_mapping import TableCatalog, UnknownTypePolicy as ArrowUnknownTypePolicy
-from gateway_repository_service.layout import DurableLayout
-from gateway_repository_service.process import CommandResult, DoltRunner
-from gateway_repository_service.settings import RepositoryServiceSettings
-from gateway_repository_service.versioned_import.dolt_cli import (
-    CandidateADoltCli,
-    DoltCliError,
-    value,
-)
-from gateway_repository_service.versioned_import.errors import ImportProviderError
-from gateway_repository_service.versioned_import.ref_validation import (
+from gateway_repository_service.candidate_a.dolt_cli import CandidateADoltCli, DoltCliError, value
+from gateway_repository_service.candidate_a.ref_validation import (
     IMPORT_MAIN_REF,
     commit_literal,
-    parse_single_parent,
+    parse_log_parent_field,
     validate_commit_id,
     validate_operation_marker,
     validate_private_ref_marker_pair,
     validate_private_ref_name,
     validate_readable_ref_name,
 )
+from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.process import CommandResult, DoltRunner
+from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.ports import (
     CancellationCallback,
     MarkerInspection,
@@ -131,46 +127,49 @@ class CandidateAImportProvider:
 
     def inspect_marker(self, marker: str) -> MarkerInspection:
         validate_operation_marker(marker)
-        evidence: dict[tuple[str, str], set[str]] = {}
-        for branch_name in self._branch_names():
-            rows = self._cli.query_json(
-                "marker_scan",
-                "SELECT commit_hash, message, parents FROM dolt_log;\n",
-                revision=branch_name,
-            )
-            for row in rows:
-                if str(value(row, "message", 1)) != marker:
-                    continue
-                candidate = str(value(row, "commit_hash", 0))
-                parent = parse_single_parent(str(value(row, "parents", 0)))
-                if parent is None:
-                    return MarkerInspectionAmbiguous()
-                key = (candidate, parent)
-                evidence.setdefault(key, set()).add(branch_name)
+        try:
+            evidence: dict[tuple[str, str], set[str]] = {}
+            for branch_name in self._branch_names():
+                rows = self._cli.query_json(
+                    "marker_scan",
+                    "SELECT commit_hash, message, parents FROM dolt_log;\n",
+                    revision=branch_name,
+                )
+                for row in rows:
+                    if str(value(row, "message", 1)) != marker:
+                        continue
+                    candidate = str(value(row, "commit_hash", 0))
+                    parent = parse_log_parent_field(value(row, "parents", 0))
+                    if parent is None:
+                        return MarkerInspectionAmbiguous()
+                    key = (candidate, parent)
+                    evidence.setdefault(key, set()).add(branch_name)
 
-        if not evidence:
-            return MarkerInspectionZero()
-        if len(evidence) != 1:
-            return MarkerInspectionAmbiguous()
+            if not evidence:
+                return MarkerInspectionZero()
+            if len(evidence) != 1:
+                return MarkerInspectionAmbiguous()
 
-        (candidate, parent), _ = next(iter(evidence.items()))
-        refs = self._refs_for_commit(candidate)
-        if not refs:
+            (candidate, parent), _ = next(iter(evidence.items()))
+            refs = self._refs_for_commit(candidate)
+            if not refs:
+                return MarkerInspectionAmbiguous()
+            return MarkerInspectionUnique(candidate=candidate, parent=parent, refs=refs)
+        except DoltCliError:
             return MarkerInspectionAmbiguous()
-        return MarkerInspectionUnique(candidate=candidate, parent=parent, refs=refs)
 
     def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
         safe_candidate = validate_commit_id(candidate)
-        rows = self._cli.query_json(
-            "candidate_parent",
-            f"SELECT parents FROM dolt_log WHERE commit_hash = {commit_literal(safe_candidate)};\n",
-        )
-        if not rows:
-            return ()
-        parent = parse_single_parent(str(value(rows[0], "parents", 0)))
-        if parent is None:
-            return ()
         try:
+            rows = self._cli.query_json(
+                "candidate_parent",
+                f"SELECT parents FROM dolt_log WHERE commit_hash = {commit_literal(safe_candidate)};\n",
+            )
+            if not rows:
+                return ()
+            parent = parse_log_parent_field(value(rows[0], "parents", 0))
+            if parent is None:
+                return ()
             return self._cli.catalog(parent, safe_candidate)
         except DoltCliError as exc:
             raise ImportProviderError(str(exc)) from exc
@@ -183,9 +182,22 @@ class CandidateAImportProvider:
     ) -> Iterator[pa.RecordBatch]:
         safe_candidate = validate_commit_id(candidate)
         try:
-            return self._cli.stream_table(safe_candidate, table, ArrowUnknownTypePolicy(policy))
+            iterator = self._cli.stream_table(
+                safe_candidate,
+                table,
+                ArrowUnknownTypePolicy(policy),
+            )
         except DoltCliError as exc:
             raise ImportProviderError(str(exc)) from exc
+
+        def _emit() -> Iterator[pa.RecordBatch]:
+            try:
+                for batch in iterator:
+                    yield batch
+            except DoltCliError as exc:
+                raise ImportProviderError(str(exc)) from exc
+
+        return _emit()
 
     def publish_main(self, expected_commit: str, candidate: str) -> PublishMainResult:
         safe_expected = validate_commit_id(expected_commit)

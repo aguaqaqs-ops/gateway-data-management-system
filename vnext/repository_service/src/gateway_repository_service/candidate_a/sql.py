@@ -1,4 +1,4 @@
-"""Production-owned Candidate A SQL, catalog, and stream helpers without probe providers."""
+"""Candidate A SQL, catalog, and stream helpers shared by probe and production paths."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from gateway_repository_service.arrow_mapping import (
     arrow_type,
     normalize_sql_type,
 )
-from gateway_repository_service.versioned_import.ref_validation import commit_literal
+from gateway_repository_service.candidate_a.ref_validation import commit_literal
 
 # Re-export for probe providers that import _commit_literal from providers.
 _commit_literal = commit_literal

@@ -274,13 +274,13 @@ def _run_cli_malformed_json_side_effect(
 
 
 MALFORMED_JSON_SHAPES: tuple[tuple[bytes, str], ...] = (
-    (b'{"rows":[],"columns":null}', "NoneType"),
-    (b'{"rows":[],"columns":"bad"}', "expected 1"),
+    (b'{"rows":[],"columns":null}', "Dolt JSON columns was not a list"),
+    (b'{"rows":[],"columns":"bad"}', "Dolt JSON columns was not a list"),
     (b'{"rows":"bad","columns":[{"name":"x"}]}', "Dolt JSON rows was not a list"),
 )
 
 MARKER_FAULT_JSON_SHAPES: tuple[tuple[bytes, str], ...] = (
-    (b'{"rows":[],"columns":null}', "NoneType"),
+    (b'{"rows":[],"columns":null}', "Dolt JSON columns was not a list"),
     (b'{"rows":"bad","columns":[{"name":"x"}]}', "Dolt JSON rows was not a list"),
 )
 
@@ -1854,3 +1854,111 @@ def test_publish_main_malformed_json_read_is_ambiguous(
         result = import_provider.publish_main(expected, candidate)
 
     assert isinstance(result, PublishMainAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_tables_rejects_non_list_row(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_tables (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    stdout = (
+        b'{"rows":[["t1","BASE TABLE"], {"x": 1}], '
+        b'"columns":[{"name":"Tables_in_db"},{"name":"Table_type"}]}'
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_tables"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="Dolt JSON row was not a list"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_tables_rejects_non_list_columns_even_when_empty(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_columns (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[],"columns":"bad"}',
+            kinds=frozenset({"catalog_tables"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="Dolt JSON columns was not a list"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(
+    "stdout",
+    (
+        b'{"rows":[[1]], "columns":[{"name":"row_count"},{"name":"extra"}]}',
+        b'{"rows":[[1,2]], "columns":[{"name":"row_count"}]}',
+    ),
+)
+def test_catalog_json_rejects_extra_or_missing_cells(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_width (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_count"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="row width does not match columns"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_count_rejects_extra_cell(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_extra_cell (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[[1,2]], "columns":[{"name":"row_count"}]}',
+            kinds=frozenset({"catalog_count"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="row width does not match columns"):
+            import_provider.read_catalog(candidate)

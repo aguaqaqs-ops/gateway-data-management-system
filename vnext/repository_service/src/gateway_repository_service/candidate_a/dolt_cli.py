@@ -48,20 +48,30 @@ def json_rows(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, dict):
         if "rows" in payload and "columns" in payload:
             columns = payload["columns"]
-            names = [
-                str(column.get("name", column.get("Name")))
-                if isinstance(column, dict)
-                else str(column)
-                for column in columns
-            ]
+            if not isinstance(columns, list):
+                raise DoltCliError("Dolt JSON columns was not a list")
+            names: list[str] = []
+            for column in columns:
+                if isinstance(column, dict):
+                    name = column.get("name", column.get("Name"))
+                else:
+                    name = column
+                if not isinstance(name, str) or not name.strip():
+                    raise DoltCliError("Dolt JSON column name is missing or empty")
+                names.append(name.strip())
+            if len(names) != len(set(names)):
+                raise DoltCliError("Dolt JSON column names are not unique")
             raw_rows = payload["rows"]
             if not isinstance(raw_rows, list):
                 raise DoltCliError("Dolt JSON rows was not a list")
-            return [
-                {name: cell for name, cell in zip(names, row, strict=False)}
-                for row in raw_rows
-                if isinstance(row, list)
-            ]
+            parsed: list[dict[str, Any]] = []
+            for row in raw_rows:
+                if not isinstance(row, list):
+                    raise DoltCliError("Dolt JSON row was not a list")
+                if len(row) != len(names):
+                    raise DoltCliError("Dolt JSON row width does not match columns")
+                parsed.append({name: cell for name, cell in zip(names, row, strict=True)})
+            return parsed
         for key in ("rows", "rowData", "data"):
             if key in payload:
                 return json_rows(payload[key])

@@ -124,6 +124,9 @@ class ArtifactLifecycleRecord:
     media_type: str
     size_bytes: int
     raw_sha256: str
+    consumed_by_operation_id: UUID | None = None
+    consumed_at: str | None = None
+    bytes_deleted_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -391,7 +394,15 @@ class MutationStore:
         with self._transaction():
             cursor = self._connection.execute(
                 """
-                SELECT artifact_id, repository_scope, media_type, size_bytes, raw_sha256
+                SELECT
+                    artifact_id,
+                    repository_scope,
+                    media_type,
+                    size_bytes,
+                    raw_sha256,
+                    consumed_by_operation_id,
+                    consumed_at,
+                    bytes_deleted_at
                 FROM artifact_lifecycle
                 WHERE artifact_id = ?
                 """,
@@ -400,13 +411,54 @@ class MutationStore:
             row = cursor.fetchone()
             if row is None:
                 return None
+            consumed_by_operation_id = row["consumed_by_operation_id"]
             return ArtifactLifecycleRecord(
                 artifact_id=UUID(str(row["artifact_id"])),
                 repository_id=UUID(str(row["repository_scope"])),
                 media_type=str(row["media_type"]),
                 size_bytes=int(row["size_bytes"]),
                 raw_sha256=str(row["raw_sha256"]),
+                consumed_by_operation_id=(
+                    UUID(str(consumed_by_operation_id))
+                    if consumed_by_operation_id is not None
+                    else None
+                ),
+                consumed_at=(
+                    str(row["consumed_at"]) if row["consumed_at"] is not None else None
+                ),
+                bytes_deleted_at=(
+                    str(row["bytes_deleted_at"]) if row["bytes_deleted_at"] is not None else None
+                ),
             )
+
+    def record_artifact_consumed(
+        self,
+        artifact_id: UUID,
+        *,
+        operation_id: UUID,
+        consumed_at: str,
+    ) -> None:
+        self._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET consumed_by_operation_id = COALESCE(consumed_by_operation_id, ?),
+                consumed_at = COALESCE(consumed_at, ?),
+                updated_at = ?
+            WHERE artifact_id = ?
+            """,
+            (str(operation_id), consumed_at, consumed_at, str(artifact_id)),
+        )
+
+    def record_artifact_bytes_deleted(self, artifact_id: UUID, *, deleted_at: str) -> None:
+        self._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = COALESCE(bytes_deleted_at, ?),
+                updated_at = ?
+            WHERE artifact_id = ?
+            """,
+            (deleted_at, deleted_at, str(artifact_id)),
+        )
 
     def mark_terminal_not_published(
         self,

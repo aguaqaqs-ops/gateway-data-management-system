@@ -1,0 +1,445 @@
+"""Tests for durable Versioned import operation store."""
+
+from __future__ import annotations
+
+import sqlite3
+import threading
+import time
+from pathlib import Path
+from uuid import UUID
+
+import pytest
+
+from gateway_repository_contracts import (
+    OperationStatus,
+    RepositoryArtifactRef,
+    SimpleError,
+    UnknownTypePolicy,
+    VerificationPolicy,
+    VersionedImportResult,
+)
+from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
+from gateway_repository_service.mutation_store import (
+    IdempotencyKeyHash,
+    MutationStore,
+    configure_connection,
+)
+from gateway_repository_service.versioned_import import (
+    ImportFingerprintConflict,
+    ImportOperationStore,
+    ImportOperationTransitionRejected,
+    ImportReplayCountRejected,
+    ImportRequestBinding,
+    ManualCorrectionDecision,
+    versioned_import_fingerprint_v1,
+)
+
+REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
+ARTIFACT_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
+OPERATION_ID = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11")
+OTHER_OPERATION_ID = UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c11")
+SHA256 = "a" * 64
+MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
+
+
+@pytest.fixture
+def stores(tmp_path: Path) -> tuple[ImportOperationStore, MutationStore]:
+    db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+    ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000).close()
+    connection = sqlite3.connect(db_path, timeout=5.0, check_same_thread=False)
+    configure_connection(connection)
+    return ImportOperationStore(connection), MutationStore(connection)
+
+
+def _artifact_ref(*, artifact_id: UUID = ARTIFACT_ID) -> RepositoryArtifactRef:
+    return RepositoryArtifactRef(
+        artifact_id=artifact_id,
+        media_type=MEDIA_TYPE,
+        size_bytes=12,
+        raw_sha256=SHA256,
+    )
+
+
+def _binding(*, artifact_id: UUID = ARTIFACT_ID) -> ImportRequestBinding:
+    return ImportRequestBinding(
+        repository_id=REPOSITORY_ID,
+        artifact_ref=_artifact_ref(artifact_id=artifact_id),
+        target_ref="main",
+        expected_commit_id="commit-0",
+        verification_policy=VerificationPolicy.STRUCTURAL,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+
+
+def _fingerprint(
+    binding: ImportRequestBinding,
+    key_hash: IdempotencyKeyHash,
+) -> bytes:
+    return versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+
+
+def _import_result(*, artifact_id: UUID = ARTIFACT_ID) -> VersionedImportResult:
+    return VersionedImportResult(
+        commit_id="commit-1",
+        target_ref="main",
+        artifact_id=artifact_id,
+        canonicalization_manifest_digest="manifest-digest-1",
+        expected_commit_id="commit-0",
+        completed_verification_policy=VerificationPolicy.STRUCTURAL,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+
+
+def _seed_artifact(mutation_store: MutationStore, *, artifact_id: UUID = ARTIFACT_ID) -> None:
+    now = "2026-08-06T00:00:00+00:00"
+    mutation_store._connection.execute(
+        """
+        INSERT INTO artifact_lifecycle (
+            artifact_id,
+            repository_scope,
+            media_type,
+            size_bytes,
+            raw_sha256,
+            created_at,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(artifact_id),
+            REPOSITORY_ID.hex,
+            MEDIA_TYPE,
+            12,
+            SHA256,
+            now,
+            now,
+        ),
+    )
+    mutation_store._connection.commit()
+
+
+def _enqueue(
+    store: ImportOperationStore,
+    *,
+    key: str = "import-key-1",
+    binding: ImportRequestBinding | None = None,
+    operation_id: UUID | None = None,
+) -> tuple[IdempotencyKeyHash, bytes]:
+    resolved_binding = binding or _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key(key)
+    fingerprint = _fingerprint(resolved_binding, key_hash)
+    store.claim_or_enqueue(
+        resolved_binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        operation_id=operation_id,
+    )
+    return key_hash, fingerprint
+
+
+def test_versioned_import_fingerprint_is_versioned() -> None:
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("import-key")
+    fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+    assert fingerprint.startswith(b"versioned_import/v1\x00")
+
+
+def test_idempotency_key_hash_repr_does_not_include_raw_key() -> None:
+    key_hash = IdempotencyKeyHash.from_raw_key("secret-import-key")
+    rendered = repr(key_hash)
+    assert "secret-import-key" not in rendered
+
+
+def test_claim_or_enqueue_inserts_queued_operation(stores: tuple[ImportOperationStore, MutationStore]) -> None:
+    store, _ = stores
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("enqueue-1")
+    fingerprint = _fingerprint(binding, key_hash)
+
+    result = store.claim_or_enqueue(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        operation_id=OPERATION_ID,
+    )
+
+    assert result.is_new is True
+    assert result.operation_id == OPERATION_ID
+    assert result.operation.status == OperationStatus.QUEUED
+    assert result.operation.result is None
+    assert result.operation.error is None
+    assert result.operation.private_ref_name == f"gateway-import-{OPERATION_ID.hex}"
+    assert result.operation.operation_marker == (
+        f"gateway-versioned-import operation_id={OPERATION_ID}"
+    )
+
+
+def test_same_key_same_fingerprint_replays_operation(stores: tuple[ImportOperationStore, MutationStore]) -> None:
+    store, _ = stores
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("replay-key")
+    fingerprint = _fingerprint(binding, key_hash)
+
+    first = store.claim_or_enqueue(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        operation_id=OPERATION_ID,
+    )
+    second = store.claim_or_enqueue(binding, key_hash=key_hash, fingerprint=fingerprint)
+
+    assert first.operation_id == second.operation_id
+    assert second.is_new is False
+
+
+def test_same_key_different_fingerprint_conflicts(stores: tuple[ImportOperationStore, MutationStore]) -> None:
+    store, _ = stores
+    key_hash = IdempotencyKeyHash.from_raw_key("conflict-key")
+    first_binding = _binding()
+    second_binding = ImportRequestBinding(
+        repository_id=REPOSITORY_ID,
+        artifact_ref=_artifact_ref(),
+        target_ref="main",
+        expected_commit_id="commit-1",
+        verification_policy=VerificationPolicy.STRUCTURAL,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+    store.claim_or_enqueue(
+        first_binding,
+        key_hash=key_hash,
+        fingerprint=_fingerprint(first_binding, key_hash),
+        operation_id=OPERATION_ID,
+    )
+
+    with pytest.raises(ImportFingerprintConflict):
+        store.claim_or_enqueue(
+            second_binding,
+            key_hash=key_hash,
+            fingerprint=_fingerprint(second_binding, key_hash),
+        )
+
+
+def test_claim_next_queued_is_fifo(stores: tuple[ImportOperationStore, MutationStore]) -> None:
+    store, _ = stores
+    _enqueue(store, key="fifo-1", operation_id=OPERATION_ID)
+    time.sleep(0.01)
+    _enqueue(store, key="fifo-2", operation_id=OTHER_OPERATION_ID)
+
+    first = store.claim_next_queued(REPOSITORY_ID)
+    second = store.claim_next_queued(REPOSITORY_ID)
+
+    assert first is not None
+    assert second is not None
+    assert first.operation_id == OPERATION_ID
+    assert second.operation_id == OTHER_OPERATION_ID
+    assert first.status == OperationStatus.RUNNING
+    assert second.status == OperationStatus.RUNNING
+
+
+def test_claim_if_queued_is_atomic_for_concurrent_callers(tmp_path: Path) -> None:
+    db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+    ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000).close()
+    connection = sqlite3.connect(db_path, timeout=5.0, check_same_thread=False)
+    configure_connection(connection)
+    store = ImportOperationStore(connection)
+    _enqueue(store, operation_id=OPERATION_ID)
+
+    barrier = threading.Barrier(2)
+    results: list[OperationStatus | BaseException | None] = []
+
+    def worker() -> None:
+        barrier.wait()
+        try:
+            claimed = store.claim_if_queued(OPERATION_ID)
+            results.append(claimed.status if claimed is not None else None)
+        except BaseException as exc:
+            results.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    connection.close()
+
+    claimed = [item for item in results if item == OperationStatus.RUNNING]
+    not_claimed = [item for item in results if item is None]
+    assert len(claimed) == 1
+    assert len(not_claimed) == 1
+
+
+def test_mark_succeeded_persists_result_and_consumed_binding(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+
+    operation = store.mark_succeeded(OPERATION_ID, result=_import_result())
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+
+    assert operation.status == OperationStatus.SUCCEEDED
+    assert operation.result is not None
+    assert operation.error is None
+    assert lifecycle is not None
+    assert lifecycle.consumed_by_operation_id == OPERATION_ID
+    assert lifecycle.consumed_at is not None
+
+
+def test_mark_failed_persists_terminal_error(stores: tuple[ImportOperationStore, MutationStore]) -> None:
+    store, _ = stores
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+
+    operation = store.mark_failed(
+        OPERATION_ID,
+        error=SimpleError(code="IMPORT_REJECTED", message="rejected"),
+    )
+
+    assert operation.status == OperationStatus.FAILED
+    assert operation.error is not None
+    assert operation.error.code == "IMPORT_REJECTED"
+    assert operation.result is None
+
+
+def test_mark_failed_rejects_request_id(stores: tuple[ImportOperationStore, MutationStore]) -> None:
+    store, _ = stores
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+
+    with pytest.raises(Exception, match="request_id must be empty"):
+        store.mark_failed(
+            OPERATION_ID,
+            error=SimpleError(code="IMPORT_REJECTED", message="rejected", request_id="req-1"),
+        )
+
+
+def test_increment_automatic_replay_count_only_once(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, _ = stores
+    _enqueue(store, operation_id=OPERATION_ID)
+
+    updated = store.increment_automatic_replay_count(OPERATION_ID)
+    assert updated.automatic_replay_count == 1
+
+    with pytest.raises(ImportReplayCountRejected):
+        store.increment_automatic_replay_count(OPERATION_ID)
+
+
+def test_manual_correction_and_audit_clear_barrier(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_failed(
+        OPERATION_ID,
+        error=SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual"),
+    )
+
+    assert store.has_unresolved_manual_barrier(REPOSITORY_ID) is True
+
+    corrected = store.apply_manual_correction(
+        OPERATION_ID,
+        decision=ManualCorrectionDecision.SUCCEEDED,
+        evidence_summary={"summary": "published"},
+        final_result=_import_result(),
+    )
+
+    assert corrected.status == OperationStatus.SUCCEEDED
+    assert store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
+
+    audit_count = mutation_store._connection.execute(
+        "SELECT COUNT(*) FROM repository_import_recovery_audit WHERE operation_id = ?",
+        (str(OPERATION_ID),),
+    ).fetchone()
+    assert int(audit_count[0]) == 1
+
+
+def test_manual_correction_rejects_non_manual_operation(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, _ = stores
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_failed(
+        OPERATION_ID,
+        error=SimpleError(code="IMPORT_REJECTED", message="rejected"),
+    )
+
+    with pytest.raises(ImportOperationTransitionRejected):
+        store.apply_manual_correction(
+            OPERATION_ID,
+            decision=ManualCorrectionDecision.NOT_PUBLISHED,
+            evidence_summary={"summary": "not published"},
+            final_error=SimpleError(code="IMPORT_REJECTED", message="operator confirmed"),
+        )
+
+
+def test_artifact_references_mark_protected_states(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _enqueue(store, key="queued", operation_id=OPERATION_ID)
+    _enqueue(store, key="manual", operation_id=OTHER_OPERATION_ID)
+    store.claim_if_queued(OTHER_OPERATION_ID)
+    store.mark_failed(
+        OTHER_OPERATION_ID,
+        error=SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual"),
+    )
+
+    references = store.list_artifact_references(ARTIFACT_ID)
+    by_id = {reference.operation_id: reference for reference in references}
+
+    assert by_id[OPERATION_ID].is_protected is True
+    assert by_id[OTHER_OPERATION_ID].is_protected is True
+
+
+def test_can_delete_artifact_bytes_requires_no_protected_references(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _enqueue(store, key="queued", operation_id=OPERATION_ID)
+    _enqueue(store, key="succeeded", operation_id=OTHER_OPERATION_ID)
+    store.claim_if_queued(OTHER_OPERATION_ID)
+    store.mark_succeeded(OTHER_OPERATION_ID, result=_import_result())
+
+    assert store.can_delete_artifact_bytes(ARTIFACT_ID) is False
+
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_failed(
+        OPERATION_ID,
+        error=SimpleError(code="IMPORT_REJECTED", message="rejected"),
+    )
+
+    assert store.can_delete_artifact_bytes(ARTIFACT_ID) is True
+
+
+def test_mark_artifact_bytes_deleted_records_timestamp(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_succeeded(OPERATION_ID, result=_import_result())
+
+    store.mark_artifact_bytes_deleted(ARTIFACT_ID)
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+
+def test_terminal_transition_rejects_invalid_status(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, _ = stores
+    _enqueue(store, operation_id=OPERATION_ID)
+
+    with pytest.raises(ImportOperationTransitionRejected):
+        store.mark_succeeded(OPERATION_ID, result=_import_result())

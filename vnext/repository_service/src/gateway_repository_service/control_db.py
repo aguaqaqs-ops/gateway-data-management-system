@@ -9,7 +9,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 6
+CONTROL_DB_USER_VERSION = 7
 
 _MIGRATION_V2_STATEMENTS: tuple[str, ...] = (
     """
@@ -168,6 +168,75 @@ _MIGRATION_V6_STATEMENTS: tuple[str, ...] = (
     """
     CREATE INDEX artifact_lifecycle_repository_scope_idx
     ON artifact_lifecycle (repository_scope)
+    """,
+)
+
+
+_MIGRATION_V7_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE repository_import_operations (
+        operation_id TEXT PRIMARY KEY,
+        repository_scope TEXT NOT NULL,
+        key_hash BLOB NOT NULL CHECK (length(key_hash) = 32),
+        request_fingerprint BLOB NOT NULL,
+        artifact_id TEXT NOT NULL,
+        artifact_media_type TEXT NOT NULL,
+        artifact_size_bytes INTEGER NOT NULL CHECK (artifact_size_bytes >= 0),
+        artifact_raw_sha256 TEXT NOT NULL CHECK (length(artifact_raw_sha256) = 64),
+        target_ref TEXT NOT NULL CHECK (target_ref = 'main'),
+        expected_commit_id TEXT NOT NULL,
+        requested_verification_policy TEXT NOT NULL,
+        unknown_type_policy TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (
+            status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED')
+        ),
+        private_ref_name TEXT NOT NULL,
+        operation_marker TEXT NOT NULL,
+        canonicalization_manifest_digest TEXT NULL,
+        automatic_replay_count INTEGER NOT NULL DEFAULT 0 CHECK (automatic_replay_count IN (0, 1)),
+        result_json TEXT NULL,
+        error_json TEXT NULL,
+        created_at TEXT NOT NULL,
+        started_at TEXT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT NULL,
+        UNIQUE (repository_scope, key_hash)
+    )
+    """,
+    """
+    CREATE INDEX repository_import_operations_claim_idx
+    ON repository_import_operations (repository_scope, status, created_at, operation_id)
+    """,
+    """
+    CREATE INDEX repository_import_operations_artifact_idx
+    ON repository_import_operations (artifact_id)
+    """,
+    """
+    CREATE TABLE repository_import_recovery_audit (
+        audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        operation_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (
+            action IN ('INSPECT_APPLY_SUCCESS', 'INSPECT_APPLY_NOT_PUBLISHED')
+        ),
+        prior_status TEXT NOT NULL,
+        prior_code TEXT NULL,
+        final_status TEXT NOT NULL,
+        final_code TEXT NULL,
+        evidence_summary_json TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+    )
+    """,
+    """
+    ALTER TABLE artifact_lifecycle
+    ADD COLUMN consumed_by_operation_id TEXT NULL
+    """,
+    """
+    ALTER TABLE artifact_lifecycle
+    ADD COLUMN consumed_at TEXT NULL
+    """,
+    """
+    ALTER TABLE artifact_lifecycle
+    ADD COLUMN bytes_deleted_at TEXT NULL
     """,
 )
 
@@ -335,6 +404,9 @@ class ControlStore:
             return
         if target_version == 6:
             ControlStore._execute_statements(connection, _MIGRATION_V6_STATEMENTS)
+            return
+        if target_version == 7:
+            ControlStore._execute_statements(connection, _MIGRATION_V7_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

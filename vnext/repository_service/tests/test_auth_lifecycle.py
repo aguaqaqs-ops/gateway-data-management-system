@@ -355,8 +355,19 @@ class TestControlDatabase:
             assert tables == {
                 "artifact_lifecycle",
                 "mutation_idempotency",
+                "repository_import_operations",
+                "repository_import_recovery_audit",
                 "synchronous_mutation_effects",
             }
+            artifact_columns = {
+                row[1]
+                for row in store.connection.execute("PRAGMA table_info(artifact_lifecycle)").fetchall()
+            }
+            assert {
+                "consumed_by_operation_id",
+                "consumed_at",
+                "bytes_deleted_at",
+            }.issubset(artifact_columns)
             idempotency_sql = store.connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name = 'mutation_idempotency'"
             ).fetchone()[0]
@@ -665,6 +676,61 @@ class TestControlDatabase:
         monkeypatch.undo()
         store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
         store.close()
+
+    def test_migration_upgrades_version_six_to_seven(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        ControlStore.open(db_path, expected_version=6, busy_timeout_ms=1000).close()
+
+        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+        try:
+            version = store.connection.execute("PRAGMA user_version").fetchone()
+            assert int(version[0]) == CONTROL_DB_USER_VERSION
+            tables = {
+                row[0]
+                for row in store.connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+                if row[0] != "sqlite_sequence"
+            }
+            assert "repository_import_operations" in tables
+            assert "repository_import_recovery_audit" in tables
+            artifact_columns = {
+                row[1]
+                for row in store.connection.execute("PRAGMA table_info(artifact_lifecycle)").fetchall()
+            }
+            assert "consumed_by_operation_id" in artifact_columns
+        finally:
+            store.close()
+
+    def test_migration_v7_rolls_back_on_failure(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        ControlStore.open(db_path, expected_version=6, busy_timeout_ms=1000).close()
+        original = ControlStore._apply_migration_step
+
+        def failing_step(connection: sqlite3.Connection, target_version: int) -> None:
+            if target_version == 7:
+                raise RuntimeError("v7 migration failure")
+            original(connection, target_version)
+
+        monkeypatch.setattr(ControlStore, "_apply_migration_step", staticmethod(failing_step))
+        with pytest.raises(RuntimeError, match="v7 migration failure"):
+            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+
+        connection = sqlite3.connect(db_path)
+        version = connection.execute("PRAGMA user_version").fetchone()
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        connection.close()
+        assert int(version[0]) == 6
+        assert "repository_import_operations" not in tables
 
 
 class TestProviderLifecycle:

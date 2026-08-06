@@ -76,3 +76,14 @@ def parse_log_parent_field(raw: Any) -> str | None:
     if parent is None:
         return None
     return validate_commit_id(parent)
+
+
+def parse_marker_parent_field(raw: str) -> str | None:
+    if "," in raw:
+        return None
+    if raw != raw.strip():
+        return None
+    try:
+        return validate_commit_id(raw)
+    except ValueError:
+        return None

@@ -16,6 +16,7 @@ from gateway_repository_service.candidate_a.ref_validation import (
     IMPORT_MAIN_REF,
     commit_literal,
     parse_log_parent_field,
+    parse_marker_parent_field,
     validate_commit_id,
     validate_operation_marker,
     validate_private_ref_marker_pair,
@@ -195,10 +196,17 @@ class CandidateAImportProvider:
                     if raw_message != marker:
                         continue
                     raw_candidate = value(row, "commit_hash", 0)
-                    if not isinstance(raw_candidate, str) or not raw_candidate.strip():
+                    if not isinstance(raw_candidate, str) or not raw_candidate:
                         return MarkerInspectionAmbiguous()
-                    candidate = validate_commit_id(raw_candidate.strip())
-                    parent = parse_log_parent_field(value(row, "parents", 0))
+                    if raw_candidate != raw_candidate.strip():
+                        return MarkerInspectionAmbiguous()
+                    candidate = validate_commit_id(raw_candidate)
+                    raw_parents = value(row, "parents", 0)
+                    if not isinstance(raw_parents, str) or not raw_parents:
+                        return MarkerInspectionAmbiguous()
+                    if raw_parents != raw_parents.strip():
+                        return MarkerInspectionAmbiguous()
+                    parent = parse_marker_parent_field(raw_parents)
                     if parent is None:
                         return MarkerInspectionAmbiguous()
                     key = (candidate, parent)
@@ -372,12 +380,19 @@ class CandidateAImportProvider:
             f"SELECT name FROM dolt_branches WHERE hash = {commit_literal(safe_candidate)};\n",
         )
         refs: list[str] = []
+        seen: set[str] = set()
         for row in rows:
             raw_name = value(row, "name", 0)
-            if not isinstance(raw_name, str) or not raw_name.strip():
+            if not isinstance(raw_name, str) or not raw_name:
                 raise ValueError("ref name is invalid")
-            refs.append(validate_readable_ref_name(raw_name.strip()))
-        return tuple(refs)
+            if raw_name != raw_name.strip():
+                raise ValueError("ref name is invalid")
+            ref = validate_readable_ref_name(raw_name)
+            if ref in seen:
+                raise ValueError("duplicate ref evidence")
+            seen.add(ref)
+            refs.append(ref)
+        return tuple(sorted(refs))
 
     def _run_cli(
         self,

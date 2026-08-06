@@ -44,9 +44,20 @@ def write_query(directory: Path, sql: str) -> Path:
     return path
 
 
+def _require_exact_envelope_keys(payload: dict[str, Any], expected: frozenset[str]) -> None:
+    actual = set(payload.keys())
+    if actual != expected:
+        raise DoltCliError(
+            f"Dolt JSON envelope mismatch: got {sorted(actual)}, expected {sorted(expected)}"
+        )
+
+
 def json_rows(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, dict):
+        if not payload:
+            return []
         if "rows" in payload and "columns" in payload:
+            _require_exact_envelope_keys(payload, frozenset({"rows", "columns"}))
             columns = payload["columns"]
             if not isinstance(columns, list):
                 raise DoltCliError("Dolt JSON columns was not a list")
@@ -72,10 +83,10 @@ def json_rows(payload: Any) -> list[dict[str, Any]]:
                     raise DoltCliError("Dolt JSON row width does not match columns")
                 parsed.append({name: cell for name, cell in zip(names, row, strict=True)})
             return parsed
-        for key in ("rows", "rowData", "data"):
-            if key in payload:
-                return json_rows(payload[key])
-        return [payload]
+        if "rows" in payload:
+            _require_exact_envelope_keys(payload, frozenset({"rows"}))
+            return json_rows(payload["rows"])
+        raise DoltCliError("Dolt JSON envelope was not recognized")
     if not isinstance(payload, list):
         raise DoltCliError("Dolt JSON result was not a row list")
     rows: list[dict[str, Any]] = []

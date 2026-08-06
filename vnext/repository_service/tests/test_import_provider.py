@@ -570,7 +570,7 @@ def test_stream_table_rejects_commit_id_injection_without_side_effect(
         list(import_provider.stream_table(malicious, table, UnknownTypePolicy.STRINGIFY))
 
     assert import_provider.read_ref(IMPORT_MAIN_REF) == main_hash
-    tables = import_provider._cli.query_json("show_tables", "SHOW TABLES;\n")
+    tables = import_provider._cli.query_json("show_tables", "SHOW FULL TABLES;\n")
     table_names = {str(row.get("Tables_in_import-repo", row.get("Table", ""))) for row in tables}
     assert "injected" not in table_names
 
@@ -687,7 +687,7 @@ def test_replay_cancellation_before_start(
         import_provider.replay_sql(private_ref, replay_sql, cancellation=lambda: True)
 
     assert import_provider.read_ref(IMPORT_MAIN_REF) == expected
-    tables = import_provider._cli.query_json("show_tables", "SHOW TABLES;\n")
+    tables = import_provider._cli.query_json("show_tables", "SHOW FULL TABLES;\n")
     table_names = {str(row.get("Tables_in_import-repo", row.get("Table", ""))) for row in tables}
     assert "cancel_probe" not in table_names
 
@@ -911,7 +911,7 @@ def test_replay_requires_private_ref(
         import_provider.replay_sql(private_ref, replay_sql)
 
     assert import_provider.read_ref(IMPORT_MAIN_REF) == expected
-    tables = import_provider._cli.query_json("show_tables", "SHOW TABLES;\n")
+    tables = import_provider._cli.query_json("show_tables", "SHOW FULL TABLES;\n")
     table_names = {
         str(row.get("Tables_in_import-repo", row.get("Table", ""))) for row in tables
     }
@@ -2250,6 +2250,145 @@ def test_inspect_marker_extra_field_is_ambiguous(
             import_provider,
             b'{"rows":[{"commit_hash":"deadbeef","message":"ignored","parents":"parent","extra":1}]}',
             kinds=frozenset({"marker_scan"}),
+        ),
+    ):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_metadata_rejects_unknown_envelope_fields(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE envelope_extra (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[{"row_count":1}],"error":"warn"}',
+            kinds=frozenset({"catalog_count"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="envelope mismatch"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_metadata_rejects_rowdata_fallback(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE rowdata_fallback (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rowData":[{"row_count":1}]}',
+            kinds=frozenset({"catalog_count"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="envelope was not recognized"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("commit_hash", " deadbeef "),
+        ("parents", " deadbeef "),
+    ),
+)
+def test_inspect_marker_rejects_whitespace_evidence(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    field: str,
+    value: str,
+) -> None:
+    private_ref, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE whitespace_evidence (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    original_query_json = import_provider._cli.query_json
+
+    def whitespace_log(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        rows = original_query_json(kind, sql, revision=revision)
+        if kind == "marker_scan" and revision == private_ref:
+            for row in rows:
+                if row.get("message") == marker:
+                    row[field] = value
+                    break
+        return rows
+
+    with patch.object(import_provider._cli, "query_json", side_effect=whitespace_log):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_inspect_marker_rejects_whitespace_ref_name(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE whitespace_ref (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[{"name":" main "}]}',
+            kinds=frozenset({"refs_for_commit"}),
+        ),
+    ):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_inspect_marker_rejects_duplicate_refs(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE duplicate_refs (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[{"name":"main"},{"name":"main"}]}',
+            kinds=frozenset({"refs_for_commit"}),
         ),
     ):
         inspection = import_provider.inspect_marker(marker)

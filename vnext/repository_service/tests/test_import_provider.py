@@ -2103,3 +2103,155 @@ def test_catalog_show_rows_require_exact_schema(
     ):
         with pytest.raises(ImportProviderError, match=match):
             import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_tables_rejects_broken_table_type(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE broken_type (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[{"Tables_in_import-repo":"hidden_table","Table_type":"BROKEN"}]}',
+            kinds=frozenset({"catalog_tables"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="Table_type is not recognized"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_count_rejects_case_colliding_keys(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE case_collision (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[{"ROW_COUNT":1,"row_count":2}]}',
+            kinds=frozenset({"catalog_count"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="duplicate column names"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_metadata_json_rejects_duplicate_keys(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE dup_keys (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[{"row_count":1,"row_count":2}]}',
+            kinds=frozenset({"catalog_count"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="duplicate keys"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_inspect_marker_null_message_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE null_message (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    original_query_json = import_provider._cli.query_json
+
+    def null_message_log(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        rows = original_query_json(kind, sql, revision=revision)
+        if kind == "marker_scan" and revision == private_ref:
+            rows[0]["message"] = None
+        return rows
+
+    with patch.object(import_provider._cli, "query_json", side_effect=null_message_log):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+    assert not isinstance(inspection, MarkerInspectionZero)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_inspect_marker_null_ref_name_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE null_ref (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[{"name":null}]}',
+            kinds=frozenset({"refs_for_commit"}),
+        ),
+    ):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_inspect_marker_extra_field_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE marker_extra (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[{"commit_hash":"deadbeef","message":"ignored","parents":"parent","extra":1}]}',
+            kinds=frozenset({"marker_scan"}),
+        ),
+    ):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)

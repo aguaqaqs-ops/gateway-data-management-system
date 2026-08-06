@@ -189,9 +189,15 @@ class CandidateAImportProvider:
                     revision=branch_name,
                 )
                 for row in rows:
-                    if str(value(row, "message", 1)) != marker:
+                    raw_message = value(row, "message", 1)
+                    if not isinstance(raw_message, str):
+                        return MarkerInspectionAmbiguous()
+                    if raw_message != marker:
                         continue
-                    candidate = str(value(row, "commit_hash", 0))
+                    raw_candidate = value(row, "commit_hash", 0)
+                    if not isinstance(raw_candidate, str) or not raw_candidate.strip():
+                        return MarkerInspectionAmbiguous()
+                    candidate = validate_commit_id(raw_candidate.strip())
                     parent = parse_log_parent_field(value(row, "parents", 0))
                     if parent is None:
                         return MarkerInspectionAmbiguous()
@@ -365,7 +371,13 @@ class CandidateAImportProvider:
             "refs_for_commit",
             f"SELECT name FROM dolt_branches WHERE hash = {commit_literal(safe_candidate)};\n",
         )
-        return tuple(str(value(row, "name", 0)) for row in rows)
+        refs: list[str] = []
+        for row in rows:
+            raw_name = value(row, "name", 0)
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                raise ValueError("ref name is invalid")
+            refs.append(validate_readable_ref_name(raw_name.strip()))
+        return tuple(refs)
 
     def _run_cli(
         self,

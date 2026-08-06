@@ -14,6 +14,7 @@ from gateway_repository_contracts import (
     SimpleError,
     SubmitVersionedImportRequest,
     UnknownTypePolicy,
+    UploadArtifactResponse,
     VerificationPolicy,
     VersionedImportResult,
     VersionedOperation,
@@ -143,6 +144,18 @@ def test_import_request_keeps_repository_and_artifact_scopes_distinct() -> None:
     assert "idempotency_key" not in request.model_dump()
 
 
+def test_import_request_accepts_upload_response_artifact_ref_directly() -> None:
+    upload = UploadArtifactResponse(artifact_ref=artifact_ref())
+    request = SubmitVersionedImportRequest(
+        repository_id=REPOSITORY_ID,
+        artifact_ref=upload.artifact_ref,
+        target_ref="main",
+        expected_commit_id="commit-0",
+    )
+
+    assert request.artifact_ref is upload.artifact_ref
+
+
 def test_import_request_defaults_policies_to_structural_and_reject() -> None:
     request = SubmitVersionedImportRequest.model_validate(import_request_payload())
 
@@ -231,6 +244,21 @@ def test_import_request_rejects_non_repository_import_media_type(media_type: str
     with pytest.raises(ValidationError):
         SubmitVersionedImportRequest.model_validate(
             import_request_payload_with_artifact_media_type(media_type)
+        )
+
+
+def test_import_request_rejects_upload_artifact_ref_with_wrong_media_type_directly() -> None:
+    with pytest.raises(ValidationError):
+        SubmitVersionedImportRequest(
+            repository_id=REPOSITORY_ID,
+            artifact_ref=RepositoryArtifactRef(
+                artifact_id=ARTIFACT_ID,
+                media_type="application/octet-stream",
+                size_bytes=12,
+                raw_sha256=SHA256,
+            ),
+            target_ref="main",
+            expected_commit_id="commit-0",
         )
 
 

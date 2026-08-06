@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, NonNegativeInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, NonNegativeInt, model_validator
 
 from gateway_repository_contracts.errors import SimpleError
 from gateway_repository_contracts.headers import REPOSITORY_IMPORT_MEDIA_TYPE
@@ -64,22 +64,6 @@ class RepositoryArtifactRef(_VersionedModel):
     raw_sha256: Sha256String
 
 
-class SubmitImportArtifactRef(_VersionedModel):
-    """Submit-scoped artifact ref with fixed repository import media type."""
-
-    artifact_id: UUID
-    media_type: MediaTypeString
-    size_bytes: NonNegativeInt
-    raw_sha256: Sha256String
-
-    @field_validator("media_type")
-    @classmethod
-    def _media_type_must_match_repository_import(cls, value: str) -> str:
-        if value != REPOSITORY_IMPORT_MEDIA_TYPE:
-            raise ValueError("media_type must be the repository import media type")
-        return value
-
-
 class CreateRepositoryResponse(_VersionedModel):
     repository_id: UUID
     default_ref: RefNameString
@@ -92,11 +76,17 @@ class UploadArtifactResponse(_VersionedModel):
 
 class SubmitVersionedImportRequest(_VersionedModel):
     repository_id: UUID
-    artifact_ref: SubmitImportArtifactRef
+    artifact_ref: RepositoryArtifactRef
     target_ref: MainRefLiteral
     expected_commit_id: BoundedOpaqueString
     verification_policy: VerificationPolicy = VerificationPolicy.STRUCTURAL
     unknown_type_policy: UnknownTypePolicy = UnknownTypePolicy.REJECT
+
+    @model_validator(mode="after")
+    def _artifact_ref_media_type_must_match_repository_import(self) -> Self:
+        if self.artifact_ref.media_type != REPOSITORY_IMPORT_MEDIA_TYPE:
+            raise ValueError("artifact_ref.media_type must be the repository import media type")
+        return self
 
 
 class SubmitVersionedImportResponse(_VersionedModel):

@@ -9,10 +9,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from gateway_repository_contracts import (
     OperationStatus,
@@ -106,7 +114,7 @@ def validate_manifest_sql_type(value: str) -> str:
 class ImportManifestColumn(_ClosedManifestModel):
     name: str
     sql_type: str
-    nullable: bool
+    nullable: StrictBool
 
     @field_validator("name")
     @classmethod
@@ -138,9 +146,9 @@ class ImportManifestSchema(_ClosedManifestModel):
 class ImportManifestTable(_ClosedManifestModel):
     name: str
     table_schema: ImportManifestSchema = Field(alias="schema")
-    row_count: NonNegativeInt
+    row_count: Annotated[StrictInt, Field(ge=0)]
 
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=False)
 
     @field_validator("row_count", mode="before")
     @classmethod
@@ -156,9 +164,16 @@ class ImportManifestTable(_ClosedManifestModel):
 
 
 class ImportManifest(_ClosedManifestModel):
-    package_version: Literal[1]
+    package_version: Annotated[StrictInt, Field(ge=1, le=1)]
     canonicalization_manifest_digest: BoundedOpaqueString
-    tables: tuple[ImportManifestTable, ...] = Field(min_length=1)
+    tables: tuple[ImportManifestTable, ...]
+
+    @field_validator("package_version", mode="before")
+    @classmethod
+    def _reject_bool_package_version(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("package_version must be an integer")
+        return value
 
     @model_validator(mode="after")
     def _validate_table_order_and_references(self) -> Self:

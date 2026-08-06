@@ -98,8 +98,14 @@ def build_tar_bytes(
     return buffer.getvalue()
 
 
-def build_raw_tar_bytes(entries: list[tuple[str, bytes, bytes]]) -> bytes:
-    return b"".join(_tar_record(name, payload, typeflag=typeflag) for name, payload, typeflag in entries)
+_TAR_EOF_BLOCKS = b"\x00" * 1024
+
+
+def build_raw_tar_bytes(entries: list[tuple[str, bytes, bytes]], *, include_eof: bool = True) -> bytes:
+    payload = b"".join(_tar_record(name, data, typeflag=typeflag) for name, data, typeflag in entries)
+    if include_eof:
+        payload += _TAR_EOF_BLOCKS
+    return payload
 
 
 def compress_zstd(payload: bytes) -> bytes:
@@ -191,14 +197,14 @@ def test_valid_package_happy_path(
     ("entries", "match"),
     [
         ([(REPLAY_SQL_ENTRY_NAME, b"x"), (MANIFEST_ENTRY_NAME, b"{}")], "invalid"),
-        ([(MANIFEST_ENTRY_NAME, b"{}")], "missing"),
+        ([(MANIFEST_ENTRY_NAME, b"{}")], "not allowed|malformed|EOF"),
         (
             [
                 (MANIFEST_ENTRY_NAME, b"{}"),
                 (REPLAY_SQL_ENTRY_NAME, b"x"),
                 ("extra.txt", b"x"),
             ],
-            "extra",
+            "EOF|trailing",
         ),
         ([("replay.sql", b"x"), (MANIFEST_ENTRY_NAME, b"{}")], "invalid"),
     ],
@@ -274,7 +280,7 @@ def test_rejects_pax_headers(
             info.pax_headers = {"comment": "evil"}
 
     artifact_path = tmp_path / "artifact.tar.zst"
-    with pytest.raises(ImportPackageRejected, match="extended"):
+    with pytest.raises(ImportPackageRejected, match="extended|not allowed"):
         validate_package(
             artifact_path,
             staging_dir,
@@ -326,21 +332,22 @@ def test_rejects_declared_size_mismatch(
     settings: RepositoryServiceSettings,
 ) -> None:
     manifest_payload = json.dumps(tiny_manifest_dict(), separators=(",", ":")).encode("utf-8")
-    tar_bytes = _tar_record(MANIFEST_ENTRY_NAME, manifest_payload) + _tar_record(
-        REPLAY_SQL_ENTRY_NAME,
-        b"SELECT 1;\n",
+    tar_bytes = build_raw_tar_bytes(
+        [
+            (MANIFEST_ENTRY_NAME, manifest_payload, tarfile.REGTYPE),
+            (REPLAY_SQL_ENTRY_NAME, b"SELECT 1;\n", tarfile.REGTYPE),
+        ]
     )
     header = bytearray(_tar_header(MANIFEST_ENTRY_NAME, len(manifest_payload) + 1))
     tar_bytes = bytes(header) + tar_bytes[512:]
     artifact_path = tmp_path / "artifact.tar.zst"
-    with pytest.raises(ImportPackageRejected, match="JSON"):
+    with pytest.raises(ImportPackageRejected, match="JSON|malformed|padding|payload"):
         validate_package(artifact_path, staging_dir, settings, build_package_bytes(tar_bytes=tar_bytes))
 
 
 @pytest.mark.parametrize(
     ("manifest", "match"),
     [
-        ({"package_version": 1, "canonicalization_manifest_digest": "d", "tables": []}, "validation"),
         (
             {
                 "package_version": 1,
@@ -696,3 +703,206 @@ def test_chunked_copy_streams_large_replay_without_full_read(
         build_package_bytes(manifest=tiny_manifest_dict(), replay_sql=replay_sql),
     )
     assert result.replay_sql_path.read_bytes() == replay_sql
+
+
+def empty_manifest_dict() -> dict[str, object]:
+    return {
+        "package_version": 1,
+        "canonicalization_manifest_digest": "d",
+        "tables": [],
+    }
+
+
+def valid_tar_bytes(
+    *,
+    manifest: dict[str, object] | None = None,
+    replay_sql: bytes = b"SELECT 1;\n",
+) -> bytes:
+    manifest_payload = json.dumps(manifest or tiny_manifest_dict(), separators=(",", ":")).encode("utf-8")
+    return build_raw_tar_bytes(
+        [
+            (MANIFEST_ENTRY_NAME, manifest_payload, tarfile.REGTYPE),
+            (REPLAY_SQL_ENTRY_NAME, replay_sql, tarfile.REGTYPE),
+        ]
+    )
+
+
+def test_accepts_empty_tables_manifest(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    artifact_path = tmp_path / "artifact.tar.zst"
+    result = validate_package(
+        artifact_path,
+        staging_dir,
+        settings,
+        build_package_bytes(manifest=empty_manifest_dict()),
+    )
+    assert result.manifest.tables == ()
+
+
+def test_rejects_decompressed_trailing_garbage_in_same_zstd_frame(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match="trailing"):
+        validate_package(
+            artifact_path,
+            staging_dir,
+            settings,
+            compress_zstd(valid_tar_bytes() + b"GARBAGE"),
+        )
+
+
+@pytest.mark.parametrize("eof_blocks", [0, 1])
+def test_rejects_insufficient_eof_zero_blocks(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+    eof_blocks: int,
+) -> None:
+    tar_bytes = valid_tar_bytes()[: -1024] + (b"\x00" * (512 * eof_blocks))
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match="EOF|malformed|trailing"):
+        validate_package(artifact_path, staging_dir, settings, compress_zstd(tar_bytes))
+
+
+def test_rejects_extra_entry_after_eof_blocks(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    extra = _tar_record("extra.txt", b"x")
+    tar_bytes = valid_tar_bytes() + extra
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match="trailing|EOF|not allowed"):
+        validate_package(artifact_path, staging_dir, settings, compress_zstd(tar_bytes))
+
+
+def test_rejects_nonzero_data_after_eof_blocks(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    tar_bytes = valid_tar_bytes() + b"TRAILER"
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match="trailing"):
+        validate_package(artifact_path, staging_dir, settings, compress_zstd(tar_bytes))
+
+
+def test_rejects_empty_global_pax_header(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    tar_bytes = build_raw_tar_bytes(
+        [
+            ("././@PaxHeader", b"", tarfile.XGLTYPE),
+            (
+                MANIFEST_ENTRY_NAME,
+                json.dumps(tiny_manifest_dict(), separators=(",", ":")).encode("utf-8"),
+                tarfile.REGTYPE,
+            ),
+            (REPLAY_SQL_ENTRY_NAME, b"SELECT 1;\n", tarfile.REGTYPE),
+        ]
+    )
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match="not allowed"):
+        validate_package(artifact_path, staging_dir, settings, compress_zstd(tar_bytes))
+
+
+def test_rejects_truncated_zstd_frame(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    artifact_path = tmp_path / "artifact.tar.zst"
+    payload = compress_zstd(valid_tar_bytes())[:32]
+    with pytest.raises(ImportPackageRejected, match="incomplete|malformed|trailing"):
+        validate_package(artifact_path, staging_dir, settings, payload)
+
+
+def test_rejects_decompression_bomb_before_high_allocation(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    replay_sql = b"A" * (32 * 1024 * 1024)
+    compressed = compress_zstd(valid_tar_bytes(replay_sql=replay_sql))
+    local_settings = settings.model_copy(update={"max_decompressed_tar_stream_bytes": 1024 * 1024})
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match="decompressed tar stream"):
+        validate_package(artifact_path, staging_dir, local_settings, compressed)
+
+
+@pytest.mark.parametrize(
+    ("manifest", "match"),
+    [
+        ({"package_version": True, "canonicalization_manifest_digest": "d", "tables": []}, "validation"),
+        ({"package_version": 1.0, "canonicalization_manifest_digest": "d", "tables": []}, "validation"),
+        (
+            {
+                "package_version": 1,
+                "canonicalization_manifest_digest": "d",
+                "tables": [
+                    {
+                        "name": "t",
+                        "table_schema": {
+                            "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                            "primary_key": ["id"],
+                        },
+                        "row_count": 0,
+                    }
+                ],
+            },
+            "validation",
+        ),
+        (
+            {
+                "package_version": 1,
+                "canonicalization_manifest_digest": "d",
+                "tables": [
+                    {
+                        "name": "t",
+                        "schema": {
+                            "columns": [{"name": "id", "sql_type": "INT", "nullable": 1}],
+                            "primary_key": ["id"],
+                        },
+                        "row_count": 0,
+                    }
+                ],
+            },
+            "validation",
+        ),
+        (
+            {
+                "package_version": 1,
+                "canonicalization_manifest_digest": "d",
+                "tables": [
+                    {
+                        "name": "t",
+                        "schema": {
+                            "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                            "primary_key": ["id"],
+                        },
+                        "row_count": "1",
+                    }
+                ],
+            },
+            "validation",
+        ),
+    ],
+)
+def test_rejects_non_strict_manifest_scalars(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+    manifest: dict[str, object],
+    match: str,
+) -> None:
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match=match):
+        validate_package(artifact_path, staging_dir, settings, build_package_bytes(manifest=manifest))

@@ -173,9 +173,12 @@ class CandidateADoltCli:
                 "catalog_count",
                 f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table_name)} AS OF {target_literal};\n",
             )
-            row_count = int(
-                value(_require_exactly_one_row(count_rows, "catalog_count"), "row_count", 0)
-            )
+            count_row = _require_exactly_one_row(count_rows, "catalog_count")
+            raw_count = value(count_row, "row_count", 0)
+            try:
+                row_count = int(raw_count)
+            except (TypeError, ValueError) as exc:
+                raise DoltCliError(f"invalid catalog_count row_count: {raw_count!r}") from exc
             tables.append(_parse_create_statement(ddl, row_count))
         return tuple(sorted(tables, key=lambda table: table.name))
 

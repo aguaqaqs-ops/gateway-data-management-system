@@ -10,7 +10,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_contracts import UnknownTypePolicy
 from gateway_repository_service.arrow_mapping import TableCatalog, UnknownTypePolicy as ArrowUnknownTypePolicy
-from gateway_repository_service.candidate_a.dolt_cli import CandidateADoltCli, value
+from gateway_repository_service.candidate_a.dolt_cli import CandidateADoltCli, _require_exactly_one_row, value
 from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import (
     IMPORT_MAIN_REF,
@@ -97,11 +97,13 @@ class CandidateAImportProvider:
                 "read_ref",
                 f"SELECT HASHOF('{safe_ref}') AS commit_id;\n",
             )
+            row = _require_exactly_one_row(rows, "read_ref")
+            raw = value(row, "commit_id", 0)
+            if not isinstance(raw, str) or not raw.strip():
+                raise ImportProviderError("Dolt did not return ref hash")
+            return validate_commit_id(raw.strip())
         except _IMPORT_PROVIDER_FAULTS as exc:
             raise _as_import_provider_error(exc) from exc
-        if not rows:
-            raise ImportProviderError("Dolt did not return ref hash")
-        return str(value(rows[0], "commit_id", 0))
 
     def create_private_ref(self, private_ref: str, expected_commit: str) -> None:
         validate_private_ref_name(private_ref)
@@ -252,13 +254,17 @@ class CandidateAImportProvider:
         if actual != safe_expected:
             return PublishMainMismatch(actual=actual)
 
-        result = self._runner.run(
-            "publish_main_force",
-            ["branch", "-f", IMPORT_MAIN_REF, safe_candidate],
-            cwd=self._repository,
-            timeout=self._settings.import_timeout_seconds,
-            capture_stdout=True,
-        )
+        try:
+            result = self._run_runner(
+                "publish_main_force",
+                ["branch", "-f", IMPORT_MAIN_REF, safe_candidate],
+                self._settings.import_timeout_seconds,
+                capture_stdout=True,
+            )
+        except _IMPORT_PROVIDER_FAULTS:
+            return PublishMainAmbiguous()
+        except ImportProviderError:
+            return PublishMainAmbiguous()
         if result.timed_out or result.exit_code != 0:
             return PublishMainAmbiguous()
 
@@ -302,11 +308,10 @@ class CandidateAImportProvider:
         return resolved
 
     def _current_branch(self) -> str:
-        result = self._runner.run(
+        result = self._run_runner(
             "current_branch",
             ["branch", "--show-current"],
-            cwd=self._repository,
-            timeout=self._settings.metadata_timeout_seconds,
+            self._settings.metadata_timeout_seconds,
             capture_stdout=True,
         )
         if result.timed_out or result.exit_code != 0:
@@ -314,11 +319,10 @@ class CandidateAImportProvider:
         return result.stdout.decode("utf-8", errors="replace").strip()
 
     def _branch_names(self) -> tuple[str, ...]:
-        result = self._runner.run(
+        result = self._run_runner(
             "branch_list",
             ["branch", "--list"],
-            cwd=self._repository,
-            timeout=self._settings.metadata_timeout_seconds,
+            self._settings.metadata_timeout_seconds,
             capture_stdout=True,
         )
         if result.timed_out or result.exit_code != 0:
@@ -329,6 +333,25 @@ class CandidateAImportProvider:
             if stripped:
                 names.append(stripped)
         return tuple(names)
+
+    def _run_runner(
+        self,
+        command_kind: str,
+        args: list[str],
+        timeout: float,
+        *,
+        capture_stdout: bool = False,
+    ) -> CommandResult:
+        try:
+            return self._runner.run(
+                command_kind,
+                args,
+                cwd=self._repository,
+                timeout=timeout,
+                capture_stdout=capture_stdout,
+            )
+        except _IMPORT_PROVIDER_FAULTS as exc:
+            raise _as_import_provider_error(exc) from exc
 
     def _refs_for_commit(self, candidate: str) -> tuple[str, ...]:
         safe_candidate = validate_commit_id(candidate)

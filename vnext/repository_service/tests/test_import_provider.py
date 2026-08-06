@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID
+import csv
 import threading
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -15,6 +16,7 @@ from gateway_repository_contracts import UnknownTypePolicy
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
     TableCatalog,
+    UnknownSqlTypeError,
     UnknownTypePolicy as ArrowUnknownTypePolicy,
 )
 from gateway_repository_service.candidate_a.dolt_cli import DoltCliError
@@ -1211,3 +1213,300 @@ def test_catalog_multiple_or_malformed_rows(
     with patch.object(import_provider._cli, "query_json", side_effect=duplicate_count_rows):
         with pytest.raises(ImportProviderError, match="catalog_count"):
             import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_ref_missing_or_invalid_commit_id(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    original_query_json = import_provider._cli.query_json
+
+    def patched_query_json(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "read_ref":
+            return []
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=patched_query_json):
+        with pytest.raises(ImportProviderError, match="read_ref"):
+            import_provider.read_ref(IMPORT_MAIN_REF)
+
+    def missing_column_rows(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "read_ref":
+            return [{}]
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=missing_column_rows):
+        with pytest.raises(ImportProviderError, match="commit_id"):
+            import_provider.read_ref(IMPORT_MAIN_REF)
+
+    def null_commit_rows(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "read_ref":
+            return [{"commit_id": None}]
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=null_commit_rows):
+        with pytest.raises(ImportProviderError, match="ref hash"):
+            import_provider.read_ref(IMPORT_MAIN_REF)
+
+    def invalid_commit_rows(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "read_ref":
+            return [{"commit_id": "bad hash!"}]
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=invalid_commit_rows):
+        with pytest.raises(ImportProviderError, match="invalid"):
+            import_provider.read_ref(IMPORT_MAIN_REF)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_publish_main_process_boundary_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, expected, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE publish_boundary (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    main_before = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    with patch.object(
+        import_provider,
+        "_run_runner",
+        side_effect=ProcessBoundaryError("publish process boundary"),
+    ):
+        result = import_provider.publish_main(expected, candidate)
+
+    assert isinstance(result, PublishMainAmbiguous)
+    assert import_provider.read_ref(IMPORT_MAIN_REF) == main_before
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_current_branch_process_boundary_is_typed(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    expected = import_provider.read_ref(IMPORT_MAIN_REF)
+    import_provider.create_private_ref(private_ref, expected)
+    import_provider.checkout_private_ref(private_ref)
+    replay_sql = _staging_replay_path(
+        import_layout,
+        "branch_boundary.sql",
+        "CREATE TABLE branch_fault (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    original_run = import_provider._runner.run
+
+    def failing_current_branch(
+        command_kind: str,
+        args: list[str],
+        *,
+        cwd: Path,
+        timeout: float,
+        stdin_path: Path | None = None,
+        capture_stdout: bool = False,
+    ) -> CommandResult:
+        if command_kind == "current_branch":
+            raise ProcessBoundaryError("process boundary")
+        return original_run(
+            command_kind,
+            args,
+            cwd=cwd,
+            timeout=timeout,
+            stdin_path=stdin_path,
+            capture_stdout=capture_stdout,
+        )
+
+    with patch.object(import_provider._runner, "run", side_effect=failing_current_branch):
+        with pytest.raises(ImportProviderError, match="process boundary"):
+            import_provider.replay_sql(private_ref, replay_sql)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_empty_count_or_null_count_is_typed(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE empty_count (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    original_query_json = import_provider._cli.query_json
+
+    def empty_count_rows(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "catalog_count":
+            return []
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=empty_count_rows):
+        with pytest.raises(ImportProviderError, match="catalog_count"):
+            import_provider.read_catalog(candidate)
+
+    def null_count_rows(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "catalog_count":
+            return [{"row_count": None}]
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=null_count_rows):
+        with pytest.raises(ImportProviderError, match="invalid catalog_count"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_stream_csv_unicode_and_arrow_faults_are_typed(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("id", "BIGINT", False, 0),),
+        0,
+    )
+    candidate = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    def failing_stream(exc: BaseException) -> object:
+        def side_effect(*args: object, **kwargs: object) -> Iterator[pa.RecordBatch]:
+            def _gen() -> Iterator[pa.RecordBatch]:
+                raise exc
+                yield pa.record_batch({"id": pa.array([], type=pa.int64())})  # pragma: no cover
+
+            return _gen()
+
+        return side_effect
+
+    with patch.object(
+        import_provider._cli,
+        "stream_table",
+        side_effect=failing_stream(csv.Error("malformed csv")),
+    ):
+        with pytest.raises(ImportProviderError, match="malformed csv"):
+            list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
+
+    with patch.object(
+        import_provider._cli,
+        "stream_table",
+        side_effect=failing_stream(UnicodeDecodeError("utf-8", b"", 0, 1, "invalid")),
+    ):
+        with pytest.raises(ImportProviderError, match="invalid"):
+            list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
+
+    with patch.object(
+        import_provider._cli,
+        "stream_table",
+        side_effect=failing_stream(UnknownSqlTypeError("unknown SQL type")),
+    ):
+        with pytest.raises(ImportProviderError, match="unknown SQL type"):
+            list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_concurrent_streams_with_over_128k_field(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    payload_len = 140000
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    marker = derive_operation_marker(OPERATION_ID)
+    expected = import_provider.read_ref(IMPORT_MAIN_REF)
+    import_provider.create_private_ref(private_ref, expected)
+    import_provider.checkout_private_ref(private_ref)
+    import_provider.replay_sql(
+        private_ref,
+        _staging_replay_path(
+            import_layout,
+            "stream_large_create.sql",
+            "CREATE TABLE stream_large (payload LONGTEXT NOT NULL, id BIGINT NOT NULL PRIMARY KEY);\n"
+            "INSERT INTO stream_large VALUES ('', 1);\n",
+        ),
+    )
+    for index in range(14):
+        import_provider.replay_sql(
+            private_ref,
+            _staging_replay_path(
+                import_layout,
+                f"stream_large_fill_{index}.sql",
+                "UPDATE stream_large SET payload = CONCAT(payload, REPEAT('x', 10000)) WHERE id = 1;\n",
+            ),
+        )
+    candidate = import_provider.commit_operation_marker(private_ref, marker)
+    table = TableCatalog(
+        "stream_large",
+        (
+            ColumnCatalog("payload", "LONGTEXT", False, None),
+            ColumnCatalog("id", "BIGINT", False, 0),
+        ),
+        1,
+    )
+    default_limit = 131072
+    assert csv.field_size_limit() >= import_provider._settings.max_stream_line_bytes
+    assert payload_len > default_limit
+
+    recorded_limits: list[int] = []
+    lock = threading.Lock()
+    original_stream_table = import_provider._cli.stream_table
+
+    def recording_stream(
+        commit_id: str,
+        table: TableCatalog,
+        policy: ArrowUnknownTypePolicy,
+    ) -> Iterator[pa.RecordBatch]:
+        with lock:
+            recorded_limits.append(csv.field_size_limit())
+        return original_stream_table(commit_id, table, policy)
+
+    errors: list[BaseException] = []
+
+    def consume() -> None:
+        try:
+            with patch.object(import_provider._cli, "stream_table", side_effect=recording_stream):
+                batches = list(
+                    import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY)
+                )
+                assert batches
+                assert len(batches[0]["payload"][0].as_py()) == payload_len
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=consume), threading.Thread(target=consume)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    assert recorded_limits
+    assert all(
+        limit >= import_provider._settings.max_stream_line_bytes for limit in recorded_limits
+    )
+    import_provider.checkout_private_ref(private_ref)
+    import_provider.delete_private_ref(private_ref, expected_candidate=candidate)

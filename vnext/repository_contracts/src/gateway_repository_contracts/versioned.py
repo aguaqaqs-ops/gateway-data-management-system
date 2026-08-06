@@ -11,9 +11,10 @@ from enum import StrEnum
 from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, NonNegativeInt, model_validator
+from pydantic import BaseModel, ConfigDict, NonNegativeInt, field_validator, model_validator
 
 from gateway_repository_contracts.errors import SimpleError
+from gateway_repository_contracts.headers import REPOSITORY_IMPORT_MEDIA_TYPE
 from gateway_repository_contracts.types import (
     BoundedOpaqueString,
     MainRefLiteral,
@@ -22,6 +23,14 @@ from gateway_repository_contracts.types import (
     Sha256String,
     TableNameString,
 )
+
+
+_OPERATION_TERMINAL_ERROR_CODES = frozenset({
+    "IMPORT_REJECTED",
+    "EXPECTED_COMMIT_MISMATCH",
+    "VERIFICATION_FAILED_NOT_PUBLISHED",
+    "MANUAL_RECOVERY_REQUIRED",
+})
 
 
 class _VersionedModel(BaseModel):
@@ -55,6 +64,22 @@ class RepositoryArtifactRef(_VersionedModel):
     raw_sha256: Sha256String
 
 
+class SubmitImportArtifactRef(_VersionedModel):
+    """Submit-scoped artifact ref with fixed repository import media type."""
+
+    artifact_id: UUID
+    media_type: MediaTypeString
+    size_bytes: NonNegativeInt
+    raw_sha256: Sha256String
+
+    @field_validator("media_type")
+    @classmethod
+    def _media_type_must_match_repository_import(cls, value: str) -> str:
+        if value != REPOSITORY_IMPORT_MEDIA_TYPE:
+            raise ValueError("media_type must be the repository import media type")
+        return value
+
+
 class CreateRepositoryResponse(_VersionedModel):
     repository_id: UUID
     default_ref: RefNameString
@@ -67,7 +92,7 @@ class UploadArtifactResponse(_VersionedModel):
 
 class SubmitVersionedImportRequest(_VersionedModel):
     repository_id: UUID
-    artifact_ref: RepositoryArtifactRef
+    artifact_ref: SubmitImportArtifactRef
     target_ref: MainRefLiteral
     expected_commit_id: BoundedOpaqueString
     verification_policy: VerificationPolicy = VerificationPolicy.STRUCTURAL
@@ -105,6 +130,10 @@ class VersionedOperation(_VersionedModel):
         elif self.status == OperationStatus.FAILED:
             if self.result is not None or self.error is None:
                 raise ValueError("FAILED operations require error and must not include result")
+            if self.error.code not in _OPERATION_TERMINAL_ERROR_CODES:
+                raise ValueError("FAILED operation error code must be a stable terminal code")
+            if self.error.request_id is not None:
+                raise ValueError("persisted operation error request_id must be empty")
         return self
 
 

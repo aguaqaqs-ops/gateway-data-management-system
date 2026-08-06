@@ -45,6 +45,12 @@ def import_request_payload(**overrides: object) -> dict[str, object]:
     return payload
 
 
+def import_request_payload_with_artifact_media_type(media_type: str) -> dict[str, object]:
+    artifact_payload = artifact_ref().model_dump()
+    artifact_payload["media_type"] = media_type
+    return import_request_payload(artifact_ref=artifact_payload)
+
+
 def import_result_payload(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "commit_id": "commit-1",
@@ -210,6 +216,79 @@ def test_import_request_rejects_body_idempotency_key() -> None:
     with pytest.raises(ValidationError):
         SubmitVersionedImportRequest.model_validate(
             import_request_payload(idempotency_key="import-1")
+        )
+
+
+@pytest.mark.parametrize(
+    "media_type",
+    [
+        "application/octet-stream",
+        "application/gzip",
+        "application/vnd.gateway.repository-import.v1+tar+gz",
+    ],
+)
+def test_import_request_rejects_non_repository_import_media_type(media_type: str) -> None:
+    with pytest.raises(ValidationError):
+        SubmitVersionedImportRequest.model_validate(
+            import_request_payload_with_artifact_media_type(media_type)
+        )
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "IMPORT_REJECTED",
+        "EXPECTED_COMMIT_MISMATCH",
+        "VERIFICATION_FAILED_NOT_PUBLISHED",
+        "MANUAL_RECOVERY_REQUIRED",
+    ],
+)
+def test_versioned_operation_failed_accepts_stable_terminal_error_codes(code: str) -> None:
+    operation = VersionedOperation.model_validate(
+        {
+            "operation_id": str(OPERATION_ID),
+            "status": OperationStatus.FAILED.value,
+            "result": None,
+            "error": {
+                "code": code,
+                "message": "terminal failure",
+            },
+        }
+    )
+
+    assert operation.error is not None
+    assert operation.error.code == code
+    assert operation.error.request_id is None
+
+
+def test_versioned_operation_failed_rejects_non_terminal_error_code() -> None:
+    with pytest.raises(ValidationError):
+        VersionedOperation.model_validate(
+            {
+                "operation_id": str(OPERATION_ID),
+                "status": OperationStatus.FAILED.value,
+                "result": None,
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "invalid request",
+                },
+            }
+        )
+
+
+def test_versioned_operation_failed_rejects_non_empty_request_id() -> None:
+    with pytest.raises(ValidationError):
+        VersionedOperation.model_validate(
+            {
+                "operation_id": str(OPERATION_ID),
+                "status": OperationStatus.FAILED.value,
+                "result": None,
+                "error": {
+                    "code": "IMPORT_REJECTED",
+                    "message": "manifest rejected",
+                    "request_id": "poll-request",
+                },
+            }
         )
 
 

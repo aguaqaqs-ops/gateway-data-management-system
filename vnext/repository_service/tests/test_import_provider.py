@@ -14,13 +14,15 @@ from gateway_repository_contracts import UnknownTypePolicy
 from gateway_repository_service.arrow_mapping import ColumnCatalog, TableCatalog
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import CommandResult, DoltRunner
-from gateway_repository_service.providers import OfflineCliProvider, ProviderError
+from gateway_repository_service.providers import OfflineCliProvider
+from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.models import (
     derive_operation_marker,
     derive_private_ref_name,
 )
 from gateway_repository_service.versioned_import.ports import (
     CancellationCallback,
+    MarkerInspectionAmbiguous,
     MarkerInspectionUnique,
     MarkerInspectionZero,
     PublishMainAmbiguous,
@@ -28,6 +30,7 @@ from gateway_repository_service.versioned_import.ports import (
     PublishMainPublished,
 )
 from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
+from gateway_repository_service.versioned_import.ref_validation import IMPORT_MAIN_REF
 from support.lifecycle_harness import dolt_available, lifecycle_settings
 
 
@@ -250,7 +253,7 @@ def test_dolt_integration_private_ref_marker_publish_and_cleanup(
     assert import_provider.read_ref("main") == candidate
 
     import_provider.delete_private_ref(private_ref, expected_candidate=candidate)
-    with pytest.raises(ProviderError):
+    with pytest.raises(ImportProviderError):
         import_provider.read_ref(private_ref)
 
 
@@ -286,7 +289,7 @@ def test_commit_without_checkout_does_not_modify_main(
 
     import_provider.create_private_ref(private_ref, expected)
 
-    with pytest.raises(ProviderError):
+    with pytest.raises(ImportProviderError):
         import_provider.commit_operation_marker(private_ref, marker)
 
     assert import_provider.read_ref("main") == expected
@@ -324,7 +327,7 @@ def test_replay_rejects_path_outside_staging(
 ) -> None:
     outside = tmp_path / "outside.sql"
     outside.write_text("SELECT 1;\n", encoding="utf-8")
-    with pytest.raises(ProviderError, match="staging"):
+    with pytest.raises(ImportProviderError, match="staging"):
         import_provider.replay_sql(outside)
 
 
@@ -446,3 +449,231 @@ def test_dolt_replay_uses_stdin_without_leaking_sql_path(
     replay_args = next(args for args in captured if "sql" in args)
     assert secret_sql not in " ".join(replay_args)
     assert str(replay_sql) not in " ".join(replay_args)
+
+
+OPERATION_ID_B = UUID("00000000-0000-4000-8000-0000000000b2")
+
+
+def test_private_ref_api_rejects_main(import_provider: CandidateAImportProvider) -> None:
+    main_hash = import_provider.read_ref(IMPORT_MAIN_REF)
+    marker = derive_operation_marker(OPERATION_ID)
+
+    with pytest.raises(ValueError, match="private ref"):
+        import_provider.create_private_ref(IMPORT_MAIN_REF, main_hash)
+    with pytest.raises(ValueError, match="private ref"):
+        import_provider.checkout_private_ref(IMPORT_MAIN_REF)
+    with pytest.raises(ValueError, match="private ref"):
+        import_provider.commit_operation_marker(IMPORT_MAIN_REF, marker)
+    with pytest.raises(ValueError, match="private ref"):
+        import_provider.delete_private_ref(IMPORT_MAIN_REF)
+
+    assert import_provider.read_ref(IMPORT_MAIN_REF) == main_hash
+
+
+def test_private_ref_marker_operation_ids_must_match(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    wrong_marker = derive_operation_marker(OPERATION_ID_B)
+    expected = import_provider.read_ref(IMPORT_MAIN_REF)
+    import_provider.create_private_ref(private_ref, expected)
+    import_provider.checkout_private_ref(private_ref)
+
+    with pytest.raises(ValueError, match="operation id mismatch"):
+        import_provider.commit_operation_marker(private_ref, wrong_marker)
+
+
+def test_commit_operation_marker_rejects_main(import_provider: CandidateAImportProvider) -> None:
+    marker = derive_operation_marker(OPERATION_ID)
+    main_hash = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    with pytest.raises(ValueError, match="private ref"):
+        import_provider.commit_operation_marker(IMPORT_MAIN_REF, marker)
+
+    assert import_provider.read_ref(IMPORT_MAIN_REF) == main_hash
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_stream_table_rejects_commit_id_injection_without_side_effect(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("id", "BIGINT", False, 0),),
+        0,
+    )
+    malicious = "abc'); CREATE TABLE injected (id BIGINT); SELECT HASHOF('main"
+    main_hash = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    with pytest.raises(ValueError, match="commit id"):
+        list(import_provider.stream_table(malicious, table, UnknownTypePolicy.STRINGIFY))
+
+    assert import_provider.read_ref(IMPORT_MAIN_REF) == main_hash
+    tables = import_provider._cli.query_json("show_tables", "SHOW TABLES;\n")
+    table_names = {str(row.get("Tables_in_import-repo", row.get("Table", ""))) for row in tables}
+    assert "injected" not in table_names
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_rejects_commit_id_injection(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    malicious = "abc'); CREATE TABLE injected (id BIGINT); SELECT HASHOF('main"
+    main_hash = import_provider.read_ref(IMPORT_MAIN_REF)
+
+    with pytest.raises(ValueError, match="commit id"):
+        import_provider.read_catalog(malicious)
+
+    assert import_provider.read_ref(IMPORT_MAIN_REF) == main_hash
+
+
+def test_production_import_does_not_load_probe_modules() -> None:
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    src_root = Path(__file__).resolve().parents[1] / "src"
+    script = """
+import os
+import sys
+import types
+import importlib
+from pathlib import Path
+
+src_root = Path(os.environ["SRC_ROOT"])
+service_pkg = src_root / "gateway_repository_service"
+sys.path.insert(0, str(src_root))
+
+def make_pkg(name: str, path: Path) -> None:
+    module = types.ModuleType(name)
+    module.__path__ = [str(path)]
+    sys.modules[name] = module
+
+make_pkg("gateway_repository_service", service_pkg)
+make_pkg("gateway_repository_service.versioned_import", service_pkg / "versioned_import")
+
+importlib.import_module("gateway_repository_service.versioned_import.provider")
+blocked = (
+    "gateway_repository_service.providers",
+    "gateway_repository_service.workflow",
+)
+for name in blocked:
+    if name in sys.modules:
+        raise SystemExit(name)
+raise SystemExit(0)
+"""
+    env = os.environ.copy()
+    env["SRC_ROOT"] = str(src_root)
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_conflicting_candidates_are_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE conflict_a (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    original_query_json = import_provider._cli.query_json
+
+    def conflicting_logs(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        rows = original_query_json(kind, sql, revision=revision)
+        if kind == "marker_scan" and revision == private_ref:
+            duplicate = dict(rows[0])
+            duplicate["commit_hash"] = "other-candidate-hash"
+            duplicate["parents"] = "other-parent-hash"
+            rows.append(duplicate)
+        return rows
+
+    with patch.object(import_provider._cli, "query_json", side_effect=conflicting_logs):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_missing_ref_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE missing_ref (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(import_provider, "_refs_for_commit", return_value=()):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_malformed_parents_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE malformed_parents (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    original_query_json = import_provider._cli.query_json
+
+    def malformed_parents_log(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        rows = original_query_json(kind, sql, revision=revision)
+        if kind == "marker_scan" and revision == private_ref:
+            rows[0]["parents"] = "parent-a, parent-b"
+        return rows
+
+    with patch.object(import_provider._cli, "query_json", side_effect=malformed_parents_log):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_replay_cancellation_before_start(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    expected = import_provider.read_ref(IMPORT_MAIN_REF)
+    import_provider.create_private_ref(private_ref, expected)
+    import_provider.checkout_private_ref(private_ref)
+    replay_sql = _staging_replay_path(
+        import_layout,
+        "cancel.sql",
+        "CREATE TABLE cancel_probe (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with pytest.raises(ImportProviderError, match="cancelled"):
+        import_provider.replay_sql(replay_sql, cancellation=lambda: True)
+
+    assert import_provider.read_ref(IMPORT_MAIN_REF) == expected
+    tables = import_provider._cli.query_json("show_tables", "SHOW TABLES;\n")
+    table_names = {str(row.get("Tables_in_import-repo", row.get("Table", ""))) for row in tables}
+    assert "cancel_probe" not in table_names

@@ -11,18 +11,22 @@ from gateway_repository_contracts import UnknownTypePolicy
 from gateway_repository_service.arrow_mapping import TableCatalog, UnknownTypePolicy as ArrowUnknownTypePolicy
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import CommandResult, DoltRunner
-from gateway_repository_service.providers import ProviderError, _commit_literal
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.dolt_cli import (
     CandidateADoltCli,
     DoltCliError,
     value,
 )
-from gateway_repository_service.versioned_import.models import (
+from gateway_repository_service.versioned_import.errors import ImportProviderError
+from gateway_repository_service.versioned_import.ref_validation import (
     IMPORT_MAIN_REF,
+    commit_literal,
     parse_single_parent,
-    validate_import_ref_name,
+    validate_commit_id,
     validate_operation_marker,
+    validate_private_ref_marker_pair,
+    validate_private_ref_name,
+    validate_readable_ref_name,
 )
 from gateway_repository_service.versioned_import.ports import (
     CancellationCallback,
@@ -55,25 +59,26 @@ class CandidateAImportProvider:
         self._staging_root = layout.staging_artifacts.resolve()
 
     def read_ref(self, ref_name: str) -> str:
-        safe_ref = validate_import_ref_name(ref_name)
+        safe_ref = validate_readable_ref_name(ref_name)
         try:
             rows = self._cli.query_json(
                 "read_ref",
                 f"SELECT HASHOF('{safe_ref}') AS commit_id;\n",
             )
         except DoltCliError as exc:
-            raise ProviderError(str(exc)) from exc
+            raise ImportProviderError(str(exc)) from exc
         if not rows:
-            raise ProviderError("Dolt did not return ref hash")
+            raise ImportProviderError("Dolt did not return ref hash")
         return str(value(rows[0], "commit_id", 0))
 
     def create_private_ref(self, private_ref: str, expected_commit: str) -> None:
-        validate_import_ref_name(private_ref)
+        validate_private_ref_name(private_ref)
+        validate_commit_id(expected_commit)
         if private_ref in self._branch_names():
             existing = self.read_ref(private_ref)
             if existing == expected_commit:
                 return
-            raise ProviderError("private ref exists at wrong commit")
+            raise ImportProviderError("private ref exists at wrong commit")
         self._run_cli(
             "create_private_ref",
             ["branch", private_ref, expected_commit],
@@ -81,7 +86,7 @@ class CandidateAImportProvider:
         )
 
     def checkout_private_ref(self, private_ref: str) -> None:
-        validate_import_ref_name(private_ref)
+        validate_private_ref_name(private_ref)
         self._run_cli(
             "checkout_private_ref",
             ["checkout", private_ref],
@@ -94,16 +99,17 @@ class CandidateAImportProvider:
         cancellation: CancellationCallback | None = None,
     ) -> None:
         if cancellation is not None and cancellation():
-            raise ProviderError("import replay cancelled before start")
+            raise ImportProviderError("import replay cancelled before start")
         safe_path = self._validate_replay_path(replay_path)
         try:
             self._cli.replay(safe_path)
         except DoltCliError as exc:
-            raise ProviderError(str(exc)) from exc
+            raise ImportProviderError(str(exc)) from exc
 
     def commit_operation_marker(self, private_ref: str, marker: str) -> str:
-        validate_import_ref_name(private_ref)
+        validate_private_ref_name(private_ref)
         validate_operation_marker(marker)
+        validate_private_ref_marker_pair(private_ref, marker)
         current = self._current_branch()
         if current != private_ref:
             self.checkout_private_ref(private_ref)
@@ -120,7 +126,7 @@ class CandidateAImportProvider:
         )
         after = self.read_ref(private_ref)
         if after == before:
-            raise ProviderError("marker commit did not advance private ref")
+            raise ImportProviderError("marker commit did not advance private ref")
         return after
 
     def inspect_marker(self, marker: str) -> MarkerInspection:
@@ -149,12 +155,15 @@ class CandidateAImportProvider:
 
         (candidate, parent), _ = next(iter(evidence.items()))
         refs = self._refs_for_commit(candidate)
+        if not refs:
+            return MarkerInspectionAmbiguous()
         return MarkerInspectionUnique(candidate=candidate, parent=parent, refs=refs)
 
     def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        safe_candidate = validate_commit_id(candidate)
         rows = self._cli.query_json(
             "candidate_parent",
-            f"SELECT parents FROM dolt_log WHERE commit_hash = {_commit_literal(candidate)};\n",
+            f"SELECT parents FROM dolt_log WHERE commit_hash = {commit_literal(safe_candidate)};\n",
         )
         if not rows:
             return ()
@@ -162,9 +171,9 @@ class CandidateAImportProvider:
         if parent is None:
             return ()
         try:
-            return self._cli.catalog(parent, candidate)
+            return self._cli.catalog(parent, safe_candidate)
         except DoltCliError as exc:
-            raise ProviderError(str(exc)) from exc
+            raise ImportProviderError(str(exc)) from exc
 
     def stream_table(
         self,
@@ -172,22 +181,25 @@ class CandidateAImportProvider:
         table: TableCatalog,
         policy: UnknownTypePolicy,
     ) -> Iterator[pa.RecordBatch]:
+        safe_candidate = validate_commit_id(candidate)
         try:
-            return self._cli.stream_table(candidate, table, ArrowUnknownTypePolicy(policy))
+            return self._cli.stream_table(safe_candidate, table, ArrowUnknownTypePolicy(policy))
         except DoltCliError as exc:
-            raise ProviderError(str(exc)) from exc
+            raise ImportProviderError(str(exc)) from exc
 
     def publish_main(self, expected_commit: str, candidate: str) -> PublishMainResult:
+        safe_expected = validate_commit_id(expected_commit)
+        safe_candidate = validate_commit_id(candidate)
         try:
             actual = self.read_ref(IMPORT_MAIN_REF)
-        except ProviderError:
+        except ImportProviderError:
             return PublishMainAmbiguous()
-        if actual != expected_commit:
+        if actual != safe_expected:
             return PublishMainMismatch(actual=actual)
 
         result = self._runner.run(
             "publish_main_force",
-            ["branch", "-f", IMPORT_MAIN_REF, candidate],
+            ["branch", "-f", IMPORT_MAIN_REF, safe_candidate],
             cwd=self._repository,
             timeout=self._settings.import_timeout_seconds,
             capture_stdout=True,
@@ -197,9 +209,9 @@ class CandidateAImportProvider:
 
         try:
             readback = self.read_ref(IMPORT_MAIN_REF)
-        except ProviderError:
+        except ImportProviderError:
             return PublishMainAmbiguous()
-        if readback != candidate:
+        if readback != safe_candidate:
             return PublishMainAmbiguous()
         return PublishMainPublished()
 
@@ -208,13 +220,13 @@ class CandidateAImportProvider:
         private_ref: str,
         expected_candidate: str | None = None,
     ) -> None:
-        validate_import_ref_name(private_ref)
+        validate_private_ref_name(private_ref)
         if private_ref not in self._branch_names():
             return
         if expected_candidate is not None:
             actual = self.read_ref(private_ref)
-            if actual != expected_candidate:
-                raise ProviderError("private ref candidate mismatch")
+            if actual != validate_commit_id(expected_candidate):
+                raise ImportProviderError("private ref candidate mismatch")
         self._run_cli(
             "checkout_main_for_delete",
             ["checkout", IMPORT_MAIN_REF],
@@ -229,9 +241,9 @@ class CandidateAImportProvider:
     def _validate_replay_path(self, replay_path: Path) -> Path:
         resolved = replay_path.resolve()
         if not resolved.is_relative_to(self._staging_root):
-            raise ProviderError("replay path outside server-owned staging")
+            raise ImportProviderError("replay path outside server-owned staging")
         if not resolved.is_file():
-            raise ProviderError("replay path is not a regular file")
+            raise ImportProviderError("replay path is not a regular file")
         return resolved
 
     def _current_branch(self) -> str:
@@ -243,7 +255,7 @@ class CandidateAImportProvider:
             capture_stdout=True,
         )
         if result.timed_out or result.exit_code != 0:
-            raise ProviderError("Dolt did not return current branch")
+            raise ImportProviderError("Dolt did not return current branch")
         return result.stdout.decode("utf-8", errors="replace").strip()
 
     def _branch_names(self) -> tuple[str, ...]:
@@ -255,7 +267,7 @@ class CandidateAImportProvider:
             capture_stdout=True,
         )
         if result.timed_out or result.exit_code != 0:
-            raise ProviderError("Dolt branch list failed")
+            raise ImportProviderError("Dolt branch list failed")
         names: list[str] = []
         for line in result.stdout.decode("utf-8", errors="replace").splitlines():
             stripped = line.strip().lstrip("*").strip()
@@ -264,9 +276,10 @@ class CandidateAImportProvider:
         return tuple(names)
 
     def _refs_for_commit(self, candidate: str) -> tuple[str, ...]:
+        safe_candidate = validate_commit_id(candidate)
         rows = self._cli.query_json(
             "refs_for_commit",
-            f"SELECT name FROM dolt_branches WHERE hash = {_commit_literal(candidate)};\n",
+            f"SELECT name FROM dolt_branches WHERE hash = {commit_literal(safe_candidate)};\n",
         )
         return tuple(str(value(row, "name", 0)) for row in rows)
 
@@ -286,4 +299,4 @@ class CandidateAImportProvider:
                 stdin_path=stdin_path,
             )
         except DoltCliError as exc:
-            raise ProviderError(str(exc)) from exc
+            raise ImportProviderError(str(exc)) from exc

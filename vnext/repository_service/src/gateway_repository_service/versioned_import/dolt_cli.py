@@ -18,9 +18,20 @@ from gateway_repository_service.arrow_mapping import (
     normalize_rows,
     record_batch,
 )
+from gateway_repository_service.dolt_candidate_a_sql import (
+    _catalog_from_schema_diff,
+    _metric_int,
+    _observe_batch_metrics,
+    _parse_create_statement,
+    _parse_tagged_row,
+    _row_bytes,
+    _tagged_select_list,
+    quote_identifier,
+)
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import CommandResult, DoltRunner, ProcessStream
 from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.versioned_import.ref_validation import commit_literal, validate_commit_id
 
 
 class DoltCliError(RuntimeError):
@@ -104,16 +115,11 @@ class CandidateADoltCli:
         )
 
     def catalog(self, base_commit_id: str, target_commit_id: str) -> tuple[TableCatalog, ...]:
-        from gateway_repository_service.providers import (
-            _catalog_from_schema_diff,
-            _commit_literal,
-            _parse_create_statement,
-            quote_identifier,
-        )
-
+        safe_base = validate_commit_id(base_commit_id)
+        safe_target = validate_commit_id(target_commit_id)
         diff_sql = (
             "SELECT * FROM dolt_schema_diff("
-            f"{_commit_literal(base_commit_id)}, {_commit_literal(target_commit_id)});\n"
+            f"{commit_literal(safe_base)}, {commit_literal(safe_target)});\n"
         )
         diff = self.query_json("catalog_schema_diff", diff_sql)
         counts: dict[str, int] = {}
@@ -125,7 +131,7 @@ class CandidateADoltCli:
         for table in ddl_tables:
             count_rows = self.query_json(
                 "catalog_count",
-                f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table)} AS OF {_commit_literal(target_commit_id)};\n",
+                f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table)} AS OF {commit_literal(safe_target)};\n",
             )
             counts[table] = int(value(count_rows[0], "row_count", 0))
         return _catalog_from_schema_diff(diff, counts)
@@ -136,21 +142,13 @@ class CandidateADoltCli:
         table: TableCatalog,
         policy: UnknownTypePolicy,
     ) -> Iterator[pa.RecordBatch]:
-        from gateway_repository_service.providers import (
-            _metric_int,
-            _observe_batch_metrics,
-            _parse_tagged_row,
-            _row_bytes,
-            _tagged_select_list,
-            quote_identifier,
-        )
-
+        safe_commit_id = validate_commit_id(commit_id)
         select_list, expected_header = _tagged_select_list(table)
         for column in table.columns:
             arrow_type(column.sql_type, policy)
         query = write_query(
             self.query_directory,
-            f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF '{commit_id}';\n",
+            f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF {commit_literal(safe_commit_id)};\n",
         )
         stream: ProcessStream | None = None
         batch_metrics: dict[str, object] = {

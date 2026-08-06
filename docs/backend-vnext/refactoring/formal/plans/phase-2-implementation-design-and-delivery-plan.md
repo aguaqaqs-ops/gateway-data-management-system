@@ -174,6 +174,11 @@ Exit：真实HTTP create/upload与restart tests通过。
 
 ### P2-R4 — Async Versioned import
 
+详细内部设计与按单次实现对话容量拆分的green stages见
+[P2-R4 Async Versioned Import Detailed Implementation Design](p2-r4-async-versioned-import-implementation-design.md)
+和
+[P2-R4 Async Versioned Import Staged Execution Plan](p2-r4-async-versioned-import-execution-plan.md)。
+
 - durable repository-scoped operation；
 - global bounded worker pool和per-repository writer lock；
 - expected commit同时作为parent和target ref mandatory CAS，private operation ref上先

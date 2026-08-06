@@ -118,6 +118,12 @@ RepositoryId/initial CommitId/ArtifactRef。
 Prerequisite：P2-R3 handoff。完整读取Repository contract §§9–12、External Effect contract
 及Canonical Storage §6。
 
+R4详细内部设计、十阶段green boundary和逐阶段实现提示词见
+[P2-R4 Async Versioned Import Detailed Implementation Design](p2-r4-async-versioned-import-implementation-design.md)
+与
+[P2-R4 Async Versioned Import Staged Execution Plan](p2-r4-async-versioned-import-execution-plan.md)。
+两文档从属于本checklist和owning contracts，不改变本节required gate。
+
 Allowed：import DTO/route、durable queue/worker、private ref、marker、mandatory commit CAS、
 verification/type policies、operation polling、startup reconciliation、private admin CLI。
 禁止read public routes/client纵切、table/schema CAS、LWW/force和business digest。

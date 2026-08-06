@@ -53,6 +53,10 @@ def test_settings_str_redacts_bearer_token_for_logging(tmp_path: Path, caplog: p
 def test_default_upload_and_ttl_settings() -> None:
     settings = RepositoryServiceSettings()
     assert settings.max_upload_bytes == 256 * 1024 * 1024
+    assert settings.max_manifest_json_bytes == 16 * 1024 * 1024
+    assert settings.max_replay_sql_bytes == 200 * 1024 * 1024
+    assert settings.max_total_expanded_entry_bytes == 4 * 1024 * 1024 * 1024
+    assert settings.max_decompressed_tar_stream_bytes == 4 * 1024 * 1024 * 1024
     assert settings.artifact_ttl_seconds == 24 * 60 * 60
 
 
@@ -63,7 +67,17 @@ def test_control_db_user_version_is_not_configurable(tmp_path: Path, monkeypatch
     assert CONTROL_DB_USER_VERSION == 7
 
 
-@pytest.mark.parametrize("field", ["max_upload_bytes", "artifact_ttl_seconds"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "max_upload_bytes",
+        "max_manifest_json_bytes",
+        "max_replay_sql_bytes",
+        "max_total_expanded_entry_bytes",
+        "max_decompressed_tar_stream_bytes",
+        "artifact_ttl_seconds",
+    ],
+)
 def test_positive_bounds_reject_zero(tmp_path: Path, field: str) -> None:
     kwargs: dict[str, int] = {field: 0}
     with pytest.raises(ValueError):

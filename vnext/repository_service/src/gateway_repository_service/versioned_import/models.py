@@ -1,13 +1,18 @@
-"""Typed models for durable Versioned import operations."""
+"""Typed models for durable Versioned import operations and import packages."""
 
 from __future__ import annotations
 
+import re
 import struct
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
+from typing import Literal, Self
 from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, field_validator, model_validator
 
 from gateway_repository_contracts import (
     OperationStatus,
@@ -17,7 +22,18 @@ from gateway_repository_contracts import (
     VerificationPolicy,
     VersionedImportResult,
 )
+from gateway_repository_contracts.types import BoundedOpaqueString
+from gateway_repository_service.arrow_mapping import UnknownSqlTypeError, UnknownTypePolicy as ArrowUnknownTypePolicy, arrow_type
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
+
+MANIFEST_ENTRY_NAME = "manifest.json"
+REPLAY_SQL_ENTRY_NAME = "replay.sql"
+STAGED_MANIFEST_FILENAME = "manifest.json"
+STAGED_REPLAY_SQL_FILENAME = "replay.sql"
+
+_MAX_IDENTIFIER_CODE_POINTS = 64
+_MAX_MANIFEST_SQL_TYPE_LENGTH = 1024
+_BOUNDED_UNKNOWN_SQL_TYPE = re.compile(r"^[A-Za-z0-9_(),.' +\\-]+$")
 
 VERSIONED_IMPORT_FINGERPRINT_PREFIX_V1 = b"versioned_import/v1\x00"
 MANUAL_RECOVERY_REQUIRED_CODE = "MANUAL_RECOVERY_REQUIRED"
@@ -46,6 +62,135 @@ class ImportOperationTransitionRejected(ImportOperationStoreError):
 
 class ImportReplayCountRejected(ImportOperationStoreError):
     """Raised when automatic replay count cannot be incremented."""
+
+
+class ImportPackageError(RuntimeError):
+    """Base error for import package validation failures."""
+
+
+class ImportPackageRejected(ImportPackageError):
+    """Raised when an import package fails structural or manifest validation."""
+
+
+class _ClosedManifestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+def validate_manifest_identifier(value: str) -> str:
+    if not value:
+        raise ValueError("identifier must not be empty")
+    code_points = 0
+    for char in value:
+        code_points += 1
+        if code_points > _MAX_IDENTIFIER_CODE_POINTS:
+            raise ValueError("identifier exceeds maximum length")
+        ordinal = ord(char)
+        if char == "\x00" or ordinal < 32 or ordinal == 127 or char in {"/", "\\"}:
+            raise ValueError("identifier contains forbidden characters")
+    return value
+
+
+def validate_manifest_sql_type(value: str) -> str:
+    if not value or len(value) > _MAX_MANIFEST_SQL_TYPE_LENGTH:
+        raise ValueError("sql_type length is out of bounds")
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError("sql_type contains control characters")
+    try:
+        arrow_type(value, ArrowUnknownTypePolicy.REJECT)
+    except UnknownSqlTypeError:
+        if _BOUNDED_UNKNOWN_SQL_TYPE.fullmatch(value) is None:
+            raise ValueError("sql_type is not a bounded normalized physical spelling") from None
+    return value
+
+
+class ImportManifestColumn(_ClosedManifestModel):
+    name: str
+    sql_type: str
+    nullable: bool
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        return validate_manifest_identifier(value)
+
+    @field_validator("sql_type")
+    @classmethod
+    def _validate_sql_type(cls, value: str) -> str:
+        return validate_manifest_sql_type(value)
+
+
+class ImportManifestSchema(_ClosedManifestModel):
+    columns: tuple[ImportManifestColumn, ...]
+    primary_key: tuple[str, ...]
+
+    @field_validator("primary_key")
+    @classmethod
+    def _validate_primary_key_names(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        seen: set[str] = set()
+        for item in value:
+            validate_manifest_identifier(item)
+            if item in seen:
+                raise ValueError("primary key column names must be unique")
+            seen.add(item)
+        return value
+
+
+class ImportManifestTable(_ClosedManifestModel):
+    name: str
+    table_schema: ImportManifestSchema = Field(alias="schema")
+    row_count: NonNegativeInt
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    @field_validator("row_count", mode="before")
+    @classmethod
+    def _reject_bool_row_count(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("row_count must be an integer")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        return validate_manifest_identifier(value)
+
+
+class ImportManifest(_ClosedManifestModel):
+    package_version: Literal[1]
+    canonicalization_manifest_digest: BoundedOpaqueString
+    tables: tuple[ImportManifestTable, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_table_order_and_references(self) -> Self:
+        table_names: list[str] = []
+        previous_name_bytes: bytes | None = None
+        for table in self.tables:
+            if table.name in table_names:
+                raise ValueError("table names must be unique")
+            table_names.append(table.name)
+            current_name_bytes = table.name.encode("utf-8")
+            if previous_name_bytes is not None and current_name_bytes <= previous_name_bytes:
+                raise ValueError("tables must be sorted by canonical UTF-8 name bytes")
+            previous_name_bytes = current_name_bytes
+
+            column_names: set[str] = set()
+            for column in table.table_schema.columns:
+                if column.name in column_names:
+                    raise ValueError("column names must be unique within a table")
+                column_names.add(column.name)
+            for key_name in table.table_schema.primary_key:
+                if key_name not in column_names:
+                    raise ValueError("primary key references unknown column")
+        return self
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedImportPackage:
+    manifest: ImportManifest
+    manifest_path: Path
+    replay_sql_path: Path
+    observed_raw_size_bytes: int
+    observed_raw_sha256: str
 
 
 class RecoveryAuditAction(StrEnum):

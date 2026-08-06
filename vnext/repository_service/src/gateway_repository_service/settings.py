@@ -55,6 +55,10 @@ class RepositoryServiceSettings(BaseSettings):
     min_free_disk_bytes: int = 5 * 1024 * 1024 * 1024
     min_free_disk_fraction: float = 0.10
     max_upload_bytes: int = 256 * 1024 * 1024
+    max_manifest_json_bytes: int = 16 * 1024 * 1024
+    max_replay_sql_bytes: int = 200 * 1024 * 1024
+    max_total_expanded_entry_bytes: int = 4 * 1024 * 1024 * 1024
+    max_decompressed_tar_stream_bytes: int = 4 * 1024 * 1024 * 1024
     artifact_ttl_seconds: int = 24 * 60 * 60
     sqlite_busy_timeout_ms: int = 5000
 
@@ -88,6 +92,10 @@ class RepositoryServiceSettings(BaseSettings):
         "v8_memory_safety_ceiling_bytes",
         "min_free_disk_bytes",
         "max_upload_bytes",
+        "max_manifest_json_bytes",
+        "max_replay_sql_bytes",
+        "max_total_expanded_entry_bytes",
+        "max_decompressed_tar_stream_bytes",
         "artifact_ttl_seconds",
         "sqlite_busy_timeout_ms",
     )

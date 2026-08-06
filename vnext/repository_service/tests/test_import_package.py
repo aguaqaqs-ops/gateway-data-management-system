@@ -665,6 +665,36 @@ def test_total_payload_boundary(
         )
 
 
+def test_decoder_stream_boundary_minus_one_equal_plus_one(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    payload = build_package_bytes(manifest=tiny_manifest_dict())
+    decompressed_size = len(compression.zstd.decompress(payload))
+    artifact_path = tmp_path / "artifact.tar.zst"
+
+    with pytest.raises(ImportPackageRejected, match="decompressed tar stream"):
+        validate_package(
+            artifact_path,
+            staging_dir / "under",
+            settings.model_copy(update={"max_decompressed_tar_stream_bytes": decompressed_size - 1}),
+            payload,
+        )
+    validate_package(
+        artifact_path,
+        staging_dir / "exact",
+        settings.model_copy(update={"max_decompressed_tar_stream_bytes": decompressed_size}),
+        payload,
+    )
+    validate_package(
+        artifact_path,
+        staging_dir / "over",
+        settings.model_copy(update={"max_decompressed_tar_stream_bytes": decompressed_size + 1}),
+        payload,
+    )
+
+
 def test_decoder_stream_counts_tar_headers(
     tmp_path: Path,
     staging_dir: Path,
@@ -682,6 +712,37 @@ def test_decoder_stream_counts_tar_headers(
     artifact_path = tmp_path / "artifact.tar.zst"
     with pytest.raises(ImportPackageRejected, match="decompressed tar stream"):
         validate_package(artifact_path, staging_dir, local_settings, compress_zstd(tar_bytes))
+
+
+def test_rejects_invalid_utf8_tar_header(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    manifest_payload = json.dumps(tiny_manifest_dict(), separators=(",", ":")).encode("utf-8")
+    header = bytearray(_tar_header(MANIFEST_ENTRY_NAME, len(manifest_payload)))
+    header[0:4] = b"\xff\xfe\xfd\xfc"
+    tar_bytes = bytes(header) + manifest_payload + b"\x00" * ((512 - (len(manifest_payload) % 512)) % 512)
+    tar_bytes += build_raw_tar_bytes(
+        [(REPLAY_SQL_ENTRY_NAME, b"SELECT 1;\n", tarfile.REGTYPE)],
+        include_eof=False,
+    )
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match="tar header is invalid"):
+        validate_package(artifact_path, staging_dir, settings, compress_zstd(tar_bytes))
+
+
+@pytest.mark.parametrize("extra_zero_bytes", [1, 511, 513])
+def test_rejects_partial_or_extra_zero_tail_after_eof(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+    extra_zero_bytes: int,
+) -> None:
+    tar_bytes = valid_tar_bytes() + (b"\x00" * extra_zero_bytes)
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match="trailing"):
+        validate_package(artifact_path, staging_dir, settings, compress_zstd(tar_bytes))
 
 
 def test_chunked_copy_streams_large_replay_without_full_read(

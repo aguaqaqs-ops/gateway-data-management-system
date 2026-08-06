@@ -201,7 +201,7 @@ class _CompressedArtifactSource:
     def _decompress_more(self) -> bool:
         remaining = self._remaining_stream_budget()
         if remaining <= 0:
-            raise ImportPackageRejected("decompressed tar stream exceeds size limit")
+            return self._probe_decoder_at_budget_limit()
 
         call_limit = min(remaining, _DECODE_CHUNK_BYTES)
         try:
@@ -229,6 +229,23 @@ class _CompressedArtifactSource:
                 return True
             return False
         return self._accept_decompressed(output)
+
+    def _probe_decoder_at_budget_limit(self) -> bool:
+        if self._decompressor.eof and self._decompressor.needs_input:
+            return False
+        try:
+            probe = self._decompressor.decompress(b"", max_length=1)
+        except EOFError:
+            if self._decompressor.eof:
+                return False
+            raise ImportPackageRejected("import package zstd frame is incomplete") from None
+        if probe:
+            raise ImportPackageRejected("decompressed tar stream exceeds size limit")
+        if self._decompressor.eof:
+            return False
+        if not self._decompressor.needs_input:
+            return self._probe_decoder_at_budget_limit()
+        raise ImportPackageRejected("import package zstd frame is incomplete")
 
     def _accept_decompressed(self, output: bytes) -> bool:
         self._decompressed_stream_bytes += len(output)
@@ -339,9 +356,7 @@ class _StrictTarExtractor:
             if not block:
                 return
             if len(block) < _TAR_BLOCK_SIZE:
-                if any(byte != 0 for byte in block):
-                    raise ImportPackageRejected("import package contains trailing tar data")
-                return
+                raise ImportPackageRejected("import package contains trailing tar data")
             if block != zero_block:
                 raise ImportPackageRejected("import package contains trailing tar data")
 
@@ -354,7 +369,7 @@ def _parse_header_block(block: bytes, *, expected_name: str) -> tarfile.TarInfo:
         raise ImportPackageRejected("import package tar entry type is not allowed")
     try:
         member = tarfile.TarInfo.frombuf(block, "utf-8", "strict")
-    except tarfile.TarError as exc:
+    except (tarfile.TarError, UnicodeError) as exc:
         raise ImportPackageRejected("import package tar header is invalid") from exc
     _validate_tar_member(member, expected_name=expected_name)
     return member

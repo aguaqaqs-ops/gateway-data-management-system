@@ -78,6 +78,7 @@ _STREAM_PROVIDER_FAULTS = (
 )
 
 _PUBLISH_AMBIGUOUS_FAULTS = (*_IMPORT_PROVIDER_FAULTS, ImportProviderError)
+_MARKER_AMBIGUOUS_FAULTS = (*_IMPORT_PROVIDER_FAULTS, ImportProviderError)
 
 
 class CandidateAImportProvider:
@@ -206,7 +207,7 @@ class CandidateAImportProvider:
             if not refs:
                 return MarkerInspectionAmbiguous()
             return MarkerInspectionUnique(candidate=candidate, parent=parent, refs=refs)
-        except (CandidateAError, ProcessBoundaryError, ValueError, ImportProviderError):
+        except _MARKER_AMBIGUOUS_FAULTS:
             return MarkerInspectionAmbiguous()
 
     def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:

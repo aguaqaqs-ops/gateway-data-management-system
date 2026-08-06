@@ -1083,6 +1083,22 @@ def test_marker_process_boundary_is_ambiguous(
 
 
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_oserror_is_ambiguous(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    marker = derive_operation_marker(OPERATION_ID)
+
+    with patch.object(
+        import_provider._cli,
+        "query_json",
+        side_effect=OSError("marker metadata process loss"),
+    ):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
 def test_catalog_empty_create_or_count_is_typed(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,

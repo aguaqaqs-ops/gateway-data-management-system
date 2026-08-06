@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 import csv
+import json
 import threading
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -2943,4 +2944,113 @@ def test_catalog_count_rejects_descriptor_case_collision_keys(
         ),
     ):
         with pytest.raises(ImportProviderError, match="duplicate keys"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.parametrize(
+    ("ddl", "match"),
+    (
+        ("CREATE TABLE t garbage (`id` BIGINT);", "malformed"),
+        ("CREATE TABLE t (`` BIGINT);", "invalid pinned DDL identifier"),
+        ("CREATE TABLE t (`id` BIGINT, PRIMARY KEY (`id`) garbage);", "primary key constraint"),
+        (
+            "CREATE TABLE t (`id` BIGINT, PRIMARY KEY (`id`), PRIMARY KEY (`id`));",
+            "multiple primary key",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT PRIMARY KEY, PRIMARY KEY (`id`));",
+            "multiple primary key",
+        ),
+        ("CREATE TABLE t (`id` BIGINT, FULLTEXT garbage);", "constraint was malformed"),
+    ),
+)
+def test_parse_create_statement_rejects_additional_malformed_ddl(ddl: str, match: str) -> None:
+    with pytest.raises(ProviderError, match=match):
+        _parse_create_statement(ddl, 0)
+
+
+def _catalog_create_injection_test(
+    import_provider: CandidateAImportProvider,
+    import_layout: DurableLayout,
+    ddl: str,
+    match: str,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE valid_target (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    stdout = json.dumps(
+        {"rows": [{"Table": "valid_target", "Create Table": ddl}]},
+        separators=(",", ":"),
+    ).encode()
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_create"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match=match):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(
+    ("ddl", "match"),
+    (
+        ("CREATE TABLE t garbage (`id` BIGINT);", "malformed"),
+        ("CREATE TABLE t (`` BIGINT);", "invalid pinned DDL identifier"),
+        ("CREATE TABLE t (`id` BIGINT, PRIMARY KEY (`id`) garbage);", "primary key constraint"),
+        (
+            "CREATE TABLE t (`id` BIGINT, PRIMARY KEY (`id`), PRIMARY KEY (`id`));",
+            "multiple primary key",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT PRIMARY KEY, PRIMARY KEY (`id`));",
+            "multiple primary key",
+        ),
+        ("CREATE TABLE t (`id` BIGINT, FULLTEXT garbage);", "constraint was malformed"),
+    ),
+)
+def test_read_catalog_rejects_malformed_create_ddl_injection(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    ddl: str,
+    match: str,
+) -> None:
+    _catalog_create_injection_test(import_provider, import_layout, ddl, match)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(
+    "stdout",
+    (
+        b'{"rows":[{" Table ":"valid_target"," Create Table ":"CREATE TABLE valid_target (id BIGINT);"}]}',
+        b'{"rows":[{"Table":"valid_target","CreateTable":"CREATE TABLE valid_target (id BIGINT);"}]}',
+        b'[{" Table ":"valid_target"," Create Table ":"CREATE TABLE valid_target (id BIGINT);"}]',
+    ),
+)
+def test_catalog_create_rejects_malformed_column_names(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_show (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_create"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="row schema mismatch|Table and Create Table"):
             import_provider.read_catalog(candidate)

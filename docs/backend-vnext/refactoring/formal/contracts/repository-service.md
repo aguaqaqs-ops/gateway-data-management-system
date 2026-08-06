@@ -116,7 +116,9 @@ HTTP status表达请求层结果；不公开通用`category/phase/recovery/effec
 不得为每个ID复制自定义比较、hash、wire parser和schema版本。
 
 Table、column和primary-key column name均为1..64 Unicode code points；拒绝NUL、
-ASCII control和`/`、`\\`路径分隔符。Service比较catalog时exact、case-sensitive，不做
+ASCII control和`/`、`\\`路径分隔符。table name额外禁止leading/trailing whitespace；
+column name与primary-key column name保持exact identifier规则（允许embedded space）。
+Service比较catalog时exact、case-sensitive，不做
 Unicode normalization或case fold；访问Dolt必须使用driver/adapter的MySQL identifier
 quoting，禁止把identifier直接拼接进SQL。Row route的table name只允许query parameter，
 不得进入path segment。V1不接受caller自定义Repository display name。

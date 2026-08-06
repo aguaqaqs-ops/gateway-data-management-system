@@ -130,13 +130,37 @@ def value(row: dict[str, Any], name: str, index: int | None = None) -> Any:
     raise DoltCliError(f"missing result column {name}")
 
 
-def _create_statement_from_show_row(row: dict[str, Any]) -> str:
-    for key, cell in row.items():
-        if key.lower().replace(" ", "") == "createtable":
-            if not isinstance(cell, str) or cell == "":
-                raise DoltCliError("SHOW CREATE TABLE did not return DDL")
-            return cell
-    raise DoltCliError("SHOW CREATE TABLE did not return DDL")
+_SHOW_CREATE_ROW_KEYS = frozenset({"table", "create table"})
+
+
+def _extract_show_create_fields(row: dict[str, Any], table_name: str, kind: str) -> str:
+    _require_unique_row_keys(row, kind)
+    if len(row) != 2:
+        raise DoltCliError(f"Dolt {kind} row schema mismatch: expected 2 columns, got {len(row)}")
+    table_key: str | None = None
+    create_table_key: str | None = None
+    for key in row:
+        lowered = key.lower()
+        if lowered not in _SHOW_CREATE_ROW_KEYS:
+            raise DoltCliError(
+                f"Dolt {kind} row schema mismatch: got {sorted(row.keys())}, "
+                f"expected Table and Create Table"
+            )
+        if lowered == "table":
+            table_key = key
+        else:
+            create_table_key = key
+    if table_key is None or create_table_key is None:
+        raise DoltCliError(f"Dolt {kind} row schema mismatch: missing Table column")
+    raw_table = row[table_key]
+    if not isinstance(raw_table, str) or raw_table == "":
+        raise DoltCliError(f"Dolt {kind} Table column is missing or invalid")
+    if raw_table != table_name:
+        raise DoltCliError(f"Dolt {kind} returned mismatched table name")
+    raw_ddl = row[create_table_key]
+    if not isinstance(raw_ddl, str) or raw_ddl == "":
+        raise DoltCliError(f"Dolt {kind} Create Table column is missing or invalid")
+    return raw_ddl
 
 
 _ALLOWED_SHOW_TABLE_TYPES = frozenset({"BASE TABLE", "VIEW"})
@@ -190,26 +214,6 @@ def _parse_show_tables_row(row: dict[str, Any], kind: str) -> tuple[str, str]:
     if not isinstance(raw_name, str) or raw_name == "":
         raise DoltCliError(f"Dolt {kind} table name is missing or invalid")
     return raw_name, table_type
-
-
-def _require_show_create_row(row: dict[str, Any], table_name: str, kind: str) -> None:
-    _require_unique_row_keys(row, kind)
-    keys = _normalized_row_keys(row)
-    if len(keys) != 2:
-        raise DoltCliError(f"Dolt {kind} row schema mismatch: expected 2 columns, got {len(keys)}")
-    normalized_to_original = {key.lower().replace(" ", ""): key for key in row}
-    if "table" not in normalized_to_original:
-        raise DoltCliError(f"Dolt {kind} row schema mismatch: missing Table column")
-    if "createtable" not in normalized_to_original:
-        raise DoltCliError(f"Dolt {kind} row schema mismatch: missing Create Table column")
-    raw_table = row[normalized_to_original["table"]]
-    if not isinstance(raw_table, str) or raw_table == "":
-        raise DoltCliError(f"Dolt {kind} Table column is missing or invalid")
-    if raw_table != table_name:
-        raise DoltCliError(f"Dolt {kind} returned mismatched table name")
-    raw_ddl = row[normalized_to_original["createtable"]]
-    if not isinstance(raw_ddl, str) or raw_ddl == "":
-        raise DoltCliError(f"Dolt {kind} Create Table column is missing or invalid")
 
 
 _EXACT_METADATA_ROW_SCHEMAS: dict[str, frozenset[str]] = {
@@ -367,8 +371,7 @@ class CandidateADoltCli:
                 f"SHOW CREATE TABLE {quote_identifier(table_name)} AS OF {target_literal};\n",
             )
             create_row = _require_exactly_one_row(create_rows, "catalog_create")
-            _require_show_create_row(create_row, table_name, "catalog_create")
-            ddl = _create_statement_from_show_row(create_row)
+            ddl = _extract_show_create_fields(create_row, table_name, "catalog_create")
             count_rows = self.query_json(
                 "catalog_count",
                 f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table_name)} AS OF {target_literal};\n",

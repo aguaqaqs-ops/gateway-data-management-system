@@ -164,7 +164,7 @@ durable CanonicalizationManifest，不复制到临时package。Package传输完�
 minimal ArtifactRef的size/raw SHA-256。
 
 `package_version`固定为integer `1`；`row_count`是非负integer。`tables`按canonical
-table name bytes排序，table name唯一；`columns`保持DDL order且name唯一；
+table name bytes排序，table name唯一且不得含leading/trailing whitespace；`columns`保持DDL order且name唯一；
 `primary_key`按key order引用已声明column。`sql_type`是bounded normalized physical
 SQL type，`nullable`是boolean。Object unknown field、duplicate或invalid key
 reference全部拒绝。`manifest.json`使用strict UTF-8 JSON，但不要求JCS，也不建立

@@ -335,13 +335,18 @@ expected parent、second main check和serialized internal ref update。不得复
 ### Allowed paths
 
 ```text
+vnext/repository_service/src/gateway_repository_service/candidate_a/
 vnext/repository_service/src/gateway_repository_service/versioned_import/ports.py
 vnext/repository_service/src/gateway_repository_service/versioned_import/provider.py
+vnext/repository_service/src/gateway_repository_service/versioned_import/errors.py
 vnext/repository_service/src/gateway_repository_service/process.py          # narrow shared primitive only
 vnext/repository_service/src/gateway_repository_service/providers.py        # only extracting a narrow helper
 vnext/repository_service/tests/test_import_provider.py
 vnext/repository_service/tests/test_distribution_boundaries.py
+vnext/repository_service/tests/test_import_package.py                       # cross-stage regression only
 ```
+
+`candidate_a/` 为 probe 与 production 共享的中性 Candidate A primitive 层（ref validation、SQL/catalog/stream helper、Dolt CLI session）。`versioned_import/dolt_cli.py`、`dolt_candidate_a_sql.py` 等已迁入 `candidate_a/`；probe `providers.py` 与 production `versioned_import/provider.py` 均只依赖该层，不得交叉依赖对方 stage 模块。
 
 ### Required behavior and gate
 
@@ -356,6 +361,9 @@ vnext/repository_service/tests/test_distribution_boundaries.py
 - no production import of workflow/fixtures/matrix/SqlServerProvider；
 - real Dolt integration覆盖private branch和main update；
 - process output/SQL/path不泄漏。
+- S3 cross-stage regression：checksum-enabled zstd frame跨64 KiB compressed chunk且equal
+  decoder boundary成功；
+- 双tar EOF后完整512-byte zero padding成功，partial/non-zero trailing继续拒绝。
 
 ### Code implementation prompt
 
@@ -363,9 +371,19 @@ vnext/repository_service/tests/test_distribution_boundaries.py
 请执行 P2-R4-S4 — Candidate A Import Ref Primitives。只实现production provider port/adapter
 和定向tests；不实现verification、worker、recovery、CLI或HTTP。
 
-开始前核对S3 handoff。完整读取P2-R4详细设计§§3、10–11，P2-R1 feasibility contract
-§§3–5和v8 go decision。检查当前DoltRunner、OfflineCliProvider、create adapter和provider tests，
+开始前核对S3 handoff。完整读取P2-R4详细设计§§3、6–7、10–11、20，Canonical Storage
+Contract §6.1，P2-R1 feasibility contract §§3–5和v8 go decision。检查当前DoltRunner、
+OfflineCliProvider、create adapter和provider tests，
 但不得把workflow.py、fixtures.py、matrix.py、target_gate.py或Candidate B当production authority。
+
+在修改provider前先补齐并运行S3 cross-stage regression。测试必须使用Python 3.14 stdlib zstd
+compressor的content checksum选项，并通过等价于临时monkeypatch
+`versioned_import.package._COMPRESSED_READ_CHUNK_BYTES = len(compressed) - 4`的测试seam，
+强制4-byte checksum trailer跨compressed read boundary；decompressed tar stream必须恰好等于
+`max_decompressed_tar_stream_bytes`且验证成功。另测双EOF后追加完整512-byte zero padding block
+仍成功，而1/511/513-byte partial zero tail和任一非零trailing必须失败。该测试只可修改
+`test_import_package.py`并冻结详细设计§6/§20既有S3语义；若现有validator不能通过，暂停S4、
+报告no-go并将S3修复与provider提交分离，不得借S4扩大package格式或修改counter解释。
 
 建立gateway_repository_service.versioned_import下的窄port和Candidate A adapter。实现
 read_ref、create/checkout/delete private ref、stdin replay、exact marker commit、marker/ref/

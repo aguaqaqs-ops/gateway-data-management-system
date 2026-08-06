@@ -84,6 +84,90 @@ def _first_identifier(value: str) -> tuple[str, str]:
     return match.group(1), match.group(2).lstrip()
 
 
+_PK_INDEX_PREFIX = re.compile(r"^\(\d+\)$")
+_TABLE_CONSTRAINT_PREFIXES = (
+    "UNIQUE ",
+    "KEY ",
+    "INDEX ",
+    "CONSTRAINT ",
+    "CHECK ",
+    "FULLTEXT ",
+    "SPATIAL ",
+    "FOREIGN ",
+)
+_ALLOWED_TABLE_OPTION_PATTERN = re.compile(
+    r"^\s*(?:"
+    r"ENGINE\s*=\s*\S+"
+    r"|DEFAULT\s+CHARSET\s*=\s*\S+"
+    r"|CHARSET\s*=\s*\S+"
+    r"|COLLATE\s*=\s*\S+"
+    r"|AUTO_INCREMENT\s*=\s*\d+"
+    r"|COMMENT\s*=(?:'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`)"
+    r")",
+    re.I | re.S,
+)
+
+
+def _find_matching_paren(value: str, open_index: int) -> int:
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for index in range(open_index, len(value)):
+        character = value[index]
+        if escaped:
+            escaped = False
+            continue
+        if quote is not None:
+            if character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = None
+            continue
+        if character in {"'", '"', "`"}:
+            quote = character
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    raise ProviderError("pinned CREATE TABLE body was malformed")
+
+
+def _split_create_table_body(remainder: str) -> tuple[str, str]:
+    opening = remainder.find("(")
+    if opening < 0:
+        raise ProviderError("pinned CREATE TABLE body was malformed")
+    closing = _find_matching_paren(remainder, opening)
+    body = remainder[opening + 1 : closing]
+    if body.rstrip().endswith(","):
+        raise ProviderError("pinned CREATE TABLE body was malformed")
+    tail = remainder[closing + 1 :].strip()
+    if tail.endswith(";"):
+        tail = tail[:-1].strip()
+    return body, tail
+
+
+def _validate_table_options_tail(tail: str) -> None:
+    remainder = tail.strip()
+    while remainder:
+        match = _ALLOWED_TABLE_OPTION_PATTERN.match(remainder)
+        if match is None:
+            raise ProviderError("pinned CREATE TABLE has unsupported table options")
+        remainder = remainder[match.end():].strip()
+
+
+def _parse_primary_key_column_ref(item: str) -> str:
+    item = item.strip()
+    if not item:
+        raise ProviderError("invalid pinned DDL primary key column reference")
+    column_name, suffix = _first_identifier(item)
+    suffix = suffix.strip()
+    if suffix and _PK_INDEX_PREFIX.fullmatch(suffix) is None:
+        raise ProviderError("invalid pinned DDL primary key column reference")
+    return column_name
+
+
 def _column_type_and_tail(rest: str) -> tuple[str, str]:
     keywords = (
         " NOT ",
@@ -97,6 +181,7 @@ def _column_type_and_tail(rest: str) -> tuple[str, str]:
         " AUTO_INCREMENT",
         " CHECK",
         " REFERENCES",
+        " GENERATED",
     )
     depth = 0
     quote: str | None = None
@@ -126,25 +211,28 @@ def _column_type_and_tail(rest: str) -> tuple[str, str]:
 
 
 def _parse_create_statement(ddl: str, row_count: int) -> TableCatalog:
-    match = re.search(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?", ddl, re.I)
+    match = re.match(r"\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?", ddl, re.I)
     if match is None:
         raise ProviderError("pinned schema diff did not contain CREATE TABLE")
     name, remainder = _first_identifier(ddl[match.end() :])
-    opening = remainder.find("(")
-    closing = remainder.rfind(")")
-    if opening < 0 or closing <= opening:
-        raise ProviderError("pinned CREATE TABLE body was malformed")
-    body = remainder[opening + 1 : closing]
+    body, options_tail = _split_create_table_body(remainder)
+    _validate_table_options_tail(options_tail)
     definitions = _split_sql_items(body)
     columns: list[ColumnCatalog] = []
     primary_key: list[str] = []
     for definition in definitions:
+        if not definition.strip():
+            raise ProviderError("pinned CREATE TABLE has empty column definition")
         upper = definition.strip().upper()
         if upper.startswith("PRIMARY KEY"):
             key_body = definition[definition.find("(") + 1 : definition.rfind(")")]
-            primary_key = [_unquote_identifier(item.split()[0]) for item in _split_sql_items(key_body)]
+            if not key_body.strip():
+                raise ProviderError("pinned CREATE TABLE primary key is empty")
+            primary_key = [
+                _parse_primary_key_column_ref(item) for item in _split_sql_items(key_body)
+            ]
             continue
-        if upper.startswith(("UNIQUE ", "KEY ", "INDEX ", "CONSTRAINT ", "CHECK ")):
+        if any(upper.startswith(prefix) for prefix in _TABLE_CONSTRAINT_PREFIXES):
             continue
         column_name, rest = _first_identifier(definition)
         sql_type, tail = _column_type_and_tail(rest)
@@ -152,6 +240,8 @@ def _parse_create_statement(ddl: str, row_count: int) -> TableCatalog:
         if re.search(r"\bPRIMARY\s+KEY\b", tail, re.I):
             primary_key.append(column_name)
         columns.append(ColumnCatalog(column_name, normalize_sql_type(sql_type, sql_type), nullable, None))
+    if not columns:
+        raise ProviderError("pinned CREATE TABLE has no columns")
     column_names = [column.name for column in columns]
     if len(column_names) != len(set(column_names)):
         raise ProviderError("pinned CREATE TABLE has duplicate column names")

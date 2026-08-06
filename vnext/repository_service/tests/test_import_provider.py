@@ -349,11 +349,12 @@ def test_commit_without_checkout_does_not_modify_main(
     expected = import_provider.read_ref("main")
 
     import_provider.create_private_ref(private_ref, expected)
+    before_private = import_provider.read_ref(private_ref)
 
-    with pytest.raises(ImportProviderError):
-        import_provider.commit_operation_marker(private_ref, marker)
+    candidate = import_provider.commit_operation_marker(private_ref, marker)
 
     assert import_provider.read_ref("main") == expected
+    assert candidate != before_private
 
 
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
@@ -2665,4 +2666,281 @@ def test_read_catalog_rejects_duplicate_column_ddl(
         ),
     ):
         with pytest.raises(ImportProviderError, match="duplicate column names"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_commit_operation_marker_allows_empty_replay(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    marker = derive_operation_marker(OPERATION_ID)
+    expected = import_provider.read_ref("main")
+    import_provider.create_private_ref(private_ref, expected)
+    import_provider.checkout_private_ref(private_ref)
+    import_provider.replay_sql(
+        private_ref,
+        _staging_replay_path(import_layout, "empty.sql", ""),
+    )
+    before = import_provider.read_ref(private_ref)
+    candidate = import_provider.commit_operation_marker(private_ref, marker)
+    assert candidate != before
+    inspection = import_provider.inspect_marker(marker)
+    assert isinstance(inspection, MarkerInspectionUnique)
+    assert inspection.parent == expected
+    assert inspection.candidate == candidate
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_commit_operation_marker_allows_select_one_replay(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    marker = derive_operation_marker(OPERATION_ID)
+    expected = import_provider.read_ref("main")
+    import_provider.create_private_ref(private_ref, expected)
+    import_provider.checkout_private_ref(private_ref)
+    import_provider.replay_sql(
+        private_ref,
+        _staging_replay_path(import_layout, "select_one.sql", "SELECT 1;\n"),
+    )
+    before = import_provider.read_ref(private_ref)
+    candidate = import_provider.commit_operation_marker(private_ref, marker)
+    assert candidate != before
+    inspection = import_provider.inspect_marker(marker)
+    assert isinstance(inspection, MarkerInspectionUnique)
+    assert inspection.parent == expected
+
+
+def test_parse_create_statement_accepts_spaced_pk_column_names() -> None:
+    table = _parse_create_statement(
+        "CREATE TABLE t (`leading id` BIGINT NOT NULL, PRIMARY KEY (`leading id`));",
+        0,
+    )
+    assert [column.name for column in table.columns] == ["leading id"]
+    assert table.primary_key == ("leading id",)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_accepts_spaced_primary_key_column_name(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql=(
+            "CREATE TABLE spaced_pk ("
+            "`embedded id` BIGINT NOT NULL, PRIMARY KEY (`embedded id`));\n"
+        ),
+    )
+    catalog = import_provider.read_catalog(candidate)
+    assert len(catalog) == 1
+    assert [column.name for column in catalog[0].columns] == ["embedded id"]
+    assert catalog[0].primary_key == ("embedded id",)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_fulltext_index_not_projected_as_column(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql=(
+            "CREATE TABLE ft_body (BODY TEXT, FULLTEXT KEY FT_BODY (BODY));\n"
+        ),
+    )
+    catalog = import_provider.read_catalog(candidate)
+    assert len(catalog) == 1
+    assert [column.name for column in catalog[0].columns] == ["BODY"]
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_spatial_index_not_projected_as_column(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql=(
+            "CREATE TABLE geom_table (GEOM GEOMETRY NOT NULL, "
+            "SPATIAL KEY SP_GEOM (GEOM));\n"
+        ),
+    )
+    catalog = import_provider.read_catalog(candidate)
+    assert len(catalog) == 1
+    assert [column.name for column in catalog[0].columns] == ["GEOM"]
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_generated_column_preserves_bigint_type(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql=(
+            "CREATE TABLE gen_col (base BIGINT NOT NULL, "
+            "derived BIGINT GENERATED ALWAYS AS (base + 1) STORED);\n"
+        ),
+    )
+    catalog = import_provider.read_catalog(candidate)
+    assert len(catalog) == 1
+    columns = {column.name: column.sql_type for column in catalog[0].columns}
+    assert columns["base"] == "BIGINT"
+    assert columns["derived"] == "BIGINT"
+
+
+@pytest.mark.parametrize(
+    ("ddl", "match"),
+    (
+        ("garbage CREATE TABLE t (`id` BIGINT);", "CREATE TABLE"),
+        ("CREATE TABLE t (`id` BIGINT));", "unsupported table options"),
+        ("CREATE TABLE t (`id` BIGINT,);", "malformed"),
+        ("CREATE TABLE t ();", "no columns"),
+        ("CREATE TABLE t (`id` BIGINT, PRIMARY KEY ());", "primary key is empty"),
+        ("CREATE TABLE t (`id` BIGINT) ENGINE=InnoDB garbage;", "unsupported table options"),
+    ),
+)
+def test_parse_create_statement_rejects_malformed_ddl(ddl: str, match: str) -> None:
+    with pytest.raises(ProviderError, match=match):
+        _parse_create_statement(ddl, 0)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_rejects_prefix_garbage_ddl(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE valid_target (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    stdout = (
+        b'{"rows":[{"Table":"valid_target",'
+        b'"Create Table":"garbage CREATE TABLE `valid_target` (`id` BIGINT);"}]}'
+    )
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_create"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="CREATE TABLE"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_rejects_ddl_table_name_mismatch(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE valid_target (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    stdout = (
+        b'{"rows":[{"Table":"valid_target",'
+        b'"Create Table":"CREATE TABLE `other_target` (`id` BIGINT);"}]}'
+    )
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_create"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="DDL table name mismatch"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(
+    "stdout",
+    (
+        b'{"rows":[{"Table":1,"Create Table":"CREATE TABLE `1` (`id` BIGINT);"}]}',
+        b'[{"Table":1,"Create Table":"CREATE TABLE `1` (`id` BIGINT);"}]',
+    ),
+)
+def test_catalog_create_rejects_non_string_table_field(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_show (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_create"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="Table column is missing or invalid"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_tables_rejects_conflicting_column_descriptor_aliases(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE alias_probe (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    stdout = b'{"rows":[],"columns":[{"name":"Table_type","Name":"wrong"}]}'
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_tables"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="conflicting name aliases"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_count_rejects_descriptor_case_collision_keys(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE descriptor_collision (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    stdout = b'{"rows":[],"columns":[{"name":"row_count","NAME":"wrong"}]}'
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({"catalog_count"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="duplicate keys"):
             import_provider.read_catalog(candidate)

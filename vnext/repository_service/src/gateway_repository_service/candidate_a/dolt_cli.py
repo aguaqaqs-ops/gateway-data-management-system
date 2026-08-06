@@ -52,6 +52,25 @@ def _require_exact_envelope_keys(payload: dict[str, Any], expected: frozenset[st
         )
 
 
+def _descriptor_unique_keys(descriptor: dict[str, Any]) -> None:
+    if len(descriptor) != len({key.lower() for key in descriptor}):
+        raise DoltCliError("Dolt JSON column descriptor has duplicate keys")
+
+
+def _column_label_from_descriptor(column: dict[str, Any]) -> str:
+    has_name = "name" in column
+    has_Name = "Name" in column
+    if has_name and has_Name:
+        raise DoltCliError("Dolt JSON column descriptor has conflicting name aliases")
+    _descriptor_unique_keys(column)
+    if not has_name and not has_Name:
+        raise DoltCliError("Dolt JSON column name is missing or empty")
+    name = column["name"] if has_name else column["Name"]
+    if not isinstance(name, str) or name == "":
+        raise DoltCliError("Dolt JSON column name is missing or empty")
+    return name
+
+
 def json_rows(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, dict):
         if not payload:
@@ -64,7 +83,7 @@ def json_rows(payload: Any) -> list[dict[str, Any]]:
             names: list[str] = []
             for column in columns:
                 if isinstance(column, dict):
-                    name = column.get("name", column.get("Name"))
+                    name = _column_label_from_descriptor(column)
                 else:
                     name = column
                 if not isinstance(name, str) or name == "":
@@ -114,7 +133,9 @@ def value(row: dict[str, Any], name: str, index: int | None = None) -> Any:
 def _create_statement_from_show_row(row: dict[str, Any]) -> str:
     for key, cell in row.items():
         if key.lower().replace(" ", "") == "createtable":
-            return str(cell)
+            if not isinstance(cell, str) or cell == "":
+                raise DoltCliError("SHOW CREATE TABLE did not return DDL")
+            return cell
     raise DoltCliError("SHOW CREATE TABLE did not return DDL")
 
 
@@ -181,9 +202,14 @@ def _require_show_create_row(row: dict[str, Any], table_name: str, kind: str) ->
         raise DoltCliError(f"Dolt {kind} row schema mismatch: missing Table column")
     if "createtable" not in normalized_to_original:
         raise DoltCliError(f"Dolt {kind} row schema mismatch: missing Create Table column")
-    actual_table = str(row[normalized_to_original["table"]])
-    if actual_table != table_name:
+    raw_table = row[normalized_to_original["table"]]
+    if not isinstance(raw_table, str) or raw_table == "":
+        raise DoltCliError(f"Dolt {kind} Table column is missing or invalid")
+    if raw_table != table_name:
         raise DoltCliError(f"Dolt {kind} returned mismatched table name")
+    raw_ddl = row[normalized_to_original["createtable"]]
+    if not isinstance(raw_ddl, str) or raw_ddl == "":
+        raise DoltCliError(f"Dolt {kind} Create Table column is missing or invalid")
 
 
 _EXACT_METADATA_ROW_SCHEMAS: dict[str, frozenset[str]] = {
@@ -217,7 +243,7 @@ def _column_names_from_envelope(columns: Any, kind: str) -> list[str]:
     names: list[str] = []
     for column in columns:
         if isinstance(column, dict):
-            name = column.get("name", column.get("Name"))
+            name = _column_label_from_descriptor(column)
         else:
             name = column
         if not isinstance(name, str) or name == "":
@@ -350,7 +376,10 @@ class CandidateADoltCli:
             count_row = _require_exactly_one_row(count_rows, "catalog_count")
             raw_count = value(count_row, "row_count", 0)
             row_count = _parse_non_negative_row_count(raw_count, "catalog_count")
-            tables.append(_parse_create_statement(ddl, row_count))
+            parsed = _parse_create_statement(ddl, row_count)
+            if parsed.name != table_name:
+                raise DoltCliError("Dolt catalog_create DDL table name mismatch")
+            tables.append(parsed)
         return tuple(sorted(tables, key=lambda table: table.name))
 
     def stream_table(

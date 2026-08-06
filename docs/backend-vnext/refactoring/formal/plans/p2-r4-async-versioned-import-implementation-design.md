@@ -344,6 +344,7 @@ Validation固定为：
 
 - top-level、table、schema和column object均`extra="forbid"`；
 - table/column name为1..64 Unicode code points，拒绝NUL、ASCII control、`/`和`\\`；
+- table name额外禁止leading/trailing whitespace；column name保持exact identifier规则（允许embedded space）；
 - comparison exact、case-sensitive，不做Unicode normalization或case fold；
 - `canonicalization_manifest_digest`是bounded opaque string，只保存和回显；
 - `row_count`是非负integer，boolean不得作为integer接受；

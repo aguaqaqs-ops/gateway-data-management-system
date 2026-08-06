@@ -841,6 +841,87 @@ def test_accepts_empty_tables_manifest(
     assert result.manifest.tables == ()
 
 
+def test_rejects_table_name_with_leading_whitespace(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    manifest = tiny_manifest_dict()
+    manifest["tables"] = [
+        {
+            "name": " leading",
+            "schema": {
+                "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                "primary_key": ["id"],
+            },
+            "row_count": 0,
+        }
+    ]
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match="failed closed validation"):
+        validate_package(
+            artifact_path,
+            staging_dir,
+            settings,
+            build_package_bytes(manifest=manifest),
+        )
+
+
+def test_rejects_table_name_with_trailing_whitespace(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    manifest = tiny_manifest_dict()
+    manifest["tables"] = [
+        {
+            "name": "trailing ",
+            "schema": {
+                "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                "primary_key": ["id"],
+            },
+            "row_count": 0,
+        }
+    ]
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match="failed closed validation"):
+        validate_package(
+            artifact_path,
+            staging_dir,
+            settings,
+            build_package_bytes(manifest=manifest),
+        )
+
+
+def test_accepts_column_name_with_trailing_whitespace(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+) -> None:
+    manifest = {
+        "package_version": 1,
+        "canonicalization_manifest_digest": "d",
+        "tables": [
+            {
+                "name": "t",
+                "schema": {
+                    "columns": [{"name": "trailing ", "sql_type": "INT", "nullable": False}],
+                    "primary_key": ["trailing "],
+                },
+                "row_count": 0,
+            }
+        ],
+    }
+    artifact_path = tmp_path / "artifact.tar.zst"
+    result = validate_package(
+        artifact_path,
+        staging_dir,
+        settings,
+        build_package_bytes(manifest=manifest),
+    )
+    assert result.manifest.tables[0].table_schema.columns[0].name == "trailing "
+
+
 def test_rejects_decompressed_trailing_garbage_in_same_zstd_frame(
     tmp_path: Path,
     staging_dir: Path,

@@ -170,7 +170,13 @@ class CandidateAImportProvider:
         )
         self._run_cli(
             "operation_marker_commit",
-            ["commit", "--message", marker, f"--author={self._settings.author}"],
+            [
+                "commit",
+                "--allow-empty",
+                "--message",
+                marker,
+                f"--author={self._settings.author}",
+            ],
             self._settings.import_timeout_seconds,
         )
         after = self.read_ref(private_ref)

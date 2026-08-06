@@ -98,6 +98,13 @@ def validate_manifest_identifier(value: str) -> str:
     return value
 
 
+def validate_manifest_table_name(value: str) -> str:
+    value = validate_manifest_identifier(value)
+    if value != value.strip():
+        raise ValueError("table name must not have leading or trailing whitespace")
+    return value
+
+
 def validate_manifest_sql_type(value: str) -> str:
     if not value or len(value) > _MAX_MANIFEST_SQL_TYPE_LENGTH:
         raise ValueError("sql_type length is out of bounds")
@@ -160,7 +167,7 @@ class ImportManifestTable(_ClosedManifestModel):
     @field_validator("name")
     @classmethod
     def _validate_name(cls, value: str) -> str:
-        return validate_manifest_identifier(value)
+        return validate_manifest_table_name(value)
 
 
 class ImportManifest(_ClosedManifestModel):

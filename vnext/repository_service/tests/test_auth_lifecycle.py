@@ -706,6 +706,13 @@ class TestControlDatabase:
                 for row in store.connection.execute("PRAGMA table_info(artifact_lifecycle)").fetchall()
             }
             assert "consumed_by_operation_id" in artifact_columns
+            operation_columns = {
+                row[1]
+                for row in store.connection.execute(
+                    "PRAGMA table_info(repository_import_operations)"
+                ).fetchall()
+            }
+            assert "enqueue_sequence" in operation_columns
         finally:
             store.close()
 
@@ -738,54 +745,6 @@ class TestControlDatabase:
         connection.close()
         assert int(version[0]) == 6
         assert "repository_import_operations" not in tables
-
-    def test_migration_upgrades_version_seven_to_eight(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=7, busy_timeout_ms=1000).close()
-
-        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-        try:
-            version = store.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == CONTROL_DB_USER_VERSION
-            operation_columns = {
-                row[1]
-                for row in store.connection.execute(
-                    "PRAGMA table_info(repository_import_operations)"
-                ).fetchall()
-            }
-            assert "enqueue_sequence" in operation_columns
-        finally:
-            store.close()
-
-    def test_migration_v8_rolls_back_on_failure(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=7, busy_timeout_ms=1000).close()
-        original = ControlStore._apply_migration_step
-
-        def failing_step(connection: sqlite3.Connection, target_version: int) -> None:
-            if target_version == 8:
-                raise RuntimeError("v8 migration failure")
-            original(connection, target_version)
-
-        monkeypatch.setattr(ControlStore, "_apply_migration_step", staticmethod(failing_step))
-        with pytest.raises(RuntimeError, match="v8 migration failure"):
-            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-
-        connection = sqlite3.connect(db_path)
-        version = connection.execute("PRAGMA user_version").fetchone()
-        operation_columns = {
-            row[1]
-            for row in connection.execute(
-                "PRAGMA table_info(repository_import_operations)"
-            ).fetchall()
-        }
-        connection.close()
-        assert int(version[0]) == 7
-        assert "enqueue_sequence" not in operation_columns
 
 
 class TestProviderLifecycle:

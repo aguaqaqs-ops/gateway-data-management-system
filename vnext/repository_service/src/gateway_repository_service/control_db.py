@@ -9,7 +9,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 8
+CONTROL_DB_USER_VERSION = 7
 
 _MIGRATION_V2_STATEMENTS: tuple[str, ...] = (
     """
@@ -194,6 +194,7 @@ _MIGRATION_V7_STATEMENTS: tuple[str, ...] = (
         operation_marker TEXT NOT NULL,
         canonicalization_manifest_digest TEXT NULL,
         automatic_replay_count INTEGER NOT NULL DEFAULT 0 CHECK (automatic_replay_count IN (0, 1)),
+        enqueue_sequence INTEGER NOT NULL,
         result_json TEXT NULL,
         error_json TEXT NULL,
         created_at TEXT NOT NULL,
@@ -205,7 +206,7 @@ _MIGRATION_V7_STATEMENTS: tuple[str, ...] = (
     """,
     """
     CREATE INDEX repository_import_operations_claim_idx
-    ON repository_import_operations (repository_scope, status, created_at, operation_id)
+    ON repository_import_operations (repository_scope, status, enqueue_sequence)
     """,
     """
     CREATE INDEX repository_import_operations_artifact_idx
@@ -237,34 +238,6 @@ _MIGRATION_V7_STATEMENTS: tuple[str, ...] = (
     """
     ALTER TABLE artifact_lifecycle
     ADD COLUMN bytes_deleted_at TEXT NULL
-    """,
-)
-
-
-_MIGRATION_V8_STATEMENTS: tuple[str, ...] = (
-    """
-    ALTER TABLE repository_import_operations
-    ADD COLUMN enqueue_sequence INTEGER
-    """,
-    """
-    UPDATE repository_import_operations
-    SET enqueue_sequence = (
-        SELECT COUNT(*)
-        FROM repository_import_operations AS earlier
-        WHERE earlier.repository_scope = repository_import_operations.repository_scope
-          AND (
-              earlier.created_at < repository_import_operations.created_at
-              OR (
-                  earlier.created_at = repository_import_operations.created_at
-                  AND earlier.rowid < repository_import_operations.rowid
-              )
-          )
-    ) + 1
-    """,
-    "DROP INDEX repository_import_operations_claim_idx",
-    """
-    CREATE INDEX repository_import_operations_claim_idx
-    ON repository_import_operations (repository_scope, status, enqueue_sequence)
     """,
 )
 
@@ -435,9 +408,6 @@ class ControlStore:
             return
         if target_version == 7:
             ControlStore._execute_statements(connection, _MIGRATION_V7_STATEMENTS)
-            return
-        if target_version == 8:
-            ControlStore._execute_statements(connection, _MIGRATION_V8_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

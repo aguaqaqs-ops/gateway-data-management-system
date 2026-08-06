@@ -1962,3 +1962,144 @@ def test_catalog_count_rejects_extra_cell(
     ):
         with pytest.raises(ImportProviderError, match="row width does not match columns"):
             import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_catalog_count_rejects_extra_field_real_dolt_shape(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_object_extra (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[{"row_count":1,"extra":999}]}',
+            kinds=frozenset({"catalog_count"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="row schema mismatch"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_scalar_metadata_rejects_positional_multi_cell_row(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_positional (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            b'{"rows":[[1,999]]}',
+            kinds=frozenset({"catalog_count"}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="row was not an object"):
+            import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(
+    ("stdout", "kind", "action"),
+    (
+        (
+            b'{"rows":[{"commit_id":"deadbeef","extra":1}]}',
+            "read_ref",
+            "read_ref",
+        ),
+        (
+            b'{"rows":[{"parents":"deadbeef","extra":1}]}',
+            "candidate_parent",
+            "read_catalog",
+        ),
+    ),
+)
+def test_read_ref_and_candidate_parent_reject_extra_fields(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+    kind: str,
+    action: str,
+) -> None:
+    if action == "read_catalog":
+        _, _, _, candidate = _candidate_on_private_ref(
+            import_provider,
+            import_layout,
+            table_sql="CREATE TABLE json_parent_extra (id BIGINT NOT NULL PRIMARY KEY);\n",
+        )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({kind}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match="row schema mismatch"):
+            if action == "read_ref":
+                import_provider.read_ref(IMPORT_MAIN_REF)
+            else:
+                import_provider.read_catalog(candidate)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.parametrize(
+    ("stdout", "kind", "match"),
+    (
+        (
+            b'{"rows":[{"Tables_in_import-repo":"json_show","Table_type":"BASE TABLE","extra":1}]}',
+            "catalog_tables",
+            "row schema mismatch",
+        ),
+        (
+            b'{"rows":[{"Table":"json_show","Create Table":"CREATE TABLE json_show","extra":1}]}',
+            "catalog_create",
+            "row schema mismatch",
+        ),
+        (
+            b'{"rows":[{"Table":"wrong_table","Create Table":"CREATE TABLE json_show"}]}',
+            "catalog_create",
+            "mismatched table name",
+        ),
+    ),
+)
+def test_catalog_show_rows_require_exact_schema(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    stdout: bytes,
+    kind: str,
+    match: str,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE json_show (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+
+    with patch.object(
+        import_provider._cli,
+        "run_cli",
+        side_effect=_run_cli_malformed_json_side_effect(
+            import_provider,
+            stdout,
+            kinds=frozenset({kind}),
+        ),
+    ):
+        with pytest.raises(ImportProviderError, match=match):
+            import_provider.read_catalog(candidate)

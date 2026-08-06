@@ -83,7 +83,7 @@ def json_rows(payload: Any) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             rows.append(item)
         elif isinstance(item, list):
-            rows.append({str(index): cell for index, cell in enumerate(item)})
+            raise DoltCliError("Dolt JSON row was not an object")
         else:
             raise DoltCliError("Dolt JSON row was not an object")
     return rows
@@ -115,6 +115,66 @@ def _create_statement_from_show_row(row: dict[str, Any]) -> str:
         if key.lower().replace(" ", "") == "createtable":
             return str(cell)
     raise DoltCliError("SHOW CREATE TABLE did not return DDL")
+
+
+def _normalized_row_keys(row: dict[str, Any]) -> set[str]:
+    return {key.lower() for key in row}
+
+
+def _require_exact_row_keys(
+    row: dict[str, Any],
+    expected: frozenset[str],
+    kind: str,
+) -> None:
+    actual = _normalized_row_keys(row)
+    if actual != expected:
+        raise DoltCliError(
+            f"Dolt {kind} row schema mismatch: got {sorted(actual)}, expected {sorted(expected)}"
+        )
+
+
+def _require_show_tables_row(row: dict[str, Any], kind: str) -> None:
+    keys = _normalized_row_keys(row)
+    if len(keys) != 2:
+        raise DoltCliError(f"Dolt {kind} row schema mismatch: expected 2 columns, got {len(keys)}")
+    if "table_type" not in keys:
+        raise DoltCliError(f"Dolt {kind} row schema mismatch: missing Table_type")
+    tables_in = [key for key in keys if key.startswith("tables_in")]
+    if len(tables_in) != 1:
+        raise DoltCliError(f"Dolt {kind} row schema mismatch: missing unique Tables_in_* column")
+
+
+def _require_show_create_row(row: dict[str, Any], table_name: str, kind: str) -> None:
+    keys = _normalized_row_keys(row)
+    if len(keys) != 2:
+        raise DoltCliError(f"Dolt {kind} row schema mismatch: expected 2 columns, got {len(keys)}")
+    normalized_to_original = {key.lower().replace(" ", ""): key for key in row}
+    if "table" not in normalized_to_original:
+        raise DoltCliError(f"Dolt {kind} row schema mismatch: missing Table column")
+    if "createtable" not in normalized_to_original:
+        raise DoltCliError(f"Dolt {kind} row schema mismatch: missing Create Table column")
+    actual_table = str(row[normalized_to_original["table"]])
+    if actual_table != table_name:
+        raise DoltCliError(f"Dolt {kind} returned mismatched table name")
+
+
+_EXACT_METADATA_ROW_SCHEMAS: dict[str, frozenset[str]] = {
+    "read_ref": frozenset({"commit_id"}),
+    "candidate_parent": frozenset({"parents"}),
+    "catalog_count": frozenset({"row_count"}),
+    "refs_for_commit": frozenset({"name"}),
+}
+
+
+def _validate_metadata_rows(kind: str, rows: list[dict[str, Any]]) -> None:
+    if kind in _EXACT_METADATA_ROW_SCHEMAS:
+        expected = _EXACT_METADATA_ROW_SCHEMAS[kind]
+        for row in rows:
+            _require_exact_row_keys(row, expected, kind)
+        return
+    if kind == "catalog_tables":
+        for row in rows:
+            _require_show_tables_row(row, kind)
 
 
 def _require_exactly_one_row(rows: list[dict[str, Any]], kind: str) -> dict[str, Any]:
@@ -194,9 +254,9 @@ class CandidateADoltCli:
                 "catalog_create",
                 f"SHOW CREATE TABLE {quote_identifier(table_name)} AS OF {target_literal};\n",
             )
-            ddl = _create_statement_from_show_row(
-                _require_exactly_one_row(create_rows, "catalog_create")
-            )
+            create_row = _require_exactly_one_row(create_rows, "catalog_create")
+            _require_show_create_row(create_row, table_name, "catalog_create")
+            ddl = _create_statement_from_show_row(create_row)
             count_rows = self.query_json(
                 "catalog_count",
                 f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table_name)} AS OF {target_literal};\n",
@@ -319,7 +379,9 @@ class CandidateADoltCli:
                 stdin_path=query,
             )
             try:
-                return json_rows(json.loads(result.stdout.decode("utf-8")))
+                rows = json_rows(json.loads(result.stdout.decode("utf-8")))
+                _validate_metadata_rows(kind, rows)
+                return rows
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 raise DoltCliError("Dolt metadata was not valid JSON") from exc
         finally:

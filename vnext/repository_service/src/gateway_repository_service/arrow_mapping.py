@@ -394,9 +394,16 @@ def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
         return None
     upper = sql_type.upper()
     if pa.types.is_boolean(arrow):
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "t"}
-        return bool(value)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return bool(int(value))
+        text = str(value).strip().lower()
+        if text in {"true", "t"}:
+            return True
+        if text in {"false", "f"}:
+            return False
+        return bool(int(text))
     if pa.types.is_integer(arrow):
         return int(value)
     if pa.types.is_floating(arrow):

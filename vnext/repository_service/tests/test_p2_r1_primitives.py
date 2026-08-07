@@ -264,3 +264,23 @@ def test_stringify_out_of_bounds_preserves_provider_text(
     )
     batch = record_batch(catalog, [(raw_value,)], UnknownTypePolicy.STRINGIFY)
     assert batch.column(0).to_pylist() == [raw_value]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("0", False),
+        ("1", True),
+        ("2", True),
+        ("200", True),
+        ("255", True),
+    ],
+)
+def test_tinyint_one_boolean_conversion(value: str, expected: bool) -> None:
+    catalog = TableCatalog(
+        "records",
+        (ColumnCatalog("flag", "BOOLEAN", True, None),),
+        1,
+    )
+    batch = record_batch(catalog, [(value,)], UnknownTypePolicy.STRINGIFY)
+    assert batch.column(0).to_pylist() == [expected]

@@ -13,6 +13,8 @@ from uuid import UUID, uuid4
 from gateway_repository_contracts import (
     OperationStatus,
     SimpleError,
+    UnknownTypePolicy,
+    VerificationPolicy,
     VersionedImportResult,
     VersionedOperation,
 )
@@ -21,6 +23,7 @@ from gateway_repository_service.versioned_import.models import (
     ArtifactOperationReference,
     ClaimOrEnqueueResult,
     ImportFingerprintConflict,
+    ImportOperationExecutionContext,
     ImportOperationStoreError,
     ImportOperationTransitionRejected,
     ImportReplayCountRejected,
@@ -145,6 +148,43 @@ class ImportOperationStore:
             if str(row["repository_scope"]) != repository_id.hex:
                 return None
             return self._operation_from_row(row)
+
+    def load_execution_context(self, operation_id: UUID) -> ImportOperationExecutionContext | None:
+        with self._transaction():
+            row = self._fetch_by_operation_id(operation_id)
+            if row is None:
+                return None
+            return self._execution_context_from_row(row)
+
+    def list_earliest_queued_per_repository(
+        self,
+    ) -> list[tuple[UUID, UUID, int]]:
+        with self._transaction():
+            cursor = self._connection.execute(
+                """
+                SELECT repository_scope, operation_id, enqueue_sequence
+                FROM repository_import_operations AS candidate
+                WHERE status = ?
+                  AND enqueue_sequence = (
+                    SELECT MIN(inner.enqueue_sequence)
+                    FROM repository_import_operations AS inner
+                    WHERE inner.repository_scope = candidate.repository_scope
+                      AND inner.status = ?
+                  )
+                ORDER BY repository_scope ASC
+                """,
+                (OperationStatus.QUEUED.value, OperationStatus.QUEUED.value),
+            )
+            results: list[tuple[UUID, UUID, int]] = []
+            for row in cursor.fetchall():
+                results.append(
+                    (
+                        UUID(str(row["repository_scope"])),
+                        UUID(str(row["operation_id"])),
+                        int(row["enqueue_sequence"]),
+                    )
+                )
+            return results
 
     def claim_next_queued(self, repository_id: UUID) -> StoredImportOperation | None:
         with self._transaction():
@@ -612,6 +652,23 @@ class ImportOperationStore:
                 if row["canonicalization_manifest_digest"] is not None
                 else None
             ),
+        )
+
+    @staticmethod
+    def _execution_context_from_row(row: sqlite3.Row) -> ImportOperationExecutionContext:
+        return ImportOperationExecutionContext(
+            operation_id=UUID(str(row["operation_id"])),
+            repository_id=UUID(str(row["repository_scope"])),
+            artifact_id=UUID(str(row["artifact_id"])),
+            artifact_media_type=str(row["artifact_media_type"]),
+            artifact_size_bytes=int(row["artifact_size_bytes"]),
+            artifact_raw_sha256=str(row["artifact_raw_sha256"]),
+            target_ref=str(row["target_ref"]),
+            expected_commit_id=str(row["expected_commit_id"]),
+            verification_policy=VerificationPolicy(str(row["requested_verification_policy"])),
+            unknown_type_policy=UnknownTypePolicy(str(row["unknown_type_policy"])),
+            private_ref_name=str(row["private_ref_name"]),
+            operation_marker=str(row["operation_marker"]),
         )
 
     @staticmethod

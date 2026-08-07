@@ -62,6 +62,7 @@ class RepositoryServiceSettings(BaseSettings):
     artifact_ttl_seconds: int = 24 * 60 * 60
     sqlite_busy_timeout_ms: int = 5000
     catalog_parallel_workers: int = 2
+    max_import_workers: int = 4
 
     @field_validator("dolt_binary")
     @classmethod
@@ -100,6 +101,7 @@ class RepositoryServiceSettings(BaseSettings):
         "artifact_ttl_seconds",
         "sqlite_busy_timeout_ms",
         "catalog_parallel_workers",
+        "max_import_workers",
     )
     @classmethod
     def _bounds_must_be_positive(cls, value: int) -> int:

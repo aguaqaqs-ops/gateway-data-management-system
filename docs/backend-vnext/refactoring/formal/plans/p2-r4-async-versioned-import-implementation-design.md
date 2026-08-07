@@ -466,10 +466,18 @@ import_headroom_bytes = 1 GiB
 重新验证disk、RSS、Dolt process lifecycle和restart behavior。`max_queued_imports`计算
 QUEUED数，不计算same-key replay；达到上限的新effect返回429。
 
-Dispatcher在process-local scheduler lock下维护active repository集合。它按
-`created_at, operation_id`查找最早QUEUED且repository不在active集合、也没有未解决MANUAL
+Dispatcher在process-local scheduler lock下维护active repository集合。它按per-repository
+`enqueue_sequence`升序查找最早QUEUED且repository不在active集合、也没有未解决MANUAL
 barrier的operation，先reserve repository ownership，再以`BEGIN IMMEDIATE`执行
 `claim_if_queued(operation_id)`并改为RUNNING；claim race失败立即释放reservation。
+
+FIFO的权威排序键是S2已落地的`enqueue_sequence`（`repository_import_operations`列，按
+`repository_scope`单调分配），不是`created_at, operation_id`：`created_at`只有秒级精度
+（`utc_now_iso()`截断microsecond），同秒内会退化成UUID字典序。跨repository之间不要求
+全局FIFO顺序，只要求每个repository内部严格FIFO；dispatcher在候选repository之间的选择
+顺序不属于契约，但必须无starvation（轮转或等价策略，不得固定偏向同一repository）。
+`claim_next_queued(repository_id)`已实现per-repository FIFO claim并被
+`test_claim_next_queued_is_fifo`固定，S6不得改变该语义。
 
 不得先把同repository多个operation全部claim为RUNNING再让worker阻塞等待repository lock，
 否则会耗尽global worker并阻塞其他repository。Worker不在长Dolt operation期间持有SQLite

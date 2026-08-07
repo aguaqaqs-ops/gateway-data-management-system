@@ -266,6 +266,22 @@ class StoredImportOperation:
 
 
 @dataclass(frozen=True, slots=True)
+class ImportOperationExecutionContext:
+    operation_id: UUID
+    repository_id: UUID
+    artifact_id: UUID
+    artifact_media_type: str
+    artifact_size_bytes: int
+    artifact_raw_sha256: str
+    target_ref: str
+    expected_commit_id: str
+    verification_policy: VerificationPolicy
+    unknown_type_policy: UnknownTypePolicy
+    private_ref_name: str
+    operation_marker: str
+
+
+@dataclass(frozen=True, slots=True)
 class ClaimOrEnqueueResult:
     operation_id: UUID
     is_new: bool

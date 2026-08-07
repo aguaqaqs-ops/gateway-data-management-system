@@ -82,6 +82,20 @@ uv run mypy
 uv run pytest -q
 ```
 
+自S5期间的测试基础设施改造（`aa33d11`）起，`repository_service`的权威全量入口是
+`./vnext/scripts/run-tests.sh`：fast package单进程，service先`-m "not serial"`并行
+（`-n auto --dist loadgroup`），再`-m serial -n 0`。S6及之后的stage gate中第四条命令对
+`repository_service`一律读作`./vnext/scripts/run-tests.sh`。裸`uv run pytest -q`现在会自动
+并行，timing-sensitive和real-Dolt测试在该模式下不可靠，只允许用于开发期定向调试。
+
+新增测试必须遵守`docs/backend-vnext/testing-conventions.md`：
+
+- 依赖真实dolt（`lifecycle_settings()`、`ServiceRuntime.start()`、`DoltRunner()`）必须显式加
+  `@pytest.mark.integration`；
+- 依赖固定时间预算（`Event.wait(timeout=...)`、`thread.join(timeout=...)`）或要求进程级串行的
+  必须显式加`@pytest.mark.serial`；
+- 不得手写`skipif(not dolt_available())`，由`tests/conftest.py`统一分类与skip。
+
 测试可在开发过程中定向运行，但stage commit前必须执行该阶段明确要求的package gate。
 S10必须执行contracts和service两个package的全部四命令。
 
@@ -540,24 +554,42 @@ vnext/repository_service/src/gateway_repository_service/versioned_import/locks.p
 vnext/repository_service/src/gateway_repository_service/versioned_import/faults.py
 vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
 vnext/repository_service/src/gateway_repository_service/versioned_import/package.py
+vnext/repository_service/src/gateway_repository_service/versioned_import/models.py
+vnext/repository_service/src/gateway_repository_service/versioned_import/ports.py
+vnext/repository_service/src/gateway_repository_service/versioned_import/errors.py
 vnext/repository_service/src/gateway_repository_service/settings.py
 vnext/repository_service/tests/test_import_worker.py
 vnext/repository_service/tests/test_import_worker_integration.py
+vnext/repository_service/tests/support/                          # R4-specific worker harness only
 ```
+
+`models.py`、`ports.py`、`errors.py`只允许additive改动（新增worker侧result/binding类型、
+port方法或error code），不得改变S1–S5已固定的wire/DTO语义与现有error code字符串。
+`tests/support/`只允许新增R4 worker harness，不得改动S7 process harness以外的既有文件语义。
 
 ### Required behavior and gate
 
 - configurable default4 worker pool和repository lock registry；
 - active/manual repository-aware atomic FIFO claim，无long SQLite transaction或worker starvation；
+  FIFO排序键是per-repository `enqueue_sequence`（详细设计§9），不是`created_at, operation_id`；
 - package -> first check -> private ref -> replay -> marker -> verification -> second check -> publish；
 - exact parent/marker/result bindings；
-- failure mapping和no hidden retry；
-- SUCCEEDED+artifact consumed同transaction，之后cleanup；
+- failure mapping和no hidden retry；`ImportVerificationError`的两个code与
+  `ImportProviderError`必须分别映射，不得依赖provider fault tuple区分
+  （`_STREAM_PROVIDER_FAULTS`仍包含裸`ValueError`/`TypeError`，见S5 known_limitations）；
+- SUCCEEDED+artifact consumed同transaction：S2的`mark_succeeded`已在同一transaction内调用
+  `record_artifact_consumed`，S6只组合调用，不得重新实现或在worker层再开transaction；
 - 同artifact存在QUEUED/RUNNING/MANUAL reference时禁止premature cleanup；
 - private ref cleanup ordering；
-- direct store/worker tests覆盖same repository serialization和cross-repository bounded parallelism；
+- 新增settings：`max_import_workers`（默认4）为必需，`max_queued_imports`、
+  `import_shutdown_grace_seconds`、`import_headroom_bytes`可留到S7/S9消费点再加；新增int字段
+  必须同步加入`settings.py`的`_bounds_must_be_positive`显式字段列表，否则不受校验；
+- direct store/worker tests覆盖same repository serialization和cross-repository bounded parallelism，
+  这两类测试依赖时间预算，必须标`@pytest.mark.serial`；real Dolt worker测试必须标
+  `@pytest.mark.integration`；零skip/xfail；
 - fault seam存在但不进入production input；
-- real Dolt happy path，不注册routes/lifespan。
+- real Dolt happy path，不注册routes/lifespan；
+- gate第四条命令为`./vnext/scripts/run-tests.sh`（见§2），不是裸`uv run pytest -q`。
 
 ### Code implementation prompt
 
@@ -566,25 +598,58 @@ vnext/repository_service/tests/test_import_worker_integration.py
 worker happy path，但不得注册HTTP route，也不得在ServiceRuntime默认启动worker；startup和
 shutdown integration属于S7。
 
-开始前核对S5 handoff。完整读取P2-R4详细设计§§9、11–13、16、19及S2–S5 production APIs。
-先写direct store/worker tests，再实现ImportWorkerPool、repository lock registry、operation
-executor和test-only fault injector。
+开始前核对S5 handoff（含known_limitations）。完整读取P2-R4详细设计§§9、11–13、16、19及
+S2–S5 production APIs。先写direct store/worker tests，再实现ImportWorkerPool、repository lock
+registry、operation executor和test-only fault injector。
 
-默认max_import_workers=4，可配置。Dispatcher必须先排除active repository和未解决MANUAL
-barrier，reserve repository ownership后再claim_if_queued；不得先claim同repository多个RUNNING
-row让worker阻塞争锁。Claim必须SQLite atomic，长Dolt effect期间不持有DB transaction或
-scheduler lock。Repository ownership覆盖initial main check到terminal persistence/cleanup。
-执行严格顺序：validate artifact/package；first main==expected；private ref；stdin replay；exact
-marker/parent；requested verification；second main==expected；internal publish/readback；persist
-SUCCEEDED result与artifact consumed；delete private ref；delete package并记录bytes_deleted。
+可直接复用的既有API，不要重新实现或另建并行抽象：
 
-实现四个stable failure映射。当前进程已证明无effect的validation/provider failure直接普通
-FAILED；任何publication/ref/marker ambiguity转MANUAL并保留artifact/ref。普通failure不隐藏
-retry。成功cleanup失败不得改变result。
+- store（`versioned_import/store.py`）：`claim_or_enqueue`、`get_operation`、
+  `claim_next_queued(repository_id)`、`claim_if_queued(operation_id)`、`mark_succeeded`、
+  `mark_failed`、`increment_automatic_replay_count`、`apply_manual_correction`、
+  `has_unresolved_manual_barrier(repository_id)`、`list_artifact_references`、
+  `can_delete_artifact_bytes`、`mark_artifact_bytes_deleted`；
+- provider port（`versioned_import/ports.py` `VersionedImportProvider`）：`read_ref`、
+  `create_private_ref`、`checkout_private_ref`、`replay_sql(private_ref, replay_path,
+  cancellation=None)`、`commit_operation_marker`、`inspect_marker`、`read_catalog`、
+  `read_type_catalog`、`stream_table(candidate, table, policy)`、
+  `publish_main(expected_commit, candidate)`、`delete_private_ref(private_ref,
+  expected_candidate=None)`，result union为`MarkerInspection{Zero,Unique,Ambiguous}`与
+  `PublishMain{Published,Mismatch,Ambiguous}`；
+- verification：`verify_import_candidate(provider, *, candidate, manifest,
+  verification_policy, unknown_type_policy) -> ImportVerificationResult`，失败抛
+  `ImportVerificationError(code, detail=...)`；
+- models：`derive_private_ref_name`、`derive_operation_marker`、`ImportRequestBinding`、
+  `StoredImportOperation`、`is_protected_operation_status`。
+
+默认max_import_workers=4，可配置；新增settings int字段必须同时加入`_bounds_must_be_positive`
+的显式字段列表。Dispatcher必须先排除active repository和未解决MANUAL barrier，reserve
+repository ownership后再claim_if_queued；不得先claim同repository多个RUNNING row让worker阻塞
+争锁。FIFO排序键是S2已落地的per-repository `enqueue_sequence`，不是`created_at,
+operation_id`（`utc_now_iso()`只有秒级精度，同秒会退化成UUID序，且
+`test_claim_next_queued_is_fifo`已固定该语义）；跨repository不要求全局FIFO，只要求无
+starvation。若dispatcher需要跨repository候选查询，可在`store.py`新增只读方法，但不得改变
+`claim_next_queued`现有per-repository FIFO语义。Claim必须SQLite atomic，长Dolt effect期间不
+持有DB transaction或scheduler lock。Repository ownership覆盖initial main check到terminal
+persistence/cleanup。执行严格顺序：validate artifact/package；first main==expected；private
+ref；stdin replay；exact marker/parent；requested verification；second main==expected；internal
+publish/readback；persist SUCCEEDED result与artifact consumed；delete private ref；delete
+package并记录bytes_deleted。SUCCEEDED与artifact consumed的同transaction保证由`mark_succeeded`
+内部的`record_artifact_consumed`提供，worker只调用它。
+
+实现四个stable failure映射。`ImportVerificationError`按其code分别映射到`IMPORT_REJECTED`与
+`VERIFICATION_FAILED_NOT_PUBLISHED`，`ImportProviderError`按effect证据映射；不得依赖provider
+fault tuple区分类型（`_STREAM_PROVIDER_FAULTS`仍包含裸`ValueError`/`TypeError`）。当前进程已
+证明无effect的validation/provider failure直接普通FAILED；任何publication/ref/marker ambiguity
+转MANUAL并保留artifact/ref。普通failure不隐藏retry。成功cleanup失败不得改变result。public
+error detail不得暴露private ref、filesystem path、SQL、完整stderr或row值。
 
 实现详细设计列出的fault points，但注入器只能由tests直接构造，不能来自HTTP/body/header或
-production env默认。测试同repository严格串行、不同repository不超过global worker bound。
-运行service完整四命令、真实Dolt direct integration、git diff --check。
+production env默认。测试同repository严格串行、不同repository不超过global worker bound；这两
+类时间预算测试必须标`@pytest.mark.serial`，真实Dolt worker测试必须标
+`@pytest.mark.integration`，不得手写`skipif(not dolt_available())`，零skip/xfail。
+运行service完整四命令（第四条为`./vnext/scripts/run-tests.sh`）、真实Dolt direct
+integration、git diff --check。
 
 通过后提交：
 feat(repository): execute durable Versioned import workers

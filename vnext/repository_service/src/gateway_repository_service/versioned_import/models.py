@@ -32,10 +32,11 @@ from gateway_repository_contracts import (
 )
 from gateway_repository_contracts.types import BoundedOpaqueString
 from gateway_repository_service.arrow_mapping import (
+    TemporalSqlTypeKind,
     UnknownSqlTypeError,
     UnknownTypePolicy as ArrowUnknownTypePolicy,
     arrow_type,
-    parse_temporal_sql_type,
+    classify_temporal_sql_type,
 )
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
 
@@ -113,15 +114,18 @@ def validate_manifest_table_name(value: str) -> str:
 def validate_manifest_sql_type(value: str) -> str:
     if not value or len(value) > _MAX_MANIFEST_SQL_TYPE_LENGTH:
         raise ValueError("sql_type length is out of bounds")
+    if value != value.strip():
+        raise ValueError("sql_type must not have leading or trailing whitespace")
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise ValueError("sql_type contains control characters")
-    try:
-        parse_temporal_sql_type(value)
-    except UnknownSqlTypeError:
+    classification, _ = classify_temporal_sql_type(value)
+    if classification == TemporalSqlTypeKind.MALFORMED:
         raise ValueError("sql_type is not a bounded normalized physical spelling") from None
     try:
         arrow_type(value, ArrowUnknownTypePolicy.REJECT)
     except UnknownSqlTypeError:
+        if classification != TemporalSqlTypeKind.NOT_TEMPORAL:
+            raise ValueError("sql_type is not a bounded normalized physical spelling") from None
         if _BOUNDED_UNKNOWN_SQL_TYPE.fullmatch(value) is None:
             raise ValueError("sql_type is not a bounded normalized physical spelling") from None
     return value

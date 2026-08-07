@@ -410,6 +410,24 @@ def test_validate_manifest_sql_type_rejects_invalid_temporal_fsp() -> None:
         validate_manifest_sql_type("TIMESTAMP(999)")
 
 
+@pytest.mark.parametrize(
+    ("sql_type", "match"),
+    (
+        ("TIMESTAMP(-1)", "bounded normalized physical spelling"),
+        ("TIMESTAMP()", "bounded normalized physical spelling"),
+        ("TIMESTAMP(7)", "bounded normalized physical spelling"),
+        (" TIMESTAMP(6)", "leading or trailing whitespace"),
+        ("TIMESTAMP(00)", "bounded normalized physical spelling"),
+    ),
+)
+def test_validate_manifest_sql_type_rejects_malformed_temporal(
+    sql_type: str,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        validate_manifest_sql_type(sql_type)
+
+
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
 def test_replay_rejects_path_outside_staging(
     import_provider: CandidateAImportProvider,
@@ -651,7 +669,7 @@ def test_marker_conflicting_candidates_are_ambiguous(
 
 
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
-def test_marker_missing_ref_is_ambiguous(
+def test_marker_zero_when_private_ref_branch_not_scanned(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -661,10 +679,10 @@ def test_marker_missing_ref_is_ambiguous(
         table_sql="CREATE TABLE missing_ref (id BIGINT NOT NULL PRIMARY KEY);\n",
     )
 
-    with patch.object(import_provider, "_refs_for_commit", return_value=()):
+    with patch.object(import_provider, "_branch_names", return_value=("main",)):
         inspection = import_provider.inspect_marker(marker)
 
-    assert isinstance(inspection, MarkerInspectionAmbiguous)
+    assert isinstance(inspection, MarkerInspectionZero)
 
 
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
@@ -795,6 +813,115 @@ def test_marker_scan_invalid_json_returns_ambiguous(
         inspection = import_provider.inspect_marker(marker)
 
     assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_scan_truncated_stdout_returns_ambiguous(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    marker = derive_operation_marker(OPERATION_ID)
+    original_run_cli = import_provider._cli.run_cli
+
+    def truncated_marker_scan(
+        kind: str,
+        args: list[str],
+        timeout: float,
+        *,
+        stdin_path: Path | None = None,
+    ) -> CommandResult:
+        if kind == "marker_scan":
+            return CommandResult(
+                command_kind=kind,
+                exit_code=0,
+                duration_seconds=0.0,
+                stdout=b'{"rows":[],"columns":[{"name":"commit_hash"},{"name":"message"},{"name":"parents"}]}',
+                stdout_tail=b"",
+                stderr_tail=b"",
+                stdout_truncated=True,
+            )
+        return original_run_cli(kind, args, timeout, stdin_path=stdin_path)
+
+    with patch.object(import_provider._cli, "run_cli", side_effect=truncated_marker_scan):
+        inspection = import_provider.inspect_marker(marker)
+
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_scan_uses_filtered_query(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    marker = derive_operation_marker(OPERATION_ID)
+    captured: list[str] = []
+    original_query_json = import_provider._cli.query_json
+
+    def capture_query_json(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "marker_scan":
+            captured.append(sql)
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=capture_query_json):
+        import_provider.inspect_marker(marker)
+
+    assert captured
+    assert all("WHERE message =" in sql for sql in captured)
+    assert all("LIMIT 2" in sql for sql in captured)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_scan_unique_with_long_history(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    marker = derive_operation_marker(OPERATION_ID)
+    expected = import_provider.read_ref("main")
+    import_provider.create_private_ref(private_ref, expected)
+    import_provider.checkout_private_ref(private_ref)
+    for index in range(1000):
+        import_provider._cli.run_cli(
+            "padding_commit",
+            [
+                "commit",
+                "--allow-empty",
+                "--message",
+                f"padding-{index}",
+                f"--author={import_provider._settings.author}",
+            ],
+            import_provider._settings.metadata_timeout_seconds,
+        )
+    import_provider.replay_sql(
+        private_ref,
+        _staging_replay_path(
+            import_layout,
+            "long-history.sql",
+            "CREATE TABLE long_history_probe (id BIGINT NOT NULL PRIMARY KEY);\n",
+        ),
+    )
+    parent_before_marker = import_provider.read_ref(private_ref)
+    candidate = import_provider.commit_operation_marker(private_ref, marker)
+    for index in range(1000):
+        import_provider._cli.run_cli(
+            "padding_commit",
+            [
+                "commit",
+                "--allow-empty",
+                "--message",
+                f"padding-after-{index}",
+                f"--author={import_provider._settings.author}",
+            ],
+            import_provider._settings.metadata_timeout_seconds,
+        )
+    inspection = import_provider.inspect_marker(marker)
+    assert isinstance(inspection, MarkerInspectionUnique)
+    assert inspection.candidate == candidate
+    assert inspection.parent == parent_before_marker
+    assert private_ref in inspection.refs
 
 
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
@@ -2241,7 +2368,7 @@ def test_inspect_marker_null_ref_name_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
 ) -> None:
-    _, marker, _, _ = _candidate_on_private_ref(
+    _, marker, expected, candidate = _candidate_on_private_ref(
         import_provider,
         import_layout,
         table_sql="CREATE TABLE null_ref (id BIGINT NOT NULL PRIMARY KEY);\n",
@@ -2252,8 +2379,24 @@ def test_inspect_marker_null_ref_name_is_ambiguous(
         "run_cli",
         side_effect=_run_cli_malformed_json_side_effect(
             import_provider,
-            b'{"rows":[{"name":null}]}',
-            kinds=frozenset({"refs_for_commit"}),
+            json.dumps(
+                {
+                    "rows": [
+                        {
+                            "commit_hash": None,
+                            "message": marker,
+                            "parents": expected,
+                        }
+                    ],
+                    "columns": [
+                        {"name": "commit_hash"},
+                        {"name": "message"},
+                        {"name": "parents"},
+                    ],
+                },
+                separators=(",", ":"),
+            ).encode(),
+            kinds=frozenset({"marker_scan"}),
         ),
     ):
         inspection = import_provider.inspect_marker(marker)
@@ -2380,22 +2523,32 @@ def test_inspect_marker_rejects_whitespace_ref_name(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
 ) -> None:
-    _, marker, _, _ = _candidate_on_private_ref(
+    private_ref, marker, expected, candidate = _candidate_on_private_ref(
         import_provider,
         import_layout,
         table_sql="CREATE TABLE whitespace_ref (id BIGINT NOT NULL PRIMARY KEY);\n",
     )
+    original_query_json = import_provider._cli.query_json
 
-    with patch.object(
-        import_provider._cli,
-        "run_cli",
-        side_effect=_run_cli_malformed_json_side_effect(
-            import_provider,
-            b'{"rows":[{"name":" main "}]}',
-            kinds=frozenset({"refs_for_commit"}),
-        ),
-    ):
-        inspection = import_provider.inspect_marker(marker)
+    def whitespace_branch_scan(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "marker_scan" and revision == " main ":
+            return [
+                {
+                    "commit_hash": candidate,
+                    "message": marker,
+                    "parents": expected,
+                }
+            ]
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider, "_branch_names", return_value=("main", " main ")):
+        with patch.object(import_provider._cli, "query_json", side_effect=whitespace_branch_scan):
+            inspection = import_provider.inspect_marker(marker)
 
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
@@ -2405,21 +2558,36 @@ def test_inspect_marker_rejects_duplicate_refs(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
 ) -> None:
-    _, marker, _, _ = _candidate_on_private_ref(
+    _, marker, expected, candidate = _candidate_on_private_ref(
         import_provider,
         import_layout,
         table_sql="CREATE TABLE duplicate_refs (id BIGINT NOT NULL PRIMARY KEY);\n",
     )
+    main_hash = import_provider.read_ref("main")
+    original_query_json = import_provider._cli.query_json
 
-    with patch.object(
-        import_provider._cli,
-        "run_cli",
-        side_effect=_run_cli_malformed_json_side_effect(
-            import_provider,
-            b'{"rows":[{"name":"main"},{"name":"main"}]}',
-            kinds=frozenset({"refs_for_commit"}),
-        ),
-    ):
+    def duplicate_marker_evidence(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "marker_scan":
+            return [
+                {
+                    "commit_hash": candidate,
+                    "message": marker,
+                    "parents": expected,
+                },
+                {
+                    "commit_hash": main_hash,
+                    "message": marker,
+                    "parents": expected,
+                },
+            ]
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=duplicate_marker_evidence):
         inspection = import_provider.inspect_marker(marker)
 
     assert isinstance(inspection, MarkerInspectionAmbiguous)
@@ -3049,6 +3217,15 @@ def test_catalog_count_rejects_descriptor_case_collision_keys(
             "`id` BIGINT NOT NULL PRIMARY KEY);",
             "invalid pinned DDL column definition",
         ),
+        (
+            "CREATE TABLE t (`n` INT DEFAULT (/* unclosed), `id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` INT GENERATED ALWAYS AS (/* unclosed) STORED, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
     ),
 )
 def test_parse_create_statement_rejects_additional_malformed_ddl(ddl: str, match: str) -> None:
@@ -3170,6 +3347,15 @@ def _catalog_create_injection_test(
             "`id` BIGINT NOT NULL PRIMARY KEY);",
             "invalid pinned DDL column definition",
         ),
+        (
+            "CREATE TABLE t (`n` INT DEFAULT (/* unclosed), `id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` INT GENERATED ALWAYS AS (/* unclosed) STORED, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
     ),
 )
 def test_read_catalog_rejects_malformed_create_ddl_injection(
@@ -3221,6 +3407,51 @@ def test_parse_create_statement_accepts_balanced_default_expression() -> None:
     columns = {column.name: column.sql_type for column in table.columns}
     assert columns["n"] == "INT"
     assert columns["id"] == "BIGINT"
+
+
+def test_parse_create_statement_accepts_default_with_comment_inside_string_literal() -> None:
+    table = _parse_create_statement(
+        "CREATE TABLE t (`n` INT DEFAULT ('/* literal */'), `id` BIGINT NOT NULL PRIMARY KEY);",
+        0,
+    )
+    columns = {column.name: column.sql_type for column in table.columns}
+    assert columns["n"] == "INT"
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_read_catalog_reuses_candidate_commit_cache(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE cache_probe (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    catalog_query_kinds = frozenset({"catalog_tables", "catalog_create", "catalog_count"})
+    original_query_json = import_provider._cli.query_json
+    catalog_queries = 0
+
+    def counting_query_json(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        nonlocal catalog_queries
+        if kind in catalog_query_kinds:
+            catalog_queries += 1
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=counting_query_json):
+        first_catalog = import_provider.read_catalog(candidate)
+        first_count = catalog_queries
+        second_catalog = import_provider.read_catalog(candidate)
+        second_count = catalog_queries
+
+    assert first_count > 0
+    assert second_count == first_count
+    assert first_catalog == second_catalog
 
 
 def test_parse_create_statement_accepts_default_and_on_update_modifiers() -> None:

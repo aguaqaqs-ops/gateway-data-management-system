@@ -12,11 +12,11 @@ from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
     SPATIAL_SQL_TYPES,
     TableCatalog,
+    TemporalSqlTypeKind,
     UnknownTypePolicy,
-    UnknownSqlTypeError,
     arrow_type,
+    classify_temporal_sql_type,
     normalize_sql_type,
-    parse_temporal_sql_type,
 )
 from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import commit_literal
@@ -33,6 +33,19 @@ class ProviderError(CandidateAError):
 class _TableConstraintRefs:
     index_column_lists: tuple[tuple[str, ...], ...] = ()
     foreign_keys: tuple[tuple[tuple[str, ...], str, tuple[str, ...]], ...] = ()
+
+
+@dataclass(frozen=True)
+class _TableNameIndex:
+    lower_to_exact: dict[str, str]
+    ambiguous_lower: frozenset[str]
+
+
+@dataclass(frozen=True)
+class ParenthesizedScanResult:
+    significant_content: bool
+    balanced: bool
+    comment_closed: bool
 
 
 @dataclass
@@ -260,14 +273,99 @@ def _extract_trailing_spatial_srid_version_comment(tail: str) -> tuple[str, int 
     return tail[: match.start()].strip(), int(match.group(1))
 
 
-def _strip_sql_comments(expr: str) -> str:
-    without_block = re.sub(r"/\*.*?\*/", "", expr, flags=re.S)
-    without_line = re.sub(r"--[^\n]*", "", without_block)
-    return without_line
+def _scan_parenthesized_sql_content(inner: str) -> ParenthesizedScanResult:
+    state = "normal"
+    depth = 0
+    significant = False
+    index = 0
+    length = len(inner)
+    while index < length:
+        character = inner[index]
+        if state == "normal":
+            if character == "(":
+                depth += 1
+                index += 1
+                continue
+            if character == ")":
+                depth -= 1
+                if depth < 0:
+                    return ParenthesizedScanResult(False, False, True)
+                index += 1
+                continue
+            if character == "'":
+                state = "single_quote"
+                significant = True
+                index += 1
+                continue
+            if character == '"':
+                state = "double_quote"
+                significant = True
+                index += 1
+                continue
+            if character == "`":
+                state = "backtick"
+                significant = True
+                index += 1
+                continue
+            if character == "/" and index + 1 < length and inner[index + 1] == "*":
+                state = "block_comment"
+                index += 2
+                continue
+            if character == "-" and index + 1 < length and inner[index + 1] == "-":
+                state = "line_comment"
+                index += 2
+                continue
+            if character == "#":
+                state = "hash_comment"
+                index += 1
+                continue
+            if not character.isspace():
+                significant = True
+            index += 1
+            continue
+        if state == "single_quote":
+            if character == "\\" and index + 1 < length:
+                index += 2
+                continue
+            if character == "'":
+                state = "normal"
+            index += 1
+            continue
+        if state == "double_quote":
+            if character == "\\" and index + 1 < length:
+                index += 2
+                continue
+            if character == '"':
+                state = "normal"
+            index += 1
+            continue
+        if state == "backtick":
+            if character == "`":
+                state = "normal"
+            index += 1
+            continue
+        if state == "block_comment":
+            if character == "*" and index + 1 < length and inner[index + 1] == "/":
+                state = "normal"
+                index += 2
+                continue
+            index += 1
+            continue
+        if state in {"line_comment", "hash_comment"}:
+            if character == "\n":
+                state = "normal"
+            index += 1
+            continue
+        index += 1
+    balanced = depth == 0 and state in {"normal", "line_comment", "hash_comment"}
+    comment_closed = state in {"normal", "line_comment", "hash_comment"}
+    return ParenthesizedScanResult(significant, balanced, comment_closed)
 
 
-def _has_significant_parenthesized_content(inner: str) -> bool:
-    return bool(_strip_sql_comments(inner).strip())
+def _validate_parenthesized_sql_content(inner: str) -> None:
+    scan = _scan_parenthesized_sql_content(inner)
+    if not scan.balanced or not scan.comment_closed or not scan.significant_content:
+        raise ProviderError("invalid pinned DDL column definition")
 
 
 def _consume_sql_literal_or_expression(rest: str) -> str:
@@ -277,8 +375,7 @@ def _consume_sql_literal_or_expression(rest: str) -> str:
     if rest.startswith("("):
         closing = _find_matching_paren(rest, 0)
         inner = rest[1:closing]
-        if not _has_significant_parenthesized_content(inner):
-            raise ProviderError("invalid pinned DDL column definition")
+        _validate_parenthesized_sql_content(inner)
         return rest[closing + 1 :].lstrip()
     quoted_match = _QUOTED_SQL_LITERAL_PATTERN.match(rest)
     if quoted_match is not None:
@@ -335,6 +432,7 @@ def _validate_constraint_declared_columns(
     declared_columns: set[str],
     constraints: _TableConstraintRefs,
     all_table_columns: dict[str, set[str]],
+    table_name_index: _TableNameIndex,
 ) -> None:
     for index_columns in constraints.index_column_lists:
         _validate_constraint_column_list_members(index_columns, declared_columns)
@@ -345,7 +443,11 @@ def _validate_constraint_declared_columns(
         if ref_table == table_name:
             _validate_constraint_column_list_members(ref_columns, declared_columns)
         else:
-            parent_columns = _resolve_referenced_table_columns(ref_table, all_table_columns)
+            parent_columns = _resolve_referenced_table_columns(
+                ref_table,
+                all_table_columns,
+                table_name_index,
+            )
             if parent_columns is not None:
                 for ref_column in ref_columns:
                     if ref_column not in parent_columns:
@@ -357,16 +459,32 @@ def _validate_constraint_declared_columns(
 def _resolve_referenced_table_columns(
     ref_table: str,
     all_table_columns: dict[str, set[str]],
+    table_name_index: _TableNameIndex,
 ) -> set[str] | None:
     if ref_table in all_table_columns:
         return all_table_columns[ref_table]
     ref_lower = ref_table.lower()
-    matches = [name for name in all_table_columns if name.lower() == ref_lower]
-    if not matches:
-        return None
-    if len(matches) > 1:
+    if ref_lower in table_name_index.ambiguous_lower:
         raise ProviderError("pinned schema diff has ambiguous foreign key referenced table")
-    return all_table_columns[matches[0]]
+    exact_name = table_name_index.lower_to_exact.get(ref_lower)
+    if exact_name is None:
+        return None
+    return all_table_columns[exact_name]
+
+
+def _build_table_name_index(
+    parsed: list[tuple[TableCatalog, _TableConstraintRefs]],
+) -> _TableNameIndex:
+    lower_to_exact: dict[str, str] = {}
+    ambiguous_lower: set[str] = set()
+    for table, _ in parsed:
+        lower_name = table.name.lower()
+        existing = lower_to_exact.get(lower_name)
+        if existing is not None and existing != table.name:
+            ambiguous_lower.add(lower_name)
+        else:
+            lower_to_exact[lower_name] = table.name
+    return _TableNameIndex(lower_to_exact=lower_to_exact, ambiguous_lower=frozenset(ambiguous_lower))
 
 
 def _validate_schema_diff_table_names(
@@ -385,10 +503,8 @@ def _validate_schema_diff_table_names(
 
 
 def _is_on_update_eligible_type(sql_type: str) -> bool:
-    try:
-        return parse_temporal_sql_type(sql_type) is not None
-    except UnknownSqlTypeError:
-        return False
+    classification, _ = classify_temporal_sql_type(sql_type)
+    return classification == TemporalSqlTypeKind.VALID
 
 
 def _is_integer_sql_type(sql_type: str) -> bool:
@@ -612,8 +728,7 @@ def _consume_column_modifiers(tail: str) -> _ColumnModifierState:
                 raise ProviderError("invalid pinned DDL column definition")
             closing = _find_matching_paren(remainder, 0)
             inner = remainder[1:closing]
-            if not _has_significant_parenthesized_content(inner):
-                raise ProviderError("invalid pinned DDL column definition")
+            _validate_parenthesized_sql_content(inner)
             remainder = remainder[closing + 1 :].strip()
             stored_match = re.match(r"(?:STORED|VIRTUAL)\b", remainder, re.I)
             if stored_match is not None:
@@ -773,11 +888,16 @@ def _parse_create_statement_with_constraints(
         tuple(index_column_lists),
         tuple(foreign_keys),
     )
+    table_name_index = _TableNameIndex(
+        lower_to_exact={name.lower(): name},
+        ambiguous_lower=frozenset(),
+    )
     _validate_constraint_declared_columns(
         name,
         declared_columns,
         constraints,
         {name: declared_columns},
+        table_name_index,
     )
     return TableCatalog(name, tuple(columns), row_count), constraints
 
@@ -800,6 +920,7 @@ def _catalog_from_schema_diff(
     if not parsed and any(row.get("to_create_statement") not in (None, "") for row in rows):
         raise ProviderError("pinned schema diff did not produce a target catalog")
     _validate_schema_diff_table_names(parsed)
+    table_name_index = _build_table_name_index(parsed)
     all_table_columns = {
         table.name: {column.name for column in table.columns} for table, _ in parsed
     }
@@ -812,6 +933,7 @@ def _catalog_from_schema_diff(
             all_table_columns[table.name],
             constraints,
             all_table_columns,
+            table_name_index,
         )
         tables[table.name] = TableCatalog(
             table.name,

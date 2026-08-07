@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import OrderedDict
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -343,7 +345,59 @@ class CandidateADoltCli:
         self.repository = repository
         self.runner = runner
         self.query_directory = layout.staging_artifacts
+        self._catalog_cache: OrderedDict[str, tuple[TableCatalog, ...]] = OrderedDict()
+        self._catalog_cache_bytes = 0
         _ensure_csv_field_limit(settings.max_stream_line_bytes)
+
+    def _estimate_catalog_bytes(self, catalog: tuple[TableCatalog, ...]) -> int:
+        total = 0
+        for table in catalog:
+            total += len(table.name.encode("utf-8")) + 16
+            for column in table.columns:
+                total += len(column.name.encode("utf-8")) + len(column.sql_type.encode("utf-8")) + 24
+        return total
+
+    def _get_cached_catalog(self, commit_id: str) -> tuple[TableCatalog, ...] | None:
+        cached = self._catalog_cache.get(commit_id)
+        if cached is None:
+            return None
+        self._catalog_cache.move_to_end(commit_id)
+        return cached
+
+    def _store_cached_catalog(self, commit_id: str, catalog: tuple[TableCatalog, ...]) -> None:
+        if commit_id in self._catalog_cache:
+            self._catalog_cache_bytes -= self._estimate_catalog_bytes(self._catalog_cache[commit_id])
+            del self._catalog_cache[commit_id]
+        catalog_bytes = self._estimate_catalog_bytes(catalog)
+        while self._catalog_cache:
+            if len(self._catalog_cache) < self.settings.catalog_cache_entries:
+                if self._catalog_cache_bytes + catalog_bytes <= self.settings.catalog_cache_bytes:
+                    break
+            elif self._catalog_cache_bytes + catalog_bytes <= self.settings.catalog_cache_bytes:
+                break
+            evicted_key, evicted_catalog = self._catalog_cache.popitem(last=False)
+            self._catalog_cache_bytes -= self._estimate_catalog_bytes(evicted_catalog)
+        self._catalog_cache[commit_id] = catalog
+        self._catalog_cache_bytes += catalog_bytes
+
+    def _load_table_catalog(self, table_name: str, target_literal: str) -> TableCatalog:
+        create_rows = self.query_json(
+            "catalog_create",
+            f"SHOW CREATE TABLE {quote_identifier(table_name)} AS OF {target_literal};\n",
+        )
+        create_row = _require_exactly_one_row(create_rows, "catalog_create")
+        ddl = _extract_show_create_fields(create_row, table_name, "catalog_create")
+        count_rows = self.query_json(
+            "catalog_count",
+            f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table_name)} AS OF {target_literal};\n",
+        )
+        count_row = _require_exactly_one_row(count_rows, "catalog_count")
+        raw_count = value(count_row, "row_count", 0)
+        row_count = _parse_non_negative_row_count(raw_count, "catalog_count")
+        parsed = _parse_create_statement(ddl, row_count)
+        if parsed.name != table_name:
+            raise DoltCliError("Dolt catalog_create DDL table name mismatch")
+        return parsed
 
     def replay(self, replay_sql: Path) -> None:
         self.run_cli(
@@ -356,34 +410,34 @@ class CandidateADoltCli:
     def catalog(self, base_commit_id: str, target_commit_id: str) -> tuple[TableCatalog, ...]:
         validate_commit_id(base_commit_id)
         safe_target = validate_commit_id(target_commit_id)
+        cached = self._get_cached_catalog(safe_target)
+        if cached is not None:
+            return cached
         target_literal = commit_literal(safe_target)
         show_rows = self.query_json(
             "catalog_tables",
             f"SHOW FULL TABLES AS OF {target_literal};\n",
         )
-        tables: list[TableCatalog] = []
+        table_names: list[str] = []
         for row in show_rows:
             table_name, table_type = _parse_show_tables_row(row, "catalog_tables")
             if table_type == "VIEW":
                 continue
-            create_rows = self.query_json(
-                "catalog_create",
-                f"SHOW CREATE TABLE {quote_identifier(table_name)} AS OF {target_literal};\n",
-            )
-            create_row = _require_exactly_one_row(create_rows, "catalog_create")
-            ddl = _extract_show_create_fields(create_row, table_name, "catalog_create")
-            count_rows = self.query_json(
-                "catalog_count",
-                f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table_name)} AS OF {target_literal};\n",
-            )
-            count_row = _require_exactly_one_row(count_rows, "catalog_count")
-            raw_count = value(count_row, "row_count", 0)
-            row_count = _parse_non_negative_row_count(raw_count, "catalog_count")
-            parsed = _parse_create_statement(ddl, row_count)
-            if parsed.name != table_name:
-                raise DoltCliError("Dolt catalog_create DDL table name mismatch")
-            tables.append(parsed)
-        return tuple(sorted(tables, key=lambda table: table.name))
+            table_names.append(table_name)
+        workers = min(self.settings.catalog_parallel_workers, len(table_names)) or 1
+        if workers <= 1:
+            tables = [self._load_table_catalog(name, target_literal) for name in table_names]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                tables = list(
+                    executor.map(
+                        lambda name: self._load_table_catalog(name, target_literal),
+                        table_names,
+                    )
+                )
+        catalog = tuple(sorted(tables, key=lambda table: table.name))
+        self._store_cached_catalog(safe_target, catalog)
+        return catalog
 
     def stream_table(
         self,
@@ -496,6 +550,8 @@ class CandidateADoltCli:
                 self.settings.metadata_timeout_seconds,
                 stdin_path=query,
             )
+            if result.stdout_truncated:
+                raise DoltCliError("Dolt metadata output was truncated")
             try:
                 decoded = _decode_metadata_json(result.stdout)
                 rows = json_rows(decoded)

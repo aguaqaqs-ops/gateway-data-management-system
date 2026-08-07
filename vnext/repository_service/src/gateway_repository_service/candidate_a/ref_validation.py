@@ -62,6 +62,10 @@ def commit_literal(commit_id: str) -> str:
     return "'" + validate_commit_id(commit_id).replace("'", "''") + "'"
 
 
+def marker_literal(marker: str) -> str:
+    return "'" + validate_operation_marker(marker).replace("'", "''") + "'"
+
+
 def parse_single_parent(parents_field: str) -> str | None:
     parents = [part.strip() for part in parents_field.split(",") if part.strip()]
     if len(parents) != 1:

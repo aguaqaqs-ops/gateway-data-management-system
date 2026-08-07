@@ -987,6 +987,7 @@ class CommandResult:
     stderr_tail: bytes
     timed_out: bool = False
     cancelled: bool = False
+    stdout_truncated: bool = False
 
 
 class _Tail:
@@ -1236,6 +1237,7 @@ class DoltRunner:
             stdout_tail=stdout_tail.value(),
             stderr_tail=stderr_tail.value(),
             timed_out=timed_out,
+            stdout_truncated=stdout_capture.truncated,
         )
 
     def terminate_and_reap(self, process: subprocess.Popen[bytes]) -> None:

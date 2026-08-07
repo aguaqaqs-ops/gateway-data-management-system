@@ -8,9 +8,12 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 
 from gateway_repository_service.arrow_mapping import (
+    TemporalSqlTypeKind,
     UnknownSqlTypeError,
     UnknownTypePolicy,
     arrow_type,
+    classify_temporal_sql_type,
+    normalize_sql_type,
     parse_temporal_sql_type,
 )
 from gateway_repository_service.layout import DurableLayout
@@ -111,6 +114,12 @@ def test_known_and_unknown_arrow_mapping() -> None:
         arrow_type("TIMESTAMP(999)", UnknownTypePolicy.REJECT)
     assert parse_temporal_sql_type("TIMESTAMP(6)") == ("TIMESTAMP", 6)
     assert parse_temporal_sql_type("TIMESTAMP_FOO") is None
+    assert classify_temporal_sql_type("TIMESTAMP(-1)")[0] == TemporalSqlTypeKind.MALFORMED
+    assert classify_temporal_sql_type("TIMESTAMP()")[0] == TemporalSqlTypeKind.MALFORMED
+    assert classify_temporal_sql_type("TIMESTAMP(7)")[0] == TemporalSqlTypeKind.MALFORMED
+    assert classify_temporal_sql_type(" TIMESTAMP(6)")[0] == TemporalSqlTypeKind.NOT_TEMPORAL
+    assert classify_temporal_sql_type("TIMESTAMP (6)")[0] == TemporalSqlTypeKind.MALFORMED
+    assert normalize_sql_type("TIMESTAMP", "TIMESTAMP(00)") == "TIMESTAMP"
     unknown, metadata = arrow_type("ENUM('A','B')", UnknownTypePolicy.STRINGIFY)
     assert unknown == pa.large_string()
     assert metadata[b"gateway.lossy"] == b"true"

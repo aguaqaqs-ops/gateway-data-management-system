@@ -61,6 +61,9 @@ class RepositoryServiceSettings(BaseSettings):
     max_decompressed_tar_stream_bytes: int = 4 * 1024 * 1024 * 1024
     artifact_ttl_seconds: int = 24 * 60 * 60
     sqlite_busy_timeout_ms: int = 5000
+    catalog_cache_entries: int = 32
+    catalog_cache_bytes: int = 64 * 1024 * 1024
+    catalog_parallel_workers: int = 4
 
     @field_validator("dolt_binary")
     @classmethod
@@ -98,6 +101,9 @@ class RepositoryServiceSettings(BaseSettings):
         "max_decompressed_tar_stream_bytes",
         "artifact_ttl_seconds",
         "sqlite_busy_timeout_ms",
+        "catalog_cache_entries",
+        "catalog_cache_bytes",
+        "catalog_parallel_workers",
     )
     @classmethod
     def _bounds_must_be_positive(cls, value: int) -> int:

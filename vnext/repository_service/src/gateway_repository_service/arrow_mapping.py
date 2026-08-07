@@ -47,7 +47,7 @@ class TableCatalog:
 _DECIMAL = re.compile(r"^DECIMAL\((\d+),(\d+)\)$")
 _BIT = re.compile(r"^BIT\((\d+)\)$")
 _TEMPORAL_BASE = frozenset({"TIME", "DATETIME", "TIMESTAMP"})
-_TEMPORAL_WITH_FSP = re.compile(r"^(TIME|DATETIME|TIMESTAMP)\((\d+)\)$")
+_TEMPORAL_LIKE = re.compile(r"^(TIME|DATETIME|TIMESTAMP)(?:\(|$|\s)")
 _SIZED_CHARACTER = re.compile(r"^(CHAR|VARCHAR)\(\d+\)$")
 _SIZED_BINARY = re.compile(r"^(BINARY|VARBINARY)\(\d+\)$")
 _CHARACTER = {
@@ -78,19 +78,60 @@ SPATIAL_SQL_TYPES = frozenset({
 })
 
 
-def parse_temporal_sql_type(sql_type: str) -> tuple[str, int | None] | None:
-    """Match TIME | DATETIME | TIMESTAMP or parenthesized fsp spelling exactly."""
+class TemporalSqlTypeKind(StrEnum):
+    VALID = "valid"
+    MALFORMED = "malformed"
+    NOT_TEMPORAL = "not_temporal"
 
-    upper = " ".join(sql_type.upper().split())
+
+@dataclass(frozen=True)
+class TemporalSqlType:
+    kind: str
+    fsp: int | None
+
+
+def classify_temporal_sql_type(
+    sql_type: str,
+    *,
+    allow_zero_fsp_normalization: bool = False,
+    normalize_whitespace: bool = False,
+) -> tuple[TemporalSqlTypeKind, TemporalSqlType | None]:
+    """Classify temporal spellings into valid, malformed temporal-like, or non-temporal."""
+
+    upper = " ".join(sql_type.upper().split()) if normalize_whitespace else sql_type.upper()
     if upper in _TEMPORAL_BASE:
-        return upper, None
-    match = _TEMPORAL_WITH_FSP.fullmatch(upper)
-    if match is None:
-        return None
-    fsp = int(match.group(2))
-    if not 0 <= fsp <= 6:
-        raise UnknownSqlTypeError(f"invalid temporal fsp in type: {sql_type}")
-    return match.group(1), fsp
+        return TemporalSqlTypeKind.VALID, TemporalSqlType(upper, None)
+    for kind in ("TIME", "DATETIME", "TIMESTAMP"):
+        prefix = f"{kind}("
+        if not upper.startswith(prefix) or not upper.endswith(")"):
+            continue
+        inner = upper[len(prefix) : -1]
+        if not inner:
+            return TemporalSqlTypeKind.MALFORMED, None
+        if not re.fullmatch(r"\d+", inner):
+            return TemporalSqlTypeKind.MALFORMED, None
+        if len(inner) > 1 and inner[0] == "0":
+            if allow_zero_fsp_normalization and kind == "TIMESTAMP" and inner == "00":
+                return TemporalSqlTypeKind.VALID, TemporalSqlType(kind, None)
+            return TemporalSqlTypeKind.MALFORMED, None
+        fsp = int(inner)
+        if 0 <= fsp <= 6:
+            return TemporalSqlTypeKind.VALID, TemporalSqlType(kind, fsp)
+        return TemporalSqlTypeKind.MALFORMED, None
+    if _TEMPORAL_LIKE.match(upper):
+        return TemporalSqlTypeKind.MALFORMED, None
+    return TemporalSqlTypeKind.NOT_TEMPORAL, None
+
+
+def parse_temporal_sql_type(sql_type: str) -> tuple[str, int | None] | None:
+    """Return valid temporal spelling or None when the type is not temporal."""
+
+    classification, parsed = classify_temporal_sql_type(sql_type)
+    if classification == TemporalSqlTypeKind.VALID and parsed is not None:
+        return parsed.kind, parsed.fsp
+    if classification == TemporalSqlTypeKind.MALFORMED:
+        raise UnknownSqlTypeError(f"invalid temporal SQL type spelling: {sql_type}")
+    return None
 
 
 def normalize_sql_type(data_type: str, column_type: str) -> str:
@@ -103,12 +144,17 @@ def normalize_sql_type(data_type: str, column_type: str) -> str:
         return "BOOLEAN"
     if raw.startswith("TINYINT(1)") and data_type.upper() == "TINYINT":
         return raw.replace("TINYINT(1)", "TINYINT", 1)
-    temporal = parse_temporal_sql_type(raw)
-    if temporal is not None:
-        kind, fsp = temporal
-        if fsp is None:
-            return kind
-        return f"{kind}({fsp})"
+    classification, temporal = classify_temporal_sql_type(
+        raw,
+        allow_zero_fsp_normalization=True,
+        normalize_whitespace=True,
+    )
+    if classification == TemporalSqlTypeKind.MALFORMED:
+        raise UnknownSqlTypeError(f"invalid temporal SQL type spelling: {column_type}")
+    if classification == TemporalSqlTypeKind.VALID and temporal is not None:
+        if temporal.fsp is None:
+            return temporal.kind
+        return f"{temporal.kind}({temporal.fsp})"
     match = _DECIMAL.match(raw)
     if match is not None:
         return f"DECIMAL({match.group(1)},{match.group(2)})"
@@ -162,12 +208,13 @@ def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, d
         return pa.float64(), {}
     if upper == "DATE":
         return pa.date32(), {}
-    temporal = parse_temporal_sql_type(sql_type)
-    if temporal is not None:
-        kind, _ = temporal
-        if kind == "TIME":
+    classification, temporal = classify_temporal_sql_type(sql_type)
+    if classification == TemporalSqlTypeKind.MALFORMED:
+        raise UnknownSqlTypeError(f"invalid temporal SQL type spelling: {sql_type}")
+    if classification == TemporalSqlTypeKind.VALID and temporal is not None:
+        if temporal.kind == "TIME":
             return pa.duration("us"), {}
-        if kind == "TIMESTAMP":
+        if temporal.kind == "TIMESTAMP":
             return pa.timestamp("us", tz="UTC"), {}
         return pa.timestamp("us"), {}
     decimal_match = _DECIMAL.match(upper)

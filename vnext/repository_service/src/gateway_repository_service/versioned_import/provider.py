@@ -15,6 +15,7 @@ from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import (
     IMPORT_MAIN_REF,
     commit_literal,
+    marker_literal,
     parse_marker_parent_field,
     validate_commit_id,
     validate_operation_marker,
@@ -191,7 +192,8 @@ class CandidateAImportProvider:
             for branch_name in self._branch_names():
                 rows = self._cli.query_json(
                     "marker_scan",
-                    "SELECT commit_hash, message, parents FROM dolt_log;\n",
+                    "SELECT commit_hash, message, parents FROM dolt_log "
+                    f"WHERE message = {marker_literal(marker)} LIMIT 2;\n",
                     revision=branch_name,
                 )
                 for row in rows:
@@ -199,7 +201,7 @@ class CandidateAImportProvider:
                     if not isinstance(raw_message, str):
                         return MarkerInspectionAmbiguous()
                     if raw_message != marker:
-                        continue
+                        return MarkerInspectionAmbiguous()
                     raw_candidate = value(row, "commit_hash", 0)
                     if not isinstance(raw_candidate, str) or not raw_candidate:
                         return MarkerInspectionAmbiguous()
@@ -222,11 +224,18 @@ class CandidateAImportProvider:
             if len(evidence) != 1:
                 return MarkerInspectionAmbiguous()
 
-            (candidate, parent), _ = next(iter(evidence.items()))
-            refs = self._refs_for_commit(candidate)
+            (candidate, parent), branch_names = next(iter(evidence.items()))
+            refs: list[str] = []
+            seen_refs: set[str] = set()
+            for branch_name in branch_names:
+                ref = validate_readable_ref_name(branch_name)
+                if ref in seen_refs:
+                    return MarkerInspectionAmbiguous()
+                seen_refs.add(ref)
+                refs.append(ref)
             if not refs:
                 return MarkerInspectionAmbiguous()
-            return MarkerInspectionUnique(candidate=candidate, parent=parent, refs=refs)
+            return MarkerInspectionUnique(candidate=candidate, parent=parent, refs=tuple(sorted(refs)))
         except _MARKER_AMBIGUOUS_FAULTS:
             return MarkerInspectionAmbiguous()
 

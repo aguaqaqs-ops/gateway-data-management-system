@@ -98,29 +98,30 @@ def _import_result(*, artifact_id: UUID = ARTIFACT_ID) -> VersionedImportResult:
 
 def _seed_artifact(mutation_store: MutationStore, *, artifact_id: UUID = ARTIFACT_ID) -> None:
     now = "2026-08-06T00:00:00+00:00"
-    mutation_store._connection.execute(
-        """
-        INSERT INTO artifact_lifecycle (
-            artifact_id,
-            repository_scope,
-            media_type,
-            size_bytes,
-            raw_sha256,
-            created_at,
-            updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            str(artifact_id),
-            REPOSITORY_ID.hex,
-            MEDIA_TYPE,
-            12,
-            SHA256,
-            now,
-            now,
-        ),
-    )
-    mutation_store._connection.commit()
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            INSERT INTO artifact_lifecycle (
+                artifact_id,
+                repository_scope,
+                media_type,
+                size_bytes,
+                raw_sha256,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(artifact_id),
+                REPOSITORY_ID.hex,
+                MEDIA_TYPE,
+                12,
+                SHA256,
+                now,
+                now,
+            ),
+        )
+        mutation_store._connection.commit()
 
 
 def _enqueue(

@@ -42,9 +42,14 @@ from gateway_repository_service.versioned_import.models import (
 
 
 class ImportOperationStore:
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        transaction_lock: threading.Lock | None = None,
+    ) -> None:
         self._connection = connection
-        self._lock = threading.Lock()
+        self._lock = transaction_lock or threading.Lock()
         self._mutation_store = MutationStore(connection, transaction_lock=self._lock)
 
     @property

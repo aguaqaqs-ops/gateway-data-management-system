@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
 
@@ -289,6 +290,7 @@ class ControlStore:
     path: Path
     connection: sqlite3.Connection
     user_version: int
+    transaction_lock: threading.Lock = field(default_factory=threading.Lock)
 
     @classmethod
     def open(

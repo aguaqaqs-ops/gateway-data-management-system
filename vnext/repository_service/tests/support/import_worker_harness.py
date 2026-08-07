@@ -20,6 +20,7 @@ from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, Contr
 from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.mutation_store import IdempotencyKeyHash, configure_connection
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
+from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.faults import ImportWorkerFaultInjector
 from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
 from gateway_repository_service.versioned_import.models import ImportRequestBinding
@@ -54,6 +55,8 @@ class FakeImportProvider:
         self.publish_force_fail = False
         self.replay_delay_seconds = 0.0
         self.fail_on_replay = False
+        self.fail_on_checkout = False
+        self.replay_order: list[str] = []
 
     def read_ref(self, ref_name: str) -> str:
         return self.refs[ref_name]
@@ -62,6 +65,8 @@ class FakeImportProvider:
         self.refs[private_ref] = expected_commit
 
     def checkout_private_ref(self, private_ref: str) -> None:
+        if self.fail_on_checkout:
+            raise ImportProviderError("checkout private ref failed")
         if private_ref not in self.refs:
             raise RuntimeError("missing private ref")
 
@@ -75,6 +80,7 @@ class FakeImportProvider:
             raise RuntimeError("cancelled")
         if self.fail_on_replay:
             raise RuntimeError("replay failed")
+        self.replay_order.append(private_ref)
         if self.replay_delay_seconds > 0:
             time.sleep(self.replay_delay_seconds)
 
@@ -180,29 +186,30 @@ class WorkerTestEnvironment:
         raw_sha256: str,
     ) -> None:
         now = "2026-08-06T00:00:00+00:00"
-        self.mutation_store._connection.execute(
-            """
-            INSERT INTO artifact_lifecycle (
-                artifact_id,
-                repository_scope,
-                media_type,
-                size_bytes,
-                raw_sha256,
-                created_at,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                str(artifact_id),
-                repository_id.hex,
-                MEDIA_TYPE,
-                size_bytes,
-                raw_sha256,
-                now,
-                now,
-            ),
-        )
-        self.mutation_store._connection.commit()
+        with self.store._lock:
+            self.connection.execute(
+                """
+                INSERT INTO artifact_lifecycle (
+                    artifact_id,
+                    repository_scope,
+                    media_type,
+                    size_bytes,
+                    raw_sha256,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(artifact_id),
+                    repository_id.hex,
+                    MEDIA_TYPE,
+                    size_bytes,
+                    raw_sha256,
+                    now,
+                    now,
+                ),
+            )
+            self.connection.commit()
 
     def write_ready_artifact(
         self,

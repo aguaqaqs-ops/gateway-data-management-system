@@ -20,6 +20,7 @@ from gateway_repository_service.versioned_import.faults import (
 )
 from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
 from gateway_repository_service.versioned_import.ports import VersionedImportProvider
+from gateway_repository_service.versioned_import.models import ImportOperationTransitionRejected
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from gateway_repository_service.versioned_import.verification import IMPORT_REJECTED_CODE
 
@@ -90,12 +91,16 @@ class ImportWorkerPool:
 
     def _dispatch_loop(self) -> None:
         while not self._shutdown.is_set():
-            claimed = self._try_claim_one()
-            if claimed is not None:
-                self._work_queue.put(claimed)
-                continue
-            with self._notify:
-                self._notify.wait(timeout=0.1)
+            try:
+                claimed = self._try_claim_one()
+                if claimed is not None:
+                    self._work_queue.put(claimed)
+                    continue
+                with self._notify:
+                    self._notify.wait(timeout=0.1)
+            except Exception:
+                _LOGGER.exception("import dispatcher failed while claiming queued operation")
+                self._shutdown.wait(timeout=0.25)
 
     def _try_claim_one(self) -> tuple[UUID, UUID] | None:
         with self._in_flight_lock:
@@ -198,6 +203,11 @@ class ImportWorkerPool:
                     details={"reason": "operation_context_missing"},
                     request_id=None,
                 ),
+            )
+        except ImportOperationTransitionRejected:
+            _LOGGER.error(
+                "cannot persist terminal failure for operation %s: status transition rejected",
+                operation_id,
             )
         except Exception:
             _LOGGER.exception(

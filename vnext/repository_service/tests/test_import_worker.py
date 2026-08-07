@@ -319,14 +319,9 @@ def test_same_repository_fifo_completion_order(tmp_path: Path) -> None:
             env.store.get_operation(REPOSITORY_ID, operation_id)
             for operation_id in operation_ids
         ]
-        completion_times = [
-            op.completed_at
-            for op in completed
-            if op is not None and op.completed_at is not None
-        ]
-        assert len(completion_times) == 4
-        assert completion_times == sorted(completion_times)
-        assert operation_ids == [spec[0] for spec in operation_specs]
+        expected_private_refs = [derive_private_ref_name(operation_id) for operation_id in operation_ids]
+        assert provider.replay_order == expected_private_refs
+        assert all(op is not None and op.status == OperationStatus.SUCCEEDED for op in completed)
     finally:
         env.close()
 
@@ -373,6 +368,7 @@ def test_cross_repository_respects_global_worker_bound(tmp_path: Path) -> None:
         env.close()
 
 
+@pytest.mark.serial
 def test_context_load_failure_releases_reservation_and_in_flight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -529,6 +525,113 @@ def test_simple_error_sanitizes_dict_values() -> None:
     assert error.details["actual"] == "<path>"
 
 
+def test_checkout_failure_maps_to_manual_with_private_ref_residual(
+    worker_env: WorkerTestEnvironment,
+) -> None:
+    provider = worker_env.provider_for(REPOSITORY_ID)
+    provider.fail_on_checkout = True
+    operation_id = worker_env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID)
+    worker_env.wait_for_status(REPOSITORY_ID, operation_id, OperationStatus.FAILED)
+
+    operation = worker_env.store.get_operation(REPOSITORY_ID, operation_id)
+    assert operation is not None
+    assert operation.error is not None
+    assert operation.error.code == MANUAL_RECOVERY_REQUIRED_CODE
+    private_ref = derive_private_ref_name(operation_id)
+    assert private_ref in provider.refs
+
+
+@pytest.mark.serial
+def test_context_load_failure_logs_transition_rejection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    from gateway_repository_service.versioned_import.models import ImportOperationTransitionRejected
+
+    env = WorkerTestEnvironment(tmp_path, max_import_workers=1)
+    env.pool.start()
+    try:
+        def _fail_load(_operation_id: UUID) -> ImportOperationExecutionContext | None:
+            raise RuntimeError("forced context load failure")
+
+        def _reject_mark_failed(*_args: object, **_kwargs: object) -> None:
+            raise ImportOperationTransitionRejected("not running")
+
+        monkeypatch.setattr(env.store, "load_execution_context", _fail_load)
+        monkeypatch.setattr(env.store, "mark_failed", _reject_mark_failed)
+
+        with caplog.at_level(logging.ERROR):
+            operation_id = env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID, key="transition-reject")
+            time.sleep(1.0)
+
+        assert any(
+            "status transition rejected" in record.message for record in caplog.records
+        )
+        operation = env.store.get_operation(REPOSITORY_ID, operation_id)
+        assert operation is not None
+        assert operation.status != OperationStatus.FAILED
+    finally:
+        env.close()
+
+
+@pytest.mark.serial
+def test_dispatcher_survives_storage_glitch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sqlite3
+
+    env = WorkerTestEnvironment(tmp_path, max_import_workers=2)
+    env.pool.start()
+    calls = {"count": 0}
+    original = env.store.has_unresolved_manual_barrier
+
+    def _flaky_barrier(repository_id: UUID) -> bool:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise sqlite3.OperationalError("cannot start a transaction within a transaction")
+        return original(repository_id)
+
+    monkeypatch.setattr(env.store, "has_unresolved_manual_barrier", _flaky_barrier)
+
+    try:
+        operation_id = env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID, key="dispatcher-survives")
+        env.wait_for_status(REPOSITORY_ID, operation_id, OperationStatus.SUCCEEDED, timeout=10.0)
+        assert env.pool._dispatcher is not None
+        assert env.pool._dispatcher.is_alive()
+    finally:
+        env.close()
+
+
+def test_sanitized_detail_preserves_readable_diagnostic_text() -> None:
+    from gateway_repository_service.versioned_import.errors import sanitize_import_error_detail
+
+    message = "update of main ref did not apply"
+    sanitized = sanitize_import_error_detail(message)
+    assert sanitized is not None
+    assert "update" in sanitized
+    assert "main" in sanitized
+
+
+def test_sanitize_import_error_details_preserves_keys() -> None:
+    from gateway_repository_service.versioned_import.errors import sanitize_import_error_details
+
+    payload = {
+        "a": {"b": "/root/data/gateway-import-abc"},
+        "c": ["/tmp/secret", 7],
+        "d": 5,
+        "e": None,
+    }
+    sanitized = sanitize_import_error_details(payload)
+    assert set(sanitized.keys()) == set(payload.keys())
+    nested = sanitized["a"]
+    assert isinstance(nested, dict)
+    assert nested["b"] == "<path>"
+
+
 def test_provider_stderr_not_persisted_raw(worker_env: WorkerTestEnvironment) -> None:
     from gateway_repository_service.versioned_import.command import _simple_error
 
@@ -540,4 +643,5 @@ def test_provider_stderr_not_persisted_raw(worker_env: WorkerTestEnvironment) ->
     rendered = error.model_dump_json()
     assert "INSERT INTO" not in rendered
     assert "VALUES (42)" not in rendered
-    assert "stderr=<redacted>" in rendered or "duplicate primary key" not in rendered
+    assert "42" not in rendered
+    assert "stderr=<redacted>" in rendered

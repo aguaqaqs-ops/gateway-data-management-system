@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 from gateway_repository_contracts import SimpleError, VersionedImportResult
 
@@ -143,8 +143,8 @@ class ImportOperationExecutor:
         evidence.main_after_first_check = evidence.main_before
 
         provider.create_private_ref(context.private_ref_name, context.expected_commit_id)
-        provider.checkout_private_ref(context.private_ref_name)
         evidence.private_ref_created = True
+        provider.checkout_private_ref(context.private_ref_name)
         self._fault_injector.maybe_raise(ImportWorkerFaultPoint.AFTER_PRIVATE_REF_CREATED)
 
         provider.replay_sql(context.private_ref_name, package.replay_sql_path)
@@ -215,9 +215,16 @@ class ImportOperationExecutor:
         if readback != candidate:
             raise _manual_recovery("main readback does not match candidate commit")
 
+        if context.target_ref != "main":
+            raise _terminal_error(
+                IMPORT_REJECTED_CODE,
+                "unsupported target ref",
+                detail={"target_ref": context.target_ref},
+            )
+
         result = VersionedImportResult(
             commit_id=candidate,
-            target_ref=cast(Literal["main"], context.target_ref),
+            target_ref="main",
             artifact_id=context.artifact_id,
             canonicalization_manifest_digest=package.manifest.canonicalization_manifest_digest,
             expected_commit_id=context.expected_commit_id,
@@ -411,6 +418,8 @@ def _map_provider_failure(evidence: ExecutionEvidence, *, detail: str) -> Simple
         return _manual_error("provider failure after durable marker evidence", detail=detail)
     if evidence.private_ref_created and not evidence.main_unchanged():
         return _manual_error("provider failure after private ref with main movement", detail=detail)
+    if evidence.private_ref_created and not evidence.has_marker_evidence():
+        return _manual_error("provider failure after private ref creation", detail=detail)
     if evidence.main_unchanged() and not evidence.has_marker_evidence():
         return _simple_error(
             IMPORT_REJECTED_CODE,

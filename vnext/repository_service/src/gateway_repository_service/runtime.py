@@ -61,7 +61,10 @@ class ServiceRuntime:
             )
             stack.callback(control_store.close)
             configure_connection(control_store.connection)
-            mutation_store = MutationStore(control_store.connection)
+            mutation_store = MutationStore(
+                control_store.connection,
+                transaction_lock=control_store.transaction_lock,
+            )
             provider_gate = OfflineCliCapabilityGate.verify(settings, layout)
             reconciliation = SynchronousMutationReconciler(
                 settings=settings,

@@ -19,6 +19,7 @@ from gateway_repository_service.arrow_mapping import (
     TableCatalog,
     UnknownSqlTypeError,
     UnknownTypePolicy as ArrowUnknownTypePolicy,
+    normalize_sql_type,
 )
 from gateway_repository_service.candidate_a.dolt_cli import DoltCliError
 from gateway_repository_service.candidate_a.errors import CandidateAError
@@ -2981,6 +2982,24 @@ def test_catalog_count_rejects_descriptor_case_collision_keys(
         ("CREATE TABLE t (`id` INT DEFAULT 1 DEFAULT 2);", "invalid pinned DDL column definition"),
         ("CREATE TABLE t (`id` INT NULL NOT NULL);", "invalid pinned DDL column definition"),
         ("CREATE TABLE t (`id` INT NULL PRIMARY KEY);", "primary key column is nullable"),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY (`id`) REFERENCES `parent`);",
+            "constraint was malformed",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT, `x` BIGINT, FOREIGN KEY (`id`, `x`) "
+            "REFERENCES `parent` (`id`));",
+            "constraint was malformed",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY (`id`) REFERENCES `` (`id`));",
+            "invalid pinned DDL identifier",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT, CONSTRAINT `` CHECK (`id` > 0));",
+            "invalid pinned DDL identifier",
+        ),
+        ("CREATE TABLE t (`id` BIGINT, KEY `` (`id`));", "invalid pinned DDL identifier"),
     ),
 )
 def test_parse_create_statement_rejects_additional_malformed_ddl(ddl: str, match: str) -> None:
@@ -3051,6 +3070,24 @@ def _catalog_create_injection_test(
         ("CREATE TABLE t (`id` INT DEFAULT 1 DEFAULT 2);", "invalid pinned DDL column definition"),
         ("CREATE TABLE t (`id` INT NULL NOT NULL);", "invalid pinned DDL column definition"),
         ("CREATE TABLE t (`id` INT NULL PRIMARY KEY);", "primary key column is nullable"),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY (`id`) REFERENCES `parent`);",
+            "constraint was malformed",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT, `x` BIGINT, FOREIGN KEY (`id`, `x`) "
+            "REFERENCES `parent` (`id`));",
+            "constraint was malformed",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY (`id`) REFERENCES `` (`id`));",
+            "invalid pinned DDL identifier",
+        ),
+        (
+            "CREATE TABLE t (`id` BIGINT, CONSTRAINT `` CHECK (`id` > 0));",
+            "invalid pinned DDL identifier",
+        ),
+        ("CREATE TABLE t (`id` BIGINT, KEY `` (`id`));", "invalid pinned DDL identifier"),
     ),
 )
 def test_read_catalog_rejects_malformed_create_ddl_injection(
@@ -3231,3 +3268,70 @@ def test_read_catalog_normalizes_point_srid_for_manifest_roundtrip(
     catalog = import_provider.read_catalog(candidate)
     columns = {column.name: column.sql_type for column in catalog[0].columns}
     assert columns["geom"] == "POINT SRID 4326"
+
+
+@pytest.mark.parametrize(
+    ("ddl", "match"),
+    (
+        (
+            "CREATE TABLE t (`id` INT COMMENT 'a' COMMENT 'b', "
+            "`pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`id` INT COLLATE utf8mb4 COLLATE utf8mb4_bin, "
+            "`pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`id` INT AUTO_INCREMENT AUTO_INCREMENT, "
+            "`pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`id` INT UNIQUE UNIQUE, `pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t ("
+            "`id` INT GENERATED ALWAYS AS (id + 1) GENERATED ALWAYS AS (id + 2), "
+            "`pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t ("
+            "`id` INT DEFAULT 1 GENERATED ALWAYS AS (id + 1), "
+            "`pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+    ),
+)
+def test_parse_create_statement_rejects_duplicate_or_conflicting_modifiers(
+    ddl: str,
+    match: str,
+) -> None:
+    with pytest.raises(ProviderError, match=match):
+        _parse_create_statement(ddl, 0)
+
+
+def test_parse_create_statement_rejects_non_spatial_trailing_srid() -> None:
+    with pytest.raises(ProviderError, match="invalid pinned DDL column definition"):
+        _parse_create_statement(
+            "CREATE TABLE t (`n` BIGINT NOT NULL /*!80003 SRID 4326 */, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            0,
+        )
+
+
+def test_parse_create_statement_rejects_non_spatial_embedded_srid() -> None:
+    with pytest.raises(UnknownSqlTypeError, match="invalid spatial SRID type"):
+        _parse_create_statement(
+            "CREATE TABLE t (`n` BIGINT /*!80003 SRID 4326 */ NOT NULL, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            0,
+        )
+
+
+def test_normalize_sql_type_rejects_non_spatial_embedded_srid() -> None:
+    with pytest.raises(UnknownSqlTypeError, match="invalid spatial SRID type"):
+        normalize_sql_type("BIGINT", "BIGINT /*!80003 SRID 4326 */")

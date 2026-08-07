@@ -9,6 +9,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
+    SPATIAL_SQL_TYPES,
     TableCatalog,
     UnknownTypePolicy,
     arrow_type,
@@ -187,6 +188,31 @@ def _parse_primary_key_column_ref(item: str) -> str:
     return _validate_ddl_column_identifier(column_name)
 
 
+def _parse_constraint_column_ref(item: str) -> str:
+    item = item.strip()
+    if not item:
+        raise ProviderError("pinned CREATE TABLE constraint was malformed")
+    column_name, suffix = _first_identifier(item)
+    suffix = suffix.strip()
+    if suffix and _PK_INDEX_PREFIX.fullmatch(suffix) is None:
+        raise ProviderError("pinned CREATE TABLE constraint was malformed")
+    return _validate_ddl_column_identifier(column_name)
+
+
+def _parse_constraint_column_list(key_body: str) -> tuple[str, ...]:
+    items = _split_sql_items(key_body)
+    if not items or any(not item.strip() for item in items):
+        raise ProviderError("pinned CREATE TABLE constraint was malformed")
+    return tuple(_parse_constraint_column_ref(item) for item in items)
+
+
+def _validate_ddl_identifier_token(token: str) -> str:
+    token = token.strip()
+    if token.startswith("`"):
+        return _validate_ddl_column_identifier(_unquote_identifier(token))
+    return _validate_ddl_column_identifier(token)
+
+
 _QUOTED_SQL_LITERAL_PATTERN = re.compile(
     r"(?:'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`)",
     re.S,
@@ -249,24 +275,19 @@ def _consume_sql_literal_or_expression(rest: str) -> str:
     return rest[consumed:].lstrip()
 
 
-def _validate_non_empty_constraint_column_list(key_body: str) -> None:
-    items = _split_sql_items(key_body)
-    if not items or any(not item.strip() for item in items):
-        raise ProviderError("pinned CREATE TABLE constraint was malformed")
-
-
 def _consume_index_like_constraint(rest: str) -> None:
     rest = rest.strip()
     if not rest.startswith("("):
         name_match = re.match(r"`(?:[^`]|``)*`|``(?:[^`]|``)*``|[A-Za-z_][A-Za-z0-9_$]*", rest)
         if name_match is None:
             raise ProviderError("pinned CREATE TABLE constraint was malformed")
+        _validate_ddl_identifier_token(rest[: name_match.end()])
         rest = rest[name_match.end():].strip()
         if not rest.startswith("("):
             raise ProviderError("pinned CREATE TABLE constraint was malformed")
     opening_paren = rest.find("(")
     closing = _find_matching_paren(rest, opening_paren)
-    _validate_non_empty_constraint_column_list(rest[opening_paren + 1 : closing])
+    _parse_constraint_column_list(rest[opening_paren + 1 : closing])
     remainder = rest[closing + 1 :].strip()
     comment_match = re.match(
         r"COMMENT\s+(?:'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`)",
@@ -284,18 +305,22 @@ def _consume_foreign_key_constraint(rest: str) -> None:
     if not rest.startswith("("):
         raise ProviderError("pinned CREATE TABLE constraint was malformed")
     closing = _find_matching_paren(rest, 0)
-    _validate_non_empty_constraint_column_list(rest[1 : closing])
+    local_cols = _parse_constraint_column_list(rest[1 : closing])
     rest = rest[closing + 1 :].strip()
     references_match = re.match(r"REFERENCES\s+", rest, re.I)
     if references_match is None:
         raise ProviderError("pinned CREATE TABLE constraint was malformed")
     rest = rest[references_match.end():].strip()
-    _, rest = _first_identifier(rest)
+    ref_table, rest = _first_identifier(rest)
+    _validate_ddl_table_identifier(ref_table)
     rest = rest.strip()
-    if rest.startswith("("):
-        ref_closing = _find_matching_paren(rest, 0)
-        _validate_non_empty_constraint_column_list(rest[1 : ref_closing])
-        rest = rest[ref_closing + 1 :].strip()
+    if not rest.startswith("("):
+        raise ProviderError("pinned CREATE TABLE constraint was malformed")
+    ref_closing = _find_matching_paren(rest, 0)
+    ref_cols = _parse_constraint_column_list(rest[1 : ref_closing])
+    if len(local_cols) != len(ref_cols):
+        raise ProviderError("pinned CREATE TABLE constraint was malformed")
+    rest = rest[ref_closing + 1 :].strip()
     seen_actions: set[str] = set()
     while rest:
         on_match = re.match(
@@ -341,7 +366,8 @@ def _consume_table_constraint(definition: str) -> None:
     constraint_match = re.match(r"CONSTRAINT\s+", stripped, re.I)
     if constraint_match is not None:
         rest = stripped[constraint_match.end():].strip()
-        _, rest = _first_identifier(rest)
+        constraint_name, rest = _first_identifier(rest)
+        _validate_ddl_column_identifier(constraint_name)
         _consume_table_constraint(rest)
         return
 
@@ -363,6 +389,11 @@ def _consume_column_modifiers(tail: str) -> bool:
     seen_nullable: bool | None = None
     seen_default = False
     seen_on_update = False
+    seen_comment = False
+    seen_collate = False
+    seen_auto_increment = False
+    seen_unique = False
+    seen_generated = False
     while remainder:
         if re.match(r"PRIMARY\s+KEY\b", remainder, re.I):
             if inline_pk:
@@ -383,7 +414,7 @@ def _consume_column_modifiers(tail: str) -> bool:
             remainder = re.sub(r"NULL\b", "", remainder, count=1, flags=re.I).strip()
             continue
         if re.match(r"DEFAULT\s+", remainder, re.I):
-            if seen_default:
+            if seen_default or seen_generated:
                 raise ProviderError("invalid pinned DDL column definition")
             seen_default = True
             remainder = re.sub(r"DEFAULT\s+", "", remainder, count=1, flags=re.I).strip()
@@ -402,20 +433,35 @@ def _consume_column_modifiers(tail: str) -> bool:
             re.I,
         )
         if comment_match is not None:
+            if seen_comment:
+                raise ProviderError("invalid pinned DDL column definition")
+            seen_comment = True
             remainder = remainder[comment_match.end():].strip()
             continue
         collate_match = re.match(r"COLLATE\s+\S+", remainder, re.I)
         if collate_match is not None:
+            if seen_collate:
+                raise ProviderError("invalid pinned DDL column definition")
+            seen_collate = True
             remainder = remainder[collate_match.end():].strip()
             continue
         if re.match(r"AUTO_INCREMENT\b", remainder, re.I):
+            if seen_auto_increment:
+                raise ProviderError("invalid pinned DDL column definition")
+            seen_auto_increment = True
             remainder = re.sub(r"AUTO_INCREMENT\b", "", remainder, count=1, flags=re.I).strip()
             continue
         if re.match(r"UNIQUE\b", remainder, re.I):
+            if seen_unique:
+                raise ProviderError("invalid pinned DDL column definition")
+            seen_unique = True
             remainder = re.sub(r"UNIQUE\b", "", remainder, count=1, flags=re.I).strip()
             continue
         generated_head = re.match(r"GENERATED\s+ALWAYS\s+AS\s*", remainder, re.I)
         if generated_head is not None:
+            if seen_generated or seen_default:
+                raise ProviderError("invalid pinned DDL column definition")
+            seen_generated = True
             remainder = remainder[generated_head.end():].strip()
             if not remainder.startswith("("):
                 raise ProviderError("invalid pinned DDL column definition")
@@ -522,6 +568,9 @@ def _parse_create_statement(ddl: str, row_count: int) -> TableCatalog:
         tail, spatial_srid = _extract_trailing_spatial_srid_version_comment(tail)
         inline_pk = _consume_column_modifiers(tail)
         if spatial_srid is not None:
+            base_type = " ".join(sql_type.upper().split())
+            if base_type not in SPATIAL_SQL_TYPES:
+                raise ProviderError("invalid pinned DDL column definition")
             sql_type = f"{sql_type} SRID {spatial_srid}"
         nullable = not bool(re.search(r"\bNOT\s+NULL\b", tail, re.I))
         if inline_pk:

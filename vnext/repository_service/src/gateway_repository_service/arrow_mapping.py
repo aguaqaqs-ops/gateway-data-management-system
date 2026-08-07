@@ -65,6 +65,16 @@ _BINARY = {
     "MEDIUMBLOB",
     "LONGBLOB",
 }
+SPATIAL_SQL_TYPES = frozenset({
+    "GEOMETRY",
+    "POINT",
+    "LINESTRING",
+    "POLYGON",
+    "MULTIPOINT",
+    "MULTILINESTRING",
+    "MULTIPOLYGON",
+    "GEOMETRYCOLLECTION",
+})
 
 
 def normalize_sql_type(data_type: str, column_type: str) -> str:
@@ -102,7 +112,10 @@ def normalize_sql_type(data_type: str, column_type: str) -> str:
         return raw
     srid_match = re.match(r"^([A-Z]+)\s+/\*!\d+\s+SRID\s+(\d+)\s*\*/\s*$", raw)
     if srid_match is not None:
-        return f"{srid_match.group(1)} SRID {srid_match.group(2)}"
+        spatial_type = srid_match.group(1)
+        if spatial_type not in SPATIAL_SQL_TYPES:
+            raise UnknownSqlTypeError(f"invalid spatial SRID type: {column_type}")
+        return f"{spatial_type} SRID {srid_match.group(2)}"
     return raw
 
 

@@ -3393,3 +3393,116 @@ def test_parse_create_statement_rejects_generated_modifier_conflicts(
 ) -> None:
     with pytest.raises(ProviderError, match=match):
         _parse_create_statement(ddl, 0)
+
+
+def test_catalog_from_schema_diff_rejects_duplicate_table_names() -> None:
+    rows = [
+        {
+            "to_create_statement": (
+                "CREATE TABLE parent (`id` BIGINT NOT NULL PRIMARY KEY);"
+            ),
+        },
+        {
+            "to_create_statement": (
+                "CREATE TABLE parent (`x` BIGINT NOT NULL PRIMARY KEY);"
+            ),
+        },
+    ]
+    with pytest.raises(ProviderError, match="duplicate table names"):
+        _catalog_from_schema_diff(rows, {})
+
+
+def test_catalog_from_schema_diff_rejects_case_conflicting_table_names() -> None:
+    rows = [
+        {
+            "to_create_statement": (
+                "CREATE TABLE Parent (`id` BIGINT NOT NULL PRIMARY KEY);"
+            ),
+        },
+        {
+            "to_create_statement": (
+                "CREATE TABLE parent (`id` BIGINT NOT NULL PRIMARY KEY);"
+            ),
+        },
+    ]
+    with pytest.raises(ProviderError, match="duplicate table names"):
+        _catalog_from_schema_diff(rows, {})
+
+
+def test_catalog_from_schema_diff_accepts_case_insensitive_foreign_key_reference() -> None:
+    rows = [
+        {
+            "to_create_statement": (
+                "CREATE TABLE Parent (`id` BIGINT NOT NULL PRIMARY KEY);"
+            ),
+        },
+        {
+            "to_create_statement": (
+                "CREATE TABLE child (`id` BIGINT, "
+                "FOREIGN KEY (`id`) REFERENCES `parent` (`id`));"
+            ),
+        },
+    ]
+    tables = _catalog_from_schema_diff(rows, {})
+    assert {table.name for table in tables} == {"Parent", "child"}
+
+
+def test_catalog_from_schema_diff_rejects_foreign_key_missing_ref_with_case_insensitive_parent() -> None:
+    rows = [
+        {
+            "to_create_statement": (
+                "CREATE TABLE Parent (`id` BIGINT NOT NULL PRIMARY KEY);"
+            ),
+        },
+        {
+            "to_create_statement": (
+                "CREATE TABLE child (`id` BIGINT, "
+                "FOREIGN KEY (`id`) REFERENCES `parent` (`missing`));"
+            ),
+        },
+    ]
+    with pytest.raises(ProviderError, match="foreign key references unknown column"):
+        _catalog_from_schema_diff(rows, {})
+
+
+def test_parse_create_statement_accepts_generated_column_with_comment() -> None:
+    table = _parse_create_statement(
+        "CREATE TABLE t (`x` BIGINT NOT NULL, "
+        "`derived` BIGINT GENERATED ALWAYS AS (x + 1) COMMENT 'ok', "
+        "`id` BIGINT NOT NULL PRIMARY KEY);",
+        0,
+    )
+    columns = {column.name: column.sql_type for column in table.columns}
+    assert columns["derived"] == "BIGINT"
+
+
+@pytest.mark.parametrize(
+    ("ddl", "match"),
+    (
+        (
+            "CREATE TABLE t (`id` INT GENERATED ALWAYS AS (id + 1) UNIQUE, "
+            "`pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` BIGINT ON UPDATE CURRENT_TIMESTAMP, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`id` INT NULL AUTO_INCREMENT, "
+            "`pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`id` INT AUTO_INCREMENT, `pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+    ),
+)
+def test_parse_create_statement_rejects_modifier_state_matrix(
+    ddl: str,
+    match: str,
+) -> None:
+    with pytest.raises(ProviderError, match=match):
+        _parse_create_statement(ddl, 0)

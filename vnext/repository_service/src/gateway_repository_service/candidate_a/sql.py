@@ -33,6 +33,28 @@ class _TableConstraintRefs:
     foreign_keys: tuple[tuple[tuple[str, ...], str, tuple[str, ...]], ...] = ()
 
 
+@dataclass
+class _ColumnModifierState:
+    inline_pk: bool = False
+    nullable: bool | None = None
+    has_default: bool = False
+    has_on_update: bool = False
+    has_comment: bool = False
+    has_collate: bool = False
+    has_auto_increment: bool = False
+    has_unique: bool = False
+    has_generated: bool = False
+
+
+_INTEGER_SQL_TYPES = frozenset({
+    "TINYINT",
+    "SMALLINT",
+    "MEDIUMINT",
+    "INT",
+    "BIGINT",
+})
+
+
 def quote_identifier(identifier: str) -> str:
     if not identifier or "\x00" in identifier or "/" in identifier or "\\" in identifier:
         raise ValueError("invalid SQL identifier")
@@ -307,13 +329,76 @@ def _validate_constraint_declared_columns(
             raise ProviderError("pinned CREATE TABLE constraint was malformed")
         if ref_table == table_name:
             _validate_constraint_column_list_members(ref_columns, declared_columns)
-        elif ref_table in all_table_columns:
-            parent_columns = all_table_columns[ref_table]
-            for ref_column in ref_columns:
-                if ref_column not in parent_columns:
-                    raise ProviderError(
-                        "pinned CREATE TABLE foreign key references unknown column"
-                    )
+        else:
+            parent_columns = _resolve_referenced_table_columns(ref_table, all_table_columns)
+            if parent_columns is not None:
+                for ref_column in ref_columns:
+                    if ref_column not in parent_columns:
+                        raise ProviderError(
+                            "pinned CREATE TABLE foreign key references unknown column"
+                        )
+
+
+def _resolve_referenced_table_columns(
+    ref_table: str,
+    all_table_columns: dict[str, set[str]],
+) -> set[str] | None:
+    if ref_table in all_table_columns:
+        return all_table_columns[ref_table]
+    ref_lower = ref_table.lower()
+    matches = [name for name in all_table_columns if name.lower() == ref_lower]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise ProviderError("pinned schema diff has ambiguous foreign key referenced table")
+    return all_table_columns[matches[0]]
+
+
+def _validate_schema_diff_table_names(
+    parsed: list[tuple[TableCatalog, _TableConstraintRefs]],
+) -> None:
+    seen_exact: set[str] = set()
+    seen_lower: dict[str, str] = {}
+    for table, _ in parsed:
+        if table.name in seen_exact:
+            raise ProviderError("pinned schema diff has duplicate table names")
+        seen_exact.add(table.name)
+        lower_name = table.name.lower()
+        if lower_name in seen_lower and seen_lower[lower_name] != table.name:
+            raise ProviderError("pinned schema diff has duplicate table names")
+        seen_lower[lower_name] = table.name
+
+
+def _is_on_update_eligible_type(sql_type: str) -> bool:
+    upper = " ".join(sql_type.upper().split())
+    return upper.startswith("TIMESTAMP") or upper.startswith("DATETIME") or upper.startswith("TIME")
+
+
+def _is_integer_sql_type(sql_type: str) -> bool:
+    upper = " ".join(sql_type.upper().split())
+    if upper.endswith(" UNSIGNED"):
+        base = upper.removesuffix(" UNSIGNED")
+        return base in _INTEGER_SQL_TYPES
+    return upper in _INTEGER_SQL_TYPES
+
+
+def _validate_column_modifier_state(sql_type: str, state: _ColumnModifierState) -> None:
+    if state.has_generated:
+        if (
+            state.has_default
+            or state.has_on_update
+            or state.has_auto_increment
+            or state.has_unique
+            or state.inline_pk
+        ):
+            raise ProviderError("invalid pinned DDL column definition")
+    if state.has_on_update and not _is_on_update_eligible_type(sql_type):
+        raise ProviderError("invalid pinned DDL column definition")
+    if state.has_auto_increment:
+        if state.nullable is True:
+            raise ProviderError("invalid pinned DDL column definition")
+        if not _is_integer_sql_type(sql_type):
+            raise ProviderError("invalid pinned DDL column definition")
 
 
 def _consume_index_like_constraint(rest: str) -> tuple[str, ...]:
@@ -427,47 +512,39 @@ def _consume_table_constraint(definition: str) -> _TableConstraintRefs:
     raise ProviderError("pinned CREATE TABLE constraint was malformed")
 
 
-def _consume_column_modifiers(tail: str) -> bool:
+def _consume_column_modifiers(tail: str) -> _ColumnModifierState:
     remainder = tail.strip()
-    inline_pk = False
-    seen_nullable: bool | None = None
-    seen_default = False
-    seen_on_update = False
-    seen_comment = False
-    seen_collate = False
-    seen_auto_increment = False
-    seen_unique = False
-    seen_generated = False
+    state = _ColumnModifierState()
     while remainder:
         if re.match(r"PRIMARY\s+KEY\b", remainder, re.I):
-            if inline_pk:
+            if state.inline_pk:
                 raise ProviderError("invalid pinned DDL column definition")
-            inline_pk = True
+            state.inline_pk = True
             remainder = re.sub(r"PRIMARY\s+KEY\b", "", remainder, count=1, flags=re.I).strip()
             continue
         if re.match(r"NOT\s+NULL\b", remainder, re.I):
-            if seen_nullable is not None:
+            if state.nullable is not None:
                 raise ProviderError("invalid pinned DDL column definition")
-            seen_nullable = False
+            state.nullable = False
             remainder = re.sub(r"NOT\s+NULL\b", "", remainder, count=1, flags=re.I).strip()
             continue
         if re.match(r"NULL\b", remainder, re.I):
-            if seen_nullable is not None:
+            if state.nullable is not None:
                 raise ProviderError("invalid pinned DDL column definition")
-            seen_nullable = True
+            state.nullable = True
             remainder = re.sub(r"NULL\b", "", remainder, count=1, flags=re.I).strip()
             continue
         if re.match(r"DEFAULT\s+", remainder, re.I):
-            if seen_default or seen_generated or seen_auto_increment:
+            if state.has_default or state.has_generated or state.has_auto_increment:
                 raise ProviderError("invalid pinned DDL column definition")
-            seen_default = True
+            state.has_default = True
             remainder = re.sub(r"DEFAULT\s+", "", remainder, count=1, flags=re.I).strip()
             remainder = _consume_sql_literal_or_expression(remainder)
             continue
         if re.match(r"ON\s+UPDATE\s+", remainder, re.I):
-            if seen_on_update or seen_generated:
+            if state.has_on_update or state.has_generated:
                 raise ProviderError("invalid pinned DDL column definition")
-            seen_on_update = True
+            state.has_on_update = True
             remainder = re.sub(r"ON\s+UPDATE\s+", "", remainder, count=1, flags=re.I).strip()
             remainder = _consume_sql_literal_or_expression(remainder)
             continue
@@ -477,41 +554,42 @@ def _consume_column_modifiers(tail: str) -> bool:
             re.I,
         )
         if comment_match is not None:
-            if seen_comment:
+            if state.has_comment:
                 raise ProviderError("invalid pinned DDL column definition")
-            seen_comment = True
+            state.has_comment = True
             remainder = remainder[comment_match.end():].strip()
             continue
         collate_match = re.match(r"COLLATE\s+\S+", remainder, re.I)
         if collate_match is not None:
-            if seen_collate:
+            if state.has_collate:
                 raise ProviderError("invalid pinned DDL column definition")
-            seen_collate = True
+            state.has_collate = True
             remainder = remainder[collate_match.end():].strip()
             continue
         if re.match(r"AUTO_INCREMENT\b", remainder, re.I):
-            if seen_auto_increment or seen_generated or seen_default:
+            if state.has_auto_increment or state.has_generated or state.has_default:
                 raise ProviderError("invalid pinned DDL column definition")
-            seen_auto_increment = True
+            state.has_auto_increment = True
             remainder = re.sub(r"AUTO_INCREMENT\b", "", remainder, count=1, flags=re.I).strip()
             continue
         if re.match(r"UNIQUE\b", remainder, re.I):
-            if seen_unique:
+            if state.has_unique or state.has_generated:
                 raise ProviderError("invalid pinned DDL column definition")
-            seen_unique = True
+            state.has_unique = True
             remainder = re.sub(r"UNIQUE\b", "", remainder, count=1, flags=re.I).strip()
             continue
         generated_head = re.match(r"GENERATED\s+ALWAYS\s+AS\s*", remainder, re.I)
         if generated_head is not None:
             if (
-                seen_generated
-                or seen_default
-                or seen_on_update
-                or seen_auto_increment
-                or inline_pk
+                state.has_generated
+                or state.has_default
+                or state.has_on_update
+                or state.has_auto_increment
+                or state.inline_pk
+                or state.has_unique
             ):
                 raise ProviderError("invalid pinned DDL column definition")
-            seen_generated = True
+            state.has_generated = True
             remainder = remainder[generated_head.end():].strip()
             if not remainder.startswith("("):
                 raise ProviderError("invalid pinned DDL column definition")
@@ -522,7 +600,7 @@ def _consume_column_modifiers(tail: str) -> bool:
                 remainder = remainder[stored_match.end():].strip()
             continue
         raise ProviderError("invalid pinned DDL column definition")
-    return inline_pk
+    return state
 
 
 def _column_type_and_tail(rest: str) -> tuple[str, str]:
@@ -590,6 +668,7 @@ def _parse_create_statement_with_constraints(
     pk_defined = False
     index_column_lists: list[tuple[str, ...]] = []
     foreign_keys: list[tuple[tuple[str, ...], str, tuple[str, ...]]] = []
+    auto_increment_columns: set[str] = set()
     for definition in definitions:
         if not definition.strip():
             raise ProviderError("pinned CREATE TABLE has empty column definition")
@@ -624,18 +703,28 @@ def _parse_create_statement_with_constraints(
         column_name = _validate_ddl_column_identifier(column_name)
         sql_type, tail = _column_type_and_tail(rest)
         tail, spatial_srid = _extract_trailing_spatial_srid_version_comment(tail)
-        inline_pk = _consume_column_modifiers(tail)
+        modifier_state = _consume_column_modifiers(tail)
         if spatial_srid is not None:
             base_type = " ".join(sql_type.upper().split())
             if base_type not in SPATIAL_SQL_TYPES:
                 raise ProviderError("invalid pinned DDL column definition")
             sql_type = f"{sql_type} SRID {spatial_srid}"
-        nullable = not bool(re.search(r"\bNOT\s+NULL\b", tail, re.I))
-        if inline_pk:
+        _validate_column_modifier_state(sql_type, modifier_state)
+        if modifier_state.nullable is False:
+            nullable = False
+        elif modifier_state.nullable is True:
+            nullable = True
+        else:
+            nullable = not bool(re.search(r"\bNOT\s+NULL\b", tail, re.I))
+        if modifier_state.has_auto_increment and nullable:
+            raise ProviderError("invalid pinned DDL column definition")
+        if modifier_state.inline_pk:
             if pk_defined:
                 raise ProviderError("pinned CREATE TABLE has multiple primary key definitions")
             primary_key.append(column_name)
             pk_defined = True
+        if modifier_state.has_auto_increment:
+            auto_increment_columns.add(column_name)
         columns.append(ColumnCatalog(column_name, normalize_sql_type(sql_type, sql_type), nullable, None))
     if not columns:
         raise ProviderError("pinned CREATE TABLE has no columns")
@@ -648,6 +737,10 @@ def _parse_create_statement_with_constraints(
     for pk_name in primary_key:
         if pk_name not in declared_columns:
             raise ProviderError("pinned CREATE TABLE primary key references unknown column")
+    primary_key_set = set(primary_key)
+    for column_name in auto_increment_columns:
+        if column_name not in primary_key_set:
+            raise ProviderError("invalid pinned DDL column definition")
     positions = {name: index for index, name in enumerate(primary_key, 1)}
     columns = [
         ColumnCatalog(column.name, column.sql_type, column.nullable, positions.get(column.name))
@@ -686,11 +779,14 @@ def _catalog_from_schema_diff(
         parsed.append((table, constraints))
     if not parsed and any(row.get("to_create_statement") not in (None, "") for row in rows):
         raise ProviderError("pinned schema diff did not produce a target catalog")
+    _validate_schema_diff_table_names(parsed)
     all_table_columns = {
         table.name: {column.name for column in table.columns} for table, _ in parsed
     }
     tables: dict[str, TableCatalog] = {}
     for table, constraints in parsed:
+        if table.name in tables:
+            raise ProviderError("pinned schema diff has duplicate table names")
         _validate_constraint_declared_columns(
             table.name,
             all_table_columns[table.name],

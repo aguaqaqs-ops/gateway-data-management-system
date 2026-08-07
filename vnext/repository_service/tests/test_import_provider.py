@@ -32,6 +32,7 @@ from gateway_repository_service.versioned_import.errors import ImportProviderErr
 from gateway_repository_service.versioned_import.models import (
     derive_operation_marker,
     derive_private_ref_name,
+    validate_manifest_sql_type,
 )
 from gateway_repository_service.versioned_import.ports import (
     CancellationCallback,
@@ -382,6 +383,31 @@ def test_delete_private_ref_idempotent(import_provider: CandidateAImportProvider
     import_provider.create_private_ref(private_ref, expected)
     import_provider.delete_private_ref(private_ref)
     import_provider.delete_private_ref(private_ref)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_delete_private_ref_rejects_malformed_expected_when_ref_missing(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = "gateway-import-" + "0" * 32
+    with pytest.raises(ValueError, match="commit id is invalid"):
+        import_provider.delete_private_ref(private_ref, expected_candidate="bad commit")
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_delete_private_ref_rejects_malformed_expected_when_ref_exists(
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref = derive_private_ref_name(OPERATION_ID)
+    expected = import_provider.read_ref("main")
+    import_provider.create_private_ref(private_ref, expected)
+    with pytest.raises(ValueError, match="commit id is invalid"):
+        import_provider.delete_private_ref(private_ref, expected_candidate="bad commit")
+
+
+def test_validate_manifest_sql_type_rejects_invalid_temporal_fsp() -> None:
+    with pytest.raises(ValueError, match="bounded normalized physical spelling"):
+        validate_manifest_sql_type("TIMESTAMP(999)")
 
 
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
@@ -3006,6 +3032,23 @@ def test_catalog_count_rejects_descriptor_case_collision_keys(
         ),
         ("CREATE TABLE t (`id` BIGINT, KEY `ix` (`missing`));", "references unknown column"),
         ("CREATE TABLE t (`id` BIGINT, PRIMARY FOO);", "constraint was malformed"),
+        (
+            "CREATE TABLE t (`n` INT DEFAULT (), `id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`ts` TIMESTAMP ON UPDATE (), `id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` INT GENERATED ALWAYS AS (), `id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` INT GENERATED ALWAYS AS (/*comment*/) STORED, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
     ),
 )
 def test_parse_create_statement_rejects_additional_malformed_ddl(ddl: str, match: str) -> None:
@@ -3100,6 +3143,33 @@ def _catalog_create_injection_test(
         ),
         ("CREATE TABLE t (`id` BIGINT, KEY `ix` (`missing`));", "references unknown column"),
         ("CREATE TABLE t (`id` BIGINT, PRIMARY FOO);", "constraint was malformed"),
+        (
+            "CREATE TABLE t (`n` INT DEFAULT (), `id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`ts` TIMESTAMP ON UPDATE (), `id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` INT GENERATED ALWAYS AS (), `id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` INT GENERATED ALWAYS AS (/*comment*/) STORED, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` TIMESTAMP_FOO ON UPDATE CURRENT_TIMESTAMP, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` TIMESTAMP(999) ON UPDATE CURRENT_TIMESTAMP, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
     ),
 )
 def test_read_catalog_rejects_malformed_create_ddl_injection(
@@ -3496,6 +3566,31 @@ def test_parse_create_statement_accepts_generated_column_with_comment() -> None:
         ),
         (
             "CREATE TABLE t (`id` INT AUTO_INCREMENT, `pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` TIMESTAMP_FOO ON UPDATE CURRENT_TIMESTAMP, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` TIMEKEEPER ON UPDATE CURRENT_TIMESTAMP, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` DATETIME_BOGUS ON UPDATE CURRENT_TIMESTAMP, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` TIMESTAMP(999) ON UPDATE CURRENT_TIMESTAMP, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`n` TIMESTAMP UNSIGNED ON UPDATE CURRENT_TIMESTAMP, "
+            "`id` BIGINT NOT NULL PRIMARY KEY);",
             "invalid pinned DDL column definition",
         ),
     ),

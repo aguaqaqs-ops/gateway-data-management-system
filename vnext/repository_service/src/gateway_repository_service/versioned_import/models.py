@@ -31,7 +31,12 @@ from gateway_repository_contracts import (
     VersionedImportResult,
 )
 from gateway_repository_contracts.types import BoundedOpaqueString
-from gateway_repository_service.arrow_mapping import UnknownSqlTypeError, UnknownTypePolicy as ArrowUnknownTypePolicy, arrow_type
+from gateway_repository_service.arrow_mapping import (
+    UnknownSqlTypeError,
+    UnknownTypePolicy as ArrowUnknownTypePolicy,
+    arrow_type,
+    parse_temporal_sql_type,
+)
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
 
 MANIFEST_ENTRY_NAME = "manifest.json"
@@ -110,6 +115,10 @@ def validate_manifest_sql_type(value: str) -> str:
         raise ValueError("sql_type length is out of bounds")
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise ValueError("sql_type contains control characters")
+    try:
+        parse_temporal_sql_type(value)
+    except UnknownSqlTypeError:
+        raise ValueError("sql_type is not a bounded normalized physical spelling") from None
     try:
         arrow_type(value, ArrowUnknownTypePolicy.REJECT)
     except UnknownSqlTypeError:

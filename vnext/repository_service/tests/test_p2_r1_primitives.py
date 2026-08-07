@@ -5,11 +5,13 @@ import sys
 from pathlib import Path
 
 import pyarrow as pa  # type: ignore[import-untyped]
+import pytest
 
 from gateway_repository_service.arrow_mapping import (
     UnknownSqlTypeError,
     UnknownTypePolicy,
     arrow_type,
+    parse_temporal_sql_type,
 )
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock
@@ -104,6 +106,11 @@ def test_known_and_unknown_arrow_mapping() -> None:
     assert arrow_type("BIGINT UNSIGNED", UnknownTypePolicy.REJECT)[0] == pa.uint64()
     assert arrow_type("DECIMAL(40,2)", UnknownTypePolicy.REJECT)[0] == pa.decimal256(40, 2)
     assert arrow_type("TIME(6)", UnknownTypePolicy.REJECT)[0] == pa.duration("us")
+    assert arrow_type("TIMESTAMP", UnknownTypePolicy.REJECT)[0] == pa.timestamp("us", tz="UTC")
+    with pytest.raises(UnknownSqlTypeError):
+        arrow_type("TIMESTAMP(999)", UnknownTypePolicy.REJECT)
+    assert parse_temporal_sql_type("TIMESTAMP(6)") == ("TIMESTAMP", 6)
+    assert parse_temporal_sql_type("TIMESTAMP_FOO") is None
     unknown, metadata = arrow_type("ENUM('A','B')", UnknownTypePolicy.STRINGIFY)
     assert unknown == pa.large_string()
     assert metadata[b"gateway.lossy"] == b"true"

@@ -46,7 +46,8 @@ class TableCatalog:
 
 _DECIMAL = re.compile(r"^DECIMAL\((\d+),(\d+)\)$")
 _BIT = re.compile(r"^BIT\((\d+)\)$")
-_TEMPORAL = re.compile(r"^(TIME|DATETIME|TIMESTAMP)\((\d+)\)$")
+_TEMPORAL_BASE = frozenset({"TIME", "DATETIME", "TIMESTAMP"})
+_TEMPORAL_WITH_FSP = re.compile(r"^(TIME|DATETIME|TIMESTAMP)\((\d+)\)$")
 _SIZED_CHARACTER = re.compile(r"^(CHAR|VARCHAR)\(\d+\)$")
 _SIZED_BINARY = re.compile(r"^(BINARY|VARBINARY)\(\d+\)$")
 _CHARACTER = {
@@ -77,6 +78,21 @@ SPATIAL_SQL_TYPES = frozenset({
 })
 
 
+def parse_temporal_sql_type(sql_type: str) -> tuple[str, int | None] | None:
+    """Match TIME | DATETIME | TIMESTAMP or parenthesized fsp spelling exactly."""
+
+    upper = " ".join(sql_type.upper().split())
+    if upper in _TEMPORAL_BASE:
+        return upper, None
+    match = _TEMPORAL_WITH_FSP.fullmatch(upper)
+    if match is None:
+        return None
+    fsp = int(match.group(2))
+    if not 0 <= fsp <= 6:
+        raise UnknownSqlTypeError(f"invalid temporal fsp in type: {sql_type}")
+    return match.group(1), fsp
+
+
 def normalize_sql_type(data_type: str, column_type: str) -> str:
     """Normalize the Dolt catalog spelling used by the contract."""
 
@@ -87,9 +103,12 @@ def normalize_sql_type(data_type: str, column_type: str) -> str:
         return "BOOLEAN"
     if raw.startswith("TINYINT(1)") and data_type.upper() == "TINYINT":
         return raw.replace("TINYINT(1)", "TINYINT", 1)
-    match = _TEMPORAL.match(raw)
-    if match is not None:
-        return f"{match.group(1)}({match.group(2)})"
+    temporal = parse_temporal_sql_type(raw)
+    if temporal is not None:
+        kind, fsp = temporal
+        if fsp is None:
+            return kind
+        return f"{kind}({fsp})"
     match = _DECIMAL.match(raw)
     if match is not None:
         return f"DECIMAL({match.group(1)},{match.group(2)})"
@@ -143,9 +162,9 @@ def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, d
         return pa.float64(), {}
     if upper == "DATE":
         return pa.date32(), {}
-    temporal = _TEMPORAL.match(upper)
+    temporal = parse_temporal_sql_type(sql_type)
     if temporal is not None:
-        kind = temporal.group(1)
+        kind, _ = temporal
         if kind == "TIME":
             return pa.duration("us"), {}
         if kind == "TIMESTAMP":

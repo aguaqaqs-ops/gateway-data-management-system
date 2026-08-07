@@ -312,11 +312,14 @@ class CandidateAImportProvider:
         expected_candidate: str | None = None,
     ) -> None:
         validate_private_ref_name(private_ref)
+        safe_expected: str | None = None
+        if expected_candidate is not None:
+            safe_expected = validate_commit_id(expected_candidate)
         if private_ref not in self._branch_names():
             return
-        if expected_candidate is not None:
+        if safe_expected is not None:
             actual = self.read_ref(private_ref)
-            if actual != validate_commit_id(expected_candidate):
+            if actual != safe_expected:
                 raise ImportProviderError("private ref candidate mismatch")
         self._run_cli(
             "checkout_main_for_delete",

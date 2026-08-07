@@ -13,8 +13,10 @@ from gateway_repository_service.arrow_mapping import (
     SPATIAL_SQL_TYPES,
     TableCatalog,
     UnknownTypePolicy,
+    UnknownSqlTypeError,
     arrow_type,
     normalize_sql_type,
+    parse_temporal_sql_type,
 )
 from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import commit_literal
@@ -258,12 +260,25 @@ def _extract_trailing_spatial_srid_version_comment(tail: str) -> tuple[str, int 
     return tail[: match.start()].strip(), int(match.group(1))
 
 
+def _strip_sql_comments(expr: str) -> str:
+    without_block = re.sub(r"/\*.*?\*/", "", expr, flags=re.S)
+    without_line = re.sub(r"--[^\n]*", "", without_block)
+    return without_line
+
+
+def _has_significant_parenthesized_content(inner: str) -> bool:
+    return bool(_strip_sql_comments(inner).strip())
+
+
 def _consume_sql_literal_or_expression(rest: str) -> str:
     rest = rest.lstrip()
     if not rest:
         raise ProviderError("invalid pinned DDL column definition")
     if rest.startswith("("):
         closing = _find_matching_paren(rest, 0)
+        inner = rest[1:closing]
+        if not _has_significant_parenthesized_content(inner):
+            raise ProviderError("invalid pinned DDL column definition")
         return rest[closing + 1 :].lstrip()
     quoted_match = _QUOTED_SQL_LITERAL_PATTERN.match(rest)
     if quoted_match is not None:
@@ -370,8 +385,10 @@ def _validate_schema_diff_table_names(
 
 
 def _is_on_update_eligible_type(sql_type: str) -> bool:
-    upper = " ".join(sql_type.upper().split())
-    return upper.startswith("TIMESTAMP") or upper.startswith("DATETIME") or upper.startswith("TIME")
+    try:
+        return parse_temporal_sql_type(sql_type) is not None
+    except UnknownSqlTypeError:
+        return False
 
 
 def _is_integer_sql_type(sql_type: str) -> bool:
@@ -594,6 +611,9 @@ def _consume_column_modifiers(tail: str) -> _ColumnModifierState:
             if not remainder.startswith("("):
                 raise ProviderError("invalid pinned DDL column definition")
             closing = _find_matching_paren(remainder, 0)
+            inner = remainder[1:closing]
+            if not _has_significant_parenthesized_content(inner):
+                raise ProviderError("invalid pinned DDL column definition")
             remainder = remainder[closing + 1 :].strip()
             stored_match = re.match(r"(?:STORED|VIRTUAL)\b", remainder, re.I)
             if stored_match is not None:

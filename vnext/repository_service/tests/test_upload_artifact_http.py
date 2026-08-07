@@ -26,7 +26,7 @@ from gateway_repository_service.mutation_store import (
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.command import UploadArtifactCommand
 from support.http_harness import ReadyReadiness, assert_request_id_header, create_test_client
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 from support.upload_harness import chunked_payload, create_repository, upload_headers, upload_sha256
 
 ALLOWED_OPENAPI_PATHS = {
@@ -111,7 +111,7 @@ def _command_with_mocked_pending(
         raise exc_info.value
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_artifact_happy_path(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:
@@ -128,7 +128,7 @@ def test_upload_artifact_happy_path(tmp_path: Path) -> None:
     assert_request_id_header(response)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_artifact_accepts_zero_length_body(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b""
@@ -145,7 +145,7 @@ def test_upload_artifact_accepts_zero_length_body(tmp_path: Path) -> None:
     assert response.json()["artifact_ref"]["size_bytes"] == 0
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_artifact_streams_multi_chunk_body(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"a" * 10_000
@@ -161,7 +161,7 @@ def test_upload_artifact_streams_multi_chunk_body(tmp_path: Path) -> None:
     assert response.json()["artifact_ref"]["raw_sha256"] == upload_sha256(payload)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_artifact_accepts_declared_size_at_limit(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     settings = settings.model_copy(update={"max_upload_bytes": 32})
@@ -229,7 +229,7 @@ def test_upload_artifact_rejects_multipart_content_type(tmp_path: Path) -> None:
     assert response.status_code == 415
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_artifact_rejects_declared_size_above_limit(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     settings = settings.model_copy(update={"max_upload_bytes": 16})
@@ -305,7 +305,7 @@ def test_upload_artifact_rejects_sha_mismatch(tmp_path: Path) -> None:
     assert exc_info.value.code == "UPLOAD_DIGEST_MISMATCH"
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_artifact_returns_404_for_missing_repository(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"x"
@@ -320,7 +320,7 @@ def test_upload_artifact_returns_404_for_missing_repository(tmp_path: Path) -> N
     assert response.json()["code"] == "REPOSITORY_NOT_FOUND"
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_artifact_returns_503_when_disk_measurement_unavailable(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"x"

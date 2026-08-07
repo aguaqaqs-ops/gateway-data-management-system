@@ -33,6 +33,9 @@ Benchmark 只评价 vNext production public entrypoint；具体 profile、环境
 
 ## 执行入口
 
+测试分层、marker 语义、执行脚本与性能约束由 [Testing Conventions](testing-conventions.md)
+拥有；本节只说明 fixture 材料如何被消费。
+
 普通 package CI 直接运行 owner 的 ruff、mypy、pytest 或 Cargo checks。Python reference
 与 Rust provider 直接比较保留 corpus 和 mixed-scalar golden；不存在 current-authority
 的 generic scenario manifest、runner、profile matrix、RunEvidence、gate 或 bless

@@ -11,10 +11,9 @@ import pytest
 
 from gateway_repository_service.layout import repository_key
 from gateway_repository_service.mutation_reconciliation import MutableConsistencyWatch
-from support.lifecycle_harness import dolt_available
 from support.recovery_harness import replay_create, start_runtime
 
-pytestmark = pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+pytestmark = pytest.mark.integration
 
 
 def test_concurrent_create_registration_preserves_both_repositories() -> None:

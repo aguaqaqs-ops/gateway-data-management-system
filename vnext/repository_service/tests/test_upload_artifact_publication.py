@@ -15,7 +15,7 @@ from gateway_repository_service.publication import FaultPoint
 from gateway_repository_service.upload_artifact.adapters import ArtifactFilesystemPublicationAdapter
 from gateway_repository_service.upload_artifact.command import UploadArtifactCommand
 from gateway_repository_service.upload_artifact.ports import NoOpUploadArtifactFaultInjector
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 from support.upload_harness import create_repository, upload_headers
 
 
@@ -30,7 +30,7 @@ class _NoReplacePublicationPort:
         raise FileExistsError(target)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_publication_fault_is_fail_closed(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"fault-before-rename"
@@ -67,7 +67,7 @@ def test_upload_publication_fault_is_fail_closed(tmp_path: Path) -> None:
         assert list(ready_dir.iterdir()) == []
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_no_partial_ready_artifact_on_failure(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"no-ready-partial"

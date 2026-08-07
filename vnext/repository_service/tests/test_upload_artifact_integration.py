@@ -16,11 +16,11 @@ from gateway_repository_service.upload_artifact.visibility import (
     artifact_ready_path,
     is_artifact_visible,
 )
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 from support.upload_harness import create_repository, upload_headers
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_integration_publishes_ready_file_and_lifecycle(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"integration-upload-payload"

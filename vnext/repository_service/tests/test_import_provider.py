@@ -52,7 +52,7 @@ from gateway_repository_service.versioned_import.ports import (
     PublishMainPublished,
 )
 from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 
 
 OPERATION_ID = UUID("00000000-0000-4000-8000-0000000000a1")
@@ -300,8 +300,21 @@ MARKER_FAULT_JSON_SHAPES: tuple[tuple[bytes, str], ...] = (
     (b'{"rows":"bad","columns":[{"name":"x"}]}', "Dolt JSON rows was not a list"),
 )
 
+CATALOG_ROW_SHAPE_FAULTS: tuple[tuple[bytes, str], ...] = (
+    (
+        b'{"rows":[[1]], "columns":[{"name":"row_count"},{"name":"extra"}]}',
+        "row width does not match columns",
+    ),
+    (
+        b'{"rows":[[1,2]], "columns":[{"name":"row_count"}]}',
+        "row width does not match columns",
+    ),
+    (b'{"rows":[{"row_count":1,"extra":999}]}', "row schema mismatch"),
+    (b'{"rows":[[1,999]]}', "row was not an object"),
+)
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+
+@pytest.mark.integration
 def test_dolt_integration_private_ref_marker_publish_and_cleanup(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -334,7 +347,7 @@ def test_dolt_integration_private_ref_marker_publish_and_cleanup(
         import_provider.read_ref(private_ref)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_inspect_marker_unique_after_main_publish_with_private_ref_retained(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -355,7 +368,7 @@ def test_inspect_marker_unique_after_main_publish_with_private_ref_retained(
     assert "main" in inspection.refs
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_commit_without_checkout_does_not_modify_main(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -373,13 +386,13 @@ def test_commit_without_checkout_does_not_modify_main(
     assert candidate != before_private
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_ref_rejects_injection_payload(import_provider: CandidateAImportProvider) -> None:
     with pytest.raises(ValueError):
         import_provider.read_ref("main'); CREATE TABLE injected (id BIGINT); SELECT HASHOF('main")
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_create_private_ref_idempotent(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -389,7 +402,7 @@ def test_create_private_ref_idempotent(
     import_provider.create_private_ref(private_ref, expected)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_delete_private_ref_idempotent(import_provider: CandidateAImportProvider) -> None:
     private_ref = derive_private_ref_name(OPERATION_ID)
     expected = import_provider.read_ref("main")
@@ -398,7 +411,7 @@ def test_delete_private_ref_idempotent(import_provider: CandidateAImportProvider
     import_provider.delete_private_ref(private_ref)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_delete_private_ref_rejects_malformed_expected_when_ref_missing(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -407,7 +420,7 @@ def test_delete_private_ref_rejects_malformed_expected_when_ref_missing(
         import_provider.delete_private_ref(private_ref, expected_candidate="bad commit")
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_delete_private_ref_rejects_malformed_expected_when_ref_exists(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -441,7 +454,7 @@ def test_validate_manifest_sql_type_rejects_malformed_temporal(
         validate_manifest_sql_type(sql_type)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_replay_rejects_path_outside_staging(
     import_provider: CandidateAImportProvider,
     tmp_path: Path,
@@ -452,7 +465,7 @@ def test_replay_rejects_path_outside_staging(
         import_provider.replay_sql(derive_private_ref_name(OPERATION_ID), outside)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_dolt_integration_publish_main_ambiguous_on_force_failure(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -501,7 +514,7 @@ def test_dolt_integration_publish_main_ambiguous_on_force_failure(
     assert import_provider.read_ref("main") == expected
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_publish_main_ambiguous_on_readback_mismatch(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -529,7 +542,7 @@ def test_publish_main_ambiguous_on_readback_mismatch(
     assert isinstance(result, PublishMainAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_dolt_replay_uses_stdin_without_leaking_sql_path(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -614,7 +627,7 @@ def test_commit_operation_marker_rejects_main(import_provider: CandidateAImportP
     assert import_provider.read_ref(IMPORT_MAIN_REF) == main_hash
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_stream_table_rejects_commit_id_injection_without_side_effect(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -635,7 +648,7 @@ def test_stream_table_rejects_commit_id_injection_without_side_effect(
     assert "injected" not in table_names
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_rejects_commit_id_injection(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -648,7 +661,7 @@ def test_read_catalog_rejects_commit_id_injection(
     assert import_provider.read_ref(IMPORT_MAIN_REF) == main_hash
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_conflicting_candidates_are_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -681,7 +694,7 @@ def test_marker_conflicting_candidates_are_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_zero_when_private_ref_branch_not_scanned(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -698,7 +711,7 @@ def test_marker_zero_when_private_ref_branch_not_scanned(
     assert isinstance(inspection, MarkerInspectionZero)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_missing_direct_ref_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -723,7 +736,7 @@ def test_marker_missing_direct_ref_is_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_direct_refs_exclude_advanced_main(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -756,7 +769,7 @@ def test_marker_direct_refs_exclude_advanced_main(
     assert inspection.refs == (private_ref,)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_all_branches_advanced_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -797,7 +810,7 @@ def test_marker_all_branches_advanced_is_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_malformed_parents_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -827,7 +840,7 @@ def test_marker_malformed_parents_is_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_replay_cancellation_before_start(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -851,7 +864,7 @@ def test_replay_cancellation_before_start(
     assert "cancel_probe" not in table_names
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_stream_missing_table_nonzero_is_typed_error(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -868,7 +881,7 @@ def test_stream_missing_table_nonzero_is_typed_error(
     assert import_provider.read_ref(IMPORT_MAIN_REF) == main_hash
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_stream_iteration_error_is_wrapped_as_import_provider_error(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -891,7 +904,7 @@ def test_stream_iteration_error_is_wrapped_as_import_provider_error(
             list(import_provider.stream_table(main_hash, table, UnknownTypePolicy.STRINGIFY))
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_scan_timeout_returns_ambiguous(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -907,7 +920,7 @@ def test_marker_scan_timeout_returns_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_scan_invalid_json_returns_ambiguous(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -927,7 +940,7 @@ def test_marker_scan_invalid_json_returns_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_scan_truncated_stdout_returns_ambiguous(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -959,7 +972,7 @@ def test_marker_scan_truncated_stdout_returns_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_scan_uses_filtered_query(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -985,7 +998,7 @@ def test_marker_scan_uses_filtered_query(
     assert all("LIMIT 2" in sql for sql in captured)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_scan_unique_with_long_history(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -995,18 +1008,28 @@ def test_marker_scan_unique_with_long_history(
     expected = import_provider.read_ref("main")
     import_provider.create_private_ref(private_ref, expected)
     import_provider.checkout_private_ref(private_ref)
-    for index in range(1000):
-        import_provider._cli.run_cli(
-            "padding_commit",
-            [
-                "commit",
-                "--allow-empty",
-                "--message",
-                f"padding-{index}",
-                f"--author={import_provider._settings.author}",
-            ],
-            import_provider._settings.metadata_timeout_seconds,
-        )
+    # Build the padding history in one dolt invocation. Spawning 1000 CLI
+    # processes here used to dominate the whole suite's wall clock.
+    author = import_provider._settings.author
+    import_provider.replay_sql(
+        private_ref,
+        _staging_replay_path(
+            import_layout,
+            "long-history-padding.sql",
+            "".join(
+                f"CALL DOLT_COMMIT('--allow-empty', '-m', 'padding-{index}',"
+                f" '--author', '{author}');\n"
+                for index in range(1000)
+            ),
+        ),
+    )
+    # Guard the premise of this test: the scan must face a deep history.
+    depth_rows = import_provider._cli.query_json(
+        "padding_depth",
+        "SELECT COUNT(*) AS depth FROM dolt_log;\n",
+    )
+    assert int(depth_rows[0]["depth"]) >= 1000
+
     import_provider.replay_sql(
         private_ref,
         _staging_replay_path(
@@ -1024,7 +1047,7 @@ def test_marker_scan_unique_with_long_history(
     assert private_ref in inspection.refs
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_parent_query_failure_is_typed(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1039,7 +1062,7 @@ def test_read_catalog_parent_query_failure_is_typed(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_null_parent_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1149,7 +1172,7 @@ raise SystemExit(0)
     assert probe_result.returncode == 0, probe_result.stdout + probe_result.stderr
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_replay_requires_private_ref(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1174,7 +1197,7 @@ def test_replay_requires_private_ref(
     assert "accidentally_on_main" not in table_names
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_private_candidate_after_checkout_main(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1197,7 +1220,7 @@ def test_catalog_private_candidate_after_checkout_main(
     import_provider.delete_private_ref(private_ref, expected_candidate=candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_data_only_increment(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1227,7 +1250,7 @@ def test_catalog_data_only_increment(
     assert records.row_count == 1
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_invalid_parent_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1257,7 +1280,7 @@ def test_marker_invalid_parent_is_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_branch_list_failure_is_ambiguous(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1269,7 +1292,7 @@ def test_marker_branch_list_failure_is_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_helper_failure_is_typed(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1289,7 +1312,7 @@ def test_catalog_helper_failure_is_typed(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_stream_timeout_and_parser_failures_are_typed(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1312,7 +1335,7 @@ def test_stream_timeout_and_parser_failures_are_typed(
             list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_concurrent_streams_keep_field_limit(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1368,7 +1391,7 @@ def test_concurrent_streams_keep_field_limit(
     )
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_process_boundary_is_ambiguous(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1384,7 +1407,7 @@ def test_marker_process_boundary_is_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_marker_oserror_is_ambiguous(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1400,7 +1423,7 @@ def test_marker_oserror_is_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_empty_create_or_count_is_typed(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1427,7 +1450,7 @@ def test_catalog_empty_create_or_count_is_typed(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_process_boundary_is_typed(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1447,7 +1470,7 @@ def test_catalog_process_boundary_is_typed(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_generic_candidate_a_error_is_typed(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1467,7 +1490,7 @@ def test_generic_candidate_a_error_is_typed(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_replay_process_boundary_is_typed(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1493,7 +1516,7 @@ def test_replay_process_boundary_is_typed(
     assert import_provider.read_ref(IMPORT_MAIN_REF) == expected
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_ref_process_boundary_is_typed(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1506,7 +1529,7 @@ def test_read_ref_process_boundary_is_typed(
             import_provider.read_ref(IMPORT_MAIN_REF)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_multiple_or_malformed_rows(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1533,7 +1556,7 @@ def test_catalog_multiple_or_malformed_rows(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_ref_missing_or_invalid_commit_id(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1596,7 +1619,7 @@ def test_read_ref_missing_or_invalid_commit_id(
             import_provider.read_ref(IMPORT_MAIN_REF)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_publish_main_process_boundary_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1619,7 +1642,7 @@ def test_publish_main_process_boundary_is_ambiguous(
     assert import_provider.read_ref(IMPORT_MAIN_REF) == main_before
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_current_branch_process_boundary_is_typed(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1660,7 +1683,7 @@ def test_current_branch_process_boundary_is_typed(
             import_provider.replay_sql(private_ref, replay_sql)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_empty_count_or_null_count_is_typed(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1701,7 +1724,7 @@ def test_catalog_empty_count_or_null_count_is_typed(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_stream_csv_unicode_and_arrow_faults_are_typed(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1747,7 +1770,8 @@ def test_stream_csv_unicode_and_arrow_faults_are_typed(
             list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
+@pytest.mark.serial
 def test_concurrent_streams_with_over_128k_field(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1830,7 +1854,7 @@ def test_concurrent_streams_with_over_128k_field(
     import_provider.delete_private_ref(private_ref, expected_candidate=candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_stream_timeout_is_typed(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1853,7 +1877,7 @@ def test_stream_timeout_is_typed(
             list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_publish_oserror_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1876,7 +1900,7 @@ def test_publish_oserror_is_ambiguous(
     assert import_provider.read_ref(IMPORT_MAIN_REF) == main_before
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_arrow_type_error_is_typed(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1899,7 +1923,7 @@ def test_arrow_type_error_is_typed(
             list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_stream_timeout_closes_once(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -1934,7 +1958,7 @@ def test_stream_timeout_closes_once(
     assert stream.close.call_count == 1
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_duplicate_parent_rows(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1961,7 +1985,7 @@ def test_read_catalog_duplicate_parent_rows(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_row_count_rejects_malformed_scalar(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -1993,7 +2017,7 @@ def test_catalog_row_count_rejects_malformed_scalar(
                 import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_ref_rejects_whitespace_commit_id(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -2014,7 +2038,7 @@ def test_read_ref_rejects_whitespace_commit_id(
             import_provider.read_ref(IMPORT_MAIN_REF)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(("stdout", "match"), MALFORMED_JSON_SHAPES)
 def test_read_ref_malformed_json_metadata_is_typed(
     import_provider: CandidateAImportProvider,
@@ -2034,7 +2058,7 @@ def test_read_ref_malformed_json_metadata_is_typed(
             import_provider.read_ref(IMPORT_MAIN_REF)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(("stdout", "match"), MALFORMED_JSON_SHAPES)
 def test_read_catalog_malformed_json_metadata_is_typed(
     import_layout: DurableLayout,
@@ -2061,7 +2085,7 @@ def test_read_catalog_malformed_json_metadata_is_typed(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(("stdout", "match"), MARKER_FAULT_JSON_SHAPES)
 def test_inspect_marker_malformed_json_metadata_is_ambiguous(
     import_provider: CandidateAImportProvider,
@@ -2084,7 +2108,7 @@ def test_inspect_marker_malformed_json_metadata_is_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(("stdout", "match"), MARKER_FAULT_JSON_SHAPES)
 def test_publish_main_malformed_json_read_is_ambiguous(
     import_layout: DurableLayout,
@@ -2112,7 +2136,7 @@ def test_publish_main_malformed_json_read_is_ambiguous(
     assert isinstance(result, PublishMainAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_tables_rejects_non_list_row(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2140,7 +2164,7 @@ def test_catalog_tables_rejects_non_list_row(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_tables_rejects_non_list_columns_even_when_empty(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2164,18 +2188,13 @@ def test_catalog_tables_rejects_non_list_columns_even_when_empty(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
-@pytest.mark.parametrize(
-    "stdout",
-    (
-        b'{"rows":[[1]], "columns":[{"name":"row_count"},{"name":"extra"}]}',
-        b'{"rows":[[1,2]], "columns":[{"name":"row_count"}]}',
-    ),
-)
-def test_catalog_json_rejects_extra_or_missing_cells(
+@pytest.mark.integration
+@pytest.mark.parametrize(("stdout", "match"), CATALOG_ROW_SHAPE_FAULTS)
+def test_catalog_count_rejects_malformed_row_shapes(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
     stdout: bytes,
+    match: str,
 ) -> None:
     _, _, _, candidate = _candidate_on_private_ref(
         import_provider,
@@ -2192,83 +2211,11 @@ def test_catalog_json_rejects_extra_or_missing_cells(
             kinds=frozenset({"catalog_count"}),
         ),
     ):
-        with pytest.raises(ImportProviderError, match="row width does not match columns"):
+        with pytest.raises(ImportProviderError, match=match):
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
-def test_catalog_count_rejects_extra_cell(
-    import_layout: DurableLayout,
-    import_provider: CandidateAImportProvider,
-) -> None:
-    _, _, _, candidate = _candidate_on_private_ref(
-        import_provider,
-        import_layout,
-        table_sql="CREATE TABLE json_extra_cell (id BIGINT NOT NULL PRIMARY KEY);\n",
-    )
-
-    with patch.object(
-        import_provider._cli,
-        "run_cli",
-        side_effect=_run_cli_malformed_json_side_effect(
-            import_provider,
-            b'{"rows":[[1,2]], "columns":[{"name":"row_count"}]}',
-            kinds=frozenset({"catalog_count"}),
-        ),
-    ):
-        with pytest.raises(ImportProviderError, match="row width does not match columns"):
-            import_provider.read_catalog(candidate)
-
-
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
-def test_catalog_count_rejects_extra_field_real_dolt_shape(
-    import_layout: DurableLayout,
-    import_provider: CandidateAImportProvider,
-) -> None:
-    _, _, _, candidate = _candidate_on_private_ref(
-        import_provider,
-        import_layout,
-        table_sql="CREATE TABLE json_object_extra (id BIGINT NOT NULL PRIMARY KEY);\n",
-    )
-
-    with patch.object(
-        import_provider._cli,
-        "run_cli",
-        side_effect=_run_cli_malformed_json_side_effect(
-            import_provider,
-            b'{"rows":[{"row_count":1,"extra":999}]}',
-            kinds=frozenset({"catalog_count"}),
-        ),
-    ):
-        with pytest.raises(ImportProviderError, match="row schema mismatch"):
-            import_provider.read_catalog(candidate)
-
-
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
-def test_scalar_metadata_rejects_positional_multi_cell_row(
-    import_layout: DurableLayout,
-    import_provider: CandidateAImportProvider,
-) -> None:
-    _, _, _, candidate = _candidate_on_private_ref(
-        import_provider,
-        import_layout,
-        table_sql="CREATE TABLE json_positional (id BIGINT NOT NULL PRIMARY KEY);\n",
-    )
-
-    with patch.object(
-        import_provider._cli,
-        "run_cli",
-        side_effect=_run_cli_malformed_json_side_effect(
-            import_provider,
-            b'{"rows":[[1,999]]}',
-            kinds=frozenset({"catalog_count"}),
-        ),
-    ):
-        with pytest.raises(ImportProviderError, match="row was not an object"):
-            import_provider.read_catalog(candidate)
-
-
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("stdout", "kind", "action"),
     (
@@ -2314,7 +2261,7 @@ def test_read_ref_and_candidate_parent_reject_extra_fields(
                 import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("stdout", "kind", "match"),
     (
@@ -2361,7 +2308,7 @@ def test_catalog_show_rows_require_exact_schema(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_tables_rejects_broken_table_type(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2385,7 +2332,7 @@ def test_catalog_tables_rejects_broken_table_type(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_count_rejects_case_colliding_keys(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2409,7 +2356,7 @@ def test_catalog_count_rejects_case_colliding_keys(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_metadata_json_rejects_duplicate_keys(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2433,7 +2380,7 @@ def test_metadata_json_rejects_duplicate_keys(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_inspect_marker_null_message_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2463,7 +2410,7 @@ def test_inspect_marker_null_message_is_ambiguous(
     assert not isinstance(inspection, MarkerInspectionZero)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_inspect_marker_null_ref_name_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2504,7 +2451,7 @@ def test_inspect_marker_null_ref_name_is_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_inspect_marker_extra_field_is_ambiguous(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2529,7 +2476,7 @@ def test_inspect_marker_extra_field_is_ambiguous(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_metadata_rejects_unknown_envelope_fields(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2553,7 +2500,7 @@ def test_metadata_rejects_unknown_envelope_fields(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_metadata_rejects_rowdata_fallback(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2577,7 +2524,7 @@ def test_metadata_rejects_rowdata_fallback(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("field", "value"),
     (
@@ -2618,7 +2565,7 @@ def test_inspect_marker_rejects_whitespace_evidence(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_inspect_marker_rejects_whitespace_ref_name(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2662,7 +2609,7 @@ def test_inspect_marker_rejects_whitespace_ref_name(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_inspect_marker_rejects_duplicate_refs(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2702,7 +2649,7 @@ def test_inspect_marker_rejects_duplicate_refs(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_rejects_whitespace_parent(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2726,7 +2673,7 @@ def test_read_catalog_rejects_whitespace_parent(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_tables_empty_structured_rejects_wrong_columns(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2750,7 +2697,7 @@ def test_catalog_tables_empty_structured_rejects_wrong_columns(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_ref_empty_structured_rejects_wrong_columns(
     import_provider: CandidateAImportProvider,
 ) -> None:
@@ -2767,7 +2714,7 @@ def test_read_ref_empty_structured_rejects_wrong_columns(
             import_provider.read_ref(IMPORT_MAIN_REF)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_candidate_parent_empty_structured_rejects_wrong_columns(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2791,7 +2738,7 @@ def test_candidate_parent_empty_structured_rejects_wrong_columns(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_metadata_empty_structured_rejects_column_collision(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2815,7 +2762,7 @@ def test_metadata_empty_structured_rejects_column_collision(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "stdout",
     (
@@ -2849,7 +2796,7 @@ def test_catalog_tables_rejects_invalid_tables_in_prefix(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_preserves_leading_space_table_name(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2863,7 +2810,7 @@ def test_read_catalog_preserves_leading_space_table_name(
     assert " leading" in names
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_preserves_embedded_space_table_name(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2877,7 +2824,7 @@ def test_read_catalog_preserves_embedded_space_table_name(
     assert "embedded space" in names
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_tables_rejects_duplicate_object_rows(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2905,7 +2852,7 @@ def test_catalog_tables_rejects_duplicate_object_rows(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_tables_rejects_duplicate_structured_rows(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2946,7 +2893,7 @@ def test_parse_create_statement_rejects_invalid_schema_invariants(ddl: str, matc
         _parse_create_statement(ddl, 0)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_rejects_duplicate_column_ddl(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2974,7 +2921,7 @@ def test_read_catalog_rejects_duplicate_column_ddl(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_commit_operation_marker_allows_empty_replay(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -2997,7 +2944,7 @@ def test_commit_operation_marker_allows_empty_replay(
     assert inspection.candidate == candidate
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_commit_operation_marker_allows_select_one_replay(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3028,7 +2975,7 @@ def test_parse_create_statement_accepts_spaced_pk_column_names() -> None:
     assert table.primary_key == ("leading id",)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_accepts_spaced_primary_key_column_name(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3047,7 +2994,7 @@ def test_read_catalog_accepts_spaced_primary_key_column_name(
     assert catalog[0].primary_key == ("embedded id",)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_fulltext_index_not_projected_as_column(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3064,7 +3011,7 @@ def test_read_catalog_fulltext_index_not_projected_as_column(
     assert [column.name for column in catalog[0].columns] == ["BODY"]
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_spatial_index_not_projected_as_column(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3082,7 +3029,7 @@ def test_read_catalog_spatial_index_not_projected_as_column(
     assert [column.name for column in catalog[0].columns] == ["GEOM"]
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_generated_column_preserves_bigint_type(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3118,7 +3065,7 @@ def test_parse_create_statement_rejects_malformed_ddl(ddl: str, match: str) -> N
         _parse_create_statement(ddl, 0)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_rejects_prefix_garbage_ddl(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3145,7 +3092,7 @@ def test_read_catalog_rejects_prefix_garbage_ddl(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_rejects_ddl_table_name_mismatch(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3172,7 +3119,7 @@ def test_read_catalog_rejects_ddl_table_name_mismatch(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "stdout",
     (
@@ -3203,7 +3150,7 @@ def test_catalog_create_rejects_non_string_table_field(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_tables_rejects_conflicting_column_descriptor_aliases(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3227,7 +3174,7 @@ def test_catalog_tables_rejects_conflicting_column_descriptor_aliases(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_catalog_count_rejects_descriptor_case_collision_keys(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3370,7 +3317,7 @@ def _catalog_create_injection_test(
             import_provider.read_catalog(candidate)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("ddl", "match"),
     (
@@ -3476,7 +3423,7 @@ def test_read_catalog_rejects_malformed_create_ddl_injection(
     _catalog_create_injection_test(import_provider, import_layout, ddl, match)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "stdout",
     (
@@ -3527,7 +3474,7 @@ def test_parse_create_statement_accepts_default_with_comment_inside_string_liter
     assert columns["n"] == "INT"
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_reuses_candidate_commit_cache(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3619,7 +3566,7 @@ def test_parse_create_statement_normalizes_dolt_trailing_srid_version_comment() 
     assert columns["geom"] == "POINT SRID 4326"
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_accepts_default_expression_modifier(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3637,7 +3584,7 @@ def test_read_catalog_accepts_default_expression_modifier(
     assert columns["n"] == "INT"
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_accepts_timestamp_on_update_modifier(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3655,7 +3602,7 @@ def test_read_catalog_accepts_timestamp_on_update_modifier(
     assert columns["ts"] == "TIMESTAMP"
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_accepts_index_comment_and_check_not_enforced(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -3674,7 +3621,7 @@ def test_read_catalog_accepts_index_comment_and_check_not_enforced(
     assert [column.name for column in catalog[0].columns] == ["code", "n", "id"]
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_read_catalog_normalizes_point_srid_for_manifest_roundtrip(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
@@ -4044,7 +3991,7 @@ def test_catalog_memo_holds_entry_bound_under_concurrency(
     assert len(catalog_cli._catalog_cache) <= _CATALOG_MEMO_ENTRIES
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_stream_start_failure_does_not_block_later_commands(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,

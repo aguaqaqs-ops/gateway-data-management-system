@@ -26,6 +26,12 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["--strict-markers"]
+markers = [
+    "unit: no heavyweight external dependency; safe at full parallelism",
+    "integration: needs real dolt, subprocesses, or durable on-disk state",
+    "serial: timing sensitive; must not compete for CPU with other tests",
+]
 
 [tool.ruff]
 line-length = 100

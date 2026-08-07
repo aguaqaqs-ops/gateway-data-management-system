@@ -13,7 +13,7 @@ from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.create_repository.ports import NoOpCreateRepositoryFaultInjector
 from gateway_repository_service.publication import FaultPoint
 from gateway_repository_service.runtime import ServiceRuntime
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 
 
 class _BeforeRenameFaultInjector(NoOpCreateRepositoryFaultInjector):
@@ -27,7 +27,7 @@ class _NoReplacePublicationPort:
         raise FileExistsError(target)
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_create_repository_publication_fault_is_fail_closed(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     runtime = ServiceRuntime.start(settings)
@@ -47,7 +47,7 @@ def test_create_repository_publication_fault_is_fail_closed(tmp_path: Path) -> N
         runtime.shutdown()
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_create_repository_no_replace_conflict_cleans_staging(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     runtime = ServiceRuntime.start(settings)

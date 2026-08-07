@@ -26,11 +26,10 @@ from gateway_repository_service.settings import SettingsError
 from support.http_harness import create_test_client, create_test_http_app
 
 
-from support.lifecycle_harness import dolt_available as _dolt_available
 from support.lifecycle_harness import lifecycle_settings as _lifecycle_settings
 
 
-@pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 class TestLifecycleIntegration:
     def test_runtime_becomes_ready_with_valid_settings(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
@@ -88,7 +87,7 @@ class TestStartupFailure:
         with DurableRootLock(layout.service_lock):
             pass
 
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_provider_failure_aborts_startup(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path, dolt_binary=Path("/nonexistent/dolt"))
         with pytest.raises(ServiceStartupError, match="dolt executable is unavailable"):
@@ -201,7 +200,7 @@ class TestBearerHarness:
         body = response.text
         assert secret not in body
 
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_token_file_change_does_not_hot_rotate(self, tmp_path: Path) -> None:
         token_file = tmp_path / "token"
         token_file.write_text("first-token\n", encoding="utf-8")
@@ -758,7 +757,7 @@ class TestControlDatabase:
 
 
 class TestProviderLifecycle:
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_capability_gate_verifies_exact_version(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         layout = DurableLayout.create_for_probe(settings.data_root)
@@ -771,14 +770,14 @@ class TestProviderLifecycle:
         with pytest.raises(ProviderUnavailableError, match="unavailable"):
             OfflineCliCapabilityGate.verify(settings, layout)
 
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_version_mismatch_fails_closed(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path, dolt_version="0.0.1")
         layout = DurableLayout.create_for_probe(settings.data_root)
         with pytest.raises(ProviderUnavailableError):
             OfflineCliCapabilityGate.verify(settings, layout)
 
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_provider_check_reaps_child_processes(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         layout = DurableLayout.create_for_probe(settings.data_root)
@@ -789,7 +788,7 @@ class TestProviderLifecycle:
 
 
 class TestDynamicReadiness:
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_closed_control_db_makes_runtime_not_ready(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         runtime = ServiceRuntime.start(settings)
@@ -801,7 +800,7 @@ class TestDynamicReadiness:
         finally:
             runtime.shutdown()
 
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_readyz_returns_503_when_control_db_closed(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         with TestClient(create_app(settings)) as client:
@@ -813,7 +812,7 @@ class TestDynamicReadiness:
             assert response.json()["code"] == "SERVICE_NOT_READY"
             assert "control database is unavailable" in response.json()["message"]
 
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_readyz_returns_503_when_free_disk_admission_fails(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         with TestClient(create_app(settings)) as client:
@@ -826,7 +825,7 @@ class TestDynamicReadiness:
             assert response.status_code == 503
             assert "free disk admission failed" in response.json()["message"]
 
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_readyz_returns_503_when_statvfs_raises(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         with TestClient(create_app(settings)) as client:
@@ -842,7 +841,7 @@ class TestDynamicReadiness:
             assert body["message"] == "free disk admission failed"
             assert "disk unavailable" not in body["message"]
 
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_readyz_returns_503_when_write_probe_raises(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         with TestClient(create_app(settings)) as client:
@@ -858,7 +857,7 @@ class TestDynamicReadiness:
             assert body["message"] == "durable root is not writable"
             assert "read-only filesystem" not in body["message"]
 
-    @pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+    @pytest.mark.integration
     def test_readyz_returns_503_when_readiness_check_raises(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         with TestClient(create_app(settings)) as client:
@@ -875,7 +874,7 @@ class TestDynamicReadiness:
             assert "unexpected probe failure" not in body["message"]
 
 
-@pytest.mark.skipif(not _dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_dolt_runner_version_check_reaps_children(tmp_path: Path) -> None:
     settings = _lifecycle_settings(tmp_path)
     layout = DurableLayout.create_for_probe(settings.data_root)

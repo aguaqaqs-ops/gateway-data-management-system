@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -103,10 +104,34 @@ def test_atomic_publication_no_replace_preserves_existing_target(tmp_path: Path)
     assert (staging / "payload").read_text(encoding="utf-8") == "new"
 
 
+@pytest.mark.integration
 def test_runner_validates_exact_dolt_version(tmp_path: Path) -> None:
     layout = DurableLayout.create(tmp_path / "root")
     runner = DoltRunner(RepositoryServiceSettings(), layout.root)
     assert runner.settings.dolt_version == "2.1.11"
+
+
+@pytest.mark.integration
+def test_runner_home_disables_dolt_version_check(tmp_path: Path) -> None:
+    layout = DurableLayout.create(tmp_path / "root")
+    runner = DoltRunner(RepositoryServiceSettings(), layout.root)
+    config = json.loads(
+        (runner.home / ".dolt" / "config_global.json").read_text(encoding="utf-8")
+    )
+    assert config["versioncheck.disabled"] == "true"
+
+
+@pytest.mark.integration
+def test_runner_preserves_existing_private_dolt_config(tmp_path: Path) -> None:
+    layout = DurableLayout.create(tmp_path / "root")
+    config_path = layout.root / "provider" / "runner-home" / ".dolt" / "config_global.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps({"versioncheck.disabled": "true", "user.name": "operator"}),
+        encoding="utf-8",
+    )
+    DoltRunner(RepositoryServiceSettings(), layout.root)
+    assert json.loads(config_path.read_text(encoding="utf-8"))["user.name"] == "operator"
 
 
 def test_known_and_unknown_arrow_mapping() -> None:

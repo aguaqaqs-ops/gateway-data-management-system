@@ -8,11 +8,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gateway_repository_service.app import create_app
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 from support.upload_harness import create_repository, upload_headers
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_same_key_replays_original_response(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"same-key-payload"
@@ -35,7 +35,7 @@ def test_upload_same_key_replays_original_response(tmp_path: Path) -> None:
     assert first.json() == second.json()
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_different_content_same_key_conflicts(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:
@@ -58,7 +58,7 @@ def test_upload_different_content_same_key_conflicts(tmp_path: Path) -> None:
     assert second.json()["code"] == "IDEMPOTENCY_CONFLICT"
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_upload_idempotency_scope_is_isolated_by_repository(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"shared-scope-payload"

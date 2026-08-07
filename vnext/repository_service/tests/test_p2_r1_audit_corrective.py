@@ -309,6 +309,7 @@ def test_internal_rss_monitor_stops_before_process_reap(
     assert events.index("monitor-stop") < events.index("reap")
 
 
+@pytest.mark.serial
 @pytest.mark.parametrize("process_kind", ("stream", "discard"))
 def test_internal_rss_monitor_cannot_sample_after_stop_before_reap(
     process_kind: str, monkeypatch: pytest.MonkeyPatch
@@ -462,6 +463,7 @@ def test_candidate_b_sampler_precedes_cursor_execute(
     assert events.index("sampler-start") < events.index("cursor-execute")
 
 
+@pytest.mark.integration
 def test_restart_diagnostic_closes_old_opens_new_then_streams(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -586,6 +588,7 @@ def test_discard_diagnostic_uses_target_root_and_persists_provenance(
     assert all(row["storage_mount_verified"] is True for row in raw)
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("failure_stage", ["open", "head", "catalog"])
 def test_restart_replacement_closes_on_validation_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure_stage: str
@@ -885,6 +888,7 @@ def test_pinned_create_parser_preserves_schema_mutation_shape() -> None:
     assert old != new
 
 
+@pytest.mark.integration
 def test_provider_pinned_catalog_does_not_return_new_column_for_old_commit(tmp_path: Path) -> None:
     settings = RepositoryServiceSettings()
     layout = DurableLayout.create(tmp_path / "root")
@@ -925,6 +929,7 @@ def test_process_stream_timeout_during_blocked_wait() -> None:
     assert process.poll() is not None
 
 
+@pytest.mark.serial
 def test_process_stream_rejects_unterminated_oversized_line() -> None:
     settings = RepositoryServiceSettings(output_capture_bytes=32)
     runner = DoltRunner.__new__(DoltRunner)
@@ -940,6 +945,7 @@ def test_process_stream_rejects_unterminated_oversized_line() -> None:
     assert process.poll() is not None
 
 
+@pytest.mark.serial
 def test_process_tree_and_cgroup_measurement_scope(tmp_path: Path) -> None:
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.2)"])
     try:
@@ -1557,6 +1563,7 @@ def test_memory_sampler_accepts_provider_baseline_after_spawn() -> None:
     assert sampler.baselines["provider_process_tree"] == 123
 
 
+@pytest.mark.serial
 def test_discard_runner_attaches_stdout_directly_to_devnull(tmp_path: Path) -> None:
     settings = RepositoryServiceSettings(output_tail_bytes=64)
     runner = DoltRunner.__new__(DoltRunner)
@@ -2297,6 +2304,7 @@ def test_connector_fetch_size_is_width_aware() -> None:
     assert _safe_connector_fetch_size(unbounded, settings) == 1
 
 
+@pytest.mark.integration
 def test_fake_provenance_is_not_complete() -> None:
     metadata = _measurement_metadata(
         RepositoryServiceSettings(),

@@ -14,7 +14,7 @@ from typing import cast
 from gateway_repository_service.app import create_app
 from gateway_repository_service.mutation_fingerprints import CREATE_REPOSITORY_FINGERPRINT_V1
 from gateway_repository_service.mutation_store import IdempotencyScope, MutationStore
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 
 
 def _auth_headers(*, idempotency_key: str) -> dict[str, str]:
@@ -24,7 +24,7 @@ def _auth_headers(*, idempotency_key: str) -> dict[str, str]:
     }
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_same_key_replays_original_201_body(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:
@@ -36,7 +36,7 @@ def test_same_key_replays_original_201_body(tmp_path: Path) -> None:
     assert first.json() == second.json()
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_different_fingerprint_conflict_returns_409(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:

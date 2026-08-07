@@ -16,11 +16,11 @@ from gateway_repository_service.upload_artifact.visibility import (
     has_published_artifact_file,
     is_artifact_visible,
 )
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 from support.upload_harness import create_repository, upload_headers
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_artifact_visible_only_with_db_and_ready_file(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"visibility-payload"
@@ -58,7 +58,7 @@ def test_artifact_visible_only_with_db_and_ready_file(tmp_path: Path) -> None:
         )
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_ready_file_without_db_is_not_visible(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"db-only"

@@ -16,7 +16,7 @@ from support.http_harness import (
     create_create_route_test_app,
     create_test_client,
 )
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 
 ALLOWED_OPENAPI_PATHS = {
     "/healthz",
@@ -33,7 +33,7 @@ def _auth_headers(*, token: str = "test-bearer-token", idempotency_key: str = "c
     }
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_create_repository_happy_path(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:
@@ -48,7 +48,7 @@ def test_create_repository_happy_path(tmp_path: Path) -> None:
     assert body.get("request_id") is None
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_create_repository_accepts_empty_body(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:
@@ -124,6 +124,7 @@ def test_create_repository_rejects_chunked_body_on_first_chunk(tmp_path: Path) -
     assert_request_id_header(response)
 
 
+@pytest.mark.integration
 def test_create_repository_missing_idempotency_key_returns_422(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:
@@ -138,6 +139,7 @@ def test_create_repository_missing_idempotency_key_returns_422(tmp_path: Path) -
     assert_request_id_header(response)
 
 
+@pytest.mark.integration
 def test_create_repository_invalid_idempotency_key_returns_422(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:
@@ -150,6 +152,7 @@ def test_create_repository_invalid_idempotency_key_returns_422(tmp_path: Path) -
     assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
 
 
+@pytest.mark.integration
 def test_create_repository_missing_auth_returns_401(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:

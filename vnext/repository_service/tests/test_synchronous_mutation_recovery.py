@@ -15,7 +15,7 @@ from gateway_repository_service.layout import repository_key
 from gateway_repository_service.mutation_store import EffectStatus, IdempotencyScope
 from support.upload_harness import upload_sha256
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path, is_artifact_visible
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 from support.recovery_harness import (
     CreateFaultPoint,
     UploadFaultPoint,
@@ -40,7 +40,7 @@ from support.recovery_harness import (
     upload_staging_files,
 )
 
-pytestmark = pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+pytestmark = pytest.mark.integration
 
 CREATE_TERMINAL_POINTS: tuple[CreateFaultPoint, ...] = (
     "after_pending",

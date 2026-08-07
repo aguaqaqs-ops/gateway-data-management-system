@@ -18,7 +18,7 @@ from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.upload_artifact import visibility as upload_visibility
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path, is_artifact_visible
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 from support.recovery_harness import (
     crash_create_subprocess,
     effect_status,
@@ -30,7 +30,7 @@ from support.recovery_harness import (
 )
 from support.upload_harness import upload_headers, upload_sha256
 
-pytestmark = pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+pytestmark = pytest.mark.integration
 
 
 def test_readiness_fails_when_succeeded_create_repository_missing(tmp_path: Path) -> None:

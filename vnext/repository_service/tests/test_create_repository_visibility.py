@@ -19,10 +19,10 @@ from gateway_repository_service.layout import repository_key
 from gateway_repository_service.mutation_fingerprints import create_repository_fingerprint_v1
 from gateway_repository_service.mutation_store import IdempotencyScope, MutationStore
 from gateway_repository_service.runtime import ServiceRuntime
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_repository_visible_only_with_db_and_filesystem(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:
@@ -44,6 +44,7 @@ def test_repository_visible_only_with_db_and_filesystem(tmp_path: Path) -> None:
         assert not is_repository_visible(runtime.mutation_store, runtime.layout, repository_id)
 
 
+@pytest.mark.integration
 def test_db_only_repository_is_not_visible(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     runtime = ServiceRuntime.start(settings)

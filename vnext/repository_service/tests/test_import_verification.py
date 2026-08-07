@@ -40,7 +40,7 @@ from gateway_repository_service.versioned_import.verification import (
     ImportVerificationResult,
     verify_import_candidate,
 )
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 
 OPERATION_ID = UUID("00000000-0000-4000-8000-0000000000b1")
 
@@ -240,7 +240,7 @@ def _assert_full_scan_arrow_contracts(
         ),
     ],
 )
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_verification_policy_matrix(
     import_provider: CandidateAImportProvider,
     import_layout: DurableLayout,
@@ -329,7 +329,7 @@ def _assert_nullable_unknown_stringify_metadata(
     assert values == ["a", None]
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_none_reject_uses_minimal_type_projection_without_row_counts(
     import_provider: CandidateAImportProvider,
     import_layout: DurableLayout,
@@ -367,7 +367,7 @@ def test_none_reject_uses_minimal_type_projection_without_row_counts(
     assert "catalog_create" in issued_kinds
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_structural_rejects_distinct_enum_literal_spelling(
     import_provider: CandidateAImportProvider,
     import_layout: DurableLayout,
@@ -401,7 +401,7 @@ INSERT INTO upper_enum VALUES (1, 'A');
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_full_scan_stringify_not_null_unknown_follows_catalog_nullability(
     import_provider: CandidateAImportProvider,
     import_layout: DurableLayout,
@@ -436,7 +436,7 @@ def _write_staging_sql(layout: DurableLayout, name: str, sql: str) -> Path:
     return path
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_structural_mismatch_raises_verification_failed(
     import_provider: CandidateAImportProvider,
     import_layout: DurableLayout,
@@ -457,7 +457,7 @@ def test_structural_mismatch_raises_verification_failed(
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_full_scan_row_count_mismatch_raises(
     import_provider: CandidateAImportProvider,
     import_layout: DurableLayout,
@@ -690,7 +690,7 @@ def test_full_scan_sql_value_conversion_error_maps_to_verification_failed() -> N
     assert exc_info.value.detail == "value conversion failed for records.id"
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_full_scan_zero_date_conversion_failure(
     import_provider: CandidateAImportProvider,
     import_layout: DurableLayout,

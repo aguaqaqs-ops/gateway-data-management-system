@@ -84,10 +84,7 @@ def test_positive_bounds_reject_zero(tmp_path: Path, field: str) -> None:
         RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]
 
 
-@pytest.mark.skipif(
-    not Path("/usr/local/bin/dolt").exists(),
-    reason="dolt executable is unavailable",
-)
+@pytest.mark.integration
 def test_runtime_uses_code_control_db_user_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GATEWAY_REPOSITORY_CONTROL_DB_USER_VERSION", "1")
     settings = RepositoryServiceSettings(

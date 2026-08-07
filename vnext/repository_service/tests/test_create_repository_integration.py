@@ -15,7 +15,7 @@ from gateway_repository_service.create_repository.visibility import is_repositor
 from gateway_repository_service.layout import repository_key
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.process import DoltRunner
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 
 
 def _auth_headers(*, idempotency_key: str = "integration-create-1") -> dict[str, str]:
@@ -25,7 +25,7 @@ def _auth_headers(*, idempotency_key: str = "integration-create-1") -> dict[str,
     }
 
 
-@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+@pytest.mark.integration
 def test_create_repository_returns_real_ids_and_published_tree(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:

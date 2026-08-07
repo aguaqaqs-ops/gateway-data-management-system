@@ -28,12 +28,19 @@ dev = [
     "mypy==2.3.0",
     "mysql-connector-python==9.7.0",
     "pytest==9.1.1",
+    "pytest-xdist==3.8.0",
     "ruff==0.15.21",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]
+addopts = ["-n", "auto", "--dist", "loadgroup", "--strict-markers"]
+markers = [
+    "unit: no heavyweight external dependency; safe at full parallelism",
+    "integration: needs real dolt, subprocesses, or durable on-disk state",
+    "serial: timing sensitive; must not compete for CPU with other tests",
+]
 filterwarnings = [
     "error::starlette.exceptions.StarletteDeprecationWarning",
 ]

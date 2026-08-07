@@ -1028,7 +1028,25 @@ class DoltRunner:
         self.server_root = server_root.resolve()
         self.home = self.server_root / "provider" / "runner-home"
         self.home.mkdir(parents=True, exist_ok=True)
+        self._seed_private_dolt_config()
         self._validate_version()
+
+    def _seed_private_dolt_config(self) -> None:
+        """Keep the private runner HOME from reaching the network.
+
+        Dolt queries the latest released version on the first command run
+        under an unseeded HOME, which costs several seconds and contradicts
+        the offline boundary this runner is meant to enforce.
+        """
+
+        config_directory = self.home / ".dolt"
+        config_directory.mkdir(parents=True, exist_ok=True)
+        config_path = config_directory / "config_global.json"
+        if config_path.exists():
+            return
+        config_path.write_text(
+            json.dumps({"versioncheck.disabled": "true"}), encoding="utf-8"
+        )
 
     def _validate_version(self) -> None:
         result = self.run(

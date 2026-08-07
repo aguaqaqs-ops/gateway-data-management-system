@@ -13,7 +13,7 @@ from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import EffectStatus, IdempotencyScope
 from gateway_repository_service.providers import ProviderError
 from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
-from support.lifecycle_harness import dolt_available, lifecycle_settings
+from support.lifecycle_harness import lifecycle_settings
 from support.recovery_harness import (
     crash_create_subprocess,
     effect_status,
@@ -23,7 +23,7 @@ from support.recovery_harness import (
     staging_dirs_for_key,
 )
 
-pytestmark = pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+pytestmark = pytest.mark.integration
 
 
 def test_startup_fails_when_create_staging_cleanup_fails(tmp_path: Path) -> None:

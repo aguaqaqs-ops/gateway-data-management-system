@@ -493,6 +493,36 @@ feat(repository): verify Versioned import candidates
 输出S5 handoff，next_stage=P2-R4-S6。
 ```
 
+### Accepted S5 exit — 2026-08-07
+
+```text
+implementation_head: be6e2bb (+ post-review cleanup commit on same branch)
+run_tests_sh: 1038 passed, 1 skipped (repository_service: 703 parallel + 6 serial, 1 skipped)
+
+S5 functional_changes (a7dfc0d..be6e2bb, ⊆ revised §9):
+  commits: f7fcbb2, e9d17aa, 1c1b3a4, be6e2bb
+  11 implementation paths ≡ §9 allowed paths (includes versioned_import/models.py)
+
+S5 test_infrastructure (aa33d11, outside §9):
+  34 files: AGENTS.md, testing-conventions/fixtures docs, pyproject.toml×6,
+    Dockerfile, uv.lock, process.py, run-tests.sh, conftest + 20 test files
+  independent concern: xdist parallelism, marker layering, offline dolt HOME
+
+Do not use a single modified_paths ≡ §9 equation over a7dfc0d..HEAD (42 files).
+
+known_limitations:
+  - prior P3 six items (_refs_for_commit, _as_import_provider_error branches,
+    catalog path duplication, error code literals, __all__ UnknownTypePolicy,
+    test concat_batches materialize)
+  - manifest charset gate vs normalizer (ENUM non-ASCII literals)
+  - _STREAM_PROVIDER_FAULTS still includes bare ValueError/TypeError
+  - marker auto-classification residual risk (manual mv dolt -m unit verification)
+
+stage_exit: pass
+next_stage_ready: yes
+next_stage: P2-R4-S6
+```
+
 ## 10. S6 — Worker orchestration and direct happy path
 
 ### Goal

@@ -119,6 +119,7 @@ def test_runner_home_disables_dolt_version_check(tmp_path: Path) -> None:
         (runner.home / ".dolt" / "config_global.json").read_text(encoding="utf-8")
     )
     assert config["versioncheck.disabled"] == "true"
+    assert config["metrics.disabled"] == "true"
 
 
 @pytest.mark.integration
@@ -126,12 +127,12 @@ def test_runner_preserves_existing_private_dolt_config(tmp_path: Path) -> None:
     layout = DurableLayout.create(tmp_path / "root")
     config_path = layout.root / "provider" / "runner-home" / ".dolt" / "config_global.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        json.dumps({"versioncheck.disabled": "true", "user.name": "operator"}),
-        encoding="utf-8",
-    )
+    config_path.write_text(json.dumps({"user.name": "operator"}), encoding="utf-8")
     DoltRunner(RepositoryServiceSettings(), layout.root)
-    assert json.loads(config_path.read_text(encoding="utf-8"))["user.name"] == "operator"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config["user.name"] == "operator"
+    assert config["versioncheck.disabled"] == "true"
+    assert config["metrics.disabled"] == "true"
 
 
 def test_known_and_unknown_arrow_mapping() -> None:
@@ -197,6 +198,25 @@ def test_stringify_known_type_conversion_failure_raises_sql_value_conversion_err
     assert exc_info.value.sql_type == "DATE"
 
 
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        pytest.param([1, 2], id="list"),
+        pytest.param({"a": 1}, id="dict"),
+    ],
+)
+def test_int_column_non_scalar_raises_sql_value_conversion_error(bad_value: object) -> None:
+    catalog = TableCatalog(
+        "records",
+        (ColumnCatalog("value", "INT", True, None),),
+        1,
+    )
+    with pytest.raises(SqlValueConversionError) as exc_info:
+        record_batch(catalog, [(bad_value,)], UnknownTypePolicy.STRINGIFY)
+    assert exc_info.value.column == "value"
+    assert exc_info.value.sql_type == "INT"
+
+
 def test_out_of_bounds_spelling_classified_as_unknown() -> None:
     for spelling in ("BIT(65)", "DECIMAL(99,2)", "DECIMAL(10,20)"):
         assert is_known_sql_type(spelling) is False
@@ -219,6 +239,7 @@ def test_unknown_sql_spelling_preserves_quoted_literals() -> None:
     assert double_space != single_space
     assert normalize_sql_type("ENUM", "enum('a collate b')") == "ENUM('a collate b')"
     assert normalize_sql_type("INT", "int(11) unsigned zerofill") == "INT UNSIGNED"
+    assert normalize_sql_type("INTEGER", "integer(11)") == "INT"
 
 
 OUT_OF_BOUNDS_STRINGIFY_FIDELITY = (

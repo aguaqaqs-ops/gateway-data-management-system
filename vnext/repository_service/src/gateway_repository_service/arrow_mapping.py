@@ -7,7 +7,7 @@ import decimal
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, NoReturn
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -196,7 +196,7 @@ _COLLATE_MODIFIER = re.compile(r"\s+COLLATE\s+\S+", re.IGNORECASE)
 _CHARACTER_SET_MODIFIER = re.compile(r"\s+CHARACTER\s+SET\s+\S+", re.IGNORECASE)
 _ZEROFILL_MODIFIER = re.compile(r"\s+ZEROFILL\b", re.IGNORECASE)
 _INTEGER_DISPLAY_WIDTH = re.compile(
-    r"\b(TINYINT|SMALLINT|MEDIUMINT|INT|BIGINT)(\(\d+\))(?=\s|$|UNSIGNED)",
+    r"\b(TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT)(\(\d+\))(?=\s|$|UNSIGNED)",
     re.IGNORECASE,
 )
 
@@ -204,6 +204,8 @@ _INTEGER_DISPLAY_WIDTH = re.compile(
 def _strip_integer_display_width(segment: str) -> str:
     def replacer(match: re.Match[str]) -> str:
         base = match.group(1).upper()
+        if base == "INTEGER":
+            base = "INT"
         width = match.group(2)
         if base == "TINYINT" and width == "(1)":
             return match.group(0)
@@ -279,6 +281,8 @@ def normalize_sql_type(data_type: str, column_type: str) -> str:
         return f"BIT({match.group(1)})"
     if raw.endswith(" UNSIGNED"):
         base = raw.removesuffix(" UNSIGNED")
+        if base == "INTEGER":
+            return "INT UNSIGNED"
         if base in {"TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"}:
             return f"{base} UNSIGNED"
     if (
@@ -291,6 +295,8 @@ def normalize_sql_type(data_type: str, column_type: str) -> str:
         return raw
     if raw in {"TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"}:
         return raw
+    if raw == "INTEGER":
+        return "INT"
     srid_match = re.match(r"^([A-Z]+)\s+/\*!\d+\s+SRID\s+(\d+)\s*\*/\s*$", raw)
     if srid_match is not None:
         spatial_type = srid_match.group(1)
@@ -474,7 +480,7 @@ def normalize_rows(
         for index, column in enumerate(columns):
             try:
                 converted_row.append(convert_value(row[index], column.sql_type, policy))
-            except ValueError as exc:
+            except (ValueError, TypeError) as exc:
                 if isinstance(exc, SqlValueConversionError):
                     raise
                 raise SqlValueConversionError(
@@ -485,7 +491,11 @@ def normalize_rows(
     return normalized
 
 
-def _raise_column_conversion_error(exc: ValueError, *, column: ColumnCatalog) -> None:
+def _raise_column_conversion_error(
+    exc: ValueError | TypeError,
+    *,
+    column: ColumnCatalog,
+) -> NoReturn:
     if isinstance(exc, SqlValueConversionError):
         raise exc
     raise SqlValueConversionError(column=column.name, sql_type=column.sql_type) from exc
@@ -499,17 +509,19 @@ def record_batch(
     row_list = normalize_rows(catalog, rows, policy)
     arrays: list[pa.Array] = []
     fields: list[pa.Field] = []
+    last_column = catalog.columns[0]
     for index, column in enumerate(catalog.columns):
+        last_column = column
         data_type, metadata = arrow_type(column.sql_type, policy)
         values = [row[index] for row in row_list]
         try:
             arrays.append(pa.array(values, type=data_type))
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             _raise_column_conversion_error(exc, column=column)
         fields.append(
             pa.field(column.name, data_type, nullable=column.nullable, metadata=metadata or None)
         )
     try:
         return pa.RecordBatch.from_arrays(arrays, schema=pa.schema(fields))
-    except ValueError as exc:
-        _raise_column_conversion_error(exc, column=catalog.columns[0])
+    except (ValueError, TypeError) as exc:
+        _raise_column_conversion_error(exc, column=last_column)

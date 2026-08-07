@@ -1020,6 +1020,12 @@ class _Capture:
         return bytes(self._data)
 
 
+_OFFLINE_DOLT_CONFIG = {
+    "versioncheck.disabled": "true",
+    "metrics.disabled": "true",
+}
+
+
 class DoltRunner:
     """Runs exact-version Dolt with bounded output and a private environment."""
 
@@ -1043,10 +1049,14 @@ class DoltRunner:
         config_directory.mkdir(parents=True, exist_ok=True)
         config_path = config_directory / "config_global.json"
         if config_path.exists():
-            return
-        config_path.write_text(
-            json.dumps({"versioncheck.disabled": "true"}), encoding="utf-8"
-        )
+            existing = json.loads(config_path.read_text(encoding="utf-8"))
+            if not isinstance(existing, dict):
+                existing = {}
+        else:
+            existing = {}
+        merged = {**existing, **_OFFLINE_DOLT_CONFIG}
+        if merged != existing:
+            config_path.write_text(json.dumps(merged), encoding="utf-8")
 
     def _validate_version(self) -> None:
         result = self.run(

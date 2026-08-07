@@ -96,9 +96,10 @@ payload 与期望错误消息之外完全相同的用例，不得复制粘贴成
 ### 私有 HOME 必须离线
 
 `DoltRunner` 给子进程设置私有 `HOME`，并在其中预置 `.dolt/config_global.json` 关闭
-dolt 的版本检查。全新 HOME 下 `dolt version` 会联网查询最新发布版本，单次 3~5 秒。
-任何新增的、会创建全新 dolt HOME 的代码路径都必须沿用这一预置，否则既拖慢测试，
-也违反 offline provider 边界。
+dolt 的版本检查与 metrics 上报。该写入发生在 `DoltRunner` 构造期，属于 provider
+process boundary 的生产语义，不仅服务于测试提速。全新 HOME 下 `dolt version` 会联网
+查询最新发布版本，单次 3~5 秒。任何新增的、会创建全新 dolt HOME 的代码路径都必须
+沿用这一预置，否则既拖慢测试，也违反 offline provider 边界。
 
 ## 历史基线
 

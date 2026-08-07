@@ -159,7 +159,7 @@ class ImportOperationStore:
     def list_earliest_queued_per_repository(
         self,
     ) -> list[tuple[UUID, UUID, int]]:
-        with self._transaction():
+        with self._lock:
             cursor = self._connection.execute(
                 """
                 SELECT repository_scope, operation_id, enqueue_sequence

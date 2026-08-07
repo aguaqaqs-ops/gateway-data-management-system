@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from gateway_repository_contracts import SimpleError, VersionedImportResult
 
@@ -15,6 +15,7 @@ from gateway_repository_service.upload_artifact.visibility import artifact_ready
 from gateway_repository_service.versioned_import.errors import (
     ImportProviderError,
     sanitize_import_error_detail,
+    sanitize_import_error_details,
 )
 from gateway_repository_service.versioned_import.faults import (
     ImportWorkerFaultInjector,
@@ -67,6 +68,13 @@ class ExecutionEvidence:
         if current is None:
             return False
         return current == self.main_before == self.expected_commit_id
+
+    def provably_no_repository_effect(self) -> bool:
+        if self.publish_attempted or self.private_ref_created or self.has_marker_evidence():
+            return False
+        if self.main_before is None:
+            return True
+        return self.main_unchanged()
 
     def has_marker_evidence(self) -> bool:
         return self.marker_inspection_kind in {"unique", "ambiguous"}
@@ -209,7 +217,7 @@ class ImportOperationExecutor:
 
         result = VersionedImportResult(
             commit_id=candidate,
-            target_ref="main",
+            target_ref=cast(Literal["main"], context.target_ref),
             artifact_id=context.artifact_id,
             canonicalization_manifest_digest=package.manifest.canonicalization_manifest_digest,
             expected_commit_id=context.expected_commit_id,
@@ -294,7 +302,10 @@ class ImportOperationExecutor:
         evidence: ExecutionEvidence,
         error: SimpleError,
     ) -> None:
-        if error.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE and evidence.main_unchanged():
+        if (
+            error.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+            and evidence.main_unchanged()
+        ):
             self._best_effort_delete_private_ref(provider, context, evidence.candidate)
         self._store.mark_failed(context.operation_id, error=error)
 
@@ -366,7 +377,7 @@ def _simple_error(
 ) -> SimpleError:
     details: dict[str, object] | None
     if isinstance(detail, dict):
-        details = detail
+        details = sanitize_import_error_details(detail)
     elif detail is None:
         details = None
     else:
@@ -386,6 +397,12 @@ def _marker_kind(inspection: object) -> MarkerInspectionKind:
 
 
 def _map_provider_failure(evidence: ExecutionEvidence, *, detail: str) -> SimpleError:
+    if evidence.provably_no_repository_effect():
+        return _simple_error(
+            IMPORT_REJECTED_CODE,
+            "import provider rejected request",
+            detail=detail,
+        )
     if evidence.publish_attempted or evidence.marker_inspection_kind == "ambiguous":
         return _manual_error("provider failure after publication evidence", detail=detail)
     if evidence.has_marker_evidence() and not evidence.main_unchanged():
@@ -404,6 +421,8 @@ def _map_provider_failure(evidence: ExecutionEvidence, *, detail: str) -> Simple
 
 
 def _map_unknown_failure(evidence: ExecutionEvidence, *, detail: str) -> SimpleError:
+    if evidence.provably_no_repository_effect():
+        return _simple_error(IMPORT_REJECTED_CODE, "import rejected", detail=detail)
     if evidence.publish_attempted:
         return _manual_error("unexpected failure after publication attempt", detail=detail)
     if evidence.private_ref_created and evidence.has_marker_evidence():

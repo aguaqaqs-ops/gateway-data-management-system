@@ -58,6 +58,14 @@ def test_default_upload_and_ttl_settings() -> None:
     assert settings.max_total_expanded_entry_bytes == 4 * 1024 * 1024 * 1024
     assert settings.max_decompressed_tar_stream_bytes == 4 * 1024 * 1024 * 1024
     assert settings.artifact_ttl_seconds == 24 * 60 * 60
+    assert settings.max_import_workers == 4
+
+
+@pytest.mark.parametrize("field", ["max_import_workers"])
+def test_max_import_workers_rejects_zero(tmp_path: Path, field: str) -> None:
+    kwargs: dict[str, int] = {field: 0}
+    with pytest.raises(ValueError):
+        RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]
 
 
 def test_control_db_user_version_is_not_configurable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

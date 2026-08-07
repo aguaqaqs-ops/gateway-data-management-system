@@ -11,12 +11,17 @@ import pytest
 
 from gateway_repository_contracts import OperationStatus, SimpleError
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
+from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.faults import (
     ConfigurableImportWorkerFaultInjector,
     ImportWorkerFaultPoint,
     NoOpImportWorkerFaultInjector,
 )
-from gateway_repository_service.versioned_import.models import MANUAL_RECOVERY_REQUIRED_CODE
+from gateway_repository_service.versioned_import.models import (
+    MANUAL_RECOVERY_REQUIRED_CODE,
+    derive_private_ref_name,
+)
+from gateway_repository_service.versioned_import.models import ImportOperationExecutionContext
 from gateway_repository_service.versioned_import.verification import (
     IMPORT_REJECTED_CODE,
     VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
@@ -27,7 +32,6 @@ from support.import_worker_harness import (
 )
 
 REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
-OTHER_REPOSITORY_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
 ARTIFACT_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
 OPERATION_ID = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11")
 
@@ -55,6 +59,44 @@ def test_worker_happy_path(worker_env: WorkerTestEnvironment) -> None:
     assert operation.result.expected_commit_id == DEFAULT_MAIN_COMMIT
     assert operation.result.canonicalization_manifest_digest == "manifest-digest-1"
     assert worker_env.provider_for(REPOSITORY_ID).read_ref("main") == operation.result.commit_id
+
+
+def test_zero_effect_provider_failure_maps_to_import_rejected(
+    worker_env: WorkerTestEnvironment,
+) -> None:
+    provider = worker_env.provider_for(REPOSITORY_ID)
+
+    def _fail_read_ref(_ref_name: str) -> str:
+        raise ImportProviderError("initial read_ref failed")
+
+    provider.read_ref = _fail_read_ref  # type: ignore[assignment]
+    operation_id = worker_env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID)
+    worker_env.wait_for_status(REPOSITORY_ID, operation_id, OperationStatus.FAILED)
+
+    operation = worker_env.store.get_operation(REPOSITORY_ID, operation_id)
+    assert operation is not None
+    assert operation.error is not None
+    assert operation.error.code == IMPORT_REJECTED_CODE
+    assert worker_env.store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
+
+
+def test_zero_effect_unknown_failure_maps_to_import_rejected(
+    worker_env: WorkerTestEnvironment,
+) -> None:
+    provider = worker_env.provider_for(REPOSITORY_ID)
+
+    def _fail_read_ref(_ref_name: str) -> str:
+        raise RuntimeError("unexpected read failure")
+
+    provider.read_ref = _fail_read_ref  # type: ignore[assignment]
+    operation_id = worker_env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID)
+    worker_env.wait_for_status(REPOSITORY_ID, operation_id, OperationStatus.FAILED)
+
+    operation = worker_env.store.get_operation(REPOSITORY_ID, operation_id)
+    assert operation is not None
+    assert operation.error is not None
+    assert operation.error.code == IMPORT_REJECTED_CODE
+    assert worker_env.store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
 
 
 def test_failure_mapping_import_rejected_on_replay_failure(
@@ -121,6 +163,7 @@ def test_failure_mapping_manual_on_publish_ambiguity(worker_env: WorkerTestEnvir
     assert operation.error.code == MANUAL_RECOVERY_REQUIRED_CODE
 
 
+@pytest.mark.serial
 def test_manual_barrier_skips_queued_operation(worker_env: WorkerTestEnvironment) -> None:
     blocked_id = worker_env.enqueue(
         REPOSITORY_ID,
@@ -151,6 +194,7 @@ def test_manual_barrier_skips_queued_operation(worker_env: WorkerTestEnvironment
     assert pending.status == OperationStatus.QUEUED
 
 
+@pytest.mark.serial
 def test_dispatcher_does_not_double_claim_same_repository(
     worker_env: WorkerTestEnvironment,
 ) -> None:
@@ -166,60 +210,123 @@ def test_dispatcher_does_not_double_claim_same_repository(
     )
     worker_env.enqueue(REPOSITORY_ID, artifact_id=second_artifact, key="second")
 
-    time.sleep(0.05)
-    running = [
-        row
-        for row in worker_env.connection.execute(
-            "SELECT status FROM repository_import_operations WHERE repository_scope = ?",
-            (REPOSITORY_ID.hex,),
-        ).fetchall()
-        if str(row["status"]) == OperationStatus.RUNNING.value
-    ]
-    assert len(running) == 1
+    peak = 0
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        running = worker_env.connection.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM repository_import_operations
+            WHERE repository_scope = ?
+              AND status = ?
+            """,
+            (REPOSITORY_ID.hex, OperationStatus.RUNNING.value),
+        ).fetchone()
+        peak = max(peak, int(running["count"]))
+        if peak > 1:
+            break
+        time.sleep(0.01)
 
+    assert peak <= 1
     worker_env.wait_for_status(REPOSITORY_ID, first_operation, OperationStatus.SUCCEEDED)
 
 
 @pytest.mark.serial
-def test_same_repository_executes_in_fifo_order(tmp_path: Path) -> None:
+def test_same_repository_running_mutex_observed(tmp_path: Path) -> None:
+    env = WorkerTestEnvironment(tmp_path, max_import_workers=4)
+    env.pool.start()
+    try:
+        provider = env.provider_for(REPOSITORY_ID)
+        provider.replay_delay_seconds = 0.2
+        operation_ids = [
+            env.enqueue(
+                REPOSITORY_ID,
+                artifact_id=UUID(f"018f0f3e-7b0a-7c2{index}-8a9e-2e4b9f4d2c11"),
+                operation_id=UUID(f"018f0f3e-7b0a-7c1{index}-8a9e-2e4b9f4d2c11"),
+                key=f"mutex-{index}",
+            )
+            for index in range(4)
+        ]
+
+        peak = 0
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            running = env.connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM repository_import_operations
+                WHERE repository_scope = ?
+                  AND status = ?
+                """,
+                (REPOSITORY_ID.hex, OperationStatus.RUNNING.value),
+            ).fetchone()
+            peak = max(peak, int(running["count"]))
+            if all(
+                (op := env.store.get_operation(REPOSITORY_ID, operation_id)) is not None
+                and op.status in {OperationStatus.SUCCEEDED, OperationStatus.FAILED}
+                for operation_id in operation_ids
+            ):
+                break
+            time.sleep(0.02)
+
+        assert peak <= 1
+    finally:
+        env.close()
+
+
+@pytest.mark.serial
+def test_same_repository_fifo_completion_order(tmp_path: Path) -> None:
     env = WorkerTestEnvironment(tmp_path, max_import_workers=4)
     env.pool.start()
     try:
         provider = env.provider_for(REPOSITORY_ID)
         provider.replay_delay_seconds = 0.05
-        completion_order: list[UUID] = []
-
+        expected_commits = [
+            DEFAULT_MAIN_COMMIT,
+            "candidate-1",
+            "candidate-2",
+            "candidate-3",
+        ]
         operation_specs = [
             (
-                UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11"),
-                UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c11"),
-                "fifo-1",
-            ),
-            (
-                UUID("018f0f3e-7b0a-7c1a-8a9e-2e4b9f4d2c11"),
-                UUID("018f0f3e-7b0a-7c19-8a9e-2e4b9f4d2c11"),
-                "fifo-2",
-            ),
-            (
-                UUID("018f0f3e-7b0a-7c1c-8a9e-2e4b9f4d2c11"),
-                UUID("018f0f3e-7b0a-7c1b-8a9e-2e4b9f4d2c11"),
-                "fifo-3",
-            ),
+                UUID(f"018f0f3e-7b0a-7c1{index}-8a9e-2e4b9f4d2c11"),
+                UUID(f"018f0f3e-7b0a-7c2{index}-8a9e-2e4b9f4d2c11"),
+                f"fifo-{index}",
+                expected_commits[index],
+            )
+            for index in range(4)
         ]
-
-        for operation_id, artifact_id, key in operation_specs:
-            expected_commit = provider.read_ref("main")
-            operation = env.enqueue(
+        operation_ids = [
+            env.enqueue(
                 REPOSITORY_ID,
                 artifact_id=artifact_id,
                 operation_id=operation_id,
                 key=key,
                 expected_commit_id=expected_commit,
             )
-            env.wait_for_status(REPOSITORY_ID, operation, OperationStatus.SUCCEEDED, timeout=10.0)
-            completion_order.append(operation)
+            for operation_id, artifact_id, key, expected_commit in operation_specs
+        ]
 
-        assert completion_order == [spec[0] for spec in operation_specs]
+        for operation_id in operation_ids:
+            env.wait_for_status(
+                REPOSITORY_ID,
+                operation_id,
+                OperationStatus.SUCCEEDED,
+                timeout=15.0,
+            )
+
+        completed = [
+            env.store.get_operation(REPOSITORY_ID, operation_id)
+            for operation_id in operation_ids
+        ]
+        completion_times = [
+            op.completed_at
+            for op in completed
+            if op is not None and op.completed_at is not None
+        ]
+        assert len(completion_times) == 4
+        assert completion_times == sorted(completion_times)
+        assert operation_ids == [spec[0] for spec in operation_specs]
     finally:
         env.close()
 
@@ -230,32 +337,126 @@ def test_cross_repository_respects_global_worker_bound(tmp_path: Path) -> None:
     env.pool.start()
     try:
         repositories = [
-            UUID(f"018f0f3e-7b0a-7c1{i}-8a9e-2e4b9f4d2c11")
-            for i in range(4)
+            UUID(f"018f0f3e-7b0a-7c3{i}-8a9e-2e4b9f4d2c11")
+            for i in range(6)
         ]
+        operation_ids: list[UUID] = []
         for index, repository_id in enumerate(repositories):
             provider = env.provider_for(repository_id)
             provider.replay_delay_seconds = 0.3
-            env.enqueue(
-                repository_id,
-                artifact_id=UUID(f"018f0f3e-7b0a-7c2{index}-8a9e-2e4b9f4d2c11"),
-                key=f"repo-{index}",
+            operation_ids.append(
+                env.enqueue(
+                    repository_id,
+                    artifact_id=UUID(f"018f0f3e-7b0a-7c4{index}-8a9e-2e4b9f4d2c11"),
+                    key=f"repo-{index}",
+                )
             )
 
         peak = 0
-        deadline = time.monotonic() + 2.0
+        deadline = time.monotonic() + 8.0
         while time.monotonic() < deadline:
             running = env.connection.execute(
                 "SELECT COUNT(*) AS count FROM repository_import_operations WHERE status = ?",
                 (OperationStatus.RUNNING.value,),
             ).fetchone()
             peak = max(peak, int(running["count"]))
-            if peak >= 2:
+            if all(
+                (op := env.store.get_operation(repo_id, op_id)) is not None
+                and op.status in {OperationStatus.SUCCEEDED, OperationStatus.FAILED}
+                for repo_id, op_id in zip(repositories, operation_ids, strict=True)
+            ):
                 break
             time.sleep(0.02)
 
-        assert peak <= 2
-        assert peak >= 2
+        assert peak == 2
+    finally:
+        env.close()
+
+
+def test_context_load_failure_releases_reservation_and_in_flight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = WorkerTestEnvironment(tmp_path, max_import_workers=2)
+    env.pool.start()
+    calls = {"count": 0}
+    original = env.store.load_execution_context
+
+    def _flaky_load(operation_id: UUID) -> ImportOperationExecutionContext | None:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("forced context load failure")
+        return original(operation_id)
+
+    monkeypatch.setattr(env.store, "load_execution_context", _flaky_load)
+
+    first_artifact = ARTIFACT_ID
+    second_artifact = UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c11")
+    first_operation = env.enqueue(REPOSITORY_ID, artifact_id=first_artifact, key="leak-1")
+    second_operation = env.enqueue(REPOSITORY_ID, artifact_id=second_artifact, key="leak-2")
+
+    env.wait_for_status(REPOSITORY_ID, first_operation, OperationStatus.FAILED, timeout=5.0)
+    env.wait_for_status(REPOSITORY_ID, second_operation, OperationStatus.SUCCEEDED, timeout=5.0)
+
+    assert env.locks.is_active(REPOSITORY_ID) is False
+    first = env.store.get_operation(REPOSITORY_ID, first_operation)
+    assert first is not None
+    assert first.status == OperationStatus.FAILED
+    env.close()
+
+
+@pytest.mark.parametrize(
+    ("point", "expected_code", "expect_private_ref"),
+    [
+        (ImportWorkerFaultPoint.AFTER_RUNNING_CLAIM, IMPORT_REJECTED_CODE, False),
+        (ImportWorkerFaultPoint.AFTER_PACKAGE_EXTRACTED, IMPORT_REJECTED_CODE, False),
+        (ImportWorkerFaultPoint.AFTER_PRIVATE_REF_CREATED, IMPORT_REJECTED_CODE, True),
+        (ImportWorkerFaultPoint.AFTER_REPLAY_BEFORE_MARKER, IMPORT_REJECTED_CODE, True),
+        (ImportWorkerFaultPoint.AFTER_MARKER_BEFORE_VERIFICATION, MANUAL_RECOVERY_REQUIRED_CODE, True),
+        (
+            ImportWorkerFaultPoint.AFTER_VERIFICATION_BEFORE_SECOND_MAIN_CHECK,
+            MANUAL_RECOVERY_REQUIRED_CODE,
+            True,
+        ),
+        (
+            ImportWorkerFaultPoint.AFTER_SECOND_MAIN_CHECK_BEFORE_PUBLISH,
+            MANUAL_RECOVERY_REQUIRED_CODE,
+            True,
+        ),
+        (ImportWorkerFaultPoint.AFTER_MAIN_PUBLISH_BEFORE_SUCCEEDED, MANUAL_RECOVERY_REQUIRED_CODE, True),
+        (ImportWorkerFaultPoint.AFTER_SUCCEEDED_BEFORE_PRIVATE_REF_CLEANUP, None, True),
+        (ImportWorkerFaultPoint.AFTER_SUCCEEDED_BEFORE_ARTIFACT_CLEANUP, None, False),
+    ],
+)
+def test_fault_injection_through_pool(
+    tmp_path: Path,
+    point: ImportWorkerFaultPoint,
+    expected_code: str | None,
+    expect_private_ref: bool,
+) -> None:
+    env = WorkerTestEnvironment(
+        tmp_path,
+        fault_injector=ConfigurableImportWorkerFaultInjector(points=frozenset({point})),
+    )
+    env.pool.start()
+    try:
+        operation_id = env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID)
+        if expected_code is None:
+            env.wait_for_status(REPOSITORY_ID, operation_id, OperationStatus.SUCCEEDED)
+        else:
+            env.wait_for_status(REPOSITORY_ID, operation_id, OperationStatus.FAILED)
+            operation = env.store.get_operation(REPOSITORY_ID, operation_id)
+            assert operation is not None
+            assert operation.error is not None
+            assert operation.error.code == expected_code
+
+        provider = env.provider_for(REPOSITORY_ID)
+        private_ref = derive_private_ref_name(operation_id)
+        if expect_private_ref:
+            assert private_ref in provider.refs
+        else:
+            assert private_ref not in provider.refs
+        assert artifact_ready_path(env.layout, REPOSITORY_ID, ARTIFACT_ID).exists()
     finally:
         env.close()
 
@@ -311,3 +512,32 @@ def test_public_error_detail_does_not_expose_private_ref_or_path(
     assert "gateway-import-" not in rendered
     assert "/tmp/" not in rendered
     assert "/root/" not in rendered
+
+
+def test_simple_error_sanitizes_dict_values() -> None:
+    from gateway_repository_service.versioned_import.command import _simple_error
+
+    error = _simple_error(
+        "EXPECTED_COMMIT_MISMATCH",
+        "mismatch",
+        detail={
+            "expected": "commit-0",
+            "actual": "/root/data/gateway-import-abc",
+        },
+    )
+    assert error.details is not None
+    assert error.details["actual"] == "<path>"
+
+
+def test_provider_stderr_not_persisted_raw(worker_env: WorkerTestEnvironment) -> None:
+    from gateway_repository_service.versioned_import.command import _simple_error
+
+    stderr = (
+        "command failed: dolt sql exit=1 stderr=b'error: duplicate primary key 42; "
+        "near INSERT INTO records VALUES (42)'"
+    )
+    error = _simple_error(IMPORT_REJECTED_CODE, "import rejected", detail=stderr)
+    rendered = error.model_dump_json()
+    assert "INSERT INTO" not in rendered
+    assert "VALUES (42)" not in rendered
+    assert "stderr=<redacted>" in rendered or "duplicate primary key" not in rendered

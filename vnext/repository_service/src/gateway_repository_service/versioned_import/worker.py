@@ -9,6 +9,8 @@ import threading
 from collections.abc import Callable
 from uuid import UUID
 
+from gateway_repository_contracts import SimpleError
+
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.command import ImportOperationExecutor
@@ -19,6 +21,7 @@ from gateway_repository_service.versioned_import.faults import (
 from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
 from gateway_repository_service.versioned_import.ports import VersionedImportProvider
 from gateway_repository_service.versioned_import.store import ImportOperationStore
+from gateway_repository_service.versioned_import.verification import IMPORT_REJECTED_CODE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,7 +45,7 @@ class ImportWorkerPool:
         self._provider_factory = provider_factory
         self._locks = locks or RepositoryLockRegistry()
         self._fault_injector = fault_injector or NoOpImportWorkerFaultInjector()
-        self._work_queue: queue.Queue[UUID] = queue.Queue()
+        self._work_queue: queue.Queue[tuple[UUID, UUID]] = queue.Queue()
         self._shutdown = threading.Event()
         self._notify = threading.Condition()
         self._round_robin_index = 0
@@ -94,7 +97,7 @@ class ImportWorkerPool:
             with self._notify:
                 self._notify.wait(timeout=0.1)
 
-    def _try_claim_one(self) -> UUID | None:
+    def _try_claim_one(self) -> tuple[UUID, UUID] | None:
         with self._in_flight_lock:
             if self._in_flight >= self._settings.max_import_workers:
                 return None
@@ -113,7 +116,7 @@ class ImportWorkerPool:
                 continue
             with self._in_flight_lock:
                 self._in_flight += 1
-            return operation_id
+            return (operation_id, repository_id)
         return None
 
     def _rotate_candidates(
@@ -135,11 +138,11 @@ class ImportWorkerPool:
         )
         while not self._shutdown.is_set():
             try:
-                operation_id = self._work_queue.get(timeout=0.1)
+                operation_id, repository_id = self._work_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
             try:
-                self._execute_operation(executor, operation_id)
+                self._execute_operation(executor, operation_id, repository_id)
             except Exception:
                 _LOGGER.exception("import worker failed for operation %s", operation_id)
             finally:
@@ -149,20 +152,31 @@ class ImportWorkerPool:
         self,
         executor: ImportOperationExecutor,
         operation_id: UUID,
+        repository_id: UUID,
     ) -> None:
-        context = self._store.load_execution_context(operation_id)
-        if context is None:
-            with self._in_flight_lock:
-                self._in_flight = max(0, self._in_flight - 1)
-            return
         try:
-            with self._locks.repository_execution(context.repository_id):
-                provider = self._provider_factory(context.repository_id)
+            try:
+                context = self._store.load_execution_context(operation_id)
+            except Exception:
+                _LOGGER.exception(
+                    "failed to load execution context for operation %s",
+                    operation_id,
+                )
+                self._mark_context_load_failure(operation_id)
+                return
+
+            if context is None:
+                _LOGGER.error("missing execution context for operation %s", operation_id)
+                self._mark_context_load_failure(operation_id)
+                return
+
+            with self._locks.repository_execution(repository_id):
+                provider = self._provider_factory(repository_id)
                 executor.execute(context, provider)
         finally:
             with self._in_flight_lock:
                 self._in_flight = max(0, self._in_flight - 1)
-            self._locks.release_reservation(context.repository_id)
+            self._locks.release_reservation(repository_id)
             self.notify()
             staging_dir = self._layout.staging_artifacts / f"import-{operation_id.hex}"
             if staging_dir.exists():
@@ -173,3 +187,20 @@ class ImportWorkerPool:
                         "failed to remove import staging for operation %s",
                         operation_id,
                     )
+
+    def _mark_context_load_failure(self, operation_id: UUID) -> None:
+        try:
+            self._store.mark_failed(
+                operation_id,
+                error=SimpleError(
+                    code=IMPORT_REJECTED_CODE,
+                    message="import operation context could not be loaded",
+                    details={"reason": "operation_context_missing"},
+                    request_id=None,
+                ),
+            )
+        except Exception:
+            _LOGGER.exception(
+                "failed to persist terminal failure for operation %s",
+                operation_id,
+            )

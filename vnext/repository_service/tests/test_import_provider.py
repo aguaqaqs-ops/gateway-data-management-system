@@ -108,6 +108,11 @@ class FakeImportProvider:
             ),
         )
 
+    def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        return tuple(
+            TableCatalog(table.name, table.columns, 0) for table in self.read_catalog(candidate)
+        )
+
     def stream_table(
         self,
         candidate: str,

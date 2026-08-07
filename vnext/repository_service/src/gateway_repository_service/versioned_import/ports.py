@@ -75,6 +75,8 @@ class VersionedImportProvider(Protocol):
 
     def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]: ...
 
+    def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]: ...
+
     def stream_table(
         self,
         candidate: str,

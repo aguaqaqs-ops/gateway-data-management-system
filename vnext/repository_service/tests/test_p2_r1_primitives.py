@@ -13,6 +13,8 @@ from gateway_repository_service.arrow_mapping import (
     UnknownTypePolicy,
     arrow_type,
     classify_temporal_sql_type,
+    convert_value,
+    is_known_sql_type,
     normalize_sql_type,
     parse_temporal_sql_type,
 )
@@ -120,12 +122,39 @@ def test_known_and_unknown_arrow_mapping() -> None:
     assert classify_temporal_sql_type(" TIMESTAMP(6)")[0] == TemporalSqlTypeKind.NOT_TEMPORAL
     assert classify_temporal_sql_type("TIMESTAMP (6)")[0] == TemporalSqlTypeKind.MALFORMED
     assert normalize_sql_type("TIMESTAMP", "TIMESTAMP(00)") == "TIMESTAMP"
-    unknown, metadata = arrow_type("ENUM('A','B')", UnknownTypePolicy.STRINGIFY)
+    assert normalize_sql_type("ENUM", "enum('a','b')") == "ENUM('a','b')"
+    assert normalize_sql_type("ENUM", "enum('A','B')") == "ENUM('A','B')"
+    assert normalize_sql_type("SET", "set('x','X')") != normalize_sql_type("SET", "set('X','x')")
+    unknown, metadata = arrow_type("ENUM('a','b')", UnknownTypePolicy.STRINGIFY)
     assert unknown == pa.large_string()
+    assert metadata[b"gateway.sql_type"] == b"ENUM('a','b')"
     assert metadata[b"gateway.lossy"] == b"true"
     try:
-        arrow_type("ENUM('A','B')", UnknownTypePolicy.REJECT)
+        arrow_type("ENUM('a','b')", UnknownTypePolicy.REJECT)
     except UnknownSqlTypeError:
         pass
     else:
         raise AssertionError("unknown type did not reject")
+    assert not is_known_sql_type("ENUM('a','b')")
+    assert is_known_sql_type("INT")
+
+
+def test_stringify_does_not_degrade_known_types() -> None:
+    spellings = (
+        "INT",
+        "DECIMAL(10,2)",
+        "DATE",
+        "TIME(6)",
+        "TIMESTAMP(6)",
+        "BINARY(4)",
+        "JSON",
+    )
+    for spelling in spellings:
+        reject = arrow_type(spelling, UnknownTypePolicy.REJECT)
+        stringify = arrow_type(spelling, UnknownTypePolicy.STRINGIFY)
+        assert reject == stringify
+
+
+def test_stringify_known_type_conversion_failure_raises_value_error() -> None:
+    with pytest.raises(ValueError):
+        convert_value("not-a-date", "DATE", UnknownTypePolicy.STRINGIFY)

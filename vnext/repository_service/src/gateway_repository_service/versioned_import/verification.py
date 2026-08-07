@@ -51,6 +51,17 @@ def verify_import_candidate(
             unknown_type_policy=unknown_type_policy,
         )
 
+    if (
+        verification_policy == VerificationPolicy.NONE
+        and unknown_type_policy == UnknownTypePolicy.REJECT
+    ):
+        catalog = provider.read_type_catalog(candidate)
+        _reject_unknown_catalog_types(catalog)
+        return ImportVerificationResult(
+            completed_verification_policy=verification_policy,
+            unknown_type_policy=unknown_type_policy,
+        )
+
     catalog = provider.read_catalog(candidate)
 
     if unknown_type_policy == UnknownTypePolicy.REJECT:
@@ -63,7 +74,7 @@ def verify_import_candidate(
         _compare_manifest_structural(manifest, catalog)
 
     if verification_policy == VerificationPolicy.FULL_SCAN:
-        _full_scan_tables(provider, candidate, catalog, unknown_type_policy)
+        _full_scan_tables(provider, candidate, catalog, manifest, unknown_type_policy)
 
     return ImportVerificationResult(
         completed_verification_policy=verification_policy,
@@ -158,23 +169,16 @@ def _full_scan_tables(
     provider: VersionedImportProvider,
     candidate: str,
     catalog: tuple[TableCatalog, ...],
+    manifest: ImportManifest,
     unknown_type_policy: UnknownTypePolicy,
 ) -> None:
-    manifest_by_name = {table.name: table for table in catalog}
+    manifest_row_counts = {table.name: table.row_count for table in manifest.tables}
     for table in catalog:
-        expected_row_count = manifest_by_name[table.name].row_count
+        expected_row_count = manifest_row_counts[table.name]
         scanned_rows = 0
-        try:
-            for batch in provider.stream_table(candidate, table, unknown_type_policy):
-                _assert_batch_contract(batch, table, unknown_type_policy)
-                scanned_rows += batch.num_rows
-        except Exception as exc:
-            if isinstance(exc, ImportVerificationError):
-                raise
-            raise ImportVerificationError(
-                VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
-                detail=f"row scan failed for {table.name}",
-            ) from exc
+        for batch in provider.stream_table(candidate, table, unknown_type_policy):
+            _assert_batch_contract(batch, table, unknown_type_policy)
+            scanned_rows += batch.num_rows
         if scanned_rows != expected_row_count:
             raise ImportVerificationError(
                 VERIFICATION_FAILED_NOT_PUBLISHED_CODE,

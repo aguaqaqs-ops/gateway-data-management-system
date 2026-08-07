@@ -136,7 +136,7 @@ INSERT INTO composite_keys VALUES (1, 2, NULL);
             "unknown_types",
             (
                 ColumnCatalog("id", "INT", False, 1),
-                ColumnCatalog("unknown_value", "ENUM('A','B')", True, None),
+                ColumnCatalog("unknown_value", "ENUM('a','b')", True, None),
             ),
             2,
         ),

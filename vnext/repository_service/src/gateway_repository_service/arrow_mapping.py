@@ -148,12 +148,25 @@ def parse_temporal_sql_type(sql_type: str) -> tuple[str, int | None] | None:
     return None
 
 
+def _strip_type_modifiers(column_type: str) -> str:
+    stripped = re.sub(r"\s+COLLATE\s+[^ ]+", "", column_type, flags=re.IGNORECASE)
+    stripped = re.sub(r"\s+CHARACTER SET\s+[^ ]+", "", stripped, flags=re.IGNORECASE)
+    return " ".join(stripped.split())
+
+
+def _normalize_unknown_sql_spelling(column_type: str) -> str:
+    stripped = _strip_type_modifiers(column_type)
+    match = re.match(r"^([A-Za-z_]+)(.*)$", stripped, re.DOTALL)
+    if match is None:
+        return stripped
+    return f"{match.group(1).upper()}{match.group(2)}"
+
+
 def normalize_sql_type(data_type: str, column_type: str) -> str:
     """Normalize the Dolt catalog spelling used by the contract."""
 
-    raw = " ".join(column_type.upper().split())
-    raw = re.sub(r"\s+COLLATE\s+[^ ]+", "", raw)
-    raw = re.sub(r"\s+CHARACTER SET\s+[^ ]+", "", raw)
+    stripped = _strip_type_modifiers(column_type)
+    raw = stripped.upper()
     if raw in {"TINYINT(1)", "TINYINT(1) UNSIGNED"}:
         return "BOOLEAN"
     if raw.startswith("TINYINT(1)") and data_type.upper() == "TINYINT":
@@ -195,7 +208,7 @@ def normalize_sql_type(data_type: str, column_type: str) -> str:
         if spatial_type not in SPATIAL_SQL_TYPES:
             raise UnknownSqlTypeError(f"invalid spatial SRID type: {column_type}")
         return f"{spatial_type} SRID {srid_match.group(2)}"
-    return raw
+    return _normalize_unknown_sql_spelling(stripped)
 
 
 def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, dict[bytes, bytes]]:
@@ -253,7 +266,10 @@ def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, d
     if upper == "JSON":
         return pa.string(), {b"gateway.logical_type": b"json"}
     if policy == UnknownTypePolicy.STRINGIFY:
-        return pa.large_string(), {b"gateway.sql_type": upper.encode("utf-8"), b"gateway.lossy": b"true"}
+        return pa.large_string(), {
+            b"gateway.sql_type": sql_type.encode("utf-8"),
+            b"gateway.lossy": b"true",
+        }
     raise UnknownSqlTypeError(f"unknown SQL type: {sql_type}")
 
 

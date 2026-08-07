@@ -263,6 +263,27 @@ class CandidateAImportProvider:
         except _IMPORT_PROVIDER_FAULTS as exc:
             raise _as_import_provider_error(exc) from exc
 
+    def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        safe_candidate = validate_commit_id(candidate)
+        try:
+            rows = self._cli.query_json(
+                "candidate_parent",
+                "SELECT parents FROM dolt_log AS OF "
+                f"{commit_literal(safe_candidate)} WHERE commit_hash = {commit_literal(safe_candidate)};\n",
+            )
+            parent_row = _require_exactly_one_row(rows, "candidate_parent")
+            raw_parents = value(parent_row, "parents", 0)
+            if not isinstance(raw_parents, str) or not raw_parents:
+                raise ImportProviderError("candidate parent is missing or malformed")
+            if raw_parents != raw_parents.strip():
+                raise ImportProviderError("candidate parent is missing or malformed")
+            parent = parse_marker_parent_field(raw_parents)
+            if parent is None:
+                raise ImportProviderError("candidate parent is missing or malformed")
+            return self._cli.type_catalog(parent, safe_candidate)
+        except _IMPORT_PROVIDER_FAULTS as exc:
+            raise _as_import_provider_error(exc) from exc
+
     def stream_table(
         self,
         candidate: str,

@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 from uuid import UUID
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 
 from gateway_repository_contracts import UnknownTypePolicy, VerificationPolicy
-from gateway_repository_service.arrow_mapping import ColumnCatalog, TableCatalog
+from gateway_repository_service.arrow_mapping import ColumnCatalog, TableCatalog, arrow_type
 from gateway_repository_service.fixtures import Workload, generate_fixture
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import DoltRunner
 from gateway_repository_service.providers import OfflineCliProvider
+from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.models import (
     ImportManifest,
     ImportManifestColumn,
@@ -35,6 +38,19 @@ from gateway_repository_service.versioned_import.verification import (
 from support.lifecycle_harness import dolt_available, lifecycle_settings
 
 OPERATION_ID = UUID("00000000-0000-4000-8000-0000000000b1")
+
+UNKNOWN_NULLABLE_ARROW_FIELD = pa.field(
+    "unknown_value",
+    pa.large_string(),
+    nullable=True,
+    metadata={b"gateway.sql_type": b"ENUM('a','b')", b"gateway.lossy": b"true"},
+)
+UNKNOWN_NOT_NULL_ARROW_FIELD = pa.field(
+    "unknown_value",
+    pa.large_string(),
+    nullable=False,
+    metadata={b"gateway.sql_type": b"ENUM('a','b')", b"gateway.lossy": b"true"},
+)
 
 
 @pytest.fixture
@@ -116,6 +132,26 @@ def _wrong_row_count_manifest(manifest: ImportManifest, *, table_name: str, row_
     return manifest.model_copy(update={"tables": tuple(updated_tables)})
 
 
+def _assert_full_scan_arrow_contracts(
+    provider: CandidateAImportProvider,
+    candidate: str,
+    catalog: tuple[TableCatalog, ...],
+    *,
+    unknown_type_policy: UnknownTypePolicy,
+) -> None:
+    for table in catalog:
+        batches = list(provider.stream_table(candidate, table, unknown_type_policy))
+        assert batches
+        batch = pa.concat_batches(batches)
+        for index, column in enumerate(table.columns):
+            field = batch.schema.field(index)
+            expected_type, expected_metadata = arrow_type(column.sql_type, unknown_type_policy)
+            assert field.name == column.name
+            assert field.type == expected_type
+            assert field.nullable == column.nullable
+            assert (field.metadata or {}) == (expected_metadata or {})
+
+
 @pytest.mark.parametrize(
     (
         "verification_policy",
@@ -183,6 +219,14 @@ def _wrong_row_count_manifest(manifest: ImportManifest, *, table_name: str, row_
         ),
         pytest.param(
             VerificationPolicy.FULL_SCAN,
+            UnknownTypePolicy.REJECT,
+            "known_only",
+            "exact",
+            None,
+            id="full-scan-reject-known-only",
+        ),
+        pytest.param(
+            VerificationPolicy.FULL_SCAN,
             UnknownTypePolicy.STRINGIFY,
             "with_unknown",
             "exact",
@@ -218,14 +262,11 @@ def test_verification_policy_matrix(
 
     candidate = _candidate_from_replay(import_provider, import_layout, replay_sql)
     catalog = import_provider.read_catalog(candidate)
-
-    if catalog_kind == "known_only":
-        base_tables = _tables_without_unknown(fixture.expected_tables)
-    else:
-        base_tables = tuple(
-            next(table for table in catalog if table.name == expected.name)
-            for expected in fixture.expected_tables
-        )
+    base_tables = (
+        _tables_without_unknown(fixture.expected_tables)
+        if catalog_kind == "known_only"
+        else fixture.expected_tables
+    )
 
     manifest = manifest_from_tables(base_tables)
     if manifest_kind == "wrong_row_count":
@@ -248,7 +289,14 @@ def test_verification_policy_matrix(
             unknown_type_policy=unknown_type_policy,
         )
         if verification_policy == VerificationPolicy.FULL_SCAN:
-            _assert_stringify_metadata(import_provider, candidate, catalog)
+            _assert_full_scan_arrow_contracts(
+                import_provider,
+                candidate,
+                catalog,
+                unknown_type_policy=unknown_type_policy,
+            )
+            if unknown_type_policy == UnknownTypePolicy.STRINGIFY:
+                _assert_nullable_unknown_stringify_metadata(import_provider, candidate, catalog)
     else:
         with pytest.raises(ImportVerificationError) as exc_info:
             verify_import_candidate(
@@ -261,25 +309,126 @@ def test_verification_policy_matrix(
         assert exc_info.value.code == expected_code
 
 
-def _assert_stringify_metadata(
+def _assert_nullable_unknown_stringify_metadata(
     provider: CandidateAImportProvider,
     candidate: str,
     catalog: tuple[TableCatalog, ...],
 ) -> None:
     unknown_table = next(table for table in catalog if table.name == "unknown_types")
-    batches = list(
-        provider.stream_table(candidate, unknown_table, UnknownTypePolicy.STRINGIFY)
-    )
+    batches = list(provider.stream_table(candidate, unknown_table, UnknownTypePolicy.STRINGIFY))
     assert batches
     batch = batches[0]
     field = batch.schema.field("unknown_value")
-    assert pa.types.is_large_string(field.type)
-    assert field.nullable is True
-    metadata = field.metadata or {}
-    assert metadata.get(b"gateway.sql_type") == b"ENUM('A','B')"
-    assert metadata.get(b"gateway.lossy") == b"true"
+    assert field.equals(UNKNOWN_NULLABLE_ARROW_FIELD)
     values = batch.column("unknown_value").to_pylist()
     assert values == ["a", None]
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_none_reject_uses_minimal_type_projection_without_row_counts(
+    import_provider: CandidateAImportProvider,
+    import_layout: DurableLayout,
+    tmp_path: Path,
+) -> None:
+    fixture = generate_fixture(tmp_path / "fixture", Workload.W0)
+    replay_sql = import_layout.staging_artifacts / "known-only.replay.sql"
+    full_sql = fixture.replay_sql.read_text(encoding="utf-8")
+    filtered_lines = [
+        line
+        for line in full_sql.splitlines(keepends=True)
+        if not line.lstrip().startswith("CREATE TABLE unknown_types")
+        and not line.lstrip().startswith("INSERT INTO unknown_types")
+    ]
+    replay_sql.write_text("".join(filtered_lines), encoding="utf-8")
+    candidate = _candidate_from_replay(import_provider, import_layout, replay_sql)
+    manifest = manifest_from_tables(_tables_without_unknown(fixture.expected_tables))
+    issued_kinds: list[str] = []
+    original_query_json = import_provider._cli.query_json
+
+    def recording_query_json(kind: str, sql: str, *, revision: str | None = None) -> list[dict[str, object]]:
+        issued_kinds.append(kind)
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=recording_query_json):
+        verify_import_candidate(
+            import_provider,
+            candidate=candidate,
+            manifest=manifest,
+            verification_policy=VerificationPolicy.NONE,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        )
+
+    assert "catalog_count" not in issued_kinds
+    assert "catalog_create" in issued_kinds
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_structural_rejects_distinct_enum_literal_spelling(
+    import_provider: CandidateAImportProvider,
+    import_layout: DurableLayout,
+) -> None:
+    sql = """
+CREATE TABLE lower_enum (id INT NOT NULL PRIMARY KEY, v ENUM('a','b') NULL);
+INSERT INTO lower_enum VALUES (1, 'a');
+CREATE TABLE upper_enum (id INT NOT NULL PRIMARY KEY, v ENUM('A','B') NULL);
+INSERT INTO upper_enum VALUES (1, 'A');
+"""
+    candidate = _candidate_from_replay(
+        import_provider,
+        import_layout,
+        _write_staging_sql(import_layout, "enum-spelling.sql", sql),
+    )
+    catalog = import_provider.read_catalog(candidate)
+    lower = next(table for table in catalog if table.name == "lower_enum")
+    upper = next(table for table in catalog if table.name == "upper_enum")
+    if lower.columns[1].sql_type == upper.columns[1].sql_type:
+        pytest.skip("Dolt SHOW CREATE normalized both ENUM spellings to the same catalog type")
+
+    manifest = manifest_from_tables((upper,))
+    with pytest.raises(ImportVerificationError) as exc_info:
+        verify_import_candidate(
+            import_provider,
+            candidate=candidate,
+            manifest=manifest,
+            verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+        )
+    assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_full_scan_stringify_not_null_unknown_follows_catalog_nullability(
+    import_provider: CandidateAImportProvider,
+    import_layout: DurableLayout,
+) -> None:
+    sql = """
+CREATE TABLE required_enum (id INT NOT NULL PRIMARY KEY, unknown_value ENUM('a','b') NOT NULL);
+INSERT INTO required_enum VALUES (1, 'a');
+"""
+    candidate = _candidate_from_replay(
+        import_provider,
+        import_layout,
+        _write_staging_sql(import_layout, "required-enum.sql", sql),
+    )
+    catalog = import_provider.read_catalog(candidate)
+    table = catalog[0]
+    manifest = manifest_from_tables((table,))
+    verify_import_candidate(
+        import_provider,
+        candidate=candidate,
+        manifest=manifest,
+        verification_policy=VerificationPolicy.FULL_SCAN,
+        unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+    )
+    batch = next(iter(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY)))
+    field = batch.schema.field("unknown_value")
+    assert field.equals(UNKNOWN_NOT_NULL_ARROW_FIELD)
+
+
+def _write_staging_sql(layout: DurableLayout, name: str, sql: str) -> Path:
+    path = layout.staging_artifacts / name
+    path.write_text(sql, encoding="utf-8")
+    return path
 
 
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
@@ -290,11 +439,7 @@ def test_structural_mismatch_raises_verification_failed(
 ) -> None:
     fixture = generate_fixture(tmp_path / "fixture", Workload.W0)
     candidate = _candidate_from_replay(import_provider, import_layout, fixture.replay_sql)
-    catalog = import_provider.read_catalog(candidate)
-    known_tables = _tables_without_unknown(
-        tuple(next(table for table in catalog if table.name == expected.name) for expected in fixture.expected_tables)
-    )
-    manifest = manifest_from_tables(known_tables)
+    manifest = manifest_from_tables(_tables_without_unknown(fixture.expected_tables))
 
     with pytest.raises(ImportVerificationError) as exc_info:
         verify_import_candidate(
@@ -315,13 +460,8 @@ def test_full_scan_row_count_mismatch_raises(
 ) -> None:
     fixture = generate_fixture(tmp_path / "fixture", Workload.W0)
     candidate = _candidate_from_replay(import_provider, import_layout, fixture.replay_sql)
-    catalog = import_provider.read_catalog(candidate)
-    base_tables = tuple(
-        next(table for table in catalog if table.name == expected.name)
-        for expected in fixture.expected_tables
-    )
     manifest = _wrong_row_count_manifest(
-        manifest_from_tables(base_tables),
+        manifest_from_tables(fixture.expected_tables),
         table_name="known_types",
         row_count=999,
     )
@@ -351,6 +491,9 @@ def test_structural_unknown_spelling_must_match_exactly() -> None:
                 ),
             )
 
+        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return self.read_catalog(candidate)
+
         def stream_table(self, *_args: object, **_kwargs: object) -> list[object]:
             return []
 
@@ -374,5 +517,81 @@ def test_structural_unknown_spelling_must_match_exactly() -> None:
             manifest=manifest,
             verification_policy=VerificationPolicy.STRUCTURAL,
             unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+        )
+    assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+
+
+def test_provider_fault_escapes_unchanged_from_read_catalog() -> None:
+    class FaultingProvider:
+        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            raise ImportProviderError("dolt catalog process died")
+
+        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            raise ImportProviderError("dolt catalog process died")
+
+        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
+            yield pa.record_batch({"id": pa.array([], type=pa.int64())})
+
+    manifest = manifest_from_tables(
+        (TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 0),)
+    )
+
+    with pytest.raises(ImportProviderError, match="dolt catalog process died"):
+        verify_import_candidate(
+            cast(VersionedImportProvider, FaultingProvider()),
+            candidate="candidate",
+            manifest=manifest,
+            verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        )
+
+
+def test_provider_fault_escapes_unchanged_from_stream_table() -> None:
+    class FaultingProvider:
+        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            table = TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 1)
+            return (table,)
+
+        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return self.read_catalog(candidate)
+
+        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
+            raise ImportProviderError("dolt row stream died")
+            yield pa.record_batch({"id": pa.array([1], type=pa.int32())})
+
+    table = TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 1)
+    manifest = manifest_from_tables((table,))
+
+    with pytest.raises(ImportProviderError, match="dolt row stream died"):
+        verify_import_candidate(
+            cast(VersionedImportProvider, FaultingProvider()),
+            candidate="candidate",
+            manifest=manifest,
+            verification_policy=VerificationPolicy.FULL_SCAN,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        )
+
+
+def test_full_scan_batch_contract_mismatch_raises_verification_failed() -> None:
+    class ContractMismatchProvider:
+        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return (TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 1),)
+
+        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return self.read_catalog(candidate)
+
+        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
+            yield pa.record_batch({"id": pa.array([1], type=pa.int64())})
+
+    table = TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 1)
+    manifest = manifest_from_tables((table,))
+
+    with pytest.raises(ImportVerificationError) as exc_info:
+        verify_import_candidate(
+            cast(VersionedImportProvider, ContractMismatchProvider()),
+            candidate="candidate",
+            manifest=manifest,
+            verification_policy=VerificationPolicy.FULL_SCAN,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
         )
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE

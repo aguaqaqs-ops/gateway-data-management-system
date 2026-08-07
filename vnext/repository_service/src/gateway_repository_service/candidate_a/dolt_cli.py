@@ -373,13 +373,20 @@ class CandidateADoltCli:
                 self._catalog_cache.popitem(last=False)
             self._catalog_cache[commit_id] = catalog
 
-    def _load_table_catalog(self, table_name: str, target_literal: str) -> TableCatalog:
+    def _load_table_schema(self, table_name: str, target_literal: str) -> TableCatalog:
         create_rows = self.query_json(
             "catalog_create",
             f"SHOW CREATE TABLE {quote_identifier(table_name)} AS OF {target_literal};\n",
         )
         create_row = _require_exactly_one_row(create_rows, "catalog_create")
         ddl = _extract_show_create_fields(create_row, table_name, "catalog_create")
+        parsed = _parse_create_statement(ddl, 0)
+        if parsed.name != table_name:
+            raise DoltCliError("Dolt catalog_create DDL table name mismatch")
+        return parsed
+
+    def _load_table_catalog(self, table_name: str, target_literal: str) -> TableCatalog:
+        parsed = self._load_table_schema(table_name, target_literal)
         count_rows = self.query_json(
             "catalog_count",
             f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table_name)} AS OF {target_literal};\n",
@@ -387,10 +394,7 @@ class CandidateADoltCli:
         count_row = _require_exactly_one_row(count_rows, "catalog_count")
         raw_count = value(count_row, "row_count", 0)
         row_count = _parse_non_negative_row_count(raw_count, "catalog_count")
-        parsed = _parse_create_statement(ddl, row_count)
-        if parsed.name != table_name:
-            raise DoltCliError("Dolt catalog_create DDL table name mismatch")
-        return parsed
+        return TableCatalog(parsed.name, parsed.columns, row_count)
 
     def replay(self, replay_sql: Path) -> None:
         self.run_cli(
@@ -431,6 +435,33 @@ class CandidateADoltCli:
         catalog = tuple(sorted(tables, key=lambda table: table.name))
         self._store_cached_catalog(safe_target, catalog)
         return catalog
+
+    def type_catalog(self, base_commit_id: str, target_commit_id: str) -> tuple[TableCatalog, ...]:
+        validate_commit_id(base_commit_id)
+        safe_target = validate_commit_id(target_commit_id)
+        target_literal = commit_literal(safe_target)
+        show_rows = self.query_json(
+            "catalog_tables",
+            f"SHOW FULL TABLES AS OF {target_literal};\n",
+        )
+        table_names: list[str] = []
+        for row in show_rows:
+            table_name, table_type = _parse_show_tables_row(row, "catalog_tables")
+            if table_type == "VIEW":
+                continue
+            table_names.append(table_name)
+        workers = min(self.settings.catalog_parallel_workers, len(table_names)) or 1
+        if workers <= 1:
+            tables = [self._load_table_schema(name, target_literal) for name in table_names]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                tables = list(
+                    executor.map(
+                        lambda name: self._load_table_schema(name, target_literal),
+                        table_names,
+                    )
+                )
+        return tuple(sorted(tables, key=lambda table: table.name))
 
     def stream_table(
         self,

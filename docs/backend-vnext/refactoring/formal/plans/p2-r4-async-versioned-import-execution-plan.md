@@ -445,8 +445,11 @@ vnext/repository_service/src/gateway_repository_service/versioned_import/verific
 vnext/repository_service/src/gateway_repository_service/versioned_import/ports.py
 vnext/repository_service/src/gateway_repository_service/versioned_import/provider.py
 vnext/repository_service/src/gateway_repository_service/arrow_mapping.py
+vnext/repository_service/src/gateway_repository_service/candidate_a/dolt_cli.py   # minimal type projection via type_catalog / _load_table_schema without catalog_count
+vnext/repository_service/src/gateway_repository_service/fixtures.py             # shared expected_tables linkage for unknown spelling literal preservation
 vnext/repository_service/tests/test_import_verification.py
 vnext/repository_service/tests/test_p2_r1_primitives.py       # only shared mapping regressions if required
+vnext/repository_service/tests/test_import_provider.py        # fake provider sync for read_type_catalog Protocol extension
 ```
 
 ### Required behavior and gate

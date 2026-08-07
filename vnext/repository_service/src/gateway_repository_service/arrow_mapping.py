@@ -7,7 +7,7 @@ import decimal
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -18,6 +18,7 @@ __all__ = [
     "TableCatalog",
     "TemporalSqlTypeKind",
     "TemporalSqlType",
+    "SqlValueConversionError",
     "UnknownSqlTypeError",
     "UnknownTypePolicy",
     "arrow_type",
@@ -33,6 +34,15 @@ __all__ = [
 
 class UnknownSqlTypeError(ValueError):
     """Raised when a catalog type is not in the Repository known family."""
+
+
+class SqlValueConversionError(ValueError):
+    """Raised when a catalog value cannot be converted for Arrow emission."""
+
+    def __init__(self, *, column: str, sql_type: str) -> None:
+        self.column = column
+        self.sql_type = sql_type
+        super().__init__(f"value conversion failed for column {column} ({sql_type})")
 
 
 @dataclass(frozen=True)
@@ -148,18 +158,79 @@ def parse_temporal_sql_type(sql_type: str) -> tuple[str, int | None] | None:
     return None
 
 
+def _iter_sql_type_segments(text: str) -> Iterator[tuple[bool, str]]:
+    index = 0
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if character in "'\"`":
+            quote = character
+            start = index
+            index += 1
+            while index < length:
+                if text[index] == "\\" and index + 1 < length:
+                    index += 2
+                    continue
+                if text[index] == quote:
+                    if quote == "'" and index + 1 < length and text[index + 1] == "'":
+                        index += 2
+                        continue
+                    if quote == '"' and index + 1 < length and text[index + 1] == '"':
+                        index += 2
+                        continue
+                    if quote == "`" and index + 1 < length and text[index + 1] == "`":
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                index += 1
+            yield True, text[start:index]
+            continue
+        start = index
+        while index < length and text[index] not in "'\"`":
+            index += 1
+        yield False, text[start:index]
+
+
+_COLLATE_MODIFIER = re.compile(r"\s+COLLATE\s+\S+", re.IGNORECASE)
+_CHARACTER_SET_MODIFIER = re.compile(r"\s+CHARACTER\s+SET\s+\S+", re.IGNORECASE)
+
+
+def _strip_modifiers_outside_quotes(text: str) -> str:
+    parts: list[str] = []
+    for quoted, segment in _iter_sql_type_segments(text):
+        if quoted:
+            parts.append(segment)
+            continue
+        segment = _COLLATE_MODIFIER.sub("", segment)
+        segment = _CHARACTER_SET_MODIFIER.sub("", segment)
+        parts.append(segment)
+    return "".join(parts)
+
+
+def _collapse_whitespace_outside_quotes(text: str) -> str:
+    parts: list[str] = []
+    for quoted, segment in _iter_sql_type_segments(text):
+        if quoted:
+            parts.append(segment)
+        else:
+            parts.append(" ".join(segment.split()))
+    return "".join(parts)
+
+
+def _uppercase_outside_quotes(text: str) -> str:
+    parts: list[str] = []
+    for quoted, segment in _iter_sql_type_segments(text):
+        parts.append(segment if quoted else segment.upper())
+    return "".join(parts)
+
+
 def _strip_type_modifiers(column_type: str) -> str:
-    stripped = re.sub(r"\s+COLLATE\s+[^ ]+", "", column_type, flags=re.IGNORECASE)
-    stripped = re.sub(r"\s+CHARACTER SET\s+[^ ]+", "", stripped, flags=re.IGNORECASE)
-    return " ".join(stripped.split())
+    return _collapse_whitespace_outside_quotes(_strip_modifiers_outside_quotes(column_type))
 
 
 def _normalize_unknown_sql_spelling(column_type: str) -> str:
-    stripped = _strip_type_modifiers(column_type)
-    match = re.match(r"^([A-Za-z_]+)(.*)$", stripped, re.DOTALL)
-    if match is None:
-        return stripped
-    return f"{match.group(1).upper()}{match.group(2)}"
+    return _uppercase_outside_quotes(column_type)
 
 
 def normalize_sql_type(data_type: str, column_type: str) -> str:
@@ -211,7 +282,7 @@ def normalize_sql_type(data_type: str, column_type: str) -> str:
     return _normalize_unknown_sql_spelling(stripped)
 
 
-def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, dict[bytes, bytes]]:
+def _known_arrow_type(sql_type: str) -> tuple[pa.DataType, dict[bytes, bytes]] | None:
     upper = sql_type.upper()
     integer_types: dict[str, pa.DataType] = {
         "TINYINT": pa.int8(),
@@ -249,7 +320,7 @@ def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, d
         precision = int(decimal_match.group(1))
         scale = int(decimal_match.group(2))
         if not 1 <= precision <= 65 or not 0 <= scale <= 30 or scale > precision:
-            raise UnknownSqlTypeError(f"invalid DECIMAL type: {sql_type}")
+            return None
         if precision <= 38:
             return pa.decimal128(precision, scale), {}
         return pa.decimal256(precision, scale), {}
@@ -257,7 +328,7 @@ def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, d
     if bit_match is not None:
         width = int(bit_match.group(1))
         if not 1 <= width <= 64:
-            raise UnknownSqlTypeError(f"invalid BIT type: {sql_type}")
+            return None
         return pa.binary(), {b"gateway.bit_width": str(width).encode("ascii")}
     if upper in _CHARACTER or _SIZED_CHARACTER.fullmatch(upper) is not None:
         return pa.string(), {}
@@ -265,6 +336,13 @@ def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, d
         return pa.binary(), {}
     if upper == "JSON":
         return pa.string(), {b"gateway.logical_type": b"json"}
+    return None
+
+
+def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, dict[bytes, bytes]]:
+    known = _known_arrow_type(sql_type)
+    if known is not None:
+        return known
     if policy == UnknownTypePolicy.STRINGIFY:
         return pa.large_string(), {
             b"gateway.sql_type": sql_type.encode("utf-8"),
@@ -374,12 +452,18 @@ def normalize_rows(
     for row in rows:
         if len(row) != len(columns):
             raise ValueError("row column count does not match catalog")
-        normalized.append(
-            tuple(
-                convert_value(row[index], column.sql_type, policy)
-                for index, column in enumerate(columns)
-            )
-        )
+        converted_row: list[Any] = []
+        for index, column in enumerate(columns):
+            try:
+                converted_row.append(convert_value(row[index], column.sql_type, policy))
+            except ValueError as exc:
+                if isinstance(exc, SqlValueConversionError):
+                    raise
+                raise SqlValueConversionError(
+                    column=column.name,
+                    sql_type=column.sql_type,
+                ) from exc
+        normalized.append(tuple(converted_row))
     return normalized
 
 
@@ -393,7 +477,17 @@ def record_batch(
     fields: list[pa.Field] = []
     for index, column in enumerate(catalog.columns):
         data_type, metadata = arrow_type(column.sql_type, policy)
-        values = [convert_value(row[index], column.sql_type, policy) for row in row_list]
+        values: list[Any] = []
+        for row in row_list:
+            try:
+                values.append(convert_value(row[index], column.sql_type, policy))
+            except ValueError as exc:
+                if isinstance(exc, SqlValueConversionError):
+                    raise
+                raise SqlValueConversionError(
+                    column=column.name,
+                    sql_type=column.sql_type,
+                ) from exc
         arrays.append(pa.array(values, type=data_type))
         fields.append(
             pa.field(column.name, data_type, nullable=column.nullable, metadata=metadata or None)

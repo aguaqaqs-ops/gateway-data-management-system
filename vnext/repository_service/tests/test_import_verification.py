@@ -12,7 +12,12 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 
 from gateway_repository_contracts import UnknownTypePolicy, VerificationPolicy
-from gateway_repository_service.arrow_mapping import ColumnCatalog, TableCatalog, arrow_type
+from gateway_repository_service.arrow_mapping import (
+    ColumnCatalog,
+    SqlValueConversionError,
+    TableCatalog,
+    arrow_type,
+)
 from gateway_repository_service.fixtures import Workload, generate_fixture
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import DoltRunner
@@ -521,7 +526,16 @@ def test_structural_unknown_spelling_must_match_exactly() -> None:
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
 
 
-def test_provider_fault_escapes_unchanged_from_read_catalog() -> None:
+@pytest.mark.parametrize(
+    "verification_policy",
+    [
+        VerificationPolicy.STRUCTURAL,
+        VerificationPolicy.NONE,
+    ],
+)
+def test_provider_fault_escapes_unchanged_from_read_catalog(
+    verification_policy: VerificationPolicy,
+) -> None:
     class FaultingProvider:
         def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
             raise ImportProviderError("dolt catalog process died")
@@ -541,7 +555,7 @@ def test_provider_fault_escapes_unchanged_from_read_catalog() -> None:
             cast(VersionedImportProvider, FaultingProvider()),
             candidate="candidate",
             manifest=manifest,
-            verification_policy=VerificationPolicy.STRUCTURAL,
+            verification_policy=verification_policy,
             unknown_type_policy=UnknownTypePolicy.REJECT,
         )
 
@@ -595,3 +609,112 @@ def test_full_scan_batch_contract_mismatch_raises_verification_failed() -> None:
             unknown_type_policy=UnknownTypePolicy.REJECT,
         )
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+
+
+@pytest.mark.parametrize(
+    "verification_policy",
+    [VerificationPolicy.STRUCTURAL, VerificationPolicy.FULL_SCAN],
+)
+def test_out_of_bounds_spelling_stringify_passes_structural_and_full_scan(
+    verification_policy: VerificationPolicy,
+) -> None:
+    class OutOfBoundsProvider:
+        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return (
+                TableCatalog(
+                    "records",
+                    (
+                        ColumnCatalog("id", "INT", False, 1),
+                        ColumnCatalog("flags", "BIT(65)", True, None),
+                    ),
+                    0,
+                ),
+            )
+
+        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return self.read_catalog(candidate)
+
+        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
+            return iter(())
+
+    manifest = manifest_from_tables(
+        (
+            TableCatalog(
+                "records",
+                (
+                    ColumnCatalog("id", "INT", False, 1),
+                    ColumnCatalog("flags", "BIT(65)", True, None),
+                ),
+                0,
+            ),
+        )
+    )
+
+    result = verify_import_candidate(
+        cast(VersionedImportProvider, OutOfBoundsProvider()),
+        candidate="candidate",
+        manifest=manifest,
+        verification_policy=verification_policy,
+        unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+    )
+    assert result == ImportVerificationResult(
+        completed_verification_policy=verification_policy,
+        unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+    )
+
+
+def test_full_scan_sql_value_conversion_error_maps_to_verification_failed() -> None:
+    class ConversionFailureProvider:
+        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return (TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 1),)
+
+        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return self.read_catalog(candidate)
+
+        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
+            raise SqlValueConversionError(column="id", sql_type="INT")
+            yield pa.record_batch({"id": pa.array([1], type=pa.int32())})
+
+    table = TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 1)
+    manifest = manifest_from_tables((table,))
+
+    with pytest.raises(ImportVerificationError) as exc_info:
+        verify_import_candidate(
+            cast(VersionedImportProvider, ConversionFailureProvider()),
+            candidate="candidate",
+            manifest=manifest,
+            verification_policy=VerificationPolicy.FULL_SCAN,
+            unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+        )
+    assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+    assert exc_info.value.detail == "value conversion failed for records.id"
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_full_scan_zero_date_conversion_failure(
+    import_provider: CandidateAImportProvider,
+    import_layout: DurableLayout,
+) -> None:
+    sql = """
+CREATE TABLE zero_dates (id INT NOT NULL PRIMARY KEY, event_date DATE NULL);
+INSERT INTO zero_dates VALUES (1, '0000-00-00');
+"""
+    staging_path = _write_staging_sql(import_layout, "zero-dates.sql", sql)
+    try:
+        candidate = _candidate_from_replay(import_provider, import_layout, staging_path)
+    except ImportProviderError:
+        pytest.skip("Dolt/sql_mode rejected zero-date insert for zero_dates fixture")
+    catalog = import_provider.read_catalog(candidate)
+    table = catalog[0]
+    manifest = manifest_from_tables((table,))
+
+    with pytest.raises(ImportVerificationError) as exc_info:
+        verify_import_candidate(
+            import_provider,
+            candidate=candidate,
+            manifest=manifest,
+            verification_policy=VerificationPolicy.FULL_SCAN,
+            unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+        )
+    assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+    assert "value conversion failed" in (exc_info.value.detail or "")

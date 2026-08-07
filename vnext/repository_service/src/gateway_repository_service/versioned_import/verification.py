@@ -1,4 +1,7 @@
-"""Verification engine for immutable Versioned import candidates."""
+"""Verification engine for immutable Versioned import candidates.
+
+NONE + STRINGIFY returns immediately without provider calls (§12 literal).
+"""
 
 from __future__ import annotations
 
@@ -9,6 +12,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 from gateway_repository_contracts import UnknownTypePolicy, VerificationPolicy
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
+    SqlValueConversionError,
     TableCatalog,
     UnknownSqlTypeError,
     arrow_type,
@@ -71,6 +75,7 @@ def verify_import_candidate(
         VerificationPolicy.STRUCTURAL,
         VerificationPolicy.FULL_SCAN,
     }:
+        _assert_columns_mappable(catalog, unknown_type_policy)
         _compare_manifest_structural(manifest, catalog)
 
     if verification_policy == VerificationPolicy.FULL_SCAN:
@@ -113,6 +118,21 @@ def _reject_unknown_catalog_types(catalog: tuple[TableCatalog, ...]) -> None:
                     IMPORT_REJECTED_CODE,
                     detail=f"unknown SQL type in catalog: {table.name}.{column.name}",
                 )
+
+
+def _assert_columns_mappable(
+    catalog: tuple[TableCatalog, ...],
+    unknown_type_policy: UnknownTypePolicy,
+) -> None:
+    for table in catalog:
+        for column in table.columns:
+            try:
+                arrow_type(column.sql_type, unknown_type_policy)
+            except UnknownSqlTypeError as exc:
+                raise ImportVerificationError(
+                    VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+                    detail=f"unmappable SQL type in catalog: {table.name}.{column.name}",
+                ) from exc
 
 
 def _compare_manifest_structural(
@@ -176,9 +196,15 @@ def _full_scan_tables(
     for table in catalog:
         expected_row_count = manifest_row_counts[table.name]
         scanned_rows = 0
-        for batch in provider.stream_table(candidate, table, unknown_type_policy):
-            _assert_batch_contract(batch, table, unknown_type_policy)
-            scanned_rows += batch.num_rows
+        try:
+            for batch in provider.stream_table(candidate, table, unknown_type_policy):
+                _assert_batch_contract(batch, table, unknown_type_policy)
+                scanned_rows += batch.num_rows
+        except SqlValueConversionError as exc:
+            raise ImportVerificationError(
+                VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+                detail=f"value conversion failed for {table.name}.{exc.column}",
+            ) from exc
         if scanned_rows != expected_row_count:
             raise ImportVerificationError(
                 VERIFICATION_FAILED_NOT_PUBLISHED_CODE,

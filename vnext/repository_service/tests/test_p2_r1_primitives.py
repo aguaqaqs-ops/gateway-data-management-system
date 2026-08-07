@@ -8,15 +8,18 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 
 from gateway_repository_service.arrow_mapping import (
+    ColumnCatalog,
+    SqlValueConversionError,
+    TableCatalog,
     TemporalSqlTypeKind,
     UnknownSqlTypeError,
     UnknownTypePolicy,
     arrow_type,
     classify_temporal_sql_type,
-    convert_value,
     is_known_sql_type,
     normalize_sql_type,
     parse_temporal_sql_type,
+    record_batch,
 )
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock
@@ -155,6 +158,39 @@ def test_stringify_does_not_degrade_known_types() -> None:
         assert reject == stringify
 
 
-def test_stringify_known_type_conversion_failure_raises_value_error() -> None:
-    with pytest.raises(ValueError):
-        convert_value("not-a-date", "DATE", UnknownTypePolicy.STRINGIFY)
+def test_stringify_known_type_conversion_failure_raises_sql_value_conversion_error() -> None:
+    catalog = TableCatalog(
+        "records",
+        (ColumnCatalog("event_date", "DATE", True, None),),
+        1,
+    )
+    with pytest.raises(SqlValueConversionError) as exc_info:
+        record_batch(catalog, [("not-a-date",)], UnknownTypePolicy.STRINGIFY)
+    message = str(exc_info.value)
+    assert "not-a-date" not in message
+    assert exc_info.value.column == "event_date"
+    assert exc_info.value.sql_type == "DATE"
+
+
+def test_out_of_bounds_spelling_classified_as_unknown() -> None:
+    for spelling in ("BIT(65)", "DECIMAL(99,2)", "DECIMAL(10,20)"):
+        assert is_known_sql_type(spelling) is False
+        arrow, metadata = arrow_type(spelling, UnknownTypePolicy.STRINGIFY)
+        assert arrow == pa.large_string()
+        assert metadata[b"gateway.lossy"] == b"true"
+
+
+def test_malformed_temporal_remains_hard_error() -> None:
+    with pytest.raises(UnknownSqlTypeError, match="invalid temporal"):
+        arrow_type("TIME(9)", UnknownTypePolicy.STRINGIFY)
+    assert is_known_sql_type("TIME(9)") is False
+
+
+def test_unknown_sql_spelling_preserves_quoted_literals() -> None:
+    double_space = normalize_sql_type("ENUM", "enum('a  b')")
+    single_space = normalize_sql_type("ENUM", "enum('a b')")
+    assert double_space == "ENUM('a  b')"
+    assert single_space == "ENUM('a b')"
+    assert double_space != single_space
+    assert normalize_sql_type("ENUM", "enum('a collate b')") == "ENUM('a collate b')"
+    assert normalize_sql_type("INT", "int(11) unsigned zerofill") == "INT(11) UNSIGNED ZEROFILL"

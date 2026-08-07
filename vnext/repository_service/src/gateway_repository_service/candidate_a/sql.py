@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -24,6 +25,12 @@ _commit_literal = commit_literal
 
 class ProviderError(CandidateAError):
     """Candidate A SQL/catalog execution failure shared with probe providers."""
+
+
+@dataclass(frozen=True)
+class _TableConstraintRefs:
+    index_column_lists: tuple[tuple[str, ...], ...] = ()
+    foreign_keys: tuple[tuple[tuple[str, ...], str, tuple[str, ...]], ...] = ()
 
 
 def quote_identifier(identifier: str) -> str:
@@ -275,7 +282,41 @@ def _consume_sql_literal_or_expression(rest: str) -> str:
     return rest[consumed:].lstrip()
 
 
-def _consume_index_like_constraint(rest: str) -> None:
+def _validate_constraint_column_list_members(
+    column_names: tuple[str, ...],
+    declared_columns: set[str],
+) -> None:
+    if len(column_names) != len(set(column_names)):
+        raise ProviderError("pinned CREATE TABLE constraint was malformed")
+    for column_name in column_names:
+        if column_name not in declared_columns:
+            raise ProviderError("pinned CREATE TABLE primary key references unknown column")
+
+
+def _validate_constraint_declared_columns(
+    table_name: str,
+    declared_columns: set[str],
+    constraints: _TableConstraintRefs,
+    all_table_columns: dict[str, set[str]],
+) -> None:
+    for index_columns in constraints.index_column_lists:
+        _validate_constraint_column_list_members(index_columns, declared_columns)
+    for local_columns, ref_table, ref_columns in constraints.foreign_keys:
+        _validate_constraint_column_list_members(local_columns, declared_columns)
+        if len(ref_columns) != len(set(ref_columns)):
+            raise ProviderError("pinned CREATE TABLE constraint was malformed")
+        if ref_table == table_name:
+            _validate_constraint_column_list_members(ref_columns, declared_columns)
+        elif ref_table in all_table_columns:
+            parent_columns = all_table_columns[ref_table]
+            for ref_column in ref_columns:
+                if ref_column not in parent_columns:
+                    raise ProviderError(
+                        "pinned CREATE TABLE foreign key references unknown column"
+                    )
+
+
+def _consume_index_like_constraint(rest: str) -> tuple[str, ...]:
     rest = rest.strip()
     if not rest.startswith("("):
         name_match = re.match(r"`(?:[^`]|``)*`|``(?:[^`]|``)*``|[A-Za-z_][A-Za-z0-9_$]*", rest)
@@ -287,7 +328,7 @@ def _consume_index_like_constraint(rest: str) -> None:
             raise ProviderError("pinned CREATE TABLE constraint was malformed")
     opening_paren = rest.find("(")
     closing = _find_matching_paren(rest, opening_paren)
-    _parse_constraint_column_list(rest[opening_paren + 1 : closing])
+    index_columns = _parse_constraint_column_list(rest[opening_paren + 1 : closing])
     remainder = rest[closing + 1 :].strip()
     comment_match = re.match(
         r"COMMENT\s+(?:'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`)",
@@ -298,9 +339,12 @@ def _consume_index_like_constraint(rest: str) -> None:
         remainder = remainder[comment_match.end():].strip()
     if remainder:
         raise ProviderError("pinned CREATE TABLE constraint was malformed")
+    return index_columns
 
 
-def _consume_foreign_key_constraint(rest: str) -> None:
+def _consume_foreign_key_constraint(
+    rest: str,
+) -> tuple[tuple[str, ...], str, tuple[str, ...]]:
     rest = rest.strip()
     if not rest.startswith("("):
         raise ProviderError("pinned CREATE TABLE constraint was malformed")
@@ -335,9 +379,10 @@ def _consume_foreign_key_constraint(rest: str) -> None:
             raise ProviderError("pinned CREATE TABLE constraint was malformed")
         seen_actions.add(action_kind)
         rest = rest[on_match.end():].strip()
+    return local_cols, ref_table, ref_cols
 
 
-def _consume_table_constraint(definition: str) -> None:
+def _consume_table_constraint(definition: str) -> _TableConstraintRefs:
     stripped = definition.strip()
     if not stripped:
         raise ProviderError("pinned CREATE TABLE constraint was malformed")
@@ -356,20 +401,19 @@ def _consume_table_constraint(definition: str) -> None:
             remainder = remainder[version_comment_match.end():].strip()
         if remainder:
             raise ProviderError("pinned CREATE TABLE constraint was malformed")
-        return
+        return _TableConstraintRefs()
 
     foreign_match = re.match(r"FOREIGN\s+KEY\s+", stripped, re.I)
     if foreign_match is not None:
-        _consume_foreign_key_constraint(stripped[foreign_match.end():])
-        return
+        foreign_key = _consume_foreign_key_constraint(stripped[foreign_match.end():])
+        return _TableConstraintRefs((), (foreign_key,))
 
     constraint_match = re.match(r"CONSTRAINT\s+", stripped, re.I)
     if constraint_match is not None:
         rest = stripped[constraint_match.end():].strip()
         constraint_name, rest = _first_identifier(rest)
         _validate_ddl_column_identifier(constraint_name)
-        _consume_table_constraint(rest)
-        return
+        return _consume_table_constraint(rest)
 
     index_match = re.match(
         r"(?:FULLTEXT\s+(?:KEY\s+)?|SPATIAL\s+(?:KEY\s+)?|UNIQUE\s+(?:KEY\s+)?|(?:KEY|INDEX)\s+)",
@@ -377,8 +421,8 @@ def _consume_table_constraint(definition: str) -> None:
         re.I,
     )
     if index_match is not None:
-        _consume_index_like_constraint(stripped[index_match.end():])
-        return
+        index_columns = _consume_index_like_constraint(stripped[index_match.end():])
+        return _TableConstraintRefs((index_columns,), ())
 
     raise ProviderError("pinned CREATE TABLE constraint was malformed")
 
@@ -414,14 +458,14 @@ def _consume_column_modifiers(tail: str) -> bool:
             remainder = re.sub(r"NULL\b", "", remainder, count=1, flags=re.I).strip()
             continue
         if re.match(r"DEFAULT\s+", remainder, re.I):
-            if seen_default or seen_generated:
+            if seen_default or seen_generated or seen_auto_increment:
                 raise ProviderError("invalid pinned DDL column definition")
             seen_default = True
             remainder = re.sub(r"DEFAULT\s+", "", remainder, count=1, flags=re.I).strip()
             remainder = _consume_sql_literal_or_expression(remainder)
             continue
         if re.match(r"ON\s+UPDATE\s+", remainder, re.I):
-            if seen_on_update:
+            if seen_on_update or seen_generated:
                 raise ProviderError("invalid pinned DDL column definition")
             seen_on_update = True
             remainder = re.sub(r"ON\s+UPDATE\s+", "", remainder, count=1, flags=re.I).strip()
@@ -446,7 +490,7 @@ def _consume_column_modifiers(tail: str) -> bool:
             remainder = remainder[collate_match.end():].strip()
             continue
         if re.match(r"AUTO_INCREMENT\b", remainder, re.I):
-            if seen_auto_increment:
+            if seen_auto_increment or seen_generated or seen_default:
                 raise ProviderError("invalid pinned DDL column definition")
             seen_auto_increment = True
             remainder = re.sub(r"AUTO_INCREMENT\b", "", remainder, count=1, flags=re.I).strip()
@@ -459,7 +503,13 @@ def _consume_column_modifiers(tail: str) -> bool:
             continue
         generated_head = re.match(r"GENERATED\s+ALWAYS\s+AS\s*", remainder, re.I)
         if generated_head is not None:
-            if seen_generated or seen_default:
+            if (
+                seen_generated
+                or seen_default
+                or seen_on_update
+                or seen_auto_increment
+                or inline_pk
+            ):
                 raise ProviderError("invalid pinned DDL column definition")
             seen_generated = True
             remainder = remainder[generated_head.end():].strip()
@@ -518,7 +568,9 @@ def _column_type_and_tail(rest: str) -> tuple[str, str]:
     return rest.strip(), ""
 
 
-def _parse_create_statement(ddl: str, row_count: int) -> TableCatalog:
+def _parse_create_statement_with_constraints(
+    ddl: str, row_count: int
+) -> tuple[TableCatalog, _TableConstraintRefs]:
     match = re.match(r"\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?", ddl, re.I)
     if match is None:
         raise ProviderError("pinned schema diff did not contain CREATE TABLE")
@@ -536,6 +588,8 @@ def _parse_create_statement(ddl: str, row_count: int) -> TableCatalog:
     columns: list[ColumnCatalog] = []
     primary_key: list[str] = []
     pk_defined = False
+    index_column_lists: list[tuple[str, ...]] = []
+    foreign_keys: list[tuple[tuple[str, ...], str, tuple[str, ...]]] = []
     for definition in definitions:
         if not definition.strip():
             raise ProviderError("pinned CREATE TABLE has empty column definition")
@@ -559,8 +613,12 @@ def _parse_create_statement(ddl: str, row_count: int) -> TableCatalog:
             ]
             pk_defined = True
             continue
+        if upper.startswith("PRIMARY") and not upper.startswith("PRIMARY KEY"):
+            raise ProviderError("pinned CREATE TABLE constraint was malformed")
         if any(upper.startswith(prefix) for prefix in _TABLE_CONSTRAINT_PREFIXES):
-            _consume_table_constraint(stripped_definition)
+            table_constraints = _consume_table_constraint(stripped_definition)
+            index_column_lists.extend(table_constraints.index_column_lists)
+            foreign_keys.extend(table_constraints.foreign_keys)
             continue
         column_name, rest = _first_identifier(definition)
         column_name = _validate_ddl_column_identifier(column_name)
@@ -598,21 +656,52 @@ def _parse_create_statement(ddl: str, row_count: int) -> TableCatalog:
     for column in columns:
         if column.primary_key_position is not None and column.nullable:
             raise ProviderError("pinned CREATE TABLE primary key column is nullable")
-    return TableCatalog(name, tuple(columns), row_count)
+    constraints = _TableConstraintRefs(
+        tuple(index_column_lists),
+        tuple(foreign_keys),
+    )
+    _validate_constraint_declared_columns(
+        name,
+        declared_columns,
+        constraints,
+        {name: declared_columns},
+    )
+    return TableCatalog(name, tuple(columns), row_count), constraints
+
+
+def _parse_create_statement(ddl: str, row_count: int) -> TableCatalog:
+    table, _ = _parse_create_statement_with_constraints(ddl, row_count)
+    return table
 
 
 def _catalog_from_schema_diff(
     rows: list[dict[str, Any]], counts: dict[str, int]
 ) -> tuple[TableCatalog, ...]:
-    tables: dict[str, TableCatalog] = {}
+    parsed: list[tuple[TableCatalog, _TableConstraintRefs]] = []
     for row in rows:
         ddl = row.get("to_create_statement")
         if ddl in (None, ""):
             continue
-        table = _parse_create_statement(str(ddl), 0)
-        tables[table.name] = TableCatalog(table.name, table.columns, counts.get(table.name, 0))
-    if not tables and any(row.get("to_create_statement") not in (None, "") for row in rows):
+        table, constraints = _parse_create_statement_with_constraints(str(ddl), 0)
+        parsed.append((table, constraints))
+    if not parsed and any(row.get("to_create_statement") not in (None, "") for row in rows):
         raise ProviderError("pinned schema diff did not produce a target catalog")
+    all_table_columns = {
+        table.name: {column.name for column in table.columns} for table, _ in parsed
+    }
+    tables: dict[str, TableCatalog] = {}
+    for table, constraints in parsed:
+        _validate_constraint_declared_columns(
+            table.name,
+            all_table_columns[table.name],
+            constraints,
+            all_table_columns,
+        )
+        tables[table.name] = TableCatalog(
+            table.name,
+            table.columns,
+            counts.get(table.name, 0),
+        )
     return tuple(tables[name] for name in sorted(tables))
 
 

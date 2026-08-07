@@ -24,7 +24,7 @@ from gateway_repository_service.arrow_mapping import (
 from gateway_repository_service.candidate_a.dolt_cli import DoltCliError
 from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import IMPORT_MAIN_REF
-from gateway_repository_service.candidate_a.sql import ProviderError, _parse_create_statement
+from gateway_repository_service.candidate_a.sql import ProviderError, _catalog_from_schema_diff, _parse_create_statement
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import CommandResult, DoltRunner, ProcessBoundaryError
 from gateway_repository_service.providers import OfflineCliProvider
@@ -3000,6 +3000,12 @@ def test_catalog_count_rejects_descriptor_case_collision_keys(
             "invalid pinned DDL identifier",
         ),
         ("CREATE TABLE t (`id` BIGINT, KEY `` (`id`));", "invalid pinned DDL identifier"),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY (`missing`) REFERENCES `parent` (`id`));",
+            "references unknown column",
+        ),
+        ("CREATE TABLE t (`id` BIGINT, KEY `ix` (`missing`));", "references unknown column"),
+        ("CREATE TABLE t (`id` BIGINT, PRIMARY FOO);", "constraint was malformed"),
     ),
 )
 def test_parse_create_statement_rejects_additional_malformed_ddl(ddl: str, match: str) -> None:
@@ -3088,6 +3094,12 @@ def _catalog_create_injection_test(
             "invalid pinned DDL identifier",
         ),
         ("CREATE TABLE t (`id` BIGINT, KEY `` (`id`));", "invalid pinned DDL identifier"),
+        (
+            "CREATE TABLE t (`id` BIGINT, FOREIGN KEY (`missing`) REFERENCES `parent` (`id`));",
+            "references unknown column",
+        ),
+        ("CREATE TABLE t (`id` BIGINT, KEY `ix` (`missing`));", "references unknown column"),
+        ("CREATE TABLE t (`id` BIGINT, PRIMARY FOO);", "constraint was malformed"),
     ),
 )
 def test_read_catalog_rejects_malformed_create_ddl_injection(
@@ -3335,3 +3347,49 @@ def test_parse_create_statement_rejects_non_spatial_embedded_srid() -> None:
 def test_normalize_sql_type_rejects_non_spatial_embedded_srid() -> None:
     with pytest.raises(UnknownSqlTypeError, match="invalid spatial SRID type"):
         normalize_sql_type("BIGINT", "BIGINT /*!80003 SRID 4326 */")
+
+
+def test_catalog_from_schema_diff_rejects_cross_table_foreign_key_missing_ref_column() -> None:
+    rows = [
+        {
+            "to_create_statement": (
+                "CREATE TABLE parent (`id` BIGINT NOT NULL PRIMARY KEY);"
+            ),
+        },
+        {
+            "to_create_statement": (
+                "CREATE TABLE child (`id` BIGINT, "
+                "FOREIGN KEY (`id`) REFERENCES `parent` (`missing`));"
+            ),
+        },
+    ]
+    with pytest.raises(ProviderError, match="foreign key references unknown column"):
+        _catalog_from_schema_diff(rows, {})
+
+
+@pytest.mark.parametrize(
+    ("ddl", "match"),
+    (
+        (
+            "CREATE TABLE t (`id` INT GENERATED ALWAYS AS (id + 1) "
+            "ON UPDATE CURRENT_TIMESTAMP, `pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`id` INT GENERATED ALWAYS AS (id + 1) AUTO_INCREMENT, "
+            "`pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+        (
+            "CREATE TABLE t (`id` INT AUTO_INCREMENT DEFAULT 1, "
+            "`pk` BIGINT NOT NULL PRIMARY KEY);",
+            "invalid pinned DDL column definition",
+        ),
+    ),
+)
+def test_parse_create_statement_rejects_generated_modifier_conflicts(
+    ddl: str,
+    match: str,
+) -> None:
+    with pytest.raises(ProviderError, match=match):
+        _parse_create_statement(ddl, 0)

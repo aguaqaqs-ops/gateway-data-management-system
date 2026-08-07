@@ -15,6 +15,11 @@ from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.errors import ImportProviderError
+from gateway_repository_service.versioned_import.faults import (
+    ImportRecoveryFaultInjector,
+    ImportRecoveryFaultPoint,
+    NoOpImportRecoveryFaultInjector,
+)
 from gateway_repository_service.versioned_import.models import (
     MANUAL_RECOVERY_REQUIRED_CODE,
     ImportOperationExecutionContext,
@@ -59,11 +64,13 @@ class ImportStartupReconciler:
         layout: DurableLayout,
         store: ImportOperationStore,
         provider_factory: Callable[[UUID], VersionedImportProvider],
+        fault_injector: ImportRecoveryFaultInjector | None = None,
     ) -> None:
         self._settings = settings
         self._layout = layout
         self._store = store
         self._provider_factory = provider_factory
+        self._fault_injector = fault_injector or NoOpImportRecoveryFaultInjector()
 
     def reconcile(self) -> ImportReconciliationResult:
         queued = len(self._store.list_operations_by_status(OperationStatus.QUEUED))
@@ -370,6 +377,9 @@ class ImportStartupReconciler:
         staging_dir = self._layout.staging_artifacts / f"import-{context.operation_id.hex}"
         try:
             self._store.increment_automatic_replay_count(context.operation_id)
+            self._fault_injector.maybe_raise(
+                ImportRecoveryFaultPoint.AFTER_AUTOMATIC_REPLAY_COUNT_INCREMENT
+            )
             package = validate_and_extract_import_package(
                 artifact_path=artifact_path,
                 expected_size_bytes=context.artifact_size_bytes,

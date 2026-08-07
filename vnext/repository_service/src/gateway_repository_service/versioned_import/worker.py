@@ -247,19 +247,13 @@ class ImportWorkerPool:
         return candidates[start:] + candidates[:start]
 
     def _worker_loop(self) -> None:
-        executor = ImportOperationExecutor(
-            settings=self._settings,
-            layout=self._layout,
-            store=self._store,
-            fault_injector=self._fault_injector,
-        )
         while not self._shutdown.is_set():
             try:
                 operation_id, repository_id = self._work_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
             try:
-                self._execute_operation(executor, operation_id, repository_id)
+                self._execute_operation(operation_id, repository_id)
             except Exception:
                 _LOGGER.exception("import worker failed for operation %s", operation_id)
             finally:
@@ -277,7 +271,6 @@ class ImportWorkerPool:
 
     def _execute_operation(
         self,
-        executor: ImportOperationExecutor,
         operation_id: UUID,
         repository_id: UUID,
     ) -> None:
@@ -303,6 +296,20 @@ class ImportWorkerPool:
                 for cancellation_event in self._cancellation_for(operation_id):
                     if self._is_shutting_down():
                         return
+
+                    def _interruption_check(
+                        *,
+                        _cancellation: threading.Event = cancellation_event,
+                    ) -> bool:
+                        return self._is_shutting_down() or _cancellation.is_set()
+
+                    executor = ImportOperationExecutor(
+                        settings=self._settings,
+                        layout=self._layout,
+                        store=self._store,
+                        fault_injector=self._fault_injector,
+                        interruption_check=_interruption_check,
+                    )
                     provider = _CancellableProviderWrapper(
                         self._provider_factory(repository_id),
                         cancellation_event.is_set,

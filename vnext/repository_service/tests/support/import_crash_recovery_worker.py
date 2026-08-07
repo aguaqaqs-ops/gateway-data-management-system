@@ -54,12 +54,9 @@ def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
 
 def _run_import_worker(args: argparse.Namespace) -> None:
     settings = _settings_from_args(args)
-    repository_id = UUID(args.repository_id)
     fault_point = _FAULT_POINTS[args.fault_point]
     layout = DurableLayout.create_for_probe(settings.data_root)
-    repository_path = published_repository_path(layout, repository_id)
     runner = DoltRunner(settings, layout.root)
-    provider = CandidateAImportProvider(settings, layout, repository_path, runner)
     control_store = ControlStore.open(
         settings.control_db_path,
         expected_version=CONTROL_DB_USER_VERSION,
@@ -70,8 +67,9 @@ def _run_import_worker(args: argparse.Namespace) -> None:
         transaction_lock=control_store.transaction_lock,
     )
 
-    def provider_factory(_repository_id: UUID) -> CandidateAImportProvider:
-        return provider
+    def provider_factory(repository_id: UUID) -> CandidateAImportProvider:
+        repository_path = published_repository_path(layout, repository_id)
+        return CandidateAImportProvider(settings, layout, repository_path, runner)
 
     pool = ImportWorkerPool(
         settings=settings,

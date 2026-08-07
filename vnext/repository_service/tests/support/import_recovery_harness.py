@@ -88,5 +88,36 @@ def wait_for_import_status(
     )
 
 
+_RECOVERY_WORKER = Path(__file__).with_name("import_recovery_crash_worker.py")
+
+
+def crash_recovery_reconcile_subprocess(
+    settings: RepositoryServiceSettings,
+    *,
+    repository_id: UUID,
+    fault_point: str,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            str(_RECOVERY_WORKER),
+            "--data-root",
+            str(settings.data_root),
+            "--dolt-binary",
+            str(settings.dolt_binary),
+            "--dolt-version",
+            settings.dolt_version,
+            "--repository-id",
+            str(repository_id),
+            "--fault-point",
+            fault_point,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=_worker_env(),
+    )
+
+
 def assert_crash_exit(completed: subprocess.CompletedProcess[str]) -> None:
     assert completed.returncode == CRASH_EXIT_CODE, completed.stderr

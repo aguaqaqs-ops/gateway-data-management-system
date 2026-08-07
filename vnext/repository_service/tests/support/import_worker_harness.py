@@ -26,6 +26,7 @@ from gateway_repository_service.versioned_import.models import ImportRequestBind
 from gateway_repository_service.versioned_import.ports import (
     CancellationCallback,
     MarkerInspection,
+    MarkerInspectionAmbiguous,
     MarkerInspectionUnique,
     MarkerInspectionZero,
     PublishMainAmbiguous,
@@ -56,6 +57,7 @@ class FakeImportProvider:
         self.fail_on_replay = False
         self.fail_on_checkout = False
         self.replay_order: list[str] = []
+        self.ambiguous_markers: set[str] = set()
 
     def read_ref(self, ref_name: str) -> str:
         return self.refs[ref_name]
@@ -91,6 +93,8 @@ class FakeImportProvider:
         return candidate
 
     def inspect_marker(self, marker: str) -> MarkerInspection:
+        if marker in self.ambiguous_markers:
+            return MarkerInspectionAmbiguous()
         if marker not in self.markers:
             return MarkerInspectionZero()
         candidate, parent, refs = self.markers[marker]

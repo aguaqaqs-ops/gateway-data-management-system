@@ -40,3 +40,19 @@ class ConfigurableImportWorkerFaultInjector:
     def maybe_raise(self, point: ImportWorkerFaultPoint) -> None:
         if point in self._points:
             raise RuntimeError(f"injected fault at {point.value}")
+
+
+class ImportRecoveryFaultPoint(StrEnum):
+    AFTER_AUTOMATIC_REPLAY_COUNT_INCREMENT = "after_automatic_replay_count_increment"
+
+
+class ImportRecoveryFaultInjector(Protocol):
+    def maybe_raise(self, point: ImportRecoveryFaultPoint) -> None:
+        """Raise when the configured recovery point matches."""
+
+
+class NoOpImportRecoveryFaultInjector:
+    """Default production injector that never injects recovery faults."""
+
+    def maybe_raise(self, point: ImportRecoveryFaultPoint) -> None:
+        return None

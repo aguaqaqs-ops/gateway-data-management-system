@@ -252,6 +252,119 @@ def _seed_import_operation(
 
 
 @pytest.mark.integration
+def test_multirepo_running_interrupt_restart_recovery(tmp_path: Path) -> None:
+    from gateway_repository_service.runtime import ServiceRuntime
+
+    settings = lifecycle_settings(tmp_path)
+    settings = settings.model_copy(update={"max_import_workers": 2})
+    layout = DurableLayout.create_for_probe(settings.data_root)
+
+    repositories = []
+    for repository_id in (REPOSITORY_ID, REPOSITORY_B_ID):
+        repository = published_repository_path(layout, repository_id)
+        repository.mkdir(parents=True, exist_ok=True)
+        runner = DoltRunner(settings, layout.root)
+        cli = OfflineCliProvider(settings, layout, repository, runner)
+        cli.initialize_repository()
+        repositories.append((repository_id, cli.head()))
+
+    control_store = ControlStore.open(
+        settings.control_db_path,
+        expected_version=CONTROL_DB_USER_VERSION,
+        busy_timeout_ms=1000,
+    )
+    store = ImportOperationStore(
+        control_store.connection,
+        transaction_lock=control_store.transaction_lock,
+    )
+    _seed_import_operation(
+        store=store,
+        layout=layout,
+        repository_id=REPOSITORY_ID,
+        artifact_id=ARTIFACT_ID,
+        operation_id=OPERATION_ID,
+        expected_commit=repositories[0][1],
+        key="integration-running-a",
+    )
+    control_store.close()
+
+    from support.import_recovery_harness import assert_crash_exit, crash_import_subprocess, wait_for_import_status
+
+    completed = crash_import_subprocess(
+        settings,
+        repository_id=REPOSITORY_ID,
+        operation_id=OPERATION_ID,
+        fault_point="after_replay_before_marker",
+    )
+    assert_crash_exit(completed)
+
+    control_store = ControlStore.open(
+        settings.control_db_path,
+        expected_version=CONTROL_DB_USER_VERSION,
+        busy_timeout_ms=1000,
+    )
+    store = ImportOperationStore(
+        control_store.connection,
+        transaction_lock=control_store.transaction_lock,
+    )
+    _seed_import_operation(
+        store=store,
+        layout=layout,
+        repository_id=REPOSITORY_B_ID,
+        artifact_id=ARTIFACT_B_ID,
+        operation_id=OPERATION_B_ID,
+        expected_commit=repositories[1][1],
+        key="integration-running-b",
+    )
+    op_a = store.get_operation(REPOSITORY_ID, OPERATION_ID)
+    assert op_a is not None and op_a.status == OperationStatus.RUNNING
+    control_store.close()
+
+    completed = crash_import_subprocess(
+        settings,
+        repository_id=REPOSITORY_B_ID,
+        operation_id=OPERATION_B_ID,
+        fault_point="after_replay_before_marker",
+    )
+    assert_crash_exit(completed)
+
+    control_store = ControlStore.open(
+        settings.control_db_path,
+        expected_version=CONTROL_DB_USER_VERSION,
+        busy_timeout_ms=1000,
+    )
+    store = ImportOperationStore(
+        control_store.connection,
+        transaction_lock=control_store.transaction_lock,
+    )
+    op_a = store.get_operation(REPOSITORY_ID, OPERATION_ID)
+    op_b = store.get_operation(REPOSITORY_B_ID, OPERATION_B_ID)
+    assert op_a is not None and op_a.status == OperationStatus.RUNNING
+    assert op_b is not None and op_b.status == OperationStatus.RUNNING
+    control_store.close()
+
+    runtime = ServiceRuntime.start(settings)
+    try:
+        wait_for_import_status(
+            runtime,
+            REPOSITORY_ID,
+            OPERATION_ID,
+            OperationStatus.SUCCEEDED,
+            timeout=90.0,
+        )
+        wait_for_import_status(
+            runtime,
+            REPOSITORY_B_ID,
+            OPERATION_B_ID,
+            OperationStatus.SUCCEEDED,
+            timeout=90.0,
+        )
+        assert runtime.is_ready()
+    finally:
+        runtime.shutdown()
+
+
+@pytest.mark.integration
 def test_restart_recovery_multirepo_concurrent_claim(tmp_path: Path) -> None:
     from gateway_repository_service.runtime import ServiceRuntime
 

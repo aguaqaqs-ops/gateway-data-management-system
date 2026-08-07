@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -90,11 +91,16 @@ class ImportOperationExecutor:
         layout: DurableLayout,
         store: ImportOperationStore,
         fault_injector: ImportWorkerFaultInjector | None = None,
+        interruption_check: Callable[[], bool] | None = None,
     ) -> None:
         self._settings = settings
         self._layout = layout
         self._store = store
         self._fault_injector = fault_injector or NoOpImportWorkerFaultInjector()
+        self._interruption_check = interruption_check
+
+    def _is_interrupted(self) -> bool:
+        return self._interruption_check is not None and self._interruption_check()
 
     def execute(
         self,
@@ -107,6 +113,12 @@ class ImportOperationExecutor:
             self._fault_injector.maybe_raise(ImportWorkerFaultPoint.AFTER_RUNNING_CLAIM)
             self._run_pipeline(context, provider, evidence, staging_dir)
         except Exception as exc:
+            if self._is_interrupted():
+                _LOGGER.info(
+                    "import operation %s interrupted; preserving RUNNING",
+                    context.operation_id,
+                )
+                return
             self._handle_failure(context, provider, evidence, exc)
 
     def _run_pipeline(
@@ -249,6 +261,13 @@ class ImportOperationExecutor:
         evidence: ExecutionEvidence,
         exc: BaseException,
     ) -> None:
+        if self._is_interrupted():
+            _LOGGER.info(
+                "import operation %s interrupted; preserving RUNNING",
+                context.operation_id,
+            )
+            return
+
         if isinstance(exc, _TerminalFailure):
             self._persist_terminal_failure(context, provider, evidence, exc.error)
             return

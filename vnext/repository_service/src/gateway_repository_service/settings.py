@@ -37,6 +37,7 @@ class RepositoryServiceSettings(BaseSettings):
     server_start_timeout_seconds: float = 30.0
     import_timeout_seconds: float = 60.0 * 60.0
     terminate_grace_seconds: float = 2.0
+    import_shutdown_grace_seconds: float = 2.0
     output_tail_bytes: int = 16 * 1024
     output_capture_bytes: int = 256 * 1024
     record_batch_rows: int = 1024
@@ -76,6 +77,7 @@ class RepositoryServiceSettings(BaseSettings):
         "server_start_timeout_seconds",
         "import_timeout_seconds",
         "terminate_grace_seconds",
+        "import_shutdown_grace_seconds",
     )
     @classmethod
     def _timeouts_must_be_positive(cls, value: float) -> float:

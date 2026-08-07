@@ -99,7 +99,7 @@ def test_zero_effect_unknown_failure_maps_to_import_rejected(
     assert worker_env.store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
 
 
-def test_failure_mapping_import_rejected_on_replay_failure(
+def test_failure_mapping_manual_recovery_on_replay_failure(
     worker_env: WorkerTestEnvironment,
 ) -> None:
     provider = worker_env.provider_for(REPOSITORY_ID)

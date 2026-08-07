@@ -17,7 +17,7 @@ from gateway_repository_contracts import (
 )
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout, repository_key
-from gateway_repository_service.mutation_store import IdempotencyKeyHash, configure_connection
+from gateway_repository_service.mutation_store import IdempotencyKeyHash
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.faults import ImportWorkerFaultInjector
@@ -151,7 +151,6 @@ class WorkerTestEnvironment:
             busy_timeout_ms=1000,
         )
         self.connection = self._control_store.connection
-        configure_connection(self.connection)
         self.store = ImportOperationStore(
             self.connection,
             transaction_lock=self._control_store.transaction_lock,

@@ -484,6 +484,75 @@ class ImportOperationStore:
                 raise ImportOperationStoreError(f"operation {operation_id} disappeared")
             return self._operation_from_row(updated)
 
+    def list_operations_by_status(self, status: OperationStatus) -> list[StoredImportOperation]:
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                SELECT *
+                FROM repository_import_operations
+                WHERE status = ?
+                ORDER BY repository_scope ASC, enqueue_sequence ASC
+                """,
+                (status.value,),
+            )
+            return [self._operation_from_row(row) for row in cursor.fetchall()]
+
+    def list_running_operations(self) -> list[StoredImportOperation]:
+        return self.list_operations_by_status(OperationStatus.RUNNING)
+
+    def list_repositories_with_manual_barrier(self) -> list[UUID]:
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                SELECT DISTINCT repository_scope, error_json
+                FROM repository_import_operations
+                WHERE status = ?
+                """,
+                (OperationStatus.FAILED.value,),
+            )
+            repositories: list[UUID] = []
+            for row in cursor.fetchall():
+                error = self._parse_error_json(row["error_json"])
+                if is_manual_recovery_error(error):
+                    repositories.append(UUID(str(row["repository_scope"])))
+            return repositories
+
+    def get_automatic_replay_count(self, operation_id: UUID) -> int:
+        with self._lock:
+            row = self._fetch_by_operation_id(operation_id)
+            if row is None:
+                raise ImportOperationStoreError(f"operation {operation_id} does not exist")
+            return int(row["automatic_replay_count"])
+
+    def list_protected_artifact_pins(self) -> list[tuple[UUID, UUID]]:
+        """Return (repository_id, artifact_id) pairs pinned by non-terminal imports."""
+
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                SELECT repository_scope, artifact_id, status, error_json
+                FROM repository_import_operations
+                WHERE status IN (?, ?, ?)
+                """,
+                (
+                    OperationStatus.QUEUED.value,
+                    OperationStatus.RUNNING.value,
+                    OperationStatus.FAILED.value,
+                ),
+            )
+            pins: list[tuple[UUID, UUID]] = []
+            for row in cursor.fetchall():
+                status = OperationStatus(str(row["status"]))
+                error = self._parse_error_json(row["error_json"])
+                if is_protected_operation_status(status, error):
+                    pins.append(
+                        (
+                            UUID(str(row["repository_scope"])),
+                            UUID(str(row["artifact_id"])),
+                        )
+                    )
+            return pins
+
     def has_unresolved_manual_barrier(self, repository_id: UUID) -> bool:
         with self._transaction():
             cursor = self._connection.execute(

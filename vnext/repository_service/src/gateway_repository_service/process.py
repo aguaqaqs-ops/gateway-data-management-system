@@ -1026,6 +1026,26 @@ _OFFLINE_DOLT_CONFIG = {
 }
 
 
+class ActiveChildRegistry:
+    """Tracks active Dolt child processes for production cancellation."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._processes: set[subprocess.Popen[bytes]] = set()
+
+    def register(self, process: subprocess.Popen[bytes]) -> None:
+        with self._lock:
+            self._processes.add(process)
+
+    def unregister(self, process: subprocess.Popen[bytes]) -> None:
+        with self._lock:
+            self._processes.discard(process)
+
+    def snapshot(self) -> tuple[subprocess.Popen[bytes], ...]:
+        with self._lock:
+            return tuple(self._processes)
+
+
 class DoltRunner:
     """Runs exact-version Dolt with bounded output and a private environment."""
 
@@ -1034,8 +1054,17 @@ class DoltRunner:
         self.server_root = server_root.resolve()
         self.home = self.server_root / "provider" / "runner-home"
         self.home.mkdir(parents=True, exist_ok=True)
+        self._active_children = ActiveChildRegistry()
         self._seed_private_dolt_config()
         self._validate_version()
+
+    def terminate_active_children(self, grace_seconds: float | None = None) -> None:
+        grace = grace_seconds if grace_seconds is not None else self.settings.terminate_grace_seconds
+        for process in self._active_children.snapshot():
+            if process.poll() is None:
+                self.terminate_and_reap(process, grace_seconds=grace)
+            else:
+                self._active_children.unregister(process)
 
     def _seed_private_dolt_config(self) -> None:
         """Keep the private runner HOME from reaching the network.
@@ -1180,7 +1209,15 @@ class DoltRunner:
             if stdin_handle is not None:
                 stdin_handle.close()
             raise
+        registry = getattr(self, "_active_children", None)
+        if registry is not None:
+            registry.register(process)
         return process, stdin_handle
+
+    def _unregister_active_child(self, process: subprocess.Popen[bytes]) -> None:
+        registry = getattr(self, "_active_children", None)
+        if registry is not None:
+            registry.unregister(process)
 
     def _collect(
         self,
@@ -1254,6 +1291,7 @@ class DoltRunner:
                         capture.append(data)
         finally:
             selector.close()
+            self._unregister_active_child(process)
         return CommandResult(
             command_kind=command_kind,
             exit_code=process.returncode if process.returncode is not None else -1,
@@ -1265,9 +1303,16 @@ class DoltRunner:
             stdout_truncated=stdout_capture.truncated,
         )
 
-    def terminate_and_reap(self, process: subprocess.Popen[bytes]) -> None:
+    def terminate_and_reap(
+        self,
+        process: subprocess.Popen[bytes],
+        *,
+        grace_seconds: float | None = None,
+    ) -> None:
+        grace = grace_seconds if grace_seconds is not None else self.settings.terminate_grace_seconds
         if process.poll() is not None:
             process.wait()
+            self._unregister_active_child(process)
             self.reap_adopted_dolt_children()
             return
         try:
@@ -1275,7 +1320,8 @@ class DoltRunner:
         except ProcessLookupError:
             pass
         try:
-            process.wait(timeout=self.settings.terminate_grace_seconds)
+            process.wait(timeout=grace)
+            self._unregister_active_child(process)
             self.reap_adopted_dolt_children()
             return
         except subprocess.TimeoutExpired:
@@ -1285,6 +1331,7 @@ class DoltRunner:
         except ProcessLookupError:
             pass
         process.wait()
+        self._unregister_active_child(process)
         self.reap_adopted_dolt_children()
 
     @staticmethod

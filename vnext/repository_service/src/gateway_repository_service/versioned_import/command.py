@@ -424,12 +424,6 @@ def _map_provider_failure(evidence: ExecutionEvidence, *, detail: str) -> Simple
         return _manual_error("provider failure after private ref with main movement", detail=detail)
     if _has_private_ref_without_marker(evidence):
         return _manual_error("provider failure after private ref creation", detail=detail)
-    if evidence.main_unchanged() and not evidence.has_marker_evidence():
-        return _simple_error(
-            IMPORT_REJECTED_CODE,
-            "import provider rejected request",
-            detail=detail,
-        )
     return _manual_error("provider failure evidence is ambiguous", detail=detail)
 
 
@@ -442,6 +436,4 @@ def _map_unknown_failure(evidence: ExecutionEvidence, *, detail: str) -> SimpleE
         return _manual_error("unexpected failure after marker evidence", detail=detail)
     if _has_private_ref_without_marker(evidence):
         return _manual_error("unexpected failure after private ref creation", detail=detail)
-    if evidence.main_unchanged() and not evidence.has_marker_evidence():
-        return _simple_error(IMPORT_REJECTED_CODE, "import rejected", detail=detail)
     return _manual_error("unexpected failure with ambiguous evidence", detail=detail)

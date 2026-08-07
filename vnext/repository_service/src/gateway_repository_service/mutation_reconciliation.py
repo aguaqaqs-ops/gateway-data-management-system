@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID
 
-from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE
+from gateway_repository_contracts import OperationStatus, REPOSITORY_IMPORT_MEDIA_TYPE
 
 from gateway_repository_service.create_repository.visibility import (
     DEFAULT_REF,
@@ -27,9 +27,11 @@ from gateway_repository_service.mutation_store import (
 )
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.visibility import (
+    artifact_ready_path,
     has_published_artifact_file,
     has_ready_artifact_size,
 )
+from gateway_repository_service.versioned_import.store import ImportOperationStore
 
 
 class ReconciliationError(RuntimeError):
@@ -118,14 +120,52 @@ def filesystem_watch_failures(
     for repository_id in watch.create_repository_ids:
         if not has_published_repository_tree(layout, repository_id):
             blocking.append(f"published repository {repository_id} is missing")
+    return tuple(blocking)
+
+
+def import_artifact_watch_failures(
+    import_store: ImportOperationStore,
+    mutation_store: MutationStore,
+    watch: ConsistencyWatch,
+    layout: DurableLayout,
+) -> tuple[str, ...]:
+    blocking: list[str] = []
     for repository_id, artifact_id, size_bytes in watch.upload_artifacts:
-        if not has_ready_artifact_size(
+        if has_ready_artifact_size(
             layout,
             repository_id,
             artifact_id,
             size_bytes=size_bytes,
         ):
-            blocking.append(f"ready artifact {artifact_id} is missing or truncated")
+            continue
+        lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
+        if lifecycle is not None and lifecycle.consumed_by_operation_id is not None:
+            operation = import_store.get_operation(
+                repository_id,
+                lifecycle.consumed_by_operation_id,
+            )
+            if operation is not None and operation.status == OperationStatus.SUCCEEDED:
+                continue
+        blocking.append(f"ready artifact {artifact_id} is missing or truncated")
+
+    for repository_id, artifact_id in import_store.list_protected_artifact_pins():
+        operation_refs = import_store.list_artifact_references(artifact_id)
+        if all(
+            reference.status == OperationStatus.FAILED
+            and reference.is_protected
+            for reference in operation_refs
+        ):
+            # Fully classified MANUAL operations should not permanently block readiness.
+            continue
+        ready_path = artifact_ready_path(layout, repository_id, artifact_id)
+        if ready_path.is_file():
+            continue
+        lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
+        if lifecycle is not None and lifecycle.bytes_deleted_at is not None:
+            continue
+        blocking.append(
+            f"protected import artifact {artifact_id} is missing while operation evidence is unresolved"
+        )
     return tuple(blocking)
 
 

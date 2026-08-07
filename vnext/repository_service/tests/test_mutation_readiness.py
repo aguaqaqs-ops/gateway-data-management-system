@@ -238,3 +238,92 @@ def test_readiness_recovers_after_pending_create_reconciled(tmp_path: Path) -> N
             assert ready.status_code == 200
     finally:
         runtime.shutdown()
+
+
+def test_consumed_artifact_missing_bytes_does_not_block_readiness(tmp_path: Path) -> None:
+    import time
+
+    from gateway_repository_contracts import OperationStatus, RepositoryArtifactRef, UnknownTypePolicy, VerificationPolicy
+    from gateway_repository_service.mutation_store import IdempotencyKeyHash
+    from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
+    from gateway_repository_service.versioned_import import ImportRequestBinding, versioned_import_fingerprint_v1
+    from support.import_worker_harness import MEDIA_TYPE
+    from test_import_package import build_package_bytes, write_artifact
+
+    settings, runtime = start_runtime(tmp_path)
+    try:
+        create = replay_create(runtime, idempotency_key="consumed-artifact-create")
+        repository_id = UUID(str(create.repository_id))
+        expected_commit = create.initial_commit_id
+        artifact_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c12")
+        operation_id = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c12")
+        replay_sql = (
+            "CREATE TABLE records (id BIGINT NOT NULL PRIMARY KEY);\n"
+            "INSERT INTO records (id) VALUES (1);\n"
+        )
+        manifest = {
+            "package_version": 1,
+            "canonicalization_manifest_digest": "manifest-digest-readiness",
+            "tables": [
+                {
+                    "name": "records",
+                    "schema": {
+                        "columns": [{"name": "id", "sql_type": "BIGINT", "nullable": False}],
+                        "primary_key": ["id"],
+                    },
+                    "row_count": 1,
+                }
+            ],
+        }
+        payload = build_package_bytes(manifest=manifest, replay_sql=replay_sql.encode("utf-8"))
+        ready_path = artifact_ready_path(runtime.layout, repository_id, artifact_id)
+        ready_path.parent.mkdir(parents=True, exist_ok=True)
+        size_bytes, raw_sha256 = write_artifact(ready_path, payload)
+        now = "2026-08-06T00:00:00+00:00"
+        runtime.import_store.mutation_store._connection.execute(
+            """
+            INSERT INTO artifact_lifecycle (
+                artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (str(artifact_id), repository_id.hex, MEDIA_TYPE, size_bytes, raw_sha256, now, now),
+        )
+        runtime.import_store.mutation_store._connection.commit()
+        runtime.register_succeeded_upload(repository_id, artifact_id, size_bytes)
+
+        binding = ImportRequestBinding(
+            repository_id=repository_id,
+            artifact_ref=RepositoryArtifactRef(
+                artifact_id=artifact_id,
+                media_type=MEDIA_TYPE,
+                size_bytes=size_bytes,
+                raw_sha256=raw_sha256,
+            ),
+            target_ref="main",
+            expected_commit_id=expected_commit,
+            verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        )
+        key_hash = IdempotencyKeyHash.from_raw_key("consumed-artifact-import")
+        fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+        runtime.import_store.claim_or_enqueue(
+            binding,
+            key_hash=key_hash,
+            fingerprint=fingerprint,
+            operation_id=operation_id,
+        )
+        runtime.import_worker_pool.notify()
+        deadline = time.monotonic() + 60.0
+        while time.monotonic() < deadline:
+            operation = runtime.import_store.get_operation(repository_id, operation_id)
+            if operation is not None and operation.status == OperationStatus.SUCCEEDED:
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError("import did not succeed")
+
+        if ready_path.exists():
+            ready_path.unlink()
+        assert runtime.is_ready()
+    finally:
+        runtime.shutdown()

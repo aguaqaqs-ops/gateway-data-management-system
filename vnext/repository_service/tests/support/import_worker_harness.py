@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -146,10 +145,17 @@ class WorkerTestEnvironment:
         self.settings = self.settings.model_copy(update={"max_import_workers": max_import_workers})
         self.layout = DurableLayout.create_for_probe(self.settings.data_root)
         db_path = self.settings.control_db_path
-        ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000).close()
-        self.connection = sqlite3.connect(db_path, timeout=5.0, check_same_thread=False)
+        self._control_store = ControlStore.open(
+            db_path,
+            expected_version=CONTROL_DB_USER_VERSION,
+            busy_timeout_ms=1000,
+        )
+        self.connection = self._control_store.connection
         configure_connection(self.connection)
-        self.store = ImportOperationStore(self.connection)
+        self.store = ImportOperationStore(
+            self.connection,
+            transaction_lock=self._control_store.transaction_lock,
+        )
         self.mutation_store = self.store.mutation_store
         self.providers: dict[UUID, FakeImportProvider] = {}
         self.locks = RepositoryLockRegistry()
@@ -288,7 +294,7 @@ class WorkerTestEnvironment:
 
     def close(self) -> None:
         self.pool.stop()
-        self.connection.close()
+        self._control_store.close()
 
 
 def published_repository_path(layout: DurableLayout, repository_id: UUID) -> Path:

@@ -110,7 +110,27 @@ def test_failure_mapping_import_rejected_on_replay_failure(
     operation = worker_env.store.get_operation(REPOSITORY_ID, operation_id)
     assert operation is not None
     assert operation.error is not None
-    assert operation.error.code == IMPORT_REJECTED_CODE
+    assert operation.error.code == MANUAL_RECOVERY_REQUIRED_CODE
+
+
+def test_failure_mappers_agree_on_private_ref_evidence() -> None:
+    from gateway_repository_service.versioned_import.command import (
+        ExecutionEvidence,
+        _map_provider_failure,
+        _map_unknown_failure,
+    )
+
+    evidence = ExecutionEvidence(
+        expected_commit_id="commit-main",
+        main_before="commit-main",
+        main_after_first_check="commit-main",
+        private_ref_created=True,
+    )
+    provider_error = _map_provider_failure(evidence, detail="provider failure")
+    unknown_error = _map_unknown_failure(evidence, detail="unknown failure")
+    assert provider_error.code == MANUAL_RECOVERY_REQUIRED_CODE
+    assert unknown_error.code == MANUAL_RECOVERY_REQUIRED_CODE
+    assert provider_error.code == unknown_error.code
 
 
 def test_failure_mapping_expected_commit_mismatch(worker_env: WorkerTestEnvironment) -> None:
@@ -406,8 +426,8 @@ def test_context_load_failure_releases_reservation_and_in_flight(
     [
         (ImportWorkerFaultPoint.AFTER_RUNNING_CLAIM, IMPORT_REJECTED_CODE, False),
         (ImportWorkerFaultPoint.AFTER_PACKAGE_EXTRACTED, IMPORT_REJECTED_CODE, False),
-        (ImportWorkerFaultPoint.AFTER_PRIVATE_REF_CREATED, IMPORT_REJECTED_CODE, True),
-        (ImportWorkerFaultPoint.AFTER_REPLAY_BEFORE_MARKER, IMPORT_REJECTED_CODE, True),
+        (ImportWorkerFaultPoint.AFTER_PRIVATE_REF_CREATED, MANUAL_RECOVERY_REQUIRED_CODE, True),
+        (ImportWorkerFaultPoint.AFTER_REPLAY_BEFORE_MARKER, MANUAL_RECOVERY_REQUIRED_CODE, True),
         (ImportWorkerFaultPoint.AFTER_MARKER_BEFORE_VERIFICATION, MANUAL_RECOVERY_REQUIRED_CODE, True),
         (
             ImportWorkerFaultPoint.AFTER_VERIFICATION_BEFORE_SECOND_MAIN_CHECK,

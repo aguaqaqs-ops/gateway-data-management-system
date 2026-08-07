@@ -557,10 +557,14 @@ vnext/repository_service/src/gateway_repository_service/versioned_import/package
 vnext/repository_service/src/gateway_repository_service/versioned_import/models.py
 vnext/repository_service/src/gateway_repository_service/versioned_import/ports.py
 vnext/repository_service/src/gateway_repository_service/versioned_import/errors.py
+vnext/repository_service/src/gateway_repository_service/control_db.py          # B1: ControlStore.transaction_lock
+vnext/repository_service/src/gateway_repository_service/runtime.py           # B1: MutationStore shared lock injection
 vnext/repository_service/src/gateway_repository_service/settings.py
 vnext/repository_service/tests/test_import_worker.py
 vnext/repository_service/tests/test_import_worker_integration.py
-vnext/repository_service/tests/support/                          # R4-specific worker harness only
+vnext/repository_service/tests/test_import_operation_store.py                # B1: _seed_artifact lock discipline
+vnext/repository_service/tests/test_versioned_import_errors.py
+vnext/repository_service/tests/support/                          # R4-specific worker harness only; may modify existing harness files for transaction_lock (P3-2)
 ```
 
 `models.py`、`ports.py`、`errors.py`只允许additive改动（新增worker侧result/binding类型、

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -13,7 +12,7 @@ import pytest
 from gateway_repository_contracts import OperationStatus, RepositoryArtifactRef, UnknownTypePolicy, VerificationPolicy
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout
-from gateway_repository_service.mutation_store import IdempotencyKeyHash, configure_connection
+from gateway_repository_service.mutation_store import IdempotencyKeyHash
 from gateway_repository_service.process import DoltRunner
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -42,10 +41,15 @@ def integration_env(tmp_path: Path) -> Iterator[tuple[ImportWorkerPool, ImportOp
     provider = CandidateAImportProvider(settings, layout, repository, runner)
 
     db_path = settings.control_db_path
-    ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000).close()
-    connection = sqlite3.connect(db_path, timeout=5.0, check_same_thread=False)
-    configure_connection(connection)
-    store = ImportOperationStore(connection)
+    control_store = ControlStore.open(
+        db_path,
+        expected_version=CONTROL_DB_USER_VERSION,
+        busy_timeout_ms=1000,
+    )
+    store = ImportOperationStore(
+        control_store.connection,
+        transaction_lock=control_store.transaction_lock,
+    )
 
     def provider_factory(_repository_id: UUID) -> CandidateAImportProvider:
         return provider
@@ -62,7 +66,7 @@ def integration_env(tmp_path: Path) -> Iterator[tuple[ImportWorkerPool, ImportOp
         yield pool, store, layout, provider
     finally:
         pool.stop()
-        connection.close()
+        control_store.close()
 
 
 @pytest.mark.integration
@@ -96,29 +100,30 @@ def test_dolt_worker_happy_path(
     size_bytes, raw_sha256 = write_artifact(ready_path, payload)
 
     now = "2026-08-06T00:00:00+00:00"
-    store.mutation_store._connection.execute(
-        """
-        INSERT INTO artifact_lifecycle (
-            artifact_id,
-            repository_scope,
-            media_type,
-            size_bytes,
-            raw_sha256,
-            created_at,
-            updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            str(ARTIFACT_ID),
-            REPOSITORY_ID.hex,
-            MEDIA_TYPE,
-            size_bytes,
-            raw_sha256,
-            now,
-            now,
-        ),
-    )
-    store.mutation_store._connection.commit()
+    with store._lock:
+        store.mutation_store._connection.execute(
+            """
+            INSERT INTO artifact_lifecycle (
+                artifact_id,
+                repository_scope,
+                media_type,
+                size_bytes,
+                raw_sha256,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(ARTIFACT_ID),
+                REPOSITORY_ID.hex,
+                MEDIA_TYPE,
+                size_bytes,
+                raw_sha256,
+                now,
+                now,
+            ),
+        )
+        store.mutation_store._connection.commit()
 
     binding = ImportRequestBinding(
         repository_id=REPOSITORY_ID,

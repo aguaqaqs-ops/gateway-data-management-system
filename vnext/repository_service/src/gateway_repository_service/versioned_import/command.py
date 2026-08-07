@@ -130,6 +130,13 @@ class ImportOperationExecutor:
         )
         self._fault_injector.maybe_raise(ImportWorkerFaultPoint.AFTER_PACKAGE_EXTRACTED)
 
+        if context.target_ref != "main":
+            raise _terminal_error(
+                IMPORT_REJECTED_CODE,
+                "unsupported target ref",
+                detail={"target_ref": context.target_ref},
+            )
+
         evidence.main_before = provider.read_ref(context.target_ref)
         if evidence.main_before != context.expected_commit_id:
             raise _terminal_error(
@@ -214,13 +221,6 @@ class ImportOperationExecutor:
         readback = provider.read_ref(context.target_ref)
         if readback != candidate:
             raise _manual_recovery("main readback does not match candidate commit")
-
-        if context.target_ref != "main":
-            raise _terminal_error(
-                IMPORT_REJECTED_CODE,
-                "unsupported target ref",
-                detail={"target_ref": context.target_ref},
-            )
 
         result = VersionedImportResult(
             commit_id=candidate,
@@ -403,6 +403,10 @@ def _marker_kind(inspection: object) -> MarkerInspectionKind:
     return "unknown"
 
 
+def _has_private_ref_without_marker(evidence: ExecutionEvidence) -> bool:
+    return evidence.private_ref_created and not evidence.has_marker_evidence()
+
+
 def _map_provider_failure(evidence: ExecutionEvidence, *, detail: str) -> SimpleError:
     if evidence.provably_no_repository_effect():
         return _simple_error(
@@ -418,7 +422,7 @@ def _map_provider_failure(evidence: ExecutionEvidence, *, detail: str) -> Simple
         return _manual_error("provider failure after durable marker evidence", detail=detail)
     if evidence.private_ref_created and not evidence.main_unchanged():
         return _manual_error("provider failure after private ref with main movement", detail=detail)
-    if evidence.private_ref_created and not evidence.has_marker_evidence():
+    if _has_private_ref_without_marker(evidence):
         return _manual_error("provider failure after private ref creation", detail=detail)
     if evidence.main_unchanged() and not evidence.has_marker_evidence():
         return _simple_error(
@@ -436,6 +440,8 @@ def _map_unknown_failure(evidence: ExecutionEvidence, *, detail: str) -> SimpleE
         return _manual_error("unexpected failure after publication attempt", detail=detail)
     if evidence.private_ref_created and evidence.has_marker_evidence():
         return _manual_error("unexpected failure after marker evidence", detail=detail)
+    if _has_private_ref_without_marker(evidence):
+        return _manual_error("unexpected failure after private ref creation", detail=detail)
     if evidence.main_unchanged() and not evidence.has_marker_evidence():
         return _simple_error(IMPORT_REJECTED_CODE, "import rejected", detail=detail)
     return _manual_error("unexpected failure with ambiguous evidence", detail=detail)

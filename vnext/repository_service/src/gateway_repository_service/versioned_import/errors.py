@@ -7,7 +7,7 @@ from typing import Any
 
 _PRIVATE_REF_RE = re.compile(r"gateway-import-[0-9a-f]{32}", re.IGNORECASE)
 _PATH_RE = re.compile(r"/[A-Za-z0-9_.:/-]+")
-_STDERR_RE = re.compile(r"stderr\s*=\s*[^,\s}]+", re.IGNORECASE)
+_STDERR_RE = re.compile(r"stderr\s*=\s*.+$", re.IGNORECASE | re.MULTILINE)
 _SQL_STATEMENT_RE = re.compile(
     r"\bINSERT\s+INTO\b[^;]{0,200}|"
     r"\bUPDATE\s+\w+\s+SET\b[^;]{0,200}|"
@@ -15,14 +15,25 @@ _SQL_STATEMENT_RE = re.compile(
     r"\bSELECT\b.+\bFROM\b[^;]{0,200}",
     re.IGNORECASE | re.DOTALL,
 )
-_PRIMARY_KEY_VALUE_RE = re.compile(r"primary key \d+", re.IGNORECASE)
-_VALUES_LITERAL_RE = re.compile(r"VALUES\s*\(\d+\)", re.IGNORECASE)
-_QUOTED_STRING_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+_LABELED_NUMERIC_RE = re.compile(
+    r"\b((?:row|value|line|column\s+\w+\s+value)\s+)(\d+)\b",
+    re.IGNORECASE,
+)
+_MULTI_DIGIT_RE = re.compile(r"\b\d{2,}\b")
 _MAX_DETAIL_LENGTH = 512
 
 
 class ImportProviderError(RuntimeError):
     """Candidate A import provider execution or correctness failure."""
+
+
+def _redact_sql_fragments(detail: str) -> str:
+    return _SQL_STATEMENT_RE.sub("<sql>", detail)
+
+
+def _redact_labeled_numeric_tokens(detail: str) -> str:
+    return _LABELED_NUMERIC_RE.sub(r"\1<value>", detail)
 
 
 def sanitize_import_error_detail(detail: str | None) -> str | None:
@@ -31,10 +42,10 @@ def sanitize_import_error_detail(detail: str | None) -> str | None:
     sanitized = _PRIVATE_REF_RE.sub("<private-ref>", detail)
     sanitized = _PATH_RE.sub("<path>", sanitized)
     sanitized = _STDERR_RE.sub("stderr=<redacted>", sanitized)
-    sanitized = _SQL_STATEMENT_RE.sub("<sql>", sanitized)
-    sanitized = _PRIMARY_KEY_VALUE_RE.sub("primary key <value>", sanitized)
-    sanitized = _VALUES_LITERAL_RE.sub("VALUES (<value>)", sanitized)
-    sanitized = _QUOTED_STRING_RE.sub("<value>", sanitized)
+    sanitized = _redact_sql_fragments(sanitized)
+    sanitized = _EMAIL_RE.sub("<email>", sanitized)
+    sanitized = _redact_labeled_numeric_tokens(sanitized)
+    sanitized = _MULTI_DIGIT_RE.sub("<value>", sanitized)
     if len(sanitized) > _MAX_DETAIL_LENGTH:
         return sanitized[:_MAX_DETAIL_LENGTH]
     return sanitized

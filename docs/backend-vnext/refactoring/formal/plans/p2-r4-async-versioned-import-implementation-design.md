@@ -547,6 +547,17 @@ S4 provider实现约束（Round-4 remediation）：
   的 provider/validation 失败归类为 `ambiguous`。
 - `csv.field_size_limit` 在进程级一次性提升到 stream line bound，stream 迭代内不得 per-stream
   恢复，避免并发 stream 竞态。
+- catalog projection内部并行由`RepositoryServiceSettings.catalog_parallel_workers`控制，默认2、
+  validator范围1..4。它只约束单次catalog调用，不是node-wide Dolt CLI process budget。
+- Candidate A session只保留固定4项catalog memo，用于同一workflow重复读取initial、expected
+  parent和candidate；该memo随session释放，不声明byte budget或node-wide cache authority。
+- S4不实现node-wide Dolt CLI capacity limiter。Limiter的lease ownership、monotonic deadline、
+  exception-safe幂等release，以及真实catalog memory budget统一defer到S7 runtime composition或
+  S9 capacity owner，在多import worker的process count、peak RSS和p95证据下落地。
+
+Repository资源配置的可调值集中由`settings.py`拥有，provider/process不得复制production
+可调常量。Production可在既有validator范围内通过环境配置调优；扩大允许范围必须同时修改
+settings validator、正式容量约束与资源测试，禁止只因单机资源充足而绕过node-wide预算设计。
 
 S4进入provider实现前必须保持S3 package boundary为green，并增加一项cross-stage regression：
 启用zstd content checksum、让checksum/frame trailer跨compressed input chunk、令decoder output

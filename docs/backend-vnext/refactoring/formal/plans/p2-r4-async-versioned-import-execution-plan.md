@@ -341,12 +341,19 @@ vnext/repository_service/src/gateway_repository_service/versioned_import/provide
 vnext/repository_service/src/gateway_repository_service/versioned_import/errors.py
 vnext/repository_service/src/gateway_repository_service/process.py          # narrow shared primitive only
 vnext/repository_service/src/gateway_repository_service/providers.py        # only extracting a narrow helper
+vnext/repository_service/src/gateway_repository_service/settings.py         # catalog_parallel_workers only
 vnext/repository_service/tests/test_import_provider.py
 vnext/repository_service/tests/test_distribution_boundaries.py
 vnext/repository_service/tests/test_import_package.py                       # cross-stage regression only
 ```
 
 `candidate_a/` 为 probe 与 production 共享的中性 Candidate A primitive 层（ref validation、SQL/catalog/stream helper、Dolt CLI session）。`versioned_import/dolt_cli.py`、`dolt_candidate_a_sql.py` 等已迁入 `candidate_a/`；probe `providers.py` 与 production `versioned_import/provider.py` 均只依赖该层，不得交叉依赖对方 stage 模块。
+
+`settings.py` 的S4授权仅限 `catalog_parallel_workers` 及其bounded validator：默认值为2，
+允许范围为1..4。该值只限制单次catalog projection的内部并行，不是node-wide Dolt CLI
+capacity保证。S4不得在`process.py`建设node-wide limiter，也不得把per-session catalog memo
+描述为真实内存预算。未来可调资源参数集中由`settings.py`拥有；扩大当前validator上限必须
+同时更新正式容量约束、并发/RSS/p95证据和对应tests，不得只修改production环境变量。
 
 ### Required behavior and gate
 
@@ -406,6 +413,23 @@ feat(repository): add Candidate A import ref primitives
 
 输出S4 handoff，next_stage=P2-R4-S5。
 ```
+
+### Accepted S4 exit — 2026-08-07
+
+```text
+implementation_head: d3bafc0eb138093761a14925d2e8e3336a0b382c
+targeted_gate: 379 passed
+service_full_pytest: 672 passed, 1 skipped
+worktree_clean: yes
+stage_exit: pass
+next_stage_ready: yes
+next_stage: P2-R4-S5
+```
+
+S4保留`catalog_parallel_workers=2`和1..4 validator；Candidate A session只做固定4项
+catalog memo。Node-wide Dolt CLI capacity limiter、真实catalog memory budget和production资源
+调优统一defer到S7 runtime composition或S9 capacity owner。纯文档scope同步不改变已验证运行
+行为，因此不要求重复执行service完整回归。
 
 ## 9. S5 — Verification engine and unknown types
 

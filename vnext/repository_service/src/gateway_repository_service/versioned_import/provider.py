@@ -9,7 +9,7 @@ from pathlib import Path
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_contracts import UnknownTypePolicy
-from gateway_repository_service.arrow_mapping import TableCatalog, UnknownTypePolicy as ArrowUnknownTypePolicy
+from gateway_repository_service.arrow_mapping import TableCatalog
 from gateway_repository_service.candidate_a.dolt_cli import CandidateADoltCli, _require_exactly_one_row, value
 from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import (
@@ -274,7 +274,7 @@ class CandidateAImportProvider:
             iterator = self._cli.stream_table(
                 safe_candidate,
                 table,
-                ArrowUnknownTypePolicy(policy),
+                policy,
             )
         except _STREAM_PROVIDER_FAULTS as exc:
             raise _as_import_provider_error(exc) from exc

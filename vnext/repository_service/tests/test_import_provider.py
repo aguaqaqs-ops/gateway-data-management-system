@@ -18,7 +18,6 @@ from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
     TableCatalog,
     UnknownSqlTypeError,
-    UnknownTypePolicy as ArrowUnknownTypePolicy,
     normalize_sql_type,
 )
 from gateway_repository_service.candidate_a.dolt_cli import (
@@ -1336,7 +1335,7 @@ def test_concurrent_streams_keep_field_limit(
     def recording_stream(
         commit_id: str,
         table: TableCatalog,
-        policy: ArrowUnknownTypePolicy,
+        policy: UnknownTypePolicy,
     ) -> Iterator[pa.RecordBatch]:
         with lock:
             recorded_limits.append(csv.field_size_limit())
@@ -1792,7 +1791,7 @@ def test_concurrent_streams_with_over_128k_field(
     def recording_stream(
         commit_id: str,
         table: TableCatalog,
-        policy: ArrowUnknownTypePolicy,
+        policy: UnknownTypePolicy,
     ) -> Iterator[pa.RecordBatch]:
         with lock:
             recorded_limits.append(csv.field_size_limit())
@@ -1923,7 +1922,7 @@ def test_stream_timeout_closes_once(
                 import_provider._cli.stream_table(
                     candidate,
                     table,
-                    ArrowUnknownTypePolicy.STRINGIFY,
+                    UnknownTypePolicy.STRINGIFY,
                 )
             )
 

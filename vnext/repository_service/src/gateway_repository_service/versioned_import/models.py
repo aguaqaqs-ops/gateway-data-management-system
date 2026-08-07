@@ -34,7 +34,6 @@ from gateway_repository_contracts.types import BoundedOpaqueString
 from gateway_repository_service.arrow_mapping import (
     TemporalSqlTypeKind,
     UnknownSqlTypeError,
-    UnknownTypePolicy as ArrowUnknownTypePolicy,
     arrow_type,
     classify_temporal_sql_type,
 )
@@ -122,7 +121,7 @@ def validate_manifest_sql_type(value: str) -> str:
     if classification == TemporalSqlTypeKind.MALFORMED:
         raise ValueError("sql_type is not a bounded normalized physical spelling") from None
     try:
-        arrow_type(value, ArrowUnknownTypePolicy.REJECT)
+        arrow_type(value, UnknownTypePolicy.REJECT)
     except UnknownSqlTypeError:
         if classification != TemporalSqlTypeKind.NOT_TEMPORAL:
             raise ValueError("sql_type is not a bounded normalized physical spelling") from None

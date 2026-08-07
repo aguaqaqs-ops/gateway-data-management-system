@@ -11,10 +11,24 @@ from typing import Any, Iterable
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
+from gateway_repository_contracts import UnknownTypePolicy
 
-class UnknownTypePolicy(StrEnum):
-    REJECT = "REJECT"
-    STRINGIFY = "STRINGIFY"
+__all__ = [
+    "ColumnCatalog",
+    "TableCatalog",
+    "TemporalSqlTypeKind",
+    "TemporalSqlType",
+    "UnknownSqlTypeError",
+    "UnknownTypePolicy",
+    "arrow_type",
+    "classify_temporal_sql_type",
+    "convert_value",
+    "is_known_sql_type",
+    "normalize_rows",
+    "normalize_sql_type",
+    "parse_temporal_sql_type",
+    "record_batch",
+]
 
 
 class UnknownSqlTypeError(ValueError):
@@ -241,6 +255,14 @@ def arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, d
     if policy == UnknownTypePolicy.STRINGIFY:
         return pa.large_string(), {b"gateway.sql_type": upper.encode("utf-8"), b"gateway.lossy": b"true"}
     raise UnknownSqlTypeError(f"unknown SQL type: {sql_type}")
+
+
+def is_known_sql_type(sql_type: str) -> bool:
+    try:
+        arrow_type(sql_type, UnknownTypePolicy.REJECT)
+        return True
+    except UnknownSqlTypeError:
+        return False
 
 
 def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:

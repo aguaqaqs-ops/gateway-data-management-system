@@ -218,4 +218,28 @@ def test_unknown_sql_spelling_preserves_quoted_literals() -> None:
     assert single_space == "ENUM('a b')"
     assert double_space != single_space
     assert normalize_sql_type("ENUM", "enum('a collate b')") == "ENUM('a collate b')"
-    assert normalize_sql_type("INT", "int(11) unsigned zerofill") == "INT(11) UNSIGNED ZEROFILL"
+    assert normalize_sql_type("INT", "int(11) unsigned zerofill") == "INT UNSIGNED"
+
+
+OUT_OF_BOUNDS_STRINGIFY_FIDELITY = (
+    ("BIT(65)", "0x01"),
+    ("BIT(65)", "1"),
+    ("BIT(65)", "0xff"),
+    ("BIT(0)", "1"),
+    ("BIT(100)", "0xdeadbeef"),
+    ("DECIMAL(99,2)", "123.45"),
+)
+
+
+@pytest.mark.parametrize(("sql_type", "raw_value"), OUT_OF_BOUNDS_STRINGIFY_FIDELITY)
+def test_stringify_out_of_bounds_preserves_provider_text(
+    sql_type: str,
+    raw_value: str,
+) -> None:
+    catalog = TableCatalog(
+        "records",
+        (ColumnCatalog("value", sql_type, True, None),),
+        1,
+    )
+    batch = record_batch(catalog, [(raw_value,)], UnknownTypePolicy.STRINGIFY)
+    assert batch.column(0).to_pylist() == [raw_value]

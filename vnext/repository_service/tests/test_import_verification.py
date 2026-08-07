@@ -17,6 +17,7 @@ from gateway_repository_service.arrow_mapping import (
     SqlValueConversionError,
     TableCatalog,
     arrow_type,
+    record_batch,
 )
 from gateway_repository_service.fixtures import Workload, generate_fixture
 from gateway_repository_service.layout import DurableLayout
@@ -618,37 +619,26 @@ def test_full_scan_batch_contract_mismatch_raises_verification_failed() -> None:
 def test_out_of_bounds_spelling_stringify_passes_structural_and_full_scan(
     verification_policy: VerificationPolicy,
 ) -> None:
+    table = TableCatalog(
+        "records",
+        (
+            ColumnCatalog("id", "INT", False, 1),
+            ColumnCatalog("flags", "BIT(65)", True, None),
+        ),
+        1,
+    )
+
     class OutOfBoundsProvider:
         def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
-            return (
-                TableCatalog(
-                    "records",
-                    (
-                        ColumnCatalog("id", "INT", False, 1),
-                        ColumnCatalog("flags", "BIT(65)", True, None),
-                    ),
-                    0,
-                ),
-            )
+            return (table,)
 
         def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
             return self.read_catalog(candidate)
 
         def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
-            return iter(())
+            yield record_batch(table, [(1, "0x01")], UnknownTypePolicy.STRINGIFY)
 
-    manifest = manifest_from_tables(
-        (
-            TableCatalog(
-                "records",
-                (
-                    ColumnCatalog("id", "INT", False, 1),
-                    ColumnCatalog("flags", "BIT(65)", True, None),
-                ),
-                0,
-            ),
-        )
-    )
+    manifest = manifest_from_tables((table,))
 
     result = verify_import_candidate(
         cast(VersionedImportProvider, OutOfBoundsProvider()),
@@ -661,6 +651,15 @@ def test_out_of_bounds_spelling_stringify_passes_structural_and_full_scan(
         completed_verification_policy=verification_policy,
         unknown_type_policy=UnknownTypePolicy.STRINGIFY,
     )
+    if verification_policy == VerificationPolicy.FULL_SCAN:
+        batch = next(
+            OutOfBoundsProvider().stream_table(
+                "candidate",
+                table,
+                UnknownTypePolicy.STRINGIFY,
+            )
+        )
+        assert batch.column("flags").to_pylist() == ["0x01"]
 
 
 def test_full_scan_sql_value_conversion_error_maps_to_verification_failed() -> None:

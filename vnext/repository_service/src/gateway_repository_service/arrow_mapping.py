@@ -194,6 +194,22 @@ def _iter_sql_type_segments(text: str) -> Iterator[tuple[bool, str]]:
 
 _COLLATE_MODIFIER = re.compile(r"\s+COLLATE\s+\S+", re.IGNORECASE)
 _CHARACTER_SET_MODIFIER = re.compile(r"\s+CHARACTER\s+SET\s+\S+", re.IGNORECASE)
+_ZEROFILL_MODIFIER = re.compile(r"\s+ZEROFILL\b", re.IGNORECASE)
+_INTEGER_DISPLAY_WIDTH = re.compile(
+    r"\b(TINYINT|SMALLINT|MEDIUMINT|INT|BIGINT)(\(\d+\))(?=\s|$|UNSIGNED)",
+    re.IGNORECASE,
+)
+
+
+def _strip_integer_display_width(segment: str) -> str:
+    def replacer(match: re.Match[str]) -> str:
+        base = match.group(1).upper()
+        width = match.group(2)
+        if base == "TINYINT" and width == "(1)":
+            return match.group(0)
+        return base
+
+    return _INTEGER_DISPLAY_WIDTH.sub(replacer, segment)
 
 
 def _strip_modifiers_outside_quotes(text: str) -> str:
@@ -204,6 +220,8 @@ def _strip_modifiers_outside_quotes(text: str) -> str:
             continue
         segment = _COLLATE_MODIFIER.sub("", segment)
         segment = _CHARACTER_SET_MODIFIER.sub("", segment)
+        segment = _ZEROFILL_MODIFIER.sub("", segment)
+        segment = _strip_integer_display_width(segment)
         parts.append(segment)
     return "".join(parts)
 
@@ -402,28 +420,28 @@ def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
                 return parsed.replace(tzinfo=dt.timezone.utc)
             return parsed.astimezone(dt.timezone.utc)
         return parsed
-    bit_match = _BIT.match(upper)
-    if bit_match is not None:
-        width = int(bit_match.group(1))
-        byte_length = (width + 7) // 8
-        if isinstance(value, (bytes, bytearray, memoryview)):
-            raw = bytes(value)
-        elif isinstance(value, int):
-            raw = value.to_bytes(byte_length, "big", signed=False)
-        else:
-            text = str(value)
-            if text.startswith(("0x", "0X")):
-                raw = bytes.fromhex(text[2:])
-            elif len(text) % 2 == 0 and text and all(
-                character in "0123456789abcdefABCDEF" for character in text
-            ):
-                raw = bytes.fromhex(text)
-            else:
-                raw = int(text, 0).to_bytes(byte_length, "big", signed=False)
-        if len(raw) > byte_length:
-            raise ValueError("BIT value exceeds catalog width")
-        return raw.rjust(byte_length, b"\x00")
     if pa.types.is_binary(arrow):
+        bit_match = _BIT.match(upper)
+        if bit_match is not None:
+            width = int(bit_match.group(1))
+            byte_length = (width + 7) // 8
+            if isinstance(value, (bytes, bytearray, memoryview)):
+                raw = bytes(value)
+            elif isinstance(value, int):
+                raw = value.to_bytes(byte_length, "big", signed=False)
+            else:
+                text = str(value)
+                if text.startswith(("0x", "0X")):
+                    raw = bytes.fromhex(text[2:])
+                elif len(text) % 2 == 0 and text and all(
+                    character in "0123456789abcdefABCDEF" for character in text
+                ):
+                    raw = bytes.fromhex(text)
+                else:
+                    raw = int(text, 0).to_bytes(byte_length, "big", signed=False)
+            if len(raw) > byte_length:
+                raise ValueError("BIT value exceeds catalog width")
+            return raw.rjust(byte_length, b"\x00")
         if isinstance(value, bytes):
             return value
         text = str(value)
@@ -467,6 +485,12 @@ def normalize_rows(
     return normalized
 
 
+def _raise_column_conversion_error(exc: ValueError, *, column: ColumnCatalog) -> None:
+    if isinstance(exc, SqlValueConversionError):
+        raise exc
+    raise SqlValueConversionError(column=column.name, sql_type=column.sql_type) from exc
+
+
 def record_batch(
     catalog: TableCatalog,
     rows: Iterable[tuple[Any, ...]],
@@ -477,19 +501,15 @@ def record_batch(
     fields: list[pa.Field] = []
     for index, column in enumerate(catalog.columns):
         data_type, metadata = arrow_type(column.sql_type, policy)
-        values: list[Any] = []
-        for row in row_list:
-            try:
-                values.append(convert_value(row[index], column.sql_type, policy))
-            except ValueError as exc:
-                if isinstance(exc, SqlValueConversionError):
-                    raise
-                raise SqlValueConversionError(
-                    column=column.name,
-                    sql_type=column.sql_type,
-                ) from exc
-        arrays.append(pa.array(values, type=data_type))
+        values = [row[index] for row in row_list]
+        try:
+            arrays.append(pa.array(values, type=data_type))
+        except ValueError as exc:
+            _raise_column_conversion_error(exc, column=column)
         fields.append(
             pa.field(column.name, data_type, nullable=column.nullable, metadata=metadata or None)
         )
-    return pa.RecordBatch.from_arrays(arrays, schema=pa.schema(fields))
+    try:
+        return pa.RecordBatch.from_arrays(arrays, schema=pa.schema(fields))
+    except ValueError as exc:
+        _raise_column_conversion_error(exc, column=catalog.columns[0])

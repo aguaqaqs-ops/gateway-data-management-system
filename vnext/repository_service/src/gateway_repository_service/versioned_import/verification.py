@@ -124,6 +124,13 @@ def _assert_columns_mappable(
     catalog: tuple[TableCatalog, ...],
     unknown_type_policy: UnknownTypePolicy,
 ) -> None:
+    """Fail fast when catalog spellings cannot be mapped to Arrow.
+
+    Under REJECT this is redundant with ``_reject_unknown_catalog_types`` because
+    both use ``arrow_type(..., REJECT)``. Under STRINGIFY malformed temporal
+    spellings are already rejected during ``normalize_sql_type``. STRUCTURAL and
+    FULL_SCAN alignment for unknown values is enforced in ``convert_value``.
+    """
     for table in catalog:
         for column in table.columns:
             try:

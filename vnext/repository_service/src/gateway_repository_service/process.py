@@ -28,6 +28,18 @@ class ProcessBoundaryError(RuntimeError):
     """Raised when a Dolt process violates the private runner boundary."""
 
 
+_dolt_cli_semaphore: threading.BoundedSemaphore | None = None
+_dolt_cli_semaphore_limit: int | None = None
+
+
+def _dolt_cli_slot_semaphore(limit: int) -> threading.BoundedSemaphore:
+    global _dolt_cli_semaphore, _dolt_cli_semaphore_limit
+    if _dolt_cli_semaphore is None or _dolt_cli_semaphore_limit != limit:
+        _dolt_cli_semaphore = threading.BoundedSemaphore(limit)
+        _dolt_cli_semaphore_limit = limit
+    return _dolt_cli_semaphore
+
+
 def process_rss_kib(pid: int) -> int:
     try:
         status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
@@ -1011,11 +1023,10 @@ class _Capture:
         self.truncated = False
 
     def append(self, data: bytes) -> None:
-        if len(self._data) < self.limit:
-            available = self.limit - len(self._data)
-            self._data.extend(data[:available])
-        if len(data) > max(0, self.limit - len(self._data)):
+        available = max(0, self.limit - len(self._data))
+        if len(data) > available:
             self.truncated = True
+        self._data.extend(data[:available])
 
     def value(self) -> bytes:
         return bytes(self._data)
@@ -1053,17 +1064,22 @@ class DoltRunner:
         stdin_path: Path | None = None,
         capture_stdout: bool = False,
     ) -> CommandResult:
-        process, stdin_handle = self._start(command_kind, args, cwd=cwd, stdin_path=stdin_path)
+        slot = _dolt_cli_slot_semaphore(self.settings.max_concurrent_dolt_cli_processes)
+        slot.acquire()
         try:
-            return self._collect(
-                process,
-                command_kind=command_kind,
-                timeout=timeout,
-                capture_stdout=capture_stdout,
-            )
+            process, stdin_handle = self._start(command_kind, args, cwd=cwd, stdin_path=stdin_path)
+            try:
+                return self._collect(
+                    process,
+                    command_kind=command_kind,
+                    timeout=timeout,
+                    capture_stdout=capture_stdout,
+                )
+            finally:
+                if stdin_handle is not None:
+                    stdin_handle.close()
         finally:
-            if stdin_handle is not None:
-                stdin_handle.close()
+            slot.release()
 
     def stream(
         self,
@@ -1074,6 +1090,8 @@ class DoltRunner:
         timeout: float,
         stdin_path: Path | None = None,
     ) -> "ProcessStream":
+        slot = _dolt_cli_slot_semaphore(self.settings.max_concurrent_dolt_cli_processes)
+        slot.acquire()
         process, stdin_handle = self._start(command_kind, args, cwd=cwd, stdin_path=stdin_path)
         if stdin_handle is not None:
             stdin_handle.close()
@@ -1083,6 +1101,7 @@ class DoltRunner:
             command_kind,
             timeout,
             max_line_bytes=self.settings.max_stream_line_bytes,
+            dolt_slot=slot,
         )
 
     def discard(
@@ -1096,6 +1115,8 @@ class DoltRunner:
     ) -> "DiscardProcess":
         """Run a diagnostic stream with child stdout directly attached to DEVNULL."""
 
+        slot = _dolt_cli_slot_semaphore(self.settings.max_concurrent_dolt_cli_processes)
+        slot.acquire()
         devnull = open(os.devnull, "wb")
         try:
             process, stdin_handle = self._start(
@@ -1106,12 +1127,13 @@ class DoltRunner:
                 stdout_target=devnull,
             )
         except BaseException:
+            slot.release()
             devnull.close()
             raise
         devnull.close()
         if stdin_handle is not None:
             stdin_handle.close()
-        return DiscardProcess(self, process, command_kind, timeout)
+        return DiscardProcess(self, process, command_kind, timeout, dolt_slot=slot)
 
     def _start(
         self,
@@ -1316,11 +1338,14 @@ class DiscardProcess:
         process: subprocess.Popen[bytes],
         command_kind: str,
         timeout: float,
+        *,
+        dolt_slot: threading.BoundedSemaphore | None = None,
     ) -> None:
         self.runner = runner
         self.process = process
         self.command_kind = command_kind
         self.timeout = timeout
+        self._dolt_slot = dolt_slot
         self.started = time.monotonic()
         self.start_rss_kib = process_tree_rss_kib(process.pid)
         start_breakdown = process_tree_rss_breakdown_kib(process.pid)
@@ -1411,6 +1436,8 @@ class DiscardProcess:
             self.runner.reap_adopted_dolt_children()
         self._stderr_thread.join(timeout=max(1.0, self.runner.settings.terminate_grace_seconds * 2))
         self._closed = True
+        if self._dolt_slot is not None:
+            self._dolt_slot.release()
         return DiscardResult(
             self.command_kind,
             self.process.returncode if self.process.returncode is not None else -1,
@@ -1437,12 +1464,14 @@ class ProcessStream:
         timeout: float,
         *,
         max_line_bytes: int | None = None,
+        dolt_slot: threading.BoundedSemaphore | None = None,
     ) -> None:
         self.runner = runner
         self.process = process
         self.command_kind = command_kind
         self.timeout = timeout
         self.max_line_bytes = max_line_bytes or runner.settings.output_capture_bytes
+        self._dolt_slot = dolt_slot
         self.started = time.monotonic()
         self.start_rss_kib = process_tree_rss_kib(process.pid)
         start_breakdown = process_tree_rss_breakdown_kib(process.pid)
@@ -1580,6 +1609,8 @@ class ProcessStream:
         if self.process.stderr is not None:
             self.process.stderr.close()
         self._closed = True
+        if self._dolt_slot is not None:
+            self._dolt_slot.release()
         return CommandResult(
             command_kind=self.command_kind,
             exit_code=self.process.returncode if self.process.returncode is not None else -1,

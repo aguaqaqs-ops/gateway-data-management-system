@@ -63,7 +63,8 @@ class RepositoryServiceSettings(BaseSettings):
     sqlite_busy_timeout_ms: int = 5000
     catalog_cache_entries: int = 32
     catalog_cache_bytes: int = 64 * 1024 * 1024
-    catalog_parallel_workers: int = 4
+    catalog_parallel_workers: int = 2
+    max_concurrent_dolt_cli_processes: int = 8
 
     @field_validator("dolt_binary")
     @classmethod
@@ -104,11 +105,26 @@ class RepositoryServiceSettings(BaseSettings):
         "catalog_cache_entries",
         "catalog_cache_bytes",
         "catalog_parallel_workers",
+        "max_concurrent_dolt_cli_processes",
     )
     @classmethod
     def _bounds_must_be_positive(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("bounds must be positive")
+        return value
+
+    @field_validator("catalog_parallel_workers")
+    @classmethod
+    def _catalog_parallel_workers_must_be_bounded(cls, value: int) -> int:
+        if not 1 <= value <= 4:
+            raise ValueError("catalog_parallel_workers must be between 1 and 4")
+        return value
+
+    @field_validator("max_concurrent_dolt_cli_processes")
+    @classmethod
+    def _max_concurrent_dolt_cli_processes_must_be_bounded(cls, value: int) -> int:
+        if not 1 <= value <= 64:
+            raise ValueError("max_concurrent_dolt_cli_processes must be between 1 and 64")
         return value
 
     @field_validator("record_batch_row_bounds")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import threading
 from collections import OrderedDict
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -223,6 +224,7 @@ _EXACT_METADATA_ROW_SCHEMAS: dict[str, frozenset[str]] = {
     "candidate_parent": frozenset({"parents"}),
     "catalog_count": frozenset({"row_count"}),
     "refs_for_commit": frozenset({"name"}),
+    "branch_heads": frozenset({"name", "hash"}),
     "marker_scan": frozenset({"commit_hash", "message", "parents"}),
 }
 
@@ -345,8 +347,9 @@ class CandidateADoltCli:
         self.repository = repository
         self.runner = runner
         self.query_directory = layout.staging_artifacts
-        self._catalog_cache: OrderedDict[str, tuple[TableCatalog, ...]] = OrderedDict()
+        self._catalog_cache: OrderedDict[str, tuple[tuple[TableCatalog, ...], int]] = OrderedDict()
         self._catalog_cache_bytes = 0
+        self._catalog_cache_lock = threading.Lock()
         _ensure_csv_field_limit(settings.max_stream_line_bytes)
 
     def _estimate_catalog_bytes(self, catalog: tuple[TableCatalog, ...]) -> int:
@@ -358,27 +361,31 @@ class CandidateADoltCli:
         return total
 
     def _get_cached_catalog(self, commit_id: str) -> tuple[TableCatalog, ...] | None:
-        cached = self._catalog_cache.get(commit_id)
-        if cached is None:
-            return None
-        self._catalog_cache.move_to_end(commit_id)
-        return cached
+        with self._catalog_cache_lock:
+            entry = self._catalog_cache.get(commit_id)
+            if entry is None:
+                return None
+            self._catalog_cache.move_to_end(commit_id)
+            return entry[0]
 
     def _store_cached_catalog(self, commit_id: str, catalog: tuple[TableCatalog, ...]) -> None:
-        if commit_id in self._catalog_cache:
-            self._catalog_cache_bytes -= self._estimate_catalog_bytes(self._catalog_cache[commit_id])
-            del self._catalog_cache[commit_id]
         catalog_bytes = self._estimate_catalog_bytes(catalog)
-        while self._catalog_cache:
-            if len(self._catalog_cache) < self.settings.catalog_cache_entries:
-                if self._catalog_cache_bytes + catalog_bytes <= self.settings.catalog_cache_bytes:
-                    break
-            elif self._catalog_cache_bytes + catalog_bytes <= self.settings.catalog_cache_bytes:
-                break
-            evicted_key, evicted_catalog = self._catalog_cache.popitem(last=False)
-            self._catalog_cache_bytes -= self._estimate_catalog_bytes(evicted_catalog)
-        self._catalog_cache[commit_id] = catalog
-        self._catalog_cache_bytes += catalog_bytes
+        byte_limit = self.settings.catalog_cache_bytes
+        entry_limit = self.settings.catalog_cache_entries
+        if catalog_bytes > byte_limit:
+            return
+        with self._catalog_cache_lock:
+            if commit_id in self._catalog_cache:
+                _, old_bytes = self._catalog_cache.pop(commit_id)
+                self._catalog_cache_bytes -= old_bytes
+            while self._catalog_cache and (
+                len(self._catalog_cache) >= entry_limit
+                or self._catalog_cache_bytes + catalog_bytes > byte_limit
+            ):
+                _, (_, evicted_bytes) = self._catalog_cache.popitem(last=False)
+                self._catalog_cache_bytes -= evicted_bytes
+            self._catalog_cache[commit_id] = (catalog, catalog_bytes)
+            self._catalog_cache_bytes += catalog_bytes
 
     def _load_table_catalog(self, table_name: str, target_literal: str) -> TableCatalog:
         create_rows = self.query_json(

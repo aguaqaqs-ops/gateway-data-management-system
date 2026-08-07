@@ -189,7 +189,8 @@ class CandidateAImportProvider:
         validate_operation_marker(marker)
         try:
             evidence: dict[tuple[str, str], set[str]] = {}
-            for branch_name in self._branch_names():
+            branch_heads = self._branch_heads()
+            for branch_name, _ in branch_heads:
                 rows = self._cli.query_json(
                     "marker_scan",
                     "SELECT commit_hash, message, parents FROM dolt_log "
@@ -224,10 +225,12 @@ class CandidateAImportProvider:
             if len(evidence) != 1:
                 return MarkerInspectionAmbiguous()
 
-            (candidate, parent), branch_names = next(iter(evidence.items()))
+            (candidate, parent), _ = next(iter(evidence.items()))
             refs: list[str] = []
             seen_refs: set[str] = set()
-            for branch_name in branch_names:
+            for branch_name, tip_hash in branch_heads:
+                if tip_hash != candidate:
+                    continue
                 ref = validate_readable_ref_name(branch_name)
                 if ref in seen_refs:
                     return MarkerInspectionAmbiguous()
@@ -360,21 +363,25 @@ class CandidateAImportProvider:
             raise ImportProviderError("Dolt did not return current branch")
         return result.stdout.decode("utf-8", errors="replace").strip()
 
+    def _branch_heads(self) -> tuple[tuple[str, str], ...]:
+        rows = self._cli.query_json("branch_heads", "SELECT name, hash FROM dolt_branches;\n")
+        heads: list[tuple[str, str]] = []
+        for row in rows:
+            raw_name = value(row, "name", 0)
+            raw_hash = value(row, "hash", 0)
+            if not isinstance(raw_name, str) or not raw_name:
+                raise ValueError("ref name is invalid")
+            if raw_name != raw_name.strip():
+                raise ValueError("ref name is invalid")
+            if not isinstance(raw_hash, str) or not raw_hash:
+                raise ValueError("commit id is invalid")
+            if raw_hash != raw_hash.strip():
+                raise ValueError("commit id is invalid")
+            heads.append((raw_name, validate_commit_id(raw_hash)))
+        return tuple(heads)
+
     def _branch_names(self) -> tuple[str, ...]:
-        result = self._run_runner(
-            "branch_list",
-            ["branch", "--list"],
-            self._settings.metadata_timeout_seconds,
-            capture_stdout=True,
-        )
-        if result.timed_out or result.exit_code != 0:
-            raise ImportProviderError("Dolt branch list failed")
-        names: list[str] = []
-        for line in result.stdout.decode("utf-8", errors="replace").splitlines():
-            stripped = line.strip().lstrip("*").strip()
-            if stripped:
-                names.append(stripped)
-        return tuple(names)
+        return tuple(name for name, _ in self._branch_heads())
 
     def _run_runner(
         self,

@@ -679,10 +679,109 @@ def test_marker_zero_when_private_ref_branch_not_scanned(
         table_sql="CREATE TABLE missing_ref (id BIGINT NOT NULL PRIMARY KEY);\n",
     )
 
-    with patch.object(import_provider, "_branch_names", return_value=("main",)):
+    with patch.object(import_provider, "_branch_heads", return_value=(("main", "deadbeef"),)):
         inspection = import_provider.inspect_marker(marker)
 
     assert isinstance(inspection, MarkerInspectionZero)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_missing_direct_ref_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE advanced_ref (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    import_provider._cli.run_cli(
+        "advance_after_marker",
+        [
+            "commit",
+            "--allow-empty",
+            "--message",
+            "after-marker",
+            f"--author={import_provider._settings.author}",
+        ],
+        import_provider._settings.metadata_timeout_seconds,
+    )
+    inspection = import_provider.inspect_marker(marker)
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_direct_refs_exclude_advanced_main(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref, marker, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE main_advanced (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    import_provider._run_cli(
+        "checkout_main",
+        ["checkout", IMPORT_MAIN_REF],
+        import_provider._settings.metadata_timeout_seconds,
+    )
+    import_provider._cli.run_cli(
+        "advance_main",
+        [
+            "commit",
+            "--allow-empty",
+            "--message",
+            "main-advanced",
+            f"--author={import_provider._settings.author}",
+        ],
+        import_provider._settings.metadata_timeout_seconds,
+    )
+    import_provider.checkout_private_ref(private_ref)
+    inspection = import_provider.inspect_marker(marker)
+    assert isinstance(inspection, MarkerInspectionUnique)
+    assert inspection.candidate == candidate
+    assert inspection.refs == (private_ref,)
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_marker_all_branches_advanced_is_ambiguous(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    private_ref, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE all_advanced (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    import_provider._cli.run_cli(
+        "advance_private_after_marker",
+        [
+            "commit",
+            "--allow-empty",
+            "--message",
+            "private-advanced",
+            f"--author={import_provider._settings.author}",
+        ],
+        import_provider._settings.metadata_timeout_seconds,
+    )
+    import_provider._run_cli(
+        "checkout_main",
+        ["checkout", IMPORT_MAIN_REF],
+        import_provider._settings.metadata_timeout_seconds,
+    )
+    import_provider._cli.run_cli(
+        "advance_main_after_marker",
+        [
+            "commit",
+            "--allow-empty",
+            "--message",
+            "main-advanced",
+            f"--author={import_provider._settings.author}",
+        ],
+        import_provider._settings.metadata_timeout_seconds,
+    )
+    inspection = import_provider.inspect_marker(marker)
+    assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
 @pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
@@ -905,18 +1004,6 @@ def test_marker_scan_unique_with_long_history(
     )
     parent_before_marker = import_provider.read_ref(private_ref)
     candidate = import_provider.commit_operation_marker(private_ref, marker)
-    for index in range(1000):
-        import_provider._cli.run_cli(
-            "padding_commit",
-            [
-                "commit",
-                "--allow-empty",
-                "--message",
-                f"padding-after-{index}",
-                f"--author={import_provider._settings.author}",
-            ],
-            import_provider._settings.metadata_timeout_seconds,
-        )
     inspection = import_provider.inspect_marker(marker)
     assert isinstance(inspection, MarkerInspectionUnique)
     assert inspection.candidate == candidate
@@ -1163,7 +1250,7 @@ def test_marker_branch_list_failure_is_ambiguous(
 ) -> None:
     marker = derive_operation_marker(OPERATION_ID)
 
-    with patch.object(import_provider, "_branch_names", side_effect=ImportProviderError("Dolt branch list failed")):
+    with patch.object(import_provider, "_branch_heads", side_effect=ImportProviderError("Dolt branch list failed")):
         inspection = import_provider.inspect_marker(marker)
 
     assert isinstance(inspection, MarkerInspectionAmbiguous)
@@ -1276,7 +1363,7 @@ def test_marker_process_boundary_is_ambiguous(
 
     with patch.object(
         import_provider,
-        "_branch_names",
+        "_branch_heads",
         side_effect=ProcessBoundaryError("process boundary"),
     ):
         inspection = import_provider.inspect_marker(marker)
@@ -2546,7 +2633,16 @@ def test_inspect_marker_rejects_whitespace_ref_name(
             ]
         return original_query_json(kind, sql, revision=revision)
 
-    with patch.object(import_provider, "_branch_names", return_value=("main", " main ")):
+    main_hash = import_provider.read_ref("main")
+    with patch.object(
+        import_provider,
+        "_branch_heads",
+        return_value=(
+            ("main", main_hash),
+            (" main ", candidate),
+            (private_ref, candidate),
+        ),
+    ):
         with patch.object(import_provider._cli, "query_json", side_effect=whitespace_branch_scan):
             inspection = import_provider.inspect_marker(marker)
 

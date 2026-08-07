@@ -21,12 +21,21 @@ from gateway_repository_service.arrow_mapping import (
     UnknownTypePolicy as ArrowUnknownTypePolicy,
     normalize_sql_type,
 )
-from gateway_repository_service.candidate_a.dolt_cli import DoltCliError
+from gateway_repository_service.candidate_a.dolt_cli import (
+    _CATALOG_MEMO_ENTRIES,
+    CandidateADoltCli,
+    DoltCliError,
+)
 from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import IMPORT_MAIN_REF
 from gateway_repository_service.candidate_a.sql import ProviderError, _catalog_from_schema_diff, _parse_create_statement
 from gateway_repository_service.layout import DurableLayout
-from gateway_repository_service.process import CommandResult, DoltRunner, ProcessBoundaryError
+from gateway_repository_service.process import (
+    CommandResult,
+    DoltRunner,
+    ProcessBoundaryError,
+    _Capture,
+)
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.models import (
@@ -3928,3 +3937,128 @@ def test_parse_create_statement_rejects_modifier_state_matrix(
 ) -> None:
     with pytest.raises(ProviderError, match=match):
         _parse_create_statement(ddl, 0)
+
+
+def test_capture_flags_truncation_only_on_overflow() -> None:
+    limit = 10
+
+    under = _Capture(limit)
+    under.append(b"x" * (limit - 1))
+    assert not under.truncated
+    assert len(under.value()) == limit - 1
+
+    exact = _Capture(limit)
+    exact.append(b"x" * limit)
+    assert not exact.truncated
+    assert len(exact.value()) == limit
+
+    over = _Capture(limit)
+    over.append(b"x" * (limit + 1))
+    assert over.truncated
+    assert len(over.value()) == limit
+
+
+def test_capture_chunked_writes_up_to_limit_are_not_truncated() -> None:
+    capture = _Capture(10)
+    capture.append(b"1234")
+    capture.append(b"567890")
+    assert not capture.truncated
+    assert capture.value() == b"1234567890"
+
+    capture.append(b"1")
+    assert capture.truncated
+    assert capture.value() == b"1234567890"
+
+
+def _memo_table(name: str) -> TableCatalog:
+    column = ColumnCatalog(
+        name="id",
+        sql_type="BIGINT",
+        nullable=False,
+        primary_key_position=1,
+    )
+    return TableCatalog(name=name, columns=(column,), row_count=0)
+
+
+def _memo_commit_id(index: int) -> str:
+    return f"{index:02d}{'a' * 30}"
+
+
+@pytest.fixture
+def catalog_cli(import_layout: DurableLayout) -> CandidateADoltCli:
+    settings = lifecycle_settings(import_layout.root.parent)
+    repository = import_layout.staging_artifacts / "memo-repo"
+    repository.mkdir(parents=True, exist_ok=True)
+    with patch.object(DoltRunner, "_validate_version"):
+        runner = DoltRunner(settings, import_layout.root)
+    return CandidateADoltCli(settings, import_layout, repository, runner)
+
+
+def test_catalog_memo_evicts_least_recently_used(catalog_cli: CandidateADoltCli) -> None:
+    for index in range(_CATALOG_MEMO_ENTRIES + 1):
+        catalog_cli._store_cached_catalog(_memo_commit_id(index), (_memo_table(f"t{index}"),))
+
+    assert len(catalog_cli._catalog_cache) == _CATALOG_MEMO_ENTRIES
+    assert catalog_cli._get_cached_catalog(_memo_commit_id(0)) is None
+    assert catalog_cli._get_cached_catalog(_memo_commit_id(_CATALOG_MEMO_ENTRIES)) is not None
+
+
+def test_catalog_memo_read_renews_recency(catalog_cli: CandidateADoltCli) -> None:
+    for index in range(_CATALOG_MEMO_ENTRIES):
+        catalog_cli._store_cached_catalog(_memo_commit_id(index), (_memo_table(f"t{index}"),))
+
+    oldest = _memo_commit_id(0)
+    assert catalog_cli._get_cached_catalog(oldest) is not None
+    catalog_cli._store_cached_catalog(_memo_commit_id(99), (_memo_table("t99"),))
+
+    assert catalog_cli._get_cached_catalog(oldest) is not None
+    assert catalog_cli._get_cached_catalog(_memo_commit_id(1)) is None
+
+
+def test_catalog_memo_holds_entry_bound_under_concurrency(
+    catalog_cli: CandidateADoltCli,
+) -> None:
+    errors: list[BaseException] = []
+
+    def store(prefix: int) -> None:
+        try:
+            for index in range(50):
+                commit_id = f"{prefix:01d}{index:02d}{'b' * 29}"
+                catalog_cli._store_cached_catalog(commit_id, (_memo_table(f"t{prefix}_{index}"),))
+                catalog_cli._get_cached_catalog(commit_id)
+                assert len(catalog_cli._catalog_cache) <= _CATALOG_MEMO_ENTRIES
+        except BaseException as exc:  # noqa: BLE001 - surfaced through errors list
+            errors.append(exc)
+
+    threads = [threading.Thread(target=store, args=(prefix,)) for prefix in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    assert len(catalog_cli._catalog_cache) <= _CATALOG_MEMO_ENTRIES
+
+
+@pytest.mark.skipif(not dolt_available(), reason="dolt executable is unavailable")
+def test_stream_start_failure_does_not_block_later_commands(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    """A failed spawn must not consume capacity that later commands wait on."""
+
+    runner = import_provider._runner
+    repository = import_provider._repository
+    timeout = import_provider._settings.metadata_timeout_seconds
+
+    for _ in range(4):
+        with pytest.raises(ProcessBoundaryError):
+            runner.stream(
+                "boundary_probe",
+                ["log", "--oneline"],
+                cwd=import_layout.root.parent,
+                timeout=timeout,
+            )
+
+    result = runner.run("version", ["version"], cwd=repository, timeout=timeout)
+    assert result.exit_code == 0

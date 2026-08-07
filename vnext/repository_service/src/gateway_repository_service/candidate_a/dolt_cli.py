@@ -332,6 +332,13 @@ def _ensure_csv_field_limit(limit: int) -> None:
     _csv_field_limit_applied = True
 
 
+# Per-session memoization for the few commit targets a single workflow re-reads
+# (initial, expected parent, candidate).  This is not a memory budget: catalogs
+# are retained until the session is dropped.  A node-wide catalog cache with a
+# real byte bound belongs to the capacity stage.
+_CATALOG_MEMO_ENTRIES = 4
+
+
 class CandidateADoltCli:
     """Narrow Candidate A offline CLI session without probe measurement wrappers."""
 
@@ -347,45 +354,24 @@ class CandidateADoltCli:
         self.repository = repository
         self.runner = runner
         self.query_directory = layout.staging_artifacts
-        self._catalog_cache: OrderedDict[str, tuple[tuple[TableCatalog, ...], int]] = OrderedDict()
-        self._catalog_cache_bytes = 0
+        self._catalog_cache: OrderedDict[str, tuple[TableCatalog, ...]] = OrderedDict()
         self._catalog_cache_lock = threading.Lock()
         _ensure_csv_field_limit(settings.max_stream_line_bytes)
 
-    def _estimate_catalog_bytes(self, catalog: tuple[TableCatalog, ...]) -> int:
-        total = 0
-        for table in catalog:
-            total += len(table.name.encode("utf-8")) + 16
-            for column in table.columns:
-                total += len(column.name.encode("utf-8")) + len(column.sql_type.encode("utf-8")) + 24
-        return total
-
     def _get_cached_catalog(self, commit_id: str) -> tuple[TableCatalog, ...] | None:
         with self._catalog_cache_lock:
-            entry = self._catalog_cache.get(commit_id)
-            if entry is None:
+            catalog = self._catalog_cache.get(commit_id)
+            if catalog is None:
                 return None
             self._catalog_cache.move_to_end(commit_id)
-            return entry[0]
+            return catalog
 
     def _store_cached_catalog(self, commit_id: str, catalog: tuple[TableCatalog, ...]) -> None:
-        catalog_bytes = self._estimate_catalog_bytes(catalog)
-        byte_limit = self.settings.catalog_cache_bytes
-        entry_limit = self.settings.catalog_cache_entries
-        if catalog_bytes > byte_limit:
-            return
         with self._catalog_cache_lock:
-            if commit_id in self._catalog_cache:
-                _, old_bytes = self._catalog_cache.pop(commit_id)
-                self._catalog_cache_bytes -= old_bytes
-            while self._catalog_cache and (
-                len(self._catalog_cache) >= entry_limit
-                or self._catalog_cache_bytes + catalog_bytes > byte_limit
-            ):
-                _, (_, evicted_bytes) = self._catalog_cache.popitem(last=False)
-                self._catalog_cache_bytes -= evicted_bytes
-            self._catalog_cache[commit_id] = (catalog, catalog_bytes)
-            self._catalog_cache_bytes += catalog_bytes
+            self._catalog_cache.pop(commit_id, None)
+            while len(self._catalog_cache) >= _CATALOG_MEMO_ENTRIES:
+                self._catalog_cache.popitem(last=False)
+            self._catalog_cache[commit_id] = catalog
 
     def _load_table_catalog(self, table_name: str, target_literal: str) -> TableCatalog:
         create_rows = self.query_json(

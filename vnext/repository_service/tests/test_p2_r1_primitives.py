@@ -3,14 +3,11 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 
 from gateway_repository_service.arrow_mapping import (
-    ColumnCatalog,
-    TableCatalog,
     TemporalSqlTypeKind,
     UnknownSqlTypeError,
     UnknownTypePolicy,
@@ -19,11 +16,10 @@ from gateway_repository_service.arrow_mapping import (
     normalize_sql_type,
     parse_temporal_sql_type,
 )
-from gateway_repository_service.candidate_a.dolt_cli import CandidateADoltCli
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.publication import FaultPoint, atomic_publish
-from gateway_repository_service.process import DoltRunner, _Capture
+from gateway_repository_service.process import DoltRunner
 from gateway_repository_service.settings import RepositoryServiceSettings
 
 
@@ -133,115 +129,3 @@ def test_known_and_unknown_arrow_mapping() -> None:
         pass
     else:
         raise AssertionError("unknown type did not reject")
-
-
-def _capture_table(name: str) -> TableCatalog:
-    column = ColumnCatalog(
-        name="id",
-        sql_type="BIGINT",
-        nullable=False,
-        primary_key_position=1,
-    )
-    return TableCatalog(name=name, columns=(column,), row_count=0)
-
-
-def _catalog_cli(
-    tmp_path: Path,
-    *,
-    catalog_cache_entries: int | None = None,
-    catalog_cache_bytes: int | None = None,
-) -> CandidateADoltCli:
-    layout = DurableLayout.create(tmp_path / "root")
-    kwargs: dict[str, int] = {}
-    if catalog_cache_entries is not None:
-        kwargs["catalog_cache_entries"] = catalog_cache_entries
-    if catalog_cache_bytes is not None:
-        kwargs["catalog_cache_bytes"] = catalog_cache_bytes
-    settings = RepositoryServiceSettings.model_validate(kwargs)
-    repository = layout.staging_artifacts / "catalog-repo"
-    repository.mkdir(parents=True)
-    with patch.object(DoltRunner, "_validate_version"):
-        runner = DoltRunner(settings, layout.root)
-    return CandidateADoltCli(settings, layout, repository, runner)
-
-
-def test_capture_truncation_only_when_overflow() -> None:
-    limit = 10
-    under = _Capture(limit)
-    under.append(b"x" * (limit - 1))
-    assert not under.truncated
-    assert len(under.value()) == limit - 1
-
-    exact = _Capture(limit)
-    exact.append(b"x" * limit)
-    assert not exact.truncated
-    assert len(exact.value()) == limit
-
-    over = _Capture(limit)
-    over.append(b"x" * (limit + 1))
-    assert over.truncated
-    assert len(over.value()) == limit
-
-
-def test_capture_chunked_writes_do_not_false_truncated() -> None:
-    capture = _Capture(10)
-    capture.append(b"1234")
-    capture.append(b"678901")
-    assert not capture.truncated
-    assert len(capture.value()) == 10
-
-
-def test_catalog_cache_entry_limit_evicts_lru(tmp_path: Path) -> None:
-    cli = _catalog_cli(tmp_path, catalog_cache_entries=1)
-    first = _capture_table("first")
-    second = _capture_table("second")
-    cli._store_cached_catalog("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", (first,))
-    cli._store_cached_catalog("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", (second,))
-    assert len(cli._catalog_cache) == 1
-    assert "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" in cli._catalog_cache
-    assert cli._catalog_cache_bytes <= cli.settings.catalog_cache_bytes
-
-
-def test_catalog_cache_skips_oversized_entry(tmp_path: Path) -> None:
-    cli = _catalog_cli(tmp_path, catalog_cache_bytes=1)
-    cli._store_cached_catalog("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", (_capture_table("oversized"),))
-    assert len(cli._catalog_cache) == 0
-    assert cli._catalog_cache_bytes == 0
-
-
-def test_catalog_cache_concurrent_store_invariants(tmp_path: Path) -> None:
-    import threading
-
-    cli = _catalog_cli(tmp_path, catalog_cache_entries=4, catalog_cache_bytes=4096)
-    errors: list[BaseException] = []
-
-    def worker(prefix: str) -> None:
-        try:
-            for index in range(50):
-                commit_id = f"{prefix}{index:02d}{'a' * 28}"
-                cli._store_cached_catalog(commit_id, (_capture_table(f"{prefix}_{index}"),))
-        except BaseException as exc:
-            errors.append(exc)
-
-    threads = [threading.Thread(target=worker, args=(f"{letter}",)) for letter in ("aa", "bb", "cc")]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    assert not errors
-    assert len(cli._catalog_cache) <= cli.settings.catalog_cache_entries
-    assert cli._catalog_cache_bytes <= cli.settings.catalog_cache_bytes
-
-
-def test_settings_catalog_parallel_workers_bounded() -> None:
-    assert RepositoryServiceSettings().catalog_parallel_workers == 2
-    RepositoryServiceSettings(catalog_parallel_workers=4)
-    with pytest.raises(ValueError, match="catalog_parallel_workers"):
-        RepositoryServiceSettings(catalog_parallel_workers=5)
-
-
-def test_settings_max_concurrent_dolt_cli_processes_bounded() -> None:
-    assert RepositoryServiceSettings().max_concurrent_dolt_cli_processes == 8
-    RepositoryServiceSettings(max_concurrent_dolt_cli_processes=64)
-    with pytest.raises(ValueError, match="max_concurrent_dolt_cli_processes"):
-        RepositoryServiceSettings(max_concurrent_dolt_cli_processes=65)

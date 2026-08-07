@@ -293,7 +293,6 @@ def test_internal_rss_monitor_stops_before_process_reap(
     obj.started = time.monotonic() - 1
     obj.timeout = 0
     obj._closed = False
-    obj._dolt_slot = None
     obj._lifecycle_lock = threading.Lock()
     obj._stop_rss_monitor = lambda: events.append("monitor-stop")
     obj._stderr_thread = SimpleNamespace(join=lambda **_kwargs: events.append("stderr-join"))

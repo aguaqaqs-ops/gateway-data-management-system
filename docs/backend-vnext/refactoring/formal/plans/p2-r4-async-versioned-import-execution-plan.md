@@ -1526,6 +1526,48 @@ next_stage_ready: yes
 next_stage: P2-R4-S10
 ```
 
+#### S9 handoff amendment (review fixes)
+
+```yaml
+review_fix_commit_sha: 46a6037
+worktree_clean: false
+uncommitted_paths:
+  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md  # S8 scope, out of S9
+review_fix_paths:
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/submission.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
+  - vnext/repository_service/tests/test_import_http.py
+  - vnext/repository_service/tests/test_operation_http.py
+  - vnext/repository_service/tests/test_import_operation_store.py
+  - vnext/repository_service/tests/test_dolt_runner_shutdown.py
+  - vnext/repository_service/tests/test_import_worker.py
+review_fix_summary:
+  - ValidationError from durable row mapping -> 500 INTERNAL_ERROR (not 503) on lookup/admit/get_operation
+  - admit_new_import rechecks has_published_artifact_file inside BEGIN IMMEDIATE via layout parameter
+  - expanded replay/admission HTTP test matrix; dolt_runner_shutdown restored to unit (dolt stub + _validate_version patch)
+  - worker disk-admission test starts pool only after patch to avoid parallel flake
+test_markers_counts:
+  repository_service_unit_parked_dolt: 618 passed, 1 skipped
+  repository_service_parallel: 869 passed, 1 skipped
+  repository_service_serial: 30 passed
+validation_commands_results:
+  - "directed import/operation/submission/store/dolt_runner/worker tests -n 0 -> pass (77)"
+  - "repository_service: uv lock --check, ruff, mypy -> pass"
+  - "repository_service: pytest -m 'not serial', pytest -m serial -n 0 -> pass"
+  - "repository_service unit (dolt parked): pytest -m unit -> pass (618)"
+  - "./vnext/scripts/run-tests.sh x3 -> pass (one unrelated provider flake on attempt 2)"
+  - "git diff --check -> pass"
+first_failures_and_fixes:
+  - P1 invariant row mapping returned 503 -> _map_store_error separates ValidationError (500) from sqlite3 operational (503)
+  - P2 admit transaction skipped ready-file recheck -> layout + has_published_artifact_file in _verify_artifact_lifecycle_binding
+  - P2 incomplete replay/admission matrix -> parametrized HTTP/submission/store tests
+  - P2 dolt_runner_shutdown mis-tagged integration -> dolt stub + patch _validate_version, removed pytestmark
+  - P2 worker disk test flake -> defer pool.start() until after patch
+  - P3 integration happy path -> assert 202 + GET 200 with matching operation_id (no worker timing dependency)
+stage_exit: pass
+next_stage_ready: yes
+```
+
 ## 14. S10 — Full fault matrix, real Dolt, Compose and handoff
 
 ### Goal

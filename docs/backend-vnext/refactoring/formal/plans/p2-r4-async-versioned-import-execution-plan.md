@@ -1853,6 +1853,38 @@ next_stage_ready: no
 next_stage: P2-R4-S9 seventh-review remediation
 ```
 
+#### S9 handoff amendment (eighth-review remediation)
+
+```yaml
+eighth_review_fix_commit_sha: 426c712
+worktree_clean: false
+uncommitted_paths:
+  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md  # S8 scope
+eighth_review_fix_paths:
+  - vnext/repository_service/tests/test_import_submission.py
+eighth_review_fix_summary:
+  - test_pending_admission_resolution_sqlite_fault_maps_to_service_not_ready marked @pytest.mark.serial
+  - try/finally ensures resume_admit.set() and first_thread.join on assertion failure
+test_markers_counts:
+  repository_service_unit: 663 passed, 1 skipped
+  repository_service_parallel: 904 passed, 1 skipped
+  repository_service_serial: 40 passed
+validation_commands_results:
+  - "test_pending_admission_resolution_sqlite_fault_maps_to_service_not_ready -n 0 -> pass"
+  - "repository_service: pytest -m serial -n 0 -> pass (40)"
+  - "repository_service: pytest -m not serial --co confirms test excluded from parallel collection"
+  - "repository_service: ruff check tests/test_import_submission.py -> pass"
+first_failures_and_fixes:
+  - P2 timing-sensitive admission test missing @pytest.mark.serial -> serial marker + try/finally thread cleanup
+known_limitations:
+  - cooperative cleanup excluded by admission pin flock; external durable-root tampering outside support surface
+  - S10 still owns real-Dolt/process-crash/Compose matrix
+  - no P2-R5 public reads or public admin API
+stage_exit: no-go
+next_stage_ready: no
+next_stage: P2-R4-S9 eighth-review remediation
+```
+
 ## 14. S10 — Full fault matrix, real Dolt, Compose and handoff
 
 ### Goal

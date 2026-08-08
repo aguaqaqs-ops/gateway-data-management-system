@@ -1096,8 +1096,8 @@ feat(repository): add private import recovery CLI
 round: P2-R4
 stage: P2-R4-S8
 start_sha: b06ce5b
-commit_sha: <round-3 remediation commit>
-head_sha: <round-3 remediation commit>
+commit_sha: 5e936bf
+head_sha: 5e936bf
 branch: phase1/gate-ownership-repair
 worktree_clean: yes
 
@@ -1147,11 +1147,11 @@ fault_points_covered (round-3):
 validation_commands:
   - uv run ruff check src tests → pass
   - uv run mypy → pass
-  - dolt parked: pytest tests/test_import_admin_cli.py -m unit -n 0 -q → 5 passed
-  - pytest tests/test_import_admin_cli.py -n 0 -q → 32 passed
+  - dolt parked: pytest tests/test_import_admin_cli.py -m unit -n 0 -q → 5 passed, 27 deselected, ~2.1s
+  - pytest tests/test_import_admin_cli.py -n 0 -q → 32 passed, ~33s
   - pytest tests/test_import_worker.py tests/test_import_recovery.py -n 0 -q → 62 passed
   - git diff --check → pass
-  - ./vnext/scripts/run-tests.sh → see commit message for counts
+  - ./vnext/scripts/run-tests.sh → 801 passed + 1 skipped (parallel), 29 passed (serial)
 
 known_limitations:
   - no positive CLI test for VERIFICATION_FAILED_NOT_PUBLISHED (deferred until durable evidence exists)

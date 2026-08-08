@@ -586,8 +586,9 @@ port方法或error code），不得改变S1–S5已固定的wire/DTO语义与现
 - 同artifact存在QUEUED/RUNNING/MANUAL reference时禁止premature cleanup；
 - private ref cleanup ordering；
 - 新增settings：`max_import_workers`（默认4）为必需，`max_queued_imports`、
-  `import_shutdown_grace_seconds`、`import_headroom_bytes`可留到S7/S9消费点再加；新增int字段
-  必须同步加入`settings.py`的`_bounds_must_be_positive`显式字段列表，否则不受校验；
+  `import_shutdown_grace_seconds`、`import_headroom_bytes`可留到S7/S9消费点再加；新增字段
+  必须按类型同步加入`settings.py`对应validator显式列表（int → `_bounds_must_be_positive`，
+  float → `_timeouts_must_be_positive`），否则不受校验；
 - direct store/worker tests覆盖same repository serialization和cross-repository bounded parallelism，
   这两类测试依赖时间预算，必须标`@pytest.mark.serial`；real Dolt worker测试必须标
   `@pytest.mark.integration`；零skip/xfail；
@@ -627,8 +628,8 @@ registry、operation executor和test-only fault injector。
   `StoredImportOperation`、`is_protected_operation_status`。
 
 默认max_import_workers=4，可配置；新增settings int字段必须同时加入`_bounds_must_be_positive`
-的显式字段列表。Dispatcher必须先排除active repository和未解决MANUAL barrier，reserve
-repository ownership后再claim_if_queued；不得先claim同repository多个RUNNING row让worker阻塞
+的显式字段列表；float timeout字段加入`_timeouts_must_be_positive`。Dispatcher必须先排除
+active repository和未解决MANUAL barrier，reserve
 争锁。FIFO排序键是S2已落地的per-repository `enqueue_sequence`，不是`created_at,
 operation_id`（`utc_now_iso()`只有秒级精度，同秒会退化成UUID序，且
 `test_claim_next_queued_is_fifo`已固定该语义）；跨repository不要求全局FIFO，只要求无
@@ -729,7 +730,8 @@ question上报，不要自行放宽。
   改为非daemon并让`stop()`的join成为真正的屏障（join超时后必须报告，不得静默丢弃线程）；
 - **新增settings**：`import_shutdown_grace_seconds`（float，正数）必需，用于shutdown grace；
   若readiness/capacity真的消费`import_headroom_bytes`才一并新增，否则留给S9。新增字段必须
-  同步加入`settings.py`的`_bounds_must_be_positive`显式字段列表，否则不受校验；
+  按类型同步加入`settings.py`对应validator显式列表（float → `_timeouts_must_be_positive`，
+  int → `_bounds_must_be_positive`），否则不受校验；
 - **barrier重建需要`RepositoryLockRegistry`新API**：现有registry只有
   `try_reserve/release_reservation/is_active/repository_execution`，没有任何"从durable
   MANUAL rows播种barrier"的入口，也没有eviction（`_repository_locks`字典无界增长，S6 defer
@@ -787,7 +789,8 @@ repository已QUEUED operation保持QUEUED，其他repository继续执行。Barri
 断言"同一connection上dispatcher与MutationStore并发写不出现nested transaction"的测试。
 `RepositoryLockRegistry`需新增从durable MANUAL rows播种barrier的入口，并补上eviction/有界化
 （S6 defer项）。新增settings `import_shutdown_grace_seconds`（float，正数）并同步加入
-`settings.py`的`_bounds_must_be_positive`字段列表；`import_headroom_bytes`只在readiness/capacity
+`settings.py`的`_timeouts_must_be_positive`字段列表；int字段加入`_bounds_must_be_positive`；
+`import_headroom_bytes`只在readiness/capacity
 真正消费时才加，否则留给S9。
 
 实现shutdown stopping flag、停止claim、configured grace、per-operation cancellation、Dolt

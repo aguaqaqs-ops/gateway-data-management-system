@@ -89,7 +89,9 @@ Repository Operation只公开`QUEUED | RUNNING | SUCCEEDED | FAILED`。
 idempotency key；必须复用原operation identity查询。Repository Service启动恢复：
 
 1. main已发布matching operation commit时补齐SUCCEEDED；
-2. private ref有唯一candidate且main仍为expected时继续verification/CAS；
+2. private ref有唯一candidate且main仍为expected时继续verification/CAS（continue路径
+   无条件以`STRUCTURAL`复核candidate作为证据补强；`completed_verification_policy`仍等于
+   requested policy，见[Repository Service Contract](repository-service.md) §11规则3）；
 3. 完全未找到matching commit且artifact完整时使用原artifact/key自动重试一次；
 4. 多commit、ref矛盾、artifact缺失或无法判断时FAILED /
    MANUAL_RECOVERY_REQUIRED。

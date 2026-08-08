@@ -8,9 +8,18 @@ from uuid import UUID, uuid4
 import pytest
 
 from gateway_repository_contracts import OperationStatus, SimpleError, VersionedImportResult, UnknownTypePolicy, VerificationPolicy
-from gateway_repository_service.versioned_import.models import MANUAL_RECOVERY_REQUIRED_CODE
+from gateway_repository_service.versioned_import.models import (
+    MANUAL_RECOVERY_REQUIRED_CODE,
+    ImportManifest,
+)
+from gateway_repository_service.versioned_import.ports import VersionedImportProvider
 from gateway_repository_service.versioned_import.recovery import ImportStartupReconciler
-from gateway_repository_service.versioned_import.verification import IMPORT_REJECTED_CODE
+from gateway_repository_service.versioned_import.verification import (
+    IMPORT_REJECTED_CODE,
+    VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+    ImportVerificationResult,
+    verify_import_candidate,
+)
 from support.import_recovery_harness import (
     assert_crash_exit,
     crash_import_subprocess,
@@ -99,6 +108,64 @@ def test_continue_verification_without_sql_replay(tmp_path: Path) -> None:
         env.close()
 
 
+def test_continue_recovery_records_requested_policy_despite_structural_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_policies: list[VerificationPolicy] = []
+
+    def _record_policy(
+        provider: VersionedImportProvider,
+        *,
+        candidate: str,
+        manifest: ImportManifest,
+        verification_policy: VerificationPolicy,
+        unknown_type_policy: UnknownTypePolicy,
+    ) -> ImportVerificationResult:
+        observed_policies.append(verification_policy)
+        return verify_import_candidate(
+            provider,
+            candidate=candidate,
+            manifest=manifest,
+            verification_policy=verification_policy,
+            unknown_type_policy=unknown_type_policy,
+        )
+
+    monkeypatch.setattr(
+        "gateway_repository_service.versioned_import.recovery.verify_import_candidate",
+        _record_policy,
+    )
+
+    env = WorkerTestEnvironment(tmp_path)
+    try:
+        operation_id = env.enqueue(
+            REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            operation_id=OPERATION_ID,
+            verification_policy=VerificationPolicy.NONE,
+            unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+        )
+        _claim_running(env, operation_id)
+        provider = env.provider_for(REPOSITORY_ID)
+        context = env.store.load_execution_context(operation_id)
+        assert context is not None
+        provider.create_private_ref(context.private_ref_name, context.expected_commit_id)
+        provider.checkout_private_ref(context.private_ref_name)
+        provider.commit_operation_marker(context.private_ref_name, context.operation_marker)
+        assert env.store.get_automatic_replay_count(operation_id) == 0
+        _reconciler(env).reconcile()
+        operation = env.store.get_operation(REPOSITORY_ID, operation_id)
+        assert operation is not None
+        assert operation.status == OperationStatus.SUCCEEDED
+        assert operation.result is not None
+        assert operation.result.completed_verification_policy == VerificationPolicy.NONE
+        assert env.store.get_automatic_replay_count(operation_id) == 0
+        assert provider.replay_order == []
+        assert observed_policies == [VerificationPolicy.STRUCTURAL]
+    finally:
+        env.close()
+
+
 def test_partial_replay_does_not_succeed_without_sql_replay(tmp_path: Path) -> None:
     env = WorkerTestEnvironment(tmp_path)
     try:
@@ -115,14 +182,24 @@ def test_partial_replay_does_not_succeed_without_sql_replay(tmp_path: Path) -> N
         assert context is not None
         provider.create_private_ref(context.private_ref_name, context.expected_commit_id)
         provider.checkout_private_ref(context.private_ref_name)
-        provider.refs[context.private_ref_name] = f"partial-{context.expected_commit_id}"
+        provider.replay_writes_partial_state = True
+        provider.replay_sql(context.private_ref_name, Path("unused.sql"))
         assert context.operation_marker not in provider.markers
+        assert env.store.get_automatic_replay_count(operation_id) == 0
         _reconciler(env).reconcile()
         operation = env.store.get_operation(REPOSITORY_ID, operation_id)
         assert operation is not None
-        assert not (
-            operation.status == OperationStatus.SUCCEEDED and provider.replay_order == []
-        )
+        replay_count = env.store.get_automatic_replay_count(operation_id)
+        if operation.status == OperationStatus.SUCCEEDED:
+            assert replay_count == 1
+        else:
+            assert operation.status in {OperationStatus.RUNNING, OperationStatus.FAILED}
+            if operation.status == OperationStatus.FAILED:
+                assert operation.error is not None
+                assert operation.error.code in {
+                    MANUAL_RECOVERY_REQUIRED_CODE,
+                    VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+                }
     finally:
         env.close()
 

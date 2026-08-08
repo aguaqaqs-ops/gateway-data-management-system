@@ -424,7 +424,10 @@ Startup规则为：
 1. QUEUED重新入队；
 2. 遗留RUNNING且`main`已指向唯一matching marker/parent commit时补齐SUCCEEDED；
 3. `main`仍为expected且private ref存在唯一matching candidate时，从已保存request继续
-   requested verification与CAS，不重复执行replay SQL；
+   verification与CAS，不重复执行replay SQL；该continue路径在replay证据充分时**无条件以
+   `STRUCTURAL`复核candidate**（证据补强，不是policy升级）。`completed_verification_policy`
+   仍等于`requested_verification_policy`；automatic replay（规则4）仍按requested policy
+   执行；
 4. 完全未找到matching commit且artifact完整时，以原request/key自动重放最多一次；
 5. 正常validation/provider failure直接终止，不做隐藏通用retry；
 6. 多commit、ref矛盾、artifact缺失或无法判断时终止为

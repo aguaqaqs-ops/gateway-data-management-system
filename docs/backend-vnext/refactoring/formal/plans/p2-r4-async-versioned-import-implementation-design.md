@@ -674,8 +674,9 @@ Import reconciler按operation逐项执行：
 4. MANUAL保持artifact/private evidence和repository barrier，不自动处理；
 5. 遗留`RUNNING`先检查main、marker、private ref、parent和artifact；
 6. main等于唯一matching candidate且parent/marker匹配时补SUCCEEDED；
-7. main仍为expected且private ref有唯一matching candidate时继续requested verification和CAS，
-   不重复replay SQL；
+7. main仍为expected且private ref有唯一matching candidate时继续verification和CAS，
+   不重复replay SQL；continue路径无条件以`STRUCTURAL`复核candidate（证据补强，不改变
+   `completed_verification_policy`）；automatic replay仍按requested policy执行；
 8. 完全没有matching commit、main仍为expected、artifact完整且
    `automatic_replay_count == 0`时，先在transaction中把count改为1，再从expected重建private
    ref并自动replay；

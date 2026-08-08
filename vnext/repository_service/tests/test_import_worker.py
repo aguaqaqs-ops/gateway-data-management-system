@@ -812,3 +812,37 @@ def test_repository_lock_eviction_preserves_mutual_exclusion() -> None:
         thread.join()
     assert errors == []
     assert max_concurrent == 1
+
+
+@pytest.mark.serial
+def test_repository_lock_does_not_block_other_repositories() -> None:
+    from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
+
+    registry = RepositoryLockRegistry()
+    repo_a = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
+    repo_b = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c12")
+    a_holding = threading.Event()
+    a_can_release = threading.Event()
+    errors: list[BaseException] = []
+
+    def hold_repo_a() -> None:
+        try:
+            with registry.repository_execution(repo_a):
+                a_holding.set()
+                assert a_can_release.wait(timeout=5.0)
+                time.sleep(0.05)
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread_a = threading.Thread(target=hold_repo_a)
+    thread_a.start()
+    assert a_holding.wait(timeout=5.0)
+
+    start = time.monotonic()
+    with registry.repository_execution(repo_b):
+        elapsed = time.monotonic() - start
+    a_can_release.set()
+    thread_a.join(timeout=5.0)
+
+    assert errors == []
+    assert elapsed < 0.5

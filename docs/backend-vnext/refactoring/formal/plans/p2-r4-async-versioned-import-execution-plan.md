@@ -1571,7 +1571,7 @@ next_stage_ready: no
 #### S9 handoff amendment (re-review remediation)
 
 ```yaml
-re_review_fix_commit_sha: TBD
+re_review_fix_commit_sha: 86b84dd
 worktree_clean: false
 uncommitted_paths:
   - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md  # S8 scope
@@ -1620,6 +1620,53 @@ known_limitations:
 stage_exit: no-go
 next_stage_ready: no
 next_stage: P2-R4-S9 remediation/re-review
+```
+
+#### S9 handoff amendment (third-review remediation)
+
+```yaml
+third_review_fix_commit_sha: 2c0a4d6
+re_review_fix_commit_sha_retroactive: 86b84dd  # corrects 4c037f5 TBD omission
+worktree_clean: false
+uncommitted_paths:
+  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md  # S8 scope
+third_review_fix_paths:
+  - vnext/repository_service/src/gateway_repository_service/upload_artifact/admission_pin.py
+  - vnext/repository_service/src/gateway_repository_service/upload_artifact/visibility.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/submission.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/command.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/recovery.py
+  - vnext/repository_service/tests/test_import_http.py
+  - vnext/repository_service/tests/test_import_submission.py
+  - vnext/repository_service/tests/test_import_operation_store.py
+third_review_fix_summary:
+  - ArtifactAdmissionPin flock protocol coordinates submit admission with cleanup try_unlink_ready_artifact
+  - preflight DB-backed checks map sqlite3 faults to 503 via _map_store_error(context=preflight)
+  - _parse_request_fingerprint rejects non-bytes SQLite types as ImportStoreInvariantError -> 500 on replay
+  - TOCTOU regression tests (unlink-before-admit, cooperative cleanup blocked during pin)
+test_markers_counts:
+  repository_contracts_pytest: 66 passed
+  repository_service_unit: 647 passed, 1 skipped
+  repository_service_parallel: 896 passed, 1 skipped
+  repository_service_serial: 32 passed
+validation_commands_results:
+  - "directed admission/fingerprint/preflight/sqlite tests -n 0 -> pass (15+)"
+  - "repository_service: uv lock --check, ruff, mypy -> pass"
+  - "repository_service: pytest -m unit, pytest -m 'not serial', pytest -m serial -n 0 -> pass"
+  - "./vnext/scripts/run-tests.sh x3 -> pass"
+  - "git diff --check -> pass"
+first_failures_and_fixes:
+  - P2 artifact TOCTOU accepted QUEUED without ready file -> admission pin + assert_unchanged before BEGIN/INSERT
+  - P2 preflight SQLite faults returned 500 -> wrap _preflight_new_effect with _map_store_error
+  - P2 fingerprint TEXT/INTEGER replay returned 503 -> _parse_request_fingerprint -> ImportStoreInvariantError
+  - P3 handoff 4c037f5 re_review_fix_commit_sha TBD -> retroactive 86b84dd + third amendment records 2c0a4d6
+known_limitations:
+  - S10 still owns real-Dolt/process-crash/Compose matrix
+  - no P2-R5 public reads or public admin API
+stage_exit: pass
+next_stage_ready: yes
+next_stage: P2-R4-S10
 ```
 
 ## 14. S10 — Full fault matrix, real Dolt, Compose and handoff

@@ -105,7 +105,6 @@ class ServiceRuntime:
                 store=import_store,
                 provider_factory=provider_factory,
             ).reconcile()
-            import_locks.seed_manual_barriers(import_store.list_repositories_with_manual_barrier())
             if not is_durable_root_writable(layout.service_state):
                 raise ServiceStartupError("durable root is not writable")
             if not has_free_disk_admission(layout.root, settings):

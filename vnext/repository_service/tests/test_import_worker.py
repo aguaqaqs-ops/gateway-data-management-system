@@ -696,7 +696,6 @@ def test_manual_barrier_allows_other_repository_to_succeed(worker_env: WorkerTes
             request_id=None,
         ),
     )
-    worker_env.locks.seed_manual_barriers(worker_env.store.list_repositories_with_manual_barrier())
 
     other_artifact = UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c11")
     other_operation = worker_env.enqueue(

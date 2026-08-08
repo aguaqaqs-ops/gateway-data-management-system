@@ -248,8 +248,7 @@ def test_manual_barrier_seeded_in_registry(tmp_path: Path) -> None:
                 request_id=None,
             ),
         )
-        env.locks.seed_manual_barriers(env.store.list_repositories_with_manual_barrier())
-        assert env.locks.has_manual_barrier(REPOSITORY_ID)
+        assert env.store.has_unresolved_manual_barrier(REPOSITORY_ID) is True
         other_operation = env.enqueue(
             OTHER_REPOSITORY_ID,
             artifact_id=uuid4(),
@@ -601,6 +600,6 @@ def test_subprocess_crash_then_runtime_restart_recovers(tmp_path: Path) -> None:
             OperationStatus.SUCCEEDED,
             timeout=60.0,
         )
-        assert restarted.import_locks.has_manual_barrier(REPOSITORY_ID) is False
+        assert restarted.import_store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
     finally:
         restarted.shutdown()

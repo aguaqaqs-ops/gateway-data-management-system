@@ -742,41 +742,75 @@ MANUAL operation本身在被完整分类后不使整个Service permanently unrea
 
 ## 17. Private admin CLI
 
-建议private entry point：
+Private entry point（模块调用形式；`pyproject.toml`无`[project.scripts]`，不要求新增）：
 
 ```text
 python -m gateway_repository_service.versioned_import.admin inspect \
-  --operation-id <uuid>
+  --operation-id <uuid> [--data-root <path>]
 
 python -m gateway_repository_service.versioned_import.admin apply \
   --operation-id <uuid> \
-  --decision SUCCEEDED|NOT_PUBLISHED
+  --decision SUCCEEDED|NOT_PUBLISHED [--data-root <path>]
 ```
+
+该CLI是唯一允许把`FAILED/MANUAL_RECOVERY_REQUIRED` operation推到terminal correction的通道
+（见§8）。它运行在stopped service下：durable root lock是"service是否在跑"的唯一判据，
+CLI不做任何形式的与运行中service并发写。
 
 CLI必须：
 
-- 使用同一settings/layout resolver；
-- 非阻塞取得`control/service.lock`，lock busy即退出且不inspect/apply；
-- 打开exact supported control DB，newer/invalid version fail closed；
+- 使用同一settings/layout resolver：`RepositoryServiceSettings`（`GATEWAY_REPOSITORY_`
+  env prefix + `.env`）→ `DurableLayout.create_service(settings.data_root)`；`--data-root`
+  只覆盖`data_root`；
+- 非阻塞取得`control/service.lock`（`DurableRootLock.acquire()`已是`flock LOCK_NB`，busy时抛
+  `RootLockBusy`），lock busy即退出且不inspect/apply；
+- 以`ControlStore.open(..., expected_version=CONTROL_DB_USER_VERSION)`打开exact supported
+  control DB，newer/invalid version fail closed；不做migration，不bump user_version；
 - 只允许查询`status=FAILED && error.code=MANUAL_RECOVERY_REQUIRED` operation；
-- 默认inspect只读显示safe operation/evidence summary；
-- apply前重新采集main、marker、parent、private ref和artifact evidence；
-- `SUCCEEDED`只在matching candidate已发布且全部binding可重建时补result；
+- 默认inspect只读显示safe operation/evidence summary，零mutation（不写control DB、不写audit、
+  不删除任何ref或bytes）；
+- apply前重新采集main、marker、parent、private ref和artifact evidence，只用provider只读面
+  （`read_ref`、`inspect_marker`、ref存在性）与artifact validity探针，不复用durable row里的
+  旧结论；
+- `SUCCEEDED`只在matching candidate已发布（`MarkerInspectionUnique`且`main`指向它）且全部
+  binding可重建时补**完整**`VersionedImportResult` echo；任一字段无法从evidence重建即fail
+  closed，不填占位值；
 - `NOT_PUBLISHED`只在main仍为expected且不存在matching published/candidate ambiguity时应用；
 - 纯NOT_PUBLISHED默认写`IMPORT_REJECTED`和safe detail
   `operator_confirmed_not_published`；
-- evidence精确证明expected mismatch或verification failure时才使用对应ordinary code；
-- status correction和audit insert同transaction；
-- apply后按新terminal状态执行允许的private ref/artifact cleanup。
+- evidence精确证明expected mismatch或verification failure时才使用对应ordinary code
+  （`EXPECTED_COMMIT_MISMATCH`、`VERIFICATION_FAILED_NOT_PUBLISHED`）；三个code都在
+  `ORDINARY_TERMINAL_ERROR_CODES`内且`request_id`为`None`；
+- 通过`ImportOperationStore.apply_manual_correction`落库，status correction和audit insert
+  共享同一`BEGIN IMMEDIATE` transaction（该API已实现，CLI不另开transaction、不手写SQL）；
+- apply后按新terminal状态执行允许的private ref/artifact cleanup，cleanup为best-effort且
+  失败不回滚已提交的correction；
+- 确保MANUAL解除后worker barrier不再阻塞该repository：barrier判定要么仅以
+  `store.has_unresolved_manual_barrier()`为准，要么在内存barrier路径上补齐清除；不允许两条
+  判定路径并存而只更新一条。
+
+固定前置顺序与退出码（任一失败立即退出，不做后续采证）：
+
+```text
+0  成功
+2  参数或decision非法
+3  root lock busy（service运行中）
+4  control DB version或schema不受支持
+5  operation不存在或不满足 status=FAILED && error.code=MANUAL_RECOVERY_REQUIRED
+6  evidence不足、不唯一或与decision矛盾
+```
+
+stdout只输出single-line JSON safe summary，诊断文本走stderr。
 
 CLI不得：
 
-- 移动或force `main`；
+- 移动或force `main`；调用`publish_main`、`replay_sql`、`commit_operation_marker`或
+  `checkout_private_ref`；
 - 执行replay SQL或任意caller SQL；
-- 创建commit、删除history或接受host repository path；
+- 创建commit、删除history或接受host repository path、control DB path等直连参数；
 - 修改非MANUAL operation；
 - 在evidence不唯一时提供`--force`、`--yes-really`或绕过选项；
-- 暴露public HTTP route。
+- 暴露public HTTP route，或把CLI逻辑挂到`app.py`/`http/`。
 
 ## 18. Capacity, readiness and logging
 
@@ -811,6 +845,26 @@ worker startup/shutdown/cancellation
 Safe fields为request ID、operation ID、repository ID、artifact ID、policy、duration、size、
 status和stable code。禁止token、raw idempotency key、replay SQL、full stderr、internal/host
 path、private credential、complete row或sensitive text conversion value。
+
+`admin apply audit identity`（§17 CLI唯一写audit的路径）的字段集合与
+`repository_import_recovery_audit.evidence_summary_json`保持一致，且只取上述safe field：
+
+```text
+operation_id / repository_id / artifact_id
+decision                     SUCCEEDED | NOT_PUBLISHED
+action                       INSPECT_APPLY_SUCCESS | INSPECT_APPLY_NOT_PUBLISHED
+prior_status / prior_code    correction前的durable值
+final_status / final_code
+marker_inspection            zero | unique | ambiguous
+main_commit_id / expected_commit_id / candidate_commit_id
+manifest_digest
+verification_policy / unknown_type_policy
+artifact_size_bytes / artifact_bytes_present
+private_ref_present
+applied_at
+```
+
+CLI stdout的single-line JSON summary与该集合同源；`inspect`输出同一形状但不写audit。
 
 ## 19. Fault injection model
 
@@ -886,7 +940,19 @@ Recovery/admin tests：
 - second no-evidence、multiple marker、parent/ref/artifact矛盾转MANUAL；
 - normal terminal failure无hidden retry；
 - shutdown cancellation保留RUNNING/evidence；
-- CLI service-running/root-lock、inspect、两个apply、audit和全部negative actions；
+- CLI（全部以真实subprocess调用`python -m ...versioned_import.admin`）：
+  - `inspect`输出safe summary且零mutation；
+  - `apply --decision SUCCEEDED`补完整result echo并写`INSPECT_APPLY_SUCCESS` audit；
+  - `apply --decision NOT_PUBLISHED`写`IMPORT_REJECTED`/`operator_confirmed_not_published`
+    并写`INSPECT_APPLY_NOT_PUBLISHED` audit；
+  - audit持久化：重开control DB断言action、prior/final status与code、evidence summary无禁止字段；
+  - negative：root lock busy（service运行中）、control DB version newer、operation不存在、
+    非MANUAL operation（QUEUED/RUNNING/SUCCEEDED/ordinary FAILED各一）、stale evidence、
+    ambiguous marker、missing/invalid artifact、invalid decision、重复apply（第二次fail closed
+    且不写第二条audit）；
+  - 断言exit code与stdout JSON，不只断言非零退出；
+  - 至少一个real Dolt case覆盖真实main/marker采证下的positive apply；
+  - MANUAL解除后同repository QUEUED operation可被dispatch（barrier不再阻塞）；
 - success cleanup、ordinary TTL eligibility和manual retention；
 - manual barrier解除前后及同artifact多operation cleanup ordering。
 

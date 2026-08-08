@@ -115,6 +115,10 @@ class CandidateAImportProvider:
         except _IMPORT_PROVIDER_FAULTS as exc:
             raise _as_import_provider_error(exc) from exc
 
+    def private_ref_exists(self, private_ref: str) -> bool:
+        validate_private_ref_name(private_ref)
+        return private_ref in self._branch_names()
+
     def create_private_ref(self, private_ref: str, expected_commit: str) -> None:
         validate_private_ref_name(private_ref)
         validate_commit_id(expected_commit)

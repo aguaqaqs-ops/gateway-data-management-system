@@ -63,6 +63,9 @@ class FakeImportProvider:
     def read_ref(self, ref_name: str) -> str:
         return self.refs[ref_name]
 
+    def private_ref_exists(self, private_ref: str) -> bool:
+        return private_ref in self.refs
+
     def create_private_ref(self, private_ref: str, expected_commit: str) -> None:
         self.refs[private_ref] = expected_commit
 

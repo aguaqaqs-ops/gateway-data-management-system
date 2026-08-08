@@ -208,10 +208,7 @@ class ImportWorkerPool:
                 self._shutdown.wait(timeout=0.25)
 
     def _repository_has_barrier(self, repository_id: UUID) -> bool:
-        return (
-            self._locks.has_manual_barrier(repository_id)
-            or self._store.has_unresolved_manual_barrier(repository_id)
-        )
+        return self._store.has_unresolved_manual_barrier(repository_id)
 
     def _try_claim_one(self) -> tuple[UUID, UUID] | None:
         if self._stop_claiming or self._is_shutting_down():

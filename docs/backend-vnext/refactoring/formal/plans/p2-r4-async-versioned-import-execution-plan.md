@@ -110,7 +110,7 @@ S10必须执行contracts和service两个package的全部四命令。
 | S5 | verification与unknown-type matrix | medium-high：verification/Arrow/tests约5–8 files | `feat(repository): verify Versioned import candidates` |
 | S6 | worker claim、writer ownership和happy path | high：组合约8–12 files | `feat(repository): execute durable Versioned import workers` |
 | S7 | startup recovery、shutdown、worker composition和artifact lifecycle | high：runtime/recovery约10–14 files | `feat(repository): reconcile interrupted Versioned imports` |
-| S8 | stopped-service private admin CLI | medium：CLI/store/provider/tests约5–8 files | `feat(repository): add private import recovery CLI` |
+| S8 | stopped-service private admin CLI与recovery audit | medium：CLI/evidence helper/barrier收口/tests约5–8 files | `feat(repository): add private import recovery CLI` |
 | S9 | Submit/GetOperation route、admission和OpenAPI | medium-high：HTTP/composition/tests约7–11 files | `feat(repository): activate import and operation routes` |
 | S10 | full fault matrix、Dolt、Compose和handoff | high但以tests/ops为主 | `test(repository): close Versioned import delivery gate` |
 
@@ -699,6 +699,9 @@ vnext/repository_service/tests/support/                         # R4-specific pr
 **S7 → S8 handoff**：S8 admin resolve 必须联动
 `RepositoryLockRegistry.clear_manual_barrier(repository_id)`（或改为仅以
 `store.has_unresolved_manual_barrier()` 为准）；否则 MANUAL 解除后本进程仍被内存 barrier 阻塞。
+S7 结束时 `clear_manual_barrier` 在 `src/` 下没有任何调用点，`seed_manual_barriers` 只在
+`ServiceRuntime.start` 播种；§12「Post-apply cleanup and barrier handoff」把该项列为 S8 的
+必须闭合项并给出 (a)/(b) 两条允许路径，S8 必须二选一并在 handoff 中说明选择与影响面。
 
 `store.py`、`locks.py`只允许additive改动：可新增recovery查询与barrier seeding/eviction API，
 不得改变S2–S6已固定的claim/FIFO/terminal语义或既有方法签名。`command.py`、`errors.py`、
@@ -820,73 +823,256 @@ feat(repository): reconcile interrupted Versioned imports
 
 ### Goal
 
-实现stopped-service/root-lock private inspect/apply CLI，闭合SUCCEEDED与NOT_PUBLISHED两种
-evidence-only correction、audit和negative actions。不增加public API。
+实现stopped-service/root-lock private admin CLI（`inspect` / `apply`），闭合SUCCEEDED与
+NOT_PUBLISHED两种evidence-only correction、recovery audit和全部negative actions。S8只补"人工
+收口"这一条通道：不增加public API、不注册HTTP route、不移动`main`、不执行replay或任意SQL。
+
+S8的durable写入语义已在S2落地（`ImportOperationStore.apply_manual_correction`，见下
+"Already available"），因此本阶段的实现重心是**CLI进程边界**：settings/layout resolution、
+非阻塞root lock、exact control DB version、fresh evidence重新采集、safe output/audit字段、
+post-apply cleanup，以及与S7内存barrier的联动。实现者不要重写correction transaction。
 
 ### Allowed paths
 
 ```text
-vnext/repository_service/src/gateway_repository_service/versioned_import/admin.py
-vnext/repository_service/src/gateway_repository_service/versioned_import/recovery.py
-vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
-vnext/repository_service/src/gateway_repository_service/versioned_import/provider.py
-vnext/repository_service/src/gateway_repository_service/settings.py
-vnext/repository_service/tests/test_import_admin_cli.py
-vnext/repository_service/tests/support/                         # CLI subprocess harness only
-vnext/repository_service/pyproject.toml                         # only if a private console script is chosen
-vnext/repository_service/uv.lock                               # only if pyproject dependency metadata changes
+vnext/repository_service/src/gateway_repository_service/versioned_import/admin.py    # 新文件：CLI entry + evidence collector
+vnext/repository_service/src/gateway_repository_service/versioned_import/recovery.py # additive：抽出可复用evidence helper
+vnext/repository_service/src/gateway_repository_service/versioned_import/store.py    # additive only：read API；不改apply_manual_correction语义
+vnext/repository_service/src/gateway_repository_service/versioned_import/provider.py # additive only：只读inspection helper
+vnext/repository_service/src/gateway_repository_service/versioned_import/locks.py    # 仅barrier handoff所需的最小改动
+vnext/repository_service/src/gateway_repository_service/versioned_import/worker.py   # 仅barrier判定单一化(路径a)所需的最小改动
+vnext/repository_service/src/gateway_repository_service/settings.py                  # 仅在CLI确实需要新settings时
+vnext/repository_service/tests/test_import_admin_cli.py                              # 新文件：subprocess CLI tests
+vnext/repository_service/tests/test_import_worker.py                                 # 仅barrier handoff受影响的既有断言
+vnext/repository_service/tests/test_import_recovery.py                               # 仅barrier handoff受影响的既有断言
+vnext/repository_service/tests/support/                                              # CLI subprocess harness only
+vnext/repository_service/pyproject.toml                                             # only if a private console script is chosen
+vnext/repository_service/uv.lock                                                    # only if pyproject dependency metadata changes
 ```
+
+`locks.py`与`worker.py`只为「Post-apply cleanup and barrier handoff」一项开口：允许删除或收敛
+barrier判定路径，不得改动`try_reserve`/`release_reservation`/`repository_execution`语义、
+worker claim/FIFO顺序或`_RepositoryLockEntry` holders refcount（S7 P2-N1 修复项）。
+`test_import_worker.py`与`test_import_recovery.py`只允许改动因barrier路径收敛而失效的断言，
+不得删除既有case。
+
+`command.py`、`models.py`、`ports.py`、`control_db.py`、`runtime.py`、`app.py`、`http/`本阶段
+不在范围内。control DB schema已是v7且`repository_import_recovery_audit`已建表，S8不得再做
+migration或bump `CONTROL_DB_USER_VERSION`。若确实需要改上述任一文件，先作为scope question
+上报，不要自行放宽。
+
+`pyproject.toml`当前没有`[project.scripts]`，模块调用形式（`python -m ...admin`）是零改动路径；
+优先选它，则`pyproject.toml`/`uv.lock`两行保持未使用。
+
+### Already available from S2–S7 (不要重复实现)
+
+实现者必须先确认这些既有构件，S8只是把它们组装成一个CLI进程：
+
+| 已存在 | 位置 | S8如何使用 |
+| --- | --- | --- |
+| `ImportOperationStore.apply_manual_correction(operation_id, *, decision, evidence_summary, final_result=None, final_error=None)` | `versioned_import/store.py` | **唯一**的correction入口。已在单个`BEGIN IMMEDIATE`里完成MANUAL-only前置校验、`validate_result_matches_operation_row`、conditional UPDATE、`record_artifact_consumed`和`repository_import_recovery_audit` insert。CLI只负责采证并调用 |
+| `ManualCorrectionDecision.{SUCCEEDED,NOT_PUBLISHED}`、`RecoveryAuditAction.{INSPECT_APPLY_SUCCESS,INSPECT_APPLY_NOT_PUBLISHED}`、`ORDINARY_TERMINAL_ERROR_CODES`、`MANUAL_RECOVERY_REQUIRED_CODE`、`is_manual_recovery_error` | `versioned_import/models.py` | 直接引用，不要新增enum或字符串字面量 |
+| `DurableRootLock.acquire()` 已是 `flock(LOCK_EX \| LOCK_NB)`，busy时抛 `RootLockBusy` | `locking.py` | 直接`acquire()`并捕获`RootLockBusy` = "service还在运行"，不需要新增非阻塞变体 |
+| `ControlStore.open(path, *, expected_version, busy_timeout_ms)` 已对 newer/invalid `user_version` fail closed | `control_db.py`（`CONTROL_DB_USER_VERSION = 7`） | 以`expected_version=CONTROL_DB_USER_VERSION`打开；不要放宽 |
+| store read API：`get_operation`、`load_execution_context`、`list_operations_by_status`、`list_repositories_with_manual_barrier`、`has_unresolved_manual_barrier`、`list_artifact_references`、`list_protected_artifact_pins`、`can_delete_artifact_bytes`、`mark_artifact_bytes_deleted` | `versioned_import/store.py` | inspect输出与post-apply cleanup判定 |
+| evidence helper：`_try_recover_published_marker`、`_artifact_is_valid`、`_resolve_manifest_digest`、`_cleanup_succeeded_residuals_for_context`、`_cleanup_staging` | `versioned_import/recovery.py`（`ImportStartupReconciler`） | 采证与cleanup**复用**这些逻辑；若需要在CLI里调用，抽成模块级函数或公开方法，不要在`admin.py`里复制一份 |
+| provider只读面：`read_ref`、`inspect_marker`（`MarkerInspection{Zero,Unique,Ambiguous}`）、`delete_private_ref` | `versioned_import/provider.py`、`ports.py` | 采证只允许用只读调用；`publish_main`、`replay_sql`、`commit_operation_marker`、`checkout_private_ref`在S8**禁止调用** |
+| settings/layout/provider组合顺序 | `runtime.py` `ServiceRuntime.start` 与 `_build_provider_factory` | CLI必须复用同一顺序：`DurableLayout.create_service(settings.data_root)` → `DurableRootLock(layout.service_lock)` → `ControlStore.open(...)` → `ImportOperationStore(connection, transaction_lock=control_store.transaction_lock)` → `OfflineCliCapabilityGate.verify` → `DoltRunner` → provider factory |
 
 ### Required behavior and gate
 
-- module CLI inspect/apply；默认无mutation；
-- service运行/root lock busy立即失败；
-- exact DB version和MANUAL-only target；
-- apply前fresh evidence；
-- matching published补完整SUCCEEDED result；
-- NOT_PUBLISHED默认IMPORT_REJECTED/operator_confirmed_not_published；
-- precise evidence才使用expected/verification code；
-- correction与audit同transaction；
-- apply后允许的cleanup；
-- no main move、SQL、history delete、force/bypass或public route；
-- subprocess positive/negative tests和audit persistence。
+**CLI surface**
+
+- `python -m gateway_repository_service.versioned_import.admin inspect --operation-id <uuid>` 与
+  `... apply --operation-id <uuid> --decision SUCCEEDED|NOT_PUBLISHED`；`argparse` subcommand，
+  仓库既有precedent见`matrix.py`与`target_gate.py`；
+- settings来自同一`RepositoryServiceSettings`（`GATEWAY_REPOSITORY_` env prefix + `.env`），
+  允许`--data-root`覆盖`data_root`，**不接受**host repository path、control DB path或任何直连
+  DB/repository的参数；
+- 退出码固定且可测：`0` 成功；`2` 参数/decision非法；`3` root lock busy（service运行中）；
+  `4` control DB version或schema不受支持；`5` operation不存在或不满足
+  `status=FAILED && error.code=MANUAL_RECOVERY_REQUIRED`；`6` evidence不足/不唯一/与decision
+  矛盾。stdout只输出single-line JSON（safe fields），诊断文本走stderr；
+- `inspect`零mutation：不写control DB、不写audit、不删除任何ref或bytes。
+
+**Fail-closed preconditions（顺序固定，任一失败立即退出且不做后续采证）**
+
+1. 参数校验（uuid可解析、decision在两值内）；
+2. `DurableRootLock(layout.service_lock).acquire()`；`RootLockBusy` → exit 3；
+3. `ControlStore.open(..., expected_version=CONTROL_DB_USER_VERSION)`；newer/invalid → exit 4；
+4. target operation存在且`status=FAILED`且`is_manual_recovery_error(error)` → 否则 exit 5；
+5. fresh evidence重新采集（不复用durable row里的旧结论），与decision不一致 → exit 6。
+
+**Evidence and decisions**
+
+- 采证内容至少：`provider.read_ref("main")` 当前值、`provider.inspect_marker(operation_marker)`
+  结果、private ref是否存在、artifact ready bytes是否存在且valid（复用`_artifact_is_valid`的
+  size + `validate_and_extract_import_package` 探针，probe staging目录必须在`finally`里rmtree）、
+  `expected_commit_id`、`canonicalization_manifest_digest`；
+- `SUCCEEDED` 仅当fresh evidence证明：`inspect_marker` 为 `MarkerInspectionUnique`、`main`
+  正指向该唯一matching candidate、marker/parent/request binding完整。此时重建**完整**
+  `VersionedImportResult` echo（`commit_id`、`target_ref="main"`、`artifact_id`、
+  `canonicalization_manifest_digest`、`expected_commit_id`、`completed_verification_policy`、
+  `unknown_type_policy`），由`apply_manual_correction`的`validate_result_matches_operation_row`
+  兜底；任一字段无法从evidence重建 → exit 6，不允许填占位值；
+- `NOT_PUBLISHED` 仅当fresh evidence证明：`main` 仍等于 `expected_commit_id`，且不存在matching
+  published/candidate ambiguity（`MarkerInspectionAmbiguous` 一律拒绝）。默认写
+  `FAILED` + `IMPORT_REJECTED`，`details={"reason": "operator_confirmed_not_published"}`；
+- 只有fresh evidence精确证明时才改用 `EXPECTED_COMMIT_MISMATCH`（main已被他人推进且证明与本
+  operation无关）或 `VERIFICATION_FAILED_NOT_PUBLISHED`（private candidate存在但verification
+  证明未发布）。三个code都必须在`ORDINARY_TERMINAL_ERROR_CODES`内，`request_id`必须为`None`；
+- 两个decision都通过`store.apply_manual_correction`落库，correction与audit insert共享同一
+  `BEGIN IMMEDIATE`（已实现，不要另开transaction或在CLI里手写SQL）。
+
+**Audit and safe output**
+
+- `evidence_summary`只含safe field：operation/repository/artifact ID、status、stable code、
+  policy、marker inspection kind、main/expected/candidate commit ID、size、duration、时间戳。
+  禁止token、raw idempotency key、replay SQL、full stderr、internal/host path、private
+  credential、complete row或sensitive conversion value；
+- audit行的`action`与decision严格对应（`INSPECT_APPLY_SUCCESS` / `INSPECT_APPLY_NOT_PUBLISHED`），
+  `prior_status`/`prior_code`取correction前的durable值；
+- 结构化event `admin apply audit identity`（详细设计§18）以相同safe field集合输出。
+
+**Post-apply cleanup and barrier handoff**
+
+- apply成功后只执行新terminal状态**允许**的cleanup：`SUCCEEDED` 走
+  `_cleanup_succeeded_residuals_for_context` 等价路径（private ref删除 + 在
+  `can_delete_artifact_bytes` 为真且无`list_protected_artifact_pins`时删除ready bytes并
+  `mark_artifact_bytes_deleted`）；`NOT_PUBLISHED` 只删private ref与staging残留，artifact按
+  ordinary TTL规则保留。cleanup失败为best-effort，不得回滚已提交的correction；
+- **S7 → S8 handoff（必须闭合）**：`RepositoryLockRegistry.clear_manual_barrier` 目前在
+  `src/` 里没有任何调用点，只有`seed_manual_barriers`在`ServiceRuntime.start`播种。CLI在
+  stopped-service下运行，进程内barrier本就不存在，因此S8必须在两条路里选一条并落实：
+  (a) 让`worker.py`的barrier判定仅以`store.has_unresolved_manual_barrier()`为准，删除内存
+  barrier分支与`clear_manual_barrier`；或 (b) 保留内存barrier，但补上"apply后同进程/下次
+  startup重新播种时正确清除"的路径并加测试。**不允许两条路都留着且只更新一条**，也不允许
+  留下无调用者的`clear_manual_barrier`。
+- 未解决MANUAL期间的既有语义必须仍成立（S2/S6已有测试，S8只需回归确认）：same-key replay与
+  GetOperation可用、新key返回409、同repository已QUEUED operation不被dispatch。
+
+**Prohibitions（任一出现即S8不通过）**
+
+- 移动或force `main`；调用`publish_main`/`replay_sql`/`commit_operation_marker`/
+  `checkout_private_ref`；
+- 执行任意caller SQL、raw SQL参数或replay文件；
+- 创建commit、删除history、接受host repository path；
+- 修改非MANUAL operation，或修改`status != FAILED`的row；
+- 提供`--force`、`--yes-really`、`--skip-evidence`或任何evidence bypass；
+- 注册public/admin HTTP route，或把CLI逻辑挂到`app.py`/`http/`；
+- 新增migration或改动`CONTROL_DB_USER_VERSION`。
+
+**Tests（`tests/test_import_admin_cli.py`，全部真实subprocess调用CLI）**
+
+- positive：`inspect` 输出safe summary且零mutation；`apply --decision SUCCEEDED` 补完整result
+  并写`INSPECT_APPLY_SUCCESS` audit；`apply --decision NOT_PUBLISHED` 写
+  `IMPORT_REJECTED`/`operator_confirmed_not_published` 与`INSPECT_APPLY_NOT_PUBLISHED` audit；
+- audit persistence：重开control DB断言audit行字段（action、prior/final status与code、
+  evidence summary无禁止字段）；
+- negative：service运行中（root lock被持有）、control DB version newer、operation不存在、
+  operation非MANUAL（QUEUED/RUNNING/SUCCEEDED/ordinary FAILED各一）、stale evidence
+  （main已变）、`MarkerInspectionAmbiguous`、missing/invalid artifact、invalid decision值、
+  重复apply（第二次因不再是MANUAL而fail closed且不写第二条audit）；
+- 断言exit code与stdout JSON，不只断言"非零退出"；
+- 至少一个`@pytest.mark.integration`的real Dolt case，覆盖真实`main`/marker采证下的一个
+  positive apply；依赖时间预算的case标`@pytest.mark.serial`；本阶段required case零skip/xfail；
+- 定向运行约定：在`vnext/repository_service`下`uv run pytest tests/test_import_admin_cli.py -n 0`
+  （`addopts`注入`-n auto --dist loadgroup`，`-p no:xdist`无效）。
 
 ### Code implementation prompt
 
 ```text
-请执行 P2-R4-S8 — Private Import Recovery CLI。只实现private CLI、audit和tests，不注册HTTP
-admin/recovery route，不修改main ref，不执行SQL replay。
+请执行 P2-R4-S8 — Private Import Recovery CLI。只实现stopped-service private CLI、audit和
+tests。不注册任何HTTP admin/recovery route，不修改main ref，不执行SQL replay，不做DB
+migration。
 
-开始前核对S7 handoff。读取P2-R4详细设计§§8、14、17，Repository Service Contract §11和
-当前root lock/settings/store/provider/recovery code。
+开始前必读：本执行计划§11（S7 allowed paths与S7→S8 handoff）、本节全文（Allowed paths、
+Already available、Required behavior and gate）、P2-R4详细设计§§8、14、17、18、20，
+Repository Service Contract §11，External Effect and Recovery Contract §5。然后读当前代码：
+locking.py（DurableRootLock）、control_db.py（CONTROL_DB_USER_VERSION与
+repository_import_recovery_audit DDL）、runtime.py（ServiceRuntime.start组合顺序与
+_build_provider_factory）、versioned_import/store.py（重点读apply_manual_correction全文）、
+models.py、ports.py、provider.py、recovery.py、locks.py、worker.py的barrier判定。
 
-实现python -m gateway_repository_service.versioned_import.admin的inspect/apply命令。CLI使用
-同一data-root/settings resolver，必须非阻塞取得service root lock；lock busy、service运行、
-DB newer/invalid、operation不满足
-`status=FAILED && error.code=MANUAL_RECOVERY_REQUIRED`、evidence不唯一均fail closed。
-Inspect默认只读并输出safe evidence summary。
+先确认这些已经实现，S8不要重写：
+- store.apply_manual_correction已在单个BEGIN IMMEDIATE里完成MANUAL-only前置校验、
+  validate_result_matches_operation_row、conditional UPDATE、record_artifact_consumed和
+  repository_import_recovery_audit insert。CLI只负责采证 + 调用它；
+- DurableRootLock.acquire()已是flock LOCK_NB并在busy时抛RootLockBusy；
+- ControlStore.open(..., expected_version=CONTROL_DB_USER_VERSION=7)已对newer/invalid版本
+  fail closed；
+- ManualCorrectionDecision、RecoveryAuditAction、ORDINARY_TERMINAL_ERROR_CODES、
+  MANUAL_RECOVERY_REQUIRED_CODE、is_manual_recovery_error都已存在；
+- control DB已是v7且audit表已建，禁止新增migration或bump user_version。
 
-Apply只允许decision=SUCCEEDED或NOT_PUBLISHED。SUCCEEDED必须fresh evidence证明main指向唯一
-matching candidate、marker/parent/request binding完整，重建全部result echo；NOT_PUBLISHED必须
-证明main仍为expected且不存在matching published/candidate ambiguity，默认转FAILED/
-IMPORT_REJECTED，details reason=operator_confirmed_not_published。只有fresh evidence精确证明时
-才用EXPECTED_COMMIT_MISMATCH或VERIFICATION_FAILED_NOT_PUBLISHED。
+实现python -m gateway_repository_service.versioned_import.admin的inspect与apply子命令
+（argparse，precedent见matrix.py与target_gate.py；pyproject.toml没有[project.scripts]，
+优先保持模块调用形式）。CLI复用同一RepositoryServiceSettings与
+DurableLayout.create_service(settings.data_root)，允许--data-root覆盖data_root，不接受host
+repository path、control DB path或任何直连DB/repository的参数。stdout只输出single-line JSON
+safe summary，诊断走stderr。
 
-未解决MANUAL期间必须验证same-key replay/GetOperation仍可用、新key返回409、已QUEUED同仓库
-operation不被dispatch；apply transaction完成后barrier解除并通知worker。
+固定前置顺序，任一失败立即退出且不做后续采证：参数校验(exit 2) → root lock acquire，
+RootLockBusy即service运行中(exit 3) → ControlStore.open exact version(exit 4) → target满足
+status=FAILED && error.code=MANUAL_RECOVERY_REQUIRED(exit 5) → fresh evidence与decision一致
+(exit 6)。成功为0。inspect零mutation：不写DB、不写audit、不删ref或bytes。
 
-Status correction与recovery audit insert必须同一BEGIN IMMEDIATE transaction。Apply后只执行
-新terminal状态允许的private ref/artifact cleanup。禁止force、override、yes-really、任意SQL、
-main move、history deletion和host repository path。
+采证只允许只读provider调用：read_ref("main")、inspect_marker(operation_marker)、private ref
+存在性、artifact ready bytes valid（复用recovery.py的_artifact_is_valid逻辑：size +
+validate_and_extract_import_package探针，probe staging在finally里rmtree）。禁止调用
+publish_main、replay_sql、commit_operation_marker、checkout_private_ref。若需要在CLI里复用
+recovery.py的helper，把它抽成模块级函数或公开方法，不要在admin.py里复制一份实现。
 
-以subprocess测试inspect、两个apply、audit持久化、service-running/root-lock、wrong operation、
-stale evidence、multiple marker、missing artifact、invalid decision和重复apply。
-运行service完整四命令、git diff --check和public route/admin API搜索。
+Apply只允许decision=SUCCEEDED或NOT_PUBLISHED。SUCCEEDED要求fresh evidence证明
+inspect_marker为MarkerInspectionUnique、main正指向该唯一matching candidate、marker/parent/
+request binding完整，并重建完整VersionedImportResult echo（commit_id、target_ref="main"、
+artifact_id、canonicalization_manifest_digest、expected_commit_id、
+completed_verification_policy、unknown_type_policy）；任一字段无法从evidence重建就exit 6，
+不得填占位值。NOT_PUBLISHED要求main仍等于expected_commit_id且无matching published/candidate
+ambiguity（MarkerInspectionAmbiguous一律拒绝），默认写FAILED/IMPORT_REJECTED，
+details reason=operator_confirmed_not_published。只有fresh evidence精确证明时才改用
+EXPECTED_COMMIT_MISMATCH或VERIFICATION_FAILED_NOT_PUBLISHED；三者都在
+ORDINARY_TERMINAL_ERROR_CODES内且request_id为None。
+
+evidence_summary只含safe field（operation/repository/artifact ID、status、stable code、policy、
+marker inspection kind、main/expected/candidate commit ID、size、duration、时间戳），禁止
+token、raw idempotency key、replay SQL、full stderr、internal/host path、credential、complete
+row或sensitive conversion value。audit的action与decision严格对应，prior_status/prior_code取
+correction前的durable值。结构化event admin apply audit identity用同一safe field集合。
+
+Apply成功后只执行新terminal状态允许的cleanup：SUCCEEDED走_cleanup_succeeded_residuals_
+for_context等价路径（删private ref；can_delete_artifact_bytes为真且无protected pin时删ready
+bytes并mark_artifact_bytes_deleted）；NOT_PUBLISHED只删private ref与staging残留，artifact按
+ordinary TTL保留。cleanup为best-effort，失败不得回滚已提交的correction。
+
+必须闭合S7→S8 handoff：RepositoryLockRegistry.clear_manual_barrier目前在src/里没有调用点，
+只有seed_manual_barriers在ServiceRuntime.start播种。二选一并落实：(a) worker.py的barrier判定
+只以store.has_unresolved_manual_barrier()为准，删除内存barrier分支与clear_manual_barrier；
+或 (b) 保留内存barrier但补上apply后正确清除的路径与测试。不允许两条路都留着只更新一条，也不
+允许留下无调用者的clear_manual_barrier。若选(a)需改worker.py/locks.py，先在handoff里说明这是
+本节授权的最小改动范围。
+
+未解决MANUAL期间的既有语义须回归确认仍成立：same-key replay与GetOperation可用、新key返回409、
+同repository已QUEUED operation不被dispatch。
+
+在tests/test_import_admin_cli.py里以真实subprocess调用CLI，覆盖：inspect零mutation、两个
+positive apply、audit持久化（重开control DB断言字段且无禁止字段）、service-running/root-lock
+busy、DB version newer、operation不存在、非MANUAL operation（QUEUED/RUNNING/SUCCEEDED/ordinary
+FAILED各一）、stale evidence、ambiguous marker、missing/invalid artifact、invalid decision、
+重复apply（第二次fail closed且不写第二条audit）。断言exit code与stdout JSON，不只断言非零。
+至少一个@pytest.mark.integration的real Dolt case覆盖真实main/marker采证下的positive apply，
+不得用fake provider顶替。依赖时间预算的case标@pytest.mark.serial。本阶段required case零
+skip/xfail。定向运行用：cd vnext/repository_service && uv run pytest
+tests/test_import_admin_cli.py -n 0（addopts注入-n auto --dist loadgroup，-p no:xdist无效）。
+
+运行service完整四命令（第四条为./vnext/scripts/run-tests.sh）、git diff --check，以及
+public route/admin API搜索（确认app.py与http/下无新route、无新FastAPI dependency）。
 
 通过后提交：
 feat(repository): add private import recovery CLI
 
-输出S8 handoff，next_stage=P2-R4-S9。
+输出S8 handoff，next_stage=P2-R4-S9，并明确写出：barrier handoff选了(a)还是(b)及其影响面、
+最终exit code表、audit safe field集合、以及本阶段是否动用了pyproject.toml/uv.lock。
 ```
 
 ## 13. S9 — HTTP activation, polling and admission

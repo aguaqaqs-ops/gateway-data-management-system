@@ -7,9 +7,16 @@ import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Literal
 from uuid import UUID
 
-from gateway_repository_contracts import OperationStatus, SimpleError, VerificationPolicy, VersionedImportResult
+from gateway_repository_contracts import (
+    OperationStatus,
+    SimpleError,
+    UnknownTypePolicy,
+    VerificationPolicy,
+    VersionedImportResult,
+)
 
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
@@ -24,6 +31,8 @@ from gateway_repository_service.versioned_import.models import (
     MANUAL_RECOVERY_REQUIRED_CODE,
     ImportOperationExecutionContext,
     ImportPackageRejected,
+    ManualCorrectionDecision,
+    RecoveryAuditAction,
     StoredImportOperation,
     is_manual_recovery_error,
 )
@@ -44,6 +53,375 @@ from gateway_repository_service.versioned_import.verification import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+MarkerInspectionKind = Literal["zero", "unique", "ambiguous"]
+
+
+@dataclass(frozen=True, slots=True)
+class ImportRecoveryEvidence:
+    operation_id: UUID
+    repository_id: UUID
+    artifact_id: UUID
+    main_commit_id: str
+    expected_commit_id: str
+    marker_inspection: MarkerInspectionKind
+    candidate_commit_id: str | None
+    marker_parent_commit_id: str | None
+    private_ref_present: bool
+    artifact_bytes_present: bool
+    artifact_size_bytes: int
+    artifact_valid: bool
+    manifest_digest: str | None
+    verification_policy: VerificationPolicy
+    unknown_type_policy: UnknownTypePolicy
+
+
+def artifact_is_valid(
+    *,
+    settings: RepositoryServiceSettings,
+    layout: DurableLayout,
+    context: ImportOperationExecutionContext,
+    artifact_path: Path,
+) -> bool:
+    if not artifact_path.is_file():
+        return False
+    try:
+        size = artifact_path.stat().st_size
+    except OSError:
+        return False
+    if size != context.artifact_size_bytes:
+        return False
+    staging_dir = layout.staging_artifacts / f"import-{context.operation_id.hex}-probe"
+    try:
+        validate_and_extract_import_package(
+            artifact_path=artifact_path,
+            expected_size_bytes=context.artifact_size_bytes,
+            expected_raw_sha256=context.artifact_raw_sha256,
+            staging_dir=staging_dir,
+            settings=settings,
+        )
+        return True
+    except ImportPackageRejected:
+        return False
+    except Exception:
+        _LOGGER.exception(
+            "failed to validate artifact for operation %s",
+            context.operation_id,
+        )
+        return False
+    finally:
+        cleanup_staging_dir(staging_dir, operation_id=context.operation_id)
+
+
+def resolve_manifest_digest(
+    *,
+    store: ImportOperationStore,
+    settings: RepositoryServiceSettings,
+    layout: DurableLayout,
+    context: ImportOperationExecutionContext,
+) -> str | None:
+    stored = store.get_operation(context.repository_id, context.operation_id)
+    if stored is not None and stored.canonicalization_manifest_digest is not None:
+        return stored.canonicalization_manifest_digest
+    artifact_path = artifact_ready_path(
+        layout,
+        context.repository_id,
+        context.artifact_id,
+    )
+    staging_dir = layout.staging_artifacts / f"import-{context.operation_id.hex}-digest"
+    try:
+        package = validate_and_extract_import_package(
+            artifact_path=artifact_path,
+            expected_size_bytes=context.artifact_size_bytes,
+            expected_raw_sha256=context.artifact_raw_sha256,
+            staging_dir=staging_dir,
+            settings=settings,
+        )
+        return package.manifest.canonicalization_manifest_digest
+    except Exception:
+        return None
+    finally:
+        cleanup_staging_dir(staging_dir, operation_id=context.operation_id)
+
+
+def _private_ref_exists(provider: VersionedImportProvider, private_ref_name: str) -> bool:
+    exists = getattr(provider, "private_ref_exists", None)
+    if callable(exists):
+        return bool(exists(private_ref_name))
+    try:
+        provider.read_ref(private_ref_name)
+        return True
+    except Exception:
+        return False
+
+
+def _marker_inspection_kind(
+    inspection: MarkerInspectionAmbiguous | MarkerInspectionUnique | MarkerInspectionZero,
+) -> MarkerInspectionKind:
+    if isinstance(inspection, MarkerInspectionAmbiguous):
+        return "ambiguous"
+    if isinstance(inspection, MarkerInspectionZero):
+        return "zero"
+    if isinstance(inspection, MarkerInspectionUnique):
+        return "unique"
+    raise TypeError("unsupported marker inspection result")
+
+
+def collect_recovery_evidence(
+    *,
+    settings: RepositoryServiceSettings,
+    layout: DurableLayout,
+    store: ImportOperationStore,
+    provider: VersionedImportProvider,
+    context: ImportOperationExecutionContext,
+) -> ImportRecoveryEvidence | None:
+    try:
+        main_commit_id = provider.read_ref(context.target_ref)
+        inspection = provider.inspect_marker(context.operation_marker)
+    except Exception:
+        _LOGGER.exception(
+            "failed to collect recovery evidence for operation %s",
+            context.operation_id,
+        )
+        return None
+
+    marker_kind = _marker_inspection_kind(inspection)
+    candidate_commit_id = inspection.candidate if isinstance(inspection, MarkerInspectionUnique) else None
+    marker_parent_commit_id = inspection.parent if isinstance(inspection, MarkerInspectionUnique) else None
+    artifact_path = artifact_ready_path(
+        layout,
+        context.repository_id,
+        context.artifact_id,
+    )
+    artifact_bytes_present = artifact_path.is_file()
+    artifact_valid = (
+        artifact_is_valid(
+            settings=settings,
+            layout=layout,
+            context=context,
+            artifact_path=artifact_path,
+        )
+        if artifact_bytes_present
+        else False
+    )
+    manifest_digest = resolve_manifest_digest(
+        store=store,
+        settings=settings,
+        layout=layout,
+        context=context,
+    )
+    return ImportRecoveryEvidence(
+        operation_id=context.operation_id,
+        repository_id=context.repository_id,
+        artifact_id=context.artifact_id,
+        main_commit_id=main_commit_id,
+        expected_commit_id=context.expected_commit_id,
+        marker_inspection=marker_kind,
+        candidate_commit_id=candidate_commit_id,
+        marker_parent_commit_id=marker_parent_commit_id,
+        private_ref_present=_private_ref_exists(provider, context.private_ref_name),
+        artifact_bytes_present=artifact_bytes_present,
+        artifact_size_bytes=context.artifact_size_bytes,
+        artifact_valid=artifact_valid,
+        manifest_digest=manifest_digest,
+        verification_policy=context.verification_policy,
+        unknown_type_policy=context.unknown_type_policy,
+    )
+
+
+def evidence_supports_succeeded_decision(evidence: ImportRecoveryEvidence) -> bool:
+    if evidence.marker_inspection != "unique":
+        return False
+    if evidence.candidate_commit_id is None or evidence.marker_parent_commit_id is None:
+        return False
+    if evidence.marker_parent_commit_id != evidence.expected_commit_id:
+        return False
+    if evidence.main_commit_id != evidence.candidate_commit_id:
+        return False
+    return evidence.manifest_digest is not None
+
+
+def build_succeeded_result(
+    evidence: ImportRecoveryEvidence,
+    context: ImportOperationExecutionContext,
+) -> VersionedImportResult | None:
+    if not evidence_supports_succeeded_decision(evidence):
+        return None
+    assert evidence.candidate_commit_id is not None
+    assert evidence.manifest_digest is not None
+    return VersionedImportResult(
+        commit_id=evidence.candidate_commit_id,
+        target_ref="main",
+        artifact_id=context.artifact_id,
+        canonicalization_manifest_digest=evidence.manifest_digest,
+        expected_commit_id=context.expected_commit_id,
+        completed_verification_policy=context.verification_policy,
+        unknown_type_policy=context.unknown_type_policy,
+    )
+
+
+def evidence_supports_not_published_decision(evidence: ImportRecoveryEvidence) -> bool:
+    if evidence.marker_inspection == "ambiguous":
+        return False
+    if (
+        evidence.marker_inspection == "unique"
+        and evidence.candidate_commit_id is not None
+        and evidence.main_commit_id == evidence.candidate_commit_id
+    ):
+        return False
+    if (
+        evidence.marker_inspection == "unique"
+        and evidence.candidate_commit_id is not None
+        and evidence.marker_parent_commit_id == evidence.expected_commit_id
+        and evidence.main_commit_id == evidence.expected_commit_id
+        and evidence.main_commit_id != evidence.candidate_commit_id
+    ):
+        return True
+    if evidence.main_commit_id != evidence.expected_commit_id:
+        if (
+            evidence.marker_inspection == "unique"
+            and evidence.candidate_commit_id is not None
+            and evidence.main_commit_id == evidence.candidate_commit_id
+        ):
+            return False
+        return True
+    return evidence.main_commit_id == evidence.expected_commit_id
+
+
+def resolve_not_published_error(evidence: ImportRecoveryEvidence) -> SimpleError | None:
+    if not evidence_supports_not_published_decision(evidence):
+        return None
+    if (
+        evidence.marker_inspection == "unique"
+        and evidence.candidate_commit_id is not None
+        and evidence.marker_parent_commit_id == evidence.expected_commit_id
+        and evidence.main_commit_id == evidence.expected_commit_id
+        and evidence.main_commit_id != evidence.candidate_commit_id
+    ):
+        return SimpleError(
+            code="VERIFICATION_FAILED_NOT_PUBLISHED",
+            message="import candidate was not published to main",
+            details={"reason": "verification_failed_not_published"},
+            request_id=None,
+        )
+    if evidence.main_commit_id != evidence.expected_commit_id:
+        return SimpleError(
+            code="EXPECTED_COMMIT_MISMATCH",
+            message="main no longer matches expected commit",
+            details={"reason": "expected_commit_mismatch"},
+            request_id=None,
+        )
+    return SimpleError(
+        code="IMPORT_REJECTED",
+        message="operator confirmed import was not published",
+        details={"reason": "operator_confirmed_not_published"},
+        request_id=None,
+    )
+
+
+def build_evidence_summary(
+    evidence: ImportRecoveryEvidence,
+    *,
+    operation: StoredImportOperation,
+    decision: ManualCorrectionDecision | None = None,
+    action: RecoveryAuditAction | None = None,
+    prior_status: str | None = None,
+    prior_code: str | None = None,
+    final_status: str | None = None,
+    final_code: str | None = None,
+    applied_at: str | None = None,
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "operation_id": str(evidence.operation_id),
+        "repository_id": str(evidence.repository_id),
+        "artifact_id": str(evidence.artifact_id),
+        "status": operation.status.value,
+        "prior_status": prior_status,
+        "prior_code": prior_code,
+        "final_status": final_status,
+        "final_code": final_code,
+        "marker_inspection": evidence.marker_inspection,
+        "main_commit_id": evidence.main_commit_id,
+        "expected_commit_id": evidence.expected_commit_id,
+        "candidate_commit_id": evidence.candidate_commit_id,
+        "manifest_digest": evidence.manifest_digest,
+        "verification_policy": evidence.verification_policy.value,
+        "unknown_type_policy": evidence.unknown_type_policy.value,
+        "artifact_size_bytes": evidence.artifact_size_bytes,
+        "artifact_bytes_present": evidence.artifact_bytes_present,
+        "private_ref_present": evidence.private_ref_present,
+    }
+    if operation.error is not None:
+        summary["stable_code"] = operation.error.code
+    if decision is not None:
+        summary["decision"] = decision.value
+    if action is not None:
+        summary["action"] = action.value
+    if applied_at is not None:
+        summary["applied_at"] = applied_at
+    return {key: value for key, value in summary.items() if value is not None}
+
+
+def cleanup_staging_dir(staging_dir: Path, *, operation_id: UUID) -> None:
+    if not staging_dir.exists():
+        return
+    try:
+        shutil.rmtree(staging_dir)
+    except OSError:
+        _LOGGER.exception("failed to remove staging for operation %s", operation_id)
+
+
+def cleanup_staging(operation_id: UUID, layout: DurableLayout) -> None:
+    staging_dir = layout.staging_artifacts / f"import-{operation_id.hex}"
+    cleanup_staging_dir(staging_dir, operation_id=operation_id)
+
+
+def cleanup_after_succeeded_correction(
+    *,
+    store: ImportOperationStore,
+    layout: DurableLayout,
+    context: ImportOperationExecutionContext,
+    provider: VersionedImportProvider,
+    candidate: str,
+) -> None:
+    try:
+        provider.delete_private_ref(context.private_ref_name, expected_candidate=candidate)
+    except Exception:
+        _LOGGER.exception(
+            "failed to delete private ref during admin succeeded cleanup for %s",
+            context.operation_id,
+        )
+    cleanup_staging(context.operation_id, layout)
+    artifact_path = artifact_ready_path(
+        layout,
+        context.repository_id,
+        context.artifact_id,
+    )
+    try:
+        if store.can_delete_artifact_bytes(context.artifact_id) and artifact_path.is_file():
+            artifact_path.unlink()
+            store.mark_artifact_bytes_deleted(context.artifact_id)
+    except Exception:
+        _LOGGER.exception(
+            "failed to delete artifact bytes during admin succeeded cleanup for %s",
+            context.operation_id,
+        )
+
+
+def cleanup_after_not_published_correction(
+    *,
+    layout: DurableLayout,
+    context: ImportOperationExecutionContext,
+    provider: VersionedImportProvider,
+) -> None:
+    try:
+        provider.delete_private_ref(context.private_ref_name)
+    except Exception:
+        _LOGGER.exception(
+            "failed to delete private ref during admin not-published cleanup for %s",
+            context.operation_id,
+        )
+    cleanup_staging(context.operation_id, layout)
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +490,12 @@ class ImportStartupReconciler:
             context.repository_id,
             context.artifact_id,
         )
-        if not self._artifact_is_valid(context, artifact_path):
+        if not artifact_is_valid(
+            settings=self._settings,
+            layout=self._layout,
+            context=context,
+            artifact_path=artifact_path,
+        ):
             self._mark_manual(operation.operation_id, "artifact evidence is missing or invalid")
             return "manual"
 
@@ -202,7 +585,12 @@ class ImportStartupReconciler:
         if main != inspection.candidate:
             return "unchanged"
 
-        manifest_digest = self._resolve_manifest_digest(context)
+        manifest_digest = resolve_manifest_digest(
+            store=self._store,
+            settings=self._settings,
+            layout=self._layout,
+            context=context,
+        )
         if manifest_digest is None:
             self._mark_manual(context.operation_id, "canonicalization manifest digest is unavailable")
             return "manual"
@@ -217,7 +605,13 @@ class ImportStartupReconciler:
             unknown_type_policy=context.unknown_type_policy,
         )
         self._store.mark_succeeded(context.operation_id, result=result)
-        self._cleanup_succeeded_residuals_for_context(context, provider, inspection.candidate)
+        cleanup_after_succeeded_correction(
+            store=self._store,
+            layout=self._layout,
+            context=context,
+            provider=provider,
+            candidate=inspection.candidate,
+        )
         return "recovered"
 
     def _try_continue_verification_cas(
@@ -342,7 +736,13 @@ class ImportStartupReconciler:
                 unknown_type_policy=context.unknown_type_policy,
             )
             self._store.mark_succeeded(context.operation_id, result=result)
-            self._cleanup_succeeded_residuals_for_context(context, provider, candidate)
+            cleanup_after_succeeded_correction(
+                store=self._store,
+                layout=self._layout,
+                context=context,
+                provider=provider,
+                candidate=candidate,
+            )
             return "recovered"
         except ImportVerificationError as exc:
             self._mark_manual(context.operation_id, f"verification failed during recovery: {exc.code}")
@@ -469,7 +869,13 @@ class ImportStartupReconciler:
                 unknown_type_policy=context.unknown_type_policy,
             )
             self._store.mark_succeeded(context.operation_id, result=result)
-            self._cleanup_succeeded_residuals_for_context(context, provider, candidate)
+            cleanup_after_succeeded_correction(
+                store=self._store,
+                layout=self._layout,
+                context=context,
+                provider=provider,
+                candidate=candidate,
+            )
             return "recovered"
         except ImportVerificationError as exc:
             self._mark_manual(context.operation_id, f"verification failed during automatic replay: {exc.code}")
@@ -508,125 +914,17 @@ class ImportStartupReconciler:
                 operation.operation_id,
             )
             return False
-        self._cleanup_succeeded_residuals_for_context(
-            context,
-            provider,
-            operation.result.commit_id,
+        cleanup_after_succeeded_correction(
+            store=self._store,
+            layout=self._layout,
+            context=context,
+            provider=provider,
+            candidate=operation.result.commit_id,
         )
         return True
 
-    def _cleanup_succeeded_residuals_for_context(
-        self,
-        context: ImportOperationExecutionContext,
-        provider: VersionedImportProvider,
-        candidate: str,
-    ) -> None:
-        try:
-            provider.delete_private_ref(context.private_ref_name, expected_candidate=candidate)
-        except Exception:
-            _LOGGER.exception(
-                "failed to delete private ref during recovery cleanup for %s",
-                context.operation_id,
-            )
-        self._cleanup_staging(context.operation_id)
-        artifact_path = artifact_ready_path(
-            self._layout,
-            context.repository_id,
-            context.artifact_id,
-        )
-        try:
-            if self._store.can_delete_artifact_bytes(context.artifact_id) and artifact_path.is_file():
-                artifact_path.unlink()
-                self._store.mark_artifact_bytes_deleted(context.artifact_id)
-        except Exception:
-            _LOGGER.exception(
-                "failed to delete artifact bytes during recovery cleanup for %s",
-                context.operation_id,
-            )
-
     def _cleanup_staging(self, operation_id: UUID) -> None:
-        staging_dir = self._layout.staging_artifacts / f"import-{operation_id.hex}"
-        if not staging_dir.exists():
-            return
-        try:
-            shutil.rmtree(staging_dir)
-        except OSError:
-            _LOGGER.exception("failed to remove import staging for operation %s", operation_id)
-
-    def _artifact_is_valid(
-        self,
-        context: ImportOperationExecutionContext,
-        artifact_path: Path,
-    ) -> bool:
-        if not artifact_path.is_file():
-            return False
-        try:
-            size = artifact_path.stat().st_size
-        except OSError:
-            return False
-        if size != context.artifact_size_bytes:
-            return False
-        staging_dir = self._layout.staging_artifacts / f"import-{context.operation_id.hex}-probe"
-        try:
-            validate_and_extract_import_package(
-                artifact_path=artifact_path,
-                expected_size_bytes=context.artifact_size_bytes,
-                expected_raw_sha256=context.artifact_raw_sha256,
-                staging_dir=staging_dir,
-                settings=self._settings,
-            )
-            return True
-        except ImportPackageRejected:
-            return False
-        except Exception:
-            _LOGGER.exception(
-                "failed to validate artifact for operation %s",
-                context.operation_id,
-            )
-            return False
-        finally:
-            if staging_dir.exists():
-                try:
-                    shutil.rmtree(staging_dir)
-                except OSError:
-                    _LOGGER.exception(
-                        "failed to remove artifact probe staging for operation %s",
-                        context.operation_id,
-                    )
-
-    def _resolve_manifest_digest(
-        self,
-        context: ImportOperationExecutionContext,
-    ) -> str | None:
-        stored = self._store.get_operation(context.repository_id, context.operation_id)
-        if stored is not None and stored.canonicalization_manifest_digest is not None:
-            return stored.canonicalization_manifest_digest
-        artifact_path = artifact_ready_path(
-            self._layout,
-            context.repository_id,
-            context.artifact_id,
-        )
-        staging_dir = self._layout.staging_artifacts / f"import-{context.operation_id.hex}-digest"
-        try:
-            package = validate_and_extract_import_package(
-                artifact_path=artifact_path,
-                expected_size_bytes=context.artifact_size_bytes,
-                expected_raw_sha256=context.artifact_raw_sha256,
-                staging_dir=staging_dir,
-                settings=self._settings,
-            )
-            return package.manifest.canonicalization_manifest_digest
-        except Exception:
-            return None
-        finally:
-            if staging_dir.exists():
-                try:
-                    shutil.rmtree(staging_dir)
-                except OSError:
-                    _LOGGER.exception(
-                        "failed to remove digest staging for operation %s",
-                        context.operation_id,
-                    )
+        cleanup_staging(operation_id, self._layout)
 
     def _mark_manual(self, operation_id: UUID, message: str) -> None:
         try:

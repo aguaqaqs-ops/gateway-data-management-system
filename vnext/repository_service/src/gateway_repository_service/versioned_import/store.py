@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from typing import Any, cast
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
+
 from gateway_repository_contracts import (
     OperationStatus,
     SimpleError,
@@ -18,9 +20,7 @@ from gateway_repository_contracts import (
     VersionedImportResult,
     VersionedOperation,
 )
-from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import IdempotencyKeyHash, MutationStore
-from gateway_repository_service.upload_artifact.visibility import has_published_artifact_file
 from gateway_repository_service.versioned_import.models import (
     ArtifactOperationReference,
     ClaimOrEnqueueResult,
@@ -33,9 +33,11 @@ from gateway_repository_service.versioned_import.models import (
     ImportQueueFull,
     ImportReplayCountRejected,
     ImportRequestBinding,
+    ImportStoreInvariantError,
     ManualCorrectionDecision,
     ORDINARY_TERMINAL_ERROR_CODES,
     RecoveryAuditAction,
+    ReplayLookup,
     StoredImportOperation,
     derive_operation_marker,
     derive_private_ref_name,
@@ -157,6 +159,20 @@ class ImportOperationStore:
                 return None
             return self._operation_from_row(row)
 
+    def lookup_replay_state(
+        self,
+        repository_id: UUID,
+        key_hash: IdempotencyKeyHash,
+    ) -> ReplayLookup | None:
+        with self._lock:
+            row = self._fetch_by_key(repository_id, key_hash)
+            if row is None:
+                return None
+            return ReplayLookup(
+                operation=self._operation_from_row(row),
+                stored_fingerprint=bytes(row["request_fingerprint"]),
+            )
+
     def fingerprint_for_key(
         self,
         repository_id: UUID,
@@ -189,7 +205,6 @@ class ImportOperationStore:
         key_hash: IdempotencyKeyHash,
         fingerprint: bytes,
         max_queued_imports: int,
-        layout: DurableLayout,
         operation_id: UUID | None = None,
     ) -> ClaimOrEnqueueResult:
         with self._transaction():
@@ -224,7 +239,7 @@ class ImportOperationStore:
             if queued_count >= max_queued_imports:
                 raise ImportQueueFull("global import queue is full")
 
-            self._verify_artifact_lifecycle_binding(binding, layout)
+            self._verify_artifact_lifecycle_binding(binding)
 
             new_operation_id = operation_id or uuid4()
             now = utc_now_iso()
@@ -776,11 +791,7 @@ class ImportOperationStore:
                 return True
         return False
 
-    def _verify_artifact_lifecycle_binding(
-        self,
-        binding: ImportRequestBinding,
-        layout: DurableLayout,
-    ) -> None:
+    def _verify_artifact_lifecycle_binding(self, binding: ImportRequestBinding) -> None:
         cursor = self._connection.execute(
             """
             SELECT
@@ -811,14 +822,6 @@ class ImportOperationStore:
             raise ImportArtifactBindingRejected("artifact is already consumed")
         if row["bytes_deleted_at"] is not None:
             raise ImportArtifactBindingRejected("artifact bytes are deleted")
-        if not has_published_artifact_file(
-            layout,
-            binding.repository_id,
-            binding.artifact_ref.artifact_id,
-            size_bytes=binding.artifact_ref.size_bytes,
-            raw_sha256=binding.artifact_ref.raw_sha256,
-        ):
-            raise ImportArtifactBindingRejected("artifact ready file is missing or mismatched")
 
     def _allocate_enqueue_sequence(self, repository_id: UUID) -> int:
         row = self._connection.execute(
@@ -913,65 +916,77 @@ class ImportOperationStore:
         return cast(sqlite3.Row | None, row)
 
     def _operation_from_row(self, row: sqlite3.Row) -> StoredImportOperation:
-        result = self._parse_result_json(row["result_json"])
-        error = self._parse_error_json(row["error_json"])
-        status = OperationStatus(str(row["status"]))
-        operation_id = UUID(str(row["operation_id"]))
-        validated = VersionedOperation.model_validate({
-            "operation_id": operation_id,
-            "status": status.value,
-            "result": result.model_dump() if result is not None else None,
-            "error": error.model_dump() if error is not None else None,
-        })
-        return StoredImportOperation(
-            operation_id=operation_id,
-            repository_id=UUID(str(row["repository_scope"])),
-            status=validated.status,
-            artifact_id=UUID(str(row["artifact_id"])),
-            private_ref_name=str(row["private_ref_name"]),
-            operation_marker=str(row["operation_marker"]),
-            automatic_replay_count=int(row["automatic_replay_count"]),
-            result=validated.result,
-            error=validated.error,
-            created_at=str(row["created_at"]),
-            started_at=str(row["started_at"]) if row["started_at"] is not None else None,
-            updated_at=str(row["updated_at"]),
-            completed_at=str(row["completed_at"]) if row["completed_at"] is not None else None,
-            canonicalization_manifest_digest=(
-                str(row["canonicalization_manifest_digest"])
-                if row["canonicalization_manifest_digest"] is not None
-                else None
-            ),
-        )
+        try:
+            result = self._parse_result_json(row["result_json"])
+            error = self._parse_error_json(row["error_json"])
+            status = OperationStatus(str(row["status"]))
+            operation_id = UUID(str(row["operation_id"]))
+            validated = VersionedOperation.model_validate({
+                "operation_id": operation_id,
+                "status": status.value,
+                "result": result.model_dump() if result is not None else None,
+                "error": error.model_dump() if error is not None else None,
+            })
+            return StoredImportOperation(
+                operation_id=operation_id,
+                repository_id=UUID(str(row["repository_scope"])),
+                status=validated.status,
+                artifact_id=UUID(str(row["artifact_id"])),
+                private_ref_name=str(row["private_ref_name"]),
+                operation_marker=str(row["operation_marker"]),
+                automatic_replay_count=int(row["automatic_replay_count"]),
+                result=validated.result,
+                error=validated.error,
+                created_at=str(row["created_at"]),
+                started_at=str(row["started_at"]) if row["started_at"] is not None else None,
+                updated_at=str(row["updated_at"]),
+                completed_at=str(row["completed_at"]) if row["completed_at"] is not None else None,
+                canonicalization_manifest_digest=(
+                    str(row["canonicalization_manifest_digest"])
+                    if row["canonicalization_manifest_digest"] is not None
+                    else None
+                ),
+            )
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+            raise ImportStoreInvariantError("durable import operation row is invalid") from exc
 
     @staticmethod
     def _execution_context_from_row(row: sqlite3.Row) -> ImportOperationExecutionContext:
-        return ImportOperationExecutionContext(
-            operation_id=UUID(str(row["operation_id"])),
-            repository_id=UUID(str(row["repository_scope"])),
-            artifact_id=UUID(str(row["artifact_id"])),
-            artifact_media_type=str(row["artifact_media_type"]),
-            artifact_size_bytes=int(row["artifact_size_bytes"]),
-            artifact_raw_sha256=str(row["artifact_raw_sha256"]),
-            target_ref=str(row["target_ref"]),
-            expected_commit_id=str(row["expected_commit_id"]),
-            verification_policy=VerificationPolicy(str(row["requested_verification_policy"])),
-            unknown_type_policy=UnknownTypePolicy(str(row["unknown_type_policy"])),
-            private_ref_name=str(row["private_ref_name"]),
-            operation_marker=str(row["operation_marker"]),
-        )
+        try:
+            return ImportOperationExecutionContext(
+                operation_id=UUID(str(row["operation_id"])),
+                repository_id=UUID(str(row["repository_scope"])),
+                artifact_id=UUID(str(row["artifact_id"])),
+                artifact_media_type=str(row["artifact_media_type"]),
+                artifact_size_bytes=int(row["artifact_size_bytes"]),
+                artifact_raw_sha256=str(row["artifact_raw_sha256"]),
+                target_ref=str(row["target_ref"]),
+                expected_commit_id=str(row["expected_commit_id"]),
+                verification_policy=VerificationPolicy(str(row["requested_verification_policy"])),
+                unknown_type_policy=UnknownTypePolicy(str(row["unknown_type_policy"])),
+                private_ref_name=str(row["private_ref_name"]),
+                operation_marker=str(row["operation_marker"]),
+            )
+        except (ValidationError, ValueError) as exc:
+            raise ImportStoreInvariantError("durable import operation row is invalid") from exc
 
     @staticmethod
     def _parse_result_json(payload: object) -> VersionedImportResult | None:
         if payload is None:
             return None
-        return VersionedImportResult.model_validate(json.loads(str(payload)))
+        try:
+            return VersionedImportResult.model_validate(json.loads(str(payload)))
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+            raise ImportStoreInvariantError("durable import operation row is invalid") from exc
 
     @staticmethod
     def _parse_error_json(payload: object) -> SimpleError | None:
         if payload is None:
             return None
-        return SimpleError.model_validate(json.loads(str(payload)))
+        try:
+            return SimpleError.model_validate(json.loads(str(payload)))
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+            raise ImportStoreInvariantError("durable import operation row is invalid") from exc
 
     @contextmanager
     def _transaction(self) -> Iterator[None]:

@@ -847,6 +847,7 @@ def test_repository_lock_does_not_block_other_repositories() -> None:
     assert elapsed < 0.5
 
 
+@pytest.mark.serial
 def test_worker_rejects_when_import_disk_admission_fails(tmp_path: Path) -> None:
     from unittest.mock import patch
 
@@ -868,5 +869,8 @@ def test_worker_rejects_when_import_disk_admission_fails(tmp_path: Path) -> None
         assert operation is not None
         assert operation.error is not None
         assert operation.error.code == "IMPORT_REJECTED"
+        provider = env.provider_for(repository_id)
+        assert provider.replay_order == []
+        assert provider.markers == {}
     finally:
         env.close()

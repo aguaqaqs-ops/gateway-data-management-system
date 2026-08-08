@@ -112,7 +112,6 @@ def _seed_operation_for_replay(
         key_hash=key_hash,
         fingerprint=fingerprint,
         max_queued_imports=64,
-        layout=env.layout,
     )
     operation_id = result.operation_id
     if terminal_status == OperationStatus.QUEUED:
@@ -260,6 +259,7 @@ def test_submit_inserts_queued_before_202(env: ImportHttpTestEnvironment) -> Non
     assert stored.status == OperationStatus.QUEUED
     assert env.runtime.import_store.count_global_queued() == 1
     assert len(env.notify_calls) >= 1
+    assert env.notify_queued_visible == [True]
 
 
 def test_submit_replays_same_operation_id(env: ImportHttpTestEnvironment) -> None:
@@ -350,7 +350,6 @@ def test_submit_manual_barrier_rejects_new_key_only(env: ImportHttpTestEnvironme
         key_hash=key_hash,
         fingerprint=fingerprint,
         max_queued_imports=64,
-        layout=env.layout,
     )
     operation = env.runtime.import_store.lookup_by_key(repository_id, key_hash)
     assert operation is not None
@@ -432,6 +431,310 @@ def test_submit_logs_do_not_include_raw_key(
     assert response.status_code == 202
     assert raw_key not in caplog.text
     assert "test-bearer-token" not in caplog.text
+    stored = env.runtime.import_store.lookup_by_key(
+        repository_id,
+        IdempotencyKeyHash.from_raw_key(raw_key),
+    )
+    assert stored is not None
+    assert stored.private_ref_name not in caplog.text
+    assert stored.operation_marker not in caplog.text
+    assert "SELECT" not in caplog.text.upper()
+    assert str(env.layout.root) not in caplog.text
+
+
+def test_submit_writable_probe_failure_returns_disk_denied(env: ImportHttpTestEnvironment) -> None:
+    from gateway_repository_service.capacity import CapacityAdmissionError
+
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    with patch(
+        "gateway_repository_service.versioned_import.submission.assert_durable_root_writable",
+        side_effect=CapacityAdmissionError("writable probe failed"),
+    ):
+        response = _submit(
+            env,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key="writable-deny",
+        )
+    assert response.status_code == 503
+    assert response.json()["code"] == "DISK_ADMISSION_DENIED"
+
+
+def test_submit_rejects_uint64_overflow_size_bytes(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    response = _submit(
+        env,
+        repository_id,
+        artifact_id,
+        size_bytes,
+        raw_sha256,
+        body_overrides={"artifact_ref": {
+            "artifact_id": str(artifact_id),
+            "media_type": "application/vnd.gateway.repository-import.v1+tar+zstd",
+            "size_bytes": 2**64,
+            "raw_sha256": raw_sha256,
+        }},
+        idempotency_key="uint64-overflow",
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+CONFLICT_GATE_PRIORITY_CASES = [
+    "shutdown",
+    "provider",
+    "disk",
+    "manual",
+]
+
+
+@pytest.mark.parametrize("gate", CONFLICT_GATE_PRIORITY_CASES)
+def test_submit_conflict_precedes_admission_gates(
+    env: ImportHttpTestEnvironment,
+    gate: str,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    idempotency_key = f"conflict-{gate}"
+    first = _submit(env, repository_id, artifact_id, size_bytes, raw_sha256, idempotency_key=idempotency_key)
+    assert first.status_code == 202
+    if gate == "shutdown":
+        env.runtime._stopping.set()
+    elif gate == "provider":
+        env.runtime.provider_gate.executable_path = lambda: Path("/does/not/exist/dolt")  # type: ignore[method-assign]
+    elif gate == "manual":
+        operation = env.runtime.import_store.lookup_by_key(
+            repository_id,
+            IdempotencyKeyHash.from_raw_key(idempotency_key),
+        )
+        assert operation is not None
+        env.runtime.import_store.claim_if_queued(operation.operation_id)
+        env.runtime.import_store.mark_failed(
+            operation.operation_id,
+            error=SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual"),
+        )
+
+    if gate == "disk":
+        with patch(
+            "gateway_repository_service.capacity.os.statvfs",
+            side_effect=OSError("disk measurement failed"),
+        ):
+            response = _submit(
+                env,
+                repository_id,
+                artifact_id,
+                size_bytes,
+                raw_sha256,
+                idempotency_key=idempotency_key,
+                body_overrides={"expected_commit_id": "commit-9"},
+            )
+    else:
+        response = _submit(
+            env,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key=idempotency_key,
+            body_overrides={"expected_commit_id": "commit-9"},
+        )
+    assert response.status_code == 409
+    assert response.json()["code"] == "IDEMPOTENCY_CONFLICT"
+
+
+def test_submit_conflict_precedes_queue_full(tmp_path: Path) -> None:
+    limited = create_import_http_environment(tmp_path, max_queued_imports=1)
+    try:
+        repository_id = limited.seed_repository()
+        artifact_id, size_bytes, raw_sha256 = limited.seed_artifact(repository_id)
+        idempotency_key = "conflict-queue"
+        first = _submit(
+            limited,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key=idempotency_key,
+        )
+        assert first.status_code == 202
+        second = _submit(
+            limited,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key="queue-fill",
+        )
+        assert second.status_code == 429
+        conflict = _submit(
+            limited,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key=idempotency_key,
+            body_overrides={"expected_commit_id": "commit-9"},
+        )
+        assert conflict.status_code == 409
+        assert conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"
+    finally:
+        limited.close()
+
+
+ARTIFACT_NOT_FOUND_CASES = [
+    ("missing", {}),
+    ("cross_scope", {"repository_id_override": True}),
+    ("media_mismatch", {"lifecycle_media_type": "application/vnd.gateway.repository-import.v1+tar+gz"}),
+    ("size_mismatch", {"size_bytes_delta": 1}),
+    ("sha_mismatch", {"raw_sha256": "b" * 64}),
+    ("consumed", {"consume": True}),
+    ("deleted", {"delete_bytes": True}),
+]
+
+
+@pytest.mark.parametrize("case_name,case_options", ARTIFACT_NOT_FOUND_CASES)
+def test_submit_artifact_not_found_variants(
+    env: ImportHttpTestEnvironment,
+    case_name: str,
+    case_options: dict[str, object],
+) -> None:
+    repository_id = env.seed_repository()
+    other_repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    target_repository_id = other_repository_id if case_options.get("repository_id_override") else repository_id
+    if case_name == "missing":
+        target_artifact_id = uuid4()
+        submit_size = 12
+        submit_sha = "a" * 64
+    else:
+        target_artifact_id = artifact_id
+        size_delta = case_options.get("size_bytes_delta", 0)
+        submit_size = size_bytes + (int(size_delta) if isinstance(size_delta, int) else 0)
+        submit_sha = str(case_options.get("raw_sha256", raw_sha256))
+        if case_options.get("lifecycle_media_type"):
+            with env.runtime.mutation_store._lock:
+                env.runtime.mutation_store._connection.execute(
+                    "UPDATE artifact_lifecycle SET media_type = ? WHERE artifact_id = ?",
+                    (case_options["lifecycle_media_type"], str(artifact_id)),
+                )
+                env.runtime.mutation_store._connection.commit()
+        if case_options.get("consume"):
+            operation_id = env.runtime.import_store.admit_new_import(
+                ImportRequestBinding(
+                    repository_id=repository_id,
+                    artifact_ref=RepositoryArtifactRef(
+                        artifact_id=artifact_id,
+                        media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
+                        size_bytes=size_bytes,
+                        raw_sha256=raw_sha256,
+                    ),
+                    target_ref="main",
+                    expected_commit_id="commit-0",
+                    verification_policy=VerificationPolicy.STRUCTURAL,
+                    unknown_type_policy=UnknownTypePolicy.REJECT,
+                ),
+                key_hash=IdempotencyKeyHash.from_raw_key(f"consume-{case_name}"),
+                fingerprint=versioned_import_fingerprint_v1(
+                    binding=ImportRequestBinding(
+                        repository_id=repository_id,
+                        artifact_ref=RepositoryArtifactRef(
+                            artifact_id=artifact_id,
+                            media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
+                            size_bytes=size_bytes,
+                            raw_sha256=raw_sha256,
+                        ),
+                        target_ref="main",
+                        expected_commit_id="commit-0",
+                        verification_policy=VerificationPolicy.STRUCTURAL,
+                        unknown_type_policy=UnknownTypePolicy.REJECT,
+                    ),
+                    key_hash=IdempotencyKeyHash.from_raw_key(f"consume-{case_name}"),
+                ),
+                max_queued_imports=64,
+            ).operation_id
+            env.runtime.import_store.claim_if_queued(operation_id)
+            env.runtime.import_store.mark_succeeded(
+                operation_id,
+                result=VersionedImportResult(
+                    commit_id="commit-1",
+                    target_ref="main",
+                    artifact_id=artifact_id,
+                    canonicalization_manifest_digest="digest",
+                    expected_commit_id="commit-0",
+                    completed_verification_policy=VerificationPolicy.STRUCTURAL,
+                    unknown_type_policy=UnknownTypePolicy.REJECT,
+                ),
+            )
+        if case_options.get("delete_bytes"):
+            ready_path = artifact_ready_path(env.layout, repository_id, artifact_id)
+            ready_path.unlink(missing_ok=True)
+            now = "2026-08-06T00:00:00+00:00"
+            with env.runtime.mutation_store._lock:
+                env.runtime.mutation_store._connection.execute(
+                    "UPDATE artifact_lifecycle SET bytes_deleted_at = ? WHERE artifact_id = ?",
+                    (now, str(artifact_id)),
+                )
+                env.runtime.mutation_store._connection.commit()
+    body_overrides: dict[str, object] = {
+        "artifact_ref": {
+            "artifact_id": str(target_artifact_id),
+            "media_type": "application/vnd.gateway.repository-import.v1+tar+zstd",
+            "size_bytes": submit_size,
+            "raw_sha256": submit_sha,
+        }
+    }
+    response = _submit(
+        env,
+        target_repository_id,
+        target_artifact_id,
+        submit_size,
+        submit_sha,
+        idempotency_key=f"artifact-{case_name}",
+        body_overrides=body_overrides,
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "ARTIFACT_NOT_FOUND"
+
+
+def test_artifact_visibility_check_does_not_block_operation_poll(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    operation_id, artifact_id, size_bytes, raw_sha256 = _seed_operation_for_replay(
+        env,
+        repository_id,
+        idempotency_key="poll-during-fs",
+        terminal_status=OperationStatus.SUCCEEDED,
+    )
+    calls = {"count": 0}
+
+    def slow_visibility(*args: object, **kwargs: object) -> bool:
+        del args, kwargs
+        calls["count"] += 1
+        if calls["count"] == 1:
+            response = env.client.get(
+                f"/v1/repositories/{repository_id}/operations/{operation_id}",
+                headers={"Authorization": "Bearer test-bearer-token"},
+            )
+            assert response.status_code == 200
+        return calls["count"] < 3
+
+    with patch(
+        "gateway_repository_service.versioned_import.submission.is_artifact_visible",
+        side_effect=slow_visibility,
+    ):
+        response = _submit(
+            env,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key="new-fs-blocked",
+        )
+    assert response.status_code == 404
+    assert response.json()["code"] == "ARTIFACT_NOT_FOUND"
 
 
 @pytest.mark.parametrize("terminal_status", REPLAY_TERMINAL_STATUS_CASES)
@@ -625,7 +928,7 @@ def test_submit_artifact_file_missing_at_admission_returns_404(env: ImportHttpTe
     ready_path.unlink()
     with patch(
         "gateway_repository_service.versioned_import.submission.is_artifact_visible",
-        return_value=True,
+        side_effect=[True, False],
     ):
         response = _submit(
             env,

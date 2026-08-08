@@ -32,6 +32,8 @@ from gateway_repository_service.versioned_import.models import (
     ImportOperationStoreError,
     ImportQueueFull,
     ImportRequestBinding,
+    ImportStoreInvariantError,
+    ReplayLookup,
     StoredImportOperation,
     versioned_import_fingerprint_v1,
 )
@@ -71,66 +73,46 @@ class ImportSubmissionService:
 
         key_hash = IdempotencyKeyHash.from_raw_key(headers.idempotency_key)
         binding = _binding_from_request(body)
-        fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+        try:
+            fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+        except (OverflowError, ValueError) as exc:
+            raise _request_validation_failed() from exc
 
         try:
-            existing = self._import_store.lookup_by_key(path_repository_id, key_hash)
+            replay_state = self._import_store.lookup_replay_state(path_repository_id, key_hash)
         except Exception as exc:
             raise _map_store_error(exc, context="lookup") from exc
 
-        if existing is not None:
-            stored_fingerprint = self._import_store.fingerprint_for_key(path_repository_id, key_hash)
-            if stored_fingerprint != fingerprint:
-                _log_submission_event(
-                    "conflicted",
-                    request_id=request_id,
-                    repository_id=path_repository_id,
-                    operation_id=existing.operation_id,
-                    artifact_id=existing.artifact_id,
-                    status=existing.status.value,
-                    code="IDEMPOTENCY_CONFLICT",
-                )
-                raise ServiceError(
-                    code="IDEMPOTENCY_CONFLICT",
-                    message="idempotency key was reused with a different request",
-                    status_code=409,
-                )
-            _log_submission_event(
-                "replayed",
+        if replay_state is not None:
+            return self._handle_replay_state(
+                replay_state,
+                fingerprint=fingerprint,
                 request_id=request_id,
-                repository_id=path_repository_id,
-                operation_id=existing.operation_id,
-                artifact_id=existing.artifact_id,
-                status=existing.status.value,
+                path_repository_id=path_repository_id,
             )
-            self._worker_pool.notify()
-            return SubmitVersionedImportResponse(operation_id=existing.operation_id)
 
         self._preflight_new_effect(path_repository_id, binding)
+        self._assert_artifact_ready_for_admission(path_repository_id, binding)
         try:
             result = self._import_store.admit_new_import(
                 binding,
                 key_hash=key_hash,
                 fingerprint=fingerprint,
                 max_queued_imports=self._settings.max_queued_imports,
-                layout=self._layout,
             )
         except ImportFingerprintConflict:
             try:
-                existing = self._import_store.lookup_by_key(path_repository_id, key_hash)
+                replay_state = self._import_store.lookup_replay_state(path_repository_id, key_hash)
             except Exception as exc:
                 raise _map_store_error(exc, context="lookup after conflict") from exc
-            if existing is None:
+            if replay_state is None:
                 raise _service_not_ready("control database lookup failed after conflict") from None
-            stored_fingerprint = self._import_store.fingerprint_for_key(path_repository_id, key_hash)
-            if stored_fingerprint != fingerprint:
-                raise ServiceError(
-                    code="IDEMPOTENCY_CONFLICT",
-                    message="idempotency key was reused with a different request",
-                    status_code=409,
-                )
-            self._worker_pool.notify()
-            return SubmitVersionedImportResponse(operation_id=existing.operation_id)
+            return self._handle_replay_state(
+                replay_state,
+                fingerprint=fingerprint,
+                request_id=request_id,
+                path_repository_id=path_repository_id,
+            )
         except ImportManualBarrierRequired as exc:
             _log_submission_event(
                 "admission-denied",
@@ -163,7 +145,7 @@ class ImportSubmissionService:
                 message="artifact was not found",
                 status_code=404,
             ) from exc
-        except ValidationError as exc:
+        except (ValidationError, ImportStoreInvariantError) as exc:
             raise _internal_error() from exc
         except sqlite3.Error as exc:
             raise _service_not_ready("control database admission failed") from exc
@@ -206,6 +188,41 @@ class ImportSubmissionService:
         except ValidationError as exc:
             raise _internal_error() from exc
         return GetOperationResponse(operation=operation)
+
+    def _handle_replay_state(
+        self,
+        replay_state: ReplayLookup,
+        *,
+        fingerprint: bytes,
+        request_id: str | None,
+        path_repository_id: UUID,
+    ) -> SubmitVersionedImportResponse:
+        existing = replay_state.operation
+        if replay_state.stored_fingerprint != fingerprint:
+            _log_submission_event(
+                "conflicted",
+                request_id=request_id,
+                repository_id=path_repository_id,
+                operation_id=existing.operation_id,
+                artifact_id=existing.artifact_id,
+                status=existing.status.value,
+                code="IDEMPOTENCY_CONFLICT",
+            )
+            raise ServiceError(
+                code="IDEMPOTENCY_CONFLICT",
+                message="idempotency key was reused with a different request",
+                status_code=409,
+            )
+        _log_submission_event(
+            "replayed",
+            request_id=request_id,
+            repository_id=path_repository_id,
+            operation_id=existing.operation_id,
+            artifact_id=existing.artifact_id,
+            status=existing.status.value,
+        )
+        self._worker_pool.notify()
+        return SubmitVersionedImportResponse(operation_id=existing.operation_id)
 
     def _preflight_new_effect(self, repository_id: UUID, binding: ImportRequestBinding) -> None:
         if not self._runtime.is_accepting_import_effects():
@@ -274,6 +291,25 @@ class ImportSubmissionService:
                 status_code=503,
             ) from exc
 
+    def _assert_artifact_ready_for_admission(
+        self,
+        repository_id: UUID,
+        binding: ImportRequestBinding,
+    ) -> None:
+        if not is_artifact_visible(
+            self._mutation_store,
+            self._layout,
+            repository_id,
+            binding.artifact_ref.artifact_id,
+            size_bytes=binding.artifact_ref.size_bytes,
+            raw_sha256=binding.artifact_ref.raw_sha256,
+        ):
+            raise ServiceError(
+                code="ARTIFACT_NOT_FOUND",
+                message="artifact was not found",
+                status_code=404,
+            )
+
     def _artifact_acceptable(self, repository_id: UUID, binding: ImportRequestBinding) -> bool:
         lifecycle = self._mutation_store.get_artifact_lifecycle(binding.artifact_ref.artifact_id)
         if lifecycle is None:
@@ -328,8 +364,16 @@ def _internal_error() -> ServiceError:
     )
 
 
+def _request_validation_failed() -> ServiceError:
+    return ServiceError(
+        code="REQUEST_VALIDATION_FAILED",
+        message="request validation failed",
+        status_code=422,
+    )
+
+
 def _map_store_error(exc: BaseException, *, context: str) -> ServiceError:
-    if isinstance(exc, ValidationError):
+    if isinstance(exc, (ValidationError, ImportStoreInvariantError)):
         return _internal_error()
     if isinstance(exc, sqlite3.Error):
         return _service_not_ready(f"control database {context} failed")

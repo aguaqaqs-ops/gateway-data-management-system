@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, NonNegativeInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, model_validator
 
 from gateway_repository_contracts.errors import SimpleError
 from gateway_repository_contracts.headers import REPOSITORY_IMPORT_MEDIA_TYPE
@@ -60,7 +60,7 @@ class RepositoryArtifactRef(_VersionedModel):
 
     artifact_id: UUID
     media_type: MediaTypeString
-    size_bytes: NonNegativeInt
+    size_bytes: NonNegativeInt = Field(le=2**64 - 1)
     raw_sha256: Sha256String
 
 

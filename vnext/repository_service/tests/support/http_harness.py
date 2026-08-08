@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +15,7 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE
+from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE, OperationStatus
 from gateway_repository_service.app import create_app
 from gateway_repository_service.auth_state import AuthState
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
@@ -153,6 +154,7 @@ class ImportHttpTestEnvironment:
     client: TestClient
     control_store: ControlStore
     notify_calls: list[int] = field(default_factory=list)
+    notify_queued_visible: list[bool] = field(default_factory=list)
 
     def close(self) -> None:
         if self.control_store.is_open():
@@ -246,9 +248,23 @@ def create_import_http_environment(tmp_path: Path, **settings_kwargs: object) ->
         transaction_lock=control_store.transaction_lock,
     )
     notify_calls: list[int] = []
+    notify_queued_visible: list[bool] = []
 
     def _notify() -> None:
         notify_calls.append(1)
+        observer = sqlite3.connect(settings.control_db_path, timeout=5.0)
+        try:
+            row = observer.execute(
+                """
+                SELECT COUNT(*) AS queued_count
+                FROM repository_import_operations
+                WHERE status = ?
+                """,
+                (OperationStatus.QUEUED.value,),
+            ).fetchone()
+            notify_queued_visible.append(row is not None and int(row[0]) > 0)
+        finally:
+            observer.close()
 
     worker_pool = MagicMock()
     worker_pool.notify.side_effect = _notify
@@ -282,6 +298,7 @@ def create_import_http_environment(tmp_path: Path, **settings_kwargs: object) ->
         client=client,
         control_store=control_store,
         notify_calls=notify_calls,
+        notify_queued_visible=notify_queued_visible,
     )
 
 

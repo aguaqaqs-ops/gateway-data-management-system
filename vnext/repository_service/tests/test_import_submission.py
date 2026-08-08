@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 
@@ -13,12 +16,39 @@ from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.versioned_import.submission import ImportSubmissionService
 from support.http_harness import ImportHttpTestEnvironment, create_import_http_environment, import_request_body
 
+STORE_ERROR_CASES = [
+    ("invalid_json", "UPDATE repository_import_operations SET result_json = ? WHERE operation_id = ?", ("{",)),
+    (
+        "invalid_artifact_id",
+        "UPDATE repository_import_operations SET artifact_id = ? WHERE operation_id = ?",
+        ("not-a-uuid",),
+    ),
+]
+
 
 @pytest.fixture
 def env(tmp_path: Path) -> Iterator[ImportHttpTestEnvironment]:
     environment = create_import_http_environment(tmp_path)
     yield environment
     environment.close()
+
+
+def _seed_operation(env: ImportHttpTestEnvironment, repository_id: UUID, *, key: str) -> UUID:
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    body = import_request_body(
+        repository_id=repository_id,
+        artifact_id=artifact_id,
+        size_bytes=size_bytes,
+        raw_sha256=raw_sha256,
+    )
+    service = ImportSubmissionService(env.runtime)
+    response = service.submit(
+        repository_id,
+        ImportRequestHeaders(idempotency_key=key),
+        SubmitVersionedImportRequest.model_validate(body),
+        request_id="req-1",
+    )
+    return response.operation_id
 
 
 def test_concurrent_same_key_converges_to_one_operation(env: ImportHttpTestEnvironment) -> None:
@@ -89,3 +119,83 @@ def test_replay_precedes_queue_full(env: ImportHttpTestEnvironment, tmp_path: Pa
         assert exc_info.value.code == "IMPORT_QUEUE_FULL"
     finally:
         limited.close()
+
+
+@pytest.mark.parametrize(("case_name", "sql", "params_prefix"), STORE_ERROR_CASES)
+def test_submit_replay_maps_store_invariant_to_internal_error(
+    env: ImportHttpTestEnvironment,
+    case_name: str,
+    sql: str,
+    params_prefix: tuple[object, ...],
+) -> None:
+    repository_id = env.seed_repository()
+    operation_id = _seed_operation(env, repository_id, key=f"invariant-{case_name}")
+    env.control_store.connection.execute(sql, (*params_prefix, str(operation_id)))
+    env.control_store.connection.commit()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    body = import_request_body(
+        repository_id=repository_id,
+        artifact_id=artifact_id,
+        size_bytes=size_bytes,
+        raw_sha256=raw_sha256,
+    )
+    service = ImportSubmissionService(env.runtime)
+    with pytest.raises(ServiceError) as exc_info:
+        service.submit(
+            repository_id,
+            ImportRequestHeaders(idempotency_key=f"invariant-{case_name}"),
+            SubmitVersionedImportRequest.model_validate(body),
+            request_id="req-1",
+        )
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.code == "INTERNAL_ERROR"
+
+
+def test_lookup_replay_state_sqlite_fault_maps_to_service_not_ready(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    _seed_operation(env, repository_id, key="sqlite-fault")
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    body = import_request_body(
+        repository_id=repository_id,
+        artifact_id=artifact_id,
+        size_bytes=size_bytes,
+        raw_sha256=raw_sha256,
+    )
+    service = ImportSubmissionService(env.runtime)
+
+    def failing_lookup(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise sqlite3.OperationalError("database is locked")
+
+    with patch.object(env.runtime.import_store, "lookup_replay_state", side_effect=failing_lookup):
+        with pytest.raises(ServiceError) as exc_info:
+            service.submit(
+                repository_id,
+                ImportRequestHeaders(idempotency_key="sqlite-fault"),
+                SubmitVersionedImportRequest.model_validate(body),
+                request_id="req-1",
+            )
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "SERVICE_NOT_READY"
+
+
+def test_new_submit_after_control_db_closed_maps_to_service_not_ready(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    body = import_request_body(
+        repository_id=repository_id,
+        artifact_id=artifact_id,
+        size_bytes=size_bytes,
+        raw_sha256=raw_sha256,
+    )
+    env.control_store.close()
+    service = ImportSubmissionService(env.runtime)
+    with pytest.raises(ServiceError) as exc_info:
+        service.submit(
+            repository_id,
+            ImportRequestHeaders(idempotency_key="db-closed"),
+            SubmitVersionedImportRequest.model_validate(body),
+            request_id="req-1",
+        )
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "SERVICE_NOT_READY"

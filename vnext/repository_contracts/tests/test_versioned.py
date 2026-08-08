@@ -218,6 +218,26 @@ def test_bounded_and_integrity_fields_reject_invalid_values(
         RepositoryArtifactRef(**values)
 
 
+def test_repository_artifact_ref_accepts_max_uint64_size() -> None:
+    ref = RepositoryArtifactRef(
+        artifact_id=ARTIFACT_ID,
+        media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
+        size_bytes=2**64 - 1,
+        raw_sha256=SHA256,
+    )
+    assert ref.size_bytes == 2**64 - 1
+
+
+def test_repository_artifact_ref_rejects_uint64_overflow_size() -> None:
+    with pytest.raises(ValidationError):
+        RepositoryArtifactRef(
+            artifact_id=ARTIFACT_ID,
+            media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
+            size_bytes=2**64,
+            raw_sha256=SHA256,
+        )
+
+
 def test_import_request_rejects_invalid_expected_commit_id() -> None:
     with pytest.raises(ValidationError):
         SubmitVersionedImportRequest.model_validate(

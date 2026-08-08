@@ -61,6 +61,10 @@ class ImportOperationStoreError(RuntimeError):
     """Base error for import operation store failures."""
 
 
+class ImportStoreInvariantError(ImportOperationStoreError):
+    """Raised when a readable durable row violates import operation invariants."""
+
+
 class ImportFingerprintConflict(ImportOperationStoreError):
     """Raised when the same idempotency scope is reused with a different fingerprint."""
 
@@ -298,6 +302,12 @@ class ClaimOrEnqueueResult:
     operation_id: UUID
     is_new: bool
     operation: StoredImportOperation
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayLookup:
+    operation: StoredImportOperation
+    stored_fingerprint: bytes
 
 
 @dataclass(frozen=True, slots=True)

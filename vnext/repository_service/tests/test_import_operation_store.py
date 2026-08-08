@@ -32,16 +32,18 @@ from gateway_repository_service.mutation_store import (
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import import (
     ClaimOrEnqueueResult,
-    ImportArtifactBindingRejected,
     ImportFingerprintConflict,
-    ImportManualBarrierRequired,
     ImportOperationStore,
     ImportOperationTransitionRejected,
-    ImportQueueFull,
     ImportReplayCountRejected,
     ImportRequestBinding,
     ManualCorrectionDecision,
     versioned_import_fingerprint_v1,
+)
+from gateway_repository_service.versioned_import.models import (
+    ImportManualBarrierRequired,
+    ImportQueueFull,
+    ImportStoreInvariantError,
 )
 
 REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
@@ -697,7 +699,6 @@ def test_admit_new_import_rejects_manual_barrier(
             key_hash=key_hash,
             fingerprint=fingerprint,
             max_queued_imports=64,
-            layout=layout,
         )
 
 
@@ -720,74 +721,71 @@ def test_admit_new_import_rejects_when_queue_full(
             key_hash=key_hash,
             fingerprint=fingerprint,
             max_queued_imports=1,
-            layout=layout,
         )
 
 
-def test_admit_new_import_succeeds_when_ready_file_exists(
+def test_admit_new_import_succeeds_without_ready_file_at_store_layer(
     stores: tuple[ImportOperationStore, MutationStore],
-    layout: DurableLayout,
 ) -> None:
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     _seed_create_succeeded(mutation_store)
     binding = _binding()
-    _write_ready_artifact(layout, binding)
-    key_hash = IdempotencyKeyHash.from_raw_key("ready-file-key")
+    key_hash = IdempotencyKeyHash.from_raw_key("db-only-key")
     fingerprint = _fingerprint(binding, key_hash)
     result = store.admit_new_import(
         binding,
         key_hash=key_hash,
         fingerprint=fingerprint,
         max_queued_imports=64,
-        layout=layout,
     )
     assert result.is_new is True
     assert result.operation.status == OperationStatus.QUEUED
 
 
-def test_admit_new_import_rejects_when_ready_file_missing(
+def test_lookup_replay_state_returns_operation_and_fingerprint(
     stores: tuple[ImportOperationStore, MutationStore],
-    layout: DurableLayout,
 ) -> None:
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     _seed_create_succeeded(mutation_store)
     binding = _binding()
-    key_hash = IdempotencyKeyHash.from_raw_key("missing-file-key")
+    key_hash = IdempotencyKeyHash.from_raw_key("replay-state-key")
     fingerprint = _fingerprint(binding, key_hash)
-    with pytest.raises(ImportArtifactBindingRejected, match="ready file"):
-        store.admit_new_import(
-            binding,
-            key_hash=key_hash,
-            fingerprint=fingerprint,
-            max_queued_imports=64,
-            layout=layout,
-        )
+    admitted = store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+    )
+    replay_state = store.lookup_replay_state(REPOSITORY_ID, key_hash)
+    assert replay_state is not None
+    assert replay_state.operation.operation_id == admitted.operation_id
+    assert replay_state.stored_fingerprint == fingerprint
 
 
-def test_admit_new_import_rejects_when_ready_file_removed_after_preflight(
+def test_lookup_by_key_raises_invariant_error_for_invalid_result_json(
     stores: tuple[ImportOperationStore, MutationStore],
-    layout: DurableLayout,
 ) -> None:
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     _seed_create_succeeded(mutation_store)
     binding = _binding()
-    ready_path = artifact_ready_path(layout, binding.repository_id, binding.artifact_ref.artifact_id)
-    ready_path.parent.mkdir(parents=True, exist_ok=True)
-    ready_path.write_bytes(ARTIFACT_PAYLOAD)
-    ready_path.unlink()
-    key_hash = IdempotencyKeyHash.from_raw_key("removed-file-key")
+    key_hash = IdempotencyKeyHash.from_raw_key("invalid-json-key")
     fingerprint = _fingerprint(binding, key_hash)
-    with pytest.raises(ImportArtifactBindingRejected, match="ready file"):
-        store.admit_new_import(
-            binding,
-            key_hash=key_hash,
-            fingerprint=fingerprint,
-            max_queued_imports=64,
-            layout=layout,
-        )
+    admitted = store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+    )
+    store._connection.execute(
+        "UPDATE repository_import_operations SET result_json = ? WHERE operation_id = ?",
+        ("{", str(admitted.operation_id)),
+    )
+    store._connection.commit()
+    with pytest.raises(ImportStoreInvariantError):
+        store.lookup_by_key(REPOSITORY_ID, key_hash)
 
 
 def test_admit_new_import_replays_concurrent_same_key(
@@ -815,7 +813,6 @@ def test_admit_new_import_replays_concurrent_same_key(
                     key_hash=key_hash,
                     fingerprint=fingerprint,
                     max_queued_imports=64,
-                    layout=layout,
                 )
             )
         except BaseException as exc:

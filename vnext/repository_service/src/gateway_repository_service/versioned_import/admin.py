@@ -29,6 +29,7 @@ from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.models import (
     ImportOperationExecutionContext,
+    ImportStoreInvariantError,
     ManualCorrectionDecision,
     RecoveryAuditAction,
     StoredImportOperation,
@@ -84,7 +85,7 @@ def _load_operation_context(
 ) -> tuple[ImportOperationExecutionContext | None, int | None]:
     try:
         return import_store.load_execution_context(operation_id), None
-    except ValueError:
+    except (ValueError, ImportStoreInvariantError):
         print("control database contains invalid operation data", file=sys.stderr)
         return None, 4
     except sqlite3.Error:
@@ -99,7 +100,7 @@ def _get_operation_or_exit(
 ) -> tuple[StoredImportOperation | None, int | None]:
     try:
         return import_store.get_operation(repository_id, operation_id), None
-    except ValueError:
+    except (ValueError, ImportStoreInvariantError):
         print("control database contains invalid operation data", file=sys.stderr)
         return None, 4
     except sqlite3.Error:

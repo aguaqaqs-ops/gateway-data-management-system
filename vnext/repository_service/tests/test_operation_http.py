@@ -69,7 +69,6 @@ def _enqueue_operation(env: ImportHttpTestEnvironment, repository_id: UUID, *, k
         key_hash=key_hash,
         fingerprint=fingerprint,
         max_queued_imports=64,
-        layout=env.layout,
     )
     return result.operation_id, artifact_id
 
@@ -93,6 +92,15 @@ def test_get_operation_returns_wrapped_operation(env: ImportHttpTestEnvironment)
     assert payload["operation"]["result"] is None
     assert payload["operation"]["error"] is None
     assert_request_id_header(response)
+
+
+def test_get_operation_returns_running_status(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    operation_id = _enqueue_operation(env, repository_id)[0]
+    env.runtime.import_store.claim_if_queued(operation_id)
+    response = _get(env, repository_id, operation_id)
+    assert response.status_code == 200
+    assert response.json()["operation"]["status"] == OperationStatus.RUNNING.value
 
 
 def test_get_operation_terminal_failed_is_200_with_error(env: ImportHttpTestEnvironment) -> None:

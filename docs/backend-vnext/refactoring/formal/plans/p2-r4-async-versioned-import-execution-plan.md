@@ -1716,7 +1716,7 @@ next_stage: P2-R4-S9 fourth-review remediation
 #### S9 handoff amendment (fifth-review remediation)
 
 ```yaml
-fifth_review_fix_commit_sha: pending
+fifth_review_fix_commit_sha: 8a9b435
 worktree_clean: false
 uncommitted_paths:
   - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md  # S8 scope
@@ -1758,6 +1758,54 @@ known_limitations:
 stage_exit: no-go
 next_stage_ready: no
 next_stage: P2-R4-S9 fifth-review remediation
+```
+
+#### S9 handoff amendment (sixth-review remediation)
+
+```yaml
+sixth_review_fix_commit_sha: 4d7c60b
+worktree_clean: false
+uncommitted_paths:
+  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md  # S8 scope
+sixth_review_fix_paths:
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/models.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/submission.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/recovery.py
+  - vnext/repository_service/src/gateway_repository_service/mutation_reconciliation.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/admin.py
+  - vnext/repository_service/tests/test_import_operation_store.py
+  - vnext/repository_service/tests/test_import_http.py
+  - vnext/repository_service/tests/test_import_recovery.py
+sixth_review_fix_summary:
+  - StoredImportOperation/ReplayLookup retain durable_status; pending no longer maps to wire QUEUED
+  - same-key replay waits for publish/abort via _await_admission_resolution; GET hides pending rows
+  - ImportStartupReconciler publishes or aborts orphan ADMISSION_PENDING before worker start
+  - list_artifact_references and readiness handle pending as protected internal reference
+  - sqlite publish failure on pending admission routes through abort/replay instead of orphaning
+fifth_review_correction:
+  - fifth-review handoff claimed wire poll maps pending to QUEUED; sixth review removes that mapping
+test_markers_counts:
+  repository_service_unit: 658 passed, 1 skipped
+  repository_service_parallel: 902 passed, 1 skipped
+  repository_service_serial: 37 passed
+validation_commands_results:
+  - "directed pending/replay/reconcile tests -n 0 -> pass (40+)"
+  - "repository_service: ruff, mypy -> pass"
+  - "repository_service: pytest -m unit, pytest -m serial -n 0 -> pass"
+  - "./vnext/scripts/run-tests.sh x3 -> pass (one import_provider flake on run 2)"
+first_failures_and_fixes:
+  - P1 same-key replay returned 202 for unpublished pending -> durable_status + admission wait loop
+  - P1 crash/publish orphan ADMISSION_PENDING -> startup reconciler publish/abort + sqlite abort path
+  - P2 list_artifact_references ValueError on pending -> durable_status on ArtifactOperationReference
+  - P3 handoff uncommitted_paths incomplete -> sixth amendment lists actual dirty files
+known_limitations:
+  - cooperative cleanup excluded by admission pin flock; external durable-root tampering outside support surface
+  - S10 still owns real-Dolt/process-crash/Compose matrix
+  - no P2-R5 public reads or public admin API
+stage_exit: no-go
+next_stage_ready: no
+next_stage: P2-R4-S9 sixth-review remediation
 ```
 
 ## 14. S10 — Full fault matrix, real Dolt, Compose and handoff

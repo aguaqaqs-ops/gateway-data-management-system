@@ -894,6 +894,48 @@ def test_list_artifact_references_treats_pending_as_protected(
     assert pending_reference.is_protected is True
 
 
+PENDING_ROW_SHAPE_FAULTS = [
+    (
+        "error_json",
+        "UPDATE repository_import_operations SET error_json = ? WHERE operation_id = ?",
+        ('{"code":"IMPORT_REJECTED","message":"rejected"}',),
+    ),
+    (
+        "started_at",
+        "UPDATE repository_import_operations SET started_at = ? WHERE operation_id = ?",
+        ("2026-08-06T00:00:00+00:00",),
+    ),
+]
+
+
+@pytest.mark.parametrize(("case_name", "sql", "params"), PENDING_ROW_SHAPE_FAULTS)
+def test_pending_operation_row_shape_faults_raise_invariant_error(
+    stores: tuple[ImportOperationStore, MutationStore],
+    case_name: str,
+    sql: str,
+    params: tuple[object, ...],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key(f"pending-shape-{case_name}")
+    fingerprint = _fingerprint(binding, key_hash)
+    admitted = store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+    )
+    store._connection.execute(
+        sql,
+        (*params, str(admitted.operation_id)),
+    )
+    store._connection.commit()
+    with pytest.raises(ImportStoreInvariantError):
+        store.lookup_replay_state(REPOSITORY_ID, key_hash)
+
+
 def test_lookup_by_key_raises_invariant_error_for_invalid_result_json(
     stores: tuple[ImportOperationStore, MutationStore],
 ) -> None:

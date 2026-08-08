@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
+from typing import NoReturn
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -289,19 +290,11 @@ class ImportSubmissionService:
         if existing.status is None:
             raise _internal_error()
         if replay_state.stored_fingerprint != fingerprint:
-            _log_submission_event(
-                "conflicted",
+            _raise_replay_fingerprint_conflict(
+                replay_state,
+                fingerprint=fingerprint,
                 request_id=request_id,
-                repository_id=path_repository_id,
-                operation_id=existing.operation_id,
-                artifact_id=existing.artifact_id,
-                status=_wire_status_label(existing),
-                code="IDEMPOTENCY_CONFLICT",
-            )
-            raise ServiceError(
-                code="IDEMPOTENCY_CONFLICT",
-                message="idempotency key was reused with a different request",
-                status_code=409,
+                path_repository_id=path_repository_id,
             )
         _log_submission_event(
             "replayed",
@@ -324,6 +317,12 @@ class ImportSubmissionService:
         key_hash: IdempotencyKeyHash,
     ) -> SubmitVersionedImportResponse:
         if replay_state.durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+            _raise_replay_fingerprint_conflict_if_needed(
+                replay_state,
+                fingerprint=fingerprint,
+                request_id=request_id,
+                path_repository_id=path_repository_id,
+            )
             resolved = self._await_admission_resolution(replay_state.operation.operation_id)
             if resolved is None:
                 raise ServiceError(
@@ -354,7 +353,10 @@ class ImportSubmissionService:
     def _await_admission_resolution(self, operation_id: UUID) -> str | None:
         deadline = time.monotonic() + _ADMISSION_RESOLUTION_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
-            durable_status = self._import_store.get_operation_durable_status(operation_id)
+            try:
+                durable_status = self._import_store.get_operation_durable_status(operation_id)
+            except Exception as exc:
+                raise _map_store_error(exc, context="admission resolution") from exc
             if durable_status is None:
                 return None
             if durable_status != IMPORT_ADMISSION_PENDING_STATUS:
@@ -373,28 +375,23 @@ class ImportSubmissionService:
         path_repository_id: UUID,
         cause: BaseException,
     ) -> SubmitVersionedImportResponse:
-        if self._import_store.abort_admission_import(operation_id):
-            raise ServiceError(
-                code="ARTIFACT_NOT_FOUND",
-                message="artifact was not found",
-                status_code=404,
-            ) from cause
+        try:
+            aborted = self._import_store.abort_admission_import(operation_id)
+        except Exception as exc:
+            raise _map_store_error(exc, context="abort admission") from exc
+        if aborted:
+            _raise_after_pending_admission_failure(cause)
 
-        durable_status = self._import_store.get_operation_durable_status(operation_id)
+        try:
+            durable_status = self._import_store.get_operation_durable_status(operation_id)
+        except Exception as exc:
+            raise _map_store_error(exc, context="admission failure lookup") from exc
         if durable_status is None:
-            raise ServiceError(
-                code="ARTIFACT_NOT_FOUND",
-                message="artifact was not found",
-                status_code=404,
-            ) from cause
+            _raise_after_pending_admission_failure(cause)
         if durable_status == IMPORT_ADMISSION_PENDING_STATUS:
             resolved = self._await_admission_resolution(operation_id)
             if resolved is None:
-                raise ServiceError(
-                    code="ARTIFACT_NOT_FOUND",
-                    message="artifact was not found",
-                    status_code=404,
-                ) from cause
+                _raise_after_pending_admission_failure(cause)
             try:
                 replay_state = self._import_store.lookup_replay_state(repository_id, key_hash)
             except Exception as exc:
@@ -514,6 +511,60 @@ class ImportSubmissionService:
             size_bytes=binding.artifact_ref.size_bytes,
             raw_sha256=binding.artifact_ref.raw_sha256,
         )
+
+
+def _raise_replay_fingerprint_conflict_if_needed(
+    replay_state: ReplayLookup,
+    *,
+    fingerprint: bytes,
+    request_id: str | None,
+    path_repository_id: UUID,
+) -> None:
+    if replay_state.stored_fingerprint == fingerprint:
+        return
+    _raise_replay_fingerprint_conflict(
+        replay_state,
+        fingerprint=fingerprint,
+        request_id=request_id,
+        path_repository_id=path_repository_id,
+    )
+
+
+def _raise_replay_fingerprint_conflict(
+    replay_state: ReplayLookup,
+    *,
+    fingerprint: bytes,
+    request_id: str | None,
+    path_repository_id: UUID,
+) -> NoReturn:
+    del fingerprint
+    existing = replay_state.operation
+    _log_submission_event(
+        "conflicted",
+        request_id=request_id,
+        repository_id=path_repository_id,
+        operation_id=existing.operation_id,
+        artifact_id=existing.artifact_id,
+        status=_wire_status_label(existing),
+        code="IDEMPOTENCY_CONFLICT",
+    )
+    raise ServiceError(
+        code="IDEMPOTENCY_CONFLICT",
+        message="idempotency key was reused with a different request",
+        status_code=409,
+    )
+
+
+def _raise_after_pending_admission_failure(cause: BaseException) -> NoReturn:
+    if isinstance(cause, (ArtifactNotReadyForAdmission, OSError)):
+        raise ServiceError(
+            code="ARTIFACT_NOT_FOUND",
+            message="artifact was not found",
+            status_code=404,
+        ) from cause
+    if isinstance(cause, (sqlite3.Error, ImportOperationStoreError)):
+        raise _map_store_error(cause, context="admission failure") from cause
+    raise _internal_error() from cause
 
 
 def _binding_from_request(body: SubmitVersionedImportRequest) -> ImportRequestBinding:

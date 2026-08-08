@@ -381,6 +381,26 @@ def is_protected_durable_status(
     return is_protected_operation_status(wire_status, error)
 
 
+def validate_pending_operation_row(
+    row: sqlite3.Row,
+    *,
+    result: VersionedImportResult | None,
+    error: SimpleError | None,
+) -> None:
+    if result is not None:
+        raise ImportStoreInvariantError("pending import operation row has result payload")
+    if error is not None:
+        raise ImportStoreInvariantError("pending import operation row has error payload")
+    if row["started_at"] is not None:
+        raise ImportStoreInvariantError("pending import operation row has started_at")
+    if row["completed_at"] is not None:
+        raise ImportStoreInvariantError("pending import operation row has completed_at")
+    if row["canonicalization_manifest_digest"] is not None:
+        raise ImportStoreInvariantError(
+            "pending import operation row has canonicalization_manifest_digest"
+        )
+
+
 def validate_result_matches_operation_row(
     row: sqlite3.Row,
     result: VersionedImportResult,

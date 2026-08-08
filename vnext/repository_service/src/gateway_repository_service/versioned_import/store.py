@@ -46,6 +46,7 @@ from gateway_repository_service.versioned_import.models import (
     is_protected_durable_status,
     is_protected_operation_status,
     utc_now_iso,
+    validate_pending_operation_row,
     validate_result_matches_operation_row,
 )
 
@@ -1036,8 +1037,9 @@ class ImportOperationStore:
                 error_value = validated.error
                 status_value = validated.status
             else:
-                result_value = result
-                error_value = error
+                validate_pending_operation_row(row, result=result, error=error)
+                result_value = None
+                error_value = None
                 status_value = None
             return StoredImportOperation(
                 operation_id=operation_id,

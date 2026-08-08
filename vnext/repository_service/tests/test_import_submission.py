@@ -6,6 +6,7 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 from uuid import UUID
 
@@ -234,6 +235,60 @@ def test_preflight_sqlite_fault_after_successful_lookup_maps_to_service_not_read
             )
     assert exc_info.value.status_code == 503
     assert exc_info.value.code == "SERVICE_NOT_READY"
+
+
+def test_pending_admission_resolution_sqlite_fault_maps_to_service_not_ready(
+    env: ImportHttpTestEnvironment,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    body = import_request_body(
+        repository_id=repository_id,
+        artifact_id=artifact_id,
+        size_bytes=size_bytes,
+        raw_sha256=raw_sha256,
+    )
+    service = ImportSubmissionService(env.runtime)
+    pause_after_admit = threading.Event()
+    resume_admit = threading.Event()
+    import_store = env.runtime.import_store
+    original_admit = import_store.admit_new_import
+
+    def paused_admit(*args: Any, **kwargs: Any) -> Any:
+        result = original_admit(*args, **kwargs)
+        pause_after_admit.set()
+        assert resume_admit.wait(timeout=5)
+        return result
+
+    def first_submit() -> None:
+        with patch.object(import_store, "admit_new_import", paused_admit):
+            service.submit(
+                repository_id,
+                ImportRequestHeaders(idempotency_key="pending-sqlite-wait"),
+                SubmitVersionedImportRequest.model_validate(body),
+                request_id="req-first",
+            )
+
+    first_thread = threading.Thread(target=first_submit)
+    first_thread.start()
+    assert pause_after_admit.wait(timeout=5)
+
+    def failing_status(operation_id: UUID) -> str | None:
+        del operation_id
+        raise sqlite3.OperationalError("database is locked")
+
+    with patch.object(import_store, "get_operation_durable_status", side_effect=failing_status):
+        with pytest.raises(ServiceError) as exc_info:
+            service.submit(
+                repository_id,
+                ImportRequestHeaders(idempotency_key="pending-sqlite-wait"),
+                SubmitVersionedImportRequest.model_validate(body),
+                request_id="req-second",
+            )
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "SERVICE_NOT_READY"
+    resume_admit.set()
+    first_thread.join(timeout=5)
 
 
 def test_new_submit_after_control_db_closed_maps_to_service_not_ready(env: ImportHttpTestEnvironment) -> None:

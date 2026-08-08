@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -1152,6 +1153,99 @@ def test_submit_same_key_during_pending_waits_for_resolution(
         repository_id,
         IdempotencyKeyHash.from_raw_key("pending-same-key"),
     ) is None
+    assert env.runtime.import_store.count_global_queued() == 0
+
+
+@pytest.mark.serial
+def test_submit_rejects_different_fingerprint_immediately_while_pending(
+    env: ImportHttpTestEnvironment,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    pause_after_admit = threading.Event()
+    resume_first = threading.Event()
+    conflict_done = threading.Event()
+    results: dict[str, Any] = {}
+    import_store = env.runtime.import_store
+    original_admit = import_store.admit_new_import
+
+    def paused_admit(*args: Any, **kwargs: Any) -> Any:
+        result = original_admit(*args, **kwargs)
+        pause_after_admit.set()
+        assert resume_first.wait(timeout=5)
+        return result
+
+    original_finalize = ArtifactAdmissionPin.finalize_new_admission
+
+    def finalize_then_unlink(self: ArtifactAdmissionPin) -> None:
+        original_finalize(self)
+        self.ready_path.unlink()
+
+    def first_submit() -> None:
+        with patch.object(import_store, "admit_new_import", paused_admit):
+            with patch.object(ArtifactAdmissionPin, "finalize_new_admission", finalize_then_unlink):
+                results["first"] = _submit(
+                    env,
+                    repository_id,
+                    artifact_id,
+                    size_bytes,
+                    raw_sha256,
+                    idempotency_key="pending-conflict-key",
+                )
+
+    def conflict_submit() -> None:
+        assert pause_after_admit.wait(timeout=5)
+        results["conflict"] = _submit(
+            env,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key="pending-conflict-key",
+            body_overrides={"expected_commit_id": "commit-9"},
+        )
+        conflict_done.set()
+
+    first_thread = threading.Thread(target=first_submit)
+    conflict_thread = threading.Thread(target=conflict_submit)
+    first_thread.start()
+    assert pause_after_admit.wait(timeout=5)
+    conflict_thread.start()
+    assert conflict_done.wait(timeout=2)
+    assert results["conflict"].status_code == 409
+    assert results["conflict"].json()["code"] == "IDEMPOTENCY_CONFLICT"
+    assert results.get("first") is None
+    resume_first.set()
+    first_thread.join(timeout=5)
+    conflict_thread.join(timeout=5)
+    assert results["first"].status_code == 404
+    assert env.runtime.import_store.count_global_queued() == 0
+
+
+@pytest.mark.serial
+def test_submit_publish_sqlite_fault_returns_service_not_ready_not_404(
+    env: ImportHttpTestEnvironment,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    import_store = env.runtime.import_store
+
+    def failing_publish(operation_id: UUID) -> bool:
+        del operation_id
+        raise sqlite3.OperationalError("database is locked")
+
+    with patch.object(import_store, "publish_queued_import", side_effect=failing_publish):
+        response = _submit(
+            env,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key="publish-sqlite-fault",
+        )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "SERVICE_NOT_READY"
     assert env.runtime.import_store.count_global_queued() == 0
 
 

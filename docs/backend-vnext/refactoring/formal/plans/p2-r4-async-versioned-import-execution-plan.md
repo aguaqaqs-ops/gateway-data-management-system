@@ -1096,16 +1096,15 @@ feat(repository): add private import recovery CLI
 round: P2-R4
 stage: P2-R4-S8
 start_sha: b06ce5b
-commit_sha: 5e936bf
-head_sha: d1d7b1f
+commit_sha: a77d434
+head_sha: c822337
 branch: phase1/gate-ownership-repair
 worktree_clean: yes
 
-modified_paths (round-3 remediation on top of be36d6d):
+modified_paths (round-4 remediation on top of 23114ee):
   - vnext/repository_service/src/gateway_repository_service/control_db.py
   - vnext/repository_service/src/gateway_repository_service/layout.py
   - vnext/repository_service/src/gateway_repository_service/versioned_import/admin.py
-  - vnext/repository_service/src/gateway_repository_service/versioned_import/recovery.py
   - vnext/repository_service/tests/test_import_admin_cli.py
   - vnext/repository_service/tests/support/import_admin_cli_harness.py
   - vnext/repository_service/tests/test_import_recovery.py
@@ -1120,38 +1119,60 @@ explicit_non_goals_preserved:
   - CLI uses allow_migration=False; preflight is read-only; no WAL/journal auto-repair
 
 implemented_behavior:
-  - NOT_PUBLISHED writes only IMPORT_REJECTED when main==expected and artifact_valid;
-    no VERIFICATION_FAILED_NOT_PUBLISHED inference from private-ref presence alone
-  - control DB preflight validates tables, columns, triggers, WAL mode; sqlite3.Error → exit 4
-  - admin resolves existing layout via DurableLayout.bind_existing (no mkdir on missing data-root)
-  - inspect/apply open DB with _require_wal_mode/_require_synchronous_full (verify only, no repair)
-  - prior round-2 behavior retained: gate order, audit/stdout同源, barrier path (a)
+  - admin gate order: bind layout (exit 4) → root lock (exit 3) → control DB preflight (exit 4)
+    → operation gate (exit 5) → provider (exit 6)
+  - control DB preflight validates v7 table_xinfo column shapes, required indexes,
+    full trigger DDL bodies (not names only), synchronous_mutation_effects FK, WAL mode
+  - bind_existing fail-closed on unreadable/invalid layout.json (JSON/OSError, components)
+  - load_execution_context/get_operation ValueError → exit 4 with stable stderr (no traceback)
+  - NOT_PUBLISHED writes only IMPORT_REJECTED when main==expected and artifact_valid (round-3)
+  - barrier handoff path (a) unchanged
 
 barrier_handoff: path (a) (unchanged from be36d6d)
 
-exit_codes (verified round-3):
-  - 4: missing data-root, missing control DB, v6, missing/wrong columns, non-SQLite file,
-    journal_mode != WAL, sqlite3.Error
-  - 5: operation gate before provider (incl. dolt unavailable + missing operation)
-  - 6: evidence/decision mismatch; NOT_PUBLISHED without artifact_valid
-  - unverified private candidate + NOT_PUBLISHED → 0 with IMPORT_REJECTED (not VERIFICATION_FAILED)
+exit_codes (verified round-4):
+  - 0: inspect/apply success
+  - 2: invalid operation id or decision
+  - 3: durable root lock held (including when control DB missing)
+  - 4: missing data-root, unreadable layout marker, missing/unreadable control DB,
+    user_version mismatch, invalid v7 schema signature (columns/indexes/triggers/FK),
+    journal_mode != WAL, malformed operation row decode, sqlite3.Error
+  - 5: operation not found or not awaiting manual recovery (before provider)
+  - 6: provider unavailable, evidence unavailable, decision/evidence mismatch
 
-fault_points_covered (round-3):
-  - unverified private candidate → IMPORT_REJECTED, not VERIFICATION_FAILED_NOT_PUBLISHED
-  - unverified candidate + missing artifact → exit 6
-  - corrupt operations columns → exit 4, no traceback
-  - non-SQLite control DB → exit 4
-  - journal_mode=DELETE + inspect → exit 4, db digest unchanged
-  - missing --data-root → exit 4, no directories created
+audit_safe_fields (stdout/audit must not include):
+  - token, idempotency_key, replay_sql, stderr, host_path, credential,
+    raw_sha256, private_ref_name, operation_marker
+
+fault_points_covered (round-4):
+  - no-op trigger body (name present) → exit 4, no traceback
+  - repository_import_operations wrong column types → exit 4, no traceback
+  - malformed layout.json → exit 4, no traceback
+  - root lock busy + missing control DB → exit 3 (not 4)
+  - malformed operation row (invalid repository_scope UUID) → exit 4, no traceback
+  - round-3 retained: NOT_PUBLISHED IMPORT_REJECTED, DELETE journal no mutation,
+    missing data-root, non-SQLite control DB, corrupt operations table
 
 validation_commands:
   - uv run ruff check src tests → pass
   - uv run mypy → pass
-  - dolt parked: pytest tests/test_import_admin_cli.py -m unit -n 0 -q → 5 passed, 27 deselected, ~2.1s
-  - pytest tests/test_import_admin_cli.py -n 0 -q → 32 passed, ~33s
-  - pytest tests/test_import_worker.py tests/test_import_recovery.py -n 0 -q → 62 passed
+  - dolt parked: pytest tests/test_import_admin_cli.py -m unit -n 0 -q → 18 passed
+  - pytest tests/test_import_admin_cli.py -n 0 -q → 37 passed
+  - ./vnext/scripts/run-tests.sh → 805 passed + 1 skipped (parallel), 30 passed (serial)
   - git diff --check → pass
-  - ./vnext/scripts/run-tests.sh → 801 passed + 1 skipped (parallel), 29 passed (serial)
+
+old_reference_searches:
+  - rg "_verify_admin_schema|table_xinfo|index_xinfo" control_db.py
+  - rg "_bind_admin_layout|_resolve_admin_layout" admin.py
+  - rg "AdminCliControlDbEnvironment|dolt init" tests/support/import_admin_cli_harness.py
+  - rg "malformed_layout|noop_trigger|missing_db_exit_3" tests/test_import_admin_cli.py
+
+first_failures_and_fixes:
+  - schema name-only checks bypassed no-op triggers/wrong column types → table_xinfo +
+    index_xinfo + normalized trigger DDL + FK verification
+  - layout JSONDecodeError leaked traceback → LayoutError in bind_existing
+  - control DB existence before lock caused exit 4 instead of 3 → split _bind_admin_layout
+  - DB-only tests spawned dolt init → AdminCliControlDbEnvironment without DoltRunner
 
 known_limitations:
   - no positive CLI test for VERIFICATION_FAILED_NOT_PUBLISHED (deferred until durable evidence exists)

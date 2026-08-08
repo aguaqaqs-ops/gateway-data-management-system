@@ -26,6 +26,7 @@ from gateway_repository_service.versioned_import.models import (
     ClaimOrEnqueueResult,
     ImportArtifactBindingRejected,
     ImportFingerprintConflict,
+    IMPORT_ADMISSION_PENDING_STATUS,
     ImportManualBarrierRequired,
     ImportOperationExecutionContext,
     ImportOperationStoreError,
@@ -190,13 +191,26 @@ class ImportOperationStore:
                 """
                 SELECT COUNT(*) AS queued_count
                 FROM repository_import_operations
-                WHERE status = ?
+                WHERE status IN (?, ?)
                 """,
-                (OperationStatus.QUEUED.value,),
+                (OperationStatus.QUEUED.value, IMPORT_ADMISSION_PENDING_STATUS),
             ).fetchone()
             if row is None:
                 return 0
             return int(row["queued_count"])
+
+    def _count_dispatchable_queued_locked(self) -> int:
+        row = self._connection.execute(
+            """
+            SELECT COUNT(*) AS queued_count
+            FROM repository_import_operations
+            WHERE status IN (?, ?)
+            """,
+            (OperationStatus.QUEUED.value, IMPORT_ADMISSION_PENDING_STATUS),
+        ).fetchone()
+        if row is None:
+            return 0
+        return int(row["queued_count"])
 
     def admit_new_import(
         self,
@@ -227,15 +241,7 @@ class ImportOperationStore:
                     f"repository {binding.repository_id} has unresolved manual recovery barrier"
                 )
 
-            queued_count_row = self._connection.execute(
-                """
-                SELECT COUNT(*) AS queued_count
-                FROM repository_import_operations
-                WHERE status = ?
-                """,
-                (OperationStatus.QUEUED.value,),
-            ).fetchone()
-            queued_count = 0 if queued_count_row is None else int(queued_count_row["queued_count"])
+            queued_count = self._count_dispatchable_queued_locked()
             if queued_count >= max_queued_imports:
                 raise ImportQueueFull("global import queue is full")
 
@@ -288,7 +294,7 @@ class ImportOperationStore:
                     binding.expected_commit_id,
                     binding.verification_policy.value,
                     binding.unknown_type_policy.value,
-                    OperationStatus.QUEUED.value,
+                    IMPORT_ADMISSION_PENDING_STATUS,
                     private_ref_name,
                     operation_marker,
                     enqueue_sequence,
@@ -306,12 +312,40 @@ class ImportOperationStore:
                 operation=operation,
             )
 
-    def abort_queued_import(self, operation_id: UUID) -> bool:
+    def publish_queued_import(self, operation_id: UUID) -> bool:
         with self._transaction():
             row = self._fetch_by_operation_id(operation_id)
             if row is None:
                 return False
-            if str(row["status"]) != OperationStatus.QUEUED.value:
+            if str(row["status"]) != IMPORT_ADMISSION_PENDING_STATUS:
+                return False
+            now = utc_now_iso()
+            self._connection.execute(
+                """
+                UPDATE repository_import_operations
+                SET status = ?,
+                    updated_at = ?
+                WHERE operation_id = ?
+                  AND status = ?
+                """,
+                (
+                    OperationStatus.QUEUED.value,
+                    now,
+                    str(operation_id),
+                    IMPORT_ADMISSION_PENDING_STATUS,
+                ),
+            )
+            updated = self._fetch_by_operation_id(operation_id)
+            if updated is None:
+                return False
+            return str(updated["status"]) == OperationStatus.QUEUED.value
+
+    def abort_admission_import(self, operation_id: UUID) -> bool:
+        with self._transaction():
+            row = self._fetch_by_operation_id(operation_id)
+            if row is None:
+                return False
+            if str(row["status"]) != IMPORT_ADMISSION_PENDING_STATUS:
                 return False
             self._connection.execute(
                 """
@@ -319,9 +353,16 @@ class ImportOperationStore:
                 WHERE operation_id = ?
                   AND status = ?
                 """,
-                (str(operation_id), OperationStatus.QUEUED.value),
+                (str(operation_id), IMPORT_ADMISSION_PENDING_STATUS),
             )
             return True
+
+    def get_operation_durable_status(self, operation_id: UUID) -> str | None:
+        with self._lock:
+            row = self._fetch_by_operation_id(operation_id)
+            if row is None:
+                return None
+            return str(row["status"])
 
     def get_operation(
         self,
@@ -714,9 +755,10 @@ class ImportOperationStore:
                 """
                 SELECT repository_scope, artifact_id, status, error_json
                 FROM repository_import_operations
-                WHERE status IN (?, ?, ?)
+                WHERE status IN (?, ?, ?, ?)
                 """,
                 (
+                    IMPORT_ADMISSION_PENDING_STATUS,
                     OperationStatus.QUEUED.value,
                     OperationStatus.RUNNING.value,
                     OperationStatus.FAILED.value,
@@ -724,7 +766,16 @@ class ImportOperationStore:
             )
             pins: list[tuple[UUID, UUID]] = []
             for row in cursor.fetchall():
-                status = OperationStatus(str(row["status"]))
+                status_value = str(row["status"])
+                if status_value == IMPORT_ADMISSION_PENDING_STATUS:
+                    pins.append(
+                        (
+                            UUID(str(row["repository_scope"])),
+                            UUID(str(row["artifact_id"])),
+                        )
+                    )
+                    continue
+                status = OperationStatus(status_value)
                 error = self._parse_error_json(row["error_json"])
                 if is_protected_operation_status(status, error):
                     pins.append(
@@ -936,11 +987,16 @@ class ImportOperationStore:
         try:
             result = self._parse_result_json(row["result_json"])
             error = self._parse_error_json(row["error_json"])
-            status = OperationStatus(str(row["status"]))
+            status_value = str(row["status"])
+            wire_status = (
+                OperationStatus.QUEUED
+                if status_value == IMPORT_ADMISSION_PENDING_STATUS
+                else OperationStatus(status_value)
+            )
             operation_id = UUID(str(row["operation_id"]))
             validated = VersionedOperation.model_validate({
                 "operation_id": operation_id,
-                "status": status.value,
+                "status": wire_status.value,
                 "result": result.model_dump() if result is not None else None,
                 "error": error.model_dump() if error is not None else None,
             })

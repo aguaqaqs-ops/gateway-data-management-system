@@ -505,7 +505,7 @@ class AdminCliControlDbEnvironment:
                     requested_verification_policy TEXT NOT NULL,
                     unknown_type_policy TEXT NOT NULL,
                     status TEXT NOT NULL CHECK (
-                        status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED')
+                        status IN ('ADMISSION_PENDING', 'QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED')
                     ),
                     private_ref_name TEXT NOT NULL,
                     operation_marker TEXT NOT NULL,

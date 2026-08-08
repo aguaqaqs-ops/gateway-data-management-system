@@ -44,6 +44,7 @@ from gateway_repository_service.versioned_import.models import (
     ImportManualBarrierRequired,
     ImportQueueFull,
     ImportStoreInvariantError,
+    IMPORT_ADMISSION_PENDING_STATUS,
 )
 
 REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
@@ -188,6 +189,27 @@ def _enqueue(
         operation_id=operation_id,
     )
     return key_hash, fingerprint
+
+
+def _admit_and_publish(
+    store: ImportOperationStore,
+    binding: ImportRequestBinding,
+    *,
+    key_hash: IdempotencyKeyHash,
+    fingerprint: bytes,
+    max_queued_imports: int = 64,
+    operation_id: UUID | None = None,
+) -> ClaimOrEnqueueResult:
+    result = store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=max_queued_imports,
+        operation_id=operation_id,
+    )
+    if result.is_new:
+        assert store.publish_queued_import(result.operation_id)
+    return result
 
 
 def test_versioned_import_fingerprint_is_versioned() -> None:
@@ -659,6 +681,85 @@ def test_lookup_by_key_returns_existing_operation(
     found = store.lookup_by_key(REPOSITORY_ID, key_hash)
     assert found is not None
     assert found.operation_id == OPERATION_ID
+
+
+def test_count_global_queued_counts_pending_and_queued_status(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    assert store.count_global_queued() == 0
+    _enqueue(store, operation_id=OPERATION_ID, key="queued-1")
+    assert store.count_global_queued() == 1
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("pending-only")
+    fingerprint = _fingerprint(binding, key_hash)
+    pending = store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+    )
+    assert pending.is_new is True
+    assert store.get_operation_durable_status(pending.operation_id) == IMPORT_ADMISSION_PENDING_STATUS
+    assert store.count_global_queued() == 2
+    _enqueue(store, operation_id=OTHER_OPERATION_ID, key="queued-2")
+    assert store.count_global_queued() == 3
+    store.claim_if_queued(OPERATION_ID)
+    assert store.count_global_queued() == 2
+
+
+def test_admit_new_import_inserts_admission_pending_status(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("pending-status")
+    fingerprint = _fingerprint(binding, key_hash)
+    result = store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+    )
+    assert result.is_new is True
+    assert store.get_operation_durable_status(result.operation_id) == IMPORT_ADMISSION_PENDING_STATUS
+    assert store.claim_if_queued(result.operation_id) is None
+    assert store.publish_queued_import(result.operation_id) is True
+    claimed = store.claim_if_queued(result.operation_id)
+    assert claimed is not None
+    assert claimed.status == OperationStatus.RUNNING
+
+
+def test_abort_admission_import_only_deletes_pending_rows(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("abort-pending")
+    fingerprint = _fingerprint(binding, key_hash)
+    admitted = store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+    )
+    assert store.abort_admission_import(admitted.operation_id) is True
+    assert store.lookup_by_key(REPOSITORY_ID, key_hash) is None
+    _admit_and_publish(
+        store,
+        binding,
+        key_hash=IdempotencyKeyHash.from_raw_key("abort-running"),
+        fingerprint=_fingerprint(binding, IdempotencyKeyHash.from_raw_key("abort-running")),
+        operation_id=OPERATION_ID,
+    )
+    store.claim_if_queued(OPERATION_ID)
+    assert store.abort_admission_import(OPERATION_ID) is False
 
 
 def test_count_global_queued_counts_only_queued_status(

@@ -11,7 +11,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 7
+CONTROL_DB_USER_VERSION = 8
 
 ColumnShape = tuple[tuple[str, str, int, str | None, int], ...]
 
@@ -271,6 +271,60 @@ _MIGRATION_V7_STATEMENTS: tuple[str, ...] = (
     """
     ALTER TABLE artifact_lifecycle
     ADD COLUMN bytes_deleted_at TEXT NULL
+    """,
+)
+
+
+_MIGRATION_V8_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE repository_import_operations_v8 (
+        operation_id TEXT PRIMARY KEY,
+        repository_scope TEXT NOT NULL,
+        key_hash BLOB NOT NULL CHECK (length(key_hash) = 32),
+        request_fingerprint BLOB NOT NULL,
+        artifact_id TEXT NOT NULL,
+        artifact_media_type TEXT NOT NULL,
+        artifact_size_bytes INTEGER NOT NULL CHECK (artifact_size_bytes >= 0),
+        artifact_raw_sha256 TEXT NOT NULL CHECK (length(artifact_raw_sha256) = 64),
+        target_ref TEXT NOT NULL CHECK (target_ref = 'main'),
+        expected_commit_id TEXT NOT NULL,
+        requested_verification_policy TEXT NOT NULL,
+        unknown_type_policy TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (
+            status IN ('ADMISSION_PENDING', 'QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED')
+        ),
+        private_ref_name TEXT NOT NULL,
+        operation_marker TEXT NOT NULL,
+        canonicalization_manifest_digest TEXT NULL,
+        automatic_replay_count INTEGER NOT NULL DEFAULT 0 CHECK (automatic_replay_count IN (0, 1)),
+        enqueue_sequence INTEGER NOT NULL,
+        result_json TEXT NULL,
+        error_json TEXT NULL,
+        created_at TEXT NOT NULL,
+        started_at TEXT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT NULL,
+        UNIQUE (repository_scope, key_hash)
+    )
+    """,
+    """
+    INSERT INTO repository_import_operations_v8
+    SELECT * FROM repository_import_operations
+    """,
+    """
+    DROP TABLE repository_import_operations
+    """,
+    """
+    ALTER TABLE repository_import_operations_v8
+    RENAME TO repository_import_operations
+    """,
+    """
+    CREATE INDEX repository_import_operations_claim_idx
+    ON repository_import_operations (repository_scope, status, enqueue_sequence)
+    """,
+    """
+    CREATE INDEX repository_import_operations_artifact_idx
+    ON repository_import_operations (artifact_id)
     """,
 )
 
@@ -707,6 +761,9 @@ class ControlStore:
             return
         if target_version == 7:
             ControlStore._execute_statements(connection, _MIGRATION_V7_STATEMENTS)
+            return
+        if target_version == 8:
+            ControlStore._execute_statements(connection, _MIGRATION_V8_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

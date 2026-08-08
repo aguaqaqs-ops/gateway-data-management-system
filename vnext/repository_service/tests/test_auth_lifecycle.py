@@ -596,14 +596,14 @@ class TestControlDatabase:
         with pytest.raises(ControlDbNewerVersionError):
             ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
-    def test_intermediate_user_version_eight_fails_closed(self, tmp_path: Path) -> None:
+    def test_intermediate_user_version_nine_fails_closed(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         db_path.parent.mkdir(parents=True)
         connection = sqlite3.connect(db_path)
-        connection.execute("PRAGMA user_version = 8")
+        connection.execute("PRAGMA user_version = 9")
         connection.commit()
         connection.close()
-        with pytest.raises(ControlDbNewerVersionError, match="user_version 8 is newer than supported 7"):
+        with pytest.raises(ControlDbNewerVersionError, match="user_version 9 is newer than supported 8"):
             ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
     def test_migration_v5_fails_on_contradictory_v3_data(self, tmp_path: Path) -> None:

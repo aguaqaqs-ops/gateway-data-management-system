@@ -70,6 +70,7 @@ def _enqueue_operation(env: ImportHttpTestEnvironment, repository_id: UUID, *, k
         fingerprint=fingerprint,
         max_queued_imports=64,
     )
+    env.runtime.import_store.publish_queued_import(result.operation_id)
     return result.operation_id, artifact_id
 
 

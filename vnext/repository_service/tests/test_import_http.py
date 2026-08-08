@@ -119,7 +119,9 @@ def _seed_operation_for_replay(
     )
     operation_id = result.operation_id
     if terminal_status == OperationStatus.QUEUED:
+        env.runtime.import_store.publish_queued_import(operation_id)
         return operation_id, artifact_id, size_bytes, raw_sha256
+    env.runtime.import_store.publish_queued_import(operation_id)
     env.runtime.import_store.claim_if_queued(operation_id)
     if terminal_status == OperationStatus.RUNNING:
         return operation_id, artifact_id, size_bytes, raw_sha256
@@ -349,7 +351,7 @@ def test_submit_manual_barrier_rejects_new_key_only(env: ImportHttpTestEnvironme
     )
     key_hash = IdempotencyKeyHash.from_raw_key("manual-key")
     fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
-    env.runtime.import_store.admit_new_import(
+    admitted = env.runtime.import_store.admit_new_import(
         binding,
         key_hash=key_hash,
         fingerprint=fingerprint,
@@ -357,6 +359,7 @@ def test_submit_manual_barrier_rejects_new_key_only(env: ImportHttpTestEnvironme
     )
     operation = env.runtime.import_store.lookup_by_key(repository_id, key_hash)
     assert operation is not None
+    env.runtime.import_store.publish_queued_import(admitted.operation_id)
     env.runtime.import_store.claim_if_queued(operation.operation_id)
     env.runtime.import_store.mark_failed(
         operation.operation_id,
@@ -660,6 +663,7 @@ def test_submit_artifact_not_found_variants(
                 ),
                 max_queued_imports=64,
             ).operation_id
+            env.runtime.import_store.publish_queued_import(operation_id)
             env.runtime.import_store.claim_if_queued(operation_id)
             env.runtime.import_store.mark_succeeded(
                 operation_id,
@@ -1078,6 +1082,123 @@ def test_submit_admission_pin_blocks_cooperative_cleanup(env: ImportHttpTestEnvi
 
     assert response.status_code == 202
     assert env.runtime.import_store.count_global_queued() == 1
+
+
+@pytest.mark.serial
+def test_submit_claim_before_abort_does_not_return_false_404(
+    env: ImportHttpTestEnvironment,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    pause_after_admit = threading.Event()
+    resume_submit = threading.Event()
+    claim_checked = threading.Event()
+    import_store = env.runtime.import_store
+    original_admit = import_store.admit_new_import
+    pending_operation_id: dict[str, UUID] = {}
+
+    def paused_admit(*args: Any, **kwargs: Any) -> Any:
+        result = original_admit(*args, **kwargs)
+        if result.is_new:
+            pending_operation_id["id"] = result.operation_id
+        pause_after_admit.set()
+        assert resume_submit.wait(timeout=5)
+        return result
+
+    def claim_worker() -> None:
+        assert pause_after_admit.wait(timeout=5)
+        operation_id = pending_operation_id["id"]
+        assert import_store.claim_if_queued(operation_id) is None
+        claim_checked.set()
+        resume_submit.set()
+
+    original_finalize = ArtifactAdmissionPin.finalize_new_admission
+
+    def finalize_then_unlink(self: ArtifactAdmissionPin) -> None:
+        assert claim_checked.wait(timeout=5)
+        original_finalize(self)
+        self.ready_path.unlink()
+
+    claim_thread = threading.Thread(target=claim_worker)
+    claim_thread.start()
+    try:
+        with patch.object(import_store, "admit_new_import", paused_admit):
+            with patch.object(ArtifactAdmissionPin, "finalize_new_admission", finalize_then_unlink):
+                response = _submit(
+                    env,
+                    repository_id,
+                    artifact_id,
+                    size_bytes,
+                    raw_sha256,
+                    idempotency_key="claim-before-abort",
+                )
+    finally:
+        claim_thread.join(timeout=5)
+
+    assert not claim_thread.is_alive()
+    assert response.status_code == 404
+    assert response.json()["code"] == "ARTIFACT_NOT_FOUND"
+    assert env.runtime.import_store.count_global_queued() == 0
+
+
+@pytest.mark.serial
+def test_submit_abort_failure_replays_when_operation_already_claimed(
+    env: ImportHttpTestEnvironment,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    pause_after_admit = threading.Event()
+    resume_finalize = threading.Event()
+    import_store = env.runtime.import_store
+    original_admit = import_store.admit_new_import
+    pending_operation_id: dict[str, UUID] = {}
+
+    def paused_admit(*args: Any, **kwargs: Any) -> Any:
+        result = original_admit(*args, **kwargs)
+        if result.is_new:
+            pending_operation_id["id"] = result.operation_id
+        pause_after_admit.set()
+        assert resume_finalize.wait(timeout=5)
+        return result
+
+    def publish_and_claim_worker() -> None:
+        assert pause_after_admit.wait(timeout=5)
+        operation_id = pending_operation_id["id"]
+        assert import_store.claim_if_queued(operation_id) is None
+        assert import_store.publish_queued_import(operation_id) is True
+        assert import_store.claim_if_queued(operation_id) is not None
+        resume_finalize.set()
+
+    original_finalize = ArtifactAdmissionPin.finalize_new_admission
+
+    def finalize_then_unlink(self: ArtifactAdmissionPin) -> None:
+        original_finalize(self)
+        self.ready_path.unlink()
+
+    worker = threading.Thread(target=publish_and_claim_worker)
+    worker.start()
+    try:
+        with patch.object(import_store, "admit_new_import", paused_admit):
+            with patch.object(ArtifactAdmissionPin, "finalize_new_admission", finalize_then_unlink):
+                response = _submit(
+                    env,
+                    repository_id,
+                    artifact_id,
+                    size_bytes,
+                    raw_sha256,
+                    idempotency_key="abort-failure-replay",
+                )
+    finally:
+        worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert response.status_code == 202
+    operation = import_store.lookup_by_key(
+        repository_id,
+        IdempotencyKeyHash.from_raw_key("abort-failure-replay"),
+    )
+    assert operation is not None
+    assert operation.status == OperationStatus.RUNNING
 
 
 @pytest.mark.integration

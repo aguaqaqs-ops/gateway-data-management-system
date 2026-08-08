@@ -30,6 +30,8 @@ from gateway_repository_service.upload_artifact.admission_pin import (
 )
 from gateway_repository_service.upload_artifact.visibility import is_artifact_visible
 from gateway_repository_service.versioned_import.models import (
+    IMPORT_ADMISSION_PENDING_STATUS,
+    ClaimOrEnqueueResult,
     ImportArtifactBindingRejected,
     ImportFingerprintConflict,
     ImportManualBarrierRequired,
@@ -106,7 +108,8 @@ class ImportSubmissionService:
         except ImportOperationStoreError as exc:
             raise _service_not_ready("control database preflight failed") from exc
 
-        queued_operation_id: UUID | None = None
+        pending_operation_id: UUID | None = None
+        result: ClaimOrEnqueueResult | None = None
         try:
             with ArtifactAdmissionPin(
                 self._layout,
@@ -123,13 +126,24 @@ class ImportSubmissionService:
                     max_queued_imports=self._settings.max_queued_imports,
                 )
                 if result.is_new:
-                    queued_operation_id = result.operation_id
+                    pending_operation_id = result.operation_id
                     admission_guard.finalize_new_admission()
+            if result is not None and result.is_new and pending_operation_id is not None:
+                if not self._import_store.publish_queued_import(pending_operation_id):
+                    raise ImportOperationStoreError("failed to publish admitted import")
         except ServiceError:
             raise
-        except ArtifactNotReadyForAdmission as exc:
-            if queued_operation_id is not None:
-                self._import_store.abort_queued_import(queued_operation_id)
+        except (ArtifactNotReadyForAdmission, OSError) as exc:
+            if pending_operation_id is not None:
+                return self._abort_pending_admission_or_replay(
+                    pending_operation_id,
+                    repository_id=path_repository_id,
+                    key_hash=key_hash,
+                    fingerprint=fingerprint,
+                    request_id=request_id,
+                    path_repository_id=path_repository_id,
+                    cause=exc,
+                )
             raise ServiceError(
                 code="ARTIFACT_NOT_FOUND",
                 message="artifact was not found",
@@ -185,6 +199,16 @@ class ImportSubmissionService:
         except sqlite3.Error as exc:
             raise _service_not_ready("control database admission failed") from exc
         except ImportOperationStoreError as exc:
+            if pending_operation_id is not None:
+                return self._abort_pending_admission_or_replay(
+                    pending_operation_id,
+                    repository_id=path_repository_id,
+                    key_hash=key_hash,
+                    fingerprint=fingerprint,
+                    request_id=request_id,
+                    path_repository_id=path_repository_id,
+                    cause=exc,
+                )
             raise _service_not_ready("control database admission failed") from exc
         except Exception as exc:
             raise _internal_error() from exc
@@ -258,6 +282,47 @@ class ImportSubmissionService:
         )
         self._worker_pool.notify()
         return SubmitVersionedImportResponse(operation_id=existing.operation_id)
+
+    def _abort_pending_admission_or_replay(
+        self,
+        operation_id: UUID,
+        *,
+        repository_id: UUID,
+        key_hash: IdempotencyKeyHash,
+        fingerprint: bytes,
+        request_id: str | None,
+        path_repository_id: UUID,
+        cause: BaseException,
+    ) -> SubmitVersionedImportResponse:
+        if self._import_store.abort_admission_import(operation_id):
+            raise ServiceError(
+                code="ARTIFACT_NOT_FOUND",
+                message="artifact was not found",
+                status_code=404,
+            ) from cause
+
+        durable_status = self._import_store.get_operation_durable_status(operation_id)
+        if durable_status is None:
+            raise ServiceError(
+                code="ARTIFACT_NOT_FOUND",
+                message="artifact was not found",
+                status_code=404,
+            ) from cause
+        if durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+            raise _internal_error() from cause
+
+        try:
+            replay_state = self._import_store.lookup_replay_state(repository_id, key_hash)
+        except Exception as exc:
+            raise _map_store_error(exc, context="lookup after admission failure") from exc
+        if replay_state is None or replay_state.operation.operation_id != operation_id:
+            raise _internal_error() from cause
+        return self._handle_replay_state(
+            replay_state,
+            fingerprint=fingerprint,
+            request_id=request_id,
+            path_repository_id=path_repository_id,
+        )
 
     def _preflight_new_effect(self, repository_id: UUID, binding: ImportRequestBinding) -> None:
         if not self._runtime.is_accepting_import_effects():

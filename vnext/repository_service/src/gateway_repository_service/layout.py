@@ -11,6 +11,17 @@ from uuid import UUID
 
 LAYOUT_FORMAT_VERSION = 1
 
+_REQUIRED_LAYOUT_COMPONENTS: frozenset[str] = frozenset(
+    {
+        "control",
+        "versioned",
+        "staging",
+        "artifacts",
+        "service-state",
+        "provider",
+    }
+)
+
 
 def repository_key(repository_id: UUID) -> str:
     """Return the only representation allowed in a repository filesystem path."""
@@ -61,9 +72,22 @@ class DurableLayout:
         marker = control / "layout.json"
         if not control.is_dir() or not marker.is_file():
             raise LayoutError("control layout is not initialized")
-        loaded = json.loads(marker.read_text(encoding="utf-8"))
+        try:
+            raw = marker.read_text(encoding="utf-8")
+            loaded = json.loads(raw)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise LayoutError("control layout marker is unreadable") from exc
+        if not isinstance(loaded, dict):
+            raise LayoutError("control layout marker is invalid")
         if loaded.get("layout_format_version") != LAYOUT_FORMAT_VERSION:
             raise LayoutError("unsupported layout_format_version")
+        components = loaded.get("components")
+        if not isinstance(components, list):
+            raise LayoutError("control layout marker is invalid")
+        present_components = {str(item) for item in components}
+        missing_components = _REQUIRED_LAYOUT_COMPONENTS.difference(present_components)
+        if missing_components:
+            raise LayoutError("control layout marker is invalid")
         return cls(
             root=root,
             control=control,

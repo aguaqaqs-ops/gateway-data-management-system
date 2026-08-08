@@ -39,6 +39,7 @@ from support.import_admin_cli_harness import (
     DEFAULT_ARTIFACT_ID,
     DEFAULT_OPERATION_ID,
     DEFAULT_REPOSITORY_ID,
+    AdminCliControlDbEnvironment,
     AdminCliEnvironment,
     assert_audit_row,
     control_db_digest,
@@ -84,9 +85,23 @@ def test_root_lock_busy_exit_3(tmp_path: Path) -> None:
         env.close()
 
 
-@pytest.mark.integration
+@pytest.mark.serial
+def test_root_lock_busy_with_missing_db_exit_3(tmp_path: Path) -> None:
+    env = AdminCliControlDbEnvironment.create(tmp_path)
+    lock = DurableRootLock(env.layout.service_lock)
+    try:
+        env.remove_control_db()
+        lock.acquire()
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 3
+        assert "Traceback" not in result.stderr
+    finally:
+        lock.release()
+        env.close()
+
+
 def test_control_db_newer_exit_4(tmp_path: Path) -> None:
-    env = AdminCliEnvironment.create(tmp_path)
+    env = AdminCliControlDbEnvironment.create(tmp_path)
     try:
         env.control_store.close()
         connection = sqlite3.connect(env.settings.control_db_path)
@@ -101,9 +116,8 @@ def test_control_db_newer_exit_4(tmp_path: Path) -> None:
         env.close()
 
 
-@pytest.mark.integration
 def test_operation_not_found_exit_5(tmp_path: Path) -> None:
-    env = AdminCliEnvironment.create(tmp_path)
+    env = AdminCliControlDbEnvironment.create(tmp_path)
     try:
         result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
         assert result.returncode == 5
@@ -518,9 +532,8 @@ def test_manual_barrier_cleared_after_apply_allows_dispatch(tmp_path: Path) -> N
         env.close()
 
 
-@pytest.mark.integration
 def test_control_db_v6_exit_4_no_migration(tmp_path: Path) -> None:
-    env = AdminCliEnvironment.create(tmp_path)
+    env = AdminCliControlDbEnvironment.create(tmp_path)
     try:
         env.downgrade_control_db_to_v6()
         result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
@@ -543,9 +556,8 @@ def test_control_db_v6_exit_4_no_migration(tmp_path: Path) -> None:
         env.close()
 
 
-@pytest.mark.integration
 def test_control_db_missing_operations_table_exit_4(tmp_path: Path) -> None:
-    env = AdminCliEnvironment.create(tmp_path)
+    env = AdminCliControlDbEnvironment.create(tmp_path)
     try:
         env.drop_import_operations_table()
         env.control_store.close()
@@ -563,9 +575,8 @@ def test_control_db_missing_file_exit_4(tmp_path: Path) -> None:
     assert "Traceback" not in result.stderr
 
 
-@pytest.mark.integration
 def test_operation_not_found_dolt_unavailable_exit_5(tmp_path: Path) -> None:
-    env = AdminCliEnvironment.create(tmp_path)
+    env = AdminCliControlDbEnvironment.create(tmp_path)
     try:
         env.control_store.close()
         missing_dolt = tmp_path / "missing-dolt"
@@ -703,9 +714,8 @@ def test_unverified_private_candidate_missing_artifact_not_published_exit_6(
         env.close()
 
 
-@pytest.mark.integration
 def test_control_db_corrupt_operations_schema_exit_4(tmp_path: Path) -> None:
-    env = AdminCliEnvironment.create(tmp_path)
+    env = AdminCliControlDbEnvironment.create(tmp_path)
     try:
         env.corrupt_operations_schema()
         result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
@@ -715,9 +725,8 @@ def test_control_db_corrupt_operations_schema_exit_4(tmp_path: Path) -> None:
         env.close()
 
 
-@pytest.mark.integration
 def test_control_db_non_sqlite_file_exit_4(tmp_path: Path) -> None:
-    env = AdminCliEnvironment.create(tmp_path)
+    env = AdminCliControlDbEnvironment.create(tmp_path)
     try:
         env.write_non_sqlite_control_db()
         result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
@@ -727,11 +736,9 @@ def test_control_db_non_sqlite_file_exit_4(tmp_path: Path) -> None:
         env.close()
 
 
-@pytest.mark.integration
 def test_inspect_delete_journal_mode_exit_4_no_mutation(tmp_path: Path) -> None:
-    env = AdminCliEnvironment.create(tmp_path)
+    env = AdminCliControlDbEnvironment.create(tmp_path)
     try:
-        env.setup_manual_without_publish()
         env.set_journal_mode("DELETE")
         env.control_store.close()
         db_before = control_db_digest(env.settings.control_db_path)
@@ -739,6 +746,51 @@ def test_inspect_delete_journal_mode_exit_4_no_mutation(tmp_path: Path) -> None:
         assert result.returncode == 4
         assert "Traceback" not in result.stderr
         assert control_db_digest(env.settings.control_db_path) == db_before
+    finally:
+        env.close()
+
+
+def test_control_db_noop_trigger_exit_4(tmp_path: Path) -> None:
+    env = AdminCliControlDbEnvironment.create(tmp_path)
+    try:
+        env.replace_trigger_with_noop("prevent_succeeded_when_terminal")
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+    finally:
+        env.close()
+
+
+def test_control_db_corrupt_operations_column_types_exit_4(tmp_path: Path) -> None:
+    env = AdminCliControlDbEnvironment.create(tmp_path)
+    try:
+        env.corrupt_operations_column_types()
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+    finally:
+        env.close()
+
+
+def test_control_db_malformed_operation_row_exit_4(tmp_path: Path) -> None:
+    env = AdminCliControlDbEnvironment.create(tmp_path)
+    try:
+        env.insert_malformed_operation_row(DEFAULT_OPERATION_ID)
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+        assert "control database contains invalid operation data" in result.stderr
+    finally:
+        env.close()
+
+
+def test_malformed_layout_json_exit_4(tmp_path: Path) -> None:
+    env = AdminCliControlDbEnvironment.create(tmp_path)
+    try:
+        env.write_malformed_layout_marker()
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
     finally:
         env.close()
 

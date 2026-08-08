@@ -28,8 +28,10 @@ from gateway_repository_service.provider_lifecycle import (
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.models import (
+    ImportOperationExecutionContext,
     ManualCorrectionDecision,
     RecoveryAuditAction,
+    StoredImportOperation,
     is_manual_recovery_error,
     utc_now_iso,
 )
@@ -66,16 +68,37 @@ def _parse_decision(raw: str) -> ManualCorrectionDecision | None:
         return None
 
 
-def _resolve_admin_layout(settings: RepositoryServiceSettings) -> DurableLayout:
+def _bind_admin_layout(settings: RepositoryServiceSettings) -> DurableLayout:
     data_root = settings.data_root.expanduser().resolve()
     if not data_root.is_dir():
         raise ControlDbError("data root does not exist")
-    if not settings.control_db_path.is_file():
-        raise ControlDbError("control database does not exist")
     try:
         return DurableLayout.bind_existing(data_root)
     except LayoutError as exc:
         raise ControlDbError(str(exc)) from exc
+
+
+def _load_operation_context(
+    import_store: ImportOperationStore,
+    operation_id: UUID,
+) -> tuple[ImportOperationExecutionContext | None, int | None]:
+    try:
+        return import_store.load_execution_context(operation_id), None
+    except ValueError:
+        print("control database contains invalid operation data", file=sys.stderr)
+        return None, 4
+
+
+def _get_operation_or_exit(
+    import_store: ImportOperationStore,
+    repository_id: UUID,
+    operation_id: UUID,
+) -> tuple[StoredImportOperation | None, int | None]:
+    try:
+        return import_store.get_operation(repository_id, operation_id), None
+    except ValueError:
+        print("control database contains invalid operation data", file=sys.stderr)
+        return None, 4
 
 
 def _open_control_store(
@@ -113,13 +136,40 @@ def _control_db_exit_code(exc: Exception) -> int:
     raise exc
 
 
+def _load_manual_recovery_operation(
+    import_store: ImportOperationStore,
+    operation_id: UUID,
+) -> tuple[ImportOperationExecutionContext | None, StoredImportOperation | None, int]:
+    context, context_exit = _load_operation_context(import_store, operation_id)
+    if context_exit is not None:
+        return None, None, context_exit
+    if context is None:
+        print("operation does not exist", file=sys.stderr)
+        return None, None, 5
+    operation, operation_exit = _get_operation_or_exit(
+        import_store,
+        context.repository_id,
+        operation_id,
+    )
+    if operation_exit is not None:
+        return None, None, operation_exit
+    if (
+        operation is None
+        or operation.status != OperationStatus.FAILED
+        or not is_manual_recovery_error(operation.error)
+    ):
+        print("operation is not awaiting manual recovery", file=sys.stderr)
+        return None, None, 5
+    return context, operation, 0
+
+
 def _run_inspect(
     *,
     settings: RepositoryServiceSettings,
     operation_id: UUID,
 ) -> int:
     try:
-        layout = _resolve_admin_layout(settings)
+        layout = _bind_admin_layout(settings)
     except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
         return _control_db_exit_code(exc)
 
@@ -137,18 +187,14 @@ def _run_inspect(
         except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
             return _control_db_exit_code(exc)
 
-        context = import_store.load_execution_context(operation_id)
-        if context is None:
-            print("operation does not exist", file=sys.stderr)
-            return 5
-        operation = import_store.get_operation(context.repository_id, operation_id)
-        if (
-            operation is None
-            or operation.status != OperationStatus.FAILED
-            or not is_manual_recovery_error(operation.error)
-        ):
-            print("operation is not awaiting manual recovery", file=sys.stderr)
-            return 5
+        context, operation, gate_exit = _load_manual_recovery_operation(
+            import_store,
+            operation_id,
+        )
+        if gate_exit != 0:
+            return gate_exit
+        assert context is not None
+        assert operation is not None
 
         try:
             dolt_runner = _open_dolt_runner(settings, layout)
@@ -189,7 +235,7 @@ def _run_apply(
     decision: ManualCorrectionDecision,
 ) -> int:
     try:
-        layout = _resolve_admin_layout(settings)
+        layout = _bind_admin_layout(settings)
     except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
         return _control_db_exit_code(exc)
 
@@ -207,18 +253,14 @@ def _run_apply(
         except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
             return _control_db_exit_code(exc)
 
-        context = import_store.load_execution_context(operation_id)
-        if context is None:
-            print("operation does not exist", file=sys.stderr)
-            return 5
-        operation = import_store.get_operation(context.repository_id, operation_id)
-        if (
-            operation is None
-            or operation.status != OperationStatus.FAILED
-            or not is_manual_recovery_error(operation.error)
-        ):
-            print("operation is not awaiting manual recovery", file=sys.stderr)
-            return 5
+        context, operation, gate_exit = _load_manual_recovery_operation(
+            import_store,
+            operation_id,
+        )
+        if gate_exit != 0:
+            return gate_exit
+        assert context is not None
+        assert operation is not None
 
         try:
             dolt_runner = _open_dolt_runner(settings, layout)

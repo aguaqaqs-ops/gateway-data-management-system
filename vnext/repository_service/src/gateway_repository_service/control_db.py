@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import threading
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Self
 
@@ -12,87 +14,29 @@ from gateway_repository_service.mutation_store import configure_connection
 
 CONTROL_DB_USER_VERSION = 7
 
-_ADMIN_CLI_REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
-    "mutation_idempotency": frozenset(
-        {
-            "id",
-            "mutation_kind",
-            "repository_scope",
-            "key_hash",
-            "request_fingerprint",
-            "terminal_not_published",
-            "created_at",
-        }
+ColumnShape = tuple[tuple[str, str, int, str | None, int], ...]
+
+_ADMIN_CLI_REQUIRED_TABLES: frozenset[str] = frozenset(
+    {
+        "mutation_idempotency",
+        "synchronous_mutation_effects",
+        "artifact_lifecycle",
+        "repository_import_operations",
+        "repository_import_recovery_audit",
+    }
+)
+
+_ADMIN_CLI_REQUIRED_INDEXES: dict[str, tuple[str, ...]] = {
+    "repository_import_operations_claim_idx": (
+        "repository_scope",
+        "status",
+        "enqueue_sequence",
     ),
-    "synchronous_mutation_effects": frozenset(
-        {
-            "effect_id",
-            "idempotency_id",
-            "resource_id",
-            "status",
-            "response_status",
-            "response_body",
-            "updated_at",
-        }
-    ),
-    "artifact_lifecycle": frozenset(
-        {
-            "artifact_id",
-            "repository_scope",
-            "media_type",
-            "size_bytes",
-            "raw_sha256",
-            "created_at",
-            "updated_at",
-            "consumed_by_operation_id",
-            "consumed_at",
-            "bytes_deleted_at",
-        }
-    ),
-    "repository_import_operations": frozenset(
-        {
-            "operation_id",
-            "repository_scope",
-            "key_hash",
-            "request_fingerprint",
-            "artifact_id",
-            "artifact_media_type",
-            "artifact_size_bytes",
-            "artifact_raw_sha256",
-            "target_ref",
-            "expected_commit_id",
-            "requested_verification_policy",
-            "unknown_type_policy",
-            "status",
-            "private_ref_name",
-            "operation_marker",
-            "canonicalization_manifest_digest",
-            "automatic_replay_count",
-            "enqueue_sequence",
-            "result_json",
-            "error_json",
-            "created_at",
-            "started_at",
-            "updated_at",
-            "completed_at",
-        }
-    ),
-    "repository_import_recovery_audit": frozenset(
-        {
-            "audit_id",
-            "operation_id",
-            "action",
-            "prior_status",
-            "prior_code",
-            "final_status",
-            "final_code",
-            "evidence_summary_json",
-            "applied_at",
-        }
-    ),
+    "repository_import_operations_artifact_idx": ("artifact_id",),
+    "artifact_lifecycle_repository_scope_idx": ("repository_scope",),
 }
 
-_ADMIN_CLI_REQUIRED_TRIGGERS: frozenset[str] = frozenset(
+_ADMIN_CLI_REQUIRED_TRIGGER_NAMES: frozenset[str] = frozenset(
     {
         "prevent_succeeded_when_terminal",
         "prevent_terminal_when_succeeded",
@@ -374,6 +318,64 @@ class ControlDbNewerVersionError(ControlDbError):
     """Raised when on-disk user_version exceeds the supported version."""
 
 
+def _normalize_sql(sql: str) -> str:
+    return re.sub(r"\s+", " ", sql.strip()).upper()
+
+
+def _table_column_shape(connection: sqlite3.Connection, table_name: str) -> ColumnShape:
+    rows = connection.execute(f"PRAGMA table_xinfo({table_name})").fetchall()
+    visible_rows = [row for row in rows if int(row[6]) == 0]
+    return tuple(
+        (
+            str(row[1]),
+            str(row[2]),
+            int(row[3]),
+            None if row[4] is None else str(row[4]),
+            int(row[5]),
+        )
+        for row in sorted(visible_rows, key=lambda row: int(row[0]))
+    )
+
+
+def _index_column_names(connection: sqlite3.Connection, index_name: str) -> tuple[str, ...]:
+    rows = connection.execute(f"PRAGMA index_xinfo({index_name})").fetchall()
+    key_rows = [row for row in rows if int(row[5]) == 1]
+    return tuple(str(row[2]) for row in sorted(key_rows, key=lambda row: int(row[0])))
+
+
+@lru_cache(maxsize=1)
+def _admin_cli_reference_schema() -> tuple[
+    dict[str, ColumnShape],
+    dict[str, tuple[str, ...]],
+    dict[str, str],
+]:
+    connection = sqlite3.connect(":memory:")
+    configure_connection(connection)
+    connection.execute("PRAGMA foreign_keys = ON")
+    ControlStore._migrate(connection, expected_version=CONTROL_DB_USER_VERSION)
+    column_shapes = {
+        table_name: _table_column_shape(connection, table_name)
+        for table_name in sorted(_ADMIN_CLI_REQUIRED_TABLES)
+    }
+    index_columns = {
+        index_name: _index_column_names(connection, index_name)
+        for index_name in sorted(_ADMIN_CLI_REQUIRED_INDEXES)
+    }
+    trigger_sql: dict[str, str] = {}
+    for trigger_name in sorted(_ADMIN_CLI_REQUIRED_TRIGGER_NAMES):
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?",
+            (trigger_name,),
+        ).fetchone()
+        if row is None or row[0] is None:
+            raise ControlDbError(
+                f"reference control database schema is missing trigger {trigger_name}"
+            )
+        trigger_sql[trigger_name] = _normalize_sql(str(row[0]))
+    connection.close()
+    return column_shapes, index_columns, trigger_sql
+
+
 @dataclass
 class ControlStore:
     path: Path
@@ -484,36 +486,68 @@ class ControlStore:
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         ).fetchall()
         present_tables = {str(row[0]) for row in rows}
-        missing_tables = set(_ADMIN_CLI_REQUIRED_COLUMNS).difference(present_tables)
+        missing_tables = _ADMIN_CLI_REQUIRED_TABLES.difference(present_tables)
         if missing_tables:
             missing = ", ".join(sorted(missing_tables))
             raise ControlDbError(
                 f"control database schema is missing required tables: {missing}"
             )
-        for table_name, required_columns in _ADMIN_CLI_REQUIRED_COLUMNS.items():
-            columns = {
-                str(row[1])
-                for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
-            }
-            missing_columns = required_columns.difference(columns)
-            if missing_columns:
-                missing = ", ".join(sorted(missing_columns))
+
+        reference_columns, reference_indexes, reference_triggers = _admin_cli_reference_schema()
+        for table_name, expected_shape in reference_columns.items():
+            actual_shape = _table_column_shape(connection, table_name)
+            if actual_shape != expected_shape:
                 raise ControlDbError(
-                    f"control database schema is missing required columns on {table_name}: "
-                    f"{missing}"
+                    f"control database schema has invalid column shape on {table_name}"
                 )
+
+        for index_name, expected_columns in reference_indexes.items():
+            index_row = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+                (index_name,),
+            ).fetchone()
+            if index_row is None:
+                raise ControlDbError(
+                    f"control database schema is missing required index: {index_name}"
+                )
+            actual_columns = _index_column_names(connection, index_name)
+            if actual_columns != expected_columns:
+                raise ControlDbError(
+                    f"control database schema has invalid index columns on {index_name}"
+                )
+
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
         if journal_mode is None or str(journal_mode[0]).upper() != "WAL":
             raise ControlDbError("control database WAL mode is unavailable")
-        trigger_rows = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+
+        for trigger_name, expected_sql in reference_triggers.items():
+            row = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?",
+                (trigger_name,),
+            ).fetchone()
+            if row is None or row[0] is None:
+                raise ControlDbError(
+                    f"control database schema is missing required triggers: {trigger_name}"
+                )
+            actual_sql = _normalize_sql(str(row[0]))
+            if actual_sql != expected_sql:
+                raise ControlDbError(
+                    f"control database schema has invalid trigger body: {trigger_name}"
+                )
+
+        foreign_key_rows = connection.execute(
+            "PRAGMA foreign_key_list(synchronous_mutation_effects)"
         ).fetchall()
-        present_triggers = {str(row[0]) for row in trigger_rows}
-        missing_triggers = _ADMIN_CLI_REQUIRED_TRIGGERS.difference(present_triggers)
-        if missing_triggers:
-            missing = ", ".join(sorted(missing_triggers))
+        has_idempotency_fk = any(
+            str(row[2]) == "mutation_idempotency"
+            and str(row[3]) == "idempotency_id"
+            and str(row[4]) == "id"
+            for row in foreign_key_rows
+        )
+        if not has_idempotency_fk:
             raise ControlDbError(
-                f"control database schema is missing required triggers: {missing}"
+                "control database schema is missing required foreign key on "
+                "synchronous_mutation_effects.idempotency_id"
             )
 
     @staticmethod

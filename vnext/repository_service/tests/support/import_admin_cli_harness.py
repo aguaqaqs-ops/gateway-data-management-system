@@ -156,6 +156,234 @@ def assert_audit_row(
 
 
 @dataclass
+class AdminCliControlDbEnvironment:
+    settings: RepositoryServiceSettings
+    layout: DurableLayout
+    control_store: ControlStore
+    store: ImportOperationStore
+
+    @classmethod
+    def create(cls, tmp_path: Path) -> AdminCliControlDbEnvironment:
+        settings = lifecycle_settings(tmp_path)
+        layout = DurableLayout.create_service(settings.data_root)
+        control_store = ControlStore.open(
+            settings.control_db_path,
+            expected_version=CONTROL_DB_USER_VERSION,
+            busy_timeout_ms=1000,
+        )
+        store = ImportOperationStore(
+            control_store.connection,
+            transaction_lock=control_store.transaction_lock,
+        )
+        return cls(
+            settings=settings,
+            layout=layout,
+            control_store=control_store,
+            store=store,
+        )
+
+    def close(self) -> None:
+        if self.control_store.is_open():
+            self.control_store.close()
+
+    def run(
+        self,
+        *args: str,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        return run_admin_cli(self.settings.data_root, *args, env=env)
+
+    def downgrade_control_db_to_v6(self) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute("DROP TABLE IF EXISTS repository_import_recovery_audit")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_claim_idx")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_artifact_idx")
+            connection.execute("DROP TABLE IF EXISTS repository_import_operations")
+            connection.execute("PRAGMA user_version = 6")
+            connection.commit()
+        finally:
+            connection.close()
+
+    def drop_import_operations_table(self) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_claim_idx")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_artifact_idx")
+            connection.execute("DROP TABLE IF EXISTS repository_import_operations")
+            connection.commit()
+        finally:
+            connection.close()
+        self.control_store = ControlStore.open(
+            self.settings.control_db_path,
+            expected_version=CONTROL_DB_USER_VERSION,
+            busy_timeout_ms=1000,
+        )
+        self.store = ImportOperationStore(
+            self.control_store.connection,
+            transaction_lock=self.control_store.transaction_lock,
+        )
+
+    def set_journal_mode(self, mode: str) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute(f"PRAGMA journal_mode = {mode.upper()}")
+            connection.commit()
+        finally:
+            connection.close()
+
+    def write_non_sqlite_control_db(self) -> None:
+        self.control_store.close()
+        self.settings.control_db_path.write_bytes(b"not-a-database")
+
+    def corrupt_operations_schema(self) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute("DROP TABLE repository_import_operations")
+            connection.execute(
+                "CREATE TABLE repository_import_operations (wrong_id TEXT PRIMARY KEY)"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def corrupt_operations_column_types(self) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_claim_idx")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_artifact_idx")
+            connection.execute("DROP TABLE repository_import_operations")
+            connection.execute(
+                """
+                CREATE TABLE repository_import_operations (
+                    operation_id INTEGER PRIMARY KEY,
+                    repository_scope TEXT NOT NULL,
+                    key_hash BLOB NOT NULL,
+                    request_fingerprint BLOB NOT NULL,
+                    artifact_id TEXT NOT NULL,
+                    artifact_media_type TEXT NOT NULL,
+                    artifact_size_bytes INTEGER NOT NULL,
+                    artifact_raw_sha256 TEXT NOT NULL,
+                    target_ref TEXT NOT NULL,
+                    expected_commit_id TEXT NOT NULL,
+                    requested_verification_policy TEXT NOT NULL,
+                    unknown_type_policy TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    private_ref_name TEXT NOT NULL,
+                    operation_marker TEXT NOT NULL,
+                    canonicalization_manifest_digest TEXT NULL,
+                    automatic_replay_count INTEGER NOT NULL DEFAULT 0,
+                    enqueue_sequence INTEGER NOT NULL,
+                    result_json TEXT NULL,
+                    error_json TEXT NULL,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT NULL
+                )
+                """
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def insert_malformed_operation_row(self, operation_id: UUID) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute(
+                """
+                INSERT INTO repository_import_operations (
+                    operation_id,
+                    repository_scope,
+                    key_hash,
+                    request_fingerprint,
+                    artifact_id,
+                    artifact_media_type,
+                    artifact_size_bytes,
+                    artifact_raw_sha256,
+                    target_ref,
+                    expected_commit_id,
+                    requested_verification_policy,
+                    unknown_type_policy,
+                    status,
+                    private_ref_name,
+                    operation_marker,
+                    canonicalization_manifest_digest,
+                    automatic_replay_count,
+                    enqueue_sequence,
+                    result_json,
+                    error_json,
+                    created_at,
+                    started_at,
+                    updated_at,
+                    completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(operation_id),
+                    "not-a-valid-repository-scope",
+                    b"\x00" * 32,
+                    b"fingerprint",
+                    str(DEFAULT_ARTIFACT_ID),
+                    MEDIA_TYPE,
+                    1,
+                    "a" * 64,
+                    "main",
+                    "commit-1",
+                    "STRUCTURAL",
+                    "REJECT",
+                    "FAILED",
+                    "private-ref",
+                    "marker",
+                    None,
+                    0,
+                    1,
+                    None,
+                    '{"code":"MANUAL_RECOVERY_REQUIRED","message":"manual"}',
+                    "2026-08-06T00:00:00+00:00",
+                    None,
+                    "2026-08-06T00:00:00+00:00",
+                    None,
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def replace_trigger_with_noop(self, trigger_name: str) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+            connection.execute(
+                f"""
+                CREATE TRIGGER {trigger_name}
+                AFTER INSERT ON synchronous_mutation_effects
+                BEGIN
+                    SELECT 1;
+                END
+                """
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def write_malformed_layout_marker(self) -> None:
+        self.layout.layout_marker.write_text("{not-json", encoding="utf-8")
+
+    def remove_control_db(self) -> None:
+        self.control_store.close()
+        if self.settings.control_db_path.exists():
+            self.settings.control_db_path.unlink()
+
+
+@dataclass
 class AdminCliEnvironment:
     settings: RepositoryServiceSettings
     layout: DurableLayout

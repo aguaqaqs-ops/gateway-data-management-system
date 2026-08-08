@@ -1664,9 +1664,53 @@ first_failures_and_fixes:
 known_limitations:
   - S10 still owns real-Dolt/process-crash/Compose matrix
   - no P2-R5 public reads or public admin API
-stage_exit: pass
-next_stage_ready: yes
-next_stage: P2-R4-S10
+stage_exit: no-go
+next_stage_ready: no
+next_stage: P2-R4-S9 fourth-review remediation
+```
+
+#### S9 handoff amendment (fourth-review remediation)
+
+```yaml
+fourth_review_fix_commit_sha: 2a20e80
+worktree_clean: false
+uncommitted_paths:
+  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md  # S8 scope
+fourth_review_fix_paths:
+  - vnext/repository_service/src/gateway_repository_service/upload_artifact/admission_pin.py
+  - vnext/repository_service/src/gateway_repository_service/mutation_store.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/submission.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
+  - vnext/repository_service/tests/test_import_http.py
+fourth_review_fix_summary:
+  - finalize_new_admission + __exit__ st_nlink guard; abort_queued_import on artifact loss
+  - removed all filesystem checks from BEGIN IMMEDIATE path in admit_new_import
+  - MutationStoreInvariantError for malformed artifact_lifecycle decode -> 500 on preflight
+  - preflight explicit error taxonomy; _map_store_error no longer default-maps unknown to 503
+  - serial TOCTOU tests including post-finalize unlink; malformed lifecycle scope HTTP test
+test_markers_counts:
+  repository_contracts_pytest: 66 passed
+  repository_service_unit: 649 passed, 1 skipped
+  repository_service_parallel: 896 passed, 1 skipped
+  repository_service_serial: 34 passed
+validation_commands_results:
+  - "directed admission/finalize/lifecycle/preflight/sqlite tests -n 0 -> pass (12+)"
+  - "repository_service: ruff, mypy -> pass"
+  - "repository_service: pytest -m unit, pytest -m 'not serial', pytest -m serial -n 0 -> pass"
+  - "./vnext/scripts/run-tests.sh x3 -> pass"
+  - "git diff --check -> pass"
+first_failures_and_fixes:
+  - P2 in-tx assert_unchanged + post-check TOCTOU -> finalize outside tx + __exit__ nlink guard + abort_queued_import
+  - P2 malformed lifecycle preflight -> 503 -> MutationStoreInvariantError + explicit preflight mapping
+  - P2 TOCTOU test missing serial marker -> @pytest.mark.serial + post-finalize regression
+  - P2 handoff pass with dirty worktree -> third-review corrected to no-go; fourth stays no-go until clean
+known_limitations:
+  - cooperative cleanup excluded by admission pin flock; external durable-root tampering outside support surface
+  - S10 still owns real-Dolt/process-crash/Compose matrix
+  - no P2-R5 public reads or public admin API
+stage_exit: no-go
+next_stage_ready: no
+next_stage: P2-R4-S9 fourth-review remediation
 ```
 
 ## 14. S10 — Full fault matrix, real Dolt, Compose and handoff

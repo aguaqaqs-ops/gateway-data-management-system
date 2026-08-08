@@ -37,6 +37,8 @@ class RepositoryServiceSettings(BaseSettings):
     server_start_timeout_seconds: float = 30.0
     import_timeout_seconds: float = 60.0 * 60.0
     terminate_grace_seconds: float = 2.0
+    # Shorter than design §9's suggested 10s default for faster CI/serial shutdown tests;
+    # production deployments may raise this via settings.
     import_shutdown_grace_seconds: float = 2.0
     output_tail_bytes: int = 16 * 1024
     output_capture_bytes: int = 256 * 1024

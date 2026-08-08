@@ -48,8 +48,9 @@ class RepositoryLockRegistry:
 
     @contextmanager
     def repository_execution(self, repository_id: UUID) -> Iterator[None]:
-        lock = self._lock_for(repository_id)
-        lock.acquire()
+        with self._repository_locks_guard:
+            lock = self._lock_for_unlocked(repository_id)
+            lock.acquire()
         try:
             yield
         finally:
@@ -73,11 +74,10 @@ class RepositoryLockRegistry:
                 repository_id = evictable.pop()
                 self._repository_locks.pop(repository_id, None)
 
-    def _lock_for(self, repository_id: UUID) -> threading.Lock:
-        with self._repository_locks_guard:
-            existing = self._repository_locks.get(repository_id)
-            if existing is not None:
-                return existing
-            created = threading.Lock()
-            self._repository_locks[repository_id] = created
-            return created
+    def _lock_for_unlocked(self, repository_id: UUID) -> threading.Lock:
+        existing = self._repository_locks.get(repository_id)
+        if existing is not None:
+            return existing
+        created = threading.Lock()
+        self._repository_locks[repository_id] = created
+        return created

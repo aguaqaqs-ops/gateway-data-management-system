@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from gateway_repository_contracts import OperationStatus, SimpleError, VersionedImportResult
+from gateway_repository_contracts import OperationStatus, SimpleError, VerificationPolicy, VersionedImportResult
 
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
@@ -239,7 +239,12 @@ class ImportStartupReconciler:
             )
             return "unchanged"
 
+        if isinstance(inspection, MarkerInspectionAmbiguous):
+            self._mark_manual(context.operation_id, "operation marker evidence is ambiguous")
+            return "manual"
         if isinstance(inspection, MarkerInspectionZero):
+            if private_head != context.expected_commit_id:
+                return "unchanged"
             try:
                 provider.checkout_private_ref(context.private_ref_name)
                 private_head = provider.commit_operation_marker(
@@ -260,10 +265,6 @@ class ImportStartupReconciler:
                     exc_info=True,
                 )
                 return "unchanged"
-
-        if isinstance(inspection, MarkerInspectionAmbiguous):
-            self._mark_manual(context.operation_id, "operation marker evidence is ambiguous")
-            return "manual"
         if isinstance(inspection, MarkerInspectionZero):
             return "unchanged"
         if not isinstance(inspection, MarkerInspectionUnique):
@@ -301,7 +302,7 @@ class ImportStartupReconciler:
                 provider,
                 candidate=candidate,
                 manifest=package.manifest,
-                verification_policy=context.verification_policy,
+                verification_policy=VerificationPolicy.STRUCTURAL,
                 unknown_type_policy=context.unknown_type_policy,
             )
             main_after = provider.read_ref(context.target_ref)

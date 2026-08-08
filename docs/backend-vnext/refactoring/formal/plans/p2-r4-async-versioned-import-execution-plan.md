@@ -109,7 +109,7 @@ S10必须执行contracts和service两个package的全部四命令。
 | S4 | Candidate A private ref/evidence/CAS primitives | medium-high：provider/process/tests约5–9 files | `feat(repository): add Candidate A import ref primitives` |
 | S5 | verification与unknown-type matrix | medium-high：verification/Arrow/tests约5–8 files | `feat(repository): verify Versioned import candidates` |
 | S6 | worker claim、writer ownership和happy path | high：组合约8–12 files | `feat(repository): execute durable Versioned import workers` |
-| S7 | startup recovery、shutdown和artifact lifecycle | high：runtime/recovery约8–12 files | `feat(repository): reconcile interrupted Versioned imports` |
+| S7 | startup recovery、shutdown、worker composition和artifact lifecycle | high：runtime/recovery约10–14 files | `feat(repository): reconcile interrupted Versioned imports` |
 | S8 | stopped-service private admin CLI | medium：CLI/store/provider/tests约5–8 files | `feat(repository): add private import recovery CLI` |
 | S9 | Submit/GetOperation route、admission和OpenAPI | medium-high：HTTP/composition/tests约7–11 files | `feat(repository): activate import and operation routes` |
 | S10 | full fault matrix、Dolt、Compose和handoff | high但以tests/ops为主 | `test(repository): close Versioned import delivery gate` |
@@ -671,18 +671,38 @@ graceful cancellation/reap和consumed artifact readiness。本阶段仍不注册
 ### Allowed paths
 
 ```text
-vnext/repository_service/src/gateway_repository_service/versioned_import/recovery.py
-vnext/repository_service/src/gateway_repository_service/versioned_import/worker.py
+vnext/repository_service/src/gateway_repository_service/versioned_import/recovery.py   # 新文件
+vnext/repository_service/src/gateway_repository_service/versioned_import/worker.py     # 移除daemon=True、暴露cancellation/join
+vnext/repository_service/src/gateway_repository_service/versioned_import/locks.py      # barrier seeding API + 有界化（S6 defer项）
+vnext/repository_service/src/gateway_repository_service/versioned_import/store.py      # 仅additive：recovery所需查询helper
 vnext/repository_service/src/gateway_repository_service/versioned_import/provider.py
-vnext/repository_service/src/gateway_repository_service/runtime.py
+vnext/repository_service/src/gateway_repository_service/versioned_import/command.py      # scope amendment：interruption_check + S6不可达分支清理
+vnext/repository_service/src/gateway_repository_service/versioned_import/faults.py       # scope amendment：ImportRecoveryFaultPoint崩溃探针
+vnext/repository_service/src/gateway_repository_service/runtime.py                     # import worker/recovery composition
 vnext/repository_service/src/gateway_repository_service/process.py
 vnext/repository_service/src/gateway_repository_service/mutation_reconciliation.py
-vnext/repository_service/src/gateway_repository_service/settings.py
-vnext/repository_service/tests/test_import_recovery.py
-vnext/repository_service/tests/test_import_shutdown.py
-vnext/repository_service/tests/test_mutation_readiness.py
+vnext/repository_service/src/gateway_repository_service/settings.py                    # import_shutdown_grace_seconds
+vnext/repository_service/tests/test_import_recovery.py                                 # 新文件
+vnext/repository_service/tests/test_import_shutdown.py                                 # 新文件
+vnext/repository_service/tests/test_mutation_readiness.py                               # 既有文件，扩充
+vnext/repository_service/tests/test_import_worker.py                                    # daemon/join与barrier回归
+vnext/repository_service/tests/test_import_worker_integration.py                        # real Dolt并发/多仓库case
 vnext/repository_service/tests/support/                         # R4-specific process harness only
 ```
+
+**Scope amendments (post-implementation)**：`command.py` 与 `faults.py` 原不在 §11 白名单；
+实现阶段为 shutdown 中断屏障（维度 7）与 recovery 子进程 at-most-once 探针所必需，已在
+`4e6cdd8` 合入且不回退。`tests/test_import_runtime_concurrency.py` 已删除，nested-transaction
+断言迁入 `test_import_worker.py`。
+
+**S7 → S8 handoff**：S8 admin resolve 必须联动
+`RepositoryLockRegistry.clear_manual_barrier(repository_id)`（或改为仅以
+`store.has_unresolved_manual_barrier()` 为准）；否则 MANUAL 解除后本进程仍被内存 barrier 阻塞。
+
+`store.py`、`locks.py`只允许additive改动：可新增recovery查询与barrier seeding/eviction API，
+不得改变S2–S6已固定的claim/FIFO/terminal语义或既有方法签名。`command.py`、`errors.py`、
+`models.py`、`ports.py`本阶段不在范围内；若recovery确实需要改动其中任一文件，先作为scope
+question上报，不要自行放宽。
 
 ### Required behavior and gate
 
@@ -697,7 +717,47 @@ vnext/repository_service/tests/support/                         # R4-specific pr
 - shutdown stop intake/claim、grace、cancel child、join、DB close、root unlock；
 - interrupted active operation保持RUNNING；
 - consumed artifact readiness与R3 missing-artifact regression；
-- required crash tests使用新进程，不只mock exception。
+- required crash tests使用新进程，不只mock exception；
+- **production composition闭合S6 B1**：`ServiceRuntime`必须以
+  `ImportOperationStore(control_store.connection, transaction_lock=control_store.transaction_lock)`
+  构造store。S6只在harness/integration test里注入了共享lock，`src/`至今没有任何
+  `ImportOperationStore`构造点，因此production侧目前只有`MutationStore`受保护；S7是第一个
+  真正在production里同时跑dispatcher与`MutationStore`写入的阶段，必须有一个断言
+  "shared connection上不出现nested transaction"的测试；
+- **`worker.py` `start()`当前用`daemon=True`创建dispatcher与worker线程**（见
+  `versioned_import/worker.py`），与本阶段"不得使用daemon thread逃过join"直接冲突：S7必须
+  改为非daemon并让`stop()`的join成为真正的屏障（join超时后必须报告，不得静默丢弃线程）；
+- **新增settings**：`import_shutdown_grace_seconds`（float，正数）必需，用于shutdown grace；
+  若readiness/capacity真的消费`import_headroom_bytes`才一并新增，否则留给S9。新增字段必须
+  同步加入`settings.py`的`_bounds_must_be_positive`显式字段列表，否则不受校验；
+- **barrier重建需要`RepositoryLockRegistry`新API**：现有registry只有
+  `try_reserve/release_reservation/is_active/repository_execution`，没有任何"从durable
+  MANUAL rows播种barrier"的入口，也没有eviction（`_repository_locks`字典无界增长，S6 defer
+  到本阶段）。S7需同时补上seeding入口与有界化/清理；
+- **real provider gate扩面**：S6的real Dolt gate只覆盖单operation happy path。S7必须至少新增
+  一个`@pytest.mark.integration`的real Dolt case，覆盖"restart后recovery + 多仓库并发claim"，
+  不得再以fake provider结果代替real provider gate。
+
+### Carried-over non-blocking items from S6
+
+S6以pass收口，以下6项为非阻断遗留，S7顺带清理（不要求全部关闭，但需在handoff中逐项给出
+关闭或继续defer的结论）：
+
+- `errors.py`脱敏对单位数字（`duplicate key 7`、`column age: 9`）与字符串字面量row value
+  （`duplicate entry 'alice smith'`）仍有缺口。当前判定为不可达，依据是provider所有
+  `ImportProviderError`消息均为固定字面量，唯一外部文本通道是`provider.py`的
+  `ImportProviderError(str(exc))`且DoltRunner把它放在`stderr=`标签下已被整段替换。**S7若新增
+  任何provider error路径，必须重新验证这个假设。**
+- `command.py`两个mapper里`main_unchanged() and not has_marker_evidence()`分支在
+  `_has_private_ref_without_marker()`前置后已不可达（探针：0个可达组合），可删或加注释。
+- 测试名`test_failure_mapping_import_rejected_on_replay_failure`已过时（现在断言的是
+  `MANUAL_RECOVERY_REQUIRED`）。
+- `test_failure_mappers_agree_on_private_ref_evidence`只覆盖单个evidence组合，建议
+  parametrize到9组合矩阵。
+- `_STDERR_RE`按行尾整段替换，会连带吞掉`stderr=`之后的良性尾部键（`reason=`、
+  `stage_elapsed=`），损失可诊断性。
+- `tests/support/import_worker_harness.py`里`configure_connection(self.connection)`是冗余调用
+  （`ControlStore.open`内部已调用）。
 
 ### Code implementation prompt
 
@@ -705,8 +765,9 @@ vnext/repository_service/tests/support/                         # R4-specific pr
 请执行 P2-R4-S7 — Startup Reconciliation and Graceful Shutdown。不得注册public import或
 operation route；admin CLI属于S8。
 
-开始前核对S6 handoff。读取P2-R4详细设计§§14–16、External Effect and Recovery Contract
-§5，以及当前ServiceRuntime、DoltRunner、sync reconciler和R4 worker/store/provider。
+开始前核对S6 handoff（包含本节"Carried-over non-blocking items from S6"6项，handoff里逐项
+给出关闭或继续defer的结论）。读取P2-R4详细设计§§14–16、External Effect and Recovery Contract
+§5，以及当前ServiceRuntime、DoltRunner、sync reconciler和R4 worker/store/provider/locks。
 
 先建立真实restart/process-crash harness。实现startup：在root lock、DB migration、provider
 capability和R3 sync reconciliation后，先reconcile import，再启动worker，最后ready。
@@ -720,21 +781,36 @@ marker、parent/ref/artifact矛盾转MANUAL。
 repository已QUEUED operation保持QUEUED，其他repository继续执行。Barrier不能只依赖上个
 进程内存状态。
 
+在`ServiceRuntime`里组合import runtime：以
+`ImportOperationStore(control_store.connection, transaction_lock=control_store.transaction_lock)`
+构造store（`src/`当前没有任何构造点，production侧只有MutationStore受共享lock保护），并加一个
+断言"同一connection上dispatcher与MutationStore并发写不出现nested transaction"的测试。
+`RepositoryLockRegistry`需新增从durable MANUAL rows播种barrier的入口，并补上eviction/有界化
+（S6 defer项）。新增settings `import_shutdown_grace_seconds`（float，正数）并同步加入
+`settings.py`的`_bounds_must_be_positive`字段列表；`import_headroom_bytes`只在readiness/capacity
+真正消费时才加，否则留给S9。
+
 实现shutdown stopping flag、停止claim、configured grace、per-operation cancellation、Dolt
 process-group terminate/kill/wait/reap、worker join、DB close、root lock最后释放。Shutdown中断不
-写普通FAILED，保留RUNNING/evidence。不得使用daemon thread逃过join。
+写普通FAILED，保留RUNNING/evidence。不得使用daemon thread逃过join：`worker.py` `start()`当前
+以`daemon=True`创建dispatcher与worker线程，必须改为非daemon，且`stop()`的join成为真正屏障，
+join超时必须报告，不得静默丢弃线程。
 
 更新artifact readiness：无consuming success的missing upload仍阻塞；matching SUCCEEDED import
 后的missing bytes合法；QUEUED/RUNNING/MANUAL missing必须正确分类。Manual operation一旦已完整
 分类不应永久拖垮整个Service readiness。
 
-运行service完整四命令、required restart/crash tests、git diff --check。不得skip/xfail本阶段
+运行service完整四命令（第四条为`./vnext/scripts/run-tests.sh`）、required restart/crash tests、
+至少一个`@pytest.mark.integration`的real Dolt case（restart后recovery + 多仓库并发claim；S6的
+real provider gate只覆盖单operation happy path，不得再用fake provider顶替）、git diff --check。
+依赖时间预算的shutdown/grace与并发测试必须标`@pytest.mark.serial`。不得skip/xfail本阶段
 required cases。
 
 通过后提交：
 feat(repository): reconcile interrupted Versioned imports
 
-输出S7 handoff，next_stage=P2-R4-S8。
+输出S7 handoff，next_stage=P2-R4-S8，并对"Carried-over non-blocking items from S6"的6项逐项
+给出关闭或继续defer的结论。
 ```
 
 ## 12. S8 — Private recovery CLI and audit

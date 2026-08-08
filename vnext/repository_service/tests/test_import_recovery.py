@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from gateway_repository_contracts import OperationStatus, SimpleError, VersionedImportResult
+from gateway_repository_contracts import OperationStatus, SimpleError, VersionedImportResult, UnknownTypePolicy, VerificationPolicy
 from gateway_repository_service.versioned_import.models import MANUAL_RECOVERY_REQUIRED_CODE
 from gateway_repository_service.versioned_import.recovery import ImportStartupReconciler
 from gateway_repository_service.versioned_import.verification import IMPORT_REJECTED_CODE
@@ -95,6 +95,34 @@ def test_continue_verification_without_sql_replay(tmp_path: Path) -> None:
         assert operation.result.commit_id == candidate
         assert env.store.get_automatic_replay_count(operation_id) == 0
         assert provider.replay_order == []
+    finally:
+        env.close()
+
+
+def test_partial_replay_does_not_succeed_without_sql_replay(tmp_path: Path) -> None:
+    env = WorkerTestEnvironment(tmp_path)
+    try:
+        operation_id = env.enqueue(
+            REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            operation_id=OPERATION_ID,
+            verification_policy=VerificationPolicy.NONE,
+            unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+        )
+        _claim_running(env, operation_id)
+        provider = env.provider_for(REPOSITORY_ID)
+        context = env.store.load_execution_context(operation_id)
+        assert context is not None
+        provider.create_private_ref(context.private_ref_name, context.expected_commit_id)
+        provider.checkout_private_ref(context.private_ref_name)
+        provider.refs[context.private_ref_name] = f"partial-{context.expected_commit_id}"
+        assert context.operation_marker not in provider.markers
+        _reconciler(env).reconcile()
+        operation = env.store.get_operation(REPOSITORY_ID, operation_id)
+        assert operation is not None
+        assert not (
+            operation.status == OperationStatus.SUCCEEDED and provider.replay_order == []
+        )
     finally:
         env.close()
 

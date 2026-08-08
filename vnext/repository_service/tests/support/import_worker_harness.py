@@ -58,6 +58,7 @@ class FakeImportProvider:
         self.fail_on_checkout = False
         self.replay_order: list[str] = []
         self.ambiguous_markers: set[str] = set()
+        self.replay_writes_partial_state: bool = False
 
     def read_ref(self, ref_name: str) -> str:
         return self.refs[ref_name]
@@ -82,6 +83,10 @@ class FakeImportProvider:
         if self.fail_on_replay:
             raise RuntimeError("replay failed")
         self.replay_order.append(private_ref)
+        if self.replay_writes_partial_state:
+            parent = self.refs[private_ref]
+            self.refs[private_ref] = f"partial-{len(self.replay_order)}-{parent}"
+            return
         if self.replay_delay_seconds > 0:
             time.sleep(self.replay_delay_seconds)
 

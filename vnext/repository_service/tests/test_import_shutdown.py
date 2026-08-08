@@ -201,13 +201,99 @@ def test_runtime_shutdown_preserves_running_during_active_import(tmp_path: Path)
 @pytest.mark.serial
 @pytest.mark.integration
 def test_runtime_shutdown_closes_cleanly(tmp_path: Path) -> None:
+    from gateway_repository_service.locking import DurableRootLock
+
     settings = WorkerTestEnvironment(tmp_path).settings.model_copy(
         update={"import_shutdown_grace_seconds": 0.5}
     )
     runtime = ServiceRuntime.start(settings)
+    lock_path = runtime.layout.service_lock
     try:
         assert runtime.is_ready()
         assert runtime.is_accepting_import_effects()
     finally:
         runtime.shutdown()
     assert not runtime.control_store.is_open()
+    assert not runtime.root_lock.is_held()
+    with DurableRootLock(lock_path):
+        pass
+
+
+@pytest.mark.serial
+def test_runtime_shutdown_releases_root_lock_when_worker_hangs(tmp_path: Path) -> None:
+    import time
+
+    from gateway_repository_contracts import RepositoryArtifactRef, UnknownTypePolicy, VerificationPolicy
+    from gateway_repository_service.locking import DurableRootLock
+    from gateway_repository_service.mutation_store import IdempotencyKeyHash
+    from gateway_repository_service.runtime import ServiceRuntime
+    from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
+    from gateway_repository_service.versioned_import import ImportRequestBinding, versioned_import_fingerprint_v1
+    from support.import_worker_harness import FakeImportProvider, MEDIA_TYPE
+    from support.lifecycle_harness import lifecycle_settings
+    from test_import_package import build_package_bytes, write_artifact
+
+    settings = lifecycle_settings(tmp_path).model_copy(
+        update={"import_shutdown_grace_seconds": 0.05, "max_import_workers": 1}
+    )
+    runtime = ServiceRuntime.start(settings)
+    lock_path = runtime.layout.service_lock
+    provider = FakeImportProvider()
+    blocker = threading.Event()
+
+    def _hanging_replay(
+        _private_ref: str,
+        _replay_path: Path,
+        cancellation: CancellationCallback | None = None,
+    ) -> None:
+        del cancellation
+        blocker.wait(timeout=5.0)
+
+    provider.replay_sql = _hanging_replay  # type: ignore[assignment]
+    runtime.import_worker_pool._provider_factory = lambda _rid: provider
+
+    ready_path = artifact_ready_path(runtime.layout, REPOSITORY_ID, ARTIFACT_ID)
+    ready_path.parent.mkdir(parents=True, exist_ok=True)
+    size_bytes, raw_sha256 = write_artifact(ready_path, build_package_bytes())
+    now = "2026-08-06T00:00:00+00:00"
+    with runtime.import_store._lock:
+        runtime.import_store.mutation_store._connection.execute(
+            """
+            INSERT INTO artifact_lifecycle (
+                artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (str(ARTIFACT_ID), REPOSITORY_ID.hex, MEDIA_TYPE, size_bytes, raw_sha256, now, now),
+        )
+        runtime.import_store.mutation_store._connection.commit()
+
+    binding = ImportRequestBinding(
+        repository_id=REPOSITORY_ID,
+        artifact_ref=RepositoryArtifactRef(
+            artifact_id=ARTIFACT_ID,
+            media_type=MEDIA_TYPE,
+            size_bytes=size_bytes,
+            raw_sha256=raw_sha256,
+        ),
+        target_ref="main",
+        expected_commit_id=provider.read_ref("main"),
+        verification_policy=VerificationPolicy.STRUCTURAL,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+    key_hash = IdempotencyKeyHash.from_raw_key("shutdown-hang")
+    fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+    runtime.import_store.claim_or_enqueue(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+    )
+    runtime.import_worker_pool.notify()
+    time.sleep(0.2)
+    try:
+        runtime.shutdown()
+        assert not runtime.control_store.is_open()
+        assert not runtime.root_lock.is_held()
+        with DurableRootLock(lock_path):
+            pass
+    finally:
+        blocker.set()

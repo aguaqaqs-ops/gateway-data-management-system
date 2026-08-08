@@ -169,19 +169,24 @@ class ServiceRuntime:
         self._stopping.set()
         self.import_worker_pool.begin_shutdown()
         grace = self.settings.import_shutdown_grace_seconds
-        if not self.import_worker_pool.wait_for_quiescence(timeout=grace):
-            self.import_worker_pool.cancel_active_operations()
-            self.dolt_runner.terminate_active_children(grace_seconds=grace)
         try:
-            self.import_worker_pool.stop(timeout=grace * 2)
-        except Exception:
-            _LOGGER.exception("import worker pool did not stop cleanly")
-            self.dolt_runner.terminate_active_children(grace_seconds=grace)
-            self.import_worker_pool.stop(timeout=grace)
-        if self.control_store.is_open():
-            self.control_store.close()
-        if self.root_lock.is_held():
-            self.root_lock.release()
+            if not self.import_worker_pool.wait_for_quiescence(timeout=grace):
+                self.import_worker_pool.cancel_active_operations()
+                self.dolt_runner.terminate_active_children(grace_seconds=grace)
+            try:
+                self.import_worker_pool.stop(timeout=grace * 2)
+            except Exception:
+                _LOGGER.exception("import worker pool did not stop cleanly")
+                self.dolt_runner.terminate_active_children(grace_seconds=grace)
+                try:
+                    self.import_worker_pool.stop(timeout=grace)
+                except Exception:
+                    _LOGGER.exception("import worker pool still running after second stop")
+        finally:
+            if self.control_store.is_open():
+                self.control_store.close()
+            if self.root_lock.is_held():
+                self.root_lock.release()
 
     def is_accepting_import_effects(self) -> bool:
         return not self._stopping.is_set()

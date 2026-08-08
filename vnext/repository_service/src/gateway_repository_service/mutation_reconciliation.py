@@ -150,7 +150,7 @@ def import_artifact_watch_failures(
 
     for repository_id, artifact_id in import_store.list_protected_artifact_pins():
         operation_refs = import_store.list_artifact_references(artifact_id)
-        if all(
+        if operation_refs and all(
             reference.status == OperationStatus.FAILED
             and reference.is_protected
             for reference in operation_refs

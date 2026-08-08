@@ -8,6 +8,7 @@ import shutil
 import threading
 import time
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 from uuid import UUID
 
@@ -259,6 +260,7 @@ class ImportWorkerPool:
             finally:
                 self._work_queue.task_done()
 
+    @contextmanager
     def _cancellation_for(self, operation_id: UUID) -> Iterator[threading.Event]:
         event = threading.Event()
         with self._cancellation_lock:
@@ -293,7 +295,7 @@ class ImportWorkerPool:
                 return
 
             with self._locks.repository_execution(repository_id):
-                for cancellation_event in self._cancellation_for(operation_id):
+                with self._cancellation_for(operation_id) as cancellation_event:
                     if self._is_shutting_down():
                         return
 

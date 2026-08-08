@@ -766,3 +766,49 @@ def test_dispatcher_and_mutation_store_do_not_nested_transaction(tmp_path: Path)
         thread.join()
     env.close()
     assert errors == []
+
+
+@pytest.mark.serial
+def test_repository_lock_eviction_preserves_mutual_exclusion() -> None:
+    from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
+
+    registry = RepositoryLockRegistry(max_repository_lock_entries=2)
+    repository_ids = (
+        UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"),
+        UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c12"),
+        UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c13"),
+    )
+    for repository_id in repository_ids:
+        assert registry.try_reserve(repository_id)
+        with registry.repository_execution(repository_id):
+            pass
+        registry.release_reservation(repository_id)
+
+    target = repository_ids[0]
+    counter = 0
+    max_concurrent = 0
+    counter_lock = threading.Lock()
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        nonlocal counter, max_concurrent
+        try:
+            barrier.wait()
+            with registry.repository_execution(target):
+                with counter_lock:
+                    counter += 1
+                    max_concurrent = max(max_concurrent, counter)
+                time.sleep(0.05)
+                with counter_lock:
+                    counter -= 1
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker), threading.Thread(target=worker)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    assert max_concurrent == 1

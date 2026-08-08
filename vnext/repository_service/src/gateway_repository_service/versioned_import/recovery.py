@@ -268,23 +268,20 @@ def evidence_supports_not_published_decision(evidence: ImportRecoveryEvidence) -
         and evidence.main_commit_id == evidence.candidate_commit_id
     ):
         return False
+    if evidence.main_commit_id != evidence.expected_commit_id:
+        return False
     if (
         evidence.marker_inspection == "unique"
         and evidence.candidate_commit_id is not None
         and evidence.marker_parent_commit_id == evidence.expected_commit_id
         and evidence.main_commit_id == evidence.expected_commit_id
         and evidence.main_commit_id != evidence.candidate_commit_id
+        and evidence.private_ref_present
     ):
         return True
-    if evidence.main_commit_id != evidence.expected_commit_id:
-        if (
-            evidence.marker_inspection == "unique"
-            and evidence.candidate_commit_id is not None
-            and evidence.main_commit_id == evidence.candidate_commit_id
-        ):
-            return False
+    if evidence.main_commit_id == evidence.expected_commit_id and evidence.artifact_valid:
         return True
-    return evidence.main_commit_id == evidence.expected_commit_id
+    return False
 
 
 def resolve_not_published_error(evidence: ImportRecoveryEvidence) -> SimpleError | None:
@@ -296,18 +293,12 @@ def resolve_not_published_error(evidence: ImportRecoveryEvidence) -> SimpleError
         and evidence.marker_parent_commit_id == evidence.expected_commit_id
         and evidence.main_commit_id == evidence.expected_commit_id
         and evidence.main_commit_id != evidence.candidate_commit_id
+        and evidence.private_ref_present
     ):
         return SimpleError(
             code="VERIFICATION_FAILED_NOT_PUBLISHED",
             message="import candidate was not published to main",
             details={"reason": "verification_failed_not_published"},
-            request_id=None,
-        )
-    if evidence.main_commit_id != evidence.expected_commit_id:
-        return SimpleError(
-            code="EXPECTED_COMMIT_MISMATCH",
-            message="main no longer matches expected commit",
-            details={"reason": "expected_commit_mismatch"},
             request_id=None,
         )
     return SimpleError(
@@ -328,6 +319,7 @@ def build_evidence_summary(
     prior_code: str | None = None,
     final_status: str | None = None,
     final_code: str | None = None,
+    stable_code: str | None = None,
     applied_at: str | None = None,
 ) -> dict[str, Any]:
     summary: dict[str, Any] = {
@@ -350,7 +342,9 @@ def build_evidence_summary(
         "artifact_bytes_present": evidence.artifact_bytes_present,
         "private_ref_present": evidence.private_ref_present,
     }
-    if operation.error is not None:
+    if stable_code is not None:
+        summary["stable_code"] = stable_code
+    elif operation.error is not None:
         summary["stable_code"] = operation.error.code
     if decision is not None:
         summary["decision"] = decision.value

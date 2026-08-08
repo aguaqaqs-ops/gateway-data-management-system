@@ -12,6 +12,16 @@ from gateway_repository_service.mutation_store import configure_connection
 
 CONTROL_DB_USER_VERSION = 7
 
+_ADMIN_CLI_REQUIRED_TABLES: frozenset[str] = frozenset(
+    {
+        "mutation_idempotency",
+        "synchronous_mutation_effects",
+        "artifact_lifecycle",
+        "repository_import_operations",
+        "repository_import_recovery_audit",
+    }
+)
+
 _MIGRATION_V2_STATEMENTS: tuple[str, ...] = (
     """
     CREATE TABLE mutation_idempotency (
@@ -293,14 +303,43 @@ class ControlStore:
     transaction_lock: threading.Lock = field(default_factory=threading.Lock)
 
     @classmethod
+    def preflight_exact_version(cls, path: Path, *, expected_version: int) -> None:
+        if not path.is_file():
+            raise ControlDbError("control database does not exist")
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if user_version > expected_version:
+                raise ControlDbNewerVersionError(
+                    f"control database user_version {user_version} is newer than "
+                    f"supported {expected_version}"
+                )
+            if user_version < expected_version:
+                raise ControlDbError(
+                    f"control database user_version {user_version} is older than "
+                    f"supported {expected_version}"
+                )
+            if user_version != expected_version:
+                raise ControlDbError(
+                    f"control database user_version {user_version} is unsupported"
+                )
+            cls._verify_admin_schema(connection)
+        finally:
+            connection.close()
+
+    @classmethod
     def open(
         cls,
         path: Path,
         *,
         expected_version: int,
         busy_timeout_ms: int,
+        allow_migration: bool = True,
     ) -> Self:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if allow_migration:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        elif not path.is_file():
+            raise ControlDbError("control database does not exist")
         connection = sqlite3.connect(
             path,
             timeout=busy_timeout_ms / 1000.0,
@@ -311,13 +350,39 @@ class ControlStore:
             connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
             connection.execute("PRAGMA foreign_keys = ON")
             cls._ensure_wal_mode(connection)
-            user_version = cls._migrate(connection, expected_version=expected_version)
+            if allow_migration:
+                user_version = cls._migrate(connection, expected_version=expected_version)
+            else:
+                user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+                if user_version > expected_version:
+                    raise ControlDbNewerVersionError(
+                        f"control database user_version {user_version} is newer than "
+                        f"supported {expected_version}"
+                    )
+                if user_version != expected_version:
+                    raise ControlDbError(
+                        f"control database user_version {user_version} is unsupported"
+                    )
+                cls._verify_admin_schema(connection)
             cls._verify_synchronous_full(connection)
             cls._verify_foreign_keys(connection)
             return cls(path=path, connection=connection, user_version=user_version)
         except Exception:
             connection.close()
             raise
+
+    @staticmethod
+    def _verify_admin_schema(connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+        present = {str(row[0]) for row in rows}
+        missing = _ADMIN_CLI_REQUIRED_TABLES.difference(present)
+        if missing:
+            missing_tables = ", ".join(sorted(missing))
+            raise ControlDbError(
+                f"control database schema is missing required tables: {missing_tables}"
+            )
 
     @staticmethod
     def _ensure_wal_mode(connection: sqlite3.Connection) -> None:

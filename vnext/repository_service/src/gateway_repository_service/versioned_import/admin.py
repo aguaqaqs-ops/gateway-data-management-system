@@ -20,7 +20,10 @@ from gateway_repository_service.control_db import (
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
 from gateway_repository_service.process import DoltRunner
-from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate
+from gateway_repository_service.provider_lifecycle import (
+    OfflineCliCapabilityGate,
+    ProviderUnavailableError,
+)
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.models import (
@@ -62,22 +65,39 @@ def _parse_decision(raw: str) -> ManualCorrectionDecision | None:
         return None
 
 
-def _open_import_store(
+def _open_control_store(
     settings: RepositoryServiceSettings,
-    layout: DurableLayout,
-) -> tuple[ControlStore, ImportOperationStore, DoltRunner]:
+) -> tuple[ControlStore, ImportOperationStore]:
+    ControlStore.preflight_exact_version(
+        settings.control_db_path,
+        expected_version=CONTROL_DB_USER_VERSION,
+    )
     control_store = ControlStore.open(
         settings.control_db_path,
         expected_version=CONTROL_DB_USER_VERSION,
         busy_timeout_ms=settings.sqlite_busy_timeout_ms,
+        allow_migration=False,
     )
     import_store = ImportOperationStore(
         control_store.connection,
         transaction_lock=control_store.transaction_lock,
     )
+    return control_store, import_store
+
+
+def _open_dolt_runner(
+    settings: RepositoryServiceSettings,
+    layout: DurableLayout,
+) -> DoltRunner:
     OfflineCliCapabilityGate.verify(settings, layout)
-    dolt_runner = DoltRunner(settings, layout.root)
-    return control_store, import_store, dolt_runner
+    return DoltRunner(settings, layout.root)
+
+
+def _control_db_exit_code(exc: Exception) -> int:
+    if isinstance(exc, (ControlDbNewerVersionError, ControlDbError)):
+        print(str(exc), file=sys.stderr)
+        return 4
+    raise exc
 
 
 def _run_inspect(
@@ -96,13 +116,9 @@ def _run_inspect(
             return 3
 
         try:
-            control_store, import_store, dolt_runner = _open_import_store(settings, layout)
-        except ControlDbNewerVersionError as exc:
-            print(str(exc), file=sys.stderr)
-            return 4
-        except ControlDbError as exc:
-            print(str(exc), file=sys.stderr)
-            return 4
+            control_store, import_store = _open_control_store(settings)
+        except (ControlDbNewerVersionError, ControlDbError) as exc:
+            return _control_db_exit_code(exc)
 
         context = import_store.load_execution_context(operation_id)
         if context is None:
@@ -116,6 +132,12 @@ def _run_inspect(
         ):
             print("operation is not awaiting manual recovery", file=sys.stderr)
             return 5
+
+        try:
+            dolt_runner = _open_dolt_runner(settings, layout)
+        except ProviderUnavailableError as exc:
+            print(str(exc), file=sys.stderr)
+            return 6
 
         provider_factory = ServiceRuntime._build_provider_factory(
             settings=settings,
@@ -160,13 +182,9 @@ def _run_apply(
             return 3
 
         try:
-            control_store, import_store, dolt_runner = _open_import_store(settings, layout)
-        except ControlDbNewerVersionError as exc:
-            print(str(exc), file=sys.stderr)
-            return 4
-        except ControlDbError as exc:
-            print(str(exc), file=sys.stderr)
-            return 4
+            control_store, import_store = _open_control_store(settings)
+        except (ControlDbNewerVersionError, ControlDbError) as exc:
+            return _control_db_exit_code(exc)
 
         context = import_store.load_execution_context(operation_id)
         if context is None:
@@ -180,6 +198,12 @@ def _run_apply(
         ):
             print("operation is not awaiting manual recovery", file=sys.stderr)
             return 5
+
+        try:
+            dolt_runner = _open_dolt_runner(settings, layout)
+        except ProviderUnavailableError as exc:
+            print(str(exc), file=sys.stderr)
+            return 6
 
         provider_factory = ServiceRuntime._build_provider_factory(
             settings=settings,
@@ -210,17 +234,22 @@ def _run_apply(
             if final_result is None:
                 print("unable to rebuild VersionedImportResult from evidence", file=sys.stderr)
                 return 6
+            final_status = OperationStatus.SUCCEEDED.value
+            final_code = None
+            action = RecoveryAuditAction.INSPECT_APPLY_SUCCESS
             evidence_summary = build_evidence_summary(
                 evidence,
                 operation=operation,
                 decision=decision,
-                action=RecoveryAuditAction.INSPECT_APPLY_SUCCESS,
+                action=action,
                 prior_status=prior_status,
                 prior_code=prior_code,
-                final_status=OperationStatus.SUCCEEDED.value,
+                final_status=final_status,
+                final_code=final_code,
+                stable_code=final_code,
                 applied_at=applied_at,
             )
-            corrected = import_store.apply_manual_correction(
+            import_store.apply_manual_correction(
                 operation_id,
                 decision=decision,
                 evidence_summary=evidence_summary,
@@ -233,9 +262,6 @@ def _run_apply(
                 provider=provider,
                 candidate=final_result.commit_id,
             )
-            final_status = corrected.status.value
-            final_code = None
-            action = RecoveryAuditAction.INSPECT_APPLY_SUCCESS
         else:
             if not evidence_supports_not_published_decision(evidence):
                 print("evidence does not support NOT_PUBLISHED correction", file=sys.stderr)
@@ -244,18 +270,22 @@ def _run_apply(
             if final_error is None:
                 print("unable to resolve NOT_PUBLISHED terminal error from evidence", file=sys.stderr)
                 return 6
+            final_status = OperationStatus.FAILED.value
+            final_code = final_error.code
+            action = RecoveryAuditAction.INSPECT_APPLY_NOT_PUBLISHED
             evidence_summary = build_evidence_summary(
                 evidence,
                 operation=operation,
                 decision=decision,
-                action=RecoveryAuditAction.INSPECT_APPLY_NOT_PUBLISHED,
+                action=action,
                 prior_status=prior_status,
                 prior_code=prior_code,
-                final_status=OperationStatus.FAILED.value,
-                final_code=final_error.code,
+                final_status=final_status,
+                final_code=final_code,
+                stable_code=final_code,
                 applied_at=applied_at,
             )
-            corrected = import_store.apply_manual_correction(
+            import_store.apply_manual_correction(
                 operation_id,
                 decision=decision,
                 evidence_summary=evidence_summary,
@@ -266,23 +296,9 @@ def _run_apply(
                 context=context,
                 provider=provider,
             )
-            final_status = corrected.status.value
-            final_code = final_error.code
-            action = RecoveryAuditAction.INSPECT_APPLY_NOT_PUBLISHED
 
-        summary = build_evidence_summary(
-            evidence,
-            operation=corrected,
-            decision=decision,
-            action=action,
-            prior_status=prior_status,
-            prior_code=prior_code,
-            final_status=final_status,
-            final_code=final_code,
-            applied_at=applied_at,
-        )
-        _LOGGER.info("admin apply audit identity %s", json.dumps(summary, sort_keys=True))
-        _print_json_summary(summary)
+        _LOGGER.info("admin apply audit identity %s", json.dumps(evidence_summary, sort_keys=True))
+        _print_json_summary(evidence_summary)
         return 0
     finally:
         if control_store is not None:

@@ -77,6 +77,7 @@ def run_admin_cli(
         capture_output=True,
         text=True,
         env=merged_env,
+        timeout=120,
     )
 
 
@@ -197,10 +198,15 @@ class AdminCliEnvironment:
         )
 
     def close(self) -> None:
-        self.control_store.close()
+        if self.control_store.is_open():
+            self.control_store.close()
 
-    def run(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return run_admin_cli(self.settings.data_root, *args)
+    def run(
+        self,
+        *args: str,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        return run_admin_cli(self.settings.data_root, *args, env=env)
 
     def seed_artifact_lifecycle(
         self,
@@ -379,6 +385,60 @@ class AdminCliEnvironment:
     ) -> None:
         self.enqueue_operation(operation_id=operation_id, artifact_id=artifact_id)
         self.mark_manual(operation_id)
+
+    def setup_published_then_main_advanced(
+        self,
+        *,
+        operation_id: UUID = DEFAULT_OPERATION_ID,
+        artifact_id: UUID = DEFAULT_ARTIFACT_ID,
+    ) -> str:
+        candidate = self.setup_manual_with_published_evidence(
+            operation_id=operation_id,
+            artifact_id=artifact_id,
+        )
+        other_operation = UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c11")
+        other_ref = derive_private_ref_name(other_operation)
+        other_marker = derive_operation_marker(other_operation)
+        self.provider.create_private_ref(other_ref, candidate)
+        self.provider.checkout_private_ref(other_ref)
+        new_head = self.provider.commit_operation_marker(other_ref, other_marker)
+        self.provider.publish_main(candidate, new_head)
+        assert self.provider.read_ref("main") == new_head
+        assert new_head != candidate
+        return new_head
+
+    def downgrade_control_db_to_v6(self) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute("DROP TABLE IF EXISTS repository_import_recovery_audit")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_claim_idx")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_artifact_idx")
+            connection.execute("DROP TABLE IF EXISTS repository_import_operations")
+            connection.execute("PRAGMA user_version = 6")
+            connection.commit()
+        finally:
+            connection.close()
+
+    def drop_import_operations_table(self) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_claim_idx")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_artifact_idx")
+            connection.execute("DROP TABLE IF EXISTS repository_import_operations")
+            connection.commit()
+        finally:
+            connection.close()
+        self.control_store = ControlStore.open(
+            self.settings.control_db_path,
+            expected_version=CONTROL_DB_USER_VERSION,
+            busy_timeout_ms=1000,
+        )
+        self.store = ImportOperationStore(
+            self.control_store.connection,
+            transaction_lock=self.control_store.transaction_lock,
+        )
 
     def bump_control_db_version(self, version: int) -> None:
         self.control_store.close()

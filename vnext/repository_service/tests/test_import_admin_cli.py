@@ -38,6 +38,7 @@ from gateway_repository_service.versioned_import.worker import ImportWorkerPool
 from support.import_admin_cli_harness import (
     DEFAULT_ARTIFACT_ID,
     DEFAULT_OPERATION_ID,
+    DEFAULT_REPOSITORY_ID,
     AdminCliEnvironment,
     assert_audit_row,
     control_db_digest,
@@ -69,6 +70,7 @@ def test_invalid_decision_exit_2(tmp_path: Path) -> None:
     assert result.returncode == 2
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_root_lock_busy_exit_3(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
@@ -82,6 +84,7 @@ def test_root_lock_busy_exit_3(tmp_path: Path) -> None:
         env.close()
 
 
+@pytest.mark.integration
 def test_control_db_newer_exit_4(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
     try:
@@ -98,6 +101,7 @@ def test_control_db_newer_exit_4(tmp_path: Path) -> None:
         env.close()
 
 
+@pytest.mark.integration
 def test_operation_not_found_exit_5(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
     try:
@@ -107,6 +111,7 @@ def test_operation_not_found_exit_5(tmp_path: Path) -> None:
         env.close()
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("status_name", ["queued", "running", "succeeded", "ordinary_failed"])
 def test_non_manual_operation_exit_5(tmp_path: Path, status_name: str) -> None:
     env = AdminCliEnvironment.create(tmp_path)
@@ -147,6 +152,7 @@ def test_non_manual_operation_exit_5(tmp_path: Path, status_name: str) -> None:
         env.close()
 
 
+@pytest.mark.integration
 def test_inspect_zero_mutation(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
     try:
@@ -169,6 +175,7 @@ def test_inspect_zero_mutation(tmp_path: Path) -> None:
         env.close()
 
 
+@pytest.mark.integration
 def test_apply_not_published_writes_audit(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
     try:
@@ -202,10 +209,14 @@ def test_apply_not_published_writes_audit(tmp_path: Path) -> None:
             final_status=OperationStatus.FAILED.value,
             final_code="IMPORT_REJECTED",
         )
+        audit = load_audit_row(env.settings.control_db_path, DEFAULT_OPERATION_ID)
+        assert audit["evidence_summary"] == summary
+        assert summary["stable_code"] == "IMPORT_REJECTED"
     finally:
         env.close()
 
 
+@pytest.mark.integration
 def test_audit_persistence_reopen_control_db(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
     try:
@@ -265,10 +276,13 @@ def test_apply_succeeded_real_dolt_evidence(tmp_path: Path) -> None:
             final_status=OperationStatus.SUCCEEDED.value,
             final_code=None,
         )
+        audit = load_audit_row(env.settings.control_db_path, DEFAULT_OPERATION_ID)
+        assert audit["evidence_summary"] == summary
     finally:
         env.close()
 
 
+@pytest.mark.integration
 def test_stale_evidence_apply_succeeded_exit_6(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
     try:
@@ -296,6 +310,7 @@ def test_stale_evidence_apply_succeeded_exit_6(tmp_path: Path) -> None:
         env.close()
 
 
+@pytest.mark.integration
 def test_ambiguous_marker_exit_6(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
     try:
@@ -362,6 +377,7 @@ def test_ambiguous_marker_exit_6(tmp_path: Path) -> None:
         env.close()
 
 
+@pytest.mark.integration
 def test_missing_artifact_exit_6(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
     try:
@@ -383,6 +399,7 @@ def test_missing_artifact_exit_6(tmp_path: Path) -> None:
         env.close()
 
 
+@pytest.mark.integration
 def test_invalid_artifact_exit_6(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
     try:
@@ -402,6 +419,7 @@ def test_invalid_artifact_exit_6(tmp_path: Path) -> None:
         env.close()
 
 
+@pytest.mark.integration
 def test_duplicate_apply_exit_5_without_second_audit(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
     try:
@@ -429,6 +447,7 @@ def test_duplicate_apply_exit_5_without_second_audit(tmp_path: Path) -> None:
         env.close()
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_manual_barrier_cleared_after_apply_allows_dispatch(tmp_path: Path) -> None:
     env = AdminCliEnvironment.create(tmp_path)
@@ -495,5 +514,144 @@ def test_manual_barrier_cleared_after_apply_allows_dispatch(tmp_path: Path) -> N
             assert updated.status == OperationStatus.SUCCEEDED, updated
         finally:
             pool.stop()
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
+def test_control_db_v6_exit_4_no_migration(tmp_path: Path) -> None:
+    env = AdminCliEnvironment.create(tmp_path)
+    try:
+        env.downgrade_control_db_to_v6()
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+        connection = sqlite3.connect(env.settings.control_db_path)
+        try:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            tables = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+        finally:
+            connection.close()
+        assert version == 6
+        assert "repository_import_recovery_audit" not in tables
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
+def test_control_db_missing_operations_table_exit_4(tmp_path: Path) -> None:
+    env = AdminCliEnvironment.create(tmp_path)
+    try:
+        env.drop_import_operations_table()
+        env.control_store.close()
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+    finally:
+        env.close()
+
+
+def test_control_db_missing_file_exit_4(tmp_path: Path) -> None:
+    settings = lifecycle_settings(tmp_path)
+    result = run_admin_cli(settings.data_root, "inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+    assert result.returncode == 4
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.integration
+def test_operation_not_found_dolt_unavailable_exit_5(tmp_path: Path) -> None:
+    env = AdminCliEnvironment.create(tmp_path)
+    try:
+        env.control_store.close()
+        missing_dolt = tmp_path / "missing-dolt"
+        result = env.run(
+            "inspect",
+            "--operation-id",
+            str(DEFAULT_OPERATION_ID),
+            env={"GATEWAY_REPOSITORY_DOLT_BINARY": str(missing_dolt)},
+        )
+        assert result.returncode == 5
+        assert "Traceback" not in result.stderr
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
+def test_published_then_advanced_not_published_exit_6(tmp_path: Path) -> None:
+    env = AdminCliEnvironment.create(tmp_path)
+    try:
+        env.setup_published_then_main_advanced()
+        result = env.run(
+            "apply",
+            "--operation-id",
+            str(DEFAULT_OPERATION_ID),
+            "--decision",
+            ManualCorrectionDecision.NOT_PUBLISHED.value,
+        )
+        assert result.returncode == 6
+        assert count_audit_rows(env.settings.control_db_path, DEFAULT_OPERATION_ID) == 0
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
+def test_missing_artifact_not_published_exit_6(tmp_path: Path) -> None:
+    env = AdminCliEnvironment.create(tmp_path)
+    try:
+        env.enqueue_operation(
+            operation_id=DEFAULT_OPERATION_ID,
+            artifact_id=DEFAULT_ARTIFACT_ID,
+            write_artifact_file=False,
+        )
+        env.mark_manual(DEFAULT_OPERATION_ID)
+        result = env.run(
+            "apply",
+            "--operation-id",
+            str(DEFAULT_OPERATION_ID),
+            "--decision",
+            ManualCorrectionDecision.NOT_PUBLISHED.value,
+        )
+        assert result.returncode == 6
+        assert count_audit_rows(env.settings.control_db_path, DEFAULT_OPERATION_ID) == 0
+    finally:
+        env.close()
+
+
+def test_collect_recovery_evidence_returns_none_on_provider_private_ref_probe_failure(
+    tmp_path: Path,
+) -> None:
+    from gateway_repository_service.versioned_import.errors import ImportProviderError
+    from gateway_repository_service.versioned_import.recovery import collect_recovery_evidence
+    from support.import_worker_harness import FakeImportProvider, WorkerTestEnvironment
+
+    repository_id = DEFAULT_REPOSITORY_ID
+    artifact_id = DEFAULT_ARTIFACT_ID
+    operation_id = DEFAULT_OPERATION_ID
+
+    env = WorkerTestEnvironment(tmp_path)
+    try:
+        operation_id = env.enqueue(repository_id, artifact_id=artifact_id, operation_id=operation_id)
+        context = env.store.load_execution_context(operation_id)
+        assert context is not None
+        provider = FakeImportProvider()
+
+        def failing_private_ref_exists(private_ref: str) -> bool:
+            raise ImportProviderError("branch list failed")
+
+        provider.private_ref_exists = failing_private_ref_exists  # type: ignore[method-assign]
+
+        evidence = collect_recovery_evidence(
+            settings=env.settings,
+            layout=env.layout,
+            store=env.store,
+            provider=provider,
+            context=context,
+        )
+        assert evidence is None
     finally:
         env.close()

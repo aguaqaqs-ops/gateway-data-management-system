@@ -603,3 +603,34 @@ def test_subprocess_crash_then_runtime_restart_recovers(tmp_path: Path) -> None:
         assert restarted.import_store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
     finally:
         restarted.shutdown()
+
+
+def test_collect_recovery_evidence_returns_none_on_provider_private_ref_probe_failure(
+    tmp_path: Path,
+) -> None:
+    from gateway_repository_service.versioned_import.errors import ImportProviderError
+    from gateway_repository_service.versioned_import.recovery import collect_recovery_evidence
+    from support.import_worker_harness import FakeImportProvider
+
+    env = WorkerTestEnvironment(tmp_path)
+    try:
+        operation_id = env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID, operation_id=OPERATION_ID)
+        context = env.store.load_execution_context(operation_id)
+        assert context is not None
+        provider = FakeImportProvider()
+
+        def failing_private_ref_exists(private_ref: str) -> bool:
+            raise ImportProviderError("branch list failed")
+
+        provider.private_ref_exists = failing_private_ref_exists  # type: ignore[method-assign]
+
+        evidence = collect_recovery_evidence(
+            settings=env.settings,
+            layout=env.layout,
+            store=env.store,
+            provider=provider,
+            context=context,
+        )
+        assert evidence is None
+    finally:
+        env.close()

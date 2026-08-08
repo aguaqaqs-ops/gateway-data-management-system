@@ -1075,6 +1075,101 @@ feat(repository): add private import recovery CLI
 最终exit code表、audit safe field集合、以及本阶段是否动用了pyproject.toml/uv.lock。
 ```
 
+### S8 completion handoff
+
+```text
+round: P2-R4
+stage: P2-R4-S8
+start_sha: b06ce5b
+commit_sha: be43b45
+head_sha: be43b45
+branch: phase1/gate-ownership-repair
+worktree_clean: yes
+
+modified_paths:
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/admin.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/recovery.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/provider.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/locks.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/worker.py
+  - vnext/repository_service/src/gateway_repository_service/runtime.py
+  - vnext/repository_service/tests/test_import_admin_cli.py
+  - vnext/repository_service/tests/support/import_admin_cli_harness.py
+  - vnext/repository_service/tests/test_import_worker.py
+  - vnext/repository_service/tests/test_import_recovery.py
+  - vnext/repository_service/tests/support/import_worker_harness.py
+  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md
+  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md
+
+explicit_non_goals_preserved:
+  - no HTTP/admin route registration
+  - no CONTROL_DB_USER_VERSION bump or migration
+  - no pyproject.toml [project.scripts] or uv.lock changes
+  - no --force / evidence bypass flags
+  - CLI does not accept host repository path or control DB path
+
+implemented_behavior:
+  - stopped-service private CLI: inspect (zero mutation) and apply (SUCCEEDED / NOT_PUBLISHED)
+  - fresh evidence via read_ref / inspect_marker / private_ref_exists / artifact validity probe
+  - correction via ImportOperationStore.apply_manual_correction only
+  - repository_import_recovery_audit persistence with safe evidence_summary_json
+  - post-apply best-effort cleanup (SUCCEEDED: private ref + conditional artifact bytes;
+    NOT_PUBLISHED: private ref + staging only)
+  - barrier handoff path (a): worker barrier solely from store.has_unresolved_manual_barrier()
+
+scope_exceptions:
+  - runtime.py: removed seed_manual_barriers call (required配套 for barrier path (a); §12
+    excluded runtime.py but change is one-line dead-code removal)
+  - docs/*.md: S7/S8 plan and design updates bundled into feature commit; content aligned
+    with §12 / §17 / §18
+
+barrier_handoff: path (a)
+  - worker._repository_has_barrier uses only store.has_unresolved_manual_barrier()
+  - removed in-memory barrier API from RepositoryLockRegistry
+  - runtime.py no longer calls seed_manual_barriers
+  - impact: durable MANUAL row is sole dispatch barrier; no in-memory/store dual-track race
+
+exit_codes:
+  - 0: success
+  - 2: invalid UUID / decision / argparse
+  - 3: DurableRootLock busy (service running)
+  - 4: ControlStore.open unsupported version or schema
+  - 5: operation missing or not FAILED/MANUAL_RECOVERY_REQUIRED
+  - 6: evidence unavailable or inconsistent with decision
+
+audit_safe_fields:
+  - operation_id, repository_id, artifact_id
+  - decision, action (apply only)
+  - prior_status, prior_code, final_status, final_code
+  - marker_inspection, main_commit_id, expected_commit_id, candidate_commit_id
+  - manifest_digest, verification_policy, unknown_type_policy
+  - artifact_size_bytes, artifact_bytes_present, private_ref_present
+  - applied_at (apply only)
+  - forbidden: token, raw idempotency key, replay SQL, full stderr, host path,
+    credential, complete row, sensitive conversion value
+
+pyproject_toml_uv_lock: not modified (python -m module invocation retained)
+
+validation_commands:
+  - cd vnext/repository_service && uv run ruff check .
+  - cd vnext/repository_service && uv run mypy
+  - cd vnext/repository_service && uv run pytest tests/test_import_admin_cli.py -n 0 -q
+  - cd vnext/repository_service && uv run pytest -m unit -q
+  - ./vnext/scripts/run-tests.sh
+
+known_limitations:
+  - no CLI positive subprocess tests for EXPECTED_COMMIT_MISMATCH or
+    VERIFICATION_FAILED_NOT_PUBLISHED apply paths (deferred to S10 matrix)
+  - SUCCEEDED decision does not require artifact_valid when row already carries
+    canonicalization_manifest_digest (S7 digest-from-row pattern retained)
+  - provider probe failures during collect_recovery_evidence return None and map to CLI
+    exit 6 (fixed in audit follow-up after be43b45)
+
+stage_exit: pass
+next_stage_ready: yes
+next_stage: P2-R4-S9
+```
+
 ## 13. S9 — HTTP activation, polling and admission
 
 ### Goal

@@ -178,55 +178,54 @@ def collect_recovery_evidence(
     try:
         main_commit_id = provider.read_ref(context.target_ref)
         inspection = provider.inspect_marker(context.operation_marker)
+        marker_kind = _marker_inspection_kind(inspection)
+        candidate_commit_id = inspection.candidate if isinstance(inspection, MarkerInspectionUnique) else None
+        marker_parent_commit_id = inspection.parent if isinstance(inspection, MarkerInspectionUnique) else None
+        artifact_path = artifact_ready_path(
+            layout,
+            context.repository_id,
+            context.artifact_id,
+        )
+        artifact_bytes_present = artifact_path.is_file()
+        artifact_valid = (
+            artifact_is_valid(
+                settings=settings,
+                layout=layout,
+                context=context,
+                artifact_path=artifact_path,
+            )
+            if artifact_bytes_present
+            else False
+        )
+        manifest_digest = resolve_manifest_digest(
+            store=store,
+            settings=settings,
+            layout=layout,
+            context=context,
+        )
+        return ImportRecoveryEvidence(
+            operation_id=context.operation_id,
+            repository_id=context.repository_id,
+            artifact_id=context.artifact_id,
+            main_commit_id=main_commit_id,
+            expected_commit_id=context.expected_commit_id,
+            marker_inspection=marker_kind,
+            candidate_commit_id=candidate_commit_id,
+            marker_parent_commit_id=marker_parent_commit_id,
+            private_ref_present=_private_ref_exists(provider, context.private_ref_name),
+            artifact_bytes_present=artifact_bytes_present,
+            artifact_size_bytes=context.artifact_size_bytes,
+            artifact_valid=artifact_valid,
+            manifest_digest=manifest_digest,
+            verification_policy=context.verification_policy,
+            unknown_type_policy=context.unknown_type_policy,
+        )
     except Exception:
         _LOGGER.exception(
             "failed to collect recovery evidence for operation %s",
             context.operation_id,
         )
         return None
-
-    marker_kind = _marker_inspection_kind(inspection)
-    candidate_commit_id = inspection.candidate if isinstance(inspection, MarkerInspectionUnique) else None
-    marker_parent_commit_id = inspection.parent if isinstance(inspection, MarkerInspectionUnique) else None
-    artifact_path = artifact_ready_path(
-        layout,
-        context.repository_id,
-        context.artifact_id,
-    )
-    artifact_bytes_present = artifact_path.is_file()
-    artifact_valid = (
-        artifact_is_valid(
-            settings=settings,
-            layout=layout,
-            context=context,
-            artifact_path=artifact_path,
-        )
-        if artifact_bytes_present
-        else False
-    )
-    manifest_digest = resolve_manifest_digest(
-        store=store,
-        settings=settings,
-        layout=layout,
-        context=context,
-    )
-    return ImportRecoveryEvidence(
-        operation_id=context.operation_id,
-        repository_id=context.repository_id,
-        artifact_id=context.artifact_id,
-        main_commit_id=main_commit_id,
-        expected_commit_id=context.expected_commit_id,
-        marker_inspection=marker_kind,
-        candidate_commit_id=candidate_commit_id,
-        marker_parent_commit_id=marker_parent_commit_id,
-        private_ref_present=_private_ref_exists(provider, context.private_ref_name),
-        artifact_bytes_present=artifact_bytes_present,
-        artifact_size_bytes=context.artifact_size_bytes,
-        artifact_valid=artifact_valid,
-        manifest_digest=manifest_digest,
-        verification_policy=context.verification_policy,
-        unknown_type_policy=context.unknown_type_policy,
-    )
 
 
 def evidence_supports_succeeded_decision(evidence: ImportRecoveryEvidence) -> bool:

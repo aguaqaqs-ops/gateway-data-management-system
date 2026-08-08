@@ -24,7 +24,10 @@ from gateway_repository_contracts import (
 )
 from gateway_repository_service.app import create_app
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
-from gateway_repository_service.upload_artifact.admission_pin import try_unlink_ready_artifact
+from gateway_repository_service.upload_artifact.admission_pin import (
+    ArtifactAdmissionPin,
+    try_unlink_ready_artifact,
+)
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import import ImportRequestBinding, versioned_import_fingerprint_v1
 from support.http_harness import (
@@ -943,6 +946,7 @@ def test_submit_artifact_file_missing_at_admission_returns_404(env: ImportHttpTe
     assert response.json()["code"] == "ARTIFACT_NOT_FOUND"
 
 
+@pytest.mark.serial
 def test_submit_rejects_queued_when_ready_file_removed_before_insert(
     env: ImportHttpTestEnvironment,
 ) -> None:
@@ -979,9 +983,62 @@ def test_submit_rejects_queued_when_ready_file_removed_before_insert(
     finally:
         unlink_thread.join(timeout=5)
 
+    assert not unlink_thread.is_alive()
     assert response.status_code == 404
     assert response.json()["code"] == "ARTIFACT_NOT_FOUND"
     assert env.runtime.import_store.count_global_queued() == 0
+
+
+@pytest.mark.serial
+def test_submit_rejects_queued_when_ready_file_removed_after_finalize(
+    env: ImportHttpTestEnvironment,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    ready_path = artifact_ready_path(env.layout, repository_id, artifact_id)
+    original_finalize = ArtifactAdmissionPin.finalize_new_admission
+
+    def finalize_then_unlink(self: ArtifactAdmissionPin) -> None:
+        original_finalize(self)
+        self.ready_path.unlink()
+
+    with patch.object(ArtifactAdmissionPin, "finalize_new_admission", finalize_then_unlink):
+        response = _submit(
+            env,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key="artifact-removed-after-finalize",
+        )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "ARTIFACT_NOT_FOUND"
+    assert env.runtime.import_store.count_global_queued() == 0
+    assert not ready_path.is_file()
+
+
+def test_submit_malformed_artifact_lifecycle_scope_returns_internal_error(
+    env: ImportHttpTestEnvironment,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    env.control_store.connection.execute(
+        "UPDATE artifact_lifecycle SET repository_scope = ? WHERE artifact_id = ?",
+        ("not-a-uuid", str(artifact_id)),
+    )
+    env.control_store.connection.commit()
+    response = _submit(
+        env,
+        repository_id,
+        artifact_id,
+        size_bytes,
+        raw_sha256,
+        idempotency_key="malformed-lifecycle-scope",
+    )
+    assert response.status_code == 500
+    assert response.json()["code"] == "INTERNAL_ERROR"
+    assert "sqlite" not in response.text.lower()
 
 
 @pytest.mark.serial

@@ -31,6 +31,10 @@ class MutationStoreError(RuntimeError):
     """Base error for mutation store failures."""
 
 
+class MutationStoreInvariantError(MutationStoreError):
+    """Raised when a readable durable row violates mutation-store invariants."""
+
+
 class FingerprintConflict(MutationStoreError):
     """Raised when the same idempotency scope is reused with a different fingerprint."""
 
@@ -416,25 +420,28 @@ class MutationStore:
             row = cursor.fetchone()
             if row is None:
                 return None
-            consumed_by_operation_id = row["consumed_by_operation_id"]
-            return ArtifactLifecycleRecord(
-                artifact_id=UUID(str(row["artifact_id"])),
-                repository_id=UUID(str(row["repository_scope"])),
-                media_type=str(row["media_type"]),
-                size_bytes=int(row["size_bytes"]),
-                raw_sha256=str(row["raw_sha256"]),
-                consumed_by_operation_id=(
-                    UUID(str(consumed_by_operation_id))
-                    if consumed_by_operation_id is not None
-                    else None
-                ),
-                consumed_at=(
-                    str(row["consumed_at"]) if row["consumed_at"] is not None else None
-                ),
-                bytes_deleted_at=(
-                    str(row["bytes_deleted_at"]) if row["bytes_deleted_at"] is not None else None
-                ),
-            )
+            try:
+                consumed_by_operation_id = row["consumed_by_operation_id"]
+                return ArtifactLifecycleRecord(
+                    artifact_id=UUID(str(row["artifact_id"])),
+                    repository_id=UUID(str(row["repository_scope"])),
+                    media_type=str(row["media_type"]),
+                    size_bytes=int(row["size_bytes"]),
+                    raw_sha256=str(row["raw_sha256"]),
+                    consumed_by_operation_id=(
+                        UUID(str(consumed_by_operation_id))
+                        if consumed_by_operation_id is not None
+                        else None
+                    ),
+                    consumed_at=(
+                        str(row["consumed_at"]) if row["consumed_at"] is not None else None
+                    ),
+                    bytes_deleted_at=(
+                        str(row["bytes_deleted_at"]) if row["bytes_deleted_at"] is not None else None
+                    ),
+                )
+            except (TypeError, ValueError) as exc:
+                raise MutationStoreInvariantError("artifact lifecycle row is invalid") from exc
 
     def record_artifact_consumed(
         self,

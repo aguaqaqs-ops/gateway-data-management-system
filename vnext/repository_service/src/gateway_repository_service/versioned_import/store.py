@@ -21,7 +21,6 @@ from gateway_repository_contracts import (
     VersionedOperation,
 )
 from gateway_repository_service.mutation_store import IdempotencyKeyHash, MutationStore
-from gateway_repository_service.upload_artifact.admission_pin import ArtifactAdmissionPin
 from gateway_repository_service.versioned_import.models import (
     ArtifactOperationReference,
     ClaimOrEnqueueResult,
@@ -207,10 +206,7 @@ class ImportOperationStore:
         fingerprint: bytes,
         max_queued_imports: int,
         operation_id: UUID | None = None,
-        admission_guard: ArtifactAdmissionPin | None = None,
     ) -> ClaimOrEnqueueResult:
-        if admission_guard is not None:
-            admission_guard.assert_unchanged()
         with self._transaction():
             row = self._fetch_by_key(binding.repository_id, key_hash)
             if row is not None:
@@ -244,9 +240,6 @@ class ImportOperationStore:
                 raise ImportQueueFull("global import queue is full")
 
             self._verify_artifact_lifecycle_binding(binding)
-
-            if admission_guard is not None:
-                admission_guard.assert_unchanged()
 
             new_operation_id = operation_id or uuid4()
             now = utc_now_iso()
@@ -312,6 +305,23 @@ class ImportOperationStore:
                 is_new=True,
                 operation=operation,
             )
+
+    def abort_queued_import(self, operation_id: UUID) -> bool:
+        with self._transaction():
+            row = self._fetch_by_operation_id(operation_id)
+            if row is None:
+                return False
+            if str(row["status"]) != OperationStatus.QUEUED.value:
+                return False
+            self._connection.execute(
+                """
+                DELETE FROM repository_import_operations
+                WHERE operation_id = ?
+                  AND status = ?
+                """,
+                (str(operation_id), OperationStatus.QUEUED.value),
+            )
+            return True
 
     def get_operation(
         self,

@@ -35,6 +35,7 @@ class ArtifactAdmissionPin:
         self._raw_sha256 = raw_sha256
         self._fd: int | None = None
         self._inode: int | None = None
+        self._finalized: bool = False
 
     @property
     def ready_path(self) -> Path:
@@ -74,18 +75,38 @@ class ArtifactAdmissionPin:
         if self._fd is None:
             return
         try:
-            fcntl.flock(self._fd, fcntl.LOCK_UN)
+            if exc_type is None and self._finalized:
+                self._verify_pinned_bytes_still_linked()
         finally:
-            os.close(self._fd)
-            self._fd = None
-            self._inode = None
+            try:
+                fcntl.flock(self._fd, fcntl.LOCK_UN)
+            finally:
+                os.close(self._fd)
+                self._fd = None
+                self._inode = None
+                self._finalized = False
 
     def assert_unchanged(self) -> None:
+        if self._fd is None:
+            raise RuntimeError("artifact admission pin is not held")
+        self._verify_pinned_bytes_still_linked()
+
+    def finalize_new_admission(self) -> None:
+        """Verify ready artifact bytes remain published before returning 202."""
+
+        if self._fd is None:
+            raise RuntimeError("artifact admission pin is not held")
+        self._verify_pinned_bytes_still_linked()
+        self._finalized = True
+
+    def _verify_pinned_bytes_still_linked(self) -> None:
         if self._fd is None:
             raise RuntimeError("artifact admission pin is not held")
         stat = os.fstat(self._fd)
         if stat.st_ino != self._inode:
             raise ArtifactNotReadyForAdmission("ready artifact inode changed under admission pin")
+        if stat.st_nlink == 0:
+            raise ArtifactNotReadyForAdmission("ready artifact file has no remaining directory links")
         self._assert_path_inode_matches(stat)
 
     def _assert_path_inode_matches(self, fd_stat: os.stat_result) -> None:

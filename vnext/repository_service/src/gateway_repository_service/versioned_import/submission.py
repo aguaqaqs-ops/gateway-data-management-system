@@ -22,7 +22,7 @@ from gateway_repository_service.capacity import (
 )
 from gateway_repository_service.create_repository.visibility import is_repository_visible
 from gateway_repository_service.http.errors import ServiceError
-from gateway_repository_service.mutation_store import IdempotencyKeyHash
+from gateway_repository_service.mutation_store import IdempotencyKeyHash, MutationStoreInvariantError
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.upload_artifact.admission_pin import (
     ArtifactAdmissionPin,
@@ -99,9 +99,14 @@ class ImportSubmissionService:
             self._preflight_new_effect(path_repository_id, binding)
         except ServiceError:
             raise
-        except Exception as exc:
-            raise _map_store_error(exc, context="preflight") from exc
+        except (ValidationError, ImportStoreInvariantError, MutationStoreInvariantError) as exc:
+            raise _internal_error() from exc
+        except sqlite3.Error as exc:
+            raise _service_not_ready("control database preflight failed") from exc
+        except ImportOperationStoreError as exc:
+            raise _service_not_ready("control database preflight failed") from exc
 
+        queued_operation_id: UUID | None = None
         try:
             with ArtifactAdmissionPin(
                 self._layout,
@@ -110,16 +115,21 @@ class ImportSubmissionService:
                 size_bytes=binding.artifact_ref.size_bytes,
                 raw_sha256=binding.artifact_ref.raw_sha256,
             ) as admission_guard:
+                admission_guard.assert_unchanged()
                 result = self._import_store.admit_new_import(
                     binding,
                     key_hash=key_hash,
                     fingerprint=fingerprint,
                     max_queued_imports=self._settings.max_queued_imports,
-                    admission_guard=admission_guard,
                 )
+                if result.is_new:
+                    queued_operation_id = result.operation_id
+                    admission_guard.finalize_new_admission()
         except ServiceError:
             raise
         except ArtifactNotReadyForAdmission as exc:
+            if queued_operation_id is not None:
+                self._import_store.abort_queued_import(queued_operation_id)
             raise ServiceError(
                 code="ARTIFACT_NOT_FOUND",
                 message="artifact was not found",
@@ -170,14 +180,14 @@ class ImportSubmissionService:
                 message="artifact was not found",
                 status_code=404,
             ) from exc
-        except (ValidationError, ImportStoreInvariantError) as exc:
+        except (ValidationError, ImportStoreInvariantError, MutationStoreInvariantError) as exc:
             raise _internal_error() from exc
         except sqlite3.Error as exc:
             raise _service_not_ready("control database admission failed") from exc
         except ImportOperationStoreError as exc:
             raise _service_not_ready("control database admission failed") from exc
         except Exception as exc:
-            raise _map_store_error(exc, context="admission") from exc
+            raise _internal_error() from exc
 
         if not result.is_new:
             self._worker_pool.notify()
@@ -379,13 +389,13 @@ def _request_validation_failed() -> ServiceError:
 
 
 def _map_store_error(exc: BaseException, *, context: str) -> ServiceError:
-    if isinstance(exc, (ValidationError, ImportStoreInvariantError)):
+    if isinstance(exc, (ValidationError, ImportStoreInvariantError, MutationStoreInvariantError)):
         return _internal_error()
     if isinstance(exc, sqlite3.Error):
         return _service_not_ready(f"control database {context} failed")
     if isinstance(exc, ImportOperationStoreError):
         return _service_not_ready(f"control database {context} failed")
-    return _service_not_ready(f"control database {context} failed")
+    return _internal_error()
 
 
 def _service_not_ready(message: str) -> ServiceError:

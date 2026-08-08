@@ -847,25 +847,26 @@ def test_repository_lock_does_not_block_other_repositories() -> None:
     assert elapsed < 0.5
 
 
-def test_worker_rejects_when_import_disk_admission_fails(
-    worker_env: WorkerTestEnvironment,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_worker_rejects_when_import_disk_admission_fails(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     from gateway_repository_service.capacity import CapacityAdmissionError
 
-    repository_id = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
-    artifact_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
-    operation_id = worker_env.enqueue(repository_id, artifact_id=artifact_id)
-    with patch(
-        "gateway_repository_service.versioned_import.command.assert_import_disk_admission",
-        side_effect=CapacityAdmissionError("disk admission denied"),
-    ):
-        worker_env.pool.start()
-        worker_env.pool.notify()
-        worker_env.wait_for_status(repository_id, operation_id, OperationStatus.FAILED, timeout=5.0)
-    operation = worker_env.store.get_operation(repository_id, operation_id)
-    assert operation is not None
-    assert operation.error is not None
-    assert operation.error.code == "IMPORT_REJECTED"
+    env = WorkerTestEnvironment(tmp_path)
+    try:
+        repository_id = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
+        artifact_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
+        operation_id = env.enqueue(repository_id, artifact_id=artifact_id)
+        with patch(
+            "gateway_repository_service.versioned_import.command.assert_import_disk_admission",
+            side_effect=CapacityAdmissionError("disk admission denied"),
+        ):
+            env.pool.start()
+            env.pool.notify()
+            env.wait_for_status(repository_id, operation_id, OperationStatus.FAILED, timeout=5.0)
+        operation = env.store.get_operation(repository_id, operation_id)
+        assert operation is not None
+        assert operation.error is not None
+        assert operation.error.code == "IMPORT_REJECTED"
+    finally:
+        env.close()

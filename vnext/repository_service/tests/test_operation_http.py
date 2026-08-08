@@ -69,6 +69,7 @@ def _enqueue_operation(env: ImportHttpTestEnvironment, repository_id: UUID, *, k
         key_hash=key_hash,
         fingerprint=fingerprint,
         max_queued_imports=64,
+        layout=env.layout,
     )
     return result.operation_id, artifact_id
 
@@ -148,6 +149,34 @@ def test_get_operation_missing_is_not_found(env: ImportHttpTestEnvironment) -> N
     response = _get(env, repository_id, uuid4())
     assert response.status_code == 404
     assert response.json()["code"] == "OPERATION_NOT_FOUND"
+
+
+def test_get_operation_malformed_durable_row_returns_internal_error(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    operation_id, artifact_id = _enqueue_operation(env, repository_id)
+    env.runtime.import_store.claim_if_queued(operation_id)
+    env.runtime.import_store.mark_succeeded(
+        operation_id,
+        result=VersionedImportResult(
+            commit_id="commit-1",
+            target_ref="main",
+            artifact_id=artifact_id,
+            canonicalization_manifest_digest="digest",
+            expected_commit_id="commit-0",
+            completed_verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        ),
+    )
+    env.control_store.connection.execute(
+        "UPDATE repository_import_operations SET result_json = ? WHERE operation_id = ?",
+        ('{"commit_id": 123}', str(operation_id)),
+    )
+    env.control_store.connection.commit()
+    response = _get(env, repository_id, operation_id)
+    assert response.status_code == 500
+    assert response.json()["code"] == "INTERNAL_ERROR"
+    assert "sqlite" not in response.text.lower()
+    assert "result_json" not in response.text.lower()
 
 
 def test_get_operation_readable_during_shutdown(env: ImportHttpTestEnvironment) -> None:

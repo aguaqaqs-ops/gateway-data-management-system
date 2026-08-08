@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import threading
 from pathlib import Path
@@ -18,6 +19,7 @@ from gateway_repository_contracts import (
     VersionedImportResult,
 )
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
+from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_fingerprints import create_repository_fingerprint_v1
 from gateway_repository_service.mutation_store import (
     EffectStatus,
@@ -27,8 +29,10 @@ from gateway_repository_service.mutation_store import (
     MutationStoreError,
     configure_connection,
 )
+from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import import (
     ClaimOrEnqueueResult,
+    ImportArtifactBindingRejected,
     ImportFingerprintConflict,
     ImportManualBarrierRequired,
     ImportOperationStore,
@@ -46,8 +50,14 @@ OPERATION_ID = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11")
 OTHER_OPERATION_ID = UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c11")
 LARGER_UUID_OPERATION_ID = OTHER_OPERATION_ID
 SMALLER_UUID_OPERATION_ID = OPERATION_ID
-SHA256 = "a" * 64
+ARTIFACT_PAYLOAD = b"x" * 12
+SHA256 = hashlib.sha256(ARTIFACT_PAYLOAD).hexdigest()
 MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
+
+
+@pytest.fixture
+def layout(tmp_path: Path) -> DurableLayout:
+    return DurableLayout.create_for_probe(tmp_path / "data-root")
 
 
 @pytest.fixture
@@ -64,7 +74,7 @@ def _artifact_ref(*, artifact_id: UUID = ARTIFACT_ID) -> RepositoryArtifactRef:
     return RepositoryArtifactRef(
         artifact_id=artifact_id,
         media_type=MEDIA_TYPE,
-        size_bytes=12,
+        size_bytes=len(ARTIFACT_PAYLOAD),
         raw_sha256=SHA256,
     )
 
@@ -140,13 +150,23 @@ def _seed_artifact(mutation_store: MutationStore, *, artifact_id: UUID = ARTIFAC
                 str(artifact_id),
                 REPOSITORY_ID.hex,
                 MEDIA_TYPE,
-                12,
+                len(ARTIFACT_PAYLOAD),
                 SHA256,
                 now,
                 now,
             ),
         )
         mutation_store._connection.commit()
+
+
+def _write_ready_artifact(layout: DurableLayout, binding: ImportRequestBinding) -> None:
+    ready_path = artifact_ready_path(
+        layout,
+        binding.repository_id,
+        binding.artifact_ref.artifact_id,
+    )
+    ready_path.parent.mkdir(parents=True, exist_ok=True)
+    ready_path.write_bytes(ARTIFACT_PAYLOAD)
 
 
 def _enqueue(
@@ -655,10 +675,13 @@ def test_count_global_queued_counts_only_queued_status(
 
 def test_admit_new_import_rejects_manual_barrier(
     stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
 ) -> None:
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    _write_ready_artifact(layout, binding)
     _enqueue(store, operation_id=OPERATION_ID, key="manual-key")
     store.claim_if_queued(OPERATION_ID)
     store.mark_failed(
@@ -674,15 +697,19 @@ def test_admit_new_import_rejects_manual_barrier(
             key_hash=key_hash,
             fingerprint=fingerprint,
             max_queued_imports=64,
+            layout=layout,
         )
 
 
 def test_admit_new_import_rejects_when_queue_full(
     stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
 ) -> None:
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    _write_ready_artifact(layout, binding)
     _enqueue(store, operation_id=OPERATION_ID, key="queued-1")
     binding = _binding()
     key_hash = IdempotencyKeyHash.from_raw_key("new-key")
@@ -693,15 +720,85 @@ def test_admit_new_import_rejects_when_queue_full(
             key_hash=key_hash,
             fingerprint=fingerprint,
             max_queued_imports=1,
+            layout=layout,
+        )
+
+
+def test_admit_new_import_succeeds_when_ready_file_exists(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    _write_ready_artifact(layout, binding)
+    key_hash = IdempotencyKeyHash.from_raw_key("ready-file-key")
+    fingerprint = _fingerprint(binding, key_hash)
+    result = store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+        layout=layout,
+    )
+    assert result.is_new is True
+    assert result.operation.status == OperationStatus.QUEUED
+
+
+def test_admit_new_import_rejects_when_ready_file_missing(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("missing-file-key")
+    fingerprint = _fingerprint(binding, key_hash)
+    with pytest.raises(ImportArtifactBindingRejected, match="ready file"):
+        store.admit_new_import(
+            binding,
+            key_hash=key_hash,
+            fingerprint=fingerprint,
+            max_queued_imports=64,
+            layout=layout,
+        )
+
+
+def test_admit_new_import_rejects_when_ready_file_removed_after_preflight(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    ready_path = artifact_ready_path(layout, binding.repository_id, binding.artifact_ref.artifact_id)
+    ready_path.parent.mkdir(parents=True, exist_ok=True)
+    ready_path.write_bytes(ARTIFACT_PAYLOAD)
+    ready_path.unlink()
+    key_hash = IdempotencyKeyHash.from_raw_key("removed-file-key")
+    fingerprint = _fingerprint(binding, key_hash)
+    with pytest.raises(ImportArtifactBindingRejected, match="ready file"):
+        store.admit_new_import(
+            binding,
+            key_hash=key_hash,
+            fingerprint=fingerprint,
+            max_queued_imports=64,
+            layout=layout,
         )
 
 
 def test_admit_new_import_replays_concurrent_same_key(
     stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
 ) -> None:
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    _write_ready_artifact(layout, binding)
     binding = _binding()
     key_hash = IdempotencyKeyHash.from_raw_key("concurrent-key")
     fingerprint = _fingerprint(binding, key_hash)
@@ -718,6 +815,7 @@ def test_admit_new_import_replays_concurrent_same_key(
                     key_hash=key_hash,
                     fingerprint=fingerprint,
                     max_queued_imports=64,
+                    layout=layout,
                 )
             )
         except BaseException as exc:

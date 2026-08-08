@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -15,12 +16,15 @@ from fastapi.testclient import TestClient
 
 from gateway_repository_contracts import (
     OperationStatus,
+    RepositoryArtifactRef,
     SimpleError,
     UnknownTypePolicy,
     VerificationPolicy,
+    VersionedImportResult,
 )
 from gateway_repository_service.app import create_app
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
+from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import import ImportRequestBinding, versioned_import_fingerprint_v1
 from support.http_harness import (
     PRODUCTION_OPENAPI_PATHS,
@@ -36,6 +40,13 @@ from support.upload_harness import create_repository, upload_headers
 INVALID_HEADER_CASES = [
     ("", 422),
     ("x" * 256, 422),
+]
+
+REPLAY_TERMINAL_STATUS_CASES = [
+    OperationStatus.QUEUED,
+    OperationStatus.RUNNING,
+    OperationStatus.SUCCEEDED,
+    OperationStatus.FAILED,
 ]
 
 
@@ -71,6 +82,71 @@ def _submit(
         headers=request_headers,
         content=json.dumps(body),
     )
+
+
+def _seed_operation_for_replay(
+    env: ImportHttpTestEnvironment,
+    repository_id: UUID,
+    *,
+    idempotency_key: str,
+    terminal_status: OperationStatus,
+) -> tuple[UUID, UUID, int, str]:
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    binding = ImportRequestBinding(
+        repository_id=repository_id,
+        artifact_ref=RepositoryArtifactRef(
+            artifact_id=artifact_id,
+            media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
+            size_bytes=size_bytes,
+            raw_sha256=raw_sha256,
+        ),
+        target_ref="main",
+        expected_commit_id="commit-0",
+        verification_policy=VerificationPolicy.STRUCTURAL,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+    key_hash = IdempotencyKeyHash.from_raw_key(idempotency_key)
+    fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+    result = env.runtime.import_store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+        layout=env.layout,
+    )
+    operation_id = result.operation_id
+    if terminal_status == OperationStatus.QUEUED:
+        return operation_id, artifact_id, size_bytes, raw_sha256
+    env.runtime.import_store.claim_if_queued(operation_id)
+    if terminal_status == OperationStatus.RUNNING:
+        return operation_id, artifact_id, size_bytes, raw_sha256
+    if terminal_status == OperationStatus.SUCCEEDED:
+        env.runtime.import_store.mark_succeeded(
+            operation_id,
+            result=VersionedImportResult(
+                commit_id="commit-1",
+                target_ref="main",
+                artifact_id=artifact_id,
+                canonicalization_manifest_digest="digest",
+                expected_commit_id="commit-0",
+                completed_verification_policy=VerificationPolicy.STRUCTURAL,
+                unknown_type_policy=UnknownTypePolicy.REJECT,
+            ),
+        )
+        return operation_id, artifact_id, size_bytes, raw_sha256
+    env.runtime.import_store.mark_failed(
+        operation_id,
+        error=SimpleError(code="IMPORT_REJECTED", message="rejected"),
+    )
+    return operation_id, artifact_id, size_bytes, raw_sha256
+
+
+def _inject_malformed_result_json(env: ImportHttpTestEnvironment, operation_id: UUID) -> None:
+    env.control_store.connection.execute(
+        "UPDATE repository_import_operations SET result_json = ? WHERE operation_id = ?",
+        ('{"commit_id": 123}', str(operation_id)),
+    )
+    env.control_store.connection.commit()
 
 
 def test_submit_requires_auth(env: ImportHttpTestEnvironment) -> None:
@@ -274,6 +350,7 @@ def test_submit_manual_barrier_rejects_new_key_only(env: ImportHttpTestEnvironme
         key_hash=key_hash,
         fingerprint=fingerprint,
         max_queued_imports=64,
+        layout=env.layout,
     )
     operation = env.runtime.import_store.lookup_by_key(repository_id, key_hash)
     assert operation is not None
@@ -357,6 +434,211 @@ def test_submit_logs_do_not_include_raw_key(
     assert "test-bearer-token" not in caplog.text
 
 
+@pytest.mark.parametrize("terminal_status", REPLAY_TERMINAL_STATUS_CASES)
+def test_submit_replays_same_key_for_all_terminal_states(
+    env: ImportHttpTestEnvironment,
+    terminal_status: OperationStatus,
+) -> None:
+    repository_id = env.seed_repository()
+    idempotency_key = f"replay-{terminal_status.value.lower()}"
+    operation_id, artifact_id, size_bytes, raw_sha256 = _seed_operation_for_replay(
+        env,
+        repository_id,
+        idempotency_key=idempotency_key,
+        terminal_status=terminal_status,
+    )
+    response = _submit(
+        env,
+        repository_id,
+        artifact_id,
+        size_bytes,
+        raw_sha256,
+        idempotency_key=idempotency_key,
+    )
+    assert response.status_code == 202
+    assert response.json()["operation_id"] == str(operation_id)
+
+
+def test_submit_replay_precedes_provider_unavailable(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    idempotency_key = "replay-provider-down"
+    operation_id, artifact_id, size_bytes, raw_sha256 = _seed_operation_for_replay(
+        env,
+        repository_id,
+        idempotency_key=idempotency_key,
+        terminal_status=OperationStatus.SUCCEEDED,
+    )
+    env.runtime.provider_gate.executable_path = lambda: Path("/does/not/exist/dolt")  # type: ignore[method-assign]
+    response = _submit(
+        env,
+        repository_id,
+        artifact_id,
+        size_bytes,
+        raw_sha256,
+        idempotency_key=idempotency_key,
+    )
+    assert response.status_code == 202
+    assert response.json()["operation_id"] == str(operation_id)
+
+
+def test_submit_replay_precedes_disk_denied(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    idempotency_key = "replay-disk-deny"
+    operation_id, artifact_id, size_bytes, raw_sha256 = _seed_operation_for_replay(
+        env,
+        repository_id,
+        idempotency_key=idempotency_key,
+        terminal_status=OperationStatus.SUCCEEDED,
+    )
+    with patch(
+        "gateway_repository_service.capacity.os.statvfs",
+        side_effect=OSError("disk measurement failed"),
+    ):
+        replay = _submit(
+            env,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key=idempotency_key,
+        )
+        fresh_artifact_id, fresh_size, fresh_sha = env.seed_artifact(repository_id)
+        new_key = _submit(
+            env,
+            repository_id,
+            fresh_artifact_id,
+            fresh_size,
+            fresh_sha,
+            idempotency_key="new-disk-deny",
+        )
+    assert replay.status_code == 202
+    assert replay.json()["operation_id"] == str(operation_id)
+    assert new_key.status_code == 503
+    assert new_key.json()["code"] == "DISK_ADMISSION_DENIED"
+
+
+def test_submit_response_loss_replays_same_operation_id(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    # Simulate client discarding the 202 response while retaining the idempotency key.
+    first = _submit(env, repository_id, artifact_id, size_bytes, raw_sha256, idempotency_key="response-loss")
+    assert first.status_code == 202
+    operation_id = first.json()["operation_id"]
+    del first
+    second = _submit(env, repository_id, artifact_id, size_bytes, raw_sha256, idempotency_key="response-loss")
+    assert second.status_code == 202
+    assert second.json()["operation_id"] == operation_id
+
+
+def test_submit_concurrent_different_keys_respects_queue_limit(tmp_path: Path) -> None:
+    limited = create_import_http_environment(tmp_path, max_queued_imports=2)
+    try:
+        repository_id = limited.seed_repository()
+        artifact_id, size_bytes, raw_sha256 = limited.seed_artifact(repository_id)
+        barrier = threading.Barrier(3)
+        results: list[int] = []
+        errors: list[BaseException] = []
+
+        def worker(key: str) -> None:
+            barrier.wait()
+            try:
+                response = _submit(
+                    limited,
+                    repository_id,
+                    artifact_id,
+                    size_bytes,
+                    raw_sha256,
+                    idempotency_key=key,
+                )
+                results.append(response.status_code)
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=worker, args=("concurrent-1",)),
+            threading.Thread(target=worker, args=("concurrent-2",)),
+            threading.Thread(target=worker, args=("concurrent-3",)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert sorted(results) == [202, 202, 429]
+    finally:
+        limited.close()
+
+
+def test_submit_rejects_invalid_json_body(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    response = env.client.post(
+        f"/v1/repositories/{repository_id}/versioned/imports",
+        headers=import_headers(),
+        content="not-json",
+    )
+    assert response.status_code == 422
+
+
+def test_submit_rejects_non_main_target_ref(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    response = _submit(
+        env,
+        repository_id,
+        artifact_id,
+        size_bytes,
+        raw_sha256,
+        body_overrides={"target_ref": "feature"},
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_submit_malformed_durable_row_replay_returns_internal_error(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    idempotency_key = "malformed-replay"
+    operation_id, artifact_id, size_bytes, raw_sha256 = _seed_operation_for_replay(
+        env,
+        repository_id,
+        idempotency_key=idempotency_key,
+        terminal_status=OperationStatus.SUCCEEDED,
+    )
+    _inject_malformed_result_json(env, operation_id)
+    response = _submit(
+        env,
+        repository_id,
+        artifact_id,
+        size_bytes,
+        raw_sha256,
+        idempotency_key=idempotency_key,
+    )
+    assert response.status_code == 500
+    assert response.json()["code"] == "INTERNAL_ERROR"
+    assert "sqlite" not in response.text.lower()
+    assert "result_json" not in response.text.lower()
+
+
+def test_submit_artifact_file_missing_at_admission_returns_404(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    ready_path = artifact_ready_path(env.layout, repository_id, artifact_id)
+    ready_path.unlink()
+    with patch(
+        "gateway_repository_service.versioned_import.submission.is_artifact_visible",
+        return_value=True,
+    ):
+        response = _submit(
+            env,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key="admit-race",
+        )
+    assert response.status_code == 404
+    assert response.json()["code"] == "ARTIFACT_NOT_FOUND"
+
+
 @pytest.mark.integration
 def test_submit_integration_happy_path(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
@@ -381,4 +663,12 @@ def test_submit_integration_happy_path(tmp_path: Path) -> None:
             headers=import_headers(idempotency_key="import-integration"),
             content=json.dumps(body),
         )
-        assert response.status_code in {202, 404, 503}
+        assert response.status_code == 202
+        operation_id = response.json()["operation_id"]
+        assert operation_id
+        poll = client.get(
+            f"/v1/repositories/{repository_id}/operations/{operation_id}",
+            headers={"Authorization": "Bearer test-bearer-token"},
+        )
+        assert poll.status_code == 200
+        assert poll.json()["operation"]["operation_id"] == operation_id

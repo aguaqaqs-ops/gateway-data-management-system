@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -75,7 +76,7 @@ class ImportSubmissionService:
         try:
             existing = self._import_store.lookup_by_key(path_repository_id, key_hash)
         except Exception as exc:
-            raise _service_not_ready("control database lookup failed") from exc
+            raise _map_store_error(exc, context="lookup") from exc
 
         if existing is not None:
             stored_fingerprint = self._import_store.fingerprint_for_key(path_repository_id, key_hash)
@@ -112,9 +113,13 @@ class ImportSubmissionService:
                 key_hash=key_hash,
                 fingerprint=fingerprint,
                 max_queued_imports=self._settings.max_queued_imports,
+                layout=self._layout,
             )
         except ImportFingerprintConflict:
-            existing = self._import_store.lookup_by_key(path_repository_id, key_hash)
+            try:
+                existing = self._import_store.lookup_by_key(path_repository_id, key_hash)
+            except Exception as exc:
+                raise _map_store_error(exc, context="lookup after conflict") from exc
             if existing is None:
                 raise _service_not_ready("control database lookup failed after conflict") from None
             stored_fingerprint = self._import_store.fingerprint_for_key(path_repository_id, key_hash)
@@ -158,10 +163,14 @@ class ImportSubmissionService:
                 message="artifact was not found",
                 status_code=404,
             ) from exc
+        except ValidationError as exc:
+            raise _internal_error() from exc
+        except sqlite3.Error as exc:
+            raise _service_not_ready("control database admission failed") from exc
         except ImportOperationStoreError as exc:
             raise _service_not_ready("control database admission failed") from exc
         except Exception as exc:
-            raise _service_not_ready("control database admission failed") from exc
+            raise _map_store_error(exc, context="admission") from exc
 
         if not result.is_new:
             self._worker_pool.notify()
@@ -185,7 +194,7 @@ class ImportSubmissionService:
         try:
             stored = self._import_store.get_operation(repository_id, operation_id)
         except Exception as exc:
-            raise _service_not_ready("control database lookup failed") from exc
+            raise _map_store_error(exc, context="lookup") from exc
         if stored is None:
             raise ServiceError(
                 code="OPERATION_NOT_FOUND",
@@ -195,11 +204,7 @@ class ImportSubmissionService:
         try:
             operation = _to_versioned_operation(stored)
         except ValidationError as exc:
-            raise ServiceError(
-                code="INTERNAL_ERROR",
-                message="internal server error",
-                status_code=500,
-            ) from exc
+            raise _internal_error() from exc
         return GetOperationResponse(operation=operation)
 
     def _preflight_new_effect(self, repository_id: UUID, binding: ImportRequestBinding) -> None:
@@ -313,6 +318,24 @@ def _to_versioned_operation(stored: StoredImportOperation) -> VersionedOperation
         result=stored.result,
         error=stored.error,
     )
+
+
+def _internal_error() -> ServiceError:
+    return ServiceError(
+        code="INTERNAL_ERROR",
+        message="internal server error",
+        status_code=500,
+    )
+
+
+def _map_store_error(exc: BaseException, *, context: str) -> ServiceError:
+    if isinstance(exc, ValidationError):
+        return _internal_error()
+    if isinstance(exc, sqlite3.Error):
+        return _service_not_ready(f"control database {context} failed")
+    if isinstance(exc, ImportOperationStoreError):
+        return _service_not_ready(f"control database {context} failed")
+    return _service_not_ready(f"control database {context} failed")
 
 
 def _service_not_ready(message: str) -> ServiceError:

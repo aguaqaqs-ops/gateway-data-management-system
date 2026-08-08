@@ -13,14 +13,16 @@ from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import DoltRunner
 from support.lifecycle_harness import lifecycle_settings
 
-pytestmark = pytest.mark.integration
-
 
 @pytest.mark.serial
 def test_terminate_and_reap_sends_term_then_kill(tmp_path: Path) -> None:
-    settings = lifecycle_settings(tmp_path)
+    dolt_stub = tmp_path / "dolt-stub"
+    dolt_stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    dolt_stub.chmod(0o755)
+    settings = lifecycle_settings(tmp_path, dolt_binary=dolt_stub)
     layout = DurableLayout.create_for_probe(settings.data_root)
-    runner = DoltRunner(settings, layout.root)
+    with patch.object(DoltRunner, "_validate_version"):
+        runner = DoltRunner(settings, layout.root)
     signals: list[tuple[int, int]] = []
 
     class FakeProcess:
@@ -50,9 +52,13 @@ def test_terminate_and_reap_sends_term_then_kill(tmp_path: Path) -> None:
 
 @pytest.mark.serial
 def test_terminate_active_children_reaps_all_registered(tmp_path: Path) -> None:
-    settings = lifecycle_settings(tmp_path)
+    dolt_stub = tmp_path / "dolt-stub"
+    dolt_stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    dolt_stub.chmod(0o755)
+    settings = lifecycle_settings(tmp_path, dolt_binary=dolt_stub)
     layout = DurableLayout.create_for_probe(settings.data_root)
-    runner = DoltRunner(settings, layout.root)
+    with patch.object(DoltRunner, "_validate_version"):
+        runner = DoltRunner(settings, layout.root)
     reaped: list[int] = []
 
     def _terminate_and_reap(process: object, *, grace_seconds: float | None = None) -> None:

@@ -18,7 +18,9 @@ from gateway_repository_contracts import (
     VersionedImportResult,
     VersionedOperation,
 )
+from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import IdempotencyKeyHash, MutationStore
+from gateway_repository_service.upload_artifact.visibility import has_published_artifact_file
 from gateway_repository_service.versioned_import.models import (
     ArtifactOperationReference,
     ClaimOrEnqueueResult,
@@ -187,6 +189,7 @@ class ImportOperationStore:
         key_hash: IdempotencyKeyHash,
         fingerprint: bytes,
         max_queued_imports: int,
+        layout: DurableLayout,
         operation_id: UUID | None = None,
     ) -> ClaimOrEnqueueResult:
         with self._transaction():
@@ -221,7 +224,7 @@ class ImportOperationStore:
             if queued_count >= max_queued_imports:
                 raise ImportQueueFull("global import queue is full")
 
-            self._verify_artifact_lifecycle_binding(binding)
+            self._verify_artifact_lifecycle_binding(binding, layout)
 
             new_operation_id = operation_id or uuid4()
             now = utc_now_iso()
@@ -773,7 +776,11 @@ class ImportOperationStore:
                 return True
         return False
 
-    def _verify_artifact_lifecycle_binding(self, binding: ImportRequestBinding) -> None:
+    def _verify_artifact_lifecycle_binding(
+        self,
+        binding: ImportRequestBinding,
+        layout: DurableLayout,
+    ) -> None:
         cursor = self._connection.execute(
             """
             SELECT
@@ -804,6 +811,14 @@ class ImportOperationStore:
             raise ImportArtifactBindingRejected("artifact is already consumed")
         if row["bytes_deleted_at"] is not None:
             raise ImportArtifactBindingRejected("artifact bytes are deleted")
+        if not has_published_artifact_file(
+            layout,
+            binding.repository_id,
+            binding.artifact_ref.artifact_id,
+            size_bytes=binding.artifact_ref.size_bytes,
+            raw_sha256=binding.artifact_ref.raw_sha256,
+        ):
+            raise ImportArtifactBindingRejected("artifact ready file is missing or mismatched")
 
     def _allocate_enqueue_sequence(self, repository_id: UUID) -> int:
         row = self._connection.execute(

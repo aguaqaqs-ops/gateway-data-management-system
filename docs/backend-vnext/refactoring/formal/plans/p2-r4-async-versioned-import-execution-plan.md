@@ -97,7 +97,9 @@ uv run pytest -q
 - 不得手写`skipif(not dolt_available())`，由`tests/conftest.py`统一分类与skip。
 
 测试可在开发过程中定向运行，但stage commit前必须执行该阶段明确要求的package gate。
-S10必须执行contracts和service两个package的全部四命令。
+S10必须执行contracts的完整四命令，以及service的lock/ruff/mypy、
+`pytest -m "not serial"`和`pytest -m serial -n 0`拆分gate；最后使用
+`./vnext/scripts/run-tests.sh`覆盖全部五包。
 
 ## 3. Stage summary and context sizing
 
@@ -1195,9 +1197,16 @@ next_stage: P2-R4-S9
 
 ### Goal
 
-在所有effect/recovery构件ready后激活SubmitVersionedImport和GetOperation，完成auth、header、
-OpenAPI、idempotency、queue/disk admission、response-loss replay、request/operation logging和
-真实HTTP integration。
+在所有effect/recovery构件ready后激活SubmitVersionedImport和GetOperation两条
+public route，完成auth、header/body/path validation、OpenAPI、replay-first idempotency、
+transactional queue/MANUAL/artifact admission、disk headroom、response-loss replay、safe logging和
+真实ASGI + SQLite HTTP integration。S9不扩大到P2-R5 public reads、public admin API或S10
+real-Dolt/process-crash/Compose closure。
+
+S8代码基线为`251ac8b`，S8 handoff文档tip为`fe734b4`。S9开始时必须用
+`git merge-base --is-ancestor 251ac8b HEAD`验证代码基线在当前分支上，不要为追逐
+S8 handoff中的self-referential short SHA做amend或重写history。保留任何已有用户
+改动；若除本计划/设计文档外还有未说明的code/test改动，先停止并报告。
 
 ### Allowed paths
 
@@ -1206,65 +1215,315 @@ vnext/repository_service/src/gateway_repository_service/http/routes/imports.py
 vnext/repository_service/src/gateway_repository_service/http/routes/operations.py
 vnext/repository_service/src/gateway_repository_service/http/routes/__init__.py
 vnext/repository_service/src/gateway_repository_service/http/errors.py
-vnext/repository_service/src/gateway_repository_service/http/readiness_guard.py
 vnext/repository_service/src/gateway_repository_service/app.py
 vnext/repository_service/src/gateway_repository_service/runtime.py
 vnext/repository_service/src/gateway_repository_service/capacity.py
 vnext/repository_service/src/gateway_repository_service/settings.py
+vnext/repository_service/src/gateway_repository_service/versioned_import/submission.py
 vnext/repository_service/src/gateway_repository_service/versioned_import/command.py
+vnext/repository_service/src/gateway_repository_service/versioned_import/models.py
+vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
 vnext/repository_service/tests/test_import_http.py
 vnext/repository_service/tests/test_operation_http.py
+vnext/repository_service/tests/test_import_submission.py
+vnext/repository_service/tests/test_import_operation_store.py
+vnext/repository_service/tests/test_import_worker.py
+vnext/repository_service/tests/test_capacity.py
+vnext/repository_service/tests/test_runtime.py
 vnext/repository_service/tests/test_http_shell.py
 vnext/repository_service/tests/test_settings.py
+vnext/repository_service/tests/support/http_harness.py
+docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md  # S9 handoff only
 ```
+
+`submission.py`是S9新增的application boundary；route只负责HTTP解码/映射，不在
+route内手写SQLite查询或复制store invariant。`command.py`仍是worker executor，只允许为
+extraction前重复disk/headroom gate做最小改动。不修改`repository_contracts`、control DB
+schema/user_version、provider/recovery/admin/lock语义；若发现必须越出上述路径，先说明
+缺口和最小scope amendment，不要顺手扩展。
 
 ### Required behavior and gate
 
-- exact two routes，无stub/read routes；
-- bearer、request ID、SimpleError和status；
-- header-only key、closed body、path/body match和literal main；
-- QUEUED transaction先于202；
-- same-key original202/op ID，different fingerprint409；
-- GetOperation四态/result/error；
-- queue 429、disk/provider/readiness 503；
-- same-key replay不占新queue slot；
-- unresolved MANUAL阻止新key admission但不阻止same-key replay/GetOperation；
-- disconnect/response-loss后same-key replay；
-- logs只含safe identifiers；
-- OpenAPI只新增R4 routes；
-- contracts和service完整四命令。
+- production OpenAPI exact新增两条route：
+  `POST /v1/repositories/{repository_id}/versioned/imports`和
+  `GET /v1/repositories/{repository_id}/operations/{operation_id}`；Submit显式声明
+  `202/401/404/409/422/429/503`，GetOperation声明`200/401/404/422/503`；无stub
+  resolve/catalog/rows/admin；
+- 两条route都需bearer auth，每个response都有server-generated `X-Request-ID`；所有JSON
+  error（含framework validation）映射为`SimpleError`；
+- Submit只从`Idempotency-Key` header读取1..255 UTF-8 opaque key；使用contracts-owned
+  `ImportRequestHeaders`/`SubmitVersionedImportRequest`，body closed、不得出现key，path/body
+  repository exact match，`target_ref` literal `main`，policy defaults保持STRUCTURAL/REJECT；
+- 先做durable same-key lookup：matching fingerprint在任何effect-only gate之前返回原
+  operation ID/202（包括terminal operation），different fingerprint在这些gate之前返回
+  `409 / IDEMPOTENCY_CONFLICT`；raw key只在内存中hash，不持久化、不写日志；
+- 只对missing key做新effect admission。外部preflight不持SQLite transaction；随后一个
+  `BEGIN IMMEDIATE` transaction必须recheck key、repository/artifact durable binding、MANUAL
+  barrier和global QUEUED count，并插入QUEUED。必须先commit QUEUED再通知dispatcher、
+  再返202；并发same-key只有一个operation ID，different-key不超queue limit；
+- repository必须可见；artifact lifecycle的repository/artifact/media type/size/raw SHA exact
+  match，未consumed/deleted且ready file存在。Artifact absent、cross-scope、binding mismatch、
+  consumed/deleted统一`404 / ARTIFACT_NOT_FOUND`；不泄漏跨repository信息；
+- repository unresolved `FAILED / MANUAL_RECOVERY_REQUIRED`时新key返回
+  `409 / MANUAL_RECOVERY_REQUIRED`；same-key replay和GetOperation继续可用；
+- `max_queued_imports=64`是global QUEUED-only正整数上限，不计RUNNING或replay；满时
+  新key返回`429 / IMPORT_QUEUE_FULL`。保持`max_import_workers=4`既有默认不变；
+- 新增非负`import_headroom_bytes=1 GiB`。Import admission和worker extraction前共用同一
+  fail-closed helper：`free >= max(min_free_disk_bytes, floor(total * fraction)) + headroom`；
+  exact boundary接受，boundary-1拒绝，measurement/writable error不得fail open；
+- 不直接使用现有`require_service_ready`作两条route dependency，因为它会用provider/
+  disk gate阻断replay/poll。GetOperation只需auth和可读control DB；shutdown/provider/disk/
+  queue/MANUAL只阻止新effect。Root lock/provider不可用的新effect映射
+  `503 / SERVICE_NOT_READY`，writable/headroom映射`503 / DISK_ADMISSION_DENIED`；control DB
+  operational failure时无法完成lookup，Submit replay和GetOperation也返回`503 / SERVICE_NOT_READY`；
+- GetOperation用repository ID + operation ID scope lookup；absent/wrong-repository都是
+  `404 / OPERATION_NOT_FOUND`。成功返回contracts-owned
+  `GetOperationResponse` (`{"operation": {...}}`)和200，四态result/error invariant不变；
+  terminal FAILED仍是200，durable `operation.error.request_id` 仍为空，不改写poll ID；
+- structured logs至少区分accepted/replayed/conflicted/admission-denied，只含request ID、
+  operation/repository/artifact ID、policy、size、status和stable code；不得包含token、raw key、
+  expected/raw SHA全值、SQL/stderr、host path、private ref/marker、credential或complete row；
+- DB-only HTTP/store/capacity tests经真实ASGI stack和SQLite执行，不直接调route function，
+  不`dolt init`，在dolt parked时`-m unit`通过；S10仍拥有real-Dolt/process-crash/Compose
+  matrix；
+- required package gates、五包ruff/mypy、权威`run-tests.sh`、`git diff --check`和route/
+  secret old-reference search全部green后才能stage exit。
 
 ### Code implementation prompt
 
 ```text
-请执行 P2-R4-S9 — Activate Import and Operation HTTP Routes。这是首次激活R4 public route；
-不得增加P2-R5 read/client或public admin API。
+请直接执行 P2-R4-S9 — Activate Import and Operation HTTP Routes，完成实现、测试、
+验证、commit和handoff。不要只做审核或给建议。这是R4首次激活public import/
+operation route；不增加P2-R5 resolve/catalog/rows/client，不增加public admin API，不提前
+执行S10 real-Dolt process-crash/Compose matrix。
 
-开始前核对S8 handoff。读取P2-R4详细设计§§4–5、9、18，Repository Service Contract §§6、
-10–11、14和当前FastAPI auth/error/readiness/create/upload patterns。确认worker/recovery/admin
-全部已存在且tests green后才注册route。
+一、基线与权威
 
-实现POST /v1/repositories/{repository_id}/versioned/imports和
-GET /v1/repositories/{repository_id}/operations/{operation_id}。Submit只从Idempotency-Key
-header取key，closed JSON body不得含key；body/path repository一致、target main、policies默认。
-新effect必须先完成same-key lookup和admission，再在SQLite持久QUEUED后返回202。Same-key/same
-fingerprint即使terminal仍返回原operation ID/202，不占新queue slot；different fingerprint 409。
-Repository存在未解决MANUAL时，新key返回409/MANUAL_RECOVERY_REQUIRED，same-key replay和
-GetOperation继续可用。
+1. 先运行git status --short、git rev-parse --short HEAD和
+   git merge-base --is-ancestor 251ac8b HEAD。S8代码基线必须包含251ac8b；S8 handoff
+   文档tip为fe734b4。不要为S8 handoff的head_sha做amend、hash固定点搜索或history
+   rewrite。保留用户已有改动；若除当前计划/设计文档外还有未说明code/test
+   diff，停止并报告。
+2. 完整读取：
+   - docs/backend-vnext/refactoring/formal/contracts/repository-service.md §§6、10–11、14；
+   - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md
+     §§4–5、9、18、20–21；
+   - 本计划S8 handoff和S9全节；
+   - repository AGENTS.md、docs/backend-vnext/testing-conventions.md；
+   - 现有app.py、auth/error/request-ID/readiness、create/upload route/command patterns，以及
+     settings.py、capacity.py、runtime.py、versioned_import/{models,store,worker,command}.py。
+   权威优先级为formal contract > implementation design > S9 plan/prompt > current code。
+3. 确认当前app尚未注册import/operation route，contracts DTO、v7 store、worker/recovery/admin
+   已存在；不重写已完成的S1–S8语义。
 
-GetOperation返回200和四态representation，terminal failure仍在operation.error，不映射HTTP
-500。实现auth、SimpleError、X-Request-ID、404、422、429、503；不要泄漏raw key、SQL、path、
-private ref或row。Queue default64、worker default4、headroom default1 GiB均可配置。
+二、实现边界
 
-HTTP tests覆盖auth、OpenAPI、framework validation、same/different fingerprint、202 response
-loss/replay、queue/disk admission、poll四态和server-generated request ID。OpenAPI只能新增上述
-两条R4 routes，不得出现stub resolve/catalog/rows/admin。
+4. 新增versioned_import/submission.py作application boundary。HTTP route只负责解码
+   contracts-owned header/body/path、调用submission/store并映射response；不在route内手写SQL、
+   复制fingerprint/store invariant或调Dolt。command.py仍是worker executor，只做重复
+   disk/headroom check的最小改动。
+5. 注册且只注册：
+   - POST /v1/repositories/{repository_id}/versioned/imports -> 202 SubmitVersionedImportResponse
+   - GET /v1/repositories/{repository_id}/operations/{operation_id} -> 200 GetOperationResponse
+   两者都要bearer auth、SimpleError和server-generated X-Request-ID。Submit只从
+   Idempotency-Key header读取key，显式通过ImportRequestHeaders验证；body使用closed
+   SubmitVersionedImportRequest，禁止body key/extra field，检查path/body repository一致、
+   target_ref == main，保持STRUCTURAL/REJECT默认。OpenAPI显式声明Submit的
+   202/401/404/409/422/429/503与GetOperation的200/401/404/422/503。
+6. 不要把require_service_ready直接挂到这两条route。它包含provider/disk/writable
+   gate，会错误阻断replay和poll。GetOperation只做auth + scoped control-DB lookup。Submit
+   先处理durable replay/conflict，再对missing key做route-specific new-effect admission。
 
-分别在repository_contracts和repository_service运行完整四命令；运行git diff --check和route
-搜索。通过后提交：
-feat(repository): activate import and operation routes
+三、replay-first与原子admission
 
-输出S9 handoff，next_stage=P2-R4-S10。
+7. 用(repository-scoped key hash + versioned_import_fingerprint_v1)先查durable row：
+   - same key/same fingerprint：无论QUEUED/RUNNING/SUCCEEDED/FAILED，立即返回原
+     operation_id + 202；
+   - same key/different fingerprint：立即409 / IDEMPOTENCY_CONFLICT；
+   - 这两个结果都必须先于shutdown/provider/disk/queue/MANUAL/artifact effect-only gate。
+   Raw key只做SHA-256，不持久化、不记录、不出现error details。
+8. 只对missing key做外部preflight：runtime仍accepting effects，root lock/control DB/provider
+   capability可用，repository可见，durable root可写，disk/headroom达标。外部
+   provider/filesystem/statvfs检查期间不得持SQLite transaction或store lock。
+9. 然后在一个BEGIN IMMEDIATE transaction内再次lookup key，并在插入前recheck：
+   - repository create durable ledger仍为SUCCEEDED；filesystem visibility已在外部preflight确认；
+   - artifact lifecycle的repository/artifact/media type/size/raw SHA exact match，
+     consumed_at/bytes_deleted_at为空，matching ready file已在外部preflight确认；
+   - repository无unresolved FAILED/MANUAL_RECOVERY_REQUIRED；
+   - global status=QUEUED count < max_queued_imports。
+   最后插入QUEUED并commit。必须先commit再notify worker，再返202；new insert必须
+   notify，replay允许作为幂等liveness hint notify，但不得写新row或消耗slot。并发
+   same-key必须收敛为一个operation ID，并发
+   different-key不得突破global queue limit。
+10. Error mapping固定：REPOSITORY_NOT_FOUND 404；ARTIFACT_NOT_FOUND 404（absent/cross-scope/
+    binding mismatch/consumed/deleted统一）；OPERATION_NOT_FOUND 404（wrong repository也统一）；
+    IDEMPOTENCY_CONFLICT 409；MANUAL_RECOVERY_REQUIRED 409（new key only）；
+    IMPORT_QUEUE_FULL 429；SERVICE_NOT_READY 503（shutdown/root lock/control DB/provider）；
+    DISK_ADMISSION_DENIED 503（writable/measurement/headroom）。这些都是request-layer error，不写
+    operation.error_json。Control DB operational/query failure映503 / SERVICE_NOT_READY（对poll/replay也
+    一样）；DB可读但row违反schema/DTO invariant时才sanitize为不泄漏的500，不返回
+    SQL、row或host path。
+
+四、capacity、poll和observability
+
+11. Settings新增max_queued_imports=64（positive int）和import_headroom_bytes=1*1024**3
+    （non-negative int），自动对应GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS /
+    GATEWAY_REPOSITORY_IMPORT_HEADROOM_BYTES。保持max_import_workers=4和shutdown默认不变。
+12. 新增共享import disk helper：
+    baseline=max(min_free_disk_bytes, floor(total_bytes*min_free_disk_fraction))；
+    admitted=free_bytes >= baseline+import_headroom_bytes。
+    Submit和worker extraction前使用同一helper；exact boundary通过，boundary-1失败；
+    statvfs/writable OSError fail closed。Worker侧若证明尚无Dolt effect，按现有终局
+    IMPORT_REJECTED落库，不hidden retry。
+13. GetOperation必须返回{"operation": {...}}外层，不得拉平。四态使用contracts
+    DTO验证；FAILED仍返200，error在operation.error中且persisted request_id为None。
+    Response header使用当前poll request ID，不改写durable error。
+14. Structured event至少覆盖accepted/replayed/conflicted/admission-denied。只记录request ID、
+    operation/repository/artifact ID、policy、duration/size、status/stable code。禁止token、raw key、
+    expected/raw SHA全值、replay SQL/full stderr、host path、private ref/marker、credential和complete row。
+
+五、测试
+
+15. 新增DB-only unit harness：真实FastAPI TestClient/ASGI middleware + 真实SQLite v7 store +
+    paused/fake dispatcher，不直接调route function，不运行dolt init。仅在需要真实
+    ServiceRuntime.start/DoltRunner的case上标integration；不手写dolt skipif。只有payload/
+    expected error不同的同构case使用模块级共享参数表。
+16. HTTP/store/capacity tests至少覆盖：
+    - auth，caller X-Request-ID不能覆盖server ID，SimpleError，missing/invalid header，invalid
+      JSON，body extra/idempotency_key，path/body mismatch，policy defaults/enums；
+    - new accept的QUEUED-before-202、丢弃首次202后replay原operation ID，四种operation status的
+      same-key replay，different fingerprint 409；
+    - replay/conflict在shutdown、provider unavailable、disk denied、queue full和MANUAL下的优先级，
+      以及这些状态下GetOperation仍可读；
+    - repository/artifact/operation 404、artifact cross-scope/binding/consumed/deleted、operation
+      wrong-repository；
+    - MANUAL只拒绝new key，global QUEUED-only limit，RUNNING/replay不占slot，并发不超限；
+    - disk formula exact boundary +/-1、statvfs/writable exception fail closed、worker重复检查；
+    - GetOperation {"operation": ...}四态，terminal FAILED=200，persisted error request_id=None；
+    - production OpenAPI path exact set为healthz、readyz、create、upload、import、operation，断言
+      import/operation method和status declarations，且无resolve/catalog/rows/admin/_test；
+    - logs/caplog中无raw key、token、SQL/path/private ref/marker/row。
+
+六、验证与提交
+
+17. 开发时先跑定向unit。改分类后必须临时park /usr/local/bin/dolt，在
+    vnext/repository_service运行uv run pytest -m unit，用trap确保恢复dolt；运行后
+    明确确认dolt已恢复。
+18. 提交前运行：
+    - 在vnext/repository_contracts依次运行uv lock --check、uv run ruff check .、
+      uv run mypy、uv run pytest -q。
+    - 在vnext/repository_service依次运行uv lock --check、uv run ruff check .、
+      uv run mypy、uv run pytest -q -m "not serial"、uv run pytest -q -m serial -n 0。
+    - 在vnext/backend、vnext/repository_client、vnext/shared_kernel各自分别运行
+      uv run ruff check . 和 uv run mypy。
+    - 在仓库根运行./vnext/scripts/run-tests.sh和git diff --check。
+    任一失败必须修复并重跑受影响gate，不得以历史S8计数代替S9结果。
+19. 定向搜索production OpenAPI/routes，确认只新增两条route；搜索body
+    idempotency_key、raw-key logging、public resolve/catalog/rows/admin/force、multipart/URL/path import、
+    Candidate B和production对workflow/fixture/benchmark的依赖。Historical formal artifacts可命中，
+    production code/tests/OpenAPI/current plan不得依赖旧语义。
+20. Gate全green后提交code/test：
+    feat(repository): activate import and operation routes
+    不要把无关文档改动混入code commit。然后在本计划追加S9 handoff，至少记录
+    start_sha、validated_code_sha、code_commit_sha、branch、actual modified paths、exact route set、
+    admission ordering、status/code matrix、settings defaults、test markers/counts、validation commands/results、
+    fault points、old-reference searches、first failures/fixes、known limitations、stage_exit和
+    next_stage=P2-R4-S10。
+    上述SHA字段是本节对§4通用handoff template的S9明确替代。为避免commit自引用，
+    已提交的handoff正文不填它自己的SHA，不通过amend追逐
+    head_sha；最终回复单独报告实际handoff commit SHA和当前git rev-parse HEAD。
+    未提交、worktree不clean、required gate失败或required test被skip/xfail时，
+    stage_exit=no-go、next_stage_ready=no。
+```
+
+### S9 handoff
+
+```yaml
+start_sha: fe734b4
+validated_code_sha: 11fcf1b
+code_commit_sha: 11fcf1b
+branch: phase1/gate-ownership-repair
+actual_modified_paths:
+  - vnext/repository_service/src/gateway_repository_service/app.py
+  - vnext/repository_service/src/gateway_repository_service/capacity.py
+  - vnext/repository_service/src/gateway_repository_service/settings.py
+  - vnext/repository_service/src/gateway_repository_service/http/routes/imports.py
+  - vnext/repository_service/src/gateway_repository_service/http/routes/operations.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/submission.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/command.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/models.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/__init__.py
+  - vnext/repository_service/tests/test_capacity.py
+  - vnext/repository_service/tests/test_import_http.py
+  - vnext/repository_service/tests/test_operation_http.py
+  - vnext/repository_service/tests/test_import_submission.py
+  - vnext/repository_service/tests/support/http_harness.py
+  - vnext/repository_service/tests/test_import_operation_store.py
+  - vnext/repository_service/tests/test_import_worker.py
+  - vnext/repository_service/tests/test_settings.py
+  - vnext/repository_service/tests/test_http_shell.py
+  - vnext/repository_service/tests/test_create_repository_http.py
+  - vnext/repository_service/tests/test_upload_artifact_http.py
+  - vnext/repository_service/tests/test_auth_lifecycle.py
+  - vnext/repository_service/tests/test_p2_r2_compose_integration.py
+  - vnext/repository_service/tests/test_dolt_runner_shutdown.py
+  - vnext/repository_service/tests/test_import_shutdown.py
+exact_route_set:
+  - POST /v1/repositories/{repository_id}/versioned/imports -> 202 SubmitVersionedImportResponse
+  - GET /v1/repositories/{repository_id}/operations/{operation_id} -> 200 GetOperationResponse
+production_openapi_paths:
+  - /healthz
+  - /readyz
+  - /v1/repositories
+  - /v1/repositories/{repository_id}/artifacts
+  - /v1/repositories/{repository_id}/versioned/imports
+  - /v1/repositories/{repository_id}/operations/{operation_id}
+admission_ordering:
+  - durable same-key lookup (replay 202 or conflict 409) before any effect-only gate
+  - missing key external preflight: shutdown/root lock/control DB/provider/repository/artifact/disk
+  - BEGIN IMMEDIATE admit_new_import: create ledger, manual barrier, global QUEUED count, artifact lifecycle binding, insert QUEUED
+  - commit then worker notify then 202
+status_code_matrix:
+  submit: [202, 401, 404, 409, 422, 429, 503]
+  get_operation: [200, 401, 404, 422, 503]
+  replay_conflict_priority: replay and IDEMPOTENCY_CONFLICT precede shutdown/provider/disk/queue/MANUAL gates
+settings_defaults:
+  max_queued_imports: 64
+  import_headroom_bytes: 1073741824
+  max_import_workers: 4
+  import_shutdown_grace_seconds: 2.0
+test_markers_counts:
+  repository_contracts_pytest: 64 passed
+  repository_service_unit_parked_dolt: 600 passed, 1 skipped
+  repository_service_parallel: 853 passed, 1 skipped
+  repository_service_serial: 30 passed
+  run_tests_sh: green (five packages)
+validation_commands_results:
+  - "vnext/repository_contracts: uv lock --check, ruff, mypy, pytest -q -> pass (64)"
+  - "vnext/repository_service: uv lock --check, ruff, mypy, pytest -m 'not serial', pytest -m serial -n 0 -> pass"
+  - "vnext/backend, repository_client, shared_kernel: ruff, mypy -> pass"
+  - "./vnext/scripts/run-tests.sh -> pass"
+  - "git diff --check -> pass"
+fault_points:
+  - nested mutation_store transaction deadlock inside admit_new_import (fixed with locked SQL helpers)
+  - HTTP harness provider readiness when /usr/local/bin/dolt parked (fixed with tmp_path dolt stub)
+old_reference_searches:
+  - production routes: only import/operation added; no resolve/catalog/rows/admin/_test
+  - body idempotency_key: only negative validation test payload
+  - raw-key logging: caplog asserts no raw key/token in import HTTP tests
+  - Candidate B / multipart / URL path import: no production hits
+first_failures_and_fixes:
+  - admit_new_import deadlock on mutation_store nested lock -> inline locked SQL for create/artifact checks
+  - import HTTP tests hung on missing dolt binary -> harness dolt stub + provider_gate path
+  - unit gate with dolt parked: dolt_runner_shutdown + worker-hang shutdown tests marked integration
+known_limitations:
+  - S10 still owns real-Dolt/process-crash/Compose matrix
+  - no P2-R5 public reads or public admin API
+  - integration submit happy-path depends on real create/upload/import stack
+stage_exit: pass
+next_stage_ready: yes
+next_stage: P2-R4-S10
 ```
 
 ## 14. S10 — Full fault matrix, real Dolt, Compose and handoff

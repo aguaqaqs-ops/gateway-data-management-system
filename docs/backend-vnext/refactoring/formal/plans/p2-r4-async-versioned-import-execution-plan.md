@@ -1808,6 +1808,51 @@ next_stage_ready: no
 next_stage: P2-R4-S9 sixth-review remediation
 ```
 
+#### S9 handoff amendment (seventh-review remediation)
+
+```yaml
+seventh_review_fix_commit_sha: 78d546a
+worktree_clean: false
+uncommitted_paths:
+  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md  # S8 scope
+seventh_review_fix_paths:
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/submission.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/models.py
+  - vnext/repository_service/tests/test_import_http.py
+  - vnext/repository_service/tests/test_import_submission.py
+  - vnext/repository_service/tests/test_import_operation_store.py
+seventh_review_fix_summary:
+  - pending replay checks fingerprint before _await_admission_resolution for immediate 409
+  - _raise_after_pending_admission_failure maps sqlite/store errors to 503 and artifact loss to 404
+  - abort/await helper DB calls wrapped with _map_store_error
+  - validate_pending_operation_row rejects terminal payload on ADMISSION_PENDING rows
+sixth_review_correction:
+  - sixth-review validation_commands claimed run-tests.sh x3 pass with parenthetical flake; accurate record is 2 pass / 1 flake
+test_markers_counts:
+  repository_service_unit: 663 passed, 1 skipped
+  repository_service_parallel: 905 passed, 1 skipped
+  repository_service_serial: 39 passed
+validation_commands_results:
+  - "directed pending/fingerprint/sqlite/invariant tests -n 0 -> pass (31)"
+  - "repository_service: ruff, mypy -> pass"
+  - "repository_service: pytest -m unit, pytest -m serial -n 0 -> pass"
+  - "./vnext/scripts/run-tests.sh x3 -> 2 pass, 1 flake (test_import_provider.py::test_concurrent_streams_keep_field_limit on run 2)"
+first_failures_and_fixes:
+  - P1 pending different-fingerprint waited then 404/503 -> fingerprint conflict before admission wait
+  - P1 publish sqlite error returned 404 after abort -> _raise_after_pending_admission_failure cause typing
+  - P2 helper sqlite errors became 500 -> _map_store_error on abort/await durable-status reads
+  - P2 pending row accepted error_json -> validate_pending_operation_row fail closed
+  - P3 handoff x3 pass overstated -> seventh amendment records 2 pass / 1 flake
+known_limitations:
+  - cooperative cleanup excluded by admission pin flock; external durable-root tampering outside support surface
+  - S10 still owns real-Dolt/process-crash/Compose matrix
+  - no P2-R5 public reads or public admin API
+stage_exit: no-go
+next_stage_ready: no
+next_stage: P2-R4-S9 seventh-review remediation
+```
+
 ## 14. S10 — Full fault matrix, real Dolt, Compose and handoff
 
 ### Goal

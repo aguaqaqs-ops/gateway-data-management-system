@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -11,6 +12,7 @@ from pydantic import ValidationError
 from gateway_repository_contracts import (
     GetOperationResponse,
     ImportRequestHeaders,
+    OperationStatus,
     SubmitVersionedImportRequest,
     SubmitVersionedImportResponse,
     VersionedOperation,
@@ -45,6 +47,7 @@ from gateway_repository_service.versioned_import.models import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+_ADMISSION_RESOLUTION_TIMEOUT_SECONDS = 5.0
 
 
 class ImportSubmissionService:
@@ -90,11 +93,12 @@ class ImportSubmissionService:
             raise _map_store_error(exc, context="lookup") from exc
 
         if replay_state is not None:
-            return self._handle_replay_state(
+            return self._replay_after_admission_resolution(
                 replay_state,
                 fingerprint=fingerprint,
                 request_id=request_id,
                 path_repository_id=path_repository_id,
+                key_hash=key_hash,
             )
 
         try:
@@ -156,11 +160,12 @@ class ImportSubmissionService:
                 raise _map_store_error(exc, context="lookup after conflict") from exc
             if replay_state is None:
                 raise _service_not_ready("control database lookup failed after conflict") from None
-            return self._handle_replay_state(
+            return self._replay_after_admission_resolution(
                 replay_state,
                 fingerprint=fingerprint,
                 request_id=request_id,
                 path_repository_id=path_repository_id,
+                key_hash=key_hash,
             )
         except ImportManualBarrierRequired as exc:
             _log_submission_event(
@@ -197,6 +202,16 @@ class ImportSubmissionService:
         except (ValidationError, ImportStoreInvariantError, MutationStoreInvariantError) as exc:
             raise _internal_error() from exc
         except sqlite3.Error as exc:
+            if pending_operation_id is not None:
+                return self._abort_pending_admission_or_replay(
+                    pending_operation_id,
+                    repository_id=path_repository_id,
+                    key_hash=key_hash,
+                    fingerprint=fingerprint,
+                    request_id=request_id,
+                    path_repository_id=path_repository_id,
+                    cause=exc,
+                )
             raise _service_not_ready("control database admission failed") from exc
         except ImportOperationStoreError as exc:
             if pending_operation_id is not None:
@@ -214,6 +229,18 @@ class ImportSubmissionService:
             raise _internal_error() from exc
 
         if not result.is_new:
+            if result.operation.durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+                return self._replay_after_admission_resolution(
+                    ReplayLookup(
+                        operation=result.operation,
+                        stored_fingerprint=fingerprint,
+                        durable_status=result.operation.durable_status,
+                    ),
+                    fingerprint=fingerprint,
+                    request_id=request_id,
+                    path_repository_id=path_repository_id,
+                    key_hash=key_hash,
+                )
             self._worker_pool.notify()
             return SubmitVersionedImportResponse(operation_id=result.operation_id)
 
@@ -223,7 +250,7 @@ class ImportSubmissionService:
             repository_id=path_repository_id,
             operation_id=result.operation_id,
             artifact_id=binding.artifact_ref.artifact_id,
-            status=result.operation.status.value,
+            status=OperationStatus.QUEUED.value,
             verification_policy=binding.verification_policy.value,
             unknown_type_policy=binding.unknown_type_policy.value,
             size_bytes=binding.artifact_ref.size_bytes,
@@ -257,6 +284,10 @@ class ImportSubmissionService:
         path_repository_id: UUID,
     ) -> SubmitVersionedImportResponse:
         existing = replay_state.operation
+        if replay_state.durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+            raise _internal_error()
+        if existing.status is None:
+            raise _internal_error()
         if replay_state.stored_fingerprint != fingerprint:
             _log_submission_event(
                 "conflicted",
@@ -264,7 +295,7 @@ class ImportSubmissionService:
                 repository_id=path_repository_id,
                 operation_id=existing.operation_id,
                 artifact_id=existing.artifact_id,
-                status=existing.status.value,
+                status=_wire_status_label(existing),
                 code="IDEMPOTENCY_CONFLICT",
             )
             raise ServiceError(
@@ -278,10 +309,58 @@ class ImportSubmissionService:
             repository_id=path_repository_id,
             operation_id=existing.operation_id,
             artifact_id=existing.artifact_id,
-            status=existing.status.value,
+            status=_wire_status_label(existing),
         )
         self._worker_pool.notify()
         return SubmitVersionedImportResponse(operation_id=existing.operation_id)
+
+    def _replay_after_admission_resolution(
+        self,
+        replay_state: ReplayLookup,
+        *,
+        fingerprint: bytes,
+        request_id: str | None,
+        path_repository_id: UUID,
+        key_hash: IdempotencyKeyHash,
+    ) -> SubmitVersionedImportResponse:
+        if replay_state.durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+            resolved = self._await_admission_resolution(replay_state.operation.operation_id)
+            if resolved is None:
+                raise ServiceError(
+                    code="ARTIFACT_NOT_FOUND",
+                    message="artifact was not found",
+                    status_code=404,
+                )
+            try:
+                refreshed = self._import_store.lookup_replay_state(path_repository_id, key_hash)
+            except Exception as exc:
+                raise _map_store_error(exc, context="lookup after admission resolution") from exc
+            if refreshed is None:
+                raise ServiceError(
+                    code="ARTIFACT_NOT_FOUND",
+                    message="artifact was not found",
+                    status_code=404,
+                )
+            if refreshed.durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+                raise _service_not_ready("admission is still pending")
+            replay_state = refreshed
+        return self._handle_replay_state(
+            replay_state,
+            fingerprint=fingerprint,
+            request_id=request_id,
+            path_repository_id=path_repository_id,
+        )
+
+    def _await_admission_resolution(self, operation_id: UUID) -> str | None:
+        deadline = time.monotonic() + _ADMISSION_RESOLUTION_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            durable_status = self._import_store.get_operation_durable_status(operation_id)
+            if durable_status is None:
+                return None
+            if durable_status != IMPORT_ADMISSION_PENDING_STATUS:
+                return durable_status
+            time.sleep(0.01)
+        raise _service_not_ready("admission is still pending")
 
     def _abort_pending_admission_or_replay(
         self,
@@ -309,7 +388,27 @@ class ImportSubmissionService:
                 status_code=404,
             ) from cause
         if durable_status == IMPORT_ADMISSION_PENDING_STATUS:
-            raise _internal_error() from cause
+            resolved = self._await_admission_resolution(operation_id)
+            if resolved is None:
+                raise ServiceError(
+                    code="ARTIFACT_NOT_FOUND",
+                    message="artifact was not found",
+                    status_code=404,
+                ) from cause
+            try:
+                replay_state = self._import_store.lookup_replay_state(repository_id, key_hash)
+            except Exception as exc:
+                raise _map_store_error(exc, context="lookup after admission failure") from exc
+            if replay_state is None or replay_state.operation.operation_id != operation_id:
+                raise _internal_error() from cause
+            if replay_state.durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+                raise _service_not_ready("admission is still pending") from cause
+            return self._handle_replay_state(
+                replay_state,
+                fingerprint=fingerprint,
+                request_id=request_id,
+                path_repository_id=path_repository_id,
+            )
 
         try:
             replay_state = self._import_store.lookup_replay_state(repository_id, key_hash)
@@ -429,12 +528,20 @@ def _binding_from_request(body: SubmitVersionedImportRequest) -> ImportRequestBi
 
 
 def _to_versioned_operation(stored: StoredImportOperation) -> VersionedOperation:
+    if stored.status is None:
+        raise ValueError("operation is not wire-visible")
     return VersionedOperation(
         operation_id=stored.operation_id,
         status=stored.status,
         result=stored.result,
         error=stored.error,
     )
+
+
+def _wire_status_label(operation: StoredImportOperation) -> str:
+    if operation.status is not None:
+        return operation.status.value
+    return operation.durable_status
 
 
 def _internal_error() -> ServiceError:

@@ -268,7 +268,8 @@ class ImportRequestBinding:
 class StoredImportOperation:
     operation_id: UUID
     repository_id: UUID
-    status: OperationStatus
+    durable_status: str
+    status: OperationStatus | None
     artifact_id: UUID
     private_ref_name: str
     operation_marker: str
@@ -309,12 +310,14 @@ class ClaimOrEnqueueResult:
 class ReplayLookup:
     operation: StoredImportOperation
     stored_fingerprint: bytes
+    durable_status: str
 
 
 @dataclass(frozen=True, slots=True)
 class ArtifactOperationReference:
     operation_id: UUID
-    status: OperationStatus
+    durable_status: str
+    status: OperationStatus | None
     is_protected: bool
 
 
@@ -364,6 +367,18 @@ def is_protected_operation_status(status: OperationStatus, error: SimpleError | 
     if status in {OperationStatus.QUEUED, OperationStatus.RUNNING}:
         return True
     return status == OperationStatus.FAILED and is_manual_recovery_error(error)
+
+
+def is_protected_durable_status(
+    durable_status: str,
+    wire_status: OperationStatus | None,
+    error: SimpleError | None,
+) -> bool:
+    if durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+        return True
+    if wire_status is None:
+        return False
+    return is_protected_operation_status(wire_status, error)
 
 
 def validate_result_matches_operation_row(

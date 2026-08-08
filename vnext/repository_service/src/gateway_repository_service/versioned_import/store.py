@@ -43,6 +43,7 @@ from gateway_repository_service.versioned_import.models import (
     derive_operation_marker,
     derive_private_ref_name,
     is_manual_recovery_error,
+    is_protected_durable_status,
     is_protected_operation_status,
     utc_now_iso,
     validate_result_matches_operation_row,
@@ -172,6 +173,7 @@ class ImportOperationStore:
             return ReplayLookup(
                 operation=self._operation_from_row(row),
                 stored_fingerprint=self._parse_request_fingerprint(row["request_fingerprint"]),
+                durable_status=str(row["status"]),
             )
 
     def fingerprint_for_key(
@@ -374,6 +376,8 @@ class ImportOperationStore:
             if row is None:
                 return None
             if str(row["repository_scope"]) != repository_id.hex:
+                return None
+            if str(row["status"]) == IMPORT_ADMISSION_PENDING_STATUS:
                 return None
             return self._operation_from_row(row)
 
@@ -707,6 +711,19 @@ class ImportOperationStore:
                 raise ImportOperationStoreError(f"operation {operation_id} disappeared")
             return self._operation_from_row(updated)
 
+    def list_operations_by_durable_status(self, status: str) -> list[StoredImportOperation]:
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                SELECT *
+                FROM repository_import_operations
+                WHERE status = ?
+                ORDER BY repository_scope ASC, enqueue_sequence ASC
+                """,
+                (status,),
+            )
+            return [self._operation_from_row(row) for row in cursor.fetchall()]
+
     def list_operations_by_status(self, status: OperationStatus) -> list[StoredImportOperation]:
         with self._lock:
             cursor = self._connection.execute(
@@ -819,13 +836,25 @@ class ImportOperationStore:
             )
             references: list[ArtifactOperationReference] = []
             for row in cursor.fetchall():
-                status = OperationStatus(str(row["status"]))
+                durable_status = str(row["status"])
                 error = self._parse_error_json(row["error_json"])
+                if durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+                    references.append(
+                        ArtifactOperationReference(
+                            operation_id=UUID(str(row["operation_id"])),
+                            durable_status=durable_status,
+                            status=None,
+                            is_protected=True,
+                        )
+                    )
+                    continue
+                wire_status = OperationStatus(durable_status)
                 references.append(
                     ArtifactOperationReference(
                         operation_id=UUID(str(row["operation_id"])),
-                        status=status,
-                        is_protected=is_protected_operation_status(status, error),
+                        durable_status=durable_status,
+                        status=wire_status,
+                        is_protected=is_protected_durable_status(durable_status, wire_status, error),
                     )
                 )
             return references
@@ -834,7 +863,9 @@ class ImportOperationStore:
         references = self.list_artifact_references(artifact_id)
         if any(reference.is_protected for reference in references):
             return False
-        return any(reference.status == OperationStatus.SUCCEEDED for reference in references)
+        return any(
+            reference.status == OperationStatus.SUCCEEDED for reference in references
+        )
 
     def mark_artifact_bytes_deleted(self, artifact_id: UUID) -> None:
         with self._transaction():
@@ -987,29 +1018,38 @@ class ImportOperationStore:
         try:
             result = self._parse_result_json(row["result_json"])
             error = self._parse_error_json(row["error_json"])
-            status_value = str(row["status"])
-            wire_status = (
-                OperationStatus.QUEUED
-                if status_value == IMPORT_ADMISSION_PENDING_STATUS
-                else OperationStatus(status_value)
-            )
+            durable_status = str(row["status"])
+            wire_status: OperationStatus | None
+            if durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+                wire_status = None
+            else:
+                wire_status = OperationStatus(durable_status)
             operation_id = UUID(str(row["operation_id"]))
-            validated = VersionedOperation.model_validate({
-                "operation_id": operation_id,
-                "status": wire_status.value,
-                "result": result.model_dump() if result is not None else None,
-                "error": error.model_dump() if error is not None else None,
-            })
+            if wire_status is not None:
+                validated = VersionedOperation.model_validate({
+                    "operation_id": operation_id,
+                    "status": wire_status.value,
+                    "result": result.model_dump() if result is not None else None,
+                    "error": error.model_dump() if error is not None else None,
+                })
+                result_value = validated.result
+                error_value = validated.error
+                status_value = validated.status
+            else:
+                result_value = result
+                error_value = error
+                status_value = None
             return StoredImportOperation(
                 operation_id=operation_id,
                 repository_id=UUID(str(row["repository_scope"])),
-                status=validated.status,
+                durable_status=durable_status,
+                status=status_value,
                 artifact_id=UUID(str(row["artifact_id"])),
                 private_ref_name=str(row["private_ref_name"]),
                 operation_marker=str(row["operation_marker"]),
                 automatic_replay_count=int(row["automatic_replay_count"]),
-                result=validated.result,
-                error=validated.error,
+                result=result_value,
+                error=error_value,
                 created_at=str(row["created_at"]),
                 started_at=str(row["started_at"]) if row["started_at"] is not None else None,
                 updated_at=str(row["updated_at"]),

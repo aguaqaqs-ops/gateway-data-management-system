@@ -292,7 +292,7 @@ def _run_apply(
             print("recovery evidence is unavailable", file=sys.stderr)
             return 6
 
-        prior_status = operation.status.value
+        prior_status = operation.durable_status
         prior_code = operation.error.code if operation.error is not None else None
         applied_at = utc_now_iso()
 

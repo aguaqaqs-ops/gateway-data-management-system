@@ -7,8 +7,19 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from gateway_repository_contracts import OperationStatus, SimpleError, VersionedImportResult, UnknownTypePolicy, VerificationPolicy
+from gateway_repository_contracts import (
+    OperationStatus,
+    RepositoryArtifactRef,
+    SimpleError,
+    UnknownTypePolicy,
+    VerificationPolicy,
+    VersionedImportResult,
+)
+from gateway_repository_service.mutation_fingerprints import create_repository_fingerprint_v1
+from gateway_repository_service.mutation_store import IdempotencyKeyHash, IdempotencyScope
+from gateway_repository_service.versioned_import import ImportRequestBinding, versioned_import_fingerprint_v1
 from gateway_repository_service.versioned_import.models import (
+    IMPORT_ADMISSION_PENDING_STATUS,
     MANUAL_RECOVERY_REQUIRED_CODE,
     ImportManifest,
 )
@@ -47,6 +58,128 @@ def _reconciler(env: WorkerTestEnvironment) -> ImportStartupReconciler:
 def _claim_running(env: WorkerTestEnvironment, operation_id: UUID) -> None:
     claimed = env.store.claim_if_queued(operation_id)
     assert claimed is not None
+
+
+MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
+
+
+def _seed_create_succeeded(env: WorkerTestEnvironment, *, repository_id: UUID = REPOSITORY_ID) -> None:
+    scope = IdempotencyScope.for_create()
+    key_hash = IdempotencyKeyHash.from_raw_key(f"create-{repository_id}")
+    fingerprint = create_repository_fingerprint_v1()
+    effect = env.mutation_store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=repository_id,
+    )
+    env.mutation_store.mark_succeeded(
+        effect.effect_id,
+        response_body={
+            "repository_id": str(repository_id),
+            "default_ref": "main",
+            "initial_commit_id": "commit-0",
+        },
+    )
+
+
+def _admit_pending(
+    env: WorkerTestEnvironment,
+    *,
+    operation_id: UUID = OPERATION_ID,
+    key: str = "pending-recovery",
+) -> UUID:
+    size_bytes, raw_sha256 = env.write_ready_artifact(REPOSITORY_ID, ARTIFACT_ID)
+    env.seed_artifact(
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        size_bytes=size_bytes,
+        raw_sha256=raw_sha256,
+    )
+    _seed_create_succeeded(env)
+    binding = ImportRequestBinding(
+        repository_id=REPOSITORY_ID,
+        artifact_ref=RepositoryArtifactRef(
+            artifact_id=ARTIFACT_ID,
+            media_type=MEDIA_TYPE,
+            size_bytes=size_bytes,
+            raw_sha256=raw_sha256,
+        ),
+        target_ref="main",
+        expected_commit_id="commit-0",
+        verification_policy=VerificationPolicy.STRUCTURAL,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+    key_hash = IdempotencyKeyHash.from_raw_key(key)
+    fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+    admitted = env.store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+        operation_id=operation_id,
+    )
+    assert admitted.is_new is True
+    return admitted.operation_id
+
+
+def test_reconcile_publishes_valid_pending_admission(tmp_path: Path) -> None:
+    env = WorkerTestEnvironment(tmp_path)
+    try:
+        operation_id = _admit_pending(env, key="pending-publish")
+        assert env.store.get_operation_durable_status(operation_id) == IMPORT_ADMISSION_PENDING_STATUS
+        result = _reconciler(env).reconcile()
+        operation = env.store.get_operation(REPOSITORY_ID, operation_id)
+        assert operation is not None
+        assert operation.status == OperationStatus.QUEUED
+        assert result.pending_published == 1
+        assert result.pending_aborted == 0
+    finally:
+        env.close()
+
+
+def test_reconcile_aborts_pending_when_artifact_missing(tmp_path: Path) -> None:
+    env = WorkerTestEnvironment(tmp_path)
+    try:
+        size_bytes, raw_sha256 = env.write_ready_artifact(REPOSITORY_ID, ARTIFACT_ID)
+        env.seed_artifact(
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            size_bytes=size_bytes,
+            raw_sha256=raw_sha256,
+        )
+        _seed_create_succeeded(env)
+        binding = ImportRequestBinding(
+            repository_id=REPOSITORY_ID,
+            artifact_ref=RepositoryArtifactRef(
+                artifact_id=ARTIFACT_ID,
+                media_type=MEDIA_TYPE,
+                size_bytes=size_bytes,
+                raw_sha256=raw_sha256,
+            ),
+            target_ref="main",
+            expected_commit_id="commit-0",
+            verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        )
+        key_hash = IdempotencyKeyHash.from_raw_key("pending-abort")
+        fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+        admitted = env.store.admit_new_import(
+            binding,
+            key_hash=key_hash,
+            fingerprint=fingerprint,
+            max_queued_imports=64,
+            operation_id=OPERATION_ID,
+        )
+        from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
+
+        artifact_ready_path(env.layout, REPOSITORY_ID, ARTIFACT_ID).unlink()
+        result = _reconciler(env).reconcile()
+        assert env.store.lookup_by_key(REPOSITORY_ID, key_hash) is None
+        assert result.pending_aborted == 1
+        assert admitted.operation_id == OPERATION_ID
+    finally:
+        env.close()
 
 
 def test_queued_remains_queued_after_reconcile(tmp_path: Path) -> None:

@@ -32,6 +32,7 @@ from gateway_repository_service.upload_artifact.visibility import (
     has_ready_artifact_size,
 )
 from gateway_repository_service.versioned_import.store import ImportOperationStore
+from gateway_repository_service.versioned_import.models import IMPORT_ADMISSION_PENDING_STATUS
 
 
 class ReconciliationError(RuntimeError):
@@ -151,7 +152,8 @@ def import_artifact_watch_failures(
     for repository_id, artifact_id in import_store.list_protected_artifact_pins():
         operation_refs = import_store.list_artifact_references(artifact_id)
         if operation_refs and all(
-            reference.status == OperationStatus.FAILED
+            reference.durable_status != IMPORT_ADMISSION_PENDING_STATUS
+            and reference.status == OperationStatus.FAILED
             and reference.is_protected
             for reference in operation_refs
         ):

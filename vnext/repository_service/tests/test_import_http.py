@@ -1085,6 +1085,77 @@ def test_submit_admission_pin_blocks_cooperative_cleanup(env: ImportHttpTestEnvi
 
 
 @pytest.mark.serial
+def test_submit_same_key_during_pending_waits_for_resolution(
+    env: ImportHttpTestEnvironment,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    pause_after_admit = threading.Event()
+    resume_first = threading.Event()
+    second_started = threading.Event()
+    results: dict[str, Any] = {}
+    import_store = env.runtime.import_store
+    original_admit = import_store.admit_new_import
+
+    def paused_admit(*args: Any, **kwargs: Any) -> Any:
+        result = original_admit(*args, **kwargs)
+        pause_after_admit.set()
+        assert resume_first.wait(timeout=5)
+        return result
+
+    original_finalize = ArtifactAdmissionPin.finalize_new_admission
+
+    def finalize_then_unlink(self: ArtifactAdmissionPin) -> None:
+        original_finalize(self)
+        self.ready_path.unlink()
+
+    def first_submit() -> None:
+        with patch.object(import_store, "admit_new_import", paused_admit):
+            with patch.object(ArtifactAdmissionPin, "finalize_new_admission", finalize_then_unlink):
+                results["first"] = _submit(
+                    env,
+                    repository_id,
+                    artifact_id,
+                    size_bytes,
+                    raw_sha256,
+                    idempotency_key="pending-same-key",
+                )
+
+    def second_submit() -> None:
+        assert pause_after_admit.wait(timeout=5)
+        second_started.set()
+        results["second"] = _submit(
+            env,
+            repository_id,
+            artifact_id,
+            size_bytes,
+            raw_sha256,
+            idempotency_key="pending-same-key",
+        )
+
+    first_thread = threading.Thread(target=first_submit)
+    second_thread = threading.Thread(target=second_submit)
+    first_thread.start()
+    assert pause_after_admit.wait(timeout=5)
+    second_thread.start()
+    assert second_started.wait(timeout=5)
+    assert results.get("second") is None
+    resume_first.set()
+    first_thread.join(timeout=5)
+    second_thread.join(timeout=5)
+
+    assert results["first"].status_code == 404
+    assert results["first"].json()["code"] == "ARTIFACT_NOT_FOUND"
+    assert results["second"].status_code == 404
+    assert results["second"].json()["code"] == "ARTIFACT_NOT_FOUND"
+    assert env.runtime.import_store.lookup_by_key(
+        repository_id,
+        IdempotencyKeyHash.from_raw_key("pending-same-key"),
+    ) is None
+    assert env.runtime.import_store.count_global_queued() == 0
+
+
+@pytest.mark.serial
 def test_submit_claim_before_abort_does_not_return_false_404(
     env: ImportHttpTestEnvironment,
 ) -> None:

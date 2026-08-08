@@ -29,6 +29,7 @@ from gateway_repository_service.versioned_import.faults import (
     NoOpImportRecoveryFaultInjector,
 )
 from gateway_repository_service.versioned_import.models import (
+    IMPORT_ADMISSION_PENDING_STATUS,
     MANUAL_RECOVERY_REQUIRED_CODE,
     ImportOperationExecutionContext,
     ImportPackageRejected,
@@ -302,7 +303,7 @@ def build_evidence_summary(
         "operation_id": str(evidence.operation_id),
         "repository_id": str(evidence.repository_id),
         "artifact_id": str(evidence.artifact_id),
-        "status": operation.status.value,
+        "status": operation.durable_status,
         "prior_status": prior_status,
         "prior_code": prior_code,
         "final_status": final_status,
@@ -396,6 +397,8 @@ def cleanup_after_not_published_correction(
 
 @dataclass(frozen=True, slots=True)
 class ImportReconciliationResult:
+    pending_published: int
+    pending_aborted: int
     queued_operations: int
     running_reconciled: int
     running_manual: int
@@ -421,6 +424,15 @@ class ImportStartupReconciler:
         self._fault_injector = fault_injector or NoOpImportRecoveryFaultInjector()
 
     def reconcile(self) -> ImportReconciliationResult:
+        pending_published = 0
+        pending_aborted = 0
+        for operation in self._store.list_operations_by_durable_status(IMPORT_ADMISSION_PENDING_STATUS):
+            pending_outcome = self._reconcile_pending_admission(operation)
+            if pending_outcome == "published":
+                pending_published += 1
+            elif pending_outcome == "aborted":
+                pending_aborted += 1
+
         queued = len(self._store.list_operations_by_status(OperationStatus.QUEUED))
         running_reconciled = 0
         running_manual = 0
@@ -443,11 +455,37 @@ class ImportStartupReconciler:
                 running_manual += 1
 
         return ImportReconciliationResult(
+            pending_published=pending_published,
+            pending_aborted=pending_aborted,
             queued_operations=queued,
             running_reconciled=running_reconciled,
             running_manual=running_manual,
             succeeded_cleaned=succeeded_cleaned,
         )
+
+    def _reconcile_pending_admission(self, operation: StoredImportOperation) -> Literal["published", "aborted", "unchanged"]:
+        context = self._store.load_execution_context(operation.operation_id)
+        if context is None:
+            if self._store.abort_admission_import(operation.operation_id):
+                return "aborted"
+            return "unchanged"
+        artifact_path = artifact_ready_path(
+            self._layout,
+            context.repository_id,
+            context.artifact_id,
+        )
+        if artifact_is_valid(
+            settings=self._settings,
+            layout=self._layout,
+            context=context,
+            artifact_path=artifact_path,
+        ):
+            if self._store.publish_queued_import(operation.operation_id):
+                return "published"
+            return "unchanged"
+        if self._store.abort_admission_import(operation.operation_id):
+            return "aborted"
+        return "unchanged"
 
     def _reconcile_running(self, operation: StoredImportOperation) -> str:
         context = self._store.load_execution_context(operation.operation_id)

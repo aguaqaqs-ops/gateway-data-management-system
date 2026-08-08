@@ -841,7 +841,8 @@ def test_admit_new_import_succeeds_without_ready_file_at_store_layer(
         max_queued_imports=64,
     )
     assert result.is_new is True
-    assert result.operation.status == OperationStatus.QUEUED
+    assert result.operation.durable_status == IMPORT_ADMISSION_PENDING_STATUS
+    assert result.operation.status is None
 
 
 def test_lookup_replay_state_returns_operation_and_fingerprint(
@@ -863,6 +864,34 @@ def test_lookup_replay_state_returns_operation_and_fingerprint(
     assert replay_state is not None
     assert replay_state.operation.operation_id == admitted.operation_id
     assert replay_state.stored_fingerprint == fingerprint
+    assert replay_state.durable_status == IMPORT_ADMISSION_PENDING_STATUS
+    assert replay_state.operation.status is None
+    assert store.get_operation(REPOSITORY_ID, admitted.operation_id) is None
+
+
+def test_list_artifact_references_treats_pending_as_protected(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("pending-reference")
+    fingerprint = _fingerprint(binding, key_hash)
+    admitted = store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+        operation_id=OPERATION_ID,
+    )
+    references = store.list_artifact_references(ARTIFACT_ID)
+    pending_reference = next(
+        reference for reference in references if reference.operation_id == admitted.operation_id
+    )
+    assert pending_reference.durable_status == IMPORT_ADMISSION_PENDING_STATUS
+    assert pending_reference.status is None
+    assert pending_reference.is_protected is True
 
 
 def test_lookup_by_key_raises_invariant_error_for_invalid_result_json(

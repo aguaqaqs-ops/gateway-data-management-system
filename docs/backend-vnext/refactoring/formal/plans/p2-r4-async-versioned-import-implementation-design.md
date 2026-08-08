@@ -1,8 +1,10 @@
 # P2-R4 Async Versioned Import Detailed Implementation Design
 
-状态：Accepted — Implementation Ready
+状态：Accepted — S10 Closure Ready
 
 日期：2026-08-06
+
+S10入口修订：2026-08-08
 
 适用范围：`P2-R4 — Async Versioned Import`
 
@@ -47,6 +49,22 @@ control_db_user_version = 6
 
 P2-R3 gate不在R4重复证明。只有发现可复现且会破坏R4 prerequisite的证据时才暂停并
 报告；不得覆盖或回退后续用户改动。
+
+S1–S9交付后的S10入口基线为：
+
+```text
+s9_final_production_fix_sha = 78d546a
+s9_final_test_fix_sha = 426c712
+s9_final_handoff_sha = 7850ef3
+selected_provider = candidate_a_offline_cli
+control_db_user_version = 8
+wire_operation_statuses = QUEUED | RUNNING | SUCCEEDED | FAILED
+internal_admission_status = ADMISSION_PENDING
+```
+
+`ADMISSION_PENDING`只是SQLite内部两阶段admission状态，不属于contracts或public wire；
+S10不得把它加入`OperationStatus`、Submit response或GetOperation。后续章节中早期阶段名和
+历史handoff仍可保留v7字样，但当前实现、最终gate和交付记录一律以v8为准。
 
 ## 2. Fixed scope and explicit non-goals
 
@@ -117,6 +135,10 @@ POST /v1/repositories/{repository_id}/versioned/imports
 GET  /v1/repositories/{repository_id}/operations/{operation_id}
 ```
 
+OpenAPI必须显式记录Submit的`202/401/404/409/422/429/503`与GetOperation的
+`200/401/404/422/503`，并使用现有SimpleError/framework-validation handler语义；不在
+OpenAPI中声明未激活的read/admin route。
+
 Submit必需header：
 
 ```text
@@ -160,13 +182,18 @@ HTTP 202
 即使operation已经terminal，same-key/same-fingerprint仍返回原operation ID和原`202`，
 不会把当前状态嵌入Submit response。Same-key/different-fingerprint返回`409`。
 
-GetOperation固定返回`200`与closed representation：
+GetOperation固定返回`200`与contracts-owned `GetOperationResponse`；wire上必须
+保留外层`operation`，不得把内层对象拉平：
 
 ```text
-operation_id
-status = QUEUED | RUNNING | SUCCEEDED | FAILED
-result = VersionedImportResult | null
-error = SimpleError | null
+{
+  "operation": {
+    "operation_id": "<uuid>",
+    "status": "QUEUED | RUNNING | SUCCEEDED | FAILED",
+    "result": "VersionedImportResult | null",
+    "error": "SimpleError | null"
+  }
+}
 ```
 
 状态不变量：
@@ -239,7 +266,50 @@ matching结果。
 
 新effect admission发生在same-key lookup之后：已存在的same-key/same-fingerprint不是新
 effect，不消耗新的queue slot并返回原202。新key在queue/concurrency admission、disk
-headroom或provider readiness失败时不得写QUEUED。
+headroom或provider readiness失败时不得写QUEUED。Same-key/different-fingerprint也必须在
+effect-only gate之前返回409，不能被queue full、MANUAL barrier、shutdown、provider或disk
+状态遮蔽。
+
+S9交付后的submission boundary固定为两阶段admission：
+
+1. 在任何新effect gate之前做durable same-key lookup；matching row立即replay，
+   fingerprint不同立即conflict。若matching row仍是内部`ADMISSION_PENDING`，same-fingerprint
+   request等待其publish或abort后再决定结果；different-fingerprint仍立即409，不等待。
+2. 只对missing key做runtime/provider/filesystem preflight；随后在SQLite transaction外以
+   `ArtifactAdmissionPin`锁住ready文件并通过fd核对size/SHA/inode/link。持pin期间用单个
+   `BEGIN IMMEDIATE` transaction重做key lookup、核对repository/artifact durable binding、
+   检查MANUAL barrier和global admission occupancy，最后插入`ADMISSION_PENDING` row。
+3. transaction commit后仍持pin执行finalize与`__exit__`校验。只有pin成功退出后才以第二个
+   短transaction把同一row发布为`QUEUED`；随后才notify dispatcher并返回202。Pin/finalize
+   失败只允许删除仍为`ADMISSION_PENDING`的row；若它已被并发发布/claim，则必须replay已接受
+   operation，不得返回虚假404。
+
+DB transaction内不得执行文件I/O；pin的fd校验与transactional durable recheck共同闭合
+artifact cleanup/replace和admission之间的竞态。Transactional recheck不可省略：并发
+same-key请求必须收敛到一个operation ID，并发different-key请求不得使
+`ADMISSION_PENDING + QUEUED` reservation超出`max_queued_imports`，
+MANUAL row与artifact consumed/deleted状态也不能在preflight和insert之间竞态穿透。
+Filesystem可写性、free-space和provider capability不得在SQLite transaction内执行；
+这些外部检查完成后，DB-resident gate仍必须recheck。
+
+Client永远不能取得pending operation ID：pending期间GetOperation按not-found处理，Submit也
+不得把pending映射成wire QUEUED后提前返回202。Service crash留下的pending由startup在worker
+启动前处理：artifact仍与request binding匹配则发布QUEUED，否则abort。Pending row的
+result/error/started/completed/manifest digest必须全为空；可读但违反该shape的row是sanitized
+500/store invariant，而不是503。
+
+Artifact acceptance使用control DB lifecycle row作权威binding：`repository_scope`、
+`artifact_id`、media type、size和raw SHA必须exact match，且`consumed_at`/
+`bytes_deleted_at`为空、matching ready file存在。不存在、跨repository或binding不符
+对外统一为`404 / ARTIFACT_NOT_FOUND`，不暴露其他repository的artifact metadata。
+Operation lookup也必须同时scope repository ID，wrong-repository与absent统一为
+`404 / OPERATION_NOT_FOUND`。
+
+Route不得把现有global `require_service_ready` dependency直接套在两个S9 route上：
+该guard包含provider、writable和disk检查，会错误阻断same-key replay和GetOperation。
+GetOperation只需auth和可读control DB；Submit在完成replay/conflict lookup后才对新
+effect执行route-specific admission。因shutdown、provider/disk退化或MANUAL barrier停止新
+effect时，只要control DB仍可读，已存operation的replay/poll仍必须可用。
 
 ## 6. Package and streaming extraction
 
@@ -356,10 +426,12 @@ Validation固定为：
 
 Repository不重算`canonicalization_manifest_digest`，也不import Shared Kernel digest type。
 
-## 8. Control DB v7 logical schema
+## 8. Control DB v8 delivered logical schema
 
-R4使用一次transactional forward-only migration把`PRAGMA user_version`从6提升到7。V7不
-改写现有create/upload成功语义；newer version继续fail closed。
+R4先以transactional forward-only v7 migration从v6加入import operation、recovery audit和
+artifact lifecycle字段，再以v8 migration重建`repository_import_operations.status` CHECK以
+加入内部`ADMISSION_PENDING`。Fresh database顺序应用到v8；v6 -> v8、v7 -> v8和fresh v8
+都必须通过，newer version继续fail closed。V8不改变create/upload成功语义。
 
 建议新增`repository_import_operations`，一row同时拥有import idempotency identity和
 operation，避免为扩展现有同步mutation CHECK而重建已经通过R3 gate的表。Logical fields：
@@ -379,7 +451,9 @@ expected_commit_id TEXT NOT NULL
 requested_verification_policy TEXT NOT NULL
 unknown_type_policy TEXT NOT NULL
 
-status TEXT NOT NULL CHECK four-state set
+status TEXT NOT NULL CHECK (
+  ADMISSION_PENDING | QUEUED | RUNNING | SUCCEEDED | FAILED
+)
 private_ref_name TEXT NOT NULL
 operation_marker TEXT NOT NULL
 canonicalization_manifest_digest TEXT NULL
@@ -395,11 +469,17 @@ completed_at TEXT NULL
 UNIQUE(repository_scope, key_hash)
 ```
 
-DB constraints或transactional store validation必须强制第4节status/result/error不变量；
+`ADMISSION_PENDING`不是wire第五态。Store DTO保留raw durable status并把pending wire status设为
+`None`；GetOperation隐藏pending，dispatcher/claim只匹配QUEUED，artifact reference/readiness
+把pending视为protected。DB constraints或transactional store validation必须强制第4节
+status/result/error不变量；pending还必须强制`result_json`、`error_json`、`started_at`、
+`completed_at`和`canonicalization_manifest_digest`全为空。
 `result_json`和`error_json`写入前、读取后均通过contracts DTO验证。Operation ID、request
 binding、policies、marker和private ref一旦插入不可改变。允许的普通transition只有：
 
 ```text
+ADMISSION_PENDING -> QUEUED
+ADMISSION_PENDING -> DELETE  # admission abort only
 QUEUED -> RUNNING
 RUNNING -> SUCCEEDED
 RUNNING -> FAILED
@@ -432,7 +512,7 @@ applied_at TEXT NOT NULL
 普通inspect不写audit；只有`--apply`写入。Evidence summary不得包含SQL、secret、raw key、
 host path或row value。
 
-V7同时扩展artifact lifecycle，使consumed package不再被readiness误报为丢失：
+V7已扩展artifact lifecycle，使consumed package不再被readiness误报为丢失：
 
 ```text
 consumed_by_operation_id TEXT NULL
@@ -453,7 +533,7 @@ ready package bytes。Crash在transaction后、unlink前允许artifact仍存在�
 首版运行模型固定为single ASGI process、single durable-root lock、global bounded worker
 pool和process-local per-repository writer lock。
 
-建议settings：
+首版production sizing建议：
 
 ```text
 max_import_workers = 4
@@ -464,7 +544,13 @@ import_headroom_bytes = 1 GiB
 
 四项均可按deployment资源调整，不属于wire或SLO。提高package边界或worker数必须同步
 重新验证disk、RSS、Dolt process lifecycle和restart behavior。`max_queued_imports`计算
-QUEUED数，不计算same-key replay；达到上限的新effect返回429。
+global admission reservation：`ADMISSION_PENDING + QUEUED`，不含RUNNING，也不计算
+same-key replay；pending必须占位，避免并发admission在publish前突破上限。达到上限的新
+effect返回`429 / IMPORT_QUEUE_FULL`。S9在已有`max_import_workers = 4`的基线上只
+新增`max_queued_imports = 64`和`import_headroom_bytes = 1 GiB`：前者必须为正整数，
+后者允许非负整数。不得借S9改变已实现的worker/shutdown默认值或并发模型。
+`import_shutdown_grace_seconds = 10`是deployment sizing建议，不是S9要求改动的code
+default；当前基线为缩短CI/serial shutdown test保留已实现的2秒默认。
 
 Dispatcher在process-local scheduler lock下维护active repository集合。它按per-repository
 `enqueue_sequence`升序查找最早QUEUED且repository不在active集合、也没有未解决MANUAL
@@ -666,21 +752,24 @@ start import workers
 become ready
 ```
 
-Import reconciler按operation逐项执行：
+Import reconciler必须先解决全部内部pending，再处理wire operation：
 
-1. `QUEUED`保持QUEUED并通知worker；
-2. `SUCCEEDED`清理残留private ref/package，不改变result；
-3. 普通`FAILED`不重试，只执行允许的staging cleanup；
-4. MANUAL保持artifact/private evidence和repository barrier，不自动处理；
-5. 遗留`RUNNING`先检查main、marker、private ref、parent和artifact；
-6. main等于唯一matching candidate且parent/marker匹配时补SUCCEEDED；
-7. main仍为expected且private ref有唯一matching candidate时继续verification和CAS，
+1. `ADMISSION_PENDING`且artifact仍按持久化request binding有效时发布为QUEUED；artifact
+   missing/invalid时只删除pending row。Pending未解决前不得启动worker；store/invariant/DB
+   故障必须使startup fail closed，不得留下永久占位后继续ready。
+2. `QUEUED`保持QUEUED并通知worker；
+3. `SUCCEEDED`清理残留private ref/package，不改变result；
+4. 普通`FAILED`不重试，只执行允许的staging cleanup；
+5. MANUAL保持artifact/private evidence和repository barrier，不自动处理；
+6. 遗留`RUNNING`先检查main、marker、private ref、parent和artifact；
+7. main等于唯一matching candidate且parent/marker匹配时补SUCCEEDED；
+8. main仍为expected且private ref有唯一matching candidate时继续verification和CAS，
    不重复replay SQL；continue路径无条件以`STRUCTURAL`复核candidate（证据补强，不改变
    `completed_verification_policy`）；automatic replay仍按requested policy执行；
-8. 完全没有matching commit、main仍为expected、artifact完整且
+9. 完全没有matching commit、main仍为expected、artifact完整且
    `automatic_replay_count == 0`时，先在transaction中把count改为1，再从expected重建private
    ref并自动replay；
-9. count已经为1且仍无可判定evidence，或存在multiple marker、parent mismatch、ref矛盾、
+10. count已经为1且仍无可判定evidence，或存在multiple marker、parent mismatch、ref矛盾、
    artifact缺失/损坏时转MANUAL。
 
 Recovery继续verification/CAS时使用原request、artifact、operation ID、marker和policy。
@@ -712,10 +801,10 @@ lock释放后继续写repository。
 
 规则：
 
-- QUEUED/RUNNING operation引用的artifact不可删除；
+- ADMISSION_PENDING/QUEUED/RUNNING operation引用的artifact不可删除；
 - SUCCEEDED result与artifact consumed binding先在同一transaction持久化；
-- transaction成功且同artifact不存在QUEUED、RUNNING或MANUAL引用后才删除ready package，
-  失败只记录safe log；
+- transaction成功且同artifact不存在ADMISSION_PENDING、QUEUED、RUNNING或MANUAL引用后才
+  删除ready package，失败只记录safe log；
 - verification/CAS/package普通失败保留artifact并记录TTL eligibility；
 - R4不启动周期TTL scheduler，scheduler仍属R6；
 - MANUAL artifact和private ref保留到admin apply完成；
@@ -724,16 +813,16 @@ lock释放后继续写repository。
 - operation、idempotency metadata、result/error和audit在repository lifetime永久保留。
 
 同一artifact允许被多个operation durable引用。Cleanup必须查询全部operation reference，
-不得因第一个SUCCEEDED operation删除仍被QUEUED/RUNNING/MANUAL operation pin住的bytes。最后
-一个protected reference终止或由admin处理后重新评估cleanup；普通FAILED reference不阻止
-已有SUCCEEDED operation触发删除，但没有任何SUCCEEDED时仍按ordinary TTL处理。
+不得因第一个SUCCEEDED operation删除仍被ADMISSION_PENDING/QUEUED/RUNNING/MANUAL operation
+pin住的bytes。最后一个protected reference终止或由admin处理后重新评估cleanup；普通FAILED
+reference不阻止已有SUCCEEDED operation触发删除，但没有任何SUCCEEDED时仍按ordinary TTL处理。
 
 Readiness reconciliation必须区分：
 
 ```text
 successful upload + no consuming operation + missing bytes = inconsistency
 successful upload + matching SUCCEEDED import + missing bytes = valid consumed state
-QUEUED/RUNNING/MANUAL import + missing bytes = blocking inconsistency or MANUAL evidence
+ADMISSION_PENDING/QUEUED/RUNNING/MANUAL import + missing bytes = blocking inconsistency or MANUAL evidence
 ```
 
 MANUAL operation本身在被完整分类后不使整个Service permanently unready；它通过operation
@@ -825,9 +914,39 @@ CLI不得：
 - free bytes在扣除configured import headroom后仍不低于
   `max(5 GiB, 10% volume)`。
 
-Worker extraction前重复disk/headroom检查，防止accept后资源漂移。该检查失败且可以证明
+等价公式为：
+
+```text
+baseline_required = max(min_free_disk_bytes, floor(total_bytes * min_free_disk_fraction))
+admitted = free_bytes >= baseline_required + import_headroom_bytes
+```
+
+不得使用`max(baseline_required, import_headroom_bytes)`，也不得从`free_bytes`中扣减后与
+未包含headroom的0比较。`statvfs`或writable probe失败按admission denied处理，不得
+fail open。Worker extraction前使用同一helper重复disk/headroom检查，防止accept后
+资源漂移。该检查失败且可以证明
 尚无Dolt effect时终止为IMPORT_REJECTED，不做hidden retry。完整真实样本capacity closure
 仍属于R6；R4不把synthetic dedup或throughput提升为SLO。
+
+S9 request-layer status/code固定为：
+
+| Condition | HTTP | SimpleError code |
+| --- | ---: | --- |
+| repository不存在 | 404 | `REPOSITORY_NOT_FOUND` |
+| artifact absent/cross-scope/binding mismatch/consumed/deleted | 404 | `ARTIFACT_NOT_FOUND` |
+| operation absent或repository scope不符 | 404 | `OPERATION_NOT_FOUND` |
+| same-key/different-fingerprint | 409 | `IDEMPOTENCY_CONFLICT` |
+| unresolved repository manual barrier（new key only） | 409 | `MANUAL_RECOVERY_REQUIRED` |
+| global ADMISSION_PENDING+QUEUED reservation limit reached（new key only） | 429 | `IMPORT_QUEUE_FULL` |
+| shutdown/root lock/control DB/provider不可用 | 503 | `SERVICE_NOT_READY` |
+| writable/free-space/headroom admission失败 | 503 | `DISK_ADMISSION_DENIED` |
+
+上述均为HTTP request-layer error，不得写入operation `error_json`。Authentication仍为
+`401 / UNAUTHENTICATED`，framework/header/body/path validation仍为
+`422 / REQUEST_VALIDATION_FAILED`。所有JSON error body使用`SimpleError`并与response
+`X-Request-ID`同一server-generated ID。Control DB无法执行查询是
+`503 / SERVICE_NOT_READY`（replay/poll也无法在DB不可读时成功）；可读但row违反
+durable schema/DTO invariant是sanitized 500，不得回显SQL、row或path。
 
 Structured event至少覆盖：
 
@@ -869,10 +988,22 @@ CLI stdout的single-line JSON summary与该集合同源；`inspect`输出同一�
 ## 19. Fault injection model
 
 R4内部fault seam只在test profile启用，不进入public DTO、header、environment默认或
-production OpenAPI。Stable points：
+production OpenAPI。S10使用三组明确的fault points。
+
+Admission/HTTP subprocess harness在`tests/support/`中定义两个test-only point，不要求向
+production settings或public request增加开关：
 
 ```text
-after_queued_before_202
+after_admission_pending_commit
+after_queued_publish_before_202
+```
+
+前者必须留下v8 `ADMISSION_PENDING`，restart在artifact有效时发布同一operation为QUEUED、
+无效时abort；后者必须留下QUEUED，caller以原key/body重放取得同一operation ID/202。
+
+Production worker已有的stable enum必须逐项进入真实Dolt subprocess-crash matrix：
+
+```text
 after_running_claim
 after_package_extracted
 after_private_ref_created
@@ -885,9 +1016,14 @@ after_succeeded_before_private_ref_cleanup
 after_succeeded_before_artifact_cleanup
 ```
 
-Fault harness必须支持真实process crash，而不只是在同进程抛exception；commit前crash、
-publication后response loss和legacy RUNNING自动重放都必须用新进程/重启观察durable evidence。
-Required fault case不得skip/xfail。
+Recovery另有`after_automatic_replay_count_increment`：process crash后count必须仍为1，再次
+startup不得执行第二次SQL replay，并按durable evidence进入允许的终局。
+
+Fault harness必须用`os._exit`或等价真实process termination，而不只是在同进程抛exception；
+每例在crash后关闭旧进程、重开control DB/runtime，并断言operation、main/private ref/marker、
+artifact、automatic replay count和最终cleanup。Thread/Event/subprocess timeout tests必须标
+`serial`，真实Dolt/runtime tests同时标`integration`。Required fault case不得skip/xfail；
+production路径继续使用no-op injector，Compose/public HTTP不得暴露fault control。
 
 ## 20. Verification matrix
 
@@ -900,10 +1036,13 @@ Contract tests：
 
 Store tests：
 
-- v6 -> v7 migration、fresh v7和newer-version failure；
-- QUEUED/RUNNING/SUCCEEDED/FAILED visibility；
+- v6 -> v8、v7 -> v8、fresh v8 migration和newer-version failure；
+- internal ADMISSION_PENDING row shape/protection/startup resolution，以及四种wire status visibility；
 - atomic claim和concurrent worker behavior；
 - same-key replay、different fingerprint conflict；
+- atomic admission在同一transaction内recheck key/artifact/MANUAL/global
+  ADMISSION_PENDING+QUEUED reservation；
+- 并发same-key只生成一个operation ID，different-key不得突破queue limit；
 - automatic replay count 0 -> 1 only；
 - admin correction与audit同transaction；
 - consumed artifact readiness rules；
@@ -956,9 +1095,53 @@ Recovery/admin tests：
 - success cleanup、ordinary TTL eligibility和manual retention；
 - manual barrier解除前后及同artifact多operation cleanup ordering。
 
+S9 HTTP/admission tests（必须经真实FastAPI ASGI stack和真实SQLite store，不得直接
+调route function代替HTTP）：
+
+- 两个route的bearer auth、server-generated `X-Request-ID`、SimpleError以及header/body/path
+  validation；body extra field和body `idempotency_key`都为422；
+- Submit new key按`ADMISSION_PENDING -> pin exit -> QUEUED -> notify -> 202`执行；pending不可
+  claim/poll/提前replay 202，且capacity/cleanup把它当作reservation/protected reference；
+  replay可发送幂等liveness hint，但不写新row、不消耗slot；
+- same-key/same-fingerprint在QUEUED/RUNNING/SUCCEEDED/FAILED都返回同operation ID/202，
+  same-key/different-fingerprint为409；
+- 丢弃首次202后重放得到原operation ID，不得通过mock掉store模拟；
+- replay/conflict优先级：在shutdown、provider unavailable、disk denied、queue full和MANUAL
+  下仍分别返回202/409；这些状态下GetOperation仍可poll；
+- repository/artifact/operation absent，artifact cross-scope、binding mismatch、consumed/deleted，
+  operation wrong-repository的404映射不泄漏跨scope信息；
+- MANUAL只拒绝new key；queue limit是global ADMISSION_PENDING+QUEUED reservation，
+  不计RUNNING和replay；
+- headroom arithmetic在`baseline + headroom - 1`拒绝、精确边界接受，`statvfs`和
+  writable probe异常fail closed；worker extraction前使用同一helper重复检查；
+- GetOperation回应保留`{"operation": ...}`外层并覆盖四态；FAILED返回200，
+  persisted `operation.error.request_id` 为空，不改写为当前poll request ID；
+- OpenAPI production path exact set只在现有health/ready/create/upload之上新增import/poll；
+  断言两条route的method/status declarations，且无resolve/catalog/rows/admin/test route；
+- DB-only HTTP/store/capacity tests标为unit，移走`/usr/local/bin/dolt`后`pytest -m unit`
+  必须通过，且不执行`dolt init`。S9不提前承担S10的real-Dolt/process-crash/
+  Compose matrix。
+
+S10 final closure tests：
+
+- admission两个test-only subprocess crash point全部通过，分别证明orphan pending recovery和
+  response-loss replay；pending期间different-fingerprint仍立即409；
+- `ImportWorkerFaultPoint`全部十项使用真实Candidate A/Dolt进程崩溃并restart，不能用同进程
+  injected exception覆盖数冒充process-crash coverage；
+- recovery count-increment crash证明automatic replay最多一次；每个case断言crash前后durable
+  evidence、最终operation/main、artifact/private-ref retention或cleanup；
+- 现有package/provider/verification/admin/shutdown矩阵按required nodeids执行并记录
+  passed/skipped/xfail，required集合必须零skip/xfail；
+- 正式Dockerfile/Compose使用唯一project name和真实named volume完成
+  `create -> upload -> import -> poll SUCCEEDED`，保留volume重启service后验证GetOperation与
+  same-key Submit replay仍返回原operation/result；使用project-scoped `down -v --remove-orphans`
+  并验证container/network/volume无残留；
+- Compose只验证R4已激活route，不调用R5 resolve/catalog/rows；registry/network/build失败记录
+  原命令并保持no-go，不得用host进程或mock结果替代。
+
 ## 21. Required exit gate and handoff
 
-Contracts与Service分别执行：
+Contracts执行：
 
 ```bash
 uv lock --check
@@ -966,6 +1149,23 @@ uv run ruff check .
 uv run mypy
 uv run pytest -q
 ```
+
+Service的serial tests不得与并行worker竞争CPU，因此执行：
+
+```bash
+uv lock --check
+uv run ruff check .
+uv run mypy
+uv run pytest -q -m "not serial"
+uv run pytest -q -m serial -n 0
+```
+
+此外按testing conventions临时park真实Dolt后执行`pytest -m unit`，并用shell trap保证无论
+测试成功或失败都恢复binary；该gate证明DB-only/parser/validation tests没有被错误分类为
+integration。S10新增的process/restart tests必须进入serial pass，不能留在parallel pass。
+
+仓库级最终验证仍使用权威入口`./vnext/scripts/run-tests.sh`，由该脚本对Service
+执行相同的parallel/serial拆分，其他包保持单进程。
 
 R4不修改Repository Client、Backend、Rust/canonical owner；若实际diff触及这些路径，必须
 先暂停并重新确认scope，再运行对应package完整gate。
@@ -997,6 +1197,7 @@ head_sha
 branch
 worktree_clean
 control_db_user_version
+internal admission protocol and wire-status boundary
 selected_provider and Dolt version
 activated_routes
 package limits and worker/admission settings

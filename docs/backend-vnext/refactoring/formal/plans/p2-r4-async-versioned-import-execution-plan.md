@@ -1885,53 +1885,129 @@ next_stage_ready: no
 next_stage: P2-R4-S9 eighth-review remediation
 ```
 
+### Accepted S9 exit and S10 readiness — 2026-08-08
+
+`426c712`闭合第八轮唯一P2测试分类问题，`7850ef3`记录最终S9 handoff；第八轮独立复审
+未发现新的production问题。此前`stage_exit: no-go`的唯一剩余原因是S8起源的详细设计文档
+仍有未提交澄清。用户已明确授权把该文档与S10准备修订一并提交；该documentation commit
+完成且worktree clean后，较早的no-go记录由本节取代：
+
+```yaml
+s9_final_production_fix_sha: 78d546a
+s9_final_test_fix_sha: 426c712
+s9_final_handoff_sha: 7850ef3
+control_db_user_version: 8
+wire_operation_statuses: [QUEUED, RUNNING, SUCCEEDED, FAILED]
+internal_admission_status: ADMISSION_PENDING
+s9_review_exit: pass
+stage_exit: pass
+next_stage_ready: yes
+next_stage: P2-R4-S10
+```
+
+S10实现者以包含本节的clean HEAD为`start_sha`，不重开已闭合的S9复审；若HEAD或worktree
+发生漂移，仍按§2暂停并报告。
+
 ## 14. S10 — Full fault matrix, real Dolt, Compose and handoff
 
 ### Goal
 
-执行并闭合P2-R4完整required gate；补充缺失的process-crash、response-loss、真实Candidate A和
-正式Compose coverage，只修复R4范围内发现的问题，形成最终green regression commit和handoff。
+以S9最终v8两阶段admission为基线，执行并闭合P2-R4完整required gate；补齐全部真实
+process-crash、response-loss、Candidate A/Dolt和正式Compose restart/replay coverage，只修复
+gate暴露的R4缺陷，形成最终green regression commit与P2-R4 handoff。S10不重新设计wire、
+operation四态、provider选择或admission协议。
+
+### Entry baseline and authority
+
+开始条件：包含上节S9 accepted exit、worktree clean、HEAD未漂移。实现者必须完整读取：
+
+- Repository Service Contract §§9–12、§14、§17；
+- External Effect and Recovery Contract §§5、7、9；
+- 详细设计§§14、19–22；
+- P2 Execution Checklist §§1–2、§6；
+- `AGENTS.md`与`docs/backend-vnext/testing-conventions.md`；
+- 当前production `Dockerfile`、`compose.yaml`及所有import recovery/fault harness。
+
+固定入口事实：`CONTROL_DB_USER_VERSION = 8`；`ADMISSION_PENDING`只在SQLite内部存在；
+public operation仍只有QUEUED/RUNNING/SUCCEEDED/FAILED。S10不得恢复v7 schema假设，也不得把
+pending映射成wire QUEUED或提前返回202。
 
 ### Allowed paths
 
 ```text
+vnext/repository_contracts/src/gateway_repository_contracts/                # gate fixes only
 vnext/repository_contracts/tests/
 vnext/repository_service/tests/
 vnext/repository_service/tests/support/
 vnext/repository_service/src/gateway_repository_service/versioned_import/   # gate发现的R4 fixes only
+vnext/repository_service/src/gateway_repository_service/upload_artifact/    # admission pin fixes only
+vnext/repository_service/src/gateway_repository_service/control_db.py       # v8 gate fixes only
+vnext/repository_service/src/gateway_repository_service/mutation_store.py   # binding fixes only
+vnext/repository_service/src/gateway_repository_service/mutation_reconciliation.py
+vnext/repository_service/src/gateway_repository_service/capacity.py         # gate fixes only
 vnext/repository_service/src/gateway_repository_service/runtime.py          # gate fixes only
 vnext/repository_service/src/gateway_repository_service/process.py          # gate fixes only
 vnext/repository_service/src/gateway_repository_service/http/               # gate fixes only
 vnext/repository_service/src/gateway_repository_service/settings.py         # gate fixes only
+vnext/repository_service/src/gateway_repository_service/app.py              # composition fixes only
+vnext/repository_service/pyproject.toml                                     # test/dependency fix only
+vnext/repository_service/uv.lock                                            # only if exact dependency changes
 vnext/repository_service/Dockerfile
 vnext/deploy/compose.yaml
+vnext/scripts/run-tests.sh                                                  # gate infrastructure fixes only
 vnext/repository_service/README.md
+docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md
+docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md
 ```
 
-任何超出上述R4 fix scope的失败先报告，不借final gate实施重构、P2-R5或R6功能。
+任何超出上述R4 fix scope的失败先报告，不借final gate实施重构、P2-R5或R6功能。不得修改
+Repository Client、Backend、Rust/canonical owner、P2-R1 workflow/matrix或公开R5 route。
+若修改`uv.lock`，依赖必须`==`精确钉版本并同步Dockerfile `UV_LOCK_SHA256`。
 
 ### Required final matrix
 
-- contracts/service各自四命令；
-- QUEUED/RUNNING/SUCCEEDED/FAILED persistence；
-- same-key原202/operation replay与different-fingerprint conflict；
-- package streaming security及entry/single/payload-total/decoder-total边界；
-- NONE/STRUCTURAL/FULL_SCAN × REJECT/STRINGIFY；
-- expected parent、initial/second main check和publication readback；
-- verification failure main unchanged、private ref cleanup；
-- commit前crash、commit后response loss、normal failure无hidden retry；
-- legacy RUNNING最多一次automatic replay；
-- ambiguity保留artifact/ref并进入MANUAL；
-- MANUAL barrier保留business/repository occupancy，阻止同repository新effect和dispatch；
-- success artifact cleanup、ordinary TTL eligibility和manual retention；
-- multi-operation artifact pin避免premature cleanup；
-- admin stopped-service/root-lock/inspect/two apply/audit/negative actions；
-- graceful shutdown child wait/reap和RUNNING recovery；
-- real Candidate A Dolt integration；
-- production Dockerfile/Compose build、create/upload/import/poll、restart/replay smoke；
-- unique project name与container/network/volume cleanup；
-- required fault case zero skip/xfail；
-- old-reference searches、`git diff --check`和最终clean worktree。
+先建立一张可审阅matrix，至少有`case/nodeid`、`fault boundary`、`pre-crash durable evidence`、
+`restart action`、`expected final state`、`marker`和`result`列；不得仅用聚合pytest通过推断覆盖。
+
+1. Baseline regression：
+   - v6 -> v8、v7 -> v8、fresh v8/newer-version；pending row shape、protection、publish/abort；
+   - four wire states、same-key原202、different-fingerprint立即409、poll/replay priority；
+   - package streaming security与entry/single/payload-total/decoder-total exact boundaries；
+   - `NONE/STRUCTURAL/FULL_SCAN × REJECT/STRINGIFY`、expected parent、两次main check、publish readback；
+   - verification failure main unchanged、normal failure无hidden retry、private-ref/artifact cleanup；
+   - MANUAL barrier/occupancy、multi-operation artifact pin、admin全部positive/negative/audit；
+   - graceful shutdown child TERM/KILL/wait/reap与RUNNING restart recovery。
+2. Admission/HTTP process crash：
+   - `after_admission_pending_commit`：不得返回202；crash后DB保留同一pending identity，restart在
+     artifact有效时发布同一operation并最终执行，无效artifact的定向case只abort pending；
+   - `after_queued_publish_before_202`：DB已QUEUED但caller无response，原key/body重放必须返回
+     同一operation ID/202，不创建第二row、不多占slot；
+   - pending期间same-fingerprint等待resolution，different-fingerprint不等待并立即409；
+   - harness只能位于tests/support或test process，不能新增public/env production fault开关。
+3. Worker/recovery真实process crash：
+   - `ImportWorkerFaultPoint`现有十项逐项覆盖：after running claim、package extracted、private ref、
+     replay before marker、marker before verification、verification before second main check、second
+     main check before publish、main publish before SUCCEEDED、SUCCEEDED before private cleanup、
+     SUCCEEDED before artifact cleanup；
+   - 每项使用真实Candidate A/Dolt subprocess和`os._exit`后重启，不以同进程exception测试代替；
+   - 每项断言operation、main、marker/private ref、artifact、automatic replay count和最终cleanup；
+   - `after_automatic_replay_count_increment`再次crash/restart后count仍为1，绝不第二次replay SQL；
+   - ambiguous evidence进入MANUAL并保留artifact/ref，确定性evidence最终收敛到唯一SUCCEEDED或
+     ordinary stable failure。
+4. Required test integrity：
+   - 上述process/runtime/Dolt tests同时标`integration`与`serial`；Event/join/subprocess timeout
+     tests不得进入parallel pass；
+   - required case的passed/skipped/xfail逐项统计，required skipped=0、xfail=0；
+   - DB-only/parser/validation tests在Dolt parked时`pytest -m unit`通过且零`dolt init`。
+5. Production Compose：
+   - 正式Dockerfile和`repository-service` service，不使用P2-R1 `repository-probe`代替；
+   - 唯一project name、临时bearer secret、真实named durable volume；先config/build，再up/health；
+   - 通过正式HTTP完成create -> upload -> import -> poll SUCCEEDED，保存operation/result；
+   - 不删除volume地stop/recreate或restart service，再验证GetOperation与same-key Submit仍返回
+     原operation/result；不得调用尚未激活的R5 resolve/catalog/rows；
+   - trap执行project-scoped `down -v --remove-orphans`，并按Compose project label验证container、
+     network、volume零残留；registry/network/build失败必须no-go，不能降级为host/mock pass。
+6. Final hygiene：old-reference searches、`git diff --check`、精确test counts和最终clean worktree。
 
 ### Code implementation prompt
 
@@ -1940,32 +2016,44 @@ vnext/repository_service/README.md
 gate发现的R4缺陷并形成handoff；不得实现P2-R5、Backend consumer、TTL scheduler或完整R6
 capacity/backup。
 
-开始前核对S9 handoff和clean worktree。完整读取P2-R4详细设计§§19–22、执行计划本节、P2
-Execution Checklist §6和正式Dockerfile/Compose/tests。先建立required matrix清单，逐项运行，
-不要只跑聚合pytest后声称覆盖。
+开始前核对上节accepted S9 exit、HEAD和clean worktree，记录start_sha。完整读取本节Entry
+baseline列出的authority及当前代码/测试。固定control DB v8与内部ADMISSION_PENDING；public
+operation仍为四态。先建立required matrix清单，逐项关联现有nodeid、缺口和期望durable
+evidence，不要只跑聚合pytest后声称覆盖。
 
-补齐真实process-crash faults：after_queued_before_202、after_running_claim、after_private_ref、
-after_replay_before_marker、after_marker、before/after verification、before publish、after main
-publish before SUCCEEDED、after SUCCEEDED before private/artifact cleanup。Required cases不得
-skip/xfail。证明commit前crash、publication后response loss、normal failure无hidden retry、
-legacy RUNNING replay最多一次、manual ambiguity retention和admin recovery。
+先补测试缺口：tests/support admission subprocess harness覆盖
+after_admission_pending_commit与after_queued_publish_before_202；扩展真实Dolt crash harness覆盖
+ImportWorkerFaultPoint全部十项及after_automatic_replay_count_increment。每例必须真正终止进程、
+重开DB/runtime并断言operation/main/marker/private-ref/artifact/replay-count/final cleanup。
+Process、restart、Event/join和真实Dolt tests必须正确标integration+serial；不得把production
+fault开关加入DTO、header、settings默认或OpenAPI。Required cases零skip/xfail。
 
-分别在vnext/repository_contracts与vnext/repository_service执行uv lock --check、ruff、mypy、
-pytest -q并记录精确counts。运行真实Candidate A Dolt integration。以唯一Compose project name
-执行docker compose config/build/up，走正式HTTP create -> upload -> import -> poll，重启后验证
-same-key replay和operation/result；使用trap做project-scoped down -v并验证container/network/
-volume无残留。网络/registry/build失败必须报告no-go，不得降级成mock pass。
+验证顺序：先定向tests，再执行contracts的lock/ruff/mypy/pytest；service执行lock/ruff/mypy、
+pytest -m "not serial"和pytest -m serial -n 0。按AGENTS.md用trap临时park Dolt并执行
+pytest -m unit，确保失败也恢复binary。最后运行./vnext/scripts/run-tests.sh覆盖五包并记录精确
+counts。不要对repository_service裸跑全量pytest作为权威结果。
+
+运行真实Candidate A/Dolt matrix。以唯一Compose project name和临时secret执行正式
+repository-service Dockerfile/Compose config/build/up/health，通过HTTP完成create -> upload ->
+import -> poll SUCCEEDED；保留named volume重启service后验证GetOperation和same-key replay的
+原operation/result。用trap执行project-scoped down -v --remove-orphans，并按project label确认
+container/network/volume零残留。网络/registry/build失败必须报告no-go，不得降级成mock pass。
 
 运行git diff --check、定向old-reference searches：body idempotency_key、旧verification/status、
 generic journal、Candidate B、gzip/multipart/URL/path、public force/admin、production import
 workflow/fixture/matrix。人工区分historical docs命中与current production错误引用。
 
-只在全部gate通过后提交：
+只在全部code/test/container gate通过后创建green commit：
 test(repository): close Versioned import delivery gate
 
+随后把final matrix与handoff写入执行计划并提交：
+docs(p2-r4): record final Versioned import handoff
+
 提交后确认git status clean，按执行计划§4和详细设计§21输出完整P2-R4 handoff：所有commit
-SHA、DB version、routes、limits/workers、test counts、fault matrix、Dolt/Compose/cleanup、known
-limitations、production_retest_required、p2_r4_exit和p2_r5_ready。不要开始P2-R5。
+SHA、DB version=8、internal admission/wire boundary、routes、limits/workers、test counts、逐项
+fault matrix、Dolt/Compose/cleanup、old-reference分类、known limitations、
+production_retest_required、p2_r4_exit和p2_r5_ready。任一required gate失败、skip/xfail、Compose
+残留或worktree dirty都必须no-go。不要开始P2-R5。
 ```
 
 ## 15. Final old-reference searches
@@ -1991,11 +2079,20 @@ rg -n "gzip|tar\+gz|multipart|host path|object storage|presigned|URL" \
 rg -n "workflow|fixtures|matrix|SqlServerProvider|Candidate.B" \
   vnext/repository_service/src/gateway_repository_service/versioned_import \
   vnext/repository_service/src/gateway_repository_service/http
+
+rg -n "ADMISSION_PENDING" \
+  vnext/repository_contracts/src vnext/repository_service/src/gateway_repository_service/http \
+  vnext/repository_service/src/gateway_repository_service/versioned_import
+
+rg -n "Event\(|\.wait\(timeout=|\.join\(timeout=|subprocess.*timeout" \
+  vnext/repository_service/tests/test_import* vnext/repository_service/tests/support/import*
 ```
 
 `idempotency_key`允许出现在header model、local command parameter和test input，但不得出现在
 Submit JSON model、serialized request body、log或raw persisted field。`FULL_SCAN`不是旧`FULL`；
-必须人工判断而非机械删除。
+必须人工判断而非机械删除。`ADMISSION_PENDING`允许出现在control DB/store/recovery及定向测试，
+不得进入contracts enum、public response或OpenAPI。Timeout搜索必须逐个核对integration/serial
+marker，不能只依赖静态扫描自动判定正确。
 
 ## 16. P2-R4 final exit
 
@@ -2004,8 +2101,10 @@ Submit JSON model、serialized request body、log或raw persisted field。`FULL_
 ```text
 S1..S10 stage_exit = pass
 all suggested commits present and green
-control_db_user_version = 7
+control_db_user_version = 8
 selected_provider = candidate_a_offline_cli
+internal_admission_status = ADMISSION_PENDING
+wire_operation_statuses = QUEUED | RUNNING | SUCCEEDED | FAILED
 required_fault_cases skipped = 0
 required_fault_cases xfailed = 0
 real_dolt = pass

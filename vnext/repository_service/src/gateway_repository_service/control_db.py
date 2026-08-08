@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import sqlite3
 import threading
 from dataclasses import dataclass, field
@@ -318,8 +317,8 @@ class ControlDbNewerVersionError(ControlDbError):
     """Raised when on-disk user_version exceeds the supported version."""
 
 
-def _normalize_sql(sql: str) -> str:
-    return re.sub(r"\s+", " ", sql.strip()).upper()
+def _admin_cli_ddl_signature(sql: str) -> str:
+    return sql.strip()
 
 
 def _table_column_shape(connection: sqlite3.Connection, table_name: str) -> ColumnShape:
@@ -357,7 +356,7 @@ def _sqlite_master_ddl(
         raise ControlDbError(
             f"reference control database schema is missing {object_type} {object_name}"
         )
-    return _normalize_sql(str(row[0]))
+    return _admin_cli_ddl_signature(str(row[0]))
 
 
 @lru_cache(maxsize=1)
@@ -535,7 +534,7 @@ class ControlStore:
                 raise ControlDbError(
                     f"control database schema is missing required table DDL: {table_name}"
                 )
-            actual_ddl = _normalize_sql(str(row[0]))
+            actual_ddl = _admin_cli_ddl_signature(str(row[0]))
             if actual_ddl != expected_ddl:
                 raise ControlDbError(
                     f"control database schema has invalid table DDL on {table_name}"
@@ -565,7 +564,7 @@ class ControlStore:
                 raise ControlDbError(
                     f"control database schema is missing required index DDL: {index_name}"
                 )
-            actual_ddl = _normalize_sql(str(row[0]))
+            actual_ddl = _admin_cli_ddl_signature(str(row[0]))
             if actual_ddl != expected_ddl:
                 raise ControlDbError(
                     f"control database schema has invalid index DDL on {index_name}"
@@ -584,7 +583,7 @@ class ControlStore:
                 raise ControlDbError(
                     f"control database schema is missing required triggers: {trigger_name}"
                 )
-            actual_sql = _normalize_sql(str(row[0]))
+            actual_sql = _admin_cli_ddl_signature(str(row[0]))
             if actual_sql != expected_sql:
                 raise ControlDbError(
                     f"control database schema has invalid trigger body: {trigger_name}"

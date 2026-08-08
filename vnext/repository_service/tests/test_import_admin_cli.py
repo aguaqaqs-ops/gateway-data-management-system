@@ -797,6 +797,36 @@ def test_control_db_missing_table_constraints_exit_4(tmp_path: Path) -> None:
         env.close()
 
 
+def test_control_db_case_sensitive_check_literal_exit_4(tmp_path: Path) -> None:
+    env = AdminCliControlDbEnvironment.create(tmp_path)
+    try:
+        env.corrupt_operations_check_literal_case()
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+    finally:
+        env.close()
+
+
+def test_control_db_case_sensitive_trigger_literal_exit_4(tmp_path: Path) -> None:
+    env = AdminCliControlDbEnvironment.create(tmp_path)
+    try:
+        env.corrupt_trigger_succeeded_literal_case()
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+    finally:
+        env.close()
+
+
+def test_admin_cli_ddl_signature_preserves_string_literals() -> None:
+    from gateway_repository_service.control_db import _admin_cli_ddl_signature
+
+    main_check = "CHECK (target_ref = 'main')"
+    main_upper_check = "CHECK (target_ref = 'MAIN')"
+    assert _admin_cli_ddl_signature(main_check) != _admin_cli_ddl_signature(main_upper_check)
+
+
 def test_control_db_malformed_operation_row_exit_4(tmp_path: Path) -> None:
     env = AdminCliControlDbEnvironment.create(tmp_path)
     try:

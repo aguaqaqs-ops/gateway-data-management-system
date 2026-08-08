@@ -482,6 +482,88 @@ class AdminCliControlDbEnvironment:
         finally:
             connection.close()
 
+    def corrupt_operations_check_literal_case(self) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_claim_idx")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_artifact_idx")
+            connection.execute("DROP TABLE repository_import_operations")
+            connection.execute(
+                """
+                CREATE TABLE repository_import_operations (
+                    operation_id TEXT PRIMARY KEY,
+                    repository_scope TEXT NOT NULL,
+                    key_hash BLOB NOT NULL CHECK (length(key_hash) = 32),
+                    request_fingerprint BLOB NOT NULL,
+                    artifact_id TEXT NOT NULL,
+                    artifact_media_type TEXT NOT NULL,
+                    artifact_size_bytes INTEGER NOT NULL CHECK (artifact_size_bytes >= 0),
+                    artifact_raw_sha256 TEXT NOT NULL CHECK (length(artifact_raw_sha256) = 64),
+                    target_ref TEXT NOT NULL CHECK (target_ref = 'MAIN'),
+                    expected_commit_id TEXT NOT NULL,
+                    requested_verification_policy TEXT NOT NULL,
+                    unknown_type_policy TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (
+                        status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED')
+                    ),
+                    private_ref_name TEXT NOT NULL,
+                    operation_marker TEXT NOT NULL,
+                    canonicalization_manifest_digest TEXT NULL,
+                    automatic_replay_count INTEGER NOT NULL DEFAULT 0 CHECK (automatic_replay_count IN (0, 1)),
+                    enqueue_sequence INTEGER NOT NULL,
+                    result_json TEXT NULL,
+                    error_json TEXT NULL,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT NULL,
+                    UNIQUE (repository_scope, key_hash)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX repository_import_operations_claim_idx
+                ON repository_import_operations (repository_scope, status, enqueue_sequence)
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX repository_import_operations_artifact_idx
+                ON repository_import_operations (artifact_id)
+                """
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def corrupt_trigger_succeeded_literal_case(self) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute("DROP TRIGGER IF EXISTS prevent_succeeded_when_terminal")
+            connection.execute(
+                """
+                CREATE TRIGGER prevent_succeeded_when_terminal
+                BEFORE UPDATE ON synchronous_mutation_effects
+                FOR EACH ROW
+                WHEN NEW.status = 'succeeded'
+                BEGIN
+                    SELECT RAISE(ABORT, 'terminal-not-published effects cannot succeed')
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM mutation_idempotency
+                        WHERE id = NEW.idempotency_id
+                          AND terminal_not_published = 1
+                    );
+                END
+                """
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
     def replace_trigger_with_noop(self, trigger_name: str) -> None:
         self.control_store.close()
         connection = sqlite3.connect(self.settings.control_db_path)

@@ -24,6 +24,7 @@ from gateway_repository_contracts import (
 )
 from gateway_repository_service.app import create_app
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
+from gateway_repository_service.upload_artifact.admission_pin import try_unlink_ready_artifact
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import import ImportRequestBinding, versioned_import_fingerprint_v1
 from support.http_harness import (
@@ -940,6 +941,86 @@ def test_submit_artifact_file_missing_at_admission_returns_404(env: ImportHttpTe
         )
     assert response.status_code == 404
     assert response.json()["code"] == "ARTIFACT_NOT_FOUND"
+
+
+def test_submit_rejects_queued_when_ready_file_removed_before_insert(
+    env: ImportHttpTestEnvironment,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    ready_path = artifact_ready_path(env.layout, repository_id, artifact_id)
+    pause_before_admit = threading.Event()
+    unlink_done = threading.Event()
+    import_store = env.runtime.import_store
+    original_admit = import_store.admit_new_import
+
+    def paused_admit(*args: Any, **kwargs: Any) -> Any:
+        pause_before_admit.set()
+        assert unlink_done.wait(timeout=5)
+        return original_admit(*args, **kwargs)
+
+    def unlink_worker() -> None:
+        assert pause_before_admit.wait(timeout=5)
+        ready_path.unlink()
+        unlink_done.set()
+
+    unlink_thread = threading.Thread(target=unlink_worker)
+    unlink_thread.start()
+    try:
+        with patch.object(import_store, "admit_new_import", paused_admit):
+            response = _submit(
+                env,
+                repository_id,
+                artifact_id,
+                size_bytes,
+                raw_sha256,
+                idempotency_key="artifact-removed-http",
+            )
+    finally:
+        unlink_thread.join(timeout=5)
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "ARTIFACT_NOT_FOUND"
+    assert env.runtime.import_store.count_global_queued() == 0
+
+
+@pytest.mark.serial
+def test_submit_admission_pin_blocks_cooperative_cleanup(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    ready_path = artifact_ready_path(env.layout, repository_id, artifact_id)
+    pause_before_admit = threading.Event()
+    resume_admit = threading.Event()
+    import_store = env.runtime.import_store
+    original_admit = import_store.admit_new_import
+
+    def paused_admit(*args: Any, **kwargs: Any) -> Any:
+        pause_before_admit.set()
+        assert resume_admit.wait(timeout=5)
+        return original_admit(*args, **kwargs)
+
+    def cleanup_worker() -> None:
+        assert pause_before_admit.wait(timeout=5)
+        assert try_unlink_ready_artifact(ready_path) is False
+        resume_admit.set()
+
+    cleanup_thread = threading.Thread(target=cleanup_worker)
+    cleanup_thread.start()
+    try:
+        with patch.object(import_store, "admit_new_import", paused_admit):
+            response = _submit(
+                env,
+                repository_id,
+                artifact_id,
+                size_bytes,
+                raw_sha256,
+                idempotency_key="admission-pin-cleanup",
+            )
+    finally:
+        cleanup_thread.join(timeout=5)
+
+    assert response.status_code == 202
+    assert env.runtime.import_store.count_global_queued() == 1
 
 
 @pytest.mark.integration

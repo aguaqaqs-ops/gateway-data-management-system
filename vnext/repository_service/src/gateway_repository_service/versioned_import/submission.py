@@ -24,6 +24,10 @@ from gateway_repository_service.create_repository.visibility import is_repositor
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
 from gateway_repository_service.runtime import ServiceRuntime
+from gateway_repository_service.upload_artifact.admission_pin import (
+    ArtifactAdmissionPin,
+    ArtifactNotReadyForAdmission,
+)
 from gateway_repository_service.upload_artifact.visibility import is_artifact_visible
 from gateway_repository_service.versioned_import.models import (
     ImportArtifactBindingRejected,
@@ -91,15 +95,36 @@ class ImportSubmissionService:
                 path_repository_id=path_repository_id,
             )
 
-        self._preflight_new_effect(path_repository_id, binding)
-        self._assert_artifact_ready_for_admission(path_repository_id, binding)
         try:
-            result = self._import_store.admit_new_import(
-                binding,
-                key_hash=key_hash,
-                fingerprint=fingerprint,
-                max_queued_imports=self._settings.max_queued_imports,
-            )
+            self._preflight_new_effect(path_repository_id, binding)
+        except ServiceError:
+            raise
+        except Exception as exc:
+            raise _map_store_error(exc, context="preflight") from exc
+
+        try:
+            with ArtifactAdmissionPin(
+                self._layout,
+                path_repository_id,
+                binding.artifact_ref.artifact_id,
+                size_bytes=binding.artifact_ref.size_bytes,
+                raw_sha256=binding.artifact_ref.raw_sha256,
+            ) as admission_guard:
+                result = self._import_store.admit_new_import(
+                    binding,
+                    key_hash=key_hash,
+                    fingerprint=fingerprint,
+                    max_queued_imports=self._settings.max_queued_imports,
+                    admission_guard=admission_guard,
+                )
+        except ServiceError:
+            raise
+        except ArtifactNotReadyForAdmission as exc:
+            raise ServiceError(
+                code="ARTIFACT_NOT_FOUND",
+                message="artifact was not found",
+                status_code=404,
+            ) from exc
         except ImportFingerprintConflict:
             try:
                 replay_state = self._import_store.lookup_replay_state(path_repository_id, key_hash)
@@ -290,25 +315,6 @@ class ImportSubmissionService:
                 message="disk admission denied",
                 status_code=503,
             ) from exc
-
-    def _assert_artifact_ready_for_admission(
-        self,
-        repository_id: UUID,
-        binding: ImportRequestBinding,
-    ) -> None:
-        if not is_artifact_visible(
-            self._mutation_store,
-            self._layout,
-            repository_id,
-            binding.artifact_ref.artifact_id,
-            size_bytes=binding.artifact_ref.size_bytes,
-            raw_sha256=binding.artifact_ref.raw_sha256,
-        ):
-            raise ServiceError(
-                code="ARTIFACT_NOT_FOUND",
-                message="artifact was not found",
-                status_code=404,
-            )
 
     def _artifact_acceptable(self, repository_id: UUID, binding: ImportRequestBinding) -> bool:
         lifecycle = self._mutation_store.get_artifact_lifecycle(binding.artifact_ref.artifact_id)

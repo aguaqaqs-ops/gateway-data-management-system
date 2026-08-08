@@ -788,6 +788,38 @@ def test_lookup_by_key_raises_invariant_error_for_invalid_result_json(
         store.lookup_by_key(REPOSITORY_ID, key_hash)
 
 
+@pytest.mark.parametrize(
+    ("fingerprint_value",),
+    [
+        ("text-fingerprint",),
+        (42,),
+    ],
+)
+def test_lookup_replay_state_rejects_invalid_fingerprint_type(
+    stores: tuple[ImportOperationStore, MutationStore],
+    fingerprint_value: object,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("invalid-fingerprint-type")
+    fingerprint = _fingerprint(binding, key_hash)
+    admitted = store.admit_new_import(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        max_queued_imports=64,
+    )
+    store._connection.execute(
+        "UPDATE repository_import_operations SET request_fingerprint = ? WHERE operation_id = ?",
+        (fingerprint_value, str(admitted.operation_id)),
+    )
+    store._connection.commit()
+    with pytest.raises(ImportStoreInvariantError):
+        store.lookup_replay_state(REPOSITORY_ID, key_hash)
+
+
 def test_admit_new_import_replays_concurrent_same_key(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,

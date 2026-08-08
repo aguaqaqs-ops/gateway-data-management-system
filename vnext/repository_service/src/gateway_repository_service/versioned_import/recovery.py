@@ -20,6 +20,7 @@ from gateway_repository_contracts import (
 
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.upload_artifact.admission_pin import try_unlink_ready_artifact
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.faults import (
@@ -367,8 +368,9 @@ def cleanup_after_succeeded_correction(
     )
     try:
         if store.can_delete_artifact_bytes(context.artifact_id) and artifact_path.is_file():
-            artifact_path.unlink()
-            store.mark_artifact_bytes_deleted(context.artifact_id)
+            try_unlink_ready_artifact(artifact_path)
+            if not artifact_path.is_file():
+                store.mark_artifact_bytes_deleted(context.artifact_id)
     except Exception:
         _LOGGER.exception(
             "failed to delete artifact bytes during admin succeeded cleanup for %s",

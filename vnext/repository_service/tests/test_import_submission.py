@@ -23,6 +23,31 @@ STORE_ERROR_CASES = [
         "UPDATE repository_import_operations SET artifact_id = ? WHERE operation_id = ?",
         ("not-a-uuid",),
     ),
+    (
+        "fingerprint_text",
+        "UPDATE repository_import_operations SET request_fingerprint = ? WHERE operation_id = ?",
+        ("not-bytes",),
+    ),
+    (
+        "fingerprint_integer",
+        "UPDATE repository_import_operations SET request_fingerprint = ? WHERE operation_id = ?",
+        (42,),
+    ),
+]
+
+PREFLIGHT_SQLITE_FAULT_CASES = [
+    (
+        "repository_visible",
+        "gateway_repository_service.versioned_import.submission.is_repository_visible",
+    ),
+    (
+        "artifact_lifecycle",
+        "gateway_repository_service.versioned_import.submission.ImportSubmissionService._artifact_acceptable",
+    ),
+    (
+        "artifact_visible",
+        "gateway_repository_service.versioned_import.submission.is_artifact_visible",
+    ),
 ]
 
 
@@ -172,6 +197,38 @@ def test_lookup_replay_state_sqlite_fault_maps_to_service_not_ready(env: ImportH
             service.submit(
                 repository_id,
                 ImportRequestHeaders(idempotency_key="sqlite-fault"),
+                SubmitVersionedImportRequest.model_validate(body),
+                request_id="req-1",
+            )
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "SERVICE_NOT_READY"
+
+
+@pytest.mark.parametrize(("case_name", "patch_target"), PREFLIGHT_SQLITE_FAULT_CASES)
+def test_preflight_sqlite_fault_after_successful_lookup_maps_to_service_not_ready(
+    env: ImportHttpTestEnvironment,
+    case_name: str,
+    patch_target: str,
+) -> None:
+    repository_id = env.seed_repository()
+    artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
+    body = import_request_body(
+        repository_id=repository_id,
+        artifact_id=artifact_id,
+        size_bytes=size_bytes,
+        raw_sha256=raw_sha256,
+    )
+    service = ImportSubmissionService(env.runtime)
+
+    def failing_preflight(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise sqlite3.OperationalError("database is locked")
+
+    with patch(patch_target, side_effect=failing_preflight):
+        with pytest.raises(ServiceError) as exc_info:
+            service.submit(
+                repository_id,
+                ImportRequestHeaders(idempotency_key=f"preflight-sqlite-{case_name}"),
                 SubmitVersionedImportRequest.model_validate(body),
                 request_id="req-1",
             )

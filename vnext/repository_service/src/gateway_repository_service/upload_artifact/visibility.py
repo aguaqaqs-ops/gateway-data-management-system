@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 from uuid import UUID
 
@@ -14,6 +15,23 @@ def artifact_ready_path(layout: DurableLayout, repository_id: UUID, artifact_id:
     key = repository_key(repository_id)
     _staging, ready = layout.repository_artifact_directories(key)
     return ready / artifact_id.hex
+
+
+def verify_published_artifact_fd(fd: int, *, size_bytes: int, raw_sha256: str) -> bool:
+    """Return True when an open ready-artifact fd matches the expected size and SHA-256."""
+
+    stat = os.fstat(fd)
+    if stat.st_size != size_bytes:
+        return False
+    os.lseek(fd, 0, os.SEEK_SET)
+    hasher = hashlib.sha256()
+    while True:
+        chunk = os.read(fd, 64 * 1024)
+        if not chunk:
+            break
+        hasher.update(chunk)
+    os.lseek(fd, 0, os.SEEK_SET)
+    return hasher.hexdigest() == raw_sha256
 
 
 def has_ready_artifact_size(

@@ -21,6 +21,7 @@ from gateway_repository_contracts import (
     VersionedOperation,
 )
 from gateway_repository_service.mutation_store import IdempotencyKeyHash, MutationStore
+from gateway_repository_service.upload_artifact.admission_pin import ArtifactAdmissionPin
 from gateway_repository_service.versioned_import.models import (
     ArtifactOperationReference,
     ClaimOrEnqueueResult,
@@ -74,7 +75,7 @@ class ImportOperationStore:
         with self._transaction():
             row = self._fetch_by_key(binding.repository_id, key_hash)
             if row is not None:
-                if bytes(row["request_fingerprint"]) != fingerprint:
+                if self._parse_request_fingerprint(row["request_fingerprint"]) != fingerprint:
                     raise ImportFingerprintConflict(repository_id=binding.repository_id)
                 operation = self._operation_from_row(row)
                 return ClaimOrEnqueueResult(
@@ -170,7 +171,7 @@ class ImportOperationStore:
                 return None
             return ReplayLookup(
                 operation=self._operation_from_row(row),
-                stored_fingerprint=bytes(row["request_fingerprint"]),
+                stored_fingerprint=self._parse_request_fingerprint(row["request_fingerprint"]),
             )
 
     def fingerprint_for_key(
@@ -182,7 +183,7 @@ class ImportOperationStore:
             row = self._fetch_by_key(repository_id, key_hash)
             if row is None:
                 return None
-            return bytes(row["request_fingerprint"])
+            return self._parse_request_fingerprint(row["request_fingerprint"])
 
     def count_global_queued(self) -> int:
         with self._lock:
@@ -206,11 +207,14 @@ class ImportOperationStore:
         fingerprint: bytes,
         max_queued_imports: int,
         operation_id: UUID | None = None,
+        admission_guard: ArtifactAdmissionPin | None = None,
     ) -> ClaimOrEnqueueResult:
+        if admission_guard is not None:
+            admission_guard.assert_unchanged()
         with self._transaction():
             row = self._fetch_by_key(binding.repository_id, key_hash)
             if row is not None:
-                if bytes(row["request_fingerprint"]) != fingerprint:
+                if self._parse_request_fingerprint(row["request_fingerprint"]) != fingerprint:
                     raise ImportFingerprintConflict(repository_id=binding.repository_id)
                 operation = self._operation_from_row(row)
                 return ClaimOrEnqueueResult(
@@ -240,6 +244,9 @@ class ImportOperationStore:
                 raise ImportQueueFull("global import queue is full")
 
             self._verify_artifact_lifecycle_binding(binding)
+
+            if admission_guard is not None:
+                admission_guard.assert_unchanged()
 
             new_operation_id = operation_id or uuid4()
             now = utc_now_iso()
@@ -987,6 +994,14 @@ class ImportOperationStore:
             return SimpleError.model_validate(json.loads(str(payload)))
         except (json.JSONDecodeError, ValidationError, ValueError) as exc:
             raise ImportStoreInvariantError("durable import operation row is invalid") from exc
+
+    @staticmethod
+    def _parse_request_fingerprint(value: object) -> bytes:
+        if isinstance(value, memoryview):
+            return bytes(value)
+        if isinstance(value, bytes):
+            return value
+        raise ImportStoreInvariantError("request_fingerprint has invalid SQLite type")
 
     @contextmanager
     def _transaction(self) -> Iterator[None]:

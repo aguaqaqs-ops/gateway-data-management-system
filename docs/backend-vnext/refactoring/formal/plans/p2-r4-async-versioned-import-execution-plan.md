@@ -1564,8 +1564,62 @@ first_failures_and_fixes:
   - P2 dolt_runner_shutdown mis-tagged integration -> dolt stub + patch _validate_version, removed pytestmark
   - P2 worker disk test flake -> defer pool.start() until after patch
   - P3 integration happy path -> assert 202 + GET 200 with matching operation_id (no worker timing dependency)
-stage_exit: pass
-next_stage_ready: yes
+stage_exit: no-go
+next_stage_ready: no
+```
+
+#### S9 handoff amendment (re-review remediation)
+
+```yaml
+re_review_fix_commit_sha: TBD
+worktree_clean: false
+uncommitted_paths:
+  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md  # S8 scope
+contracts_scope_amendment:
+  - RepositoryArtifactRef.size_bytes Field(le=2**64-1) aligned with fingerprint struct.pack(">Q")
+re_review_fix_paths:
+  - vnext/repository_contracts/src/gateway_repository_contracts/versioned.py
+  - vnext/repository_contracts/tests/test_versioned.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/models.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/submission.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/admin.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/__init__.py
+  - vnext/repository_service/tests/test_import_http.py
+  - vnext/repository_service/tests/test_operation_http.py
+  - vnext/repository_service/tests/test_import_submission.py
+  - vnext/repository_service/tests/test_import_operation_store.py
+  - vnext/repository_service/tests/test_import_worker.py
+  - vnext/repository_service/tests/support/http_harness.py
+re_review_fix_summary:
+  - ImportStoreInvariantError + lookup_replay_state; JSON/UUID decode -> 500, sqlite3 -> 503
+  - removed in-tx has_published_artifact_file; submission _assert_artifact_ready_for_admission outside tx
+  - contracts size_bytes upper bound; submission OverflowError/ValueError -> 422
+  - closed S9 required test matrix (RUNNING poll, conflict gates, artifact 404 variants, notify-after-commit, caplog, writable, serial worker)
+  - reverted versioned_import/__init__.py extra exports; admin CLI catches ImportStoreInvariantError exit 4
+test_markers_counts:
+  repository_contracts_pytest: 66 passed
+  repository_service_unit_parked_dolt: 630+ passed, 1 skipped
+  repository_service_parallel: 888 passed, 1 skipped
+  repository_service_serial: 31 passed
+validation_commands_results:
+  - "directed import/operation/submission/store tests -n 0 -> pass (97+)"
+  - "repository_contracts + repository_service: uv lock --check, ruff, mypy -> pass"
+  - "repository_service: pytest -m 'not serial', pytest -m serial -n 0 -> pass"
+  - "./vnext/scripts/run-tests.sh x3 -> pass"
+  - "git diff --check -> pass"
+first_failures_and_fixes:
+  - P2 bidirectional store error misclassification -> ImportStoreInvariantError + lookup_replay_state + _map_store_error
+  - P2 uint64 size_bytes fingerprint overflow -> contracts Field(le=2**64-1) + submission 422 guard
+  - P2 in-tx file SHA-256 under store lock -> moved FS recheck to submission pre-admit (TOCTOU documented)
+  - P2 incomplete required test matrix + worker serial marker -> expanded parametrized HTTP/submission tests
+  - P2 handoff stage_exit pass with dirty worktree -> corrected to no-go
+  - P3 __init__.py export surface -> reverted to pre-S9 exports
+known_limitations:
+  - preflight-to-insert artifact TOCTOU remains; full pin protocol deferred
+stage_exit: no-go
+next_stage_ready: no
+next_stage: P2-R4-S9 remediation/re-review
 ```
 
 ## 14. S10 — Full fault matrix, real Dolt, Compose and handoff

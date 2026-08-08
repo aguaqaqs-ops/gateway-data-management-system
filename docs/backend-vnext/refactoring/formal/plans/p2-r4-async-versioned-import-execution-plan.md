@@ -1096,7 +1096,7 @@ round: P2-R4
 stage: P2-R4-S8
 start_sha: b06ce5b
 commit_sha: be36d6d
-head_sha: 5410ae9
+head_sha: be36d6d
 branch: phase1/gate-ownership-repair
 worktree_clean: yes
 

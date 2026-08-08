@@ -1096,14 +1096,13 @@ feat(repository): add private import recovery CLI
 round: P2-R4
 stage: P2-R4-S8
 start_sha: b06ce5b
-commit_sha: 4027ff6
-head_sha: 45e0ae0
+commit_sha: 251ac8b
+head_sha: 6ac63bd
 branch: phase1/gate-ownership-repair
 worktree_clean: yes
 
-modified_paths (round-5 remediation on top of 1a26515):
+modified_paths (round-6 remediation on top of 062cb28):
   - vnext/repository_service/src/gateway_repository_service/control_db.py
-  - vnext/repository_service/src/gateway_repository_service/versioned_import/admin.py
   - vnext/repository_service/tests/test_import_admin_cli.py
   - vnext/repository_service/tests/support/import_admin_cli_harness.py
   - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md
@@ -1119,8 +1118,8 @@ explicit_non_goals_preserved:
 implemented_behavior:
   - admin gate order: bind layout (exit 4) → root lock (exit 3) → control DB preflight (exit 4)
     → operation gate (exit 5) → provider (exit 6)
-  - control DB preflight validates v7 table_xinfo column shapes, normalized table DDL,
-    index column names + normalized index DDL, full trigger DDL bodies, FK, WAL mode
+  - control DB preflight validates v7 table_xinfo column shapes, literal-preserving
+    sqlite_master table/index/trigger DDL (strip only), FK, WAL mode
   - bind_existing fail-closed on unreadable/invalid layout.json (JSON/OSError, components)
   - load_execution_context/get_operation ValueError or sqlite3.Error → exit 4 (stable stderr)
   - NOT_PUBLISHED writes only IMPORT_REJECTED when main==expected and artifact_valid (round-3)
@@ -1129,12 +1128,12 @@ implemented_behavior:
 
 barrier_handoff: path (a) (unchanged from be36d6d)
 
-exit_codes (verified round-5):
+exit_codes (verified round-6):
   - 0: inspect/apply success
   - 2: invalid operation id or decision
   - 3: durable root lock held (including when control DB missing)
   - 4: missing data-root, unreadable layout marker, missing/unreadable control DB,
-    user_version mismatch, invalid v7 schema signature (columns/table DDL/index DDL/
+    user_version mismatch, invalid v7 schema signature (columns/literal-preserving DDL/
     triggers/FK), journal_mode != WAL, malformed operation row decode or sqlite3.Error
     during operation load
   - 5: operation not found or not awaiting manual recovery (before provider)
@@ -1151,10 +1150,13 @@ audit_forbidden_fields (stdout/audit must not include):
   - token, idempotency_key, replay_sql, stderr, host_path, credential,
     raw_sha256, private_ref_name, operation_marker
 
-fault_points_covered (round-5):
-  - repository_import_operations missing CHECK/UNIQUE (column shape intact) → exit 4
-  - root lock busy with existing control DB → exit 3 (no dolt init)
-  - non-MANUAL QUEUED/RUNNING/SUCCEEDED/ordinary FAILED → exit 5 (no dolt init)
+fault_points_covered (round-6):
+  - CHECK literal case change ('main' → 'MAIN') → exit 4, no traceback
+  - trigger literal case change ('SUCCEEDED' → 'succeeded') → exit 4, no traceback
+
+fault_points_covered (round-5 retained):
+  - missing CHECK/UNIQUE (column shape intact) → exit 4
+  - root lock busy / non-MANUAL gates without dolt init
 
 fault_points_covered (round-4 retained):
   - no-op trigger body → exit 4; wrong column types → exit 4; malformed layout → exit 4
@@ -1165,23 +1167,19 @@ fault_points_covered (round-4 retained):
 validation_commands:
   - uv run ruff check src tests → pass
   - uv run mypy → pass
-  - dolt parked: pytest tests/test_import_admin_cli.py -m unit -n 0 -q → 24 passed
-  - pytest tests/test_import_admin_cli.py -n 0 -q → 38 passed
-  - ./vnext/scripts/run-tests.sh → 806 passed + 1 skipped (parallel), 30 passed (serial)
+  - dolt parked: pytest tests/test_import_admin_cli.py -m unit -n 0 -q → 27 passed
+  - pytest tests/test_import_admin_cli.py -n 0 -q → 41 passed
+  - ./vnext/scripts/run-tests.sh → 809 passed + 1 skipped (parallel), 30 passed (serial)
   - git diff --check → pass
 
 old_reference_searches:
-  - rg "_sqlite_master_ddl|reference_table_ddl|reference_index_ddl" control_db.py
-  - rg "sqlite3.Error" versioned_import/admin.py
-  - rg "strip_operations_table_constraints|enqueue_operation" import_admin_cli_harness.py
-  - rg "test_root_lock_busy_exit_3|test_non_manual_operation" test_import_admin_cli.py
+  - rg "_admin_cli_ddl_signature|_normalize_sql" control_db.py
+  - rg "corrupt_operations_check_literal_case|corrupt_trigger_succeeded_literal_case" import_admin_cli_harness.py
+  - rg "case_sensitive_check_literal|case_sensitive_trigger_literal" test_import_admin_cli.py
 
 first_failures_and_fixes:
-  - table_xinfo alone missed deleted CHECK/UNIQUE → normalized sqlite_master table/index DDL
-  - operation sqlite3.DatabaseError leaked exit 1 → catch sqlite3.Error in load helpers
-  - root lock busy + non-MANUAL tests still ran dolt init → AdminCliControlDbEnvironment
-  - handoff listed forbidden fields under audit_safe_fields → split safe/forbidden lists
-  - head_sha c822337 was sibling not tip → align head_sha with doc commit tip
+  - DDL .upper() collapsed quoted literals → strip-only _admin_cli_ddl_signature
+  - head_sha sibling mismatch → head_sha set to doc commit tip (no self-reference amend loop)
 
 known_limitations:
   - no positive CLI test for VERIFICATION_FAILED_NOT_PUBLISHED (deferred until durable evidence exists)

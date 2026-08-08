@@ -87,6 +87,9 @@ def _load_operation_context(
     except ValueError:
         print("control database contains invalid operation data", file=sys.stderr)
         return None, 4
+    except sqlite3.Error:
+        print("control database contains invalid operation data", file=sys.stderr)
+        return None, 4
 
 
 def _get_operation_or_exit(
@@ -97,6 +100,9 @@ def _get_operation_or_exit(
     try:
         return import_store.get_operation(repository_id, operation_id), None
     except ValueError:
+        print("control database contains invalid operation data", file=sys.stderr)
+        return None, 4
+    except sqlite3.Error:
         print("control database contains invalid operation data", file=sys.stderr)
         return None, 4
 

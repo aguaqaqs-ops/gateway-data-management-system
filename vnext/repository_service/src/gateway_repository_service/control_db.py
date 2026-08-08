@@ -343,10 +343,29 @@ def _index_column_names(connection: sqlite3.Connection, index_name: str) -> tupl
     return tuple(str(row[2]) for row in sorted(key_rows, key=lambda row: int(row[0])))
 
 
+def _sqlite_master_ddl(
+    connection: sqlite3.Connection,
+    *,
+    object_type: str,
+    object_name: str,
+) -> str:
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = ? AND name = ?",
+        (object_type, object_name),
+    ).fetchone()
+    if row is None or row[0] is None:
+        raise ControlDbError(
+            f"reference control database schema is missing {object_type} {object_name}"
+        )
+    return _normalize_sql(str(row[0]))
+
+
 @lru_cache(maxsize=1)
 def _admin_cli_reference_schema() -> tuple[
     dict[str, ColumnShape],
     dict[str, tuple[str, ...]],
+    dict[str, str],
+    dict[str, str],
     dict[str, str],
 ]:
     connection = sqlite3.connect(":memory:")
@@ -361,19 +380,23 @@ def _admin_cli_reference_schema() -> tuple[
         index_name: _index_column_names(connection, index_name)
         for index_name in sorted(_ADMIN_CLI_REQUIRED_INDEXES)
     }
+    table_ddl = {
+        table_name: _sqlite_master_ddl(connection, object_type="table", object_name=table_name)
+        for table_name in sorted(_ADMIN_CLI_REQUIRED_TABLES)
+    }
+    index_ddl = {
+        index_name: _sqlite_master_ddl(connection, object_type="index", object_name=index_name)
+        for index_name in sorted(_ADMIN_CLI_REQUIRED_INDEXES)
+    }
     trigger_sql: dict[str, str] = {}
     for trigger_name in sorted(_ADMIN_CLI_REQUIRED_TRIGGER_NAMES):
-        row = connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?",
-            (trigger_name,),
-        ).fetchone()
-        if row is None or row[0] is None:
-            raise ControlDbError(
-                f"reference control database schema is missing trigger {trigger_name}"
-            )
-        trigger_sql[trigger_name] = _normalize_sql(str(row[0]))
+        trigger_sql[trigger_name] = _sqlite_master_ddl(
+            connection,
+            object_type="trigger",
+            object_name=trigger_name,
+        )
     connection.close()
-    return column_shapes, index_columns, trigger_sql
+    return column_shapes, index_columns, trigger_sql, table_ddl, index_ddl
 
 
 @dataclass
@@ -493,12 +516,29 @@ class ControlStore:
                 f"control database schema is missing required tables: {missing}"
             )
 
-        reference_columns, reference_indexes, reference_triggers = _admin_cli_reference_schema()
+        reference_columns, reference_indexes, reference_triggers, reference_table_ddl, reference_index_ddl = (
+            _admin_cli_reference_schema()
+        )
         for table_name, expected_shape in reference_columns.items():
             actual_shape = _table_column_shape(connection, table_name)
             if actual_shape != expected_shape:
                 raise ControlDbError(
                     f"control database schema has invalid column shape on {table_name}"
+                )
+
+        for table_name, expected_ddl in reference_table_ddl.items():
+            row = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table_name,),
+            ).fetchone()
+            if row is None or row[0] is None:
+                raise ControlDbError(
+                    f"control database schema is missing required table DDL: {table_name}"
+                )
+            actual_ddl = _normalize_sql(str(row[0]))
+            if actual_ddl != expected_ddl:
+                raise ControlDbError(
+                    f"control database schema has invalid table DDL on {table_name}"
                 )
 
         for index_name, expected_columns in reference_indexes.items():
@@ -514,6 +554,21 @@ class ControlStore:
             if actual_columns != expected_columns:
                 raise ControlDbError(
                     f"control database schema has invalid index columns on {index_name}"
+                )
+
+        for index_name, expected_ddl in reference_index_ddl.items():
+            row = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?",
+                (index_name,),
+            ).fetchone()
+            if row is None or row[0] is None:
+                raise ControlDbError(
+                    f"control database schema is missing required index DDL: {index_name}"
+                )
+            actual_ddl = _normalize_sql(str(row[0]))
+            if actual_ddl != expected_ddl:
+                raise ControlDbError(
+                    f"control database schema has invalid index DDL on {index_name}"
                 )
 
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()

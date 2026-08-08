@@ -71,10 +71,9 @@ def test_invalid_decision_exit_2(tmp_path: Path) -> None:
     assert result.returncode == 2
 
 
-@pytest.mark.integration
 @pytest.mark.serial
 def test_root_lock_busy_exit_3(tmp_path: Path) -> None:
-    env = AdminCliEnvironment.create(tmp_path)
+    env = AdminCliControlDbEnvironment.create(tmp_path)
     lock = DurableRootLock(env.layout.service_lock)
     try:
         lock.acquire()
@@ -125,35 +124,50 @@ def test_operation_not_found_exit_5(tmp_path: Path) -> None:
         env.close()
 
 
-@pytest.mark.integration
 @pytest.mark.parametrize("status_name", ["queued", "running", "succeeded", "ordinary_failed"])
 def test_non_manual_operation_exit_5(tmp_path: Path, status_name: str) -> None:
-    env = AdminCliEnvironment.create(tmp_path)
+    env = AdminCliControlDbEnvironment.create(tmp_path)
     operation_id = uuid4()
+    expected_commit_id = "expected-commit-1"
     try:
         if status_name == "queued":
-            env.enqueue_operation(operation_id=operation_id, artifact_id=DEFAULT_ARTIFACT_ID)
+            env.enqueue_operation(
+                operation_id=operation_id,
+                artifact_id=DEFAULT_ARTIFACT_ID,
+                expected_commit_id=expected_commit_id,
+            )
         elif status_name == "running":
-            env.enqueue_operation(operation_id=operation_id, artifact_id=DEFAULT_ARTIFACT_ID)
+            env.enqueue_operation(
+                operation_id=operation_id,
+                artifact_id=DEFAULT_ARTIFACT_ID,
+                expected_commit_id=expected_commit_id,
+            )
             env.store.claim_if_queued(operation_id)
         elif status_name == "succeeded":
-            env.enqueue_operation(operation_id=operation_id, artifact_id=DEFAULT_ARTIFACT_ID)
+            env.enqueue_operation(
+                operation_id=operation_id,
+                artifact_id=DEFAULT_ARTIFACT_ID,
+                expected_commit_id=expected_commit_id,
+            )
             env.store.claim_if_queued(operation_id)
-            expected = env.provider.read_ref("main")
             env.store.mark_succeeded(
                 operation_id,
                 result=VersionedImportResult(
-                    commit_id=expected,
+                    commit_id=expected_commit_id,
                     target_ref="main",
                     artifact_id=DEFAULT_ARTIFACT_ID,
                     canonicalization_manifest_digest="manifest-digest-1",
-                    expected_commit_id=expected,
+                    expected_commit_id=expected_commit_id,
                     completed_verification_policy=VerificationPolicy.STRUCTURAL,
                     unknown_type_policy=UnknownTypePolicy.REJECT,
                 ),
             )
         else:
-            env.enqueue_operation(operation_id=operation_id, artifact_id=DEFAULT_ARTIFACT_ID)
+            env.enqueue_operation(
+                operation_id=operation_id,
+                artifact_id=DEFAULT_ARTIFACT_ID,
+                expected_commit_id=expected_commit_id,
+            )
             env.store.claim_if_queued(operation_id)
             env.store.mark_failed(
                 operation_id,
@@ -765,6 +779,17 @@ def test_control_db_corrupt_operations_column_types_exit_4(tmp_path: Path) -> No
     env = AdminCliControlDbEnvironment.create(tmp_path)
     try:
         env.corrupt_operations_column_types()
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+    finally:
+        env.close()
+
+
+def test_control_db_missing_table_constraints_exit_4(tmp_path: Path) -> None:
+    env = AdminCliControlDbEnvironment.create(tmp_path)
+    try:
+        env.strip_operations_table_constraints()
         result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
         assert result.returncode == 4
         assert "Traceback" not in result.stderr

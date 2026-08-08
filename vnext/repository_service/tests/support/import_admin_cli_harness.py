@@ -161,9 +161,15 @@ class AdminCliControlDbEnvironment:
     layout: DurableLayout
     control_store: ControlStore
     store: ImportOperationStore
+    repository_id: UUID = DEFAULT_REPOSITORY_ID
 
     @classmethod
-    def create(cls, tmp_path: Path) -> AdminCliControlDbEnvironment:
+    def create(
+        cls,
+        tmp_path: Path,
+        *,
+        repository_id: UUID = DEFAULT_REPOSITORY_ID,
+    ) -> AdminCliControlDbEnvironment:
         settings = lifecycle_settings(tmp_path)
         layout = DurableLayout.create_service(settings.data_root)
         control_store = ControlStore.open(
@@ -180,6 +186,7 @@ class AdminCliControlDbEnvironment:
             layout=layout,
             control_store=control_store,
             store=store,
+            repository_id=repository_id,
         )
 
     def close(self) -> None:
@@ -192,6 +199,72 @@ class AdminCliControlDbEnvironment:
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return run_admin_cli(self.settings.data_root, *args, env=env)
+
+    def seed_artifact_lifecycle(
+        self,
+        artifact_id: UUID,
+        *,
+        size_bytes: int,
+        raw_sha256: str,
+    ) -> None:
+        now = "2026-08-06T00:00:00+00:00"
+        with self.store._lock:
+            self.store.mutation_store._connection.execute(
+                """
+                INSERT INTO artifact_lifecycle (
+                    artifact_id,
+                    repository_scope,
+                    media_type,
+                    size_bytes,
+                    raw_sha256,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(artifact_id),
+                    self.repository_id.hex,
+                    MEDIA_TYPE,
+                    size_bytes,
+                    raw_sha256,
+                    now,
+                    now,
+                ),
+            )
+            self.store.mutation_store._connection.commit()
+
+    def enqueue_operation(
+        self,
+        *,
+        operation_id: UUID,
+        artifact_id: UUID,
+        expected_commit_id: str = "expected-commit-1",
+        key: str = "import-key",
+    ) -> ImportRequestBinding:
+        size_bytes, raw_sha256 = (128, "a" * 64)
+        self.seed_artifact_lifecycle(artifact_id, size_bytes=size_bytes, raw_sha256=raw_sha256)
+        binding = ImportRequestBinding(
+            repository_id=self.repository_id,
+            artifact_ref=RepositoryArtifactRef(
+                artifact_id=artifact_id,
+                media_type=MEDIA_TYPE,
+                size_bytes=size_bytes,
+                raw_sha256=raw_sha256,
+            ),
+            target_ref="main",
+            expected_commit_id=expected_commit_id,
+            verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        )
+        key_hash = IdempotencyKeyHash.from_raw_key(key)
+        fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+        self.store.claim_or_enqueue(
+            binding,
+            key_hash=key_hash,
+            fingerprint=fingerprint,
+            operation_id=operation_id,
+        )
+        return binding
 
     def downgrade_control_db_to_v6(self) -> None:
         self.control_store.close()
@@ -351,6 +424,59 @@ class AdminCliControlDbEnvironment:
                     "2026-08-06T00:00:00+00:00",
                     None,
                 ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def strip_operations_table_constraints(self) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_claim_idx")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_artifact_idx")
+            connection.execute("DROP TABLE repository_import_operations")
+            connection.execute(
+                """
+                CREATE TABLE repository_import_operations (
+                    operation_id TEXT PRIMARY KEY,
+                    repository_scope TEXT NOT NULL,
+                    key_hash BLOB NOT NULL,
+                    request_fingerprint BLOB NOT NULL,
+                    artifact_id TEXT NOT NULL,
+                    artifact_media_type TEXT NOT NULL,
+                    artifact_size_bytes INTEGER NOT NULL,
+                    artifact_raw_sha256 TEXT NOT NULL,
+                    target_ref TEXT NOT NULL,
+                    expected_commit_id TEXT NOT NULL,
+                    requested_verification_policy TEXT NOT NULL,
+                    unknown_type_policy TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    private_ref_name TEXT NOT NULL,
+                    operation_marker TEXT NOT NULL,
+                    canonicalization_manifest_digest TEXT NULL,
+                    automatic_replay_count INTEGER NOT NULL DEFAULT 0,
+                    enqueue_sequence INTEGER NOT NULL,
+                    result_json TEXT NULL,
+                    error_json TEXT NULL,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX repository_import_operations_claim_idx
+                ON repository_import_operations (repository_scope, status, enqueue_sequence)
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX repository_import_operations_artifact_idx
+                ON repository_import_operations (artifact_id)
+                """
             )
             connection.commit()
         finally:

@@ -655,3 +655,103 @@ def test_collect_recovery_evidence_returns_none_on_provider_private_ref_probe_fa
         assert evidence is None
     finally:
         env.close()
+
+
+@pytest.mark.integration
+def test_unverified_private_candidate_not_published_import_rejected(tmp_path: Path) -> None:
+    env = AdminCliEnvironment.create(tmp_path)
+    try:
+        env.setup_manual_with_private_candidate_unverified()
+        result = env.run(
+            "apply",
+            "--operation-id",
+            str(DEFAULT_OPERATION_ID),
+            "--decision",
+            ManualCorrectionDecision.NOT_PUBLISHED.value,
+        )
+        assert result.returncode == 0
+        summary = parse_stdout_json(result)
+        assert summary["final_code"] == "IMPORT_REJECTED"
+        assert summary.get("stable_code") == "IMPORT_REJECTED"
+        operation = env.store.get_operation(env.repository_id, DEFAULT_OPERATION_ID)
+        assert operation is not None
+        assert operation.error is not None
+        assert operation.error.code == "IMPORT_REJECTED"
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
+def test_unverified_private_candidate_missing_artifact_not_published_exit_6(
+    tmp_path: Path,
+) -> None:
+    env = AdminCliEnvironment.create(tmp_path)
+    try:
+        env.setup_manual_with_private_candidate_unverified()
+        ready_path = artifact_ready_path(env.layout, env.repository_id, DEFAULT_ARTIFACT_ID)
+        ready_path.unlink()
+        result = env.run(
+            "apply",
+            "--operation-id",
+            str(DEFAULT_OPERATION_ID),
+            "--decision",
+            ManualCorrectionDecision.NOT_PUBLISHED.value,
+        )
+        assert result.returncode == 6
+        assert count_audit_rows(env.settings.control_db_path, DEFAULT_OPERATION_ID) == 0
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
+def test_control_db_corrupt_operations_schema_exit_4(tmp_path: Path) -> None:
+    env = AdminCliEnvironment.create(tmp_path)
+    try:
+        env.corrupt_operations_schema()
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
+def test_control_db_non_sqlite_file_exit_4(tmp_path: Path) -> None:
+    env = AdminCliEnvironment.create(tmp_path)
+    try:
+        env.write_non_sqlite_control_db()
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
+def test_inspect_delete_journal_mode_exit_4_no_mutation(tmp_path: Path) -> None:
+    env = AdminCliEnvironment.create(tmp_path)
+    try:
+        env.setup_manual_without_publish()
+        env.set_journal_mode("DELETE")
+        env.control_store.close()
+        db_before = control_db_digest(env.settings.control_db_path)
+        result = env.run("inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+        assert result.returncode == 4
+        assert "Traceback" not in result.stderr
+        assert control_db_digest(env.settings.control_db_path) == db_before
+    finally:
+        env.close()
+
+
+def test_inspect_missing_data_root_exit_4_no_side_effects(tmp_path: Path) -> None:
+    missing_root = tmp_path / "does-not-exist"
+    assert not missing_root.exists()
+    result = run_admin_cli(
+        missing_root,
+        "inspect",
+        "--operation-id",
+        str(DEFAULT_OPERATION_ID),
+    )
+    assert result.returncode == 4
+    assert "Traceback" not in result.stderr
+    assert not missing_root.exists()

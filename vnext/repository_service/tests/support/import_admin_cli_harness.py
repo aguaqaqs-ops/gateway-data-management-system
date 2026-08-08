@@ -386,6 +386,48 @@ class AdminCliEnvironment:
         self.enqueue_operation(operation_id=operation_id, artifact_id=artifact_id)
         self.mark_manual(operation_id)
 
+    def setup_manual_with_private_candidate_unverified(
+        self,
+        *,
+        operation_id: UUID = DEFAULT_OPERATION_ID,
+        artifact_id: UUID = DEFAULT_ARTIFACT_ID,
+    ) -> str:
+        self.enqueue_operation(operation_id=operation_id, artifact_id=artifact_id)
+        context = self.store.load_execution_context(operation_id)
+        assert context is not None
+        expected = context.expected_commit_id
+        private_ref = derive_private_ref_name(operation_id)
+        marker = derive_operation_marker(operation_id)
+        staging_dir = self.layout.staging_artifacts / f"setup-{operation_id.hex}"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            artifact_path = artifact_ready_path(
+                self.layout,
+                self.repository_id,
+                context.artifact_id,
+            )
+            package = validate_and_extract_import_package(
+                artifact_path=artifact_path,
+                expected_size_bytes=context.artifact_size_bytes,
+                expected_raw_sha256=context.artifact_raw_sha256,
+                staging_dir=staging_dir,
+                settings=self.settings,
+            )
+            try:
+                self.provider.delete_private_ref(private_ref)
+            except Exception:
+                pass
+            self.provider.create_private_ref(private_ref, expected)
+            self.provider.checkout_private_ref(private_ref)
+            self.provider.replay_sql(private_ref, package.replay_sql_path)
+            candidate = self.provider.commit_operation_marker(private_ref, marker)
+            assert self.provider.read_ref("main") == expected
+            self.mark_manual(operation_id)
+            return candidate
+        finally:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir)
+
     def setup_published_then_main_advanced(
         self,
         *,
@@ -439,6 +481,31 @@ class AdminCliEnvironment:
             self.control_store.connection,
             transaction_lock=self.control_store.transaction_lock,
         )
+
+    def set_journal_mode(self, mode: str) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute(f"PRAGMA journal_mode = {mode.upper()}")
+            connection.commit()
+        finally:
+            connection.close()
+
+    def write_non_sqlite_control_db(self) -> None:
+        self.control_store.close()
+        self.settings.control_db_path.write_bytes(b"not-a-database")
+
+    def corrupt_operations_schema(self) -> None:
+        self.control_store.close()
+        connection = sqlite3.connect(self.settings.control_db_path)
+        try:
+            connection.execute("DROP TABLE repository_import_operations")
+            connection.execute(
+                "CREATE TABLE repository_import_operations (wrong_id TEXT PRIMARY KEY)"
+            )
+            connection.commit()
+        finally:
+            connection.close()
 
     def bump_control_db_version(self, version: int) -> None:
         self.control_store.close()

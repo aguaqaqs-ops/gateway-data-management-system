@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sqlite3
 import sys
 from pathlib import Path
 from uuid import UUID
@@ -17,7 +18,7 @@ from gateway_repository_service.control_db import (
     ControlDbNewerVersionError,
     ControlStore,
 )
-from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.layout import DurableLayout, LayoutError
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
 from gateway_repository_service.process import DoltRunner
 from gateway_repository_service.provider_lifecycle import (
@@ -65,6 +66,18 @@ def _parse_decision(raw: str) -> ManualCorrectionDecision | None:
         return None
 
 
+def _resolve_admin_layout(settings: RepositoryServiceSettings) -> DurableLayout:
+    data_root = settings.data_root.expanduser().resolve()
+    if not data_root.is_dir():
+        raise ControlDbError("data root does not exist")
+    if not settings.control_db_path.is_file():
+        raise ControlDbError("control database does not exist")
+    try:
+        return DurableLayout.bind_existing(data_root)
+    except LayoutError as exc:
+        raise ControlDbError(str(exc)) from exc
+
+
 def _open_control_store(
     settings: RepositoryServiceSettings,
 ) -> tuple[ControlStore, ImportOperationStore]:
@@ -94,7 +107,7 @@ def _open_dolt_runner(
 
 
 def _control_db_exit_code(exc: Exception) -> int:
-    if isinstance(exc, (ControlDbNewerVersionError, ControlDbError)):
+    if isinstance(exc, (ControlDbNewerVersionError, ControlDbError, sqlite3.Error)):
         print(str(exc), file=sys.stderr)
         return 4
     raise exc
@@ -105,7 +118,11 @@ def _run_inspect(
     settings: RepositoryServiceSettings,
     operation_id: UUID,
 ) -> int:
-    layout = DurableLayout.create_service(settings.data_root)
+    try:
+        layout = _resolve_admin_layout(settings)
+    except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
+        return _control_db_exit_code(exc)
+
     root_lock = DurableRootLock(layout.service_lock)
     control_store: ControlStore | None = None
     try:
@@ -117,7 +134,7 @@ def _run_inspect(
 
         try:
             control_store, import_store = _open_control_store(settings)
-        except (ControlDbNewerVersionError, ControlDbError) as exc:
+        except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
             return _control_db_exit_code(exc)
 
         context = import_store.load_execution_context(operation_id)
@@ -171,7 +188,11 @@ def _run_apply(
     operation_id: UUID,
     decision: ManualCorrectionDecision,
 ) -> int:
-    layout = DurableLayout.create_service(settings.data_root)
+    try:
+        layout = _resolve_admin_layout(settings)
+    except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
+        return _control_db_exit_code(exc)
+
     root_lock = DurableRootLock(layout.service_lock)
     control_store: ControlStore | None = None
     try:
@@ -183,7 +204,7 @@ def _run_apply(
 
         try:
             control_store, import_store = _open_control_store(settings)
-        except (ControlDbNewerVersionError, ControlDbError) as exc:
+        except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
             return _control_db_exit_code(exc)
 
         context = import_store.load_execution_context(operation_id)

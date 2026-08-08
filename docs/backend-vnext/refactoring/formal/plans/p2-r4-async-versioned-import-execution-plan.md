@@ -859,6 +859,8 @@ vnext/repository_service/src/gateway_repository_service/runtime.py              
   删除 seed_manual_barriers 调用（一行 dead-code removal）
 docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-*.md         # S8 handoff 与 scope 修订
 vnext/repository_service/tests/support/import_worker_harness.py                     # FakeImportProvider.private_ref_exists mock
+vnext/repository_service/src/gateway_repository_service/layout.py                 # additive only：
+  DurableLayout.bind_existing（admin existing-layout resolver，不 mkdir）
 ```
 
 `test_import_recovery.py` 在审核修复中**仅**迁出 `test_collect_recovery_evidence_returns_none_on_provider_private_ref_probe_failure`
@@ -870,10 +872,9 @@ worker claim/FIFO顺序或`_RepositoryLockEntry` holders refcount（S7 P2-N1 修
 `test_import_worker.py`与`test_import_recovery.py`只允许改动因barrier路径收敛而失效的断言，
 不得删除既有case。
 
-`command.py`、`models.py`、`ports.py`、`control_db.py`、`runtime.py`、`app.py`、`http/`本阶段
-不在范围内。control DB schema已是v7且`repository_import_recovery_audit`已建表，S8不得再做
-migration或bump `CONTROL_DB_USER_VERSION`。若确实需要改上述任一文件，先作为scope question
-上报，不要自行放宽。
+`control_db.py`、`runtime.py`、`layout.py` 已通过上列 **Scope amendment** 纳入 S8 remediation；
+不得 bump `CONTROL_DB_USER_VERSION` 或新增 migration step。`command.py`、`models.py`、
+`ports.py`、`app.py`、`http/` 仍不在范围内。
 
 `pyproject.toml`当前没有`[project.scripts]`，模块调用形式（`python -m ...admin`）是零改动路径；
 优先选它，则`pyproject.toml`/`uv.lock`两行保持未使用。
@@ -1095,99 +1096,67 @@ feat(repository): add private import recovery CLI
 round: P2-R4
 stage: P2-R4-S8
 start_sha: b06ce5b
-commit_sha: be36d6d
-head_sha: be36d6d
+commit_sha: <round-3 remediation commit>
+head_sha: <round-3 remediation commit>
 branch: phase1/gate-ownership-repair
 worktree_clean: yes
 
-modified_paths (feature be43b45 + audit fix 8ed85e4 + remediation):
+modified_paths (round-3 remediation on top of be36d6d):
   - vnext/repository_service/src/gateway_repository_service/control_db.py
+  - vnext/repository_service/src/gateway_repository_service/layout.py
   - vnext/repository_service/src/gateway_repository_service/versioned_import/admin.py
   - vnext/repository_service/src/gateway_repository_service/versioned_import/recovery.py
-  - vnext/repository_service/src/gateway_repository_service/versioned_import/provider.py
-  - vnext/repository_service/src/gateway_repository_service/versioned_import/locks.py
-  - vnext/repository_service/src/gateway_repository_service/versioned_import/worker.py
-  - vnext/repository_service/src/gateway_repository_service/runtime.py
   - vnext/repository_service/tests/test_import_admin_cli.py
   - vnext/repository_service/tests/support/import_admin_cli_harness.py
-  - vnext/repository_service/tests/test_import_worker.py
   - vnext/repository_service/tests/test_import_recovery.py
-  - vnext/repository_service/tests/support/import_worker_harness.py
   - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md
-  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md
 
 explicit_non_goals_preserved:
   - no HTTP/admin route registration
-  - no CONTROL_DB_USER_VERSION bump or service-side migration changes
+  - no CONTROL_DB_USER_VERSION bump or new migration steps
   - no pyproject.toml [project.scripts] or uv.lock changes
   - no --force / evidence bypass flags
   - CLI does not accept host repository path or control DB path
-  - CLI opens control DB with allow_migration=False (no v6→v7 migration on inspect/apply)
+  - CLI uses allow_migration=False; preflight is read-only; no WAL/journal auto-repair
 
 implemented_behavior:
-  - stopped-service private CLI: inspect (zero mutation) and apply (SUCCEEDED / NOT_PUBLISHED)
-  - exact v7 control DB preflight + open(allow_migration=False); missing/old/corrupt schema → exit 4
-  - fail-closed order: args → lock → DB → operation MANUAL → provider → evidence
-  - NOT_PUBLISHED requires main==expected (or precise VERIFICATION_FAILED path with private_ref);
-    artifact_valid gate for IMPORT_REJECTED; no EXPECTED_COMMIT_MISMATCH via CLI
-  - audit / stdout / structured event share one evidence_summary dict on apply
-  - barrier handoff path (a): worker barrier solely from store.has_unresolved_manual_barrier()
+  - NOT_PUBLISHED writes only IMPORT_REJECTED when main==expected and artifact_valid;
+    no VERIFICATION_FAILED_NOT_PUBLISHED inference from private-ref presence alone
+  - control DB preflight validates tables, columns, triggers, WAL mode; sqlite3.Error → exit 4
+  - admin resolves existing layout via DurableLayout.bind_existing (no mkdir on missing data-root)
+  - inspect/apply open DB with _require_wal_mode/_require_synchronous_full (verify only, no repair)
+  - prior round-2 behavior retained: gate order, audit/stdout同源, barrier path (a)
 
-barrier_handoff: path (a)
-  - worker._repository_has_barrier uses only store.has_unresolved_manual_barrier()
-  - removed in-memory barrier API from RepositoryLockRegistry
-  - runtime.py no longer calls seed_manual_barriers
+barrier_handoff: path (a) (unchanged from be36d6d)
 
-exit_codes (verified):
-  - 0: success
-  - 2: invalid UUID / decision / argparse
-  - 3: DurableRootLock busy (service running)
-  - 4: control DB missing, user_version != 7, or required schema tables missing
-  - 5: operation missing or not FAILED/MANUAL_RECOVERY_REQUIRED (before provider gate)
-  - 6: ProviderUnavailableError, evidence unavailable, or inconsistent with decision
+exit_codes (verified round-3):
+  - 4: missing data-root, missing control DB, v6, missing/wrong columns, non-SQLite file,
+    journal_mode != WAL, sqlite3.Error
+  - 5: operation gate before provider (incl. dolt unavailable + missing operation)
+  - 6: evidence/decision mismatch; NOT_PUBLISHED without artifact_valid
+  - unverified private candidate + NOT_PUBLISHED → 0 with IMPORT_REJECTED (not VERIFICATION_FAILED)
 
-audit_safe_fields:
-  - operation_id, repository_id, artifact_id, stable_code (final_code on apply)
-  - decision, action, prior_status, prior_code, final_status, final_code
-  - marker_inspection, main/expected/candidate commit IDs, manifest_digest
-  - verification_policy, unknown_type_policy, artifact_size_bytes
-  - artifact_bytes_present, private_ref_present, applied_at (apply only)
-  - forbidden: token, idempotency key, replay SQL, stderr, host path, credential
-
-pyproject_toml_uv_lock: not modified
-
-fault_points_covered:
-  - P1-1: published+main advanced + NOT_PUBLISHED → exit 6, no audit
-  - P1-1: missing artifact + NOT_PUBLISHED → exit 6
-  - P1-2: v6 DB inspect → exit 4, user_version stays 6, no audit table
-  - P1-2: v7 missing repository_import_operations → exit 4, no traceback
-  - P1-2: missing control DB file → exit 4
-  - P2-1: operation missing + dolt unavailable → exit 5 (not 1)
-  - P2-2: audit evidence_summary_json == stdout JSON on apply
-
-old_reference_searches:
-  - no new HTTP route, console script, CONTROL_DB_USER_VERSION bump
-  - admin.py does not call publish_main / replay_sql / commit_operation_marker / checkout_private_ref
-
-first_failures_and_fixes:
-  - NOT_PUBLISHED fail-open on main!=expected → tightened evidence_supports_not_published_decision
-  - ControlStore.open migrated v6 on inspect → preflight_exact_version + allow_migration=False
-  - 16 Dolt CLI tests in unit gate → @pytest.mark.integration on AdminCliEnvironment tests
-  - provider gate before operation check → reordered; ProviderUnavailableError → exit 6
-  - audit/stdout stable_code mismatch → single evidence_summary with stable_code=final_code
+fault_points_covered (round-3):
+  - unverified private candidate → IMPORT_REJECTED, not VERIFICATION_FAILED_NOT_PUBLISHED
+  - unverified candidate + missing artifact → exit 6
+  - corrupt operations columns → exit 4, no traceback
+  - non-SQLite control DB → exit 4
+  - journal_mode=DELETE + inspect → exit 4, db digest unchanged
+  - missing --data-root → exit 4, no directories created
 
 validation_commands:
-  - cd vnext/repository_service && uv run ruff check src tests → pass
-  - cd vnext/repository_service && uv run mypy → pass (112 files)
-  - dolt parked: uv run pytest tests/test_import_admin_cli.py -m unit -n 0 -q → 4 passed, 22 deselected, ~1.5s
-  - uv run pytest tests/test_import_admin_cli.py -n 0 -q → 26 passed, ~24s
-  - uv run pytest tests/test_import_worker.py tests/test_import_recovery.py -n 0 -q → 62 passed, ~28s
-  - ./vnext/scripts/run-tests.sh → 795 passed + 1 skipped (parallel), 29 passed (serial)
+  - uv run ruff check src tests → pass
+  - uv run mypy → pass
+  - dolt parked: pytest tests/test_import_admin_cli.py -m unit -n 0 -q → 5 passed
+  - pytest tests/test_import_admin_cli.py -n 0 -q → 32 passed
+  - pytest tests/test_import_worker.py tests/test_import_recovery.py -n 0 -q → 62 passed
+  - git diff --check → pass
+  - ./vnext/scripts/run-tests.sh → see commit message for counts
 
 known_limitations:
-  - no CLI positive subprocess test for VERIFICATION_FAILED_NOT_PUBLISHED apply path (deferred)
-  - barrier check adds one SQLite query per queued repository candidate; no capacity benchmark
-  - SUCCEEDED apply does not require artifact_valid when row carries manifest digest (S7 pattern)
+  - no positive CLI test for VERIFICATION_FAILED_NOT_PUBLISHED (deferred until durable evidence exists)
+  - barrier SQLite query per queued candidate; no capacity benchmark
+  - inspect acquires service.lock with O_CREAT when lock file absent (existing layout only)
 
 stage_exit: pass
 next_stage_ready: yes

@@ -603,4 +603,3 @@ def test_subprocess_crash_then_runtime_restart_recovers(tmp_path: Path) -> None:
         assert restarted.import_store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
     finally:
         restarted.shutdown()
-

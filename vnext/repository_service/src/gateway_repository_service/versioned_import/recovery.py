@@ -270,37 +270,12 @@ def evidence_supports_not_published_decision(evidence: ImportRecoveryEvidence) -
         return False
     if evidence.main_commit_id != evidence.expected_commit_id:
         return False
-    if (
-        evidence.marker_inspection == "unique"
-        and evidence.candidate_commit_id is not None
-        and evidence.marker_parent_commit_id == evidence.expected_commit_id
-        and evidence.main_commit_id == evidence.expected_commit_id
-        and evidence.main_commit_id != evidence.candidate_commit_id
-        and evidence.private_ref_present
-    ):
-        return True
-    if evidence.main_commit_id == evidence.expected_commit_id and evidence.artifact_valid:
-        return True
-    return False
+    return evidence.artifact_valid
 
 
 def resolve_not_published_error(evidence: ImportRecoveryEvidence) -> SimpleError | None:
     if not evidence_supports_not_published_decision(evidence):
         return None
-    if (
-        evidence.marker_inspection == "unique"
-        and evidence.candidate_commit_id is not None
-        and evidence.marker_parent_commit_id == evidence.expected_commit_id
-        and evidence.main_commit_id == evidence.expected_commit_id
-        and evidence.main_commit_id != evidence.candidate_commit_id
-        and evidence.private_ref_present
-    ):
-        return SimpleError(
-            code="VERIFICATION_FAILED_NOT_PUBLISHED",
-            message="import candidate was not published to main",
-            details={"reason": "verification_failed_not_published"},
-            request_id=None,
-        )
     return SimpleError(
         code="IMPORT_REJECTED",
         message="operator confirmed import was not published",

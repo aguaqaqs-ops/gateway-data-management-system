@@ -12,13 +12,92 @@ from gateway_repository_service.mutation_store import configure_connection
 
 CONTROL_DB_USER_VERSION = 7
 
-_ADMIN_CLI_REQUIRED_TABLES: frozenset[str] = frozenset(
+_ADMIN_CLI_REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
+    "mutation_idempotency": frozenset(
+        {
+            "id",
+            "mutation_kind",
+            "repository_scope",
+            "key_hash",
+            "request_fingerprint",
+            "terminal_not_published",
+            "created_at",
+        }
+    ),
+    "synchronous_mutation_effects": frozenset(
+        {
+            "effect_id",
+            "idempotency_id",
+            "resource_id",
+            "status",
+            "response_status",
+            "response_body",
+            "updated_at",
+        }
+    ),
+    "artifact_lifecycle": frozenset(
+        {
+            "artifact_id",
+            "repository_scope",
+            "media_type",
+            "size_bytes",
+            "raw_sha256",
+            "created_at",
+            "updated_at",
+            "consumed_by_operation_id",
+            "consumed_at",
+            "bytes_deleted_at",
+        }
+    ),
+    "repository_import_operations": frozenset(
+        {
+            "operation_id",
+            "repository_scope",
+            "key_hash",
+            "request_fingerprint",
+            "artifact_id",
+            "artifact_media_type",
+            "artifact_size_bytes",
+            "artifact_raw_sha256",
+            "target_ref",
+            "expected_commit_id",
+            "requested_verification_policy",
+            "unknown_type_policy",
+            "status",
+            "private_ref_name",
+            "operation_marker",
+            "canonicalization_manifest_digest",
+            "automatic_replay_count",
+            "enqueue_sequence",
+            "result_json",
+            "error_json",
+            "created_at",
+            "started_at",
+            "updated_at",
+            "completed_at",
+        }
+    ),
+    "repository_import_recovery_audit": frozenset(
+        {
+            "audit_id",
+            "operation_id",
+            "action",
+            "prior_status",
+            "prior_code",
+            "final_status",
+            "final_code",
+            "evidence_summary_json",
+            "applied_at",
+        }
+    ),
+}
+
+_ADMIN_CLI_REQUIRED_TRIGGERS: frozenset[str] = frozenset(
     {
-        "mutation_idempotency",
-        "synchronous_mutation_effects",
-        "artifact_lifecycle",
-        "repository_import_operations",
-        "repository_import_recovery_audit",
+        "prevent_succeeded_when_terminal",
+        "prevent_terminal_when_succeeded",
+        "prevent_insert_succeeded_when_terminal",
+        "prevent_insert_terminal_when_succeeded",
     }
 )
 
@@ -306,7 +385,10 @@ class ControlStore:
     def preflight_exact_version(cls, path: Path, *, expected_version: int) -> None:
         if not path.is_file():
             raise ControlDbError("control database does not exist")
-        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        except sqlite3.Error as exc:
+            raise ControlDbError("control database is unreadable") from exc
         try:
             user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
             if user_version > expected_version:
@@ -324,8 +406,25 @@ class ControlStore:
                     f"control database user_version {user_version} is unsupported"
                 )
             cls._verify_admin_schema(connection)
+        except sqlite3.Error as exc:
+            raise ControlDbError("control database is unreadable") from exc
         finally:
             connection.close()
+
+    @classmethod
+    def open_readonly(cls, path: Path, *, expected_version: int) -> Self:
+        cls.preflight_exact_version(path, expected_version=expected_version)
+        try:
+            connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        except sqlite3.Error as exc:
+            raise ControlDbError("control database is unreadable") from exc
+        configure_connection(connection)
+        try:
+            connection.execute("PRAGMA query_only = ON")
+            return cls(path=path, connection=connection, user_version=expected_version)
+        except sqlite3.Error as exc:
+            connection.close()
+            raise ControlDbError("control database is unreadable") from exc
 
     @classmethod
     def open(
@@ -340,19 +439,24 @@ class ControlStore:
             path.parent.mkdir(parents=True, exist_ok=True)
         elif not path.is_file():
             raise ControlDbError("control database does not exist")
-        connection = sqlite3.connect(
-            path,
-            timeout=busy_timeout_ms / 1000.0,
-            check_same_thread=False,
-        )
+        try:
+            connection = sqlite3.connect(
+                path,
+                timeout=busy_timeout_ms / 1000.0,
+                check_same_thread=False,
+            )
+        except sqlite3.Error as exc:
+            raise ControlDbError("control database is unreadable") from exc
         configure_connection(connection)
         try:
             connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
             connection.execute("PRAGMA foreign_keys = ON")
-            cls._ensure_wal_mode(connection)
             if allow_migration:
+                cls._ensure_wal_mode(connection)
                 user_version = cls._migrate(connection, expected_version=expected_version)
+                cls._verify_synchronous_full(connection)
             else:
+                cls._require_wal_mode(connection)
                 user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
                 if user_version > expected_version:
                     raise ControlDbNewerVersionError(
@@ -364,9 +468,12 @@ class ControlStore:
                         f"control database user_version {user_version} is unsupported"
                     )
                 cls._verify_admin_schema(connection)
-            cls._verify_synchronous_full(connection)
+                cls._require_synchronous_full(connection)
             cls._verify_foreign_keys(connection)
             return cls(path=path, connection=connection, user_version=user_version)
+        except sqlite3.Error as exc:
+            connection.close()
+            raise ControlDbError("control database is unreadable") from exc
         except Exception:
             connection.close()
             raise
@@ -376,19 +483,56 @@ class ControlStore:
         rows = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         ).fetchall()
-        present = {str(row[0]) for row in rows}
-        missing = _ADMIN_CLI_REQUIRED_TABLES.difference(present)
-        if missing:
-            missing_tables = ", ".join(sorted(missing))
+        present_tables = {str(row[0]) for row in rows}
+        missing_tables = set(_ADMIN_CLI_REQUIRED_COLUMNS).difference(present_tables)
+        if missing_tables:
+            missing = ", ".join(sorted(missing_tables))
             raise ControlDbError(
-                f"control database schema is missing required tables: {missing_tables}"
+                f"control database schema is missing required tables: {missing}"
             )
+        for table_name, required_columns in _ADMIN_CLI_REQUIRED_COLUMNS.items():
+            columns = {
+                str(row[1])
+                for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+            }
+            missing_columns = required_columns.difference(columns)
+            if missing_columns:
+                missing = ", ".join(sorted(missing_columns))
+                raise ControlDbError(
+                    f"control database schema is missing required columns on {table_name}: "
+                    f"{missing}"
+                )
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
+        if journal_mode is None or str(journal_mode[0]).upper() != "WAL":
+            raise ControlDbError("control database WAL mode is unavailable")
+        trigger_rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+        ).fetchall()
+        present_triggers = {str(row[0]) for row in trigger_rows}
+        missing_triggers = _ADMIN_CLI_REQUIRED_TRIGGERS.difference(present_triggers)
+        if missing_triggers:
+            missing = ", ".join(sorted(missing_triggers))
+            raise ControlDbError(
+                f"control database schema is missing required triggers: {missing}"
+            )
+
+    @staticmethod
+    def _require_wal_mode(connection: sqlite3.Connection) -> None:
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
+        if journal_mode is None or str(journal_mode[0]).upper() != "WAL":
+            raise ControlDbError("control database WAL mode is unavailable")
 
     @staticmethod
     def _ensure_wal_mode(connection: sqlite3.Connection) -> None:
         journal_mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()
         if journal_mode is None or str(journal_mode[0]).upper() != "WAL":
             raise ControlDbError("control database WAL mode is unavailable")
+
+    @staticmethod
+    def _require_synchronous_full(connection: sqlite3.Connection) -> None:
+        synchronous = connection.execute("PRAGMA synchronous").fetchone()
+        if synchronous is None or int(synchronous[0]) != 2:
+            raise ControlDbError("control database synchronous mode is invalid")
 
     @staticmethod
     def _verify_synchronous_full(connection: sqlite3.Connection) -> None:

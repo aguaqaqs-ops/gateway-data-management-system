@@ -18,6 +18,10 @@ def repository_key(repository_id: UUID) -> str:
     return repository_id.hex
 
 
+class LayoutError(RuntimeError):
+    """Raised when an existing durable layout cannot be resolved."""
+
+
 @dataclass(frozen=True)
 class DurableLayout:
     root: Path
@@ -38,6 +42,40 @@ class DurableLayout:
     @property
     def service_lock(self) -> Path:
         return self.control / "service.lock"
+
+    @classmethod
+    def bind_existing(cls, data_root: Path) -> "DurableLayout":
+        """Resolve paths for an already-initialized data root without mutating it."""
+
+        root = data_root.expanduser().resolve()
+        if not root.is_dir():
+            raise LayoutError("data root does not exist")
+        control = root / "control"
+        versioned = root / "versioned"
+        staging = root / "staging"
+        staging_versioned = staging / "versioned"
+        staging_artifacts = staging / "artifacts"
+        artifacts = root / "artifacts"
+        service_state = root / "service-state"
+        provider = root / "provider"
+        marker = control / "layout.json"
+        if not control.is_dir() or not marker.is_file():
+            raise LayoutError("control layout is not initialized")
+        loaded = json.loads(marker.read_text(encoding="utf-8"))
+        if loaded.get("layout_format_version") != LAYOUT_FORMAT_VERSION:
+            raise LayoutError("unsupported layout_format_version")
+        return cls(
+            root=root,
+            control=control,
+            versioned=versioned,
+            staging=staging,
+            staging_versioned=staging_versioned,
+            staging_artifacts=staging_artifacts,
+            artifacts=artifacts,
+            service_state=service_state,
+            provider=provider,
+            probe_namespaces=False,
+        )
 
     @classmethod
     def create_service(cls, data_root: Path) -> "DurableLayout":

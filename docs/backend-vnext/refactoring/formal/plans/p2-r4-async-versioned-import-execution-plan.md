@@ -1713,6 +1713,53 @@ next_stage_ready: no
 next_stage: P2-R4-S9 fourth-review remediation
 ```
 
+#### S9 handoff amendment (fifth-review remediation)
+
+```yaml
+fifth_review_fix_commit_sha: pending
+worktree_clean: false
+uncommitted_paths:
+  - docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md  # S8 scope
+fifth_review_fix_paths:
+  - vnext/repository_service/src/gateway_repository_service/control_db.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/models.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/store.py
+  - vnext/repository_service/src/gateway_repository_service/versioned_import/submission.py
+  - vnext/repository_service/tests/test_import_http.py
+  - vnext/repository_service/tests/test_import_operation_store.py
+  - vnext/repository_service/tests/test_operation_http.py
+  - vnext/repository_service/tests/test_auth_lifecycle.py
+  - vnext/repository_service/tests/test_import_admin_cli.py
+  - vnext/repository_service/tests/test_settings.py
+  - vnext/repository_service/tests/support/import_admin_cli_harness.py
+fifth_review_fix_summary:
+  - two-phase admission ADMISSION_PENDING -> publish_queued_import -> QUEUED closes commit/finalize vs dispatcher claim race
+  - publish runs only after ArtifactAdmissionPin __exit__ succeeds; abort_admission_import on failure
+  - abort failure must not return false 404 when row already QUEUED/RUNNING; replay-safe 202 via _abort_pending_admission_or_replay
+  - control DB v8 migration extends repository_import_operations status CHECK with ADMISSION_PENDING
+  - queue count and protected artifact pins include ADMISSION_PENDING; wire poll still maps to OperationStatus.QUEUED
+test_markers_counts:
+  repository_service_unit: 654 passed, 1 skipped
+  repository_service_parallel: 899 passed, 1 skipped
+  repository_service_serial: 36 passed
+validation_commands_results:
+  - "directed admission/pending/publish/claim_before tests -n 0 -> pass (13)"
+  - "repository_service: ruff, mypy -> pass"
+  - "repository_service: pytest -m unit, pytest -m serial -n 0 -> pass"
+  - "./vnext/scripts/run-tests.sh x3 -> pass"
+first_failures_and_fixes:
+  - P1 admit QUEUED before finalize let dispatcher claim -> ADMISSION_PENDING durable status + publish after pin release
+  - P1 abort_queued_import false on RUNNING still returned 404 -> abort_admission_import + replay when publish/claim won race
+  - schema CHECK blocked ADMISSION_PENDING -> control DB migration v8
+known_limitations:
+  - cooperative cleanup excluded by admission pin flock; external durable-root tampering outside support surface
+  - S10 still owns real-Dolt/process-crash/Compose matrix
+  - no P2-R5 public reads or public admin API
+stage_exit: no-go
+next_stage_ready: no
+next_stage: P2-R4-S9 fifth-review remediation
+```
+
 ## 14. S10 — Full fault matrix, real Dolt, Compose and handoff
 
 ### Goal

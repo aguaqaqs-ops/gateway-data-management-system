@@ -69,6 +69,18 @@ class ImportFingerprintConflict(ImportOperationStoreError):
         super().__init__(f"idempotency fingerprint conflict for repository {repository_id}")
 
 
+class ImportQueueFull(ImportOperationStoreError):
+    """Raised when the global QUEUED import limit has been reached."""
+
+
+class ImportManualBarrierRequired(ImportOperationStoreError):
+    """Raised when a repository has an unresolved manual recovery barrier."""
+
+
+class ImportArtifactBindingRejected(ImportOperationStoreError):
+    """Raised when artifact lifecycle binding does not match the import request."""
+
+
 class ImportOperationTransitionRejected(ImportOperationStoreError):
     """Raised when an operation transition is not allowed."""
 

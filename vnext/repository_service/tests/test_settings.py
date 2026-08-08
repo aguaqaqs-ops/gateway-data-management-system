@@ -59,9 +59,11 @@ def test_default_upload_and_ttl_settings() -> None:
     assert settings.max_decompressed_tar_stream_bytes == 4 * 1024 * 1024 * 1024
     assert settings.artifact_ttl_seconds == 24 * 60 * 60
     assert settings.max_import_workers == 4
+    assert settings.max_queued_imports == 64
+    assert settings.import_headroom_bytes == 1 * 1024**3
 
 
-@pytest.mark.parametrize("field", ["max_import_workers"])
+@pytest.mark.parametrize("field", ["max_import_workers", "max_queued_imports"])
 def test_max_import_workers_rejects_zero(tmp_path: Path, field: str) -> None:
     kwargs: dict[str, int] = {field: 0}
     with pytest.raises(ValueError):
@@ -90,6 +92,19 @@ def test_positive_bounds_reject_zero(tmp_path: Path, field: str) -> None:
     kwargs: dict[str, int] = {field: 0}
     with pytest.raises(ValueError):
         RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]
+
+
+def test_import_headroom_bytes_rejects_negative(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        RepositoryServiceSettings(data_root=tmp_path / "root", import_headroom_bytes=-1)
+
+
+def test_import_queue_settings_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS", "32")
+    monkeypatch.setenv("GATEWAY_REPOSITORY_IMPORT_HEADROOM_BYTES", "2048")
+    settings = RepositoryServiceSettings(data_root=tmp_path / "root")
+    assert settings.max_queued_imports == 32
+    assert settings.import_headroom_bytes == 2048
 
 
 @pytest.mark.integration

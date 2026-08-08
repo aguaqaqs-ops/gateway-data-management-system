@@ -137,3 +137,46 @@ def assert_upload_disk_admission(
             "durable root free disk after upload would be below admission threshold"
         )
     return admission
+
+
+def measure_import_disk_admission(
+    root: Path,
+    settings: RepositoryServiceSettings,
+) -> DiskAdmission:
+    stat = os.statvfs(root)
+    block_size = stat.f_frsize
+    free_bytes = stat.f_bavail * block_size
+    total_bytes = stat.f_blocks * block_size
+    baseline = free_disk_threshold_bytes(
+        total_bytes=total_bytes,
+        min_bytes=settings.min_free_disk_bytes,
+        fraction=settings.min_free_disk_fraction,
+    )
+    required = baseline + settings.import_headroom_bytes
+    return DiskAdmission(
+        free_bytes=free_bytes,
+        total_bytes=total_bytes,
+        required_free_bytes=required,
+    )
+
+
+def has_import_disk_admission(root: Path, settings: RepositoryServiceSettings) -> bool:
+    try:
+        return measure_import_disk_admission(root, settings).admitted
+    except OSError:
+        return False
+
+
+def assert_import_disk_admission(
+    root: Path,
+    settings: RepositoryServiceSettings,
+) -> DiskAdmission:
+    try:
+        admission = measure_import_disk_admission(root, settings)
+    except OSError as exc:
+        raise CapacityAdmissionError("durable root disk measurement is unavailable") from exc
+    if not admission.admitted:
+        raise CapacityAdmissionError(
+            "durable root free disk is below import admission threshold"
+        )
+    return admission

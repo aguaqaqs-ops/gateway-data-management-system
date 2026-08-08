@@ -12,6 +12,7 @@ from gateway_repository_service.app import create_app
 from gateway_repository_service.http.readiness import ReadinessPort
 from gateway_repository_service.settings import RepositoryServiceSettings
 from support.http_harness import (
+    PRODUCTION_OPENAPI_PATHS,
     assert_request_id_header,
     create_test_client,
     create_test_http_app,
@@ -167,20 +168,12 @@ def test_nested_validation_errors_are_sanitized() -> None:
     assert_request_id_header(response)
 
 
-ALLOWED_OPENAPI_PATHS = {
-    "/healthz",
-    "/readyz",
-    "/v1/repositories",
-    "/v1/repositories/{repository_id}/artifacts",
-}
-
-
 def test_openapi_only_health_and_create_routes() -> None:
     response = create_test_client(_shell_app()).get("/openapi.json")
 
     assert response.status_code == 200
     paths = response.json()["paths"]
-    assert set(paths.keys()) == ALLOWED_OPENAPI_PATHS
+    assert set(paths.keys()) == PRODUCTION_OPENAPI_PATHS
 
 
 def test_docs_and_redoc_disabled() -> None:
@@ -196,7 +189,7 @@ def test_production_app_has_no_forbidden_routes() -> None:
 
     for path in paths:
         if path.startswith("/v1/"):
-            assert path in ALLOWED_OPENAPI_PATHS
+            assert path in PRODUCTION_OPENAPI_PATHS
             continue
         assert not path.startswith("/v2/")
         assert "/_test" not in path

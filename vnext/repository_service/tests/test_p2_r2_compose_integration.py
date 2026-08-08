@@ -125,12 +125,16 @@ def test_production_openapi_only_exposes_allowed_routes() -> None:
         "/readyz",
         "/v1/repositories",
         "/v1/repositories/{repository_id}/artifacts",
+        "/v1/repositories/{repository_id}/versioned/imports",
+        "/v1/repositories/{repository_id}/operations/{operation_id}",
     }
 
 
 ALLOWED_V1_ROUTE_FILES = {
     SRC_ROOT / "http" / "routes" / "repositories.py",
     SRC_ROOT / "http" / "routes" / "artifacts.py",
+    SRC_ROOT / "http" / "routes" / "imports.py",
+    SRC_ROOT / "http" / "routes" / "operations.py",
 }
 
 

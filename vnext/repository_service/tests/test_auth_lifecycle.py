@@ -244,6 +244,8 @@ class TestBearerHarness:
             "/readyz",
             "/v1/repositories",
             "/v1/repositories/{repository_id}/artifacts",
+            "/v1/repositories/{repository_id}/versioned/imports",
+            "/v1/repositories/{repository_id}/operations/{operation_id}",
         }
 
 

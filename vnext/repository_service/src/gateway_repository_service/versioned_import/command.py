@@ -10,6 +10,7 @@ from typing import Literal
 
 from gateway_repository_contracts import SimpleError, VersionedImportResult
 
+from gateway_repository_service.capacity import CapacityAdmissionError, assert_import_disk_admission
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -133,6 +134,13 @@ class ImportOperationExecutor:
             context.repository_id,
             context.artifact_id,
         )
+        try:
+            assert_import_disk_admission(self._layout.root, self._settings)
+        except CapacityAdmissionError as exc:
+            raise _terminal_error(
+                IMPORT_REJECTED_CODE,
+                "disk admission denied before package extraction",
+            ) from exc
         package = validate_and_extract_import_package(
             artifact_path=artifact_path,
             expected_size_bytes=context.artifact_size_bytes,

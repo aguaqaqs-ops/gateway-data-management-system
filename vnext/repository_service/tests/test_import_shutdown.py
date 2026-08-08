@@ -220,6 +220,7 @@ def test_runtime_shutdown_closes_cleanly(tmp_path: Path) -> None:
 
 
 @pytest.mark.serial
+@pytest.mark.integration
 def test_runtime_shutdown_releases_root_lock_when_worker_hangs(tmp_path: Path) -> None:
     import time
 

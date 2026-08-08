@@ -22,10 +22,13 @@ from gateway_repository_service.mutation_store import IdempotencyKeyHash, Mutati
 from gateway_repository_service.versioned_import.models import (
     ArtifactOperationReference,
     ClaimOrEnqueueResult,
+    ImportArtifactBindingRejected,
     ImportFingerprintConflict,
+    ImportManualBarrierRequired,
     ImportOperationExecutionContext,
     ImportOperationStoreError,
     ImportOperationTransitionRejected,
+    ImportQueueFull,
     ImportReplayCountRejected,
     ImportRequestBinding,
     ManualCorrectionDecision,
@@ -75,6 +78,150 @@ class ImportOperationStore:
                     is_new=False,
                     operation=operation,
                 )
+
+            new_operation_id = operation_id or uuid4()
+            now = utc_now_iso()
+            enqueue_sequence = self._allocate_enqueue_sequence(binding.repository_id)
+            private_ref_name = derive_private_ref_name(new_operation_id)
+            operation_marker = derive_operation_marker(new_operation_id)
+            self._connection.execute(
+                """
+                INSERT INTO repository_import_operations (
+                    operation_id,
+                    repository_scope,
+                    key_hash,
+                    request_fingerprint,
+                    artifact_id,
+                    artifact_media_type,
+                    artifact_size_bytes,
+                    artifact_raw_sha256,
+                    target_ref,
+                    expected_commit_id,
+                    requested_verification_policy,
+                    unknown_type_policy,
+                    status,
+                    private_ref_name,
+                    operation_marker,
+                    canonicalization_manifest_digest,
+                    automatic_replay_count,
+                    enqueue_sequence,
+                    result_json,
+                    error_json,
+                    created_at,
+                    started_at,
+                    updated_at,
+                    completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, NULL, NULL, ?, NULL, ?, NULL)
+                """,
+                (
+                    str(new_operation_id),
+                    binding.repository_id.hex,
+                    key_hash.digest,
+                    fingerprint,
+                    str(binding.artifact_ref.artifact_id),
+                    binding.artifact_ref.media_type,
+                    binding.artifact_ref.size_bytes,
+                    binding.artifact_ref.raw_sha256,
+                    binding.target_ref,
+                    binding.expected_commit_id,
+                    binding.verification_policy.value,
+                    binding.unknown_type_policy.value,
+                    OperationStatus.QUEUED.value,
+                    private_ref_name,
+                    operation_marker,
+                    enqueue_sequence,
+                    now,
+                    now,
+                ),
+            )
+            inserted = self._fetch_by_operation_id(new_operation_id)
+            if inserted is None:
+                raise ImportOperationStoreError("failed to insert import operation")
+            operation = self._operation_from_row(inserted)
+            return ClaimOrEnqueueResult(
+                operation_id=operation.operation_id,
+                is_new=True,
+                operation=operation,
+            )
+
+    def lookup_by_key(
+        self,
+        repository_id: UUID,
+        key_hash: IdempotencyKeyHash,
+    ) -> StoredImportOperation | None:
+        with self._lock:
+            row = self._fetch_by_key(repository_id, key_hash)
+            if row is None:
+                return None
+            return self._operation_from_row(row)
+
+    def fingerprint_for_key(
+        self,
+        repository_id: UUID,
+        key_hash: IdempotencyKeyHash,
+    ) -> bytes | None:
+        with self._lock:
+            row = self._fetch_by_key(repository_id, key_hash)
+            if row is None:
+                return None
+            return bytes(row["request_fingerprint"])
+
+    def count_global_queued(self) -> int:
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT COUNT(*) AS queued_count
+                FROM repository_import_operations
+                WHERE status = ?
+                """,
+                (OperationStatus.QUEUED.value,),
+            ).fetchone()
+            if row is None:
+                return 0
+            return int(row["queued_count"])
+
+    def admit_new_import(
+        self,
+        binding: ImportRequestBinding,
+        *,
+        key_hash: IdempotencyKeyHash,
+        fingerprint: bytes,
+        max_queued_imports: int,
+        operation_id: UUID | None = None,
+    ) -> ClaimOrEnqueueResult:
+        with self._transaction():
+            row = self._fetch_by_key(binding.repository_id, key_hash)
+            if row is not None:
+                if bytes(row["request_fingerprint"]) != fingerprint:
+                    raise ImportFingerprintConflict(repository_id=binding.repository_id)
+                operation = self._operation_from_row(row)
+                return ClaimOrEnqueueResult(
+                    operation_id=operation.operation_id,
+                    is_new=False,
+                    operation=operation,
+                )
+
+            if not self._has_succeeded_create_locked(binding.repository_id):
+                raise ImportArtifactBindingRejected("repository create ledger is not SUCCEEDED")
+
+            if self._has_unresolved_manual_barrier_locked(binding.repository_id):
+                raise ImportManualBarrierRequired(
+                    f"repository {binding.repository_id} has unresolved manual recovery barrier"
+                )
+
+            queued_count_row = self._connection.execute(
+                """
+                SELECT COUNT(*) AS queued_count
+                FROM repository_import_operations
+                WHERE status = ?
+                """,
+                (OperationStatus.QUEUED.value,),
+            ).fetchone()
+            queued_count = 0 if queued_count_row is None else int(queued_count_row["queued_count"])
+            if queued_count >= max_queued_imports:
+                raise ImportQueueFull("global import queue is full")
+
+            self._verify_artifact_lifecycle_binding(binding)
 
             new_operation_id = operation_id or uuid4()
             now = utc_now_iso()
@@ -555,20 +702,23 @@ class ImportOperationStore:
 
     def has_unresolved_manual_barrier(self, repository_id: UUID) -> bool:
         with self._transaction():
-            cursor = self._connection.execute(
-                """
-                SELECT error_json
-                FROM repository_import_operations
-                WHERE repository_scope = ?
-                  AND status = ?
-                """,
-                (repository_id.hex, OperationStatus.FAILED.value),
-            )
-            for row in cursor.fetchall():
-                error = self._parse_error_json(row["error_json"])
-                if is_manual_recovery_error(error):
-                    return True
-            return False
+            return self._has_unresolved_manual_barrier_locked(repository_id)
+
+    def _has_unresolved_manual_barrier_locked(self, repository_id: UUID) -> bool:
+        cursor = self._connection.execute(
+            """
+            SELECT error_json
+            FROM repository_import_operations
+            WHERE repository_scope = ?
+              AND status = ?
+            """,
+            (repository_id.hex, OperationStatus.FAILED.value),
+        )
+        for row in cursor.fetchall():
+            error = self._parse_error_json(row["error_json"])
+            if is_manual_recovery_error(error):
+                return True
+        return False
 
     def list_artifact_references(self, artifact_id: UUID) -> list[ArtifactOperationReference]:
         with self._transaction():
@@ -603,6 +753,57 @@ class ImportOperationStore:
     def mark_artifact_bytes_deleted(self, artifact_id: UUID) -> None:
         with self._transaction():
             self._mutation_store.record_artifact_bytes_deleted(artifact_id, deleted_at=utc_now_iso())
+
+    def _has_succeeded_create_locked(self, repository_id: UUID) -> bool:
+        from gateway_repository_service.mutation_store import EffectStatus, MutationKind
+
+        cursor = self._connection.execute(
+            """
+            SELECT e.status
+            FROM synchronous_mutation_effects AS e
+            JOIN mutation_idempotency AS i ON i.id = e.idempotency_id
+            WHERE i.mutation_kind = ?
+              AND i.repository_scope = ''
+              AND e.resource_id = ?
+            """,
+            (MutationKind.CREATE_REPOSITORY.value, str(repository_id)),
+        )
+        for row in cursor.fetchall():
+            if str(row["status"]) == EffectStatus.SUCCEEDED.value:
+                return True
+        return False
+
+    def _verify_artifact_lifecycle_binding(self, binding: ImportRequestBinding) -> None:
+        cursor = self._connection.execute(
+            """
+            SELECT
+                repository_scope,
+                media_type,
+                size_bytes,
+                raw_sha256,
+                consumed_by_operation_id,
+                consumed_at,
+                bytes_deleted_at
+            FROM artifact_lifecycle
+            WHERE artifact_id = ?
+            """,
+            (str(binding.artifact_ref.artifact_id),),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise ImportArtifactBindingRejected("artifact lifecycle row is missing")
+        if str(row["repository_scope"]) != binding.repository_id.hex:
+            raise ImportArtifactBindingRejected("artifact repository scope mismatch")
+        if str(row["media_type"]) != binding.artifact_ref.media_type:
+            raise ImportArtifactBindingRejected("artifact media type mismatch")
+        if int(row["size_bytes"]) != binding.artifact_ref.size_bytes:
+            raise ImportArtifactBindingRejected("artifact size mismatch")
+        if str(row["raw_sha256"]) != binding.artifact_ref.raw_sha256:
+            raise ImportArtifactBindingRejected("artifact sha mismatch")
+        if row["consumed_at"] is not None or row["consumed_by_operation_id"] is not None:
+            raise ImportArtifactBindingRejected("artifact is already consumed")
+        if row["bytes_deleted_at"] is not None:
+            raise ImportArtifactBindingRejected("artifact bytes are deleted")
 
     def _allocate_enqueue_sequence(self, repository_id: UUID) -> int:
         row = self._connection.execute(

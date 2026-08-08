@@ -28,9 +28,12 @@ from gateway_repository_service.mutation_store import (
     configure_connection,
 )
 from gateway_repository_service.versioned_import import (
+    ClaimOrEnqueueResult,
     ImportFingerprintConflict,
+    ImportManualBarrierRequired,
     ImportOperationStore,
     ImportOperationTransitionRejected,
+    ImportQueueFull,
     ImportReplayCountRejected,
     ImportRequestBinding,
     ManualCorrectionDecision,
@@ -94,6 +97,28 @@ def _import_result(*, artifact_id: UUID = ARTIFACT_ID) -> VersionedImportResult:
         completed_verification_policy=VerificationPolicy.STRUCTURAL,
         unknown_type_policy=UnknownTypePolicy.REJECT,
     )
+
+
+def _seed_create_succeeded(mutation_store: MutationStore, *, repository_id: UUID = REPOSITORY_ID) -> None:
+    now = "2026-08-06T00:00:00+00:00"
+    scope = IdempotencyScope.for_create()
+    key_hash = IdempotencyKeyHash.from_raw_key(f"create-{repository_id}")
+    fingerprint = create_repository_fingerprint_v1()
+    effect = mutation_store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=repository_id,
+    )
+    mutation_store.mark_succeeded(
+        effect.effect_id,
+        response_body={
+            "repository_id": str(repository_id),
+            "default_ref": "main",
+            "initial_commit_id": "commit-0",
+        },
+    )
+    del now
 
 
 def _seed_artifact(mutation_store: MutationStore, *, artifact_id: UUID = ARTIFACT_ID) -> None:
@@ -594,3 +619,117 @@ def test_not_published_correction_rejects_manual_code_and_writes_no_audit(
         (str(OPERATION_ID),),
     ).fetchone()
     assert int(audit_count[0]) == 0
+
+
+def test_lookup_by_key_returns_none_for_missing_key(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, _ = stores
+    key_hash = IdempotencyKeyHash.from_raw_key("missing-key")
+    assert store.lookup_by_key(REPOSITORY_ID, key_hash) is None
+
+
+def test_lookup_by_key_returns_existing_operation(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, _ = stores
+    key_hash, _ = _enqueue(store, operation_id=OPERATION_ID)
+    found = store.lookup_by_key(REPOSITORY_ID, key_hash)
+    assert found is not None
+    assert found.operation_id == OPERATION_ID
+
+
+def test_count_global_queued_counts_only_queued_status(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    assert store.count_global_queued() == 0
+    _enqueue(store, operation_id=OPERATION_ID, key="queued-1")
+    assert store.count_global_queued() == 1
+    _seed_artifact(mutation_store)
+    _enqueue(store, operation_id=OTHER_OPERATION_ID, key="queued-2")
+    assert store.count_global_queued() == 2
+    store.claim_if_queued(OPERATION_ID)
+    assert store.count_global_queued() == 1
+
+
+def test_admit_new_import_rejects_manual_barrier(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    _enqueue(store, operation_id=OPERATION_ID, key="manual-key")
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_failed(
+        OPERATION_ID,
+        error=SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual"),
+    )
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("new-key")
+    fingerprint = _fingerprint(binding, key_hash)
+    with pytest.raises(ImportManualBarrierRequired):
+        store.admit_new_import(
+            binding,
+            key_hash=key_hash,
+            fingerprint=fingerprint,
+            max_queued_imports=64,
+        )
+
+
+def test_admit_new_import_rejects_when_queue_full(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    _enqueue(store, operation_id=OPERATION_ID, key="queued-1")
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("new-key")
+    fingerprint = _fingerprint(binding, key_hash)
+    with pytest.raises(ImportQueueFull):
+        store.admit_new_import(
+            binding,
+            key_hash=key_hash,
+            fingerprint=fingerprint,
+            max_queued_imports=1,
+        )
+
+
+def test_admit_new_import_replays_concurrent_same_key(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _seed_create_succeeded(mutation_store)
+    binding = _binding()
+    key_hash = IdempotencyKeyHash.from_raw_key("concurrent-key")
+    fingerprint = _fingerprint(binding, key_hash)
+    barrier = threading.Barrier(2)
+    results: list[ClaimOrEnqueueResult] = []
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        barrier.wait()
+        try:
+            results.append(
+                store.admit_new_import(
+                    binding,
+                    key_hash=key_hash,
+                    fingerprint=fingerprint,
+                    max_queued_imports=64,
+                )
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker), threading.Thread(target=worker)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert len(results) == 2
+    assert results[0].operation_id == results[1].operation_id
+    assert store.count_global_queued() == 1

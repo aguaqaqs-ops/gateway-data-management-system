@@ -13,6 +13,8 @@ from gateway_repository_service.http.errors import register_exception_handlers, 
 from gateway_repository_service.http.middleware import RequestIdMiddleware
 from gateway_repository_service.http.readiness import DefaultReadiness, LifecycleReadiness, ReadinessPort
 from gateway_repository_service.http.routes.artifacts import register_artifact_routes
+from gateway_repository_service.http.routes.imports import register_import_routes
+from gateway_repository_service.http.routes.operations import register_operation_routes
 from gateway_repository_service.http.routes.probes import register_probe_routes
 from gateway_repository_service.http.routes.repositories import register_repository_routes
 from gateway_repository_service.runtime import ServiceRuntime
@@ -60,5 +62,7 @@ def create_app(
     register_probe_routes(app)
     register_repository_routes(app)
     register_artifact_routes(app)
+    register_import_routes(app)
+    register_operation_routes(app)
 
     return app

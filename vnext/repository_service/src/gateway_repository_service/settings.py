@@ -66,6 +66,8 @@ class RepositoryServiceSettings(BaseSettings):
     sqlite_busy_timeout_ms: int = 5000
     catalog_parallel_workers: int = 2
     max_import_workers: int = 4
+    max_queued_imports: int = 64
+    import_headroom_bytes: int = 1 * 1024**3
 
     @field_validator("dolt_binary")
     @classmethod
@@ -106,11 +108,19 @@ class RepositoryServiceSettings(BaseSettings):
         "sqlite_busy_timeout_ms",
         "catalog_parallel_workers",
         "max_import_workers",
+        "max_queued_imports",
     )
     @classmethod
     def _bounds_must_be_positive(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("bounds must be positive")
+        return value
+
+    @field_validator("import_headroom_bytes")
+    @classmethod
+    def _import_headroom_must_be_non_negative(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("import_headroom_bytes must be non-negative")
         return value
 
     @field_validator("catalog_parallel_workers")

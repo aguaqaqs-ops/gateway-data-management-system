@@ -13,6 +13,8 @@ from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import DoltRunner
 from support.lifecycle_harness import lifecycle_settings
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.serial
 def test_terminate_and_reap_sends_term_then_kill(tmp_path: Path) -> None:

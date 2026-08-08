@@ -25,16 +25,11 @@ from gateway_repository_service.mutation_store import (
 )
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.command import UploadArtifactCommand
-from support.http_harness import ReadyReadiness, assert_request_id_header, create_test_client
+from support.http_harness import PRODUCTION_OPENAPI_PATHS, ReadyReadiness, assert_request_id_header, create_test_client
 from support.lifecycle_harness import lifecycle_settings
 from support.upload_harness import chunked_payload, create_repository, upload_headers, upload_sha256
 
-ALLOWED_OPENAPI_PATHS = {
-    "/healthz",
-    "/readyz",
-    "/v1/repositories",
-    "/v1/repositories/{repository_id}/artifacts",
-}
+ALLOWED_OPENAPI_PATHS = PRODUCTION_OPENAPI_PATHS
 
 
 def _route_test_client(settings: RepositoryServiceSettings) -> TestClient:

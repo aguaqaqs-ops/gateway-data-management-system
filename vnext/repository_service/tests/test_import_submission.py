@@ -237,6 +237,7 @@ def test_preflight_sqlite_fault_after_successful_lookup_maps_to_service_not_read
     assert exc_info.value.code == "SERVICE_NOT_READY"
 
 
+@pytest.mark.serial
 def test_pending_admission_resolution_sqlite_fault_maps_to_service_not_ready(
     env: ImportHttpTestEnvironment,
 ) -> None:
@@ -271,24 +272,26 @@ def test_pending_admission_resolution_sqlite_fault_maps_to_service_not_ready(
 
     first_thread = threading.Thread(target=first_submit)
     first_thread.start()
-    assert pause_after_admit.wait(timeout=5)
+    try:
+        assert pause_after_admit.wait(timeout=5)
 
-    def failing_status(operation_id: UUID) -> str | None:
-        del operation_id
-        raise sqlite3.OperationalError("database is locked")
+        def failing_status(operation_id: UUID) -> str | None:
+            del operation_id
+            raise sqlite3.OperationalError("database is locked")
 
-    with patch.object(import_store, "get_operation_durable_status", side_effect=failing_status):
-        with pytest.raises(ServiceError) as exc_info:
-            service.submit(
-                repository_id,
-                ImportRequestHeaders(idempotency_key="pending-sqlite-wait"),
-                SubmitVersionedImportRequest.model_validate(body),
-                request_id="req-second",
-            )
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.code == "SERVICE_NOT_READY"
-    resume_admit.set()
-    first_thread.join(timeout=5)
+        with patch.object(import_store, "get_operation_durable_status", side_effect=failing_status):
+            with pytest.raises(ServiceError) as exc_info:
+                service.submit(
+                    repository_id,
+                    ImportRequestHeaders(idempotency_key="pending-sqlite-wait"),
+                    SubmitVersionedImportRequest.model_validate(body),
+                    request_id="req-second",
+                )
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.code == "SERVICE_NOT_READY"
+    finally:
+        resume_admit.set()
+        first_thread.join(timeout=5)
 
 
 def test_new_submit_after_control_db_closed_maps_to_service_not_ready(env: ImportHttpTestEnvironment) -> None:

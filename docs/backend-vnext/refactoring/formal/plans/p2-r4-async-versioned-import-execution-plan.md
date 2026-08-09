@@ -2112,7 +2112,7 @@ s10_round2_prior_commits:
   - 3bb7d32eda629a5eafa0bd65018da4328add1a1b
   - eaf9afca2c966f8214b172fe7c3cff4cc396c978
 branch: phase1/gate-ownership-repair
-worktree_clean: yes
+worktree_clean: pending
 control_db_user_version: 8
 stage_exit: pass
 production_compose_restart_replay: pass
@@ -2313,4 +2313,4 @@ Production-equivalent capacity retest仍按P2-R1 v8 decision保留，完整TTL/c
 
 ### S10 closure status — 2026-08-09
 
-§16 条件已由 S10 audit remediation round 2 handoff 闭合；commit SHA 在提交后填入。
+§16 条件已由 S10 audit remediation round 2 final handoff 闭合。

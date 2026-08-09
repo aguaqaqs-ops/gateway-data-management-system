@@ -2092,19 +2092,20 @@ audit_remediation_closed:
     - automatic replay count SQL side-effect bounded (records_row_count <= 1)
 ```
 
-### Accepted S10 exit and P2-R4 handoff — 2026-08-09 (audit remediation round 2, interim)
+### Accepted S10 exit and P2-R4 handoff — 2026-08-09 (audit remediation round 2, final)
 
 `start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
-`validated_code_sha`: pending
+`validated_code_sha`: `f0a14abde13799025637f9bf989ed33ece498aa2`
 `handoff_record_commit_sha`: pending
 
 ```yaml
 round: P2-R4
-review_state: remediation_required
+review_state: pass
 s10_start_sha: 74ccbeb
-validated_code_sha: pending
+validated_code_sha: f0a14abde13799025637f9bf989ed33ece498aa2
 handoff_record_commit_sha: pending
-handoff_fixup_commits: []
+handoff_fixup_commits:
+  - 414574c9284b013decdbb2ace8987fb2968c0c58
 s10_round2_prior_commits:
   - 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
   - 197dcff453a3f3526e53fb917897f0be62ca1d99
@@ -2113,10 +2114,10 @@ s10_round2_prior_commits:
 branch: phase1/gate-ownership-repair
 worktree_clean: pending
 control_db_user_version: 8
-stage_exit: no-go
-production_compose_restart_replay: pending_final_gate
-p2_r4_exit: no-go
-p2_r5_ready: no
+stage_exit: pass
+production_compose_restart_replay: pass
+p2_r4_exit: pass
+p2_r5_ready: yes
 production_retest_required: yes
 
 internal_admission_protocol:
@@ -2144,33 +2145,57 @@ package_and_worker_settings:
   min_free_disk_fraction: 0.10
   admission: disk admission before package extraction
 
-repository_service_image:
-  note: superseded_pending_final_rebuild
-  prior_image_id: sha256:19fabb08f6e7684b210ceea8a8104311e0407715c6c4bada9da60662688fae36
-  prior_source_tree_sha256: sha256:821c49a4b9b9636f8360940b76a43b491828933863ce66c0bb180c0e5d23759c
-  prior_build_input_revision: 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
-
 contracts_gate:
-  result: pending_final_gate
+  command: uv lock --check && uv run ruff check . && uv run mypy && uv run pytest -q
+  result: pass
+  test_count: 66
 
 service_gate:
-  result: pending_final_gate
+  commands:
+    - uv lock --check && uv run ruff check . && uv run mypy
+    - uv run pytest -q -m "not serial"
+    - uv run pytest -q -m serial -n 0
+    - pytest -m unit with dolt parked
+  result: pass
+  parallel_count: 935
+  parallel_skipped: 1
+  serial_count: 61
+  unit_dolt_parked_count: 700
+  unit_dolt_parked_skipped: 1
 
 fault_matrix_results:
-  admission_process_crash: pending_final_gate
-  worker_dolt_process_crash: pending_final_gate
-  recovery_count: pending_final_gate
-  mutation_restart: pending_final_gate
-  production_compose_restart_replay: pending_final_gate
+  admission_process_crash: passed=3 skipped=0 xfailed=0
+  worker_dolt_process_crash: passed=10 skipped=0 xfailed=0
+  recovery_count: passed=1 skipped=0 xfailed=0
+  mutation_restart: passed=1 skipped=0 xfailed=0
+  production_compose_restart_replay: passed=1 skipped=0 xfailed=0
 
-real_dolt_result: pending_final_gate
-compose_project: pending
+real_dolt_result: pass
+compose_project: ephemeral_per_run
 compose_project_pattern: gateway-p2r4-s10-*
-compose_cleanup_result: pending_final_gate
-startup_replay_result: pending_final_gate
-manual_recovery_result: pending_final_gate
-artifact_cleanup_result: pending_final_gate
-git_diff_check: pending_final_gate
+compose_cleanup_result: pass
+startup_replay_result: pass
+manual_recovery_result: pass
+artifact_cleanup_result: pass
+git_diff_check: pass
+
+repository_service_image:
+  tag: gateway-repository-service:local
+  image_id: sha256:65dea7e7e30963e5897a192ee4ecf7e7d9acdcbca424d55a6e2d26ffc56b6ba1
+  source_tree_sha256: sha256:5ef954100c58ae3d2822fa587515b59ca34e2424b7161b3f6d92756c5aba85be
+  build_input_revision: f0a14abde13799025637f9bf989ed33ece498aa2
+  image_matches_build_context: true
+
+gate_counts:
+  shared_kernel: 232
+  repository_contracts: 66
+  repository_client: 15
+  backend: 18
+  repository_service_parallel: 935
+  repository_service_parallel_skipped: 1
+  repository_service_serial: 61
+  unit_dolt_parked: 700
+  unit_dolt_parked_skipped: 1
 
 static_closeout_pending: []
 

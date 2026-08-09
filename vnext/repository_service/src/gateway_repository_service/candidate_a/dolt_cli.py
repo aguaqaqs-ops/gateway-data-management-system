@@ -42,6 +42,7 @@ from gateway_repository_service.process import (
     DoltRunner,
     ProcessStream,
     StreamCancellationCheck,
+    evaluate_stream_cancellation,
 )
 from gateway_repository_service.settings import RepositoryServiceSettings
 
@@ -496,7 +497,7 @@ class CandidateADoltCli:
         target_literal = opaque_commit_literal(commit_id)
         rows = self.query_json(
             "commit_exists",
-            f"SELECT commit_hash FROM dolt_log WHERE commit_hash = {target_literal};\n",
+            f"SELECT commit_hash FROM dolt_commits WHERE commit_hash = {target_literal};\n",
         )
         return parse_commit_exists_rows(rows, commit_id)
 
@@ -594,7 +595,7 @@ class CandidateADoltCli:
             "oversized_single_row": False,
         }
         try:
-            if cancellation is not None and cancellation():
+            if evaluate_stream_cancellation(cancellation):
                 raise DoltCliError("row stream cancelled before start")
             stream = self.runner.stream(
                 "row_stream",
@@ -629,7 +630,12 @@ class CandidateADoltCli:
             rows: list[NormalizedRow] = []
             rows_bytes = 0
 
+            def _raise_if_cancelled() -> None:
+                if evaluate_stream_cancellation(cancellation):
+                    raise DoltCliError("row stream cancelled")
+
             def emit(chunk: list[NormalizedRow]) -> pa.RecordBatch:
+                _raise_if_cancelled()
                 batch = plan.record_batch(chunk)
                 _observe_batch_metrics(
                     batch_metrics,
@@ -640,10 +646,10 @@ class CandidateADoltCli:
                 return batch
 
             for row in reader:
-                if cancellation is not None and cancellation():
-                    raise DoltCliError("row stream cancelled")
+                _raise_if_cancelled()
                 parsed = _parse_tagged_row(row, plan)
                 normalized_row = plan.normalize_row(parsed)
+                _raise_if_cancelled()
                 chunks, rows, rows_bytes = accumulate_normalized_row(
                     rows,
                     rows_bytes,
@@ -654,7 +660,9 @@ class CandidateADoltCli:
                 for chunk in chunks:
                     yield emit(chunk)
             if rows:
+                _raise_if_cancelled()
                 yield emit(rows)
+            _raise_if_cancelled()
             result = stream.close()
             stream_closed = True
             if result.exit_code != 0 or result.timed_out or result.cancelled:

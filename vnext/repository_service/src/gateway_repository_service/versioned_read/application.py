@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable, Iterator
 from uuid import UUID
 
@@ -15,12 +16,14 @@ from gateway_repository_service.mutation_store import MutationStore
 from gateway_repository_service.versioned_read.errors import (
     CommitNotFoundError,
     MainRefNotFoundError,
+    ProviderUnavailableError,
     RepositoryNotVisibleError,
     TableNotFoundError,
 )
 from gateway_repository_service.versioned_read.ports import CancellationCallback, VersionedReadProvider
 
 MAIN_REF = "main"
+_UNAVAILABLE_MESSAGE = "versioned read provider is unavailable"
 
 
 class VersionedReadApplication:
@@ -37,9 +40,14 @@ class VersionedReadApplication:
         self._provider_factory = provider_factory
 
     def _require_visible(self, repository_id: UUID) -> VersionedReadProvider:
-        if not is_repository_visible(self._mutation_store, self._layout, repository_id):
-            raise RepositoryNotVisibleError("repository is not visible")
-        return self._provider_factory(repository_id)
+        try:
+            if not is_repository_visible(self._mutation_store, self._layout, repository_id):
+                raise RepositoryNotVisibleError("repository is not visible")
+            return self._provider_factory(repository_id)
+        except RepositoryNotVisibleError:
+            raise
+        except (sqlite3.Error, OSError):
+            raise ProviderUnavailableError(_UNAVAILABLE_MESSAGE) from None
 
     def resolve_main(self, repository_id: UUID) -> str:
         provider = self._require_visible(repository_id)

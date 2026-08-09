@@ -26,6 +26,15 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 StreamCancellationCheck = Callable[[], bool]
 
 
+def evaluate_stream_cancellation(cancellation: StreamCancellationCheck | None) -> bool:
+    if cancellation is None:
+        return False
+    try:
+        return cancellation()
+    except Exception:
+        return True
+
+
 class ProcessBoundaryError(RuntimeError):
     """Raised when a Dolt process violates the private runner boundary."""
 
@@ -1133,7 +1142,7 @@ class DoltRunner:
         stdin_path: Path | None = None,
         cancellation: StreamCancellationCheck | None = None,
     ) -> "ProcessStream":
-        if cancellation is not None and cancellation():
+        if evaluate_stream_cancellation(cancellation):
             raise ProcessBoundaryError("stream cancelled")
         process, stdin_handle = self._start(command_kind, args, cwd=cwd, stdin_path=stdin_path)
         if stdin_handle is not None:
@@ -1539,6 +1548,8 @@ class ProcessStream:
         self._monitor_thread = threading.Thread(target=self._monitor_rss, daemon=True)
         self._monitor_thread.start()
         self._closed = False
+        self._close_lock = threading.Lock()
+        self._closed_result: CommandResult | None = None
 
     def _drain_stderr(self) -> None:
         if self.process.stderr is None:
@@ -1588,13 +1599,7 @@ class ProcessStream:
             return self.process.pid if self.process.poll() is None else None
 
     def _raise_if_cancelled(self, *, selector: selectors.BaseSelector | None = None) -> None:
-        if self._cancellation is None:
-            return
-        try:
-            cancelled = self._cancellation()
-        except Exception:
-            cancelled = True
-        if not cancelled:
+        if not evaluate_stream_cancellation(self._cancellation):
             return
         if selector is not None:
             selector.close()
@@ -1655,8 +1660,24 @@ class ProcessStream:
                 yield line
 
     def close(self, *, cancelled: bool = False, timed_out: bool = False) -> CommandResult:
-        if self._closed:
-            return CommandResult(
+        with self._close_lock:
+            if self._closed_result is not None:
+                return self._closed_result
+            with self._lifecycle_lock:
+                process_running = self.process.poll() is None
+            self._stop_rss_monitor()
+            if process_running:
+                self.runner.terminate_and_reap(self.process)
+            else:
+                self.process.wait()
+                self.runner.reap_adopted_dolt_children()
+            self._stderr_thread.join(timeout=self.runner.settings.terminate_grace_seconds)
+            if self.process.stdout is not None:
+                self.process.stdout.close()
+            if self.process.stderr is not None:
+                self.process.stderr.close()
+            self._closed = True
+            self._closed_result = CommandResult(
                 command_kind=self.command_kind,
                 exit_code=self.process.returncode if self.process.returncode is not None else -1,
                 duration_seconds=time.monotonic() - self.started,
@@ -1666,30 +1687,7 @@ class ProcessStream:
                 timed_out=timed_out,
                 cancelled=cancelled,
             )
-        with self._lifecycle_lock:
-            process_running = self.process.poll() is None
-        self._stop_rss_monitor()
-        if process_running:
-            self.runner.terminate_and_reap(self.process)
-        else:
-            self.process.wait()
-            self.runner.reap_adopted_dolt_children()
-        self._stderr_thread.join(timeout=self.runner.settings.terminate_grace_seconds)
-        if self.process.stdout is not None:
-            self.process.stdout.close()
-        if self.process.stderr is not None:
-            self.process.stderr.close()
-        self._closed = True
-        return CommandResult(
-            command_kind=self.command_kind,
-            exit_code=self.process.returncode if self.process.returncode is not None else -1,
-            duration_seconds=time.monotonic() - self.started,
-            stdout=b"",
-            stdout_tail=b"",
-            stderr_tail=self.stderr_tail.value(),
-            timed_out=timed_out,
-            cancelled=cancelled,
-        )
+            return self._closed_result
 
     def __enter__(self) -> Self:
         return self

@@ -22,7 +22,6 @@ from gateway_repository_service.versioned_read.errors import (
     MainRefNotFoundError,
     ProviderUnavailableError,
     ReadStreamCancelledError,
-    redact_provider_message,
 )
 from gateway_repository_service.versioned_read.ports import CancellationCallback
 
@@ -79,7 +78,7 @@ def _as_provider_unavailable(exc: BaseException) -> ProviderUnavailableError | R
             UnicodeDecodeError,
         ),
     ):
-        return ProviderUnavailableError(redact_provider_message(str(exc)))
+        return ProviderUnavailableError(_UNAVAILABLE_MESSAGE)
     return ProviderUnavailableError(_UNAVAILABLE_MESSAGE)
 
 
@@ -113,8 +112,10 @@ class CandidateAReadProvider:
             )
             row = _require_exactly_one_row(rows, "read_ref")
             raw = value(row, "commit_id", 0)
-            if not isinstance(raw, str) or raw == "":
+            if isinstance(raw, str) and raw == "":
                 raise MainRefNotFoundError("versioned read ref is not available")
+            if not isinstance(raw, str):
+                raise ProviderUnavailableError(_UNAVAILABLE_MESSAGE)
             return raw
         except MainRefNotFoundError:
             raise

@@ -2214,19 +2214,22 @@ def test_read_catalog_and_type_catalog_share_strict_parent_helper(
     assert any(table.name == "shared_parent" for table in type_catalog)
 
 
-@pytest.mark.integration
+def _unit_import_provider(tmp_path: Path) -> CandidateAImportProvider:
+    layout = DurableLayout.create(tmp_path / "root")
+    settings = RepositoryServiceSettings()
+    repository = layout.staging_artifacts / "import-repo"
+    repository.mkdir(parents=True, exist_ok=True)
+    runner = MagicMock(spec=DoltRunner)
+    return CandidateAImportProvider(settings, layout, repository, runner)
+
+
 @pytest.mark.parametrize("reader", ("read_catalog", "read_type_catalog"))
 def test_read_catalog_and_type_catalog_reject_duplicate_parent_rows(
-    import_layout: DurableLayout,
-    import_provider: CandidateAImportProvider,
+    tmp_path: Path,
     reader: str,
 ) -> None:
-    _, _, _, candidate = _candidate_on_private_ref(
-        import_provider,
-        import_layout,
-        table_sql="CREATE TABLE dup_parent_matrix (id BIGINT NOT NULL PRIMARY KEY);\n",
-    )
-    original_query_json = import_provider._cli.query_json
+    import_provider = _unit_import_provider(tmp_path)
+    candidate = "abc123deadbeef"
 
     def duplicate_parent_rows(
         kind: str,
@@ -2234,12 +2237,13 @@ def test_read_catalog_and_type_catalog_reject_duplicate_parent_rows(
         *,
         revision: str | None = None,
     ) -> list[dict[str, object]]:
+        del sql, revision
         if kind == "candidate_parent":
             return [
                 {"parents": "parent-a,parent-b"},
                 {"parents": "parent-a,parent-b"},
             ]
-        return original_query_json(kind, sql, revision=revision)
+        raise AssertionError(kind)
 
     with patch.object(import_provider._cli, "query_json", side_effect=duplicate_parent_rows):
         with pytest.raises(ImportProviderError, match="candidate_parent"):
@@ -2910,18 +2914,13 @@ def test_inspect_marker_rejects_duplicate_refs(
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
 
-@pytest.mark.integration
 @pytest.mark.parametrize("reader", ("read_catalog", "read_type_catalog"))
 def test_read_catalog_and_type_catalog_reject_whitespace_parent(
-    import_layout: DurableLayout,
-    import_provider: CandidateAImportProvider,
+    tmp_path: Path,
     reader: str,
 ) -> None:
-    _, _, _, candidate = _candidate_on_private_ref(
-        import_provider,
-        import_layout,
-        table_sql="CREATE TABLE whitespace_parent (id BIGINT NOT NULL PRIMARY KEY);\n",
-    )
+    import_provider = _unit_import_provider(tmp_path)
+    candidate = "abc123deadbeef"
 
     with patch.object(
         import_provider._cli,

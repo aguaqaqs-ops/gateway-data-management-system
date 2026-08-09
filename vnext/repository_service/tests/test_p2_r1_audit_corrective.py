@@ -297,6 +297,9 @@ def test_internal_rss_monitor_stops_before_process_reap(
     obj.timeout = 0
     obj._closed = False
     obj._lifecycle_lock = threading.Lock()
+    if process_kind == "stream":
+        obj._close_lock = threading.Lock()
+        obj._closed_result = None
     obj._stop_rss_monitor = lambda: events.append("monitor-stop")
     obj._stderr_thread = SimpleNamespace(join=lambda **_kwargs: events.append("stderr-join"))
     obj.stderr_tail = SimpleNamespace(value=lambda: b"")
@@ -922,6 +925,8 @@ def test_scale_fixture_has_same_shape_and_deterministic_rows(tmp_path: Path) -> 
     assert first.expected_tables[0].columns == second.expected_tables[0].columns
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 def test_process_stream_timeout_during_blocked_wait() -> None:
     settings = RepositoryServiceSettings(output_capture_bytes=64)
     runner = DoltRunner.__new__(DoltRunner)
@@ -935,6 +940,7 @@ def test_process_stream_timeout_during_blocked_wait() -> None:
     assert process.poll() is not None
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_process_stream_rejects_unterminated_oversized_line() -> None:
     settings = RepositoryServiceSettings(output_capture_bytes=32)

@@ -2,14 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
-_REDACT_PATTERNS = (
-    re.compile(r"SELECT\b", re.IGNORECASE),
-    re.compile(r"/"),
-    re.compile(r"\\"),
-)
-
 
 class VersionedReadError(Exception):
     """Base fault for private versioned read operations."""
@@ -37,9 +29,3 @@ class ProviderUnavailableError(VersionedReadError):
 
 class ReadStreamCancelledError(VersionedReadError):
     """Row stream was cancelled before completion."""
-
-
-def redact_provider_message(message: str) -> str:
-    if any(pattern.search(message) for pattern in _REDACT_PATTERNS):
-        return "versioned read provider is unavailable"
-    return message

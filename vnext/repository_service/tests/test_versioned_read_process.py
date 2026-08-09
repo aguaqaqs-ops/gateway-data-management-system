@@ -140,9 +140,56 @@ def test_process_stream_close_is_idempotent(tmp_path: Path, dolt_runner: tuple[D
     )
     stream = ProcessStream(runner, process, "row_stream", settings.import_timeout_seconds)
     first = stream.close(cancelled=True)
-    second = stream.close(cancelled=True)
+    second = stream.close()
+    assert first is second
     assert first.cancelled is True
     assert second.cancelled is True
+    assert process.poll() is not None
+    query.unlink(missing_ok=True)
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_process_stream_concurrent_close_is_single_cleanup(
+    tmp_path: Path,
+    dolt_runner: tuple[DoltRunner, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, repository = dolt_runner
+    settings = lifecycle_settings(tmp_path)
+    layout = DurableLayout.create_for_probe(settings.data_root)
+    query = _blocking_sql_query(layout, 8)
+    process, _stdin = runner._start(
+        "row_stream",
+        ["sql", "--result-format=csv"],
+        cwd=repository,
+        stdin_path=query,
+    )
+    stream = ProcessStream(runner, process, "row_stream", settings.import_timeout_seconds)
+    signals: list[tuple[int, int]] = []
+    original_killpg = os.killpg
+    barrier = threading.Barrier(2)
+    results: list[object] = []
+
+    def recording_killpg(pid: int, sig: int) -> None:
+        signals.append((pid, sig))
+        original_killpg(pid, sig)
+
+    def close_worker() -> None:
+        barrier.wait(timeout=5.0)
+        results.append(stream.close(cancelled=True))
+
+    monkeypatch.setattr("gateway_repository_service.process.os.killpg", recording_killpg)
+    worker = threading.Thread(target=close_worker)
+    worker.start()
+    barrier.wait(timeout=5.0)
+    results.append(stream.close())
+    worker.join(timeout=10.0)
+    assert not worker.is_alive()
+    assert len(results) == 2
+    assert results[0] is results[1]
+    term_signals = [entry for entry in signals if entry[1] == signal.SIGTERM]
+    assert len(term_signals) == 1
     assert process.poll() is not None
     query.unlink(missing_ok=True)
 

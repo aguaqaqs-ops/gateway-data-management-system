@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
 from collections.abc import Iterator
 from typing import Any
@@ -25,6 +26,7 @@ from gateway_repository_service.candidate_a.dolt_cli import (
     DoltCliError,
     _CATALOG_MEMO_ENTRIES,
     parse_commit_exists_rows,
+    value,
 )
 from gateway_repository_service.candidate_a.ref_validation import (
     opaque_commit_literal,
@@ -65,21 +67,24 @@ ReadRepoFixture = tuple[
 
 
 @pytest.mark.parametrize(
-    ("token", "expected_literal"),
+    "token",
     (
-        ("not-a-dolt-hash'; DROP TABLE t; --", "'not-a-dolt-hash''; DROP TABLE t; --'"),
-        (r"back\slash-token", r"'back\slash-token'"),
-        ("plain'quote", "'plain''quote'"),
-        ("opaque-token", "'opaque-token'"),
+        "not-a-dolt-hash'; DROP TABLE t; --",
+        r"x\'; CREATE TABLE injected(id INT); --",
+        r"back\slash-token",
+        "plain'quote",
+        "opaque-token",
+        "a" * 128,
     ),
 )
-def test_opaque_commit_literal_quotes_without_provider_grammar(
-    token: str,
-    expected_literal: str,
-) -> None:
-    assert opaque_commit_literal(token) == expected_literal
-    assert opaque_commit_literal(token).startswith("'")
-    assert opaque_commit_literal(token).endswith("'")
+def test_opaque_commit_literal_encodes_without_provider_grammar(token: str) -> None:
+    literal = opaque_commit_literal(token)
+    if token == "":
+        assert literal == "''"
+    else:
+        codes = ",".join(str(ord(character)) for character in token)
+        assert literal == f"CONCAT(CHAR({codes}))"
+    assert ";" not in literal
     if token == "not-a-dolt-hash'; DROP TABLE t; --":
         with pytest.raises(ValueError, match="commit id is invalid"):
             validate_commit_id(token)
@@ -472,6 +477,59 @@ def test_dolt_cli_batch_loop_cancel_maps_to_read_stream_cancelled() -> None:
     assert exc_info.value.__cause__ is None
 
 
+@pytest.mark.parametrize(
+    ("failure_point",),
+    (
+        ("before_start",),
+        ("batch_loop",),
+    ),
+)
+def test_stream_callback_exception_maps_to_read_stream_cancelled(failure_point: str) -> None:
+    provider = CandidateAReadProvider(
+        RepositoryServiceSettings(),
+        DurableLayout.create(Path("/tmp/unused")),
+        Path("/tmp/unused"),
+        MagicMock(spec=DoltRunner),
+    )
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("id", "BIGINT", False, 1),),
+        1,
+    )
+    calls = 0
+
+    def broken_callback() -> bool:
+        nonlocal calls
+        calls += 1
+        if failure_point == "before_start" and calls == 1:
+            raise RuntimeError("callback failed")
+        if failure_point == "batch_loop" and calls >= 2:
+            raise RuntimeError("callback failed")
+        return False
+
+    def cancelled_stream(*args: object, **kwargs: object) -> Iterator[pa.RecordBatch]:
+        del args, kwargs
+
+        def _gen() -> Iterator[pa.RecordBatch]:
+            yield pa.record_batch({"id": pa.array([1], type=pa.int64())})
+            raise DoltCliError("row stream cancelled")
+
+        return _gen()
+
+    with patch.object(provider._cli, "stream_table_at", side_effect=cancelled_stream):
+        with patch.object(provider._cli, "commit_exists", return_value=True):
+            with pytest.raises(ReadStreamCancelledError, match="cancelled") as exc_info:
+                list(
+                    provider.stream_table_at(
+                        "opaque-commit",
+                        table,
+                        UnknownTypePolicy.REJECT,
+                        cancellation=broken_callback,
+                    )
+                )
+    assert exc_info.value.__cause__ is None
+
+
 def test_read_provider_rejects_non_main_ref() -> None:
     provider = CandidateAReadProvider(
         RepositoryServiceSettings(),
@@ -501,6 +559,96 @@ def test_provider_fault_messages_are_redacted() -> None:
     assert "/tmp" not in str(exc_info.value)
     assert exc_info.value.__cause__ is None
     assert "SELECT" not in repr(exc_info.value)
+
+    with patch.object(
+        provider._cli,
+        "query_json",
+        side_effect=DoltCliError('Table_type="tenant-secret"'),
+    ):
+        with pytest.raises(ProviderUnavailableError, match="unavailable") as exc_info:
+            provider.read_ref("main")
+    assert "tenant-secret" not in str(exc_info.value)
+    assert "tenant-secret" not in repr(exc_info.value)
+    assert exc_info.value.__cause__ is None
+
+
+READ_REF_FAULT_SHAPES: tuple[tuple[list[dict[str, object]], type[Exception], str | None], ...] = (
+    ([{"commit_id": ""}], MainRefNotFoundError, "not available"),
+    ([], ProviderUnavailableError, "unavailable"),
+    ([{"commit_id": "abc"}, {"commit_id": "abc"}], ProviderUnavailableError, "unavailable"),
+    ([{"commit_id": 1}], ProviderUnavailableError, "unavailable"),
+    ([{"commit_id": True}], ProviderUnavailableError, "unavailable"),
+    ([{"commit_id": None}], ProviderUnavailableError, "unavailable"),
+)
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected_type", "match"),
+    READ_REF_FAULT_SHAPES,
+)
+def test_read_ref_fault_shape_matrix(
+    rows: list[dict[str, object]],
+    expected_type: type[Exception],
+    match: str | None,
+) -> None:
+    provider = CandidateAReadProvider(
+        RepositoryServiceSettings(),
+        DurableLayout.create(Path("/tmp/unused")),
+        Path("/tmp/unused"),
+        MagicMock(spec=DoltRunner),
+    )
+    with patch.object(provider._cli, "query_json", return_value=rows):
+        with pytest.raises(expected_type, match=match):
+            provider.read_ref("main")
+
+
+def test_versioned_read_application_wraps_store_failures(tmp_path: Path) -> None:
+    store = _open_mutation_store(tmp_path)
+    store._connection.close()
+    layout = DurableLayout.create(tmp_path / "root")
+    app = VersionedReadApplication(store, layout, lambda _repository_id: MagicMock())
+    with pytest.raises(ProviderUnavailableError, match="unavailable"):
+        app.get_catalog(uuid4(), "opaque-commit")
+
+
+def test_versioned_read_application_wraps_factory_oserror(tmp_path: Path) -> None:
+    store, layout, repository_id = _visible_repository_setup(tmp_path)
+
+    def failing_factory(_repository_id: UUID) -> CandidateAReadProvider:
+        raise OSError("factory failed")
+
+    app = VersionedReadApplication(store, layout, failing_factory)
+    with pytest.raises(ProviderUnavailableError, match="unavailable"):
+        app.get_catalog(repository_id, "opaque-commit")
+
+
+def test_malformed_commit_exists_metadata_is_unavailable() -> None:
+    provider = CandidateAReadProvider(
+        RepositoryServiceSettings(),
+        DurableLayout.create(Path("/tmp/unused")),
+        Path("/tmp/unused"),
+        MagicMock(spec=DoltRunner),
+    )
+    stdout = json.dumps(
+        {
+            "rows": [{"commit_hash": "a"}, {"commit_hash": "b"}],
+            "columns": [{"name": "commit_hash"}],
+        }
+    ).encode()
+    with patch.object(
+        provider._cli,
+        "run_cli",
+        return_value=CommandResult(
+            command_kind="commit_exists",
+            exit_code=0,
+            duration_seconds=0.0,
+            stdout=stdout,
+            stdout_tail=stdout,
+            stderr_tail=b"",
+        ),
+    ):
+        with pytest.raises(ProviderUnavailableError):
+            provider.commit_exists("a")
 
 
 def _memo_table(name: str) -> TableCatalog:
@@ -609,7 +757,11 @@ def test_read_repo_c1_c2_literal_reads(read_repo: ReadRepoFixture) -> None:
 
 
 @pytest.mark.integration
-def test_branch_movement_keeps_pinned_commit_immutable(read_repo: ReadRepoFixture) -> None:
+@pytest.mark.serial
+def test_branch_movement_keeps_pinned_commit_immutable(
+    read_repo: ReadRepoFixture,
+    tmp_path: Path,
+) -> None:
     layout, _, _, read_provider, offline = read_repo
     offline.replay(
         _write_sql(
@@ -620,24 +772,132 @@ def test_branch_movement_keeps_pinned_commit_immutable(read_repo: ReadRepoFixtur
         )
     )
     c1 = _commit_changes(offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000010")
+    preflight_done = threading.Event()
+    release = threading.Event()
+    original_exists = read_provider.commit_exists
+
+    def gated_commit_exists(commit_id: str) -> bool:
+        exists = original_exists(commit_id)
+        if commit_id == c1 and exists:
+            preflight_done.set()
+            assert release.wait(timeout=5.0)
+        return exists
+
+    def advance_main() -> None:
+        assert preflight_done.wait(timeout=5.0)
+        offline.replay(
+            _write_sql(
+                layout,
+                "advance.sql",
+                "INSERT INTO items (id, label) VALUES (2, 'moved-main');\n",
+            )
+        )
+        _commit_changes(offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000011")
+        release.set()
+
+    store, _, repository_id = _visible_repository_setup(tmp_path)
+    worker = threading.Thread(target=advance_main)
+    worker.start()
+    with patch.object(read_provider, "commit_exists", side_effect=gated_commit_exists):
+        with patch(
+            "gateway_repository_service.versioned_read.application.is_repository_visible",
+            return_value=True,
+        ):
+            app = VersionedReadApplication(store, layout, lambda _id: read_provider)
+            _plan, rows = app.open_table_rows(
+                repository_id,
+                c1,
+                "items",
+                UnknownTypePolicy.REJECT,
+            )
+            pinned_ids = {
+                int(batch.column("id")[row].as_py())
+                for batch in rows
+                for row in range(batch.num_rows)
+            }
+    worker.join(timeout=10.0)
+    assert not worker.is_alive()
+    assert pinned_ids == {1}
+    c2 = read_provider.read_ref("main")
+    assert c2 != c1
+    c2_catalog = read_provider.catalog_at(c2)
+    c2_table = next(table for table in c2_catalog if table.name == "items")
+    c2_ids = {
+        int(batch.column("id")[row].as_py())
+        for batch in read_provider.stream_table_at(c2, c2_table, UnknownTypePolicy.REJECT)
+        for row in range(batch.num_rows)
+    }
+    assert c2_ids == {1, 2}
+
+
+@pytest.mark.integration
+def test_commit_exists_finds_side_branch_commit_while_on_main(read_repo: ReadRepoFixture) -> None:
+    layout, settings, runner, read_provider, offline = read_repo
+    repository = layout.staging_artifacts / "read-repo"
+    runner.run(
+        "checkout_side",
+        ["checkout", "-b", "side"],
+        cwd=repository,
+        timeout=settings.metadata_timeout_seconds,
+    )
     offline.replay(
         _write_sql(
             layout,
-            "advance.sql",
-            "INSERT INTO items (id, label) VALUES (2, 'moved-main');\n",
+            "side.sql",
+            "CREATE TABLE side_items (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n"
+            "INSERT INTO side_items (id, label) VALUES (1, 'side-only');\n",
         )
     )
-    _commit_changes(offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000011")
-    assert read_provider.read_ref("main") != c1
-    pinned_catalog = read_provider.catalog_at(c1)
-    pinned_table = next(table for table in pinned_catalog if table.name == "items")
-    assert pinned_table.row_count == 1
-    pinned_ids = {
-        int(batch.column("id")[row].as_py())
-        for batch in read_provider.stream_table_at(c1, pinned_table, UnknownTypePolicy.REJECT)
+    _commit_changes(
+        offline,
+        "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000030",
+    )
+    side_head_rows = read_provider._cli.query_json(
+        "side_head",
+        "SELECT HASHOF('HEAD') AS commit_id;\n",
+    )
+    side_commit = value(side_head_rows[0], "commit_id", 0)
+    assert isinstance(side_commit, str)
+    runner.run(
+        "checkout_main",
+        ["checkout", "main"],
+        cwd=repository,
+        timeout=settings.metadata_timeout_seconds,
+    )
+    offline.replay(
+        _write_sql(
+            layout,
+            "main_only.sql",
+            "CREATE TABLE main_items (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n"
+            "INSERT INTO main_items (id, label) VALUES (1, 'main-only');\n",
+        )
+    )
+    _commit_changes(
+        offline,
+        "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000031",
+    )
+    assert read_provider.read_ref("main") != side_commit
+    assert read_provider.commit_exists(side_commit)
+    side_catalog = read_provider.catalog_at(side_commit)
+    side_table = next(table for table in side_catalog if table.name == "side_items")
+    side_labels = {
+        batch.column("label")[row].as_py()
+        for batch in read_provider.stream_table_at(side_commit, side_table, UnknownTypePolicy.REJECT)
         for row in range(batch.num_rows)
     }
-    assert pinned_ids == {1}
+    assert side_labels == {"side-only"}
+
+
+@pytest.mark.integration
+def test_opaque_commit_literal_blocks_sql_injection(read_repo: ReadRepoFixture) -> None:
+    _, _, _, read_provider, _ = read_repo
+    malicious = r"x\'; CREATE TABLE injected(id INT); --"
+    assert read_provider.commit_exists(malicious) is False
+    with pytest.raises(CommitNotFoundError):
+        read_provider.catalog_at(malicious)
+    main_commit = read_provider.read_ref("main")
+    catalog = read_provider.catalog_at(main_commit)
+    assert all(table.name != "injected" for table in catalog)
 
 
 @pytest.mark.integration
@@ -699,28 +959,3 @@ def test_exact_identifier_real_dolt(read_repo: ReadRepoFixture, tmp_path: Path) 
                 "my table",
                 UnknownTypePolicy.REJECT,
             )
-
-
-@pytest.mark.integration
-def test_malformed_commit_exists_metadata_is_unavailable(read_repo: ReadRepoFixture) -> None:
-    _, _, _, read_provider, _ = read_repo
-    stdout = json.dumps(
-        {
-            "rows": [{"commit_hash": "a"}, {"commit_hash": "b"}],
-            "columns": [{"name": "commit_hash"}],
-        }
-    ).encode()
-    with patch.object(
-        read_provider._cli,
-        "run_cli",
-        return_value=CommandResult(
-            command_kind="commit_exists",
-            exit_code=0,
-            duration_seconds=0.0,
-            stdout=stdout,
-            stdout_tail=stdout,
-            stderr_tail=b"",
-        ),
-    ):
-        with pytest.raises(ProviderUnavailableError):
-            read_provider.commit_exists("a")

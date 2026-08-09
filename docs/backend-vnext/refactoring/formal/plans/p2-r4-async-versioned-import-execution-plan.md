@@ -2096,32 +2096,33 @@ audit_remediation_closed:
 
 `start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
 `validated_code_sha`: `f0a14abde13799025637f9bf989ed33ece498aa2`
-`build_gate_fix_sha`: pending
-`handoff_record_commit_sha`: `8aa5602e41ab7bccdc682111c3ae9559ef20201b`
+`build_gate_fix_sha`: `901a13b92a0a92130d9afa001d8eb4273d544566`
+`handoff_record_commit_sha`: pending
 
 ```yaml
 round: P2-R4
-review_state: remediation_required
+review_state: pass
 s10_start_sha: 74ccbeb
 validated_code_sha: f0a14abde13799025637f9bf989ed33ece498aa2
-build_gate_fix_sha: pending
-handoff_record_commit_sha: 8aa5602e41ab7bccdc682111c3ae9559ef20201b
+build_gate_fix_sha: 901a13b92a0a92130d9afa001d8eb4273d544566
+handoff_record_commit_sha: pending
 handoff_fixup_commits:
   - 414574c9284b013decdbb2ace8987fb2968c0c58
   - 3d67d425e7a178a71d081cee336f430e17430c94
   - 3e88990a1a2ca9e358d125b05d638c8f7b7aa841
+  - fe497fa84b2436690b1b6d9e59cd6eee1a139671
 s10_round2_prior_commits:
   - 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
   - 197dcff453a3f3526e53fb917897f0be62ca1d99
   - 3bb7d32eda629a5eafa0bd65018da4328add1a1b
   - eaf9afca2c966f8214b172fe7c3cff4cc396c978
 branch: phase1/gate-ownership-repair
-worktree_clean: no
+worktree_clean: yes
 control_db_user_version: 8
-stage_exit: no-go
-production_compose_restart_replay: pending_build_gate_fix
-p2_r4_exit: no-go
-p2_r5_ready: no
+stage_exit: pass
+production_compose_restart_replay: pass
+p2_r4_exit: pass
+p2_r5_ready: yes
 production_retest_required: yes
 
 internal_admission_protocol:
@@ -2167,30 +2168,40 @@ service_gate:
   unit_dolt_parked_count: 700
   unit_dolt_parked_skipped: 1
 
+build_gate:
+  commands:
+    - test_build_repository_service_image_script.py + test_compose_build_harness.py -m unit
+    - remote build-repository-service-image.sh (minimal sync, retained cache)
+    - image_matches_build_context
+    - test_import_compose_e2e.py -m "integration and serial" -n 0
+  result: pass
+  script_exit_unit_count: 9
+  compose_e2e_count: 1
+
 fault_matrix_results:
   anchor: retained_from_f0a14ab
   admission_process_crash: passed=3 skipped=0 xfailed=0
   worker_dolt_process_crash: passed=10 skipped=0 xfailed=0
   recovery_count: passed=1 skipped=0 xfailed=0
   mutation_restart: passed=1 skipped=0 xfailed=0
-  production_compose_restart_replay: pending_build_gate_fix
+  production_compose_restart_replay: passed=1 skipped=0 xfailed=0
 
 real_dolt_result: retained_from_f0a14ab
-compose_project: pending
+compose_project: gateway-p2r4-s10-19b3eb2f121c
 compose_project_pattern: gateway-p2r4-s10-*
-compose_cleanup_result: pending_build_gate_fix
-startup_replay_result: pending_build_gate_fix
-manual_recovery_result: pending_build_gate_fix
-artifact_cleanup_result: pending_build_gate_fix
-git_diff_check: pending
+compose_cleanup_result: pass
+startup_replay_result: pass
+manual_recovery_result: pass
+artifact_cleanup_result: pass
+git_diff_check: pass
 
 repository_service_image:
-  note: superseded_pending_build_gate_fix
   tag: gateway-repository-service:local
-  image_id: sha256:65dea7e7e30963e5897a192ee4ecf7e7d9acdcbca424d55a6e2d26ffc56b6ba1
-  source_tree_sha256: sha256:5ef954100c58ae3d2822fa587515b59ca34e2424b7161b3f6d92756c5aba85be
-  build_input_revision: f0a14abde13799025637f9bf989ed33ece498aa2
-  image_matches_build_context: pending_build_gate_fix
+  image_id: sha256:40859554b7ca2863b45c82a994a1c27f275ba50a1e1688f15ba405f2eb387d80
+  source_tree_sha256: sha256:72f1f6c994d886cbad4a62657831cf87ee6775b39a1a20aaf2b0b92e50fd1aaf
+  build_input_revision: 901a13b92a0a92130d9afa001d8eb4273d544566
+  image_matches_build_context: true
+  superseded_image_id: sha256:65dea7e7e30963e5897a192ee4ecf7e7d9acdcbca424d55a6e2d26ffc56b6ba1
 
 gate_counts:
   shared_kernel: 232
@@ -2233,6 +2244,7 @@ round2_remediation_closed:
   - import_replay_audit table absent assertions
   - compose build subprocess timeout (harness + script)
   - handoff schema uses validated_code_sha / handoff_record_commit_sha
+  - docker build exit-code propagation (script + unit tests)
 
 old_reference_searches:
   idempotency_key: production code uses header-only; no body persistence

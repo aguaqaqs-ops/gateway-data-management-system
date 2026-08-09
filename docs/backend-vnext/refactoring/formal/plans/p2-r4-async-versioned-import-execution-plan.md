@@ -2446,3 +2446,75 @@ known_limitations:
   - production_retest_required 仍按 P2-R1 v8 decision 保留；R5/R6 read-path 与 operational 事项已登记 checklist §7/§8
   - 镜像在远端 10.10.60.4 保留 cache 构建；本地 gate 通过 docker save|load 校验 provenance
 ```
+
+### Post-audit round-2 remediation — 2026-08-09
+
+`start_sha`: `90b39fb5cacc7504088278788f90a63f59753a74`
+`validated_code_sha`: `bf8c3562018d264aed22987f00d14f2dbe233697`
+
+```yaml
+round: P2-R4-post-audit-round-2
+review_state: pass
+start_sha: 90b39fb5cacc7504088278788f90a63f59753a74
+validated_code_sha: bf8c3562018d264aed22987f00d14f2dbe233697
+handoff_record_commit_sha: pending
+branch: phase1/gate-ownership-repair
+worktree_clean: yes
+stage_exit: pass
+p2_r4_exit: pass
+p2_r5_ready: yes
+production_retest_required: yes
+
+container_validated_code_sha: 901a13b92a0a92130d9afa001d8eb4273d544566
+container_validation_deferred_to: P2-R6
+deferred_container_gate_nodeids:
+  - tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
+
+remediation_closed:
+  - package: artifact open failure now under staging cleanup protection
+  - verification: FULL_SCAN bidirectional manifest/catalog table-name alignment
+  - tests: deduplicated size-binding case; added missing-artifact staging regression
+
+directed_tests:
+  package:
+    - test_import_package.py::test_missing_artifact_cleans_staging_on_open_failure
+    - test_import_package.py::test_rejects_size_binding_before_extraction[expected_larger_than_actual]
+    - test_import_package.py::test_rejects_size_binding_before_extraction[expected_smaller_than_actual]
+  verification:
+    - test_import_verification.py::test_full_scan_catalog_manifest_mismatch_raises_typed_error[catalog_tables0-manifest_tables0-table extra not present in manifest]
+    - test_import_verification.py::test_full_scan_catalog_manifest_mismatch_raises_typed_error[catalog_tables1-manifest_tables1-table records not present in manifest]
+    - test_import_verification.py::test_full_scan_catalog_manifest_mismatch_raises_typed_error[catalog_tables2-manifest_tables2-table records not present in catalog]
+
+validation_commands:
+  - command: uv run pytest -q tests/test_import_package.py -k "size_binding or missing_artifact" -m unit
+    result: pass (3)
+  - command: uv run pytest -q tests/test_import_verification.py -k "full_scan_catalog_manifest" -m unit
+    result: pass (3)
+  - command: ./vnext/scripts/run-tests.sh --ignore=tests/test_import_compose_e2e.py
+    result: pass
+  - command: ruff check + mypy across five Python packages
+    result: pass
+
+functional_gate_counts:
+  shared_kernel: 232
+  repository_contracts: 66
+  repository_client: 15
+  backend: 18
+  repository_service_parallel: 950
+  repository_service_parallel_skipped: 1
+  repository_service_serial: 60
+  repository_service_serial_deselected: 951
+
+container_gate:
+  docker_image_build: deferred
+  compose_e2e: deferred
+  historical_container_attempt:
+    note: round-1 remote build/transfer is not evidence for validated_code_sha bf8c356
+    superseded_image_id: sha256:677f0e32c0dad4912a9d0b5f73e9e70c1110f481c30468c028aa1f8e398c73a8
+
+git_diff_check: pass
+
+known_limitations:
+  - production_retest_required 仍按 P2-R1 v8 decision 保留
+  - container build/transfer/Compose deferred to P2-R6 per checklist §1.1
+```

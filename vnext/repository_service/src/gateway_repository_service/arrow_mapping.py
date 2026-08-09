@@ -391,13 +391,7 @@ def is_known_sql_type(sql_type: str) -> bool:
         return False
 
 
-def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
-    try:
-        arrow, _ = arrow_type(sql_type, policy)
-    except UnknownSqlTypeError:
-        if policy == UnknownTypePolicy.REJECT:
-            raise
-        return None if value is None else str(value)
+def _convert_value_with_arrow(value: Any, sql_type: str, arrow: pa.DataType) -> Any:
     if value is None:
         return None
     upper = sql_type.upper()
@@ -471,7 +465,19 @@ def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
         if len(text) % 2 == 0 and text and all(character in "0123456789abcdefABCDEF" for character in text):
             return bytes.fromhex(text)
         return text.encode("utf-8")
+    if pa.types.is_large_string(arrow):
+        return str(value) if not isinstance(value, str) else value
     return str(value) if not isinstance(value, str) else value
+
+
+def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
+    try:
+        arrow, _ = arrow_type(sql_type, policy)
+    except UnknownSqlTypeError:
+        if policy == UnknownTypePolicy.REJECT:
+            raise
+        return None if value is None else str(value)
+    return _convert_value_with_arrow(value, sql_type, arrow)
 
 
 def _immutable_metadata(metadata: dict[bytes, bytes]) -> dict[bytes, bytes]:
@@ -626,11 +632,18 @@ class CompiledTablePlan:
 def _make_column_converter(
     table_name: str,
     column: ColumnCatalog,
-    policy: UnknownTypePolicy,
+    data_type: pa.DataType,
+    metadata: dict[bytes, bytes],
 ) -> Callable[[Any], Any]:
+    if metadata.get(b"gateway.lossy") == b"true":
+        def stringify_unknown(raw: Any) -> Any:
+            return None if raw is None else str(raw)
+
+        return stringify_unknown
+
     def convert(raw: Any) -> Any:
         try:
-            return convert_value(raw, column.sql_type, policy)
+            return _convert_value_with_arrow(raw, column.sql_type, data_type)
         except (ValueError, TypeError) as exc:
             if isinstance(exc, SqlValueConversionError):
                 raise
@@ -661,7 +674,12 @@ def compile_table_plan(
             CompiledColumnPlan(
                 field=field,
                 column=column,
-                converter=_make_column_converter(catalog.name, column, policy),
+                converter=_make_column_converter(
+                    catalog.name,
+                    column,
+                    data_type,
+                    immutable_metadata,
+                ),
             )
         )
     columns = tuple(column_plans)

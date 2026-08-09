@@ -17,6 +17,7 @@ from gateway_repository_service.arrow_mapping import (
     SqlValueConversionError,
     TableCatalog,
     arrow_type,
+    compile_table_plan,
     record_batch,
 )
 from gateway_repository_service.fixtures import Workload, generate_fixture
@@ -687,6 +688,54 @@ def test_full_scan_sql_value_conversion_error_maps_to_verification_failed() -> N
         )
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
     assert exc_info.value.detail == "value conversion failed for records.id"
+
+
+def test_full_scan_compiles_plan_once_per_table() -> None:
+    table = TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 2)
+    plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
+    batch_one = plan.record_batch([plan.normalize_row((1,))])
+    batch_two = plan.record_batch([plan.normalize_row((2,))])
+
+    class MultiBatchProvider:
+        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return (table,)
+
+        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return self.read_catalog(candidate)
+
+        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
+            yield batch_one
+            yield batch_two
+
+    manifest = manifest_from_tables((table,))
+    compile_calls = 0
+    original_compile = compile_table_plan
+
+    def counting_compile(
+        catalog: TableCatalog,
+        policy: UnknownTypePolicy,
+    ) -> object:
+        nonlocal compile_calls
+        compile_calls += 1
+        return original_compile(catalog, policy)
+
+    with patch(
+        "gateway_repository_service.versioned_import.verification.compile_table_plan",
+        side_effect=counting_compile,
+    ):
+        result = verify_import_candidate(
+            cast(VersionedImportProvider, MultiBatchProvider()),
+            candidate="candidate",
+            manifest=manifest,
+            verification_policy=VerificationPolicy.FULL_SCAN,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        )
+
+    assert compile_calls == 1
+    assert result == ImportVerificationResult(
+        completed_verification_policy=VerificationPolicy.FULL_SCAN,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
 
 
 @pytest.mark.integration

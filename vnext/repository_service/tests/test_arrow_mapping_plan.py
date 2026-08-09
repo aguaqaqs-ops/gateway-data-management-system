@@ -5,7 +5,8 @@ from __future__ import annotations
 import datetime as dt
 import decimal
 from collections.abc import Callable
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
@@ -22,6 +23,11 @@ from gateway_repository_service.arrow_mapping import (
     compile_table_plan,
     record_batch,
 )
+from gateway_repository_service.candidate_a.dolt_cli import CandidateADoltCli
+from gateway_repository_service.candidate_a.sql import _tagged_select_list
+from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.process import CommandResult, DoltRunner
+from gateway_repository_service.settings import RepositoryServiceSettings
 
 
 def _table(
@@ -391,3 +397,90 @@ def test_compatibility_record_batch_converts_each_cell_once() -> None:
         record_batch(catalog, [(1, "1"), (2, "0")], UnknownTypePolicy.REJECT)
 
     assert converter_calls == 4
+
+
+def test_normalize_row_does_not_call_arrow_type_after_compile() -> None:
+    columns = (
+        ColumnCatalog("id", "INT", False, 1),
+        ColumnCatalog("flag", "BOOLEAN", True, None),
+    )
+    catalog = _table("records", columns)
+    call_count = 0
+
+    def counting_arrow_type(sql_type: str, policy: UnknownTypePolicy) -> tuple[pa.DataType, dict[bytes, bytes]]:
+        nonlocal call_count
+        call_count += 1
+        return arrow_type(sql_type, policy)
+
+    with patch(
+        "gateway_repository_service.arrow_mapping.arrow_type",
+        side_effect=counting_arrow_type,
+    ):
+        plan = compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+        calls_after_compile = call_count
+        for raw in ((1, "1"), (2, "0"), (3, "1")):
+            plan.normalize_row(raw)
+
+    assert calls_after_compile == len(columns)
+    assert call_count == calls_after_compile
+
+
+def test_candidate_a_stream_compiles_plan_once_per_table(tmp_path: Path) -> None:
+    table = _table(
+        "records",
+        (ColumnCatalog("id", "INT", False, 1),),
+        row_count=2,
+    )
+    _, header = _tagged_select_list(table)
+    stream_lines = [
+        ",".join(header),
+        "0,1",
+        "0,2",
+    ]
+    layout = DurableLayout.create(tmp_path / "root")
+    settings = RepositoryServiceSettings()
+    repository = layout.staging_artifacts / "stream-repo"
+    repository.mkdir(parents=True, exist_ok=True)
+    runner = MagicMock(spec=DoltRunner)
+    stream = MagicMock()
+    stream.__iter__ = MagicMock(
+        return_value=iter(line.encode("utf-8") for line in stream_lines)
+    )
+    stream.close.return_value = CommandResult(
+        command_kind="row_stream",
+        exit_code=0,
+        duration_seconds=0.0,
+        stdout=b"",
+        stdout_tail=b"",
+        stderr_tail=b"",
+        timed_out=False,
+    )
+    runner.stream.return_value = stream
+    cli = CandidateADoltCli(settings, layout, repository, runner)
+
+    compile_calls = 0
+    original_compile = compile_table_plan
+
+    def counting_compile(
+        catalog: TableCatalog,
+        policy: UnknownTypePolicy,
+    ) -> CompiledTablePlan:
+        nonlocal compile_calls
+        compile_calls += 1
+        return original_compile(catalog, policy)
+
+    with patch(
+        "gateway_repository_service.candidate_a.dolt_cli.compile_table_plan",
+        side_effect=counting_compile,
+    ):
+        batches = list(
+            cli.stream_table(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                table,
+                UnknownTypePolicy.REJECT,
+            )
+        )
+
+    assert compile_calls == 1
+    assert sum(batch.num_rows for batch in batches) == 2
+    assert batches[0].schema.field(0).type == pa.int32()

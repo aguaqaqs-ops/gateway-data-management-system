@@ -2105,7 +2105,7 @@ review_state: pass
 s10_start_sha: 74ccbeb
 validated_code_sha: f0a14abde13799025637f9bf989ed33ece498aa2
 build_gate_fix_sha: 901a13b92a0a92130d9afa001d8eb4273d544566
-handoff_record_commit_sha: pending
+handoff_record_commit_sha: e19ccdb6d59a12ce55e9144d06ab76f0dc110bd7
 handoff_fixup_commits:
   - 414574c9284b013decdbb2ace8987fb2968c0c58
   - 3d67d425e7a178a71d081cee336f430e17430c94

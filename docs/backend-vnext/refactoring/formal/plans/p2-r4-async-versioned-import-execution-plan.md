@@ -2092,24 +2092,31 @@ audit_remediation_closed:
     - automatic replay count SQL side-effect bounded (records_row_count <= 1)
 ```
 
-### Accepted S10 exit and P2-R4 handoff — 2026-08-09 (audit remediation round 2)
+### Accepted S10 exit and P2-R4 handoff — 2026-08-09 (audit remediation round 2, interim)
 
 `start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
-`s10_round2_green_commit_sha`: `49d123d9335301ee468c2a03ac8d6c6af6ec64a7`
-`s10_handoff_commit_sha`: `197dcff453a3f3526e53fb917897f0be62ca1d99`
+`validated_code_sha`: pending
+`handoff_record_commit_sha`: pending
 
 ```yaml
 round: P2-R4
+review_state: remediation_required
 s10_start_sha: 74ccbeb
-s10_round2_green_commit_sha: 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
-head_sha: 3bb7d32eda629a5eafa0bd65018da4328add1a1b
+validated_code_sha: pending
+handoff_record_commit_sha: pending
+handoff_fixup_commits: []
+s10_round2_prior_commits:
+  - 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
+  - 197dcff453a3f3526e53fb917897f0be62ca1d99
+  - 3bb7d32eda629a5eafa0bd65018da4328add1a1b
+  - eaf9afca2c966f8214b172fe7c3cff4cc396c978
 branch: phase1/gate-ownership-repair
-worktree_clean: yes
+worktree_clean: pending
 control_db_user_version: 8
-stage_exit: pass
-production_compose_restart_replay: pass
-p2_r4_exit: pass
-p2_r5_ready: yes
+stage_exit: no-go
+production_compose_restart_replay: pending_final_gate
+p2_r4_exit: no-go
+p2_r5_ready: no
 production_retest_required: yes
 
 internal_admission_protocol:
@@ -2125,50 +2132,47 @@ activated_routes:
   - GET /v1/repositories/{repository_id}/operations/{operation_id}
 
 package_and_worker_settings:
-  max_package_bytes: 209715200
+  max_upload_bytes: 268435456
   max_replay_sql_bytes: 209715200
+  max_manifest_json_bytes: 16777216
+  max_total_expanded_entry_bytes: 4294967296
+  max_decompressed_tar_stream_bytes: 4294967296
   max_import_workers: 4
+  max_queued_imports: 64
+  import_headroom_bytes: 1073741824
+  min_free_disk_bytes: 5368709120
+  min_free_disk_fraction: 0.10
   admission: disk admission before package extraction
 
 repository_service_image:
-  tag: gateway-repository-service:local
-  image_id: sha256:19fabb08f6e7684b210ceea8a8104311e0407715c6c4bada9da60662688fae36
-  source_tree_sha256: sha256:821c49a4b9b9636f8360940b76a43b491828933863ce66c0bb180c0e5d23759c
-  build_input_revision: 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
-  image_matches_build_context: true
+  note: superseded_pending_final_rebuild
+  prior_image_id: sha256:19fabb08f6e7684b210ceea8a8104311e0407715c6c4bada9da60662688fae36
+  prior_source_tree_sha256: sha256:821c49a4b9b9636f8360940b76a43b491828933863ce66c0bb180c0e5d23759c
+  prior_build_input_revision: 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
 
 contracts_gate:
-  command: uv lock --check && uv run ruff check . && uv run mypy && uv run pytest -q
-  result: pass
-  test_count: 66
+  result: pending_final_gate
 
 service_gate:
-  commands:
-    - uv lock --check && uv run ruff check . && uv run mypy
-    - uv run pytest -q -m "not serial"
-    - uv run pytest -q -m serial -n 0
-    - pytest -m unit with dolt parked
-  result: pass
-  parallel_count: 929
-  parallel_skipped: 1
-  serial_count: 61
-  unit_dolt_parked_count: 694
-  unit_dolt_parked_skipped: 1
+  result: pending_final_gate
 
 fault_matrix_results:
-  admission_process_crash: passed=3 skipped=0 xfailed=0
-  worker_dolt_process_crash: passed=10 skipped=0 xfailed=0
-  recovery_count: passed=1 skipped=0 xfailed=0
-  mutation_restart: passed=1 skipped=0 xfailed=0
-  production_compose_restart_replay: passed=1 skipped=0 xfailed=0
+  admission_process_crash: pending_final_gate
+  worker_dolt_process_crash: pending_final_gate
+  recovery_count: pending_final_gate
+  mutation_restart: pending_final_gate
+  production_compose_restart_replay: pending_final_gate
 
-real_dolt_result: pass
+real_dolt_result: pending_final_gate
+compose_project: pending
 compose_project_pattern: gateway-p2r4-s10-*
-compose_cleanup_result: pass
-startup_replay_result: pass
-manual_recovery_result: pass
-artifact_cleanup_result: pass
-git_diff_check: pass
+compose_cleanup_result: pending_final_gate
+startup_replay_result: pending_final_gate
+manual_recovery_result: pending_final_gate
+artifact_cleanup_result: pending_final_gate
+git_diff_check: pending_final_gate
+
+static_closeout_pending: []
 
 required_fault_matrix_nodeids:
   admission_process_crash:
@@ -2194,12 +2198,10 @@ required_fault_matrix_nodeids:
     - test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
 
 round2_remediation_closed:
-  - dolt crash-state evidence table asserted before runtime restart
-  - build_input_revision decoupled from docs-only HEAD drift
-  - MANUAL protected artifact pin blocks missing bytes even with bytes_deleted_at
-  - import_replay_audit strict zero-row evidence for recovery count gate
-  - uv.lock env override fail-closed in build script
-  - compose docker subprocess timeouts on all calls
+  - dolt crash-state marker zero/unique/refs/head evidence
+  - import_replay_audit table absent assertions
+  - compose build subprocess timeout (harness + script)
+  - handoff schema uses validated_code_sha / handoff_record_commit_sha
 
 old_reference_searches:
   idempotency_key: production code uses header-only; no body persistence

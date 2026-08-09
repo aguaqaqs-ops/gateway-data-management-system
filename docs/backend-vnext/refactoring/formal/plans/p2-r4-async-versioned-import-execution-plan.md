@@ -2096,15 +2096,15 @@ audit_remediation_closed:
 
 `start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
 `s10_round2_green_commit_sha`: `49d123d9335301ee468c2a03ac8d6c6af6ec64a7`
-`s10_handoff_commit_sha`: pending
+`s10_handoff_commit_sha`: `197dcff453a3f3526e53fb917897f0be62ca1d99`
 
 ```yaml
 round: P2-R4
 s10_start_sha: 74ccbeb
 s10_round2_green_commit_sha: 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
-head_sha: 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
+head_sha: 197dcff453a3f3526e53fb917897f0be62ca1d99
 branch: phase1/gate-ownership-repair
-worktree_clean: pending
+worktree_clean: yes
 control_db_user_version: 8
 stage_exit: pass
 production_compose_restart_replay: pass

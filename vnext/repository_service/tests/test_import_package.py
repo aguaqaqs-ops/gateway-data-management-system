@@ -490,23 +490,20 @@ def test_rejects_bool_row_count(
         validate_package(artifact_path, staging_dir, settings, build_package_bytes(manifest=manifest))
 
 
-def test_rejects_raw_size_mismatch(
+def test_missing_artifact_cleans_staging_on_open_failure(
     tmp_path: Path,
     staging_dir: Path,
     settings: RepositoryServiceSettings,
 ) -> None:
-    payload = build_package_bytes()
-    artifact_path = tmp_path / "artifact.tar.zst"
-    size_bytes, raw_sha256 = write_artifact(artifact_path, payload)
-    with pytest.raises(ImportPackageRejected, match="raw size"):
+    artifact_path = tmp_path / "missing-artifact.tar.zst"
+    with pytest.raises(FileNotFoundError):
         validate_and_extract_import_package(
             artifact_path=artifact_path,
-            expected_size_bytes=size_bytes + 1,
-            expected_raw_sha256=raw_sha256,
+            expected_size_bytes=1,
+            expected_raw_sha256="0" * 64,
             staging_dir=staging_dir,
             settings=settings,
         )
-    assert artifact_path.exists()
     assert not staging_dir.exists() or not any(staging_dir.iterdir())
 
 
@@ -533,6 +530,7 @@ def test_rejects_size_binding_before_extraction(
             settings=settings,
         )
     assert artifact_path.exists()
+    assert not staging_dir.exists() or not any(staging_dir.iterdir())
     assert not (staging_dir / "manifest.json").exists()
     assert not (staging_dir / "replay.sql").exists()
 

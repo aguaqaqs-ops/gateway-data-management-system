@@ -199,14 +199,22 @@ def _full_scan_tables(
     manifest: ImportManifest,
     unknown_type_policy: UnknownTypePolicy,
 ) -> None:
-    # FULL_SCAN does not assume _compare_manifest_structural() already ran.
+    # FULL_SCAN enforces bidirectional manifest/catalog table-name alignment without
+    # assuming _compare_manifest_structural() already ran.
+    manifest_names = {table.name for table in manifest.tables}
+    catalog_names = {table.name for table in catalog}
+    for table_name in sorted(catalog_names - manifest_names):
+        raise ImportVerificationError(
+            VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+            detail=f"table {table_name} not present in manifest",
+        )
+    for table_name in sorted(manifest_names - catalog_names):
+        raise ImportVerificationError(
+            VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+            detail=f"table {table_name} not present in catalog",
+        )
     manifest_row_counts = {table.name: table.row_count for table in manifest.tables}
     for table in catalog:
-        if table.name not in manifest_row_counts:
-            raise ImportVerificationError(
-                VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
-                detail=f"table {table.name} not present in manifest",
-            )
         expected_row_count = manifest_row_counts[table.name]
         scanned_rows = 0
         try:

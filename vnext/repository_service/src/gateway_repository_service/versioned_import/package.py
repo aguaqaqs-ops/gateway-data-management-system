@@ -42,8 +42,9 @@ def validate_and_extract_import_package(
     settings: RepositoryServiceSettings,
 ) -> ValidatedImportPackage:
     staging_dir.mkdir(parents=True, exist_ok=True)
-    artifact_file = artifact_path.open("rb")
+    artifact_file: BufferedReader | None = None
     try:
+        artifact_file = artifact_path.open("rb")
         bound_size = os.fstat(artifact_file.fileno()).st_size
         if bound_size != expected_size_bytes:
             _cleanup_staging(staging_dir)
@@ -76,8 +77,12 @@ def validate_and_extract_import_package(
             _cleanup_staging(staging_dir)
             raise ImportPackageRejected("artifact raw sha256 does not match binding")
         return result
+    except Exception:
+        _cleanup_staging(staging_dir)
+        raise
     finally:
-        artifact_file.close()
+        if artifact_file is not None and not artifact_file.closed:
+            artifact_file.close()
 
 
 def _extract_import_package(

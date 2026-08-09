@@ -736,6 +736,11 @@ INSERT INTO zero_dates VALUES (1, '0000-00-00');
             (),
             "table records not present in manifest",
         ),
+        (
+            (),
+            (TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 0),),
+            "table records not present in catalog",
+        ),
     ],
 )
 def test_full_scan_catalog_manifest_mismatch_raises_typed_error(

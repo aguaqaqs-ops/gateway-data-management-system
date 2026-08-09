@@ -2097,14 +2097,14 @@ audit_remediation_closed:
 `start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
 `s10_green_commit_sha`: `b0451084fc32e1336457f4ca8469da741b39ea7c`
 `s10_audit_remediation_commit_sha`: `b0451084fc32e1336457f4ca8469da741b39ea7c`
-`s10_handoff_commit_sha`: pending
+`s10_handoff_commit_sha`: `0c43021ece92a8d0d705614878c5a25024427305`
 
 ```yaml
 s10_start_sha: 74ccbeb
 s10_digest_fix_commit_sha: 4b0078f
 s10_green_commit_sha: b0451084fc32e1336457f4ca8469da741b39ea7c
 s10_audit_remediation_commit_sha: b0451084fc32e1336457f4ca8469da741b39ea7c
-s10_handoff_commit_sha: pending
+s10_handoff_commit_sha: 0c43021ece92a8d0d705614878c5a25024427305
 control_db_user_version: 8
 stage_exit: pass
 production_compose_restart_replay: pass

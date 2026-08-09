@@ -204,6 +204,13 @@ Exit：commit前中断、commit后响应丢失、CAS冲突和人工恢复分支�
 Exit：contract-owned fixture consumer通过Remote client完成upload → import → poll →
 resolve → catalog/stream；不import或预设计Phase 3 capability。
 
+从2026-08-09起，P2-R4 post-audit后续修复和R5采用execution checklist §1.1的container
+gate合并规则：未触碰build/deployment boundary时，R5只跑完整功能、真实Dolt和非container
+HTTP/client gate，production image build、镜像传输及compose内外client smoke延期到R6最终
+候选一次执行。R5 handoff必须区分`validated_code_sha`与`container_validated_code_sha`并列出
+延期nodeid；旧镜像不能证明新代码。触发checklist列明的Dockerfile、依赖闭包、Compose wiring
+或container harness变更时，本轮立即恢复相应容器门禁。
+
 ### P2-R6 — Operational closure
 
 - 成功package清理和manual-recovery保留；
@@ -216,6 +223,12 @@ resolve → catalog/stream；不import或预设计Phase 3 capability。
   production retest形成明确实施计划和逐项关闭证据。
 
 Exit：已知consumer纵切、容量记录和人工恢复路径可执行。
+
+R6同时拥有全部延期container gate。Phase 2退出前必须安排一次针对最终candidate的正式
+production image构建与传输，验证其build context/provenance，运行无排除项的权威测试入口，
+完成R4 restart/replay、R5 compose内外client链路和fresh/restart/restored Compose，并关闭
+P2-R1 v8 `production_retest_required`。任一项失败都保持Phase 2 no-go，修复后必须对新的
+最终candidate重跑受影响门禁；不能用R5以前的镜像证据替代。
 
 P2-R1至R6全部exit后Phase 2才完成，并在此后开始Phase 3完整设计。Phase 3设计不与P2
 实现穿插；R5 fixture consumer只是P2 contract test double，不是P3 capability设计。

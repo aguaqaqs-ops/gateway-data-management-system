@@ -1,6 +1,6 @@
 # Testing Conventions
 
-状态：2026-08-07 建立，随 [Test Suite Runtime Investigation](notes/test-suite-runtime-investigation.md) 的整改落地
+状态：2026-08-07 建立；2026-08-09 增补P2后半段container gate合并规则
 
 本文规定 vNext Python 包的测试分层、执行入口与性能约束。Fixture 材料语义由
 [Testing Fixtures](testing-fixtures.md) 拥有，本文不重复。
@@ -27,6 +27,30 @@ uv run pytest -m serial -n 0   # 时序敏感组，必须串行
 
 裸跑 `uv run pytest` 会执行全部测试并自动并行；结果正确，但 `serial` 组会与其他测试
 争用 CPU，判定 flaky 时以脚本为准。
+
+### P2后半段的功能门禁与最终container门禁
+
+P2专用执行规则见
+[P2 Versioned Repository Execution Checklist §1.1](refactoring/formal/plans/p2-versioned-repository-execution-checklist.md)。
+从P2-R4 post-audit后续修复到R5，在未触碰build/deployment boundary时，允许把镜像构建、
+跨主机传输和实际Compose测试合并到R6最终候选一次执行。期间整仓功能门禁仍使用权威脚本，
+只精确排除实际启动Docker的测试文件：
+
+```bash
+./vnext/scripts/run-tests.sh --ignore=tests/test_import_compose_e2e.py
+```
+
+当前延期inventory为
+`tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay`。
+静态Dockerfile/Compose测试、build script/harness单测和真实Dolt integration仍属于功能门禁，
+不得一并跳过。以后新增实际Docker测试时，round handoff必须登记精确path/nodeid并同步更新
+调用参数；不新增宽泛`container` marker来隐式改变现有三类marker语义。
+
+此命令不是新的全局权威入口，也不能用于Phase 2最终退出。R6必须对最终source tree运行无
+`--ignore`的`./vnext/scripts/run-tests.sh`，完成production image build/provenance、镜像传输、
+全部延期Compose nodeid和资源清理后，才可宣布P2完成。任何Dockerfile、production依赖闭包、
+Compose/container wiring或container harness变更都会提前终止延期，并要求在所属round执行
+相应容器门禁。
 
 ## Marker 分层
 

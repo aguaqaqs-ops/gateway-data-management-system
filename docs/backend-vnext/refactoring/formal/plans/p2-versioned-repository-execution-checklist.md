@@ -25,6 +25,33 @@ consumer。任何本轮测试失败都在本轮修复；允许为reviewability�
 5. 本轮结束执行规定的full package/integration gate、旧引用搜索和worktree检查。
 6. 只在全部required gate通过后提交handoff；外部registry/network失败不能标成通过。
 
+### 1.1 P2后半段container gate合并规则（2026-08-09起生效）
+
+为避免每个代码修复都重复支付镜像构建和跨主机传输成本，P2-R4 post-audit后续修复及
+P2-R5默认只执行功能门禁；最终production image build、镜像传输和Compose全链路合并到
+P2-R6退出前执行一次。该规则是对后续gate时点的前瞻性修订，不改写P2-R1至R4已经形成的
+历史镜像、Compose和handoff证据，也不允许把旧镜像称为后续代码的验证结果。
+
+允许延期的前提是本次变更不触碰container/build/deployment boundary。以下任一情况出现时，
+不得等待R6，必须在该变更所属round立即恢复与风险匹配的build/Compose gate：
+
+- 修改`Dockerfile`、base image、OS package、build context/provenance算法、镜像label或
+  `build-repository-service-image.sh`；
+- 修改`uv.lock`、production dependency、lock SHA/build arg或会改变镜像依赖闭包的配置；
+- 修改`compose.yaml`、container command/user/path/volume/network/secret/env wiring、healthcheck
+  或部署启动/关闭语义；
+- 修改真实Docker/Compose harness本身，或功能测试暴露仅能在container boundary验证的失败；
+- 安全、数据持久化或恢复结论依赖新的镜像/Compose证据。
+
+普通application source、纯Python测试和文档变更不单独触发镜像重建。延期期间仍必须在每个
+green commit做定向检查，并在R4 post-audit/R5出口跑§2定义的P2功能门禁。handoff必须同时记录
+`validated_code_sha`、最近一次真实容器验证的`container_validated_code_sha`、
+`container_validation_deferred_to: P2-R6`及完整`deferred_container_gate_nodeids`；两者SHA不同
+时不得写`image_matches_build_context: true`，旧`image_id`只能标为historical/superseded。
+
+该延期不等于P2完成。P2-R5可以在功能门禁通过后进入R6，但P2-R6最终候选必须通过§8的单次
+完整container gate，且关闭`production_retest_required`后，才允许记录`Phase 2 complete`。
+
 ## 2. Common commands
 
 受影响Python package在其目录执行：
@@ -49,6 +76,19 @@ cargo build --workspace --release
 Container round统一以`docker compose -f vnext/deploy/compose.yaml config`开始，再执行本轮
 明确的build/up/smoke/down；project name必须唯一，结束用trap清除container/network/
 volume。网络下载失败必须记录原命令和错误并保持round uncommitted或明确no-go。
+
+按§1.1延期container gate时，P2功能门禁的整仓入口为：
+
+```bash
+./vnext/scripts/run-tests.sh --ignore=tests/test_import_compose_e2e.py
+```
+
+当前被延期的实际Docker nodeid只有
+`tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay`。
+该命令仍会运行静态Dockerfile/Compose断言、build script/harness单测以及真实Dolt测试。若R5
+新增实际启动Docker/Compose的测试，必须把精确path/nodeid加入handoff inventory并从功能门禁
+明确排除；不得用宽泛marker表达式顺带漏掉非container测试。P2-R6最终门禁必须运行无
+`--ignore`的`./vnext/scripts/run-tests.sh`并逐项执行inventory，届时本临时排除失效。
 
 ## 3. P2-R1 — Runtime and provider feasibility
 
@@ -188,8 +228,11 @@ Required gate：contracts/client/service四命令；known SQL family mapping与u
 REJECT/STRINGIFY metadata；NULL、decimal/temporal/unsigned/binary边界；bounded batches、
 time-to-first-batch、cancel/disconnect cleanup；old/new commit immutability；unordered contract；
 client GET bounded retries、mutation same-key retries、nonrewindable upload；真实HTTP
-`create -> upload -> import -> poll -> resolve -> catalog -> stream`；compose内外client
-smoke。Fixture consumer不得import Backend/Phase 3代码。
+`create -> upload -> import -> poll -> resolve -> catalog -> stream`；Fixture consumer不得
+import Backend/Phase 3代码。若未触发§1.1的提前条件，本轮以§2的P2功能门禁代替重新build和
+compose内外client smoke，并在handoff明确记录container验证已延期；R5 exit只表示功能纵切
+通过和`P2-R6 ready`，不表示production image或Phase 2完成。compose内外client smoke作为
+deferred gate由R6最终候选执行。
 
 ## 8. P2-R6 — Operational closure
 
@@ -239,8 +282,15 @@ Suggested green commits：
 Required gate：三个Repository package和fixture consumer四命令；success cleanup、ordinary
 TTL、RUNNING/manual retention；upload/import concurrency、per-repo writer、free-space+
 headroom；10–100 MB代表样本和接近200 MB边界样本；whole-root quiescent snapshot/restore；
-fresh/restart/restored compose e2e；no residual container/volume；`git diff --check`；所有P2
-旧引用搜索。Exit必须记录P2-R1..R6 handoff SHA、capacity limitations和Phase 2 complete。
+`git diff --check`；所有P2旧引用搜索。随后以最终candidate source tree执行一次完整容器
+退出门禁：在保留cache的指定builder构建production image，记录build command、
+`build_input_revision`、`source_tree_sha256`和remote image ID；通过`docker save | load`或等价
+可审计流程传回gate host并校验remote/local image identity；要求
+`image_matches_build_context=true`；运行无排除项的`./vnext/scripts/run-tests.sh`；执行R4
+restart/replay、R5 compose内外client完整链路及fresh/restart/restored Compose e2e；清除并
+确认无残留container/network/volume。所有§1.1 inventory、P2-R1 v8 production retest和
+`production_retest_required`必须在此关闭，否则Phase 2 exit为no-go。Exit必须记录
+P2-R1..R6 handoff SHA、最终image provenance、capacity limitations和Phase 2 complete。
 
 ## 9. Mandatory old-reference searches
 
@@ -283,13 +333,19 @@ consumer_search_before_delete:
 runtime_cleanup:
 
 known_limitations:
+validated_code_sha:
+container_validated_code_sha:
+container_validation_deferred_to:
+deferred_container_gate_nodeids:
 round_exit: pass/no-go
 next_round_ready: yes/no
 next_entry:
 ```
 
-不能用“主要通过”“仅网络失败”替代逐命令结果。未完成required compose/Dolt smoke时
-不得提交该round最后的regression/handoff commit，`next_round_ready`必须为`no`。
+不能用“主要通过”“仅网络失败”替代逐命令结果。除§1.1明确允许延期的container gate外，
+未完成required Compose/Dolt smoke时不得提交该round最后的regression/handoff commit，
+`next_round_ready`必须为`no`。使用延期规则时必须保留上述SHA和inventory字段；R6不得再次
+延期最终container gate。
 
 ## 11. Phase 2 and Phase 3 boundary
 

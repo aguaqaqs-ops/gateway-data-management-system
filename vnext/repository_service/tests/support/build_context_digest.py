@@ -51,16 +51,6 @@ def is_build_context_clean(repo_root: Path) -> bool:
     return completed.stdout.strip() == ""
 
 
-def _archive_digest(repo_root: Path) -> str:
-    archive_paths = [f"vnext/{subdir}" for subdir in BUILD_CONTEXT_SUBDIRS]
-    completed = subprocess.run(
-        ["git", "-C", str(repo_root), "archive", "HEAD", *archive_paths],
-        check=True,
-        capture_output=True,
-    )
-    return hashlib.sha256(completed.stdout).hexdigest()
-
-
 def _working_tree_digest(vnext_root: Path) -> str:
     digest = hashlib.sha256()
     for context_root in build_context_paths(vnext_root):
@@ -79,9 +69,6 @@ def _working_tree_digest(vnext_root: Path) -> str:
 
 def compute_source_tree_sha256(*, vnext_root: Path | None = None) -> str:
     root = vnext_root if vnext_root is not None else vnext_root_from_here()
-    repo_root = repo_root_from_vnext(root)
-    if is_build_context_clean(repo_root):
-        return f"sha256:{_archive_digest(repo_root)}"
     return f"sha256:{_working_tree_digest(root)}"
 
 

@@ -2343,7 +2343,7 @@ round: P2-R4-post-audit-remediation
 review_state: pass
 start_sha: 0863ba1
 validated_code_sha: bd17190683da2ba9975eba178fff9111ae32493a
-handoff_record_commit_sha: pending
+handoff_record_commit_sha: 8934fdac920b1cad68e46abb569811e3e4acfd22
 branch: phase1/gate-ownership-repair
 worktree_clean: yes
 stage_exit: pass

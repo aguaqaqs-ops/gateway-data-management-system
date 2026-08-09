@@ -69,9 +69,6 @@ def verify_import_candidate(
 
     catalog = provider.read_catalog(candidate)
 
-    if unknown_type_policy == UnknownTypePolicy.REJECT:
-        _reject_unknown_catalog_types(catalog)
-
     table_plans: dict[str, CompiledTablePlan] | None = None
     if verification_policy in {
         VerificationPolicy.STRUCTURAL,
@@ -139,10 +136,17 @@ def _compile_table_plans(
         try:
             plans[table.name] = compile_table_plan(table, unknown_type_policy)
         except UnknownSqlTypeError as exc:
+            table_name = exc.table or table.name
+            column_name = exc.column or "unknown"
+            if unknown_type_policy == UnknownTypePolicy.REJECT:
+                raise ImportVerificationError(
+                    IMPORT_REJECTED_CODE,
+                    detail=f"unknown SQL type in catalog: {table_name}.{column_name}",
+                )
             raise ImportVerificationError(
                 VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
-                detail=f"unmappable SQL type in catalog: {table.name}",
-            ) from exc
+                detail=f"unmappable SQL type in catalog: {table_name}.{column_name}",
+            )
     return plans
 
 

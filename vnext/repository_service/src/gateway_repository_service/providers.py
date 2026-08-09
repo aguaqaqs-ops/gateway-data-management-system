@@ -561,11 +561,10 @@ class OfflineCliProvider:
                         )
                     yield emit(chunk)
                     sampler.sample()
-                    pending_index = len(rows) - 1
-                    if rows:
-                        sampler.set_active(
-                            _pending_row_windows(rows_seen, pending_index, table.row_count)
-                        )
+                if rows:
+                    sampler.set_active(
+                        _pending_row_windows(rows_seen, len(rows) - 1, table.row_count)
+                    )
             if rows:
                 yield emit(rows)
             result = stream.close()
@@ -1042,13 +1041,12 @@ class SqlServerProvider:
                             )
                         yield emit(chunk)
                         sampler.sample()
-                        pending_index = len(pending) - 1
-                        if pending:
-                            sampler.set_active(
-                                _pending_row_windows(
-                                    rows_seen, pending_index, table.row_count
-                                )
+                    if pending:
+                        sampler.set_active(
+                            _pending_row_windows(
+                                rows_seen, len(pending) - 1, table.row_count
                             )
+                        )
             if pending:
                 yield emit(pending)
         finally:

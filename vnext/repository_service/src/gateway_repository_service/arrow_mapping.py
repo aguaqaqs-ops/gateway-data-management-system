@@ -41,6 +41,17 @@ __all__ = [
 class UnknownSqlTypeError(ValueError):
     """Raised when a catalog type is not in the Repository known family."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        table: str | None = None,
+        column: str | None = None,
+    ) -> None:
+        self.table = table
+        self.column = column
+        super().__init__(message)
+
 
 class SqlValueConversionError(ValueError):
     """Raised when a catalog value cannot be converted for Arrow emission."""
@@ -573,16 +584,132 @@ def _validate_decimal_range(
     precision = data_type.precision
     scale = data_type.scale
     sign, digits, exponent = value.as_tuple()
-    if not isinstance(exponent, int):
+    if isinstance(exponent, int) and exponent < -scale:
         return False
-    digit_count = len(digits)
-    if exponent < 0:
-        fractional = max(0, -exponent)
-        if fractional > scale:
+    try:
+        unscaled = int(abs(value * decimal.Decimal(10) ** scale))
+    except (OverflowError, decimal.InvalidOperation, ValueError):
+        return False
+    if unscaled == 0:
+        return True
+    if len(str(unscaled)) > precision:
+        return False
+    scale_quantum = decimal.Decimal((0, (1,), -scale))
+    quantized = value.quantize(scale_quantum, context=decimal.Context(traps=[]))
+    if not quantized.is_nan() and quantized != value:
+        return False
+    return True
+
+
+def _has_timezone_suffix(text: str) -> bool:
+    if text.endswith("Z") or text.endswith("z"):
+        return True
+    tail = text.rsplit(" ", 1)[-1]
+    if "+" in tail or (tail.count("-") > 1 and "T" in text):
+        return True
+    return False
+
+
+def _validate_time_text(text: str, fsp: int | None) -> bool:
+    stripped = text.strip()
+    if stripped.startswith("-"):
+        stripped = stripped[1:]
+    parts = stripped.split(":")
+    if len(parts) != 3:
+        return False
+    try:
+        minutes = int(parts[1])
+        seconds_part = parts[2]
+        if "." in seconds_part:
+            seconds_text, fraction = seconds_part.split(".", 1)
+            if not fraction.isdigit():
+                return False
+            if fsp is not None and len(fraction) > fsp:
+                return False
+            if fsp is not None and len(fraction) < fsp and any(
+                digit != "0" for digit in fraction[fsp:]
+            ):
+                return False
+            seconds = int(seconds_text)
+        else:
+            seconds = int(seconds_part)
+    except ValueError:
+        return False
+    if minutes < 0 or minutes > 59 or seconds < 0 or seconds > 59:
+        return False
+    return True
+
+
+def _validate_datetime_text(text: str, fsp: int | None) -> bool:
+    if _has_timezone_suffix(text):
+        return False
+    normalized = text.strip().replace("T", " ")
+    if "." in normalized:
+        base, fraction = normalized.rsplit(".", 1)
+        if not fraction.isdigit():
             return False
-        digit_count = max(digit_count - fractional, 0) + fractional
-    if digit_count > precision:
+        if fsp is not None and len(fraction) > fsp:
+            return False
+        normalized = base
+    try:
+        dt.datetime.fromisoformat(normalized)
+    except ValueError:
         return False
+    return True
+
+
+def _validate_timestamp_text(text: str, fsp: int | None) -> bool:
+    stripped = text.strip()
+    if stripped.endswith("Z") or stripped.endswith("z"):
+        stripped = stripped[:-1]
+    elif "+" in stripped or stripped.count("-") > 2:
+        tz_sep = max(stripped.rfind("+"), stripped.rfind("-"))
+        if tz_sep > stripped.find("T"):
+            stripped = stripped[:tz_sep]
+    if "." in stripped:
+        base, fraction = stripped.rsplit(".", 1)
+        if not fraction.isdigit():
+            return False
+        if fsp is not None and len(fraction) > fsp:
+            return False
+        stripped = base
+    try:
+        dt.datetime.fromisoformat(stripped.replace(" ", "T"))
+    except ValueError:
+        return False
+    return True
+
+
+def _validate_temporal_range(
+    *,
+    column: ColumnCatalog,
+    value: Any,
+    raw: Any,
+) -> bool:
+    classification, temporal = classify_temporal_sql_type(column.sql_type)
+    if classification != TemporalSqlTypeKind.VALID or temporal is None:
+        return True
+    raw_text = raw if isinstance(raw, str) else None
+    kind = temporal.kind
+    fsp = temporal.fsp
+    if kind == "TIME":
+        if raw_text is not None and not _validate_time_text(raw_text, fsp):
+            return False
+        if not isinstance(value, dt.timedelta):
+            return False
+        return True
+    if kind == "DATETIME":
+        if raw_text is not None and not _validate_datetime_text(raw_text, fsp):
+            return False
+        if isinstance(value, dt.datetime) and value.tzinfo is not None:
+            return False
+        return isinstance(value, dt.datetime)
+    if kind == "TIMESTAMP":
+        if raw_text is not None and not _validate_timestamp_text(raw_text, fsp):
+            return False
+        if not isinstance(value, dt.datetime):
+            return False
+        return value.tzinfo == dt.timezone.utc
     return True
 
 
@@ -591,6 +718,7 @@ def _validate_logical_range(
     table_name: str,
     column_plan: CompiledColumnPlan,
     value: Any,
+    raw: Any,
 ) -> Any:
     column = column_plan.column
     if value is None and not column.nullable:
@@ -611,6 +739,8 @@ def _validate_logical_range(
     elif pa.types.is_decimal(field_type):
         if not isinstance(value, decimal.Decimal) or not _validate_decimal_range(value, field_type):
             raise _sql_value_conversion_error(table_name=table_name, column=column)
+    elif not _validate_temporal_range(column=column, value=value, raw=raw):
+        raise _sql_value_conversion_error(table_name=table_name, column=column)
     bit_match = _BIT.match(upper)
     if bit_match is not None and isinstance(value, bytes):
         _validate_bit_unused_high_bits(value, int(bit_match.group(1)))
@@ -661,8 +791,9 @@ class CompiledTablePlan:
                     table_name=self.catalog.name,
                     column_plan=column_plan,
                     value=value,
+                    raw=raw[index],
                 )
-            except _CONVERSION_ERROR_TYPES as exc:
+            except Exception as exc:
                 _raise_column_conversion_error(
                     exc,
                     table_name=self.catalog.name,
@@ -684,7 +815,7 @@ class CompiledTablePlan:
             values = [row.values[index] for row in row_list]
             try:
                 arrays.append(pa.array(values, type=column_plan.field.type))
-            except _CONVERSION_ERROR_TYPES as exc:
+            except Exception as exc:
                 _raise_column_conversion_error(
                     exc,
                     table_name=self.catalog.name,
@@ -692,7 +823,7 @@ class CompiledTablePlan:
                 )
         try:
             return pa.RecordBatch.from_arrays(arrays, schema=self.expected_schema)
-        except _CONVERSION_ERROR_TYPES as exc:
+        except Exception as exc:
             _raise_column_conversion_error(
                 exc,
                 table_name=self.catalog.name,
@@ -736,7 +867,7 @@ def _make_column_converter(
                 return None
             try:
                 return str(raw)
-            except _CONVERSION_ERROR_TYPES as exc:
+            except Exception as exc:
                 _raise_column_conversion_error(
                     exc,
                     table_name=table_name,
@@ -748,7 +879,7 @@ def _make_column_converter(
     def convert(raw: Any) -> Any:
         try:
             return _convert_value_with_arrow(raw, column.sql_type, data_type)
-        except _CONVERSION_ERROR_TYPES as exc:
+        except Exception as exc:
             _raise_column_conversion_error(
                 exc,
                 table_name=table_name,
@@ -764,7 +895,14 @@ def compile_table_plan(
 ) -> CompiledTablePlan:
     column_plans: list[CompiledColumnPlan] = []
     for column in catalog.columns:
-        data_type, metadata = arrow_type(column.sql_type, policy)
+        try:
+            data_type, metadata = arrow_type(column.sql_type, policy)
+        except UnknownSqlTypeError:
+            raise UnknownSqlTypeError(
+                f"unmappable SQL type in catalog: {catalog.name}.{column.name}",
+                table=catalog.name,
+                column=column.name,
+            ) from None
         immutable_metadata = _immutable_metadata(metadata)
         hex_cell, bit_width = _tagged_cell_flags(data_type, immutable_metadata)
         field = pa.field(

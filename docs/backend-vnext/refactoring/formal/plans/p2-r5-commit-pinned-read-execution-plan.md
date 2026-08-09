@@ -327,7 +327,9 @@ Dependency一律exact pin并使用`uv add --dev`或`uv add`。如果修改
 ```text
 vnext/repository_service/src/gateway_repository_service/arrow_mapping.py
 vnext/repository_service/src/gateway_repository_service/candidate_a/dolt_cli.py
+vnext/repository_service/src/gateway_repository_service/candidate_a/sql.py
 vnext/repository_service/src/gateway_repository_service/providers.py
+vnext/repository_service/src/gateway_repository_service/workflow.py
 vnext/repository_service/src/gateway_repository_service/versioned_import/ports.py
 vnext/repository_service/src/gateway_repository_service/versioned_import/provider.py
 vnext/repository_service/src/gateway_repository_service/versioned_import/verification.py
@@ -336,6 +338,8 @@ vnext/repository_service/tests/test_p2_r1_primitives.py
 vnext/repository_service/tests/test_import_verification.py
 vnext/repository_service/tests/test_import_provider.py
 vnext/repository_service/tests/test_arrow_mapping_plan.py                 # new if useful
+vnext/repository_service/tests/support/import_worker_harness.py
+vnext/repository_service/tests/test_p2_r1_audit_corrective.py
 ```
 
 `providers.py`只允许适配shared nominal normalized type，禁止改变provider selection、SQL

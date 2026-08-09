@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 import csv
@@ -16,6 +17,7 @@ import pytest
 from gateway_repository_contracts import UnknownTypePolicy
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
+    CompiledTablePlan,
     TableCatalog,
     UnknownSqlTypeError,
     normalize_sql_type,
@@ -120,7 +122,7 @@ class FakeImportProvider:
         table: TableCatalog,
         policy: UnknownTypePolicy,
         *,
-        table_plan: object = None,
+        table_plan: CompiledTablePlan | None = None,
     ) -> Iterator[pa.RecordBatch]:
         yield pa.record_batch({"id": pa.array([], type=pa.int64())})
 
@@ -1368,7 +1370,7 @@ def test_concurrent_streams_keep_field_limit(
         table: TableCatalog,
         policy: UnknownTypePolicy,
         *,
-        table_plan: object = None,
+        table_plan: CompiledTablePlan | None = None,
     ) -> Iterator[pa.RecordBatch]:
         with lock:
             recorded_limits.append(csv.field_size_limit())
@@ -1394,6 +1396,195 @@ def test_concurrent_streams_keep_field_limit(
     assert all(
         limit >= import_provider._settings.max_stream_line_bytes for limit in recorded_limits
     )
+
+
+@pytest.mark.unit
+def test_offline_stream_advances_plateau_window_while_accumulating(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import gateway_repository_service.providers as providers_module
+    from gateway_repository_service.arrow_mapping import compile_table_plan
+    from gateway_repository_service.candidate_a.sql import _tagged_select_list
+    from typing import Any
+
+    active_windows: list[tuple[str, ...]] = []
+
+    class SpySampler:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+        def set_active(self, windows: object) -> None:
+            active_windows.append(tuple(cast("tuple[str, ...]", windows)))
+
+        def set_baseline(self, *_args: object) -> None:
+            pass
+
+        def sample(self, *_args: object) -> None:
+            pass
+
+        def stop(self) -> dict[str, dict[str, int]]:
+            return {
+                "workflow_process_tree": {},
+                "provider_process_tree": {},
+                "arrow_memory_pool": {},
+                "cgroup": {},
+            }
+
+        def absolute_peaks(self) -> dict[str, dict[str, int]]:
+            return self.stop()
+
+    class FakeProcess:
+        pid = 123
+
+        def poll(self) -> int:
+            return 0
+
+    table = TableCatalog("t", (ColumnCatalog("value", "VARCHAR(8)", False, None),), 6)
+    plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
+    _, header = _tagged_select_list(plan)
+    stream_lines = [",".join(header)]
+    for index in range(1, 7):
+        stream_lines.append(f"0,v{index}")
+
+    class FakeStream:
+        process = FakeProcess()
+        start_rss_kib = 1
+        peak_rss_kib = 1
+
+        def __iter__(self) -> Iterator[bytes]:
+            for line in stream_lines:
+                yield line.encode("utf-8")
+
+        def close(self) -> CommandResult:
+            return CommandResult(
+                command_kind="row_stream",
+                exit_code=0,
+                duration_seconds=0.0,
+                stdout=b"",
+                stdout_tail=b"",
+                stderr_tail=b"",
+                timed_out=False,
+            )
+
+    monkeypatch.setattr(providers_module, "MemorySampler", SpySampler)
+    monkeypatch.setattr(providers_module, "process_tree_rss_kib", lambda _pid: 1)
+
+    class FakeRunner:
+        def stream(self, *_args: object, **_kwargs: object) -> FakeStream:
+            return FakeStream()
+
+    provider: Any = OfflineCliProvider.__new__(OfflineCliProvider)
+    provider.settings = RepositoryServiceSettings(record_batch_rows=4)
+    provider.repository = tmp_path / "repo"
+    provider.query_directory = tmp_path
+    provider.runner = FakeRunner()
+    provider.cgroup = None
+    provider.last_stream_metrics = {}
+    provider.last_plateau_peaks = {}
+    provider.last_plateau_peaks_absolute = {}
+    provider.last_stream_peak_rss_kib = 0
+    provider.last_stream_rss_delta_kib = 0
+
+    list(
+        provider.stream_table(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            table,
+            UnknownTypePolicy.REJECT,
+        )
+    )
+
+    assert len(active_windows) >= 5
+
+
+@pytest.mark.unit
+def test_sql_server_stream_advances_plateau_window_while_accumulating(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    import gateway_repository_service.providers as providers_module
+    from gateway_repository_service.providers import SqlServerProvider
+    from typing import Any
+
+    active_windows: list[tuple[str, ...]] = []
+
+    class SpySampler:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+        def set_active(self, windows: object) -> None:
+            active_windows.append(tuple(cast("tuple[str, ...]", windows)))
+
+        def set_baseline(self, *_args: object) -> None:
+            pass
+
+        def sample(self, *_args: object) -> None:
+            pass
+
+        def stop(self) -> dict[str, dict[str, int]]:
+            return {
+                "workflow_process_tree": {},
+                "provider_process_tree": {},
+                "arrow_memory_pool": {},
+                "cgroup": {},
+            }
+
+        def absolute_peaks(self) -> dict[str, dict[str, int]]:
+            return self.stop()
+
+    fetch_batches: list[list[tuple[str]]] = [
+        [("v1",), ("v2",), ("v3",), ("v4",)],
+        [("v5",), ("v6",)],
+    ]
+
+    class FakeCursor:
+        def fetchmany(self, size: int) -> list[tuple[str]]:
+            if fetch_batches:
+                return fetch_batches.pop(0)
+            return []
+
+        def close(self) -> None:
+            return None
+
+    class FakeSupervisor:
+        process = type("Process", (), {"pid": 55})()
+
+    monkeypatch.setattr(providers_module, "MemorySampler", SpySampler)
+    monkeypatch.setattr(providers_module, "process_tree_rss_kib", lambda _pid: 1)
+
+    async def fake_open_cursor(_table: str, _commit_id: str) -> FakeCursor:
+        return FakeCursor()
+
+    provider: Any = SqlServerProvider.__new__(SqlServerProvider)
+    provider.settings = RepositoryServiceSettings(record_batch_rows=4)
+    provider.supervisor = FakeSupervisor()
+    provider.cgroup = None
+    provider.last_stream_metrics = {}
+    provider.last_plateau_peaks = {}
+    provider.last_plateau_peaks_absolute = {}
+    provider.last_stream_peak_rss_kib = 0
+    provider.last_stream_rss_delta_kib = 0
+    provider._open_cursor = fake_open_cursor
+    provider._call = lambda awaitable: (
+        asyncio.run(awaitable) if asyncio.iscoroutine(awaitable) else awaitable
+    )
+    provider._reset_connection = lambda: None
+
+    table = TableCatalog("t", (ColumnCatalog("value", "VARCHAR(8)", False, None),), 6)
+    list(
+        provider.stream_table(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            table,
+            UnknownTypePolicy.REJECT,
+        )
+    )
+
+    assert len(active_windows) >= 5
 
 
 @pytest.mark.integration
@@ -1827,7 +2018,7 @@ def test_concurrent_streams_with_over_128k_field(
         table: TableCatalog,
         policy: UnknownTypePolicy,
         *,
-        table_plan: object = None,
+        table_plan: CompiledTablePlan | None = None,
     ) -> Iterator[pa.RecordBatch]:
         with lock:
             recorded_limits.append(csv.field_size_limit())

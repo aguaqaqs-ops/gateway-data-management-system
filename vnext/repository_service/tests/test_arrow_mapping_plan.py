@@ -504,12 +504,18 @@ class _StrFailure:
         raise ValueError(SENTINEL_RAW_VALUE)
 
 
+class _StrRuntimeFailure:
+    def __str__(self) -> str:
+        raise RuntimeError(SENTINEL_RAW_VALUE)
+
+
 MALFORMED_VALUE_FAULTS = (
     ("amount", "DECIMAL(10,2)", SENTINEL_RAW_VALUE, UnknownTypePolicy.REJECT),
     ("event_time", "TIME(6)", "12:34", UnknownTypePolicy.REJECT),
     ("flags", "BIT(7)", "0x80", UnknownTypePolicy.REJECT),
     ("flags", "BIT(4)", "0x1234", UnknownTypePolicy.REJECT),
     ("value", "ENUM('a','b')", _StrFailure(), UnknownTypePolicy.STRINGIFY),
+    ("value", "ENUM('a','b')", _StrRuntimeFailure(), UnknownTypePolicy.STRINGIFY),
 )
 
 
@@ -541,6 +547,69 @@ def test_malformed_provider_values_are_typed_and_redacted(
         traceback.format_exception(type(error), error, error.__traceback__)
     )
     assert SENTINEL_RAW_VALUE not in traceback_text
+
+
+def test_unknown_stringify_runtime_str_failure_is_typed_and_redacted() -> None:
+    catalog = _table(
+        "records",
+        (ColumnCatalog("value", "ENUM('a','b')", True, None),),
+    )
+    plan = compile_table_plan(catalog, UnknownTypePolicy.STRINGIFY)
+    with pytest.raises(SqlValueConversionError) as exc_info:
+        plan.normalize_row((_StrRuntimeFailure(),))
+    error = exc_info.value
+    assert error.__cause__ is None
+    assert SENTINEL_RAW_VALUE not in str(error)
+    assert SENTINEL_RAW_VALUE not in repr(error)
+
+
+DECIMAL_SCALE_AND_EXPONENT_FAULTS = (
+    ("DECIMAL(3,2)", "100", True),
+    ("DECIMAL(3,2)", "12.3", True),
+    ("DECIMAL(3,0)", "1E+3", True),
+    ("DECIMAL(3,2)", "9.99", False),
+    ("DECIMAL(3,2)", "0.01", False),
+)
+
+
+@pytest.mark.parametrize(("sql_type", "raw_value", "should_fail"), DECIMAL_SCALE_AND_EXPONENT_FAULTS)
+def test_decimal_scale_padding_and_positive_exponent_boundaries(
+    sql_type: str,
+    raw_value: str,
+    should_fail: bool,
+) -> None:
+    catalog = _table("records", (ColumnCatalog("amount", sql_type, False, 1),))
+    plan = compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+    if should_fail:
+        with pytest.raises(SqlValueConversionError):
+            plan.normalize_row((raw_value,))
+    else:
+        plan.normalize_row((raw_value,))
+
+
+TEMPORAL_BOUNDARY_FAULTS = (
+    ("TIME(3)", "12:34:56.123456", True),
+    ("TIME(6)", "12:60:00", True),
+    ("DATETIME(6)", "2024-01-02T03:04:05.123456+00:00", True),
+    ("TIME(6)", "12:34:56.123456", False),
+    ("DATETIME(6)", "2024-01-02 03:04:05.123456", False),
+    ("TIMESTAMP(6)", "2024-01-02 03:04:05.123456", False),
+)
+
+
+@pytest.mark.parametrize(("sql_type", "raw_value", "should_fail"), TEMPORAL_BOUNDARY_FAULTS)
+def test_temporal_values_enforce_fsp_component_ranges_and_timezone(
+    sql_type: str,
+    raw_value: str,
+    should_fail: bool,
+) -> None:
+    catalog = _table("records", (ColumnCatalog("event_time", sql_type, True, None),))
+    plan = compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+    if should_fail:
+        with pytest.raises(SqlValueConversionError):
+            plan.normalize_row((raw_value,))
+    else:
+        plan.normalize_row((raw_value,))
 
 
 INTEGER_AND_DECIMAL_RANGE_FAULTS = (

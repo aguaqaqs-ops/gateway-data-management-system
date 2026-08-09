@@ -758,6 +758,103 @@ def test_full_scan_reuses_one_plan_in_candidate_a_stream(tmp_path: Path) -> None
     )
 
 
+@pytest.mark.parametrize(
+    "unknown_type_policy",
+    [UnknownTypePolicy.REJECT, UnknownTypePolicy.STRINGIFY],
+)
+def test_full_scan_reject_maps_each_column_once_and_reuses_plan(
+    tmp_path: Path,
+    unknown_type_policy: UnknownTypePolicy,
+) -> None:
+    table = TableCatalog(
+        "records",
+        (
+            ColumnCatalog("id", "INT", False, 1),
+            ColumnCatalog("flag", "BOOLEAN", True, None),
+        ),
+        4,
+    )
+    manifest = manifest_from_tables((table,))
+    plan = compile_table_plan(table, unknown_type_policy)
+    _, header = _tagged_select_list(plan)
+    stream_lines = [
+        ",".join(header),
+        "0,1,0,1",
+        "0,2,0,0",
+        "0,3,1,",
+        "0,4,0,1",
+    ]
+    layout = DurableLayout.create(tmp_path / "root")
+    settings = RepositoryServiceSettings()
+    repository = layout.staging_artifacts / "stream-repo"
+    repository.mkdir(parents=True, exist_ok=True)
+    runner = MagicMock(spec=DoltRunner)
+    stream = MagicMock()
+    stream.__iter__ = MagicMock(
+        return_value=iter(line.encode("utf-8") for line in stream_lines)
+    )
+    stream.close.return_value = CommandResult(
+        command_kind="row_stream",
+        exit_code=0,
+        duration_seconds=0.0,
+        stdout=b"",
+        stdout_tail=b"",
+        stderr_tail=b"",
+        timed_out=False,
+    )
+    runner.stream.return_value = stream
+    provider = CandidateAImportProvider(settings, layout, repository, runner)
+
+    arrow_calls = 0
+
+    def counting_arrow_type(
+        sql_type: str,
+        policy: UnknownTypePolicy,
+    ) -> tuple[pa.DataType, dict[bytes, bytes]]:
+        nonlocal arrow_calls
+        arrow_calls += 1
+        return arrow_type(sql_type, policy)
+
+    with (
+        patch.object(provider, "read_catalog", return_value=(table,)),
+        patch(
+            "gateway_repository_service.arrow_mapping.arrow_type",
+            side_effect=counting_arrow_type,
+        ),
+    ):
+        result = verify_import_candidate(
+            provider,
+            candidate="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            manifest=manifest,
+            verification_policy=VerificationPolicy.FULL_SCAN,
+            unknown_type_policy=unknown_type_policy,
+        )
+
+    assert arrow_calls == len(table.columns)
+    assert result == ImportVerificationResult(
+        completed_verification_policy=VerificationPolicy.FULL_SCAN,
+        unknown_type_policy=unknown_type_policy,
+    )
+
+
+def test_structural_malformed_type_reports_table_and_column() -> None:
+    from gateway_repository_service.versioned_import.verification import _compile_table_plans
+
+    table = TableCatalog(
+        "records",
+        (
+            ColumnCatalog("id", "INT", False, 1),
+            ColumnCatalog("bad_time", "TIME(9)", True, None),
+        ),
+        0,
+    )
+
+    with pytest.raises(ImportVerificationError) as exc_info:
+        _compile_table_plans((table,), UnknownTypePolicy.STRINGIFY)
+    assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+    assert exc_info.value.detail == "unmappable SQL type in catalog: records.bad_time"
+
+
 SENTINEL_RAW_VALUE = "SECRET_RAW_SENTINEL_42"
 
 

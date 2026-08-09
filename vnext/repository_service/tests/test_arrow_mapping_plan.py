@@ -587,12 +587,115 @@ def test_decimal_scale_padding_and_positive_exponent_boundaries(
         plan.normalize_row((raw_value,))
 
 
+def test_decimal128_maximum_precision_boundaries() -> None:
+    max_38 = decimal.Decimal("9" * 38)
+    max_38_2 = decimal.Decimal("9" * 36 + ".99")
+    overflow_38 = decimal.Decimal("1" + "0" * 38)
+    catalog_38_0 = _table("records", (ColumnCatalog("value", "DECIMAL(38,0)", False, 1),))
+    catalog_38_2 = _table("records", (ColumnCatalog("value", "DECIMAL(38,2)", False, 1),))
+    plan_38_0 = compile_table_plan(catalog_38_0, UnknownTypePolicy.REJECT)
+    plan_38_2 = compile_table_plan(catalog_38_2, UnknownTypePolicy.REJECT)
+    plan_38_0.normalize_row((max_38,))
+    plan_38_2.normalize_row((max_38_2,))
+    with pytest.raises(SqlValueConversionError):
+        plan_38_0.normalize_row((overflow_38,))
+
+
+def test_decimal256_maximum_precision_boundaries() -> None:
+    max_40_0 = decimal.Decimal("9" * 40)
+    max_40_2 = decimal.Decimal("9" * 38 + ".99")
+    max_65_30 = decimal.Decimal("9" * 35 + "." + "9" * 30)
+    catalog_40_0 = _table("records", (ColumnCatalog("value", "DECIMAL(40,0)", False, 1),))
+    catalog_40_2 = _table("records", (ColumnCatalog("value", "DECIMAL(40,2)", False, 1),))
+    catalog_65_30 = _table("records", (ColumnCatalog("value", "DECIMAL(65,30)", False, 1),))
+    compile_table_plan(catalog_40_0, UnknownTypePolicy.REJECT).normalize_row((max_40_0,))
+    compile_table_plan(catalog_40_2, UnknownTypePolicy.REJECT).normalize_row((max_40_2,))
+    compile_table_plan(catalog_65_30, UnknownTypePolicy.REJECT).normalize_row((max_65_30,))
+
+
+def test_decimal_lossless_trailing_zero_quantization() -> None:
+    catalog = _table("records", (ColumnCatalog("amount", "DECIMAL(10,2)", False, 1),))
+    plan = compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+    plan.normalize_row(("1.230",))
+    plan.normalize_row(("12.30",))
+    with pytest.raises(SqlValueConversionError):
+        plan.normalize_row(("12.345",))
+
+
+def test_datetime_iso_t_separator_without_timezone_is_valid() -> None:
+    catalog = _table("records", (ColumnCatalog("event_dt", "DATETIME(6)", True, None),))
+    plan = compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+    normalized = plan.normalize_row(("2024-01-02T03:04:05.123456",))
+    assert normalized.values[0] == dt.datetime(2024, 1, 2, 3, 4, 5, 123456)
+
+
+def test_native_temporal_values_enforce_fsp() -> None:
+    time_catalog = _table("records", (ColumnCatalog("event_time", "TIME(3)", True, None),))
+    datetime_catalog = _table("records", (ColumnCatalog("event_dt", "DATETIME(3)", True, None),))
+    timestamp_catalog = _table("records", (ColumnCatalog("event_ts", "TIMESTAMP(3)", True, None),))
+    time_plan = compile_table_plan(time_catalog, UnknownTypePolicy.REJECT)
+    datetime_plan = compile_table_plan(datetime_catalog, UnknownTypePolicy.REJECT)
+    timestamp_plan = compile_table_plan(timestamp_catalog, UnknownTypePolicy.REJECT)
+    bad_delta = dt.timedelta(hours=1, minutes=2, seconds=3, microseconds=123456)
+    bad_dt = dt.datetime(2024, 1, 2, 3, 4, 5, 123456)
+    bad_ts = dt.datetime(2024, 1, 2, 3, 4, 5, 123456, tzinfo=dt.timezone.utc)
+    with pytest.raises(SqlValueConversionError):
+        time_plan.normalize_row((bad_delta,))
+    with pytest.raises(SqlValueConversionError):
+        datetime_plan.normalize_row((bad_dt,))
+    with pytest.raises(SqlValueConversionError):
+        timestamp_plan.normalize_row((bad_ts,))
+
+
+DEFAULT_FSP_FAULTS = (
+    ("TIME", "12:34:56.1", True),
+    ("DATETIME", "2024-01-02 03:04:05.1", True),
+    ("TIMESTAMP", "2024-01-02 03:04:05.1", True),
+    ("TIME", "12:34:56", False),
+)
+
+
+@pytest.mark.parametrize(("sql_type", "raw_value", "should_fail"), DEFAULT_FSP_FAULTS)
+def test_temporal_default_fsp_is_zero(
+    sql_type: str,
+    raw_value: str,
+    should_fail: bool,
+) -> None:
+    catalog = _table("records", (ColumnCatalog("event_time", sql_type, True, None),))
+    plan = compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+    if should_fail:
+        with pytest.raises(SqlValueConversionError):
+            plan.normalize_row((raw_value,))
+    else:
+        plan.normalize_row((raw_value,))
+
+
+TIME_GRAMMAR_FAULTS = (
+    ("839:00:00", True),
+    ("--1:02:03", True),
+    ("838:59:59", False),
+    ("-838:59:59", False),
+)
+
+
+@pytest.mark.parametrize(("raw_value", "should_fail"), TIME_GRAMMAR_FAULTS)
+def test_time_hour_range_and_sign_grammar(raw_value: str, should_fail: bool) -> None:
+    catalog = _table("records", (ColumnCatalog("event_time", "TIME(6)", True, None),))
+    plan = compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+    if should_fail:
+        with pytest.raises(SqlValueConversionError):
+            plan.normalize_row((raw_value,))
+    else:
+        plan.normalize_row((raw_value,))
+
+
 TEMPORAL_BOUNDARY_FAULTS = (
     ("TIME(3)", "12:34:56.123456", True),
     ("TIME(6)", "12:60:00", True),
     ("DATETIME(6)", "2024-01-02T03:04:05.123456+00:00", True),
     ("TIME(6)", "12:34:56.123456", False),
     ("DATETIME(6)", "2024-01-02 03:04:05.123456", False),
+    ("DATETIME(6)", "2024-01-02T03:04:05.123456", False),
     ("TIMESTAMP(6)", "2024-01-02 03:04:05.123456", False),
 )
 

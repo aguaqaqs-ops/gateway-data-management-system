@@ -575,6 +575,13 @@ def _validate_integer_range(value: int, data_type: pa.DataType) -> bool:
     return True
 
 
+def _decimal_validation_context(precision: int, scale: int) -> decimal.Context:
+    return decimal.Context(
+        prec=precision + scale + 2,
+        traps=[],
+    )
+
+
 def _validate_decimal_range(
     value: decimal.Decimal,
     data_type: pa.DataType,
@@ -584,100 +591,113 @@ def _validate_decimal_range(
     precision = data_type.precision
     scale = data_type.scale
     sign, digits, exponent = value.as_tuple()
-    if isinstance(exponent, int) and exponent < -scale:
+    if not isinstance(exponent, int):
         return False
-    try:
-        unscaled = int(abs(value * decimal.Decimal(10) ** scale))
-    except (OverflowError, decimal.InvalidOperation, ValueError):
-        return False
+    if exponent < -scale:
+        excess = -exponent - scale
+        if excess > 0:
+            trailing = digits[-excess:] if excess <= len(digits) else digits
+            if any(digit != 0 for digit in trailing):
+                return False
+    scale_quantum = decimal.Decimal((0, (1,), -scale))
+    with decimal.localcontext(_decimal_validation_context(precision, scale)):
+        try:
+            quantized = value.quantize(scale_quantum)
+            unscaled = int(abs(quantized * decimal.Decimal(10) ** scale))
+        except (decimal.InvalidOperation, OverflowError, ValueError):
+            return False
     if unscaled == 0:
         return True
-    if len(str(unscaled)) > precision:
-        return False
-    scale_quantum = decimal.Decimal((0, (1,), -scale))
-    quantized = value.quantize(scale_quantum, context=decimal.Context(traps=[]))
-    if not quantized.is_nan() and quantized != value:
-        return False
-    return True
+    return len(str(unscaled)) <= int(precision)
 
 
-def _has_timezone_suffix(text: str) -> bool:
-    if text.endswith("Z") or text.endswith("z"):
+_TIME_MAX_SECONDS = 838 * 3600 + 59 * 60 + 59
+_TIME_TEXT = re.compile(
+    r"^(?P<sign>-)?(?P<hours>\d{1,3}):(?P<minutes>\d{2}):(?P<seconds>\d{2})(?:\.(?P<fraction>\d+))?$"
+)
+
+
+def _effective_temporal_fsp(fsp: int | None) -> int:
+    return fsp if fsp is not None else 0
+
+
+def _validate_microsecond_fsp(microsecond: int, fsp: int) -> bool:
+    if fsp >= 6:
         return True
-    tail = text.rsplit(" ", 1)[-1]
-    if "+" in tail or (tail.count("-") > 1 and "T" in text):
-        return True
-    return False
+    divisor = 10 ** (6 - fsp)
+    return bool((microsecond % divisor) == 0)
+
+
+def _validate_time_timedelta_bounds(value: dt.timedelta) -> bool:
+    total_seconds = value.total_seconds()
+    return -_TIME_MAX_SECONDS <= total_seconds <= _TIME_MAX_SECONDS
 
 
 def _validate_time_text(text: str, fsp: int | None) -> bool:
-    stripped = text.strip()
-    if stripped.startswith("-"):
-        stripped = stripped[1:]
-    parts = stripped.split(":")
-    if len(parts) != 3:
+    effective_fsp = _effective_temporal_fsp(fsp)
+    match = _TIME_TEXT.fullmatch(text.strip())
+    if match is None:
         return False
     try:
-        minutes = int(parts[1])
-        seconds_part = parts[2]
-        if "." in seconds_part:
-            seconds_text, fraction = seconds_part.split(".", 1)
-            if not fraction.isdigit():
-                return False
-            if fsp is not None and len(fraction) > fsp:
-                return False
-            if fsp is not None and len(fraction) < fsp and any(
-                digit != "0" for digit in fraction[fsp:]
-            ):
-                return False
-            seconds = int(seconds_text)
-        else:
-            seconds = int(seconds_part)
+        hours = int(match.group("hours"))
+        minutes = int(match.group("minutes"))
+        seconds = int(match.group("seconds"))
     except ValueError:
         return False
+    if match.group("sign"):
+        hours = -hours
     if minutes < 0 or minutes > 59 or seconds < 0 or seconds > 59:
         return False
-    return True
+    fraction = match.group("fraction")
+    if fraction is not None and len(fraction) > effective_fsp:
+        return False
+    total_seconds = hours * 3600 + minutes * 60 + seconds
+    if fraction is not None:
+        total_seconds += int(fraction) / (10 ** len(fraction))
+    return -_TIME_MAX_SECONDS <= total_seconds <= _TIME_MAX_SECONDS
 
 
 def _validate_datetime_text(text: str, fsp: int | None) -> bool:
-    if _has_timezone_suffix(text):
-        return False
-    normalized = text.strip().replace("T", " ")
-    if "." in normalized:
-        base, fraction = normalized.rsplit(".", 1)
+    effective_fsp = _effective_temporal_fsp(fsp)
+    stripped = text.strip()
+    if "." in stripped:
+        base, fraction = stripped.rsplit(".", 1)
         if not fraction.isdigit():
             return False
-        if fsp is not None and len(fraction) > fsp:
+        if len(fraction) > effective_fsp:
             return False
-        normalized = base
     try:
-        dt.datetime.fromisoformat(normalized)
+        parsed = dt.datetime.fromisoformat(stripped.replace(" ", "T"))
     except ValueError:
         return False
-    return True
+    if parsed.tzinfo is not None:
+        return False
+    return _validate_microsecond_fsp(parsed.microsecond, effective_fsp)
 
 
 def _validate_timestamp_text(text: str, fsp: int | None) -> bool:
+    effective_fsp = _effective_temporal_fsp(fsp)
     stripped = text.strip()
     if stripped.endswith("Z") or stripped.endswith("z"):
         stripped = stripped[:-1]
-    elif "+" in stripped or stripped.count("-") > 2:
-        tz_sep = max(stripped.rfind("+"), stripped.rfind("-"))
+    elif "+" in stripped:
+        stripped = stripped[: stripped.rfind("+")]
+    elif stripped.count("-") > 2:
+        tz_sep = stripped.rfind("-")
         if tz_sep > stripped.find("T"):
             stripped = stripped[:tz_sep]
     if "." in stripped:
         base, fraction = stripped.rsplit(".", 1)
         if not fraction.isdigit():
             return False
-        if fsp is not None and len(fraction) > fsp:
+        if len(fraction) > effective_fsp:
             return False
         stripped = base
     try:
-        dt.datetime.fromisoformat(stripped.replace(" ", "T"))
+        parsed = dt.datetime.fromisoformat(stripped.replace(" ", "T"))
     except ValueError:
         return False
-    return True
+    return _validate_microsecond_fsp(parsed.microsecond, effective_fsp)
 
 
 def _validate_temporal_range(
@@ -691,23 +711,29 @@ def _validate_temporal_range(
         return True
     raw_text = raw if isinstance(raw, str) else None
     kind = temporal.kind
-    fsp = temporal.fsp
+    fsp = _effective_temporal_fsp(temporal.fsp)
     if kind == "TIME":
         if raw_text is not None and not _validate_time_text(raw_text, fsp):
             return False
         if not isinstance(value, dt.timedelta):
             return False
-        return True
+        if not _validate_microsecond_fsp(value.microseconds, fsp):
+            return False
+        return _validate_time_timedelta_bounds(value)
     if kind == "DATETIME":
         if raw_text is not None and not _validate_datetime_text(raw_text, fsp):
             return False
-        if isinstance(value, dt.datetime) and value.tzinfo is not None:
+        if not isinstance(value, dt.datetime):
             return False
-        return isinstance(value, dt.datetime)
+        if value.tzinfo is not None:
+            return False
+        return _validate_microsecond_fsp(value.microsecond, fsp)
     if kind == "TIMESTAMP":
         if raw_text is not None and not _validate_timestamp_text(raw_text, fsp):
             return False
         if not isinstance(value, dt.datetime):
+            return False
+        if not _validate_microsecond_fsp(value.microsecond, fsp):
             return False
         return value.tzinfo == dt.timezone.utc
     return True

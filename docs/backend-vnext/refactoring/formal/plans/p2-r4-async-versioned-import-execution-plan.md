@@ -2332,3 +2332,117 @@ Production-equivalent capacity retest仍按P2-R1 v8 decision保留，完整TTL/c
 ### S10 closure status — 2026-08-09
 
 §16 条件已由 S10 audit remediation round 2 final handoff 闭合。
+
+### Post-audit narrow remediation — 2026-08-09
+
+`start_sha`: `0863ba1ab6333f1fefff5d35d0ee8a9bf8c2a61b`
+`validated_code_sha`: `bd17190683da2ba9975eba178fff9111ae32493a`
+
+```yaml
+round: P2-R4-post-audit-remediation
+review_state: pass
+start_sha: 0863ba1
+validated_code_sha: bd17190683da2ba9975eba178fff9111ae32493a
+handoff_record_commit_sha: pending
+branch: phase1/gate-ownership-repair
+worktree_clean: yes
+stage_exit: pass
+p2_r4_exit: pass
+p2_r5_ready: yes
+production_retest_required: yes
+
+remediation_closed:
+  - worker: _CancellableProviderWrapper.replay_sql merges wrapper + caller cancellation
+  - verification: _full_scan_tables explicit manifest lookup → VERIFICATION_FAILED_NOT_PUBLISHED
+  - package: fd-bound size fail-fast, streaming byte cap, decoder/tar hardening
+
+directed_tests:
+  worker:
+    - test_import_worker.py::test_cancellable_provider_wrapper_merges_replay_cancellation[False-False-True]
+    - test_import_worker.py::test_cancellable_provider_wrapper_merges_replay_cancellation[True-False-True]
+    - test_import_worker.py::test_cancellable_provider_wrapper_merges_replay_cancellation[False-True-True]
+    - test_import_worker.py::test_cancellable_provider_wrapper_merges_replay_cancellation[True-True-True]
+    - test_import_worker.py::test_cancellable_provider_wrapper_merges_replay_cancellation[False-False-False]
+    - test_import_worker.py::test_cancellable_provider_wrapper_merges_replay_cancellation[True-False-False]
+    - test_import_worker.py::test_cancellable_provider_wrapper_propagates_caller_cancellation_exception
+  verification:
+    - test_import_verification.py::test_full_scan_catalog_manifest_mismatch_raises_typed_error[catalog_tables0-manifest_tables0-table extra not present in manifest]
+    - test_import_verification.py::test_full_scan_catalog_manifest_mismatch_raises_typed_error[catalog_tables1-manifest_tables1-table records not present in manifest]
+  package:
+    - test_import_package.py::test_rejects_raw_size_mismatch
+    - test_import_package.py::test_rejects_size_binding_before_extraction[expected_larger_than_actual]
+    - test_import_package.py::test_rejects_size_binding_before_extraction[expected_smaller_than_actual]
+    - test_import_package.py::test_rejects_streaming_size_growth_during_read
+
+service_gate:
+  ruff_mypy_five_packages: pass
+  parallel_count: 949
+  parallel_skipped: 1
+  serial_count: 61
+  unit_dolt_parked_count: 714
+  unit_dolt_parked_skipped: 1
+  run_tests_sh: pass
+
+required_fault_matrix_nodeids:
+  admission_process_crash:
+    - test_import_admission_crash.py::test_crash_after_pending_commit_restarts_to_succeeded
+    - test_import_admission_crash.py::test_crash_after_queued_publish_replay_returns_same_202
+    - test_import_admission_crash.py::test_crash_after_pending_commit_aborts_on_restart
+  worker_dolt_process_crash:
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_running_claim]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_package_extracted]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_private_ref_created]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_replay_before_marker]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_marker_before_verification]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_verification_before_second_main_check]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_second_main_check_before_publish]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_main_publish_before_succeeded]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_succeeded_before_private_ref_cleanup]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_succeeded_before_artifact_cleanup]
+  recovery_count:
+    - test_import_recovery.py::test_crash_after_automatic_replay_increment_preserves_count
+  mutation_restart:
+    - test_mutation_readiness.py::test_consumed_artifact_missing_bytes_does_not_block_readiness
+  production_compose_restart_replay:
+    - test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
+
+fault_matrix_results:
+  admission_process_crash: passed=3 skipped=0 xfailed=0
+  worker_dolt_process_crash: passed=10 skipped=0 xfailed=0
+  recovery_count: passed=1 skipped=0 xfailed=0
+  mutation_restart: passed=1 skipped=0 xfailed=0
+  production_compose_restart_replay: passed=1 skipped=0 xfailed=0
+
+build_gate:
+  build_host: remote (10.10.60.4, retained P2-R1 cache)
+  local_docker_build: skipped (network/cache); image transferred via docker save|load
+  image_matches_build_context: pass
+
+repository_service_image:
+  tag: gateway-repository-service:local
+  image_id: sha256:677f0e32c0dad4912a9d0b5f73e9e70c1110f481c30468c028aa1f8e398c73a8
+  remote_build_image_id: sha256:92d0dc7d728ad3ce3e6af9c408ed226381bda49918433943dac8e4906aed01a5
+  source_tree_sha256: sha256:f89cc0c172dea7e9661d34f9443b82be1ad4cfc5de4602b41bd35d7d450e8cf1
+  build_input_revision: bd17190683da2ba9975eba178fff9111ae32493a
+  image_matches_build_context: true
+  superseded_image_id: sha256:40859554b7ca2863b45c82a994a1c27f275ba50a1e1688f15ba405f2eb387d80
+
+compose_project_pattern: gateway-p2r4-s10-*
+compose_cleanup_result: pass
+production_compose_restart_replay: pass
+
+gate_counts:
+  shared_kernel: 232
+  repository_contracts: 66
+  repository_client: 15
+  backend: 18
+  repository_service_parallel: 949
+  repository_service_parallel_skipped: 1
+  repository_service_serial: 61
+  unit_dolt_parked: 714
+  unit_dolt_parked_skipped: 1
+
+known_limitations:
+  - production_retest_required 仍按 P2-R1 v8 decision 保留；R5/R6 read-path 与 operational 事项已登记 checklist §7/§8
+  - 镜像在远端 10.10.60.4 保留 cache 构建；本地 gate 通过 docker save|load 校验 provenance
+```

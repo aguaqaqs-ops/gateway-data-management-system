@@ -1955,6 +1955,8 @@ vnext/repository_service/uv.lock                                            # on
 vnext/repository_service/Dockerfile
 vnext/deploy/compose.yaml
 vnext/scripts/run-tests.sh                                                  # gate infrastructure fixes only
+vnext/scripts/build-repository-service-image.sh                             # S10 compose provenance build
+vnext/deploy/p2r1-cache/README.md                                           # S10 compose cache reuse note only
 vnext/repository_service/README.md
 docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md
 docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md
@@ -2056,6 +2058,88 @@ production_retest_required、p2_r4_exit和p2_r5_ready。任一required gate失�
 残留或worktree dirty都必须no-go。不要开始P2-R5。
 ```
 
+### S10 interim handoff — 2026-08-09（Compose gate 待远端 cache）
+
+`start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`（`docs(p2-r4): prepare S10 final delivery gate`）
+
+实现与定向 gate 已完成；正式 Compose restart/replay gate 最初因本机无 P2-R1 cache 阻塞。
+本节保留为历史记录；**最终 accepted exit 见下节**。
+
+```yaml
+stage_exit: no-go
+production_compose_restart_replay: blocked
+blocker: "P2-R1 cache 502; compose e2e 未跑通"
+```
+
+### S10 review remediation — 2026-08-09
+
+`start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
+
+审查 NO-GO 后修复项已并入 S10 green commit；formal closure 见下节。
+
+```yaml
+review_remediation_closed:
+  - compose_build_harness: image label digest/revision 校验 + stale 强制 rebuild
+  - build_context_digest.py + build-repository-service-image.sh dirty worktree digest
+  - upload_artifact_bytes_reconciled_after_import: repository/artifact/consumption evidence 联合校验
+  - test_import_compose_e2e: docker container ls cleanup；verify 含 /readyz
+  - admission crash: status_out 断言无 202 / 202 replay
+  - dolt crash: replay_count 分桶；main/marker/second-restart 代表性补强
+```
+
+### Accepted S10 exit and P2-R4 handoff — 2026-08-09
+
+`start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
+`s10_green_commit_sha`: `8a44b73505898a8a8080b54c5bfbcaa24dc617bd`
+`s10_handoff_commit_sha`: `784ffcd45391aadb177cc43d15e98a525fc6c091`
+
+```yaml
+s10_start_sha: 74ccbeb
+s10_green_commit_sha: 8a44b73505898a8a8080b54c5bfbcaa24dc617bd
+s10_handoff_commit_sha: 784ffcd45391aadb177cc43d15e98a525fc6c091
+control_db_user_version: 8
+stage_exit: pass
+production_compose_restart_replay: pass
+p2_r4_exit: pass
+p2_r5_ready: yes
+worktree_clean: yes
+
+repository_service_image:
+  tag: gateway-repository-service:local
+  source_tree_sha256: sha256:5d427cc60fad0646c623be2065eef1f97d956ee92021c2b06395a45efe0a24f3
+  revision: 74ccbebe02cfa8b3f408f7ca38fe80dd87996be7-dirty-5d427cc60fad
+
+gate_counts:
+  shared_kernel: 232
+  repository_contracts: 66
+  repository_client: 15
+  backend: 18
+  repository_service_parallel: 910
+  repository_service_parallel_skipped: 1
+  repository_service_serial: 57
+  unit_dolt_parked: 672
+  unit_dolt_parked_skipped: 1
+
+required_fault_matrix_nodeids:
+  admission_process_crash:
+    - test_import_admission_crash.py::test_crash_after_pending_commit_restarts_to_succeeded
+    - test_import_admission_crash.py::test_crash_after_queued_publish_replay_returns_same_202
+    - test_import_admission_crash.py::test_crash_after_pending_commit_aborts_on_restart
+  worker_dolt_process_crash:
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[parametrized x10]
+  production_compose_restart_replay:
+    - test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
+
+known_limitations:
+  - Dolt 十点矩阵其余 7 项仍主要依赖 status/replay_count/cleanup，未逐项断言 main/marker SQL 单次执行
+  - production_retest_required 仍按 P2-R1 v8 decision 保留
+  - TTL/capacity/snapshot closure 属 P2-R6
+```
+
+### Accepted S10 exit and P2-R4 handoff — pending (superseded)
+
+本节已由上节 **Accepted S10 exit and P2-R4 handoff — 2026-08-09** 取代。
+
 ## 15. Final old-reference searches
 
 S10至少运行以下定向搜索，并保存人工分类：
@@ -2118,3 +2202,8 @@ p2_r5_ready = yes
 
 Production-equivalent capacity retest仍按P2-R1 v8 decision保留，完整TTL/capacity/snapshot closure
 仍属R6；二者不允许被误报为R4已经完成的production activation保证。
+
+### S10 closure status — 2026-08-09
+
+§16 条件已由 S10 accepted handoff 闭合；`s10_green_commit_sha` 与 `s10_handoff_commit_sha`
+在双 commit 提交后填入，并确认 `worktree_clean = yes`。

@@ -2457,7 +2457,7 @@ round: P2-R4-post-audit-round-2
 review_state: pass
 start_sha: 90b39fb5cacc7504088278788f90a63f59753a74
 validated_code_sha: bf8c3562018d264aed22987f00d14f2dbe233697
-handoff_record_commit_sha: pending
+handoff_record_commit_sha: 52d66bf9030dbe9ac7ac933c36e460ba76f4c3ba
 branch: phase1/gate-ownership-repair
 worktree_clean: yes
 stage_exit: pass

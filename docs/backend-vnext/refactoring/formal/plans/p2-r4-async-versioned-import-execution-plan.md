@@ -2097,7 +2097,7 @@ audit_remediation_closed:
 `start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
 `validated_code_sha`: `f0a14abde13799025637f9bf989ed33ece498aa2`
 `build_gate_fix_sha`: `901a13b92a0a92130d9afa001d8eb4273d544566`
-`handoff_record_commit_sha`: pending
+`handoff_record_commit_sha`: `e19ccdb6d59a12ce55e9144d06ab76f0dc110bd7`
 
 ```yaml
 round: P2-R4

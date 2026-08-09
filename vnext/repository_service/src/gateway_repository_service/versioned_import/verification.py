@@ -199,8 +199,14 @@ def _full_scan_tables(
     manifest: ImportManifest,
     unknown_type_policy: UnknownTypePolicy,
 ) -> None:
+    # FULL_SCAN does not assume _compare_manifest_structural() already ran.
     manifest_row_counts = {table.name: table.row_count for table in manifest.tables}
     for table in catalog:
+        if table.name not in manifest_row_counts:
+            raise ImportVerificationError(
+                VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+                detail=f"table {table.name} not present in manifest",
+            )
         expected_row_count = manifest_row_counts[table.name]
         scanned_rows = 0
         try:

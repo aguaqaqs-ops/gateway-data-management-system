@@ -506,6 +506,73 @@ def test_rejects_raw_size_mismatch(
             staging_dir=staging_dir,
             settings=settings,
         )
+    assert artifact_path.exists()
+    assert not staging_dir.exists() or not any(staging_dir.iterdir())
+
+
+@pytest.mark.parametrize(
+    "size_delta",
+    [-1, 1],
+    ids=["expected_larger_than_actual", "expected_smaller_than_actual"],
+)
+def test_rejects_size_binding_before_extraction(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+    size_delta: int,
+) -> None:
+    payload = build_package_bytes()
+    artifact_path = tmp_path / "artifact.tar.zst"
+    size_bytes, raw_sha256 = write_artifact(artifact_path, payload)
+    with pytest.raises(ImportPackageRejected, match="raw size"):
+        validate_and_extract_import_package(
+            artifact_path=artifact_path,
+            expected_size_bytes=size_bytes + size_delta,
+            expected_raw_sha256=raw_sha256,
+            staging_dir=staging_dir,
+            settings=settings,
+        )
+    assert artifact_path.exists()
+    assert not (staging_dir / "manifest.json").exists()
+    assert not (staging_dir / "replay.sql").exists()
+
+
+def test_rejects_streaming_size_growth_during_read(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service.versioned_import import package as package_module
+
+    payload = build_package_bytes()
+    artifact_path = tmp_path / "artifact.tar.zst"
+    size_bytes, raw_sha256 = write_artifact(artifact_path, payload)
+    original_read = package_module._CompressedArtifactSource._read_compressed_chunk
+
+    def growing_read(self: package_module._CompressedArtifactSource) -> bytes:
+        chunk = original_read(self)
+        if chunk:
+            self._compressed_bytes += 1
+            self._enforce_compressed_byte_limits()
+        return chunk
+
+    monkeypatch.setattr(
+        package_module._CompressedArtifactSource,
+        "_read_compressed_chunk",
+        growing_read,
+    )
+
+    with pytest.raises(ImportPackageRejected, match="raw size"):
+        validate_and_extract_import_package(
+            artifact_path=artifact_path,
+            expected_size_bytes=size_bytes,
+            expected_raw_sha256=raw_sha256,
+            staging_dir=staging_dir,
+            settings=settings,
+        )
+    assert artifact_path.exists()
+    assert not (staging_dir / "manifest.json").exists()
 
 
 def test_rejects_raw_sha_mismatch(

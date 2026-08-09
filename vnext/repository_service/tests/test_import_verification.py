@@ -717,3 +717,47 @@ INSERT INTO zero_dates VALUES (1, '0000-00-00');
         )
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
     assert "value conversion failed" in (exc_info.value.detail or "")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("catalog_tables", "manifest_tables", "expected_detail"),
+    [
+        (
+            (
+                TableCatalog("extra", (ColumnCatalog("id", "INT", False, 1),), 0),
+                TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 0),
+            ),
+            (TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 0),),
+            "table extra not present in manifest",
+        ),
+        (
+            (TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 0),),
+            (),
+            "table records not present in manifest",
+        ),
+    ],
+)
+def test_full_scan_catalog_manifest_mismatch_raises_typed_error(
+    catalog_tables: tuple[TableCatalog, ...],
+    manifest_tables: tuple[TableCatalog, ...],
+    expected_detail: str | None,
+) -> None:
+    from gateway_repository_service.versioned_import.verification import _full_scan_tables
+
+    class ScanProvider:
+        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
+            yield pa.record_batch({"id": pa.array([], type=pa.int64())})
+
+    manifest = manifest_from_tables(manifest_tables)
+    with pytest.raises(ImportVerificationError) as exc_info:
+        _full_scan_tables(
+            cast(VersionedImportProvider, ScanProvider()),
+            candidate="candidate",
+            catalog=catalog_tables,
+            manifest=manifest,
+            unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+        )
+    assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+    if expected_detail is not None:
+        assert expected_detail in (exc_info.value.detail or "")

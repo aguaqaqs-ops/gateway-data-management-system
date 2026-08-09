@@ -874,3 +874,76 @@ def test_worker_rejects_when_import_disk_admission_fails(tmp_path: Path) -> None
         assert provider.markers == {}
     finally:
         env.close()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("wrapper_cancelled", "caller_cancelled", "has_caller"),
+    [
+        (False, False, True),
+        (True, False, True),
+        (False, True, True),
+        (True, True, True),
+        (False, False, False),
+        (True, False, False),
+    ],
+)
+def test_cancellable_provider_wrapper_merges_replay_cancellation(
+    wrapper_cancelled: bool,
+    caller_cancelled: bool,
+    has_caller: bool,
+) -> None:
+    from unittest.mock import MagicMock
+
+    from gateway_repository_service.versioned_import.ports import CancellationCallback
+    from gateway_repository_service.versioned_import.worker import _CancellableProviderWrapper
+
+    inner = MagicMock()
+    received: list[CancellationCallback] = []
+
+    def _record_replay(
+        _private_ref: str,
+        _replay_path: object,
+        cancellation: CancellationCallback | None = None,
+    ) -> None:
+        assert cancellation is not None
+        received.append(cancellation)
+
+    inner.replay_sql.side_effect = _record_replay
+    wrapper = _CancellableProviderWrapper(inner, lambda: wrapper_cancelled)
+
+    caller: CancellationCallback | None = (lambda: caller_cancelled) if has_caller else None
+    wrapper.replay_sql("private-ref", Path("replay.sql"), cancellation=caller)
+
+    assert len(received) == 1
+    assert received[0]() is (wrapper_cancelled or (caller_cancelled if has_caller else False))
+
+
+@pytest.mark.unit
+def test_cancellable_provider_wrapper_propagates_caller_cancellation_exception() -> None:
+    from unittest.mock import MagicMock
+
+    from gateway_repository_service.versioned_import.ports import CancellationCallback
+    from gateway_repository_service.versioned_import.worker import _CancellableProviderWrapper
+
+    inner = MagicMock()
+    received: list[CancellationCallback | None] = []
+
+    def _record_replay(
+        _private_ref: str,
+        _replay_path: object,
+        cancellation: CancellationCallback | None = None,
+    ) -> None:
+        received.append(cancellation)
+        assert cancellation is not None
+        cancellation()
+
+    inner.replay_sql.side_effect = _record_replay
+    wrapper = _CancellableProviderWrapper(inner, lambda: False)
+
+    def _boom() -> bool:
+        raise RuntimeError("caller callback failed")
+
+    with pytest.raises(RuntimeError, match="caller callback failed"):
+        wrapper.replay_sql("private-ref", Path("replay.sql"), cancellation=_boom)
+    assert len(received) == 1

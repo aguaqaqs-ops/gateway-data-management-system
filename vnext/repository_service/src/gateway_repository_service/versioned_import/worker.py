@@ -63,10 +63,12 @@ class _CancellableProviderWrapper:
         replay_path: Any,
         cancellation: CancellationCallback | None = None,
     ) -> None:
-        del cancellation
-
         def _combined() -> bool:
-            return self._cancellation()
+            if self._cancellation():
+                return True
+            if cancellation is not None:
+                return cancellation()
+            return False
 
         return self._inner.replay_sql(private_ref, replay_path, cancellation=_combined)
 

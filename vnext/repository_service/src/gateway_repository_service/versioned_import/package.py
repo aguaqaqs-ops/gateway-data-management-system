@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import tarfile
+from io import BufferedReader
 from pathlib import Path
 from typing import Any
 
@@ -28,22 +30,7 @@ _COMPRESSED_READ_CHUNK_BYTES = 64 * 1024
 _DECODE_CHUNK_BYTES = 64 * 1024
 _TAR_BLOCK_SIZE = 512
 _TAR_EOF_BLOCKS = b"\x00" * (_TAR_BLOCK_SIZE * 2)
-
-_FORBIDDEN_RAW_TYPEFLAGS = frozenset({
-    tarfile.SYMTYPE,
-    tarfile.LNKTYPE,
-    tarfile.DIRTYPE,
-    tarfile.FIFOTYPE,
-    tarfile.CONTTYPE,
-    tarfile.CHRTYPE,
-    tarfile.BLKTYPE,
-    tarfile.GNUTYPE_SPARSE,
-    tarfile.GNUTYPE_LONGNAME,
-    tarfile.GNUTYPE_LONGLINK,
-    tarfile.XHDTYPE,
-    tarfile.SOLARIS_XHDTYPE,
-    tarfile.XGLTYPE,
-})
+_MAX_BUDGET_PROBE_ITERATIONS = 16
 
 
 def validate_and_extract_import_package(
@@ -55,55 +42,66 @@ def validate_and_extract_import_package(
     settings: RepositoryServiceSettings,
 ) -> ValidatedImportPackage:
     staging_dir.mkdir(parents=True, exist_ok=True)
+    artifact_file = artifact_path.open("rb")
     try:
-        result = _extract_import_package(
-            artifact_path=artifact_path,
-            staging_dir=staging_dir,
-            settings=settings,
-        )
-    except Exception:
-        _cleanup_staging(staging_dir)
-        raise
+        bound_size = os.fstat(artifact_file.fileno()).st_size
+        if bound_size != expected_size_bytes:
+            _cleanup_staging(staging_dir)
+            raise ImportPackageRejected("artifact raw size does not match binding")
 
-    if result.observed_raw_size_bytes != expected_size_bytes:
-        _cleanup_staging(staging_dir)
-        raise ImportPackageRejected("artifact raw size does not match binding")
-    if result.observed_raw_sha256 != expected_raw_sha256:
-        _cleanup_staging(staging_dir)
-        raise ImportPackageRejected("artifact raw sha256 does not match binding")
-    return result
+        source = _CompressedArtifactSource(
+            artifact_file=artifact_file,
+            expected_size_bytes=expected_size_bytes,
+            max_compressed_bytes=settings.max_upload_bytes,
+            max_decompressed_stream_bytes=settings.max_decompressed_tar_stream_bytes,
+            max_manifest_json_bytes=settings.max_manifest_json_bytes,
+            max_replay_sql_bytes=settings.max_replay_sql_bytes,
+            max_total_expanded_entry_bytes=settings.max_total_expanded_entry_bytes,
+        )
+        try:
+            result = _extract_import_package(
+                source=source,
+                staging_dir=staging_dir,
+            )
+        except Exception:
+            _cleanup_staging(staging_dir)
+            raise
+        finally:
+            source.close()
+
+        if result.observed_raw_size_bytes != expected_size_bytes:
+            _cleanup_staging(staging_dir)
+            raise ImportPackageRejected("artifact raw size does not match binding")
+        if result.observed_raw_sha256 != expected_raw_sha256:
+            _cleanup_staging(staging_dir)
+            raise ImportPackageRejected("artifact raw sha256 does not match binding")
+        return result
+    finally:
+        artifact_file.close()
 
 
 def _extract_import_package(
     *,
-    artifact_path: Path,
+    source: _CompressedArtifactSource,
     staging_dir: Path,
-    settings: RepositoryServiceSettings,
 ) -> ValidatedImportPackage:
     manifest_path = staging_dir / STAGED_MANIFEST_FILENAME
     replay_sql_path = staging_dir / STAGED_REPLAY_SQL_FILENAME
-    source = _CompressedArtifactSource(
-        artifact_path=artifact_path,
-        max_compressed_bytes=settings.max_upload_bytes,
-        max_decompressed_stream_bytes=settings.max_decompressed_tar_stream_bytes,
-    )
     try:
         stream = _DecompressedByteStream(source)
         extractor = _StrictTarExtractor(
             stream=stream,
             manifest_path=manifest_path,
             replay_sql_path=replay_sql_path,
-            max_manifest_json_bytes=settings.max_manifest_json_bytes,
-            max_replay_sql_bytes=settings.max_replay_sql_bytes,
-            max_total_expanded_entry_bytes=settings.max_total_expanded_entry_bytes,
+            max_manifest_json_bytes=source.max_manifest_json_bytes,
+            max_replay_sql_bytes=source.max_replay_sql_bytes,
+            max_total_expanded_entry_bytes=source.max_total_expanded_entry_bytes,
         )
         manifest_size = extractor.extract()
         source.assert_no_decompressed_tail()
         source.finish_decompression()
     except (compression.zstd.ZstdError, EOFError, tarfile.TarError, OSError) as exc:
         raise ImportPackageRejected("import package is malformed") from exc
-    finally:
-        source.close()
 
     manifest = _parse_manifest_file(manifest_path, manifest_size)
     return ValidatedImportPackage(
@@ -119,11 +117,16 @@ class _CompressedArtifactSource:
     def __init__(
         self,
         *,
-        artifact_path: Path,
+        artifact_file: BufferedReader,
+        expected_size_bytes: int,
         max_compressed_bytes: int,
         max_decompressed_stream_bytes: int,
+        max_manifest_json_bytes: int = 0,
+        max_replay_sql_bytes: int = 0,
+        max_total_expanded_entry_bytes: int = 0,
     ) -> None:
-        self._file = artifact_path.open("rb")
+        self._file = artifact_file
+        self._expected_size_bytes = expected_size_bytes
         self._hasher = hashlib.sha256()
         self._compressed_bytes = 0
         self._max_compressed_bytes = max_compressed_bytes
@@ -131,9 +134,12 @@ class _CompressedArtifactSource:
         self._max_decompressed_stream_bytes = max_decompressed_stream_bytes
         self._decompressed_stream_bytes = 0
         self._compressed_buffer = b""
-        self._decompressed_buffer = b""
+        self._decompressed_buffer = bytearray()
         self._input_exhausted = False
         self._finished = False
+        self.max_manifest_json_bytes = max_manifest_json_bytes
+        self.max_replay_sql_bytes = max_replay_sql_bytes
+        self.max_total_expanded_entry_bytes = max_total_expanded_entry_bytes
 
     @property
     def compressed_bytes(self) -> int:
@@ -144,7 +150,8 @@ class _CompressedArtifactSource:
         return self._hasher.hexdigest()
 
     def close(self) -> None:
-        self._file.close()
+        if not self._file.closed:
+            self._file.close()
 
     def read_decompressed(self, size: int) -> bytes:
         if size <= 0:
@@ -152,8 +159,19 @@ class _CompressedArtifactSource:
         while len(self._decompressed_buffer) < size:
             if not self._decompress_more():
                 break
-        result = self._decompressed_buffer[:size]
-        self._decompressed_buffer = self._decompressed_buffer[size:]
+        result = bytes(self._decompressed_buffer[:size])
+        del self._decompressed_buffer[:size]
+        return result
+
+    def read_decompressed_up_to(self, size: int) -> bytes:
+        if size <= 0:
+            return b""
+        while len(self._decompressed_buffer) < size:
+            if not self._decompress_more():
+                break
+        available = min(size, len(self._decompressed_buffer))
+        result = bytes(self._decompressed_buffer[:available])
+        del self._decompressed_buffer[:available]
         return result
 
     def assert_no_decompressed_tail(self) -> None:
@@ -187,14 +205,19 @@ class _CompressedArtifactSource:
     def _remaining_stream_budget(self) -> int:
         return self._max_decompressed_stream_bytes - self._decompressed_stream_bytes
 
+    def _enforce_compressed_byte_limits(self) -> None:
+        if self._compressed_bytes > self._expected_size_bytes:
+            raise ImportPackageRejected("artifact raw size does not match binding")
+        if self._compressed_bytes > self._max_compressed_bytes:
+            raise ImportPackageRejected("compressed artifact exceeds upload size limit")
+
     def _read_compressed_chunk(self) -> bytes:
         chunk = self._file.read(_COMPRESSED_READ_CHUNK_BYTES)
         if not chunk:
             self._input_exhausted = True
             return b""
         self._compressed_bytes += len(chunk)
-        if self._compressed_bytes > self._max_compressed_bytes:
-            raise ImportPackageRejected("compressed artifact exceeds upload size limit")
+        self._enforce_compressed_byte_limits()
         self._hasher.update(chunk)
         return chunk
 
@@ -231,23 +254,25 @@ class _CompressedArtifactSource:
         return self._accept_decompressed(output)
 
     def _probe_decoder_at_budget_limit(self) -> bool:
-        if self._decompressor.eof and self._decompressor.needs_input:
-            return False
-        try:
-            probe = self._decompressor.decompress(b"", max_length=1)
-        except EOFError:
+        for _ in range(_MAX_BUDGET_PROBE_ITERATIONS):
+            if self._decompressor.eof and self._decompressor.needs_input:
+                return False
+            try:
+                probe = self._decompressor.decompress(b"", max_length=1)
+            except EOFError:
+                if self._decompressor.eof:
+                    return False
+                raise ImportPackageRejected("import package zstd frame is incomplete") from None
+            if probe:
+                raise ImportPackageRejected("decompressed tar stream exceeds size limit")
             if self._decompressor.eof:
                 return False
-            raise ImportPackageRejected("import package zstd frame is incomplete") from None
-        if probe:
-            raise ImportPackageRejected("decompressed tar stream exceeds size limit")
-        if self._decompressor.eof:
-            return False
-        if not self._decompressor.needs_input:
-            return self._probe_decoder_at_budget_limit()
-        if self._compressed_buffer or not self._input_exhausted:
-            self._feed_compressed_for_probe()
-            return self._probe_decoder_at_budget_limit()
+            if not self._decompressor.needs_input:
+                continue
+            if self._compressed_buffer or not self._input_exhausted:
+                self._feed_compressed_for_probe()
+                continue
+            raise ImportPackageRejected("import package zstd frame is incomplete")
         raise ImportPackageRejected("import package zstd frame is incomplete")
 
     def _feed_compressed_for_probe(self) -> None:
@@ -259,17 +284,20 @@ class _CompressedArtifactSource:
         if not chunk:
             return
         try:
-            self._decompressor.decompress(chunk, max_length=1)
+            probe = self._decompressor.decompress(chunk, max_length=1)
         except EOFError:
             if not self._decompressor.eof:
                 raise ImportPackageRejected("import package zstd frame is incomplete") from None
+            return
+        if probe:
+            raise ImportPackageRejected("decompressed tar stream exceeds size limit")
         self._compressed_buffer = self._decompressor.unused_data
 
     def _accept_decompressed(self, output: bytes) -> bool:
         self._decompressed_stream_bytes += len(output)
         if self._decompressed_stream_bytes > self._max_decompressed_stream_bytes:
             raise ImportPackageRejected("decompressed tar stream exceeds size limit")
-        self._decompressed_buffer += output
+        self._decompressed_buffer.extend(output)
         return True
 
 
@@ -284,6 +312,9 @@ class _DecompressedByteStream:
         if len(data) != size:
             raise ImportPackageRejected("import package is malformed")
         return data
+
+    def read_decompressed_up_to(self, size: int) -> bytes:
+        return self._source.read_decompressed_up_to(size)
 
 
 class _StrictTarExtractor:
@@ -370,7 +401,7 @@ class _StrictTarExtractor:
     def _consume_trailing_zero_blocks(self) -> None:
         zero_block = b"\x00" * _TAR_BLOCK_SIZE
         while True:
-            block = self._stream._source.read_decompressed(_TAR_BLOCK_SIZE)
+            block = self._stream.read_decompressed_up_to(_TAR_BLOCK_SIZE)
             if not block:
                 return
             if len(block) < _TAR_BLOCK_SIZE:
@@ -383,7 +414,7 @@ def _parse_header_block(block: bytes, *, expected_name: str) -> tarfile.TarInfo:
     if len(block) != _TAR_BLOCK_SIZE:
         raise ImportPackageRejected("import package tar header is invalid")
     typeflag = block[156:157]
-    if typeflag in _FORBIDDEN_RAW_TYPEFLAGS or typeflag != tarfile.REGTYPE:
+    if typeflag != tarfile.REGTYPE:
         raise ImportPackageRejected("import package tar entry type is not allowed")
     try:
         member = tarfile.TarInfo.frombuf(block, "utf-8", "strict")

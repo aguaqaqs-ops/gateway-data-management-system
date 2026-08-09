@@ -23,6 +23,7 @@ UV_LOCK_PATH = VNEXT_ROOT / "repository_service" / "uv.lock"
 SOURCE_TREE_LABEL = "gateway.p2r1.source-tree-sha256"
 REVISION_LABEL = "org.opencontainers.image.revision"
 UV_LOCK_LABEL = "gateway.p2r1.uv-lock-sha256"
+BUILD_TIMEOUT_SECONDS = 1800
 
 
 def current_uv_lock_sha256() -> str:
@@ -107,14 +108,20 @@ def _run_build(image: str) -> None:
     env["GATEWAY_P2R1_SOURCE_TREE_SHA256"] = expected_tree
     env["GATEWAY_P2R1_BUILD_REVISION"] = expected_revision
     env["GATEWAY_P2R1_UV_LOCK_SHA256"] = current_uv_lock_sha256()
-    completed = subprocess.run(
-        ["bash", str(BUILD_SCRIPT)],
-        check=False,
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=VNEXT_ROOT,
-    )
+    try:
+        completed = subprocess.run(
+            ["bash", str(BUILD_SCRIPT)],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=VNEXT_ROOT,
+            timeout=BUILD_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"repository-service image build timed out after {BUILD_TIMEOUT_SECONDS}s"
+        ) from exc
     if completed.returncode != 0:
         raise RuntimeError(
             "repository-service image build failed; use retained cache on remote host\n"

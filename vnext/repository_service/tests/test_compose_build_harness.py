@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
+import subprocess
 from unittest.mock import patch
 
 import pytest
 
 from support import compose_build_harness as harness
+
+
+@pytest.mark.unit
+def test_run_build_timeout_raises_runtime_error() -> None:
+    with (
+        patch.object(harness, "BUILD_SCRIPT", harness.BUILD_SCRIPT),
+        patch.object(harness, "expected_build_metadata", return_value=("sha256:abc", "rev-1")),
+        patch.object(harness, "current_uv_lock_sha256", return_value="lock-sha"),
+        patch(
+            "support.compose_build_harness.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd=["bash"], timeout=1800),
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="timed out after 1800s"):
+            harness._run_build(harness.DEFAULT_IMAGE)
 
 
 @pytest.mark.unit

@@ -20,6 +20,7 @@ from gateway_repository_service.versioned_import.ports import (
 )
 
 MarkerKind = Literal["absent", "zero", "unique"]
+PrivateRefHead = Literal["expected", "candidate"]
 RECORDS_TABLE = "records"
 REPLAY_AUDIT_TABLE = "import_replay_audit"
 
@@ -30,10 +31,24 @@ class CrashStateExpectation:
     replay_count: int
     main_ref: Literal["expected", "candidate"]
     private_ref_exists: bool
+    private_ref_head: PrivateRefHead | None
     marker_kind: MarkerKind
+    marker_refs_contain: tuple[str, ...] | None
     records_on_private: int | None
     records_on_main: int | None
     artifact_present: bool
+
+
+def _refs_for_private_ref(private_ref: str) -> tuple[str, ...]:
+    return (private_ref,)
+
+
+def _refs_for_main_and_private(private_ref: str) -> tuple[str, ...]:
+    return ("main", private_ref)
+
+
+def _refs_for_main_only() -> tuple[str, ...]:
+    return ("main",)
 
 
 _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
@@ -42,7 +57,9 @@ _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
         replay_count=0,
         main_ref="expected",
         private_ref_exists=False,
-        marker_kind="absent",
+        private_ref_head=None,
+        marker_kind="zero",
+        marker_refs_contain=None,
         records_on_private=None,
         records_on_main=0,
         artifact_present=True,
@@ -52,7 +69,9 @@ _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
         replay_count=0,
         main_ref="expected",
         private_ref_exists=False,
-        marker_kind="absent",
+        private_ref_head=None,
+        marker_kind="zero",
+        marker_refs_contain=None,
         records_on_private=None,
         records_on_main=0,
         artifact_present=True,
@@ -62,7 +81,9 @@ _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
         replay_count=0,
         main_ref="expected",
         private_ref_exists=True,
+        private_ref_head="expected",
         marker_kind="zero",
+        marker_refs_contain=None,
         records_on_private=0,
         records_on_main=0,
         artifact_present=True,
@@ -72,7 +93,9 @@ _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
         replay_count=0,
         main_ref="expected",
         private_ref_exists=True,
+        private_ref_head="expected",
         marker_kind="zero",
+        marker_refs_contain=None,
         records_on_private=1,
         records_on_main=0,
         artifact_present=True,
@@ -82,7 +105,9 @@ _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
         replay_count=0,
         main_ref="expected",
         private_ref_exists=True,
+        private_ref_head="candidate",
         marker_kind="unique",
+        marker_refs_contain=None,
         records_on_private=1,
         records_on_main=0,
         artifact_present=True,
@@ -92,7 +117,9 @@ _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
         replay_count=0,
         main_ref="expected",
         private_ref_exists=True,
+        private_ref_head="candidate",
         marker_kind="unique",
+        marker_refs_contain=None,
         records_on_private=1,
         records_on_main=0,
         artifact_present=True,
@@ -102,7 +129,9 @@ _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
         replay_count=0,
         main_ref="expected",
         private_ref_exists=True,
+        private_ref_head="candidate",
         marker_kind="unique",
+        marker_refs_contain=None,
         records_on_private=1,
         records_on_main=0,
         artifact_present=True,
@@ -112,7 +141,9 @@ _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
         replay_count=0,
         main_ref="candidate",
         private_ref_exists=True,
+        private_ref_head="candidate",
         marker_kind="unique",
+        marker_refs_contain=None,
         records_on_private=1,
         records_on_main=1,
         artifact_present=True,
@@ -122,7 +153,9 @@ _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
         replay_count=0,
         main_ref="candidate",
         private_ref_exists=True,
+        private_ref_head="candidate",
         marker_kind="unique",
+        marker_refs_contain=None,
         records_on_private=1,
         records_on_main=1,
         artifact_present=True,
@@ -132,12 +165,34 @@ _CRASH_STATE: dict[ImportWorkerFaultPoint, CrashStateExpectation] = {
         replay_count=0,
         main_ref="candidate",
         private_ref_exists=False,
+        private_ref_head=None,
         marker_kind="unique",
+        marker_refs_contain=None,
         records_on_private=None,
         records_on_main=1,
         artifact_present=True,
     ),
 }
+
+
+def _marker_refs_for_fault(
+    fault_point: ImportWorkerFaultPoint,
+    private_ref: str,
+) -> tuple[str, ...] | None:
+    if fault_point in {
+        ImportWorkerFaultPoint.AFTER_MARKER_BEFORE_VERIFICATION,
+        ImportWorkerFaultPoint.AFTER_VERIFICATION_BEFORE_SECOND_MAIN_CHECK,
+        ImportWorkerFaultPoint.AFTER_SECOND_MAIN_CHECK_BEFORE_PUBLISH,
+    }:
+        return _refs_for_private_ref(private_ref)
+    if fault_point in {
+        ImportWorkerFaultPoint.AFTER_MAIN_PUBLISH_BEFORE_SUCCEEDED,
+        ImportWorkerFaultPoint.AFTER_SUCCEEDED_BEFORE_PRIVATE_REF_CLEANUP,
+    }:
+        return _refs_for_main_and_private(private_ref)
+    if fault_point == ImportWorkerFaultPoint.AFTER_SUCCEEDED_BEFORE_ARTIFACT_CLEANUP:
+        return _refs_for_main_only()
+    return None
 
 
 def _query_row_count(
@@ -160,7 +215,7 @@ def _query_row_count(
     return int(raw)
 
 
-def _table_exists(
+def table_exists(
     provider: CandidateAImportProvider,
     table: str,
     *,
@@ -181,7 +236,7 @@ def table_row_count(
     *,
     revision: str | None = None,
 ) -> int:
-    if not _table_exists(provider, table, revision=revision):
+    if not table_exists(provider, table, revision=revision):
         return 0
     return _query_row_count(provider, table, revision=revision)
 
@@ -202,8 +257,14 @@ def replay_audit_row_count(
     return table_row_count(provider, REPLAY_AUDIT_TABLE, revision=revision)
 
 
-def require_replay_audit_absent(provider: CandidateAImportProvider) -> None:
-    assert replay_audit_row_count(provider) == 0
+def assert_replay_audit_table_absent(
+    provider: CandidateAImportProvider,
+    *,
+    revision: str = "main",
+) -> None:
+    assert not table_exists(provider, REPLAY_AUDIT_TABLE, revision=revision), (
+        f"{REPLAY_AUDIT_TABLE} must not exist on {revision}"
+    )
 
 
 def assert_main_ref(provider: CandidateAImportProvider, expected_commit: str) -> None:
@@ -234,6 +295,7 @@ def assert_marker_inspection(
     *,
     kind: MarkerKind,
     parent: str | None = None,
+    refs_contain: str | tuple[str, ...] | None = None,
 ) -> str | None:
     if kind == "absent":
         return None
@@ -250,6 +312,12 @@ def assert_marker_inspection(
         assert inspection.parent == parent, (
             f"marker parent mismatch: expected {parent}, got {inspection.parent}"
         )
+    if refs_contain is not None:
+        required = (refs_contain,) if isinstance(refs_contain, str) else refs_contain
+        for ref in required:
+            assert ref in inspection.refs, (
+                f"marker refs {inspection.refs!r} missing required ref {ref!r}"
+            )
     return inspection.candidate
 
 
@@ -279,12 +347,15 @@ def _resolve_candidate_commit(
     provider: CandidateAImportProvider,
     operation_marker: str,
     expected_commit: str,
+    *,
+    refs_contain: str | tuple[str, ...] | None = None,
 ) -> str:
     candidate = assert_marker_inspection(
         provider,
         operation_marker,
         kind="unique",
         parent=expected_commit,
+        refs_contain=refs_contain,
     )
     assert candidate is not None
     return candidate
@@ -308,6 +379,9 @@ def assert_crash_state_evidence(
     assert operation.status == expectation.operation_status
     assert store.get_automatic_replay_count(operation_id) == expectation.replay_count
 
+    private_ref = derive_private_ref_name(operation_id)
+    marker_refs = _marker_refs_for_fault(fault_point, private_ref)
+
     candidate: str | None = None
     if expectation.marker_kind == "unique":
         assert operation.operation_marker
@@ -315,6 +389,7 @@ def assert_crash_state_evidence(
             provider,
             operation.operation_marker,
             expected_commit,
+            refs_contain=marker_refs,
         )
     elif expectation.marker_kind == "zero":
         assert operation.operation_marker
@@ -326,15 +401,14 @@ def assert_crash_state_evidence(
         assert candidate is not None
         assert_main_ref(provider, candidate)
 
-    private_ref = derive_private_ref_name(operation_id)
     if expectation.private_ref_exists:
-        if fault_point == ImportWorkerFaultPoint.AFTER_PRIVATE_REF_CREATED:
-            assert_private_ref(provider, operation_id, exists=True)
-            private_ref = derive_private_ref_name(operation_id)
-            assert provider.read_ref(private_ref) == provider.read_ref("main")
-            assert_main_ref(provider, expected_commit)
-        else:
-            assert_private_ref(provider, operation_id, exists=True)
+        head: str | None = None
+        if expectation.private_ref_head == "expected":
+            head = expected_commit
+        elif expectation.private_ref_head == "candidate":
+            assert candidate is not None
+            head = candidate
+        assert_private_ref(provider, operation_id, exists=True, head=head)
     else:
         assert_private_ref(provider, operation_id, exists=False)
 
@@ -380,6 +454,8 @@ def assert_final_state_evidence(
             assert_private_ref(provider, operation_id, exists=False)
             assert records_row_count(provider, revision="main") == 1
         else:
+            assert operation.operation_marker
+            assert_marker_inspection(provider, operation.operation_marker, kind="zero")
             assert_main_ref(provider, expected_commit)
             assert_private_ref(provider, operation_id, exists=False)
             assert records_row_count(provider, revision="main") == 0
@@ -417,7 +493,7 @@ def assert_final_state_evidence(
             )
         return
 
-# Backward-compatible alias for callers not yet migrated.
+
 def assert_fault_point_evidence(
     *,
     fault_point: ImportWorkerFaultPoint,

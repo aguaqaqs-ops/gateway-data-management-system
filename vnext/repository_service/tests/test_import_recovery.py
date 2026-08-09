@@ -612,7 +612,7 @@ def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) 
     assert operation.status == OperationStatus.RUNNING
     control_store.close()
 
-    from support.import_dolt_crash_evidence import replay_audit_row_count
+    from support.import_dolt_crash_evidence import assert_replay_audit_table_absent
     from support.import_worker_harness import published_repository_path
     from gateway_repository_service.layout import DurableLayout
     from gateway_repository_service.process import DoltRunner
@@ -625,7 +625,7 @@ def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) 
         published_repository_path(layout, REPOSITORY_ID),
         DoltRunner(settings, layout.root),
     )
-    assert replay_audit_row_count(provider) == 0
+    assert_replay_audit_table_absent(provider)
 
     restarted = restart_runtime(settings)
     try:
@@ -635,7 +635,7 @@ def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) 
         assert operation.error is not None
         assert operation.error.code == MANUAL_RECOVERY_REQUIRED_CODE
         assert restarted.import_store.get_automatic_replay_count(OPERATION_ID) == 1
-        assert replay_audit_row_count(provider) == 0
+        assert_replay_audit_table_absent(provider)
     finally:
         restarted.shutdown()
 
@@ -653,7 +653,7 @@ def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) 
             published_repository_path(layout, REPOSITORY_ID),
             DoltRunner(settings, layout.root),
         )
-        assert replay_audit_row_count(provider) == 0
+        assert_replay_audit_table_absent(provider)
     finally:
         second_restart.shutdown()
 

@@ -2091,12 +2091,12 @@ review_remediation_closed:
 
 `start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
 `s10_green_commit_sha`: `8a44b73505898a8a8080b54c5bfbcaa24dc617bd`
-`s10_handoff_commit_sha`: `784ffcd45391aadb177cc43d15e98a525fc6c091`
+`s10_handoff_commit_sha`: `124fdfbd6bef4eb7819975df789f20b9a37be053`
 
 ```yaml
 s10_start_sha: 74ccbeb
 s10_green_commit_sha: 8a44b73505898a8a8080b54c5bfbcaa24dc617bd
-s10_handoff_commit_sha: 784ffcd45391aadb177cc43d15e98a525fc6c091
+s10_handoff_commit_sha: 124fdfbd6bef4eb7819975df789f20b9a37be053
 control_db_user_version: 8
 stage_exit: pass
 production_compose_restart_replay: pass

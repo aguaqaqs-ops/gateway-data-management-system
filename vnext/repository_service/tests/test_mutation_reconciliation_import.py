@@ -28,6 +28,8 @@ from gateway_repository_service.versioned_import import (
 )
 from gateway_repository_service.versioned_import.models import MANUAL_RECOVERY_REQUIRED_CODE
 from gateway_repository_service.mutation_reconciliation import (
+    ConsistencyWatch,
+    import_artifact_watch_failures,
     upload_artifact_bytes_reconciled_after_import,
 )
 
@@ -156,6 +158,7 @@ def test_upload_artifact_bytes_reconciled_happy_path(
         pytest.param("missing_consumption_evidence", False, id="missing-consumption-evidence"),
         pytest.param("cross_repository_scope", False, id="cross-repository-scope"),
         pytest.param("other_active_reference", False, id="other-active-reference"),
+        pytest.param("manual_protected_reference", False, id="manual-protected-reference"),
     ],
 )
 def test_upload_artifact_bytes_reconciled_negative_cases(
@@ -298,6 +301,52 @@ def test_upload_artifact_bytes_reconciled_negative_cases(
             key="secondary-import",
         )
         import_store.claim_if_queued(OTHER_OPERATION_ID)
+    elif setup == "manual_protected_reference":
+        _enqueue_operation(
+            import_store,
+            repository_id=REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            operation_id=OPERATION_ID,
+            key="primary-import",
+        )
+        import_store.mark_succeeded(
+            OPERATION_ID,
+            result=VersionedImportResult(
+                commit_id="commit-1",
+                target_ref="main",
+                artifact_id=ARTIFACT_ID,
+                canonicalization_manifest_digest="manifest-1",
+                expected_commit_id="commit-0",
+                completed_verification_policy=VerificationPolicy.STRUCTURAL,
+                unknown_type_policy=UnknownTypePolicy.REJECT,
+            ),
+        )
+        _enqueue_operation(
+            import_store,
+            repository_id=REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            operation_id=OTHER_OPERATION_ID,
+            key="manual-import",
+        )
+        import_store.mark_failed(
+            OTHER_OPERATION_ID,
+            error=SimpleError(code=MANUAL_RECOVERY_REQUIRED_CODE, message="manual"),
+        )
+        mutation_store.record_artifact_consumed(
+            ARTIFACT_ID,
+            operation_id=OPERATION_ID,
+            consumed_at=NOW,
+            repository_id=REPOSITORY_ID,
+        )
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?
+            WHERE artifact_id = ?
+            """,
+            (NOW, str(ARTIFACT_ID)),
+        )
+        mutation_store._connection.commit()
     else:
         raise AssertionError(f"unknown setup {setup}")
 
@@ -310,3 +359,44 @@ def test_upload_artifact_bytes_reconciled_negative_cases(
         )
         is expected
     )
+
+
+@pytest.mark.unit
+def test_protected_manual_pin_blocks_readiness_when_bytes_deleted(
+    stores: tuple[ImportOperationStore, MutationStore],
+    tmp_path: Path,
+) -> None:
+    import_store, mutation_store = stores
+    _seed_artifact_lifecycle(mutation_store, repository_id=REPOSITORY_ID, artifact_id=ARTIFACT_ID)
+    _enqueue_operation(
+        import_store,
+        repository_id=REPOSITORY_ID,
+        artifact_id=ARTIFACT_ID,
+        operation_id=OPERATION_ID,
+        key="manual-pin",
+    )
+    import_store.mark_failed(
+        OPERATION_ID,
+        error=SimpleError(code=MANUAL_RECOVERY_REQUIRED_CODE, message="manual"),
+    )
+    mutation_store._connection.execute(
+        """
+        UPDATE artifact_lifecycle
+        SET bytes_deleted_at = ?
+        WHERE artifact_id = ?
+        """,
+        (NOW, str(ARTIFACT_ID)),
+    )
+    mutation_store._connection.commit()
+
+    from gateway_repository_service.layout import DurableLayout
+
+    layout = DurableLayout.create_for_probe(tmp_path)
+    failures = import_artifact_watch_failures(
+        import_store,
+        mutation_store,
+        ConsistencyWatch(create_repository_ids=(), upload_artifacts=()),
+        layout,
+    )
+    assert failures
+    assert any("protected import artifact" in failure for failure in failures)

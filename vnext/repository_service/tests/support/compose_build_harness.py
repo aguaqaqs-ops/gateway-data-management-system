@@ -9,7 +9,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from support.build_context_digest import compute_build_revision, compute_source_tree_sha256
+from support.build_context_digest import (
+    compute_build_revision,
+    compute_head_sha,
+    compute_source_tree_sha256,
+)
 
 VNEXT_ROOT = Path(__file__).resolve().parents[3]
 BUILD_SCRIPT = VNEXT_ROOT / "scripts" / "build-repository-service-image.sh"
@@ -42,8 +46,25 @@ def resolve_service_image() -> str:
     return os.environ.get("GATEWAY_REPOSITORY_SERVICE_IMAGE", DEFAULT_IMAGE)
 
 
+def image_id(image: str) -> str:
+    completed = subprocess.run(
+        ["docker", "image", "inspect", "--format", "{{.Id}}", image],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout.strip()
+
+
 def expected_build_metadata() -> tuple[str, str]:
     return compute_source_tree_sha256(vnext_root=VNEXT_ROOT), compute_build_revision(vnext_root=VNEXT_ROOT)
+
+
+def current_head_sha() -> str:
+    return compute_head_sha(vnext_root=VNEXT_ROOT)
 
 
 def image_labels(image: str) -> dict[str, str]:
@@ -52,6 +73,7 @@ def image_labels(image: str) -> dict[str, str]:
         check=False,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     if completed.returncode != 0:
         return {}
@@ -110,9 +132,11 @@ def ensure_repository_service_image(*, force_rebuild: bool = False) -> str:
         expected_tree, expected_revision = expected_build_metadata()
         raise RuntimeError(
             "repository-service image provenance does not match current build context\n"
+            f"image_id={image_id(image)}\n"
             f"expected source-tree-sha256={expected_tree}\n"
             f"actual source-tree-sha256={labels.get(SOURCE_TREE_LABEL)}\n"
             f"expected revision={expected_revision}\n"
-            f"actual revision={labels.get(REVISION_LABEL)}"
+            f"actual revision={labels.get(REVISION_LABEL)}\n"
+            f"head_sha={current_head_sha()}"
         )
     return image

@@ -72,27 +72,56 @@ def compute_source_tree_sha256(*, vnext_root: Path | None = None) -> str:
     return f"sha256:{_working_tree_digest(root)}"
 
 
-def compute_build_revision(*, vnext_root: Path | None = None) -> str:
+def compute_head_sha(*, vnext_root: Path | None = None) -> str:
     root = vnext_root if vnext_root is not None else vnext_root_from_here()
     repo_root = repo_root_from_vnext(root)
-    head = subprocess.run(
+    completed = subprocess.run(
         ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
         check=True,
         capture_output=True,
         text=True,
-    ).stdout.strip()
-    if is_build_context_clean(repo_root):
-        return head
-    short_digest = compute_source_tree_sha256(vnext_root=root).removeprefix("sha256:")[:12]
-    return f"{head}-dirty-{short_digest}"
+    )
+    return completed.stdout.strip()
+
+
+def compute_build_input_revision(*, vnext_root: Path | None = None) -> str:
+    """Return the latest commit that touched formal Docker build inputs."""
+
+    root = vnext_root if vnext_root is not None else vnext_root_from_here()
+    repo_root = repo_root_from_vnext(root)
+    paths = [f"vnext/{subdir}" for subdir in BUILD_CONTEXT_SUBDIRS]
+    completed = subprocess.run(
+        ["git", "-C", str(repo_root), "log", "-1", "--format=%H", "--", *paths],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    revision = completed.stdout.strip()
+    if not revision:
+        raise RuntimeError("unable to resolve build-input revision")
+    return revision
+
+
+def compute_build_revision(*, vnext_root: Path | None = None) -> str:
+    return compute_build_input_revision(vnext_root=vnext_root)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
-    if len(args) != 1 or args[0] not in {"source-tree-sha256", "build-revision"}:
-        raise SystemExit("usage: build_context_digest.py <source-tree-sha256|build-revision>")
+    if len(args) != 1 or args[0] not in {
+        "source-tree-sha256",
+        "build-revision",
+        "build-input-revision",
+        "head-sha",
+    }:
+        raise SystemExit(
+            "usage: build_context_digest.py "
+            "<source-tree-sha256|build-revision|build-input-revision|head-sha>"
+        )
     if args[0] == "source-tree-sha256":
         print(compute_source_tree_sha256())
+    elif args[0] == "head-sha":
+        print(compute_head_sha())
     else:
         print(compute_build_revision())
     return 0

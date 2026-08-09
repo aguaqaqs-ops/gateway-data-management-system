@@ -126,6 +126,7 @@ def crash_recovery_reconcile_subprocess(
         capture_output=True,
         text=True,
         env=_worker_env(),
+        timeout=150,
     )
 
 

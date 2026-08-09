@@ -22,7 +22,12 @@ COMPOSE_FILE = VNEXT_ROOT / "deploy" / "compose.yaml"
 RUNNER = Path(__file__).resolve().parent / "support" / "import_compose_http_runner.py"
 
 
-def _run(command: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _run(
+    command: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    timeout: float = 180.0,
+) -> subprocess.CompletedProcess[str]:
     completed = subprocess.run(
         command,
         check=False,
@@ -30,6 +35,7 @@ def _run(command: list[str], *, env: dict[str, str] | None = None) -> subprocess
         text=True,
         env=env,
         cwd=VNEXT_ROOT,
+        timeout=timeout,
     )
     if completed.returncode != 0:
         raise RuntimeError(
@@ -48,6 +54,7 @@ def _docker_objects(project: str, kind: str) -> list[str]:
         check=False,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     if completed.returncode != 0:
         raise RuntimeError(
@@ -95,6 +102,7 @@ def _wait_healthy(container_id: str, *, timeout: float = 180.0) -> None:
             check=False,
             capture_output=True,
             text=True,
+            timeout=30,
         )
         if completed.returncode == 0 and completed.stdout.strip() == "healthy":
             return
@@ -150,6 +158,7 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
             check=False,
             capture_output=True,
             text=True,
+            timeout=60,
         )
         if inspect.returncode != 0:
             raise RuntimeError(f"prebuilt image not present after cache build: {image}")

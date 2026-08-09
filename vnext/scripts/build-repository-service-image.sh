@@ -14,7 +14,11 @@ set -euo pipefail
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${VNEXT_ROOT}/.." && pwd)"
 IMAGE_TAG="${GATEWAY_REPOSITORY_SERVICE_IMAGE:-gateway-repository-service:local}"
-UV_LOCK_SHA256="${GATEWAY_P2R1_UV_LOCK_SHA256:-$(sha256sum "${VNEXT_ROOT}/repository_service/uv.lock" | awk '{print $1}')}"
+UV_LOCK_SHA256="$(sha256sum "${VNEXT_ROOT}/repository_service/uv.lock" | awk '{print $1}')"
+if [[ -n "${GATEWAY_P2R1_UV_LOCK_SHA256:-}" && "${GATEWAY_P2R1_UV_LOCK_SHA256}" != "${UV_LOCK_SHA256}" ]]; then
+  echo "error: GATEWAY_P2R1_UV_LOCK_SHA256 does not match repository_service/uv.lock" >&2
+  exit 1
+fi
 DEPENDENCY_BASE="${GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE:-gateway-p2r1-repository:lock-${UV_LOCK_SHA256:0:12}}"
 CACHE_URL="${GATEWAY_P2R1_CACHE_URL:-http://172.17.0.1:18080}"
 DIGEST_HELPER="${VNEXT_ROOT}/repository_service/tests/support/build_context_digest.py"
@@ -41,6 +45,7 @@ build_args=(
   --tag "${IMAGE_TAG}"
   --build-arg "BUILD_REVISION=${BUILD_REVISION}"
   --build-arg "SOURCE_TREE_SHA256=${SOURCE_TREE_SHA256}"
+  --build-arg "UV_LOCK_SHA256=${UV_LOCK_SHA256}"
   --build-arg MYSQL_CONNECTOR_VERSION=9.7.0
   --build-arg PYARROW_VERSION=25.0.0
 )

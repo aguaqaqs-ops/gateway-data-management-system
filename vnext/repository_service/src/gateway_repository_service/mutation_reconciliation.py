@@ -140,6 +140,8 @@ def upload_artifact_bytes_reconciled_after_import(
     for reference in import_store.list_artifact_references(artifact_id):
         if reference.operation_id == lifecycle.consumed_by_operation_id:
             continue
+        if reference.is_protected:
+            return False
         if reference.durable_status == IMPORT_ADMISSION_PENDING_STATUS:
             return False
         if reference.status in {
@@ -186,15 +188,6 @@ def import_artifact_watch_failures(
         blocking.append(f"ready artifact {artifact_id} is missing or truncated")
 
     for repository_id, artifact_id in import_store.list_protected_artifact_pins():
-        operation_refs = import_store.list_artifact_references(artifact_id)
-        if operation_refs and all(
-            reference.durable_status != IMPORT_ADMISSION_PENDING_STATUS
-            and reference.status == OperationStatus.FAILED
-            and reference.is_protected
-            for reference in operation_refs
-        ):
-            # Fully classified MANUAL operations should not permanently block readiness.
-            continue
         lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
         if lifecycle is not None and has_published_artifact_file(
             layout,
@@ -203,8 +196,6 @@ def import_artifact_watch_failures(
             size_bytes=lifecycle.size_bytes,
             raw_sha256=lifecycle.raw_sha256,
         ):
-            continue
-        if lifecycle is not None and lifecycle.bytes_deleted_at is not None:
             continue
         blocking.append(
             f"protected import artifact {artifact_id} is missing while operation evidence is unresolved"

@@ -8,7 +8,9 @@ from unittest.mock import patch
 import pytest
 
 from support.build_context_digest import (
+    compute_build_input_revision,
     compute_build_revision,
+    compute_head_sha,
     compute_source_tree_sha256,
 )
 
@@ -46,34 +48,20 @@ def test_content_digest_ignores_cache_artifacts(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_build_revision_clean_vs_dirty(tmp_path: Path) -> None:
+def test_build_input_revision_uses_last_commit_touching_build_paths(tmp_path: Path) -> None:
     vnext_root = tmp_path / "vnext"
     _seed_vnext_layout(vnext_root)
-    head = "abc123def456"
+    build_input = "abc123def456"
+    head = "fff000eee111"
 
-    with (
-        patch(
-            "support.build_context_digest.is_build_context_clean",
-            return_value=True,
-        ),
-        patch(
-            "support.build_context_digest.subprocess.run",
-            return_value=type("Completed", (), {"stdout": f"{head}\n"})(),
-        ),
-    ):
-        assert compute_build_revision(vnext_root=vnext_root) == head
+    def _fake_run(command: list[str], **kwargs: object) -> object:
+        if "log" in command and "--format=%H" in command:
+            return type("Completed", (), {"stdout": f"{build_input}\n"})()
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            return type("Completed", (), {"stdout": f"{head}\n"})()
+        raise AssertionError(f"unexpected command: {command}")
 
-    with (
-        patch(
-            "support.build_context_digest.is_build_context_clean",
-            return_value=False,
-        ),
-        patch(
-            "support.build_context_digest.subprocess.run",
-            return_value=type("Completed", (), {"stdout": f"{head}\n"})(),
-        ),
-    ):
-        revision = compute_build_revision(vnext_root=vnext_root)
-
-    expected_suffix = compute_source_tree_sha256(vnext_root=vnext_root).removeprefix("sha256:")[:12]
-    assert revision == f"{head}-dirty-{expected_suffix}"
+    with patch("support.build_context_digest.subprocess.run", side_effect=_fake_run):
+        assert compute_build_input_revision(vnext_root=vnext_root) == build_input
+        assert compute_build_revision(vnext_root=vnext_root) == build_input
+        assert compute_head_sha(vnext_root=vnext_root) == head

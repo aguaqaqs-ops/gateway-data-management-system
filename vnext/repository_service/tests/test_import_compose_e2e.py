@@ -265,5 +265,6 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
         saved = json.loads(state_path.read_text(encoding="utf-8"))
         assert verify_body["operation_id"] == saved["operation_id"]
         assert verify_body["status"] == "SUCCEEDED"
+        print(f"compose_project={project}", flush=True)
     finally:
         _cleanup_compose(project, env)

@@ -77,7 +77,9 @@ else
   exit 1
 fi
 
-if ! timeout 1800 docker build "${build_args[@]}" "${VNEXT_ROOT}"; then
+if timeout 1800 docker build "${build_args[@]}" "${VNEXT_ROOT}"; then
+  :
+else
   exit_code=$?
   if [[ "${exit_code}" -eq 124 ]]; then
     echo "error: docker build timed out after 1800s" >&2

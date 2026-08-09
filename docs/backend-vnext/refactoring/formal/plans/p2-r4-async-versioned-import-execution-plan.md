@@ -2071,32 +2071,40 @@ production_compose_restart_replay: blocked
 blocker: "P2-R1 cache 502; compose e2e 未跑通"
 ```
 
-### S10 review remediation — 2026-08-09
+### S10 audit remediation — 2026-08-09
 
-`start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
+`start_sha`: `4b0078f589c1a9608d2ce83e62c51a45e2308e19`（`test(repository): unify build context content digest`）
 
-审查 NO-GO 后修复项已并入 S10 green commit；formal closure 见下节。
+审计 NO-GO 后 Wave1+Wave2 修复已闭合；formal exit 见下节。
 
 ```yaml
-review_remediation_closed:
-  - compose_build_harness: image label digest/revision 校验 + stale 强制 rebuild
-  - build_context_digest.py + build-repository-service-image.sh dirty worktree digest
-  - upload_artifact_bytes_reconciled_after_import: repository/artifact/consumption evidence 联合校验
-  - test_import_compose_e2e: docker container ls cleanup；verify 含 /readyz
-  - admission crash: status_out 断言无 202 / 202 replay
-  - dolt crash: replay_count 分桶；main/marker/second-restart 代表性补强
+audit_remediation_closed:
+  wave1:
+    - import startup recovery: provider/read-ref failure → blocking_failures + ServiceStartupError
+    - dependency-base reuse bound to uv.lock digest label
+    - compose gate rerun at HEAD with matching image provenance
+  wave2:
+    - admission crash abrupt os._exit; queued publish asserts DB QUEUED + replay 202
+    - dolt crash durable evidence helper (main/private-ref/records row count)
+    - mutation reconciliation multi-reference + published artifact hash check
+    - compose cleanup: container ls -a; compose down exit code enforced
+    - serial markers on timing-sensitive integration tests
+    - automatic replay count SQL side-effect bounded (records_row_count <= 1)
 ```
 
-### Accepted S10 exit and P2-R4 handoff — 2026-08-09
+### Accepted S10 exit and P2-R4 handoff — 2026-08-09 (audit remediation)
 
 `start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
-`s10_green_commit_sha`: `8a44b73505898a8a8080b54c5bfbcaa24dc617bd`
-`s10_handoff_commit_sha`: `124fdfbd6bef4eb7819975df789f20b9a37be053`
+`s10_green_commit_sha`: `b0451084fc32e1336457f4ca8469da741b39ea7c`
+`s10_audit_remediation_commit_sha`: `b0451084fc32e1336457f4ca8469da741b39ea7c`
+`s10_handoff_commit_sha`: pending
 
 ```yaml
 s10_start_sha: 74ccbeb
-s10_green_commit_sha: 8a44b73505898a8a8080b54c5bfbcaa24dc617bd
-s10_handoff_commit_sha: 124fdfbd6bef4eb7819975df789f20b9a37be053
+s10_digest_fix_commit_sha: 4b0078f
+s10_green_commit_sha: b0451084fc32e1336457f4ca8469da741b39ea7c
+s10_audit_remediation_commit_sha: b0451084fc32e1336457f4ca8469da741b39ea7c
+s10_handoff_commit_sha: pending
 control_db_user_version: 8
 stage_exit: pass
 production_compose_restart_replay: pass
@@ -2106,18 +2114,18 @@ worktree_clean: yes
 
 repository_service_image:
   tag: gateway-repository-service:local
-  source_tree_sha256: sha256:5d427cc60fad0646c623be2065eef1f97d956ee92021c2b06395a45efe0a24f3
-  revision: 74ccbebe02cfa8b3f408f7ca38fe80dd87996be7-dirty-5d427cc60fad
+  source_tree_sha256: sha256:b559184423de6a03d7f9d570e67dfc65c362bfa78bf697b900565bff726e3c47
+  revision: 4b0078f589c1a9608d2ce83e62c51a45e2308e19-dirty-b559184423de
 
 gate_counts:
   shared_kernel: 232
   repository_contracts: 66
   repository_client: 15
   backend: 18
-  repository_service_parallel: 910
+  repository_service_parallel: 913
   repository_service_parallel_skipped: 1
-  repository_service_serial: 57
-  unit_dolt_parked: 672
+  repository_service_serial: 61
+  unit_dolt_parked: 678
   unit_dolt_parked_skipped: 1
 
 required_fault_matrix_nodeids:
@@ -2126,19 +2134,31 @@ required_fault_matrix_nodeids:
     - test_import_admission_crash.py::test_crash_after_queued_publish_replay_returns_same_202
     - test_import_admission_crash.py::test_crash_after_pending_commit_aborts_on_restart
   worker_dolt_process_crash:
-    - test_import_dolt_crash.py::test_dolt_crash_recovery[parametrized x10]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_running_claim]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_package_extracted]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_private_ref_created]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_replay_before_marker]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_marker_before_verification]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_verification_before_second_main_check]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_second_main_check_before_publish]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_main_publish_before_succeeded]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_succeeded_before_private_ref_cleanup]
+    - test_import_dolt_crash.py::test_dolt_crash_recovery[after_succeeded_before_artifact_cleanup]
+  recovery_count:
+    - test_import_recovery.py::test_crash_after_automatic_replay_increment_preserves_count
+  mutation_restart:
+    - test_mutation_readiness.py::test_consumed_artifact_missing_bytes_does_not_block_readiness
   production_compose_restart_replay:
     - test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
 
 known_limitations:
-  - Dolt 十点矩阵其余 7 项仍主要依赖 status/replay_count/cleanup，未逐项断言 main/marker SQL 单次执行
   - production_retest_required 仍按 P2-R1 v8 decision 保留
   - TTL/capacity/snapshot closure 属 P2-R6
 ```
 
-### Accepted S10 exit and P2-R4 handoff — pending (superseded)
+### Accepted S10 exit and P2-R4 handoff — 2026-08-09 (superseded)
 
-本节已由上节 **Accepted S10 exit and P2-R4 handoff — 2026-08-09** 取代。
+本节已由 **Accepted S10 exit and P2-R4 handoff — 2026-08-09 (audit remediation)** 取代。
 
 ## 15. Final old-reference searches
 
@@ -2205,5 +2225,4 @@ Production-equivalent capacity retest仍按P2-R1 v8 decision保留，完整TTL/c
 
 ### S10 closure status — 2026-08-09
 
-§16 条件已由 S10 accepted handoff 闭合；`s10_green_commit_sha` 与 `s10_handoff_commit_sha`
-在双 commit 提交后填入，并确认 `worktree_clean = yes`。
+§16 条件已由 S10 audit remediation handoff 闭合；commit SHA 在提交后填入。

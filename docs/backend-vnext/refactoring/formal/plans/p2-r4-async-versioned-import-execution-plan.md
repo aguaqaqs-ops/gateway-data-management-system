@@ -2102,7 +2102,7 @@ audit_remediation_closed:
 round: P2-R4
 s10_start_sha: 74ccbeb
 s10_round2_green_commit_sha: 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
-head_sha: 197dcff453a3f3526e53fb917897f0be62ca1d99
+head_sha: 3bb7d32eda629a5eafa0bd65018da4328add1a1b
 branch: phase1/gate-ownership-repair
 worktree_clean: yes
 control_db_user_version: 8

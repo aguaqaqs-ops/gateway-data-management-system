@@ -2184,6 +2184,37 @@ def test_read_catalog_duplicate_parent_rows(
 
 
 @pytest.mark.integration
+def test_read_catalog_and_type_catalog_share_strict_parent_helper(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE shared_parent (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    calls: list[str] = []
+    original = import_provider._read_candidate_parent
+
+    def recording_parent(self: CandidateAImportProvider, value: str) -> str:
+        calls.append(value)
+        return original(value)
+
+    with patch.object(
+        CandidateAImportProvider,
+        "_read_candidate_parent",
+        autospec=True,
+        side_effect=recording_parent,
+    ):
+        catalog = import_provider.read_catalog(candidate)
+        type_catalog = import_provider.read_type_catalog(candidate)
+
+    assert calls == [candidate, candidate]
+    assert any(table.name == "shared_parent" for table in catalog)
+    assert any(table.name == "shared_parent" for table in type_catalog)
+
+
+@pytest.mark.integration
 def test_catalog_row_count_rejects_malformed_scalar(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,

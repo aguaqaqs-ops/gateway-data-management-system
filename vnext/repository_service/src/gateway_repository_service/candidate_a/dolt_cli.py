@@ -23,7 +23,11 @@ from gateway_repository_service.arrow_mapping import (
     compile_table_plan,
 )
 from gateway_repository_service.candidate_a.errors import CandidateAError
-from gateway_repository_service.candidate_a.ref_validation import commit_literal, validate_commit_id
+from gateway_repository_service.candidate_a.ref_validation import (
+    commit_literal,
+    opaque_commit_literal,
+    validate_commit_id,
+)
 from gateway_repository_service.candidate_a.sql import (
     _metric_int,
     _observe_batch_metrics,
@@ -33,7 +37,12 @@ from gateway_repository_service.candidate_a.sql import (
     quote_identifier,
 )
 from gateway_repository_service.layout import DurableLayout
-from gateway_repository_service.process import CommandResult, DoltRunner, ProcessStream
+from gateway_repository_service.process import (
+    CommandResult,
+    DoltRunner,
+    ProcessStream,
+    StreamCancellationCheck,
+)
 from gateway_repository_service.settings import RepositoryServiceSettings
 
 
@@ -222,6 +231,7 @@ def _parse_show_tables_row(row: dict[str, Any], kind: str) -> tuple[str, str]:
 _EXACT_METADATA_ROW_SCHEMAS: dict[str, frozenset[str]] = {
     "read_ref": frozenset({"commit_id"}),
     "candidate_parent": frozenset({"parents"}),
+    "commit_exists": frozenset({"commit_hash"}),
     "catalog_count": frozenset({"row_count"}),
     "refs_for_commit": frozenset({"name"}),
     "branch_heads": frozenset({"name", "hash"}),
@@ -301,6 +311,25 @@ def _require_exactly_one_row(rows: list[dict[str, Any]], kind: str) -> dict[str,
     if len(rows) != 1:
         raise DoltCliError(f"Dolt {kind} returned {len(rows)} rows, expected 1")
     return rows[0]
+
+
+def parse_commit_exists_rows(
+    rows: list[dict[str, Any]],
+    commit_id: str,
+    *,
+    kind: str = "commit_exists",
+) -> bool:
+    if len(rows) == 0:
+        return False
+    if len(rows) > 1:
+        raise DoltCliError(f"Dolt {kind} returned {len(rows)} rows, expected 0 or 1")
+    row = rows[0]
+    raw = value(row, "commit_hash", 0)
+    if not isinstance(raw, str) or raw == "":
+        raise DoltCliError(f"Dolt {kind} commit_hash is missing or invalid")
+    if raw != commit_id:
+        raise DoltCliError(f"Dolt {kind} commit_hash mismatch")
+    return True
 
 
 def _parse_non_negative_row_count(raw: Any, kind: str) -> int:
@@ -463,6 +492,44 @@ class CandidateADoltCli:
                 )
         return tuple(sorted(tables, key=lambda table: table.name))
 
+    def commit_exists(self, commit_id: str) -> bool:
+        target_literal = opaque_commit_literal(commit_id)
+        rows = self.query_json(
+            "commit_exists",
+            f"SELECT commit_hash FROM dolt_log WHERE commit_hash = {target_literal};\n",
+        )
+        return parse_commit_exists_rows(rows, commit_id)
+
+    def catalog_at(self, commit_id: str) -> tuple[TableCatalog, ...]:
+        cached = self._get_cached_catalog(commit_id)
+        if cached is not None:
+            return cached
+        target_literal = opaque_commit_literal(commit_id)
+        show_rows = self.query_json(
+            "catalog_tables",
+            f"SHOW FULL TABLES AS OF {target_literal};\n",
+        )
+        table_names: list[str] = []
+        for row in show_rows:
+            table_name, table_type = _parse_show_tables_row(row, "catalog_tables")
+            if table_type == "VIEW":
+                continue
+            table_names.append(table_name)
+        workers = min(self.settings.catalog_parallel_workers, len(table_names)) or 1
+        if workers <= 1:
+            tables = [self._load_table_catalog(name, target_literal) for name in table_names]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                tables = list(
+                    executor.map(
+                        lambda name: self._load_table_catalog(name, target_literal),
+                        table_names,
+                    )
+                )
+        catalog = tuple(sorted(tables, key=lambda table: table.name))
+        self._store_cached_catalog(commit_id, catalog)
+        return catalog
+
     def stream_table(
         self,
         commit_id: str,
@@ -470,13 +537,53 @@ class CandidateADoltCli:
         policy: UnknownTypePolicy,
         *,
         table_plan: CompiledTablePlan | None = None,
+        cancellation: StreamCancellationCheck | None = None,
     ) -> Iterator[pa.RecordBatch]:
         safe_commit_id = validate_commit_id(commit_id)
+        return self._stream_table_impl(
+            safe_commit_id,
+            opaque_commit_literal(safe_commit_id),
+            table,
+            policy,
+            table_plan=table_plan,
+            cancellation=cancellation,
+        )
+
+    def stream_table_at(
+        self,
+        commit_id: str,
+        table: TableCatalog,
+        policy: UnknownTypePolicy,
+        *,
+        table_plan: CompiledTablePlan | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+    ) -> Iterator[pa.RecordBatch]:
+        target_literal = opaque_commit_literal(commit_id)
+        return self._stream_table_impl(
+            commit_id,
+            target_literal,
+            table,
+            policy,
+            table_plan=table_plan,
+            cancellation=cancellation,
+        )
+
+    def _stream_table_impl(
+        self,
+        commit_id: str,
+        target_literal: str,
+        table: TableCatalog,
+        policy: UnknownTypePolicy,
+        *,
+        table_plan: CompiledTablePlan | None,
+        cancellation: StreamCancellationCheck | None,
+    ) -> Iterator[pa.RecordBatch]:
+        del commit_id
         plan = table_plan if table_plan is not None else compile_table_plan(table, policy)
         select_list, expected_header = _tagged_select_list(plan)
         query = write_query(
             self.query_directory,
-            f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF {commit_literal(safe_commit_id)};\n",
+            f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF {target_literal};\n",
         )
         stream: ProcessStream | None = None
         stream_closed = False
@@ -487,12 +594,15 @@ class CandidateADoltCli:
             "oversized_single_row": False,
         }
         try:
+            if cancellation is not None and cancellation():
+                raise DoltCliError("row stream cancelled before start")
             stream = self.runner.stream(
                 "row_stream",
                 ["sql", "--result-format=csv", "--binary-as-hex"],
                 cwd=self.repository,
                 timeout=self.settings.import_timeout_seconds,
                 stdin_path=query,
+                cancellation=cancellation,
             )
 
             def decode_line(line: bytes) -> str:
@@ -511,7 +621,7 @@ class CandidateADoltCli:
             if header is None:
                 result = stream.close()
                 stream_closed = True
-                if result.exit_code != 0 or result.timed_out:
+                if result.exit_code != 0 or result.timed_out or result.cancelled:
                     raise DoltCliError("Dolt row stream failed")
                 return
             if header != expected_header:
@@ -530,6 +640,8 @@ class CandidateADoltCli:
                 return batch
 
             for row in reader:
+                if cancellation is not None and cancellation():
+                    raise DoltCliError("row stream cancelled")
                 parsed = _parse_tagged_row(row, plan)
                 normalized_row = plan.normalize_row(parsed)
                 chunks, rows, rows_bytes = accumulate_normalized_row(
@@ -545,7 +657,7 @@ class CandidateADoltCli:
                 yield emit(rows)
             result = stream.close()
             stream_closed = True
-            if result.exit_code != 0 or result.timed_out:
+            if result.exit_code != 0 or result.timed_out or result.cancelled:
                 raise DoltCliError("Dolt row stream failed")
         finally:
             if stream is not None and not stream_closed:

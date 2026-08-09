@@ -23,6 +23,8 @@ import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.settings import RepositoryServiceSettings
 
+StreamCancellationCheck = Callable[[], bool]
+
 
 class ProcessBoundaryError(RuntimeError):
     """Raised when a Dolt process violates the private runner boundary."""
@@ -1129,7 +1131,10 @@ class DoltRunner:
         cwd: Path,
         timeout: float,
         stdin_path: Path | None = None,
+        cancellation: StreamCancellationCheck | None = None,
     ) -> "ProcessStream":
+        if cancellation is not None and cancellation():
+            raise ProcessBoundaryError("stream cancelled")
         process, stdin_handle = self._start(command_kind, args, cwd=cwd, stdin_path=stdin_path)
         if stdin_handle is not None:
             stdin_handle.close()
@@ -1139,6 +1144,7 @@ class DoltRunner:
             command_kind,
             timeout,
             max_line_bytes=self.settings.max_stream_line_bytes,
+            cancellation=cancellation,
         )
 
     def discard(
@@ -1509,12 +1515,14 @@ class ProcessStream:
         timeout: float,
         *,
         max_line_bytes: int | None = None,
+        cancellation: StreamCancellationCheck | None = None,
     ) -> None:
         self.runner = runner
         self.process = process
         self.command_kind = command_kind
         self.timeout = timeout
         self.max_line_bytes = max_line_bytes or runner.settings.output_capture_bytes
+        self._cancellation = cancellation
         self.started = time.monotonic()
         self.start_rss_kib = process_tree_rss_kib(process.pid)
         start_breakdown = process_tree_rss_breakdown_kib(process.pid)
@@ -1579,6 +1587,13 @@ class ProcessStream:
         with self._lifecycle_lock:
             return self.process.pid if self.process.poll() is None else None
 
+    def _raise_if_cancelled(self, *, selector: selectors.BaseSelector | None = None) -> None:
+        if self._cancellation is not None and self._cancellation():
+            if selector is not None:
+                selector.close()
+            self.close(cancelled=True)
+            raise ProcessBoundaryError("stream cancelled")
+
     def __iter__(self) -> Iterator[bytes]:
         if self.process.stdout is None:
             raise ProcessBoundaryError("stream stdout was not created")
@@ -1587,6 +1602,7 @@ class ProcessStream:
         selector = selectors.DefaultSelector()
         selector.register(file_descriptor, selectors.EVENT_READ)
         pending = bytearray()
+        self._raise_if_cancelled(selector=selector)
         while True:
             remaining = self.timeout - (time.monotonic() - self.started)
             if remaining <= 0:
@@ -1595,11 +1611,14 @@ class ProcessStream:
                 raise TimeoutError(f"{self.command_kind} exceeded timeout")
             events = selector.select(timeout=min(0.05, remaining))
             if not events:
+                self._raise_if_cancelled(selector=selector)
                 continue
             try:
                 data = os.read(file_descriptor, 65536)
             except BlockingIOError:
+                self._raise_if_cancelled(selector=selector)
                 continue
+            self._raise_if_cancelled(selector=selector)
             if not data:
                 selector.unregister(file_descriptor)
                 selector.close()
@@ -1625,6 +1644,7 @@ class ProcessStream:
                     selector.close()
                     self.close(cancelled=True)
                     raise ProcessBoundaryError("stream line exceeded bounded output limit")
+                self._raise_if_cancelled(selector=selector)
                 yield line
 
     def close(self, *, cancelled: bool = False) -> CommandResult:

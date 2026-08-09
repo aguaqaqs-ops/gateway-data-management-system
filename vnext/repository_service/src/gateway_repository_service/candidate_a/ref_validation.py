@@ -58,8 +58,14 @@ def validate_commit_id(commit_id: str) -> str:
     return commit_id
 
 
+def opaque_commit_literal(commit_id: str) -> str:
+    """Quote an opaque commit token as a SQL string literal without provider grammar."""
+
+    return "'" + commit_id.replace("'", "''") + "'"
+
+
 def commit_literal(commit_id: str) -> str:
-    return "'" + validate_commit_id(commit_id).replace("'", "''") + "'"
+    return opaque_commit_literal(validate_commit_id(commit_id))
 
 
 def marker_literal(marker: str) -> str:

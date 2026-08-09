@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -14,8 +15,27 @@ VNEXT_ROOT = Path(__file__).resolve().parents[3]
 BUILD_SCRIPT = VNEXT_ROOT / "scripts" / "build-repository-service-image.sh"
 DIGEST_SCRIPT = VNEXT_ROOT / "repository_service" / "tests" / "support" / "build_context_digest.py"
 DEFAULT_IMAGE = "gateway-repository-service:local"
+UV_LOCK_PATH = VNEXT_ROOT / "repository_service" / "uv.lock"
 SOURCE_TREE_LABEL = "gateway.p2r1.source-tree-sha256"
 REVISION_LABEL = "org.opencontainers.image.revision"
+UV_LOCK_LABEL = "gateway.p2r1.uv-lock-sha256"
+
+
+def current_uv_lock_sha256() -> str:
+    return hashlib.sha256(UV_LOCK_PATH.read_bytes()).hexdigest()
+
+
+def dependency_base_image_for_lock(lock_sha256: str | None = None) -> str:
+    digest = lock_sha256 if lock_sha256 is not None else current_uv_lock_sha256()
+    return f"gateway-p2r1-repository:lock-{digest[:12]}"
+
+
+def dependency_base_matches_lock(image: str, lock_sha256: str | None = None) -> bool:
+    labels = image_labels(image)
+    if not labels:
+        return False
+    expected = lock_sha256 if lock_sha256 is not None else current_uv_lock_sha256()
+    return labels.get(UV_LOCK_LABEL) == expected
 
 
 def resolve_service_image() -> str:
@@ -64,6 +84,7 @@ def _run_build(image: str) -> None:
     env.setdefault("GATEWAY_REPOSITORY_SERVICE_IMAGE", image)
     env["GATEWAY_P2R1_SOURCE_TREE_SHA256"] = expected_tree
     env["GATEWAY_P2R1_BUILD_REVISION"] = expected_revision
+    env["GATEWAY_P2R1_UV_LOCK_SHA256"] = current_uv_lock_sha256()
     completed = subprocess.run(
         ["bash", str(BUILD_SCRIPT)],
         check=False,

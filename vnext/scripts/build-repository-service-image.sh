@@ -14,7 +14,8 @@ set -euo pipefail
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${VNEXT_ROOT}/.." && pwd)"
 IMAGE_TAG="${GATEWAY_REPOSITORY_SERVICE_IMAGE:-gateway-repository-service:local}"
-DEPENDENCY_BASE="${GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE:-gateway-p2r1-repository:dependency-base-python3.14-dolt2.1.11-uv0.11.28}"
+UV_LOCK_SHA256="${GATEWAY_P2R1_UV_LOCK_SHA256:-$(sha256sum "${VNEXT_ROOT}/repository_service/uv.lock" | awk '{print $1}')}"
+DEPENDENCY_BASE="${GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE:-gateway-p2r1-repository:lock-${UV_LOCK_SHA256:0:12}}"
 CACHE_URL="${GATEWAY_P2R1_CACHE_URL:-http://172.17.0.1:18080}"
 DIGEST_HELPER="${VNEXT_ROOT}/repository_service/tests/support/build_context_digest.py"
 BUILD_REVISION="${GATEWAY_P2R1_BUILD_REVISION:-$(python3 "${DIGEST_HELPER}" build-revision)}"
@@ -26,7 +27,12 @@ cache_reachable() {
 }
 
 dependency_base_available() {
-  docker image inspect "${DEPENDENCY_BASE}" >/dev/null 2>&1
+  if ! docker image inspect "${DEPENDENCY_BASE}" >/dev/null 2>&1; then
+    return 1
+  fi
+  local label_digest
+  label_digest="$(docker image inspect "${DEPENDENCY_BASE}" --format '{{index .Config.Labels "gateway.p2r1.uv-lock-sha256"}}')"
+  [[ -n "${label_digest}" && "${label_digest}" == "${UV_LOCK_SHA256}" ]]
 }
 
 build_args=(

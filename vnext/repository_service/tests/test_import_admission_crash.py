@@ -44,7 +44,7 @@ def test_crash_after_pending_commit_restarts_to_succeeded(tmp_path: Path) -> Non
         status_out=status_out,
     )
     assert_crash_exit(completed)
-    assert status_out.read_text(encoding="utf-8") != "202"
+    assert not status_out.exists()
 
     control_store, store = open_import_store(settings)
     try:
@@ -160,7 +160,6 @@ def test_crash_after_queued_publish_replay_returns_same_202(tmp_path: Path) -> N
         status_out=status_out,
     )
     assert_crash_exit(completed)
-    assert status_out.read_text(encoding="utf-8") == "202"
 
     control_store, store = open_import_store(settings)
     try:

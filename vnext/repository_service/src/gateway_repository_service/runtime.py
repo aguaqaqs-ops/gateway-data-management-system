@@ -113,12 +113,17 @@ class ServiceRuntime:
                 layout=layout,
                 dolt_runner=dolt_runner,
             )
-            ImportStartupReconciler(
+            import_reconciliation = ImportStartupReconciler(
                 settings=settings,
                 layout=layout,
                 store=import_store,
                 provider_factory=provider_factory,
             ).reconcile()
+            if import_reconciliation.blocking_failures:
+                raise ServiceStartupError(
+                    "import startup recovery is blocked: "
+                    + "; ".join(import_reconciliation.blocking_failures)
+                )
             if not is_durable_root_writable(layout.service_state):
                 raise ServiceStartupError("durable root is not writable")
             if not has_free_disk_admission(layout.root, settings):

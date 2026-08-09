@@ -620,6 +620,20 @@ def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) 
         assert operation.error is not None
         assert operation.error.code == MANUAL_RECOVERY_REQUIRED_CODE
         assert restarted.import_store.get_automatic_replay_count(OPERATION_ID) == 1
+        from support.import_dolt_crash_evidence import records_row_count
+        from support.import_worker_harness import published_repository_path
+        from gateway_repository_service.layout import DurableLayout
+        from gateway_repository_service.process import DoltRunner
+        from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
+
+        layout = DurableLayout.create_for_probe(settings.data_root)
+        provider = CandidateAImportProvider(
+            settings,
+            layout,
+            published_repository_path(layout, REPOSITORY_ID),
+            DoltRunner(settings, layout.root),
+        )
+        assert records_row_count(provider) <= 1
     finally:
         restarted.shutdown()
 
@@ -749,3 +763,102 @@ def test_subprocess_crash_then_runtime_restart_recovers(tmp_path: Path) -> None:
         assert restarted.import_store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
     finally:
         restarted.shutdown()
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_startup_blocks_when_running_operation_provider_unreadable(tmp_path: Path) -> None:
+    from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
+    from gateway_repository_service.layout import DurableLayout
+    from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
+    from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
+    from gateway_repository_service.versioned_import.store import ImportOperationStore
+    from support.import_recovery_harness import seed_queued_dolt_import
+    from support.import_worker_harness import published_repository_path
+
+    settings, repository_id, artifact_id, operation_id, expected_commit = seed_queued_dolt_import(
+        tmp_path,
+        key="startup-block-running",
+    )
+
+    control_store = ControlStore.open(
+        settings.control_db_path,
+        expected_version=CONTROL_DB_USER_VERSION,
+        busy_timeout_ms=1000,
+    )
+    store = ImportOperationStore(
+        control_store.connection,
+        transaction_lock=control_store.transaction_lock,
+    )
+    claimed = store.claim_if_queued(operation_id)
+    assert claimed is not None
+    assert store.count_global_queued() == 0
+
+    other_operation_id = uuid4()
+    other_artifact_id = uuid4()
+    lifecycle_row = store.mutation_store._connection.execute(
+        """
+        SELECT size_bytes, raw_sha256
+        FROM artifact_lifecycle
+        WHERE artifact_id = ?
+        """,
+        (str(artifact_id),),
+    ).fetchone()
+    assert lifecycle_row is not None
+    size_bytes = int(lifecycle_row["size_bytes"])
+    raw_sha256 = str(lifecycle_row["raw_sha256"])
+    now = "2026-08-06T00:00:00+00:00"
+    with store._lock:
+        store.mutation_store._connection.execute(
+            """
+            INSERT INTO artifact_lifecycle (
+                artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(other_artifact_id),
+                repository_id.hex,
+                MEDIA_TYPE,
+                size_bytes,
+                raw_sha256,
+                now,
+                now,
+            ),
+        )
+        store.mutation_store._connection.commit()
+    layout = DurableLayout.create_for_probe(settings.data_root)
+    other_ready = artifact_ready_path(layout, repository_id, other_artifact_id)
+    other_ready.parent.mkdir(parents=True, exist_ok=True)
+    source_ready = artifact_ready_path(layout, repository_id, artifact_id)
+    other_ready.write_bytes(source_ready.read_bytes())
+    binding = ImportRequestBinding(
+        repository_id=repository_id,
+        artifact_ref=RepositoryArtifactRef(
+            artifact_id=other_artifact_id,
+            media_type=MEDIA_TYPE,
+            size_bytes=size_bytes,
+            raw_sha256=raw_sha256,
+        ),
+        target_ref="main",
+        expected_commit_id=expected_commit,
+        verification_policy=VerificationPolicy.STRUCTURAL,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+    key_hash = IdempotencyKeyHash.from_raw_key("startup-block-queued")
+    fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+    store.claim_or_enqueue(
+        binding,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        operation_id=other_operation_id,
+    )
+    assert store.count_global_queued() == 1
+    control_store.close()
+
+    repository_path = published_repository_path(layout, repository_id)
+    dolt_dir = repository_path / ".dolt"
+    assert dolt_dir.is_dir()
+    dolt_dir.rename(repository_path / ".dolt-unreadable")
+
+    with pytest.raises(ServiceStartupError, match="import startup recovery is blocked"):
+        ServiceRuntime.start(settings)

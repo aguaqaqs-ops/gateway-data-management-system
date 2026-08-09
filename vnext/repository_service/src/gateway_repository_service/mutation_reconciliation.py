@@ -27,7 +27,6 @@ from gateway_repository_service.mutation_store import (
 )
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.visibility import (
-    artifact_ready_path,
     has_published_artifact_file,
     has_ready_artifact_size,
 )
@@ -136,7 +135,19 @@ def upload_artifact_bytes_reconciled_after_import(
         return False
     if operation.artifact_id != artifact_id:
         return False
-    return operation.status == OperationStatus.SUCCEEDED
+    if operation.status != OperationStatus.SUCCEEDED:
+        return False
+    for reference in import_store.list_artifact_references(artifact_id):
+        if reference.operation_id == lifecycle.consumed_by_operation_id:
+            continue
+        if reference.durable_status == IMPORT_ADMISSION_PENDING_STATUS:
+            return False
+        if reference.status in {
+            OperationStatus.QUEUED,
+            OperationStatus.RUNNING,
+        }:
+            return False
+    return True
 
 
 def filesystem_watch_failures(
@@ -184,10 +195,15 @@ def import_artifact_watch_failures(
         ):
             # Fully classified MANUAL operations should not permanently block readiness.
             continue
-        ready_path = artifact_ready_path(layout, repository_id, artifact_id)
-        if ready_path.is_file():
-            continue
         lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
+        if lifecycle is not None and has_published_artifact_file(
+            layout,
+            repository_id,
+            artifact_id,
+            size_bytes=lifecycle.size_bytes,
+            raw_sha256=lifecycle.raw_sha256,
+        ):
+            continue
         if lifecycle is not None and lifecycle.bytes_deleted_at is not None:
             continue
         blocking.append(

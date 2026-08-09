@@ -70,6 +70,7 @@ def integration_env(tmp_path: Path) -> Iterator[tuple[ImportWorkerPool, ImportOp
 
 
 @pytest.mark.integration
+@pytest.mark.serial
 def test_dolt_worker_happy_path(
     integration_env: tuple[ImportWorkerPool, ImportOperationStore, DurableLayout, CandidateAImportProvider],
 ) -> None:
@@ -366,6 +367,7 @@ def test_multirepo_running_interrupt_restart_recovery(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.serial
 def test_restart_recovery_multirepo_concurrent_claim(tmp_path: Path) -> None:
     from gateway_repository_service.runtime import ServiceRuntime
 

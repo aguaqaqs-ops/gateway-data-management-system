@@ -403,6 +403,7 @@ class ImportReconciliationResult:
     running_reconciled: int
     running_manual: int
     succeeded_cleaned: int
+    blocking_failures: tuple[str, ...] = ()
 
 
 class ImportStartupReconciler:
@@ -437,6 +438,7 @@ class ImportStartupReconciler:
         running_reconciled = 0
         running_manual = 0
         succeeded_cleaned = 0
+        blocking_failures: list[str] = []
 
         for operation in self._store.list_operations_by_status(OperationStatus.SUCCEEDED):
             if self._cleanup_succeeded_residuals(operation):
@@ -453,6 +455,8 @@ class ImportStartupReconciler:
                 running_reconciled += 1
             elif outcome == "manual":
                 running_manual += 1
+            elif outcome.startswith("blocked:"):
+                blocking_failures.append(outcome.removeprefix("blocked:"))
 
         return ImportReconciliationResult(
             pending_published=pending_published,
@@ -461,6 +465,7 @@ class ImportStartupReconciler:
             running_reconciled=running_reconciled,
             running_manual=running_manual,
             succeeded_cleaned=succeeded_cleaned,
+            blocking_failures=tuple(blocking_failures),
         )
 
     def _reconcile_pending_admission(self, operation: StoredImportOperation) -> Literal["published", "aborted", "unchanged"]:
@@ -509,21 +514,21 @@ class ImportStartupReconciler:
 
         try:
             provider = self._provider_factory(context.repository_id)
-        except Exception:
+        except Exception as exc:
             _LOGGER.exception(
                 "failed to open provider for running operation %s",
                 operation.operation_id,
             )
-            return "unchanged"
+            return f"blocked:running operation {operation.operation_id} provider unavailable: {exc}"
 
         try:
             main = provider.read_ref(context.target_ref)
-        except Exception:
+        except Exception as exc:
             _LOGGER.exception(
                 "failed to read main for running operation %s",
                 operation.operation_id,
             )
-            return "unchanged"
+            return f"blocked:running operation {operation.operation_id} cannot read {context.target_ref}: {exc}"
 
         marker_outcome = self._try_recover_published_marker(context, provider, main)
         if marker_outcome == "recovered":

@@ -27,6 +27,7 @@ from support.import_recovery_harness import (
     restart_runtime,
     seed_queued_dolt_import,
 )
+from support.import_dolt_crash_evidence import assert_fault_point_evidence
 from support.import_worker_harness import published_repository_path
 
 _FAULT_POINTS = list(ImportWorkerFaultPoint)
@@ -177,6 +178,17 @@ def test_dolt_crash_recovery(tmp_path: Path, fault_point: ImportWorkerFaultPoint
         replay_count = runtime.import_store.get_automatic_replay_count(operation_id)
         assert replay_count == _EXPECTED_REPLAY_COUNT[fault_point]
         assert replay_count >= replay_count_after_crash
+
+        provider = _provider_for(settings, runtime.layout, repository_id)
+        assert_fault_point_evidence(
+            fault_point=fault_point,
+            provider=provider,
+            store=runtime.import_store,
+            repository_id=repository_id,
+            operation_id=operation_id,
+            expected_commit=expected_commit,
+            terminal=terminal,
+        )
 
         if (
             fault_point == ImportWorkerFaultPoint.AFTER_MAIN_PUBLISH_BEFORE_SUCCEEDED

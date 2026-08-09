@@ -18,22 +18,9 @@ from support.crash_recovery_worker import CRASH_EXIT_CODE
 from support.http_harness import import_headers, import_request_body
 
 _RUNTIME: ServiceRuntime | None = None
-_STATUS_OUT: Path | None = None
-_RESPONSE_STATUS: str | None = None
 
 
 def _crash() -> None:
-    global _RUNTIME
-    if _STATUS_OUT is not None:
-        _STATUS_OUT.write_text(_RESPONSE_STATUS or "crashed", encoding="utf-8")
-    if _RUNTIME is not None:
-        runtime = _RUNTIME
-        _RUNTIME = None
-        runtime._stopping.set()
-        if runtime.control_store.is_open():
-            runtime.control_store.close()
-        if runtime.root_lock.is_held():
-            runtime.root_lock.release()
     os._exit(CRASH_EXIT_CODE)
 
 
@@ -42,10 +29,7 @@ class _CrashAdmissionFaultInjector:
         self._point = point
 
     def maybe_raise(self, point: ImportAdmissionFaultPoint) -> None:
-        global _RESPONSE_STATUS
         if point == self._point:
-            if point == ImportAdmissionFaultPoint.AFTER_QUEUED_PUBLISH_BEFORE_202:
-                _RESPONSE_STATUS = "202"
             _crash()
 
 
@@ -60,10 +44,9 @@ def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
 
 
 def _run_submit_import(args: argparse.Namespace) -> None:
-    global _RUNTIME, _STATUS_OUT
+    global _RUNTIME
     settings = _settings_from_args(args)
     fault_point = ImportAdmissionFaultPoint(args.fault_point)
-    _STATUS_OUT = Path(args.status_out) if args.status_out is not None else None
     runtime = ServiceRuntime.start(
         settings,
         admission_fault_injector=_CrashAdmissionFaultInjector(fault_point),
@@ -94,7 +77,6 @@ def _run_submit_import(args: argparse.Namespace) -> None:
         if _RUNTIME is runtime:
             runtime.shutdown()
             _RUNTIME = None
-        _STATUS_OUT = None
 
 
 def main(argv: list[str] | None = None) -> int:

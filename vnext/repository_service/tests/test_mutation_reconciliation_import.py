@@ -155,6 +155,7 @@ def test_upload_artifact_bytes_reconciled_happy_path(
         pytest.param("failed_operation", False, id="failed-operation"),
         pytest.param("missing_consumption_evidence", False, id="missing-consumption-evidence"),
         pytest.param("cross_repository_scope", False, id="cross-repository-scope"),
+        pytest.param("other_active_reference", False, id="other-active-reference"),
     ],
 )
 def test_upload_artifact_bytes_reconciled_negative_cases(
@@ -269,6 +270,34 @@ def test_upload_artifact_bytes_reconciled_negative_cases(
             ),
         )
         query_repository_id = OTHER_REPOSITORY_ID
+    elif setup == "other_active_reference":
+        _enqueue_operation(
+            import_store,
+            repository_id=REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            operation_id=OPERATION_ID,
+            key="primary-import",
+        )
+        import_store.mark_succeeded(
+            OPERATION_ID,
+            result=VersionedImportResult(
+                commit_id="commit-1",
+                target_ref="main",
+                artifact_id=ARTIFACT_ID,
+                canonicalization_manifest_digest="manifest-1",
+                expected_commit_id="commit-0",
+                completed_verification_policy=VerificationPolicy.STRUCTURAL,
+                unknown_type_policy=UnknownTypePolicy.REJECT,
+            ),
+        )
+        _enqueue_operation(
+            import_store,
+            repository_id=REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            operation_id=OTHER_OPERATION_ID,
+            key="secondary-import",
+        )
+        import_store.claim_if_queued(OTHER_OPERATION_ID)
     else:
         raise AssertionError(f"unknown setup {setup}")
 

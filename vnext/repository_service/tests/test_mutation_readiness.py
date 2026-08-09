@@ -240,6 +240,8 @@ def test_readiness_recovers_after_pending_create_reconciled(tmp_path: Path) -> N
         runtime.shutdown()
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 def test_consumed_artifact_missing_bytes_does_not_block_readiness(tmp_path: Path) -> None:
     import time
 

@@ -40,8 +40,11 @@ def _run(command: list[str], *, env: dict[str, str] | None = None) -> subprocess
 
 
 def _docker_objects(project: str, kind: str) -> list[str]:
+    command = ["docker", kind, "ls", "-q", "--filter", f"label=com.docker.compose.project={project}"]
+    if kind == "container":
+        command.insert(3, "-a")
     completed = subprocess.run(
-        ["docker", kind, "ls", "-q", "--filter", f"label=com.docker.compose.project={project}"],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -54,7 +57,7 @@ def _docker_objects(project: str, kind: str) -> list[str]:
 
 
 def _cleanup_compose(project: str, env: dict[str, str]) -> None:
-    subprocess.run(
+    completed = subprocess.run(
         [
             "docker",
             "compose",
@@ -73,7 +76,12 @@ def _cleanup_compose(project: str, env: dict[str, str]) -> None:
         text=True,
         env=env,
         cwd=VNEXT_ROOT,
+        timeout=180,
     )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"docker compose down failed ({completed.returncode}): {completed.stderr.strip()}"
+        )
     assert _docker_objects(project, "container") == []
     assert _docker_objects(project, "network") == []
     assert _docker_objects(project, "volume") == []

@@ -197,6 +197,9 @@ Exit：commit前中断、commit后响应丢失、CAS冲突和人工恢复分支�
 - raw Arrow IPC StreamVersionedTableRows(commit_id)；
 - bounded RecordBatch streaming和disconnect cleanup。
 - 完成Remote client与contract-owned fixture consumer；不提前设计Phase 3业务能力。
+- 开始实现前必须复核并为execution checklist §7登记的Arrow mapping逐cell热路径、重复
+  normalization、batch schema复用、catalog parent解析和P2-R1 v8 production retest处置形成
+  明确实施计划；public row route不得先于该计划激活。
 
 Exit：contract-owned fixture consumer通过Remote client完成upload → import → poll →
 resolve → catalog/stream；不import或预设计Phase 3 capability。
@@ -208,6 +211,9 @@ resolve → catalog/stream；不import或预设计Phase 3 capability。
 - deployment-level quiescent volume snapshot/restore runbook；
 - 真实10–100 MB及至少一个接近200 MB package测量；
 - 普通CI和container smoke。
+- 开始实现前必须复核并为execution checklist §8登记的marker branch退化、dispatcher轮询与
+  barrier查询、FULL_SCAN累计期限/容量、single-dispatcher并发不变量、dead helper及遗留
+  production retest形成明确实施计划和逐项关闭证据。
 
 Exit：已知consumer纵切、容量记录和人工恢复路径可执行。
 

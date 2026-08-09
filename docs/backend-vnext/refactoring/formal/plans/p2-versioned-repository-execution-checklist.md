@@ -151,6 +151,33 @@ Allowed：resolve/catalog/row routes；exact SQL/Arrow mapping；bounded Arrow I
 Remote client全部V1 surface；Backend-independent contract-owned fixture consumer。禁止
 Phase 3 capability、业务Submit policy、ordering guarantee、diff/export和LATEST read。
 
+R5开始时必须先复核并处置以下从R4结束后静态评审带入的read-path事项，再形成R5
+allowed paths、实现计划和首个green commit；本段只登记问题，不预先选定具体实现。不得因
+R4 handoff已经通过、既有测试为green或准备直接注册public route而静默遗漏：
+
+- `arrow_mapping.py`的SQL type到Arrow type映射位于逐cell热路径，且当前重复构造integer
+  mapping、执行temporal/decimal/bit/character解析。实施计划必须在bounded cache、模块级
+  immutable常量和table-level预编译之间作出有证据的选择；禁止引入由caller-controlled
+  SQL type spelling驱动的无界process-lifetime cache，也不得暴露可被调用方修改的共享
+  metadata。
+- Candidate A和Candidate B row stream当前先逐row调用`normalize_rows()`用于payload/batch
+  边界计算，随后`record_batch()`再次归一化同一批值。实施计划必须定义raw rows与
+  already-normalized rows的内部边界，证明每个cell只转换一次，同时保留既有public/helper
+  调用的校验语义、`SqlValueConversionError`列归属和bounded batch accounting。
+- FULL_SCAN的batch contract当前按batch、按column重复计算Arrow type/metadata。实施计划
+  必须讨论table-level expected Arrow schema预计算或与前述bounded mapping复用，并保持每批
+  field name/type/nullability/metadata的完整比较。
+- `CandidateAImportProvider.read_catalog()`与`read_type_catalog()`重复candidate parent解析。
+  R5触碰catalog path时必须明确选择抽取共享的严格parent解析，或记录继续保留重复的理由；
+  不得顺手改变parent、revision pinning或错误映射语义。
+- 上述hot-path改动完成后，R5必须重新记录mapping/stream真实性与性能证据，并明确处置
+  P2-R1 v8的`production_retest_required`：旧benchmark不得自动覆盖修改后的代码；若R5不
+  承担完整production retest，必须把exact owner、剩余命令和最迟关闭gate显式交给R6。
+
+R5实施计划至少要给出选择方案、缓存/生命周期边界、失败语义、定向回归、避免逐cell重复
+转换的可观察断言，以及time-to-first-batch和bounded-memory验证方法。不得只以脆弱的单次
+wall-clock阈值代替call-count、schema和真实stream证据。
+
 Suggested green commits：
 
 1. `feat(repository): add commit-pinned catalog and Arrow stream`
@@ -171,6 +198,37 @@ Prerequisite：P2-R5 handoff。完整读取Repository contract §§12、14–18�
 Allowed：artifact cleanup scheduler、configurable concurrency/admission、structured
 diagnostics、snapshot/restore/admin runbook、capacity test/report、final compose wiring与CI。
 禁止public GC/backup/repair、metrics platform、RPO/RTO guarantee或P3设计实现。
+
+R6开始时必须先复核并处置以下从R4结束后静态评审带入的operational/capacity事项，形成
+单独的实施计划或逐项写明继续defer的owner、证据与最迟关闭点。不得以“尚未在线上出现”
+作为唯一defer理由，也不得在Phase 2 exit记录中静默省略：
+
+- `inspect_marker()`当前枚举全部branch head并为每个branch启动一次Dolt查询。计划必须用
+  normal branch数量和保留MANUAL/private ref的增长场景测量退化，讨论single-query、bounded
+  lookup或其他保持marker uniqueness/parent/ref证据的方案。
+- import dispatcher空闲时约10 Hz执行queued候选查询；存在候选时还逐repository扫描FAILED
+  rows并解析`error_json`寻找MANUAL barrier。计划必须区分idle query与candidate-only barrier
+  成本，考虑operation history不受queue size 64限制的事实，并讨论sticky notification且无
+  lost wakeup的唤醒模型、query/index形状及barrier durable表示，不能用放宽轮询后静默增加
+  admission latency来换取通过。
+- FULL_SCAN的4 GiB限制只约束package tar stream，不约束replay后Dolt table规模；当前
+  `import_timeout_seconds`沿table stream逐次应用，也不是整个FULL_SCAN的global deadline。
+  capacity计划必须在完成R5 mapping/单次归一化优化后，讨论whole-operation deadline、
+  cancellation/cleanup、multi-table累计时长，并以10–100 MB和接近200 MB package及可产生
+  更大table结果的受控样本记录边界。
+- `_try_claim_one()`的in-flight检查与claim后的递增在多dispatcher模型下不是原子容量许可。
+  当前single dispatcher不构成缺陷；若R6改变dispatcher/concurrency模型，必须先设计原子
+  permit/claim边界。若仍保持single dispatcher，必须把该不变量和覆盖证据写入handoff。
+- 清理确认无consumer的dead helper（当前包括`CandidateAImportProvider._refs_for_commit()`）
+  及完成R4/R5后仍残留的局部死分支；删除前必须按本checklist纪律用`rg`确认全部consumer，
+  且不得借清理改变marker、catalog、tar safety或public contract。
+- 若R5未完成P2-R1 v8 production retest，R6必须执行其明确移交的exact命令并关闭
+  `production_retest_required`，或保持Phase 2/production exit为no-go；普通R6 capacity样本
+  不得在未证明矩阵等价时被称为该retest。
+
+R6实施计划必须把上述事项与既有cleanup、capacity、snapshot/restore工作统一排序，逐项
+给出acceptance evidence和gate归属；登记本身不授权提前建设metrics platform、通用scheduler
+或多dispatcher架构。
 
 Suggested green commits：
 

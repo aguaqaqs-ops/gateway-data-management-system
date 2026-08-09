@@ -186,6 +186,9 @@ actions；真实Dolt integration与compose restart smoke。
 ## 7. P2-R5 — Commit-pinned read, client and fixture consumer
 
 Prerequisite：P2-R4 handoff。完整读取Repository contract §§13、17及DX handoff。
+冻结选择、green stage边界和逐阶段命令见
+[P2-R5 Commit-pinned Read Staged Execution Plan](p2-r5-commit-pinned-read-execution-plan.md)；
+本节继续拥有跨round required gate和container延期规则，不复制该执行文档的阶段细节。
 
 Allowed：resolve/catalog/row routes；exact SQL/Arrow mapping；bounded Arrow IPC stream；
 Remote client全部V1 surface；Backend-independent contract-owned fixture consumer。禁止

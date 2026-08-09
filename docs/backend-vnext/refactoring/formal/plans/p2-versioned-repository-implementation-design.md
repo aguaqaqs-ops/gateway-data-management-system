@@ -1,8 +1,10 @@
 # P2 Versioned Repository Implementation Design
 
-状态：Accepted — Implementation Ready
+状态：Accepted — P2-R5-S1 Ready
 
 日期：2026-08-02
+
+更新：2026-08-09（P2-R5 design freeze）
 
 适用范围：Phase 2 `P2-R1`至`P2-R6`
 
@@ -149,12 +151,65 @@ CommitId；row table name是query parameter。Stream为raw Arrow IPC RecordBatch
 有界、cancel/disconnect关闭provider；不保证row/batch顺序。Row read可独立选择unknown
 type policy，默认REJECT。
 
+R5固定三个无body的GET endpoint：
+
+```text
+GET /v1/repositories/{repository_id}/versioned/refs/{ref_name}
+GET /v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog
+GET /v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows
+    ?table_name=...&unknown_type_policy=REJECT
+```
+
+RepositoryId在wire层按UUID验证；ref只接受literal `main`；CommitId保持repository-scoped
+bounded opaque token，不增加Dolt hash或UUID grammar。Table、column和primary-key name按
+Repository contract的1..64 code-point exact identifier规则验证。Public read先检查
+Repository visibility和CommitId existence，再用literal CommitId执行catalog/table
+`AS OF`查询；branch在请求期间移动不改变已绑定read。Import的candidate catalog仍要求
+唯一parent，public catalog另用不要求parent的`catalog_at(commit_id)`，因此initial empty
+commit也可读取。
+
+Arrow mapping采用request/table-scoped immutable compiled plan，不使用caller SQL spelling
+驱动的process-lifetime cache。每个plan包含per-column converter、copied immutable metadata
+和expected Arrow schema；每表只编译一次。Raw row只转换为nominal `NormalizedRow`一次，
+其normalized logical payload用于row/byte batch accounting，RecordBatch builder不再次
+normalization，也不暴露`already_normalized` bool。FULL_SCAN与public stream共享同一安全
+plan模型但各自创建plan；每批仍比较field count、name、type、nullability和metadata并累计
+row count。Converter必须fail closed处理non-null NULL、MEDIUMINT 24-bit range、unsigned、
+decimal、temporal、BIT width/high bits、binary和malformed value；错误只保留table、column和
+SQL type，不保留raw value。
+
+Arrow response固定为`application/vnd.apache.arrow.stream`。Async response generator通过
+容量为1的bounded bridge消费owned non-daemon worker thread；worker拥有Arrow writer、
+provider iterator和Dolt subprocess。Disconnect/cancel设置显式event，ProcessStream在有界
+poll周期内观察event并执行TERM/KILL/wait/reap。正常结束输出Arrow EOS；response开始后的
+provider/conversion failure或cancel保持truncated stream，不追加JSON。空表输出schema+EOS；
+单个normalized row超过4 MiB target时独占一个batch，仍受64 MiB encoded-line safety cap；
+不得整表materialize。
+
+Read-specific status/code和response开始前/后的失败边界由Repository Service Contract §13
+拥有。R5使用stdlib bridge，默认不新增Service production dependency；若实际实现触碰
+Service lockfile、Dockerfile、Compose或container harness，立即触发execution checklist
+§1.1的提前container gate。
+
 ## 17. Remote client semantics
 
 Client提供typed async façade和Backend Port adapter。GET只对network/502/503做bounded
 retry；create/import用同一idempotency key重试；upload只对可rewind/reopen source自动
 完整重传。202始终返回原operation ID，当前状态由GetOperation查询。Client保留HTTP
 status、stable code、request ID，不推断server path或effect taxonomy。
+
+R5完成create、upload、submit import、get/wait operation、resolve、catalog和row stream的
+全部V1 façade。Polling使用monotonic deadline与capped backoff。Row response返回async
+context-managed raw `ArrowIpcByteStream`，拥有HTTP response/client close；只在任何body byte
+暴露前允许stream-open retry，暴露后不重试。Client production不依赖PyArrow；error body与
+header request ID不一致、success/error body malformed或Arrow media type错误均为protocol
+error。
+
+Contract-owned fixture consumer位于Repository Client测试边界，只依赖public contracts、
+Remote client和test-only Arrow decoder。Service测试以外部进程启动consumer，不import
+Client package。Consumer使用两个小型opaque package完成create → upload → import → poll →
+read C1 → import C2 → read C1/C2，证明old/new commit immutable；断言不依赖row/batch
+ordering，不拥有Backend schema、business digest、Submit lifecycle或verification policy。
 
 ## 18. Recovery and operator actions
 
@@ -186,7 +241,9 @@ P2-R6 cleanup/capacity/snapshot/container operational closure
 ```
 
 每轮执行、验证和commit boundary见
-[P2 Execution Checklist](p2-versioned-repository-execution-checklist.md)。
+[P2 Execution Checklist](p2-versioned-repository-execution-checklist.md)。P2-R5的冻结设计、
+allowed paths、green stages、测试矩阵和R6 handoff见
+[P2-R5 Commit-pinned Read Staged Execution Plan](p2-r5-commit-pinned-read-execution-plan.md)。
 
 ## 21. Risks, reopen conditions and P3 timing
 
@@ -202,5 +259,7 @@ P2-R6全部exit通过后，才开始P3 capability的完整`grill-me`/design阶�
 真实P2 client与stream行为选择各业务use case的verification policy，而不反向预建P2
 feature。
 
-结论：整个P2在设计层面完备，`P2-R1 implementation ready = yes`，v8 exit=`go`；
-P2-R2已授权进入实施入口，P2-R3至R6仍必须遵守顺序gate，不能跨轮提前激活。
+结论：整个P2在设计层面完备，P2-R1 v8 exit=`go`，P2-R2至P2-R4 exit均已通过；
+P2-R5设计已冻结且`P2-R5-S1 implementation ready = yes`。R5与R6仍必须遵守顺序gate，
+不得用R4历史镜像证明R5代码，也不得在R6关闭container与production retest前宣告Phase 2
+complete。

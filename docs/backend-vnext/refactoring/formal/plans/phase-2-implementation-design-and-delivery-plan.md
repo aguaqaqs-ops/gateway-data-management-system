@@ -192,6 +192,10 @@ Exit：commit前中断、commit后响应丢失、CAS冲突和人工恢复分支�
 
 ### P2-R5 — Commit-pinned read
 
+冻结设计见[P2 Versioned Repository Implementation Design §§16–17](p2-versioned-repository-implementation-design.md)，
+逐green stage的allowed paths、测试和handoff见
+[P2-R5 Commit-pinned Read Staged Execution Plan](p2-r5-commit-pinned-read-execution-plan.md)。
+
 - ResolveVersionedRef；
 - GetVersionedCatalog(commit_id)；
 - raw Arrow IPC StreamVersionedTableRows(commit_id)；
@@ -200,6 +204,10 @@ Exit：commit前中断、commit后响应丢失、CAS冲突和人工恢复分支�
 - 开始实现前必须复核并为execution checklist §7登记的Arrow mapping逐cell热路径、重复
   normalization、batch schema复用、catalog parent解析和P2-R1 v8 production retest处置形成
   明确实施计划；public row route不得先于该计划激活。
+- 2026-08-09 S0已选择request/table-scoped compiled Arrow plan、nominal normalized row、
+  parent-independent public catalog、stdlib bounded cancel bridge、raw async client stream和
+  Client测试边界fixture consumer；不得在实现中静默改回process-lifetime cache、双重
+  normalization、sync-generator隐式cleanup或Service→Client依赖。
 
 Exit：contract-owned fixture consumer通过Remote client完成upload → import → poll →
 resolve → catalog/stream；不import或预设计Phase 3 capability。
@@ -216,7 +224,9 @@ HTTP/client gate，production image build、镜像传输及compose内外client s
 - 成功package清理和manual-recovery保留；
 - configurable upload/import concurrency和free-disk admission；
 - deployment-level quiescent volume snapshot/restore runbook；
-- 真实10–100 MB及至少一个接近200 MB package测量；
+- 已确认可用的10–100 MB脱敏真实业务package及至少一个接近200 MB package测量；缺少真实
+  200 MB package时允许确定性、同schema/row-width/value-distribution的synthetic boundary，
+  但必须标记`synthetic=true`且不得替代真实W1的业务代表性；
 - 普通CI和container smoke。
 - 开始实现前必须复核并为execution checklist §8登记的marker branch退化、dispatcher轮询与
   barrier查询、FULL_SCAN累计期限/容量、single-dispatcher并发不变量、dead helper及遗留

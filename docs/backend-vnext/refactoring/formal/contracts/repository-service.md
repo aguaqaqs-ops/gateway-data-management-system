@@ -474,7 +474,8 @@ admission暴露，不建立独立cleanup evidence状态机。
 Catalog和row stream必须绑定caller提供的immutable CommitId，不提供
 `LATEST_AT_START`。需要读取当前main时，caller先ResolveVersionedRef取得CommitId。
 
-`StreamVersionedTableRows`直接返回标准Arrow IPC stream HTTP body：
+`StreamVersionedTableRows`直接返回media type
+`application/vnd.apache.arrow.stream`的标准Arrow IPC stream HTTP body：
 
 - 不使用JSON/base64 frame envelope；
 - 不增加checkpoint frame或末尾内容SHA；
@@ -487,6 +488,23 @@ Row stream不保证row或batch ordering；需要稳定顺序的caller自行按�
 `REJECT`），并按第10节type mapping执行。Read result不继承某次import的type policy，
 因为同一immutable commit可由不同caller读取；response schema metadata使STRINGIFY
 降级可见。
+
+Read route的稳定失败语义为：
+
+| 场景 | HTTP status | stable code |
+| --- | --- | --- |
+| Repository不存在或不可见 | `404` | `REPOSITORY_NOT_FOUND` |
+| literal `main`不存在 | `404` | `REF_NOT_FOUND` |
+| caller提供的opaque CommitId不存在或provider不能定位 | `404` | `COMMIT_NOT_FOUND` |
+| exact、case-sensitive table不存在 | `404` | `TABLE_NOT_FOUND` |
+| `REJECT`下catalog含unknown SQL type | `422` | `UNKNOWN_SQL_TYPE` |
+| RepositoryId、ref、table name或policy不满足wire validation | `422` | `REQUEST_VALIDATION_FAILED` |
+| response开始前provider、timeout或Dolt output不可用/损坏 | `503` | `SERVICE_NOT_READY` |
+
+CommitId仍是repository-scoped bounded opaque token；`COMMIT_NOT_FOUND`不得反向引入
+Dolt hash、UUID或其他provider grammar。Response headers发送后发生provider、value
+conversion或transport失败时，server终止body且不得在Arrow bytes后拼接JSON error；
+caller通过HTTP/Arrow截断失败和已收到的`X-Request-ID`观察该结果。
 
 ## 14. Concurrency and capacity
 

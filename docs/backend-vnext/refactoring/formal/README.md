@@ -24,6 +24,7 @@
 - [P2 Versioned Repository Execution Checklist](plans/p2-versioned-repository-execution-checklist.md)
 - [P2-R4 Async Versioned Import Detailed Implementation Design](plans/p2-r4-async-versioned-import-implementation-design.md)
 - [P2-R4 Async Versioned Import Staged Execution Plan](plans/p2-r4-async-versioned-import-execution-plan.md)
+- [P2-R5 Commit-pinned Read Staged Execution Plan](plans/p2-r5-commit-pinned-read-execution-plan.md)
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)
@@ -61,6 +62,6 @@
 当前阶段：S02已完成，P2整体设计已收口。旧traceability/F0 report、generic
 conformance architecture、formal baseline lifecycle和exact-commit exit不再是
 authority。P2-R1 v8 formal 已通过，默认 provider 为Candidate A offline CLI，
-Candidate B保留但默认禁用；P2-R2与P2-R3已通过，当前入口为`P2-R4-S1`。P2-R4按其
-详细设计和分阶段执行计划逐个green stage实施，不得跨轮激活P2-R5/R6。P3完整设计只在
-P2-R6通过后开始。
+Candidate B保留但默认禁用；P2-R2至P2-R4已通过。P2-R5 S0设计冻结已完成，当前代码
+入口为`P2-R5-S1`，必须按R5分阶段执行计划逐个green stage实施，不得跨轮激活R6或P3。
+P3完整设计只在P2-R6通过后开始。

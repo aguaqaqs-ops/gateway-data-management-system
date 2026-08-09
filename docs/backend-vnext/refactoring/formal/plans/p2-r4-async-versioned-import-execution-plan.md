@@ -2092,41 +2092,83 @@ audit_remediation_closed:
     - automatic replay count SQL side-effect bounded (records_row_count <= 1)
 ```
 
-### Accepted S10 exit and P2-R4 handoff — 2026-08-09 (audit remediation)
+### Accepted S10 exit and P2-R4 handoff — 2026-08-09 (audit remediation round 2)
 
 `start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
-`s10_green_commit_sha`: `b0451084fc32e1336457f4ca8469da741b39ea7c`
-`s10_audit_remediation_commit_sha`: `b0451084fc32e1336457f4ca8469da741b39ea7c`
-`s10_handoff_commit_sha`: `0c43021ece92a8d0d705614878c5a25024427305`
+`s10_round2_green_commit_sha`: `49d123d9335301ee468c2a03ac8d6c6af6ec64a7`
+`s10_handoff_commit_sha`: pending
 
 ```yaml
+round: P2-R4
 s10_start_sha: 74ccbeb
-s10_digest_fix_commit_sha: 4b0078f
-s10_green_commit_sha: b0451084fc32e1336457f4ca8469da741b39ea7c
-s10_audit_remediation_commit_sha: b0451084fc32e1336457f4ca8469da741b39ea7c
-s10_handoff_commit_sha: 0c43021ece92a8d0d705614878c5a25024427305
+s10_round2_green_commit_sha: 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
+head_sha: 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
+branch: phase1/gate-ownership-repair
+worktree_clean: pending
 control_db_user_version: 8
 stage_exit: pass
 production_compose_restart_replay: pass
 p2_r4_exit: pass
 p2_r5_ready: yes
-worktree_clean: yes
+production_retest_required: yes
+
+internal_admission_protocol:
+  internal_status: ADMISSION_PENDING
+  wire_statuses: QUEUED | RUNNING | SUCCEEDED | FAILED
+  boundary: ADMISSION_PENDING only in control DB / recovery / directed tests
+
+selected_provider: candidate_a_offline_cli
+dolt_version: 2.1.11
+
+activated_routes:
+  - POST /v1/repositories/{repository_id}/versioned/imports
+  - GET /v1/repositories/{repository_id}/operations/{operation_id}
+
+package_and_worker_settings:
+  max_package_bytes: 209715200
+  max_replay_sql_bytes: 209715200
+  max_import_workers: 4
+  admission: disk admission before package extraction
 
 repository_service_image:
   tag: gateway-repository-service:local
-  source_tree_sha256: sha256:b559184423de6a03d7f9d570e67dfc65c362bfa78bf697b900565bff726e3c47
-  revision: 4b0078f589c1a9608d2ce83e62c51a45e2308e19-dirty-b559184423de
+  image_id: sha256:19fabb08f6e7684b210ceea8a8104311e0407715c6c4bada9da60662688fae36
+  source_tree_sha256: sha256:821c49a4b9b9636f8360940b76a43b491828933863ce66c0bb180c0e5d23759c
+  build_input_revision: 49d123d9335301ee468c2a03ac8d6c6af6ec64a7
+  image_matches_build_context: true
 
-gate_counts:
-  shared_kernel: 232
-  repository_contracts: 66
-  repository_client: 15
-  backend: 18
-  repository_service_parallel: 913
-  repository_service_parallel_skipped: 1
-  repository_service_serial: 61
-  unit_dolt_parked: 678
+contracts_gate:
+  command: uv lock --check && uv run ruff check . && uv run mypy && uv run pytest -q
+  result: pass
+  test_count: 66
+
+service_gate:
+  commands:
+    - uv lock --check && uv run ruff check . && uv run mypy
+    - uv run pytest -q -m "not serial"
+    - uv run pytest -q -m serial -n 0
+    - pytest -m unit with dolt parked
+  result: pass
+  parallel_count: 929
+  parallel_skipped: 1
+  serial_count: 61
+  unit_dolt_parked_count: 694
   unit_dolt_parked_skipped: 1
+
+fault_matrix_results:
+  admission_process_crash: passed=3 skipped=0 xfailed=0
+  worker_dolt_process_crash: passed=10 skipped=0 xfailed=0
+  recovery_count: passed=1 skipped=0 xfailed=0
+  mutation_restart: passed=1 skipped=0 xfailed=0
+  production_compose_restart_replay: passed=1 skipped=0 xfailed=0
+
+real_dolt_result: pass
+compose_project_pattern: gateway-p2r4-s10-*
+compose_cleanup_result: pass
+startup_replay_result: pass
+manual_recovery_result: pass
+artifact_cleanup_result: pass
+git_diff_check: pass
 
 required_fault_matrix_nodeids:
   admission_process_crash:
@@ -2151,10 +2193,29 @@ required_fault_matrix_nodeids:
   production_compose_restart_replay:
     - test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
 
+round2_remediation_closed:
+  - dolt crash-state evidence table asserted before runtime restart
+  - build_input_revision decoupled from docs-only HEAD drift
+  - MANUAL protected artifact pin blocks missing bytes even with bytes_deleted_at
+  - import_replay_audit strict zero-row evidence for recovery count gate
+  - uv.lock env override fail-closed in build script
+  - compose docker subprocess timeouts on all calls
+
+old_reference_searches:
+  idempotency_key: production code uses header-only; no body persistence
+  legacy_verification_states: historical formal artifacts only
+  candidate_b: not in production import path
+  admission_pending_wire: internal only; not in contracts enum or OpenAPI
+  timeout_markers: timing-sensitive import tests marked serial
+
 known_limitations:
   - production_retest_required 仍按 P2-R1 v8 decision 保留
   - TTL/capacity/snapshot closure 属 P2-R6
 ```
+
+### Accepted S10 exit and P2-R4 handoff — 2026-08-09 (audit remediation)
+
+本节已由 **Accepted S10 exit and P2-R4 handoff — 2026-08-09 (audit remediation round 2)** 取代。
 
 ### Accepted S10 exit and P2-R4 handoff — 2026-08-09 (superseded)
 
@@ -2225,4 +2286,4 @@ Production-equivalent capacity retest仍按P2-R1 v8 decision保留，完整TTL/c
 
 ### S10 closure status — 2026-08-09
 
-§16 条件已由 S10 audit remediation handoff 闭合；commit SHA 在提交后填入。
+§16 条件已由 S10 audit remediation round 2 handoff 闭合；commit SHA 在提交后填入。

@@ -327,3 +327,10 @@ def test_consumed_artifact_missing_bytes_does_not_block_readiness(tmp_path: Path
         assert runtime.is_ready()
     finally:
         runtime.shutdown()
+
+    restarted = restart_runtime(settings)
+    try:
+        assert not restarted.reconciliation_failures
+        assert restarted.is_ready()
+    finally:
+        restarted.shutdown()

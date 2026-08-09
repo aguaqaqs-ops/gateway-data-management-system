@@ -113,6 +113,32 @@ class MutableConsistencyWatch:
         return mutable
 
 
+def upload_artifact_bytes_reconciled_after_import(
+    import_store: ImportOperationStore,
+    mutation_store: MutationStore,
+    repository_id: UUID,
+    artifact_id: UUID,
+) -> bool:
+    """Return True when missing ready bytes are explained by a SUCCEEDED import."""
+
+    lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
+    if lifecycle is None or lifecycle.consumed_by_operation_id is None:
+        return False
+    if lifecycle.repository_id != repository_id:
+        return False
+    if lifecycle.consumed_at is None and lifecycle.bytes_deleted_at is None:
+        return False
+    operation = import_store.get_operation(
+        repository_id,
+        lifecycle.consumed_by_operation_id,
+    )
+    if operation is None:
+        return False
+    if operation.artifact_id != artifact_id:
+        return False
+    return operation.status == OperationStatus.SUCCEEDED
+
+
 def filesystem_watch_failures(
     watch: ConsistencyWatch,
     layout: DurableLayout,
@@ -139,14 +165,13 @@ def import_artifact_watch_failures(
             size_bytes=size_bytes,
         ):
             continue
-        lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
-        if lifecycle is not None and lifecycle.consumed_by_operation_id is not None:
-            operation = import_store.get_operation(
-                repository_id,
-                lifecycle.consumed_by_operation_id,
-            )
-            if operation is not None and operation.status == OperationStatus.SUCCEEDED:
-                continue
+        if upload_artifact_bytes_reconciled_after_import(
+            import_store,
+            mutation_store,
+            repository_id,
+            artifact_id,
+        ):
+            continue
         blocking.append(f"ready artifact {artifact_id} is missing or truncated")
 
     for repository_id, artifact_id in import_store.list_protected_artifact_pins():
@@ -180,10 +205,12 @@ class SynchronousMutationReconciler:
         settings: RepositoryServiceSettings,
         layout: DurableLayout,
         mutation_store: MutationStore,
+        import_store: ImportOperationStore,
     ) -> None:
         self._settings = settings
         self._layout = layout
         self._mutation_store = mutation_store
+        self._import_store = import_store
 
     def reconcile(self) -> ReconciliationResult:
         for effect in self._mutation_store.iter_effects_by_status(EffectStatus.PENDING):
@@ -251,7 +278,12 @@ class SynchronousMutationReconciler:
                         effect.resource_id,
                         size_bytes=lifecycle.size_bytes,
                     )
-                if not matches:
+                if not matches and not upload_artifact_bytes_reconciled_after_import(
+                    self._import_store,
+                    self._mutation_store,
+                    repository_id,
+                    effect.resource_id,
+                ):
                     blocking.append(
                         f"upload effect {effect.effect_id} succeeded without matching ready artifact"
                     )

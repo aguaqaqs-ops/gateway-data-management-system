@@ -26,6 +26,20 @@ _FAULT_POINTS = {
     "after_package_extracted": ImportWorkerFaultPoint.AFTER_PACKAGE_EXTRACTED,
     "after_private_ref_created": ImportWorkerFaultPoint.AFTER_PRIVATE_REF_CREATED,
     "after_replay_before_marker": ImportWorkerFaultPoint.AFTER_REPLAY_BEFORE_MARKER,
+    "after_marker_before_verification": ImportWorkerFaultPoint.AFTER_MARKER_BEFORE_VERIFICATION,
+    "after_verification_before_second_main_check": (
+        ImportWorkerFaultPoint.AFTER_VERIFICATION_BEFORE_SECOND_MAIN_CHECK
+    ),
+    "after_second_main_check_before_publish": (
+        ImportWorkerFaultPoint.AFTER_SECOND_MAIN_CHECK_BEFORE_PUBLISH
+    ),
+    "after_main_publish_before_succeeded": ImportWorkerFaultPoint.AFTER_MAIN_PUBLISH_BEFORE_SUCCEEDED,
+    "after_succeeded_before_private_ref_cleanup": (
+        ImportWorkerFaultPoint.AFTER_SUCCEEDED_BEFORE_PRIVATE_REF_CLEANUP
+    ),
+    "after_succeeded_before_artifact_cleanup": (
+        ImportWorkerFaultPoint.AFTER_SUCCEEDED_BEFORE_ARTIFACT_CLEANUP
+    ),
 }
 
 
@@ -82,7 +96,8 @@ def _run_import_worker(args: argparse.Namespace) -> None:
     pool.start()
     try:
         pool.notify()
-        time.sleep(120.0)
+        time.sleep(30.0)
+        raise RuntimeError(f"fault point {args.fault_point} was not hit before worker timeout")
     finally:
         try:
             pool.stop(timeout=1.0)

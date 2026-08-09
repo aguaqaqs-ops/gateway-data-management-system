@@ -46,6 +46,10 @@ from gateway_repository_service.versioned_import.models import (
     StoredImportOperation,
     versioned_import_fingerprint_v1,
 )
+from gateway_repository_service.versioned_import.faults import (
+    ImportAdmissionFaultPoint,
+    ImportAdmissionFaultInjector,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _ADMISSION_RESOLUTION_TIMEOUT_SECONDS = 5.0
@@ -59,6 +63,9 @@ class ImportSubmissionService:
         self._mutation_store = runtime.mutation_store
         self._import_store = runtime.import_store
         self._worker_pool = runtime.import_worker_pool
+        self._admission_fault_injector: ImportAdmissionFaultInjector = (
+            runtime.admission_fault_injector
+        )
 
     def submit(
         self,
@@ -132,10 +139,16 @@ class ImportSubmissionService:
                 )
                 if result.is_new:
                     pending_operation_id = result.operation_id
+                    self._admission_fault_injector.maybe_raise(
+                        ImportAdmissionFaultPoint.AFTER_ADMISSION_PENDING_COMMIT
+                    )
                     admission_guard.finalize_new_admission()
             if result is not None and result.is_new and pending_operation_id is not None:
                 if not self._import_store.publish_queued_import(pending_operation_id):
                     raise ImportOperationStoreError("failed to publish admitted import")
+                self._admission_fault_injector.maybe_raise(
+                    ImportAdmissionFaultPoint.AFTER_QUEUED_PUBLISH_BEFORE_202
+                )
         except ServiceError:
             raise
         except (ArtifactNotReadyForAdmission, OSError) as exc:

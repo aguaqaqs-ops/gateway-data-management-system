@@ -494,6 +494,7 @@ def test_succeeded_residual_cleanup_on_reconcile(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.serial
 def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) -> None:
     from gateway_repository_contracts import RepositoryArtifactRef, UnknownTypePolicy, VerificationPolicy
     from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
@@ -622,8 +623,20 @@ def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) 
     finally:
         restarted.shutdown()
 
+    second_restart = restart_runtime(settings)
+    try:
+        operation = second_restart.import_store.get_operation(REPOSITORY_ID, OPERATION_ID)
+        assert operation is not None
+        assert operation.status == OperationStatus.FAILED
+        assert operation.error is not None
+        assert operation.error.code == MANUAL_RECOVERY_REQUIRED_CODE
+        assert second_restart.import_store.get_automatic_replay_count(OPERATION_ID) == 1
+    finally:
+        second_restart.shutdown()
+
 
 @pytest.mark.integration
+@pytest.mark.serial
 def test_subprocess_crash_then_runtime_restart_recovers(tmp_path: Path) -> None:
     from gateway_repository_contracts import RepositoryArtifactRef, UnknownTypePolicy, VerificationPolicy
     from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore

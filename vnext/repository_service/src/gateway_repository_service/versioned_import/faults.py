@@ -42,6 +42,23 @@ class ConfigurableImportWorkerFaultInjector:
             raise RuntimeError(f"injected fault at {point.value}")
 
 
+class ImportAdmissionFaultPoint(StrEnum):
+    AFTER_ADMISSION_PENDING_COMMIT = "after_admission_pending_commit"
+    AFTER_QUEUED_PUBLISH_BEFORE_202 = "after_queued_publish_before_202"
+
+
+class ImportAdmissionFaultInjector(Protocol):
+    def maybe_raise(self, point: ImportAdmissionFaultPoint) -> None:
+        """Raise when the configured admission point matches."""
+
+
+class NoOpImportAdmissionFaultInjector:
+    """Default production injector that never injects admission faults."""
+
+    def maybe_raise(self, point: ImportAdmissionFaultPoint) -> None:
+        return None
+
+
 class ImportRecoveryFaultPoint(StrEnum):
     AFTER_AUTOMATIC_REPLAY_COUNT_INCREMENT = "after_automatic_replay_count_increment"
 

@@ -52,9 +52,18 @@ services:
         read_only: true
   repository-service:
     profiles: ["p2-r2"]
+    image: ${GATEWAY_REPOSITORY_SERVICE_IMAGE:-gateway-repository-service:local}
     build:
       context: ..
       dockerfile: repository_service/Dockerfile
+      args:
+        BASE_IMAGE: ${GATEWAY_REPOSITORY_BASE_IMAGE:-python:3.14.6-slim-bookworm}
+        USE_PRELOADED_DEPENDENCIES: ${GATEWAY_REPOSITORY_USE_PRELOADED_DEPENDENCIES:-0}
+        DOLT_DOWNLOAD_URL: ${GATEWAY_REPOSITORY_DOLT_DOWNLOAD_URL:-}
+        UV_BOOTSTRAP_INDEX_URL: ${GATEWAY_REPOSITORY_UV_BOOTSTRAP_INDEX_URL:-https://pypi.org/simple}
+        UV_BOOTSTRAP_TRUSTED_HOST: ${GATEWAY_REPOSITORY_UV_BOOTSTRAP_TRUSTED_HOST:-}
+        BUILD_REVISION: ${GATEWAY_P2R1_BUILD_REVISION:-unknown}
+        SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-unknown}
     environment:
       GATEWAY_REPOSITORY_PROFILE: production
       GATEWAY_REPOSITORY_DATA_ROOT: /var/lib/gateway/repository

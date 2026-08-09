@@ -29,6 +29,10 @@ from gateway_repository_service.mutation_store import MutationStore, configure_c
 from gateway_repository_service.process import DoltRunner
 from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate
 from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.versioned_import.faults import (
+    ImportAdmissionFaultInjector,
+    NoOpImportAdmissionFaultInjector,
+)
 from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
 from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
 from gateway_repository_service.versioned_import.recovery import ImportStartupReconciler
@@ -55,6 +59,10 @@ class ServiceRuntime:
     dolt_runner: DoltRunner
     provider_gate: OfflineCliCapabilityGate
     auth_state: AuthState
+    admission_fault_injector: ImportAdmissionFaultInjector = field(
+        default_factory=NoOpImportAdmissionFaultInjector,
+        repr=False,
+    )
     reconciliation_failures: tuple[str, ...] = ()
     consistency_watch: MutableConsistencyWatch = field(
         default_factory=MutableConsistencyWatch,
@@ -63,7 +71,12 @@ class ServiceRuntime:
     _stopping: threading.Event = field(default_factory=threading.Event, repr=False)
 
     @classmethod
-    def start(cls, settings: RepositoryServiceSettings) -> "ServiceRuntime":
+    def start(
+        cls,
+        settings: RepositoryServiceSettings,
+        *,
+        admission_fault_injector: ImportAdmissionFaultInjector | None = None,
+    ) -> "ServiceRuntime":
         stack = ExitStack()
         try:
             bearer_token = settings.resolve_bearer_token()
@@ -92,6 +105,7 @@ class ServiceRuntime:
                 settings=settings,
                 layout=layout,
                 mutation_store=mutation_store,
+                import_store=import_store,
             ).reconcile()
             import_locks = RepositoryLockRegistry()
             provider_factory = cls._build_provider_factory(
@@ -133,6 +147,7 @@ class ServiceRuntime:
                 dolt_runner=dolt_runner,
                 provider_gate=provider_gate,
                 auth_state=AuthState(bearer_token=bearer_token),
+                admission_fault_injector=admission_fault_injector or NoOpImportAdmissionFaultInjector(),
                 reconciliation_failures=reconciliation.blocking_failures,
                 consistency_watch=MutableConsistencyWatch.from_watch(reconciliation.consistency_watch),
                 _stopping=stopping,

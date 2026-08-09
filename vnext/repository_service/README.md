@@ -60,6 +60,35 @@ sudo chmod 0400 /path/to/token
 
 缺少 production secret 时 lifespan fail closed，服务不会进入 ready 状态。
 
+## 镜像构建（P2-R4 Compose gate / 远端 cache）
+
+本地直接 `docker compose build` 会尝试从公网下载 Dolt/uv，在网络受限环境下耗时很长且
+容易失败。正式 gate 与 S10 Compose e2e 应使用保留的 P2-R1 依赖缓存或 dependency-base
+镜像，在远端开发机构建：
+
+```bash
+# 可选：指向远端 Docker daemon
+export DOCKER_HOST=ssh://<remote-builder>
+
+# 使用保留 cache / dependency-base（见 vnext/deploy/p2r1-cache/README.md）
+./vnext/scripts/build-repository-service-image.sh
+export GATEWAY_REPOSITORY_SERVICE_IMAGE=gateway-repository-service:local
+export GATEWAY_P2R2_BEARER_TOKEN_FILE=/path/to/token
+
+docker compose -f vnext/deploy/compose.yaml --profile p2-r2 config
+docker compose -f vnext/deploy/compose.yaml --profile p2-r2 up -d --no-build repository-service
+```
+
+`build-repository-service-image.sh` 的优先级：
+
+1. 本地存在 `gateway-p2r1-repository:dependency-base-python3.14-dolt2.1.11-uv0.11.28` 时
+   使用 `USE_PRELOADED_DEPENDENCIES=1`（最快，source-only rebuild）；
+2. 否则探测 `http://172.17.0.1:18080` 上的 artifact cache；
+3. 两者都不可用则 fail closed，不会回退到无 cache 的公网下载。
+
+S10 集成测试 `tests/test_import_compose_e2e.py` 调用同一脚本；可通过
+`GATEWAY_REPOSITORY_SERVICE_IMAGE` 复用已构建镜像而跳过 rebuild。
+
 ## P2-R1 probe（`p2-r1` profile）
 
 P2-R1 private runtime/provider feasibility probe 仍使用 `repository-probe` compose

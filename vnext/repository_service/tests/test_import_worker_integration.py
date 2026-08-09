@@ -252,6 +252,7 @@ def _seed_import_operation(
 
 
 @pytest.mark.integration
+@pytest.mark.serial
 def test_multirepo_running_interrupt_restart_recovery(tmp_path: Path) -> None:
     from gateway_repository_service.runtime import ServiceRuntime
 

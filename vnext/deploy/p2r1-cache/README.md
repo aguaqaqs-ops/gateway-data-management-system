@@ -45,6 +45,11 @@ contexts may be removed after results are copied. The two image tags above and
 the versioned cache artifacts must remain available for subsequent source-only
 rebuilds.
 
+Probe/matrix cleanup must not remove the retained cache artifacts or dependency-base
+image tags documented above. P2-R4 S10 Compose import/restart gate reuses the same cache
+contract through `vnext/scripts/build-repository-service-image.sh`; do not run uncached
+`docker compose build` on network-constrained hosts.
+
 ## Delegated cgroup setup
 
 The target image does not create host cgroups and does not run privileged. The

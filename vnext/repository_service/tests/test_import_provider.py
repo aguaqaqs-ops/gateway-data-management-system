@@ -2215,6 +2215,38 @@ def test_read_catalog_and_type_catalog_share_strict_parent_helper(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("reader", ("read_catalog", "read_type_catalog"))
+def test_read_catalog_and_type_catalog_reject_duplicate_parent_rows(
+    import_layout: DurableLayout,
+    import_provider: CandidateAImportProvider,
+    reader: str,
+) -> None:
+    _, _, _, candidate = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE dup_parent_matrix (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    original_query_json = import_provider._cli.query_json
+
+    def duplicate_parent_rows(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "candidate_parent":
+            return [
+                {"parents": "parent-a,parent-b"},
+                {"parents": "parent-a,parent-b"},
+            ]
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=duplicate_parent_rows):
+        with pytest.raises(ImportProviderError, match="candidate_parent"):
+            getattr(import_provider, reader)(candidate)
+
+
+@pytest.mark.integration
 def test_catalog_row_count_rejects_malformed_scalar(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,

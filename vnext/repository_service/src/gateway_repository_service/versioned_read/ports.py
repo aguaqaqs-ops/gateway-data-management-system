@@ -18,7 +18,7 @@ class VersionedReadProvider(Protocol):
 
     def commit_exists(self, commit_id: str) -> bool: ...
 
-    def catalog_at(self, commit_id: str) -> tuple[TableCatalog, ...]: ...
+    def catalog_at(self, commit_id: str, *, existence_verified: bool = False) -> tuple[TableCatalog, ...]: ...
 
     def stream_table_at(
         self,
@@ -28,4 +28,5 @@ class VersionedReadProvider(Protocol):
         *,
         table_plan: CompiledTablePlan | None = None,
         cancellation: CancellationCallback | None = None,
+        existence_verified: bool = False,
     ) -> Iterator[pa.RecordBatch]: ...

@@ -63,7 +63,7 @@ class VersionedReadApplication:
         provider = self._require_visible(repository_id)
         if not provider.commit_exists(commit_id):
             raise CommitNotFoundError("versioned read commit was not found")
-        catalog = provider.catalog_at(commit_id)
+        catalog = provider.catalog_at(commit_id, existence_verified=True)
         matched = next((table for table in catalog if table.name == exact_table_name), None)
         if matched is None:
             raise TableNotFoundError("versioned read table was not found")
@@ -74,5 +74,6 @@ class VersionedReadApplication:
             policy,
             table_plan=plan,
             cancellation=cancellation,
+            existence_verified=True,
         )
         return plan, rows

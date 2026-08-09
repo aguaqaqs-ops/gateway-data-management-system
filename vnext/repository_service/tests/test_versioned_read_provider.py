@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
@@ -46,6 +47,7 @@ from gateway_repository_service.versioned_read.errors import (
     CommitNotFoundError,
     MainRefNotFoundError,
     ProviderUnavailableError,
+    ReadStreamCancelledError,
     RepositoryNotVisibleError,
     TableNotFoundError,
 )
@@ -61,13 +63,25 @@ ReadRepoFixture = tuple[
 ]
 
 
-def test_opaque_commit_literal_quotes_without_provider_grammar() -> None:
-    token = "not-a-dolt-hash'; DROP TABLE t; --"
-    literal = opaque_commit_literal(token)
-    assert literal == "'not-a-dolt-hash''; DROP TABLE t; --'"
-    assert "DROP TABLE" in literal
-    with pytest.raises(ValueError, match="commit id is invalid"):
-        validate_commit_id(token)
+@pytest.mark.parametrize(
+    ("token", "expected_literal"),
+    (
+        ("not-a-dolt-hash'; DROP TABLE t; --", "'not-a-dolt-hash''; DROP TABLE t; --'"),
+        (r"back\slash-token", r"'back\slash-token'"),
+        ("plain'quote", "'plain''quote'"),
+        ("opaque-token", "'opaque-token'"),
+    ),
+)
+def test_opaque_commit_literal_quotes_without_provider_grammar(
+    token: str,
+    expected_literal: str,
+) -> None:
+    assert opaque_commit_literal(token) == expected_literal
+    assert opaque_commit_literal(token).startswith("'")
+    assert opaque_commit_literal(token).endswith("'")
+    if token == "not-a-dolt-hash'; DROP TABLE t; --":
+        with pytest.raises(ValueError, match="commit id is invalid"):
+            validate_commit_id(token)
 
 
 @pytest.mark.parametrize(
@@ -300,8 +314,10 @@ def test_open_table_rows_exact_lookup_and_single_plan(tmp_path: Path) -> None:
         *,
         table_plan: CompiledTablePlan | None = None,
         cancellation: object = None,
+        existence_verified: bool = False,
     ) -> list[pa.RecordBatch]:
         del commit_id, catalog, policy, cancellation
+        assert existence_verified is True
         received_plan.append(table_plan)
         return []
 
@@ -318,8 +334,146 @@ def test_open_table_rows_exact_lookup_and_single_plan(tmp_path: Path) -> None:
     list(rows)
     assert len(compile_calls) == 1
     assert received_plan == [plan]
+    provider.catalog_at.assert_called_once_with("opaque-commit", existence_verified=True)
+    assert provider.commit_exists.call_count == 1
     with pytest.raises(TableNotFoundError):
         app.open_table_rows(repository_id, "opaque-commit", "records", UnknownTypePolicy.REJECT)
+
+
+def test_open_table_rows_commit_exists_called_once(tmp_path: Path) -> None:
+    store, layout, repository_id = _visible_repository_setup(tmp_path)
+    table = TableCatalog(
+        "Records",
+        (
+            ColumnCatalog(
+                name="id",
+                sql_type="BIGINT",
+                nullable=False,
+                primary_key_position=1,
+            ),
+        ),
+        row_count=0,
+    )
+    read_provider = MagicMock(spec=CandidateAReadProvider)
+    read_provider.commit_exists.side_effect = lambda commit_id: commit_id == "present-commit"
+    read_provider.catalog_at.return_value = (table,)
+    read_provider.stream_table_at.return_value = iter(())
+
+    app = VersionedReadApplication(
+        store,
+        layout,
+        lambda _repository_id: read_provider,
+    )
+    with pytest.raises(CommitNotFoundError):
+        app.open_table_rows(
+            repository_id,
+            "missing-commit",
+            "Records",
+            UnknownTypePolicy.REJECT,
+        )
+    assert read_provider.commit_exists.call_count == 1
+
+    read_provider.commit_exists.reset_mock()
+    _plan, rows = app.open_table_rows(
+        repository_id,
+        "present-commit",
+        "Records",
+        UnknownTypePolicy.REJECT,
+    )
+    list(rows)
+    assert read_provider.commit_exists.call_count == 1
+    read_provider.catalog_at.assert_called_once_with("present-commit", existence_verified=True)
+    read_provider.stream_table_at.assert_called_once()
+    assert read_provider.stream_table_at.call_args.kwargs["existence_verified"] is True
+
+
+def test_versioned_read_stream_timeout_maps_to_provider_unavailable() -> None:
+    provider = CandidateAReadProvider(
+        RepositoryServiceSettings(),
+        DurableLayout.create(Path("/tmp/unused")),
+        Path("/tmp/unused"),
+        MagicMock(spec=DoltRunner),
+    )
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("id", "BIGINT", False, 1),),
+        0,
+    )
+
+    def timeout_stream(*args: object, **kwargs: object) -> Iterator[pa.RecordBatch]:
+        del args, kwargs
+
+        def _gen() -> Iterator[pa.RecordBatch]:
+            raise TimeoutError("row_stream exceeded timeout")
+            yield pa.record_batch({"id": pa.array([], type=pa.int64())})  # pragma: no cover
+
+        return _gen()
+
+    with patch.object(provider._cli, "stream_table_at", side_effect=timeout_stream):
+        with patch.object(provider._cli, "commit_exists", return_value=True):
+            with pytest.raises(ProviderUnavailableError, match="unavailable") as exc_info:
+                list(
+                    provider.stream_table_at(
+                        "opaque-commit",
+                        table,
+                        UnknownTypePolicy.REJECT,
+                    )
+                )
+    assert "SELECT" not in str(exc_info.value)
+    assert exc_info.value.__cause__ is None
+
+
+def test_dolt_cli_batch_loop_cancel_maps_to_read_stream_cancelled() -> None:
+    provider = CandidateAReadProvider(
+        RepositoryServiceSettings(),
+        DurableLayout.create(Path("/tmp/unused")),
+        Path("/tmp/unused"),
+        MagicMock(spec=DoltRunner),
+    )
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("id", "BIGINT", False, 1),),
+        1,
+    )
+    cancel_after = 0
+
+    def cancel_soon() -> bool:
+        nonlocal cancel_after
+        cancel_after += 1
+        return cancel_after >= 2
+
+    def cancelled_stream(*args: object, **kwargs: object) -> Iterator[pa.RecordBatch]:
+        del args, kwargs
+
+        def _gen() -> Iterator[pa.RecordBatch]:
+            yield pa.record_batch({"id": pa.array([1], type=pa.int64())})
+            raise DoltCliError("row stream cancelled")
+
+        return _gen()
+
+    with patch.object(provider._cli, "stream_table_at", side_effect=cancelled_stream):
+        with patch.object(provider._cli, "commit_exists", return_value=True):
+            with pytest.raises(ReadStreamCancelledError, match="cancelled") as exc_info:
+                list(
+                    provider.stream_table_at(
+                        "opaque-commit",
+                        table,
+                        UnknownTypePolicy.REJECT,
+                        cancellation=cancel_soon,
+                    )
+                )
+    assert exc_info.value.__cause__ is None
+
+
+def test_read_provider_rejects_non_main_ref() -> None:
+    provider = CandidateAReadProvider(
+        RepositoryServiceSettings(),
+        DurableLayout.create(Path("/tmp/unused")),
+        Path("/tmp/unused"),
+        MagicMock(spec=DoltRunner),
+    )
+    with pytest.raises(MainRefNotFoundError, match="not supported"):
+        provider.read_ref("feature")
 
 
 def test_provider_fault_messages_are_redacted() -> None:
@@ -338,6 +492,8 @@ def test_provider_fault_messages_are_redacted() -> None:
             provider.read_ref("main")
     assert "SELECT" not in str(exc_info.value)
     assert "/tmp" not in str(exc_info.value)
+    assert exc_info.value.__cause__ is None
+    assert "SELECT" not in repr(exc_info.value)
 
 
 def _memo_table(name: str) -> TableCatalog:
@@ -478,14 +634,64 @@ def test_branch_movement_keeps_pinned_commit_immutable(read_repo: ReadRepoFixtur
 
 
 @pytest.mark.integration
-def test_missing_commit_and_table(read_repo: ReadRepoFixture) -> None:
-    _, _, _, read_provider, _ = read_repo
+def test_missing_commit_and_table(read_repo: ReadRepoFixture, tmp_path: Path) -> None:
+    layout, _, _, read_provider, _ = read_repo
+    store, vis_layout, repository_id = _visible_repository_setup(tmp_path)
+    del vis_layout
     assert read_provider.commit_exists("missing-opaque-commit") is False
     with pytest.raises(CommitNotFoundError):
         read_provider.catalog_at("missing-opaque-commit")
     c0 = read_provider.read_ref("main")
-    catalog = read_provider.catalog_at(c0)
-    assert next((table for table in catalog if table.name == "items"), None) is None
+    with patch(
+        "gateway_repository_service.versioned_read.application.is_repository_visible",
+        return_value=True,
+    ):
+        app = VersionedReadApplication(store, layout, lambda _id: read_provider)
+        with pytest.raises(TableNotFoundError):
+            app.open_table_rows(
+                repository_id,
+                c0,
+                "missing_table",
+                UnknownTypePolicy.REJECT,
+            )
+
+
+@pytest.mark.integration
+def test_exact_identifier_real_dolt(read_repo: ReadRepoFixture, tmp_path: Path) -> None:
+    layout, _, _, read_provider, offline = read_repo
+    offline.replay(
+        _write_sql(
+            layout,
+            "spaced.sql",
+            "CREATE TABLE `My Table` (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n"
+            "INSERT INTO `My Table` (id, label) VALUES (1, 'spaced');\n",
+        )
+    )
+    commit_id = _commit_changes(
+        offline,
+        "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000020",
+    )
+    catalog = read_provider.catalog_at(commit_id)
+    table = next(table for table in catalog if table.name == "My Table")
+    labels = {
+        batch.column("label")[row].as_py()
+        for batch in read_provider.stream_table_at(commit_id, table, UnknownTypePolicy.REJECT)
+        for row in range(batch.num_rows)
+    }
+    assert labels == {"spaced"}
+    store, _, repository_id = _visible_repository_setup(tmp_path)
+    with patch(
+        "gateway_repository_service.versioned_read.application.is_repository_visible",
+        return_value=True,
+    ):
+        app = VersionedReadApplication(store, layout, lambda _id: read_provider)
+        with pytest.raises(TableNotFoundError):
+            app.open_table_rows(
+                repository_id,
+                commit_id,
+                "my table",
+                UnknownTypePolicy.REJECT,
+            )
 
 
 @pytest.mark.integration

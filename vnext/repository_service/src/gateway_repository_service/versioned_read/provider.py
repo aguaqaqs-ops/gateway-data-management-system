@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Iterator
+from typing import NoReturn
 from pathlib import Path
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -34,16 +35,37 @@ _READ_PROVIDER_FAULTS = (
     OSError,
     csv.Error,
     UnicodeDecodeError,
+    TimeoutError,
 )
 
 _STREAM_PROVIDER_FAULTS = _READ_PROVIDER_FAULTS
+
+_CANCELLED_MESSAGES = frozenset(
+    {
+        "row stream cancelled",
+        "row stream cancelled before start",
+    }
+)
+
+_UNAVAILABLE_MESSAGE = "versioned read provider is unavailable"
+_CANCELLED_MESSAGE = "versioned read stream was cancelled"
+
+
+def _as_read_stream_cancelled() -> ReadStreamCancelledError:
+    return ReadStreamCancelledError(_CANCELLED_MESSAGE)
 
 
 def _as_provider_unavailable(exc: BaseException) -> ProviderUnavailableError:
     if isinstance(exc, ProviderUnavailableError):
         return exc
+    if isinstance(exc, ReadStreamCancelledError):
+        return exc
+    if isinstance(exc, TimeoutError):
+        return ProviderUnavailableError(_UNAVAILABLE_MESSAGE)
+    if isinstance(exc, CandidateAError) and str(exc) in _CANCELLED_MESSAGES:
+        return _as_read_stream_cancelled()
     if isinstance(exc, ProcessBoundaryError) and str(exc) == "stream cancelled":
-        return ReadStreamCancelledError("versioned read stream was cancelled")
+        return _as_read_stream_cancelled()
     if isinstance(
         exc,
         (
@@ -58,7 +80,11 @@ def _as_provider_unavailable(exc: BaseException) -> ProviderUnavailableError:
         ),
     ):
         return ProviderUnavailableError(redact_provider_message(str(exc)))
-    return ProviderUnavailableError("versioned read provider is unavailable")
+    return ProviderUnavailableError(_UNAVAILABLE_MESSAGE)
+
+
+def _raise_provider_unavailable(exc: BaseException) -> NoReturn:
+    raise _as_provider_unavailable(exc) from None
 
 
 class CandidateAReadProvider:
@@ -93,23 +119,23 @@ class CandidateAReadProvider:
         except MainRefNotFoundError:
             raise
         except _READ_PROVIDER_FAULTS as exc:
-            raise _as_provider_unavailable(exc) from exc
+            _raise_provider_unavailable(exc)
 
     def commit_exists(self, commit_id: str) -> bool:
         try:
             return self._cli.commit_exists(commit_id)
         except _READ_PROVIDER_FAULTS as exc:
-            raise _as_provider_unavailable(exc) from exc
+            _raise_provider_unavailable(exc)
 
-    def catalog_at(self, commit_id: str) -> tuple[TableCatalog, ...]:
+    def catalog_at(self, commit_id: str, *, existence_verified: bool = False) -> tuple[TableCatalog, ...]:
         try:
-            if not self._cli.commit_exists(commit_id):
+            if not existence_verified and not self._cli.commit_exists(commit_id):
                 raise CommitNotFoundError("versioned read commit was not found")
             return self._cli.catalog_at(commit_id)
         except CommitNotFoundError:
             raise
         except _READ_PROVIDER_FAULTS as exc:
-            raise _as_provider_unavailable(exc) from exc
+            _raise_provider_unavailable(exc)
 
     def stream_table_at(
         self,
@@ -119,9 +145,10 @@ class CandidateAReadProvider:
         *,
         table_plan: CompiledTablePlan | None = None,
         cancellation: CancellationCallback | None = None,
+        existence_verified: bool = False,
     ) -> Iterator[pa.RecordBatch]:
         try:
-            if not self._cli.commit_exists(commit_id):
+            if not existence_verified and not self._cli.commit_exists(commit_id):
                 raise CommitNotFoundError("versioned read commit was not found")
             iterator = self._cli.stream_table_at(
                 commit_id,
@@ -135,7 +162,7 @@ class CandidateAReadProvider:
         except SqlValueConversionError:
             raise
         except _STREAM_PROVIDER_FAULTS as exc:
-            raise _as_provider_unavailable(exc) from exc
+            _raise_provider_unavailable(exc)
 
         def _emit() -> Iterator[pa.RecordBatch]:
             try:
@@ -144,6 +171,6 @@ class CandidateAReadProvider:
             except SqlValueConversionError:
                 raise
             except _STREAM_PROVIDER_FAULTS as exc:
-                raise _as_provider_unavailable(exc) from exc
+                _raise_provider_unavailable(exc)
 
         return _emit()

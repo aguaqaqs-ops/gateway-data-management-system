@@ -1588,11 +1588,18 @@ class ProcessStream:
             return self.process.pid if self.process.poll() is None else None
 
     def _raise_if_cancelled(self, *, selector: selectors.BaseSelector | None = None) -> None:
-        if self._cancellation is not None and self._cancellation():
-            if selector is not None:
-                selector.close()
-            self.close(cancelled=True)
-            raise ProcessBoundaryError("stream cancelled")
+        if self._cancellation is None:
+            return
+        try:
+            cancelled = self._cancellation()
+        except Exception:
+            cancelled = True
+        if not cancelled:
+            return
+        if selector is not None:
+            selector.close()
+        self.close(cancelled=True)
+        raise ProcessBoundaryError("stream cancelled")
 
     def __iter__(self) -> Iterator[bytes]:
         if self.process.stdout is None:

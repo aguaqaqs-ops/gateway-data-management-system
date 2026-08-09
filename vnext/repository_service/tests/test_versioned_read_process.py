@@ -149,7 +149,7 @@ def test_process_stream_close_is_idempotent(tmp_path: Path, dolt_runner: tuple[D
 
 @pytest.mark.integration
 @pytest.mark.serial
-def test_dolt_runner_stream_sends_term_then_kill_on_cancel(
+def test_dolt_runner_stream_close_on_cancel_sends_term(
     tmp_path: Path,
     dolt_runner: tuple[DoltRunner, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -178,4 +178,41 @@ def test_dolt_runner_stream_sends_term_then_kill_on_cancel(
     stream.close(cancelled=True)
     assert (child_pid, signal.SIGTERM) in signals
     _wait_until_pid_reaped(child_pid)
+    query.unlink(missing_ok=True)
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_process_stream_callback_exception_still_reaps_child(
+    tmp_path: Path,
+    dolt_runner: tuple[DoltRunner, Path],
+) -> None:
+    runner, repository = dolt_runner
+    settings = lifecycle_settings(tmp_path)
+    layout = DurableLayout.create_for_probe(settings.data_root)
+    query = _blocking_sql_query(layout, 4096)
+    observed_pid: list[int] = []
+
+    call_count = 0
+
+    def broken_callback() -> bool:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return False
+        raise RuntimeError("callback failed")
+
+    stream = runner.stream(
+        "row_stream",
+        ["sql", "--result-format=csv"],
+        cwd=repository,
+        timeout=settings.import_timeout_seconds,
+        stdin_path=query,
+        cancellation=broken_callback,
+    )
+    observed_pid.append(stream.running_pid or -1)
+    with pytest.raises(ProcessBoundaryError, match="stream cancelled"):
+        list(stream)
+    assert observed_pid[0] > 0
+    _wait_until_pid_reaped(observed_pid[0])
     query.unlink(missing_ok=True)

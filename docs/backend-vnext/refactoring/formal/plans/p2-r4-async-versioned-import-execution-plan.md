@@ -2096,14 +2096,14 @@ audit_remediation_closed:
 
 `start_sha`: `74ccbebe02cfa8b3f408f7ca38fe80dd87996be7`
 `validated_code_sha`: `f0a14abde13799025637f9bf989ed33ece498aa2`
-`handoff_record_commit_sha`: pending
+`handoff_record_commit_sha`: `8aa5602e41ab7bccdc682111c3ae9559ef20201b`
 
 ```yaml
 round: P2-R4
 review_state: pass
 s10_start_sha: 74ccbeb
 validated_code_sha: f0a14abde13799025637f9bf989ed33ece498aa2
-handoff_record_commit_sha: pending
+handoff_record_commit_sha: 8aa5602e41ab7bccdc682111c3ae9559ef20201b
 handoff_fixup_commits:
   - 414574c9284b013decdbb2ace8987fb2968c0c58
 s10_round2_prior_commits:
@@ -2112,7 +2112,7 @@ s10_round2_prior_commits:
   - 3bb7d32eda629a5eafa0bd65018da4328add1a1b
   - eaf9afca2c966f8214b172fe7c3cff4cc396c978
 branch: phase1/gate-ownership-repair
-worktree_clean: pending
+worktree_clean: yes
 control_db_user_version: 8
 stage_exit: pass
 production_compose_restart_replay: pass

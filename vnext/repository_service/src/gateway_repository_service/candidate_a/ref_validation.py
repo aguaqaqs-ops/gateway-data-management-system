@@ -59,12 +59,12 @@ def validate_commit_id(commit_id: str) -> str:
 
 
 def opaque_commit_literal(commit_id: str) -> str:
-    """Encode an opaque commit token as an unambiguous SQL string expression."""
+    """Encode an opaque commit token as an unambiguous UTF-8 SQL expression."""
 
     if commit_id == "":
         return "''"
-    codes = ",".join(str(ord(character)) for character in commit_id)
-    return f"CONCAT(CHAR({codes}))"
+    byte_codes = ",".join(str(byte) for byte in commit_id.encode("utf-8"))
+    return f"CONCAT(CHAR({byte_codes}))"
 
 
 def commit_literal(commit_id: str) -> str:

@@ -32,7 +32,7 @@ from gateway_repository_service.candidate_a.ref_validation import (
     opaque_commit_literal,
     validate_commit_id,
 )
-from gateway_repository_service.candidate_a.sql import quote_identifier
+from gateway_repository_service.candidate_a.sql import _tagged_select_list, quote_identifier
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.mutation_fingerprints import create_repository_fingerprint_v1
@@ -75,6 +75,10 @@ ReadRepoFixture = tuple[
         "plain'quote",
         "opaque-token",
         "a" * 128,
+        "é",
+        "Ā",
+        "中文",
+        "𐀀",
     ),
 )
 def test_opaque_commit_literal_encodes_without_provider_grammar(token: str) -> None:
@@ -82,9 +86,13 @@ def test_opaque_commit_literal_encodes_without_provider_grammar(token: str) -> N
     if token == "":
         assert literal == "''"
     else:
-        codes = ",".join(str(ord(character)) for character in token)
-        assert literal == f"CONCAT(CHAR({codes}))"
+        byte_codes = ",".join(str(byte) for byte in token.encode("utf-8"))
+        assert literal == f"CONCAT(CHAR({byte_codes}))"
+        for code in token.encode("utf-8"):
+            assert 0 <= code <= 255
     assert ";" not in literal
+    assert "\\" not in literal
+    assert "'" not in literal
     if token == "not-a-dolt-hash'; DROP TABLE t; --":
         with pytest.raises(ValueError, match="commit id is invalid"):
             validate_commit_id(token)
@@ -435,99 +443,163 @@ def test_read_stream_cancelled_error_is_not_provider_unavailable() -> None:
     assert not isinstance(exc, ProviderUnavailableError)
 
 
-def test_dolt_cli_batch_loop_cancel_maps_to_read_stream_cancelled() -> None:
-    provider = CandidateAReadProvider(
-        RepositoryServiceSettings(),
-        DurableLayout.create(Path("/tmp/unused")),
-        Path("/tmp/unused"),
-        MagicMock(spec=DoltRunner),
-    )
-    table = TableCatalog(
+def _records_table() -> TableCatalog:
+    return TableCatalog(
         "records",
         (ColumnCatalog("id", "BIGINT", False, 1),),
         1,
     )
-    cancel_after = 0
 
-    def cancel_soon() -> bool:
-        nonlocal cancel_after
-        cancel_after += 1
-        return cancel_after >= 2
 
-    def cancelled_stream(*args: object, **kwargs: object) -> Iterator[pa.RecordBatch]:
-        del args, kwargs
+def _read_provider_with_mock_stream(
+    tmp_path: Path,
+) -> tuple[CandidateAReadProvider, MagicMock, TableCatalog]:
+    layout = DurableLayout.create(tmp_path / "root")
+    settings = RepositoryServiceSettings()
+    repository = layout.staging_artifacts / "repo"
+    repository.mkdir(parents=True, exist_ok=True)
+    runner = MagicMock(spec=DoltRunner)
+    provider = CandidateAReadProvider(settings, layout, repository, runner)
+    return provider, runner, _records_table()
 
-        def _gen() -> Iterator[pa.RecordBatch]:
-            yield pa.record_batch({"id": pa.array([1], type=pa.int64())})
-            raise DoltCliError("row stream cancelled")
 
-        return _gen()
+def _csv_stream_mock(header_line: str, data_lines: list[str]) -> MagicMock:
+    stream = MagicMock()
+    stream.__iter__ = MagicMock(
+        return_value=iter((line + "\n").encode() for line in [header_line, *data_lines])
+    )
+    stream.close.return_value = CommandResult(
+        command_kind="row_stream",
+        exit_code=0,
+        duration_seconds=0.0,
+        stdout=b"",
+        stdout_tail=b"",
+        stderr_tail=b"",
+        timed_out=False,
+    )
+    return stream
 
-    with patch.object(provider._cli, "stream_table_at", side_effect=cancelled_stream):
-        with patch.object(provider._cli, "commit_exists", return_value=True):
-            with pytest.raises(ReadStreamCancelledError, match="cancelled") as exc_info:
-                list(
-                    provider.stream_table_at(
-                        "opaque-commit",
-                        table,
-                        UnknownTypePolicy.REJECT,
-                        cancellation=cancel_soon,
-                    )
+
+def _tagged_csv_lines(table: TableCatalog) -> tuple[str, list[str]]:
+    plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
+    _, header = _tagged_select_list(plan)
+    header_line = ",".join(header)
+    data_line = ",".join(value for _ in table.columns for value in ("0", "1"))
+    return header_line, [data_line]
+
+
+def _assert_query_directory_clean(cli: CandidateADoltCli) -> None:
+    assert list(cli.query_directory.glob("query-*.sql")) == []
+
+
+def test_dolt_cli_pre_start_callback_cancel_skips_spawn(tmp_path: Path) -> None:
+    provider, runner, table = _read_provider_with_mock_stream(tmp_path)
+    callback_calls = 0
+
+    def cancel_immediately() -> bool:
+        nonlocal callback_calls
+        callback_calls += 1
+        return True
+
+    with patch.object(provider._cli, "commit_exists", return_value=True):
+        with pytest.raises(ReadStreamCancelledError, match="cancelled") as exc_info:
+            list(
+                provider.stream_table_at(
+                    "opaque-commit",
+                    table,
+                    UnknownTypePolicy.REJECT,
+                    cancellation=cancel_immediately,
                 )
+            )
+    assert callback_calls == 1
+    runner.stream.assert_not_called()
     assert exc_info.value.__cause__ is None
+    _assert_query_directory_clean(provider._cli)
 
 
-@pytest.mark.parametrize(
-    ("failure_point",),
-    (
-        ("before_start",),
-        ("batch_loop",),
-    ),
-)
-def test_stream_callback_exception_maps_to_read_stream_cancelled(failure_point: str) -> None:
-    provider = CandidateAReadProvider(
-        RepositoryServiceSettings(),
-        DurableLayout.create(Path("/tmp/unused")),
-        Path("/tmp/unused"),
-        MagicMock(spec=DoltRunner),
-    )
-    table = TableCatalog(
-        "records",
-        (ColumnCatalog("id", "BIGINT", False, 1),),
-        1,
-    )
-    calls = 0
+def test_dolt_cli_pre_start_callback_exception_skips_spawn(tmp_path: Path) -> None:
+    provider, runner, table = _read_provider_with_mock_stream(tmp_path)
+    callback_calls = 0
 
     def broken_callback() -> bool:
-        nonlocal calls
-        calls += 1
-        if failure_point == "before_start" and calls == 1:
-            raise RuntimeError("callback failed")
-        if failure_point == "batch_loop" and calls >= 2:
+        nonlocal callback_calls
+        callback_calls += 1
+        raise RuntimeError("callback failed")
+
+    with patch.object(provider._cli, "commit_exists", return_value=True):
+        with pytest.raises(ReadStreamCancelledError, match="cancelled") as exc_info:
+            list(
+                provider.stream_table_at(
+                    "opaque-commit",
+                    table,
+                    UnknownTypePolicy.REJECT,
+                    cancellation=broken_callback,
+                )
+            )
+    assert callback_calls == 1
+    runner.stream.assert_not_called()
+    assert exc_info.value.__cause__ is None
+    _assert_query_directory_clean(provider._cli)
+
+
+def test_dolt_cli_batch_loop_callback_cancel_maps_to_read_stream_cancelled(tmp_path: Path) -> None:
+    provider, runner, table = _read_provider_with_mock_stream(tmp_path)
+    header_line, data_lines = _tagged_csv_lines(table)
+    stream = _csv_stream_mock(header_line, data_lines)
+    runner.stream.return_value = stream
+    callback_calls = 0
+
+    def cancel_after_preflight() -> bool:
+        nonlocal callback_calls
+        callback_calls += 1
+        return callback_calls >= 2
+
+    with patch.object(provider._cli, "commit_exists", return_value=True):
+        with pytest.raises(ReadStreamCancelledError, match="cancelled") as exc_info:
+            list(
+                provider.stream_table_at(
+                    "opaque-commit",
+                    table,
+                    UnknownTypePolicy.REJECT,
+                    cancellation=cancel_after_preflight,
+                )
+            )
+    assert callback_calls >= 2
+    runner.stream.assert_called_once()
+    stream.close.assert_called()
+    assert exc_info.value.__cause__ is None
+    _assert_query_directory_clean(provider._cli)
+
+
+def test_dolt_cli_batch_loop_callback_exception_maps_to_read_stream_cancelled(tmp_path: Path) -> None:
+    provider, runner, table = _read_provider_with_mock_stream(tmp_path)
+    header_line, data_lines = _tagged_csv_lines(table)
+    stream = _csv_stream_mock(header_line, data_lines)
+    runner.stream.return_value = stream
+    callback_calls = 0
+
+    def broken_after_preflight() -> bool:
+        nonlocal callback_calls
+        callback_calls += 1
+        if callback_calls >= 2:
             raise RuntimeError("callback failed")
         return False
 
-    def cancelled_stream(*args: object, **kwargs: object) -> Iterator[pa.RecordBatch]:
-        del args, kwargs
-
-        def _gen() -> Iterator[pa.RecordBatch]:
-            yield pa.record_batch({"id": pa.array([1], type=pa.int64())})
-            raise DoltCliError("row stream cancelled")
-
-        return _gen()
-
-    with patch.object(provider._cli, "stream_table_at", side_effect=cancelled_stream):
-        with patch.object(provider._cli, "commit_exists", return_value=True):
-            with pytest.raises(ReadStreamCancelledError, match="cancelled") as exc_info:
-                list(
-                    provider.stream_table_at(
-                        "opaque-commit",
-                        table,
-                        UnknownTypePolicy.REJECT,
-                        cancellation=broken_callback,
-                    )
+    with patch.object(provider._cli, "commit_exists", return_value=True):
+        with pytest.raises(ReadStreamCancelledError, match="cancelled") as exc_info:
+            list(
+                provider.stream_table_at(
+                    "opaque-commit",
+                    table,
+                    UnknownTypePolicy.REJECT,
+                    cancellation=broken_after_preflight,
                 )
+            )
+    assert callback_calls >= 2
+    runner.stream.assert_called_once()
+    stream.close.assert_called()
     assert exc_info.value.__cause__ is None
+    _assert_query_directory_clean(provider._cli)
 
 
 def test_read_provider_rejects_non_main_ref() -> None:
@@ -886,6 +958,18 @@ def test_commit_exists_finds_side_branch_commit_while_on_main(read_repo: ReadRep
         for row in range(batch.num_rows)
     }
     assert side_labels == {"side-only"}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("token", ("é", "Ā", "中文", "𐀀"))
+def test_opaque_commit_literal_round_trips_unicode_on_real_dolt(
+    read_repo: ReadRepoFixture,
+    token: str,
+) -> None:
+    _, _, _, read_provider, _ = read_repo
+    literal = opaque_commit_literal(token)
+    rows = read_provider._cli.query_json("literal_roundtrip", f"SELECT {literal} AS token;\n")
+    assert value(rows[0], "token", 0) == token
 
 
 @pytest.mark.integration

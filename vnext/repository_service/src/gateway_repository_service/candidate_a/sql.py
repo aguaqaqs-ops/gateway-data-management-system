@@ -6,15 +6,15 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-import pyarrow as pa  # type: ignore[import-untyped]
-
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
+    CompiledTablePlan,
+    NormalizedRow,
     SPATIAL_SQL_TYPES,
     TableCatalog,
     TemporalSqlTypeKind,
     UnknownTypePolicy,
-    arrow_type,
+    compile_table_plan,
     classify_temporal_sql_type,
     normalize_sql_type,
 )
@@ -943,16 +943,17 @@ def _catalog_from_schema_diff(
     return tuple(tables[name] for name in sorted(tables))
 
 
-def _tagged_select_list(table: TableCatalog) -> tuple[str, list[str]]:
+def _tagged_select_list(plan: CompiledTablePlan) -> tuple[str, list[str]]:
     expressions: list[str] = []
     header: list[str] = []
-    for index, column in enumerate(table.columns):
+    for index, column_plan in enumerate(plan.columns):
+        column = column_plan.column
         source = quote_identifier(column.name)
         null_name = f"__gateway_null_{index}"
         value_name = f"__gateway_value_{index}"
         value_expression = (
             f"HEX({source})"
-            if pa.types.is_binary(arrow_type(column.sql_type, UnknownTypePolicy.STRINGIFY)[0])
+            if column_plan.hex_cell
             else source
         )
         expressions.extend(
@@ -965,21 +966,27 @@ def _tagged_select_list(table: TableCatalog) -> tuple[str, list[str]]:
     return ", ".join(expressions), header
 
 
-def _parse_tagged_row(row: list[str], table: TableCatalog) -> tuple[Any, ...]:
-    if len(row) != len(table.columns) * 2:
+def _tagged_select_list_for_catalog(
+    table: TableCatalog,
+    policy: UnknownTypePolicy,
+) -> tuple[str, list[str]]:
+    return _tagged_select_list(compile_table_plan(table, policy))
+
+
+def _parse_tagged_row(row: list[str], plan: CompiledTablePlan) -> tuple[Any, ...]:
+    if len(row) != len(plan.columns) * 2:
         raise ProviderError("tagged CSV column count mismatch")
     values: list[Any] = []
-    for index, column in enumerate(table.columns):
+    for index, column_plan in enumerate(plan.columns):
         null_bit, value = row[index * 2 : index * 2 + 2]
         if null_bit not in {"0", "1"}:
             raise ProviderError("tagged CSV null bit was invalid")
         if null_bit == "1":
             values.append(None)
-        elif pa.types.is_binary(arrow_type(column.sql_type, UnknownTypePolicy.STRINGIFY)[0]):
+        elif column_plan.hex_cell:
             try:
-                _, metadata = arrow_type(column.sql_type, UnknownTypePolicy.STRINGIFY)
-                if b"gateway.bit_width" in metadata:
-                    width = int(metadata[b"gateway.bit_width"])
+                if column_plan.bit_width is not None:
+                    width = column_plan.bit_width
                     value = value.zfill(max(2, (width + 3) // 4))
                 if value.startswith(("0x", "0X")):
                     value = value[2:]
@@ -1018,14 +1025,14 @@ def _metric_int(metrics: dict[str, object], key: str) -> int:
 
 def _observe_batch_metrics(
     metrics: dict[str, object],
-    rows: list[tuple[Any, ...]],
+    normalized_rows: list[NormalizedRow],
     *,
     row_bound: int,
     byte_bound: int,
 ) -> int:
-    payload_bytes = _rows_bytes(rows)
-    row_count = len(rows)
-    row_sizes = [_row_bytes(row) for row in rows]
+    payload_bytes = sum(row.logical_size_bytes for row in normalized_rows)
+    row_count = len(normalized_rows)
+    row_sizes = [row.logical_size_bytes for row in normalized_rows]
     row_bytes = max(row_sizes, default=0)
     metrics["total_rows"] = _metric_int(metrics, "total_rows") + row_count
     metrics["total_stream_payload_bytes"] = (

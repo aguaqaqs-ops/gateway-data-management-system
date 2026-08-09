@@ -16,9 +16,11 @@ from uuid import uuid4
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.arrow_mapping import (
+    CompiledTablePlan,
     NormalizedRow,
     TableCatalog,
     UnknownTypePolicy,
+    accumulate_normalized_row,
     compile_table_plan,
 )
 from gateway_repository_service.layout import DurableLayout
@@ -45,6 +47,7 @@ from gateway_repository_service.candidate_a.sql import (
     _row_bytes,
     _rows_bytes,
     _tagged_select_list,
+    _tagged_select_list_for_catalog,
     quote_identifier,
 )
 from gateway_repository_service.settings import RepositoryServiceSettings
@@ -169,6 +172,8 @@ class Provider(Protocol):
         commit_id: str,
         table: TableCatalog,
         policy: UnknownTypePolicy,
+        *,
+        table_plan: CompiledTablePlan | None = None,
     ) -> Iterator[pa.RecordBatch]: ...
 
     def marker_parent(self, marker: str) -> str | None: ...
@@ -437,11 +442,13 @@ class OfflineCliProvider:
         commit_id: str,
         table: TableCatalog,
         policy: UnknownTypePolicy,
+        *,
+        table_plan: CompiledTablePlan | None = None,
     ) -> Iterator[pa.RecordBatch]:
         self.last_stream_metrics = {}
         self.last_plateau_peaks = _empty_plateau_peaks()
-        select_list, expected_header = _tagged_select_list(table)
-        plan = compile_table_plan(table, policy)
+        plan = table_plan if table_plan is not None else compile_table_plan(table, policy)
+        select_list, expected_header = _tagged_select_list(plan)
         query = _write_query(
             self.query_directory,
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF '{commit_id}';\n",
@@ -528,7 +535,7 @@ class OfflineCliProvider:
                 sampler.sample(windows)
                 _observe_batch_metrics(
                     batch_metrics,
-                    [row.values for row in chunk],
+                    chunk,
                     row_bound=self.settings.record_batch_rows,
                     byte_bound=self.settings.record_batch_bytes,
                 )
@@ -536,29 +543,29 @@ class OfflineCliProvider:
                 return batch
 
             for row in reader:
-                parsed = _parse_tagged_row(row, table)
+                parsed = _parse_tagged_row(row, plan)
                 normalized_row = plan.normalize_row(parsed)
-                parsed_bytes = normalized_row.logical_size_bytes
-                if rows and (
-                    len(rows) >= self.settings.record_batch_rows
-                    or rows_bytes + parsed_bytes > self.settings.record_batch_bytes
-                ):
-                    yield emit(rows)
+                chunks, rows, rows_bytes = accumulate_normalized_row(
+                    rows,
+                    rows_bytes,
+                    normalized_row,
+                    row_bound=self.settings.record_batch_rows,
+                    byte_bound=self.settings.record_batch_bytes,
+                )
+                for chunk in chunks:
+                    if len(chunk) == 1 and chunk[0].logical_size_bytes > self.settings.record_batch_bytes:
+                        oversized_single_row = True
+                        oversized_row_bytes = max(
+                            oversized_row_bytes or 0,
+                            chunk[0].logical_size_bytes,
+                        )
+                    yield emit(chunk)
                     sampler.sample()
-                    rows = []
-                    rows_bytes = 0
-                if parsed_bytes > self.settings.record_batch_bytes:
-                    oversized_single_row = True
-                    oversized_row_bytes = max(oversized_row_bytes or 0, parsed_bytes)
-                    yield emit([normalized_row])
-                    sampler.sample()
-                else:
-                    pending_index = len(rows)
-                    rows.append(normalized_row)
-                    rows_bytes += parsed_bytes
-                    sampler.set_active(
-                        _pending_row_windows(rows_seen, pending_index, table.row_count)
-                    )
+                    pending_index = len(rows) - 1
+                    if rows:
+                        sampler.set_active(
+                            _pending_row_windows(rows_seen, pending_index, table.row_count)
+                        )
             if rows:
                 yield emit(rows)
             result = stream.close()
@@ -621,7 +628,7 @@ class OfflineCliProvider:
         growth from the Python framing/conversion path.
         """
 
-        select_list, _ = _tagged_select_list(table)
+        select_list, _ = _tagged_select_list_for_catalog(table, UnknownTypePolicy.STRINGIFY)
         query = _write_query(
             self.query_directory,
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF '{commit_id}';\n",
@@ -917,6 +924,8 @@ class SqlServerProvider:
         commit_id: str,
         table: TableCatalog,
         policy: UnknownTypePolicy,
+        *,
+        table_plan: CompiledTablePlan | None = None,
     ) -> Iterator[pa.RecordBatch]:
         self.last_stream_metrics = {}
         self.last_plateau_peaks = _empty_plateau_peaks()
@@ -974,7 +983,7 @@ class SqlServerProvider:
             # Fetch a small, explicit connector bound. The splitter consumes
             # the returned rows immediately and never materializes a
             # row-bound-sized pending result.
-            plan = compile_table_plan(table, policy)
+            plan = table_plan if table_plan is not None else compile_table_plan(table, policy)
             pending: list[NormalizedRow] = []
             pending_bytes = 0
 
@@ -997,7 +1006,7 @@ class SqlServerProvider:
                 sampler.sample(windows)
                 _observe_batch_metrics(
                     batch_metrics,
-                    [row.values for row in chunk],
+                    chunk,
                     row_bound=self.settings.record_batch_rows,
                     byte_bound=self.settings.record_batch_bytes,
                 )
@@ -1017,28 +1026,29 @@ class SqlServerProvider:
                     candidate_bytes = normalized_row.logical_size_bytes
                     fetched_payload += candidate_bytes
                     max_fetched_payload_bytes = max(max_fetched_payload_bytes, fetched_payload)
-                    if pending and (
-                        len(pending) >= self.settings.record_batch_rows
-                        or pending_bytes + candidate_bytes > self.settings.record_batch_bytes
-                    ):
-                        yield emit(pending)
-                        sampler.sample()
-                        pending = []
-                        pending_bytes = 0
-                    if candidate_bytes > self.settings.record_batch_bytes:
-                        oversized_single_row = True
-                        oversized_row_bytes = max(oversized_row_bytes or 0, candidate_bytes)
-                        yield emit([normalized_row])
-                        sampler.sample()
-                    else:
-                        pending_index = len(pending)
-                        pending.append(normalized_row)
-                        pending_bytes += candidate_bytes
-                        sampler.set_active(
-                            _pending_row_windows(
-                                rows_seen, pending_index, table.row_count
+                    chunks, pending, pending_bytes = accumulate_normalized_row(
+                        pending,
+                        pending_bytes,
+                        normalized_row,
+                        row_bound=self.settings.record_batch_rows,
+                        byte_bound=self.settings.record_batch_bytes,
+                    )
+                    for chunk in chunks:
+                        if len(chunk) == 1 and chunk[0].logical_size_bytes > self.settings.record_batch_bytes:
+                            oversized_single_row = True
+                            oversized_row_bytes = max(
+                                oversized_row_bytes or 0,
+                                chunk[0].logical_size_bytes,
                             )
-                        )
+                        yield emit(chunk)
+                        sampler.sample()
+                        pending_index = len(pending) - 1
+                        if pending:
+                            sampler.set_active(
+                                _pending_row_windows(
+                                    rows_seen, pending_index, table.row_count
+                                )
+                            )
             if pending:
                 yield emit(pending)
         finally:

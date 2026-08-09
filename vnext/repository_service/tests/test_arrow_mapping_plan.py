@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import traceback
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -87,6 +88,8 @@ def test_normalize_and_record_batch_converter_count_equals_rows_times_columns() 
                 field=column_plan.field,
                 column=column_plan.column,
                 converter=make_wrapped(original),
+                hex_cell=column_plan.hex_cell,
+                bit_width=column_plan.bit_width,
             )
         )
     spied_plan = CompiledTablePlan(
@@ -382,6 +385,8 @@ def test_compatibility_record_batch_converts_each_cell_once() -> None:
                     field=column_plan.field,
                     column=column_plan.column,
                     converter=make_wrapped(original),
+                    hex_cell=column_plan.hex_cell,
+                    bit_width=column_plan.bit_width,
                 )
             )
         return CompiledTablePlan(
@@ -428,14 +433,20 @@ def test_normalize_row_does_not_call_arrow_type_after_compile() -> None:
 def test_candidate_a_stream_compiles_plan_once_per_table(tmp_path: Path) -> None:
     table = _table(
         "records",
-        (ColumnCatalog("id", "INT", False, 1),),
-        row_count=2,
+        (
+            ColumnCatalog("id", "INT", False, 1),
+            ColumnCatalog("flag", "BOOLEAN", True, None),
+        ),
+        row_count=4,
     )
-    _, header = _tagged_select_list(table)
+    plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
+    _, header = _tagged_select_list(plan)
     stream_lines = [
         ",".join(header),
-        "0,1",
-        "0,2",
+        "0,1,0,1",
+        "0,2,0,0",
+        "0,3,1,",
+        "0,4,0,1",
     ]
     layout = DurableLayout.create(tmp_path / "root")
     settings = RepositoryServiceSettings()
@@ -458,20 +469,19 @@ def test_candidate_a_stream_compiles_plan_once_per_table(tmp_path: Path) -> None
     runner.stream.return_value = stream
     cli = CandidateADoltCli(settings, layout, repository, runner)
 
-    compile_calls = 0
-    original_compile = compile_table_plan
+    arrow_calls = 0
 
-    def counting_compile(
-        catalog: TableCatalog,
+    def counting_arrow_type(
+        sql_type: str,
         policy: UnknownTypePolicy,
-    ) -> CompiledTablePlan:
-        nonlocal compile_calls
-        compile_calls += 1
-        return original_compile(catalog, policy)
+    ) -> tuple[pa.DataType, dict[bytes, bytes]]:
+        nonlocal arrow_calls
+        arrow_calls += 1
+        return arrow_type(sql_type, policy)
 
     with patch(
-        "gateway_repository_service.candidate_a.dolt_cli.compile_table_plan",
-        side_effect=counting_compile,
+        "gateway_repository_service.arrow_mapping.arrow_type",
+        side_effect=counting_arrow_type,
     ):
         batches = list(
             cli.stream_table(
@@ -481,6 +491,156 @@ def test_candidate_a_stream_compiles_plan_once_per_table(tmp_path: Path) -> None
             )
         )
 
-    assert compile_calls == 1
-    assert sum(batch.num_rows for batch in batches) == 2
+    assert arrow_calls == len(table.columns)
+    assert sum(batch.num_rows for batch in batches) == 4
     assert batches[0].schema.field(0).type == pa.int32()
+
+
+SENTINEL_RAW_VALUE = "SECRET_RAW_SENTINEL_42"
+
+
+class _StrFailure:
+    def __str__(self) -> str:
+        raise ValueError(SENTINEL_RAW_VALUE)
+
+
+MALFORMED_VALUE_FAULTS = (
+    ("amount", "DECIMAL(10,2)", SENTINEL_RAW_VALUE, UnknownTypePolicy.REJECT),
+    ("event_time", "TIME(6)", "12:34", UnknownTypePolicy.REJECT),
+    ("flags", "BIT(7)", "0x80", UnknownTypePolicy.REJECT),
+    ("flags", "BIT(4)", "0x1234", UnknownTypePolicy.REJECT),
+    ("value", "ENUM('a','b')", _StrFailure(), UnknownTypePolicy.STRINGIFY),
+)
+
+
+@pytest.mark.parametrize(
+    ("column_name", "sql_type", "raw_value", "policy"),
+    MALFORMED_VALUE_FAULTS,
+)
+def test_malformed_provider_values_are_typed_and_redacted(
+    column_name: str,
+    sql_type: str,
+    raw_value: object,
+    policy: UnknownTypePolicy,
+) -> None:
+    catalog = _table(
+        "records",
+        (ColumnCatalog(column_name, sql_type, True, None),),
+    )
+    plan = compile_table_plan(catalog, policy)
+    with pytest.raises(SqlValueConversionError) as exc_info:
+        plan.normalize_row((raw_value,))
+    error = exc_info.value
+    assert error.table == "records"
+    assert error.column == column_name
+    assert error.__cause__ is None
+    rendered = str(error)
+    assert SENTINEL_RAW_VALUE not in rendered
+    assert SENTINEL_RAW_VALUE not in repr(error)
+    traceback_text = "".join(
+        traceback.format_exception(type(error), error, error.__traceback__)
+    )
+    assert SENTINEL_RAW_VALUE not in traceback_text
+
+
+INTEGER_AND_DECIMAL_RANGE_FAULTS = (
+    ("TINYINT", -128, False),
+    ("TINYINT", 127, False),
+    ("TINYINT", -129, True),
+    ("TINYINT", 128, True),
+    ("TINYINT UNSIGNED", 0, False),
+    ("TINYINT UNSIGNED", 255, False),
+    ("TINYINT UNSIGNED", 256, True),
+    ("SMALLINT", -32768, False),
+    ("SMALLINT", 32767, False),
+    ("SMALLINT", -32769, True),
+    ("INT", -2147483648, False),
+    ("INT", 2147483647, False),
+    ("INT", 2147483648, True),
+    ("INT UNSIGNED", 4294967295, False),
+    ("INT UNSIGNED", 4294967296, True),
+    ("BIGINT", 9223372036854775807, False),
+    ("BIGINT", 9223372036854775808, True),
+    ("DECIMAL(5,2)", "123.45", False),
+    ("DECIMAL(5,2)", "1234.56", True),
+    ("DECIMAL(5,2)", "12.345", True),
+)
+
+
+@pytest.mark.parametrize(("sql_type", "raw_value", "should_fail"), INTEGER_AND_DECIMAL_RANGE_FAULTS)
+def test_integer_and_decimal_boundaries_fail_during_normalization(
+    sql_type: str,
+    raw_value: object,
+    should_fail: bool,
+) -> None:
+    catalog = _table("records", (ColumnCatalog("value", sql_type, False, 1),))
+    plan = compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+    if should_fail:
+        with pytest.raises(SqlValueConversionError):
+            plan.normalize_row((raw_value,))
+    else:
+        normalized = plan.normalize_row((raw_value,))
+        assert normalized.values[0] is not None
+
+
+def test_candidate_a_stream_flush_and_oversized_boundaries(tmp_path: Path) -> None:
+    table = _table(
+        "records",
+        (
+            ColumnCatalog("id", "INT", False, 1),
+            ColumnCatalog("payload", "VARCHAR(64)", True, None),
+        ),
+        row_count=5,
+    )
+    plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
+    _, header = _tagged_select_list(plan)
+    large_payload = "012345678901234567890"
+    stream_lines = [
+        ",".join(header),
+        "0,1,0,tiny",
+        "0,2,0,tiny",
+        "0,3,0,tiny",
+        f"0,4,0,{large_payload}",
+        "0,5,0,tiny",
+    ]
+    layout = DurableLayout.create(tmp_path / "root")
+    settings = RepositoryServiceSettings(
+        record_batch_rows=2,
+        record_batch_bytes=16,
+    )
+    repository = layout.staging_artifacts / "stream-repo"
+    repository.mkdir(parents=True, exist_ok=True)
+    runner = MagicMock(spec=DoltRunner)
+    stream = MagicMock()
+    stream.__iter__ = MagicMock(
+        return_value=iter(line.encode("utf-8") for line in stream_lines)
+    )
+    stream.close.return_value = CommandResult(
+        command_kind="row_stream",
+        exit_code=0,
+        duration_seconds=0.0,
+        stdout=b"",
+        stdout_tail=b"",
+        stderr_tail=b"",
+        timed_out=False,
+    )
+    runner.stream.return_value = stream
+    cli = CandidateADoltCli(settings, layout, repository, runner)
+    batches = list(
+        cli.stream_table(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            table,
+            UnknownTypePolicy.REJECT,
+        )
+    )
+
+    assert sum(batch.num_rows for batch in batches) == 5
+    assert len(batches) >= 3
+    assert any(batch.num_rows == 1 for batch in batches)
+    oversized_batches = [
+        batch
+        for batch in batches
+        if batch.num_rows == 1
+        and batch.column("payload").to_pylist()[0] == large_payload
+    ]
+    assert oversized_batches

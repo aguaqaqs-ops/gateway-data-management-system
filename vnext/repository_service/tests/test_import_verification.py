@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -14,6 +14,7 @@ import pytest
 from gateway_repository_contracts import UnknownTypePolicy, VerificationPolicy
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
+    CompiledTablePlan,
     SqlValueConversionError,
     TableCatalog,
     arrow_type,
@@ -22,7 +23,9 @@ from gateway_repository_service.arrow_mapping import (
 )
 from gateway_repository_service.fixtures import Workload, generate_fixture
 from gateway_repository_service.layout import DurableLayout
-from gateway_repository_service.process import DoltRunner
+from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.candidate_a.sql import _tagged_select_list
+from gateway_repository_service.process import CommandResult, DoltRunner
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.models import (
@@ -688,26 +691,40 @@ def test_full_scan_sql_value_conversion_error_maps_to_verification_failed() -> N
         )
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
     assert exc_info.value.detail == "value conversion failed for records.id"
+    assert exc_info.value.__cause__ is None
 
 
-def test_full_scan_compiles_plan_once_per_table() -> None:
+def test_full_scan_reuses_one_plan_in_candidate_a_stream(tmp_path: Path) -> None:
     table = TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 2)
-    plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
-    batch_one = plan.record_batch([plan.normalize_row((1,))])
-    batch_two = plan.record_batch([plan.normalize_row((2,))])
-
-    class MultiBatchProvider:
-        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
-            return (table,)
-
-        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
-            return self.read_catalog(candidate)
-
-        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
-            yield batch_one
-            yield batch_two
-
     manifest = manifest_from_tables((table,))
+    plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
+    _, header = _tagged_select_list(plan)
+    stream_lines = [
+        ",".join(header),
+        "0,1",
+        "0,2",
+    ]
+    layout = DurableLayout.create(tmp_path / "root")
+    settings = RepositoryServiceSettings()
+    repository = layout.staging_artifacts / "stream-repo"
+    repository.mkdir(parents=True, exist_ok=True)
+    runner = MagicMock(spec=DoltRunner)
+    stream = MagicMock()
+    stream.__iter__ = MagicMock(
+        return_value=iter(line.encode("utf-8") for line in stream_lines)
+    )
+    stream.close.return_value = CommandResult(
+        command_kind="row_stream",
+        exit_code=0,
+        duration_seconds=0.0,
+        stdout=b"",
+        stdout_tail=b"",
+        stderr_tail=b"",
+        timed_out=False,
+    )
+    runner.stream.return_value = stream
+    provider = CandidateAImportProvider(settings, layout, repository, runner)
+
     compile_calls = 0
     original_compile = compile_table_plan
 
@@ -719,13 +736,16 @@ def test_full_scan_compiles_plan_once_per_table() -> None:
         compile_calls += 1
         return original_compile(catalog, policy)
 
-    with patch(
-        "gateway_repository_service.versioned_import.verification.compile_table_plan",
-        side_effect=counting_compile,
+    with (
+        patch.object(provider, "read_catalog", return_value=(table,)),
+        patch(
+            "gateway_repository_service.versioned_import.verification.compile_table_plan",
+            side_effect=counting_compile,
+        ),
     ):
         result = verify_import_candidate(
-            cast(VersionedImportProvider, MultiBatchProvider()),
-            candidate="candidate",
+            provider,
+            candidate="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             manifest=manifest,
             verification_policy=VerificationPolicy.FULL_SCAN,
             unknown_type_policy=UnknownTypePolicy.REJECT,
@@ -736,6 +756,52 @@ def test_full_scan_compiles_plan_once_per_table() -> None:
         completed_verification_policy=VerificationPolicy.FULL_SCAN,
         unknown_type_policy=UnknownTypePolicy.REJECT,
     )
+
+
+SENTINEL_RAW_VALUE = "SECRET_RAW_SENTINEL_42"
+
+
+def test_full_scan_malformed_value_stays_verification_failed() -> None:
+    table = TableCatalog(
+        "records",
+        (ColumnCatalog("amount", "DECIMAL(10,2)", True, None),),
+        1,
+    )
+    manifest = manifest_from_tables((table,))
+
+    class MalformedValueProvider:
+        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return (table,)
+
+        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+            return self.read_catalog(candidate)
+
+        def stream_table(
+            self,
+            _candidate: str,
+            _table: TableCatalog,
+            _policy: UnknownTypePolicy,
+            *,
+            table_plan: CompiledTablePlan | None = None,
+        ) -> Iterator[pa.RecordBatch]:
+            assert table_plan is not None
+            table_plan.normalize_row((SENTINEL_RAW_VALUE,))
+            yield pa.record_batch({"amount": pa.array([1.0], type=pa.float64())})
+
+    with pytest.raises(ImportVerificationError) as exc_info:
+        verify_import_candidate(
+            cast(VersionedImportProvider, MalformedValueProvider()),
+            candidate="candidate",
+            manifest=manifest,
+            verification_policy=VerificationPolicy.FULL_SCAN,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        )
+    assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+    assert exc_info.value.__cause__ is None
+    detail = exc_info.value.detail or ""
+    assert "value conversion failed" in detail
+    assert SENTINEL_RAW_VALUE not in detail
+    assert SENTINEL_RAW_VALUE not in str(exc_info.value)
 
 
 @pytest.mark.integration
@@ -804,6 +870,10 @@ def test_full_scan_catalog_manifest_mismatch_raises_typed_error(
             yield pa.record_batch({"id": pa.array([], type=pa.int64())})
 
     manifest = manifest_from_tables(manifest_tables)
+    table_plans = {
+        table.name: compile_table_plan(table, UnknownTypePolicy.STRINGIFY)
+        for table in catalog_tables
+    }
     with pytest.raises(ImportVerificationError) as exc_info:
         _full_scan_tables(
             cast(VersionedImportProvider, ScanProvider()),
@@ -811,6 +881,7 @@ def test_full_scan_catalog_manifest_mismatch_raises_typed_error(
             catalog=catalog_tables,
             manifest=manifest,
             unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+            table_plans=table_plans,
         )
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
     if expected_detail is not None:

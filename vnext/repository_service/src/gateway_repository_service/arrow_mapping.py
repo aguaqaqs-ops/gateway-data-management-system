@@ -29,6 +29,7 @@ __all__ = [
     "classify_temporal_sql_type",
     "compile_table_plan",
     "convert_value",
+    "accumulate_normalized_row",
     "is_known_sql_type",
     "normalize_rows",
     "normalize_sql_type",
@@ -51,6 +52,16 @@ class SqlValueConversionError(ValueError):
         super().__init__(
             f"value conversion failed for {table}.{column} ({sql_type})"
         )
+
+
+_CONVERSION_ERROR_TYPES = (
+    ValueError,
+    TypeError,
+    decimal.InvalidOperation,
+    IndexError,
+    OverflowError,
+    ArithmeticError,
+)
 
 
 @dataclass(frozen=True)
@@ -509,35 +520,97 @@ def _validate_bit_unused_high_bits(raw: bytes, width: int) -> None:
             raise ValueError("BIT unused high bits must be zero")
 
 
-def _validate_logical_range(
+def _sql_value_conversion_error(
     *,
     table_name: str,
     column: ColumnCatalog,
+) -> SqlValueConversionError:
+    return SqlValueConversionError(
+        table=table_name,
+        column=column.name,
+        sql_type=column.sql_type,
+    )
+
+
+def _tagged_cell_flags(
+    data_type: pa.DataType,
+    metadata: dict[bytes, bytes],
+) -> tuple[bool, int | None]:
+    hex_cell = pa.types.is_binary(data_type)
+    bit_width: int | None = None
+    raw_width = metadata.get(b"gateway.bit_width")
+    if raw_width is not None:
+        bit_width = int(raw_width)
+    return hex_cell, bit_width
+
+
+def _validate_integer_range(value: int, data_type: pa.DataType) -> bool:
+    if pa.types.is_int8(data_type):
+        return -128 <= value <= 127
+    if pa.types.is_uint8(data_type):
+        return 0 <= value <= 255
+    if pa.types.is_int16(data_type):
+        return -32768 <= value <= 32767
+    if pa.types.is_uint16(data_type):
+        return 0 <= value <= 65535
+    if pa.types.is_int32(data_type):
+        return -2147483648 <= value <= 2147483647
+    if pa.types.is_uint32(data_type):
+        return 0 <= value <= 4294967295
+    if pa.types.is_int64(data_type):
+        return -9223372036854775808 <= value <= 9223372036854775807
+    if pa.types.is_uint64(data_type):
+        return 0 <= value <= 18446744073709551615
+    return True
+
+
+def _validate_decimal_range(
+    value: decimal.Decimal,
+    data_type: pa.DataType,
+) -> bool:
+    if not pa.types.is_decimal(data_type):
+        return True
+    precision = data_type.precision
+    scale = data_type.scale
+    sign, digits, exponent = value.as_tuple()
+    if not isinstance(exponent, int):
+        return False
+    digit_count = len(digits)
+    if exponent < 0:
+        fractional = max(0, -exponent)
+        if fractional > scale:
+            return False
+        digit_count = max(digit_count - fractional, 0) + fractional
+    if digit_count > precision:
+        return False
+    return True
+
+
+def _validate_logical_range(
+    *,
+    table_name: str,
+    column_plan: CompiledColumnPlan,
     value: Any,
 ) -> Any:
+    column = column_plan.column
     if value is None and not column.nullable:
-        raise SqlValueConversionError(
-            table=table_name,
-            column=column.name,
-            sql_type=column.sql_type,
-        )
+        raise _sql_value_conversion_error(table_name=table_name, column=column)
     if value is None:
         return value
+    field_type = column_plan.field.type
     upper = column.sql_type.upper()
     if upper == "MEDIUMINT":
         if not isinstance(value, int) or value < -8388608 or value > 8388607:
-            raise SqlValueConversionError(
-                table=table_name,
-                column=column.name,
-                sql_type=column.sql_type,
-            )
+            raise _sql_value_conversion_error(table_name=table_name, column=column)
     elif upper == "MEDIUMINT UNSIGNED":
         if not isinstance(value, int) or value < 0 or value > 16777215:
-            raise SqlValueConversionError(
-                table=table_name,
-                column=column.name,
-                sql_type=column.sql_type,
-            )
+            raise _sql_value_conversion_error(table_name=table_name, column=column)
+    elif pa.types.is_integer(field_type):
+        if not isinstance(value, int) or not _validate_integer_range(value, field_type):
+            raise _sql_value_conversion_error(table_name=table_name, column=column)
+    elif pa.types.is_decimal(field_type):
+        if not isinstance(value, decimal.Decimal) or not _validate_decimal_range(value, field_type):
+            raise _sql_value_conversion_error(table_name=table_name, column=column)
     bit_match = _BIT.match(upper)
     if bit_match is not None and isinstance(value, bytes):
         _validate_bit_unused_high_bits(value, int(bit_match.group(1)))
@@ -545,18 +618,14 @@ def _validate_logical_range(
 
 
 def _raise_column_conversion_error(
-    exc: ValueError | TypeError,
+    exc: BaseException,
     *,
     table_name: str,
     column: ColumnCatalog,
 ) -> NoReturn:
     if isinstance(exc, SqlValueConversionError):
         raise exc
-    raise SqlValueConversionError(
-        table=table_name,
-        column=column.name,
-        sql_type=column.sql_type,
-    ) from exc
+    raise _sql_value_conversion_error(table_name=table_name, column=column) from None
 
 
 @dataclass(frozen=True)
@@ -564,6 +633,8 @@ class CompiledColumnPlan:
     field: pa.Field
     column: ColumnCatalog
     converter: Callable[[Any], Any]
+    hex_cell: bool
+    bit_width: int | None = None
 
 
 @dataclass(frozen=True)
@@ -588,10 +659,10 @@ class CompiledTablePlan:
                 value = column_plan.converter(raw[index])
                 value = _validate_logical_range(
                     table_name=self.catalog.name,
-                    column=column,
+                    column_plan=column_plan,
                     value=value,
                 )
-            except (ValueError, TypeError) as exc:
+            except _CONVERSION_ERROR_TYPES as exc:
                 _raise_column_conversion_error(
                     exc,
                     table_name=self.catalog.name,
@@ -613,7 +684,7 @@ class CompiledTablePlan:
             values = [row.values[index] for row in row_list]
             try:
                 arrays.append(pa.array(values, type=column_plan.field.type))
-            except (ValueError, TypeError) as exc:
+            except _CONVERSION_ERROR_TYPES as exc:
                 _raise_column_conversion_error(
                     exc,
                     table_name=self.catalog.name,
@@ -621,12 +692,36 @@ class CompiledTablePlan:
                 )
         try:
             return pa.RecordBatch.from_arrays(arrays, schema=self.expected_schema)
-        except (ValueError, TypeError) as exc:
+        except _CONVERSION_ERROR_TYPES as exc:
             _raise_column_conversion_error(
                 exc,
                 table_name=self.catalog.name,
                 column=last_column,
             )
+
+
+def accumulate_normalized_row(
+    pending: list[NormalizedRow],
+    pending_bytes: int,
+    row: NormalizedRow,
+    *,
+    row_bound: int,
+    byte_bound: int,
+) -> tuple[list[list[NormalizedRow]], list[NormalizedRow], int]:
+    to_emit: list[list[NormalizedRow]] = []
+    row_bytes = row.logical_size_bytes
+    if pending and (
+        len(pending) >= row_bound or pending_bytes + row_bytes > byte_bound
+    ):
+        to_emit.append(pending)
+        pending = []
+        pending_bytes = 0
+    if row_bytes > byte_bound:
+        to_emit.append([row])
+    else:
+        pending.append(row)
+        pending_bytes += row_bytes
+    return to_emit, pending, pending_bytes
 
 
 def _make_column_converter(
@@ -637,21 +732,28 @@ def _make_column_converter(
 ) -> Callable[[Any], Any]:
     if metadata.get(b"gateway.lossy") == b"true":
         def stringify_unknown(raw: Any) -> Any:
-            return None if raw is None else str(raw)
+            if raw is None:
+                return None
+            try:
+                return str(raw)
+            except _CONVERSION_ERROR_TYPES as exc:
+                _raise_column_conversion_error(
+                    exc,
+                    table_name=table_name,
+                    column=column,
+                )
 
         return stringify_unknown
 
     def convert(raw: Any) -> Any:
         try:
             return _convert_value_with_arrow(raw, column.sql_type, data_type)
-        except (ValueError, TypeError) as exc:
-            if isinstance(exc, SqlValueConversionError):
-                raise
-            raise SqlValueConversionError(
-                table=table_name,
-                column=column.name,
-                sql_type=column.sql_type,
-            ) from exc
+        except _CONVERSION_ERROR_TYPES as exc:
+            _raise_column_conversion_error(
+                exc,
+                table_name=table_name,
+                column=column,
+            )
 
     return convert
 
@@ -664,6 +766,7 @@ def compile_table_plan(
     for column in catalog.columns:
         data_type, metadata = arrow_type(column.sql_type, policy)
         immutable_metadata = _immutable_metadata(metadata)
+        hex_cell, bit_width = _tagged_cell_flags(data_type, immutable_metadata)
         field = pa.field(
             column.name,
             data_type,
@@ -680,6 +783,8 @@ def compile_table_plan(
                     data_type,
                     immutable_metadata,
                 ),
+                hex_cell=hex_cell,
+                bit_width=bit_width,
             )
         )
     columns = tuple(column_plans)

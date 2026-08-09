@@ -15,9 +15,11 @@ from uuid import uuid4
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.arrow_mapping import (
+    CompiledTablePlan,
     NormalizedRow,
     TableCatalog,
     UnknownTypePolicy,
+    accumulate_normalized_row,
     compile_table_plan,
 )
 from gateway_repository_service.candidate_a.errors import CandidateAError
@@ -466,10 +468,12 @@ class CandidateADoltCli:
         commit_id: str,
         table: TableCatalog,
         policy: UnknownTypePolicy,
+        *,
+        table_plan: CompiledTablePlan | None = None,
     ) -> Iterator[pa.RecordBatch]:
         safe_commit_id = validate_commit_id(commit_id)
-        select_list, expected_header = _tagged_select_list(table)
-        plan = compile_table_plan(table, policy)
+        plan = table_plan if table_plan is not None else compile_table_plan(table, policy)
+        select_list, expected_header = _tagged_select_list(plan)
         query = write_query(
             self.query_directory,
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF {commit_literal(safe_commit_id)};\n",
@@ -519,28 +523,24 @@ class CandidateADoltCli:
                 batch = plan.record_batch(chunk)
                 _observe_batch_metrics(
                     batch_metrics,
-                    [row.values for row in chunk],
+                    chunk,
                     row_bound=self.settings.record_batch_rows,
                     byte_bound=self.settings.record_batch_bytes,
                 )
                 return batch
 
             for row in reader:
-                parsed = _parse_tagged_row(row, table)
+                parsed = _parse_tagged_row(row, plan)
                 normalized_row = plan.normalize_row(parsed)
-                parsed_bytes = normalized_row.logical_size_bytes
-                if rows and (
-                    len(rows) >= self.settings.record_batch_rows
-                    or rows_bytes + parsed_bytes > self.settings.record_batch_bytes
-                ):
-                    yield emit(rows)
-                    rows = []
-                    rows_bytes = 0
-                if parsed_bytes > self.settings.record_batch_bytes:
-                    yield emit([normalized_row])
-                else:
-                    rows.append(normalized_row)
-                    rows_bytes += parsed_bytes
+                chunks, rows, rows_bytes = accumulate_normalized_row(
+                    rows,
+                    rows_bytes,
+                    normalized_row,
+                    row_bound=self.settings.record_batch_rows,
+                    byte_bound=self.settings.record_batch_bytes,
+                )
+                for chunk in chunks:
+                    yield emit(chunk)
             if rows:
                 yield emit(rows)
             result = stream.close()

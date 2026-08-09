@@ -26,9 +26,11 @@ import gateway_repository_service.target_gate as target_gate_module
 
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
+    NormalizedRow,
     TableCatalog,
     UnknownTypePolicy,
     arrow_type,
+    compile_table_plan,
     normalize_rows,
 )
 from gateway_repository_service.fixtures import (
@@ -660,16 +662,17 @@ def test_tagged_csv_distinguishes_null_empty_literal_and_binary() -> None:
         ),
         4,
     )
-    _, header = _tagged_select_list(table)
+    plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
+    _, header = _tagged_select_list(plan)
     assert header == [
         "__gateway_null_0",
         "__gateway_value_0",
         "__gateway_null_1",
         "__gateway_value_1",
     ]
-    assert _parse_tagged_row(["1", "", "1", ""], table) == (None, None)
-    assert _parse_tagged_row(["0", "", "0", ""], table) == ("", b"")
-    assert _parse_tagged_row(["0", "NULL", "0", "00FF"], table) == ("NULL", b"\x00\xff")
+    assert _parse_tagged_row(["1", "", "1", ""], plan) == (None, None)
+    assert _parse_tagged_row(["0", "", "0", ""], plan) == ("", b"")
+    assert _parse_tagged_row(["0", "NULL", "0", "00FF"], plan) == ("NULL", b"\x00\xff")
 
 
 def test_provider_baseline_metrics_use_one_canonical_schema() -> None:
@@ -2656,8 +2659,18 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
         "batch_contract_valid": True,
         "batch_contract_violation_count": 0,
     }
-    _observe_batch_metrics(metrics, [("x" * 5,)], row_bound=1024, byte_bound=4)
-    _observe_batch_metrics(metrics, [("y" * 6,)], row_bound=1024, byte_bound=4)
+    _observe_batch_metrics(
+        metrics,
+        [NormalizedRow(values=("x" * 5,), logical_size_bytes=5)],
+        row_bound=1024,
+        byte_bound=4,
+    )
+    _observe_batch_metrics(
+        metrics,
+        [NormalizedRow(values=("y" * 6,), logical_size_bytes=6)],
+        row_bound=1024,
+        byte_bound=4,
+    )
     assert metrics["oversized_single_row"] is True
     assert metrics["oversized_row_count"] == 2
     assert metrics["batch_contract_valid"] is True
@@ -2678,7 +2691,13 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
         "batch_contract_violation_count": 0,
     }
     _observe_batch_metrics(
-        invalid_metrics, [("a" * 3,), ("b" * 3,)], row_bound=1024, byte_bound=4
+        invalid_metrics,
+        [
+            NormalizedRow(values=("a" * 3,), logical_size_bytes=3),
+            NormalizedRow(values=("b" * 3,), logical_size_bytes=3),
+        ],
+        row_bound=1024,
+        byte_bound=4,
     )
     assert invalid_metrics["oversized_single_row"] is False
     assert invalid_metrics["batch_contract_valid"] is False
@@ -2737,10 +2756,22 @@ def test_v8_batch_contract_and_multiple_oversized_rows() -> None:
         "batch_contract_violation_count": 0,
     }
     _observe_batch_metrics(
-        mixed, [("a",)] * 100, row_bound=1024, byte_bound=V8_BYTE_BOUND
+        mixed,
+        [NormalizedRow(values=("a",), logical_size_bytes=1)] * 100,
+        row_bound=1024,
+        byte_bound=V8_BYTE_BOUND,
     )
+    oversized_payload = "b" * (V8_BYTE_BOUND + 1)
     _observe_batch_metrics(
-        mixed, [("b" * (V8_BYTE_BOUND + 1),)], row_bound=1024, byte_bound=V8_BYTE_BOUND
+        mixed,
+        [
+            NormalizedRow(
+                values=(oversized_payload,),
+                logical_size_bytes=len(oversized_payload.encode("utf-8")),
+            )
+        ],
+        row_bound=1024,
+        byte_bound=V8_BYTE_BOUND,
     )
     mixed.update(
         {

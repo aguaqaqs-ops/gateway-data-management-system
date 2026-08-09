@@ -125,6 +125,8 @@ class FakeImportProvider:
         candidate: str,
         table: TableCatalog,
         policy: UnknownTypePolicy,
+        *,
+        table_plan: object = None,
     ) -> Iterator[pa.RecordBatch]:
         yield pa.record_batch({"id": pa.array([], type=pa.int64())})
 

@@ -10,7 +10,7 @@ from typing import Literal, Protocol
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_contracts import UnknownTypePolicy
-from gateway_repository_service.arrow_mapping import TableCatalog
+from gateway_repository_service.arrow_mapping import CompiledTablePlan, TableCatalog
 
 CancellationCallback = Callable[[], bool]
 
@@ -82,6 +82,8 @@ class VersionedImportProvider(Protocol):
         candidate: str,
         table: TableCatalog,
         policy: UnknownTypePolicy,
+        *,
+        table_plan: CompiledTablePlan | None = None,
     ) -> Iterator[pa.RecordBatch]: ...
 
     def publish_main(self, expected_commit: str, candidate: str) -> PublishMainResult: ...

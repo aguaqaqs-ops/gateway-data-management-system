@@ -84,8 +84,20 @@ class _CancellableProviderWrapper:
     def read_type_catalog(self, candidate: str) -> Any:
         return self._inner.read_type_catalog(candidate)
 
-    def stream_table(self, candidate: str, table: Any, policy: Any) -> Any:
-        return self._inner.stream_table(candidate, table, policy)
+    def stream_table(
+        self,
+        candidate: str,
+        table: Any,
+        policy: Any,
+        *,
+        table_plan: Any = None,
+    ) -> Any:
+        return self._inner.stream_table(
+            candidate,
+            table,
+            policy,
+            table_plan=table_plan,
+        )
 
     def publish_main(self, expected_commit: str, candidate: str) -> Any:
         return self._inner.publish_main(expected_commit, candidate)

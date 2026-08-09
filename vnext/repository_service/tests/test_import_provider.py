@@ -119,6 +119,8 @@ class FakeImportProvider:
         candidate: str,
         table: TableCatalog,
         policy: UnknownTypePolicy,
+        *,
+        table_plan: object = None,
     ) -> Iterator[pa.RecordBatch]:
         yield pa.record_batch({"id": pa.array([], type=pa.int64())})
 
@@ -1365,10 +1367,12 @@ def test_concurrent_streams_keep_field_limit(
         commit_id: str,
         table: TableCatalog,
         policy: UnknownTypePolicy,
+        *,
+        table_plan: object = None,
     ) -> Iterator[pa.RecordBatch]:
         with lock:
             recorded_limits.append(csv.field_size_limit())
-        return original_stream_table(commit_id, table, policy)
+        return original_stream_table(commit_id, table, policy, table_plan=table_plan)
 
     errors: list[BaseException] = []
 
@@ -1822,10 +1826,12 @@ def test_concurrent_streams_with_over_128k_field(
         commit_id: str,
         table: TableCatalog,
         policy: UnknownTypePolicy,
+        *,
+        table_plan: object = None,
     ) -> Iterator[pa.RecordBatch]:
         with lock:
             recorded_limits.append(csv.field_size_limit())
-        return original_stream_table(commit_id, table, policy)
+        return original_stream_table(commit_id, table, policy, table_plan=table_plan)
 
     errors: list[BaseException] = []
 

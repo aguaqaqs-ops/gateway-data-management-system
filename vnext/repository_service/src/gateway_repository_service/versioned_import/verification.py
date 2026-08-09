@@ -16,7 +16,6 @@ from gateway_repository_service.arrow_mapping import (
     SqlValueConversionError,
     TableCatalog,
     UnknownSqlTypeError,
-    arrow_type,
     compile_table_plan,
     is_known_sql_type,
 )
@@ -73,15 +72,24 @@ def verify_import_candidate(
     if unknown_type_policy == UnknownTypePolicy.REJECT:
         _reject_unknown_catalog_types(catalog)
 
+    table_plans: dict[str, CompiledTablePlan] | None = None
     if verification_policy in {
         VerificationPolicy.STRUCTURAL,
         VerificationPolicy.FULL_SCAN,
     }:
-        _assert_columns_mappable(catalog, unknown_type_policy)
+        table_plans = _compile_table_plans(catalog, unknown_type_policy)
         _compare_manifest_structural(manifest, catalog)
 
     if verification_policy == VerificationPolicy.FULL_SCAN:
-        _full_scan_tables(provider, candidate, catalog, manifest, unknown_type_policy)
+        assert table_plans is not None
+        _full_scan_tables(
+            provider,
+            candidate,
+            catalog,
+            manifest,
+            unknown_type_policy,
+            table_plans,
+        )
 
     return ImportVerificationResult(
         completed_verification_policy=verification_policy,
@@ -122,26 +130,20 @@ def _reject_unknown_catalog_types(catalog: tuple[TableCatalog, ...]) -> None:
                 )
 
 
-def _assert_columns_mappable(
+def _compile_table_plans(
     catalog: tuple[TableCatalog, ...],
     unknown_type_policy: UnknownTypePolicy,
-) -> None:
-    """Fail fast when catalog spellings cannot be mapped to Arrow.
-
-    Under REJECT this is redundant with ``_reject_unknown_catalog_types`` because
-    both use ``arrow_type(..., REJECT)``. Under STRINGIFY malformed temporal
-    spellings are already rejected during ``normalize_sql_type``. STRUCTURAL and
-    FULL_SCAN alignment for unknown values is enforced in ``convert_value``.
-    """
+) -> dict[str, CompiledTablePlan]:
+    plans: dict[str, CompiledTablePlan] = {}
     for table in catalog:
-        for column in table.columns:
-            try:
-                arrow_type(column.sql_type, unknown_type_policy)
-            except UnknownSqlTypeError as exc:
-                raise ImportVerificationError(
-                    VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
-                    detail=f"unmappable SQL type in catalog: {table.name}.{column.name}",
-                ) from exc
+        try:
+            plans[table.name] = compile_table_plan(table, unknown_type_policy)
+        except UnknownSqlTypeError as exc:
+            raise ImportVerificationError(
+                VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+                detail=f"unmappable SQL type in catalog: {table.name}",
+            ) from exc
+    return plans
 
 
 def _compare_manifest_structural(
@@ -200,6 +202,7 @@ def _full_scan_tables(
     catalog: tuple[TableCatalog, ...],
     manifest: ImportManifest,
     unknown_type_policy: UnknownTypePolicy,
+    table_plans: dict[str, CompiledTablePlan],
 ) -> None:
     # FULL_SCAN enforces bidirectional manifest/catalog table-name alignment without
     # assuming _compare_manifest_structural() already ran.
@@ -219,16 +222,21 @@ def _full_scan_tables(
     for table in catalog:
         expected_row_count = manifest_row_counts[table.name]
         scanned_rows = 0
-        plan = compile_table_plan(table, unknown_type_policy)
+        plan = table_plans[table.name]
         try:
-            for batch in provider.stream_table(candidate, table, unknown_type_policy):
+            for batch in provider.stream_table(
+                candidate,
+                table,
+                unknown_type_policy,
+                table_plan=plan,
+            ):
                 _assert_batch_contract(batch, plan)
                 scanned_rows += batch.num_rows
         except SqlValueConversionError as exc:
             raise ImportVerificationError(
                 VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
                 detail=f"value conversion failed for {table.name}.{exc.column}",
-            ) from exc
+            )
         if scanned_rows != expected_row_count:
             raise ImportVerificationError(
                 VERIFICATION_FAILED_NOT_PUBLISHED_CODE,

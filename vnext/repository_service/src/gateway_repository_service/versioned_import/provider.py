@@ -9,7 +9,7 @@ from pathlib import Path
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_contracts import UnknownTypePolicy
-from gateway_repository_service.arrow_mapping import SqlValueConversionError, TableCatalog
+from gateway_repository_service.arrow_mapping import CompiledTablePlan, SqlValueConversionError, TableCatalog
 from gateway_repository_service.candidate_a.dolt_cli import CandidateADoltCli, _require_exactly_one_row, value
 from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import (
@@ -296,6 +296,8 @@ class CandidateAImportProvider:
         candidate: str,
         table: TableCatalog,
         policy: UnknownTypePolicy,
+        *,
+        table_plan: CompiledTablePlan | None = None,
     ) -> Iterator[pa.RecordBatch]:
         safe_candidate = validate_commit_id(candidate)
         try:
@@ -303,6 +305,7 @@ class CandidateAImportProvider:
                 safe_candidate,
                 table,
                 policy,
+                table_plan=table_plan,
             )
         except SqlValueConversionError:
             raise

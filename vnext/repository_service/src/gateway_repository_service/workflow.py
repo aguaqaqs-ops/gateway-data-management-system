@@ -18,7 +18,13 @@ from uuid import UUID, uuid4
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from gateway_repository_service.arrow_mapping import UnknownSqlTypeError, UnknownTypePolicy, TableCatalog
+from gateway_repository_service.arrow_mapping import (
+    CompiledTablePlan,
+    UnknownSqlTypeError,
+    UnknownTypePolicy,
+    TableCatalog,
+    compile_table_plan,
+)
 from gateway_repository_service.filesystem import (
     StorageSnapshot,
     filesystem_quiesce,
@@ -936,11 +942,17 @@ def _run_locked(
         stream_start = time.monotonic()
         first_seen = False
         for table in actual_catalog:
-            for batch in provider.stream_table(new_commit, table, UnknownTypePolicy.STRINGIFY):
+            plan = compile_table_plan(table, UnknownTypePolicy.STRINGIFY)
+            for batch in provider.stream_table(
+                new_commit,
+                table,
+                UnknownTypePolicy.STRINGIFY,
+                table_plan=plan,
+            ):
                 if not first_seen:
                     first_batch_seconds = time.monotonic() - stream_start
                     first_seen = True
-                _assert_batch_contract(batch, table)
+                _assert_batch_contract(batch, plan)
                 _assert_fixture_values(fixture, table.name, batch.to_pylist())
                 total_rows += batch.num_rows
             _merge_batch_metrics(
@@ -1384,21 +1396,22 @@ def _assert_catalog_exact(actual: tuple[TableCatalog, ...], fixture: Fixture) ->
                 )
 
 
-def _assert_batch_contract(batch: pa.RecordBatch, table: TableCatalog) -> None:
+def _assert_batch_contract(batch: pa.RecordBatch, plan: CompiledTablePlan) -> None:
+    table = plan.catalog
     if batch.num_columns != len(table.columns):
         raise ProviderError(f"Arrow column count mismatch for {table.name}")
     for index, column in enumerate(table.columns):
         field = batch.schema.field(index)
-        from gateway_repository_service.arrow_mapping import arrow_type
-
-        expected_type, expected_metadata = arrow_type(column.sql_type, UnknownTypePolicy.STRINGIFY)
+        expected_field = plan.expected_schema.field(index)
         if (
             field.name != column.name
-            or field.type != expected_type
+            or field.type != expected_field.type
             or field.nullable != column.nullable
-            or (field.metadata or {}) != (expected_metadata or {})
+            or (field.metadata or {}) != (expected_field.metadata or {})
         ):
-            raise ProviderError(f"Arrow field contract mismatch for {table.name}.{column.name}")
+            raise ProviderError(
+                f"Arrow field contract mismatch for {table.name}.{column.name}"
+            )
 
 
 def _stream_and_validate(
@@ -1409,8 +1422,14 @@ def _stream_and_validate(
 ) -> int:
     rows = 0
     for table in catalog:
-        for batch in provider.stream_table(commit_id, table, UnknownTypePolicy.STRINGIFY):
-            _assert_batch_contract(batch, table)
+        plan = compile_table_plan(table, UnknownTypePolicy.STRINGIFY)
+        for batch in provider.stream_table(
+            commit_id,
+            table,
+            UnknownTypePolicy.STRINGIFY,
+            table_plan=plan,
+        ):
+            _assert_batch_contract(batch, plan)
             _assert_fixture_values(fixture, table.name, batch.to_pylist())
             rows += batch.num_rows
     return rows

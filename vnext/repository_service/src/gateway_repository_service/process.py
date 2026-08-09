@@ -1614,7 +1614,7 @@ class ProcessStream:
             remaining = self.timeout - (time.monotonic() - self.started)
             if remaining <= 0:
                 selector.close()
-                self.close(cancelled=True)
+                self.close(timed_out=True)
                 raise TimeoutError(f"{self.command_kind} exceeded timeout")
             events = selector.select(timeout=min(0.05, remaining))
             if not events:
@@ -1654,7 +1654,7 @@ class ProcessStream:
                 self._raise_if_cancelled(selector=selector)
                 yield line
 
-    def close(self, *, cancelled: bool = False) -> CommandResult:
+    def close(self, *, cancelled: bool = False, timed_out: bool = False) -> CommandResult:
         if self._closed:
             return CommandResult(
                 command_kind=self.command_kind,
@@ -1663,6 +1663,7 @@ class ProcessStream:
                 stdout=b"",
                 stdout_tail=b"",
                 stderr_tail=self.stderr_tail.value(),
+                timed_out=timed_out,
                 cancelled=cancelled,
             )
         with self._lifecycle_lock:
@@ -1686,6 +1687,7 @@ class ProcessStream:
             stdout=b"",
             stdout_tail=b"",
             stderr_tail=self.stderr_tail.value(),
+            timed_out=timed_out,
             cancelled=cancelled,
         )
 
@@ -1698,7 +1700,12 @@ class ProcessStream:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.close(cancelled=exc_type is not None)
+        if exc_type is TimeoutError:
+            self.close(timed_out=True)
+        elif exc_type is not None:
+            self.close(cancelled=True)
+        else:
+            self.close()
 
 
 class ServerSupervisor:

@@ -35,7 +35,7 @@ class ProviderUnavailableError(VersionedReadError):
     """Provider, timeout, or malformed Dolt output made the read unavailable."""
 
 
-class ReadStreamCancelledError(ProviderUnavailableError):
+class ReadStreamCancelledError(VersionedReadError):
     """Row stream was cancelled before completion."""
 
 

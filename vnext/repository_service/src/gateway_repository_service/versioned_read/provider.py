@@ -55,7 +55,7 @@ def _as_read_stream_cancelled() -> ReadStreamCancelledError:
     return ReadStreamCancelledError(_CANCELLED_MESSAGE)
 
 
-def _as_provider_unavailable(exc: BaseException) -> ProviderUnavailableError:
+def _as_provider_unavailable(exc: BaseException) -> ProviderUnavailableError | ReadStreamCancelledError:
     if isinstance(exc, ProviderUnavailableError):
         return exc
     if isinstance(exc, ReadStreamCancelledError):

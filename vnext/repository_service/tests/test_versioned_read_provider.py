@@ -50,6 +50,7 @@ from gateway_repository_service.versioned_read.errors import (
     ReadStreamCancelledError,
     RepositoryNotVisibleError,
     TableNotFoundError,
+    VersionedReadError,
 )
 from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
 from support.lifecycle_harness import lifecycle_settings
@@ -421,6 +422,12 @@ def test_versioned_read_stream_timeout_maps_to_provider_unavailable() -> None:
                 )
     assert "SELECT" not in str(exc_info.value)
     assert exc_info.value.__cause__ is None
+
+
+def test_read_stream_cancelled_error_is_not_provider_unavailable() -> None:
+    exc = ReadStreamCancelledError("versioned read stream was cancelled")
+    assert isinstance(exc, VersionedReadError)
+    assert not isinstance(exc, ProviderUnavailableError)
 
 
 def test_dolt_cli_batch_loop_cancel_maps_to_read_stream_cancelled() -> None:

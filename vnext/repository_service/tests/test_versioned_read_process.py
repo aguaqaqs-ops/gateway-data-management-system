@@ -149,6 +149,30 @@ def test_process_stream_close_is_idempotent(tmp_path: Path, dolt_runner: tuple[D
 
 @pytest.mark.integration
 @pytest.mark.serial
+def test_process_stream_close_timed_out_sets_result_flag(
+    tmp_path: Path,
+    dolt_runner: tuple[DoltRunner, Path],
+) -> None:
+    runner, repository = dolt_runner
+    settings = lifecycle_settings(tmp_path)
+    layout = DurableLayout.create_for_probe(settings.data_root)
+    query = _blocking_sql_query(layout, 4)
+    process, _stdin = runner._start(
+        "row_stream",
+        ["sql", "--result-format=csv"],
+        cwd=repository,
+        stdin_path=query,
+    )
+    stream = ProcessStream(runner, process, "row_stream", settings.import_timeout_seconds)
+    result = stream.close(timed_out=True)
+    assert result.timed_out is True
+    assert result.cancelled is False
+    assert process.poll() is not None
+    query.unlink(missing_ok=True)
+
+
+@pytest.mark.integration
+@pytest.mark.serial
 def test_dolt_runner_stream_close_on_cancel_sends_term(
     tmp_path: Path,
     dolt_runner: tuple[DoltRunner, Path],

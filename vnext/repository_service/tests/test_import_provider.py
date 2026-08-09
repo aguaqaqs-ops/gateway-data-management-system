@@ -2911,9 +2911,11 @@ def test_inspect_marker_rejects_duplicate_refs(
 
 
 @pytest.mark.integration
-def test_read_catalog_rejects_whitespace_parent(
+@pytest.mark.parametrize("reader", ("read_catalog", "read_type_catalog"))
+def test_read_catalog_and_type_catalog_reject_whitespace_parent(
     import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
+    reader: str,
 ) -> None:
     _, _, _, candidate = _candidate_on_private_ref(
         import_provider,
@@ -2931,7 +2933,7 @@ def test_read_catalog_rejects_whitespace_parent(
         ),
     ):
         with pytest.raises(ImportProviderError, match="candidate parent"):
-            import_provider.read_catalog(candidate)
+            getattr(import_provider, reader)(candidate)
 
 
 @pytest.mark.integration

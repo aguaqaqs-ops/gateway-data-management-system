@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator, cast
+from unittest.mock import patch
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
@@ -927,8 +928,10 @@ def test_process_stream_timeout_during_blocked_wait() -> None:
     runner.settings = settings
     process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(2)"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stream = ProcessStream(runner, process, "test_timeout", 0.05)
-    with pytest.raises(TimeoutError):
-        next(iter(stream))
+    with patch.object(stream, "close", wraps=stream.close) as close_spy:
+        with pytest.raises(TimeoutError):
+            next(iter(stream))
+        close_spy.assert_called_once_with(timed_out=True)
     assert process.poll() is not None
 
 

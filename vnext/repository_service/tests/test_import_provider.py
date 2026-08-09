@@ -36,6 +36,7 @@ from gateway_repository_service.process import (
     _Capture,
 )
 from gateway_repository_service.providers import OfflineCliProvider
+from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.models import (
     derive_operation_marker,
@@ -3936,13 +3937,13 @@ def _memo_commit_id(index: int) -> str:
 
 
 @pytest.fixture
-def catalog_cli(import_layout: DurableLayout) -> CandidateADoltCli:
-    settings = lifecycle_settings(import_layout.root.parent)
-    repository = import_layout.staging_artifacts / "memo-repo"
+def catalog_cli(tmp_path: Path) -> CandidateADoltCli:
+    layout = DurableLayout.create(tmp_path / "root")
+    settings = RepositoryServiceSettings()
+    repository = layout.staging_artifacts / "memo-repo"
     repository.mkdir(parents=True, exist_ok=True)
-    with patch.object(DoltRunner, "_validate_version"):
-        runner = DoltRunner(settings, import_layout.root)
-    return CandidateADoltCli(settings, import_layout, repository, runner)
+    runner = MagicMock(spec=DoltRunner)
+    return CandidateADoltCli(settings, layout, repository, runner)
 
 
 def test_catalog_memo_evicts_least_recently_used(catalog_cli: CandidateADoltCli) -> None:

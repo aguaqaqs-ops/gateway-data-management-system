@@ -671,7 +671,7 @@ def test_full_scan_sql_value_conversion_error_maps_to_verification_failed() -> N
             return self.read_catalog(candidate)
 
         def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
-            raise SqlValueConversionError(column="id", sql_type="INT")
+            raise SqlValueConversionError(table="records", column="id", sql_type="INT")
             yield pa.record_batch({"id": pa.array([1], type=pa.int32())})
 
     table = TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 1)

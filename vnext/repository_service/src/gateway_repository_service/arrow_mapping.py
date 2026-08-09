@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import decimal
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Iterable, Iterator, NoReturn
@@ -15,6 +16,9 @@ from gateway_repository_contracts import UnknownTypePolicy
 
 __all__ = [
     "ColumnCatalog",
+    "CompiledColumnPlan",
+    "CompiledTablePlan",
+    "NormalizedRow",
     "TableCatalog",
     "TemporalSqlTypeKind",
     "TemporalSqlType",
@@ -23,6 +27,7 @@ __all__ = [
     "UnknownTypePolicy",
     "arrow_type",
     "classify_temporal_sql_type",
+    "compile_table_plan",
     "convert_value",
     "is_known_sql_type",
     "normalize_rows",
@@ -39,10 +44,13 @@ class UnknownSqlTypeError(ValueError):
 class SqlValueConversionError(ValueError):
     """Raised when a catalog value cannot be converted for Arrow emission."""
 
-    def __init__(self, *, column: str, sql_type: str) -> None:
+    def __init__(self, *, table: str, column: str, sql_type: str) -> None:
+        self.table = table
         self.column = column
         self.sql_type = sql_type
-        super().__init__(f"value conversion failed for column {column} ({sql_type})")
+        super().__init__(
+            f"value conversion failed for {table}.{column} ({sql_type})"
+        )
 
 
 @dataclass(frozen=True)
@@ -466,6 +474,205 @@ def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
     return str(value) if not isinstance(value, str) else value
 
 
+def _immutable_metadata(metadata: dict[bytes, bytes]) -> dict[bytes, bytes]:
+    return {bytes(key): bytes(value) for key, value in metadata.items()}
+
+
+def _value_size_bytes(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, str):
+        return len(value.encode("utf-8"))
+    if isinstance(value, bytes):
+        return len(value)
+    return len(str(value).encode("utf-8"))
+
+
+def _row_values_size_bytes(values: tuple[Any, ...]) -> int:
+    return sum(_value_size_bytes(value) for value in values)
+
+
+def _validate_bit_unused_high_bits(raw: bytes, width: int) -> None:
+    byte_length = (width + 7) // 8
+    if len(raw) > byte_length:
+        raise ValueError("BIT value exceeds catalog width")
+    excess_bits = byte_length * 8 - width
+    if excess_bits > 0:
+        max_first = (1 << (8 - excess_bits)) - 1
+        if raw[0] > max_first:
+            raise ValueError("BIT unused high bits must be zero")
+
+
+def _validate_logical_range(
+    *,
+    table_name: str,
+    column: ColumnCatalog,
+    value: Any,
+) -> Any:
+    if value is None and not column.nullable:
+        raise SqlValueConversionError(
+            table=table_name,
+            column=column.name,
+            sql_type=column.sql_type,
+        )
+    if value is None:
+        return value
+    upper = column.sql_type.upper()
+    if upper == "MEDIUMINT":
+        if not isinstance(value, int) or value < -8388608 or value > 8388607:
+            raise SqlValueConversionError(
+                table=table_name,
+                column=column.name,
+                sql_type=column.sql_type,
+            )
+    elif upper == "MEDIUMINT UNSIGNED":
+        if not isinstance(value, int) or value < 0 or value > 16777215:
+            raise SqlValueConversionError(
+                table=table_name,
+                column=column.name,
+                sql_type=column.sql_type,
+            )
+    bit_match = _BIT.match(upper)
+    if bit_match is not None and isinstance(value, bytes):
+        _validate_bit_unused_high_bits(value, int(bit_match.group(1)))
+    return value
+
+
+def _raise_column_conversion_error(
+    exc: ValueError | TypeError,
+    *,
+    table_name: str,
+    column: ColumnCatalog,
+) -> NoReturn:
+    if isinstance(exc, SqlValueConversionError):
+        raise exc
+    raise SqlValueConversionError(
+        table=table_name,
+        column=column.name,
+        sql_type=column.sql_type,
+    ) from exc
+
+
+@dataclass(frozen=True)
+class CompiledColumnPlan:
+    field: pa.Field
+    column: ColumnCatalog
+    converter: Callable[[Any], Any]
+
+
+@dataclass(frozen=True)
+class NormalizedRow:
+    values: tuple[Any, ...]
+    logical_size_bytes: int
+
+
+@dataclass(frozen=True)
+class CompiledTablePlan:
+    catalog: TableCatalog
+    columns: tuple[CompiledColumnPlan, ...]
+    expected_schema: pa.Schema
+
+    def normalize_row(self, raw: tuple[Any, ...]) -> NormalizedRow:
+        if len(raw) != len(self.columns):
+            raise ValueError("row column count does not match catalog")
+        converted: list[Any] = []
+        for index, column_plan in enumerate(self.columns):
+            column = column_plan.column
+            try:
+                value = column_plan.converter(raw[index])
+                value = _validate_logical_range(
+                    table_name=self.catalog.name,
+                    column=column,
+                    value=value,
+                )
+            except (ValueError, TypeError) as exc:
+                _raise_column_conversion_error(
+                    exc,
+                    table_name=self.catalog.name,
+                    column=column,
+                )
+            converted.append(value)
+        values = tuple(converted)
+        return NormalizedRow(
+            values=values,
+            logical_size_bytes=_row_values_size_bytes(values),
+        )
+
+    def record_batch(self, normalized_rows: Iterable[NormalizedRow]) -> pa.RecordBatch:
+        row_list = list(normalized_rows)
+        arrays: list[pa.Array] = []
+        last_column = self.columns[0].column
+        for index, column_plan in enumerate(self.columns):
+            last_column = column_plan.column
+            values = [row.values[index] for row in row_list]
+            try:
+                arrays.append(pa.array(values, type=column_plan.field.type))
+            except (ValueError, TypeError) as exc:
+                _raise_column_conversion_error(
+                    exc,
+                    table_name=self.catalog.name,
+                    column=last_column,
+                )
+        try:
+            return pa.RecordBatch.from_arrays(arrays, schema=self.expected_schema)
+        except (ValueError, TypeError) as exc:
+            _raise_column_conversion_error(
+                exc,
+                table_name=self.catalog.name,
+                column=last_column,
+            )
+
+
+def _make_column_converter(
+    table_name: str,
+    column: ColumnCatalog,
+    policy: UnknownTypePolicy,
+) -> Callable[[Any], Any]:
+    def convert(raw: Any) -> Any:
+        try:
+            return convert_value(raw, column.sql_type, policy)
+        except (ValueError, TypeError) as exc:
+            if isinstance(exc, SqlValueConversionError):
+                raise
+            raise SqlValueConversionError(
+                table=table_name,
+                column=column.name,
+                sql_type=column.sql_type,
+            ) from exc
+
+    return convert
+
+
+def compile_table_plan(
+    catalog: TableCatalog,
+    policy: UnknownTypePolicy,
+) -> CompiledTablePlan:
+    column_plans: list[CompiledColumnPlan] = []
+    for column in catalog.columns:
+        data_type, metadata = arrow_type(column.sql_type, policy)
+        immutable_metadata = _immutable_metadata(metadata)
+        field = pa.field(
+            column.name,
+            data_type,
+            nullable=column.nullable,
+            metadata=immutable_metadata or None,
+        )
+        column_plans.append(
+            CompiledColumnPlan(
+                field=field,
+                column=column,
+                converter=_make_column_converter(catalog.name, column, policy),
+            )
+        )
+    columns = tuple(column_plans)
+    expected_schema = pa.schema([column_plan.field for column_plan in columns])
+    return CompiledTablePlan(
+        catalog=catalog,
+        columns=columns,
+        expected_schema=expected_schema,
+    )
+
+
 def normalize_rows(
     catalog: TableCatalog,
     rows: Iterable[tuple[Any, ...]],
@@ -478,34 +685,8 @@ def normalize_rows(
     accounting and batch splitting independent of the provider framing.
     """
 
-    columns = catalog.columns
-    normalized: list[tuple[Any, ...]] = []
-    for row in rows:
-        if len(row) != len(columns):
-            raise ValueError("row column count does not match catalog")
-        converted_row: list[Any] = []
-        for index, column in enumerate(columns):
-            try:
-                converted_row.append(convert_value(row[index], column.sql_type, policy))
-            except (ValueError, TypeError) as exc:
-                if isinstance(exc, SqlValueConversionError):
-                    raise
-                raise SqlValueConversionError(
-                    column=column.name,
-                    sql_type=column.sql_type,
-                ) from exc
-        normalized.append(tuple(converted_row))
-    return normalized
-
-
-def _raise_column_conversion_error(
-    exc: ValueError | TypeError,
-    *,
-    column: ColumnCatalog,
-) -> NoReturn:
-    if isinstance(exc, SqlValueConversionError):
-        raise exc
-    raise SqlValueConversionError(column=column.name, sql_type=column.sql_type) from exc
+    plan = compile_table_plan(catalog, policy)
+    return [plan.normalize_row(row).values for row in rows]
 
 
 def record_batch(
@@ -513,22 +694,6 @@ def record_batch(
     rows: Iterable[tuple[Any, ...]],
     policy: UnknownTypePolicy,
 ) -> pa.RecordBatch:
-    row_list = normalize_rows(catalog, rows, policy)
-    arrays: list[pa.Array] = []
-    fields: list[pa.Field] = []
-    last_column = catalog.columns[0]
-    for index, column in enumerate(catalog.columns):
-        last_column = column
-        data_type, metadata = arrow_type(column.sql_type, policy)
-        values = [row[index] for row in row_list]
-        try:
-            arrays.append(pa.array(values, type=data_type))
-        except (ValueError, TypeError) as exc:
-            _raise_column_conversion_error(exc, column=column)
-        fields.append(
-            pa.field(column.name, data_type, nullable=column.nullable, metadata=metadata or None)
-        )
-    try:
-        return pa.RecordBatch.from_arrays(arrays, schema=pa.schema(fields))
-    except (ValueError, TypeError) as exc:
-        _raise_column_conversion_error(exc, column=last_column)
+    plan = compile_table_plan(catalog, policy)
+    normalized_rows = [plan.normalize_row(row) for row in rows]
+    return plan.record_batch(normalized_rows)

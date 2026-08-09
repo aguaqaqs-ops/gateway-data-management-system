@@ -15,11 +15,10 @@ from uuid import uuid4
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.arrow_mapping import (
+    NormalizedRow,
     TableCatalog,
     UnknownTypePolicy,
-    arrow_type,
-    normalize_rows,
-    record_batch,
+    compile_table_plan,
 )
 from gateway_repository_service.candidate_a.errors import CandidateAError
 from gateway_repository_service.candidate_a.ref_validation import commit_literal, validate_commit_id
@@ -28,7 +27,6 @@ from gateway_repository_service.candidate_a.sql import (
     _observe_batch_metrics,
     _parse_create_statement,
     _parse_tagged_row,
-    _row_bytes,
     _tagged_select_list,
     quote_identifier,
 )
@@ -471,8 +469,7 @@ class CandidateADoltCli:
     ) -> Iterator[pa.RecordBatch]:
         safe_commit_id = validate_commit_id(commit_id)
         select_list, expected_header = _tagged_select_list(table)
-        for column in table.columns:
-            arrow_type(column.sql_type, policy)
+        plan = compile_table_plan(table, policy)
         query = write_query(
             self.query_directory,
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF {commit_literal(safe_commit_id)};\n",
@@ -515,14 +512,14 @@ class CandidateADoltCli:
                 return
             if header != expected_header:
                 raise DoltCliError("tagged CSV header mismatch")
-            rows: list[tuple[Any, ...]] = []
+            rows: list[NormalizedRow] = []
             rows_bytes = 0
 
-            def emit(chunk: list[tuple[Any, ...]]) -> pa.RecordBatch:
-                batch = record_batch(table, chunk, policy)
+            def emit(chunk: list[NormalizedRow]) -> pa.RecordBatch:
+                batch = plan.record_batch(chunk)
                 _observe_batch_metrics(
                     batch_metrics,
-                    chunk,
+                    [row.values for row in chunk],
                     row_bound=self.settings.record_batch_rows,
                     byte_bound=self.settings.record_batch_bytes,
                 )
@@ -530,8 +527,8 @@ class CandidateADoltCli:
 
             for row in reader:
                 parsed = _parse_tagged_row(row, table)
-                normalized = normalize_rows(table, [parsed], policy)[0]
-                parsed_bytes = _row_bytes(normalized)
+                normalized_row = plan.normalize_row(parsed)
+                parsed_bytes = normalized_row.logical_size_bytes
                 if rows and (
                     len(rows) >= self.settings.record_batch_rows
                     or rows_bytes + parsed_bytes > self.settings.record_batch_bytes
@@ -540,9 +537,9 @@ class CandidateADoltCli:
                     rows = []
                     rows_bytes = 0
                 if parsed_bytes > self.settings.record_batch_bytes:
-                    yield emit([normalized])
+                    yield emit([normalized_row])
                 else:
-                    rows.append(normalized)
+                    rows.append(normalized_row)
                     rows_bytes += parsed_bytes
             if rows:
                 yield emit(rows)

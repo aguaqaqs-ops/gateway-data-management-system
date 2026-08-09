@@ -16,11 +16,10 @@ from uuid import uuid4
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.arrow_mapping import (
+    NormalizedRow,
     TableCatalog,
     UnknownTypePolicy,
-    arrow_type,
-    normalize_rows,
-    record_batch,
+    compile_table_plan,
 )
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import (
@@ -442,8 +441,7 @@ class OfflineCliProvider:
         self.last_stream_metrics = {}
         self.last_plateau_peaks = _empty_plateau_peaks()
         select_list, expected_header = _tagged_select_list(table)
-        for column in table.columns:
-            arrow_type(column.sql_type, policy)
+        plan = compile_table_plan(table, policy)
         query = _write_query(
             self.query_directory,
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF '{commit_id}';\n",
@@ -514,23 +512,23 @@ class OfflineCliProvider:
                 return
             if header != expected_header:
                 raise ProviderError("tagged CSV header mismatch")
-            rows: list[tuple[Any, ...]] = []
+            rows: list[NormalizedRow] = []
             rows_bytes = 0
 
-            def emit(chunk: list[tuple[Any, ...]]) -> pa.RecordBatch:
+            def emit(chunk: list[NormalizedRow]) -> pa.RecordBatch:
                 nonlocal rows_seen, peak_arrow, workflow_peak
                 start = rows_seen
                 end = rows_seen + len(chunk)
                 windows = windows_for_interval(start, end, table.row_count)
                 sampler.set_active(windows)
                 sampler.sample(windows)
-                batch = record_batch(table, chunk, policy)
+                batch = plan.record_batch(chunk)
                 peak_arrow = max(peak_arrow, pa.default_memory_pool().bytes_allocated())
                 workflow_peak = max(workflow_peak, process_tree_rss_kib(os.getpid()))
                 sampler.sample(windows)
                 _observe_batch_metrics(
                     batch_metrics,
-                    chunk,
+                    [row.values for row in chunk],
                     row_bound=self.settings.record_batch_rows,
                     byte_bound=self.settings.record_batch_bytes,
                 )
@@ -539,8 +537,8 @@ class OfflineCliProvider:
 
             for row in reader:
                 parsed = _parse_tagged_row(row, table)
-                normalized = normalize_rows(table, [parsed], policy)[0]
-                parsed_bytes = _row_bytes(normalized)
+                normalized_row = plan.normalize_row(parsed)
+                parsed_bytes = normalized_row.logical_size_bytes
                 if rows and (
                     len(rows) >= self.settings.record_batch_rows
                     or rows_bytes + parsed_bytes > self.settings.record_batch_bytes
@@ -552,11 +550,11 @@ class OfflineCliProvider:
                 if parsed_bytes > self.settings.record_batch_bytes:
                     oversized_single_row = True
                     oversized_row_bytes = max(oversized_row_bytes or 0, parsed_bytes)
-                    yield emit([normalized])
+                    yield emit([normalized_row])
                     sampler.sample()
                 else:
                     pending_index = len(rows)
-                    rows.append(normalized)
+                    rows.append(normalized_row)
                     rows_bytes += parsed_bytes
                     sampler.set_active(
                         _pending_row_windows(rows_seen, pending_index, table.row_count)
@@ -976,10 +974,11 @@ class SqlServerProvider:
             # Fetch a small, explicit connector bound. The splitter consumes
             # the returned rows immediately and never materializes a
             # row-bound-sized pending result.
-            pending: list[tuple[Any, ...]] = []
+            plan = compile_table_plan(table, policy)
+            pending: list[NormalizedRow] = []
             pending_bytes = 0
 
-            def emit(chunk: list[tuple[Any, ...]]) -> pa.RecordBatch:
+            def emit(chunk: list[NormalizedRow]) -> pa.RecordBatch:
                 nonlocal rows_seen, peak_arrow, workflow_peak, peak_rss, peak_cgroup, batch_index
                 start = rows_seen
                 end = rows_seen + len(chunk)
@@ -988,7 +987,7 @@ class SqlServerProvider:
                 sampler.sample(windows)
                 if self.supervisor.process is not None:
                     peak_rss = max(peak_rss, process_tree_rss_kib(self.supervisor.process.pid))
-                batch = record_batch(table, chunk, policy)
+                batch = plan.record_batch(chunk)
                 batch_index += 1
                 workflow_peak = max(workflow_peak, process_tree_rss_kib(os.getpid()))
                 peak_arrow = max(peak_arrow, pa.default_memory_pool().bytes_allocated())
@@ -998,7 +997,7 @@ class SqlServerProvider:
                 sampler.sample(windows)
                 _observe_batch_metrics(
                     batch_metrics,
-                    chunk,
+                    [row.values for row in chunk],
                     row_bound=self.settings.record_batch_rows,
                     byte_bound=self.settings.record_batch_bytes,
                 )
@@ -1014,8 +1013,8 @@ class SqlServerProvider:
                     break
                 fetched_payload = 0
                 for raw_candidate in rows:
-                    candidate = normalize_rows(table, [tuple(raw_candidate)], policy)[0]
-                    candidate_bytes = _row_bytes(candidate)
+                    normalized_row = plan.normalize_row(tuple(raw_candidate))
+                    candidate_bytes = normalized_row.logical_size_bytes
                     fetched_payload += candidate_bytes
                     max_fetched_payload_bytes = max(max_fetched_payload_bytes, fetched_payload)
                     if pending and (
@@ -1029,11 +1028,11 @@ class SqlServerProvider:
                     if candidate_bytes > self.settings.record_batch_bytes:
                         oversized_single_row = True
                         oversized_row_bytes = max(oversized_row_bytes or 0, candidate_bytes)
-                        yield emit([candidate])
+                        yield emit([normalized_row])
                         sampler.sample()
                     else:
                         pending_index = len(pending)
-                        pending.append(candidate)
+                        pending.append(normalized_row)
                         pending_bytes += candidate_bytes
                         sampler.set_active(
                             _pending_row_windows(

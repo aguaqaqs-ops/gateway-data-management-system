@@ -12,10 +12,12 @@ import pyarrow as pa  # type: ignore[import-untyped]
 from gateway_repository_contracts import UnknownTypePolicy, VerificationPolicy
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
+    CompiledTablePlan,
     SqlValueConversionError,
     TableCatalog,
     UnknownSqlTypeError,
     arrow_type,
+    compile_table_plan,
     is_known_sql_type,
 )
 from gateway_repository_service.versioned_import.models import ImportManifest, ImportManifestTable
@@ -217,9 +219,10 @@ def _full_scan_tables(
     for table in catalog:
         expected_row_count = manifest_row_counts[table.name]
         scanned_rows = 0
+        plan = compile_table_plan(table, unknown_type_policy)
         try:
             for batch in provider.stream_table(candidate, table, unknown_type_policy):
-                _assert_batch_contract(batch, table, unknown_type_policy)
+                _assert_batch_contract(batch, plan)
                 scanned_rows += batch.num_rows
         except SqlValueConversionError as exc:
             raise ImportVerificationError(
@@ -235,9 +238,9 @@ def _full_scan_tables(
 
 def _assert_batch_contract(
     batch: pa.RecordBatch,
-    table: TableCatalog,
-    unknown_type_policy: UnknownTypePolicy,
+    plan: CompiledTablePlan,
 ) -> None:
+    table = plan.catalog
     if batch.num_columns != len(table.columns):
         raise ImportVerificationError(
             VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
@@ -245,18 +248,12 @@ def _assert_batch_contract(
         )
     for index, column in enumerate(table.columns):
         field = batch.schema.field(index)
-        try:
-            expected_type, expected_metadata = arrow_type(column.sql_type, unknown_type_policy)
-        except UnknownSqlTypeError as exc:
-            raise ImportVerificationError(
-                VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
-                detail=f"Arrow type mapping failed for {table.name}.{column.name}",
-            ) from exc
+        expected_field = plan.expected_schema.field(index)
         if (
             field.name != column.name
-            or field.type != expected_type
+            or field.type != expected_field.type
             or field.nullable != column.nullable
-            or (field.metadata or {}) != (expected_metadata or {})
+            or (field.metadata or {}) != (expected_field.metadata or {})
         ):
             raise ImportVerificationError(
                 VERIFICATION_FAILED_NOT_PUBLISHED_CODE,

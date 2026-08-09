@@ -194,6 +194,7 @@ def test_stringify_known_type_conversion_failure_raises_sql_value_conversion_err
         record_batch(catalog, [("not-a-date",)], UnknownTypePolicy.STRINGIFY)
     message = str(exc_info.value)
     assert "not-a-date" not in message
+    assert exc_info.value.table == "records"
     assert exc_info.value.column == "event_date"
     assert exc_info.value.sql_type == "DATE"
 
@@ -213,6 +214,7 @@ def test_int_column_non_scalar_raises_sql_value_conversion_error(bad_value: obje
     )
     with pytest.raises(SqlValueConversionError) as exc_info:
         record_batch(catalog, [(bad_value,)], UnknownTypePolicy.STRINGIFY)
+    assert exc_info.value.table == "records"
     assert exc_info.value.column == "value"
     assert exc_info.value.sql_type == "INT"
 

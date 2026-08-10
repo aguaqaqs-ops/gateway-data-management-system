@@ -794,6 +794,7 @@ class TestProviderLifecycle:
 
 class TestDynamicReadiness:
     @pytest.mark.integration
+    @pytest.mark.serial
     def test_closed_control_db_makes_runtime_not_ready(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         runtime = ServiceRuntime.start(settings)

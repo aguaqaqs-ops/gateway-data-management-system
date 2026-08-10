@@ -204,12 +204,21 @@ def test_versioned_table_round_trip_model_dump() -> None:
 
 
 def test_public_exports_include_read_constants() -> None:
+    from gateway_repository_contracts import (
+        REQUEST_VALIDATION_FAILED_CODE,
+        SERVICE_NOT_READY_CODE,
+        VERSIONED_READ_ERROR_CODES,
+    )
+
     assert VERSIONED_READ_ARROW_MEDIA_TYPE == "application/vnd.apache.arrow.stream"
     assert REPOSITORY_NOT_FOUND_CODE == "REPOSITORY_NOT_FOUND"
     assert REF_NOT_FOUND_CODE == "REF_NOT_FOUND"
     assert COMMIT_NOT_FOUND_CODE == "COMMIT_NOT_FOUND"
     assert TABLE_NOT_FOUND_CODE == "TABLE_NOT_FOUND"
     assert UNKNOWN_SQL_TYPE_CODE == "UNKNOWN_SQL_TYPE"
+    assert SERVICE_NOT_READY_CODE == "SERVICE_NOT_READY"
+    assert REQUEST_VALIDATION_FAILED_CODE == "REQUEST_VALIDATION_FAILED"
+    assert "SERVICE_NOT_READY" in VERSIONED_READ_ERROR_CODES
 
 
 def test_resolve_request_uses_main_literal() -> None:
@@ -242,3 +251,30 @@ def test_stream_rows_query_openapi_schema_declares_table_name_constraints() -> N
     assert table_name["minLength"] == 1
     assert table_name["maxLength"] == 64
     assert "pattern" in table_name
+
+
+def test_versioned_catalog_schema_declares_identifier_constraints() -> None:
+    from gateway_repository_contracts import VersionedCatalog
+
+    schema = VersionedCatalog.model_json_schema()
+    table_name = schema["$defs"]["VersionedTable"]["properties"]["name"]
+    column_name = schema["$defs"]["VersionedColumn"]["properties"]["name"]
+    primary_key_items = schema["$defs"]["VersionedTable"]["properties"]["primary_key"]["items"]
+    for field_schema in (table_name, column_name, primary_key_items):
+        assert field_schema["minLength"] == 1
+        assert field_schema["maxLength"] == 64
+        assert "pattern" in field_schema
+
+
+def test_versioned_read_error_codes_cover_failure_matrix() -> None:
+    from gateway_repository_contracts import VERSIONED_READ_ERROR_CODES
+
+    assert VERSIONED_READ_ERROR_CODES == {
+        "REPOSITORY_NOT_FOUND",
+        "REF_NOT_FOUND",
+        "COMMIT_NOT_FOUND",
+        "TABLE_NOT_FOUND",
+        "UNKNOWN_SQL_TYPE",
+        "SERVICE_NOT_READY",
+        "REQUEST_VALIDATION_FAILED",
+    }

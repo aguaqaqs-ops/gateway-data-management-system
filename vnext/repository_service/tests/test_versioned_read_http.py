@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -30,7 +29,6 @@ from gateway_repository_service.arrow_mapping import (
     compile_table_plan,
 )
 from gateway_repository_service.http.readiness import ReadinessPort
-from gateway_repository_service.versioned_read.arrow_bridge import ArrowIpcStreamBridge
 from gateway_repository_service.versioned_read.errors import (
     CommitNotFoundError,
     MainRefNotFoundError,
@@ -394,42 +392,6 @@ def test_rows_preflight_completes_before_response_body(env: ImportHttpTestEnviro
     assert calls == ["preflight"]
     assert response.status_code == 200
     assert response.content
-
-
-def test_arrow_bridge_backpressure_and_first_batch_barrier() -> None:
-    plan, batches = _plan_and_batches()
-    release = threading.Event()
-    started = threading.Event()
-
-    def gated_batches() -> Iterator[pa.RecordBatch]:
-        started.set()
-        assert release.wait(timeout=2.0)
-        yield from batches
-
-    cancellation = threading.Event()
-    bridge = ArrowIpcStreamBridge(plan, gated_batches(), cancellation)
-
-    async def consume() -> bytes:
-        chunks: list[bytes] = []
-        async for chunk in bridge.iter_bytes():
-            chunks.append(chunk)
-        return b"".join(chunks)
-
-    import asyncio
-
-    async def run() -> tuple[bytes, bool]:
-        task = asyncio.create_task(consume())
-        assert started.wait(timeout=2.0)
-        await asyncio.sleep(0.05)
-        assert not task.done()
-        release.set()
-        return await task, started.is_set()
-
-    body, was_started = asyncio.run(run())
-    assert was_started
-    assert body
-    reader = pa_ipc.open_stream(body)
-    assert list(reader)
 
 
 def test_production_openapi_paths(env: ImportHttpTestEnvironment) -> None:

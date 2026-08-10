@@ -13,7 +13,9 @@ from gateway_repository_contracts import (
     GetVersionedCatalogResponse,
     REF_NOT_FOUND_CODE,
     REPOSITORY_NOT_FOUND_CODE,
+    REQUEST_VALIDATION_FAILED_CODE,
     ResolveVersionedRefResponse,
+    SERVICE_NOT_READY_CODE,
     TABLE_NOT_FOUND_CODE,
     UNKNOWN_SQL_TYPE_CODE,
     VersionedCatalog,
@@ -116,7 +118,7 @@ def map_read_error(exc: BaseException) -> ServiceError:
         )
     if isinstance(exc, ProviderUnavailableError):
         return ServiceError(
-            code="SERVICE_NOT_READY",
+            code=SERVICE_NOT_READY_CODE,
             message=_SERVICE_NOT_READY_MESSAGE,
             status_code=503,
         )
@@ -143,7 +145,7 @@ def map_read_error(exc: BaseException) -> ServiceError:
 
 def request_validation_failed(exc: ValidationError) -> ServiceError:
     return ServiceError(
-        code="REQUEST_VALIDATION_FAILED",
+        code=REQUEST_VALIDATION_FAILED_CODE,
         message=_REQUEST_VALIDATION_MESSAGE,
         status_code=422,
         details={"errors": sanitize_validation_errors(exc.errors())},
@@ -153,7 +155,7 @@ def request_validation_failed(exc: ValidationError) -> ServiceError:
 def _catalog_wire_unavailable(exc: ValidationError) -> ServiceError:
     del exc
     return ServiceError(
-        code="SERVICE_NOT_READY",
+        code=SERVICE_NOT_READY_CODE,
         message=_SERVICE_NOT_READY_MESSAGE,
         status_code=503,
     )

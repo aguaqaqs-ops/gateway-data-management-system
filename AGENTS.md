@@ -14,7 +14,7 @@
 
 ```bash
 cd vnext/repository_service
-uv run pytest -m unit          # 约 443 项，无外部依赖，约 7 秒
+uv run pytest -m unit          # 约 910 项，无外部依赖，约 12 秒
 uv run pytest -m integration   # 需要真实 dolt
 uv run pytest -m serial -n 0   # 时序敏感组，必须串行
 ```
@@ -66,7 +66,7 @@ sha256sum vnext/repository_service/uv.lock
 ## 提交前
 
 五个 Python 包都要过 ruff 与 mypy（`repository_service` 为 `strict = true` 且覆盖
-`tests`）：
+`tests`）。mypy 增量缓存命中时五个包合计约 1.5 秒，不是耗时项，不要为了省时间跳过：
 
 ```bash
 cd vnext/<package> && uv run ruff check . && uv run mypy

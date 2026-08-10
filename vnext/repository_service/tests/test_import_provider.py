@@ -1380,16 +1380,19 @@ def test_concurrent_streams_keep_field_limit(
 
     def consume() -> None:
         try:
-            with patch.object(import_provider._cli, "stream_table", side_effect=recording_stream):
-                list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
+            list(import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY))
         except BaseException as exc:
             errors.append(exc)
 
-    threads = [threading.Thread(target=consume), threading.Thread(target=consume)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    # One patch shared by both threads: nesting patch.object on the same instance
+    # attribute from concurrent threads races on restore and leaves the attribute
+    # deleted (AttributeError in whichever thread unwinds second).
+    with patch.object(import_provider._cli, "stream_table", side_effect=recording_stream):
+        threads = [threading.Thread(target=consume), threading.Thread(target=consume)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
 
     assert not errors
     assert recorded_limits

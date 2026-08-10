@@ -1670,6 +1670,7 @@ class ProcessStream:
                 self.runner.terminate_and_reap(self.process)
             else:
                 self.process.wait()
+                self.runner._unregister_active_child(self.process)
                 self.runner.reap_adopted_dolt_children()
             self._stderr_thread.join(timeout=self.runner.settings.terminate_grace_seconds)
             if self.process.stdout is not None:

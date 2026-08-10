@@ -21,7 +21,7 @@ from gateway_repository_contracts.types import CommitIdString
 from gateway_repository_service.http.auth import require_bearer_token
 from gateway_repository_service.http.openapi import (
     versioned_read_arrow_stream_response,
-    versioned_read_error_responses,
+    versioned_read_json_responses,
 )
 from gateway_repository_service.http.readiness_guard import require_service_ready
 from gateway_repository_service.runtime import ServiceRuntime
@@ -36,7 +36,7 @@ def register_versioned_read_routes(app: FastAPI) -> None:
         "/v1/repositories/{repository_id}/versioned/refs/{ref_name}",
         response_model=ResolveVersionedRefResponse,
         status_code=200,
-        responses=versioned_read_error_responses(),
+        responses=versioned_read_json_responses(success_description="Resolved versioned ref"),
     )
     def resolve_versioned_ref(
         request: Request,
@@ -53,7 +53,7 @@ def register_versioned_read_routes(app: FastAPI) -> None:
         "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog",
         response_model=GetVersionedCatalogResponse,
         status_code=200,
-        responses=versioned_read_error_responses(),
+        responses=versioned_read_json_responses(success_description="Versioned catalog"),
     )
     def get_versioned_catalog(
         request: Request,

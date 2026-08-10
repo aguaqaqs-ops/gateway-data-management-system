@@ -37,6 +37,16 @@ def versioned_read_error_responses() -> dict[int | str, dict[str, Any]]:
     }
 
 
+def versioned_read_json_responses(*, success_description: str) -> dict[int | str, dict[str, Any]]:
+    return {
+        200: {
+            "description": success_description,
+            "headers": REQUEST_ID_HEADER,
+        },
+        **versioned_read_error_responses(),
+    }
+
+
 def versioned_read_arrow_stream_response() -> dict[int | str, dict[str, Any]]:
     return {
         200: {

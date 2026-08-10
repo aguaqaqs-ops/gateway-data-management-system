@@ -144,9 +144,6 @@ class ArrowIpcStreamBridge:
             if self._worker.is_alive():
                 BRIDGE_REGISTRY.unregister(self)
                 raise BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
-        runner = dolt_runner or self._dolt_runner
-        if runner is not None:
-            runner.terminate_active_children(grace_seconds=_DOLT_REAP_GRACE_SECONDS)
         self._worker_joined.set()
         BRIDGE_REGISTRY.unregister(self)
 

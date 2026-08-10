@@ -195,6 +195,35 @@ def test_resolve_maps_unclassified_versioned_read_error_to_internal_error(
     assert response.json()["code"] == "INTERNAL_ERROR"
 
 
+@pytest.mark.parametrize(
+  ("method_name", "path"),
+  [
+      ("resolve_main", "/v1/repositories/{repository_id}/versioned/refs/main"),
+      (
+          "get_catalog",
+          "/v1/repositories/{repository_id}/versioned/commits/commit-1/catalog",
+      ),
+      (
+          "open_table_rows",
+          "/v1/repositories/{repository_id}/versioned/commits/commit-1/rows?table_name=items",
+      ),
+  ],
+)
+def test_versioned_read_maps_unexpected_exception_to_internal_error(
+    env: ImportHttpTestEnvironment,
+    method_name: str,
+    path: str,
+) -> None:
+    repository_id = env.seed_repository()
+    getattr(_read_app(env), method_name).side_effect = RuntimeError("boom")
+    response = env.client.get(
+        path.format(repository_id=repository_id),
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 500
+    assert response.json()["code"] == "INTERNAL_ERROR"
+
+
 def test_catalog_returns_wire_shape(env: ImportHttpTestEnvironment) -> None:
     repository_id = env.seed_repository()
     table = _items_table()
@@ -427,6 +456,10 @@ def test_openapi_rows_declares_binary_arrow_media(env: ImportHttpTestEnvironment
     )
     assert commit_param["schema"]["minLength"] == 1
     assert commit_param["schema"]["maxLength"] == 1024
+    table_name_param = next(item for item in table_param if item.get("name") == "table_name")
+    assert table_name_param["schema"]["minLength"] == 1
+    assert table_name_param["schema"]["maxLength"] == 64
+    assert "pattern" in table_name_param["schema"]
 
 
 def test_openapi_read_routes_declare_simple_error_and_request_id(env: ImportHttpTestEnvironment) -> None:
@@ -443,6 +476,7 @@ def test_openapi_read_routes_declare_simple_error_and_request_id(env: ImportHttp
                 "$ref": "#/components/schemas/SimpleError"
             }
             assert response["headers"]["X-Request-ID"]["schema"]["type"] == "string"
+        assert operation["responses"]["200"]["headers"]["X-Request-ID"]["schema"]["type"] == "string"
 
 
 def test_openapi_has_no_json_rows_or_latest_terms(env: ImportHttpTestEnvironment) -> None:

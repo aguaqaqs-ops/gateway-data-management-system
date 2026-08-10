@@ -232,3 +232,13 @@ def test_versioned_identifier_rejects_non_string_values(invalid_value: object) -
 def test_versioned_table_name_rejects_non_string_values(invalid_value: object) -> None:
     with pytest.raises(ValidationError):
         _TableNameProbe(value=invalid_value)  # type: ignore[arg-type]
+
+
+def test_stream_rows_query_openapi_schema_declares_table_name_constraints() -> None:
+    from gateway_repository_contracts import StreamVersionedTableRowsQuery
+
+    schema = StreamVersionedTableRowsQuery.model_json_schema()
+    table_name = schema["properties"]["table_name"]
+    assert table_name["minLength"] == 1
+    assert table_name["maxLength"] == 64
+    assert "pattern" in table_name

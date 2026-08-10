@@ -526,3 +526,50 @@ def test_http_runtime_shutdown_closes_active_row_stream(read_http_env: ReadHttpI
     consumer.join(timeout=15.0)
     assert BRIDGE_REGISTRY.snapshot() == ()
     assert env.runner._active_children.snapshot() == ()
+
+
+@pytest.mark.serial
+def test_http_concurrent_row_streams_do_not_interfere(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    inserts = "".join(f"INSERT INTO items (id, label) VALUES ({index}, 'v{index}');\n" for index in range(1, 2501))
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "concurrent.sql",
+            "CREATE TABLE items (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n" + inserts,
+        )
+    )
+    commit_id = _commit_changes(
+        env.offline,
+        "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000016",
+    )
+    row_counts: list[int | None] = [None, None]
+    errors: list[BaseException] = []
+
+    def read_all_rows(index: int) -> None:
+        try:
+            response = env.client.get(
+                f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+                params={"table_name": "items"},
+                headers=_auth_headers(),
+            )
+            assert response.status_code == 200
+            batches = list(pa_ipc.open_stream(response.content))
+            row_counts[index] = sum(batch.num_rows for batch in batches)
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=read_all_rows, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30.0)
+        assert not thread.is_alive()
+    if errors:
+        raise errors[0]
+    assert row_counts == [2500, 2500]
+    _wait_until(
+        lambda: env.runner._active_children.snapshot() == (),
+        timeout_seconds=10.0,
+        message="dolt child processes were not reaped after concurrent reads",
+    )

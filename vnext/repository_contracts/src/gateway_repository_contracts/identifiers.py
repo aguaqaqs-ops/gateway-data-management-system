@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BeforeValidator
+from pydantic import BeforeValidator, StringConstraints
 
 _MIN_CODE_POINTS = 1
 _MAX_CODE_POINTS = 64
+_TABLE_NAME_OPENAPI_PATTERN = r"^[^\x00-\x1f\x7f/\\]+$"
 
 
 def _code_point_count(value: str) -> int:
@@ -42,4 +43,12 @@ def _validate_table_identifier(value: object) -> str:
 
 
 VersionedIdentifierString = Annotated[str, BeforeValidator(_validate_column_identifier)]
-VersionedTableNameString = Annotated[str, BeforeValidator(_validate_table_identifier)]
+VersionedTableNameString = Annotated[
+    str,
+    StringConstraints(
+        min_length=_MIN_CODE_POINTS,
+        max_length=_MAX_CODE_POINTS,
+        pattern=_TABLE_NAME_OPENAPI_PATTERN,
+    ),
+    BeforeValidator(_validate_table_identifier),
+]

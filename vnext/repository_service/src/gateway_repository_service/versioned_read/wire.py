@@ -135,9 +135,9 @@ def map_read_error(exc: BaseException) -> ServiceError:
             status_code=500,
         )
     return ServiceError(
-        code="SERVICE_NOT_READY",
-        message=_SERVICE_NOT_READY_MESSAGE,
-        status_code=503,
+        code=INTERNAL_ERROR_CODE,
+        message=INTERNAL_ERROR_MESSAGE,
+        status_code=500,
     )
 
 

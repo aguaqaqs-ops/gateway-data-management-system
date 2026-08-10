@@ -37,6 +37,7 @@ from gateway_repository_service.versioned_read.errors import (
     ProviderUnavailableError,
     RepositoryNotVisibleError,
     TableNotFoundError,
+    VersionedReadError,
 )
 from support.http_harness import (
     PRODUCTION_OPENAPI_PATHS,
@@ -171,7 +172,27 @@ def test_resolve_error_matrix(
         headers=_auth_headers(),
     )
     assert response.status_code == status_code
-    assert response.json()["code"] == error_code
+    body = response.json()
+    assert body["code"] == error_code
+    request_id = assert_request_id_header(response)
+    assert body["request_id"] == request_id
+
+
+class _UnmappedVersionedReadError(VersionedReadError):
+    pass
+
+
+def test_resolve_maps_unclassified_versioned_read_error_to_internal_error(
+    env: ImportHttpTestEnvironment,
+) -> None:
+    repository_id = env.seed_repository()
+    _read_app(env).resolve_main.side_effect = _UnmappedVersionedReadError("boom")
+    response = env.client.get(
+        f"/v1/repositories/{repository_id}/versioned/refs/main",
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 500
+    assert response.json()["code"] == "INTERNAL_ERROR"
 
 
 def test_catalog_returns_wire_shape(env: ImportHttpTestEnvironment) -> None:
@@ -210,7 +231,10 @@ def test_catalog_error_matrix(
         headers=_auth_headers(),
     )
     assert response.status_code == status_code
-    assert response.json()["code"] == error_code
+    body = response.json()
+    assert body["code"] == error_code
+    request_id = assert_request_id_header(response)
+    assert body["request_id"] == request_id
 
 
 def test_catalog_malformed_provider_shape_maps_to_503(env: ImportHttpTestEnvironment) -> None:
@@ -294,7 +318,8 @@ def test_rows_preflight_error_matrix(
     assert response.status_code == status_code
     body = response.json()
     assert body["code"] == error_code
-    assert response.headers["content-type"].startswith("application/json")
+    request_id = assert_request_id_header(response)
+    assert body["request_id"] == request_id
 
 
 def test_rows_rejects_invalid_table_name(env: ImportHttpTestEnvironment) -> None:
@@ -387,13 +412,37 @@ def test_openapi_rows_declares_binary_arrow_media(env: ImportHttpTestEnvironment
     schema = env.client.get("/openapi.json").json()
     rows_path = schema["paths"]["/v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows"]["get"]
     assert rows_path.get("requestBody") is None
-    success = rows_path["responses"]["200"]["content"][VERSIONED_READ_ARROW_MEDIA_TYPE]
+    success_content = rows_path["responses"]["200"]["content"]
+    assert "application/json" not in success_content
+    success = success_content[VERSIONED_READ_ARROW_MEDIA_TYPE]
     assert success["schema"]["type"] == "string"
     assert success["schema"]["format"] == "binary"
+    assert rows_path["responses"]["200"]["headers"]["X-Request-ID"]["schema"]["type"] == "string"
     table_param = rows_path["parameters"]
     assert any(item.get("name") == "table_name" for item in table_param)
     policy_param = next(item for item in table_param if item.get("name") == "unknown_type_policy")
     assert policy_param["schema"]["default"] == "REJECT"
+    commit_param = next(
+        item for item in rows_path["parameters"] if item.get("name") == "commit_id" and item.get("in") == "path"
+    )
+    assert commit_param["schema"]["minLength"] == 1
+    assert commit_param["schema"]["maxLength"] == 1024
+
+
+def test_openapi_read_routes_declare_simple_error_and_request_id(env: ImportHttpTestEnvironment) -> None:
+    paths = env.client.get("/openapi.json").json()["paths"]
+    for path in (
+        "/v1/repositories/{repository_id}/versioned/refs/{ref_name}",
+        "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog",
+        "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows",
+    ):
+        operation = paths[path]["get"]
+        for status_code in ("401", "404", "422", "503"):
+            response = operation["responses"][status_code]
+            assert response["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/SimpleError"
+            }
+            assert response["headers"]["X-Request-ID"]["schema"]["type"] == "string"
 
 
 def test_openapi_has_no_json_rows_or_latest_terms(env: ImportHttpTestEnvironment) -> None:

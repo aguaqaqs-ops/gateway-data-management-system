@@ -220,3 +220,15 @@ def test_resolve_request_uses_main_literal() -> None:
         ref_name="main",
     )
     assert request.ref_name == "main"
+
+
+@pytest.mark.parametrize("invalid_value", [123, 1.5, None, b"bytes"])
+def test_versioned_identifier_rejects_non_string_values(invalid_value: object) -> None:
+    with pytest.raises(ValidationError):
+        _IdentifierProbe(value=invalid_value)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("invalid_value", [123, 1.5, None, b"bytes"])
+def test_versioned_table_name_rejects_non_string_values(invalid_value: object) -> None:
+    with pytest.raises(ValidationError):
+        _TableNameProbe(value=invalid_value)  # type: ignore[arg-type]

@@ -21,11 +21,17 @@ from gateway_repository_contracts import (
     VersionedTable,
 )
 from gateway_repository_service.arrow_mapping import TableCatalog, UnknownSqlTypeError
-from gateway_repository_service.http.errors import ServiceError, sanitize_validation_errors
+from gateway_repository_service.http.errors import (
+    INTERNAL_ERROR_CODE,
+    INTERNAL_ERROR_MESSAGE,
+    ServiceError,
+    sanitize_validation_errors,
+)
 from gateway_repository_service.versioned_read.errors import (
     CommitNotFoundError,
     MainRefNotFoundError,
     ProviderUnavailableError,
+    ReadStreamCancelledError,
     RepositoryNotVisibleError,
     TableNotFoundError,
     VersionedReadError,
@@ -116,11 +122,17 @@ def map_read_error(exc: BaseException) -> ServiceError:
         )
     if isinstance(exc, ValidationError):
         return request_validation_failed(exc)
+    if isinstance(exc, ReadStreamCancelledError):
+        return ServiceError(
+            code=INTERNAL_ERROR_CODE,
+            message=INTERNAL_ERROR_MESSAGE,
+            status_code=500,
+        )
     if isinstance(exc, VersionedReadError):
         return ServiceError(
-            code="SERVICE_NOT_READY",
-            message=_SERVICE_NOT_READY_MESSAGE,
-            status_code=503,
+            code=INTERNAL_ERROR_CODE,
+            message=INTERNAL_ERROR_MESSAGE,
+            status_code=500,
         )
     return ServiceError(
         code="SERVICE_NOT_READY",

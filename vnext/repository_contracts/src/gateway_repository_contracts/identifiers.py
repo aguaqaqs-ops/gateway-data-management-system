@@ -16,7 +16,7 @@ def _code_point_count(value: str) -> int:
 
 def validate_versioned_identifier(value: object, *, reject_edge_whitespace: bool) -> str:
     if not isinstance(value, str):
-        raise TypeError("identifier must be a string")
+        raise ValueError("identifier must be a string")
     if reject_edge_whitespace and value != value.strip():
         raise ValueError("table name must not have leading or trailing whitespace")
     count = _code_point_count(value)

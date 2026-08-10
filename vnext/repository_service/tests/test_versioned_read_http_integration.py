@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,11 +36,30 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from gateway_repository_service.versioned_read.application import VersionedReadApplication
+from gateway_repository_service.versioned_read.arrow_bridge import BRIDGE_REGISTRY
 from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
 from support.http_harness import ReadyReadiness, create_test_client
 from support.lifecycle_harness import lifecycle_settings
 
 pytestmark = pytest.mark.integration
+
+
+def _wait_until_pid_reaped(pid: int, *, timeout_seconds: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not Path(f"/proc/{pid}").exists():
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"process {pid} was not reaped")
+
+
+def _wait_until(condition: Any, *, timeout_seconds: float = 5.0, message: str) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return
+        time.sleep(0.02)
+    raise AssertionError(message)
 
 
 @dataclass
@@ -318,12 +338,17 @@ def test_http_branch_movement_keeps_pinned_rows(read_http_env: ReadHttpIntegrati
 @pytest.mark.serial
 def test_http_large_table_emits_multiple_batches(read_http_env: ReadHttpIntegrationEnvironment) -> None:
     env = read_http_env
-    inserts = "".join(f"INSERT INTO wide (id) VALUES ({index});\n" for index in range(2500))
+    column_defs = ", ".join(f"col_{index} BIGINT NOT NULL" for index in range(1, 9))
+    inserts = "".join(
+        f"INSERT INTO wide (id, {', '.join(f'col_{index}' for index in range(1, 9))}) "
+        f"VALUES ({row_id}, {', '.join(str(row_id + index) for index in range(1, 9))});\n"
+        for row_id in range(1, 2501)
+    )
     env.offline.replay(
         _write_sql(
             env.layout,
             "wide.sql",
-            "CREATE TABLE wide (id BIGINT NOT NULL PRIMARY KEY);\n" + inserts,
+            f"CREATE TABLE wide (id BIGINT NOT NULL PRIMARY KEY, {column_defs});\n" + inserts,
         )
     )
     commit_id = _commit_changes(
@@ -337,6 +362,7 @@ def test_http_large_table_emits_multiple_batches(read_http_env: ReadHttpIntegrat
     )
     batches = list(pa_ipc.open_stream(response.content))
     assert len(batches) > 1
+    assert len(batches[0].schema.names) >= 8
     total_rows = sum(batch.num_rows for batch in batches)
     assert total_rows == 2500
 
@@ -365,6 +391,13 @@ def test_http_midstream_failure_truncates_without_json_tail(read_http_env: ReadH
     )
     del full_plan
     full_rows = sum(batch.num_rows for batch in full_rows_iter)
+    full_response = env.client.get(
+        f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+        params={"table_name": "items"},
+        headers=_auth_headers(),
+    )
+    assert full_response.status_code == 200
+    full_bytes = full_response.content
 
     def exploding_open(*args: Any, **kwargs: Any) -> tuple[Any, Iterator[pa.RecordBatch]]:
         plan, rows = original_open(*args, **kwargs)
@@ -386,6 +419,7 @@ def test_http_midstream_failure_truncates_without_json_tail(read_http_env: ReadH
     assert response.status_code == 200
     content = response.content
     assert content
+    assert len(content) < len(full_bytes)
     reader = pa_ipc.open_stream(content)
     batches = list(reader)
     total_rows = sum(batch.num_rows for batch in batches)
@@ -397,18 +431,19 @@ def test_http_midstream_failure_truncates_without_json_tail(read_http_env: ReadH
 @pytest.mark.serial
 def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: ReadHttpIntegrationEnvironment) -> None:
     env = read_http_env
+    inserts = "".join(f"INSERT INTO items (id, label) VALUES ({index}, 'v{index}');\n" for index in range(1, 2501))
     env.offline.replay(
         _write_sql(
             env.layout,
             "cancel.sql",
-            "CREATE TABLE items (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n"
-            "INSERT INTO items (id, label) VALUES (1, 'one');\n",
+            "CREATE TABLE items (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n" + inserts,
         )
     )
     commit_id = _commit_changes(
         env.offline,
         "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000014",
     )
+    observed_pids: list[int] = []
     errors: list[BaseException] = []
 
     def consume_partial() -> None:
@@ -421,15 +456,73 @@ def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: Re
             ) as response:
                 assert response.status_code == 200
                 iterator = response.iter_bytes()
-                next(iterator)
+                chunk = next(iterator)
+                assert chunk
+                for process in env.runner._active_children.snapshot():
+                    observed_pids.append(process.pid)
+                time.sleep(0.05)
         except Exception as exc:  # pragma: no cover - propagated below
             errors.append(exc)
 
     worker = threading.Thread(target=consume_partial)
     worker.start()
-    worker.join(timeout=10.0)
+    worker.join(timeout=15.0)
     assert not worker.is_alive()
     if errors:
         raise errors[0]
+    _wait_until(
+        lambda: BRIDGE_REGISTRY.snapshot() == (),
+        timeout_seconds=10.0,
+        message="versioned read bridge worker did not exit after disconnect",
+    )
+    _wait_until(
+        lambda: env.runner._active_children.snapshot() == (),
+        timeout_seconds=10.0,
+        message="dolt child processes were not reaped after disconnect",
+    )
+    for pid in observed_pids:
+        _wait_until_pid_reaped(pid)
     query_dir = env.layout.staging_artifacts
     assert list(query_dir.glob("query-*.sql")) == []
+
+
+@pytest.mark.serial
+def test_http_runtime_shutdown_closes_active_row_stream(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    inserts = "".join(f"INSERT INTO items (id, label) VALUES ({index}, 'v{index}');\n" for index in range(1, 2501))
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "shutdown.sql",
+            "CREATE TABLE items (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n" + inserts,
+        )
+    )
+    commit_id = _commit_changes(
+        env.offline,
+        "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000015",
+    )
+    started = threading.Event()
+    errors: list[BaseException] = []
+
+    def consume_slowly() -> None:
+        try:
+            with env.client.stream(
+                "GET",
+                f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+                params={"table_name": "items"},
+                headers=_auth_headers(),
+            ) as response:
+                assert response.status_code == 200
+                started.set()
+                for _chunk in response.iter_bytes(chunk_size=256):
+                    time.sleep(0.01)
+        except Exception as exc:  # pragma: no cover - shutdown may abort the stream
+            errors.append(exc)
+
+    consumer = threading.Thread(target=consume_slowly)
+    consumer.start()
+    assert started.wait(timeout=10.0)
+    env.runtime.shutdown()
+    consumer.join(timeout=15.0)
+    assert BRIDGE_REGISTRY.snapshot() == ()
+    assert env.runner._active_children.snapshot() == ()

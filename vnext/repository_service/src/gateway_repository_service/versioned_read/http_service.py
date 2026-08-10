@@ -10,6 +10,7 @@ from gateway_repository_contracts import (
     ResolveVersionedRefResponse,
     StreamVersionedTableRowsQuery,
 )
+from gateway_repository_service.process import DoltRunner
 from gateway_repository_service.versioned_read.arrow_bridge import ArrowIpcStreamBridge
 from gateway_repository_service.versioned_read.ports import VersionedReadPort
 from gateway_repository_service.versioned_read.wire import (
@@ -22,8 +23,14 @@ from gateway_repository_service.versioned_read.wire import (
 class VersionedReadHttpService:
     """Maps HTTP inputs to the private read application boundary."""
 
-    def __init__(self, application: VersionedReadPort) -> None:
+    def __init__(
+        self,
+        application: VersionedReadPort,
+        *,
+        dolt_runner: DoltRunner | None = None,
+    ) -> None:
         self._application = application
+        self._dolt_runner = dolt_runner
 
     def resolve_ref(self, repository_id: UUID) -> ResolveVersionedRefResponse:
         try:
@@ -56,4 +63,9 @@ class VersionedReadHttpService:
             )
         except Exception as exc:
             raise_read_error(exc)
-        return ArrowIpcStreamBridge(plan, rows, cancellation)
+        return ArrowIpcStreamBridge(
+            plan,
+            rows,
+            cancellation,
+            dolt_runner=self._dolt_runner,
+        )

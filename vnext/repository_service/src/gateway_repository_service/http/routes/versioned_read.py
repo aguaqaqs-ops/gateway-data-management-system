@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Query, Request
+from fastapi import Depends, FastAPI, Path, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import TypeAdapter, ValidationError
 
@@ -15,9 +15,14 @@ from gateway_repository_contracts import (
     StreamVersionedTableRowsQuery,
     VERSIONED_READ_ARROW_MEDIA_TYPE,
     UnknownTypePolicy,
+    VersionedTableNameString,
 )
 from gateway_repository_contracts.types import CommitIdString
 from gateway_repository_service.http.auth import require_bearer_token
+from gateway_repository_service.http.openapi import (
+    versioned_read_arrow_stream_response,
+    versioned_read_error_responses,
+)
 from gateway_repository_service.http.readiness_guard import require_service_ready
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.versioned_read.http_service import VersionedReadHttpService
@@ -25,32 +30,13 @@ from gateway_repository_service.versioned_read.wire import request_validation_fa
 
 _COMMIT_ID_ADAPTER: TypeAdapter[CommitIdString] = TypeAdapter(CommitIdString)
 
-_SIMPLE_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
-    401: {"description": "Authentication failed"},
-    404: {"description": "Repository, ref, commit, or table not found"},
-    422: {"description": "Request validation failed"},
-    503: {"description": "Service not ready"},
-}
-
-_ARROW_STREAM_RESPONSE = {
-    200: {
-        "description": "Arrow IPC stream",
-        "content": {
-            VERSIONED_READ_ARROW_MEDIA_TYPE: {
-                "schema": {"type": "string", "format": "binary"},
-            }
-        },
-    },
-    **_SIMPLE_ERROR_RESPONSES,
-}
-
 
 def register_versioned_read_routes(app: FastAPI) -> None:
     @app.get(
         "/v1/repositories/{repository_id}/versioned/refs/{ref_name}",
         response_model=ResolveVersionedRefResponse,
         status_code=200,
-        responses=_SIMPLE_ERROR_RESPONSES,
+        responses=versioned_read_error_responses(),
     )
     def resolve_versioned_ref(
         request: Request,
@@ -67,12 +53,12 @@ def register_versioned_read_routes(app: FastAPI) -> None:
         "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog",
         response_model=GetVersionedCatalogResponse,
         status_code=200,
-        responses=_SIMPLE_ERROR_RESPONSES,
+        responses=versioned_read_error_responses(),
     )
     def get_versioned_catalog(
         request: Request,
         repository_id: UUID,
-        commit_id: str,
+        commit_id: Annotated[str, Path(min_length=1, max_length=1024)],
         _authorized: Annotated[None, Depends(require_bearer_token)],
         _ready: Annotated[None, Depends(require_service_ready)],
     ) -> GetVersionedCatalogResponse:
@@ -83,15 +69,16 @@ def register_versioned_read_routes(app: FastAPI) -> None:
     @app.get(
         "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows",
         status_code=200,
-        responses=_ARROW_STREAM_RESPONSE,
+        response_class=StreamingResponse,
+        responses=versioned_read_arrow_stream_response(),
     )
-    async def stream_versioned_table_rows(
+    def stream_versioned_table_rows(
         request: Request,
         repository_id: UUID,
-        commit_id: str,
+        commit_id: Annotated[str, Path(min_length=1, max_length=1024)],
         _authorized: Annotated[None, Depends(require_bearer_token)],
         _ready: Annotated[None, Depends(require_service_ready)],
-        table_name: Annotated[str, Query(min_length=1, max_length=64)],
+        table_name: Annotated[VersionedTableNameString, Query()],
         unknown_type_policy: Annotated[UnknownTypePolicy, Query()] = UnknownTypePolicy.REJECT,
     ) -> StreamingResponse:
         validated_commit_id = _validated_commit_id(commit_id)
@@ -112,7 +99,10 @@ def _runtime_from_state(request: Request) -> ServiceRuntime:
 
 
 def _read_service_from_runtime(runtime: ServiceRuntime) -> VersionedReadHttpService:
-    return VersionedReadHttpService(runtime.versioned_read_application)
+    return VersionedReadHttpService(
+        runtime.versioned_read_application,
+        dolt_runner=runtime.dolt_runner,
+    )
 
 
 def _validated_commit_id(commit_id: str) -> str:

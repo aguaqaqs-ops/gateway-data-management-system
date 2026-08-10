@@ -329,8 +329,9 @@ def test_open_table_rows_exact_lookup_and_single_plan(tmp_path: Path) -> None:
         table_plan: CompiledTablePlan | None = None,
         cancellation: object = None,
         existence_verified: bool = False,
+        stream_owner: object | None = None,
     ) -> list[pa.RecordBatch]:
-        del commit_id, catalog, policy, cancellation
+        del commit_id, catalog, policy, cancellation, stream_owner
         assert existence_verified is True
         received_plan.append(table_plan)
         return []

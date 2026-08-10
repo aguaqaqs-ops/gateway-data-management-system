@@ -10,7 +10,7 @@ import threading
 import time
 import weakref
 from collections.abc import AsyncIterator, Iterator
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -25,7 +25,6 @@ _LOGGER = logging.getLogger(__name__)
 _QUEUE_MAXSIZE = 1
 _POLL_TIMEOUT_SECONDS = 0.05
 _WORKER_JOIN_TIMEOUT_SECONDS = 30.0
-_WORKER_REJOIN_TIMEOUT_SECONDS = 2.0
 _SUCCESS_SENTINEL = object()
 _FAILURE_SENTINEL = object()
 TerminalOutcome = Literal["pending", "success", "failure"]
@@ -105,12 +104,13 @@ class ArrowIpcStreamBridge:
         cancellation: threading.Event,
         *,
         dolt_runner: DoltRunner | None = None,
+        stream_owner: object | None = None,
     ) -> None:
         self._plan = plan
         self._row_iterator = row_iterator
         self._cancellation = cancellation
         self._dolt_runner = dolt_runner
-        self._children_at_start = self._snapshot_child_pids()
+        self._stream_owner = stream_owner
         self._queue: queue.Queue[bytes | object] = queue.Queue(maxsize=_QUEUE_MAXSIZE)
         self._worker_done = threading.Event()
         self._close_lock = threading.Lock()
@@ -162,7 +162,8 @@ class ArrowIpcStreamBridge:
         dolt_runner: DoltRunner | None = None,
         join_timeout_seconds: float = _WORKER_JOIN_TIMEOUT_SECONDS,
     ) -> None:
-        del dolt_runner
+        runner = dolt_runner if dolt_runner is not None else self._dolt_runner
+        deadline_at = time.monotonic() + join_timeout_seconds
         already_joined = False
         with self._close_condition:
             if self._worker_joined:
@@ -170,7 +171,6 @@ class ArrowIpcStreamBridge:
             if not self._close_requested:
                 self._close_requested = True
                 self._cancellation.set()
-            deadline_at = time.monotonic() + join_timeout_seconds
             while not self._worker_joined:
                 remaining = deadline_at - time.monotonic()
                 if remaining <= 0:
@@ -182,54 +182,15 @@ class ArrowIpcStreamBridge:
             return
         if self._worker.is_alive():
             _LOGGER.warning("versioned read arrow bridge worker did not exit in time")
-            self._worker.join(timeout=_WORKER_REJOIN_TIMEOUT_SECONDS)
-        if self._worker.is_alive():
-            try:
-                close_row_iterator(self._row_iterator)
-            except ValueError:
-                _LOGGER.debug("row iterator close deferred because worker still executing")
-            self._terminate_owned_children()
-            self._worker.join(timeout=_WORKER_REJOIN_TIMEOUT_SECONDS)
+            if runner is not None and self._stream_owner is not None:
+                terminate_owned = getattr(runner, "terminate_owned", None)
+                if callable(terminate_owned):
+                    terminate_owned(self._stream_owner)
+            remaining = deadline_at - time.monotonic()
+            join_timeout = remaining if remaining > 0 else _POLL_TIMEOUT_SECONDS
+            self._worker.join(timeout=join_timeout)
         if self._worker.is_alive():
             raise BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
-
-    def _active_child_snapshot(self) -> tuple[Any, ...]:
-        if self._dolt_runner is None:
-            return ()
-        registry = getattr(self._dolt_runner, "_active_children", None)
-        if registry is None:
-            return ()
-        snapshot = getattr(registry, "snapshot", None)
-        if not callable(snapshot):
-            return ()
-        children = snapshot()
-        if not isinstance(children, tuple):
-            return ()
-        return children
-
-    def _snapshot_child_pids(self) -> frozenset[int]:
-        return frozenset(
-            process.pid
-            for process in self._active_child_snapshot()
-            if isinstance(getattr(process, "pid", None), int)
-        )
-
-    def _terminate_owned_children(self) -> None:
-        if self._dolt_runner is None:
-            return
-        terminate = getattr(self._dolt_runner, "terminate_and_reap", None)
-        if not callable(terminate):
-            return
-        settings = getattr(self._dolt_runner, "settings", None)
-        grace_seconds = getattr(settings, "terminate_grace_seconds", 0.01) if settings is not None else 0.01
-        for process in self._active_child_snapshot():
-            if not isinstance(getattr(process, "pid", None), int):
-                continue
-            if process.pid in self._children_at_start:
-                continue
-            poll = getattr(process, "poll", None)
-            if callable(poll) and poll() is None:
-                terminate(process, grace_seconds=grace_seconds)
 
     def _put_terminal(self, terminal: object) -> bool:
         if terminal is _SUCCESS_SENTINEL:

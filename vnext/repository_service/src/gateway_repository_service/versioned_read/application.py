@@ -67,6 +67,7 @@ class VersionedReadApplication:
         exact_table_name: str,
         policy: UnknownTypePolicy,
         cancellation: CancellationCallback | None = None,
+        stream_owner: object | None = None,
     ) -> tuple[CompiledTablePlan, Iterator[pa.RecordBatch]]:
         provider = self._require_visible(repository_id)
         if not provider.commit_exists(commit_id):
@@ -83,5 +84,6 @@ class VersionedReadApplication:
             table_plan=plan,
             cancellation=cancellation,
             existence_verified=True,
+            stream_owner=stream_owner,
         )
         return plan, rows

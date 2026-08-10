@@ -1043,18 +1043,25 @@ class ActiveChildRegistry:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._processes: set[subprocess.Popen[bytes]] = set()
+        self._owners: dict[subprocess.Popen[bytes], object | None] = {}
 
-    def register(self, process: subprocess.Popen[bytes]) -> None:
+    def register(self, process: subprocess.Popen[bytes], *, owner: object | None = None) -> None:
         with self._lock:
             self._processes.add(process)
+            self._owners[process] = owner
 
     def unregister(self, process: subprocess.Popen[bytes]) -> None:
         with self._lock:
             self._processes.discard(process)
+            self._owners.pop(process, None)
 
     def snapshot(self) -> tuple[subprocess.Popen[bytes], ...]:
         with self._lock:
             return tuple(self._processes)
+
+    def snapshot_for_owner(self, owner: object) -> tuple[subprocess.Popen[bytes], ...]:
+        with self._lock:
+            return tuple(process for process in self._processes if self._owners.get(process) is owner)
 
 
 class DoltRunner:
@@ -1072,6 +1079,14 @@ class DoltRunner:
     def terminate_active_children(self, grace_seconds: float | None = None) -> None:
         grace = grace_seconds if grace_seconds is not None else self.settings.terminate_grace_seconds
         for process in self._active_children.snapshot():
+            if process.poll() is None:
+                self.terminate_and_reap(process, grace_seconds=grace)
+            else:
+                self._active_children.unregister(process)
+
+    def terminate_owned(self, owner: object, *, grace_seconds: float | None = None) -> None:
+        grace = grace_seconds if grace_seconds is not None else self.settings.terminate_grace_seconds
+        for process in self._active_children.snapshot_for_owner(owner):
             if process.poll() is None:
                 self.terminate_and_reap(process, grace_seconds=grace)
             else:
@@ -1141,10 +1156,17 @@ class DoltRunner:
         timeout: float,
         stdin_path: Path | None = None,
         cancellation: StreamCancellationCheck | None = None,
+        owner: object | None = None,
     ) -> "ProcessStream":
         if evaluate_stream_cancellation(cancellation):
             raise ProcessBoundaryError("stream cancelled")
-        process, stdin_handle = self._start(command_kind, args, cwd=cwd, stdin_path=stdin_path)
+        process, stdin_handle = self._start(
+            command_kind,
+            args,
+            cwd=cwd,
+            stdin_path=stdin_path,
+            owner=owner,
+        )
         if stdin_handle is not None:
             stdin_handle.close()
         return ProcessStream(
@@ -1190,6 +1212,7 @@ class DoltRunner:
         cwd: Path,
         stdin_path: Path | None,
         stdout_target: BinaryIO | int | None = None,
+        owner: object | None = None,
     ) -> tuple[subprocess.Popen[bytes], BinaryIO | None]:
         resolved_cwd = cwd.resolve()
         if not resolved_cwd.is_relative_to(self.server_root):
@@ -1226,7 +1249,7 @@ class DoltRunner:
             raise
         registry = getattr(self, "_active_children", None)
         if registry is not None:
-            registry.register(process)
+            registry.register(process, owner=owner)
         return process, stdin_handle
 
     def _unregister_active_child(self, process: subprocess.Popen[bytes]) -> None:

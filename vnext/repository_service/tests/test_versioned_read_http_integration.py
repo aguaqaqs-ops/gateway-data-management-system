@@ -45,10 +45,10 @@ from support.http_harness import ReadyReadiness, create_test_client
 from support.lifecycle_harness import lifecycle_settings
 from support.streaming_http_harness import (
     create_async_streaming_client,
+    read_first_chunk,
     read_stream_until_error,
     run_async,
     stream_rows,
-    stream_until_first_chunk_then_close,
 )
 
 pytestmark = pytest.mark.integration
@@ -74,7 +74,7 @@ def _patch_gated_open_table_rows(
                 yield batch
                 if index == 0:
                     producer_waiting.set()
-                    assert release.wait(timeout=2.0)
+                    release.wait()
 
         return plan, _gated()
 
@@ -469,6 +469,8 @@ def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: Re
     release = threading.Event()
     observed_pids: list[int] = []
     captured_cancellations: list[CancellationCallback | None] = []
+    disconnect_errors: list[BaseException] = []
+    disconnect_done = threading.Event()
     _patch_gated_open_table_rows(
         env,
         producer_waiting=producer_waiting,
@@ -476,27 +478,44 @@ def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: Re
         captured_cancellations=captured_cancellations,
     )
 
-    async def exercise() -> None:
-        async with create_async_streaming_client(env.app) as client:
-            status_code, first_chunk, _error = await stream_until_first_chunk_then_close(
-                client,
-                path=_rows_url(env, commit_id),
-                params={"table_name": "items"},
-                headers=_auth_headers(),
-                on_first_chunk=lambda _chunk: observed_pids.extend(
-                    process.pid for process in env.runner._active_children.snapshot()
-                ),
-            )
-            assert status_code == 200
-            assert first_chunk
+    def disconnect_in_background() -> None:
+        try:
 
-    run_async(exercise())
-    assert producer_waiting.wait(timeout=10.0)
-    assert captured_cancellations
-    cancellation = captured_cancellations[0]
-    assert cancellation is not None
-    assert cancellation()
-    release.set()
+            async def exercise() -> None:
+                async with create_async_streaming_client(env.app) as client:
+                    response = await stream_rows(
+                        client,
+                        path=_rows_url(env, commit_id),
+                        params={"table_name": "items"},
+                        headers=_auth_headers(),
+                    )
+                    assert response.status_code == 200
+                    first_chunk = await read_first_chunk(response)
+                    assert first_chunk
+                    observed_pids.extend(
+                        process.pid for process in env.runner._active_children.snapshot()
+                    )
+                    await response.aclose()
+                    disconnect_done.set()
+
+            run_async(exercise())
+        except BaseException as exc:
+            disconnect_errors.append(exc)
+
+    disconnect_thread = threading.Thread(target=disconnect_in_background)
+    disconnect_thread.start()
+    try:
+        assert producer_waiting.wait(timeout=10.0)
+        assert disconnect_done.wait(timeout=15.0), "disconnect did not finish after first chunk"
+        assert captured_cancellations
+        cancellation = captured_cancellations[0]
+        assert cancellation is not None
+        assert cancellation(), "disconnect did not set cancellation"
+    finally:
+        release.set()
+    disconnect_thread.join(timeout=15.0)
+    if disconnect_errors:
+        raise disconnect_errors[0]
     _wait_until(
         lambda: BRIDGE_REGISTRY.snapshot() == (),
         timeout_seconds=10.0,
@@ -570,6 +589,8 @@ def test_http_disconnect_does_not_break_concurrent_stream(read_http_env: ReadHtt
     producer_waiting = threading.Event()
     release = threading.Event()
     captured_cancellations: list[CancellationCallback | None] = []
+    disconnect_errors: list[BaseException] = []
+    disconnect_done = threading.Event()
     _patch_gated_open_table_rows(
         env,
         producer_waiting=producer_waiting,
@@ -577,26 +598,41 @@ def test_http_disconnect_does_not_break_concurrent_stream(read_http_env: ReadHtt
         captured_cancellations=captured_cancellations,
     )
 
-    async def disconnect_first() -> None:
-        async with create_async_streaming_client(env.app) as client:
-            status_code, first_chunk, _error = await stream_until_first_chunk_then_close(
-                client,
-                path=_rows_url(env, commit_id),
-                params={"table_name": "items"},
-                headers=_auth_headers(),
-            )
-            assert status_code == 200
-            assert first_chunk
+    def disconnect_in_background() -> None:
+        try:
 
-    disconnect_thread = threading.Thread(target=lambda: run_async(disconnect_first()))
+            async def exercise() -> None:
+                async with create_async_streaming_client(env.app) as client:
+                    response = await stream_rows(
+                        client,
+                        path=_rows_url(env, commit_id),
+                        params={"table_name": "items"},
+                        headers=_auth_headers(),
+                    )
+                    assert response.status_code == 200
+                    first_chunk = await read_first_chunk(response)
+                    assert first_chunk
+                    await response.aclose()
+                    disconnect_done.set()
+
+            run_async(exercise())
+        except BaseException as exc:
+            disconnect_errors.append(exc)
+
+    disconnect_thread = threading.Thread(target=disconnect_in_background)
     disconnect_thread.start()
-    assert producer_waiting.wait(timeout=10.0)
+    try:
+        assert producer_waiting.wait(timeout=10.0)
+        assert disconnect_done.wait(timeout=15.0), "disconnect did not finish after first chunk"
+        assert captured_cancellations
+        cancellation = captured_cancellations[0]
+        assert cancellation is not None
+        assert cancellation(), "disconnect did not set cancellation"
+    finally:
+        release.set()
     disconnect_thread.join(timeout=15.0)
-    assert captured_cancellations
-    cancellation = captured_cancellations[0]
-    assert cancellation is not None
-    assert cancellation()
-    release.set()
+    if disconnect_errors:
+        raise disconnect_errors[0]
     _wait_until(
         lambda: BRIDGE_REGISTRY.snapshot() == (),
         timeout_seconds=10.0,

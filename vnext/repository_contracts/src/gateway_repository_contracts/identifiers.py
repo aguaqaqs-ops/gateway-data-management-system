@@ -4,14 +4,30 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BeforeValidator, StringConstraints
+from pydantic import BeforeValidator, StringConstraints, WithJsonSchema
 
 _MIN_CODE_POINTS = 1
 _MAX_CODE_POINTS = 64
-_IDENTIFIER_OPENAPI_PATTERN = r"^[^\x00-\x1f\x7f/\\]+$"
-_TABLE_NAME_OPENAPI_PATTERN = (
+_IDENTIFIER_RUNTIME_PATTERN = r"^[^\x00-\x1f\x7f/\\]+$"
+_TABLE_NAME_RUNTIME_PATTERN = (
     r"^[^\s\x00-\x1f\x7f/\\](?:[^\x00-\x1f\x7f/\\]*[^\s\x00-\x1f\x7f/\\])?$"
 )
+_IDENTIFIER_OPENAPI_PATTERN = r"^[^\x00-\x1f\x7f/\\]+(?!\r?\n$)$"
+_TABLE_NAME_OPENAPI_PATTERN = (
+    r"^[^\s\x00-\x1f\x7f/\\](?:[^\x00-\x1f\x7f/\\]*[^\s\x00-\x1f\x7f/\\])?(?!\r?\n$)$"
+)
+_IDENTIFIER_JSON_SCHEMA = {
+    "type": "string",
+    "minLength": _MIN_CODE_POINTS,
+    "maxLength": _MAX_CODE_POINTS,
+    "pattern": _IDENTIFIER_OPENAPI_PATTERN,
+}
+_TABLE_NAME_JSON_SCHEMA = {
+    "type": "string",
+    "minLength": _MIN_CODE_POINTS,
+    "maxLength": _MAX_CODE_POINTS,
+    "pattern": _TABLE_NAME_OPENAPI_PATTERN,
+}
 
 
 def _code_point_count(value: str) -> int:
@@ -50,16 +66,18 @@ VersionedIdentifierString = Annotated[
     StringConstraints(
         min_length=_MIN_CODE_POINTS,
         max_length=_MAX_CODE_POINTS,
-        pattern=_IDENTIFIER_OPENAPI_PATTERN,
+        pattern=_IDENTIFIER_RUNTIME_PATTERN,
     ),
     BeforeValidator(_validate_column_identifier),
+    WithJsonSchema(_IDENTIFIER_JSON_SCHEMA),
 ]
 VersionedTableNameString = Annotated[
     str,
     StringConstraints(
         min_length=_MIN_CODE_POINTS,
         max_length=_MAX_CODE_POINTS,
-        pattern=_TABLE_NAME_OPENAPI_PATTERN,
+        pattern=_TABLE_NAME_RUNTIME_PATTERN,
     ),
     BeforeValidator(_validate_table_identifier),
+    WithJsonSchema(_TABLE_NAME_JSON_SCHEMA),
 ]

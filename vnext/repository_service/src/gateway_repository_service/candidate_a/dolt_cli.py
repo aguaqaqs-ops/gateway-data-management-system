@@ -558,6 +558,7 @@ class CandidateADoltCli:
         *,
         table_plan: CompiledTablePlan | None = None,
         cancellation: StreamCancellationCheck | None = None,
+        stream_owner: object | None = None,
     ) -> Iterator[pa.RecordBatch]:
         target_literal = opaque_commit_literal(commit_id)
         return self._stream_table_impl(
@@ -567,6 +568,7 @@ class CandidateADoltCli:
             policy,
             table_plan=table_plan,
             cancellation=cancellation,
+            stream_owner=stream_owner,
         )
 
     def _stream_table_impl(
@@ -578,6 +580,7 @@ class CandidateADoltCli:
         *,
         table_plan: CompiledTablePlan | None,
         cancellation: StreamCancellationCheck | None,
+        stream_owner: object | None = None,
     ) -> Iterator[pa.RecordBatch]:
         del commit_id
         plan = table_plan if table_plan is not None else compile_table_plan(table, policy)
@@ -604,6 +607,7 @@ class CandidateADoltCli:
                 timeout=self.settings.import_timeout_seconds,
                 stdin_path=query,
                 cancellation=cancellation,
+                owner=stream_owner,
             )
 
             def decode_line(line: bytes) -> str:

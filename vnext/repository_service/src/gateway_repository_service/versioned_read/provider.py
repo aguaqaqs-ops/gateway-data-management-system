@@ -147,6 +147,7 @@ class CandidateAReadProvider:
         table_plan: CompiledTablePlan | None = None,
         cancellation: CancellationCallback | None = None,
         existence_verified: bool = False,
+        stream_owner: object | None = None,
     ) -> Iterator[pa.RecordBatch]:
         try:
             if not existence_verified and not self._cli.commit_exists(commit_id):
@@ -157,6 +158,7 @@ class CandidateAReadProvider:
                 policy,
                 table_plan=table_plan,
                 cancellation=cancellation,
+                stream_owner=stream_owner,
             )
         except CommitNotFoundError:
             raise

@@ -79,6 +79,28 @@ TABLE_NAME_INVALID_EDGE_WHITESPACE_CASES = [
     (" both ", "leading or trailing whitespace"),
 ]
 
+TRAILING_NEWLINE_INVALID_CASES = [
+    ("items\n", "identifier"),
+    ("id\r", "identifier"),
+    ("my table\n", "table name"),
+    ("my table\r", "table name"),
+]
+
+
+def _ecma_schema_pattern_accepts(pattern: str, value: str) -> bool:
+    import re
+
+    if re.fullmatch(pattern, value) is not None:
+        return True
+    # JSON Schema uses ECMA-262, where $ may match before a final line terminator.
+    if value.endswith("\n"):
+        return bool(re.match(pattern + r"(?=\n?$)", value))
+    if value.endswith("\r\n"):
+        return bool(re.match(pattern + r"(?=\r?\n?$)", value))
+    if value.endswith("\r"):
+        return bool(re.match(pattern + r"(?=\r?$)", value))
+    return False
+
 COMMIT_VALID_CASES = [
     "opaque-token",
     r"back\slash-token",
@@ -119,6 +141,22 @@ def test_versioned_table_name_accepts_valid_values(raw: str, expected: str) -> N
 def test_versioned_table_name_rejects_edge_whitespace(raw: str, message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         _TableNameProbe(value=raw)
+
+
+@pytest.mark.parametrize(("raw", "label"), TRAILING_NEWLINE_INVALID_CASES)
+def test_versioned_identifiers_reject_trailing_newlines(raw: str, label: str) -> None:
+    from gateway_repository_contracts.identifiers import (
+        _IDENTIFIER_OPENAPI_PATTERN,
+        _TABLE_NAME_OPENAPI_PATTERN,
+    )
+
+    pattern = _TABLE_NAME_OPENAPI_PATTERN if label == "table name" else _IDENTIFIER_OPENAPI_PATTERN
+    assert not _ecma_schema_pattern_accepts(pattern, raw)
+    with pytest.raises(ValidationError):
+        if label == "table name":
+            _TableNameProbe(value=raw)
+        else:
+            _IdentifierProbe(value=raw)
 
 
 @pytest.mark.parametrize(("raw", "message"), IDENTIFIER_INVALID_CASES)
@@ -261,6 +299,8 @@ def test_stream_rows_query_openapi_schema_declares_table_name_constraints() -> N
     assert pattern.fullmatch("my table")
     assert pattern.fullmatch(" items") is None
     assert pattern.fullmatch("items ") is None
+    assert not _ecma_schema_pattern_accepts(table_name["pattern"], "items\n")
+    assert not _ecma_schema_pattern_accepts(table_name["pattern"], "my table\r")
     assert pattern.fullmatch("a/b") is None
     assert pattern.fullmatch("a\tb") is None
 
@@ -286,6 +326,8 @@ def test_versioned_catalog_schema_declares_identifier_constraints() -> None:
     assert table_pattern.fullmatch("my table")
     assert table_pattern.fullmatch("a/b") is None
     assert identifier_pattern.fullmatch("my column")
+    assert not _ecma_schema_pattern_accepts(column_name["pattern"], "id\n")
+    assert not _ecma_schema_pattern_accepts(table_name["pattern"], "items\r")
     for field_schema in (table_name, column_name, primary_key_items):
         assert field_schema["minLength"] == 1
         assert field_schema["maxLength"] == 64

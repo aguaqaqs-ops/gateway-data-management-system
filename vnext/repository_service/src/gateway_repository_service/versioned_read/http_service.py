@@ -53,6 +53,7 @@ class VersionedReadHttpService:
         query: StreamVersionedTableRowsQuery,
     ) -> ArrowIpcStreamBridge:
         cancellation = threading.Event()
+        stream_owner = object()
         try:
             plan, rows = self._application.open_table_rows(
                 repository_id,
@@ -60,6 +61,7 @@ class VersionedReadHttpService:
                 query.table_name,
                 query.unknown_type_policy,
                 cancellation=cancellation.is_set,
+                stream_owner=stream_owner,
             )
         except Exception as exc:
             raise_read_error(exc)
@@ -68,4 +70,5 @@ class VersionedReadHttpService:
             rows,
             cancellation,
             dolt_runner=self._dolt_runner,
+            stream_owner=stream_owner,
         )

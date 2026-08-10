@@ -19,6 +19,7 @@ from gateway_repository_service.versioned_read.arrow_bridge import (
     ArrowIpcStreamBridge,
     BridgeJoinTimeoutError,
     BridgeStreamAbortedError,
+    _POLL_TIMEOUT_SECONDS,
 )
 
 pytestmark = pytest.mark.unit
@@ -257,15 +258,21 @@ def test_close_sync_join_timeout_terminates_only_bridge_owned_children() -> None
 
     plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
     release = threading.Event()
+    import_owner = object()
+    bridge_owner = object()
     pre_existing = MagicMock()
     pre_existing.pid = 100
     pre_existing.poll.return_value = None
     bridge_owned = MagicMock()
     bridge_owned.pid = 200
     bridge_owned.poll.return_value = None
+    concurrent_owned = MagicMock()
+    concurrent_owned.pid = 300
+    concurrent_owned.poll.return_value = None
 
     registry = ActiveChildRegistry()
-    registry.register(pre_existing)
+    registry.register(pre_existing, owner=import_owner)
+    registry.register(concurrent_owned, owner=import_owner)
 
     runner = MagicMock()
     runner._active_children = registry
@@ -277,14 +284,27 @@ def test_close_sync_join_timeout_terminates_only_bridge_owned_children() -> None
         terminated.append(process.pid)
         process.poll.return_value = 0
 
+    def terminate_owned(owner: object, *, grace_seconds: float | None = None) -> None:
+        grace = grace_seconds if grace_seconds is not None else runner.settings.terminate_grace_seconds
+        for process in registry.snapshot_for_owner(owner):
+            if process.poll() is None:
+                terminate_and_reap(process, grace_seconds=grace)  # type: ignore[arg-type]
+
     runner.terminate_and_reap.side_effect = terminate_and_reap
+    runner.terminate_owned = terminate_owned
 
     def gated_rows() -> Iterator[pa.RecordBatch]:
         yield batches[0]
         release.wait()
 
-    bridge = ArrowIpcStreamBridge(plan, gated_rows(), threading.Event(), dolt_runner=runner)
-    registry.register(bridge_owned)
+    bridge = ArrowIpcStreamBridge(
+        plan,
+        gated_rows(),
+        threading.Event(),
+        dolt_runner=runner,
+        stream_owner=bridge_owner,
+    )
+    registry.register(bridge_owned, owner=bridge_owner)
     errors: list[BaseException] = []
 
     def close_in_thread() -> None:
@@ -300,5 +320,71 @@ def test_close_sync_join_timeout_terminates_only_bridge_owned_children() -> None
     assert isinstance(errors[0], BridgeJoinTimeoutError)
     assert terminated == [200]
     assert 100 not in terminated
+    assert 300 not in terminated
     release.set()
     bridge._worker.join(timeout=5.0)
+
+
+@pytest.mark.serial
+def test_close_sync_does_not_close_iterator_from_close_thread() -> None:
+    from unittest.mock import MagicMock
+
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    producer_blocked = threading.Event()
+    unblock_producer = threading.Event()
+    bridge_owner = object()
+    close_calls = 0
+
+    class BlockingIterator:
+        def __init__(self, batch: pa.RecordBatch) -> None:
+            self._batch = batch
+            self._yielded = False
+
+        def __iter__(self) -> BlockingIterator:
+            return self
+
+        def __next__(self) -> pa.RecordBatch:
+            if not self._yielded:
+                self._yielded = True
+                return self._batch
+            producer_blocked.set()
+            unblock_producer.wait()
+            raise StopIteration
+
+        def close(self) -> None:
+            nonlocal close_calls
+            if threading.current_thread().name != "versioned-read-arrow-bridge":
+                raise RuntimeError("iterator close from non-worker thread")
+            close_calls += 1
+
+    runner = MagicMock()
+    runner.settings.terminate_grace_seconds = 0.01
+
+    def terminate_owned(owner: object, *, grace_seconds: float | None = None) -> None:
+        del owner, grace_seconds
+        unblock_producer.set()
+
+    runner.terminate_owned = terminate_owned
+
+    bridge = ArrowIpcStreamBridge(
+        plan,
+        BlockingIterator(batches[0]),
+        threading.Event(),
+        dolt_runner=runner,
+        stream_owner=bridge_owner,
+    )
+
+    def drain_queue() -> None:
+        while bridge.is_worker_alive():
+            try:
+                bridge._queue.get(timeout=_POLL_TIMEOUT_SECONDS)
+            except Exception:
+                pass
+
+    drainer = threading.Thread(target=drain_queue, daemon=True)
+    drainer.start()
+    _wait_until(producer_blocked.is_set, message="producer did not block on second batch")
+    bridge.close_sync(join_timeout_seconds=1.0)
+    drainer.join(timeout=2.0)
+    assert close_calls == 1
+    assert not bridge.is_worker_alive()

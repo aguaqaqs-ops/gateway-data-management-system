@@ -30,6 +30,7 @@ class VersionedReadProvider(Protocol):
         table_plan: CompiledTablePlan | None = None,
         cancellation: CancellationCallback | None = None,
         existence_verified: bool = False,
+        stream_owner: object | None = None,
     ) -> Iterator[pa.RecordBatch]: ...
 
 
@@ -45,4 +46,5 @@ class VersionedReadPort(Protocol):
         exact_table_name: str,
         policy: UnknownTypePolicy,
         cancellation: CancellationCallback | None = None,
+        stream_owner: object | None = None,
     ) -> tuple[CompiledTablePlan, Iterator[pa.RecordBatch]]: ...

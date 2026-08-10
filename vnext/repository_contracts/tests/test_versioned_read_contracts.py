@@ -77,6 +77,17 @@ TABLE_NAME_INVALID_EDGE_WHITESPACE_CASES = [
     (" both ", "leading or trailing whitespace"),
 ]
 
+TABLE_NAME_INVALID_SCHEMA_CASES = [
+    ("a/b", "path separators"),
+    (r"a\b", "path separators"),
+    ("a\tb", "ASCII control"),
+]
+
+TABLE_NAME_VALID_SCHEMA_CASES = [
+    ("items", "items"),
+    ("my table", "my table"),
+]
+
 COMMIT_VALID_CASES = [
     "opaque-token",
     r"back\slash-token",
@@ -117,6 +128,18 @@ def test_versioned_table_name_accepts_valid_values(raw: str, expected: str) -> N
 def test_versioned_table_name_rejects_edge_whitespace(raw: str, message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         _TableNameProbe(value=raw)
+
+
+@pytest.mark.parametrize(("raw", "message"), TABLE_NAME_INVALID_SCHEMA_CASES)
+def test_versioned_table_name_rejects_schema_forbidden_characters(raw: str, message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        _TableNameProbe(value=raw)
+
+
+@pytest.mark.parametrize(("raw", "expected"), TABLE_NAME_VALID_SCHEMA_CASES)
+def test_versioned_table_name_accepts_schema_valid_values(raw: str, expected: str) -> None:
+    probe = _TableNameProbe(value=raw)
+    assert probe.value == expected
 
 
 @pytest.mark.parametrize(("raw", "message"), IDENTIFIER_INVALID_CASES)
@@ -244,22 +267,46 @@ def test_versioned_table_name_rejects_non_string_values(invalid_value: object) -
 
 
 def test_stream_rows_query_openapi_schema_declares_table_name_constraints() -> None:
+    import re
+
     from gateway_repository_contracts import StreamVersionedTableRowsQuery
+    from gateway_repository_contracts.identifiers import _TABLE_NAME_OPENAPI_PATTERN
 
     schema = StreamVersionedTableRowsQuery.model_json_schema()
     table_name = schema["properties"]["table_name"]
     assert table_name["minLength"] == 1
     assert table_name["maxLength"] == 64
-    assert "pattern" in table_name
+    assert table_name["pattern"] == _TABLE_NAME_OPENAPI_PATTERN
+    pattern = re.compile(table_name["pattern"])
+    assert pattern.fullmatch("items")
+    assert pattern.fullmatch("my table")
+    assert pattern.fullmatch(" items") is None
+    assert pattern.fullmatch("items ") is None
+    assert pattern.fullmatch("a/b") is None
+    assert pattern.fullmatch("a\tb") is None
 
 
 def test_versioned_catalog_schema_declares_identifier_constraints() -> None:
+    import re
+
     from gateway_repository_contracts import VersionedCatalog
+    from gateway_repository_contracts.identifiers import (
+        _IDENTIFIER_OPENAPI_PATTERN,
+        _TABLE_NAME_OPENAPI_PATTERN,
+    )
 
     schema = VersionedCatalog.model_json_schema()
     table_name = schema["$defs"]["VersionedTable"]["properties"]["name"]
     column_name = schema["$defs"]["VersionedColumn"]["properties"]["name"]
     primary_key_items = schema["$defs"]["VersionedTable"]["properties"]["primary_key"]["items"]
+    assert table_name["pattern"] == _TABLE_NAME_OPENAPI_PATTERN
+    assert column_name["pattern"] == _IDENTIFIER_OPENAPI_PATTERN
+    assert primary_key_items["pattern"] == _IDENTIFIER_OPENAPI_PATTERN
+    table_pattern = re.compile(table_name["pattern"])
+    identifier_pattern = re.compile(column_name["pattern"])
+    assert table_pattern.fullmatch("my table")
+    assert table_pattern.fullmatch("a/b") is None
+    assert identifier_pattern.fullmatch("my column")
     for field_schema in (table_name, column_name, primary_key_items):
         assert field_schema["minLength"] == 1
         assert field_schema["maxLength"] == 64

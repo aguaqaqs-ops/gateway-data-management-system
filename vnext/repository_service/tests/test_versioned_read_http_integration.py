@@ -38,7 +38,7 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from gateway_repository_service.versioned_read.application import VersionedReadApplication
-from gateway_repository_service.versioned_read.arrow_bridge import BRIDGE_REGISTRY
+from gateway_repository_service.versioned_read.arrow_bridge import BRIDGE_REGISTRY, BridgeStreamAbortedError
 from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
 from support.http_harness import ReadyReadiness, create_test_client
 from support.lifecycle_harness import lifecycle_settings
@@ -46,6 +46,7 @@ from support.streaming_http_harness import (
     create_async_streaming_client,
     read_stream_until_error,
     run_async,
+    stream_rows,
     stream_until_first_chunk_then_close,
 )
 
@@ -400,11 +401,6 @@ def _seed_large_items_table(env: ReadHttpIntegrationEnvironment, *, sql_name: st
 def test_http_midstream_failure_aborts_transport(read_http_env: ReadHttpIntegrationEnvironment) -> None:
     env = read_http_env
     commit_id = _seed_large_items_table(env, sql_name="fail.sql", marker_suffix="13")
-    full_bytes = env.client.get(
-        _rows_url(env, commit_id),
-        params={"table_name": "items"},
-        headers=_auth_headers(),
-    ).content
     original_open = env.runtime.versioned_read_application.open_table_rows
 
     def exploding_open(*args: Any, **kwargs: Any) -> tuple[Any, Iterator[pa.RecordBatch]]:
@@ -432,8 +428,8 @@ def test_http_midstream_failure_aborts_transport(read_http_env: ReadHttpIntegrat
     status_code, body, error = run_async(exercise())
     assert status_code == 200
     assert body
-    assert error is not None or len(body) < len(full_bytes)
-    if error is not None:
+    assert error is not None
+    if not isinstance(error, BridgeStreamAbortedError):
         assert isinstance(error, (httpx.ReadError, httpx.RemoteProtocolError, RuntimeError))
 
 
@@ -497,36 +493,24 @@ def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: Re
 def test_http_runtime_shutdown_closes_active_row_stream(read_http_env: ReadHttpIntegrationEnvironment) -> None:
     env = read_http_env
     commit_id = _seed_large_items_table(env, sql_name="shutdown.sql", marker_suffix="15")
-    original_open = env.runtime.versioned_read_application.open_table_rows
-    producer_waiting = threading.Event()
-    release = threading.Event()
+    first_chunk_received = threading.Event()
     consumer_done = threading.Event()
     consumer_errors: list[BaseException] = []
 
-    def gated_open(*args: Any, **kwargs: Any) -> tuple[Any, Iterator[pa.RecordBatch]]:
-        plan, rows = original_open(*args, **kwargs)
-
-        def _gated() -> Iterator[pa.RecordBatch]:
-            for index, batch in enumerate(rows):
-                yield batch
-                if index == 0:
-                    producer_waiting.set()
-                    assert release.wait(timeout=10.0)
-
-        return plan, _gated()
-
-    env.runtime.versioned_read_application.open_table_rows = gated_open  # type: ignore[method-assign]
-
     async def consume_shutdown_stream() -> None:
         async with create_async_streaming_client(env.app) as client:
-            status_code, first_chunk, _error = await stream_until_first_chunk_then_close(
+            response = await stream_rows(
                 client,
                 path=_rows_url(env, commit_id),
                 params={"table_name": "items"},
                 headers=_auth_headers(),
             )
-            assert status_code == 200
-            assert first_chunk
+            assert response.status_code == 200
+            async for chunk in response.aiter_bytes():
+                if chunk:
+                    first_chunk_received.set()
+                    break
+            await response.aclose()
 
     def consume() -> None:
         try:
@@ -538,15 +522,17 @@ def test_http_runtime_shutdown_closes_active_row_stream(read_http_env: ReadHttpI
 
     consumer = threading.Thread(target=consume)
     consumer.start()
-    assert producer_waiting.wait(timeout=10.0)
-    assert BRIDGE_REGISTRY.snapshot()
+    assert first_chunk_received.wait(timeout=10.0)
+    bridges = BRIDGE_REGISTRY.snapshot()
+    assert len(bridges) == 1
+    bridge = bridges[0]
     env.runtime.shutdown()
-    release.set()
+    assert BRIDGE_REGISTRY.snapshot() == ()
+    assert not bridge.is_worker_alive()
+    assert env.runner._active_children.snapshot() == ()
     consumer.join(timeout=15.0)
     assert consumer_done.is_set()
     assert not consumer.is_alive()
-    assert BRIDGE_REGISTRY.snapshot() == ()
-    assert env.runner._active_children.snapshot() == ()
 
 
 @pytest.mark.serial
@@ -585,8 +571,13 @@ def test_http_disconnect_does_not_break_concurrent_stream(read_http_env: ReadHtt
     disconnect_thread = threading.Thread(target=lambda: run_async(disconnect_first()))
     disconnect_thread.start()
     assert producer_waiting.wait(timeout=10.0)
-    release.set()
     disconnect_thread.join(timeout=15.0)
+    release.set()
+    _wait_until(
+        lambda: BRIDGE_REGISTRY.snapshot() == (),
+        timeout_seconds=10.0,
+        message="versioned read bridge worker did not exit after disconnect",
+    )
 
     response = env.client.get(
         _rows_url(env, commit_id),

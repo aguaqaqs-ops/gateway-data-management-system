@@ -10,7 +10,7 @@ import threading
 import time
 import weakref
 from collections.abc import AsyncIterator, Iterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -28,6 +28,7 @@ _WORKER_JOIN_TIMEOUT_SECONDS = 30.0
 _WORKER_REJOIN_TIMEOUT_SECONDS = 2.0
 _SUCCESS_SENTINEL = object()
 _FAILURE_SENTINEL = object()
+TerminalOutcome = Literal["pending", "success", "failure"]
 
 
 class BridgeStreamAbortedError(RuntimeError):
@@ -61,14 +62,22 @@ class _BridgeRegistry:
         *,
         join_timeout_seconds: float = _WORKER_JOIN_TIMEOUT_SECONDS,
     ) -> None:
+        join_errors: list[BridgeJoinTimeoutError] = []
         for bridge in self.snapshot():
             try:
                 bridge.close_sync(
                     dolt_runner=dolt_runner,
                     join_timeout_seconds=join_timeout_seconds,
                 )
+            except BridgeJoinTimeoutError as exc:
+                join_errors.append(exc)
             except Exception:
                 _LOGGER.warning("versioned read bridge did not stop during service shutdown", exc_info=True)
+        if join_errors:
+            _LOGGER.error(
+                "versioned read bridge workers did not exit during service shutdown",
+                extra={"count": len(join_errors)},
+            )
 
 
 BRIDGE_REGISTRY = _BridgeRegistry()
@@ -95,7 +104,7 @@ class ArrowIpcStreamBridge:
         self._close_condition = threading.Condition(self._close_lock)
         self._close_requested = False
         self._worker_joined = False
-        self._terminal_signaled = False
+        self._terminal_outcome: TerminalOutcome = "pending"
         self._worker = threading.Thread(
             target=self._run_worker,
             name="versioned-read-arrow-bridge",
@@ -114,7 +123,9 @@ class ArrowIpcStreamBridge:
                     item = await asyncio.to_thread(self._queue.get, True, _POLL_TIMEOUT_SECONDS)
                 except queue.Empty:
                     if self._worker_joined:
-                        break
+                        if self._terminal_outcome == "success":
+                            break
+                        raise BridgeStreamAbortedError("versioned read arrow stream aborted")
                     await asyncio.sleep(0)
                     continue
                 if item is _SUCCESS_SENTINEL:
@@ -139,6 +150,7 @@ class ArrowIpcStreamBridge:
         join_timeout_seconds: float = _WORKER_JOIN_TIMEOUT_SECONDS,
     ) -> None:
         del dolt_runner
+        already_joined = False
         with self._close_condition:
             if self._worker_joined:
                 return
@@ -151,19 +163,27 @@ class ArrowIpcStreamBridge:
                 if remaining <= 0:
                     break
                 self._close_condition.wait(timeout=min(remaining, _POLL_TIMEOUT_SECONDS))
-            if self._worker_joined:
-                return
-            if self._worker.is_alive():
-                _LOGGER.warning("versioned read arrow bridge worker did not exit in time")
-                self._worker.join(timeout=_WORKER_REJOIN_TIMEOUT_SECONDS)
-            if self._worker.is_alive():
-                raise BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
+            already_joined = self._worker_joined
+
+        if already_joined:
+            return
+        if self._worker.is_alive():
+            _LOGGER.warning("versioned read arrow bridge worker did not exit in time")
+            self._worker.join(timeout=_WORKER_REJOIN_TIMEOUT_SECONDS)
+        if self._worker.is_alive():
+            raise BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
 
     def _put_terminal(self, terminal: object) -> None:
+        if terminal is _SUCCESS_SENTINEL:
+            outcome: TerminalOutcome = "success"
+        elif terminal is _FAILURE_SENTINEL:
+            outcome = "failure"
+        else:
+            raise ValueError(f"unsupported terminal sentinel: {terminal!r}")
         with self._close_lock:
-            if self._terminal_signaled:
+            if self._terminal_outcome != "pending":
                 return
-            self._terminal_signaled = True
+            self._terminal_outcome = outcome
         while True:
             try:
                 self._queue.put(terminal, timeout=_POLL_TIMEOUT_SECONDS)

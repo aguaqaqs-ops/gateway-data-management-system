@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import threading
+import time
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
@@ -47,6 +48,15 @@ def _plan_and_batches(batch_count: int, rows_per_batch: int) -> tuple[Any, list[
     return plan, batches
 
 
+def _wait_until(condition: Any, *, timeout_seconds: float = 2.0, message: str) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return
+        time.sleep(0.01)
+    raise AssertionError(message)
+
+
 def test_arrow_bridge_sink_peak_stays_bounded_across_many_batches() -> None:
     peak_sizes: list[int] = []
 
@@ -82,19 +92,27 @@ def test_arrow_bridge_sink_peak_stays_bounded_across_many_batches() -> None:
 
 
 @pytest.mark.serial
-def test_arrow_bridge_backpressure_and_first_batch_barrier() -> None:
-    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
-    release = threading.Event()
-    producer_waiting = threading.Event()
-
-    def gated_batches() -> Iterator[pa.RecordBatch]:
-        yield batches[0]
-        producer_waiting.set()
-        assert release.wait(timeout=2.0)
-        yield from batches[1:]
-
+def test_arrow_bridge_backpressure_blocks_producer_until_consumer_reads() -> None:
+    plan, batches = _plan_and_batches(batch_count=3, rows_per_batch=64)
     cancellation = threading.Event()
-    bridge = ArrowIpcStreamBridge(plan, gated_batches(), cancellation)
+    batches_yielded = 0
+    third_batch_requested = threading.Event()
+
+    def tracked_batches() -> Iterator[pa.RecordBatch]:
+        nonlocal batches_yielded
+        for index, batch in enumerate(batches):
+            batches_yielded = index + 1
+            if index == 2:
+                third_batch_requested.set()
+            yield batch
+
+    bridge = ArrowIpcStreamBridge(plan, tracked_batches(), cancellation)
+    _wait_until(
+        lambda: bridge._queue.full(),
+        message="bounded queue did not fill before consumer started",
+    )
+    assert batches_yielded <= 2
+    assert not third_batch_requested.is_set()
 
     async def consume() -> int:
         total = 0
@@ -102,16 +120,10 @@ def test_arrow_bridge_backpressure_and_first_batch_barrier() -> None:
             total += len(chunk)
         return total
 
-    async def run() -> tuple[int, bool]:
-        task = asyncio.create_task(consume())
-        assert producer_waiting.wait(timeout=2.0)
-        assert not task.done()
-        release.set()
-        return await task, producer_waiting.is_set()
-
-    total_bytes, was_waiting = asyncio.run(run())
-    assert was_waiting
+    total_bytes = asyncio.run(consume())
     assert total_bytes > 0
+    assert third_batch_requested.is_set()
+    assert bridge._terminal_outcome == "success"
 
 
 def test_arrow_bridge_worker_failure_aborts_consumer() -> None:
@@ -127,6 +139,29 @@ def test_arrow_bridge_worker_failure_aborts_consumer() -> None:
         chunks: list[bytes] = []
         async for chunk in bridge.iter_bytes():
             chunks.append(chunk)
+
+    with pytest.raises(BridgeStreamAbortedError):
+        asyncio.run(consume())
+
+
+@pytest.mark.serial
+def test_arrow_bridge_queue_full_cancel_preserves_failure_terminal() -> None:
+    plan, batches = _plan_and_batches(batch_count=2, rows_per_batch=64)
+    cancellation = threading.Event()
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), cancellation)
+    _wait_until(
+        lambda: bridge._queue.full(),
+        message="bounded queue did not fill before cancellation",
+    )
+
+    bridge.close_sync()
+    assert bridge._terminal_outcome == "failure"
+
+    async def consume() -> list[bytes]:
+        chunks: list[bytes] = []
+        async for chunk in bridge.iter_bytes():
+            chunks.append(chunk)
+        return chunks
 
     with pytest.raises(BridgeStreamAbortedError):
         asyncio.run(consume())
@@ -158,4 +193,33 @@ def test_arrow_bridge_close_sync_is_idempotent_for_concurrent_callers() -> None:
     first.join(timeout=5.0)
     second.join(timeout=5.0)
     assert not errors
+    assert not bridge.is_worker_alive()
+
+
+@pytest.mark.serial
+def test_close_sync_join_runs_outside_worker_condition_lock() -> None:
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    finish_worker_entered = threading.Event()
+    finish_worker_can_complete = threading.Event()
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event())
+    original_finish_worker = bridge._finish_worker
+
+    def delayed_finish_worker(*, completed: bool) -> None:
+        finish_worker_entered.set()
+        assert finish_worker_can_complete.wait(timeout=2.0)
+        original_finish_worker(completed=completed)
+
+    bridge._finish_worker = delayed_finish_worker  # type: ignore[method-assign]
+
+    async def consume() -> None:
+        async for _chunk in bridge.iter_bytes():
+            pass
+
+    consumer = threading.Thread(target=lambda: asyncio.run(consume()))
+    consumer.start()
+    assert finish_worker_entered.wait(timeout=2.0)
+    assert consumer.is_alive()
+    assert not bridge._worker_joined
+    finish_worker_can_complete.set()
+    consumer.join(timeout=5.0)
     assert not bridge.is_worker_alive()

@@ -9,7 +9,9 @@ from pydantic import BeforeValidator, StringConstraints
 _MIN_CODE_POINTS = 1
 _MAX_CODE_POINTS = 64
 _IDENTIFIER_OPENAPI_PATTERN = r"^[^\x00-\x1f\x7f/\\]+$"
-_TABLE_NAME_OPENAPI_PATTERN = r"^[^\s\x00-\x1f\x7f/\\](?:.*[^\s\x00-\x1f\x7f/\\])?$"
+_TABLE_NAME_OPENAPI_PATTERN = (
+    r"^[^\s\x00-\x1f\x7f/\\](?:[^\x00-\x1f\x7f/\\]*[^\s\x00-\x1f\x7f/\\])?$"
+)
 
 
 def _code_point_count(value: str) -> int:

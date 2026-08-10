@@ -41,10 +41,25 @@ class BridgeJoinTimeoutError(RuntimeError):
 class BridgeShutdownError(RuntimeError):
     """Raised when one or more bridge workers survive service shutdown."""
 
-    def __init__(self, failures: tuple[BridgeJoinTimeoutError, ...]) -> None:
+    def __init__(
+        self,
+        failures: tuple[BridgeJoinTimeoutError, ...],
+        *,
+        cleanup_errors: tuple[BaseException, ...] = (),
+        survivor_count: int = 0,
+    ) -> None:
         self.failures = failures
-        count = len(failures)
-        super().__init__(f"{count} versioned read bridge worker(s) did not exit during shutdown")
+        self.cleanup_errors = cleanup_errors
+        self.survivor_count = survivor_count
+        parts: list[str] = []
+        if failures:
+            parts.append(f"{len(failures)} join timeout(s)")
+        if cleanup_errors:
+            parts.append(f"{len(cleanup_errors)} cleanup error(s)")
+        if survivor_count:
+            parts.append(f"{survivor_count} survivor(s)")
+        summary = ", ".join(parts) if parts else "shutdown incomplete"
+        super().__init__(f"versioned read bridge shutdown failed: {summary}")
 
 
 class _BridgeRegistry:
@@ -71,6 +86,7 @@ class _BridgeRegistry:
         join_timeout_seconds: float = _WORKER_JOIN_TIMEOUT_SECONDS,
     ) -> None:
         join_errors: list[BridgeJoinTimeoutError] = []
+        cleanup_errors: list[BaseException] = []
         for bridge in self.snapshot():
             try:
                 bridge.close_sync(
@@ -79,16 +95,20 @@ class _BridgeRegistry:
                 )
             except BridgeJoinTimeoutError as exc:
                 join_errors.append(exc)
-            except Exception:
-                _LOGGER.warning("versioned read bridge did not stop during service shutdown", exc_info=True)
+            except BaseException as exc:
+                cleanup_errors.append(exc)
         survivors = tuple(bridge for bridge in self.snapshot() if bridge.is_worker_alive())
-        if join_errors or survivors:
+        if join_errors or cleanup_errors or survivors:
             if survivors:
                 _LOGGER.error(
                     "versioned read bridge workers still alive after shutdown",
                     extra={"count": len(survivors)},
                 )
-            raise BridgeShutdownError(tuple(join_errors))
+            raise BridgeShutdownError(
+                tuple(join_errors),
+                cleanup_errors=tuple(cleanup_errors),
+                survivor_count=len(survivors),
+            )
 
 
 BRIDGE_REGISTRY = _BridgeRegistry()
@@ -117,6 +137,9 @@ class ArrowIpcStreamBridge:
         self._close_condition = threading.Condition(self._close_lock)
         self._close_requested = False
         self._worker_joined = False
+        self._escalation_started = False
+        self._escalation_complete = False
+        self._escalation_error: BaseException | None = None
         self._terminal_outcome: TerminalOutcome = "pending"
         self._worker = threading.Thread(
             target=self._run_worker,
@@ -164,7 +187,7 @@ class ArrowIpcStreamBridge:
     ) -> None:
         runner = dolt_runner if dolt_runner is not None else self._dolt_runner
         deadline_at = time.monotonic() + join_timeout_seconds
-        already_joined = False
+        is_leader = False
         with self._close_condition:
             if self._worker_joined:
                 return
@@ -176,21 +199,55 @@ class ArrowIpcStreamBridge:
                 if remaining <= 0:
                     break
                 self._close_condition.wait(timeout=min(remaining, _POLL_TIMEOUT_SECONDS))
-            already_joined = self._worker_joined
+            if self._worker_joined:
+                return
+            if self._escalation_complete:
+                self._reraise_escalation_error()
+                return
+            if not self._escalation_started:
+                self._escalation_started = True
+                is_leader = True
+            else:
+                while not self._escalation_complete:
+                    self._close_condition.wait(timeout=_POLL_TIMEOUT_SECONDS)
+                self._reraise_escalation_error()
+                return
 
-        if already_joined:
+        if not is_leader:
             return
+
+        final_error: BaseException | None = None
         if self._worker.is_alive():
             _LOGGER.warning("versioned read arrow bridge worker did not exit in time")
-            if runner is not None and self._stream_owner is not None:
-                terminate_owned = getattr(runner, "terminate_owned", None)
-                if callable(terminate_owned):
-                    terminate_owned(self._stream_owner)
-            remaining = deadline_at - time.monotonic()
-            join_timeout = remaining if remaining > 0 else _POLL_TIMEOUT_SECONDS
-            self._worker.join(timeout=join_timeout)
-        if self._worker.is_alive():
-            raise BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
+            terminate_error: BaseException | None = None
+            try:
+                try:
+                    if runner is not None and self._stream_owner is not None:
+                        terminate_owned = getattr(runner, "terminate_owned", None)
+                        if callable(terminate_owned):
+                            terminate_owned(self._stream_owner)
+                except BaseException as exc:
+                    terminate_error = exc
+            finally:
+                remaining = deadline_at - time.monotonic()
+                join_timeout = remaining if remaining > 0 else _POLL_TIMEOUT_SECONDS
+                self._worker.join(timeout=join_timeout)
+            if self._worker.is_alive():
+                final_error = BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
+            elif terminate_error is not None:
+                final_error = terminate_error
+
+        with self._close_condition:
+            self._escalation_complete = True
+            self._escalation_error = final_error
+            self._close_condition.notify_all()
+
+        if final_error is not None:
+            raise final_error
+
+    def _reraise_escalation_error(self) -> None:
+        if self._escalation_error is not None:
+            raise self._escalation_error
 
     def _put_terminal(self, terminal: object) -> bool:
         if terminal is _SUCCESS_SENTINEL:

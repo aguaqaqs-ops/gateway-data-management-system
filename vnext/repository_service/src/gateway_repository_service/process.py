@@ -1044,6 +1044,7 @@ class ActiveChildRegistry:
         self._lock = threading.Lock()
         self._processes: set[subprocess.Popen[bytes]] = set()
         self._owners: dict[subprocess.Popen[bytes], object | None] = {}
+        self._terminating: set[subprocess.Popen[bytes]] = set()
 
     def register(self, process: subprocess.Popen[bytes], *, owner: object | None = None) -> None:
         with self._lock:
@@ -1054,6 +1055,7 @@ class ActiveChildRegistry:
         with self._lock:
             self._processes.discard(process)
             self._owners.pop(process, None)
+            self._terminating.discard(process)
 
     def snapshot(self) -> tuple[subprocess.Popen[bytes], ...]:
         with self._lock:
@@ -1062,6 +1064,24 @@ class ActiveChildRegistry:
     def snapshot_for_owner(self, owner: object) -> tuple[subprocess.Popen[bytes], ...]:
         with self._lock:
             return tuple(process for process in self._processes if self._owners.get(process) is owner)
+
+    def claim_for_termination(self, owner: object) -> tuple[subprocess.Popen[bytes], ...]:
+        with self._lock:
+            claimed: list[subprocess.Popen[bytes]] = []
+            for process in self._processes:
+                if self._owners.get(process) is not owner:
+                    continue
+                if process in self._terminating:
+                    continue
+                if process.poll() is not None:
+                    continue
+                self._terminating.add(process)
+                claimed.append(process)
+            return tuple(claimed)
+
+    def release_termination_claim(self, process: subprocess.Popen[bytes]) -> None:
+        with self._lock:
+            self._terminating.discard(process)
 
 
 class DoltRunner:
@@ -1086,11 +1106,15 @@ class DoltRunner:
 
     def terminate_owned(self, owner: object, *, grace_seconds: float | None = None) -> None:
         grace = grace_seconds if grace_seconds is not None else self.settings.terminate_grace_seconds
-        for process in self._active_children.snapshot_for_owner(owner):
-            if process.poll() is None:
-                self.terminate_and_reap(process, grace_seconds=grace)
-            else:
-                self._active_children.unregister(process)
+        for process in self._active_children.claim_for_termination(owner):
+            try:
+                if process.poll() is None:
+                    self.terminate_and_reap(process, grace_seconds=grace)
+                else:
+                    self._active_children.unregister(process)
+            except BaseException:
+                self._active_children.release_termination_claim(process)
+                raise
 
     def _seed_private_dolt_config(self) -> None:
         """Keep the private runner HOME from reaching the network.

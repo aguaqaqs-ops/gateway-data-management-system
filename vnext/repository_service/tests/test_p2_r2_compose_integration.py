@@ -127,6 +127,9 @@ def test_production_openapi_only_exposes_allowed_routes() -> None:
         "/v1/repositories/{repository_id}/artifacts",
         "/v1/repositories/{repository_id}/versioned/imports",
         "/v1/repositories/{repository_id}/operations/{operation_id}",
+        "/v1/repositories/{repository_id}/versioned/refs/{ref_name}",
+        "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog",
+        "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows",
     }
 
 
@@ -135,6 +138,7 @@ ALLOWED_V1_ROUTE_FILES = {
     SRC_ROOT / "http" / "routes" / "artifacts.py",
     SRC_ROOT / "http" / "routes" / "imports.py",
     SRC_ROOT / "http" / "routes" / "operations.py",
+    SRC_ROOT / "http" / "routes" / "versioned_read.py",
 }
 
 

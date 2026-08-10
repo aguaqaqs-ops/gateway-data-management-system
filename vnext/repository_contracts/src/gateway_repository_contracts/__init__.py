@@ -9,6 +9,11 @@ from gateway_repository_contracts.headers import (
     UploadRequestHeaders,
     validate_upload_content_length,
 )
+from gateway_repository_contracts.identifiers import (
+    VersionedIdentifierString,
+    VersionedTableNameString,
+)
+from gateway_repository_contracts.types import CommitIdString
 from gateway_repository_contracts.versioned import (
     CreateRepositoryResponse,
     GetOperationResponse,
@@ -17,9 +22,10 @@ from gateway_repository_contracts.versioned import (
     RepositoryArtifactRef,
     ResolveVersionedRefRequest,
     ResolveVersionedRefResponse,
+    StreamVersionedTableRowsQuery,
+    StreamVersionedTableRowsRequest,
     SubmitVersionedImportRequest,
     SubmitVersionedImportResponse,
-    StreamVersionedTableRowsRequest,
     UnknownTypePolicy,
     UploadArtifactResponse,
     VerificationPolicy,
@@ -29,9 +35,24 @@ from gateway_repository_contracts.versioned import (
     VersionedOperation,
     VersionedTable,
 )
+from gateway_repository_contracts.versioned_read_constants import (
+    COMMIT_NOT_FOUND_CODE,
+    REF_NOT_FOUND_CODE,
+    REPOSITORY_NOT_FOUND_CODE,
+    TABLE_NOT_FOUND_CODE,
+    UNKNOWN_SQL_TYPE_CODE,
+    VERSIONED_READ_ARROW_MEDIA_TYPE,
+)
 
 __all__ = [
+    "COMMIT_NOT_FOUND_CODE",
     "REPOSITORY_IMPORT_MEDIA_TYPE",
+    "REF_NOT_FOUND_CODE",
+    "REPOSITORY_NOT_FOUND_CODE",
+    "TABLE_NOT_FOUND_CODE",
+    "UNKNOWN_SQL_TYPE_CODE",
+    "VERSIONED_READ_ARROW_MEDIA_TYPE",
+    "CommitIdString",
     "CreateRequestHeaders",
     "CreateRepositoryResponse",
     "GetOperationResponse",
@@ -43,17 +64,20 @@ __all__ = [
     "ResolveVersionedRefRequest",
     "ResolveVersionedRefResponse",
     "SimpleError",
+    "StreamVersionedTableRowsQuery",
+    "StreamVersionedTableRowsRequest",
     "SubmitVersionedImportRequest",
     "SubmitVersionedImportResponse",
-    "StreamVersionedTableRowsRequest",
     "UnknownTypePolicy",
     "UploadArtifactResponse",
     "UploadRequestHeaders",
     "VerificationPolicy",
     "VersionedCatalog",
     "VersionedColumn",
+    "VersionedIdentifierString",
     "VersionedImportResult",
     "VersionedOperation",
     "VersionedTable",
+    "VersionedTableNameString",
     "validate_upload_content_length",
 ]

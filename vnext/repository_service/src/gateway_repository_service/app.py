@@ -17,6 +17,7 @@ from gateway_repository_service.http.routes.imports import register_import_route
 from gateway_repository_service.http.routes.operations import register_operation_routes
 from gateway_repository_service.http.routes.probes import register_probe_routes
 from gateway_repository_service.http.routes.repositories import register_repository_routes
+from gateway_repository_service.http.routes.versioned_read import register_versioned_read_routes
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings
 
@@ -64,5 +65,6 @@ def create_app(
     register_artifact_routes(app)
     register_import_routes(app)
     register_operation_routes(app)
+    register_versioned_read_routes(app)
 
     return app

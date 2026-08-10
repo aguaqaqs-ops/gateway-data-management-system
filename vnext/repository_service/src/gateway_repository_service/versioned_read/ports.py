@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from typing import Protocol
+from uuid import UUID
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -30,3 +31,18 @@ class VersionedReadProvider(Protocol):
         cancellation: CancellationCallback | None = None,
         existence_verified: bool = False,
     ) -> Iterator[pa.RecordBatch]: ...
+
+
+class VersionedReadPort(Protocol):
+    def resolve_main(self, repository_id: UUID) -> str: ...
+
+    def get_catalog(self, repository_id: UUID, commit_id: str) -> tuple[TableCatalog, ...]: ...
+
+    def open_table_rows(
+        self,
+        repository_id: UUID,
+        commit_id: str,
+        exact_table_name: str,
+        policy: UnknownTypePolicy,
+        cancellation: CancellationCallback | None = None,
+    ) -> tuple[CompiledTablePlan, Iterator[pa.RecordBatch]]: ...

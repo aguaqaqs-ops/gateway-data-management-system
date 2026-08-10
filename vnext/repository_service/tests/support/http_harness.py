@@ -39,6 +39,7 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
 from gateway_repository_service.versioned_import.store import ImportOperationStore
+from gateway_repository_service.versioned_read.application import VersionedReadApplication
 
 
 class ReadyReadiness:
@@ -143,6 +144,9 @@ PRODUCTION_OPENAPI_PATHS = {
     "/v1/repositories/{repository_id}/artifacts",
     "/v1/repositories/{repository_id}/versioned/imports",
     "/v1/repositories/{repository_id}/operations/{operation_id}",
+    "/v1/repositories/{repository_id}/versioned/refs/{ref_name}",
+    "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog",
+    "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows",
 }
 
 
@@ -281,6 +285,7 @@ def create_import_http_environment(tmp_path: Path, **settings_kwargs: object) ->
         import_store=import_store,
         import_locks=RepositoryLockRegistry(),
         import_worker_pool=worker_pool,
+        versioned_read_application=MagicMock(spec=VersionedReadApplication),
         dolt_runner=MagicMock(spec=DoltRunner),
         provider_gate=provider_gate,
         auth_state=AuthState(bearer_token=settings.resolve_bearer_token()),

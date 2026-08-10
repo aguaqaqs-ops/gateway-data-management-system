@@ -38,6 +38,8 @@ from gateway_repository_service.versioned_import.provider import CandidateAImpor
 from gateway_repository_service.versioned_import.recovery import ImportStartupReconciler
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from gateway_repository_service.versioned_import.worker import ImportWorkerPool
+from gateway_repository_service.versioned_read.application import VersionedReadApplication
+from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +58,7 @@ class ServiceRuntime:
     import_store: ImportOperationStore
     import_locks: RepositoryLockRegistry
     import_worker_pool: ImportWorkerPool
+    versioned_read_application: VersionedReadApplication
     dolt_runner: DoltRunner
     provider_gate: OfflineCliCapabilityGate
     auth_state: AuthState
@@ -139,6 +142,16 @@ class ServiceRuntime:
             )
             import_worker_pool.start()
             import_worker_pool.notify()
+            read_provider_factory = cls._build_read_provider_factory(
+                settings=settings,
+                layout=layout,
+                dolt_runner=dolt_runner,
+            )
+            versioned_read_application = VersionedReadApplication(
+                mutation_store,
+                layout,
+                read_provider_factory,
+            )
             stack.pop_all()
             return cls(
                 settings=settings,
@@ -149,6 +162,7 @@ class ServiceRuntime:
                 import_store=import_store,
                 import_locks=import_locks,
                 import_worker_pool=import_worker_pool,
+                versioned_read_application=versioned_read_application,
                 dolt_runner=dolt_runner,
                 provider_gate=provider_gate,
                 auth_state=AuthState(bearer_token=bearer_token),
@@ -176,6 +190,24 @@ class ServiceRuntime:
         def provider_factory(repository_id: UUID) -> CandidateAImportProvider:
             repository_path = layout.published_repository(repository_key(repository_id))
             return CandidateAImportProvider(
+                settings,
+                layout,
+                repository_path,
+                dolt_runner,
+            )
+
+        return provider_factory
+
+    @staticmethod
+    def _build_read_provider_factory(
+        *,
+        settings: RepositoryServiceSettings,
+        layout: DurableLayout,
+        dolt_runner: DoltRunner,
+    ) -> Callable[[UUID], CandidateAReadProvider]:
+        def provider_factory(repository_id: UUID) -> CandidateAReadProvider:
+            repository_path = layout.published_repository(repository_key(repository_id))
+            return CandidateAReadProvider(
                 settings,
                 layout,
                 repository_path,

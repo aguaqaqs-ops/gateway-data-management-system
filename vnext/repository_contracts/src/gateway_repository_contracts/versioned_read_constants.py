@@ -1,0 +1,11 @@
+"""Stable versioned read wire constants."""
+
+from __future__ import annotations
+
+VERSIONED_READ_ARROW_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
+
+REPOSITORY_NOT_FOUND_CODE = "REPOSITORY_NOT_FOUND"
+REF_NOT_FOUND_CODE = "REF_NOT_FOUND"
+COMMIT_NOT_FOUND_CODE = "COMMIT_NOT_FOUND"
+TABLE_NOT_FOUND_CODE = "TABLE_NOT_FOUND"
+UNKNOWN_SQL_TYPE_CODE = "UNKNOWN_SQL_TYPE"

@@ -27,3 +27,4 @@ Sha256String: TypeAlias = Annotated[
     str,
     StringConstraints(pattern=r"^[0-9a-f]{64}$"),
 ]
+CommitIdString: TypeAlias = BoundedOpaqueString

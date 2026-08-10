@@ -15,13 +15,17 @@ from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, model_validat
 
 from gateway_repository_contracts.errors import SimpleError
 from gateway_repository_contracts.headers import REPOSITORY_IMPORT_MEDIA_TYPE
+from gateway_repository_contracts.identifiers import (
+    VersionedIdentifierString,
+    VersionedTableNameString,
+)
 from gateway_repository_contracts.types import (
     BoundedOpaqueString,
+    CommitIdString,
     MainRefLiteral,
     MediaTypeString,
     RefNameString,
     Sha256String,
-    TableNameString,
 )
 
 
@@ -133,29 +137,29 @@ class GetOperationResponse(_VersionedModel):
 
 class ResolveVersionedRefRequest(_VersionedModel):
     repository_id: UUID
-    ref_name: RefNameString
+    ref_name: MainRefLiteral
 
 
 class ResolveVersionedRefResponse(_VersionedModel):
-    ref_name: RefNameString
-    commit_id: BoundedOpaqueString
+    ref_name: MainRefLiteral
+    commit_id: CommitIdString
 
 
 class VersionedColumn(_VersionedModel):
-    name: TableNameString
+    name: VersionedIdentifierString
     sql_type: BoundedOpaqueString
     nullable: bool
 
 
 class VersionedTable(_VersionedModel):
-    name: TableNameString
+    name: VersionedTableNameString
     columns: tuple[VersionedColumn, ...]
-    primary_key: tuple[TableNameString, ...]
+    primary_key: tuple[VersionedIdentifierString, ...]
     row_count: NonNegativeInt
 
 
 class VersionedCatalog(_VersionedModel):
-    commit_id: BoundedOpaqueString
+    commit_id: CommitIdString
     tables: tuple[VersionedTable, ...]
 
 
@@ -164,6 +168,16 @@ class GetVersionedCatalogResponse(_VersionedModel):
 
 
 class StreamVersionedTableRowsRequest(_VersionedModel):
+    """Typed façade request shape; HTTP row route uses query parameters only."""
+
     repository_id: UUID
-    commit_id: BoundedOpaqueString
-    table_name: TableNameString
+    commit_id: CommitIdString
+    table_name: VersionedTableNameString
+    unknown_type_policy: UnknownTypePolicy = UnknownTypePolicy.REJECT
+
+
+class StreamVersionedTableRowsQuery(_VersionedModel):
+    """Query parameters for commit-pinned row streaming."""
+
+    table_name: VersionedTableNameString
+    unknown_type_policy: UnknownTypePolicy = UnknownTypePolicy.REJECT

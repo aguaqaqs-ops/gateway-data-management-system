@@ -1,0 +1,435 @@
+"""HTTP integration tests for commit-pinned versioned reads."""
+
+from __future__ import annotations
+
+import sqlite3
+import threading
+from collections.abc import Iterator
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
+from uuid import UUID, uuid4
+
+import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow.ipc as pa_ipc  # type: ignore[import-untyped]
+import pytest
+from fastapi.testclient import TestClient
+
+from gateway_repository_contracts import VERSIONED_READ_ARROW_MEDIA_TYPE, UnknownTypePolicy
+from gateway_repository_service.arrow_mapping import SqlValueConversionError
+from gateway_repository_service.auth_state import AuthState
+from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
+from gateway_repository_service.layout import DurableLayout, repository_key
+from gateway_repository_service.mutation_fingerprints import create_repository_fingerprint_v1
+from gateway_repository_service.mutation_store import (
+    IdempotencyScope,
+    MutationStore,
+    configure_connection,
+)
+from gateway_repository_service.process import DoltRunner
+from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate
+from gateway_repository_service.providers import OfflineCliProvider
+from gateway_repository_service.runtime import ServiceRuntime
+from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
+from gateway_repository_service.versioned_import.store import ImportOperationStore
+from gateway_repository_service.versioned_read.application import VersionedReadApplication
+from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
+from support.http_harness import ReadyReadiness, create_test_client
+from support.lifecycle_harness import lifecycle_settings
+
+pytestmark = pytest.mark.integration
+
+
+@dataclass
+class ReadHttpIntegrationEnvironment:
+    settings: RepositoryServiceSettings
+    layout: DurableLayout
+    runtime: ServiceRuntime
+    client: TestClient
+    repository_id: UUID
+    offline: OfflineCliProvider
+    read_provider: CandidateAReadProvider
+    runner: DoltRunner
+    control_store: ControlStore
+
+    def close(self) -> None:
+        if self.control_store.is_open():
+            self.control_store.close()
+
+
+def _open_mutation_store(tmp_path: Path) -> MutationStore:
+    db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+    control_store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+    control_store.close()
+    connection = sqlite3.connect(db_path)
+    configure_connection(connection)
+    return MutationStore(connection)
+
+
+def _seed_visible_repository(store: MutationStore, repository_id: UUID) -> None:
+    scope = IdempotencyScope.for_create()
+    key_hash = MutationStore.hash_idempotency_key(f"create-{repository_id}")
+    fingerprint = create_repository_fingerprint_v1()
+    store.claim_or_lookup(scope, key_hash=key_hash, fingerprint=fingerprint)
+    effect = store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=repository_id,
+    )
+    store.mark_succeeded(
+        effect.effect_id,
+        response_body={
+            "repository_id": str(repository_id),
+            "default_ref": "main",
+            "initial_commit_id": "abc",
+        },
+    )
+
+
+def _write_sql(layout: DurableLayout, name: str, sql: str) -> Path:
+    path = layout.staging_artifacts / name
+    path.write_text(sql, encoding="utf-8")
+    return path
+
+
+def _commit_changes(offline: OfflineCliProvider, marker: str) -> str:
+    return offline.commit_marker(marker)
+
+
+def create_read_http_environment(tmp_path: Path) -> ReadHttpIntegrationEnvironment:
+    settings = lifecycle_settings(tmp_path)
+    layout = DurableLayout.create(settings.data_root)
+    repository_id = uuid4()
+    published = layout.published_repository(repository_key(repository_id))
+    published.mkdir(parents=True, exist_ok=True)
+    runner = DoltRunner(settings, layout.root)
+    offline = OfflineCliProvider(settings, layout, published, runner)
+    offline.initialize_repository()
+    read_provider = CandidateAReadProvider(settings, layout, published, runner)
+    db_path = settings.control_db_path
+    control_store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+    import_store = ImportOperationStore(
+        control_store.connection,
+        transaction_lock=control_store.transaction_lock,
+    )
+    mutation_store = MutationStore(control_store.connection, transaction_lock=control_store.transaction_lock)
+    _seed_visible_repository(mutation_store, repository_id)
+    application = VersionedReadApplication(
+        mutation_store,
+        layout,
+        lambda _repository_id: read_provider,
+    )
+    root_lock = MagicMock()
+    root_lock.is_held.return_value = True
+    provider_gate = MagicMock(spec=OfflineCliCapabilityGate)
+    provider_gate.executable_path.return_value = settings.dolt_binary
+    runtime = ServiceRuntime(
+        settings=settings,
+        layout=layout,
+        root_lock=root_lock,
+        control_store=control_store,
+        mutation_store=mutation_store,
+        import_store=import_store,
+        import_locks=RepositoryLockRegistry(),
+        import_worker_pool=MagicMock(),
+        versioned_read_application=application,
+        dolt_runner=runner,
+        provider_gate=provider_gate,
+        auth_state=AuthState(bearer_token=settings.resolve_bearer_token()),
+        _stopping=threading.Event(),
+    )
+    from gateway_repository_service.app import create_app
+
+    app = create_app(settings, enable_lifecycle=False)
+    app.state.runtime = runtime
+    app.state.auth_state = runtime.auth_state
+    app.state.readiness = ReadyReadiness()
+    client = create_test_client(app)
+    return ReadHttpIntegrationEnvironment(
+        settings=settings,
+        layout=layout,
+        runtime=runtime,
+        client=client,
+        repository_id=repository_id,
+        offline=offline,
+        read_provider=read_provider,
+        runner=runner,
+        control_store=control_store,
+    )
+
+
+@pytest.fixture
+def read_http_env(tmp_path: Path) -> Iterator[ReadHttpIntegrationEnvironment]:
+    environment = create_read_http_environment(tmp_path)
+    yield environment
+    environment.close()
+
+
+def _auth_headers() -> dict[str, str]:
+    return {"Authorization": "Bearer test-bearer-token"}
+
+
+def test_http_resolve_main(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    c0 = read_http_env.read_provider.read_ref("main")
+    response = read_http_env.client.get(
+        f"/v1/repositories/{read_http_env.repository_id}/versioned/refs/main",
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 200
+    assert response.json() == {"ref_name": "main", "commit_id": c0}
+
+
+def test_http_c1_c2_catalog_and_rows_are_pinned(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    c0 = env.read_provider.read_ref("main")
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "c1.sql",
+            "CREATE TABLE items (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n"
+            "INSERT INTO items (id, label) VALUES (1, 'c1-value');\n",
+        )
+    )
+    c1 = _commit_changes(env.offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000001")
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "c2.sql",
+            "INSERT INTO items (id, label) VALUES (2, 'c2-value');\n",
+        )
+    )
+    c2 = _commit_changes(env.offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000002")
+
+    c1_catalog = env.client.get(
+        f"/v1/repositories/{env.repository_id}/versioned/commits/{c1}/catalog",
+        headers=_auth_headers(),
+    )
+    assert c1_catalog.status_code == 200
+    tables = c1_catalog.json()["catalog"]["tables"]
+    items = next(table for table in tables if table["name"] == "items")
+    assert items["row_count"] == 1
+
+    c2_catalog = env.client.get(
+        f"/v1/repositories/{env.repository_id}/versioned/commits/{c2}/catalog",
+        headers=_auth_headers(),
+    )
+    assert next(table for table in c2_catalog.json()["catalog"]["tables"] if table["name"] == "items")["row_count"] == 2
+
+    rows_response = env.client.get(
+        f"/v1/repositories/{env.repository_id}/versioned/commits/{c1}/rows",
+        params={"table_name": "items"},
+        headers=_auth_headers(),
+    )
+    assert rows_response.status_code == 200
+    assert rows_response.headers["content-type"].startswith(VERSIONED_READ_ARROW_MEDIA_TYPE)
+    decoded = list(pa_ipc.open_stream(rows_response.content))
+    ids = {int(batch.column("id")[row].as_py()) for batch in decoded for row in range(batch.num_rows)}
+    assert ids == {1}
+    assert c0 != c1 != c2
+
+
+def test_http_empty_table_returns_schema_and_zero_batches(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "empty.sql",
+            "CREATE TABLE empty_items (id BIGINT NOT NULL PRIMARY KEY);\n",
+        )
+    )
+    commit_id = _commit_changes(
+        env.offline,
+        "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000003",
+    )
+    response = env.client.get(
+        f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+        params={"table_name": "empty_items"},
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 200
+    reader = pa_ipc.open_stream(response.content)
+    assert reader.schema.names == ["id"]
+    assert list(reader) == []
+
+
+def test_http_rows_decode_known_types_and_stringify_metadata(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "types.sql",
+            "CREATE TABLE typed (id BIGINT NOT NULL PRIMARY KEY, payload VARCHAR(16) NOT NULL, odd ENUM('a','b'));\n"
+            "INSERT INTO typed (id, payload, odd) VALUES (1, 'x', 'a');\n",
+        )
+    )
+    commit_id = _commit_changes(
+        env.offline,
+        "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000004",
+    )
+    response = env.client.get(
+        f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+        params={"table_name": "typed", "unknown_type_policy": "STRINGIFY"},
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 200
+    batch = next(iter(pa_ipc.open_stream(response.content)))
+    odd_field = batch.schema.field("odd")
+    assert odd_field.metadata is not None
+    assert odd_field.metadata.get(b"gateway.sql_type") is not None
+    assert odd_field.metadata.get(b"gateway.lossy") == b"true"
+
+
+@pytest.mark.serial
+def test_http_branch_movement_keeps_pinned_rows(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "setup.sql",
+            "CREATE TABLE items (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n"
+            "INSERT INTO items (id, label) VALUES (1, 'pinned');\n",
+        )
+    )
+    c1 = _commit_changes(env.offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000010")
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "advance.sql",
+            "INSERT INTO items (id, label) VALUES (2, 'moved-main');\n",
+        )
+    )
+    _commit_changes(env.offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000011")
+    response = env.client.get(
+        f"/v1/repositories/{env.repository_id}/versioned/commits/{c1}/rows",
+        params={"table_name": "items"},
+        headers=_auth_headers(),
+    )
+    ids = {
+        int(batch.column("id")[row].as_py())
+        for batch in pa_ipc.open_stream(response.content)
+        for row in range(batch.num_rows)
+    }
+    assert ids == {1}
+
+
+@pytest.mark.serial
+def test_http_large_table_emits_multiple_batches(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    inserts = "".join(f"INSERT INTO wide (id) VALUES ({index});\n" for index in range(2500))
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "wide.sql",
+            "CREATE TABLE wide (id BIGINT NOT NULL PRIMARY KEY);\n" + inserts,
+        )
+    )
+    commit_id = _commit_changes(
+        env.offline,
+        "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000012",
+    )
+    response = env.client.get(
+        f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+        params={"table_name": "wide"},
+        headers=_auth_headers(),
+    )
+    batches = list(pa_ipc.open_stream(response.content))
+    assert len(batches) > 1
+    total_rows = sum(batch.num_rows for batch in batches)
+    assert total_rows == 2500
+
+
+@pytest.mark.serial
+def test_http_midstream_failure_truncates_without_json_tail(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    inserts = "".join(f"INSERT INTO items (id, label) VALUES ({index}, 'v{index}');\n" for index in range(1, 2501))
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "fail.sql",
+            "CREATE TABLE items (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n" + inserts,
+        )
+    )
+    commit_id = _commit_changes(
+        env.offline,
+        "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000013",
+    )
+    original_open = env.runtime.versioned_read_application.open_table_rows
+    full_plan, full_rows_iter = original_open(
+        env.repository_id,
+        commit_id,
+        "items",
+        UnknownTypePolicy.REJECT,
+    )
+    del full_plan
+    full_rows = sum(batch.num_rows for batch in full_rows_iter)
+
+    def exploding_open(*args: Any, **kwargs: Any) -> tuple[Any, Iterator[pa.RecordBatch]]:
+        plan, rows = original_open(*args, **kwargs)
+
+        def _explode() -> Iterator[pa.RecordBatch]:
+            for index, batch in enumerate(rows):
+                yield batch
+                if index == 0:
+                    raise SqlValueConversionError(table="items", column="label", sql_type="VARCHAR(32)")
+
+        return plan, _explode()
+
+    env.runtime.versioned_read_application.open_table_rows = exploding_open  # type: ignore[method-assign]
+    response = env.client.get(
+        f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+        params={"table_name": "items"},
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 200
+    content = response.content
+    assert content
+    reader = pa_ipc.open_stream(content)
+    batches = list(reader)
+    total_rows = sum(batch.num_rows for batch in batches)
+    assert 0 < total_rows < full_rows
+    assert not content.endswith(b"}")
+    assert b"SimpleError" not in content
+
+
+@pytest.mark.serial
+def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    env.offline.replay(
+        _write_sql(
+            env.layout,
+            "cancel.sql",
+            "CREATE TABLE items (id BIGINT NOT NULL PRIMARY KEY, label VARCHAR(32) NOT NULL);\n"
+            "INSERT INTO items (id, label) VALUES (1, 'one');\n",
+        )
+    )
+    commit_id = _commit_changes(
+        env.offline,
+        "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000014",
+    )
+    errors: list[BaseException] = []
+
+    def consume_partial() -> None:
+        try:
+            with env.client.stream(
+                "GET",
+                f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+                params={"table_name": "items"},
+                headers=_auth_headers(),
+            ) as response:
+                assert response.status_code == 200
+                iterator = response.iter_bytes()
+                next(iterator)
+        except Exception as exc:  # pragma: no cover - propagated below
+            errors.append(exc)
+
+    worker = threading.Thread(target=consume_partial)
+    worker.start()
+    worker.join(timeout=10.0)
+    assert not worker.is_alive()
+    if errors:
+        raise errors[0]
+    query_dir = env.layout.staging_artifacts
+    assert list(query_dir.glob("query-*.sql")) == []

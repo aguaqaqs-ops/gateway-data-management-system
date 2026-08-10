@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, cast
 
@@ -33,11 +34,13 @@ class _DuplexResponseStream(AsyncByteStream):
         disconnect_event: asyncio.Event,
         app_task: asyncio.Task[None],
         raise_app_exceptions: bool,
+        cleanup_barrier: threading.Event | None = None,
     ) -> None:
         self._chunk_queue = chunk_queue
         self._disconnect_event = disconnect_event
         self._app_task = app_task
         self._raise_app_exceptions = raise_app_exceptions
+        self._cleanup_barrier = cleanup_barrier
         self._closed = False
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
@@ -58,6 +61,8 @@ class _DuplexResponseStream(AsyncByteStream):
         if self._closed:
             return
         self._closed = True
+        if self._cleanup_barrier is not None:
+            self._cleanup_barrier.set()
         self._disconnect_event.set()
         await self._retrieve_app_exception()
 
@@ -95,11 +100,13 @@ class DuplexStreamingASGITransport(AsyncBaseTransport):
         raise_app_exceptions: bool = True,
         root_path: str = "",
         client: tuple[str, int] = ("127.0.0.1", 123),
+        cleanup_barrier: threading.Event | None = None,
     ) -> None:
         self.app = app
         self.raise_app_exceptions = raise_app_exceptions
         self.root_path = root_path
         self.client = client
+        self.cleanup_barrier = cleanup_barrier
 
     async def handle_async_request(self, request: Request) -> Response:
         assert isinstance(request.stream, AsyncByteStream)
@@ -203,6 +210,7 @@ class DuplexStreamingASGITransport(AsyncBaseTransport):
             disconnect_event=disconnect_event,
             app_task=app_task,
             raise_app_exceptions=self.raise_app_exceptions,
+            cleanup_barrier=self.cleanup_barrier,
         )
         return Response(status_code, headers=response_headers, stream=stream)
 

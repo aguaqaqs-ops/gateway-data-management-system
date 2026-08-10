@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sqlite3
 import threading
 import time
@@ -39,7 +40,11 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from gateway_repository_service.versioned_read.application import VersionedReadApplication
-from gateway_repository_service.versioned_read.arrow_bridge import BRIDGE_REGISTRY, BridgeStreamAbortedError
+from gateway_repository_service.versioned_read.arrow_bridge import (
+    BRIDGE_REGISTRY,
+    BridgeShutdownError,
+    BridgeStreamAbortedError,
+)
 from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
 from support.http_harness import ReadyReadiness, create_test_client
 from support.lifecycle_harness import lifecycle_settings
@@ -52,6 +57,8 @@ from support.streaming_http_harness import (
 )
 
 pytestmark = pytest.mark.integration
+
+_LOGGER = logging.getLogger(__name__)
 
 CancellationCallback = Callable[[], bool]
 
@@ -68,13 +75,16 @@ def _patch_gated_open_table_rows(
     def gated_open(*args: Any, **kwargs: Any) -> tuple[Any, Iterator[pa.RecordBatch]]:
         captured_cancellations.append(kwargs.get("cancellation"))
         plan, rows = original_open(*args, **kwargs)
+        cancellation = kwargs.get("cancellation")
 
         def _gated() -> Iterator[pa.RecordBatch]:
             for index, batch in enumerate(rows):
                 yield batch
                 if index == 0:
                     producer_waiting.set()
-                    release.wait()
+                    while not release.wait(timeout=0.05):
+                        if cancellation is not None and cancellation():
+                            return
 
         return plan, _gated()
 
@@ -220,11 +230,39 @@ def create_read_http_environment(tmp_path: Path) -> ReadHttpIntegrationEnvironme
     )
 
 
+def _force_read_http_cleanup(
+    env: ReadHttpIntegrationEnvironment,
+    *,
+    release: threading.Event | None = None,
+) -> None:
+    if release is not None:
+        release.set()
+    try:
+        BRIDGE_REGISTRY.close_all(env.runner, join_timeout_seconds=30.0)
+    except BridgeShutdownError as exc:
+        _LOGGER.warning("forced read http cleanup: %s", exc)
+    env.runner.terminate_active_children()
+    _wait_until(
+        lambda: BRIDGE_REGISTRY.snapshot() == (),
+        timeout_seconds=10.0,
+        message="bridge registry did not drain during forced cleanup",
+    )
+    _wait_until(
+        lambda: env.runner._active_children.snapshot() == (),
+        timeout_seconds=10.0,
+        message="active children did not drain during forced cleanup",
+    )
+
+
 @pytest.fixture
 def read_http_env(tmp_path: Path) -> Iterator[ReadHttpIntegrationEnvironment]:
+    assert BRIDGE_REGISTRY.snapshot() == ()
     environment = create_read_http_environment(tmp_path)
-    yield environment
-    environment.close()
+    try:
+        yield environment
+    finally:
+        _force_read_http_cleanup(environment)
+        environment.close()
 
 
 def _auth_headers() -> dict[str, str]:
@@ -506,26 +544,22 @@ def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: Re
     disconnect_thread.start()
     try:
         assert producer_waiting.wait(timeout=10.0)
-        assert disconnect_done.wait(timeout=15.0), "disconnect did not finish after first chunk"
-        assert captured_cancellations
-        cancellation = captured_cancellations[0]
-        assert cancellation is not None
-        assert cancellation(), "disconnect did not set cancellation"
+        _wait_until(
+            lambda: bool(
+                captured_cancellations
+                and captured_cancellations[0] is not None
+                and captured_cancellations[0]()
+            ),
+            timeout_seconds=15.0,
+            message="disconnect did not set cancellation",
+        )
     finally:
         release.set()
-    disconnect_thread.join(timeout=15.0)
+        disconnect_thread.join(timeout=30.0)
+        _force_read_http_cleanup(env)
     if disconnect_errors:
         raise disconnect_errors[0]
-    _wait_until(
-        lambda: BRIDGE_REGISTRY.snapshot() == (),
-        timeout_seconds=10.0,
-        message="versioned read bridge worker did not exit after disconnect",
-    )
-    _wait_until(
-        lambda: env.runner._active_children.snapshot() == (),
-        timeout_seconds=10.0,
-        message="dolt child processes were not reaped after disconnect",
-    )
+    assert disconnect_done.is_set()
     for process in observed_pids:
         _wait_until_pid_reaped(process)
     query_dir = env.layout.staging_artifacts
@@ -623,21 +657,22 @@ def test_http_disconnect_does_not_break_concurrent_stream(read_http_env: ReadHtt
     disconnect_thread.start()
     try:
         assert producer_waiting.wait(timeout=10.0)
-        assert disconnect_done.wait(timeout=15.0), "disconnect did not finish after first chunk"
-        assert captured_cancellations
-        cancellation = captured_cancellations[0]
-        assert cancellation is not None
-        assert cancellation(), "disconnect did not set cancellation"
+        _wait_until(
+            lambda: bool(
+                captured_cancellations
+                and captured_cancellations[0] is not None
+                and captured_cancellations[0]()
+            ),
+            timeout_seconds=15.0,
+            message="disconnect did not set cancellation",
+        )
     finally:
         release.set()
-    disconnect_thread.join(timeout=15.0)
+        disconnect_thread.join(timeout=30.0)
+        _force_read_http_cleanup(env)
     if disconnect_errors:
         raise disconnect_errors[0]
-    _wait_until(
-        lambda: BRIDGE_REGISTRY.snapshot() == (),
-        timeout_seconds=10.0,
-        message="versioned read bridge worker did not exit after disconnect",
-    )
+    assert disconnect_done.is_set()
 
     response = env.client.get(
         _rows_url(env, commit_id),

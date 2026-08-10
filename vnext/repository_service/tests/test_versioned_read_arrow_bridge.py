@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import io
+import signal
 import threading
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -412,12 +414,14 @@ def test_close_sync_concurrent_timeout_escalates_once() -> None:
 
     plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
     release = threading.Event()
+    producer_blocked = threading.Event()
     bridge_owner = object()
     terminate_owned_calls = 0
     terminate_owned_lock = threading.Lock()
 
     def gated_rows() -> Iterator[pa.RecordBatch]:
         yield batches[0]
+        producer_blocked.set()
         release.wait()
 
     runner = MagicMock()
@@ -440,9 +444,20 @@ def test_close_sync_concurrent_timeout_escalates_once() -> None:
     )
     errors: list[BaseException] = []
 
+    def drain_queue() -> None:
+        while bridge.is_worker_alive():
+            try:
+                bridge._queue.get(timeout=_POLL_TIMEOUT_SECONDS)
+            except Exception:
+                pass
+
+    drainer = threading.Thread(target=drain_queue, daemon=True)
+    drainer.start()
+    _wait_until(producer_blocked.is_set, message="producer did not block on second batch")
+
     def close_in_thread() -> None:
         try:
-            bridge.close_sync(join_timeout_seconds=0.05)
+            bridge.close_sync(join_timeout_seconds=0.1)
         except BaseException as exc:
             errors.append(exc)
 
@@ -458,6 +473,7 @@ def test_close_sync_concurrent_timeout_escalates_once() -> None:
         assert all(isinstance(exc, BridgeJoinTimeoutError) for exc in errors)
     finally:
         release.set()
+        drainer.join(timeout=2.0)
         bridge._worker.join(timeout=5.0)
 
 
@@ -553,3 +569,244 @@ def test_bridge_registry_close_all_aggregates_errors_and_survivors() -> None:
     assert len(error.cleanup_errors) >= 1
     assert len(error.failures) >= 1
     assert error.survivor_count >= 1
+
+
+@pytest.mark.serial
+def test_request_close_sets_cancellation_before_worker_join() -> None:
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    release = threading.Event()
+    close_started = threading.Event()
+    cancellation = threading.Event()
+
+    def gated_rows() -> Iterator[pa.RecordBatch]:
+        yield batches[0]
+        release.wait()
+
+    bridge = ArrowIpcStreamBridge(plan, gated_rows(), cancellation)
+
+    def close_in_thread() -> None:
+        close_started.set()
+        bridge.close_sync(join_timeout_seconds=30.0)
+
+    closer = threading.Thread(target=close_in_thread)
+    closer.start()
+    assert close_started.wait(timeout=2.0)
+    assert cancellation.is_set()
+    release.set()
+    closer.join(timeout=5.0)
+    assert not bridge.is_worker_alive()
+
+
+@pytest.mark.serial
+def test_aclose_sets_cancellation_before_thread_cleanup() -> None:
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    release = threading.Event()
+    cancellation = threading.Event()
+
+    def gated_rows() -> Iterator[pa.RecordBatch]:
+        yield batches[0]
+        release.wait()
+
+    bridge = ArrowIpcStreamBridge(plan, gated_rows(), cancellation)
+
+    async def close_while_worker_blocked() -> None:
+        await bridge.aclose()
+
+    closer = threading.Thread(target=lambda: asyncio.run(close_while_worker_blocked()))
+    closer.start()
+    _wait_until(cancellation.is_set, message="aclose did not set cancellation before cleanup thread")
+    release.set()
+    closer.join(timeout=5.0)
+    assert not bridge.is_worker_alive()
+
+
+@pytest.mark.serial
+def test_close_sync_follower_waits_when_worker_joins_during_escalation() -> None:
+    from unittest.mock import MagicMock
+
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    release = threading.Event()
+    terminate_barrier = threading.Event()
+    terminate_continue = threading.Event()
+    follower_finished = threading.Event()
+    bridge_owner = object()
+
+    def gated_rows() -> Iterator[pa.RecordBatch]:
+        yield batches[0]
+        release.wait()
+
+    runner = MagicMock()
+    runner.settings.terminate_grace_seconds = 0.01
+
+    def terminate_owned(owner: object, *, grace_seconds: float | None = None) -> None:
+        del owner, grace_seconds
+        terminate_barrier.set()
+        assert terminate_continue.wait(timeout=2.0)
+
+    runner.terminate_owned = terminate_owned
+
+    bridge = ArrowIpcStreamBridge(
+        plan,
+        gated_rows(),
+        threading.Event(),
+        dolt_runner=runner,
+        stream_owner=bridge_owner,
+    )
+    leader_errors: list[BaseException] = []
+    follower_errors: list[BaseException] = []
+
+    def leader_close() -> None:
+        try:
+            bridge.close_sync(join_timeout_seconds=0.05)
+        except BaseException as exc:
+            leader_errors.append(exc)
+
+    leader = threading.Thread(target=leader_close)
+    leader.start()
+    assert terminate_barrier.wait(timeout=2.0)
+
+    def follower_close() -> None:
+        try:
+            bridge.close_sync(join_timeout_seconds=0.05)
+        except BaseException as exc:
+            follower_errors.append(exc)
+        finally:
+            follower_finished.set()
+
+    follower = threading.Thread(target=follower_close)
+    follower.start()
+    assert not follower_finished.wait(timeout=0.2)
+    terminate_continue.set()
+    leader.join(timeout=5.0)
+    follower.join(timeout=5.0)
+    assert follower_finished.is_set()
+    assert len(leader_errors) == 1
+    assert len(follower_errors) == 1
+    assert isinstance(leader_errors[0], BridgeJoinTimeoutError)
+    assert isinstance(follower_errors[0], BridgeJoinTimeoutError)
+    release.set()
+    bridge._worker.join(timeout=5.0)
+
+
+@pytest.mark.serial
+def test_close_sync_chains_terminate_error_under_join_timeout() -> None:
+    from unittest.mock import MagicMock
+
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    producer_blocked = threading.Event()
+    keep_worker_alive = threading.Event()
+    bridge_owner = object()
+
+    class BlockingIterator:
+        def __init__(self, batch: pa.RecordBatch) -> None:
+            self._batch = batch
+            self._yielded = False
+
+        def __iter__(self) -> BlockingIterator:
+            return self
+
+        def __next__(self) -> pa.RecordBatch:
+            if not self._yielded:
+                self._yielded = True
+                return self._batch
+            producer_blocked.set()
+            keep_worker_alive.wait()
+            raise StopIteration
+
+        def close(self) -> None:
+            return
+
+    runner = MagicMock()
+    runner.settings.terminate_grace_seconds = 0.01
+
+    def terminate_owned(owner: object, *, grace_seconds: float | None = None) -> None:
+        del owner, grace_seconds
+        raise RuntimeError("terminate_owned failed")
+
+    runner.terminate_owned = terminate_owned
+
+    bridge = ArrowIpcStreamBridge(
+        plan,
+        BlockingIterator(batches[0]),
+        threading.Event(),
+        dolt_runner=runner,
+        stream_owner=bridge_owner,
+    )
+
+    def drain_queue() -> None:
+        while bridge.is_worker_alive():
+            try:
+                bridge._queue.get(timeout=_POLL_TIMEOUT_SECONDS)
+            except Exception:
+                pass
+
+    drainer = threading.Thread(target=drain_queue, daemon=True)
+    drainer.start()
+    try:
+        _wait_until(producer_blocked.is_set, message="producer did not block on second batch")
+        with pytest.raises(BridgeJoinTimeoutError) as exc_info:
+            bridge.close_sync(join_timeout_seconds=0.05)
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
+    finally:
+        keep_worker_alive.set()
+        drainer.join(timeout=2.0)
+        bridge._worker.join(timeout=5.0)
+
+
+@pytest.mark.serial
+def test_terminate_and_reap_gate_dedupes_concurrent_callers(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from gateway_repository_service.layout import DurableLayout
+    from gateway_repository_service.process import ActiveChildRegistry, DoltRunner
+    from support.lifecycle_harness import lifecycle_settings
+
+    settings = lifecycle_settings(tmp_path)
+    layout = DurableLayout.create_for_probe(settings.data_root)
+    del layout
+    registry = ActiveChildRegistry()
+    process = MagicMock()
+    process.pid = 4242
+    process.poll.return_value = None
+    registry.register(process)
+
+    runner = MagicMock(spec=DoltRunner)
+    runner.settings = settings
+    runner._active_children = registry
+    runner._unregister_active_child = lambda proc: registry.unregister(proc)
+    runner.reap_adopted_dolt_children = lambda: None
+
+    sigterm_calls = 0
+    sigterm_lock = threading.Lock()
+    inside_terminate = threading.Event()
+    release_terminate = threading.Event()
+
+    def slow_killpg(pid: int, sig: int) -> None:
+        nonlocal sigterm_calls
+        del pid
+        if sig == signal.SIGTERM:
+            with sigterm_lock:
+                sigterm_calls += 1
+            inside_terminate.set()
+            assert release_terminate.wait(timeout=2.0)
+        process.poll.return_value = 0
+
+    with patch("gateway_repository_service.process.os.killpg", side_effect=slow_killpg):
+        errors: list[BaseException] = []
+
+        def terminate_once() -> None:
+            try:
+                DoltRunner.terminate_and_reap(runner, process, grace_seconds=0.01)
+            except BaseException as exc:
+                errors.append(exc)
+
+        first = threading.Thread(target=terminate_once)
+        second = threading.Thread(target=terminate_once)
+        first.start()
+        assert inside_terminate.wait(timeout=2.0)
+        second.start()
+        release_terminate.set()
+        first.join(timeout=5.0)
+        second.join(timeout=5.0)
+    assert not errors
+    assert sigterm_calls == 1

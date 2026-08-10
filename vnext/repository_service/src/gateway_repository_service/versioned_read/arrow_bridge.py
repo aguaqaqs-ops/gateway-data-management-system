@@ -10,8 +10,10 @@ import threading
 import time
 import weakref
 from collections.abc import AsyncIterator, Iterator
-from typing import TYPE_CHECKING, Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, ClassVar, Literal
 
+import anyio
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.arrow_mapping import CompiledTablePlan
@@ -62,6 +64,20 @@ class BridgeShutdownError(RuntimeError):
         super().__init__(f"versioned read bridge shutdown failed: {summary}")
 
 
+@dataclass(frozen=True)
+class _CloseOutcome:
+    join_timeout: BridgeJoinTimeoutError | None = None
+    terminate_error: BaseException | None = None
+
+    def raise_if_failed(self) -> None:
+        if self.join_timeout is not None:
+            if self.terminate_error is not None and self.join_timeout.__cause__ is None:
+                raise self.join_timeout from self.terminate_error
+            raise self.join_timeout
+        if self.terminate_error is not None:
+            raise self.terminate_error
+
+
 class _BridgeRegistry:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -95,6 +111,9 @@ class _BridgeRegistry:
                 )
             except BridgeJoinTimeoutError as exc:
                 join_errors.append(exc)
+                cause = exc.__cause__
+                if isinstance(cause, BaseException):
+                    cleanup_errors.append(cause)
             except BaseException as exc:
                 cleanup_errors.append(exc)
         survivors = tuple(bridge for bridge in self.snapshot() if bridge.is_worker_alive())
@@ -117,6 +136,8 @@ BRIDGE_REGISTRY = _BridgeRegistry()
 class ArrowIpcStreamBridge:
     """Owns a non-daemon worker thread and bounded queue for Arrow IPC bytes."""
 
+    _test_close_entered_barrier: ClassVar[threading.Event | None] = None
+
     def __init__(
         self,
         plan: CompiledTablePlan,
@@ -138,8 +159,7 @@ class ArrowIpcStreamBridge:
         self._close_requested = False
         self._worker_joined = False
         self._escalation_started = False
-        self._escalation_complete = False
-        self._escalation_error: BaseException | None = None
+        self._close_outcome: _CloseOutcome | None = None
         self._terminal_outcome: TerminalOutcome = "pending"
         self._worker = threading.Thread(
             target=self._run_worker,
@@ -174,52 +194,78 @@ class ArrowIpcStreamBridge:
             await self.aclose()
 
     async def aclose(self) -> None:
-        await asyncio.to_thread(
-            self.close_sync,
-            self._dolt_runner,
-            _WORKER_JOIN_TIMEOUT_SECONDS,
-        )
+        self._request_close()
+        with anyio.CancelScope(shield=True):
+            await asyncio.to_thread(
+                self._complete_close_sync,
+                self._dolt_runner,
+                time.monotonic() + _WORKER_JOIN_TIMEOUT_SECONDS,
+            )
 
     def close_sync(
         self,
         dolt_runner: DoltRunner | None = None,
         join_timeout_seconds: float = _WORKER_JOIN_TIMEOUT_SECONDS,
     ) -> None:
+        self._request_close()
         runner = dolt_runner if dolt_runner is not None else self._dolt_runner
-        deadline_at = time.monotonic() + join_timeout_seconds
+        self._complete_close_sync(runner, time.monotonic() + join_timeout_seconds)
+
+    def _request_close(self) -> None:
+        with self._close_condition:
+            if self._close_requested:
+                return
+            self._close_requested = True
+            self._cancellation.set()
+
+    def _complete_close_sync(
+        self,
+        runner: DoltRunner | None,
+        deadline_at: float,
+    ) -> None:
+        barrier = ArrowIpcStreamBridge._test_close_entered_barrier
+        if barrier is not None:
+            barrier.set()
+        outcome = self._await_close_outcome(runner, deadline_at)
+        outcome.raise_if_failed()
+
+    def _await_close_outcome(self, runner: DoltRunner | None, deadline_at: float) -> _CloseOutcome:
         is_leader = False
         with self._close_condition:
-            if self._worker_joined:
-                return
-            if not self._close_requested:
-                self._close_requested = True
-                self._cancellation.set()
+            if self._close_outcome is not None:
+                return self._close_outcome
             while not self._worker_joined:
                 remaining = deadline_at - time.monotonic()
                 if remaining <= 0:
                     break
                 self._close_condition.wait(timeout=min(remaining, _POLL_TIMEOUT_SECONDS))
-            if self._worker_joined:
-                return
-            if self._escalation_complete:
-                self._reraise_escalation_error()
-                return
-            if not self._escalation_started:
-                self._escalation_started = True
-                is_leader = True
-            else:
-                while not self._escalation_complete:
+            if self._close_outcome is not None:
+                return self._close_outcome
+            if self._worker_joined and not self._escalation_started:
+                self._close_outcome = _CloseOutcome()
+                self._close_condition.notify_all()
+                return self._close_outcome
+            if self._escalation_started:
+                while self._close_outcome is None:
                     self._close_condition.wait(timeout=_POLL_TIMEOUT_SECONDS)
-                self._reraise_escalation_error()
-                return
+                return self._close_outcome
+            if not self._worker.is_alive():
+                self._close_outcome = _CloseOutcome()
+                self._close_condition.notify_all()
+                return self._close_outcome
+            self._escalation_started = True
+            is_leader = True
 
         if not is_leader:
-            return
+            with self._close_condition:
+                while self._close_outcome is None:
+                    self._close_condition.wait(timeout=_POLL_TIMEOUT_SECONDS)
+                return self._close_outcome
 
-        final_error: BaseException | None = None
+        join_timeout_error: BridgeJoinTimeoutError | None = None
+        terminate_error: BaseException | None = None
         if self._worker.is_alive():
             _LOGGER.warning("versioned read arrow bridge worker did not exit in time")
-            terminate_error: BaseException | None = None
             try:
                 try:
                     if runner is not None and self._stream_owner is not None:
@@ -233,21 +279,16 @@ class ArrowIpcStreamBridge:
                 join_timeout = remaining if remaining > 0 else _POLL_TIMEOUT_SECONDS
                 self._worker.join(timeout=join_timeout)
             if self._worker.is_alive():
-                final_error = BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
-            elif terminate_error is not None:
-                final_error = terminate_error
+                join_timeout_error = BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
 
+        outcome = _CloseOutcome(
+            join_timeout=join_timeout_error,
+            terminate_error=terminate_error,
+        )
         with self._close_condition:
-            self._escalation_complete = True
-            self._escalation_error = final_error
+            self._close_outcome = outcome
             self._close_condition.notify_all()
-
-        if final_error is not None:
-            raise final_error
-
-    def _reraise_escalation_error(self) -> None:
-        if self._escalation_error is not None:
-            raise self._escalation_error
+        return outcome
 
     def _put_terminal(self, terminal: object) -> bool:
         if terminal is _SUCCESS_SENTINEL:

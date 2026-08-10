@@ -42,6 +42,7 @@ from gateway_repository_service.versioned_import.store import ImportOperationSto
 from gateway_repository_service.versioned_read.application import VersionedReadApplication
 from gateway_repository_service.versioned_read.arrow_bridge import (
     BRIDGE_REGISTRY,
+    ArrowIpcStreamBridge,
     BridgeShutdownError,
     BridgeStreamAbortedError,
 )
@@ -69,6 +70,7 @@ def _patch_gated_open_table_rows(
     producer_waiting: threading.Event,
     release: threading.Event,
     captured_cancellations: list[CancellationCallback | None],
+    worker_exit_barrier: threading.Event | None = None,
 ) -> None:
     original_open = env.runtime.versioned_read_application.open_table_rows
 
@@ -84,6 +86,8 @@ def _patch_gated_open_table_rows(
                     producer_waiting.set()
                     while not release.wait(timeout=0.05):
                         if cancellation is not None and cancellation():
+                            if worker_exit_barrier is not None:
+                                worker_exit_barrier.wait()
                             return
 
         return plan, _gated()
@@ -256,11 +260,17 @@ def _force_read_http_cleanup(
 
 @pytest.fixture
 def read_http_env(tmp_path: Path) -> Iterator[ReadHttpIntegrationEnvironment]:
+    ArrowIpcStreamBridge._test_worker_finish_barrier = None
+    ArrowIpcStreamBridge._test_close_entered_barrier = None
+    ArrowIpcStreamBridge._test_close_completed_barrier = None
     assert BRIDGE_REGISTRY.snapshot() == ()
     environment = create_read_http_environment(tmp_path)
     try:
         yield environment
     finally:
+        ArrowIpcStreamBridge._test_worker_finish_barrier = None
+        ArrowIpcStreamBridge._test_close_entered_barrier = None
+        ArrowIpcStreamBridge._test_close_completed_barrier = None
         _force_read_http_cleanup(environment)
         environment.close()
 
@@ -505,44 +515,50 @@ def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: Re
     commit_id = _seed_large_items_table(env, sql_name="cancel.sql", marker_suffix="14")
     producer_waiting = threading.Event()
     release = threading.Event()
+    worker_can_finish = threading.Event()
+    close_entered = threading.Event()
+    close_completed = threading.Event()
     observed_pids: list[int] = []
     captured_cancellations: list[CancellationCallback | None] = []
     disconnect_errors: list[BaseException] = []
     disconnect_done = threading.Event()
-    _patch_gated_open_table_rows(
-        env,
-        producer_waiting=producer_waiting,
-        release=release,
-        captured_cancellations=captured_cancellations,
-    )
-
-    def disconnect_in_background() -> None:
-        try:
-
-            async def exercise() -> None:
-                async with create_async_streaming_client(env.app) as client:
-                    response = await stream_rows(
-                        client,
-                        path=_rows_url(env, commit_id),
-                        params={"table_name": "items"},
-                        headers=_auth_headers(),
-                    )
-                    assert response.status_code == 200
-                    first_chunk = await read_first_chunk(response)
-                    assert first_chunk
-                    observed_pids.extend(
-                        process.pid for process in env.runner._active_children.snapshot()
-                    )
-                    await response.aclose()
-                    disconnect_done.set()
-
-            run_async(exercise())
-        except BaseException as exc:
-            disconnect_errors.append(exc)
-
-    disconnect_thread = threading.Thread(target=disconnect_in_background)
-    disconnect_thread.start()
+    ArrowIpcStreamBridge._test_worker_finish_barrier = worker_can_finish
+    ArrowIpcStreamBridge._test_close_entered_barrier = close_entered
+    ArrowIpcStreamBridge._test_close_completed_barrier = close_completed
     try:
+        _patch_gated_open_table_rows(
+            env,
+            producer_waiting=producer_waiting,
+            release=release,
+            captured_cancellations=captured_cancellations,
+        )
+
+        def disconnect_in_background() -> None:
+            try:
+
+                async def exercise() -> None:
+                    async with create_async_streaming_client(env.app, cleanup_wait=close_completed) as client:
+                        response = await stream_rows(
+                            client,
+                            path=_rows_url(env, commit_id),
+                            params={"table_name": "items"},
+                            headers=_auth_headers(),
+                        )
+                        assert response.status_code == 200
+                        first_chunk = await read_first_chunk(response)
+                        assert first_chunk
+                        observed_pids.extend(
+                            process.pid for process in env.runner._active_children.snapshot()
+                        )
+                        await response.aclose()
+                        disconnect_done.set()
+
+                run_async(exercise())
+            except BaseException as exc:
+                disconnect_errors.append(exc)
+
+        disconnect_thread = threading.Thread(target=disconnect_in_background)
+        disconnect_thread.start()
         assert producer_waiting.wait(timeout=10.0)
         _wait_until(
             lambda: bool(
@@ -553,17 +569,36 @@ def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: Re
             timeout_seconds=15.0,
             message="disconnect did not set cancellation",
         )
-    finally:
-        release.set()
+        assert close_entered.wait(timeout=15.0), "response close did not enter bridge cleanup"
+        assert not close_completed.wait(timeout=0.5), "bridge cleanup finished before worker release"
+        assert not disconnect_done.is_set(), "response close returned before worker cleanup finished"
+        assert BRIDGE_REGISTRY.snapshot() != ()
+        worker_can_finish.set()
+        assert close_completed.wait(timeout=15.0), "bridge cleanup did not finish after worker release"
         disconnect_thread.join(timeout=30.0)
-        _force_read_http_cleanup(env)
-    if disconnect_errors:
-        raise disconnect_errors[0]
-    assert disconnect_done.is_set()
-    for process in observed_pids:
-        _wait_until_pid_reaped(process)
-    query_dir = env.layout.staging_artifacts
-    assert list(query_dir.glob("query-*.sql")) == []
+        if disconnect_errors:
+            raise disconnect_errors[0]
+        assert disconnect_done.is_set()
+        _wait_until(
+            lambda: BRIDGE_REGISTRY.snapshot() == (),
+            timeout_seconds=10.0,
+            message="versioned read bridge worker did not exit after disconnect",
+        )
+        _wait_until(
+            lambda: env.runner._active_children.snapshot() == (),
+            timeout_seconds=10.0,
+            message="dolt child processes were not reaped after disconnect",
+        )
+        for process in observed_pids:
+            _wait_until_pid_reaped(process)
+        query_dir = env.layout.staging_artifacts
+        assert list(query_dir.glob("query-*.sql")) == []
+    finally:
+        worker_can_finish.set()
+        close_completed.set()
+        ArrowIpcStreamBridge._test_worker_finish_barrier = None
+        ArrowIpcStreamBridge._test_close_entered_barrier = None
+        ArrowIpcStreamBridge._test_close_completed_barrier = None
 
 
 @pytest.mark.serial
@@ -669,10 +704,14 @@ def test_http_disconnect_does_not_break_concurrent_stream(read_http_env: ReadHtt
     finally:
         release.set()
         disconnect_thread.join(timeout=30.0)
-        _force_read_http_cleanup(env)
     if disconnect_errors:
         raise disconnect_errors[0]
     assert disconnect_done.is_set()
+    _wait_until(
+        lambda: BRIDGE_REGISTRY.snapshot() == (),
+        timeout_seconds=10.0,
+        message="versioned read bridge worker did not exit after disconnect",
+    )
 
     response = env.client.get(
         _rows_url(env, commit_id),

@@ -626,6 +626,7 @@ def test_close_sync_follower_waits_when_worker_joins_during_escalation() -> None
 
     plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
     release = threading.Event()
+    producer_blocked = threading.Event()
     terminate_barrier = threading.Event()
     terminate_continue = threading.Event()
     follower_finished = threading.Event()
@@ -633,6 +634,7 @@ def test_close_sync_follower_waits_when_worker_joins_during_escalation() -> None
 
     def gated_rows() -> Iterator[pa.RecordBatch]:
         yield batches[0]
+        producer_blocked.set()
         release.wait()
 
     runner = MagicMock()
@@ -655,6 +657,17 @@ def test_close_sync_follower_waits_when_worker_joins_during_escalation() -> None
     leader_errors: list[BaseException] = []
     follower_errors: list[BaseException] = []
 
+    def drain_queue() -> None:
+        while bridge.is_worker_alive():
+            try:
+                bridge._queue.get(timeout=_POLL_TIMEOUT_SECONDS)
+            except Exception:
+                pass
+
+    drainer = threading.Thread(target=drain_queue, daemon=True)
+    drainer.start()
+    _wait_until(producer_blocked.is_set, message="producer did not block on second batch")
+
     def leader_close() -> None:
         try:
             bridge.close_sync(join_timeout_seconds=0.05)
@@ -675,17 +688,20 @@ def test_close_sync_follower_waits_when_worker_joins_during_escalation() -> None
 
     follower = threading.Thread(target=follower_close)
     follower.start()
-    assert not follower_finished.wait(timeout=0.2)
-    terminate_continue.set()
-    leader.join(timeout=5.0)
-    follower.join(timeout=5.0)
-    assert follower_finished.is_set()
-    assert len(leader_errors) == 1
-    assert len(follower_errors) == 1
-    assert isinstance(leader_errors[0], BridgeJoinTimeoutError)
-    assert isinstance(follower_errors[0], BridgeJoinTimeoutError)
-    release.set()
-    bridge._worker.join(timeout=5.0)
+    try:
+        assert not follower_finished.wait(timeout=0.2)
+        terminate_continue.set()
+        leader.join(timeout=5.0)
+        follower.join(timeout=5.0)
+        assert follower_finished.is_set()
+        assert len(leader_errors) == 1
+        assert len(follower_errors) == 1
+        assert isinstance(leader_errors[0], BridgeJoinTimeoutError)
+        assert isinstance(follower_errors[0], BridgeJoinTimeoutError)
+    finally:
+        release.set()
+        drainer.join(timeout=2.0)
+        bridge._worker.join(timeout=5.0)
 
 
 @pytest.mark.serial
@@ -810,3 +826,248 @@ def test_terminate_and_reap_gate_dedupes_concurrent_callers(tmp_path: Path) -> N
         second.join(timeout=5.0)
     assert not errors
     assert sigterm_calls == 1
+
+
+@pytest.mark.serial
+def test_terminate_and_reap_unregisters_already_exited_process(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+
+    from gateway_repository_service.process import ActiveChildRegistry, DoltRunner
+    from support.lifecycle_harness import lifecycle_settings
+
+    settings = lifecycle_settings(tmp_path)
+    registry = ActiveChildRegistry()
+    process = MagicMock()
+    process.pid = 5151
+    process.poll.return_value = 0
+    registry.register(process)
+
+    runner = MagicMock(spec=DoltRunner)
+    runner.settings = settings
+    runner._active_children = registry
+    runner._unregister_active_child = lambda proc: registry.unregister(proc)
+    runner.reap_adopted_dolt_children = lambda: None
+
+    DoltRunner.terminate_and_reap(runner, process)
+    assert registry.snapshot() == ()
+
+
+@pytest.mark.serial
+def test_terminate_and_reap_propagates_leader_failure_to_waiter(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from gateway_repository_service.process import ActiveChildRegistry, DoltRunner
+    from support.lifecycle_harness import lifecycle_settings
+
+    settings = lifecycle_settings(tmp_path)
+    registry = ActiveChildRegistry()
+    process = MagicMock()
+    process.pid = 5252
+    process.poll.return_value = None
+    registry.register(process)
+
+    runner = MagicMock(spec=DoltRunner)
+    runner.settings = settings
+    runner._active_children = registry
+    runner._unregister_active_child = lambda proc: registry.unregister(proc)
+    runner.reap_adopted_dolt_children = lambda: None
+
+    inside_terminate = threading.Event()
+    release_terminate = threading.Event()
+
+    def deny_killpg(pid: int, sig: int) -> None:
+        del pid, sig
+        inside_terminate.set()
+        assert release_terminate.wait(timeout=2.0)
+        raise PermissionError("signal denied")
+
+    leader_errors: list[BaseException] = []
+    waiter_errors: list[BaseException | None] = []
+
+    def leader_terminate() -> None:
+        try:
+            DoltRunner.terminate_and_reap(runner, process, grace_seconds=0.01)
+        except BaseException as exc:
+            leader_errors.append(exc)
+
+    with patch("gateway_repository_service.process.os.killpg", side_effect=deny_killpg):
+        leader = threading.Thread(target=leader_terminate)
+        leader.start()
+        assert inside_terminate.wait(timeout=2.0)
+        waiter = threading.Thread(
+            target=lambda: waiter_errors.append(
+                _terminate_and_reap_capturing(runner, process),
+            ),
+        )
+        waiter.start()
+        release_terminate.set()
+        leader.join(timeout=5.0)
+        waiter.join(timeout=5.0)
+
+    assert len(leader_errors) == 1
+    assert len(waiter_errors) == 1
+    assert isinstance(leader_errors[0], PermissionError)
+    assert isinstance(waiter_errors[0], PermissionError)
+    assert process.poll.return_value is None
+    assert registry.snapshot() == (process,)
+
+
+def _terminate_and_reap_capturing(runner: Any, process: Any) -> BaseException | None:
+    from gateway_repository_service.process import DoltRunner
+
+    try:
+        DoltRunner.terminate_and_reap(runner, process, grace_seconds=0.01)
+    except BaseException as exc:
+        return exc
+    return None
+
+
+@pytest.mark.serial
+def test_terminate_owned_races_process_stream_close_path(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from gateway_repository_service.process import ActiveChildRegistry, DoltRunner
+    from support.lifecycle_harness import lifecycle_settings
+
+    settings = lifecycle_settings(tmp_path)
+    registry = ActiveChildRegistry()
+    owner = object()
+    process = MagicMock()
+    process.pid = 5353
+    process.poll.return_value = None
+    registry.register(process, owner=owner)
+
+    runner = MagicMock(spec=DoltRunner)
+    runner.settings = settings
+    runner._active_children = registry
+    runner._unregister_active_child = lambda proc: registry.unregister(proc)
+    runner.reap_adopted_dolt_children = lambda: None
+    runner.terminate_owned = lambda owner, *, grace_seconds=None: DoltRunner.terminate_owned(
+        runner,
+        owner,
+        grace_seconds=grace_seconds,
+    )
+
+    sigterm_calls = 0
+    sigterm_lock = threading.Lock()
+    inside_terminate = threading.Event()
+    release_terminate = threading.Event()
+
+    def slow_killpg(pid: int, sig: int) -> None:
+        nonlocal sigterm_calls
+        del pid
+        if sig == signal.SIGTERM:
+            with sigterm_lock:
+                sigterm_calls += 1
+            inside_terminate.set()
+            assert release_terminate.wait(timeout=2.0)
+        process.poll.return_value = 0
+
+    errors: list[BaseException] = []
+
+    def close_path() -> None:
+        try:
+            DoltRunner.terminate_and_reap(runner, process, grace_seconds=0.01)
+        except BaseException as exc:
+            errors.append(exc)
+
+    def owned_path() -> None:
+        try:
+            runner.terminate_owned(owner, grace_seconds=0.01)
+        except BaseException as exc:
+            errors.append(exc)
+
+    with patch("gateway_repository_service.process.os.killpg", side_effect=slow_killpg):
+        close_thread = threading.Thread(target=close_path)
+        owned_thread = threading.Thread(target=owned_path)
+        close_thread.start()
+        assert inside_terminate.wait(timeout=2.0)
+        owned_thread.start()
+        release_terminate.set()
+        close_thread.join(timeout=5.0)
+        owned_thread.join(timeout=5.0)
+
+    assert not errors
+    assert sigterm_calls == 1
+
+
+@pytest.mark.serial
+def test_close_sync_long_deadline_follower_wakes_on_published_outcome() -> None:
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    release = threading.Event()
+    producer_blocked = threading.Event()
+
+    def gated_rows() -> Iterator[pa.RecordBatch]:
+        yield batches[0]
+        producer_blocked.set()
+        release.wait()
+
+    bridge = ArrowIpcStreamBridge(plan, gated_rows(), threading.Event())
+    follower_errors: list[BaseException] = []
+    follower_elapsed: list[float] = []
+
+    def drain_queue() -> None:
+        while bridge.is_worker_alive():
+            try:
+                bridge._queue.get(timeout=_POLL_TIMEOUT_SECONDS)
+            except Exception:
+                pass
+
+    drainer = threading.Thread(target=drain_queue, daemon=True)
+    drainer.start()
+    _wait_until(producer_blocked.is_set, message="producer did not block on second batch")
+
+    def follower_close() -> None:
+        started = time.monotonic()
+        try:
+            bridge.close_sync(join_timeout_seconds=5.0)
+        except BaseException as exc:
+            follower_errors.append(exc)
+        finally:
+            follower_elapsed.append(time.monotonic() - started)
+
+    follower = threading.Thread(target=follower_close)
+    follower.start()
+    time.sleep(0.1)
+
+    leader_errors: list[BaseException] = []
+
+    def leader_close() -> None:
+        try:
+            bridge.close_sync(join_timeout_seconds=0.1)
+        except BaseException as exc:
+            leader_errors.append(exc)
+
+    leader = threading.Thread(target=leader_close)
+    leader.start()
+    leader.join(timeout=5.0)
+    follower.join(timeout=1.0)
+    release.set()
+    drainer.join(timeout=2.0)
+    bridge._worker.join(timeout=5.0)
+
+    assert follower_elapsed
+    assert follower_elapsed[0] < 1.0
+    assert len(leader_errors) == 1
+    assert len(follower_errors) == 1
+    assert isinstance(leader_errors[0], BridgeJoinTimeoutError)
+    assert isinstance(follower_errors[0], BridgeJoinTimeoutError)
+
+
+@pytest.mark.unit
+def test_production_modules_only_import_declared_dependencies() -> None:
+    import ast
+    from pathlib import Path
+
+    source_root = Path(__file__).resolve().parents[1] / "src" / "gateway_repository_service"
+    forbidden = {"anyio"}
+    for path in source_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root_name = alias.name.split(".")[0]
+                    assert root_name not in forbidden, f"{path} imports forbidden module {root_name}"
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                root_name = node.module.split(".")[0]
+                assert root_name not in forbidden, f"{path} imports forbidden module {root_name}"

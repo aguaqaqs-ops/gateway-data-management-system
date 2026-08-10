@@ -13,7 +13,6 @@ from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Literal
 
-import anyio
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.arrow_mapping import CompiledTablePlan
@@ -137,6 +136,8 @@ class ArrowIpcStreamBridge:
     """Owns a non-daemon worker thread and bounded queue for Arrow IPC bytes."""
 
     _test_close_entered_barrier: ClassVar[threading.Event | None] = None
+    _test_close_completed_barrier: ClassVar[threading.Event | None] = None
+    _test_worker_finish_barrier: ClassVar[threading.Event | None] = None
 
     def __init__(
         self,
@@ -195,12 +196,13 @@ class ArrowIpcStreamBridge:
 
     async def aclose(self) -> None:
         self._request_close()
-        with anyio.CancelScope(shield=True):
-            await asyncio.to_thread(
+        await asyncio.shield(
+            asyncio.to_thread(
                 self._complete_close_sync,
                 self._dolt_runner,
                 time.monotonic() + _WORKER_JOIN_TIMEOUT_SECONDS,
             )
+        )
 
     def close_sync(
         self,
@@ -227,6 +229,9 @@ class ArrowIpcStreamBridge:
         if barrier is not None:
             barrier.set()
         outcome = self._await_close_outcome(runner, deadline_at)
+        completed_barrier = ArrowIpcStreamBridge._test_close_completed_barrier
+        if completed_barrier is not None:
+            completed_barrier.set()
         outcome.raise_if_failed()
 
     def _await_close_outcome(self, runner: DoltRunner | None, deadline_at: float) -> _CloseOutcome:
@@ -234,11 +239,13 @@ class ArrowIpcStreamBridge:
         with self._close_condition:
             if self._close_outcome is not None:
                 return self._close_outcome
-            while not self._worker_joined:
+            while not self._worker_joined and self._close_outcome is None:
                 remaining = deadline_at - time.monotonic()
                 if remaining <= 0:
                     break
                 self._close_condition.wait(timeout=min(remaining, _POLL_TIMEOUT_SECONDS))
+                if self._close_outcome is not None:
+                    return self._close_outcome
             if self._close_outcome is not None:
                 return self._close_outcome
             if self._worker_joined and not self._escalation_started:
@@ -334,6 +341,9 @@ class ArrowIpcStreamBridge:
         return True
 
     def _finish_worker(self, *, completed: bool) -> None:
+        barrier = ArrowIpcStreamBridge._test_worker_finish_barrier
+        if barrier is not None:
+            barrier.wait()
         if not completed:
             self._put_terminal(_FAILURE_SENTINEL)
         self._worker_done.set()

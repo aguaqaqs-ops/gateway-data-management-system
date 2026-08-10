@@ -1037,69 +1037,89 @@ _OFFLINE_DOLT_CONFIG = {
 }
 
 
+@dataclass(frozen=True)
+class _ProcessTerminationOutcome:
+    error: BaseException | None = None
+
+    def raise_if_failed(self) -> None:
+        if self.error is not None:
+            raise self.error
+
+
 class ActiveChildRegistry:
     """Tracks active Dolt child processes for production cancellation."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._condition = threading.Condition(self._lock)
         self._processes: set[subprocess.Popen[bytes]] = set()
         self._owners: dict[subprocess.Popen[bytes], object | None] = {}
         self._terminating: set[subprocess.Popen[bytes]] = set()
-        self._termination_complete: dict[subprocess.Popen[bytes], threading.Event] = {}
+        self._termination_outcomes: dict[subprocess.Popen[bytes], _ProcessTerminationOutcome] = {}
 
     def register(self, process: subprocess.Popen[bytes], *, owner: object | None = None) -> None:
-        with self._lock:
+        with self._condition:
             self._processes.add(process)
             self._owners[process] = owner
 
     def unregister(self, process: subprocess.Popen[bytes]) -> None:
-        with self._lock:
+        with self._condition:
             self._processes.discard(process)
             self._owners.pop(process, None)
             self._terminating.discard(process)
-            event = self._termination_complete.pop(process, None)
-            if event is not None:
-                event.set()
+            self._termination_outcomes.pop(process, None)
+            self._condition.notify_all()
 
     def snapshot(self) -> tuple[subprocess.Popen[bytes], ...]:
-        with self._lock:
+        with self._condition:
             return tuple(self._processes)
 
     def snapshot_for_owner(self, owner: object) -> tuple[subprocess.Popen[bytes], ...]:
-        with self._lock:
+        with self._condition:
             return tuple(process for process in self._processes if self._owners.get(process) is owner)
 
     def begin_process_termination(
         self,
         process: subprocess.Popen[bytes],
-    ) -> Literal["leader", "wait", "done"]:
-        with self._lock:
-            if process.poll() is not None:
-                return "done"
+    ) -> Literal["leader", "wait"]:
+        with self._condition:
+            if process in self._termination_outcomes:
+                return "wait"
             if process in self._terminating:
                 return "wait"
             self._terminating.add(process)
-            if process not in self._termination_complete:
-                self._termination_complete[process] = threading.Event()
             return "leader"
 
-    def wait_process_termination(
+    def await_process_termination(
         self,
         process: subprocess.Popen[bytes],
         *,
         timeout: float | None = None,
     ) -> None:
-        with self._lock:
-            event = self._termination_complete.get(process)
-        if event is not None:
-            event.wait(timeout=timeout)
+        with self._condition:
+            deadline = None if timeout is None else time.monotonic() + timeout
+            while process not in self._termination_outcomes:
+                if timeout is not None:
+                    remaining = deadline - time.monotonic() if deadline is not None else 0.0
+                    if remaining <= 0:
+                        break
+                    self._condition.wait(timeout=remaining)
+                else:
+                    self._condition.wait()
+            outcome = self._termination_outcomes.get(process)
+        if outcome is not None:
+            outcome.raise_if_failed()
 
-    def finish_process_termination(self, process: subprocess.Popen[bytes]) -> None:
-        with self._lock:
+    def publish_process_termination_outcome(
+        self,
+        process: subprocess.Popen[bytes],
+        outcome: _ProcessTerminationOutcome,
+    ) -> None:
+        with self._condition:
+            if process not in self._termination_outcomes:
+                self._termination_outcomes[process] = outcome
             self._terminating.discard(process)
-            event = self._termination_complete.pop(process, None)
-            if event is not None:
-                event.set()
+            self._condition.notify_all()
 
 
 class DoltRunner:
@@ -1386,42 +1406,41 @@ class DoltRunner:
         grace_seconds: float | None = None,
     ) -> None:
         active_children = getattr(self, "_active_children", None)
-        role: Literal["leader", "wait", "done"] = "leader"
+        role: Literal["leader", "wait"] = "leader"
         if active_children is not None:
             role = active_children.begin_process_termination(process)
-            if role == "done":
-                return
             if role == "wait":
-                active_children.wait_process_termination(process)
+                active_children.await_process_termination(process)
                 return
+        termination_error: BaseException | None = None
         try:
             grace = grace_seconds if grace_seconds is not None else self.settings.terminate_grace_seconds
             if process.poll() is not None:
                 process.wait()
-                self._unregister_active_child(process)
-                self.reap_adopted_dolt_children()
-                return
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                process.wait(timeout=grace)
-                self._unregister_active_child(process)
-                self.reap_adopted_dolt_children()
-                return
-            except subprocess.TimeoutExpired:
-                pass
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait()
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=grace)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
             self._unregister_active_child(process)
             self.reap_adopted_dolt_children()
+        except BaseException as exc:
+            termination_error = exc
+            raise
         finally:
             if active_children is not None:
-                active_children.finish_process_termination(process)
+                active_children.publish_process_termination_outcome(
+                    process,
+                    _ProcessTerminationOutcome(error=termination_error),
+                )
 
     @staticmethod
     def reap_adopted_dolt_children() -> None:

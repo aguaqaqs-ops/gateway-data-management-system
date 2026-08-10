@@ -17,6 +17,7 @@ from gateway_repository_contracts import UnknownTypePolicy
 from gateway_repository_service.arrow_mapping import ColumnCatalog, TableCatalog, compile_table_plan
 from gateway_repository_service.versioned_read.arrow_bridge import (
     ArrowIpcStreamBridge,
+    BridgeJoinTimeoutError,
     BridgeStreamAbortedError,
 )
 
@@ -145,6 +146,29 @@ def test_arrow_bridge_worker_failure_aborts_consumer() -> None:
 
 
 @pytest.mark.serial
+def test_arrow_bridge_eos_enqueue_cancel_preserves_failure_terminal() -> None:
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=128)
+    cancellation = threading.Event()
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), cancellation)
+    _wait_until(
+        lambda: bridge._queue.full(),
+        message="bounded queue did not fill before EOS cancellation",
+    )
+
+    bridge.close_sync()
+    assert bridge._terminal_outcome == "failure"
+
+    async def consume() -> list[bytes]:
+        chunks: list[bytes] = []
+        async for chunk in bridge.iter_bytes():
+            chunks.append(chunk)
+        return chunks
+
+    with pytest.raises(BridgeStreamAbortedError):
+        asyncio.run(consume())
+
+
+@pytest.mark.serial
 def test_arrow_bridge_queue_full_cancel_preserves_failure_terminal() -> None:
     plan, batches = _plan_and_batches(batch_count=2, rows_per_batch=64)
     cancellation = threading.Event()
@@ -174,7 +198,7 @@ def test_arrow_bridge_close_sync_is_idempotent_for_concurrent_callers() -> None:
 
     def gated_rows() -> Iterator[pa.RecordBatch]:
         yield batches[0]
-        release.wait(timeout=2.0)
+        release.wait()
 
     bridge = ArrowIpcStreamBridge(plan, gated_rows(), threading.Event())
     errors: list[BaseException] = []
@@ -223,3 +247,58 @@ def test_close_sync_join_runs_outside_worker_condition_lock() -> None:
     finish_worker_can_complete.set()
     consumer.join(timeout=5.0)
     assert not bridge.is_worker_alive()
+
+
+@pytest.mark.serial
+def test_close_sync_join_timeout_terminates_only_bridge_owned_children() -> None:
+    from unittest.mock import MagicMock
+
+    from gateway_repository_service.process import ActiveChildRegistry
+
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    release = threading.Event()
+    pre_existing = MagicMock()
+    pre_existing.pid = 100
+    pre_existing.poll.return_value = None
+    bridge_owned = MagicMock()
+    bridge_owned.pid = 200
+    bridge_owned.poll.return_value = None
+
+    registry = ActiveChildRegistry()
+    registry.register(pre_existing)
+
+    runner = MagicMock()
+    runner._active_children = registry
+    runner.settings.terminate_grace_seconds = 0.01
+    terminated: list[int] = []
+
+    def terminate_and_reap(process: MagicMock, *, grace_seconds: float) -> None:
+        del grace_seconds
+        terminated.append(process.pid)
+        process.poll.return_value = 0
+
+    runner.terminate_and_reap.side_effect = terminate_and_reap
+
+    def gated_rows() -> Iterator[pa.RecordBatch]:
+        yield batches[0]
+        release.wait()
+
+    bridge = ArrowIpcStreamBridge(plan, gated_rows(), threading.Event(), dolt_runner=runner)
+    registry.register(bridge_owned)
+    errors: list[BaseException] = []
+
+    def close_in_thread() -> None:
+        try:
+            bridge.close_sync(join_timeout_seconds=0.05)
+        except BaseException as exc:
+            errors.append(exc)
+
+    closer = threading.Thread(target=close_in_thread)
+    closer.start()
+    closer.join(timeout=5.0)
+    assert len(errors) == 1
+    assert isinstance(errors[0], BridgeJoinTimeoutError)
+    assert terminated == [200]
+    assert 100 not in terminated
+    release.set()
+    bridge._worker.join(timeout=5.0)

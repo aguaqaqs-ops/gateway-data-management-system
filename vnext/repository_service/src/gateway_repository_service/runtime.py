@@ -39,7 +39,7 @@ from gateway_repository_service.versioned_import.recovery import ImportStartupRe
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from gateway_repository_service.versioned_import.worker import ImportWorkerPool
 from gateway_repository_service.versioned_read.application import VersionedReadApplication
-from gateway_repository_service.versioned_read.arrow_bridge import BRIDGE_REGISTRY
+from gateway_repository_service.versioned_read.arrow_bridge import BRIDGE_REGISTRY, BridgeShutdownError
 from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
 
 _LOGGER = logging.getLogger(__name__)
@@ -235,14 +235,20 @@ class ServiceRuntime:
                 except Exception:
                     _LOGGER.exception("import worker pool still running after second stop")
         finally:
-            BRIDGE_REGISTRY.close_all(
-                self.dolt_runner,
-                join_timeout_seconds=grace,
-            )
+            bridge_shutdown_error: BridgeShutdownError | None = None
+            try:
+                BRIDGE_REGISTRY.close_all(
+                    self.dolt_runner,
+                    join_timeout_seconds=grace,
+                )
+            except BridgeShutdownError as exc:
+                bridge_shutdown_error = exc
             if self.control_store.is_open():
                 self.control_store.close()
             if self.root_lock.is_held():
                 self.root_lock.release()
+            if bridge_shutdown_error is not None:
+                raise bridge_shutdown_error
 
     def is_accepting_import_effects(self) -> bool:
         return not self._stopping.is_set()

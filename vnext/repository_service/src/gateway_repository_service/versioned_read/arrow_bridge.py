@@ -10,7 +10,7 @@ import threading
 import time
 import weakref
 from collections.abc import AsyncIterator, Iterator
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -37,6 +37,15 @@ class BridgeStreamAbortedError(RuntimeError):
 
 class BridgeJoinTimeoutError(RuntimeError):
     """Raised when a bridge worker does not exit after cancellation."""
+
+
+class BridgeShutdownError(RuntimeError):
+    """Raised when one or more bridge workers survive service shutdown."""
+
+    def __init__(self, failures: tuple[BridgeJoinTimeoutError, ...]) -> None:
+        self.failures = failures
+        count = len(failures)
+        super().__init__(f"{count} versioned read bridge worker(s) did not exit during shutdown")
 
 
 class _BridgeRegistry:
@@ -73,11 +82,14 @@ class _BridgeRegistry:
                 join_errors.append(exc)
             except Exception:
                 _LOGGER.warning("versioned read bridge did not stop during service shutdown", exc_info=True)
-        if join_errors:
-            _LOGGER.error(
-                "versioned read bridge workers did not exit during service shutdown",
-                extra={"count": len(join_errors)},
-            )
+        survivors = tuple(bridge for bridge in self.snapshot() if bridge.is_worker_alive())
+        if join_errors or survivors:
+            if survivors:
+                _LOGGER.error(
+                    "versioned read bridge workers still alive after shutdown",
+                    extra={"count": len(survivors)},
+                )
+            raise BridgeShutdownError(tuple(join_errors))
 
 
 BRIDGE_REGISTRY = _BridgeRegistry()
@@ -98,6 +110,7 @@ class ArrowIpcStreamBridge:
         self._row_iterator = row_iterator
         self._cancellation = cancellation
         self._dolt_runner = dolt_runner
+        self._children_at_start = self._snapshot_child_pids()
         self._queue: queue.Queue[bytes | object] = queue.Queue(maxsize=_QUEUE_MAXSIZE)
         self._worker_done = threading.Event()
         self._close_lock = threading.Lock()
@@ -171,42 +184,95 @@ class ArrowIpcStreamBridge:
             _LOGGER.warning("versioned read arrow bridge worker did not exit in time")
             self._worker.join(timeout=_WORKER_REJOIN_TIMEOUT_SECONDS)
         if self._worker.is_alive():
+            try:
+                close_row_iterator(self._row_iterator)
+            except ValueError:
+                _LOGGER.debug("row iterator close deferred because worker still executing")
+            self._terminate_owned_children()
+            self._worker.join(timeout=_WORKER_REJOIN_TIMEOUT_SECONDS)
+        if self._worker.is_alive():
             raise BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
 
-    def _put_terminal(self, terminal: object) -> None:
+    def _active_child_snapshot(self) -> tuple[Any, ...]:
+        if self._dolt_runner is None:
+            return ()
+        registry = getattr(self._dolt_runner, "_active_children", None)
+        if registry is None:
+            return ()
+        snapshot = getattr(registry, "snapshot", None)
+        if not callable(snapshot):
+            return ()
+        children = snapshot()
+        if not isinstance(children, tuple):
+            return ()
+        return children
+
+    def _snapshot_child_pids(self) -> frozenset[int]:
+        return frozenset(
+            process.pid
+            for process in self._active_child_snapshot()
+            if isinstance(getattr(process, "pid", None), int)
+        )
+
+    def _terminate_owned_children(self) -> None:
+        if self._dolt_runner is None:
+            return
+        terminate = getattr(self._dolt_runner, "terminate_and_reap", None)
+        if not callable(terminate):
+            return
+        settings = getattr(self._dolt_runner, "settings", None)
+        grace_seconds = getattr(settings, "terminate_grace_seconds", 0.01) if settings is not None else 0.01
+        for process in self._active_child_snapshot():
+            if not isinstance(getattr(process, "pid", None), int):
+                continue
+            if process.pid in self._children_at_start:
+                continue
+            poll = getattr(process, "poll", None)
+            if callable(poll) and poll() is None:
+                terminate(process, grace_seconds=grace_seconds)
+
+    def _put_terminal(self, terminal: object) -> bool:
         if terminal is _SUCCESS_SENTINEL:
-            outcome: TerminalOutcome = "success"
+            is_success = True
         elif terminal is _FAILURE_SENTINEL:
-            outcome = "failure"
+            is_success = False
+            with self._close_lock:
+                if self._terminal_outcome == "pending":
+                    self._terminal_outcome = "failure"
         else:
             raise ValueError(f"unsupported terminal sentinel: {terminal!r}")
-        with self._close_lock:
-            if self._terminal_outcome != "pending":
-                return
-            self._terminal_outcome = outcome
         while True:
             try:
                 self._queue.put(terminal, timeout=_POLL_TIMEOUT_SECONDS)
-                return
+                if is_success:
+                    with self._close_lock:
+                        if self._terminal_outcome == "pending":
+                            self._terminal_outcome = "success"
+                return True
             except queue.Full:
                 if self._cancellation.is_set():
-                    return
+                    if is_success:
+                        with self._close_lock:
+                            if self._terminal_outcome == "pending":
+                                self._terminal_outcome = "failure"
+                    return False
 
-    def _put_chunk(self, chunk: bytes) -> None:
+    def _put_chunk(self, chunk: bytes) -> bool:
         while True:
             try:
                 self._queue.put(chunk, timeout=_POLL_TIMEOUT_SECONDS)
-                return
+                return True
             except queue.Full:
                 if self._cancellation.is_set():
-                    return
+                    return False
 
-    def _flush_sink(self, sink: io.BytesIO) -> None:
+    def _flush_sink(self, sink: io.BytesIO) -> bool:
         delta = sink.getvalue()
-        if delta:
-            self._put_chunk(delta)
+        if delta and not self._put_chunk(delta):
+            return False
         sink.seek(0)
         sink.truncate(0)
+        return True
 
     def _finish_worker(self, *, completed: bool) -> None:
         if not completed:
@@ -227,13 +293,16 @@ class ArrowIpcStreamBridge:
                 if self._cancellation.is_set():
                     return
                 writer.write_batch(batch)
-                self._flush_sink(sink)
+                if not self._flush_sink(sink):
+                    return
             if self._cancellation.is_set():
                 return
             writer.close()
+            if not self._flush_sink(sink):
+                return
+            if not self._put_terminal(_SUCCESS_SENTINEL):
+                return
             completed = True
-            self._flush_sink(sink)
-            self._put_terminal(_SUCCESS_SENTINEL)
         except Exception:
             if completed:
                 return

@@ -22,13 +22,14 @@ _ASGIApp = Callable[
     ],
     Awaitable[None],
 ]
+_StreamItem = bytes | None | BaseException
 
 
 class _DuplexResponseStream(AsyncByteStream):
     def __init__(
         self,
         *,
-        chunk_queue: asyncio.Queue[bytes | None],
+        chunk_queue: asyncio.Queue[_StreamItem],
         disconnect_event: asyncio.Event,
         app_task: asyncio.Task[None],
         raise_app_exceptions: bool,
@@ -41,11 +42,16 @@ class _DuplexResponseStream(AsyncByteStream):
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         while True:
-            chunk = await self._chunk_queue.get()
-            if chunk is None:
-                await self._await_app_completion()
+            item = await self._chunk_queue.get()
+            if isinstance(item, BaseException):
+                await self._retrieve_app_exception()
+                if self._raise_app_exceptions:
+                    raise item
+                raise httpx.RemoteProtocolError("ASGI streaming app failed") from item
+            if item is None:
+                await self._retrieve_app_exception()
                 break
-            yield chunk
+            yield item
             await self._raise_if_app_failed()
 
     async def aclose(self) -> None:
@@ -53,21 +59,21 @@ class _DuplexResponseStream(AsyncByteStream):
             return
         self._closed = True
         self._disconnect_event.set()
-        await self._await_app_completion()
+        await self._retrieve_app_exception()
 
-    async def _await_app_completion(self) -> None:
-        if self._app_task.done():
-            await self._raise_if_app_failed()
-            return
-        try:
-            await asyncio.wait_for(asyncio.shield(self._app_task), timeout=10.0)
-        except TimeoutError:
-            self._app_task.cancel()
+    async def _retrieve_app_exception(self) -> None:
+        if not self._app_task.done():
             try:
-                await self._app_task
-            except asyncio.CancelledError:
-                pass
-        await self._raise_if_app_failed()
+                await asyncio.wait_for(asyncio.shield(self._app_task), timeout=10.0)
+            except TimeoutError:
+                self._app_task.cancel()
+                try:
+                    await self._app_task
+                except asyncio.CancelledError:
+                    pass
+        if self._app_task.cancelled():
+            return
+        _ = self._app_task.exception()
 
     async def _raise_if_app_failed(self) -> None:
         if not self._raise_app_exceptions or not self._app_task.done():
@@ -116,10 +122,18 @@ class DuplexStreamingASGITransport(AsyncBaseTransport):
         request_body_chunks = request.stream.__aiter__()
         request_complete = False
         disconnect_event = asyncio.Event()
-        chunk_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        chunk_queue: asyncio.Queue[_StreamItem] = asyncio.Queue()
         response_ready = asyncio.Event()
+        terminal_published = False
         status_code: int | None = None
         response_headers: list[tuple[bytes, bytes]] | None = None
+
+        async def publish_terminal(item: _StreamItem) -> None:
+            nonlocal terminal_published
+            if terminal_published:
+                return
+            terminal_published = True
+            await chunk_queue.put(item)
 
         async def receive() -> dict[str, Any]:
             nonlocal request_complete
@@ -156,13 +170,20 @@ class DuplexStreamingASGITransport(AsyncBaseTransport):
                 if body and request.method != "HEAD":
                     await chunk_queue.put(body)
                 if not more_body:
-                    await chunk_queue.put(None)
+                    await publish_terminal(None)
                 return
 
             raise RuntimeError(f"unsupported ASGI message type: {message['type']!r}")
 
         async def run_app() -> None:
-            await self.app(scope, receive, send)
+            try:
+                await self.app(scope, receive, send)
+            except BaseException as exc:
+                await publish_terminal(exc)
+                raise
+            finally:
+                if not terminal_published:
+                    await publish_terminal(None)
 
         app_task = asyncio.create_task(run_app())
         try:

@@ -58,6 +58,7 @@ IDENTIFIER_VALID_CASES = [
     ("é", "é"),
     ("中文", "中文"),
     ("a b", "a b"),
+    ("my table", "my table"),
     (_code_points(64), _code_points(64)),
 ]
 
@@ -69,23 +70,13 @@ IDENTIFIER_INVALID_CASES = [
     ("\x7f", "ASCII control"),
     ("a/b", "path separators"),
     (r"a\b", "path separators"),
+    ("a\tb", "ASCII control"),
 ]
 
 TABLE_NAME_INVALID_EDGE_WHITESPACE_CASES = [
     (" leading", "leading or trailing whitespace"),
     ("trailing ", "leading or trailing whitespace"),
     (" both ", "leading or trailing whitespace"),
-]
-
-TABLE_NAME_INVALID_SCHEMA_CASES = [
-    ("a/b", "path separators"),
-    (r"a\b", "path separators"),
-    ("a\tb", "ASCII control"),
-]
-
-TABLE_NAME_VALID_SCHEMA_CASES = [
-    ("items", "items"),
-    ("my table", "my table"),
 ]
 
 COMMIT_VALID_CASES = [
@@ -128,18 +119,6 @@ def test_versioned_table_name_accepts_valid_values(raw: str, expected: str) -> N
 def test_versioned_table_name_rejects_edge_whitespace(raw: str, message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         _TableNameProbe(value=raw)
-
-
-@pytest.mark.parametrize(("raw", "message"), TABLE_NAME_INVALID_SCHEMA_CASES)
-def test_versioned_table_name_rejects_schema_forbidden_characters(raw: str, message: str) -> None:
-    with pytest.raises(ValidationError, match=message):
-        _TableNameProbe(value=raw)
-
-
-@pytest.mark.parametrize(("raw", "expected"), TABLE_NAME_VALID_SCHEMA_CASES)
-def test_versioned_table_name_accepts_schema_valid_values(raw: str, expected: str) -> None:
-    probe = _TableNameProbe(value=raw)
-    assert probe.value == expected
 
 
 @pytest.mark.parametrize(("raw", "message"), IDENTIFIER_INVALID_CASES)

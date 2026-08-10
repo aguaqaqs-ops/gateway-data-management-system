@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,33 @@ from support.streaming_http_harness import (
 )
 
 pytestmark = pytest.mark.integration
+
+CancellationCallback = Callable[[], bool]
+
+
+def _patch_gated_open_table_rows(
+    env: ReadHttpIntegrationEnvironment,
+    *,
+    producer_waiting: threading.Event,
+    release: threading.Event,
+    captured_cancellations: list[CancellationCallback | None],
+) -> None:
+    original_open = env.runtime.versioned_read_application.open_table_rows
+
+    def gated_open(*args: Any, **kwargs: Any) -> tuple[Any, Iterator[pa.RecordBatch]]:
+        captured_cancellations.append(kwargs.get("cancellation"))
+        plan, rows = original_open(*args, **kwargs)
+
+        def _gated() -> Iterator[pa.RecordBatch]:
+            for index, batch in enumerate(rows):
+                yield batch
+                if index == 0:
+                    producer_waiting.set()
+                    assert release.wait(timeout=2.0)
+
+        return plan, _gated()
+
+    env.runtime.versioned_read_application.open_table_rows = gated_open  # type: ignore[method-assign]
 
 
 def _wait_until_pid_reaped(pid: int, *, timeout_seconds: float = 2.0) -> None:
@@ -437,24 +465,16 @@ def test_http_midstream_failure_aborts_transport(read_http_env: ReadHttpIntegrat
 def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: ReadHttpIntegrationEnvironment) -> None:
     env = read_http_env
     commit_id = _seed_large_items_table(env, sql_name="cancel.sql", marker_suffix="14")
-    original_open = env.runtime.versioned_read_application.open_table_rows
     producer_waiting = threading.Event()
     release = threading.Event()
     observed_pids: list[int] = []
-
-    def gated_open(*args: Any, **kwargs: Any) -> tuple[Any, Iterator[pa.RecordBatch]]:
-        plan, rows = original_open(*args, **kwargs)
-
-        def _gated() -> Iterator[pa.RecordBatch]:
-            for index, batch in enumerate(rows):
-                yield batch
-                if index == 0:
-                    producer_waiting.set()
-                    assert release.wait(timeout=10.0)
-
-        return plan, _gated()
-
-    env.runtime.versioned_read_application.open_table_rows = gated_open  # type: ignore[method-assign]
+    captured_cancellations: list[CancellationCallback | None] = []
+    _patch_gated_open_table_rows(
+        env,
+        producer_waiting=producer_waiting,
+        release=release,
+        captured_cancellations=captured_cancellations,
+    )
 
     async def exercise() -> None:
         async with create_async_streaming_client(env.app) as client:
@@ -472,6 +492,10 @@ def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: Re
 
     run_async(exercise())
     assert producer_waiting.wait(timeout=10.0)
+    assert captured_cancellations
+    cancellation = captured_cancellations[0]
+    assert cancellation is not None
+    assert cancellation()
     release.set()
     _wait_until(
         lambda: BRIDGE_REGISTRY.snapshot() == (),
@@ -494,6 +518,7 @@ def test_http_runtime_shutdown_closes_active_row_stream(read_http_env: ReadHttpI
     env = read_http_env
     commit_id = _seed_large_items_table(env, sql_name="shutdown.sql", marker_suffix="15")
     first_chunk_received = threading.Event()
+    shutdown_complete = threading.Event()
     consumer_done = threading.Event()
     consumer_errors: list[BaseException] = []
 
@@ -510,6 +535,7 @@ def test_http_runtime_shutdown_closes_active_row_stream(read_http_env: ReadHttpI
                 if chunk:
                     first_chunk_received.set()
                     break
+            await asyncio.to_thread(shutdown_complete.wait, 15.0)
             await response.aclose()
 
     def consume() -> None:
@@ -526,10 +552,12 @@ def test_http_runtime_shutdown_closes_active_row_stream(read_http_env: ReadHttpI
     bridges = BRIDGE_REGISTRY.snapshot()
     assert len(bridges) == 1
     bridge = bridges[0]
+    assert not bridge._cancellation.is_set()
     env.runtime.shutdown()
     assert BRIDGE_REGISTRY.snapshot() == ()
     assert not bridge.is_worker_alive()
     assert env.runner._active_children.snapshot() == ()
+    shutdown_complete.set()
     consumer.join(timeout=15.0)
     assert consumer_done.is_set()
     assert not consumer.is_alive()
@@ -539,23 +567,15 @@ def test_http_runtime_shutdown_closes_active_row_stream(read_http_env: ReadHttpI
 def test_http_disconnect_does_not_break_concurrent_stream(read_http_env: ReadHttpIntegrationEnvironment) -> None:
     env = read_http_env
     commit_id = _seed_large_items_table(env, sql_name="concurrent-disconnect.sql", marker_suffix="17")
-    original_open = env.runtime.versioned_read_application.open_table_rows
     producer_waiting = threading.Event()
     release = threading.Event()
-
-    def gated_open(*args: Any, **kwargs: Any) -> tuple[Any, Iterator[pa.RecordBatch]]:
-        plan, rows = original_open(*args, **kwargs)
-
-        def _gated() -> Iterator[pa.RecordBatch]:
-            for index, batch in enumerate(rows):
-                yield batch
-                if index == 0:
-                    producer_waiting.set()
-                    assert release.wait(timeout=10.0)
-
-        return plan, _gated()
-
-    env.runtime.versioned_read_application.open_table_rows = gated_open  # type: ignore[method-assign]
+    captured_cancellations: list[CancellationCallback | None] = []
+    _patch_gated_open_table_rows(
+        env,
+        producer_waiting=producer_waiting,
+        release=release,
+        captured_cancellations=captured_cancellations,
+    )
 
     async def disconnect_first() -> None:
         async with create_async_streaming_client(env.app) as client:
@@ -572,6 +592,10 @@ def test_http_disconnect_does_not_break_concurrent_stream(read_http_env: ReadHtt
     disconnect_thread.start()
     assert producer_waiting.wait(timeout=10.0)
     disconnect_thread.join(timeout=15.0)
+    assert captured_cancellations
+    cancellation = captured_cancellations[0]
+    assert cancellation is not None
+    assert cancellation()
     release.set()
     _wait_until(
         lambda: BRIDGE_REGISTRY.snapshot() == (),

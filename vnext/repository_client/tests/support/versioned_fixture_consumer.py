@@ -15,23 +15,34 @@ import sys
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 import pyarrow as pa
 import pyarrow.ipc as pa_ipc
 
 from gateway_repository_client import RepositoryClient
+from gateway_repository_client.arrow_stream import ArrowIpcByteStream
 from gateway_repository_contracts import (
+    CommitIdString,
+    CreateRepositoryResponse,
     GetVersionedCatalogResponse,
+    IdempotencyKeyString,
+    MainRefLiteral,
     OperationStatus,
     REPOSITORY_IMPORT_MEDIA_TYPE,
     RepositoryArtifactRef,
+    ResolveVersionedRefResponse,
     SubmitVersionedImportRequest,
+    SubmitVersionedImportResponse,
     UnknownTypePolicy,
+    UploadArtifactResponse,
     VerificationPolicy,
     VersionedImportResult,
+    VersionedOperation,
+    VersionedTableNameString,
 )
+from gateway_repository_contracts.types import MediaTypeString, Sha256String
 
 _ENV_BASE_URL = "GATEWAY_REPOSITORY_BASE_URL"
 _ENV_BEARER_TOKEN = "GATEWAY_REPOSITORY_BEARER_TOKEN"
@@ -47,6 +58,73 @@ FIXTURE_PACKAGE_FACTS: dict[str, tuple[int, str]] = {
     "c1": (428, "83e6e96e643ee8ea4520aaaba65f2c31dbfaed1f798757d54dbee7303a142547"),
     "c2": (490, "ecf9958a757b39ebf0b1baac4f7ad68994d076e0e3ed3abb199c304485393d1a"),
 }
+
+
+class VersionedFixtureConsumerClient(Protocol):
+    async def create_repository(
+        self,
+        *,
+        idempotency_key: IdempotencyKeyString,
+    ) -> CreateRepositoryResponse: ...
+
+    async def upload_artifact(
+        self,
+        *,
+        repository_id: UUID,
+        idempotency_key: IdempotencyKeyString,
+        media_type: MediaTypeString,
+        raw_sha256: Sha256String,
+        body: bytes | bytearray,
+    ) -> UploadArtifactResponse: ...
+
+    async def submit_versioned_import(
+        self,
+        *,
+        idempotency_key: IdempotencyKeyString,
+        request: SubmitVersionedImportRequest,
+    ) -> SubmitVersionedImportResponse: ...
+
+    async def wait_operation(
+        self,
+        *,
+        repository_id: UUID,
+        operation_id: UUID,
+        deadline_seconds: float | None = None,
+    ) -> VersionedOperation: ...
+
+    async def resolve_versioned_ref(
+        self,
+        *,
+        repository_id: UUID,
+        ref_name: MainRefLiteral = "main",
+    ) -> ResolveVersionedRefResponse: ...
+
+    async def get_versioned_catalog(
+        self,
+        *,
+        repository_id: UUID,
+        commit_id: CommitIdString,
+    ) -> GetVersionedCatalogResponse: ...
+
+    def stream_versioned_table_rows(
+        self,
+        *,
+        repository_id: UUID,
+        commit_id: CommitIdString,
+        table_name: VersionedTableNameString,
+        unknown_type_policy: UnknownTypePolicy = UnknownTypePolicy.REJECT,
+    ) -> ArrowIpcByteStream: ...
+
+
+def _make_fixture_consumer_client(
+    *,
+    base_url: str,
+    bearer_token: str,
+) -> VersionedFixtureConsumerClient:
+    return cast(
+        VersionedFixtureConsumerClient,
+        RepositoryClient(base_url=base_url, bearer_token=bearer_token),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +320,13 @@ def parse_expected_facts(payload: object) -> ExpectedFacts:
         raise ValueError("catalog.tables and rows must describe the same table set")
     for table_name, catalog_table in catalog.items():
         row_table = rows[table_name]
+        column_names = {column.name for column in catalog_table.columns}
+        undeclared_pk = [name for name in catalog_table.primary_key if name not in column_names]
+        if undeclared_pk:
+            raise ValueError(
+                f"catalog.primary_key references undeclared columns for {table_name!r}: "
+                f"{undeclared_pk!r}"
+            )
         if catalog_table.primary_key != row_table.primary_key:
             raise ValueError(
                 f"catalog.primary_key and rows.primary_key must match for {table_name!r}: "
@@ -461,13 +546,20 @@ def assert_arrow_schema_matches(actual_schema: pa.Schema, expected_columns: tupl
                 f"arrow schema metadata mismatch for {actual_field.name!r}: "
                 f"actual={actual_metadata!r} expected={expected_metadata!r}"
             )
+    actual_schema_metadata = _normalize_field_metadata(actual_schema.metadata)
+    expected_schema_metadata = _normalize_field_metadata(expected_schema.metadata)
+    if actual_schema_metadata != expected_schema_metadata:
+        raise AssertionError(
+            "arrow schema-level metadata mismatch: "
+            f"actual={actual_schema_metadata!r} expected={expected_schema_metadata!r}"
+        )
 
 
 def decode_arrow_stream(body: bytes) -> DecodedArrowTable:
     if not body.endswith(_ARROW_IPC_STREAM_EOS):
         raise ValueError("Arrow IPC stream is missing EOS trailer")
-    payload = body[: -len(_ARROW_IPC_STREAM_EOS)]
-    reader = pa_ipc.open_stream(payload)
+    buffer_reader = pa.BufferReader(body)
+    reader = pa_ipc.open_stream(buffer_reader)
     schema = reader.schema
     rows: list[dict[str, Any]] = []
     for batch in reader:
@@ -475,6 +567,8 @@ def decode_arrow_stream(body: bytes) -> DecodedArrowTable:
         column_names = table.column_names
         for row_index in range(table.num_rows):
             rows.append({name: table.column(name)[row_index].as_py() for name in column_names})
+    if buffer_reader.tell() != len(body):
+        raise ValueError("Arrow IPC stream has unconsumed trailing bytes")
     return DecodedArrowTable(schema=schema, rows=tuple(rows))
 
 
@@ -581,7 +675,7 @@ def assert_rows_match(
 
 
 async def _read_commit_facts(
-    client: RepositoryClient,
+    client: VersionedFixtureConsumerClient,
     *,
     repository_id: UUID,
     commit_id: str,
@@ -648,7 +742,7 @@ def assert_import_result_identity(
 
 
 async def _import_fixture(
-    client: RepositoryClient,
+    client: VersionedFixtureConsumerClient,
     *,
     repository_id: UUID,
     bundle: FixtureBundle,
@@ -712,7 +806,7 @@ async def run_consumer(
 ) -> ConsumerSummary:
     c1_bundle = load_fixture_bundle(fixture_root, "c1")
     c2_bundle = load_fixture_bundle(fixture_root, "c2")
-    client = RepositoryClient(base_url=base_url, bearer_token=bearer_token)
+    client = _make_fixture_consumer_client(base_url=base_url, bearer_token=bearer_token)
     create_response = await client.create_repository(idempotency_key="fixture-consumer-create")
     repository_id = create_response.repository_id
     c0 = create_response.initial_commit_id

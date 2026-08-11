@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import subprocess
 from pathlib import Path
 from uuid import UUID
 
@@ -49,6 +50,8 @@ pytestmark = pytest.mark.unit
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "versioned_v1"
 SUPPORT_ROOT = Path(__file__).resolve().parent / "support"
+CLIENT_PROJECT = Path(__file__).resolve().parents[1]
+TYPING_PROBE = SUPPORT_ROOT / "versioned_fixture_consumer_typing_probe.py"
 _ARROW_IPC_STREAM_EOS = b"\xff\xff\xff\xff\x00\x00\x00\x00"
 
 _ARTIFACT_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
@@ -60,7 +63,8 @@ def _encode_arrow_stream(table: pa.Table) -> bytes:
     with pa_ipc.new_stream(sink, table.schema) as writer:
         writer.write_table(table)
     raw: bytes = sink.getvalue().to_pybytes()
-    return raw + _ARROW_IPC_STREAM_EOS
+    assert raw.endswith(_ARROW_IPC_STREAM_EOS)
+    return raw
 
 
 def _minimal_expected_payload(*, row_count: object = 0) -> dict[str, object]:
@@ -411,6 +415,26 @@ MALFORMED_EXPECTED_SHAPES: tuple[tuple[dict[str, object], str], ...] = (
                 "tables": {
                     "items": {
                         "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                        "primary_key": ["missing"],
+                        "row_count": 0,
+                    }
+                }
+            },
+            "rows": {
+                "items": {
+                    "primary_key": ["missing"],
+                    "records": [],
+                }
+            },
+        },
+        "undeclared columns",
+    ),
+    (
+        {
+            "catalog": {
+                "tables": {
+                    "items": {
+                        "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
                         "primary_key": ["id"],
                         "row_count": 0,
                     }
@@ -573,3 +597,41 @@ def test_decode_arrow_stream_preserves_order_independent_rows() -> None:
     )
     assert_arrow_schema_matches(decoded.schema, columns)
     assert_rows_match(list(decoded.rows), expected, table_name="items")
+
+
+def test_assert_arrow_schema_matches_rejects_schema_level_metadata_drift() -> None:
+    columns = (ExpectedColumn(name="id", sql_type="BIGINT", nullable=False),)
+    actual_schema = pa.schema(
+        [pa.field("id", pa.int64(), nullable=False)],
+        metadata={b"gateway.fixture": b"drift"},
+    )
+    with pytest.raises(AssertionError, match="schema-level metadata mismatch"):
+        assert_arrow_schema_matches(actual_schema, columns)
+
+
+def test_decode_arrow_stream_rejects_trailing_garbage_after_eos() -> None:
+    table = pa.table({"id": [1]})
+    valid = _encode_arrow_stream(table)
+    malformed = valid + b"garbage" + _ARROW_IPC_STREAM_EOS
+    with pytest.raises(ValueError, match="unconsumed trailing bytes"):
+        decode_arrow_stream(malformed)
+
+
+def test_decode_arrow_stream_rejects_concatenated_streams() -> None:
+    table_a = pa.table({"id": [1]})
+    table_b = pa.table({"id": [2]})
+    concatenated = _encode_arrow_stream(table_a) + _encode_arrow_stream(table_b)
+    with pytest.raises(ValueError, match="unconsumed trailing bytes"):
+        decode_arrow_stream(concatenated)
+
+
+def test_mypy_rejects_invalid_fixture_consumer_client_usage() -> None:
+    result = subprocess.run(
+        ["uv", "run", "mypy", str(TYPING_PROBE)],
+        cwd=CLIENT_PROJECT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "no_such_method" in result.stdout + result.stderr

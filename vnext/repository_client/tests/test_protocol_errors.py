@@ -695,6 +695,123 @@ async def test_mid_body_read_error_close_failure_preserves_primary_error() -> No
 
 
 @pytest.mark.asyncio
+async def test_wire_complete_iterator_oserror_closes_unclosed_response() -> None:
+    import json
+
+    from gateway_repository_contracts import GetOperationResponse
+    from gateway_repository_client.protocol import parse_json_response
+
+    operation_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
+    stream_closes = {"count": 0}
+    payload = {
+        "operation": {
+            "operation_id": str(operation_id),
+            "status": "RUNNING",
+            "result": None,
+            "error": None,
+        }
+    }
+    body = json.dumps(payload).encode()
+
+    class IteratorOSErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield body
+            raise OSError("iterator failed after declared bytes")
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            stream_closes["count"] += 1
+
+    class IteratorOSErrorTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-iter-oserror",
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(body)),
+                },
+                stream=IteratorOSErrorStream(),
+            )
+
+    async with httpx.AsyncClient(
+        base_url="http://repository.test",
+        transport=IteratorOSErrorTransport(),
+    ) as http:
+        request = http.build_request("GET", "/operation")
+        response = await http.send(request, stream=True)
+        with pytest.raises(OSError, match="iterator failed after declared bytes"):
+            await parse_json_response(
+                response,
+                expected_status=200,
+                model=GetOperationResponse,
+            )
+
+    assert stream_closes["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_wire_complete_iterator_oserror_close_failure_preserves_primary() -> None:
+    import json
+
+    from gateway_repository_contracts import GetOperationResponse
+    from gateway_repository_client.protocol import parse_json_response
+
+    operation_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
+    stream_closes = {"count": 0}
+    payload = {
+        "operation": {
+            "operation_id": str(operation_id),
+            "status": "RUNNING",
+            "result": None,
+            "error": None,
+        }
+    }
+    body = json.dumps(payload).encode()
+
+    class IteratorOSErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield body
+            raise OSError("iterator failed after declared bytes")
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            stream_closes["count"] += 1
+            raise OSError("iterator cleanup failed")
+
+    class IteratorOSErrorTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-iter-oserror-close",
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(body)),
+                },
+                stream=IteratorOSErrorStream(),
+            )
+
+    async with httpx.AsyncClient(
+        base_url="http://repository.test",
+        transport=IteratorOSErrorTransport(),
+    ) as http:
+        request = http.build_request("GET", "/operation")
+        response = await http.send(request, stream=True)
+        with pytest.raises(OSError, match="iterator failed after declared bytes") as exc_info:
+            await parse_json_response(
+                response,
+                expected_status=200,
+                model=GetOperationResponse,
+            )
+
+    assert stream_closes["count"] == 1
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("iterator cleanup failed" in note for note in notes)
+
+
+@pytest.mark.asyncio
 async def test_eof_stream_close_failure_prevents_success_dto() -> None:
     import json
 

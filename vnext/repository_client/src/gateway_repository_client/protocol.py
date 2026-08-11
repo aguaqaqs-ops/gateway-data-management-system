@@ -122,6 +122,9 @@ async def read_bounded_bytes(
         exit_exc = exc
     except OSError as exc:
         if _is_wire_body_complete(response):
+            if not response.is_closed:
+                close_errors = await _close_response_quiet(response)
+                _attach_close_notes(exc, close_errors)
             eof_oserror = exc
         else:
             exit_exc = RepositoryProtocolError(

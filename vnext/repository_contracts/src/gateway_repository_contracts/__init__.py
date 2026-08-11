@@ -13,7 +13,12 @@ from gateway_repository_contracts.identifiers import (
     VersionedIdentifierString,
     VersionedTableNameString,
 )
-from gateway_repository_contracts.types import CommitIdString
+from gateway_repository_contracts.path_transport import (
+    MAX_COMMIT_ID_PATH_SEGMENT_LENGTH,
+    decode_commit_id_path_segment,
+    encode_commit_id_path_segment,
+)
+from gateway_repository_contracts.types import CommitIdString, MainRefLiteral
 from gateway_repository_contracts.versioned import (
     CreateRepositoryResponse,
     GetOperationResponse,
@@ -61,10 +66,14 @@ __all__ = [
     "CommitIdString",
     "CreateRequestHeaders",
     "CreateRepositoryResponse",
+    "decode_commit_id_path_segment",
+    "encode_commit_id_path_segment",
     "GetOperationResponse",
     "GetVersionedCatalogResponse",
     "IdempotencyKeyString",
     "ImportRequestHeaders",
+    "MainRefLiteral",
+    "MAX_COMMIT_ID_PATH_SEGMENT_LENGTH",
     "OperationStatus",
     "RepositoryArtifactRef",
     "ResolveVersionedRefRequest",

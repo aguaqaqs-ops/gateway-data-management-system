@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import httpx
 import pytest
 
@@ -9,23 +11,20 @@ from gateway_repository_client import RepositoryClient
 from gateway_repository_contracts import (
     GetVersionedCatalogResponse,
     ResolveVersionedRefResponse,
+    encode_commit_id_path_segment,
 )
 
-REPO_ID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
+REPO_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
 COMMIT_ID = "commit-c1"
 
 
 def _catalog_raw_path(*, commit_id: str) -> str:
-    from urllib.parse import quote
-
-    encoded = quote(commit_id, safe="")
+    encoded = encode_commit_id_path_segment(commit_id)
     return f"/v1/repositories/{REPO_ID}/versioned/commits/{encoded}/catalog"
 
 
 def _rows_raw_path(*, commit_id: str) -> str:
-    from urllib.parse import quote
-
-    encoded = quote(commit_id, safe="")
+    encoded = encode_commit_id_path_segment(commit_id)
     return f"/v1/repositories/{REPO_ID}/versioned/commits/{encoded}/rows"
 
 
@@ -63,7 +62,7 @@ async def test_get_versioned_catalog_success() -> None:
     }
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.raw_path.decode() == _catalog_raw_path(commit_id=COMMIT_ID)
+        assert request.url.path == _catalog_raw_path(commit_id=COMMIT_ID)
         return httpx.Response(
             200,
             json={"catalog": catalog},
@@ -87,7 +86,7 @@ async def test_get_versioned_catalog_encodes_slash_in_commit_id() -> None:
     commit_id = "abc/def"
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.raw_path.decode() == _catalog_raw_path(commit_id=commit_id)
+        assert request.url.path == _catalog_raw_path(commit_id=commit_id)
         return httpx.Response(
             200,
             json={
@@ -112,7 +111,7 @@ async def test_get_versioned_catalog_encodes_space_in_commit_id() -> None:
     commit_id = "a b"
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.raw_path.decode() == _catalog_raw_path(commit_id=commit_id)
+        assert request.url.path == _catalog_raw_path(commit_id=commit_id)
         return httpx.Response(
             200,
             json={
@@ -137,7 +136,7 @@ async def test_stream_versioned_table_rows_encodes_commit_id_in_path() -> None:
     commit_id = "abc/def"
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.raw_path.decode().startswith(_rows_raw_path(commit_id=commit_id))
+        assert request.url.path == _rows_raw_path(commit_id=commit_id)
         return httpx.Response(
             200,
             headers={

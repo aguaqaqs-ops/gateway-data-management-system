@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import hashlib
 import io
 
@@ -19,7 +21,7 @@ def _upload_sha256(payload: bytes) -> str:
 @pytest.mark.asyncio
 async def test_upload_artifact_retries_rewindable_source_on_503() -> None:
     attempts = {"count": 0}
-    repository_id = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
+    repository_id = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
     artifact_id = "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11"
     payload = b"client-upload"
 
@@ -107,7 +109,7 @@ async def test_upload_artifact_rejects_nonrewindable_source_on_retryable_failure
 
     with pytest.raises(NonRewindableUploadSourceError):
         await client.upload_artifact(
-            repository_id="018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11",
+            repository_id=UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"),
             idempotency_key="non-rewindable",
             media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
             raw_sha256=_upload_sha256(payload),
@@ -171,7 +173,7 @@ async def test_upload_artifact_rewinds_file_like_source_between_retries() -> Non
     )
 
     await client.upload_artifact(
-        repository_id="018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11",
+        repository_id=UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"),
         idempotency_key="rewindable",
         media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
         raw_sha256=_upload_sha256(payload),
@@ -227,7 +229,7 @@ async def test_upload_artifact_streams_large_rewindable_source_in_chunks() -> No
     )
 
     await client.upload_artifact(
-        repository_id="018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11",
+        repository_id=UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"),
         idempotency_key="chunked-rewindable",
         media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
         raw_sha256=_upload_sha256(payload),

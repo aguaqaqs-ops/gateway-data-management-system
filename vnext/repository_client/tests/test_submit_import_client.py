@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from uuid import UUID
 
@@ -15,9 +16,9 @@ from gateway_repository_contracts import (
     SubmitVersionedImportResponse,
 )
 
-REPO_ID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
+REPO_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
 ARTIFACT_ID = "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11"
-OP_ID = "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11"
+OP_ID = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11")
 
 
 def _import_request(*, expected_commit_id: str = "commit-c0") -> SubmitVersionedImportRequest:
@@ -57,7 +58,7 @@ async def test_submit_import_retries_same_idempotency_key_and_body() -> None:
             )
         return httpx.Response(
             202,
-            json={"operation_id": OP_ID},
+            json={"operation_id": str(OP_ID)},
             headers={"X-Request-ID": "req-2"},
         )
 
@@ -77,7 +78,7 @@ async def test_submit_import_retries_same_idempotency_key_and_body() -> None:
     assert keys == ["import-key", "import-key"]
     assert bodies[0] == bodies[1]
     assert json.loads(bodies[0]) == request.model_dump(mode="json")
-    assert response == SubmitVersionedImportResponse(operation_id=UUID(OP_ID))
+    assert response == SubmitVersionedImportResponse(operation_id=OP_ID)
 
 
 @pytest.mark.asyncio
@@ -90,7 +91,7 @@ async def test_submit_import_does_not_rewrite_key_or_body_on_caller_mutation() -
         seen.append((request.headers["Idempotency-Key"], request.read()))
         return httpx.Response(
             202,
-            json={"operation_id": OP_ID},
+            json={"operation_id": str(OP_ID)},
             headers={"X-Request-ID": f"req-{len(seen)}"},
         )
 
@@ -110,3 +111,50 @@ async def test_submit_import_does_not_rewrite_key_or_body_on_caller_mutation() -
     assert seen[0][1] != seen[1][1]
     assert json.loads(seen[0][1])["expected_commit_id"] == "commit-c0"
     assert json.loads(seen[1][1])["expected_commit_id"] == "commit-c1"
+
+
+@pytest.mark.asyncio
+async def test_submit_import_snapshot_freezes_path_and_body_across_retry() -> None:
+    attempts = {"count": 0}
+    barrier = asyncio.Event()
+    captured: list[tuple[str, bytes, str]] = []
+    mutated_repo = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c99")
+
+    async def sleeper(_seconds: float) -> None:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            request = _import_request()
+            request.repository_id = mutated_repo
+            barrier.set()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append((request.url.path, request.read(), request.headers["Idempotency-Key"]))
+        if len(captured) == 1:
+            return httpx.Response(
+                503,
+                json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+                headers={"X-Request-ID": "req-1"},
+            )
+        return httpx.Response(
+            202,
+            json={"operation_id": str(OP_ID)},
+            headers={"X-Request-ID": "req-2"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+    )
+    request = _import_request()
+    await client.submit_versioned_import(idempotency_key="import-key", request=request)
+
+    assert len(captured) == 2
+    first_path, first_body, first_key = captured[0]
+    second_path, second_body, second_key = captured[1]
+    assert first_path == second_path
+    assert first_body == second_body
+    assert first_key == second_key
+    assert str(mutated_repo) not in first_path
+    assert json.loads(first_body)["repository_id"] == str(REPO_ID)

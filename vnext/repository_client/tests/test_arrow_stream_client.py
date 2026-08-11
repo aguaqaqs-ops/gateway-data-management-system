@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
+from uuid import UUID
 
 import httpx
 import pytest
@@ -15,7 +17,7 @@ from gateway_repository_client import (
 )
 from gateway_repository_contracts import VERSIONED_READ_ARROW_MEDIA_TYPE
 
-REPO_ID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
+REPO_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
 COMMIT_ID = "commit-c1"
 ARROW_HEADERS = {
     "X-Request-ID": "req-arrow",
@@ -351,3 +353,124 @@ async def test_stream_pre_byte_read_error_shares_attempt_budget() -> None:
                 pass
 
     assert attempts["count"] == 3
+
+
+class _ErrorBodyReadFailureStream(httpx.AsyncByteStream):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        raise httpx.ReadError("error body read failed")
+        yield b""  # pragma: no cover
+
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_stream_retries_error_body_read_on_503() -> None:
+    attempts = {"count": 0}
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            return httpx.Response(
+                503,
+                request=request,
+                headers={"X-Request-ID": f"req-{attempts['count']}"},
+                stream=_ErrorBodyReadFailureStream(),
+            )
+        return httpx.Response(
+            200,
+            headers=ARROW_HEADERS,
+            content=b"recovered",
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+    )
+    stream = client.stream_versioned_table_rows(
+        repository_id=REPO_ID,
+        commit_id=COMMIT_ID,
+        table_name="items",
+    )
+    async with stream:
+        chunks = [chunk async for chunk in stream.aiter_bytes()]
+
+    assert attempts["count"] == 3
+    assert chunks == [b"recovered"]
+
+
+@pytest.mark.asyncio
+async def test_stream_pre_byte_read_error_backoff_increases_delay() -> None:
+    attempts = {"count": 0}
+    sleeps: list[float] = []
+
+    async def sleeper(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        return httpx.Response(
+            200,
+            request=request,
+            headers=ARROW_HEADERS,
+            stream=_PreByteFailingStream(fail=attempts["count"] == 1),
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+    )
+    stream = client.stream_versioned_table_rows(
+        repository_id=REPO_ID,
+        commit_id=COMMIT_ID,
+        table_name="items",
+    )
+    async with stream:
+        chunks = [chunk async for chunk in stream.aiter_bytes()]
+
+    assert chunks == [b"payload"]
+    assert sleeps == [pytest.approx(0.05)]
+
+
+@pytest.mark.asyncio
+async def test_close_pair_closes_client_when_response_cancelled() -> None:
+    closed: list[str] = []
+
+    async def open_attempt() -> tuple[httpx.AsyncClient, httpx.Response]:
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                request=request,
+                headers=ARROW_HEADERS,
+                content=b"payload",
+            )
+        )
+        client = httpx.AsyncClient(base_url="http://repository.test", transport=transport)
+        request = client.build_request("GET", "/rows")
+        response = await client.send(request, stream=True)
+        original_client_close = client.aclose
+
+        async def cancel_response_close() -> None:
+            closed.append("response")
+            raise asyncio.CancelledError()
+
+        async def track_client_close() -> None:
+            closed.append("client")
+            await original_client_close()
+
+        client.aclose = track_client_close  # type: ignore[method-assign]
+        response.aclose = cancel_response_close  # type: ignore[method-assign]
+        return client, response
+
+    stream = ArrowIpcByteStream(open_attempt=open_attempt)
+    with pytest.raises(asyncio.CancelledError):
+        async with stream:
+            pass
+    assert closed == ["response", "client"]

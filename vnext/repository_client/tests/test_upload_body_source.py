@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import hashlib
 
 import httpx
@@ -85,7 +87,7 @@ async def test_upload_artifact_accepts_public_upload_body_source() -> None:
     )
 
     await client.upload_artifact(
-        repository_id="018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11",
+        repository_id=UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"),
         idempotency_key="upload-body-source",
         media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
         raw_sha256=_upload_sha256(payload),

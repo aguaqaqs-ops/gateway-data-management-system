@@ -20,6 +20,7 @@ gateway-repository-contracts = { path = "../repository_contracts", editable = tr
 
 [dependency-groups]
 dev = [
+    "fastapi==0.139.0",
     "mypy==2.3.0",
     "pytest==9.1.1",
     "pytest-asyncio==1.3.0",

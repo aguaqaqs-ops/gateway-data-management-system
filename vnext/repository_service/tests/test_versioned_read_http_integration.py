@@ -21,7 +21,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from gateway_repository_contracts import VERSIONED_READ_ARROW_MEDIA_TYPE
+from gateway_repository_contracts import VERSIONED_READ_ARROW_MEDIA_TYPE, encode_commit_id_path_segment
 from gateway_repository_service.arrow_mapping import SqlValueConversionError
 from gateway_repository_service.auth_state import AuthState
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
@@ -312,7 +312,7 @@ def test_http_c1_c2_catalog_and_rows_are_pinned(read_http_env: ReadHttpIntegrati
     c2 = _commit_changes(env.offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000002")
 
     c1_catalog = env.client.get(
-        f"/v1/repositories/{env.repository_id}/versioned/commits/{c1}/catalog",
+        _catalog_url(env, c1),
         headers=_auth_headers(),
     )
     assert c1_catalog.status_code == 200
@@ -321,13 +321,13 @@ def test_http_c1_c2_catalog_and_rows_are_pinned(read_http_env: ReadHttpIntegrati
     assert items["row_count"] == 1
 
     c2_catalog = env.client.get(
-        f"/v1/repositories/{env.repository_id}/versioned/commits/{c2}/catalog",
+        _catalog_url(env, c2),
         headers=_auth_headers(),
     )
     assert next(table for table in c2_catalog.json()["catalog"]["tables"] if table["name"] == "items")["row_count"] == 2
 
     rows_response = env.client.get(
-        f"/v1/repositories/{env.repository_id}/versioned/commits/{c1}/rows",
+        _rows_url(env, c1),
         params={"table_name": "items"},
         headers=_auth_headers(),
     )
@@ -354,7 +354,7 @@ def test_http_empty_table_returns_schema_and_zero_batches(read_http_env: ReadHtt
         "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000003",
     )
     response = env.client.get(
-        f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+        _rows_url(env, commit_id),
         params={"table_name": "empty_items"},
         headers=_auth_headers(),
     )
@@ -380,7 +380,7 @@ def test_http_rows_decode_known_types_and_stringify_metadata(read_http_env: Read
         "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000004",
     )
     response = env.client.get(
-        f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+        _rows_url(env, commit_id),
         params={"table_name": "typed", "unknown_type_policy": "STRINGIFY"},
         headers=_auth_headers(),
     )
@@ -413,7 +413,7 @@ def test_http_branch_movement_keeps_pinned_rows(read_http_env: ReadHttpIntegrati
     )
     _commit_changes(env.offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000011")
     response = env.client.get(
-        f"/v1/repositories/{env.repository_id}/versioned/commits/{c1}/rows",
+        _rows_url(env, c1),
         params={"table_name": "items"},
         headers=_auth_headers(),
     )
@@ -446,7 +446,7 @@ def test_http_large_table_emits_multiple_batches(read_http_env: ReadHttpIntegrat
         "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000012",
     )
     response = env.client.get(
-        f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+        _rows_url(env, commit_id),
         params={"table_name": "wide"},
         headers=_auth_headers(),
     )
@@ -457,8 +457,22 @@ def test_http_large_table_emits_multiple_batches(read_http_env: ReadHttpIntegrat
     assert total_rows == 2500
 
 
+def _encoded_commit_id(commit_id: str) -> str:
+    return encode_commit_id_path_segment(commit_id)
+
+
+def _catalog_url(env: ReadHttpIntegrationEnvironment, commit_id: str) -> str:
+    return (
+        f"/v1/repositories/{env.repository_id}"
+        f"/versioned/commits/{_encoded_commit_id(commit_id)}/catalog"
+    )
+
+
 def _rows_url(env: ReadHttpIntegrationEnvironment, commit_id: str) -> str:
-    return f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows"
+    return (
+        f"/v1/repositories/{env.repository_id}"
+        f"/versioned/commits/{_encoded_commit_id(commit_id)}/rows"
+    )
 
 
 def _seed_large_items_table(env: ReadHttpIntegrationEnvironment, *, sql_name: str, marker_suffix: str) -> str:
@@ -748,7 +762,7 @@ def test_http_concurrent_row_streams_do_not_interfere(read_http_env: ReadHttpInt
     def read_all_rows(index: int) -> None:
         try:
             response = env.client.get(
-                f"/v1/repositories/{env.repository_id}/versioned/commits/{commit_id}/rows",
+                _rows_url(env, commit_id),
                 params={"table_name": "items"},
                 headers=_auth_headers(),
             )

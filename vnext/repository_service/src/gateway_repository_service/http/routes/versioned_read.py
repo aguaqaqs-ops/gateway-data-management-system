@@ -7,17 +7,18 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, Path, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from gateway_repository_contracts import (
     GetVersionedCatalogResponse,
+    MAX_COMMIT_ID_PATH_SEGMENT_LENGTH,
     ResolveVersionedRefResponse,
     StreamVersionedTableRowsQuery,
     VERSIONED_READ_ARROW_MEDIA_TYPE,
     UnknownTypePolicy,
     VersionedTableNameString,
+    decode_commit_id_path_segment,
 )
-from gateway_repository_contracts.types import CommitIdString
 from gateway_repository_service.http.auth import require_bearer_token
 from gateway_repository_service.http.openapi import (
     versioned_read_arrow_stream_response,
@@ -28,8 +29,6 @@ from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.versioned_read.http_service import VersionedReadHttpService
 from gateway_repository_service.versioned_read.streaming_response import VersionedReadStreamingResponse
 from gateway_repository_service.versioned_read.wire import request_validation_failed
-
-_COMMIT_ID_ADAPTER: TypeAdapter[CommitIdString] = TypeAdapter(CommitIdString)
 
 
 def register_versioned_read_routes(app: FastAPI) -> None:
@@ -59,11 +58,14 @@ def register_versioned_read_routes(app: FastAPI) -> None:
     def get_versioned_catalog(
         request: Request,
         repository_id: UUID,
-        commit_id: Annotated[str, Path(min_length=1, max_length=1024)],
+        commit_id: Annotated[
+            str,
+            Path(min_length=1, max_length=MAX_COMMIT_ID_PATH_SEGMENT_LENGTH),
+        ],
         _authorized: Annotated[None, Depends(require_bearer_token)],
         _ready: Annotated[None, Depends(require_service_ready)],
     ) -> GetVersionedCatalogResponse:
-        validated_commit_id = _validated_commit_id(commit_id)
+        validated_commit_id = _decoded_commit_id(commit_id)
         service = _read_service_from_runtime(_runtime_from_state(request))
         return service.get_catalog(repository_id, validated_commit_id)
 
@@ -76,13 +78,16 @@ def register_versioned_read_routes(app: FastAPI) -> None:
     def stream_versioned_table_rows(
         request: Request,
         repository_id: UUID,
-        commit_id: Annotated[str, Path(min_length=1, max_length=1024)],
+        commit_id: Annotated[
+            str,
+            Path(min_length=1, max_length=MAX_COMMIT_ID_PATH_SEGMENT_LENGTH),
+        ],
         _authorized: Annotated[None, Depends(require_bearer_token)],
         _ready: Annotated[None, Depends(require_service_ready)],
         table_name: Annotated[VersionedTableNameString, Query()],
         unknown_type_policy: Annotated[UnknownTypePolicy, Query()] = UnknownTypePolicy.REJECT,
     ) -> StreamingResponse:
-        validated_commit_id = _validated_commit_id(commit_id)
+        validated_commit_id = _decoded_commit_id(commit_id)
         query = _validated_rows_query(table_name, unknown_type_policy)
         service = _read_service_from_runtime(_runtime_from_state(request))
         bridge = service.open_row_stream(repository_id, validated_commit_id, query)
@@ -107,11 +112,22 @@ def _read_service_from_runtime(runtime: ServiceRuntime) -> VersionedReadHttpServ
     )
 
 
-def _validated_commit_id(commit_id: str) -> str:
+def _decoded_commit_id(segment: str) -> str:
     try:
-        return _COMMIT_ID_ADAPTER.validate_python(commit_id)
-    except ValidationError as exc:
-        raise request_validation_failed(exc) from exc
+        return decode_commit_id_path_segment(segment)
+    except ValueError as exc:
+        validation_error = ValidationError.from_exception_data(
+            "CommitIdString",
+            [
+                {
+                    "type": "value_error",
+                    "loc": ("commit_id",),
+                    "input": segment,
+                    "ctx": {"error": str(exc)},
+                }
+            ],
+        )
+        raise request_validation_failed(validation_error) from exc
 
 
 def _validated_rows_query(

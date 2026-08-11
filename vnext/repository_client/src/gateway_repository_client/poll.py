@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from collections.abc import Awaitable, Callable
 from typing import TypeAlias
 
 from gateway_repository_contracts import OperationStatus, VersionedOperation
-from gateway_repository_client.errors import RepositoryClientTimeoutError
+from gateway_repository_client.deadline import MonotonicDeadline
 from gateway_repository_client.retry import Sleeper
 
 Clock: TypeAlias = Callable[[], float]
@@ -24,7 +23,7 @@ _TERMINAL_STATUSES = frozenset({OperationStatus.SUCCEEDED, OperationStatus.FAILE
 async def wait_for_operation(
     fetch_operation: OperationFetcher,
     *,
-    deadline_seconds: float = DEFAULT_POLL_DEADLINE_SECONDS,
+    deadline_at: float,
     base_delay_seconds: float = DEFAULT_POLL_BASE_DELAY_SECONDS,
     max_delay_seconds: float = DEFAULT_POLL_MAX_DELAY_SECONDS,
     clock: Clock | None = None,
@@ -32,23 +31,17 @@ async def wait_for_operation(
 ) -> VersionedOperation:
     """Poll until a terminal operation is observed or the monotonic deadline elapses."""
 
-    now = clock or time.monotonic
+    monotonic_deadline = MonotonicDeadline.at(deadline_at, clock=clock)
     sleep = sleeper or _default_sleeper
-    deadline = now() + deadline_seconds
     delay = base_delay_seconds
-    first = True
 
     while True:
-        if not first and now() >= deadline:
-            raise RepositoryClientTimeoutError()
+        monotonic_deadline.check()
         operation = await fetch_operation()
         if operation.status in _TERMINAL_STATUSES:
+            monotonic_deadline.check()
             return operation
-        first = False
-        remaining = deadline - now()
-        if remaining <= 0:
-            raise RepositoryClientTimeoutError()
-        await sleep(min(delay, max_delay_seconds, remaining))
+        await monotonic_deadline.sleep_bounded(sleep, min(delay, max_delay_seconds))
         delay = min(delay * 2, max_delay_seconds)
 
 

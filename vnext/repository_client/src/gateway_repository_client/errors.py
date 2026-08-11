@@ -22,9 +22,16 @@ class RepositoryClientError(RuntimeError):
 class RepositoryProtocolError(RuntimeError):
     """Raised when a wire response violates the Repository HTTP/protocol contract."""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        request_id: str | None = None,
+    ) -> None:
         self.status_code = status_code
         self.message = message
+        self.request_id = request_id
         super().__init__(message)
 
 

@@ -8,14 +8,16 @@ import pytest
 from gateway_repository_client import RepositoryClient, RepositoryClientError, RepositoryProtocolError
 
 
-REPO_ID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
-OP_ID = "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22"
+from uuid import UUID
+
+REPO_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
+OP_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
 COMMIT_ID = "commit-c1"
 
 
 def _operation_payload(*, status: str = "SUCCEEDED") -> dict[str, object]:
     payload: dict[str, object] = {
-        "operation_id": OP_ID,
+        "operation_id": str(OP_ID),
         "status": status,
         "result": None,
         "error": None,

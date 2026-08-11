@@ -15,12 +15,14 @@ import pytest
 
 from gateway_repository_contracts import (
     COMMIT_NOT_FOUND_CODE,
+    MAX_COMMIT_ID_PATH_SEGMENT_LENGTH,
     REF_NOT_FOUND_CODE,
     REPOSITORY_NOT_FOUND_CODE,
     TABLE_NOT_FOUND_CODE,
     UNKNOWN_SQL_TYPE_CODE,
     VERSIONED_READ_ARROW_MEDIA_TYPE,
     UnknownTypePolicy,
+    encode_commit_id_path_segment,
 )
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
@@ -67,6 +69,10 @@ def _auth_headers(*, token: str = "test-bearer-token", request_id: str | None = 
     if request_id is not None:
         headers["X-Request-ID"] = request_id
     return headers
+
+
+def _encoded_commit_path(commit_id: str) -> str:
+    return encode_commit_id_path_segment(commit_id)
 
 
 def _items_table(row_count: int = 1) -> TableCatalog:
@@ -199,11 +205,11 @@ def test_resolve_maps_unclassified_versioned_read_error_to_internal_error(
       ("resolve_main", "/v1/repositories/{repository_id}/versioned/refs/main"),
       (
           "get_catalog",
-          "/v1/repositories/{repository_id}/versioned/commits/commit-1/catalog",
+          f"/v1/repositories/{{repository_id}}/versioned/commits/{_encoded_commit_path('commit-1')}/catalog",
       ),
       (
           "open_table_rows",
-          "/v1/repositories/{repository_id}/versioned/commits/commit-1/rows?table_name=items",
+          f"/v1/repositories/{{repository_id}}/versioned/commits/{_encoded_commit_path('commit-1')}/rows?table_name=items",
       ),
   ],
 )
@@ -227,7 +233,7 @@ def test_catalog_returns_wire_shape(env: ImportHttpTestEnvironment) -> None:
     table = _items_table()
     _read_app(env).get_catalog.return_value = (table,)
     response = env.client.get(
-        f"/v1/repositories/{repository_id}/versioned/commits/commit-1/catalog",
+        f"/v1/repositories/{repository_id}/versioned/commits/{_encoded_commit_path('commit-1')}/catalog",
         headers=_auth_headers(),
     )
     assert response.status_code == 200
@@ -254,7 +260,7 @@ def test_catalog_error_matrix(
     repository_id = env.seed_repository()
     _read_app(env).get_catalog.side_effect = side_effect
     response = env.client.get(
-        f"/v1/repositories/{repository_id}/versioned/commits/commit-1/catalog",
+        f"/v1/repositories/{repository_id}/versioned/commits/{_encoded_commit_path('commit-1')}/catalog",
         headers=_auth_headers(),
     )
     assert response.status_code == status_code
@@ -280,7 +286,7 @@ def test_catalog_malformed_provider_shape_maps_to_503(env: ImportHttpTestEnviron
     )
     _read_app(env).get_catalog.return_value = (invalid,)
     response = env.client.get(
-        f"/v1/repositories/{repository_id}/versioned/commits/commit-1/catalog",
+        f"/v1/repositories/{repository_id}/versioned/commits/{_encoded_commit_path('commit-1')}/catalog",
         headers=_auth_headers(),
     )
     assert response.status_code == 503
@@ -292,7 +298,7 @@ def test_rows_returns_arrow_stream(env: ImportHttpTestEnvironment) -> None:
     plan, batches = _plan_and_batches()
     _read_app(env).open_table_rows.return_value = (plan, iter(batches))
     response = env.client.get(
-        f"/v1/repositories/{repository_id}/versioned/commits/commit-1/rows",
+        f"/v1/repositories/{repository_id}/versioned/commits/{_encoded_commit_path('commit-1')}/rows",
         params={"table_name": "items"},
         headers=_auth_headers(),
     )
@@ -309,7 +315,7 @@ def test_rows_empty_table_returns_schema_and_eos(env: ImportHttpTestEnvironment)
     plan, _ = _plan_and_batches(row_count=0)
     _read_app(env).open_table_rows.return_value = (plan, iter(()))
     response = env.client.get(
-        f"/v1/repositories/{repository_id}/versioned/commits/commit-1/rows",
+        f"/v1/repositories/{repository_id}/versioned/commits/{_encoded_commit_path('commit-1')}/rows",
         params={"table_name": "items"},
         headers=_auth_headers(),
     )
@@ -338,7 +344,7 @@ def test_rows_preflight_error_matrix(
     repository_id = env.seed_repository()
     _read_app(env).open_table_rows.side_effect = side_effect
     response = env.client.get(
-        f"/v1/repositories/{repository_id}/versioned/commits/commit-1/rows",
+        f"/v1/repositories/{repository_id}/versioned/commits/{_encoded_commit_path('commit-1')}/rows",
         params={"table_name": "items"},
         headers=_auth_headers(),
     )
@@ -352,7 +358,7 @@ def test_rows_preflight_error_matrix(
 def test_rows_rejects_invalid_table_name(env: ImportHttpTestEnvironment) -> None:
     repository_id = env.seed_repository()
     response = env.client.get(
-        f"/v1/repositories/{repository_id}/versioned/commits/commit-1/rows",
+        f"/v1/repositories/{repository_id}/versioned/commits/{_encoded_commit_path('commit-1')}/rows",
         params={"table_name": " bad"},
         headers=_auth_headers(),
     )
@@ -365,7 +371,7 @@ def test_rows_defaults_unknown_type_policy_to_reject(env: ImportHttpTestEnvironm
     plan, batches = _plan_and_batches()
     _read_app(env).open_table_rows.return_value = (plan, iter(batches))
     env.client.get(
-        f"/v1/repositories/{repository_id}/versioned/commits/commit-1/rows",
+        f"/v1/repositories/{repository_id}/versioned/commits/{_encoded_commit_path('commit-1')}/rows",
         params={"table_name": "items"},
         headers=_auth_headers(),
     )
@@ -385,7 +391,7 @@ def test_rows_preflight_completes_before_response_body(env: ImportHttpTestEnviro
 
     _read_app(env).open_table_rows.side_effect = open_rows
     response = env.client.get(
-        f"/v1/repositories/{repository_id}/versioned/commits/commit-1/rows",
+        f"/v1/repositories/{repository_id}/versioned/commits/{_encoded_commit_path('commit-1')}/rows",
         params={"table_name": "items"},
         headers=_auth_headers(),
     )
@@ -417,7 +423,7 @@ def test_openapi_rows_declares_binary_arrow_media(env: ImportHttpTestEnvironment
         item for item in rows_path["parameters"] if item.get("name") == "commit_id" and item.get("in") == "path"
     )
     assert commit_param["schema"]["minLength"] == 1
-    assert commit_param["schema"]["maxLength"] == 1024
+    assert commit_param["schema"]["maxLength"] == MAX_COMMIT_ID_PATH_SEGMENT_LENGTH
     table_name_param = next(item for item in table_param if item.get("name") == "table_name")
     assert table_name_param["schema"]["minLength"] == 1
     assert table_name_param["schema"]["maxLength"] == 64

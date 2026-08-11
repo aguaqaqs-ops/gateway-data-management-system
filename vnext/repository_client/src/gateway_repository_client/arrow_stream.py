@@ -15,7 +15,9 @@ from gateway_repository_client.errors import (
     RepositoryStreamError,
 )
 from gateway_repository_client.protocol import (
+    MAX_WIRE_JSON_BYTES,
     raise_for_error_response,
+    read_bounded_bytes,
     require_arrow_media_type,
     require_request_id,
 )
@@ -110,33 +112,42 @@ class ArrowIpcByteStream:
                         "Arrow stream read failed before bytes were exposed",
                         request_id=self._request_id,
                     ) from exc
-                await self._open_with_retry()
+                await self._open_with_retry(backoff=True)
 
     async def aclose(self) -> None:
         if self._closed:
             return
-        self._closed = True
         await self._discard_transport()
+        self._closed = True
 
-    async def _open_with_retry(self) -> None:
+    async def _open_with_retry(self, *, backoff: bool = False) -> None:
         if self._closed:
             raise RuntimeError("Arrow stream is closed")
+        if backoff:
+            await self._backoff(self._attempts_used)
 
         last_error: BaseException | None = None
         while self._attempts_used < self._max_attempts:
             self._attempts_used += 1
             attempt = self._attempts_used
+            client: httpx.AsyncClient | None = None
             try:
                 client, response = await self._open_attempt()
             except httpx.TransportError as exc:
                 last_error = exc
+                if client is not None:
+                    await client.aclose()
                 if attempt >= self._max_attempts:
                     raise
                 await self._backoff(attempt)
                 continue
+            except BaseException:
+                if client is not None:
+                    await client.aclose()
+                raise
 
             try:
-                await self._validate_open_response(client, response)
+                await self._validate_open_response(response)
             except (RepositoryClientError, RepositoryProtocolError) as exc:
                 await _close_pair(client, response)
                 retryable = isinstance(exc, RepositoryClientError) and (
@@ -162,16 +173,22 @@ class ArrowIpcByteStream:
             raise last_error
         raise RuntimeError("Arrow stream open exhausted attempts without result")
 
-    async def _validate_open_response(
-        self,
-        client: httpx.AsyncClient,
-        response: httpx.Response,
-    ) -> None:
-        del client  # ownership decided by caller after validation
+    async def _validate_open_response(self, response: httpx.Response) -> None:
         if response.status_code != 200:
-            # Error bodies are JSON; must read before raise_for_error_response.
-            await response.aread()
-            raise_for_error_response(response)
+            try:
+                body = await read_bounded_bytes(response, limit=MAX_WIRE_JSON_BYTES)
+            except httpx.HTTPError as exc:
+                if response.status_code in RETRYABLE_STATUS_CODES:
+                    raise RepositoryProtocolError(
+                        "failed to read retryable error response body",
+                        status_code=response.status_code,
+                    ) from exc
+                raise RepositoryProtocolError(
+                    "failed to read Arrow error response body",
+                    status_code=response.status_code,
+                ) from exc
+            await raise_for_error_response(response, body=body)
+            return
 
         request_id = require_request_id(response)
         media_type = require_arrow_media_type(response)
@@ -181,9 +198,9 @@ class ArrowIpcByteStream:
     async def _discard_transport(self) -> None:
         client = self._client
         response = self._response
+        await _close_pair(client, response)
         self._client = None
         self._response = None
-        await _close_pair(client, response)
 
     async def _backoff(self, attempt: int) -> None:
         delay = self._base_delay_seconds * (2 ** (attempt - 1))
@@ -197,13 +214,22 @@ async def _close_pair(
     client: httpx.AsyncClient | None,
     response: httpx.Response | None,
 ) -> None:
+    cancelled: BaseException | None = None
     if response is not None:
         try:
             await response.aclose()
-        except Exception:
-            pass
+        except BaseException as exc:
+            if isinstance(exc, asyncio.CancelledError):
+                cancelled = exc
+            else:
+                pass
     if client is not None:
         try:
             await client.aclose()
-        except Exception:
-            pass
+        except BaseException as exc:
+            if isinstance(exc, asyncio.CancelledError):
+                cancelled = exc
+            else:
+                pass
+    if cancelled is not None:
+        raise cancelled

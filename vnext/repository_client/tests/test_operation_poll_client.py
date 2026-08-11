@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+from uuid import UUID
+
 import httpx
 import pytest
 
@@ -11,13 +15,13 @@ from gateway_repository_client import (
 )
 from gateway_repository_contracts import OperationStatus
 
-REPO_ID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
-OP_ID = "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22"
+REPO_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
+OP_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
 
 
 def _operation(*, status: str) -> dict[str, object]:
     payload: dict[str, object] = {
-        "operation_id": OP_ID,
+        "operation_id": str(OP_ID),
         "status": status,
         "result": None,
         "error": None,
@@ -184,3 +188,54 @@ async def test_wait_operation_deadline_covers_in_flight_get_retries() -> None:
         await client.wait_operation(repository_id=REPO_ID, operation_id=OP_ID)
 
     assert attempts["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_wait_operation_times_out_during_slow_in_flight_get() -> None:
+    class SlowTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            del request
+            await asyncio.sleep(0.05)
+            return httpx.Response(
+                200,
+                json={"operation": _operation(status="SUCCEEDED")},
+                headers={"X-Request-ID": "req-slow"},
+            )
+
+    start = time.monotonic()
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=SlowTransport(),
+    )
+    with pytest.raises(RepositoryClientTimeoutError):
+        await client.wait_operation(
+            repository_id=REPO_ID,
+            operation_id=OP_ID,
+            deadline_seconds=0.01,
+        )
+    assert time.monotonic() - start < 0.03
+
+
+@pytest.mark.parametrize("deadline", [float("nan"), float("inf")])
+@pytest.mark.asyncio
+async def test_wait_operation_rejects_non_finite_deadline(deadline: float) -> None:
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
+    )
+    with pytest.raises(ValueError, match="positive finite"):
+        await client.wait_operation(
+            repository_id=REPO_ID,
+            operation_id=OP_ID,
+            deadline_seconds=deadline,
+        )
+
+
+@pytest.mark.parametrize("deadline", [float("nan"), float("inf")])
+def test_validate_deadline_seconds_rejects_non_finite(deadline: float) -> None:
+    from gateway_repository_client.deadline import validate_deadline_seconds
+
+    with pytest.raises(ValueError, match="positive finite"):
+        validate_deadline_seconds(deadline)

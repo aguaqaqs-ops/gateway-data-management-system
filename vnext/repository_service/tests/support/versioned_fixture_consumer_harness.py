@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -34,6 +35,7 @@ class ConsumerRunResult:
     stdout: str
     stderr: str
     summary: dict[str, Any] | None
+    timed_out: bool = False
 
 
 @dataclass
@@ -128,58 +130,95 @@ _ENV_NAME_BEARER_TOKEN = "GATEWAY_REPOSITORY_BEARER_TOKEN"
 _ENV_NAME_FIXTURE_ROOT = "GATEWAY_VERSIONED_FIXTURE_ROOT"
 
 
-def run_fixture_consumer_subprocess(
-    env: FixtureConsumerEnvironment,
+def _consumer_command() -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--project",
+        str(CLIENT_PROJECT),
+        "--locked",
+        "--offline",
+        "python",
+        str(CONSUMER_SCRIPT),
+    ]
+
+
+def stop_fixture_consumer_process(
+    process: subprocess.Popen[str] | None,
     *,
-    timeout_seconds: float = 180.0,
-) -> ConsumerRunResult:
-    completed = subprocess.run(
-        [
-            "uv",
-            "run",
-            "--project",
-            str(CLIENT_PROJECT),
-            "--locked",
-            "--offline",
-            "python",
-            str(CONSUMER_SCRIPT),
-        ],
-        cwd=CLIENT_PROJECT,
-        env=_consumer_env(env.bearer_token, env.base_url),
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds,
-        check=False,
-    )
-    summary: dict[str, Any] | None = None
-    stdout = completed.stdout.strip()
-    if stdout:
-        last_line = stdout.splitlines()[-1]
-        try:
-            parsed = json.loads(last_line)
-            if isinstance(parsed, dict):
-                summary = parsed
-        except json.JSONDecodeError:
-            summary = None
-    return ConsumerRunResult(
-        returncode=completed.returncode,
-        stdout=completed.stdout,
-        stderr=completed.stderr,
-        summary=summary,
-    )
-
-
-def stop_fixture_consumer_process(process: subprocess.Popen[str] | None) -> None:
+    timeout_seconds: float = 10.0,
+) -> None:
     if process is None:
         return
     if process.poll() is not None:
         return
-    process.terminate()
     try:
-        process.wait(timeout=10.0)
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return
+        time.sleep(0.02)
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    process.wait(timeout=timeout_seconds)
+
+
+def _parse_consumer_summary(stdout: str) -> dict[str, Any] | None:
+    if not stdout.strip():
+        return None
+    last_line = stdout.strip().splitlines()[-1]
+    try:
+        parsed = json.loads(last_line)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
+
+
+def run_fixture_consumer_subprocess(
+    env: FixtureConsumerEnvironment,
+    *,
+    timeout_seconds: float = 180.0,
+    command: list[str] | None = None,
+) -> ConsumerRunResult:
+    process = subprocess.Popen(
+        command or _consumer_command(),
+        cwd=CLIENT_PROJECT,
+        env=_consumer_env(env.bearer_token, env.base_url),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    timed_out = False
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+        return ConsumerRunResult(
+            returncode=process.returncode if process.returncode is not None else 1,
+            stdout=stdout,
+            stderr=stderr,
+            summary=_parse_consumer_summary(stdout),
+            timed_out=False,
+        )
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=10.0)
+        timed_out = True
+        stop_fixture_consumer_process(process)
+        stdout, stderr = process.communicate(timeout=10.0)
+        return ConsumerRunResult(
+            returncode=process.returncode if process.returncode is not None else 1,
+            stdout=stdout,
+            stderr=stderr,
+            summary=_parse_consumer_summary(stdout),
+            timed_out=timed_out,
+        )
+    finally:
+        stop_fixture_consumer_process(process)
 
 
 def shutdown_fixture_consumer_environment(env: FixtureConsumerEnvironment | None) -> None:
@@ -189,9 +228,11 @@ def shutdown_fixture_consumer_environment(env: FixtureConsumerEnvironment | None
     env.server_thread.join(timeout=10.0)
     if env.server_thread.is_alive():
         raise AssertionError("uvicorn server thread did not stop")
+    shutdown_error: BridgeShutdownError | None = None
     try:
         env.runtime.shutdown()
-    except BridgeShutdownError:
+    except BridgeShutdownError as exc:
+        shutdown_error = exc
         env.runtime.dolt_runner.terminate_active_children()
         if env.runtime.control_store.is_open():
             env.runtime.control_store.close()
@@ -212,3 +253,5 @@ def shutdown_fixture_consumer_environment(env: FixtureConsumerEnvironment | None
         shutil.rmtree(data_root)
     if data_root.exists():
         raise AssertionError(f"temporary durable root still exists: {data_root}")
+    if shutdown_error is not None:
+        raise shutdown_error

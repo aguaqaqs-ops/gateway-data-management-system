@@ -24,6 +24,7 @@ from gateway_repository_contracts import (
     SubmitVersionedImportRequest,
     UnknownTypePolicy,
     VerificationPolicy,
+    VersionedImportResult,
 )
 
 _ENV_BASE_URL = "GATEWAY_REPOSITORY_BASE_URL"
@@ -128,7 +129,7 @@ def _parse_expected_table_catalog(raw: object, *, field: str) -> ExpectedTableCa
     columns_raw = _require_list(mapping.get("columns"), field=f"{field}.columns")
     primary_key_raw = _require_list(mapping.get("primary_key"), field=f"{field}.primary_key")
     row_count = mapping.get("row_count")
-    if not isinstance(row_count, int) or row_count < 0:
+    if type(row_count) is not int or row_count < 0:
         raise ValueError(f"{field}.row_count must be a non-negative integer")
     columns = tuple(
         _parse_expected_column(item, field=f"{field}.columns[{index}]")
@@ -139,6 +140,8 @@ def _parse_expected_table_catalog(raw: object, *, field: str) -> ExpectedTableCa
     )
     if len(primary_key) != len(primary_key_raw):
         raise ValueError(f"{field}.primary_key must contain non-empty strings")
+    if not primary_key:
+        raise ValueError(f"{field}.primary_key must not be empty")
     return ExpectedTableCatalog(columns=columns, primary_key=primary_key, row_count=row_count)
 
 
@@ -154,6 +157,8 @@ def _parse_expected_table_rows(raw: object, *, field: str) -> ExpectedTableRows:
     )
     if len(primary_key) != len(primary_key_raw):
         raise ValueError(f"{field}.primary_key must contain non-empty strings")
+    if not primary_key:
+        raise ValueError(f"{field}.primary_key must not be empty")
     records: list[dict[str, Any]] = []
     for index, item in enumerate(records_raw):
         if not isinstance(item, dict):
@@ -178,6 +183,8 @@ def parse_expected_facts(payload: object) -> ExpectedFacts:
         str(name): _parse_expected_table_rows(value, field=f"rows.{name}")
         for name, value in rows_root.items()
     }
+    if set(catalog) != set(rows):
+        raise ValueError("catalog.tables and rows must describe the same table set")
     return ExpectedFacts(catalog=catalog, rows=rows)
 
 
@@ -288,6 +295,11 @@ def assert_rows_match(
     *,
     table_name: str,
 ) -> None:
+    if len(actual_records) != len(expected_table.records):
+        raise AssertionError(
+            f"row count mismatch for {table_name}: "
+            f"actual={len(actual_records)} expected={len(expected_table.records)}"
+        )
     actual_keys = canonical_row_set(
         tuple(actual_records),
         primary_key=expected_table.primary_key,
@@ -296,6 +308,10 @@ def assert_rows_match(
         expected_table.records,
         primary_key=expected_table.primary_key,
     )
+    if len(actual_keys) != len(actual_records):
+        raise AssertionError(f"duplicate primary keys in actual rows for {table_name}")
+    if len(expected_keys) != len(expected_table.records):
+        raise AssertionError(f"duplicate primary keys in expected rows for {table_name}")
     if actual_keys != expected_keys:
         raise AssertionError(
             f"row primary-key set mismatch for {table_name}: "
@@ -340,6 +356,27 @@ async def _read_commit_facts(
         assert_rows_match(actual_records, expected_rows, table_name=table_name)
 
 
+def assert_import_result_identity(
+    result: VersionedImportResult,
+    *,
+    expected_commit_id: str,
+    artifact_id: UUID,
+) -> None:
+    if result.expected_commit_id != expected_commit_id:
+        raise AssertionError(
+            "import result expected_commit_id mismatch: "
+            f"actual={result.expected_commit_id!r} expected={expected_commit_id!r}"
+        )
+    if result.target_ref != "main":
+        raise AssertionError(
+            f"import result target_ref mismatch: actual={result.target_ref!r} expected='main'"
+        )
+    if result.artifact_id != artifact_id:
+        raise AssertionError(
+            f"import result artifact_id mismatch: actual={result.artifact_id} expected={artifact_id}"
+        )
+
+
 async def _import_fixture(
     client: RepositoryClient,
     *,
@@ -376,7 +413,12 @@ async def _import_fixture(
         raise RuntimeError(
             f"import {bundle.label} did not succeed: status={operation.status} error={operation.error}"
         )
-    return operation.result.commit_id
+    assert_import_result_identity(
+        operation.result,
+        expected_commit_id=expected_commit_id,
+        artifact_id=upload_response.artifact_ref.artifact_id,
+    )
+    return str(operation.result.commit_id)
 
 
 async def run_consumer(

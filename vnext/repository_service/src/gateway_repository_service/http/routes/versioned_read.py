@@ -20,6 +20,7 @@ from gateway_repository_contracts import (
     VersionedTableNameString,
     decode_commit_id_path_segment,
 )
+from gateway_repository_service.diagnostics import log_event
 from gateway_repository_service.http.auth import require_bearer_token
 from gateway_repository_service.http.openapi import (
     versioned_read_arrow_stream_response,
@@ -120,10 +121,30 @@ def register_versioned_read_routes(app: FastAPI) -> None:
                 repository_id=str(repository_id),
                 admission_capacity=runtime.row_stream_admission.capacity,
             )
-        except BaseException:
-            if lease is not None:
-                lease.release()
-            raise
+        except BaseException as construction_error:
+            cleanup_error: BaseException | None = None
+            try:
+                bridge.close_sync(dolt_runner=runtime.dolt_runner)
+            except BaseException as exc:
+                cleanup_error = exc
+            finally:
+                if lease is not None:
+                    lease.release()
+                    log_event(
+                        "row_stream_admission_released",
+                        request_id=request_id_str,
+                        repository_id=repository_id,
+                        capacity=runtime.row_stream_admission.capacity,
+                        result="released",
+                        cleanup_outcome=(
+                            "bridge_cleanup_error"
+                            if cleanup_error is not None
+                            else "construct_failed_closed"
+                        ),
+                    )
+            if cleanup_error is not None:
+                raise cleanup_error
+            raise construction_error
 
 
 def _runtime_from_state(request: Request) -> ServiceRuntime:

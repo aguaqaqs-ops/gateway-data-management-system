@@ -204,9 +204,11 @@ def test_permit_held_until_bridge_cleanup_and_released_on_aclose_error() -> None
     asyncio.run(run())
 
 
-def test_route_construction_failure_releases_row_stream_permit(
+@pytest.mark.serial
+def test_route_construction_failure_closes_bridge_before_releasing_permit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import threading
     from pathlib import Path
 
     from gateway_repository_contracts import encode_commit_id_path_segment
@@ -226,6 +228,28 @@ def test_route_construction_failure_releases_row_stream_permit(
     )
     pool = PermitPool(1)
     application = MagicMock()
+    order: list[str] = []
+    close_entered = threading.Event()
+    release_gate = threading.Event()
+    close_completed = threading.Event()
+    in_use_during_close: list[int] = []
+
+    class _Bridge:
+        def iter_bytes(self) -> Any:
+            async def _gen() -> Any:
+                if False:  # pragma: no cover
+                    yield b""
+
+            return _gen()
+
+        def close_sync(self, dolt_runner: object = None, join_timeout_seconds: float = 30.0) -> None:
+            del dolt_runner, join_timeout_seconds
+            order.append("close_sync_enter")
+            in_use_during_close.append(pool.in_use)
+            close_entered.set()
+            assert release_gate.wait(timeout=5.0)
+            order.append("close_sync_done")
+            close_completed.set()
 
     def fake_open(
         self: VersionedReadHttpService,
@@ -236,15 +260,6 @@ def test_route_construction_failure_releases_row_stream_permit(
         del self, repository_id, commit_id, query
         lease = pool.try_acquire()
         assert lease is not None
-
-        class _Bridge:
-            def iter_bytes(self) -> Any:
-                async def _gen() -> Any:
-                    if False:  # pragma: no cover
-                        yield b""
-
-                return _gen()
-
         return _Bridge(), lease
 
     def boom_response(*_args: object, **_kwargs: object) -> object:
@@ -253,10 +268,12 @@ def test_route_construction_failure_releases_row_stream_permit(
     monkeypatch.setattr(VersionedReadHttpService, "open_row_stream", fake_open)
     monkeypatch.setattr(route_mod, "VersionedReadStreamingResponse", boom_response)
 
+    root_lock = MagicMock()
+    root_lock.is_held.return_value = True
     runtime = ServiceRuntime(
         settings=settings,
         layout=MagicMock(),
-        root_lock=MagicMock(),
+        root_lock=root_lock,
         control_store=MagicMock(),
         mutation_store=MagicMock(),
         import_store=MagicMock(),
@@ -268,9 +285,6 @@ def test_route_construction_failure_releases_row_stream_permit(
         auth_state=AuthState(bearer_token=settings.resolve_bearer_token()),
         row_stream_admission=pool,
     )
-    root_lock = MagicMock()
-    root_lock.is_held.return_value = True
-    runtime.root_lock = root_lock
     app = create_app(settings, enable_lifecycle=False)
     app.state.runtime = runtime
     app.state.auth_state = runtime.auth_state
@@ -279,7 +293,6 @@ def test_route_construction_failure_releases_row_stream_permit(
     repository_id = uuid4()
     commit_segment = encode_commit_id_path_segment("commit-c1")
     path = f"/v1/repositories/{repository_id}/versioned/commits/{commit_segment}/rows"
-    messages: list[dict[str, Any]] = []
 
     async def run() -> None:
         from collections.abc import MutableMapping
@@ -305,12 +318,138 @@ def test_route_construction_failure_releases_row_stream_permit(
             return {"type": "http.disconnect"}
 
         async def send(message: MutableMapping[str, Any]) -> None:
-            messages.append(dict(message))
+            del message
 
         with pytest.raises(RuntimeError, match="response init failed"):
             await app(scope, receive, send)
 
+    task = threading.Thread(target=lambda: asyncio.run(run()))
+    task.start()
+    assert close_entered.wait(timeout=5.0)
+    assert pool.in_use == 1
+    assert in_use_during_close == [1]
+    release_gate.set()
+    task.join(timeout=10.0)
+    assert not task.is_alive()
+    assert close_completed.is_set()
+    assert order == ["close_sync_enter", "close_sync_done"]
+    assert pool.in_use == 0
+
+
+@pytest.mark.serial
+def test_route_construction_failure_propagates_cleanup_error_after_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pathlib import Path
+
+    from gateway_repository_contracts import encode_commit_id_path_segment
+    from gateway_repository_service.app import create_app
+    from gateway_repository_service.auth_state import AuthState
+    from gateway_repository_service.http.routes import versioned_read as route_mod
+    from gateway_repository_service.runtime import ServiceRuntime
+    from gateway_repository_service.settings import RepositoryServiceSettings
+    from gateway_repository_service.versioned_read.http_service import VersionedReadHttpService
+    from support.http_harness import ReadyReadiness
+
+    settings = RepositoryServiceSettings(
+        profile="test",
+        bearer_token="test-bearer-token",
+        data_root=Path("/tmp/unused-row-admission-cleanup-err"),
+        max_concurrent_row_streams=1,
+    )
+    pool = PermitPool(1)
+    application = MagicMock()
+    close_called = False
+
+    class _Bridge:
+        def iter_bytes(self) -> Any:
+            async def _gen() -> Any:
+                if False:  # pragma: no cover
+                    yield b""
+
+            return _gen()
+
+        def close_sync(self, dolt_runner: object = None, join_timeout_seconds: float = 30.0) -> None:
+            del dolt_runner, join_timeout_seconds
+            nonlocal close_called
+            close_called = True
+            assert pool.in_use == 1
+            raise RuntimeError("bridge cleanup failed")
+
+    def fake_open(
+        self: VersionedReadHttpService,
+        repository_id: object,
+        commit_id: str,
+        query: object,
+    ) -> tuple[Any, Any]:
+        del self, repository_id, commit_id, query
+        lease = pool.try_acquire()
+        assert lease is not None
+        return _Bridge(), lease
+
+    def boom_response(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("response init failed")
+
+    monkeypatch.setattr(VersionedReadHttpService, "open_row_stream", fake_open)
+    monkeypatch.setattr(route_mod, "VersionedReadStreamingResponse", boom_response)
+
+    root_lock = MagicMock()
+    root_lock.is_held.return_value = True
+    runtime = ServiceRuntime(
+        settings=settings,
+        layout=MagicMock(),
+        root_lock=root_lock,
+        control_store=MagicMock(),
+        mutation_store=MagicMock(),
+        import_store=MagicMock(),
+        import_locks=MagicMock(),
+        import_worker_pool=MagicMock(),
+        versioned_read_application=application,
+        dolt_runner=MagicMock(),
+        provider_gate=MagicMock(),
+        auth_state=AuthState(bearer_token=settings.resolve_bearer_token()),
+        row_stream_admission=pool,
+    )
+    app = create_app(settings, enable_lifecycle=False)
+    app.state.runtime = runtime
+    app.state.auth_state = runtime.auth_state
+    app.state.readiness = ReadyReadiness()
+
+    repository_id = uuid4()
+    commit_segment = encode_commit_id_path_segment("commit-c1")
+    path = f"/v1/repositories/{repository_id}/versioned/commits/{commit_segment}/rows"
+
+    async def run() -> None:
+        from collections.abc import MutableMapping
+
+        scope: dict[str, Any] = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode("ascii"),
+            "query_string": b"table_name=items",
+            "headers": [
+                (b"authorization", b"Bearer test-bearer-token"),
+                (b"host", b"testserver"),
+            ],
+            "client": ("127.0.0.1", 123),
+            "server": ("testserver", 80),
+        }
+
+        async def receive() -> MutableMapping[str, Any]:
+            return {"type": "http.disconnect"}
+
+        async def send(message: MutableMapping[str, Any]) -> None:
+            del message
+
+        with pytest.raises(RuntimeError, match="bridge cleanup failed"):
+            await app(scope, receive, send)
+
     asyncio.run(run())
+    assert close_called is True
     assert pool.in_use == 0
 
 

@@ -151,18 +151,30 @@ objects are gone; do not use a shared-project `down --remove-orphans` command.
 
 Verified development host: `10.10.60.4` (SSH user `tmpuser`).
 
-Prior provenance records are superseded until a new gate run completes on a locally
-resolvable candidate SHA:
+Prior provenance records are superseded. Current gate evidence:
 
 ```text
-superseded_compose_project: gateway-p2r4-s10-7da182fe355e
-superseded_reason: build_input_revision a748818 not locally resolvable; source_tree mismatch
-superseded_compose_project: gateway-p2r4-s10-39dfebc86b19
-superseded_reason: provenance_unresolved
+test: tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
+result: PASSED (63s)
+compose_project: gateway-p2r4-s10-7720cf769b61
+cache: http://172.17.0.1:18080 (HTTP 200)
+validated_code_sha: cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596
+container_validated_code_sha: cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596
+build_input_revision: cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596
+source_tree_sha256: sha256:1692cce892eee40f7438c12ff287dbb17ebf14ebf3d055bb41dfaf7e6fd9f5a5
+image_id: sha256:de347b1af8b48405470a1f01044b2a06a2c03d5fe8c2d2ffaa48f3a3c7597fa2
+image_label gateway.p2r1.source-tree-sha256: sha256:1692cce892eee40f7438c12ff287dbb17ebf14ebf3d055bb41dfaf7e6fd9f5a5
+image_label org.opencontainers.image.revision: cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596
 ```
 
-After a successful gate rerun, record literal provenance fields here (no dynamic
-`git rev-parse HEAD` placeholders).
+Superseded runs:
+
+```text
+compose_project: gateway-p2r4-s10-7da182fe355e
+reason: build_input_revision a748818 not locally resolvable; source_tree mismatch
+compose_project: gateway-p2r4-s10-39dfebc86b19
+reason: provenance_unresolved
+```
 
 Local gate hosts that cannot reach `172.17.0.1:18080` should treat container gate
 reruns as remote-only; the failure mode is infrastructure (cache unreachable), not

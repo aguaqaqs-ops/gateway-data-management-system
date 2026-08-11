@@ -89,10 +89,10 @@ docker compose -f vnext/deploy/compose.yaml --profile p2-r2 up -d --no-build rep
 S10 集成测试 `tests/test_import_compose_e2e.py` 调用同一脚本；可通过
 `GATEWAY_REPOSITORY_SERVICE_IMAGE` 复用已构建镜像而跳过 rebuild。
 
-远端开发机（`10.10.60.4`，`tmpuser`）用于 S10 container gate。优先使用 `git fetch` +
-精确 SHA `checkout` 同步候选代码；**禁止**包含 `vnext/rust`（约 24G）。详见
-[`vnext/deploy/p2r1-cache/README.md`](../deploy/p2r1-cache/README.md)。S10 e2e 的
-`os.chown` 步骤需在远端以交互式 `sudo` 执行 pytest；不得在文档或脚本中嵌入密码，也不
+远端开发机（`10.10.60.4`，`tmpuser`）用于 S10 container gate；完整 provenance 见
+[`vnext/deploy/p2r1-cache/README.md`](../deploy/p2r1-cache/README.md)（候选 `cb1ef42`）。
+优先使用 `git fetch` + 精确 SHA `checkout` 同步候选代码；**禁止**包含 `vnext/rust`（约 24G）。
+S10 e2e 的 `os.chown` 步骤需在远端以交互式 `sudo` 执行 pytest；不得在文档或脚本中嵌入密码，也不
 使用无密码 sudo 提权运行 pytest。
 
 ## P2-R1 probe（`p2-r1` profile）

@@ -1,0 +1,38 @@
+{
+  "catalog": {
+    "tables": {
+      "fixture_items": {
+        "columns": [
+          {"name": "id", "sql_type": "BIGINT", "nullable": false},
+          {"name": "label", "sql_type": "VARCHAR(32)", "nullable": false},
+          {"name": "note", "sql_type": "VARCHAR(16)", "nullable": true}
+        ],
+        "primary_key": ["id"],
+        "row_count": 2
+      },
+      "fixture_meta": {
+        "columns": [
+          {"name": "rev_key", "sql_type": "VARCHAR(8)", "nullable": false},
+          {"name": "rev_value", "sql_type": "INT", "nullable": false}
+        ],
+        "primary_key": ["rev_key"],
+        "row_count": 1
+      }
+    }
+  },
+  "rows": {
+    "fixture_items": {
+      "primary_key": ["id"],
+      "records": [
+        {"id": 1, "label": "alpha", "note": null},
+        {"id": 2, "label": "beta", "note": "note-2"}
+      ]
+    },
+    "fixture_meta": {
+      "primary_key": ["rev_key"],
+      "records": [
+        {"rev_key": "stage", "rev_value": 2}
+      ]
+    }
+  }
+}

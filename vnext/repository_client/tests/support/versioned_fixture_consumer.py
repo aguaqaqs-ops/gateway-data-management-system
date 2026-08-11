@@ -1,26 +1,32 @@
 """Contract-owned Versioned fixture consumer for public HTTP end-to-end proof."""
 
+# mypy: disable-error-code=import-untyped
+
 from __future__ import annotations
 
 import argparse
 import asyncio
+import compression.zstd
 import hashlib
+import io
 import json
 import os
 import sys
+import tarfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.ipc as pa_ipc  # type: ignore[import-untyped]
+import pyarrow as pa
+import pyarrow.ipc as pa_ipc
 
 from gateway_repository_client import RepositoryClient
 from gateway_repository_contracts import (
     GetVersionedCatalogResponse,
     OperationStatus,
     REPOSITORY_IMPORT_MEDIA_TYPE,
+    RepositoryArtifactRef,
     SubmitVersionedImportRequest,
     UnknownTypePolicy,
     VerificationPolicy,
@@ -32,6 +38,15 @@ _ENV_BEARER_TOKEN = "GATEWAY_REPOSITORY_BEARER_TOKEN"
 _ENV_FIXTURE_ROOT = "GATEWAY_VERSIONED_FIXTURE_ROOT"
 _PACKAGE_NAME = "package.tar.zst"
 _EXPECTED_NAME = "expected.json"
+_MANIFEST_ENTRY_NAME = "manifest.json"
+_REPLAY_SQL_ENTRY_NAME = "replay.sql"
+_ARROW_IPC_STREAM_EOS = b"\xff\xff\xff\xff\x00\x00\x00\x00"
+_SUMMARY_ALLOWED_KEYS = frozenset({"status", "repository_id", "c0", "c1", "c2", "main_commit"})
+
+FIXTURE_PACKAGE_FACTS: dict[str, tuple[int, str]] = {
+    "c1": (428, "83e6e96e643ee8ea4520aaaba65f2c31dbfaed1f798757d54dbee7303a142547"),
+    "c2": (490, "ecf9958a757b39ebf0b1baac4f7ad68994d076e0e3ed3abb199c304485393d1a"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,11 +76,23 @@ class ExpectedFacts:
 
 
 @dataclass(frozen=True, slots=True)
+class DecodedArrowTable:
+    schema: pa.Schema
+    rows: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class FixtureBundle:
     label: str
     package_path: Path
     package_bytes: bytes
     expected: ExpectedFacts
+
+
+@dataclass(frozen=True, slots=True)
+class ManifestFacts:
+    canonicalization_manifest_digest: str
+    table_names: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,9 +212,8 @@ def _parse_expected_table_rows(raw: object, *, field: str) -> ExpectedTableRows:
     _assert_unique_primary_key_columns(primary_key, field=field)
     records: list[dict[str, Any]] = []
     for index, item in enumerate(records_raw):
-        if not isinstance(item, dict):
-            raise ValueError(f"{field}.records[{index}] must be an object")
-        records.append(dict(item))
+        record = _require_mapping(item, field=f"{field}.records[{index}]")
+        records.append(dict(record))
     records_tuple = tuple(records)
     _assert_unique_record_primary_keys(records_tuple, primary_key, field=field)
     return ExpectedTableRows(primary_key=primary_key, records=records_tuple)
@@ -199,6 +225,9 @@ def parse_expected_facts(payload: object) -> ExpectedFacts:
     if extra:
         raise ValueError(f"expected has unexpected keys: {sorted(extra)}")
     catalog_root = _require_mapping(root.get("catalog"), field="catalog")
+    catalog_extra = set(catalog_root) - {"tables"}
+    if catalog_extra:
+        raise ValueError(f"catalog has unexpected keys: {sorted(catalog_extra)}")
     catalog_tables = _require_mapping(catalog_root.get("tables"), field="catalog.tables")
     rows_root = _require_mapping(root.get("rows"), field="rows")
     catalog = {
@@ -211,11 +240,45 @@ def parse_expected_facts(payload: object) -> ExpectedFacts:
     }
     if set(catalog) != set(rows):
         raise ValueError("catalog.tables and rows must describe the same table set")
+    for table_name, catalog_table in catalog.items():
+        row_table = rows[table_name]
+        if catalog_table.primary_key != row_table.primary_key:
+            raise ValueError(
+                f"catalog.primary_key and rows.primary_key must match for {table_name!r}: "
+                f"{catalog_table.primary_key!r} != {row_table.primary_key!r}"
+            )
+        if catalog_table.row_count != len(row_table.records):
+            raise ValueError(
+                f"catalog.row_count and rows.records length must match for {table_name!r}: "
+                f"{catalog_table.row_count} != {len(row_table.records)}"
+            )
+        column_names = {column.name for column in catalog_table.columns}
+        for index, record in enumerate(row_table.records):
+            record_keys = set(record)
+            if record_keys != column_names:
+                extra_keys = sorted(record_keys - column_names)
+                missing_keys = sorted(column_names - record_keys)
+                raise ValueError(
+                    f"rows.{table_name}.records[{index}] keys must match column names exactly: "
+                    f"extra={extra_keys!r} missing={missing_keys!r}"
+                )
     return ExpectedFacts(catalog=catalog, rows=rows)
 
 
 def load_expected_facts(path: Path) -> ExpectedFacts:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+
+    def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        seen: set[str] = set()
+        payload: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in seen:
+                raise ValueError(f"duplicate JSON object key: {key!r}")
+            seen.add(key)
+            payload[key] = value
+        return payload
+
+    payload = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
     return parse_expected_facts(payload)
 
 
@@ -242,6 +305,91 @@ def package_digest(package_bytes: bytes) -> tuple[int, str]:
     return len(package_bytes), hashlib.sha256(package_bytes).hexdigest()
 
 
+def read_package_manifest_digest(package_bytes: bytes) -> str:
+    tar_bytes = compression.zstd.decompress(package_bytes)
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as archive:
+        manifest_file = archive.extractfile(_MANIFEST_ENTRY_NAME)
+        if manifest_file is None:
+            raise ValueError("package is missing manifest.json")
+        manifest = json.loads(manifest_file.read().decode("utf-8"))
+    digest = manifest.get("canonicalization_manifest_digest")
+    if not isinstance(digest, str) or not digest:
+        raise ValueError("manifest canonicalization_manifest_digest must be a non-empty string")
+    return digest
+
+
+def validate_fixture_package_bytes(
+    label: str,
+    package_bytes: bytes,
+    expected: ExpectedFacts,
+) -> ManifestFacts:
+    if label not in FIXTURE_PACKAGE_FACTS:
+        raise ValueError(f"unknown fixture label: {label!r}")
+    expected_size, expected_sha = FIXTURE_PACKAGE_FACTS[label]
+    size_bytes, raw_sha256 = package_digest(package_bytes)
+    if size_bytes != expected_size or raw_sha256 != expected_sha:
+        raise ValueError(
+            f"fixture package bytes mismatch for {label}: "
+            f"size={size_bytes} sha={raw_sha256} expected_size={expected_size} "
+            f"expected_sha={expected_sha}"
+        )
+    tar_bytes = compression.zstd.decompress(package_bytes)
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as archive:
+        file_members = [member for member in archive.getmembers() if member.isfile()]
+        entry_names = {member.name for member in file_members}
+        if entry_names != {_MANIFEST_ENTRY_NAME, _REPLAY_SQL_ENTRY_NAME}:
+            raise ValueError(
+                f"fixture package must contain only {_MANIFEST_ENTRY_NAME!r} and "
+                f"{_REPLAY_SQL_ENTRY_NAME!r}: actual={sorted(entry_names)}"
+            )
+        for member in file_members:
+            if not member.isreg():
+                raise ValueError(f"fixture package entry must be a regular file: {member.name!r}")
+        manifest_file = archive.extractfile(_MANIFEST_ENTRY_NAME)
+        replay_file = archive.extractfile(_REPLAY_SQL_ENTRY_NAME)
+        if manifest_file is None or replay_file is None:
+            raise ValueError("fixture package is missing required tar entries")
+        manifest = json.loads(manifest_file.read().decode("utf-8"))
+        replay_sql = replay_file.read().decode("utf-8")
+    tables_raw = manifest.get("tables")
+    if not isinstance(tables_raw, list):
+        raise ValueError("manifest.tables must be an array")
+    manifest_table_names = {str(table["name"]) for table in tables_raw if isinstance(table, dict)}
+    if manifest_table_names != set(expected.catalog):
+        raise ValueError(
+            f"manifest tables must match expected catalog tables for {label}: "
+            f"manifest={sorted(manifest_table_names)} expected={sorted(expected.catalog)}"
+        )
+    if label == "c2" and "INSERT INTO fixture_items" not in replay_sql:
+        raise ValueError("c2 replay.sql must contain an INSERT into fixture_items")
+    digest = read_package_manifest_digest(package_bytes)
+    return ManifestFacts(
+        canonicalization_manifest_digest=digest,
+        table_names=frozenset(manifest_table_names),
+    )
+
+
+def assert_upload_artifact_ref(
+    ref: RepositoryArtifactRef,
+    *,
+    size_bytes: int,
+    raw_sha256: str,
+    media_type: str,
+) -> None:
+    if ref.size_bytes != size_bytes:
+        raise AssertionError(
+            f"upload artifact size_bytes mismatch: actual={ref.size_bytes} expected={size_bytes}"
+        )
+    if ref.raw_sha256 != raw_sha256:
+        raise AssertionError(
+            f"upload artifact raw_sha256 mismatch: actual={ref.raw_sha256!r} expected={raw_sha256!r}"
+        )
+    if ref.media_type != media_type:
+        raise AssertionError(
+            f"upload artifact media_type mismatch: actual={ref.media_type!r} expected={media_type!r}"
+        )
+
+
 def row_primary_key_tuple(row: dict[str, Any], primary_key: tuple[str, ...]) -> tuple[Any, ...]:
     return tuple(row[column] for column in primary_key)
 
@@ -254,15 +402,80 @@ def canonical_row_set(
     return frozenset(row_primary_key_tuple(record, primary_key) for record in records)
 
 
-def decode_arrow_stream(body: bytes) -> list[dict[str, Any]]:
+def _arrow_type_for_sql_type(sql_type: str) -> pa.DataType:
+    upper = sql_type.upper()
+    if upper == "BIGINT":
+        return pa.int64()
+    if upper in {"INT", "INTEGER"}:
+        return pa.int32()
+    if upper.startswith("VARCHAR") or upper.startswith("CHAR"):
+        return pa.string()
+    raise ValueError(f"unsupported fixture sql_type for Arrow schema: {sql_type!r}")
+
+
+def expected_arrow_schema(columns: tuple[ExpectedColumn, ...]) -> pa.Schema:
+    fields = [
+        pa.field(
+            column.name,
+            _arrow_type_for_sql_type(column.sql_type),
+            nullable=column.nullable,
+            metadata=None,
+        )
+        for column in columns
+    ]
+    return pa.schema(fields)
+
+
+def _normalize_field_metadata(metadata: dict[bytes, bytes] | None) -> dict[bytes, bytes]:
+    if metadata is None:
+        return {}
+    return dict(metadata)
+
+
+def assert_arrow_schema_matches(actual_schema: pa.Schema, expected_columns: tuple[ExpectedColumn, ...]) -> None:
+    expected_schema = expected_arrow_schema(expected_columns)
+    if len(actual_schema) != len(expected_schema):
+        raise AssertionError(
+            f"arrow schema field count mismatch: actual={len(actual_schema)} expected={len(expected_schema)}"
+        )
+    for actual_field, expected_field in zip(actual_schema, expected_schema, strict=True):
+        if actual_field.name != expected_field.name:
+            raise AssertionError(
+                f"arrow schema field name mismatch: actual={actual_field.name!r} "
+                f"expected={expected_field.name!r}"
+            )
+        if not actual_field.type.equals(expected_field.type):
+            raise AssertionError(
+                f"arrow schema field type mismatch for {actual_field.name!r}: "
+                f"actual={actual_field.type!r} expected={expected_field.type!r}"
+            )
+        if actual_field.nullable != expected_field.nullable:
+            raise AssertionError(
+                f"arrow schema nullable mismatch for {actual_field.name!r}: "
+                f"actual={actual_field.nullable!r} expected={expected_field.nullable!r}"
+            )
+        actual_metadata = _normalize_field_metadata(actual_field.metadata)
+        expected_metadata = _normalize_field_metadata(expected_field.metadata)
+        if actual_metadata != expected_metadata:
+            raise AssertionError(
+                f"arrow schema metadata mismatch for {actual_field.name!r}: "
+                f"actual={actual_metadata!r} expected={expected_metadata!r}"
+            )
+
+
+def decode_arrow_stream(body: bytes) -> DecodedArrowTable:
+    if not body.endswith(_ARROW_IPC_STREAM_EOS):
+        raise ValueError("Arrow IPC stream is missing EOS trailer")
+    payload = body[: -len(_ARROW_IPC_STREAM_EOS)]
+    reader = pa_ipc.open_stream(payload)
+    schema = reader.schema
     rows: list[dict[str, Any]] = []
-    reader = pa_ipc.open_stream(body)
     for batch in reader:
-        table = pa.Table.from_batches([batch])
+        table = pa.Table.from_batches([batch], schema=schema)
         column_names = table.column_names
         for row_index in range(table.num_rows):
             rows.append({name: table.column(name)[row_index].as_py() for name in column_names})
-    return rows
+    return DecodedArrowTable(schema=schema, rows=tuple(rows))
 
 
 def _catalog_table_map(response: GetVersionedCatalogResponse) -> dict[str, Any]:
@@ -272,7 +485,17 @@ def _catalog_table_map(response: GetVersionedCatalogResponse) -> dict[str, Any]:
 def assert_catalog_matches(
     response: GetVersionedCatalogResponse,
     expected: ExpectedFacts,
+    *,
+    commit_id: str,
 ) -> None:
+    if response.catalog.commit_id != commit_id:
+        raise AssertionError(
+            f"catalog commit_id mismatch: actual={response.catalog.commit_id!r} "
+            f"expected={commit_id!r}"
+        )
+    tables = response.catalog.tables
+    if len(tables) != len({table.name for table in tables}):
+        raise AssertionError("catalog contains duplicate table names")
     actual_tables = _catalog_table_map(response)
     if set(actual_tables) != set(expected.catalog):
         raise AssertionError(
@@ -368,7 +591,7 @@ async def _read_commit_facts(
         repository_id=repository_id,
         commit_id=commit_id,
     )
-    assert_catalog_matches(catalog_response, expected)
+    assert_catalog_matches(catalog_response, expected, commit_id=commit_id)
     for table_name, expected_rows in expected.rows.items():
         stream = client.stream_versioned_table_rows(
             repository_id=repository_id,
@@ -378,8 +601,10 @@ async def _read_commit_facts(
         )
         async with stream:
             body = b"".join([chunk async for chunk in stream.aiter_bytes()])
-        actual_records = decode_arrow_stream(body)
-        assert_rows_match(actual_records, expected_rows, table_name=table_name)
+        decoded = decode_arrow_stream(body)
+        catalog_table = expected.catalog[table_name]
+        assert_arrow_schema_matches(decoded.schema, catalog_table.columns)
+        assert_rows_match(list(decoded.rows), expected_rows, table_name=table_name)
 
 
 def assert_import_result_identity(
@@ -387,6 +612,7 @@ def assert_import_result_identity(
     *,
     expected_commit_id: str,
     artifact_id: UUID,
+    manifest_digest: str,
     completed_verification_policy: VerificationPolicy = VerificationPolicy.STRUCTURAL,
     unknown_type_policy: UnknownTypePolicy = UnknownTypePolicy.REJECT,
 ) -> None:
@@ -402,6 +628,11 @@ def assert_import_result_identity(
     if result.artifact_id != artifact_id:
         raise AssertionError(
             f"import result artifact_id mismatch: actual={result.artifact_id} expected={artifact_id}"
+        )
+    if result.canonicalization_manifest_digest != manifest_digest:
+        raise AssertionError(
+            "import result canonicalization_manifest_digest mismatch: "
+            f"actual={result.canonicalization_manifest_digest!r} expected={manifest_digest!r}"
         )
     if result.completed_verification_policy != completed_verification_policy:
         raise AssertionError(
@@ -425,12 +656,19 @@ async def _import_fixture(
     idempotency_prefix: str,
 ) -> str:
     size_bytes, raw_sha256 = package_digest(bundle.package_bytes)
+    manifest_digest = read_package_manifest_digest(bundle.package_bytes)
     upload_response = await client.upload_artifact(
         repository_id=repository_id,
         idempotency_key=f"{idempotency_prefix}-upload",
         media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
         raw_sha256=raw_sha256,
         body=bundle.package_bytes,
+    )
+    assert_upload_artifact_ref(
+        upload_response.artifact_ref,
+        size_bytes=size_bytes,
+        raw_sha256=raw_sha256,
+        media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
     )
     submit_response = await client.submit_versioned_import(
         idempotency_key=f"{idempotency_prefix}-submit",
@@ -452,10 +690,16 @@ async def _import_fixture(
         raise RuntimeError(
             f"import {bundle.label} did not succeed: status={operation.status} error={operation.error}"
         )
+    if operation.operation_id != submit_response.operation_id:
+        raise AssertionError(
+            "operation operation_id mismatch: "
+            f"actual={operation.operation_id} expected={submit_response.operation_id}"
+        )
     assert_import_result_identity(
         operation.result,
         expected_commit_id=expected_commit_id,
         artifact_id=upload_response.artifact_ref.artifact_id,
+        manifest_digest=manifest_digest,
     )
     return str(operation.result.commit_id)
 
@@ -526,15 +770,20 @@ def _resolve_config_from_env() -> tuple[str, str, Path]:
     return base_url, bearer_token, Path(fixture_root_raw)
 
 
+def _sanitize_error_message(message: str, bearer_token: str) -> str:
+    if not bearer_token:
+        return message
+    return message.replace(bearer_token, "<redacted>")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the Versioned fixture consumer.")
     parser.add_argument("--base-url", default=None)
-    parser.add_argument("--bearer-token", default=None)
     parser.add_argument("--fixture-root", default=None)
     args = parser.parse_args(argv)
 
     base_url = (args.base_url or os.environ.get(_ENV_BASE_URL, "")).strip()
-    bearer_token = (args.bearer_token or os.environ.get(_ENV_BEARER_TOKEN, "")).strip()
+    bearer_token = os.environ.get(_ENV_BEARER_TOKEN, "").strip()
     fixture_root_raw = (args.fixture_root or os.environ.get(_ENV_FIXTURE_ROOT, "")).strip()
     if not base_url or not bearer_token or not fixture_root_raw:
         base_url, bearer_token, fixture_root = _resolve_config_from_env()
@@ -550,13 +799,15 @@ def main(argv: list[str] | None = None) -> int:
             fixture_root=fixture_root,
         )
     )
-    print(summary.to_json())
+    sys.stdout.write(summary.to_json())
+    sys.stdout.flush()
     return 0
 
 
 if __name__ == "__main__":
+    bearer_token = os.environ.get(_ENV_BEARER_TOKEN, "").strip()
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        print(_sanitize_error_message(str(exc), bearer_token), file=sys.stderr)
         raise SystemExit(1) from exc

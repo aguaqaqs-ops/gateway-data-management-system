@@ -50,7 +50,3 @@ files = ["src", "tests"]
 [[tool.mypy.overrides]]
 module = ["gateway_repository_contracts", "gateway_repository_contracts.*"]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["gateway_repository_client", "gateway_repository_client.*"]
-ignore_missing_imports = true

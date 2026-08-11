@@ -11,26 +11,56 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.ipc as pa_ipc  # type: ignore[import-untyped]
 import pytest
 
-from gateway_repository_contracts import UnknownTypePolicy, VerificationPolicy, VersionedImportResult
+from gateway_repository_contracts import (
+    GetVersionedCatalogResponse,
+    REPOSITORY_IMPORT_MEDIA_TYPE,
+    RepositoryArtifactRef,
+    UnknownTypePolicy,
+    VerificationPolicy,
+    VersionedCatalog,
+    VersionedColumn,
+    VersionedImportResult,
+    VersionedTable,
+)
 from support.versioned_fixture_consumer import (
+    FIXTURE_PACKAGE_FACTS,
+    ExpectedColumn,
+    ExpectedFacts,
+    ExpectedTableCatalog,
     ExpectedTableRows,
+    assert_arrow_schema_matches,
+    assert_catalog_matches,
     assert_import_result_identity,
     assert_rows_match,
+    assert_upload_artifact_ref,
     canonical_row_set,
     decode_arrow_stream,
+    expected_arrow_schema,
     load_expected_facts,
     load_fixture_bundle,
     package_digest,
     parse_expected_facts,
+    read_package_manifest_digest,
     row_primary_key_tuple,
+    validate_fixture_package_bytes,
 )
 
 pytestmark = pytest.mark.unit
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "versioned_v1"
 SUPPORT_ROOT = Path(__file__).resolve().parent / "support"
+_ARROW_IPC_STREAM_EOS = b"\xff\xff\xff\xff\x00\x00\x00\x00"
 
 _ARTIFACT_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
+_MANIFEST_DIGEST = "digest"
+
+
+def _encode_arrow_stream(table: pa.Table) -> bytes:
+    sink = pa.BufferOutputStream()
+    with pa_ipc.new_stream(sink, table.schema) as writer:
+        writer.write_table(table)
+    raw: bytes = sink.getvalue().to_pybytes()
+    return raw + _ARROW_IPC_STREAM_EOS
 
 
 def _minimal_expected_payload(*, row_count: object = 0) -> dict[str, object]:
@@ -264,6 +294,7 @@ def test_assert_import_result_identity_rejects_drift() -> None:
             result,
             expected_commit_id="commit-wrong",
             artifact_id=_ARTIFACT_ID,
+            manifest_digest=_MANIFEST_DIGEST,
         )
 
 
@@ -293,6 +324,7 @@ def test_assert_import_result_identity_rejects_policy_drift(
             drifted,
             expected_commit_id="commit-c0",
             artifact_id=_ARTIFACT_ID,
+            manifest_digest=_MANIFEST_DIGEST,
         )
 
 
@@ -320,3 +352,224 @@ def test_support_modules_do_not_import_service() -> None:
                 if node.module.split(".")[0] == banned:
                     offenders.append(f"{path.name}:{node.module}")
     assert offenders == []
+
+
+MALFORMED_EXPECTED_SHAPES: tuple[tuple[dict[str, object], str], ...] = (
+    (
+        {
+            "catalog": {"tables": {}, "commit_id": "x"},
+            "rows": {},
+        },
+        "catalog has unexpected keys",
+    ),
+    (
+        {
+            "catalog": {
+                "tables": {
+                    "items": {
+                        "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                        "primary_key": ["id"],
+                        "row_count": 1,
+                    }
+                }
+            },
+            "rows": {
+                "items": {
+                    "primary_key": ["id"],
+                    "records": [],
+                }
+            },
+        },
+        "row_count and rows.records length must match",
+    ),
+    (
+        {
+            "catalog": {
+                "tables": {
+                    "items": {
+                        "columns": [
+                            {"name": "id", "sql_type": "INT", "nullable": False},
+                            {"name": "label", "sql_type": "VARCHAR(8)", "nullable": False},
+                        ],
+                        "primary_key": ["id"],
+                        "row_count": 1,
+                    }
+                }
+            },
+            "rows": {
+                "items": {
+                    "primary_key": ["id"],
+                    "records": [{"id": 1, "label": "a", "extra": True}],
+                }
+            },
+        },
+        "keys must match column names exactly",
+    ),
+    (
+        {
+            "catalog": {
+                "tables": {
+                    "items": {
+                        "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                        "primary_key": ["id"],
+                        "row_count": 0,
+                    }
+                }
+            },
+            "rows": {
+                "items": {
+                    "primary_key": ["pk"],
+                    "records": [],
+                }
+            },
+        },
+        "primary_key must match",
+    ),
+)
+
+
+@pytest.mark.parametrize(("payload", "match"), MALFORMED_EXPECTED_SHAPES)
+def test_parse_expected_facts_rejects_malformed_shapes(payload: dict[str, object], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        parse_expected_facts(payload)
+
+
+def test_load_expected_facts_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    path = tmp_path / "expected.json"
+    path.write_text('{"catalog": {"tables": {}}, "catalog": {"tables": {}}}', encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
+        load_expected_facts(path)
+
+
+def test_fixture_package_facts_match_committed_bytes() -> None:
+    for label, (expected_size, expected_sha) in FIXTURE_PACKAGE_FACTS.items():
+        bundle = load_fixture_bundle(FIXTURE_ROOT, label)
+        size_bytes, raw_sha256 = package_digest(bundle.package_bytes)
+        assert (size_bytes, raw_sha256) == (expected_size, expected_sha)
+        manifest = validate_fixture_package_bytes(label, bundle.package_bytes, bundle.expected)
+        assert manifest.canonicalization_manifest_digest == read_package_manifest_digest(bundle.package_bytes)
+
+
+def test_assert_upload_artifact_ref_rejects_drift() -> None:
+    ref = RepositoryArtifactRef(
+        artifact_id=_ARTIFACT_ID,
+        media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
+        size_bytes=10,
+        raw_sha256="a" * 64,
+    )
+    with pytest.raises(AssertionError, match="size_bytes"):
+        assert_upload_artifact_ref(
+            ref,
+            size_bytes=11,
+            raw_sha256="a" * 64,
+            media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
+        )
+
+
+def test_assert_import_result_identity_rejects_manifest_digest_drift() -> None:
+    result = VersionedImportResult(
+        commit_id="commit-c1",
+        target_ref="main",
+        artifact_id=_ARTIFACT_ID,
+        canonicalization_manifest_digest="wrong",
+        expected_commit_id="commit-c0",
+        completed_verification_policy=VerificationPolicy.STRUCTURAL,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+    with pytest.raises(AssertionError, match="canonicalization_manifest_digest"):
+        assert_import_result_identity(
+            result,
+            expected_commit_id="commit-c0",
+            artifact_id=_ARTIFACT_ID,
+            manifest_digest=_MANIFEST_DIGEST,
+        )
+
+
+def _catalog_response(
+    *,
+    commit_id: str,
+    tables: tuple[VersionedTable, ...],
+) -> GetVersionedCatalogResponse:
+    return GetVersionedCatalogResponse(catalog=VersionedCatalog(commit_id=commit_id, tables=tables))
+
+
+def _items_table(*, row_count: int = 1) -> VersionedTable:
+    return VersionedTable(
+        name="items",
+        columns=(
+            VersionedColumn(name="id", sql_type="INT", nullable=False),
+        ),
+        primary_key=("id",),
+        row_count=row_count,
+    )
+
+
+def test_assert_catalog_matches_rejects_wrong_commit_id() -> None:
+    expected = ExpectedFacts(
+        catalog={
+            "items": ExpectedTableCatalog(
+                columns=(ExpectedColumn(name="id", sql_type="INT", nullable=False),),
+                primary_key=("id",),
+                row_count=1,
+            )
+        },
+        rows={"items": ExpectedTableRows(primary_key=("id",), records=({"id": 1},))},
+    )
+    response = _catalog_response(commit_id="wrong", tables=(_items_table(),))
+    with pytest.raises(AssertionError, match="commit_id mismatch"):
+        assert_catalog_matches(response, expected, commit_id="expected-commit")
+
+
+def test_assert_catalog_matches_rejects_duplicate_table_names() -> None:
+    expected = ExpectedFacts(
+        catalog={
+            "items": ExpectedTableCatalog(
+                columns=(ExpectedColumn(name="id", sql_type="INT", nullable=False),),
+                primary_key=("id",),
+                row_count=1,
+            )
+        },
+        rows={"items": ExpectedTableRows(primary_key=("id",), records=({"id": 1},))},
+    )
+    duplicate_tables = (_items_table(), _items_table())
+    response = _catalog_response(commit_id="commit", tables=duplicate_tables)
+    with pytest.raises(AssertionError, match="duplicate table names"):
+        assert_catalog_matches(response, expected, commit_id="commit")
+
+
+def test_decode_arrow_stream_rejects_missing_eos() -> None:
+    table = pa.table({"id": [1]})
+    sink = pa.BufferOutputStream()
+    with pa_ipc.new_stream(sink, table.schema) as writer:
+        writer.write_table(table)
+    body_with_native_eos = sink.getvalue().to_pybytes()
+    body_without_eos = body_with_native_eos[: -len(_ARROW_IPC_STREAM_EOS)]
+    assert not body_without_eos.endswith(_ARROW_IPC_STREAM_EOS)
+    with pytest.raises(ValueError, match="missing EOS"):
+        decode_arrow_stream(body_without_eos)
+
+
+def test_assert_arrow_schema_matches_rejects_type_drift() -> None:
+    columns = (ExpectedColumn(name="id", sql_type="BIGINT", nullable=False),)
+    actual_schema = pa.schema([pa.field("id", pa.int32(), nullable=False)])
+    with pytest.raises(AssertionError, match="type mismatch"):
+        assert_arrow_schema_matches(actual_schema, columns)
+
+
+def test_decode_arrow_stream_preserves_order_independent_rows() -> None:
+    columns = (
+        ExpectedColumn(name="id", sql_type="BIGINT", nullable=False),
+        ExpectedColumn(name="label", sql_type="VARCHAR(8)", nullable=False),
+    )
+    schema = expected_arrow_schema(columns)
+    table = pa.Table.from_pydict({"id": [2, 1], "label": ["b", "a"]}, schema=schema)
+    decoded = decode_arrow_stream(_encode_arrow_stream(table))
+    expected = ExpectedTableRows(
+        primary_key=("id",),
+        records=(
+            {"id": 1, "label": "a"},
+            {"id": 2, "label": "b"},
+        ),
+    )
+    assert_arrow_schema_matches(decoded.schema, columns)
+    assert_rows_match(list(decoded.rows), expected, table_name="items")

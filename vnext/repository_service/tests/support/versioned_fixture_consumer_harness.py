@@ -11,7 +11,9 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
+from uuid import UUID
 
 import httpx2 as httpx
 import uvicorn
@@ -27,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 CLIENT_PROJECT = REPO_ROOT / "repository_client"
 CONSUMER_SCRIPT = CLIENT_PROJECT / "tests" / "support" / "versioned_fixture_consumer.py"
 FIXTURE_ROOT = CLIENT_PROJECT / "tests" / "fixtures" / "versioned_v1"
+_SUMMARY_ALLOWED_KEYS = frozenset({"status", "repository_id", "c0", "c1", "c2", "main_commit"})
 
 
 @dataclass
@@ -92,26 +95,46 @@ def start_fixture_consumer_environment(
 ) -> FixtureConsumerEnvironment:
     settings = lifecycle_settings(tmp_path, bearer_token=bearer_token)
     runtime = ServiceRuntime.start(settings)
-    app = create_app(settings, enable_lifecycle=False)
-    app.state.runtime = runtime
-    app.state.auth_state = runtime.auth_state
-    app.state.readiness = LifecycleReadiness(runtime)
-    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error")
-    server = uvicorn.Server(config)
-    server_thread = threading.Thread(target=server.run, daemon=True)
-    server_thread.start()
-    port = _wait_until_server_started(server)
-    base_url = f"http://127.0.0.1:{port}"
-    _wait_until_ready(base_url, bearer_token)
-    return FixtureConsumerEnvironment(
-        settings=settings,
-        runtime=runtime,
-        server=server,
-        server_thread=server_thread,
-        base_url=base_url,
-        bearer_token=bearer_token,
-        data_root=settings.data_root,
-    )
+    server: uvicorn.Server | None = None
+    server_thread: threading.Thread | None = None
+    try:
+        app = create_app(settings, enable_lifecycle=False)
+        app.state.runtime = runtime
+        app.state.auth_state = runtime.auth_state
+        app.state.readiness = LifecycleReadiness(runtime)
+        config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error")
+        server = uvicorn.Server(config)
+        server_thread = threading.Thread(target=server.run, daemon=False)
+        server_thread.start()
+        port = _wait_until_server_started(server)
+        base_url = f"http://127.0.0.1:{port}"
+        _wait_until_ready(base_url, bearer_token)
+        return FixtureConsumerEnvironment(
+            settings=settings,
+            runtime=runtime,
+            server=server,
+            server_thread=server_thread,
+            base_url=base_url,
+            bearer_token=bearer_token,
+            data_root=settings.data_root,
+        )
+    except Exception:
+        if server is not None:
+            server.should_exit = True
+            if server_thread is not None:
+                server_thread.join(timeout=10.0)
+        shutdown_fixture_consumer_environment(
+            FixtureConsumerEnvironment(
+                settings=settings,
+                runtime=runtime,
+                server=cast(uvicorn.Server, server or SimpleNamespace(should_exit=False)),
+                server_thread=server_thread or threading.Thread(target=lambda: None),
+                base_url="",
+                bearer_token=bearer_token,
+                data_root=settings.data_root,
+            )
+        )
+        raise
 
 
 def _consumer_env(bearer_token: str, base_url: str) -> dict[str, str]:
@@ -150,35 +173,66 @@ def stop_fixture_consumer_process(
 ) -> None:
     if process is None:
         return
-    if process.poll() is not None:
-        return
+    pgid: int | None = None
     try:
-        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        pgid = os.getpgid(process.pid)
     except ProcessLookupError:
         return
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            return
+            break
         time.sleep(0.02)
+    if process.poll() is None:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=timeout_seconds)
+    elif pgid is not None:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except ProcessLookupError:
+                return
+            time.sleep(0.02)
+
+
+def parse_consumer_summary(stdout: str) -> dict[str, Any] | None:
+    stripped = stdout.strip()
+    if not stripped or "\n" in stripped:
+        return None
     try:
-        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    process.wait(timeout=timeout_seconds)
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    if set(parsed) != _SUMMARY_ALLOWED_KEYS:
+        return None
+    if parsed.get("status") != "ok":
+        return None
+    repository_id = parsed.get("repository_id")
+    if not isinstance(repository_id, str) or not repository_id:
+        return None
+    try:
+        UUID(repository_id)
+    except ValueError:
+        return None
+    for field in ("c0", "c1", "c2", "main_commit"):
+        value = parsed.get(field)
+        if not isinstance(value, str) or not value:
+            return None
+    return parsed
 
 
 def _parse_consumer_summary(stdout: str) -> dict[str, Any] | None:
-    if not stdout.strip():
-        return None
-    last_line = stdout.strip().splitlines()[-1]
-    try:
-        parsed = json.loads(last_line)
-    except json.JSONDecodeError:
-        return None
-    if isinstance(parsed, dict):
-        return parsed
-    return None
+    return parse_consumer_summary(stdout)
 
 
 def run_fixture_consumer_subprocess(
@@ -224,34 +278,53 @@ def run_fixture_consumer_subprocess(
 def shutdown_fixture_consumer_environment(env: FixtureConsumerEnvironment | None) -> None:
     if env is None:
         return
+    errors: list[Exception] = []
     env.server.should_exit = True
     env.server_thread.join(timeout=10.0)
     if env.server_thread.is_alive():
-        raise AssertionError("uvicorn server thread did not stop")
+        errors.append(AssertionError("uvicorn server thread did not stop"))
     shutdown_error: BridgeShutdownError | None = None
     try:
         env.runtime.shutdown()
     except BridgeShutdownError as exc:
         shutdown_error = exc
-        env.runtime.dolt_runner.terminate_active_children()
-        if env.runtime.control_store.is_open():
-            env.runtime.control_store.close()
-        if env.runtime.root_lock.is_held():
-            env.runtime.root_lock.release()
-    _wait_until(
-        lambda: BRIDGE_REGISTRY.snapshot() == (),
-        timeout_seconds=10.0,
-        message="bridge registry did not drain during fixture consumer cleanup",
-    )
-    _wait_until(
-        lambda: env.runtime.dolt_runner._active_children.snapshot() == (),
-        timeout_seconds=10.0,
-        message="active dolt children did not drain during fixture consumer cleanup",
-    )
+        try:
+            env.runtime.dolt_runner.terminate_active_children()
+            if env.runtime.control_store.is_open():
+                env.runtime.control_store.close()
+            if env.runtime.root_lock.is_held():
+                env.runtime.root_lock.release()
+        except Exception as cleanup_exc:
+            errors.append(cleanup_exc)
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        _wait_until(
+            lambda: BRIDGE_REGISTRY.snapshot() == (),
+            timeout_seconds=10.0,
+            message="bridge registry did not drain during fixture consumer cleanup",
+        )
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        _wait_until(
+            lambda: env.runtime.dolt_runner._active_children.snapshot() == (),
+            timeout_seconds=10.0,
+            message="active dolt children did not drain during fixture consumer cleanup",
+        )
+    except Exception as exc:
+        errors.append(exc)
     data_root = env.data_root
     if data_root.exists():
-        shutil.rmtree(data_root)
+        try:
+            shutil.rmtree(data_root)
+        except Exception as exc:
+            errors.append(exc)
     if data_root.exists():
-        raise AssertionError(f"temporary durable root still exists: {data_root}")
+        errors.append(AssertionError(f"temporary durable root still exists: {data_root}"))
     if shutdown_error is not None:
-        raise shutdown_error
+        errors.append(shutdown_error)
+    if len(errors) == 1:
+        raise errors[0]
+    if len(errors) > 1:
+        raise ExceptionGroup("fixture consumer environment shutdown failures", errors)

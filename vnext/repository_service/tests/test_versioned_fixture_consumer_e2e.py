@@ -24,6 +24,7 @@ def test_public_versioned_fixture_consumer_c1_c2_immutable_reads(tmp_path: Path)
     try:
         env = start_fixture_consumer_environment(tmp_path, bearer_token=bearer_token)
         result = run_fixture_consumer_subprocess(env)
+        assert result.timed_out is False
         assert result.returncode == 0, result.stdout + result.stderr
         assert result.summary is not None, result.stdout + result.stderr
         summary = result.summary

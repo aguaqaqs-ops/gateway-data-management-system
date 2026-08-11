@@ -114,33 +114,39 @@ def log_event(
     extra_fields: Mapping[str, Any] | None = None,
     logger: logging.Logger | None = None,
 ) -> None:
-    """Emit a structured operational event with stable fields only."""
-    payload: dict[str, Any] = {"event": event}
-    if request_id is not None:
-        payload["request_id"] = request_id
-    for key, value in (
-        ("repository_id", _opaque_id(repository_id)),
-        ("operation_id", _opaque_id(operation_id)),
-        ("artifact_id", _opaque_id(artifact_id)),
-        ("stage", stage),
-        ("duration_ms", duration_ms),
-        ("size_bytes", size_bytes),
-        ("result", result),
-        ("code", code),
-        ("capacity", capacity),
-        ("in_use", in_use),
-        ("cleanup_outcome", cleanup_outcome),
-    ):
-        if value is not None:
-            payload[key] = value
-    if extra_fields:
-        for key, value in extra_fields.items():
-            lowered = key.lower()
-            if key not in _ALLOWED_KEYS or any(part in lowered for part in _FORBIDDEN_SUBSTRINGS):
-                continue
-            if value is None:
-                continue
-            payload[key] = value
+    """Emit a structured operational event with stable fields only.
 
-    target = logger or _LOGGER
-    target.log(level, event, extra={"gateway_fields": payload, **payload})
+    Fail-safe: logger or payload errors must never alter public request results.
+    """
+    try:
+        payload: dict[str, Any] = {"event": event}
+        if request_id is not None:
+            payload["request_id"] = request_id
+        for key, value in (
+            ("repository_id", _opaque_id(repository_id)),
+            ("operation_id", _opaque_id(operation_id)),
+            ("artifact_id", _opaque_id(artifact_id)),
+            ("stage", stage),
+            ("duration_ms", duration_ms),
+            ("size_bytes", size_bytes),
+            ("result", result),
+            ("code", code),
+            ("capacity", capacity),
+            ("in_use", in_use),
+            ("cleanup_outcome", cleanup_outcome),
+        ):
+            if value is not None:
+                payload[key] = value
+        if extra_fields:
+            for key, value in extra_fields.items():
+                lowered = key.lower()
+                if key not in _ALLOWED_KEYS or any(part in lowered for part in _FORBIDDEN_SUBSTRINGS):
+                    continue
+                if value is None:
+                    continue
+                payload[key] = value
+
+        target = logger or _LOGGER
+        target.log(level, event, extra={"gateway_fields": payload, **payload})
+    except Exception:
+        return

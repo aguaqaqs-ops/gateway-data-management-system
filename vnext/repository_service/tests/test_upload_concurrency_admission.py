@@ -151,6 +151,46 @@ def test_success_replay_does_not_consume_upload_permit(tmp_path: Path) -> None:
     held.release()
 
 
+def test_pending_same_key_does_not_consume_upload_permit(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    pool = PermitPool(1)
+    held = pool.try_acquire()
+    assert held is not None
+    assert pool.in_use == 1
+
+    store = MagicMock(spec=MutationStore)
+    store.hash_idempotency_key = MutationStore.hash_idempotency_key
+    store.claim_or_lookup.return_value = ClaimResult(
+        idempotency_id=9,
+        is_new=False,
+        fingerprint=b"fp-pending",
+        effect=EffectRecord(
+            effect_id=9,
+            idempotency_id=9,
+            resource_id=uuid4(),
+            status=EffectStatus.PENDING,
+            response_status=None,
+            response_body=None,
+        ),
+        terminal_not_published=False,
+    )
+    body_chunks: list[bytes] = []
+
+    async def body() -> AsyncIterator[bytes]:
+        body_chunks.append(b"x")
+        yield b"x"
+
+    command = _command(settings, pool=pool, store=store)
+    with pytest.raises(ServiceError) as exc_info:
+        asyncio.run(command.execute(uuid4(), _headers(key="inflight", payload=b"x"), body()))
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == "IDEMPOTENCY_CONFLICT"
+    assert pool.in_use == 1
+    assert body_chunks == []
+    store.allocate_pending.assert_not_called()
+    held.release()
+
+
 def test_validation_failure_releases_upload_permit(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     pool = PermitPool(1)

@@ -84,3 +84,29 @@ def test_concurrent_release_does_not_over_issue_permits() -> None:
     assert not errors
     assert pool.in_use == 0
     assert pool.try_acquire() is not None
+
+
+@pytest.mark.serial
+def test_same_lease_concurrent_release_is_atomic() -> None:
+    pool = PermitPool(1)
+    lease = pool.try_acquire()
+    assert lease is not None
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            barrier.wait(timeout=5.0)
+            lease.release()
+        except BaseException as exc:  # noqa: BLE001 — collect for assertion
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10.0)
+        assert not thread.is_alive()
+    assert not errors
+    assert pool.in_use == 0
+    assert pool.try_acquire() is not None

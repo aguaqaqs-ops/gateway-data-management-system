@@ -56,3 +56,73 @@ def test_log_event_writes_stable_fields_and_omits_absent(
     assert "secret-token-value" not in caplog.text
     assert "idempotency" not in fields
     assert "Authorization" not in str(fields)
+
+
+def test_log_event_is_fail_safe_when_logger_raises() -> None:
+    class BoomLogger(logging.Logger):
+        def log(self, level: int, msg: object, *args: object, **kwargs: object) -> None:
+            raise RuntimeError("logger boom")
+
+    boom = BoomLogger("gateway_repository_service.diagnostics.boom")
+    log_event("http_request_completed", request_id="rid", logger=boom)
+
+
+@pytest.mark.serial
+def test_streaming_cleanup_error_survives_failing_log_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    from typing import Any
+
+    from gateway_repository_service import diagnostics as diagnostics_mod
+    from gateway_repository_service.admission import PermitPool
+    from gateway_repository_service.versioned_read.streaming_response import VersionedReadStreamingResponse
+
+    def boom_log(level: int, msg: object, *args: object, **kwargs: object) -> None:
+        del level, msg, args, kwargs
+        raise RuntimeError("logger boom")
+
+    monkeypatch.setattr(diagnostics_mod._LOGGER, "log", boom_log)
+
+    pool = PermitPool(1)
+    lease = pool.try_acquire()
+    assert lease is not None
+
+    class FakeBridge:
+        async def aclose(self) -> None:
+            raise RuntimeError("bridge cleanup failed")
+
+        async def iter_bytes(self) -> Any:
+            if False:  # pragma: no cover
+                yield b""
+
+    bridge = FakeBridge()
+
+    async def content() -> Any:
+        async for chunk in bridge.iter_bytes():
+            yield chunk
+
+    response = VersionedReadStreamingResponse(
+        bridge,  # type: ignore[arg-type]
+        content(),
+        media_type="application/vnd.apache.arrow.stream",
+        permit_lease=lease,
+        admission_capacity=1,
+    )
+
+    async def run() -> None:
+        from collections.abc import MutableMapping
+
+        async def receive() -> MutableMapping[str, Any]:
+            return {"type": "http.disconnect"}
+
+        async def send(message: MutableMapping[str, Any]) -> None:
+            del message
+
+        with pytest.raises(RuntimeError, match="bridge cleanup failed"):
+            await response(
+                {"type": "http", "method": "GET", "path": "/rows"},
+                receive,
+                send,
+            )
+        assert pool.in_use == 0
+
+    asyncio.run(run())

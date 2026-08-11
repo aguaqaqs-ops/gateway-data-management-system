@@ -110,15 +110,20 @@ def register_versioned_read_routes(app: FastAPI) -> None:
             request_id=request_id_str,
         )
         bridge, lease = service.open_row_stream(repository_id, validated_commit_id, query)
-        return VersionedReadStreamingResponse(
-            bridge,
-            bridge.iter_bytes(),
-            media_type=VERSIONED_READ_ARROW_MEDIA_TYPE,
-            permit_lease=lease,
-            request_id=request_id_str,
-            repository_id=str(repository_id),
-            admission_capacity=runtime.row_stream_admission.capacity,
-        )
+        try:
+            return VersionedReadStreamingResponse(
+                bridge,
+                bridge.iter_bytes(),
+                media_type=VERSIONED_READ_ARROW_MEDIA_TYPE,
+                permit_lease=lease,
+                request_id=request_id_str,
+                repository_id=str(repository_id),
+                admission_capacity=runtime.row_stream_admission.capacity,
+            )
+        except BaseException:
+            if lease is not None:
+                lease.release()
+            raise
 
 
 def _runtime_from_state(request: Request) -> ServiceRuntime:

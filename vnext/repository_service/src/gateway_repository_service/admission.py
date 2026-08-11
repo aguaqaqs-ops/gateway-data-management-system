@@ -26,10 +26,7 @@ class PermitLease:
         self._released = False
 
     def release(self) -> None:
-        if self._released:
-            return
-        self._released = True
-        self._pool._release()
+        self._pool._release_lease(self)
 
     def __enter__(self) -> PermitLease:
         return self
@@ -89,8 +86,11 @@ class PermitPool:
         with self._lock:
             self._closed = True
 
-    def _release(self) -> None:
+    def _release_lease(self, lease: PermitLease) -> None:
         with self._lock:
+            if lease._released:
+                return
+            lease._released = True
             if self._in_use <= 0:
                 raise RuntimeError("permit pool released more leases than acquired")
             self._in_use -= 1

@@ -202,3 +202,203 @@ def test_permit_held_until_bridge_cleanup_and_released_on_aclose_error() -> None
         assert pool.in_use == 0
 
     asyncio.run(run())
+
+
+def test_route_construction_failure_releases_row_stream_permit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pathlib import Path
+
+    from gateway_repository_contracts import encode_commit_id_path_segment
+    from gateway_repository_service.app import create_app
+    from gateway_repository_service.auth_state import AuthState
+    from gateway_repository_service.http.routes import versioned_read as route_mod
+    from gateway_repository_service.runtime import ServiceRuntime
+    from gateway_repository_service.settings import RepositoryServiceSettings
+    from gateway_repository_service.versioned_read.http_service import VersionedReadHttpService
+    from support.http_harness import ReadyReadiness
+
+    settings = RepositoryServiceSettings(
+        profile="test",
+        bearer_token="test-bearer-token",
+        data_root=Path("/tmp/unused-row-admission-construct"),
+        max_concurrent_row_streams=1,
+    )
+    pool = PermitPool(1)
+    application = MagicMock()
+
+    def fake_open(
+        self: VersionedReadHttpService,
+        repository_id: object,
+        commit_id: str,
+        query: object,
+    ) -> tuple[Any, Any]:
+        del self, repository_id, commit_id, query
+        lease = pool.try_acquire()
+        assert lease is not None
+
+        class _Bridge:
+            def iter_bytes(self) -> Any:
+                async def _gen() -> Any:
+                    if False:  # pragma: no cover
+                        yield b""
+
+                return _gen()
+
+        return _Bridge(), lease
+
+    def boom_response(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("response init failed")
+
+    monkeypatch.setattr(VersionedReadHttpService, "open_row_stream", fake_open)
+    monkeypatch.setattr(route_mod, "VersionedReadStreamingResponse", boom_response)
+
+    runtime = ServiceRuntime(
+        settings=settings,
+        layout=MagicMock(),
+        root_lock=MagicMock(),
+        control_store=MagicMock(),
+        mutation_store=MagicMock(),
+        import_store=MagicMock(),
+        import_locks=MagicMock(),
+        import_worker_pool=MagicMock(),
+        versioned_read_application=application,
+        dolt_runner=MagicMock(),
+        provider_gate=MagicMock(),
+        auth_state=AuthState(bearer_token=settings.resolve_bearer_token()),
+        row_stream_admission=pool,
+    )
+    root_lock = MagicMock()
+    root_lock.is_held.return_value = True
+    runtime.root_lock = root_lock
+    app = create_app(settings, enable_lifecycle=False)
+    app.state.runtime = runtime
+    app.state.auth_state = runtime.auth_state
+    app.state.readiness = ReadyReadiness()
+
+    repository_id = uuid4()
+    commit_segment = encode_commit_id_path_segment("commit-c1")
+    path = f"/v1/repositories/{repository_id}/versioned/commits/{commit_segment}/rows"
+    messages: list[dict[str, Any]] = []
+
+    async def run() -> None:
+        from collections.abc import MutableMapping
+
+        scope: dict[str, Any] = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode("ascii"),
+            "query_string": b"table_name=items",
+            "headers": [
+                (b"authorization", b"Bearer test-bearer-token"),
+                (b"host", b"testserver"),
+            ],
+            "client": ("127.0.0.1", 123),
+            "server": ("testserver", 80),
+        }
+
+        async def receive() -> MutableMapping[str, Any]:
+            return {"type": "http.disconnect"}
+
+        async def send(message: MutableMapping[str, Any]) -> None:
+            messages.append(dict(message))
+
+        with pytest.raises(RuntimeError, match="response init failed"):
+            await app(scope, receive, send)
+
+    asyncio.run(run())
+    assert pool.in_use == 0
+
+
+@pytest.mark.serial
+def test_real_rows_route_rejects_ninth_before_response_start() -> None:
+    from pathlib import Path
+    from collections.abc import MutableMapping
+
+    from gateway_repository_contracts import encode_commit_id_path_segment
+    from gateway_repository_service.app import create_app
+    from gateway_repository_service.auth_state import AuthState
+    from gateway_repository_service.runtime import ServiceRuntime
+    from gateway_repository_service.settings import RepositoryServiceSettings
+    from support.http_harness import ReadyReadiness
+
+    settings = RepositoryServiceSettings(
+        profile="test",
+        bearer_token="test-bearer-token",
+        data_root=Path("/tmp/unused-row-admission"),
+        max_concurrent_row_streams=1,
+    )
+    pool = PermitPool(1)
+    held = pool.try_acquire()
+    assert held is not None
+
+    application = MagicMock()
+    root_lock = MagicMock()
+    root_lock.is_held.return_value = True
+    runtime = ServiceRuntime(
+        settings=settings,
+        layout=MagicMock(),
+        root_lock=root_lock,
+        control_store=MagicMock(),
+        mutation_store=MagicMock(),
+        import_store=MagicMock(),
+        import_locks=MagicMock(),
+        import_worker_pool=MagicMock(),
+        versioned_read_application=application,
+        dolt_runner=MagicMock(),
+        provider_gate=MagicMock(),
+        auth_state=AuthState(bearer_token=settings.resolve_bearer_token()),
+        row_stream_admission=pool,
+    )
+
+    app = create_app(settings, enable_lifecycle=False)
+    app.state.runtime = runtime
+    app.state.auth_state = runtime.auth_state
+    app.state.readiness = ReadyReadiness()
+
+    repository_id = uuid4()
+    commit_segment = encode_commit_id_path_segment("commit-c1")
+    path = f"/v1/repositories/{repository_id}/versioned/commits/{commit_segment}/rows"
+    messages: list[dict[str, Any]] = []
+
+    async def run() -> None:
+        scope: dict[str, Any] = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode("ascii"),
+            "query_string": b"table_name=items",
+            "headers": [
+                (b"authorization", b"Bearer test-bearer-token"),
+                (b"host", b"testserver"),
+            ],
+            "client": ("127.0.0.1", 123),
+            "server": ("testserver", 80),
+        }
+
+        async def receive() -> MutableMapping[str, Any]:
+            return {"type": "http.disconnect"}
+
+        async def send(message: MutableMapping[str, Any]) -> None:
+            messages.append(dict(message))
+
+        await app(scope, receive, send)
+
+    asyncio.run(run())
+    start = next(message for message in messages if message["type"] == "http.response.start")
+    assert start["status"] == 503
+    assert application.open_table_rows.call_count == 0
+    body = b"".join(
+        message.get("body", b"")
+        for message in messages
+        if message["type"] == "http.response.body"
+    )
+    assert SERVICE_NOT_READY_CODE.encode("utf-8") in body
+    held.release()

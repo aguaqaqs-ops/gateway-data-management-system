@@ -98,6 +98,9 @@ class UploadArtifactCommand:
 
         if claim.effect is not None and claim.effect.status == EffectStatus.SUCCEEDED:
             return _response_from_effect(claim.effect.response_body)
+        if claim.effect is not None:
+            # In-flight / non-replayable same-key must not consume an upload permit.
+            raise _idempotency_conflict()
 
         lease = self._acquire_upload_permit(repository_id)
         try:

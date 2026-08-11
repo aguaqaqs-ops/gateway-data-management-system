@@ -265,6 +265,18 @@ compose内外client smoke，并在handoff明确记录container验证已延期；
 通过和`P2-R6 ready`，不表示production image或Phase 2完成。compose内外client smoke作为
 deferred gate由R6最终候选执行。
 
+**P2-R5 handoff（2026-08-12）**：
+
+```yaml
+p2_r5_exit: pass
+p2_r6_ready: yes
+validated_code_sha: 7091c2c4836eebdc4cbee4424f20297b2d2f88bb
+production_retest_required: yes
+phase_2_complete: no
+```
+
+完整handoff见[P2-R5 Commit-pinned Read Staged Execution Plan — P2-R5-S7 final handoff — 2026-08-12](p2-r5-commit-pinned-read-execution-plan.md#p2-r5-s7-final-handoff--2026-08-12)。
+
 ## 8. P2-R6 — Operational closure
 
 Prerequisite：P2-R5 handoff。完整读取Repository contract §§12、14–18及P2 design §§18–21。

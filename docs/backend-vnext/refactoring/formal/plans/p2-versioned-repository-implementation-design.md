@@ -1,6 +1,6 @@
 # P2 Versioned Repository Implementation Design
 
-状态：Accepted — P2-R5-S1 Ready
+状态：Accepted — P2-R5 functional exit complete, P2-R6 ready
 
 日期：2026-08-02
 
@@ -260,6 +260,7 @@ P2-R6全部exit通过后，才开始P3 capability的完整`grill-me`/design阶�
 feature。
 
 结论：整个P2在设计层面完备，P2-R1 v8 exit=`go`，P2-R2至P2-R4 exit均已通过；
-P2-R5设计已冻结且`P2-R5-S1 implementation ready = yes`。R5与R6仍必须遵守顺序gate，
-不得用R4历史镜像证明R5代码，也不得在R6关闭container与production retest前宣告Phase 2
-complete。
+P2-R5 functional exit complete，`p2_r6_ready=yes`；完整handoff见
+[P2-R5 Commit-pinned Read Staged Execution Plan — P2-R5-S7 final handoff — 2026-08-12](p2-r5-commit-pinned-read-execution-plan.md#p2-r5-s7-final-handoff--2026-08-12)。
+R5与R6仍必须遵守顺序gate，不得用R4历史镜像证明R5代码，也不得在R6关闭container与
+production retest前宣告Phase 2 complete。

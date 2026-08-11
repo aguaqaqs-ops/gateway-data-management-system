@@ -1,6 +1,6 @@
 # P2-R5 Commit-pinned Read Staged Execution Plan
 
-状态：Accepted — S0 complete, P2-R5-S1 ready
+状态：Accepted — P2-R5 functional exit complete, P2-R6 ready
 
 日期：2026-08-09
 
@@ -583,7 +583,7 @@ reopen conditions；同步Service README的activated surface。
 p2_r5_exit: pass
 p2_r6_ready: yes
 worktree_clean: yes
-validated_code_sha: <R5 final code SHA>
+validated_code_sha: 7091c2c4836eebdc4cbee4424f20297b2d2f88bb
 container_validated_code_sha: 901a13b92a0a92130d9afa001d8eb4273d544566
 container_validation_deferred_to: P2-R6
 production_retest_required: yes
@@ -591,6 +591,302 @@ phase_2_complete: no
 ```
 
 S7不得写`image_matches_build_context: true`或把R4 image ID称为R5 evidence。
+
+## P2-R5-S7 final handoff — 2026-08-12
+
+### 1. SHA 与阶段状态
+
+```yaml
+round: P2-R5-S7
+s7_start_sha: 7091c2c4836eebdc4cbee4424f20297b2d2f88bb
+validated_code_sha: 7091c2c4836eebdc4cbee4424f20297b2d2f88bb
+s6_external_review:
+  round: P2-R5-S6-independent-round-1
+  reviewed_tip: 7091c2c4836eebdc4cbee4424f20297b2d2f88bb
+  verdict: approved
+  blocking_findings: []
+p2_r5_exit: pass
+p2_r6_ready: yes
+production_retest_required: yes
+phase_2_complete: no
+container_trigger: no
+container_gate_run: no
+s7_tests_rerun: no
+```
+
+`validated_code_sha`是S6 gate已运行且经外部独立审查批准的代码SHA，不是本S7文档commit
+SHA。S7文档commit完成后成为`r6_entry_sha`/`handoff_documentation_sha`，只在最终实现报告
+中记录，不在本提交内容中自引用。
+
+### 2. Commit lineage
+
+核对命令：
+
+```bash
+git log --reverse --format='%H %s' \
+  f346ef943b41191a93ad5d8a5174d218c25fb543..7091c2c4836eebdc4cbee4424f20297b2d2f88bb
+```
+
+按stage分组（含全部累计remediation/review commits，不省略）：
+
+```yaml
+commit_lineage:
+  s0:
+    stage_initial: a61e664b45439dafc0ef8e2b01317400d27672f1  # docs(repository): add P2-R5 execution plan
+    stage_final_reviewed_tip: a61e664b45439dafc0ef8e2b01317400d27672f1
+    stage_exit: pass
+  s1:
+    stage_initial: 6b84b1d9142ab11d85727087de56503b674f97f4  # refactor(repository): compile Arrow table mappings once
+    remediation_commits:
+      - 806cc78675dbe3a98b0c4d54234f6a563b7e7698  # fix(repository): close S1 compiled-plan call-count gaps
+      - 5fbf3ffdc9dff7b2f210b5c843da986c95618812  # fix(repository): close S1 round-2 compiled-plan audit gaps
+      - b318d1a480603f7ec3e78372b89526fbeab3b625  # fix(repository): close S1 round-3 verification and boundary gaps
+      - 862354af2b655aa480718464771ba4711c1f0dc0  # fix(repository): close S1 round-4 decimal and temporal boundary gaps
+    stage_final_reviewed_tip: 862354af2b655aa480718464771ba4711c1f0dc0
+    stage_exit: pass
+  s2:
+    stage_initial: 44b8ea00a93b65f2eb614d5f8366b57f52fcd5e1  # feat(repository): add commit-pinned Candidate A reads
+    remediation_commits:
+      - 8a8c5258f054f39c0a70b5038bd1d32e444452f4  # fix(repository): close P2-R5-S2 review findings
+      - fc26fbac1ddd3a53dc220e8ba96cc9542bb68a79  # fix(repository): close P2-R5-S2 P3 residuals
+      - 5a6c25f1a5a46916d0cad03515579d4bf9fac848  # fix(repository): close P2-R5-S2 round-2 review findings
+      - ccd1cd5a6e4a0ff06fb3c4351316097477297bb7  # fix(repository): close P2-R5-S2 round-3 review findings
+    stage_final_reviewed_tip: ccd1cd5a6e4a0ff06fb3c4351316097477297bb7
+    stage_exit: pass
+  s3:
+    stage_initial: 83fc61a28bf083d99966b782d3f2648381057f34  # feat(repository): expose commit-pinned versioned reads
+    remediation_commits:
+      - 118c7e42e086c0e180f4cd6fb1284a3759ca5804  # fix(repository): close P2-R5-S3 review findings
+      - 9ec640f9b169f0552ad3cacd0b851b90e91c9f6a  # fix(repository): close P2-R5-S3 review round-2 findings
+      - 3cba5842009ca74ef314b29f8250d97cf421fa81  # fix(repository): close P2-R5-S3 independent review findings
+      - b1ce410d46af04eac35c631a95af91ac7d8a1f51  # fix(repository): close P2-R5-S3 independent round-4 findings
+      - 554d843adb0393d19b6dc26a50a0608576d5be3e  # fix(repository): close P2-R5-S3 independent round-5 findings
+      - 16053d1319b16e63dc8d81c8fcfdba28d2298207  # fix(repository): close P2-R5-S3 independent round-6 findings
+      - 15a097ab97b12f8c54f74131e782281d4a6aa30f  # fix(repository): close P2-R5-S3 independent round-7 findings
+      - ab60abadb3be89812b8b2e20c013d5e7324d9c6c  # fix(repository): close P2-R5-S3 independent round-8 findings
+      - d2d1b4256b5bf0f2aed32717341100bfef8953c2  # fix(repository): close P2-R5-S3 independent round-9 findings
+      - e37cdd6d250e723c5502f5b7b2512c96600c31c2  # test(repository): mark control-db readiness test serial
+      - 294e361469cfddb89955769323e23ad71757d902  # docs(AGENTS): refresh unit gate stats and mypy timing note
+      - 09576de0d1b6cce67913f267e808ab1115d319ab  # test(repository): fix concurrent patch restore race in field_limit test
+      - 43a40249317c3e0db8a54f15998ca45e443c91d4  # fix(repository): close P2-R5-S3 independent round-10 findings
+      - 9b7d6529427a4fe4533edeca95ad92e4f3455596  # fix(repository): close P2-R5-S3 independent round-11 findings
+      - 03aa47e9808af4a47be4e24d4ac14e3a86fe09c6  # fix(repository): close P2-R5-S3 independent round-12 findings
+      - 9fe929beee2efc1cde2b0999043e9cad9d7948e6  # fix(repository): close P2-R5-S3 independent round-13 findings
+      - b36c3a0c2f096f5dfdda91809a38bfe8c1c715cb  # fix(repository): close P2-R5-S3 independent round-14 findings
+      - 25891d64b0952976eb2ce8ea45fc9275cda13f36  # docs(deploy): record remote container gate pass and sync exclusions
+      - 684f7901bd95eb18ac1563cefcbb6d288aa703bb  # fix(repository): close P2-R5-S3 independent round-1 findings
+      - cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596  # fix(repository): close P2-R5-S3 independent round-1 review findings
+      - 13ec2137d7ed8f3da406bf550da68647d2536c77  # docs(deploy): record container gate provenance for cb1ef42
+      - 1cab278aaf30e585468340dce0b04cfa6e254f17  # docs(deploy): record container gate provenance for 13ec213
+      - 36c7da2c3ad9441efb176338efa44336bef8c532  # docs(repository): record SHA sealing and R5 cleanup inventory
+    stage_final_reviewed_tip: 36c7da2c3ad9441efb176338efa44336bef8c532
+    stage_exit: pass
+  s4:
+    stage_initial: 1c96416b6d81ea17ab7eb0dd80b054834be8d942  # feat(repository-client): complete V1 Repository client
+    remediation_commits:
+      - 8b0234ef450af67c4f0dd4511e729da0f585482f  # fix(repository-client): close P2-R5-S4 independent round-1 findings
+      - 37208a6433273c301ede4997fbdd1a3d20d946c8  # fix(repository): close P2-R5-S4 independent round-2 findings
+      - bc9aa49d9376439a9c0a88b9a0e273847caaf269  # fix(repository): close P2-R5-S4 independent round-3 findings
+      - cec3e529feb6134204f4be8287e74e7edba1c3ec  # fix(repository): close P2-R5-S4 independent round-4 findings
+      - cd66e08617ff6bc56316159de52ede6bc5c5e64c  # fix(repository): close P2-R5-S4 independent round-5 findings
+      - 8907f892682f397275b6bcc4314e5c53d6f712aa  # fix(repository): close P2-R5-S4 independent round-6 findings
+      - 55dbbbe66986c3afaa8a24791e57d61be2cdd2f8  # fix(repository): close P2-R5-S4 independent round-7 findings
+      - 2e803aa5e2953ea8ff6d1ac8b8bcfd22558cb509  # fix(repository): close P2-R5-S4 independent round-8 findings
+      - 4c9df9b79f45842e6be5ac14f84510ea9c0d7193  # fix(repository): close P2-R5-S4 independent round-9 findings
+      - 73651768407f294953812939f79aca371995eba9  # fix(repository): close P2-R5-S4 independent round-10 findings
+      - 74fc41b5988db62c4b3a0171484724c7157deafb  # fix(repository): close P2-R5-S4 independent round-11 findings
+    stage_final_reviewed_tip: 74fc41b5988db62c4b3a0171484724c7157deafb
+    stage_exit: pass
+  s5:
+    stage_initial: 430775f0249fa4d9d43b4575b55e4021c5b90e43  # test(repository): add public Versioned fixture-consumer e2e
+    remediation_commits:
+      - 0ea978d4c76c334e4fbb05a09e85eee74cc3729c  # fix(repository): close P2-R5-S5 review findings
+      - df0245ec24aa34df4c10a434096a0a624749154e  # fix(repository): close P2-R5-S5 round-2 review findings
+      - 37332ceb204e44e3c18f8cdccba81ab74aafe0f0  # fix(repository): close P2-R5-S5 round-3 review findings
+      - ebb599952461e4c57b4f12ec834e79eac53ec169  # fix(repository): close P2-R5-S5 round-4 review findings
+      - d77f0282bad4f76e822dcd24a9ec1445e52ef588  # fix(repository): close P2-R5-S5 round-5 review findings
+      - caf4b30feaa8152d800aea90743eb2a0f3e94255  # fix(repository): close P2-R5-S5 round-6 P1-03 state-probe cleanup
+    stage_final_reviewed_tip: caf4b30feaa8152d800aea90743eb2a0f3e94255
+    stage_exit: pass
+  s6:
+    stage_initial: 7091c2c4836eebdc4cbee4424f20297b2d2f88bb  # test(repository): close P2-R5 read and stream gates
+    stage_final_reviewed_tip: 7091c2c4836eebdc4cbee4424f20297b2d2f88bb
+    s6_external_review:
+      round: P2-R5-S6-independent-round-1
+      verdict: approved
+    stage_exit: pass
+```
+
+### 3. S6 gate 事实
+
+S6不重新运行；以下证据来自`P2-R5-S6-independent-round-1`外部独立审查，reviewed tip
+`7091c2c4836eebdc4cbee4424f20297b2d2f88bb`。
+
+```yaml
+s6_functional_gate:
+  cleanup_03_nodeid:
+    command: uv run pytest tests/test_import_shutdown.py::test_runtime_shutdown_propagates_bridge_shutdown_error_after_releasing_resources
+    result: 1 passed
+  repository_service_unit:
+    command: cd vnext/repository_service && uv run pytest -m unit
+    result: 954 passed, 1 skipped
+    unit_skip_nodeid:
+      - tests/test_p2_r1_target_cgroup_smoke.py::test_target_container_has_real_delegated_cgroup
+    unit_skip_note: target-container-only evidence deferred to R6 delegated cgroup gate; not a unit classification error
+  repository_service_integration_raw:
+    command: cd vnext/repository_service && uv run pytest -m integration
+    result: 329 passed, 1 failed
+    deferred_failure:
+      - tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
+  repository_service_serial_raw:
+    command: cd vnext/repository_service && uv run pytest -m serial -n 0
+    result: 110 passed, 1 failed, 1174 deselected
+    deferred_failure:
+      - tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
+  unit_dolt_parked:
+    command: mv dolt.parked; uv run pytest -m unit; restore dolt
+    result: 954 passed, 1 skipped
+  authoritative_non_container_gate:
+    command: ./vnext/scripts/run-tests.sh --ignore=tests/test_import_compose_e2e.py
+    result: pass
+    repository_service_parallel: 1173 passed
+    repository_service_serial: 110 passed
+  five_package_ruff_mypy: pass
+  git_diff_check: pass
+  resource_leaks: none
+  process_thread_temp_leaks: no
+```
+
+integration/serial裸命令**不得**描述为全绿；各自唯一失败是已登记延期的Compose nodeid。
+S6 pass的authority是精确排除该实际container文件后的非container gate。
+
+**Transient parallel failure**（外部评审观察，如实记录）：
+
+```yaml
+transient_parallel_failure:
+  nodeid: tests/test_import_worker.py::test_context_load_failure_releases_reservation_and_in_flight
+  first_parallel_run: failed once
+  isolated_rerun: pass
+  authoritative_run_tests_ignore: pass
+  code_fix: none
+  external_review_severity: not P1/P2
+  r6_obligation: if reproduced in final R6 matrix, must close within R6; cannot remain a known harmless flake
+```
+
+### 4. R5-CLEANUP inventory
+
+见§8.1。S7状态摘要：
+
+```yaml
+post_r5_cleanup_inventory:
+  - id: R5-CLEANUP-01
+    status: open_deferred
+    owner: P2-R6-capacity
+    phase_2_exit_blocker: no
+  - id: R5-CLEANUP-02
+    status: open_deferred
+    owner: P2-R6-capacity
+    phase_2_exit_blocker: yes
+  - id: R5-CLEANUP-03
+    status: closed
+    owner: P2-R5-S6-lifecycle-regression
+    evidence:
+      nodeid: tests/test_import_shutdown.py::test_runtime_shutdown_propagates_bridge_shutdown_error_after_releasing_resources
+      validated_code_sha: 7091c2c4836eebdc4cbee4424f20297b2d2f88bb
+      external_review: approved
+  - id: R5-CLEANUP-04
+    status: open_deferred
+    owner: pre-P2-exit-cleanup
+    phase_2_exit_blocker: no
+  - id: R5-CLEANUP-05
+    status: open_deferred
+    owner: lifecycle-cleanup
+    phase_2_exit_blocker: no
+  - id: R5-CLEANUP-06
+    status: open_deferred
+    owner: batch-cleanup
+    phase_2_exit_blocker: no
+```
+
+`R5-CLEANUP-02`必须由R6在Phase 2 exit前关闭。其余open项由R6重新确认owner、关闭或形成
+authority允许的accepted defer；不得静默丢失。
+
+### 5. Container provenance 差异
+
+```yaml
+container_provenance:
+  validated_code_sha: 7091c2c4836eebdc4cbee4424f20297b2d2f88bb
+  container_validated_code_sha: 901a13b92a0a92130d9afa001d8eb4273d544566
+  current_source_container_validated: no
+  image_matches_current_build_context: not_claimed
+  historical_image_status: historical_or_superseded_for_current_r5_source
+  container_validation_deferred_to: P2-R6
+  production_retest_required: yes
+```
+
+`container_validated_code_sha`来自[P2-R4 Async Versioned Import Staged Execution
+Plan](p2-r4-async-versioned-import-execution-plan.md) handoff，对当前R5 source为
+historical/superseded evidence。S7不写`image_matches_build_context: true`，不把R4历史
+image ID称为R5/current evidence。
+
+S7文档commit完成后`r6_entry_sha`将不同于`validated_code_sha`。这不触发S7 container
+gate，但意味着R6最终candidate必须从包含S7文档提交的source tree重新封板、build和验证。
+
+### 6. Deferred container inventory
+
+**实际已存在、延期的nodeid**：
+
+```yaml
+deferred_container_gate_nodeids:
+  - tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
+```
+
+**R6计划新增、R5未收集的gates**（`test_versioned_read_compose_e2e.py`当前不存在）：
+
+```yaml
+r6_required_new_container_gates:
+  status: planned_not_collected_in_r5
+  nodeids:
+    - tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_inside_network
+    - tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_from_gate_host
+```
+
+不得把计划nodeid写入已存在deferred inventory，也不得声称已执行。
+
+### 7. R6 input inventory
+
+R6必须完整接收并关闭以下输入；canonical v8 command与§9一致，不自行改写formal参数。
+
+1. 最终source candidate上无排除的`./vnext/scripts/run-tests.sh`。
+2. final production image build、build-input revision、source-tree SHA、image identity。
+3. 远端builder到gate host的可审计image transfer和identity校验。
+4. R4 import restart/replay Compose gate（`test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay`）。
+5. R5 compose内部Remote Client commit-pinned read（`test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_inside_network`）。
+6. R5 gate-host Remote Client commit-pinned read（`test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_from_gate_host`）。
+7. fresh/restart/restored Compose lifecycle。
+8. Candidate A 66-record v8 formal rerun（§9 canonical command）。
+9. external read-only 10–100 MB脱敏真实W1：dataset ID/revision、package SHA/size、producer、
+   classification、schema/rows、expected public facts。
+10. near-200 MB same-shape synthetic W2：`synthetic=true`；schema/row-width/NULL/key/index/
+    value distribution与W1对齐。
+11. `R5-CLEANUP-02` concurrent slow-stream polling pressure measurement/closure。
+12. 全部container/network/volume/process/thread/temp cleanup。
+13. 重新观察S6曾出现一次的transient import-worker test（§3 `transient_parallel_failure`）。
+14. 关闭`production_retest_required`；否则Phase 2 exit为no-go。
+
+### 8. Reopen conditions
+
+保留§10全部reopen conditions。R6遇到以下情况必须回到owning authority，不得在实现中
+自行扩展：
+
+- 需要LATEST/ordering/public CAS/history pruning；
+- Arrow需要envelope/resume/digest；
+- disconnect后bridge/Dolt不能有界退出；
+- 未知SQL type不接受REJECT/STRINGIFY；
+- 单row超过64 MiB safety cap；
+- 需要Service import Client/Backend/P3；
+- 需要Candidate B production activation；
+- final candidate container/provenance不一致。
 
 ## 8. Container trigger and R6 inventory
 
@@ -614,8 +910,10 @@ R5不创建Compose test。R6在final candidate阶段新增并执行建议nodeid�
 
 ```yaml
 r6_required_new_container_gates:
-  - tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_inside_network
-  - tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_from_gate_host
+  status: planned_not_collected_in_r5
+  nodeids:
+    - tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_inside_network
+    - tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_from_gate_host
 ```
 
 上述建议nodeid在R5不存在，handoff必须与实际deferred inventory分栏，不得伪称已收集。
@@ -643,12 +941,16 @@ post_r5_cleanup_inventory:
     phase_2_exit_blocker: yes
     exit: concurrent slow-stream measurement within the frozen bound, or an event-driven bridge
   - id: R5-CLEANUP-03
-    status: open_deferred
+    status: closed
     item: runtime_shutdown_bridge_failure_wiring_test
     evidence: cleanup ordering exists, but no direct regression forces close_all failure through runtime shutdown
     owner: P2-R5-S6-lifecycle-regression
     phase_2_exit_blocker: yes
     exit: direct test proves bridge error propagation after control store and root lock release
+    closure_evidence:
+      nodeid: tests/test_import_shutdown.py::test_runtime_shutdown_propagates_bridge_shutdown_error_after_releasing_resources
+      validated_code_sha: 7091c2c4836eebdc4cbee4424f20297b2d2f88bb
+      external_review: approved
   - id: R5-CLEANUP-04
     status: open_deferred
     item: global_arrow_bridge_test_hooks
@@ -673,8 +975,8 @@ post_r5_cleanup_inventory:
 ```
 
 `R5-CLEANUP-01`的共享memo不得在无measurement时直接改为process-wide cache；容量、
-invalidation和并发共享周期由R6决定。`R5-CLEANUP-02`和`R5-CLEANUP-03`是Phase 2 exit前
-必关项。其余项可按owner批次清理或形成明确的accepted-defer记录，但不阻塞S4启动。
+invalidation和并发共享周期由R6决定。`R5-CLEANUP-02`是Phase 2 exit前必关项；
+`R5-CLEANUP-03`已在S6关闭。其余项可按owner批次清理或形成明确的accepted-defer记录。
 
 ## 9. Production retest handoff to R6
 

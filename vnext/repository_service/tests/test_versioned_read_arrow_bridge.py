@@ -89,6 +89,9 @@ def _reset_bridge_test_hooks() -> Iterator[None]:
     ArrowIpcStreamBridge._test_worker_finish_barrier = None
     ArrowIpcStreamBridge._test_close_entered_barrier = None
     ArrowIpcStreamBridge._test_close_completed_barrier = None
+    ArrowIpcStreamBridge._test_close_follower_waiting_barrier = None
+    ArrowIpcStreamBridge._test_close_outcome_published_barrier = None
+    ArrowIpcStreamBridge._test_hold_outcome_publish_barrier = None
     ArrowIpcStreamBridge._test_unregister_barrier = None
     yield
     for bridge in BRIDGE_REGISTRY.snapshot():
@@ -1475,10 +1478,11 @@ def test_close_sync_long_deadline_follower_wakes_on_published_outcome() -> None:
     plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
     release = threading.Event()
     producer_blocked = threading.Event()
-    follower_entered = threading.Event()
-    leader_finished = threading.Event()
-    follower_finished = threading.Event()
-    completion_order: list[str] = []
+    follower_waiting = threading.Event()
+    outcome_published = threading.Event()
+    hold_outcome_publish = threading.Event()
+    escalation_leader_finished = threading.Event()
+    waiting_follower_finished = threading.Event()
 
     def gated_rows() -> Iterator[pa.RecordBatch]:
         yield batches[0]
@@ -1486,8 +1490,11 @@ def test_close_sync_long_deadline_follower_wakes_on_published_outcome() -> None:
         release.wait()
 
     bridge = ArrowIpcStreamBridge(plan, gated_rows(), threading.Event())
-    follower_errors: list[BaseException] = []
-    ArrowIpcStreamBridge._test_close_entered_barrier = follower_entered
+    escalation_leader_errors: list[BaseException] = []
+    waiting_follower_errors: list[BaseException] = []
+    ArrowIpcStreamBridge._test_close_follower_waiting_barrier = follower_waiting
+    ArrowIpcStreamBridge._test_close_outcome_published_barrier = outcome_published
+    ArrowIpcStreamBridge._test_hold_outcome_publish_barrier = hold_outcome_publish
 
     def drain_queue() -> None:
         while bridge.is_worker_alive():
@@ -1500,43 +1507,47 @@ def test_close_sync_long_deadline_follower_wakes_on_published_outcome() -> None:
     drainer.start()
     _wait_until(producer_blocked.is_set, message="producer did not block on second batch")
 
-    def follower_close() -> None:
+    def escalation_leader_close() -> None:
         try:
-            bridge.close_sync(join_timeout_seconds=5.0)
+            bridge.close_sync(join_timeout_seconds=0.2)
         except BaseException as exc:
-            follower_errors.append(exc)
+            escalation_leader_errors.append(exc)
         finally:
-            completion_order.append("follower")
-            follower_finished.set()
+            escalation_leader_finished.set()
 
-    follower = threading.Thread(target=follower_close)
-    follower.start()
-    _wait_until(follower_entered.is_set, message="follower did not enter close_sync")
+    escalation_leader = threading.Thread(target=escalation_leader_close)
+    escalation_leader.start()
+    _wait_until(
+        lambda: bridge._escalation_started,
+        timeout_seconds=1.0,
+        message="escalation leader did not start",
+    )
 
-    leader_errors: list[BaseException] = []
-
-    def leader_close() -> None:
+    def waiting_follower_close() -> None:
         try:
             bridge.close_sync(join_timeout_seconds=0.1)
         except BaseException as exc:
-            leader_errors.append(exc)
+            waiting_follower_errors.append(exc)
         finally:
-            completion_order.append("leader")
-            leader_finished.set()
+            waiting_follower_finished.set()
 
-    leader = threading.Thread(target=leader_close)
-    leader.start()
-    assert leader_finished.wait(timeout=5.0)
-    assert follower_finished.wait(timeout=5.0)
+    waiting_follower = threading.Thread(target=waiting_follower_close)
+    waiting_follower.start()
+    _wait_until(follower_waiting.is_set, message="follower did not wait on shared outcome")
+    assert not waiting_follower_finished.is_set()
+
+    hold_outcome_publish.set()
+    assert outcome_published.wait(timeout=5.0)
+    assert escalation_leader_finished.wait(timeout=5.0)
+    assert waiting_follower_finished.wait(timeout=5.0)
     release.set()
     drainer.join(timeout=2.0)
     bridge._worker.join(timeout=5.0)
 
-    assert completion_order == ["leader", "follower"]
-    assert len(leader_errors) == 1
-    assert len(follower_errors) == 1
-    assert isinstance(leader_errors[0], BridgeJoinTimeoutError)
-    assert isinstance(follower_errors[0], BridgeJoinTimeoutError)
+    assert len(escalation_leader_errors) == 1
+    assert len(waiting_follower_errors) == 1
+    assert isinstance(escalation_leader_errors[0], BridgeJoinTimeoutError)
+    assert isinstance(waiting_follower_errors[0], BridgeJoinTimeoutError)
 
 
 @pytest.mark.unit

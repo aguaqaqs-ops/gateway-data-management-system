@@ -138,6 +138,9 @@ class ArrowIpcStreamBridge:
 
     _test_close_entered_barrier: ClassVar[threading.Event | None] = None
     _test_close_completed_barrier: ClassVar[threading.Event | None] = None
+    _test_close_follower_waiting_barrier: ClassVar[threading.Event | None] = None
+    _test_close_outcome_published_barrier: ClassVar[threading.Event | None] = None
+    _test_hold_outcome_publish_barrier: ClassVar[threading.Event | None] = None
     _test_worker_finish_barrier: ClassVar[threading.Event | None] = None
     _test_unregister_barrier: ClassVar[threading.Event | None] = None
 
@@ -248,6 +251,13 @@ class ArrowIpcStreamBridge:
             self._close_outcome = None
             self._escalation_started = False
 
+    def _set_close_outcome_locked(self, outcome: _CloseOutcome) -> None:
+        self._close_outcome = outcome
+        published_barrier = ArrowIpcStreamBridge._test_close_outcome_published_barrier
+        if published_barrier is not None:
+            published_barrier.set()
+        self._close_condition.notify_all()
+
     def _await_close_outcome(self, runner: DoltRunner | None, deadline_at: float) -> _CloseOutcome:
         is_leader = False
         with self._close_condition:
@@ -264,10 +274,13 @@ class ArrowIpcStreamBridge:
             if self._close_outcome is not None:
                 return self._close_outcome
             if self._worker_finished and self._worker_joined and not self._escalation_started:
-                self._close_outcome = _CloseOutcome()
-                self._close_condition.notify_all()
-                return self._close_outcome
+                outcome = _CloseOutcome()
+                self._set_close_outcome_locked(outcome)
+                return outcome
             if self._escalation_started:
+                waiting_barrier = ArrowIpcStreamBridge._test_close_follower_waiting_barrier
+                if waiting_barrier is not None:
+                    waiting_barrier.set()
                 while self._close_outcome is None:
                     self._close_condition.wait(timeout=_POLL_TIMEOUT_SECONDS)
                 return self._close_outcome
@@ -275,13 +288,16 @@ class ArrowIpcStreamBridge:
                 if not self._worker_joined:
                     self._worker_joined = True
                     self._unregister_from_registry()
-                self._close_outcome = _CloseOutcome()
-                self._close_condition.notify_all()
-                return self._close_outcome
+                outcome = _CloseOutcome()
+                self._set_close_outcome_locked(outcome)
+                return outcome
             self._escalation_started = True
             is_leader = True
 
         if not is_leader:
+            waiting_barrier = ArrowIpcStreamBridge._test_close_follower_waiting_barrier
+            if waiting_barrier is not None:
+                waiting_barrier.set()
             with self._close_condition:
                 while self._close_outcome is None:
                     self._close_condition.wait(timeout=_POLL_TIMEOUT_SECONDS)
@@ -311,12 +327,16 @@ class ArrowIpcStreamBridge:
                 if not self._worker_joined:
                     self._worker_joined = True
                     self._unregister_from_registry()
-            self._close_outcome = _CloseOutcome(
+            outcome = _CloseOutcome(
                 join_timeout=join_timeout_error,
                 terminate_error=terminate_error,
             )
-            self._close_condition.notify_all()
-        return self._close_outcome
+        hold_barrier = ArrowIpcStreamBridge._test_hold_outcome_publish_barrier
+        if hold_barrier is not None:
+            hold_barrier.wait()
+        with self._close_condition:
+            self._set_close_outcome_locked(outcome)
+        return outcome
 
     def _unregister_from_registry(self) -> None:
         barrier = ArrowIpcStreamBridge._test_unregister_barrier

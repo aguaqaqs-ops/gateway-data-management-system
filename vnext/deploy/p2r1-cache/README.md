@@ -151,24 +151,18 @@ objects are gone; do not use a shared-project `down --remove-orphans` command.
 
 Verified development host: `10.10.60.4` (SSH user `tmpuser`).
 
-P2-R4 S10 Compose import/restart gate passed on 2026-08-11 with full provenance:
+Prior provenance records are superseded until a new gate run completes on a locally
+resolvable candidate SHA:
 
 ```text
-test: tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
-result: PASSED (63s)
-compose_project: gateway-p2r4-s10-7da182fe355e
-cache: http://172.17.0.1:18080 (HTTP 200)
-validated_code_sha: closure commit on phase1/gate-ownership-repair (see git rev-parse HEAD)
-container_validated_code_sha: a74881839be7d83aff36878ca8cba39ad56b29b3
-build_input_revision: a74881839be7d83aff36878ca8cba39ad56b29b3
-source_tree_sha256: sha256:253746e0344fe08782ab9b9b5db383fa40f9590be8d81b91a179848652bcb750
-image_id: sha256:8ece8d619091689cfa8d371483098a6952076d36e84ff4783e317ceb30aad671
-image_label gateway.p2r1.source-tree-sha256: sha256:253746e0344fe08782ab9b9b5db383fa40f9590be8d81b91a179848652bcb750
-image_label org.opencontainers.image.revision: a74881839be7d83aff36878ca8cba39ad56b29b3
+superseded_compose_project: gateway-p2r4-s10-7da182fe355e
+superseded_reason: build_input_revision a748818 not locally resolvable; source_tree mismatch
+superseded_compose_project: gateway-p2r4-s10-39dfebc86b19
+superseded_reason: provenance_unresolved
 ```
 
-Superseded prior remote run `gateway-p2r4-s10-39dfebc86b19` (provenance_unresolved: missing
-`validated_code_sha`, `build_input_revision`, `source_tree_sha256`, and `image_id`).
+After a successful gate rerun, record literal provenance fields here (no dynamic
+`git rev-parse HEAD` placeholders).
 
 Local gate hosts that cannot reach `172.17.0.1:18080` should treat container gate
 reruns as remote-only; the failure mode is infrastructure (cache unreachable), not
@@ -177,30 +171,51 @@ application regression.
 ### Syncing source to the remote host
 
 Do **not** sync the entire repository or full `vnext/` tree. `vnext/rust/` is about
-24 GB and is not required for repository-service Compose gates. Copying it over SSH
-stalls for many minutes and provides no gate value.
+24 GB and is not required for repository-service Compose gates.
 
-Sync only the packages and paths required for repository-service gates. Prefer
-`rsync --delete` over tar overlay so removed local files do not linger on the remote
-host:
+**Preferred path: git fetch + exact SHA checkout**
 
 ```sh
-rsync -az --delete \
+# Local: push the candidate branch
+git push -u origin phase1/gate-ownership-repair
+
+# Remote: standard checkout
+ssh -t tmpuser@10.10.60.4
+cd /home/tmpuser/gateway-data-management-system
+git remote -v
+git fetch origin phase1/gate-ownership-repair
+git checkout --force <candidate-sha>
+```
+
+One-time remote setup when the directory is not yet a clone:
+
+```sh
+ssh -t tmpuser@10.10.60.4
+sudo pacman -S --needed git rsync
+git clone <origin-url> /home/tmpuser/gateway-data-management-system
+```
+
+Do not use ad-hoc `git init` plus tar/rsync overlay as the gate source of truth.
+
+**Fallback only when git is unavailable: rsync with preserved `vnext/` layout**
+
+```sh
+rsync -azR --delete \
+  --exclude='vnext/rust' \
   --exclude='.venv' --exclude='__pycache__' --exclude='.pytest_cache' \
   --exclude='.mypy_cache' --exclude='.ruff_cache' \
-  --exclude='vnext/rust' \
-  vnext/repository_service \
-  vnext/repository_contracts \
-  vnext/shared_kernel \
-  vnext/repository_client \
-  vnext/deploy \
-  vnext/scripts \
-  vnext/fixtures \
-  AGENTS.md \
+  ./vnext/repository_service \
+  ./vnext/repository_contracts \
+  ./vnext/shared_kernel \
+  ./vnext/repository_client \
+  ./vnext/deploy \
+  ./vnext/scripts \
+  ./vnext/fixtures \
+  ./AGENTS.md \
   tmpuser@10.10.60.4:/home/tmpuser/gateway-data-management-system/
 ```
 
-**Never include `vnext/rust`** in tar or rsync.
+**Never include `vnext/rust`** in rsync or tar.
 
 Before running the gate, compare the Docker build-input digest on local and remote.
 Both hosts must report the same value:
@@ -209,20 +224,16 @@ Both hosts must report the same value:
 uv run python vnext/repository_service/tests/support/build_context_digest.py source-tree-sha256
 ```
 
-Use delete-replace sync (not tar overlay) so removed local files do not linger remotely.
-When `rsync` is unavailable, extract into a staging directory and `mv` each synced path
-over the remote destination after `rm -rf` of the previous copy.
-
 Additional remote prerequisites:
 
 - **Git metadata**: `compose_build_harness` resolves `build-input-revision` via
   `git log`. The remote checkout must be a normal clone/checkout at the candidate
-  SHA. Do not use ad-hoc `git init` overlays on top of rsynced trees.
+  SHA.
 - **S10 e2e chown**: `test_import_compose_e2e` calls `os.chown(token, gateway_uid,
-  gateway_gid)`; run the pytest node with `sudo` on the remote host.
+  gateway_gid)`; run the pytest node with interactive `sudo` on the remote host.
 
-Default path: use an interactive sudo prompt. Do not pipe passwords through `ssh`,
-shell history, or documentation examples.
+Use an interactive sudo prompt only. Do not pipe passwords through `ssh`, shell
+history, documentation, or passwordless sudo grants for pytest.
 
 ```sh
 ssh -t tmpuser@10.10.60.4
@@ -232,13 +243,8 @@ sudo uv run pytest tests/test_import_compose_e2e.py::test_compose_repository_ser
   -m serial -n 0 -v
 ```
 
-Optional: install the minimal NOPASSWD rule in
-[`sudoers-compose-e2e.example`](sudoers-compose-e2e.example) with `visudo`, verify
-with `sudo -n`, and then run the same pytest command without a password prompt.
-Never embed credentials in scripts, logs, or runbooks.
-
-When `sudo` is required and the gate runs as root, configure Git safe-directory once on
-the remote host:
+When the gate runs as root via `sudo`, configure Git safe-directory once on the
+remote host:
 
 ```sh
 sudo git config --global --add safe.directory /home/tmpuser/gateway-data-management-system

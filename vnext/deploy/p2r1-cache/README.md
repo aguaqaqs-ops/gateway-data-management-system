@@ -183,6 +183,37 @@ Provenance documentation commits must not modify `vnext/repository_service/**` o
 `vnext/repository_contracts/**`; those paths are included in the build-context
 digest and will invalidate recorded image provenance.
 
+### Candidate sealing and SHA-writing rules
+
+Treat the code candidate and the commit that records its provenance as two different
+objects:
+
+1. Finish every build-input change first, including tests and README files under
+   `vnext/repository_service/` or `vnext/repository_contracts/`, and commit them as the
+   candidate.
+2. Capture the candidate SHA outside the candidate's tracked build-input files. A
+   commit cannot contain its own final SHA; do not add a literal SHA to a build-input
+   README after the gate and continue calling the old image current.
+3. Do not amend, rebase, squash, or otherwise replace the candidate after image build
+   or gate execution. Any new build-input commit invalidates the previous provenance.
+4. Run the remote gate from a new detached worktree at the literal candidate SHA. Do
+   not force-checkout over an active development worktree and do not fetch into a
+   branch that is currently checked out.
+5. After the gate passes, write the literal candidate SHA, digests, image ID and result
+   only to a provenance path outside the build-context digest. Record that later
+   documentation commit separately as `provenance_documentation_sha` in the external
+   handoff, review record, or a tag created after the commit. The provenance commit
+   cannot contain its own final SHA either; do not create another commit merely to
+   backfill the previous documentation commit's SHA.
+
+The expected history is therefore:
+
+```text
+candidate commit (validated_code_sha == container_validated_code_sha)
+  -> image build and container gate at that exact SHA
+  -> provenance-only commit outside repository_service/** and repository_contracts/**
+```
+
 Local gate hosts that cannot reach `172.17.0.1:18080` should treat container gate
 reruns as remote-only; the failure mode is infrastructure (cache unreachable), not
 application regression.
@@ -198,15 +229,29 @@ Formal container gate provenance requires a remote Git checkout at the candidate
 SHA. File-only sync cannot produce a matching `build_input_revision`.
 
 ```sh
-# Local: create bundle for the candidate branch
+# Local: seal and bundle the candidate branch tip
+CANDIDATE_SHA=$(git rev-parse HEAD)
+test -z "$(git status --porcelain)"
+test "$(git rev-parse phase1/gate-ownership-repair)" = "$CANDIDATE_SHA"
 git bundle create /tmp/gate-candidate.bundle phase1/gate-ownership-repair
+git bundle verify /tmp/gate-candidate.bundle
 scp /tmp/gate-candidate.bundle tmpuser@10.10.60.4:/tmp/gate-candidate.bundle
 
-# Remote: fetch bundle and checkout candidate SHA
+# Remote: fetch into a dedicated ref and create a new detached gate worktree.
+# Replace the value below with the literal local CANDIDATE_SHA.
 ssh -t tmpuser@10.10.60.4
 cd /home/tmpuser/gateway-data-management-system
-git fetch /tmp/gate-candidate.bundle +phase1/gate-ownership-repair:phase1/gate-ownership-repair
-git checkout --force <candidate-sha>
+CANDIDATE_SHA='<candidate-sha>'
+CANDIDATE_SHORT=$(git rev-parse --short=12 "$CANDIDATE_SHA")
+GATE_WORKTREE="/home/tmpuser/gateway-gate-${CANDIDATE_SHORT}"
+git fetch /tmp/gate-candidate.bundle \
+  +refs/heads/phase1/gate-ownership-repair:refs/gate/candidate
+test "$(git rev-parse refs/gate/candidate)" = "$CANDIDATE_SHA"
+test ! -e "$GATE_WORKTREE"
+git worktree add --detach "$GATE_WORKTREE" "$CANDIDATE_SHA"
+cd "$GATE_WORKTREE"
+test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+test -z "$(git status --porcelain)"
 ```
 
 When a shared remote is available, `git push` + `git fetch origin` is equivalent to

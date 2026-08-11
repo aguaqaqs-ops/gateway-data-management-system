@@ -611,6 +611,62 @@ r6_required_new_container_gates:
 
 上述建议nodeid在R5不存在，handoff必须与实际deferred inventory分栏，不得伪称已收集。
 
+### 8.1 Post-R5 cleanup inventory
+
+S3累计评审留下的下列项目不重开已闭合的HTTP/Arrow correctness结论，也不
+扩展S4的Client-only allowed paths；但必须显式转交到后续cleanup/R6，不得因当前
+gate全绿而静默关闭。每项只能在对应exit evidence形成后移出清单：
+
+```yaml
+post_r5_cleanup_inventory:
+  - id: R5-CLEANUP-01
+    status: open_deferred
+    item: http_read_catalog_memo_lifetime
+    evidence: per-request HTTP service/provider/CLI construction prevents cross-request memo hits
+    owner: P2-R6-capacity
+    phase_2_exit_blocker: no
+    exit: measured shared-cache benefit with a bounded lifetime, or an explicit no-cache decision
+  - id: R5-CLEANUP-02
+    status: open_deferred
+    item: arrow_bridge_to_thread_polling_pressure
+    evidence: each slow stream repeatedly schedules queue.get polling on the default executor
+    owner: P2-R6-capacity
+    phase_2_exit_blocker: yes
+    exit: concurrent slow-stream measurement within the frozen bound, or an event-driven bridge
+  - id: R5-CLEANUP-03
+    status: open_deferred
+    item: runtime_shutdown_bridge_failure_wiring_test
+    evidence: cleanup ordering exists, but no direct regression forces close_all failure through runtime shutdown
+    owner: P2-R5-S6-lifecycle-regression
+    phase_2_exit_blocker: yes
+    exit: direct test proves bridge error propagation after control store and root lock release
+  - id: R5-CLEANUP-04
+    status: open_deferred
+    item: global_arrow_bridge_test_hooks
+    evidence: production lifecycle paths still consult process-global ClassVar test barriers
+    owner: pre-P2-exit-cleanup
+    phase_2_exit_blocker: no
+    exit: instance-scoped probe/state-machine seam, or an explicit reviewed decision to retain the hooks
+  - id: R5-CLEANUP-05
+    status: open_deferred
+    item: command_result_cancelled_observability
+    evidence: upper-layer row cancellation can close ProcessStream without cancelled=True
+    owner: lifecycle-cleanup
+    phase_2_exit_blocker: no
+    exit: upper-layer cancellation deterministically reports CommandResult.cancelled=true
+  - id: R5-CLEANUP-06
+    status: open_deferred
+    item: dead_parameters_and_redundant_branches
+    evidence: simple_error_response status_code, resolve_main re-raise, and duplicate provider fallback remain
+    owner: batch-cleanup
+    phase_2_exit_blocker: no
+    exit: dead code is removed while existing public behavior tests remain green
+```
+
+`R5-CLEANUP-01`的共享memo不得在无measurement时直接改为process-wide cache；容量、
+invalidation和并发共享周期由R6决定。`R5-CLEANUP-02`和`R5-CLEANUP-03`是Phase 2 exit前
+必关项。其余项可按owner批次清理或形成明确的accepted-defer记录，但不阻塞S4启动。
+
 ## 9. Production retest handoff to R6
 
 R5修改provider streaming、Arrow normalization和batch contract，因此P2-R1 v8 decision要求

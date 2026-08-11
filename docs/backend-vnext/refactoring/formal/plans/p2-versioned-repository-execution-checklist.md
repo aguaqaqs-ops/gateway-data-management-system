@@ -52,6 +52,34 @@ green commit做定向检查，并在R4 post-audit/R5出口跑§2定义的P2功�
 该延期不等于P2完成。P2-R5可以在功能门禁通过后进入R6，但P2-R6最终候选必须通过§8的单次
 完整container gate，且关闭`production_retest_required`后，才允许记录`Phase 2 complete`。
 
+### 1.2 Candidate SHA封板与provenance提交原则
+
+需要执行container gate时，candidate SHA与记录该SHA的provenance提交必须分离，避免
+“为了写入SHA而改变SHA”或在gate后再次改变build context：
+
+1. **先封板candidate commit**：所有production、测试、lock、Dockerfile、Compose/build/deploy以及
+   `vnext/repository_service/**`、`vnext/repository_contracts/**`内的文档变更必须在candidate
+   commit中完成；确认整个worktree clean后记录字面量`CANDIDATE_SHA`。
+2. **candidate不得自引用自己的SHA**：位于build context内的文件只能预先写不依赖实际SHA的
+   通用说明；actual SHA、image ID、source-tree digest和gate结果只能写入后续的、build context
+   外部的provenance文档。
+3. **gate期间不得改写candidate历史**：不得amend、rebase、squash、cherry-pick到另一个SHA后
+   继续沿用原结果。任一build-input变更都产生新candidate，并使旧image/gate成为superseded。
+4. **远端使用独立detached worktree**：bundle/fetch写入专用ref，再从字面量
+   `CANDIDATE_SHA`创建clean detached worktree；不得强制checkout覆盖活跃开发worktree，也不得
+   fetch覆盖远端当前checked-out branch。
+5. **gate前后双重校验**：local/remote必须同时匹配`CANDIDATE_SHA`、
+   `build_input_revision`和`source_tree_sha256`；image label也必须重放相同revision/digest。
+6. **最后再提交provenance**：该提交只能修改digest范围外路径。handoff分别记录
+   `validated_code_sha`/`container_validated_code_sha`（candidate）和
+   `provenance_documentation_sha`（记录提交）；两者不同是预期状态，不得把文档HEAD误写为已验证
+   candidate。provenance commit同样不能在自身内容中写自己的最终SHA；其SHA须在commit完成后的
+   外部handoff、review记录或tag中登记，不得再创建一个只用于回填前一提交SHA的递归提交。
+
+一旦provenance提交触及`vnext/repository_service/**`或`vnext/repository_contracts/**`，即使只是
+README或测试，现有digest算法也会改变`build_input_revision`或`source_tree_sha256`，必须重新封板
+和执行container gate。
+
 ## 2. Common commands
 
 受影响Python package在其目录执行：
@@ -338,6 +366,7 @@ runtime_cleanup:
 known_limitations:
 validated_code_sha:
 container_validated_code_sha:
+provenance_documentation_sha:
 container_validation_deferred_to:
 deferred_container_gate_nodeids:
 round_exit: pass/no-go

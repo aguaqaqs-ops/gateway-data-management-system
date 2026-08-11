@@ -686,26 +686,62 @@ def test_aclose_sets_cancellation_before_thread_cleanup() -> None:
 
 @pytest.mark.serial
 def test_aclose_completes_cleanup_when_awaiting_task_cancelled() -> None:
-    """Smoke test that asyncio.Task.cancel() interrupts blocked bridge consumption."""
+    """Cancelled aclose() must wait for cleanup before returning CancelledError."""
 
-    bridge, release, producer_blocked, _close_completed, _cancellation = _gated_bridge_for_cancel_cleanup()
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    unregister_blocked = threading.Event()
+    close_completed = threading.Event()
+    close_entered = threading.Event()
+    barrier_delay_seconds = 0.3
+    ArrowIpcStreamBridge._test_unregister_barrier = unregister_blocked
+    ArrowIpcStreamBridge._test_close_completed_barrier = close_completed
+    ArrowIpcStreamBridge._test_close_entered_barrier = close_entered
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event())
     try:
 
-        async def consume_and_cancel() -> None:
-            iter_task = asyncio.create_task(_block_on_second_chunk(bridge))
-            while not producer_blocked.is_set():
-                await asyncio.sleep(0.01)
-            iter_task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await iter_task
+        def release_unregister_after_delay() -> None:
+            time.sleep(barrier_delay_seconds)
+            unregister_blocked.set()
 
-        asyncio.run(consume_and_cancel())
-        asyncio.run(bridge.aclose())
+        async def wait_until_async(
+            condition: Any,
+            *,
+            timeout_seconds: float = 2.0,
+            message: str,
+        ) -> None:
+            deadline = time.monotonic() + timeout_seconds
+            while time.monotonic() < deadline:
+                if condition():
+                    return
+                await asyncio.sleep(0.01)
+            raise AssertionError(message)
+
+        async def exercise() -> None:
+            task = asyncio.create_task(bridge.aclose())
+            await wait_until_async(close_entered.is_set, message="aclose did not enter cleanup")
+            await wait_until_async(
+                lambda: not bridge.is_worker_alive(),
+                message="worker did not exit",
+            )
+            releaser = threading.Thread(target=release_unregister_after_delay, daemon=True)
+            releaser.start()
+            cancelled_at = time.monotonic()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert time.monotonic() - cancelled_at >= barrier_delay_seconds - 0.05
+            releaser.join(timeout=2.0)
+
+        asyncio.run(exercise())
+        assert close_completed.is_set()
+        assert bridge not in BRIDGE_REGISTRY.snapshot()
         assert not bridge.is_worker_alive()
-        assert BRIDGE_REGISTRY.snapshot() == ()
     finally:
-        release.set()
+        unregister_blocked.set()
+        ArrowIpcStreamBridge._test_unregister_barrier = None
         ArrowIpcStreamBridge._test_close_completed_barrier = None
+        ArrowIpcStreamBridge._test_close_entered_barrier = None
+        bridge._worker.join(timeout=5.0)
         BRIDGE_REGISTRY.unregister(bridge)
 
 

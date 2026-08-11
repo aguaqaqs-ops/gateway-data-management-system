@@ -14,17 +14,15 @@ _T = TypeVar("_T")
 async def await_executor_future_under_cancel(awaitable: Awaitable[_T]) -> _T:
     """Wait for an executor future even when the caller receives repeated cancellations."""
 
-    future = asyncio.ensure_future(awaitable)
-
-    def _wait_in_thread() -> _T:
-        return future.result()
-
-    result: _T
+    cleanup = awaitable if asyncio.isfuture(awaitable) else asyncio.ensure_future(awaitable)
     try:
         with anyio.CancelScope(shield=True):
-            result = await asyncio.wrap_future(future)
+            return await asyncio.shield(cleanup)
     except asyncio.CancelledError:
+        task = asyncio.current_task()
+        if task is not None:
+            task.uncancel()
         with anyio.CancelScope(shield=True):
-            _ = await anyio.to_thread.run_sync(_wait_in_thread)
+            await asyncio.shield(cleanup)
         raise
-    return result
+    raise AssertionError("unreachable")

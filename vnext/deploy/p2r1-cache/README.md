@@ -155,26 +155,33 @@ Prior provenance records are superseded. Current gate evidence:
 
 ```text
 test: tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
-result: PASSED (63s)
-compose_project: gateway-p2r4-s10-7720cf769b61
+result: PASSED (61s)
+compose_project: gateway-p2r4-s10-e1333a00185a
 cache: http://172.17.0.1:18080 (HTTP 200)
-validated_code_sha: cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596
-container_validated_code_sha: cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596
-build_input_revision: cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596
-source_tree_sha256: sha256:1692cce892eee40f7438c12ff287dbb17ebf14ebf3d055bb41dfaf7e6fd9f5a5
-image_id: sha256:de347b1af8b48405470a1f01044b2a06a2c03d5fe8c2d2ffaa48f3a3c7597fa2
-image_label gateway.p2r1.source-tree-sha256: sha256:1692cce892eee40f7438c12ff287dbb17ebf14ebf3d055bb41dfaf7e6fd9f5a5
-image_label org.opencontainers.image.revision: cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596
+validated_code_sha: 13ec2137d7ed8f3da406bf550da68647d2536c77
+container_validated_code_sha: 13ec2137d7ed8f3da406bf550da68647d2536c77
+build_input_revision: 13ec2137d7ed8f3da406bf550da68647d2536c77
+source_tree_sha256: sha256:3fc42731e27e4f596cc56c50d4ea86ea29860d3ac8f2c4d6120b524a68c9c630
+image_id: sha256:19abf63d9894fa4f8f66ac74088833e62eef3f3afb5819e9a8bad836599cd0d9
+image_label gateway.p2r1.source-tree-sha256: sha256:3fc42731e27e4f596cc56c50d4ea86ea29860d3ac8f2c4d6120b524a68c9c630
+image_label org.opencontainers.image.revision: 13ec2137d7ed8f3da406bf550da68647d2536c77
 ```
 
 Superseded runs:
 
 ```text
+validated_code_sha: cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596
+compose_project: gateway-p2r4-s10-7720cf769b61
+reason: commit_b_touched_repository_service_readme; build context drift from HEAD
 compose_project: gateway-p2r4-s10-7da182fe355e
 reason: build_input_revision a748818 not locally resolvable; source_tree mismatch
 compose_project: gateway-p2r4-s10-39dfebc86b19
 reason: provenance_unresolved
 ```
+
+Provenance documentation commits must not modify `vnext/repository_service/**` or
+`vnext/repository_contracts/**`; those paths are included in the build-context
+digest and will invalidate recorded image provenance.
 
 Local gate hosts that cannot reach `172.17.0.1:18080` should treat container gate
 reruns as remote-only; the failure mode is infrastructure (cache unreachable), not
@@ -185,56 +192,48 @@ application regression.
 Do **not** sync the entire repository or full `vnext/` tree. `vnext/rust/` is about
 24 GB and is not required for repository-service Compose gates.
 
-**Preferred path: git fetch + exact SHA checkout**
+**Authoritative path: git bundle + exact SHA checkout**
+
+Formal container gate provenance requires a remote Git checkout at the candidate
+SHA. File-only sync cannot produce a matching `build_input_revision`.
 
 ```sh
-# Local: push the candidate branch
-git push -u origin phase1/gate-ownership-repair
+# Local: create bundle for the candidate branch
+git bundle create /tmp/gate-candidate.bundle phase1/gate-ownership-repair
+scp /tmp/gate-candidate.bundle tmpuser@10.10.60.4:/tmp/gate-candidate.bundle
 
-# Remote: standard checkout
+# Remote: fetch bundle and checkout candidate SHA
 ssh -t tmpuser@10.10.60.4
 cd /home/tmpuser/gateway-data-management-system
-git remote -v
-git fetch origin phase1/gate-ownership-repair
+git fetch /tmp/gate-candidate.bundle +phase1/gate-ownership-repair:phase1/gate-ownership-repair
 git checkout --force <candidate-sha>
 ```
+
+When a shared remote is available, `git push` + `git fetch origin` is equivalent to
+the bundle fetch above. Do not use ad-hoc `git init` plus tar/rsync overlay as the
+gate source of truth.
 
 One-time remote setup when the directory is not yet a clone:
 
 ```sh
 ssh -t tmpuser@10.10.60.4
-sudo pacman -S --needed git rsync
+sudo pacman -S --needed git
 git clone <origin-url> /home/tmpuser/gateway-data-management-system
 ```
 
-Do not use ad-hoc `git init` plus tar/rsync overlay as the gate source of truth.
+**Never include `vnext/rust`** in any sync.
 
-**Fallback only when git is unavailable: rsync with preserved `vnext/` layout**
-
-```sh
-rsync -azR --delete \
-  --exclude='vnext/rust' \
-  --exclude='.venv' --exclude='__pycache__' --exclude='.pytest_cache' \
-  --exclude='.mypy_cache' --exclude='.ruff_cache' \
-  ./vnext/repository_service \
-  ./vnext/repository_contracts \
-  ./vnext/shared_kernel \
-  ./vnext/repository_client \
-  ./vnext/deploy \
-  ./vnext/scripts \
-  ./vnext/fixtures \
-  ./AGENTS.md \
-  tmpuser@10.10.60.4:/home/tmpuser/gateway-data-management-system/
-```
-
-**Never include `vnext/rust`** in rsync or tar.
-
-Before running the gate, compare the Docker build-input digest on local and remote.
-Both hosts must report the same value:
+Before running the gate, compare **both** digests on local and remote. Abort if
+either differs:
 
 ```sh
 uv run python vnext/repository_service/tests/support/build_context_digest.py source-tree-sha256
+uv run python vnext/repository_service/tests/support/build_context_digest.py build-input-revision
 ```
+
+Diagnostic-only file sync (non-provenance): `rsync` may help inspect files on the
+remote host, but it must not be used to produce formal container gate evidence.
+Only a Git checkout at `<candidate-sha>` satisfies `build_input_revision`.
 
 Additional remote prerequisites:
 

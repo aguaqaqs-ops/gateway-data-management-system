@@ -311,6 +311,7 @@ async def test_mid_body_oserror_after_complete_dto_fails() -> None:
         }
     }
     body = json.dumps(payload).encode()
+    stream_closes = {"count": 0}
 
     class MidBodyFailureStream(httpx.AsyncByteStream):
         async def __aiter__(self) -> AsyncIterator[bytes]:
@@ -319,7 +320,7 @@ async def test_mid_body_oserror_after_complete_dto_fails() -> None:
             yield b""  # pragma: no cover
 
         async def aclose(self) -> None:
-            return None
+            stream_closes["count"] += 1
 
     class MidBodyTransport(httpx.AsyncBaseTransport):
         async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
@@ -337,6 +338,8 @@ async def test_mid_body_oserror_after_complete_dto_fails() -> None:
     )
     with pytest.raises(RepositoryProtocolError, match="failed to read response body"):
         await client.get_operation(repository_id=REPO_ID, operation_id=operation_id)
+
+    assert stream_closes["count"] == 1
 
 
 @pytest.mark.asyncio
@@ -385,6 +388,7 @@ async def test_error_endpoint_mid_body_oserror_fails() -> None:
             "request_id": "req-err",
         }
     ).encode()
+    stream_closes = {"count": 0}
 
     class MidBodyErrorStream(httpx.AsyncByteStream):
         async def __aiter__(self) -> AsyncIterator[bytes]:
@@ -393,7 +397,7 @@ async def test_error_endpoint_mid_body_oserror_fails() -> None:
             yield b""  # pragma: no cover
 
         async def aclose(self) -> None:
-            return None
+            stream_closes["count"] += 1
 
     class ErrorTransport(httpx.AsyncBaseTransport):
         async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
@@ -415,6 +419,8 @@ async def test_error_endpoint_mid_body_oserror_fails() -> None:
             commit_id=COMMIT_ID,
         )
 
+    assert stream_closes["count"] == 1
+
 
 @pytest.mark.asyncio
 async def test_gzip_truncated_wire_fails_even_with_valid_decompressed_prefix() -> None:
@@ -433,14 +439,16 @@ async def test_gzip_truncated_wire_fails_even_with_valid_decompressed_prefix() -
     json_bytes = json.dumps(payload).encode()
     compressible = json_bytes + (b"x" * 10_000)
     wire_body = gzip.compress(compressible)
-    truncated_wire = wire_body[:-8]
+    stream_closes = {"count": 0}
 
     class TruncatedGzipStream(httpx.AsyncByteStream):
         async def __aiter__(self) -> AsyncIterator[bytes]:
-            yield truncated_wire
+            yield wire_body[:80]
+            raise OSError("mid gzip wire failure")
+            yield b""  # pragma: no cover
 
         async def aclose(self) -> None:
-            return None
+            stream_closes["count"] += 1
 
     class GzipTransport(httpx.AsyncBaseTransport):
         async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
@@ -451,7 +459,7 @@ async def test_gzip_truncated_wire_fails_even_with_valid_decompressed_prefix() -
                     "X-Request-ID": "req-gzip",
                     "Content-Type": "application/json",
                     "Content-Encoding": "gzip",
-                    "Content-Length": str(len(truncated_wire)),
+                    "Content-Length": str(len(wire_body)),
                 },
                 stream=TruncatedGzipStream(),
             )
@@ -461,8 +469,62 @@ async def test_gzip_truncated_wire_fails_even_with_valid_decompressed_prefix() -
         bearer_token="token",
         transport=GzipTransport(),
     )
-    with pytest.raises(RepositoryProtocolError, match="Content-Encoding"):
+    with pytest.raises(RepositoryProtocolError, match="failed to read response body"):
         await client.get_operation(repository_id=REPO_ID, operation_id=operation_id)
+
+    assert stream_closes["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_gzip_identity_json_response_succeeds() -> None:
+    import gzip
+    import json
+
+    operation_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
+    payload = {
+        "operation": {
+            "operation_id": str(operation_id),
+            "status": "RUNNING",
+            "result": None,
+            "error": None,
+        }
+    }
+    json_bytes = json.dumps(payload).encode()
+    wire_body = gzip.compress(json_bytes)
+    accept_encoding: list[str] = []
+
+    class GzipStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield wire_body
+
+        async def aclose(self) -> None:
+            return None
+
+    class GzipTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            accept_encoding.append(request.headers.get("Accept-Encoding", ""))
+            return httpx.Response(
+                200,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-gzip-ok",
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "gzip",
+                    "Content-Length": str(len(wire_body)),
+                },
+                stream=GzipStream(),
+            )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=GzipTransport(),
+    )
+    result = await client.get_operation(repository_id=REPO_ID, operation_id=operation_id)
+
+    assert result.operation.operation_id == operation_id
+    assert result.operation.status == "RUNNING"
+    assert accept_encoding == ["gzip, deflate"]
 
 
 @pytest.mark.asyncio

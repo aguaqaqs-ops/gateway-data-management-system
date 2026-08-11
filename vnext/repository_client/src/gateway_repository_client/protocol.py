@@ -67,20 +67,6 @@ def _is_wire_body_complete(response: httpx.Response) -> bool:
     return response.num_bytes_downloaded == declared
 
 
-def _ensure_identity_json_encoding(
-    response: httpx.Response,
-    *,
-    request_id: str | None,
-) -> None:
-    encoding = response.headers.get("content-encoding")
-    if encoding is not None and encoding.strip() != "":
-        raise RepositoryProtocolError(
-            "unsupported Content-Encoding for JSON response",
-            status_code=response.status_code,
-            request_id=request_id,
-        )
-
-
 def _attach_close_notes(exc: BaseException, close_errors: list[Exception]) -> None:
     existing_notes = list(getattr(exc, "__notes__", ()))
     for error in close_errors:
@@ -116,7 +102,6 @@ async def read_bounded_bytes(
     """Read a response body up to a fixed byte limit."""
 
     resolved_request_id = request_id if request_id is not None else peek_request_id(response)
-    _ensure_identity_json_encoding(response, request_id=resolved_request_id)
     chunks: list[bytes] = []
     total = 0
     try:
@@ -140,11 +125,16 @@ async def read_bounded_bytes(
             if close_errors_out is not None:
                 close_errors_out.append(exc)
             return b"".join(chunks)
-        raise RepositoryProtocolError(
+        proto_exc = RepositoryProtocolError(
             "failed to read response body",
             status_code=response.status_code,
             request_id=resolved_request_id,
-        ) from exc
+        )
+        close_errors = await _close_response_quiet(response)
+        _attach_close_notes(proto_exc, close_errors)
+        if close_errors_out is not None:
+            close_errors_out.extend(close_errors)
+        raise proto_exc from exc
 
     body = b"".join(chunks)
     close_errors = await _close_response_quiet(response)

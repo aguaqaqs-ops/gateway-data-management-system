@@ -528,6 +528,173 @@ async def test_gzip_identity_json_response_succeeds() -> None:
 
 
 @pytest.mark.asyncio
+async def test_error_endpoint_mid_body_read_error_closes_stream() -> None:
+    import json
+
+    from gateway_repository_contracts import GetVersionedCatalogResponse
+    from gateway_repository_client.protocol import parse_json_response
+
+    error_body = json.dumps(
+        {
+            "code": "TABLE_NOT_FOUND",
+            "message": "missing",
+            "request_id": "req-err",
+        }
+    ).encode()
+    stream_closes = {"count": 0}
+
+    class MidBodyReadErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield error_body
+            raise httpx.ReadError("mid-body network failure")
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            stream_closes["count"] += 1
+
+    class ErrorTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                404,
+                request=request,
+                headers={"X-Request-ID": "req-err", "Content-Type": "application/json"},
+                stream=MidBodyReadErrorStream(),
+            )
+
+    async with httpx.AsyncClient(
+        base_url="http://repository.test",
+        transport=ErrorTransport(),
+    ) as http:
+        request = http.build_request("GET", "/catalog")
+        response = await http.send(request, stream=True)
+        with pytest.raises(httpx.ReadError, match="mid-body network failure"):
+            await parse_json_response(
+                response,
+                expected_status=200,
+                model=GetVersionedCatalogResponse,
+            )
+
+    assert stream_closes["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_read_cancellation_closes_response_stream() -> None:
+    import asyncio
+    import json
+
+    operation_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
+    stream_closes = {"count": 0}
+    entered_barrier = asyncio.Event()
+    barrier = asyncio.Event()
+    payload = {
+        "operation": {
+            "operation_id": str(operation_id),
+            "status": "RUNNING",
+            "result": None,
+            "error": None,
+        }
+    }
+    body = json.dumps(payload).encode()
+
+    class BarrierStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield body[:16]
+            entered_barrier.set()
+            await barrier.wait()
+            yield body[16:]
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            stream_closes["count"] += 1
+
+    class BarrierTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-cancel",
+                    "Content-Type": "application/json",
+                },
+                stream=BarrierStream(),
+            )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=BarrierTransport(),
+    )
+    task = asyncio.create_task(
+        client.get_operation(repository_id=REPO_ID, operation_id=operation_id)
+    )
+    await entered_barrier.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert stream_closes["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mid_body_read_error_close_failure_preserves_primary_error() -> None:
+    import json
+
+    from gateway_repository_contracts import GetOperationResponse
+    from gateway_repository_client.protocol import parse_json_response
+
+    operation_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
+    stream_closes = {"count": 0}
+    payload = {
+        "operation": {
+            "operation_id": str(operation_id),
+            "status": "RUNNING",
+            "result": None,
+            "error": None,
+        }
+    }
+    body = json.dumps(payload).encode()
+
+    class MidBodyReadErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield body
+            raise httpx.ReadError("mid-body network failure")
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            stream_closes["count"] += 1
+            raise OSError("read error cleanup failed")
+
+    class ReadErrorTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-read-close",
+                    "Content-Type": "application/json",
+                },
+                stream=MidBodyReadErrorStream(),
+            )
+
+    async with httpx.AsyncClient(
+        base_url="http://repository.test",
+        transport=ReadErrorTransport(),
+    ) as http:
+        request = http.build_request("GET", "/operation")
+        response = await http.send(request, stream=True)
+        with pytest.raises(httpx.ReadError, match="mid-body network failure") as exc_info:
+            await parse_json_response(
+                response,
+                expected_status=200,
+                model=GetOperationResponse,
+            )
+
+    assert stream_closes["count"] == 1
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("read error cleanup failed" in note for note in notes)
+
+
+@pytest.mark.asyncio
 async def test_eof_stream_close_failure_prevents_success_dto() -> None:
     import json
 

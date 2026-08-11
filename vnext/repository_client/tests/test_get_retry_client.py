@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator
+from uuid import UUID
+
 import httpx
 import pytest
 
 from gateway_repository_client import RepositoryClient, RepositoryClientError, RepositoryProtocolError
-
-
-from uuid import UUID
 
 REPO_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
 OP_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
@@ -257,3 +258,48 @@ async def test_get_retries_503_with_missing_error_body_request_id() -> None:
     response = await client.get_operation(repository_id=REPO_ID, operation_id=OP_ID)
     assert attempts["count"] == 2
     assert response.operation.status.value == "SUCCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_mid_body_read_error_closes_stream_on_each_retry_attempt() -> None:
+    attempts = {"count": 0}
+    stream_closes = {"count": 0}
+    partial_body = json.dumps({"operation": _operation_payload(status="RUNNING")})[:24].encode()
+
+    class MidBodyReadErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield partial_body
+            raise httpx.ReadError("mid-body network failure")
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            stream_closes["count"] += 1
+
+    class ReadErrorTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            attempts["count"] += 1
+            return httpx.Response(
+                200,
+                request=request,
+                headers={
+                    "X-Request-ID": f"req-{attempts['count']}",
+                    "Content-Type": "application/json",
+                },
+                stream=MidBodyReadErrorStream(),
+            )
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=ReadErrorTransport(),
+        sleeper=sleeper,
+    )
+
+    with pytest.raises(httpx.ReadError, match="mid-body network failure"):
+        await client.get_operation(repository_id=REPO_ID, operation_id=OP_ID)
+
+    assert attempts["count"] == 3
+    assert stream_closes["count"] == 3

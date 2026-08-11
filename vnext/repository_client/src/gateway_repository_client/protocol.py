@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TypeVar
 
@@ -104,6 +105,9 @@ async def read_bounded_bytes(
     resolved_request_id = request_id if request_id is not None else peek_request_id(response)
     chunks: list[bytes] = []
     total = 0
+    eof_oserror: OSError | None = None
+    exit_exc: BaseException | None = None
+    exit_from: BaseException | None = None
     try:
         async for chunk in response.aiter_bytes():
             total += len(chunk)
@@ -115,32 +119,42 @@ async def read_bounded_bytes(
                 )
             chunks.append(chunk)
     except RepositoryProtocolError as exc:
-        close_errors = await _close_response_quiet(response)
-        _attach_close_notes(exc, close_errors)
-        if close_errors_out is not None:
-            close_errors_out.extend(close_errors)
-        raise
+        exit_exc = exc
     except OSError as exc:
         if _is_wire_body_complete(response):
-            if close_errors_out is not None:
-                close_errors_out.append(exc)
-            return b"".join(chunks)
-        proto_exc = RepositoryProtocolError(
-            "failed to read response body",
-            status_code=response.status_code,
-            request_id=resolved_request_id,
-        )
+            eof_oserror = exc
+        else:
+            exit_exc = RepositoryProtocolError(
+                "failed to read response body",
+                status_code=response.status_code,
+                request_id=resolved_request_id,
+            )
+            exit_from = exc
+    except httpx.HTTPError as exc:
+        exit_exc = exc
+    except asyncio.CancelledError as exc:
+        exit_exc = exc
+    else:
         close_errors = await _close_response_quiet(response)
-        _attach_close_notes(proto_exc, close_errors)
         if close_errors_out is not None:
             close_errors_out.extend(close_errors)
-        raise proto_exc from exc
+        return b"".join(chunks)
 
     body = b"".join(chunks)
+
+    if eof_oserror is not None:
+        if close_errors_out is not None:
+            close_errors_out.append(eof_oserror)
+        return body
+
+    assert exit_exc is not None
     close_errors = await _close_response_quiet(response)
+    _attach_close_notes(exit_exc, close_errors)
     if close_errors_out is not None:
         close_errors_out.extend(close_errors)
-    return body
+    if exit_from is not None:
+        raise exit_exc from exit_from
+    raise exit_exc
 
 
 def _parse_json_bytes(

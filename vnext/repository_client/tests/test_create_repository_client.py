@@ -62,7 +62,11 @@ async def test_create_repository_surfaces_non_retryable_error() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             409,
-            json={"code": "IDEMPOTENCY_CONFLICT", "message": "conflict"},
+            json={
+                "code": "IDEMPOTENCY_CONFLICT",
+                "message": "conflict",
+                "request_id": "req-409",
+            },
             headers={"X-Request-ID": "req-409"},
         )
 

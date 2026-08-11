@@ -55,6 +55,7 @@ class ArrowIpcByteStream:
         self._bytes_exposed = False
         self._closed = False
         self._entered = False
+        self._attempts_used = 0
 
     @property
     def request_id(self) -> str:
@@ -104,6 +105,11 @@ class ArrowIpcByteStream:
                         request_id=self._request_id,
                     ) from exc
                 await self._discard_transport()
+                if self._attempts_used >= self._max_attempts:
+                    raise RepositoryStreamError(
+                        "Arrow stream read failed before bytes were exposed",
+                        request_id=self._request_id,
+                    ) from exc
                 await self._open_with_retry()
 
     async def aclose(self) -> None:
@@ -116,10 +122,10 @@ class ArrowIpcByteStream:
         if self._closed:
             raise RuntimeError("Arrow stream is closed")
 
-        attempt = 0
         last_error: BaseException | None = None
-        while attempt < self._max_attempts:
-            attempt += 1
+        while self._attempts_used < self._max_attempts:
+            self._attempts_used += 1
+            attempt = self._attempts_used
             try:
                 client, response = await self._open_attempt()
             except httpx.TransportError as exc:
@@ -131,16 +137,19 @@ class ArrowIpcByteStream:
 
             try:
                 await self._validate_open_response(client, response)
-            except RepositoryClientError as exc:
+            except (RepositoryClientError, RepositoryProtocolError) as exc:
                 await _close_pair(client, response)
-                if exc.status_code not in RETRYABLE_STATUS_CODES or attempt >= self._max_attempts:
+                retryable = isinstance(exc, RepositoryClientError) and (
+                    exc.status_code in RETRYABLE_STATUS_CODES
+                ) or (
+                    isinstance(exc, RepositoryProtocolError)
+                    and exc.status_code in RETRYABLE_STATUS_CODES
+                )
+                if not retryable or attempt >= self._max_attempts:
                     raise
                 last_error = exc
                 await self._backoff(attempt)
                 continue
-            except RepositoryProtocolError:
-                await _close_pair(client, response)
-                raise
             except BaseException:
                 await _close_pair(client, response)
                 raise
@@ -182,7 +191,6 @@ class ArrowIpcByteStream:
             await asyncio.sleep(delay)
         else:
             await self._sleeper(delay)
-
 
 
 async def _close_pair(

@@ -77,13 +77,14 @@ async def test_wait_operation_returns_terminal_on_first_query_without_sleep() ->
 async def test_wait_operation_uses_monotonic_deadline_and_capped_backoff() -> None:
     attempts = {"count": 0}
     sleeps: list[float] = []
-    clock_values = iter([0.0, 0.0, 0.1, 0.1, 0.2, 0.2, 5.0])
+    current_time = {"value": 0.0}
 
     def clock() -> float:
-        return next(clock_values)
+        return current_time["value"]
 
     async def sleeper(seconds: float) -> None:
         sleeps.append(seconds)
+        current_time["value"] += seconds
 
     def handler(_request: httpx.Request) -> httpx.Response:
         attempts["count"] += 1
@@ -120,13 +121,13 @@ async def test_wait_operation_uses_monotonic_deadline_and_capped_backoff() -> No
 @pytest.mark.asyncio
 async def test_wait_operation_raises_typed_timeout() -> None:
     attempts = {"count": 0}
-    clock_values = iter([0.0, 0.0, 1.0])
+    current_time = {"value": 0.0}
 
     def clock() -> float:
-        return next(clock_values)
+        return current_time["value"]
 
-    async def sleeper(_seconds: float) -> None:
-        return None
+    async def sleeper(seconds: float) -> None:
+        current_time["value"] += seconds
 
     def handler(_request: httpx.Request) -> httpx.Response:
         attempts["count"] += 1
@@ -142,10 +143,44 @@ async def test_wait_operation_raises_typed_timeout() -> None:
         transport=httpx.MockTransport(handler),
         sleeper=sleeper,
         clock=clock,
-        poll_deadline_seconds=0.5,
+        poll_deadline_seconds=0.05,
     )
 
     with pytest.raises(RepositoryClientTimeoutError):
         await client.wait_operation(repository_id=REPO_ID, operation_id=OP_ID)
 
     assert attempts["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_wait_operation_deadline_covers_in_flight_get_retries() -> None:
+    attempts = {"count": 0}
+    current_time = {"value": 0.0}
+
+    def clock() -> float:
+        return current_time["value"]
+
+    async def sleeper(seconds: float) -> None:
+        current_time["value"] += seconds
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        return httpx.Response(
+            503,
+            json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+            headers={"X-Request-ID": f"req-{attempts['count']}"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+        clock=clock,
+        poll_deadline_seconds=0.08,
+    )
+
+    with pytest.raises(RepositoryClientTimeoutError):
+        await client.wait_operation(repository_id=REPO_ID, operation_id=OP_ID)
+
+    assert attempts["count"] == 2

@@ -266,3 +266,88 @@ async def test_stream_wrong_media_type_raises_protocol_error() -> None:
     with pytest.raises(RepositoryProtocolError, match="Arrow media type"):
         async with stream:
             pass
+
+
+class _PreByteFailingStream(httpx.AsyncByteStream):
+    def __init__(self, *, fail: bool) -> None:
+        self._fail = fail
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        if self._fail:
+            raise httpx.ReadError("pre-byte failure")
+        yield b"payload"
+
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_stream_pre_byte_read_error_can_retry_once() -> None:
+    attempts = {"count": 0}
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        return httpx.Response(
+            200,
+            request=request,
+            headers=ARROW_HEADERS,
+            stream=_PreByteFailingStream(fail=attempts["count"] == 1),
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+    )
+    stream = client.stream_versioned_table_rows(
+        repository_id=REPO_ID,
+        commit_id=COMMIT_ID,
+        table_name="items",
+    )
+    async with stream:
+        chunks = [chunk async for chunk in stream.aiter_bytes()]
+
+    assert attempts["count"] == 2
+    assert chunks == [b"payload"]
+
+
+@pytest.mark.asyncio
+async def test_stream_pre_byte_read_error_shares_attempt_budget() -> None:
+    attempts = {"count": 0}
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        return httpx.Response(
+            200,
+            request=request,
+            headers={
+                "X-Request-ID": f"req-{attempts['count']}",
+                "Content-Type": VERSIONED_READ_ARROW_MEDIA_TYPE,
+            },
+            stream=_PreByteFailingStream(fail=True),
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+    )
+    stream = client.stream_versioned_table_rows(
+        repository_id=REPO_ID,
+        commit_id=COMMIT_ID,
+        table_name="items",
+    )
+    with pytest.raises(RepositoryStreamError, match="before bytes were exposed"):
+        async with stream:
+            async for _chunk in stream.aiter_bytes():
+                pass
+
+    assert attempts["count"] == 3

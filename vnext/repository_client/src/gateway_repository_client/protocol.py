@@ -26,13 +26,12 @@ def require_request_id(response: httpx.Response) -> str:
             "missing X-Request-ID header",
             status_code=response.status_code,
         )
-    request_id = raw.strip()
-    if not request_id or len(request_id) > _MAX_REQUEST_ID_LENGTH:
+    if len(raw) == 0 or len(raw) > _MAX_REQUEST_ID_LENGTH:
         raise RepositoryProtocolError(
             "illegal X-Request-ID header",
             status_code=response.status_code,
         )
-    return request_id
+    return raw
 
 
 def parse_json_object(response: httpx.Response) -> object:
@@ -84,8 +83,11 @@ def raise_for_error_response(response: httpx.Response) -> None:
 
     body_request_id = payload.get("request_id")
     if body_request_id is None:
-        payload = {**payload, "request_id": request_id}
-    elif body_request_id != request_id:
+        raise RepositoryProtocolError(
+            "missing error body request_id",
+            status_code=response.status_code,
+        )
+    if body_request_id != request_id:
         raise RepositoryProtocolError(
             "error body request_id does not match X-Request-ID",
             status_code=response.status_code,

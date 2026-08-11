@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 from uuid import UUID
 
 import httpx
 
 from gateway_repository_contracts import (
+    CommitIdString,
     CreateRepositoryResponse,
     GetOperationResponse,
     GetVersionedCatalogResponse,
@@ -15,11 +17,14 @@ from gateway_repository_contracts import (
     StreamVersionedTableRowsQuery,
     SubmitVersionedImportRequest,
     SubmitVersionedImportResponse,
+    UnknownTypePolicy,
     UploadArtifactResponse,
     VersionedOperation,
 )
+from gateway_repository_contracts.types import MainRefLiteral
 from gateway_repository_client.arrow_stream import ArrowIpcByteStream
-from gateway_repository_client.errors import RepositoryClientError
+from gateway_repository_client.errors import RepositoryClientError, RepositoryProtocolError
+from gateway_repository_client.paths import encode_path_segment
 from gateway_repository_client.poll import (
     DEFAULT_POLL_DEADLINE_SECONDS,
     Clock,
@@ -90,7 +95,11 @@ class RepositoryClient:
                     model=CreateRepositoryResponse,
                 )
 
-        return await retry_idempotent_request(_send, sleeper=self._sleeper)
+        return await retry_idempotent_request(
+            _send,
+            sleeper=self._sleeper,
+            clock=self._clock,
+        )
 
     async def upload_artifact(
         self,
@@ -124,10 +133,19 @@ class RepositoryClient:
                 )
 
         if source.rewindable:
-            return await retry_idempotent_request(_send, sleeper=self._sleeper)
+            return await retry_idempotent_request(
+                _send,
+                sleeper=self._sleeper,
+                clock=self._clock,
+            )
         try:
             return await _send()
-        except (httpx.TransportError, httpx.HTTPStatusError, RepositoryClientError) as exc:
+        except (
+            httpx.TransportError,
+            httpx.HTTPStatusError,
+            RepositoryClientError,
+            RepositoryProtocolError,
+        ) as exc:
             status_code = _retryable_status_code(exc)
             if status_code is not None:
                 raise NonRewindableUploadSourceError(
@@ -161,13 +179,18 @@ class RepositoryClient:
                     model=SubmitVersionedImportResponse,
                 )
 
-        return await retry_idempotent_request(_send, sleeper=self._sleeper)
+        return await retry_idempotent_request(
+            _send,
+            sleeper=self._sleeper,
+            clock=self._clock,
+        )
 
     async def get_operation(
         self,
         *,
         repository_id: UUID | str,
         operation_id: UUID | str,
+        deadline: float | None = None,
     ) -> GetOperationResponse:
         resolved_repository_id = UUID(str(repository_id))
         resolved_operation_id = UUID(str(operation_id))
@@ -184,7 +207,12 @@ class RepositoryClient:
                     model=GetOperationResponse,
                 )
 
-        return await retry_idempotent_request(_send, sleeper=self._sleeper)
+        return await retry_idempotent_request(
+            _send,
+            sleeper=self._sleeper,
+            clock=self._clock,
+            deadline=deadline,
+        )
 
     async def wait_operation(
         self,
@@ -196,11 +224,14 @@ class RepositoryClient:
         resolved_deadline = (
             self._poll_deadline_seconds if deadline_seconds is None else deadline_seconds
         )
+        now = self._clock or time.monotonic
+        poll_deadline = now() + resolved_deadline
 
         async def _fetch() -> VersionedOperation:
             response = await self.get_operation(
                 repository_id=repository_id,
                 operation_id=operation_id,
+                deadline=poll_deadline,
             )
             return response.operation
 
@@ -215,14 +246,15 @@ class RepositoryClient:
         self,
         *,
         repository_id: UUID | str,
-        ref_name: str = "main",
+        ref_name: MainRefLiteral = "main",
     ) -> ResolveVersionedRefResponse:
         resolved_repository_id = UUID(str(repository_id))
+        encoded_ref = encode_path_segment(ref_name)
 
         async def _send() -> ResolveVersionedRefResponse:
             async with self._json_client() as client:
                 response = await client.get(
-                    f"/v1/repositories/{resolved_repository_id}/versioned/refs/{ref_name}",
+                    f"/v1/repositories/{resolved_repository_id}/versioned/refs/{encoded_ref}",
                     headers={"Authorization": f"Bearer {self._bearer_token}"},
                 )
                 return parse_json_response(
@@ -231,20 +263,26 @@ class RepositoryClient:
                     model=ResolveVersionedRefResponse,
                 )
 
-        return await retry_idempotent_request(_send, sleeper=self._sleeper)
+        return await retry_idempotent_request(
+            _send,
+            sleeper=self._sleeper,
+            clock=self._clock,
+        )
 
     async def get_versioned_catalog(
         self,
         *,
         repository_id: UUID | str,
-        commit_id: str,
+        commit_id: CommitIdString,
     ) -> GetVersionedCatalogResponse:
         resolved_repository_id = UUID(str(repository_id))
+        encoded_commit_id = encode_path_segment(commit_id)
 
         async def _send() -> GetVersionedCatalogResponse:
             async with self._json_client() as client:
                 response = await client.get(
-                    f"/v1/repositories/{resolved_repository_id}/versioned/commits/{commit_id}/catalog",
+                    f"/v1/repositories/{resolved_repository_id}"
+                    f"/versioned/commits/{encoded_commit_id}/catalog",
                     headers={"Authorization": f"Bearer {self._bearer_token}"},
                 )
                 return parse_json_response(
@@ -253,17 +291,22 @@ class RepositoryClient:
                     model=GetVersionedCatalogResponse,
                 )
 
-        return await retry_idempotent_request(_send, sleeper=self._sleeper)
+        return await retry_idempotent_request(
+            _send,
+            sleeper=self._sleeper,
+            clock=self._clock,
+        )
 
     def stream_versioned_table_rows(
         self,
         *,
         repository_id: UUID | str,
-        commit_id: str,
+        commit_id: CommitIdString,
         table_name: str,
-        unknown_type_policy: str = "REJECT",
+        unknown_type_policy: UnknownTypePolicy = UnknownTypePolicy.REJECT,
     ) -> ArrowIpcByteStream:
         resolved_repository_id = UUID(str(repository_id))
+        encoded_commit_id = encode_path_segment(commit_id)
         query = StreamVersionedTableRowsQuery.model_validate(
             {
                 "table_name": table_name,
@@ -273,7 +316,7 @@ class RepositoryClient:
         params = query.model_dump(mode="json")
         path = (
             f"/v1/repositories/{resolved_repository_id}"
-            f"/versioned/commits/{commit_id}/rows"
+            f"/versioned/commits/{encoded_commit_id}/rows"
         )
 
         async def _open_attempt() -> tuple[httpx.AsyncClient, httpx.Response]:
@@ -319,6 +362,10 @@ def _retryable_status_code(exc: Exception) -> int | None:
             return exc.response.status_code
         return None
     if isinstance(exc, RepositoryClientError):
+        if exc.status_code in RETRYABLE_STATUS_CODES:
+            return exc.status_code
+        return None
+    if isinstance(exc, RepositoryProtocolError):
         if exc.status_code in RETRYABLE_STATUS_CODES:
             return exc.status_code
         return None

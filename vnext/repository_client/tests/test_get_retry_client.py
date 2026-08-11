@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from gateway_repository_client import RepositoryClient, RepositoryClientError
+from gateway_repository_client import RepositoryClient, RepositoryClientError, RepositoryProtocolError
 
 
 REPO_ID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
@@ -114,7 +114,7 @@ async def test_get_does_not_retry_non_retryable_status(status_code: int) -> None
         code = "COMMIT_NOT_FOUND" if status_code == 404 else "REQUEST_VALIDATION_FAILED"
         return httpx.Response(
             status_code,
-            json={"code": code, "message": "nope"},
+            json={"code": code, "message": "nope", "request_id": "req-err"},
             headers={"X-Request-ID": "req-err"},
         )
 
@@ -129,3 +129,129 @@ async def test_get_does_not_retry_non_retryable_status(status_code: int) -> None
 
     assert attempts["count"] == 1
     assert exc_info.value.status_code == status_code
+
+
+@pytest.mark.asyncio
+async def test_get_retry_exhausts_at_three_requests() -> None:
+    attempts = {"count": 0}
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        return httpx.Response(
+            503,
+            json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+            headers={"X-Request-ID": f"req-{attempts['count']}"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+    )
+
+    with pytest.raises(RepositoryProtocolError, match="missing error body request_id"):
+        await client.get_operation(repository_id=REPO_ID, operation_id=OP_ID)
+
+    assert attempts["count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_get_retries_502() -> None:
+    attempts = {"count": 0}
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return httpx.Response(
+                502,
+                json={"code": "SERVICE_NOT_READY", "message": "bad gateway"},
+                headers={"X-Request-ID": "req-1"},
+            )
+        return httpx.Response(
+            200,
+            json={"operation": _operation_payload()},
+            headers={"X-Request-ID": "req-ok"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+    )
+
+    response = await client.get_operation(repository_id=REPO_ID, operation_id=OP_ID)
+    assert attempts["count"] == 2
+    assert response.operation.status.value == "SUCCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_get_retries_503_with_missing_request_id_header() -> None:
+    attempts = {"count": 0}
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return httpx.Response(
+                503,
+                json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+            )
+        return httpx.Response(
+            200,
+            json={"operation": _operation_payload()},
+            headers={"X-Request-ID": "req-ok"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+    )
+
+    response = await client.get_operation(repository_id=REPO_ID, operation_id=OP_ID)
+    assert attempts["count"] == 2
+    assert response.operation.status.value == "SUCCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_get_retries_503_with_missing_error_body_request_id() -> None:
+    attempts = {"count": 0}
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return httpx.Response(
+                503,
+                json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+                headers={"X-Request-ID": "req-1"},
+            )
+        return httpx.Response(
+            200,
+            json={"operation": _operation_payload()},
+            headers={"X-Request-ID": "req-ok"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+    )
+
+    response = await client.get_operation(repository_id=REPO_ID, operation_id=OP_ID)
+    assert attempts["count"] == 2
+    assert response.operation.status.value == "SUCCEEDED"

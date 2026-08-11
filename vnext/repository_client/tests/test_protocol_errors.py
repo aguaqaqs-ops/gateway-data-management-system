@@ -56,7 +56,7 @@ async def test_malformed_simple_error_body_is_protocol_error() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             404,
-            json={"message": "missing code"},
+            json={"message": "missing code", "request_id": "req-1"},
             headers={"X-Request-ID": "req-1"},
         )
 
@@ -145,6 +145,50 @@ async def test_http_status_contract_mismatch_is_protocol_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_missing_error_body_request_id_is_protocol_error() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            json={"code": "OPERATION_NOT_FOUND", "message": "missing"},
+            headers={"X-Request-ID": "req-1"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(RepositoryProtocolError, match="missing error body request_id"):
+        await client.get_operation(repository_id=REPO_ID, operation_id=OP_ID)
+
+
+@pytest.mark.asyncio
+async def test_request_id_preserves_opaque_whitespace() -> None:
+    request_id = " abc "
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            json={
+                "code": "OPERATION_NOT_FOUND",
+                "message": "missing",
+                "request_id": request_id,
+            },
+            headers={"X-Request-ID": request_id},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(RepositoryClientError) as exc_info:
+        await client.get_operation(repository_id=REPO_ID, operation_id=OP_ID)
+
+    assert exc_info.value.error.request_id == request_id
+
+
+@pytest.mark.asyncio
 async def test_valid_http_error_preserves_status_and_simple_error() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -153,6 +197,7 @@ async def test_valid_http_error_preserves_status_and_simple_error() -> None:
                 "code": "OPERATION_NOT_FOUND",
                 "message": "missing",
                 "details": {"operation_id": OP_ID},
+                "request_id": "req-404",
             },
             headers={"X-Request-ID": "req-404"},
         )

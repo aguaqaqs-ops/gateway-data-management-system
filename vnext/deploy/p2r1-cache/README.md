@@ -147,6 +147,66 @@ path. After copying or otherwise recovering the evidence, remove only that
 project's retained volume and verify its container, network, volume, and cgroup
 objects are gone; do not use a shared-project `down --remove-orphans` command.
 
+## Remote development host (container gate)
+
+Verified development host: `10.10.60.4` (SSH user `tmpuser`).
+
+P2-R4 S10 Compose import/restart gate passed on 2026-08-11:
+
+```text
+test: tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
+result: PASSED (16s)
+compose_project: gateway-p2r4-s10-39dfebc86b19
+cache: http://172.17.0.1:18080 (HTTP 200)
+```
+
+Local gate hosts that cannot reach `172.17.0.1:18080` should treat container gate
+reruns as remote-only; the failure mode is infrastructure (cache unreachable), not
+application regression.
+
+### Syncing source to the remote host
+
+Do **not** sync the entire repository or full `vnext/` tree. `vnext/rust/` is about
+24 GB and is not required for repository-service Compose gates. Copying it over SSH
+stalls for many minutes and provides no gate value.
+
+Sync only the packages and paths required for repository-service gates:
+
+```sh
+tar czf - \
+  --exclude='.venv' --exclude='__pycache__' --exclude='.pytest_cache' \
+  --exclude='.mypy_cache' --exclude='.ruff_cache' \
+  vnext/repository_service \
+  vnext/repository_contracts \
+  vnext/shared_kernel \
+  vnext/repository_client \
+  vnext/deploy \
+  vnext/scripts \
+  vnext/fixtures \
+  AGENTS.md \
+  | ssh tmpuser@10.10.60.4 \
+    'cd /home/tmpuser/gateway-data-management-system && tar xzf -'
+```
+
+**Never include `vnext/rust`** in tar or rsync. If using rsync, add
+`--exclude vnext/rust`.
+
+Additional remote prerequisites:
+
+- **Git metadata**: `compose_build_harness` resolves `build-input-revision` via
+  `git log`. The remote checkout must be a git worktree with the synced paths
+  committed (or clone the branch normally).
+- **S10 e2e chown**: `test_import_compose_e2e` calls `os.chown(token, gateway_uid,
+  gateway_gid)`; run the pytest node with `sudo` on the remote host.
+
+```sh
+ssh tmpuser@10.10.60.4 'echo <password> | sudo -S bash -lc "\
+  cd /home/tmpuser/gateway-data-management-system/vnext/repository_service && \
+  uv sync && \
+  uv run pytest tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay \
+    -m serial -n 0 -v"'
+```
+
 ## Remote host setup
 
 Run as root on the development host:

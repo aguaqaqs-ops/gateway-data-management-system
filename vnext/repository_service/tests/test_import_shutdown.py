@@ -298,3 +298,102 @@ def test_runtime_shutdown_releases_root_lock_when_worker_hangs(tmp_path: Path) -
             pass
     finally:
         blocker.set()
+
+
+@pytest.mark.serial
+@pytest.mark.integration
+def test_runtime_shutdown_propagates_bridge_shutdown_error_after_releasing_resources(
+    tmp_path: Path,
+) -> None:
+    from gateway_repository_contracts import UnknownTypePolicy
+    from gateway_repository_service.arrow_mapping import ColumnCatalog, TableCatalog, compile_table_plan
+    from gateway_repository_service.locking import DurableRootLock
+    from gateway_repository_service.versioned_read.arrow_bridge import (
+        BRIDGE_REGISTRY,
+        ArrowIpcStreamBridge,
+        BridgeShutdownError,
+    )
+    from support.lifecycle_harness import lifecycle_settings
+
+    worker_finish_release = threading.Event()
+    bridge: ArrowIpcStreamBridge | None = None
+    runtime: ServiceRuntime | None = None
+    try:
+        settings = lifecycle_settings(tmp_path).model_copy(
+            update={"import_shutdown_grace_seconds": 0.05}
+        )
+        runtime = ServiceRuntime.start(settings)
+        lock_path = runtime.layout.service_lock
+
+        table = TableCatalog(
+            "items",
+            (
+                ColumnCatalog(
+                    name="id",
+                    sql_type="BIGINT",
+                    nullable=False,
+                    primary_key_position=1,
+                ),
+            ),
+            row_count=1,
+        )
+        plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
+        batch = plan.record_batch([plan.normalize_row((1,))])
+
+        ArrowIpcStreamBridge._test_worker_finish_barrier = worker_finish_release
+        bridge = ArrowIpcStreamBridge(plan, iter([batch]), threading.Event())
+        assert bridge in BRIDGE_REGISTRY.snapshot()
+
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if bridge.is_worker_alive() and not bridge._worker_finished:
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("bridge worker did not reach finish barrier")
+
+        with pytest.raises(BridgeShutdownError) as exc_info:
+            runtime.shutdown()
+
+        assert exc_info.value.failures or exc_info.value.survivor_count
+        assert not runtime.control_store.is_open()
+        assert not runtime.root_lock.is_held()
+        with DurableRootLock(lock_path):
+            pass
+    finally:
+        worker_finish_release.set()
+        ArrowIpcStreamBridge._test_worker_finish_barrier = None
+        if bridge is not None:
+            if bridge.is_worker_alive():
+                bridge._worker.join(timeout=5.0)
+            try:
+                BRIDGE_REGISTRY.unregister(bridge)
+            except Exception:
+                pass
+            if bridge in BRIDGE_REGISTRY.snapshot():
+                try:
+                    BRIDGE_REGISTRY.close_all(
+                        runtime.dolt_runner if runtime is not None else None,
+                        join_timeout_seconds=30.0,
+                    )
+                except BridgeShutdownError:
+                    pass
+        if runtime is not None:
+            try:
+                runtime.dolt_runner.terminate_active_children()
+            except Exception:
+                pass
+            try:
+                if runtime.control_store.is_open():
+                    runtime.control_store.close()
+            except Exception:
+                pass
+            try:
+                if runtime.root_lock.is_held():
+                    runtime.root_lock.release()
+            except Exception:
+                pass
+            assert BRIDGE_REGISTRY.snapshot() == ()
+            assert runtime.dolt_runner._active_children.snapshot() == ()
+        if bridge is not None:
+            assert not bridge.is_worker_alive()

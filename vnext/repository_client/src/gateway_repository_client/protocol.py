@@ -50,6 +50,46 @@ def require_request_id(response: httpx.Response) -> str:
     return request_id
 
 
+def _declared_content_length(response: httpx.Response) -> int | None:
+    raw = response.headers.get("content-length")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _is_body_complete(response: httpx.Response, total: int) -> bool:
+    declared = _declared_content_length(response)
+    return declared is not None and total >= declared
+
+
+def _attach_close_notes(exc: BaseException, close_errors: list[Exception]) -> None:
+    existing_notes = list(getattr(exc, "__notes__", ()))
+    for error in close_errors:
+        note = f"cleanup close failed: {error}"
+        if note not in existing_notes:
+            exc.add_note(note)
+            existing_notes.append(note)
+
+
+def _raise_close_errors(close_errors: list[Exception]) -> None:
+    if len(close_errors) == 1:
+        raise close_errors[0]
+    raise ExceptionGroup("failed to close HTTP response", close_errors)
+
+
+async def _close_response_quiet(response: httpx.Response) -> list[Exception]:
+    try:
+        await response.aclose()
+    except BaseException as exc:
+        if isinstance(exc, Exception):
+            return [exc]
+        raise
+    return []
+
+
 async def read_bounded_bytes(
     response: httpx.Response,
     *,
@@ -72,20 +112,28 @@ async def read_bounded_bytes(
                     request_id=resolved_request_id,
                 )
             chunks.append(chunk)
-    except RepositoryProtocolError:
-        await response.aclose()
+    except RepositoryProtocolError as exc:
+        close_errors = await _close_response_quiet(response)
+        _attach_close_notes(exc, close_errors)
+        if close_errors_out is not None:
+            close_errors_out.extend(close_errors)
         raise
     except OSError as exc:
-        if not chunks:
-            raise RepositoryProtocolError(
-                "failed to read response body",
-                status_code=response.status_code,
-                request_id=resolved_request_id,
-            ) from exc
-        if close_errors_out is not None:
-            close_errors_out.append(exc)
-        return b"".join(chunks)
-    return b"".join(chunks)
+        if _is_body_complete(response, total):
+            if close_errors_out is not None:
+                close_errors_out.append(exc)
+            return b"".join(chunks)
+        raise RepositoryProtocolError(
+            "failed to read response body",
+            status_code=response.status_code,
+            request_id=resolved_request_id,
+        ) from exc
+
+    body = b"".join(chunks)
+    close_errors = await _close_response_quiet(response)
+    if close_errors_out is not None:
+        close_errors_out.extend(close_errors)
+    return body
 
 
 def _parse_json_bytes(
@@ -188,6 +236,7 @@ async def parse_json_response(
         if response.status_code == expected_status
         else max_error_body_bytes
     )
+    primary: BaseException | None = None
     try:
         body = await read_bounded_bytes(response, limit=body_limit)
         if response.status_code == expected_status:
@@ -205,8 +254,15 @@ async def parse_json_response(
                 request_id=request_id,
             )
         await raise_for_error_response(response, body=body)
+    except BaseException as exc:
+        primary = exc
+        raise
     finally:
-        await response.aclose()
+        close_errors = await _close_response_quiet(response)
+        if primary is not None:
+            _attach_close_notes(primary, close_errors)
+        elif close_errors:
+            _raise_close_errors(close_errors)
     raise AssertionError("raise_for_error_response must raise")
 
 

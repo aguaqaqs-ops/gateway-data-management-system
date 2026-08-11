@@ -16,6 +16,7 @@ from gateway_repository_client.errors import (
     RepositoryStreamError,
 )
 from gateway_repository_client.protocol import (
+    _attach_close_notes,
     peek_request_id,
     raise_for_error_response,
     read_bounded_bytes,
@@ -89,7 +90,9 @@ class ArrowIpcByteStream:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        await self.aclose()
+        close_errors = await self._shutdown_transport(raise_on_close_error=(exc is None))
+        if exc is not None and close_errors:
+            _attach_close_notes(exc, close_errors)
 
     async def aiter_bytes(self) -> AsyncIterator[bytes]:
         async with self._lifecycle_lock:
@@ -113,7 +116,7 @@ class ArrowIpcByteStream:
                             self._bytes_exposed = True
                             yield chunk
                     return
-                except httpx.HTTPError as exc:
+                except (httpx.HTTPError, OSError) as exc:
                     if self._bytes_exposed:
                         raise RepositoryStreamError(
                             "Arrow stream read failed after bytes were exposed",
@@ -131,18 +134,27 @@ class ArrowIpcByteStream:
                 self._byte_iterator_active = False
 
     async def aclose(self) -> None:
+        await self._shutdown_transport(raise_on_close_error=True)
+
+    async def _shutdown_transport(self, *, raise_on_close_error: bool) -> list[Exception]:
         client: httpx.AsyncClient | None
         response: httpx.Response | None
         async with self._lifecycle_lock:
             if self._closed:
-                return
+                return []
             self._close_requested = True
             self._closed = True
             client = self._client
             response = self._response
             self._client = None
             self._response = None
-        self._record_close_errors(await _close_pair_quiet(client, response))
+        close_errors = await _close_pair_quiet(client, response)
+        self._record_close_errors(close_errors)
+        if raise_on_close_error and close_errors:
+            if len(close_errors) == 1:
+                raise close_errors[0]
+            raise ExceptionGroup("failed to close Arrow stream transport", close_errors)
+        return close_errors
 
     async def _open_with_retry(self, *, backoff: bool = False) -> None:
         self._ensure_open()

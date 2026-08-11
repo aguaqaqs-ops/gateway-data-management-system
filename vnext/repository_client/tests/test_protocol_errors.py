@@ -16,6 +16,7 @@ from gateway_repository_client import (
 
 REPO_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
 OP_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
+COMMIT_ID = "commit-c1"
 
 
 @pytest.mark.asyncio
@@ -294,3 +295,122 @@ async def test_oversized_json_body_raises_protocol_error_and_closes_transport() 
 
     assert exc_info.value.request_id == "req-big"
     assert closed["count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_mid_body_oserror_after_complete_dto_fails() -> None:
+    import json
+
+    operation_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
+    payload = {
+        "operation": {
+            "operation_id": str(operation_id),
+            "status": "RUNNING",
+            "result": None,
+            "error": None,
+        }
+    }
+    body = json.dumps(payload).encode()
+
+    class MidBodyFailureStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield body
+            raise OSError("mid-body failure")
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            return None
+
+    class MidBodyTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                request=request,
+                headers={"X-Request-ID": "req-mid", "Content-Type": "application/json"},
+                stream=MidBodyFailureStream(),
+            )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=MidBodyTransport(),
+    )
+    with pytest.raises(RepositoryProtocolError, match="failed to read response body"):
+        await client.get_operation(repository_id=REPO_ID, operation_id=operation_id)
+
+
+@pytest.mark.asyncio
+async def test_oversized_body_close_failure_preserves_protocol_error() -> None:
+    from gateway_repository_client.protocol import MAX_WIRE_JSON_BYTES
+
+    class ChunkedBody(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            chunk = b"x" * 4096
+            for _ in range((MAX_WIRE_JSON_BYTES // 4096) + 2):
+                yield chunk
+
+        async def aclose(self) -> None:
+            raise OSError("oversize cleanup failed")
+
+    class ChunkedTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            del request
+            return httpx.Response(
+                200,
+                headers={"X-Request-ID": "req-big", "Content-Type": "application/json"},
+                stream=ChunkedBody(),
+            )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=ChunkedTransport(),
+    )
+    with pytest.raises(RepositoryProtocolError, match="exceeds") as exc_info:
+        await client.resolve_versioned_ref(repository_id=REPO_ID)
+
+    assert exc_info.value.request_id == "req-big"
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("oversize cleanup failed" in note for note in notes)
+
+
+@pytest.mark.asyncio
+async def test_error_endpoint_mid_body_oserror_fails() -> None:
+    import json
+
+    error_body = json.dumps(
+        {
+            "code": "TABLE_NOT_FOUND",
+            "message": "missing",
+            "request_id": "req-err",
+        }
+    ).encode()
+
+    class MidBodyErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield error_body
+            raise OSError("mid-body failure")
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            return None
+
+    class ErrorTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                404,
+                request=request,
+                headers={"X-Request-ID": "req-err", "Content-Type": "application/json"},
+                stream=MidBodyErrorStream(),
+            )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=ErrorTransport(),
+    )
+    with pytest.raises(RepositoryProtocolError, match="failed to read response body"):
+        await client.get_versioned_catalog(
+            repository_id=REPO_ID,
+            commit_id=COMMIT_ID,
+        )

@@ -325,6 +325,7 @@ async def replay_upload(
         settings=runtime.settings,
         layout=runtime.layout,
         mutation_store=runtime.mutation_store,
+        upload_admission=runtime.upload_admission,
     )
     body = cast(AsyncIterator[bytes], UploadBody(payload))
     response = await command.execute(repository_id, headers, body)

@@ -10,12 +10,18 @@ from contextlib import ExitStack
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from gateway_repository_service.admission import PermitPool
+from gateway_repository_service.artifact_cleaner import (
+    ArtifactCleanerLifecycle,
+    NoOpArtifactCleaner,
+)
 from gateway_repository_service.auth_state import AuthState
 from gateway_repository_service.capacity import (
     has_free_disk_admission,
     is_durable_root_writable,
 )
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
+from gateway_repository_service.diagnostics import log_event, operational_limits
 from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.mutation_reconciliation import (
@@ -63,6 +69,12 @@ class ServiceRuntime:
     dolt_runner: DoltRunner
     provider_gate: OfflineCliCapabilityGate
     auth_state: AuthState
+    upload_admission: PermitPool = field(default_factory=lambda: PermitPool(8), repr=False)
+    row_stream_admission: PermitPool = field(default_factory=lambda: PermitPool(8), repr=False)
+    artifact_cleaner: ArtifactCleanerLifecycle = field(
+        default_factory=NoOpArtifactCleaner,
+        repr=False,
+    )
     admission_fault_injector: ImportAdmissionFaultInjector = field(
         default_factory=NoOpImportAdmissionFaultInjector,
         repr=False,
@@ -80,6 +92,7 @@ class ServiceRuntime:
         settings: RepositoryServiceSettings,
         *,
         admission_fault_injector: ImportAdmissionFaultInjector | None = None,
+        artifact_cleaner: ArtifactCleanerLifecycle | None = None,
     ) -> "ServiceRuntime":
         stack = ExitStack()
         try:
@@ -153,8 +166,11 @@ class ServiceRuntime:
                 layout,
                 read_provider_factory,
             )
+            upload_admission = PermitPool(settings.max_concurrent_uploads)
+            row_stream_admission = PermitPool(settings.max_concurrent_row_streams)
+            cleaner = artifact_cleaner if artifact_cleaner is not None else NoOpArtifactCleaner()
             stack.pop_all()
-            return cls(
+            runtime = cls(
                 settings=settings,
                 layout=layout,
                 root_lock=root_lock,
@@ -167,11 +183,23 @@ class ServiceRuntime:
                 dolt_runner=dolt_runner,
                 provider_gate=provider_gate,
                 auth_state=AuthState(bearer_token=bearer_token),
+                upload_admission=upload_admission,
+                row_stream_admission=row_stream_admission,
+                artifact_cleaner=cleaner,
                 admission_fault_injector=admission_fault_injector or NoOpImportAdmissionFaultInjector(),
                 reconciliation_failures=reconciliation.blocking_failures,
                 consistency_watch=MutableConsistencyWatch.from_watch(reconciliation.consistency_watch),
                 _stopping=stopping,
             )
+            log_event(
+                "runtime_start",
+                result="started",
+                capacity=upload_admission.capacity,
+                in_use=0,
+                extra_fields=operational_limits(settings),
+                logger=_LOGGER,
+            )
+            return runtime
         except ReconciliationError as exc:
             raise ServiceStartupError(str(exc)) from exc
         except ServiceStartupError:
@@ -219,8 +247,18 @@ class ServiceRuntime:
 
     def shutdown(self) -> None:
         self._stopping.set()
-        self.import_worker_pool.begin_shutdown()
+        self.upload_admission.close()
+        self.row_stream_admission.close()
+        log_event(
+            "runtime_shutdown",
+            result="closing_admission",
+            capacity=self.upload_admission.capacity,
+            in_use=self.upload_admission.in_use,
+            logger=_LOGGER,
+        )
         grace = self.settings.import_shutdown_grace_seconds
+        self.artifact_cleaner.stop(timeout=grace)
+        self.import_worker_pool.begin_shutdown()
         try:
             if not self.import_worker_pool.wait_for_quiescence(timeout=grace):
                 self.import_worker_pool.cancel_active_operations()
@@ -243,10 +281,29 @@ class ServiceRuntime:
                 )
             except BridgeShutdownError as exc:
                 bridge_shutdown_error = exc
+            upload_snap = self.upload_admission.snapshot()
+            row_snap = self.row_stream_admission.snapshot()
+            if upload_snap.in_use != 0 or row_snap.in_use != 0:
+                log_event(
+                    "runtime_shutdown",
+                    result="permit_leak",
+                    capacity=upload_snap.capacity,
+                    in_use=upload_snap.in_use + row_snap.in_use,
+                    cleanup_outcome="permit_in_use_before_durable_release",
+                    logger=_LOGGER,
+                )
             if self.control_store.is_open():
                 self.control_store.close()
             if self.root_lock.is_held():
                 self.root_lock.release()
+            log_event(
+                "runtime_shutdown",
+                result="stopped",
+                capacity=upload_snap.capacity,
+                in_use=self.upload_admission.in_use + self.row_stream_admission.in_use,
+                cleanup_outcome="durable_released",
+                logger=_LOGGER,
+            )
             if bridge_shutdown_error is not None:
                 raise bridge_shutdown_error
 

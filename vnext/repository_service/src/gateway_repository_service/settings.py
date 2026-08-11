@@ -63,10 +63,14 @@ class RepositoryServiceSettings(BaseSettings):
     max_total_expanded_entry_bytes: int = 4 * 1024 * 1024 * 1024
     max_decompressed_tar_stream_bytes: int = 4 * 1024 * 1024 * 1024
     artifact_ttl_seconds: int = 24 * 60 * 60
+    artifact_cleanup_interval_seconds: int = 300
     sqlite_busy_timeout_ms: int = 5000
     catalog_parallel_workers: int = 2
+    max_concurrent_uploads: int = 8
     max_import_workers: int = 4
     max_queued_imports: int = 64
+    max_concurrent_row_streams: int = 8
+    full_scan_timeout_seconds: int = 3600
     import_headroom_bytes: int = 1 * 1024**3
 
     @field_validator("dolt_binary")
@@ -105,10 +109,14 @@ class RepositoryServiceSettings(BaseSettings):
         "max_total_expanded_entry_bytes",
         "max_decompressed_tar_stream_bytes",
         "artifact_ttl_seconds",
+        "artifact_cleanup_interval_seconds",
         "sqlite_busy_timeout_ms",
         "catalog_parallel_workers",
+        "max_concurrent_uploads",
         "max_import_workers",
         "max_queued_imports",
+        "max_concurrent_row_streams",
+        "full_scan_timeout_seconds",
     )
     @classmethod
     def _bounds_must_be_positive(cls, value: int) -> int:

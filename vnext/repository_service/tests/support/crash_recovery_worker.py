@@ -196,6 +196,7 @@ async def _run_upload(
         settings=runtime.settings,
         layout=runtime.layout,
         mutation_store=runtime.mutation_store,
+        upload_admission=runtime.upload_admission,
         publication_port=CrashArtifactPublicationAdapter(_publication_point(point)),
         fault_injector=CrashUploadFaultInjector(point) if point is not None else None,
     )

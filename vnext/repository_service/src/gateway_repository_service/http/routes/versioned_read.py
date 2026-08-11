@@ -100,12 +100,24 @@ def register_versioned_read_routes(app: FastAPI) -> None:
     ) -> StreamingResponse:
         validated_commit_id = _decoded_commit_id(commit_id)
         query = _validated_rows_query(table_name, unknown_type_policy)
-        service = _read_service_from_runtime(_runtime_from_state(request))
-        bridge = service.open_row_stream(repository_id, validated_commit_id, query)
+        runtime = _runtime_from_state(request)
+        request_id = getattr(request.state, "request_id", None)
+        request_id_str = str(request_id) if request_id is not None else None
+        service = VersionedReadHttpService(
+            runtime.versioned_read_application,
+            dolt_runner=runtime.dolt_runner,
+            row_stream_admission=runtime.row_stream_admission,
+            request_id=request_id_str,
+        )
+        bridge, lease = service.open_row_stream(repository_id, validated_commit_id, query)
         return VersionedReadStreamingResponse(
             bridge,
             bridge.iter_bytes(),
             media_type=VERSIONED_READ_ARROW_MEDIA_TYPE,
+            permit_lease=lease,
+            request_id=request_id_str,
+            repository_id=str(repository_id),
+            admission_capacity=runtime.row_stream_admission.capacity,
         )
 
 
@@ -120,6 +132,7 @@ def _read_service_from_runtime(runtime: ServiceRuntime) -> VersionedReadHttpServ
     return VersionedReadHttpService(
         runtime.versioned_read_application,
         dolt_runner=runtime.dolt_runner,
+        row_stream_admission=runtime.row_stream_admission,
     )
 
 

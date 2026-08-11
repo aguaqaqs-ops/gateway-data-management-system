@@ -33,6 +33,7 @@ def register_artifact_routes(app: FastAPI) -> None:
             413: {"description": "Payload too large"},
             415: {"description": "Unsupported media type"},
             422: {"description": "Request validation failed"},
+            429: {"description": "Upload concurrency limit reached"},
             503: {"description": "Service not ready or disk admission denied"},
         },
     )
@@ -61,10 +62,13 @@ def register_artifact_routes(app: FastAPI) -> None:
             raise _request_validation_failed(exc) from exc
 
         runtime = _runtime_from_state(request)
+        request_id = getattr(request.state, "request_id", None)
         command = UploadArtifactCommand(
             settings=runtime.settings,
             layout=runtime.layout,
             mutation_store=runtime.mutation_store,
+            upload_admission=runtime.upload_admission,
+            request_id=str(request_id) if request_id is not None else None,
         )
 
         async def body_stream() -> AsyncIterator[bytes]:

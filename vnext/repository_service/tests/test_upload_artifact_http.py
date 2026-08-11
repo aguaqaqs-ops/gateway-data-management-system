@@ -356,5 +356,10 @@ def test_openapi_exposes_upload_route(tmp_path: Path) -> None:
     client = _route_test_client(settings)
     response = client.get("/openapi.json")
     assert response.status_code == 200
-    paths = set(response.json()["paths"].keys())
+    body = response.json()
+    paths = set(body["paths"].keys())
     assert paths == ALLOWED_OPENAPI_PATHS
+    upload = body["paths"]["/v1/repositories/{repository_id}/artifacts"]["post"]
+    assert "429" in upload["responses"]
+    assert "413" in upload["responses"]
+    assert "503" in upload["responses"]

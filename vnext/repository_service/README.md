@@ -120,6 +120,33 @@ sudo chmod 0400 /path/to/token
 
 缺少 production secret 时 lifespan fail closed，服务不会进入 ready 状态。
 
+### Operational configuration（启动时冻结）
+
+部署方通过 Compose `--env-file`（或宿主机环境）提供下列 `GATEWAY_REPOSITORY_*` 键；
+Compose 显式透传并带有冻结默认值。Settings 仅在进程启动时读取，不做热更新。
+
+```text
+GATEWAY_REPOSITORY_ARTIFACT_TTL_SECONDS
+GATEWAY_REPOSITORY_ARTIFACT_CLEANUP_INTERVAL_SECONDS
+GATEWAY_REPOSITORY_MAX_CONCURRENT_UPLOADS
+GATEWAY_REPOSITORY_MAX_IMPORT_WORKERS
+GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS
+GATEWAY_REPOSITORY_MAX_CONCURRENT_ROW_STREAMS
+GATEWAY_REPOSITORY_FULL_SCAN_TIMEOUT_SECONDS
+GATEWAY_REPOSITORY_MIN_FREE_DISK_BYTES
+GATEWAY_REPOSITORY_MIN_FREE_DISK_FRACTION
+GATEWAY_REPOSITORY_IMPORT_HEADROOM_BYTES
+```
+
+修改上述值后必须执行 `up --no-build --force-recreate`（或等价 recreate）以使新
+container environment 生效；`docker restart` **不会**更新已有 container 的 environment。
+
+```bash
+docker compose -f vnext/deploy/compose.yaml --profile p2-r2 \
+  --env-file /path/to/repository.env \
+  up -d --no-build --force-recreate repository-service
+```
+
 ## 镜像构建（P2-R4 Compose gate / 远端 cache）
 
 本地直接 `docker compose build` 会尝试从公网下载 Dolt/uv，在网络受限环境下耗时很长且

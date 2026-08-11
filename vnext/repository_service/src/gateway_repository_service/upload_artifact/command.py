@@ -13,11 +13,13 @@ from gateway_repository_contracts import (
     validate_upload_content_length,
 )
 
+from gateway_repository_service.admission import PermitLease, PermitPool
 from gateway_repository_service.capacity import (
     CapacityAdmissionError,
     assert_upload_disk_admission,
 )
 from gateway_repository_service.create_repository.visibility import is_repository_visible
+from gateway_repository_service.diagnostics import log_event
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.mutation_fingerprints import upload_artifact_fingerprint_v1
@@ -26,6 +28,7 @@ from gateway_repository_service.mutation_store import (
     DuplicateEffectClaim,
     EffectStatus,
     FingerprintConflict,
+    IdempotencyKeyHash,
     IdempotencyScope,
     IdempotencyTerminalNotPublished,
     MutationStore,
@@ -56,6 +59,8 @@ class UploadArtifactCommand:
         publication_port: ArtifactPublicationPort | None = None,
         fault_injector: UploadArtifactFaultInjector | None = None,
         sink_factory: type[StreamingFileSinkAdapter] = StreamingFileSinkAdapter,
+        upload_admission: PermitPool | None = None,
+        request_id: str | None = None,
     ) -> None:
         self._settings = settings
         self._layout = layout
@@ -63,6 +68,8 @@ class UploadArtifactCommand:
         self._publication_port = publication_port or ArtifactFilesystemPublicationAdapter()
         self._fault_injector = fault_injector or NoOpUploadArtifactFaultInjector()
         self._sink_factory = sink_factory
+        self._upload_admission = upload_admission
+        self._request_id = request_id
 
     async def execute(
         self,
@@ -92,6 +99,43 @@ class UploadArtifactCommand:
         if claim.effect is not None and claim.effect.status == EffectStatus.SUCCEEDED:
             return _response_from_effect(claim.effect.response_body)
 
+        lease = self._acquire_upload_permit(repository_id)
+        try:
+            return await self._execute_new_upload(
+                repository_id=repository_id,
+                headers=headers,
+                body=body,
+                scope=scope,
+                key_hash=key_hash,
+                fingerprint=fingerprint,
+            )
+        finally:
+            if lease is not None:
+                lease.release()
+                snap = (
+                    self._upload_admission.snapshot()
+                    if self._upload_admission is not None
+                    else None
+                )
+                log_event(
+                    "upload_admission_released",
+                    request_id=self._request_id,
+                    repository_id=repository_id,
+                    capacity=snap.capacity if snap is not None else None,
+                    in_use=snap.in_use if snap is not None else None,
+                    result="released",
+                )
+
+    async def _execute_new_upload(
+        self,
+        *,
+        repository_id: UUID,
+        headers: UploadRequestHeaders,
+        body: AsyncIterator[bytes],
+        scope: IdempotencyScope,
+        key_hash: IdempotencyKeyHash,
+        fingerprint: bytes,
+    ) -> UploadArtifactResponse:
         self._assert_pre_pending_guards(repository_id, headers)
 
         artifact_id = uuid4()
@@ -179,6 +223,14 @@ class UploadArtifactCommand:
                 ),
             )
             self._fault_injector.after_succeeded_before_response()
+            log_event(
+                "upload_admission_completed",
+                request_id=self._request_id,
+                repository_id=repository_id,
+                artifact_id=artifact_id,
+                size_bytes=received_bytes,
+                result="succeeded",
+            )
             return UploadArtifactResponse.model_validate(response_body)
         except FingerprintConflict as exc:
             raise _idempotency_conflict() from exc
@@ -196,6 +248,38 @@ class UploadArtifactCommand:
             elif staged_path is not None and staged_path.exists():
                 staged_path.unlink()
             raise
+
+    def _acquire_upload_permit(self, repository_id: UUID) -> PermitLease | None:
+        pool = self._upload_admission
+        if pool is None:
+            return None
+        lease = pool.try_acquire()
+        snap = pool.snapshot()
+        if lease is None:
+            log_event(
+                "upload_admission_denied",
+                request_id=self._request_id,
+                repository_id=repository_id,
+                capacity=snap.capacity,
+                in_use=snap.in_use,
+                result="denied",
+                code="UPLOAD_CONCURRENCY_LIMIT",
+            )
+            raise ServiceError(
+                code="UPLOAD_CONCURRENCY_LIMIT",
+                message="upload concurrency limit reached",
+                status_code=429,
+            )
+        # snapshot after acquire already includes this lease
+        log_event(
+            "upload_admission_acquired",
+            request_id=self._request_id,
+            repository_id=repository_id,
+            capacity=snap.capacity,
+            in_use=snap.in_use,
+            result="acquired",
+        )
+        return lease
 
     def _assert_pre_pending_guards(
         self,

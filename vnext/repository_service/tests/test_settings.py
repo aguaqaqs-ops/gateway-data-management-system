@@ -58,14 +58,45 @@ def test_default_upload_and_ttl_settings() -> None:
     assert settings.max_total_expanded_entry_bytes == 4 * 1024 * 1024 * 1024
     assert settings.max_decompressed_tar_stream_bytes == 4 * 1024 * 1024 * 1024
     assert settings.artifact_ttl_seconds == 24 * 60 * 60
+    assert settings.artifact_cleanup_interval_seconds == 300
+    assert settings.max_concurrent_uploads == 8
     assert settings.max_import_workers == 4
     assert settings.max_queued_imports == 64
+    assert settings.max_concurrent_row_streams == 8
+    assert settings.full_scan_timeout_seconds == 3600
+    assert settings.min_free_disk_bytes == 5 * 1024 * 1024 * 1024
+    assert settings.min_free_disk_fraction == 0.10
     assert settings.import_headroom_bytes == 1 * 1024**3
 
 
-@pytest.mark.parametrize("field", ["max_import_workers", "max_queued_imports"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "max_import_workers",
+        "max_queued_imports",
+        "artifact_cleanup_interval_seconds",
+        "max_concurrent_uploads",
+        "max_concurrent_row_streams",
+        "full_scan_timeout_seconds",
+    ],
+)
 def test_max_import_workers_rejects_zero(tmp_path: Path, field: str) -> None:
     kwargs: dict[str, int] = {field: 0}
+    with pytest.raises(ValueError):
+        RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "artifact_cleanup_interval_seconds",
+        "max_concurrent_uploads",
+        "max_concurrent_row_streams",
+        "full_scan_timeout_seconds",
+    ],
+)
+def test_operational_bounds_reject_negative(tmp_path: Path, field: str) -> None:
+    kwargs: dict[str, int] = {field: -1}
     with pytest.raises(ValueError):
         RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]
 
@@ -105,6 +136,18 @@ def test_import_queue_settings_from_env(tmp_path: Path, monkeypatch: pytest.Monk
     settings = RepositoryServiceSettings(data_root=tmp_path / "root")
     assert settings.max_queued_imports == 32
     assert settings.import_headroom_bytes == 2048
+
+
+def test_operational_admission_settings_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GATEWAY_REPOSITORY_ARTIFACT_CLEANUP_INTERVAL_SECONDS", "120")
+    monkeypatch.setenv("GATEWAY_REPOSITORY_MAX_CONCURRENT_UPLOADS", "3")
+    monkeypatch.setenv("GATEWAY_REPOSITORY_MAX_CONCURRENT_ROW_STREAMS", "2")
+    monkeypatch.setenv("GATEWAY_REPOSITORY_FULL_SCAN_TIMEOUT_SECONDS", "900")
+    settings = RepositoryServiceSettings(data_root=tmp_path / "root")
+    assert settings.artifact_cleanup_interval_seconds == 120
+    assert settings.max_concurrent_uploads == 3
+    assert settings.max_concurrent_row_streams == 2
+    assert settings.full_scan_timeout_seconds == 900
 
 
 @pytest.mark.integration

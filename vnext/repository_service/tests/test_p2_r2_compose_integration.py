@@ -100,6 +100,37 @@ def test_compose_repository_service_has_production_env_and_secret_mount() -> Non
     assert "repository-bearer-token:" in compose
 
 
+OPERATIONAL_COMPOSE_ENV_DEFAULTS = {
+    "GATEWAY_REPOSITORY_ARTIFACT_TTL_SECONDS": "86400",
+    "GATEWAY_REPOSITORY_ARTIFACT_CLEANUP_INTERVAL_SECONDS": "300",
+    "GATEWAY_REPOSITORY_MAX_CONCURRENT_UPLOADS": "8",
+    "GATEWAY_REPOSITORY_MAX_IMPORT_WORKERS": "4",
+    "GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS": "64",
+    "GATEWAY_REPOSITORY_MAX_CONCURRENT_ROW_STREAMS": "8",
+    "GATEWAY_REPOSITORY_FULL_SCAN_TIMEOUT_SECONDS": "3600",
+    "GATEWAY_REPOSITORY_MIN_FREE_DISK_BYTES": "5368709120",
+    "GATEWAY_REPOSITORY_MIN_FREE_DISK_FRACTION": "0.10",
+    "GATEWAY_REPOSITORY_IMPORT_HEADROOM_BYTES": "1073741824",
+}
+
+
+def test_compose_repository_service_maps_operational_env_allowlist() -> None:
+    service = _service_block(COMPOSE.read_text(encoding="utf-8"), "repository-service")
+    for key, default in OPERATIONAL_COMPOSE_ENV_DEFAULTS.items():
+        expected = f"{key}: ${{{key}:-{default}}}"
+        assert expected in service, f"missing compose mapping: {expected}"
+
+
+def test_readme_documents_env_file_and_force_recreate() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "--env-file" in readme
+    assert "up --no-build --force-recreate" in readme or "--force-recreate" in readme
+    assert "docker restart" in readme
+    assert "不会" in readme or "will not" in readme.lower()
+    for key in OPERATIONAL_COMPOSE_ENV_DEFAULTS:
+        assert key in readme
+
+
 def test_compose_repository_service_has_no_host_ports() -> None:
     service = _service_block(COMPOSE.read_text(encoding="utf-8"), "repository-service")
     assert "ports:" not in service

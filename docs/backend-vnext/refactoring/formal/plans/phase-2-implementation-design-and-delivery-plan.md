@@ -221,6 +221,9 @@ HTTP/client gate，production image build、镜像传输及compose内外client s
 
 ### P2-R6 — Operational closure
 
+冻结的实施顺序、operational defaults、evidence matrix和final candidate/provenance协议见
+[P2-R6 Operational Closure Staged Execution Plan](p2-r6-operational-closure-execution-plan.md)。
+
 - 成功package清理和manual-recovery保留；
 - configurable upload/import concurrency和free-disk admission；
 - deployment-level quiescent volume snapshot/restore runbook；

@@ -280,6 +280,8 @@ phase_2_complete: no
 ## 8. P2-R6 — Operational closure
 
 Prerequisite：P2-R5 handoff。完整读取Repository contract §§12、14–18及P2 design §§18–21。
+冻结的private实现选择、green stages、evidence矩阵和final candidate协议见
+[P2-R6 Operational Closure Staged Execution Plan](p2-r6-operational-closure-execution-plan.md)。
 
 Allowed：artifact cleanup scheduler、configurable concurrency/admission、structured
 diagnostics、snapshot/restore/admin runbook、capacity test/report、final compose wiring与CI。

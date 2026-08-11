@@ -25,6 +25,7 @@
 - [P2-R4 Async Versioned Import Detailed Implementation Design](plans/p2-r4-async-versioned-import-implementation-design.md)
 - [P2-R4 Async Versioned Import Staged Execution Plan](plans/p2-r4-async-versioned-import-execution-plan.md)
 - [P2-R5 Commit-pinned Read Staged Execution Plan](plans/p2-r5-commit-pinned-read-execution-plan.md)
+- [P2-R6 Operational Closure Staged Execution Plan](plans/p2-r6-operational-closure-execution-plan.md)
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)
@@ -63,7 +64,10 @@
 conformance architecture、formal baseline lifecycle和exact-commit exit不再是
 authority。P2-R1 v8 formal 已通过，默认 provider 为Candidate A offline CLI，
 Candidate B保留但默认禁用；P2-R2至P2-R4已通过。P2-R5 functional exit complete，
-P2-R6 operational closure ready；`production_retest_required=yes`，`phase_2_complete=no`；
+P2-R6-S0 design freeze complete、S1 implementation ready；`production_retest_required=yes`，
+`phase_2_complete=no`；
 P3 design尚未开始。完整handoff见
 [P2-R5 Commit-pinned Read Staged Execution Plan — P2-R5-S7 final handoff — 2026-08-12](plans/p2-r5-commit-pinned-read-execution-plan.md#p2-r5-s7-final-handoff--2026-08-12)。
+R6执行边界见
+[P2-R6 Operational Closure Staged Execution Plan](plans/p2-r6-operational-closure-execution-plan.md)。
 P3完整设计只在P2-R6通过后开始。

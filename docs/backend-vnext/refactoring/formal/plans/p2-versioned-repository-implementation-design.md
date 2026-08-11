@@ -1,10 +1,10 @@
 # P2 Versioned Repository Implementation Design
 
-状态：Accepted — P2-R5 functional exit complete, P2-R6 ready
+状态：Accepted — P2-R6-S0 design freeze complete, S1 ready
 
 日期：2026-08-02
 
-更新：2026-08-09（P2-R5 design freeze）
+更新：2026-08-12（P2-R6 operational closure design freeze）
 
 适用范围：Phase 2 `P2-R1`至`P2-R6`
 
@@ -244,6 +244,9 @@ P2-R6 cleanup/capacity/snapshot/container operational closure
 [P2 Execution Checklist](p2-versioned-repository-execution-checklist.md)。P2-R5的冻结设计、
 allowed paths、green stages、测试矩阵和R6 handoff见
 [P2-R5 Commit-pinned Read Staged Execution Plan](p2-r5-commit-pinned-read-execution-plan.md)。
+P2-R6的operational defaults、private implementation decisions、evidence matrix、candidate seal和
+production gate见
+[P2-R6 Operational Closure Staged Execution Plan](p2-r6-operational-closure-execution-plan.md)。
 
 ## 21. Risks, reopen conditions and P3 timing
 
@@ -260,7 +263,9 @@ P2-R6全部exit通过后，才开始P3 capability的完整`grill-me`/design阶�
 feature。
 
 结论：整个P2在设计层面完备，P2-R1 v8 exit=`go`，P2-R2至P2-R4 exit均已通过；
-P2-R5 functional exit complete，`p2_r6_ready=yes`；完整handoff见
+P2-R5 functional exit complete，P2-R6-S0 design freeze complete、`s1_ready=yes`；完整handoff见
 [P2-R5 Commit-pinned Read Staged Execution Plan — P2-R5-S7 final handoff — 2026-08-12](p2-r5-commit-pinned-read-execution-plan.md#p2-r5-s7-final-handoff--2026-08-12)。
+R6实施与final gate见
+[P2-R6 Operational Closure Staged Execution Plan](p2-r6-operational-closure-execution-plan.md)。
 R5与R6仍必须遵守顺序gate，不得用R4历史镜像证明R5代码，也不得在R6关闭container与
 production retest前宣告Phase 2 complete。

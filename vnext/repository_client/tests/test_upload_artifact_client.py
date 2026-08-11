@@ -96,6 +96,7 @@ async def test_upload_artifact_rejects_nonrewindable_source_on_retryable_failure
         return httpx.Response(
             503,
             json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+            headers={"X-Request-ID": "req-503"},
         )
 
     client = RepositoryClient(
@@ -145,7 +146,11 @@ async def test_upload_artifact_rewinds_file_like_source_between_retries() -> Non
         attempts["count"] += 1
         assert request.read() == payload
         if attempts["count"] == 1:
-            return httpx.Response(503, json={"code": "SERVICE_NOT_READY", "message": "not ready"})
+            return httpx.Response(
+                503,
+                json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+                headers={"X-Request-ID": "req-1"},
+            )
         return httpx.Response(
             201,
             json={
@@ -156,6 +161,7 @@ async def test_upload_artifact_rewinds_file_like_source_between_retries() -> Non
                     "raw_sha256": _upload_sha256(payload),
                 }
             },
+            headers={"X-Request-ID": "req-2"},
         )
 
     client = RepositoryClient(
@@ -211,6 +217,7 @@ async def test_upload_artifact_streams_large_rewindable_source_in_chunks() -> No
                     "raw_sha256": _upload_sha256(payload),
                 }
             },
+            headers={"X-Request-ID": "req-chunked"},
         )
 
     client = RepositoryClient(

@@ -63,6 +63,7 @@ async def test_upload_artifact_accepts_public_upload_body_source() -> None:
             return httpx.Response(
                 503,
                 json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+                headers={"X-Request-ID": "req-1"},
             )
         return httpx.Response(
             201,
@@ -74,6 +75,7 @@ async def test_upload_artifact_accepts_public_upload_body_source() -> None:
                     "raw_sha256": _upload_sha256(payload),
                 }
             },
+            headers={"X-Request-ID": "req-2"},
         )
 
     client = RepositoryClient(

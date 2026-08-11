@@ -5,7 +5,11 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from gateway_repository_client import RepositoryClient, RepositoryClientError
+from gateway_repository_client import (
+    RepositoryClient,
+    RepositoryClientError,
+    RepositoryProtocolError,
+)
 from gateway_repository_contracts import CreateRepositoryResponse
 
 
@@ -90,6 +94,7 @@ async def test_create_repository_rejects_http_200() -> None:
                 "default_ref": "main",
                 "initial_commit_id": "abc123",
             },
+            headers={"X-Request-ID": "req-200"},
         )
 
     client = RepositoryClient(
@@ -98,7 +103,7 @@ async def test_create_repository_rejects_http_200() -> None:
         transport=httpx.MockTransport(handler),
     )
 
-    with pytest.raises(RepositoryClientError) as exc_info:
+    with pytest.raises(RepositoryProtocolError) as exc_info:
         await client.create_repository(idempotency_key="http-200-key")
 
     assert attempts["count"] == 1

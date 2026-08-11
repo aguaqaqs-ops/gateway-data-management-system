@@ -121,6 +121,25 @@ def _parse_expected_column(raw: object, *, field: str) -> ExpectedColumn:
     return ExpectedColumn(name=name, sql_type=sql_type, nullable=nullable)
 
 
+def _assert_unique_primary_key_columns(primary_key: tuple[str, ...], *, field: str) -> None:
+    if len(primary_key) != len(set(primary_key)):
+        raise ValueError(f"{field}.primary_key must not contain duplicate column names")
+
+
+def _assert_unique_record_primary_keys(
+    records: tuple[dict[str, Any], ...],
+    primary_key: tuple[str, ...],
+    *,
+    field: str,
+) -> None:
+    seen_keys: set[tuple[Any, ...]] = set()
+    for record in records:
+        key = row_primary_key_tuple(record, primary_key)
+        if key in seen_keys:
+            raise ValueError(f"{field}.records must not contain duplicate primary keys")
+        seen_keys.add(key)
+
+
 def _parse_expected_table_catalog(raw: object, *, field: str) -> ExpectedTableCatalog:
     mapping = _require_mapping(raw, field=field)
     extra = set(mapping) - {"columns", "primary_key", "row_count"}
@@ -135,6 +154,9 @@ def _parse_expected_table_catalog(raw: object, *, field: str) -> ExpectedTableCa
         _parse_expected_column(item, field=f"{field}.columns[{index}]")
         for index, item in enumerate(columns_raw)
     )
+    column_names = [column.name for column in columns]
+    if len(column_names) != len(set(column_names)):
+        raise ValueError(f"{field}.columns must not contain duplicate names")
     primary_key = tuple(
         str(item) for item in primary_key_raw if isinstance(item, str) and item
     )
@@ -142,6 +164,7 @@ def _parse_expected_table_catalog(raw: object, *, field: str) -> ExpectedTableCa
         raise ValueError(f"{field}.primary_key must contain non-empty strings")
     if not primary_key:
         raise ValueError(f"{field}.primary_key must not be empty")
+    _assert_unique_primary_key_columns(primary_key, field=field)
     return ExpectedTableCatalog(columns=columns, primary_key=primary_key, row_count=row_count)
 
 
@@ -159,12 +182,15 @@ def _parse_expected_table_rows(raw: object, *, field: str) -> ExpectedTableRows:
         raise ValueError(f"{field}.primary_key must contain non-empty strings")
     if not primary_key:
         raise ValueError(f"{field}.primary_key must not be empty")
+    _assert_unique_primary_key_columns(primary_key, field=field)
     records: list[dict[str, Any]] = []
     for index, item in enumerate(records_raw):
         if not isinstance(item, dict):
             raise ValueError(f"{field}.records[{index}] must be an object")
         records.append(dict(item))
-    return ExpectedTableRows(primary_key=primary_key, records=tuple(records))
+    records_tuple = tuple(records)
+    _assert_unique_record_primary_keys(records_tuple, primary_key, field=field)
+    return ExpectedTableRows(primary_key=primary_key, records=records_tuple)
 
 
 def parse_expected_facts(payload: object) -> ExpectedFacts:
@@ -361,6 +387,8 @@ def assert_import_result_identity(
     *,
     expected_commit_id: str,
     artifact_id: UUID,
+    completed_verification_policy: VerificationPolicy = VerificationPolicy.STRUCTURAL,
+    unknown_type_policy: UnknownTypePolicy = UnknownTypePolicy.REJECT,
 ) -> None:
     if result.expected_commit_id != expected_commit_id:
         raise AssertionError(
@@ -374,6 +402,17 @@ def assert_import_result_identity(
     if result.artifact_id != artifact_id:
         raise AssertionError(
             f"import result artifact_id mismatch: actual={result.artifact_id} expected={artifact_id}"
+        )
+    if result.completed_verification_policy != completed_verification_policy:
+        raise AssertionError(
+            "import result completed_verification_policy mismatch: "
+            f"actual={result.completed_verification_policy!r} "
+            f"expected={completed_verification_policy!r}"
+        )
+    if result.unknown_type_policy != unknown_type_policy:
+        raise AssertionError(
+            "import result unknown_type_policy mismatch: "
+            f"actual={result.unknown_type_policy!r} expected={unknown_type_policy!r}"
         )
 
 

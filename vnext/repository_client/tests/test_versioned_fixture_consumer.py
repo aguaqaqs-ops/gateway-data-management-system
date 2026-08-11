@@ -115,6 +115,78 @@ def test_parse_expected_facts_rejects_empty_primary_key() -> None:
         parse_expected_facts(payload)
 
 
+def test_parse_expected_facts_rejects_duplicate_column_names() -> None:
+    payload = {
+        "catalog": {
+            "tables": {
+                "items": {
+                    "columns": [
+                        {"name": "id", "sql_type": "INT", "nullable": False},
+                        {"name": "id", "sql_type": "BIGINT", "nullable": False},
+                    ],
+                    "primary_key": ["id"],
+                    "row_count": 0,
+                }
+            }
+        },
+        "rows": {
+            "items": {
+                "primary_key": ["id"],
+                "records": [],
+            }
+        },
+    }
+    with pytest.raises(ValueError, match="duplicate names"):
+        parse_expected_facts(payload)
+
+
+def test_parse_expected_facts_rejects_duplicate_primary_key_columns() -> None:
+    payload = {
+        "catalog": {
+            "tables": {
+                "items": {
+                    "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                    "primary_key": ["id", "id"],
+                    "row_count": 0,
+                }
+            }
+        },
+        "rows": {
+            "items": {
+                "primary_key": ["id", "id"],
+                "records": [],
+            }
+        },
+    }
+    with pytest.raises(ValueError, match="duplicate column names"):
+        parse_expected_facts(payload)
+
+
+def test_parse_expected_facts_rejects_duplicate_record_primary_keys() -> None:
+    payload = {
+        "catalog": {
+            "tables": {
+                "items": {
+                    "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                    "primary_key": ["id"],
+                    "row_count": 2,
+                }
+            }
+        },
+        "rows": {
+            "items": {
+                "primary_key": ["id"],
+                "records": [
+                    {"id": 1},
+                    {"id": 1},
+                ],
+            }
+        },
+    }
+    with pytest.raises(ValueError, match="duplicate primary keys"):
+        parse_expected_facts(payload)
+
+
 def test_load_expected_facts_is_deterministic(tmp_path: Path) -> None:
     payload = _minimal_expected_payload()
     path = tmp_path / "expected.json"
@@ -191,6 +263,35 @@ def test_assert_import_result_identity_rejects_drift() -> None:
         assert_import_result_identity(
             result,
             expected_commit_id="commit-wrong",
+            artifact_id=_ARTIFACT_ID,
+        )
+
+
+@pytest.mark.parametrize(
+    ("policy_field", "policy_value"),
+    [
+        ("completed_verification_policy", VerificationPolicy.FULL_SCAN),
+        ("unknown_type_policy", UnknownTypePolicy.STRINGIFY),
+    ],
+)
+def test_assert_import_result_identity_rejects_policy_drift(
+    policy_field: str,
+    policy_value: VerificationPolicy | UnknownTypePolicy,
+) -> None:
+    result = VersionedImportResult(
+        commit_id="commit-c1",
+        target_ref="main",
+        artifact_id=_ARTIFACT_ID,
+        canonicalization_manifest_digest="digest",
+        expected_commit_id="commit-c0",
+        completed_verification_policy=VerificationPolicy.STRUCTURAL,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+    drifted = result.model_copy(update={policy_field: policy_value})
+    with pytest.raises(AssertionError, match=policy_field):
+        assert_import_result_identity(
+            drifted,
+            expected_commit_id="commit-c0",
             artifact_id=_ARTIFACT_ID,
         )
 

@@ -35,14 +35,12 @@ class _DuplexResponseStream(AsyncByteStream):
         app_task: asyncio.Task[None],
         raise_app_exceptions: bool,
         cleanup_barrier: threading.Event | None = None,
-        cleanup_wait: threading.Event | None = None,
     ) -> None:
         self._chunk_queue = chunk_queue
         self._disconnect_event = disconnect_event
         self._app_task = app_task
         self._raise_app_exceptions = raise_app_exceptions
         self._cleanup_barrier = cleanup_barrier
-        self._cleanup_wait = cleanup_wait
         self._closed = False
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
@@ -67,19 +65,16 @@ class _DuplexResponseStream(AsyncByteStream):
             self._cleanup_barrier.set()
         self._disconnect_event.set()
         await self._retrieve_app_exception()
-        if self._cleanup_wait is not None:
-            await asyncio.to_thread(self._cleanup_wait.wait, 30.0)
 
     async def _retrieve_app_exception(self) -> None:
         if not self._app_task.done():
             try:
                 await asyncio.wait_for(asyncio.shield(self._app_task), timeout=10.0)
             except TimeoutError:
-                self._app_task.cancel()
-                try:
-                    await self._app_task
-                except asyncio.CancelledError:
-                    pass
+                await asyncio.shield(self._app_task)
+            except asyncio.CancelledError:
+                await asyncio.shield(self._app_task)
+                raise
         if self._app_task.cancelled():
             return
         _ = self._app_task.exception()
@@ -105,14 +100,12 @@ class DuplexStreamingASGITransport(AsyncBaseTransport):
         root_path: str = "",
         client: tuple[str, int] = ("127.0.0.1", 123),
         cleanup_barrier: threading.Event | None = None,
-        cleanup_wait: threading.Event | None = None,
     ) -> None:
         self.app = app
         self.raise_app_exceptions = raise_app_exceptions
         self.root_path = root_path
         self.client = client
         self.cleanup_barrier = cleanup_barrier
-        self.cleanup_wait = cleanup_wait
 
     async def handle_async_request(self, request: Request) -> Response:
         assert isinstance(request.stream, AsyncByteStream)
@@ -217,20 +210,16 @@ class DuplexStreamingASGITransport(AsyncBaseTransport):
             app_task=app_task,
             raise_app_exceptions=self.raise_app_exceptions,
             cleanup_barrier=self.cleanup_barrier,
-            cleanup_wait=self.cleanup_wait,
         )
         return Response(status_code, headers=response_headers, stream=stream)
 
 
 def create_async_streaming_client(
     app: FastAPI,
-    *,
-    cleanup_wait: threading.Event | None = None,
 ) -> httpx.AsyncClient:
     transport = DuplexStreamingASGITransport(
         app=cast(_ASGIApp, app),
         raise_app_exceptions=False,
-        cleanup_wait=cleanup_wait,
     )
     return httpx.AsyncClient(transport=transport, base_url="http://testserver")
 

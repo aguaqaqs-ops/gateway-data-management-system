@@ -20,7 +20,7 @@
 
 ```bash
 cd vnext/repository_service
-uv run pytest -m unit          # 约 443 项，无外部依赖，约 7 秒
+uv run pytest -m unit          # 约 910 项，无外部依赖，约 12 秒
 uv run pytest -m integration   # 需要真实 dolt
 uv run pytest -m serial -n 0   # 时序敏感组，必须串行
 ```

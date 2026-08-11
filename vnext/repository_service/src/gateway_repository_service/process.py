@@ -1046,6 +1046,12 @@ class _ProcessTerminationOutcome:
             raise self.error
 
 
+@dataclass
+class _ProcessTerminationGate:
+    outcome: _ProcessTerminationOutcome | None = None
+    done: bool = False
+
+
 class ActiveChildRegistry:
     """Tracks active Dolt child processes for production cancellation."""
 
@@ -1054,8 +1060,7 @@ class ActiveChildRegistry:
         self._condition = threading.Condition(self._lock)
         self._processes: set[subprocess.Popen[bytes]] = set()
         self._owners: dict[subprocess.Popen[bytes], object | None] = {}
-        self._terminating: set[subprocess.Popen[bytes]] = set()
-        self._termination_outcomes: dict[subprocess.Popen[bytes], _ProcessTerminationOutcome] = {}
+        self._termination_gates: dict[subprocess.Popen[bytes], _ProcessTerminationGate] = {}
 
     def register(self, process: subprocess.Popen[bytes], *, owner: object | None = None) -> None:
         with self._condition:
@@ -1066,8 +1071,7 @@ class ActiveChildRegistry:
         with self._condition:
             self._processes.discard(process)
             self._owners.pop(process, None)
-            self._terminating.discard(process)
-            self._termination_outcomes.pop(process, None)
+            self._termination_gates.pop(process, None)
             self._condition.notify_all()
 
     def snapshot(self) -> tuple[subprocess.Popen[bytes], ...]:
@@ -1081,24 +1085,24 @@ class ActiveChildRegistry:
     def begin_process_termination(
         self,
         process: subprocess.Popen[bytes],
-    ) -> Literal["leader", "wait"]:
+    ) -> tuple[Literal["leader", "wait"], _ProcessTerminationGate]:
         with self._condition:
-            if process in self._termination_outcomes:
-                return "wait"
-            if process in self._terminating:
-                return "wait"
-            self._terminating.add(process)
-            return "leader"
+            gate = self._termination_gates.get(process)
+            if gate is not None and not gate.done:
+                return "wait", gate
+            gate = _ProcessTerminationGate()
+            self._termination_gates[process] = gate
+            return "leader", gate
 
     def await_process_termination(
         self,
-        process: subprocess.Popen[bytes],
+        gate: _ProcessTerminationGate,
         *,
         timeout: float | None = None,
     ) -> None:
         with self._condition:
             deadline = None if timeout is None else time.monotonic() + timeout
-            while process not in self._termination_outcomes:
+            while not gate.done:
                 if timeout is not None:
                     remaining = deadline - time.monotonic() if deadline is not None else 0.0
                     if remaining <= 0:
@@ -1106,19 +1110,21 @@ class ActiveChildRegistry:
                     self._condition.wait(timeout=remaining)
                 else:
                     self._condition.wait()
-            outcome = self._termination_outcomes.get(process)
+            outcome = gate.outcome
         if outcome is not None:
             outcome.raise_if_failed()
 
     def publish_process_termination_outcome(
         self,
         process: subprocess.Popen[bytes],
+        gate: _ProcessTerminationGate,
         outcome: _ProcessTerminationOutcome,
     ) -> None:
         with self._condition:
-            if process not in self._termination_outcomes:
-                self._termination_outcomes[process] = outcome
-            self._terminating.discard(process)
+            if not gate.done:
+                gate.outcome = outcome
+                gate.done = True
+            self._termination_gates.pop(process, None)
             self._condition.notify_all()
 
 
@@ -1406,11 +1412,11 @@ class DoltRunner:
         grace_seconds: float | None = None,
     ) -> None:
         active_children = getattr(self, "_active_children", None)
-        role: Literal["leader", "wait"] = "leader"
+        gate: _ProcessTerminationGate | None = None
         if active_children is not None:
-            role = active_children.begin_process_termination(process)
+            role, gate = active_children.begin_process_termination(process)
             if role == "wait":
-                active_children.await_process_termination(process)
+                active_children.await_process_termination(gate)
                 return
         termination_error: BaseException | None = None
         try:
@@ -1436,9 +1442,10 @@ class DoltRunner:
             termination_error = exc
             raise
         finally:
-            if active_children is not None:
+            if active_children is not None and gate is not None:
                 active_children.publish_process_termination_outcome(
                     process,
+                    gate,
                     _ProcessTerminationOutcome(error=termination_error),
                 )
 

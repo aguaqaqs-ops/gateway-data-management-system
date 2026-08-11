@@ -621,6 +621,61 @@ def test_aclose_sets_cancellation_before_thread_cleanup() -> None:
 
 
 @pytest.mark.serial
+def test_aclose_completes_cleanup_when_awaiting_task_cancelled() -> None:
+    plan, batches = _plan_and_batches(batch_count=2, rows_per_batch=1)
+    release = threading.Event()
+    producer_blocked = threading.Event()
+    close_completed = threading.Event()
+    ArrowIpcStreamBridge._test_close_completed_barrier = close_completed
+    bridge: ArrowIpcStreamBridge | None = None
+    try:
+        cancellation = threading.Event()
+
+        def gated_rows() -> Iterator[pa.RecordBatch]:
+            yield batches[0]
+            producer_blocked.set()
+            release.wait()
+            yield batches[1]
+
+        bridge = ArrowIpcStreamBridge(plan, gated_rows(), cancellation)
+        BRIDGE_REGISTRY.register(bridge)
+
+        async def consume_and_cancel() -> None:
+            iter_task = asyncio.create_task(_block_on_second_chunk(bridge))
+            while not producer_blocked.is_set():
+                await asyncio.sleep(0.01)
+            assert not close_completed.is_set()
+            iter_task.cancel()
+            join_task = asyncio.create_task(_await_cancelled(iter_task))
+            await asyncio.sleep(0.1)
+            assert not close_completed.is_set(), "cleanup finished before worker release"
+            release.set()
+            await join_task
+            assert close_completed.is_set()
+            assert not bridge.is_worker_alive()
+
+        asyncio.run(consume_and_cancel())
+        assert BRIDGE_REGISTRY.snapshot() == ()
+    finally:
+        release.set()
+        ArrowIpcStreamBridge._test_close_completed_barrier = None
+        if bridge is not None:
+            BRIDGE_REGISTRY.unregister(bridge)
+
+
+async def _block_on_second_chunk(bridge: ArrowIpcStreamBridge) -> None:
+    stream = bridge.iter_bytes()
+    first = await stream.__anext__()
+    assert first
+    await stream.__anext__()
+
+
+async def _await_cancelled(task: asyncio.Task[None]) -> None:
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.serial
 def test_close_sync_follower_waits_when_worker_joins_during_escalation() -> None:
     from unittest.mock import MagicMock
 
@@ -850,6 +905,33 @@ def test_terminate_and_reap_unregisters_already_exited_process(tmp_path: Path) -
 
     DoltRunner.terminate_and_reap(runner, process)
     assert registry.snapshot() == ()
+    assert registry._termination_gates == {}
+
+
+@pytest.mark.serial
+def test_terminate_and_reap_gate_table_stable_across_repeated_success(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+
+    from gateway_repository_service.process import ActiveChildRegistry, DoltRunner
+    from support.lifecycle_harness import lifecycle_settings
+
+    settings = lifecycle_settings(tmp_path)
+    registry = ActiveChildRegistry()
+    process = MagicMock()
+    process.pid = 5152
+    process.poll.return_value = 0
+
+    runner = MagicMock(spec=DoltRunner)
+    runner.settings = settings
+    runner._active_children = registry
+    runner._unregister_active_child = lambda proc: registry.unregister(proc)
+    runner.reap_adopted_dolt_children = lambda: None
+
+    for _ in range(3):
+        registry.register(process)
+        DoltRunner.terminate_and_reap(runner, process)
+        assert registry.snapshot() == ()
+        assert registry._termination_gates == {}
 
 
 @pytest.mark.serial
@@ -910,6 +992,52 @@ def test_terminate_and_reap_propagates_leader_failure_to_waiter(tmp_path: Path) 
     assert isinstance(waiter_errors[0], PermissionError)
     assert process.poll.return_value is None
     assert registry.snapshot() == (process,)
+    assert registry._termination_gates == {}
+
+
+@pytest.mark.serial
+def test_terminate_and_reap_retries_after_leader_failure(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from gateway_repository_service.process import ActiveChildRegistry, DoltRunner
+    from support.lifecycle_harness import lifecycle_settings
+
+    settings = lifecycle_settings(tmp_path)
+    registry = ActiveChildRegistry()
+    process = MagicMock()
+    process.pid = 5253
+    process.poll.return_value = None
+    registry.register(process)
+
+    runner = MagicMock(spec=DoltRunner)
+    runner.settings = settings
+    runner._active_children = registry
+    runner._unregister_active_child = lambda proc: registry.unregister(proc)
+    runner.reap_adopted_dolt_children = lambda: None
+
+    kill_calls = 0
+    fail_first_kill = True
+
+    def flaky_killpg(pid: int, sig: int) -> None:
+        nonlocal kill_calls, fail_first_kill
+        del pid
+        if sig == signal.SIGTERM:
+            kill_calls += 1
+            if fail_first_kill:
+                fail_first_kill = False
+                raise PermissionError("signal denied")
+        process.poll.return_value = 0
+
+    with patch("gateway_repository_service.process.os.killpg", side_effect=flaky_killpg):
+        with pytest.raises(PermissionError):
+            DoltRunner.terminate_and_reap(runner, process, grace_seconds=0.01)
+        assert registry.snapshot() == (process,)
+        assert registry._termination_gates == {}
+        DoltRunner.terminate_and_reap(runner, process, grace_seconds=0.01)
+
+    assert kill_calls == 2
+    assert registry.snapshot() == ()
+    assert registry._termination_gates == {}
 
 
 def _terminate_and_reap_capturing(runner: Any, process: Any) -> BaseException | None:

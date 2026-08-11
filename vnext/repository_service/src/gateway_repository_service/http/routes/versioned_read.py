@@ -26,6 +26,7 @@ from gateway_repository_service.http.openapi import (
 from gateway_repository_service.http.readiness_guard import require_service_ready
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.versioned_read.http_service import VersionedReadHttpService
+from gateway_repository_service.versioned_read.streaming_response import VersionedReadStreamingResponse
 from gateway_repository_service.versioned_read.wire import request_validation_failed
 
 _COMMIT_ID_ADAPTER: TypeAdapter[CommitIdString] = TypeAdapter(CommitIdString)
@@ -85,7 +86,8 @@ def register_versioned_read_routes(app: FastAPI) -> None:
         query = _validated_rows_query(table_name, unknown_type_policy)
         service = _read_service_from_runtime(_runtime_from_state(request))
         bridge = service.open_row_stream(repository_id, validated_commit_id, query)
-        return StreamingResponse(
+        return VersionedReadStreamingResponse(
+            bridge,
             bridge.iter_bytes(),
             media_type=VERSIONED_READ_ARROW_MEDIA_TYPE,
         )

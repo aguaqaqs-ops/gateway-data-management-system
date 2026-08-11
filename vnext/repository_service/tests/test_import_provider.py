@@ -2031,26 +2031,30 @@ def test_concurrent_streams_with_over_128k_field(
 
     def consume() -> None:
         try:
-            with patch.object(import_provider._cli, "stream_table", side_effect=recording_stream):
-                batches = list(
-                    import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY)
-                )
-                assert batches
-                assert len(batches[0]["payload"][0].as_py()) == payload_len
+            batches = list(
+                import_provider.stream_table(candidate, table, UnknownTypePolicy.STRINGIFY)
+            )
+            assert batches
+            assert len(batches[0]["payload"][0].as_py()) == payload_len
         except BaseException as exc:
             errors.append(exc)
 
-    threads = [threading.Thread(target=consume), threading.Thread(target=consume)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    # One patch shared by both threads: nesting patch.object on the same instance
+    # attribute from concurrent threads races on restore and leaves the attribute
+    # deleted (AttributeError in whichever thread unwinds second).
+    with patch.object(import_provider._cli, "stream_table", side_effect=recording_stream):
+        threads = [threading.Thread(target=consume), threading.Thread(target=consume)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
 
     assert not errors
     assert recorded_limits
     assert all(
         limit >= import_provider._settings.max_stream_line_bytes for limit in recorded_limits
     )
+    assert hasattr(import_provider._cli, "stream_table")
     import_provider.checkout_private_ref(private_ref)
     import_provider.delete_private_ref(private_ref, expected_candidate=candidate)
 

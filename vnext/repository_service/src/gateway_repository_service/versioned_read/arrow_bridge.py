@@ -196,13 +196,19 @@ class ArrowIpcStreamBridge:
 
     async def aclose(self) -> None:
         self._request_close()
-        await asyncio.shield(
-            asyncio.to_thread(
-                self._complete_close_sync,
-                self._dolt_runner,
-                time.monotonic() + _WORKER_JOIN_TIMEOUT_SECONDS,
-            )
+        deadline_at = time.monotonic() + _WORKER_JOIN_TIMEOUT_SECONDS
+        loop = asyncio.get_running_loop()
+        cleanup = loop.run_in_executor(
+            None,
+            self._complete_close_sync,
+            self._dolt_runner,
+            deadline_at,
         )
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            await cleanup
+            raise
 
     def close_sync(
         self,

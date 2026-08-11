@@ -537,7 +537,7 @@ def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: Re
             try:
 
                 async def exercise() -> None:
-                    async with create_async_streaming_client(env.app, cleanup_wait=close_completed) as client:
+                    async with create_async_streaming_client(env.app) as client:
                         response = await stream_rows(
                             client,
                             path=_rows_url(env, commit_id),

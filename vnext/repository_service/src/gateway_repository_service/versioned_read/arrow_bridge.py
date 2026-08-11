@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_service.arrow_mapping import CompiledTablePlan
+from gateway_repository_service.versioned_read.async_cleanup import await_executor_future_under_cancel
 from gateway_repository_service.versioned_read.wire import close_row_iterator
 
 if TYPE_CHECKING:
@@ -138,6 +139,7 @@ class ArrowIpcStreamBridge:
     _test_close_entered_barrier: ClassVar[threading.Event | None] = None
     _test_close_completed_barrier: ClassVar[threading.Event | None] = None
     _test_worker_finish_barrier: ClassVar[threading.Event | None] = None
+    _test_unregister_barrier: ClassVar[threading.Event | None] = None
 
     def __init__(
         self,
@@ -158,6 +160,7 @@ class ArrowIpcStreamBridge:
         self._close_lock = threading.Lock()
         self._close_condition = threading.Condition(self._close_lock)
         self._close_requested = False
+        self._worker_finished = False
         self._worker_joined = False
         self._escalation_started = False
         self._close_outcome: _CloseOutcome | None = None
@@ -179,7 +182,7 @@ class ArrowIpcStreamBridge:
                 try:
                     item = await asyncio.to_thread(self._queue.get, True, _POLL_TIMEOUT_SECONDS)
                 except queue.Empty:
-                    if self._worker_joined:
+                    if self._worker_finished:
                         if self._terminal_outcome == "success":
                             break
                         raise BridgeStreamAbortedError("versioned read arrow stream aborted")
@@ -204,11 +207,7 @@ class ArrowIpcStreamBridge:
             self._dolt_runner,
             deadline_at,
         )
-        try:
-            await asyncio.shield(cleanup)
-        except asyncio.CancelledError:
-            await cleanup
-            raise
+        await await_executor_future_under_cancel(cleanup)
 
     def close_sync(
         self,
@@ -245,7 +244,7 @@ class ArrowIpcStreamBridge:
         with self._close_condition:
             if self._close_outcome is not None:
                 return self._close_outcome
-            while not self._worker_joined and self._close_outcome is None:
+            while not self._worker_finished and self._close_outcome is None:
                 remaining = deadline_at - time.monotonic()
                 if remaining <= 0:
                     break
@@ -254,7 +253,7 @@ class ArrowIpcStreamBridge:
                     return self._close_outcome
             if self._close_outcome is not None:
                 return self._close_outcome
-            if self._worker_joined and not self._escalation_started:
+            if self._worker_finished and self._worker_joined and not self._escalation_started:
                 self._close_outcome = _CloseOutcome()
                 self._close_condition.notify_all()
                 return self._close_outcome
@@ -263,6 +262,9 @@ class ArrowIpcStreamBridge:
                     self._close_condition.wait(timeout=_POLL_TIMEOUT_SECONDS)
                 return self._close_outcome
             if not self._worker.is_alive():
+                if not self._worker_joined:
+                    self._worker_joined = True
+                    self._unregister_from_registry()
                 self._close_outcome = _CloseOutcome()
                 self._close_condition.notify_all()
                 return self._close_outcome
@@ -294,14 +296,22 @@ class ArrowIpcStreamBridge:
             if self._worker.is_alive():
                 join_timeout_error = BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
 
-        outcome = _CloseOutcome(
-            join_timeout=join_timeout_error,
-            terminate_error=terminate_error,
-        )
         with self._close_condition:
-            self._close_outcome = outcome
+            if not self._worker_joined:
+                self._worker_joined = True
+                self._unregister_from_registry()
+            self._close_outcome = _CloseOutcome(
+                join_timeout=join_timeout_error,
+                terminate_error=terminate_error,
+            )
             self._close_condition.notify_all()
-        return outcome
+        return self._close_outcome
+
+    def _unregister_from_registry(self) -> None:
+        barrier = ArrowIpcStreamBridge._test_unregister_barrier
+        if barrier is not None:
+            barrier.wait()
+        BRIDGE_REGISTRY.unregister(self)
 
     def _put_terminal(self, terminal: object) -> bool:
         if terminal is _SUCCESS_SENTINEL:
@@ -354,9 +364,8 @@ class ArrowIpcStreamBridge:
             self._put_terminal(_FAILURE_SENTINEL)
         self._worker_done.set()
         with self._close_condition:
-            self._worker_joined = True
+            self._worker_finished = True
             self._close_condition.notify_all()
-        BRIDGE_REGISTRY.unregister(self)
 
     def _run_worker(self) -> None:
         sink = io.BytesIO()

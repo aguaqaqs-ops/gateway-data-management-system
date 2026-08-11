@@ -22,7 +22,7 @@ from gateway_repository_service.arrow_mapping import (
     accumulate_normalized_row,
     compile_table_plan,
 )
-from gateway_repository_service.candidate_a.errors import CandidateAError
+from gateway_repository_service.candidate_a.errors import CandidateAError, DoltCliStreamCancelledError
 from gateway_repository_service.candidate_a.ref_validation import (
     commit_literal,
     opaque_commit_literal,
@@ -599,7 +599,7 @@ class CandidateADoltCli:
         }
         try:
             if evaluate_stream_cancellation(cancellation):
-                raise DoltCliError("row stream cancelled before start")
+                raise DoltCliStreamCancelledError("row stream cancelled before start")
             stream = self.runner.stream(
                 "row_stream",
                 ["sql", "--result-format=csv", "--binary-as-hex"],
@@ -636,7 +636,7 @@ class CandidateADoltCli:
 
             def _raise_if_cancelled() -> None:
                 if evaluate_stream_cancellation(cancellation):
-                    raise DoltCliError("row stream cancelled")
+                    raise DoltCliStreamCancelledError("row stream cancelled")
 
             def emit(chunk: list[NormalizedRow]) -> pa.RecordBatch:
                 _raise_if_cancelled()

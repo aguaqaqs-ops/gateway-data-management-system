@@ -49,6 +49,7 @@ from gateway_repository_service.versioned_read.arrow_bridge import (
 from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
 from support.http_harness import ReadyReadiness, create_test_client
 from support.lifecycle_harness import lifecycle_settings
+from support.arrow_ipc_assertions import assert_has_stream_eos, assert_lacks_stream_eos
 from support.streaming_http_harness import (
     create_async_streaming_client,
     read_first_chunk,
@@ -333,6 +334,7 @@ def test_http_c1_c2_catalog_and_rows_are_pinned(read_http_env: ReadHttpIntegrati
     assert rows_response.status_code == 200
     assert rows_response.headers["content-type"].startswith(VERSIONED_READ_ARROW_MEDIA_TYPE)
     decoded = list(pa_ipc.open_stream(rows_response.content))
+    assert_has_stream_eos(rows_response.content)
     ids = {int(batch.column("id")[row].as_py()) for batch in decoded for row in range(batch.num_rows)}
     assert ids == {1}
     assert c0 != c1 != c2
@@ -357,6 +359,7 @@ def test_http_empty_table_returns_schema_and_zero_batches(read_http_env: ReadHtt
         headers=_auth_headers(),
     )
     assert response.status_code == 200
+    assert_has_stream_eos(response.content)
     reader = pa_ipc.open_stream(response.content)
     assert reader.schema.names == ["id"]
     assert list(reader) == []
@@ -504,6 +507,7 @@ def test_http_midstream_failure_aborts_transport(read_http_env: ReadHttpIntegrat
     status_code, body, error = run_async(exercise())
     assert status_code == 200
     assert body
+    assert_lacks_stream_eos(body)
     assert error is not None
     if not isinstance(error, BridgeStreamAbortedError):
         assert isinstance(error, (httpx.ReadError, httpx.RemoteProtocolError, RuntimeError))

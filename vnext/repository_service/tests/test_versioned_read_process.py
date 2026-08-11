@@ -14,8 +14,8 @@ from gateway_repository_service.candidate_a.dolt_cli import write_query
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import (
     DoltRunner,
-    ProcessBoundaryError,
     ProcessStream,
+    ProcessStreamCancelledError,
 )
 from support.lifecycle_harness import lifecycle_settings
 
@@ -87,9 +87,8 @@ def test_process_stream_cancellation_reaps_child(tmp_path: Path, dolt_runner: tu
             observed_pid.append(stream.running_pid or -1)
             for _line in stream:
                 cancel.set()
-        except ProcessBoundaryError as exc:
-            if str(exc) != "stream cancelled":
-                errors.append(exc)
+        except ProcessStreamCancelledError:
+            pass
         except BaseException as exc:
             errors.append(exc)
 
@@ -112,7 +111,7 @@ def test_process_stream_cancel_before_start_raises(tmp_path: Path, dolt_runner: 
     settings = lifecycle_settings(tmp_path)
     layout = DurableLayout.create_for_probe(settings.data_root)
     query = _blocking_sql_query(layout, 1)
-    with pytest.raises(ProcessBoundaryError, match="stream cancelled"):
+    with pytest.raises(ProcessStreamCancelledError, match="stream cancelled"):
         stream = runner.stream(
             "row_stream",
             ["sql", "--result-format=csv"],
@@ -282,7 +281,7 @@ def test_process_stream_callback_exception_still_reaps_child(
         cancellation=broken_callback,
     )
     observed_pid.append(stream.running_pid or -1)
-    with pytest.raises(ProcessBoundaryError, match="stream cancelled"):
+    with pytest.raises(ProcessStreamCancelledError, match="stream cancelled"):
         list(stream)
     assert observed_pid[0] > 0
     _wait_until_pid_reaped(observed_pid[0])

@@ -71,7 +71,12 @@ class _DuplexResponseStream(AsyncByteStream):
             try:
                 await asyncio.wait_for(asyncio.shield(self._app_task), timeout=10.0)
             except TimeoutError:
-                await asyncio.shield(self._app_task)
+                try:
+                    await asyncio.wait_for(asyncio.shield(self._app_task), timeout=30.0)
+                except TimeoutError as exc:
+                    raise RuntimeError(
+                        "ASGI app did not finish within bounded cleanup observation window"
+                    ) from exc
             except asyncio.CancelledError:
                 await asyncio.shield(self._app_task)
                 raise

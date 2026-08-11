@@ -7,15 +7,20 @@ import io
 import signal
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 
 from gateway_repository_contracts import UnknownTypePolicy
+from support.arrow_ipc_assertions import (
+    assert_has_stream_eos,
+    assert_lacks_stream_eos,
+    count_decoded_rows_without_error,
+)
 from gateway_repository_service.arrow_mapping import ColumnCatalog, TableCatalog, compile_table_plan
 from gateway_repository_service.versioned_read.arrow_bridge import (
     BRIDGE_REGISTRY,
@@ -131,6 +136,17 @@ def test_arrow_bridge_backpressure_blocks_producer_until_consumer_reads() -> Non
     assert third_batch_requested.is_set()
     assert bridge._terminal_outcome == "success"
 
+    async def collect_all() -> bytes:
+        chunks: list[bytes] = []
+        plan2, batches2 = _plan_and_batches(batch_count=3, rows_per_batch=64)
+        bridge2 = ArrowIpcStreamBridge(plan2, iter(batches2), threading.Event())
+        async for chunk in bridge2.iter_bytes():
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    success_body = asyncio.run(collect_all())
+    assert_has_stream_eos(success_body)
+
 
 def test_arrow_bridge_worker_failure_aborts_consumer() -> None:
     plan, batches = _plan_and_batches(batch_count=2, rows_per_batch=1)
@@ -140,14 +156,19 @@ def test_arrow_bridge_worker_failure_aborts_consumer() -> None:
         raise RuntimeError("conversion failed")
 
     bridge = ArrowIpcStreamBridge(plan, failing_rows(), threading.Event())
+    collected: list[bytes] = []
 
     async def consume() -> None:
-        chunks: list[bytes] = []
         async for chunk in bridge.iter_bytes():
-            chunks.append(chunk)
+            collected.append(chunk)
 
     with pytest.raises(BridgeStreamAbortedError):
         asyncio.run(consume())
+    body = b"".join(collected)
+    assert body
+    assert_lacks_stream_eos(body)
+    assert bridge._terminal_outcome == "failure"
+    assert count_decoded_rows_without_error(body) == 1
 
 
 @pytest.mark.serial
@@ -171,6 +192,22 @@ def test_arrow_bridge_eos_enqueue_cancel_preserves_failure_terminal() -> None:
 
     with pytest.raises(BridgeStreamAbortedError):
         asyncio.run(consume())
+
+
+def test_arrow_bridge_empty_stream_has_eos() -> None:
+    table = TableCatalog("items", (ColumnCatalog("id", "BIGINT", False, 1),), 0)
+    plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
+    bridge = ArrowIpcStreamBridge(plan, iter(()), threading.Event())
+
+    async def consume() -> bytes:
+        chunks: list[bytes] = []
+        async for chunk in bridge.iter_bytes():
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    body = asyncio.run(consume())
+    assert_has_stream_eos(body)
+    assert bridge._terminal_outcome == "success"
 
 
 @pytest.mark.serial
@@ -622,45 +659,27 @@ def test_aclose_sets_cancellation_before_thread_cleanup() -> None:
 
 @pytest.mark.serial
 def test_aclose_completes_cleanup_when_awaiting_task_cancelled() -> None:
-    plan, batches = _plan_and_batches(batch_count=2, rows_per_batch=1)
-    release = threading.Event()
-    producer_blocked = threading.Event()
-    close_completed = threading.Event()
-    ArrowIpcStreamBridge._test_close_completed_barrier = close_completed
-    bridge: ArrowIpcStreamBridge | None = None
+    """Smoke test that asyncio.Task.cancel() interrupts blocked bridge consumption."""
+
+    bridge, release, producer_blocked, _close_completed, _cancellation = _gated_bridge_for_cancel_cleanup()
     try:
-        cancellation = threading.Event()
-
-        def gated_rows() -> Iterator[pa.RecordBatch]:
-            yield batches[0]
-            producer_blocked.set()
-            release.wait()
-            yield batches[1]
-
-        bridge = ArrowIpcStreamBridge(plan, gated_rows(), cancellation)
-        BRIDGE_REGISTRY.register(bridge)
 
         async def consume_and_cancel() -> None:
             iter_task = asyncio.create_task(_block_on_second_chunk(bridge))
             while not producer_blocked.is_set():
                 await asyncio.sleep(0.01)
-            assert not close_completed.is_set()
             iter_task.cancel()
-            join_task = asyncio.create_task(_await_cancelled(iter_task))
-            await asyncio.sleep(0.1)
-            assert not close_completed.is_set(), "cleanup finished before worker release"
-            release.set()
-            await join_task
-            assert close_completed.is_set()
-            assert not bridge.is_worker_alive()
+            with pytest.raises(asyncio.CancelledError):
+                await iter_task
 
         asyncio.run(consume_and_cancel())
+        asyncio.run(bridge.aclose())
+        assert not bridge.is_worker_alive()
         assert BRIDGE_REGISTRY.snapshot() == ()
     finally:
         release.set()
         ArrowIpcStreamBridge._test_close_completed_barrier = None
-        if bridge is not None:
-            BRIDGE_REGISTRY.unregister(bridge)
+        BRIDGE_REGISTRY.unregister(bridge)
 
 
 async def _block_on_second_chunk(bridge: ArrowIpcStreamBridge) -> None:
@@ -670,9 +689,180 @@ async def _block_on_second_chunk(bridge: ArrowIpcStreamBridge) -> None:
     await stream.__anext__()
 
 
-async def _await_cancelled(task: asyncio.Task[None]) -> None:
-    with pytest.raises(asyncio.CancelledError):
-        await task
+def _gated_bridge_for_cancel_cleanup(
+    *,
+    batch_count: int = 2,
+) -> tuple[ArrowIpcStreamBridge, threading.Event, threading.Event, threading.Event, threading.Event]:
+    plan, batches = _plan_and_batches(batch_count=batch_count, rows_per_batch=1)
+    release = threading.Event()
+    producer_blocked = threading.Event()
+    close_completed = threading.Event()
+    cancellation = threading.Event()
+    ArrowIpcStreamBridge._test_close_completed_barrier = close_completed
+
+    def gated_rows() -> Iterator[pa.RecordBatch]:
+        yield batches[0]
+        producer_blocked.set()
+        while not release.is_set():
+            if cancellation.is_set():
+                return
+            time.sleep(0.01)
+        if batch_count > 1:
+            yield batches[1]
+
+    bridge = ArrowIpcStreamBridge(plan, gated_rows(), cancellation)
+    return bridge, release, producer_blocked, close_completed, cancellation
+
+
+@pytest.mark.serial
+def test_aclose_completes_cleanup_under_anyio_cancel_scope() -> None:
+    import anyio
+
+    bridge, release, producer_blocked, close_completed, _cancellation = _gated_bridge_for_cancel_cleanup()
+    try:
+
+        async def exercise() -> None:
+            async def consume_until_blocked() -> None:
+                stream = bridge.iter_bytes()
+                await stream.__anext__()
+                while not producer_blocked.is_set():
+                    await anyio.sleep(0.01)
+                await stream.__anext__()
+
+            with anyio.CancelScope() as scope:
+                async with anyio.create_task_group() as task_group:
+                    task_group.start_soon(consume_until_blocked)
+                    while not producer_blocked.is_set():
+                        await anyio.sleep(0.01)
+                    scope.cancel()
+
+            assert close_completed.is_set()
+            assert not bridge.is_worker_alive()
+
+        anyio.run(exercise)
+        assert BRIDGE_REGISTRY.snapshot() == ()
+    finally:
+        release.set()
+        ArrowIpcStreamBridge._test_close_completed_barrier = None
+        BRIDGE_REGISTRY.unregister(bridge)
+
+
+@pytest.mark.serial
+def test_streaming_response_waits_cleanup_under_anyio_cancel_scope() -> None:
+    import anyio
+
+    from gateway_repository_service.versioned_read.streaming_response import VersionedReadStreamingResponse
+
+    bridge, release, producer_blocked, close_completed, _cancellation = _gated_bridge_for_cancel_cleanup()
+    try:
+
+        async def body() -> AsyncIterator[bytes]:
+            async for chunk in bridge.iter_bytes():
+                yield chunk
+
+        response = VersionedReadStreamingResponse(
+            bridge,
+            body(),
+            media_type="application/vnd.apache.arrow.stream",
+        )
+
+        async def exercise() -> None:
+            scope: Scope = {
+                "type": "http",
+                "method": "GET",
+                "path": "/rows",
+                "headers": [],
+                "query_string": b"",
+            }
+            started = asyncio.Event()
+
+            from starlette.types import Message, Receive, Scope, Send
+
+            async def send(message: Message) -> None:
+                if message["type"] == "http.response.start":
+                    started.set()
+
+            async def receive() -> Message:
+                return {"type": "http.disconnect"}
+
+            with anyio.CancelScope() as cancel_scope:
+                async with anyio.create_task_group() as task_group:
+
+                    async def invoke_response() -> None:
+                        await response(scope, cast(Receive, receive), cast(Send, send))
+
+                    task_group.start_soon(invoke_response)
+                    while not started.is_set():
+                        await anyio.sleep(0.01)
+                    while not producer_blocked.is_set():
+                        await anyio.sleep(0.01)
+                    cancel_scope.cancel()
+
+            assert close_completed.is_set()
+            assert not bridge.is_worker_alive()
+
+        anyio.run(exercise)
+        assert BRIDGE_REGISTRY.snapshot() == ()
+    finally:
+        release.set()
+        ArrowIpcStreamBridge._test_close_completed_barrier = None
+        BRIDGE_REGISTRY.unregister(bridge)
+
+
+@pytest.mark.serial
+def test_close_all_waits_for_worker_thread_not_false_survivor() -> None:
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    unregister_barrier = threading.Event()
+    close_started = threading.Event()
+    close_finished = threading.Event()
+    close_errors: list[BaseException] = []
+    close_all_errors: list[BaseException] = []
+    close_all_finished = threading.Event()
+    ArrowIpcStreamBridge._test_unregister_barrier = unregister_barrier
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event())
+    try:
+
+        def close_in_thread() -> None:
+            close_started.set()
+            try:
+                bridge.close_sync(join_timeout_seconds=30.0)
+            except BaseException as exc:
+                close_errors.append(exc)
+            finally:
+                close_finished.set()
+
+        def close_all_in_thread() -> None:
+            try:
+                BRIDGE_REGISTRY.close_all(None, join_timeout_seconds=30.0)
+            except BaseException as exc:
+                close_all_errors.append(exc)
+            finally:
+                close_all_finished.set()
+
+        closer = threading.Thread(target=close_in_thread)
+        closer.start()
+        assert close_started.wait(timeout=2.0)
+        _wait_until(lambda: bridge._worker_finished, message="worker did not finish before unregister")
+        assert bridge.is_worker_alive() is False
+        assert BRIDGE_REGISTRY.snapshot() == (bridge,)
+
+        close_all_thread = threading.Thread(target=close_all_in_thread)
+        close_all_thread.start()
+        time.sleep(0.2)
+        assert not close_all_finished.is_set()
+
+        unregister_barrier.set()
+        closer.join(timeout=5.0)
+        close_all_thread.join(timeout=5.0)
+        assert close_finished.is_set()
+        assert close_all_finished.is_set()
+        assert close_errors == []
+        assert close_all_errors == []
+        assert BRIDGE_REGISTRY.snapshot() == ()
+    finally:
+        unregister_barrier.set()
+        ArrowIpcStreamBridge._test_unregister_barrier = None
+        BRIDGE_REGISTRY.unregister(bridge)
 
 
 @pytest.mark.serial

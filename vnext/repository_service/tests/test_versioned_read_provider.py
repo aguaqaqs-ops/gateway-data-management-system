@@ -28,6 +28,7 @@ from gateway_repository_service.candidate_a.dolt_cli import (
     parse_commit_exists_rows,
     value,
 )
+from gateway_repository_service.candidate_a.errors import DoltCliStreamCancelledError
 from gateway_repository_service.candidate_a.ref_validation import (
     opaque_commit_literal,
     validate_commit_id,
@@ -41,7 +42,7 @@ from gateway_repository_service.mutation_store import (
     MutationStore,
     configure_connection,
 )
-from gateway_repository_service.process import CommandResult, DoltRunner
+from gateway_repository_service.process import CommandResult, DoltRunner, ProcessStreamCancelledError
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_read.application import VersionedReadApplication
@@ -54,7 +55,7 @@ from gateway_repository_service.versioned_read.errors import (
     TableNotFoundError,
     VersionedReadError,
 )
-from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
+from gateway_repository_service.versioned_read.provider import CandidateAReadProvider, _as_provider_unavailable
 from support.lifecycle_harness import lifecycle_settings
 
 ReadRepoFixture = tuple[
@@ -442,6 +443,25 @@ def test_read_stream_cancelled_error_is_not_provider_unavailable() -> None:
     exc = ReadStreamCancelledError("versioned read stream was cancelled")
     assert isinstance(exc, VersionedReadError)
     assert not isinstance(exc, ProviderUnavailableError)
+
+
+@pytest.mark.parametrize(
+    ("exc", "message"),
+    (
+        (ProcessStreamCancelledError("stream cancelled"), "mutated process cancel text"),
+        (ProcessStreamCancelledError("different wording"), "different wording"),
+        (DoltCliStreamCancelledError("row stream cancelled"), "mutated dolt cancel text"),
+        (DoltCliStreamCancelledError("other cancel reason"), "other cancel reason"),
+    ),
+)
+def test_typed_stream_cancellation_maps_to_read_stream_cancelled_regardless_of_message(
+    exc: BaseException,
+    message: str,
+) -> None:
+    del message
+    mapped = _as_provider_unavailable(exc)
+    assert isinstance(mapped, ReadStreamCancelledError)
+    assert mapped.__cause__ is None
 
 
 def _records_table() -> TableCatalog:

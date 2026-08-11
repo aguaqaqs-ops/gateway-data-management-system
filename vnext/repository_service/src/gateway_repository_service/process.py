@@ -39,6 +39,10 @@ class ProcessBoundaryError(RuntimeError):
     """Raised when a Dolt process violates the private runner boundary."""
 
 
+class ProcessStreamCancelledError(ProcessBoundaryError):
+    """Raised when a Dolt row stream is cancelled before completion."""
+
+
 def process_rss_kib(pid: int) -> int:
     try:
         status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
@@ -1223,7 +1227,7 @@ class DoltRunner:
         owner: object | None = None,
     ) -> "ProcessStream":
         if evaluate_stream_cancellation(cancellation):
-            raise ProcessBoundaryError("stream cancelled")
+            raise ProcessStreamCancelledError("stream cancelled")
         process, stdin_handle = self._start(
             command_kind,
             args,
@@ -1704,7 +1708,7 @@ class ProcessStream:
         if selector is not None:
             selector.close()
         self.close(cancelled=True)
-        raise ProcessBoundaryError("stream cancelled")
+        raise ProcessStreamCancelledError("stream cancelled")
 
     def __iter__(self) -> Iterator[bytes]:
         if self.process.stdout is None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest.mock import patch
 
 import httpx2 as httpx
 import pytest
@@ -63,3 +64,46 @@ def test_duplex_transport_reraises_post_header_app_failure_when_configured() -> 
         await response.aclose()
 
     asyncio.run(run())
+
+
+async def _hanging_midstream_app(
+    scope: dict[str, Any],
+    receive: Any,
+    send: Any,
+) -> None:
+    del scope, receive
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"application/octet-stream")],
+        }
+    )
+    await send({"type": "http.response.body", "body": b"first", "more_body": True})
+    await asyncio.Event().wait()
+
+
+def test_duplex_transport_raises_when_app_hangs_past_bounded_cleanup_window() -> None:
+    original_wait_for = asyncio.wait_for
+    long_waits = 0
+
+    async def fast_timeout_wait_for(awaitable: Any, timeout: float) -> Any:
+        nonlocal long_waits
+        if timeout >= 10.0:
+            long_waits += 1
+            if long_waits > 1:
+                raise TimeoutError()
+        return await original_wait_for(awaitable, timeout)
+
+    async def run() -> None:
+        transport = DuplexStreamingASGITransport(_hanging_midstream_app, raise_app_exceptions=False)
+        request = httpx.Request("GET", "http://testserver/stream")
+        response = await transport.handle_async_request(request)
+        async for chunk in response.aiter_bytes():
+            if chunk:
+                break
+        with pytest.raises(RuntimeError, match="bounded cleanup observation window"):
+            await response.aclose()
+
+    with patch("support.streaming_http_harness.asyncio.wait_for", side_effect=fast_timeout_wait_for):
+        asyncio.run(run())

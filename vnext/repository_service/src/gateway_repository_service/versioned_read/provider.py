@@ -12,10 +12,10 @@ import pyarrow as pa  # type: ignore[import-untyped]
 from gateway_repository_contracts import UnknownTypePolicy
 from gateway_repository_service.arrow_mapping import CompiledTablePlan, SqlValueConversionError, TableCatalog
 from gateway_repository_service.candidate_a.dolt_cli import CandidateADoltCli, _require_exactly_one_row, value
-from gateway_repository_service.candidate_a.errors import CandidateAError
+from gateway_repository_service.candidate_a.errors import CandidateAError, DoltCliStreamCancelledError
 from gateway_repository_service.candidate_a.ref_validation import IMPORT_MAIN_REF
 from gateway_repository_service.layout import DurableLayout
-from gateway_repository_service.process import DoltRunner, ProcessBoundaryError
+from gateway_repository_service.process import DoltRunner, ProcessBoundaryError, ProcessStreamCancelledError
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_read.errors import (
     CommitNotFoundError,
@@ -39,12 +39,6 @@ _READ_PROVIDER_FAULTS = (
 
 _STREAM_PROVIDER_FAULTS = _READ_PROVIDER_FAULTS
 
-_CANCELLED_MESSAGES = frozenset(
-    {
-        "row stream cancelled",
-        "row stream cancelled before start",
-    }
-)
 
 _UNAVAILABLE_MESSAGE = "versioned read provider is unavailable"
 _CANCELLED_MESSAGE = "versioned read stream was cancelled"
@@ -61,9 +55,7 @@ def _as_provider_unavailable(exc: BaseException) -> ProviderUnavailableError | R
         return exc
     if isinstance(exc, TimeoutError):
         return ProviderUnavailableError(_UNAVAILABLE_MESSAGE)
-    if isinstance(exc, CandidateAError) and str(exc) in _CANCELLED_MESSAGES:
-        return _as_read_stream_cancelled()
-    if isinstance(exc, ProcessBoundaryError) and str(exc) == "stream cancelled":
+    if isinstance(exc, (ProcessStreamCancelledError, DoltCliStreamCancelledError)):
         return _as_read_stream_cancelled()
     if isinstance(
         exc,

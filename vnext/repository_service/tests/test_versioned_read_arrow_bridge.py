@@ -630,9 +630,11 @@ def test_bridge_registry_close_all_aggregates_errors_and_survivors() -> None:
             BRIDGE_REGISTRY.close_all(None, join_timeout_seconds=0.01)
 
     error = exc_info.value
-    assert len(error.cleanup_errors) >= 1
-    assert len(error.failures) >= 1
-    assert error.survivor_count >= 1
+    assert len(error.cleanup_errors) == 1
+    assert len(error.failures) == 1
+    assert error.survivor_count == 1
+    assert isinstance(error.cleanup_errors[0], ValueError)
+    assert isinstance(error.failures[0], BridgeJoinTimeoutError)
 
 
 @pytest.mark.serial
@@ -1473,6 +1475,10 @@ def test_close_sync_long_deadline_follower_wakes_on_published_outcome() -> None:
     plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
     release = threading.Event()
     producer_blocked = threading.Event()
+    follower_entered = threading.Event()
+    leader_finished = threading.Event()
+    follower_finished = threading.Event()
+    completion_order: list[str] = []
 
     def gated_rows() -> Iterator[pa.RecordBatch]:
         yield batches[0]
@@ -1481,7 +1487,7 @@ def test_close_sync_long_deadline_follower_wakes_on_published_outcome() -> None:
 
     bridge = ArrowIpcStreamBridge(plan, gated_rows(), threading.Event())
     follower_errors: list[BaseException] = []
-    follower_elapsed: list[float] = []
+    ArrowIpcStreamBridge._test_close_entered_barrier = follower_entered
 
     def drain_queue() -> None:
         while bridge.is_worker_alive():
@@ -1495,17 +1501,17 @@ def test_close_sync_long_deadline_follower_wakes_on_published_outcome() -> None:
     _wait_until(producer_blocked.is_set, message="producer did not block on second batch")
 
     def follower_close() -> None:
-        started = time.monotonic()
         try:
             bridge.close_sync(join_timeout_seconds=5.0)
         except BaseException as exc:
             follower_errors.append(exc)
         finally:
-            follower_elapsed.append(time.monotonic() - started)
+            completion_order.append("follower")
+            follower_finished.set()
 
     follower = threading.Thread(target=follower_close)
     follower.start()
-    time.sleep(0.1)
+    _wait_until(follower_entered.is_set, message="follower did not enter close_sync")
 
     leader_errors: list[BaseException] = []
 
@@ -1514,17 +1520,19 @@ def test_close_sync_long_deadline_follower_wakes_on_published_outcome() -> None:
             bridge.close_sync(join_timeout_seconds=0.1)
         except BaseException as exc:
             leader_errors.append(exc)
+        finally:
+            completion_order.append("leader")
+            leader_finished.set()
 
     leader = threading.Thread(target=leader_close)
     leader.start()
-    leader.join(timeout=5.0)
-    follower.join(timeout=1.0)
+    assert leader_finished.wait(timeout=5.0)
+    assert follower_finished.wait(timeout=5.0)
     release.set()
     drainer.join(timeout=2.0)
     bridge._worker.join(timeout=5.0)
 
-    assert follower_elapsed
-    assert follower_elapsed[0] < 1.0
+    assert completion_order == ["leader", "follower"]
     assert len(leader_errors) == 1
     assert len(follower_errors) == 1
     assert isinstance(leader_errors[0], BridgeJoinTimeoutError)
@@ -1534,17 +1542,46 @@ def test_close_sync_long_deadline_follower_wakes_on_published_outcome() -> None:
 @pytest.mark.unit
 def test_production_modules_only_import_declared_dependencies() -> None:
     import ast
+    import sys
+    import tomllib
     from pathlib import Path
 
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    declared_import_roots = {
+        dependency.split("[", maxsplit=1)[0].split("==", maxsplit=1)[0].strip().replace("-", "_")
+        for dependency in payload["project"]["dependencies"]
+    }
+    # FastAPI / pydantic-settings pull these import roots transitively.
+    allowed_transitive_import_roots = frozenset({"pydantic", "starlette"})
+    # Candidate B lazy-imports mysql.connector.aio; it is a dev-only optional provider path.
+    optional_provider_import_roots = frozenset({"mysql"})
+    allowed_import_roots = (
+        declared_import_roots | allowed_transitive_import_roots | optional_provider_import_roots
+    )
+    internal_import_roots = frozenset({"gateway_repository_service"})
+    stdlib_import_roots = sys.stdlib_module_names
+
     source_root = Path(__file__).resolve().parents[1] / "src" / "gateway_repository_service"
-    forbidden: set[str] = set()
+    production_import_roots: set[str] = set()
     for path in source_root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    root_name = alias.name.split(".")[0]
-                    assert root_name not in forbidden, f"{path} imports forbidden module {root_name}"
+                    production_import_roots.add(alias.name.split(".", maxsplit=1)[0])
             elif isinstance(node, ast.ImportFrom) and node.module:
-                root_name = node.module.split(".")[0]
-                assert root_name not in forbidden, f"{path} imports forbidden module {root_name}"
+                production_import_roots.add(node.module.split(".", maxsplit=1)[0])
+
+    third_party_import_roots = {
+        root
+        for root in production_import_roots
+        if root not in stdlib_import_roots and root not in internal_import_roots
+    }
+    undeclared = sorted(third_party_import_roots - allowed_import_roots)
+    assert not undeclared, (
+        "production code imports third-party modules not declared in pyproject.toml: "
+        f"{undeclared}"
+    )
+    assert "anyio" in declared_import_roots
+    assert "anyio" in third_party_import_roots

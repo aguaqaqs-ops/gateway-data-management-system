@@ -202,7 +202,8 @@ fixture。不得修改`inspect_marker()`。
 
 ### 4.4 Arrow streaming and cancellation
 
-采用stdlib bounded bridge，避免新增Service production dependency：
+采用stdlib bounded queue/thread bridge为主路径；**不新增除已批准例外外的Service
+production dependency**：
 
 ```text
 ASGI async iterator
@@ -212,6 +213,12 @@ ASGI async iterator
   <- Candidate A iterator
   <- ProcessStream / Dolt child
 ```
+
+**已批准架构例外（P2-R5-S3 Round-12/13 independent review）**：async cleanup在持续
+取消下完成executor future时，可使用已属于ASGI栈的AnyIO `CancelScope(shield=True)`。
+`anyio`须作为显式`pyproject.toml` runtime dependency钉版本（当前`anyio==4.14.2`）；
+不得借此引入其他运行时分发包。该例外触发`container_trigger`（`pyproject.toml`、
+`uv.lock`、`Dockerfile` lock SHA）并须在远程container gate记录provenance。
 
 - Route在200前完成repository/commit/catalog/table/policy/plan preflight。
 - Worker拥有provider iterator、Arrow writer和Dolt child；async iterator拥有worker lifecycle。

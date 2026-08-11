@@ -727,6 +727,8 @@ def test_aclose_completes_cleanup_when_awaiting_task_cancelled() -> None:
             releaser.start()
             cancelled_at = time.monotonic()
             task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
             assert time.monotonic() - cancelled_at >= barrier_delay_seconds - 0.05

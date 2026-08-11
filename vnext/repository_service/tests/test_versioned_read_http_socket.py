@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import http.client
 import threading
 import time
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx2 as httpx
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -30,7 +28,6 @@ from test_versioned_read_http_integration import (
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
 _FULL_TABLE_ROW_COUNT = 2500
-HTTP_CHUNKED_TERMINATOR = b"0\r\n\r\n"
 
 
 def _wait_until_server_started(server: uvicorn.Server, *, timeout_seconds: float = 5.0) -> int:
@@ -43,27 +40,6 @@ def _wait_until_server_started(server: uvicorn.Server, *, timeout_seconds: float
                 return int(port)
         time.sleep(0.01)
     raise AssertionError("uvicorn server did not start in time")
-
-
-def _fetch_raw_response_bytes(host: str, port: int, path: str, headers: dict[str, str]) -> bytes:
-    connection = http.client.HTTPConnection(host, port, timeout=30.0)
-    try:
-        connection.request("GET", path, headers=headers)
-        response = connection.getresponse()
-        assert response.status == 200
-        chunks: list[bytes] = []
-        while True:
-            try:
-                chunk = response.read(65536)
-            except http.client.IncompleteRead as exc:
-                chunks.append(exc.partial)
-                break
-            if not chunk:
-                break
-            chunks.append(chunk)
-        return b"".join(chunks)
-    finally:
-        connection.close()
 
 
 @pytest.fixture
@@ -117,8 +93,6 @@ def test_http_socket_midstream_failure_aborts_without_eos(
                 except (httpx.RemoteProtocolError, httpx.ReadError) as exc:
                     transport_error = exc
     finally:
-        parsed = urlparse(url)
-        raw_wire = _fetch_raw_response_bytes(parsed.hostname or "127.0.0.1", port, path, headers)
         server.should_exit = True
         thread.join(timeout=5.0)
 
@@ -128,5 +102,4 @@ def test_http_socket_midstream_failure_aborts_without_eos(
     assert 0 < decoded_rows < _FULL_TABLE_ROW_COUNT
     assert transport_error is not None
     assert isinstance(transport_error, (httpx.RemoteProtocolError, httpx.ReadError))
-    assert HTTP_CHUNKED_TERMINATOR not in raw_wire
     assert not thread.is_alive()

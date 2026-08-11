@@ -5,15 +5,13 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
-import httpx2 as httpx
 import pytest
 from starlette.applications import Starlette
 from starlette.responses import StreamingResponse
 from starlette.routing import Route
+from starlette.types import Message, Scope
 
 from gateway_repository_service.http.middleware import RequestIdMiddleware
-
-HTTP_CHUNKED_TERMINATOR = b"0\r\n\r\n"
 
 
 async def _failing_stream(_request: object) -> StreamingResponse:
@@ -24,35 +22,55 @@ async def _failing_stream(_request: object) -> StreamingResponse:
     return StreamingResponse(body(), media_type="application/octet-stream")
 
 
+def _http_scope() -> Scope:
+    return {
+        "type": "http",
+        "asgi": {"spec_version": "2.4", "version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/stream",
+        "raw_path": b"/stream",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+        "state": {},
+    }
+
+
+async def _empty_receive() -> Message:
+    return {"type": "http.disconnect"}
+
+
 @pytest.mark.unit
 def test_request_id_middleware_preserves_streaming_abort() -> None:
-    app = RequestIdMiddleware(
-        Starlette(
-            routes=[
-                Route("/stream", _failing_stream),
-            ],
-        ),
+    inner = Starlette(
+        routes=[
+            Route("/stream", _failing_stream),
+        ],
     )
+    app = RequestIdMiddleware(inner)
+    sent: list[Message] = []
 
-    async def exercise() -> tuple[bytes, BaseException | None]:
-        transport_error: BaseException | None = None
-        body = b""
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
-        ) as client:
-            async with client.stream("GET", "http://testserver/stream") as response:
-                assert response.status_code == 200
-                assert response.headers.get("X-Request-ID")
-                try:
-                    async for chunk in response.aiter_bytes():
-                        body += chunk
-                except (httpx.RemoteProtocolError, httpx.ReadError, RuntimeError) as exc:
-                    transport_error = exc
-        return body, transport_error
+    async def send_recorder(message: Message) -> None:
+        sent.append(message)
 
-    body, transport_error = asyncio.run(exercise())
-    assert body == b"partial"
-    assert transport_error is None or isinstance(
-        transport_error,
-        (httpx.RemoteProtocolError, httpx.ReadError, RuntimeError),
+    async def exercise() -> None:
+        with pytest.raises(RuntimeError, match="midstream"):
+            await app(_http_scope(), _empty_receive, send_recorder)
+
+    asyncio.run(exercise())
+
+    start_messages = [message for message in sent if message["type"] == "http.response.start"]
+    assert len(start_messages) == 1
+    start_headers = dict(start_messages[0].get("headers", []))
+    assert start_headers[b"x-request-id"]
+
+    body_messages = [message for message in sent if message["type"] == "http.response.body"]
+    assert any(message.get("body") for message in body_messages)
+    assert not any(
+        message.get("type") == "http.response.body" and not message.get("more_body", False)
+        for message in sent
     )

@@ -55,6 +55,7 @@ async def read_bounded_bytes(
     *,
     limit: int = MAX_WIRE_ERROR_JSON_BYTES,
     request_id: str | None = None,
+    close_errors_out: list[Exception] | None = None,
 ) -> bytes:
     """Read a response body up to a fixed byte limit."""
 
@@ -74,6 +75,16 @@ async def read_bounded_bytes(
     except RepositoryProtocolError:
         await response.aclose()
         raise
+    except OSError as exc:
+        if not chunks:
+            raise RepositoryProtocolError(
+                "failed to read response body",
+                status_code=response.status_code,
+                request_id=resolved_request_id,
+            ) from exc
+        if close_errors_out is not None:
+            close_errors_out.append(exc)
+        return b"".join(chunks)
     return b"".join(chunks)
 
 

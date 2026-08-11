@@ -60,6 +60,8 @@ class ArrowIpcByteStream:
         self._close_requested = False
         self._entered = False
         self._attempts_used = 0
+        self._byte_iterator_active = False
+        self._cleanup_notes: list[str] = []
         self._lifecycle_lock = asyncio.Lock()
 
     @property
@@ -90,41 +92,57 @@ class ArrowIpcByteStream:
         await self.aclose()
 
     async def aiter_bytes(self) -> AsyncIterator[bytes]:
-        if self._response is None:
-            raise RuntimeError("Arrow stream must be opened via async context manager")
-        if self._closed:
-            raise RuntimeError("Arrow stream is closed")
+        async with self._lifecycle_lock:
+            if self._closed or self._close_requested:
+                raise RuntimeError("Arrow stream is closed")
+            if self._byte_iterator_active:
+                raise RuntimeError("Arrow stream byte iterator already active")
+            if self._response is None:
+                raise RuntimeError("Arrow stream must be opened via async context manager")
+            self._byte_iterator_active = True
 
-        while True:
-            self._ensure_open()
-            assert self._response is not None
-            try:
-                async for chunk in self._response.aiter_bytes():
-                    if chunk:
-                        self._bytes_exposed = True
-                        yield chunk
-                return
-            except httpx.HTTPError as exc:
-                if self._bytes_exposed:
-                    raise RepositoryStreamError(
-                        "Arrow stream read failed after bytes were exposed",
-                        request_id=self._request_id,
-                    ) from exc
-                await self._discard_transport()
-                if self._attempts_used >= self._max_attempts:
-                    raise RepositoryStreamError(
-                        "Arrow stream read failed before bytes were exposed",
-                        request_id=self._request_id,
-                    ) from exc
-                await self._open_with_retry(backoff=True)
+        try:
+            while True:
+                self._ensure_open()
+                response = self._response
+                if response is None:
+                    raise RuntimeError("Arrow stream is closed")
+                try:
+                    async for chunk in response.aiter_bytes():
+                        if chunk:
+                            self._bytes_exposed = True
+                            yield chunk
+                    return
+                except httpx.HTTPError as exc:
+                    if self._bytes_exposed:
+                        raise RepositoryStreamError(
+                            "Arrow stream read failed after bytes were exposed",
+                            request_id=self._request_id,
+                        ) from exc
+                    await self._discard_transport()
+                    if self._attempts_used >= self._max_attempts:
+                        raise RepositoryStreamError(
+                            "Arrow stream read failed before bytes were exposed",
+                            request_id=self._request_id,
+                        ) from exc
+                    await self._open_with_retry(backoff=True)
+        finally:
+            async with self._lifecycle_lock:
+                self._byte_iterator_active = False
 
     async def aclose(self) -> None:
+        client: httpx.AsyncClient | None
+        response: httpx.Response | None
         async with self._lifecycle_lock:
             if self._closed:
                 return
             self._close_requested = True
-            await self._discard_transport()
             self._closed = True
+            client = self._client
+            response = self._response
+            self._client = None
+            self._response = None
+        self._record_close_errors(await _close_pair_quiet(client, response))
 
     async def _open_with_retry(self, *, backoff: bool = False) -> None:
         self._ensure_open()
@@ -162,6 +180,7 @@ class ArrowIpcByteStream:
                     close_errors = await _close_pair_quiet(client, response)
                     client = None
                     response = None
+                    self._record_close_errors(close_errors)
                     retryable = isinstance(exc, RepositoryClientError) and (
                         exc.status_code in RETRYABLE_STATUS_CODES
                     ) or (
@@ -169,7 +188,7 @@ class ArrowIpcByteStream:
                         and exc.status_code in RETRYABLE_STATUS_CODES
                     )
                     if not retryable or attempt >= self._max_attempts:
-                        _reraise_with_close_notes(exc, close_errors)
+                        self._reraise_with_cleanup_notes(exc)
                     last_error = exc
                     await self._backoff(attempt)
                     self._ensure_open()
@@ -178,24 +197,27 @@ class ArrowIpcByteStream:
                     close_errors = await _close_pair_quiet(client, response)
                     client = None
                     response = None
-                    _reraise_with_close_notes(exc, close_errors)
+                    self._record_close_errors(close_errors)
+                    self._reraise_with_cleanup_notes(exc)
             finally:
-                await _close_pair_quiet(client, response)
+                self._record_close_errors(await _close_pair_quiet(client, response))
 
         if last_error is not None:
-            raise last_error
+            self._reraise_with_cleanup_notes(last_error)
         raise RuntimeError("Arrow stream open exhausted attempts without result")
 
     async def _validate_open_response(self, response: httpx.Response) -> None:
         request_id = peek_request_id(response)
         if response.status_code != 200:
+            read_close_errors: list[Exception] = []
             try:
                 body = await read_bounded_bytes(
                     response,
                     limit=MAX_WIRE_ERROR_JSON_BYTES,
                     request_id=request_id,
+                    close_errors_out=read_close_errors,
                 )
-            except httpx.HTTPError as exc:
+            except (httpx.HTTPError, OSError) as exc:
                 if response.status_code in RETRYABLE_STATUS_CODES:
                     raise RepositoryProtocolError(
                         "failed to read retryable error response body",
@@ -207,6 +229,7 @@ class ArrowIpcByteStream:
                     status_code=response.status_code,
                     request_id=request_id,
                 ) from exc
+            self._record_close_errors(read_close_errors)
             await raise_for_error_response(response, body=body)
             return
 
@@ -215,12 +238,19 @@ class ArrowIpcByteStream:
         self._request_id = resolved_request_id
         self._media_type = media_type
 
+    async def _claim_transport(
+        self,
+    ) -> tuple[httpx.AsyncClient | None, httpx.Response | None]:
+        async with self._lifecycle_lock:
+            client = self._client
+            response = self._response
+            self._client = None
+            self._response = None
+            return client, response
+
     async def _discard_transport(self) -> None:
-        client = self._client
-        response = self._response
-        await _close_pair(client, response)
-        self._client = None
-        self._response = None
+        client, response = await self._claim_transport()
+        self._record_close_errors(await _close_pair_quiet(client, response))
 
     async def _backoff(self, attempt: int) -> None:
         delay = self._base_delay_seconds * (2 ** (attempt - 1))
@@ -232,6 +262,18 @@ class ArrowIpcByteStream:
     def _ensure_open(self) -> None:
         if self._close_requested or self._closed:
             raise RuntimeError("Arrow stream is closed")
+
+    def _record_close_errors(self, close_errors: list[Exception]) -> None:
+        for error in close_errors:
+            self._cleanup_notes.append(f"cleanup close failed: {error}")
+
+    def _reraise_with_cleanup_notes(self, exc: BaseException) -> None:
+        existing_notes = list(getattr(exc, "__notes__", ()))
+        for note in self._cleanup_notes:
+            if note not in existing_notes:
+                exc.add_note(note)
+                existing_notes.append(note)
+        raise exc
 
 
 async def _close_pair_quiet(
@@ -270,18 +312,3 @@ async def _close_pair(
         if len(close_errors) == 1:
             raise close_errors[0]
         raise ExceptionGroup("failed to close Arrow stream transport", close_errors)
-
-
-def _reraise_with_close_notes(
-    exc: BaseException,
-    close_errors: list[Exception],
-) -> None:
-    if close_errors:
-        if len(close_errors) == 1:
-            exc.add_note(f"cleanup close failed: {close_errors[0]}")
-        else:
-            exc.add_note(
-                "cleanup close failed: "
-                + "; ".join(str(error) for error in close_errors)
-            )
-    raise exc

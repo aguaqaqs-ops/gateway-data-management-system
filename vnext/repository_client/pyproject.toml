@@ -46,7 +46,6 @@ target-version = "py314"
 python_version = "3.14"
 strict = true
 files = ["src", "tests"]
-exclude = ["tests/support/versioned_fixture_consumer_typing_probe.py"]
 
 [[tool.mypy.overrides]]
 module = ["gateway_repository_contracts", "gateway_repository_contracts.*"]

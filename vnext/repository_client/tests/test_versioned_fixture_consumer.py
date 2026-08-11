@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import json
-import subprocess
 from pathlib import Path
 from uuid import UUID
 
@@ -50,8 +49,6 @@ pytestmark = pytest.mark.unit
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "versioned_v1"
 SUPPORT_ROOT = Path(__file__).resolve().parent / "support"
-CLIENT_PROJECT = Path(__file__).resolve().parents[1]
-TYPING_PROBE = SUPPORT_ROOT / "versioned_fixture_consumer_typing_probe.py"
 _ARROW_IPC_STREAM_EOS = b"\xff\xff\xff\xff\x00\x00\x00\x00"
 
 _ARTIFACT_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
@@ -625,13 +622,24 @@ def test_decode_arrow_stream_rejects_concatenated_streams() -> None:
         decode_arrow_stream(concatenated)
 
 
-def test_mypy_rejects_invalid_fixture_consumer_client_usage() -> None:
-    result = subprocess.run(
-        ["uv", "run", "mypy", str(TYPING_PROBE)],
-        cwd=CLIENT_PROJECT,
-        check=False,
-        capture_output=True,
-        text=True,
+def test_versioned_fixture_consumer_client_protocol_rejects_invalid_calls(tmp_path: Path) -> None:
+    from mypy import api
+
+    client_tests = Path(__file__).resolve().parent
+    probe_dir = tmp_path / "mypy_probe"
+    probe_dir.mkdir()
+    (probe_dir / "negative.py").write_text(
+        "from support.versioned_fixture_consumer import VersionedFixtureConsumerClient\n"
+        "def _probe(client: VersionedFixtureConsumerClient) -> None:\n"
+        "    client.no_such_method()\n",
+        encoding="utf-8",
     )
-    assert result.returncode != 0
-    assert "no_such_method" in result.stdout + result.stderr
+    (probe_dir / "mypy.ini").write_text(
+        f"[mypy]\npython_version = 3.14\nstrict = True\nmypy_path = {client_tests}\n",
+        encoding="utf-8",
+    )
+    stdout, stderr, exit_status = api.run(
+        ["--config-file", str(probe_dir / "mypy.ini"), str(probe_dir / "negative.py")]
+    )
+    assert exit_status != 0
+    assert "no_such_method" in stdout + stderr

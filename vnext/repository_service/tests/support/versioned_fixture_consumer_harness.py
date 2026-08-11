@@ -114,6 +114,25 @@ def _join_server_thread(
     return []
 
 
+def _best_effort_release_runtime_resources(runtime: ServiceRuntime) -> list[Exception]:
+    errors: list[Exception] = []
+    try:
+        runtime.dolt_runner.terminate_active_children()
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        if runtime.control_store.is_open():
+            runtime.control_store.close()
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        if runtime.root_lock.is_held():
+            runtime.root_lock.release()
+    except Exception as exc:
+        errors.append(exc)
+    return errors
+
+
 def _shutdown_runtime(runtime: ServiceRuntime) -> tuple[list[Exception], BridgeShutdownError | None]:
     errors: list[Exception] = []
     shutdown_error: BridgeShutdownError | None = None
@@ -121,21 +140,13 @@ def _shutdown_runtime(runtime: ServiceRuntime) -> tuple[list[Exception], BridgeS
         runtime.shutdown()
     except BridgeShutdownError as exc:
         shutdown_error = exc
-        try:
-            runtime.dolt_runner.terminate_active_children()
-            if runtime.control_store.is_open():
-                runtime.control_store.close()
-            if runtime.root_lock.is_held():
-                runtime.root_lock.release()
-        except Exception as cleanup_exc:
-            errors.append(cleanup_exc)
     except Exception as exc:
         errors.append(exc)
-    else:
-        if runtime.control_store.is_open():
-            errors.append(AssertionError("control store still open after shutdown"))
-        if runtime.root_lock.is_held():
-            errors.append(AssertionError("root lock still held after shutdown"))
+    errors.extend(_best_effort_release_runtime_resources(runtime))
+    if runtime.control_store.is_open():
+        errors.append(AssertionError("control store still open after shutdown"))
+    if runtime.root_lock.is_held():
+        errors.append(AssertionError("root lock still held after shutdown"))
     return errors, shutdown_error
 
 

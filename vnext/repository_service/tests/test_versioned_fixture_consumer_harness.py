@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -43,12 +45,81 @@ def _minimal_env() -> FixtureConsumerEnvironment:
 
 
 @pytest.mark.unit
+def test_shutdown_runtime_best_effort_on_generic_shutdown_fault() -> None:
+    runtime = MagicMock()
+    runtime.shutdown.side_effect = RuntimeError("generic-shutdown-fault")
+    runtime.control_store.is_open.side_effect = [True, False]
+    runtime.root_lock.is_held.side_effect = [True, False]
+    runtime.dolt_runner._active_children.snapshot.return_value = ()
+    server_thread = MagicMock()
+    server_thread.is_alive.return_value = False
+    env = FixtureConsumerEnvironment(
+        settings=MagicMock(),
+        runtime=runtime,
+        server=MagicMock(should_exit=False),
+        server_thread=server_thread,
+        base_url="http://127.0.0.1:9",
+        bearer_token="token",
+        data_root=Path("/tmp/unused"),
+    )
+    with (
+        patch(
+            "support.versioned_fixture_consumer_harness.BRIDGE_REGISTRY.snapshot",
+            return_value=(),
+        ),
+        patch.object(Path, "exists", return_value=False),
+        pytest.raises(RuntimeError, match="generic-shutdown-fault"),
+    ):
+        shutdown_fixture_consumer_environment(env)
+    runtime.dolt_runner.terminate_active_children.assert_called_once()
+    runtime.control_store.close.assert_called_once()
+    runtime.root_lock.release.assert_called_once()
+
+
+@pytest.mark.unit
+def test_shutdown_runtime_best_effort_when_close_raises() -> None:
+    runtime = MagicMock()
+    runtime.shutdown.side_effect = RuntimeError("generic-shutdown-fault")
+    runtime.control_store.is_open.return_value = True
+    runtime.control_store.close.side_effect = RuntimeError("close-fault")
+    runtime.root_lock.is_held.return_value = True
+    runtime.dolt_runner._active_children.snapshot.return_value = ()
+    server_thread = MagicMock()
+    server_thread.is_alive.return_value = False
+    env = FixtureConsumerEnvironment(
+        settings=MagicMock(),
+        runtime=runtime,
+        server=MagicMock(should_exit=False),
+        server_thread=server_thread,
+        base_url="http://127.0.0.1:9",
+        bearer_token="token",
+        data_root=Path("/tmp/unused"),
+    )
+    with (
+        patch(
+            "support.versioned_fixture_consumer_harness.BRIDGE_REGISTRY.snapshot",
+            return_value=(),
+        ),
+        patch.object(Path, "exists", return_value=False),
+    ):
+        with pytest.raises(ExceptionGroup, match="fixture consumer environment shutdown failures") as exc_info:
+            shutdown_fixture_consumer_environment(env)
+    errors = exc_info.value.exceptions
+    assert any(isinstance(exc, RuntimeError) and str(exc) == "generic-shutdown-fault" for exc in errors)
+    assert any(isinstance(exc, RuntimeError) and str(exc) == "close-fault" for exc in errors)
+    assert any(
+        isinstance(exc, AssertionError) and "root lock still held" in str(exc) for exc in errors
+    )
+    runtime.root_lock.release.assert_called_once()
+
+
+@pytest.mark.unit
 def test_shutdown_fixture_consumer_environment_reraises_bridge_shutdown_error() -> None:
     runtime = MagicMock()
     runtime.shutdown.side_effect = BridgeShutdownError((BridgeJoinTimeoutError("join timeout"),))
     runtime.dolt_runner._active_children.snapshot.return_value = ()
-    runtime.control_store.is_open.return_value = True
-    runtime.root_lock.is_held.return_value = True
+    runtime.control_store.is_open.side_effect = [True, False]
+    runtime.root_lock.is_held.side_effect = [True, False]
     server_thread = MagicMock()
     server_thread.is_alive.return_value = False
     env = FixtureConsumerEnvironment(
@@ -228,23 +299,40 @@ def test_stop_fixture_consumer_process_reaps_running_child() -> None:
 @pytest.mark.integration
 @pytest.mark.serial
 def test_stop_fixture_consumer_process_kills_exited_parent_group_child() -> None:
+    pgid: int | None = None
+    child_pid: int | None = None
     process = subprocess.Popen(
         [
             sys.executable,
             "-c",
             "import subprocess,sys;"
-            "subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'])",
+            "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']);"
+            "print(child.pid, flush=True)",
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
         start_new_session=True,
     )
-    pgid = os.getpgid(process.pid)
-    process.wait(timeout=10.0)
-    stop_fixture_consumer_process(None, pgid=pgid, timeout_seconds=5.0)
-    with pytest.raises(ProcessLookupError):
-        os.killpg(pgid, 0)
+    try:
+        pgid = os.getpgid(process.pid)
+        try:
+            stdout_bytes, _stderr = process.communicate(timeout=10.0)
+        except subprocess.TimeoutExpired as exc:
+            stdout_bytes = exc.output if isinstance(exc.output, bytes) else b""
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5.0)
+        child_pid = int(stdout_bytes.decode().strip())
+        stop_fixture_consumer_process(None, pgid=pgid, timeout_seconds=5.0)
+        with pytest.raises(ProcessLookupError):
+            os.killpg(pgid, 0)
+    finally:
+        if pgid is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(pgid, signal.SIGKILL)
+        if child_pid is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child_pid, signal.SIGKILL)
 
 
 @pytest.mark.unit

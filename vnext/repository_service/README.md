@@ -16,7 +16,7 @@ commit-pinned read 已激活；container/Compose/W1/W2/formal retest 延期至 P
 
 ## 已激活 public V1 routes
 
-公开 wire 语义由 [Repository Service Contract](../../docs/backend-vnext/refactoring/formal/contracts/repository-service.md) 拥有。当前已注册：
+公开 wire 语义由 [Repository Service Contract](../../docs/backend-vnext/refactoring/formal/contracts/repository-service.md) 拥有。当前已注册 7 条 V1 业务 route（另有`/healthz`与`/readyz`）：
 
 ```text
 POST /v1/repositories

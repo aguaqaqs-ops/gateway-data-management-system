@@ -607,11 +607,15 @@ s6_external_review:
   blocking_findings: []
 p2_r5_exit: pass
 p2_r6_ready: yes
+worktree_clean: yes
 production_retest_required: yes
 phase_2_complete: no
 container_trigger: no
 container_gate_run: no
 s7_tests_rerun: no
+container_validated_code_sha: 901a13b92a0a92130d9afa001d8eb4273d544566
+current_source_container_validated: no
+container_validation_deferred_to: P2-R6
 ```
 
 `validated_code_sha`是S6 gate已运行且经外部独立审查批准的代码SHA，不是本S7文档commit
@@ -630,6 +634,7 @@ git log --reverse --format='%H %s' \
 按stage分组（含全部累计remediation/review commits，不省略）：
 
 ```yaml
+commit_lineage_count: 55
 commit_lineage:
   s0:
     stage_initial: a61e664b45439dafc0ef8e2b01317400d27672f1  # docs(repository): add P2-R5 execution plan
@@ -725,7 +730,7 @@ S6不重新运行；以下证据来自`P2-R5-S6-independent-round-1`外部独立
 ```yaml
 s6_functional_gate:
   cleanup_03_nodeid:
-    command: uv run pytest tests/test_import_shutdown.py::test_runtime_shutdown_propagates_bridge_shutdown_error_after_releasing_resources
+    command: uv run pytest -n 0 tests/test_import_shutdown.py::test_runtime_shutdown_propagates_bridge_shutdown_error_after_releasing_resources
     result: 1 passed
   repository_service_unit:
     command: cd vnext/repository_service && uv run pytest -m unit
@@ -744,7 +749,8 @@ s6_functional_gate:
     deferred_failure:
       - tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
   unit_dolt_parked:
-    command: mv dolt.parked; uv run pytest -m unit; restore dolt
+    command: mv /usr/local/bin/dolt /usr/local/bin/dolt.parked; uv run pytest -m unit; mv /usr/local/bin/dolt.parked /usr/local/bin/dolt
+    restore_guard: shell trap restored the exact binary on abnormal exit
     result: 954 passed, 1 skipped
   authoritative_non_container_gate:
     command: ./vnext/scripts/run-tests.sh --ignore=tests/test_import_compose_e2e.py
@@ -943,7 +949,7 @@ post_r5_cleanup_inventory:
   - id: R5-CLEANUP-03
     status: closed
     item: runtime_shutdown_bridge_failure_wiring_test
-    evidence: cleanup ordering exists, but no direct regression forces close_all failure through runtime shutdown
+    evidence: direct runtime shutdown regression forces close_all failure and verifies error propagation after resource release
     owner: P2-R5-S6-lifecycle-regression
     phase_2_exit_blocker: yes
     exit: direct test proves bridge error propagation after control store and root lock release

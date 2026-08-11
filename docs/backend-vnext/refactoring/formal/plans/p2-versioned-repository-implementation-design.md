@@ -39,8 +39,8 @@ P2-R1开始实现；每轮只能在前一轮exit通过后进入。
   在多个Repository；同Repository通常低频写。
 - 首版部署为Linux container与single-node local/block-backed durable filesystem。
 - Dolt exact version和offline CLI/sql-server provider由P2-R1 matrix确定。
-- 当前无published Repository wire或production durable data，不保留旧compatibility
-  adapter；`/v1/`是首次正式激活版本。
+- P2-R5已首次激活Repository `/v1/` wire；激活前无published wire或production durable
+  data，因此不保留旧compatibility adapter。
 
 ## 4. Scope and non-goals
 

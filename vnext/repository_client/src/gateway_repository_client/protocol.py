@@ -60,9 +60,25 @@ def _declared_content_length(response: httpx.Response) -> int | None:
         return None
 
 
-def _is_body_complete(response: httpx.Response, total: int) -> bool:
+def _is_wire_body_complete(response: httpx.Response) -> bool:
     declared = _declared_content_length(response)
-    return declared is not None and total >= declared
+    if declared is None or declared <= 0:
+        return False
+    return response.num_bytes_downloaded == declared
+
+
+def _ensure_identity_json_encoding(
+    response: httpx.Response,
+    *,
+    request_id: str | None,
+) -> None:
+    encoding = response.headers.get("content-encoding")
+    if encoding is not None and encoding.strip() != "":
+        raise RepositoryProtocolError(
+            "unsupported Content-Encoding for JSON response",
+            status_code=response.status_code,
+            request_id=request_id,
+        )
 
 
 def _attach_close_notes(exc: BaseException, close_errors: list[Exception]) -> None:
@@ -100,6 +116,7 @@ async def read_bounded_bytes(
     """Read a response body up to a fixed byte limit."""
 
     resolved_request_id = request_id if request_id is not None else peek_request_id(response)
+    _ensure_identity_json_encoding(response, request_id=resolved_request_id)
     chunks: list[bytes] = []
     total = 0
     try:
@@ -119,7 +136,7 @@ async def read_bounded_bytes(
             close_errors_out.extend(close_errors)
         raise
     except OSError as exc:
-        if _is_body_complete(response, total):
+        if _is_wire_body_complete(response):
             if close_errors_out is not None:
                 close_errors_out.append(exc)
             return b"".join(chunks)
@@ -236,16 +253,24 @@ async def parse_json_response(
         if response.status_code == expected_status
         else max_error_body_bytes
     )
+    close_errors: list[Exception] = []
     primary: BaseException | None = None
     try:
-        body = await read_bounded_bytes(response, limit=body_limit)
+        body = await read_bounded_bytes(
+            response,
+            limit=body_limit,
+            close_errors_out=close_errors,
+        )
         if response.status_code == expected_status:
-            return await parse_success_dto(
+            result = await parse_success_dto(
                 response,
                 expected_status=expected_status,
                 model=model,
                 body=body,
             )
+            if close_errors:
+                _raise_close_errors(close_errors)
+            return result
         if 200 <= response.status_code < 300:
             request_id = require_request_id(response)
             raise RepositoryProtocolError(
@@ -258,7 +283,6 @@ async def parse_json_response(
         primary = exc
         raise
     finally:
-        close_errors = await _close_response_quiet(response)
         if primary is not None:
             _attach_close_notes(primary, close_errors)
         elif close_errors:

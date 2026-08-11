@@ -414,3 +414,100 @@ async def test_error_endpoint_mid_body_oserror_fails() -> None:
             repository_id=REPO_ID,
             commit_id=COMMIT_ID,
         )
+
+
+@pytest.mark.asyncio
+async def test_gzip_truncated_wire_fails_even_with_valid_decompressed_prefix() -> None:
+    import gzip
+    import json
+
+    operation_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
+    payload = {
+        "operation": {
+            "operation_id": str(operation_id),
+            "status": "RUNNING",
+            "result": None,
+            "error": None,
+        }
+    }
+    json_bytes = json.dumps(payload).encode()
+    compressible = json_bytes + (b"x" * 10_000)
+    wire_body = gzip.compress(compressible)
+    truncated_wire = wire_body[:-8]
+
+    class TruncatedGzipStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield truncated_wire
+
+        async def aclose(self) -> None:
+            return None
+
+    class GzipTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-gzip",
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "gzip",
+                    "Content-Length": str(len(truncated_wire)),
+                },
+                stream=TruncatedGzipStream(),
+            )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=GzipTransport(),
+    )
+    with pytest.raises(RepositoryProtocolError, match="Content-Encoding"):
+        await client.get_operation(repository_id=REPO_ID, operation_id=operation_id)
+
+
+@pytest.mark.asyncio
+async def test_eof_stream_close_failure_prevents_success_dto() -> None:
+    import json
+
+    operation_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
+    stream_closes = {"count": 0}
+    payload = {
+        "operation": {
+            "operation_id": str(operation_id),
+            "status": "RUNNING",
+            "result": None,
+            "error": None,
+        }
+    }
+    body = json.dumps(payload).encode()
+
+    class EofCloseFailureStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield body
+
+        async def aclose(self) -> None:
+            stream_closes["count"] += 1
+            raise OSError("EOF stream close failed")
+
+    class EofCloseTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-eof",
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(body)),
+                },
+                stream=EofCloseFailureStream(),
+            )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=EofCloseTransport(),
+    )
+    with pytest.raises(OSError, match="EOF stream close failed"):
+        await client.get_operation(repository_id=REPO_ID, operation_id=operation_id)
+
+    assert stream_closes["count"] == 1

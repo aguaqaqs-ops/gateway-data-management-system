@@ -19,6 +19,7 @@ from gateway_repository_service.versioned_read.arrow_bridge import (
 )
 from support.versioned_fixture_consumer_harness import (
     FixtureConsumerEnvironment,
+    _finalize_environment_cleanup,
     parse_consumer_summary,
     run_fixture_consumer_subprocess,
     shutdown_fixture_consumer_environment,
@@ -48,8 +49,8 @@ def _minimal_env() -> FixtureConsumerEnvironment:
 def test_shutdown_runtime_best_effort_on_generic_shutdown_fault() -> None:
     runtime = MagicMock()
     runtime.shutdown.side_effect = RuntimeError("generic-shutdown-fault")
-    runtime.control_store.is_open.side_effect = [True, False]
-    runtime.root_lock.is_held.side_effect = [True, False]
+    runtime.control_store.is_open.return_value = False
+    runtime.root_lock.is_held.return_value = False
     runtime.dolt_runner._active_children.snapshot.return_value = ()
     server_thread = MagicMock()
     server_thread.is_alive.return_value = False
@@ -114,12 +115,100 @@ def test_shutdown_runtime_best_effort_when_close_raises() -> None:
 
 
 @pytest.mark.unit
+def test_shutdown_runtime_survives_state_probe_faults_and_finalizes() -> None:
+    runtime = MagicMock()
+    runtime.shutdown.side_effect = RuntimeError("original-shutdown-fault")
+    runtime.control_store.is_open.side_effect = RuntimeError("is-open-fault-2")
+    runtime.root_lock.is_held.return_value = False
+    runtime.dolt_runner._active_children.snapshot.return_value = ()
+    server_thread = MagicMock()
+    server_thread.is_alive.return_value = False
+    env = FixtureConsumerEnvironment(
+        settings=MagicMock(),
+        runtime=runtime,
+        server=MagicMock(should_exit=False),
+        server_thread=server_thread,
+        base_url="http://127.0.0.1:9",
+        bearer_token="token",
+        data_root=Path("/tmp/unused"),
+    )
+    finalize_called = False
+
+    def _record_and_finalize(
+        env: FixtureConsumerEnvironment,
+        *,
+        errors: list[Exception],
+        shutdown_error: BridgeShutdownError | None,
+    ) -> None:
+        nonlocal finalize_called
+        finalize_called = True
+        _finalize_environment_cleanup(env, errors=errors, shutdown_error=shutdown_error)
+
+    with (
+        patch(
+            "support.versioned_fixture_consumer_harness.BRIDGE_REGISTRY.snapshot",
+            return_value=(),
+        ),
+        patch.object(Path, "exists", return_value=False),
+        patch(
+            "support.versioned_fixture_consumer_harness._finalize_environment_cleanup",
+            side_effect=_record_and_finalize,
+        ),
+        pytest.raises(ExceptionGroup, match="fixture consumer environment shutdown failures") as exc_info,
+    ):
+        shutdown_fixture_consumer_environment(env)
+    assert finalize_called is True
+    runtime.control_store.close.assert_called_once()
+    runtime.root_lock.release.assert_called_once()
+    errors = exc_info.value.exceptions
+    assert any(
+        isinstance(exc, RuntimeError) and str(exc) == "original-shutdown-fault" for exc in errors
+    )
+    assert any(isinstance(exc, RuntimeError) and str(exc) == "is-open-fault-2" for exc in errors)
+
+
+@pytest.mark.unit
+def test_shutdown_runtime_survives_is_held_probe_fault() -> None:
+    runtime = MagicMock()
+    runtime.shutdown.side_effect = RuntimeError("original-shutdown-fault")
+    runtime.control_store.is_open.return_value = False
+    runtime.root_lock.is_held.side_effect = RuntimeError("is-held-fault")
+    runtime.dolt_runner._active_children.snapshot.return_value = ()
+    server_thread = MagicMock()
+    server_thread.is_alive.return_value = False
+    env = FixtureConsumerEnvironment(
+        settings=MagicMock(),
+        runtime=runtime,
+        server=MagicMock(should_exit=False),
+        server_thread=server_thread,
+        base_url="http://127.0.0.1:9",
+        bearer_token="token",
+        data_root=Path("/tmp/unused"),
+    )
+    with (
+        patch(
+            "support.versioned_fixture_consumer_harness.BRIDGE_REGISTRY.snapshot",
+            return_value=(),
+        ),
+        patch.object(Path, "exists", return_value=False),
+        pytest.raises(ExceptionGroup, match="fixture consumer environment shutdown failures") as exc_info,
+    ):
+        shutdown_fixture_consumer_environment(env)
+    runtime.root_lock.release.assert_called_once()
+    errors = exc_info.value.exceptions
+    assert any(
+        isinstance(exc, RuntimeError) and str(exc) == "original-shutdown-fault" for exc in errors
+    )
+    assert any(isinstance(exc, RuntimeError) and str(exc) == "is-held-fault" for exc in errors)
+
+
+@pytest.mark.unit
 def test_shutdown_fixture_consumer_environment_reraises_bridge_shutdown_error() -> None:
     runtime = MagicMock()
     runtime.shutdown.side_effect = BridgeShutdownError((BridgeJoinTimeoutError("join timeout"),))
     runtime.dolt_runner._active_children.snapshot.return_value = ()
-    runtime.control_store.is_open.side_effect = [True, False]
-    runtime.root_lock.is_held.side_effect = [True, False]
+    runtime.control_store.is_open.return_value = False
+    runtime.root_lock.is_held.return_value = False
     server_thread = MagicMock()
     server_thread.is_alive.return_value = False
     env = FixtureConsumerEnvironment(

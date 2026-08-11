@@ -812,6 +812,62 @@ async def test_wire_complete_iterator_oserror_close_failure_preserves_primary() 
 
 
 @pytest.mark.asyncio
+async def test_error_response_iterator_oserror_with_aclose_failure_preserves_both_notes() -> (
+    None
+):
+    import json
+
+    stream_closes = {"count": 0}
+    error_body = json.dumps(
+        {
+            "code": "TABLE_NOT_FOUND",
+            "message": "missing",
+            "request_id": "req-err",
+        }
+    ).encode()
+
+    class IteratorOSErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield error_body
+            raise OSError("iterator failed after complete error body")
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            stream_closes["count"] += 1
+            raise OSError("aclose sentinel")
+
+    class ErrorTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                404,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-err",
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(error_body)),
+                },
+                stream=IteratorOSErrorStream(),
+            )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=ErrorTransport(),
+    )
+    with pytest.raises(RepositoryClientError) as exc_info:
+        await client.get_versioned_catalog(
+            repository_id=REPO_ID,
+            commit_id=COMMIT_ID,
+        )
+
+    assert exc_info.value.status_code == 404
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("iterator failed after complete error body" in note for note in notes)
+    assert any("aclose sentinel" in note for note in notes)
+    assert stream_closes["count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_eof_stream_close_failure_prevents_success_dto() -> None:
     import json
 

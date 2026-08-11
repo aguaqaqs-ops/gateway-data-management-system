@@ -68,13 +68,19 @@ def _is_wire_body_complete(response: httpx.Response) -> bool:
     return response.num_bytes_downloaded == declared
 
 
+def _iter_close_error_notes(error: Exception) -> list[str]:
+    notes = [f"cleanup close failed: {error}"]
+    notes.extend(getattr(error, "__notes__", ()))
+    return notes
+
+
 def _attach_close_notes(exc: BaseException, close_errors: list[Exception]) -> None:
     existing_notes = list(getattr(exc, "__notes__", ()))
     for error in close_errors:
-        note = f"cleanup close failed: {error}"
-        if note not in existing_notes:
-            exc.add_note(note)
-            existing_notes.append(note)
+        for note in _iter_close_error_notes(error):
+            if note not in existing_notes:
+                exc.add_note(note)
+                existing_notes.append(note)
 
 
 def _raise_close_errors(close_errors: list[Exception]) -> None:

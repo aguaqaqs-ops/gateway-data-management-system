@@ -743,6 +743,70 @@ async def test_streaming_503_eof_close_failure_retries_and_preserves_typed_error
 
 
 @pytest.mark.asyncio
+async def test_streaming_503_iterator_oserror_with_aclose_failure_preserves_both_notes() -> (
+    None
+):
+    import json
+
+    attempts = {"count": 0}
+    response_closes = {"count": 0}
+    error_body = json.dumps(
+        {
+            "code": "SERVICE_NOT_READY",
+            "message": "not ready",
+            "request_id": "req-503",
+        }
+    ).encode()
+
+    class IteratorOSErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield error_body
+            raise OSError("arrow iterator failed after complete error body")
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            response_closes["count"] += 1
+            raise OSError("aclose sentinel")
+
+    class StreamingTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            attempts["count"] += 1
+            return httpx.Response(
+                503,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-503",
+                    "Content-Length": str(len(error_body)),
+                },
+                stream=IteratorOSErrorStream(),
+            )
+
+    async def open_attempt() -> tuple[httpx.AsyncClient, httpx.Response]:
+        client = httpx.AsyncClient(
+            base_url="http://repository.test",
+            transport=StreamingTransport(),
+        )
+        request = client.build_request("GET", "/rows")
+        response = await client.send(request, stream=True)
+        return client, response
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    stream = ArrowIpcByteStream(open_attempt=open_attempt, max_attempts=2, sleeper=sleeper)
+    with pytest.raises(RepositoryClientError) as exc_info:
+        async with stream:
+            pass
+
+    assert attempts["count"] == 2
+    assert exc_info.value.status_code == 503
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("arrow iterator failed after complete error body" in note for note in notes)
+    assert any("aclose sentinel" in note for note in notes)
+    assert response_closes["count"] == 2
+
+
+@pytest.mark.asyncio
 async def test_streaming_502_eof_close_failure_retries() -> None:
     import json
 
@@ -798,6 +862,70 @@ async def test_streaming_502_eof_close_failure_retries() -> None:
 
     assert attempts["count"] == 2
     assert exc_info.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_streaming_502_iterator_oserror_with_aclose_failure_preserves_both_notes() -> (
+    None
+):
+    import json
+
+    attempts = {"count": 0}
+    response_closes = {"count": 0}
+    error_body = json.dumps(
+        {
+            "code": "SERVICE_NOT_READY",
+            "message": "bad gateway",
+            "request_id": "req-502",
+        }
+    ).encode()
+
+    class IteratorOSErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield error_body
+            raise OSError("arrow iterator failed after complete error body")
+            yield b""  # pragma: no cover
+
+        async def aclose(self) -> None:
+            response_closes["count"] += 1
+            raise OSError("aclose sentinel")
+
+    class StreamingTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            attempts["count"] += 1
+            return httpx.Response(
+                502,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-502",
+                    "Content-Length": str(len(error_body)),
+                },
+                stream=IteratorOSErrorStream(),
+            )
+
+    async def open_attempt() -> tuple[httpx.AsyncClient, httpx.Response]:
+        client = httpx.AsyncClient(
+            base_url="http://repository.test",
+            transport=StreamingTransport(),
+        )
+        request = client.build_request("GET", "/rows")
+        response = await client.send(request, stream=True)
+        return client, response
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    stream = ArrowIpcByteStream(open_attempt=open_attempt, max_attempts=2, sleeper=sleeper)
+    with pytest.raises(RepositoryClientError) as exc_info:
+        async with stream:
+            pass
+
+    assert attempts["count"] == 2
+    assert exc_info.value.status_code == 502
+    notes = getattr(exc_info.value, "__notes__", ())
+    assert any("arrow iterator failed after complete error body" in note for note in notes)
+    assert any("aclose sentinel" in note for note in notes)
+    assert response_closes["count"] == 2
 
 
 @pytest.mark.asyncio

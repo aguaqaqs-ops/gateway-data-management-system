@@ -17,6 +17,7 @@ from gateway_repository_client.errors import (
 )
 from gateway_repository_client.protocol import (
     _attach_close_notes,
+    _iter_close_error_notes,
     peek_request_id,
     raise_for_error_response,
     read_bounded_bytes,
@@ -277,7 +278,9 @@ class ArrowIpcByteStream:
 
     def _record_close_errors(self, close_errors: list[Exception]) -> None:
         for error in close_errors:
-            self._cleanup_notes.append(f"cleanup close failed: {error}")
+            for note in _iter_close_error_notes(error):
+                if note not in self._cleanup_notes:
+                    self._cleanup_notes.append(note)
 
     def _reraise_with_cleanup_notes(self, exc: BaseException) -> None:
         existing_notes = list(getattr(exc, "__notes__", ()))

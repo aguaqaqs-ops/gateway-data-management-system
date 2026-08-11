@@ -30,6 +30,7 @@ from gateway_repository_service.arrow_mapping import (
     UnknownSqlTypeError,
     compile_table_plan,
 )
+from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.http.readiness import ReadinessPort
 from gateway_repository_service.versioned_read.errors import (
     CommitNotFoundError,
@@ -39,6 +40,7 @@ from gateway_repository_service.versioned_read.errors import (
     TableNotFoundError,
     VersionedReadError,
 )
+from gateway_repository_service.versioned_read.wire import build_catalog_response
 from support.http_harness import (
     PRODUCTION_OPENAPI_PATHS,
     ImportHttpTestEnvironment,
@@ -424,6 +426,7 @@ def test_openapi_rows_declares_binary_arrow_media(env: ImportHttpTestEnvironment
     )
     assert commit_param["schema"]["minLength"] == 1
     assert commit_param["schema"]["maxLength"] == MAX_COMMIT_ID_PATH_SEGMENT_LENGTH
+    assert commit_param["schema"]["pattern"] == r"^[A-Za-z0-9_-]+$"
     table_name_param = next(item for item in table_param if item.get("name") == "table_name")
     assert table_name_param["schema"]["minLength"] == 1
     assert table_name_param["schema"]["maxLength"] == 64
@@ -470,3 +473,44 @@ def test_get_routes_have_no_request_body(env: ImportHttpTestEnvironment) -> None
         "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows",
     ):
         assert openapi[path]["get"].get("requestBody") is None
+
+
+def test_catalog_rejects_logical_commit_id_in_path(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    response = env.client.get(
+        f"/v1/repositories/{repository_id}/versioned/commits/commit-c1/catalog",
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_catalog_rejects_non_canonical_commit_id_alias(env: ImportHttpTestEnvironment) -> None:
+    repository_id = env.seed_repository()
+    response = env.client.get(
+        f"/v1/repositories/{repository_id}/versioned/commits/YWJj=/catalog",
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_build_catalog_response_rejects_oversized_wire_payload() -> None:
+    tables = tuple(
+        TableCatalog(
+            f"t{index}",
+            (
+                ColumnCatalog(
+                    name="id",
+                    sql_type="BIGINT",
+                    nullable=False,
+                    primary_key_position=1,
+                ),
+            ),
+            row_count=0,
+        )
+        for index in range(5000)
+    )
+    with pytest.raises(ServiceError) as exc_info:
+        build_catalog_response("commit-1", tables)
+    assert exc_info.value.status_code == 503

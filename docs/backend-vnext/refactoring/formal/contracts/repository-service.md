@@ -107,7 +107,8 @@ HTTP status表达请求层结果；不公开通用`category/phase/recovery/effec
 | `RepositoryId` | Service生成的普通UUID；caller不得解析时间或版本 |
 | `ArtifactId` | Service生成的普通UUID；只在所属Repository内有效 |
 | `RepositoryOperationId` | Service生成的普通UUID；只在所属Repository内查询 |
-| `CommitId` | Dolt生成的repository-scoped opaque string |
+| `CommitId` | Dolt生成的repository-scoped opaque string（1..1024 code points）；逻辑值出现在JSON body（catalog/ref response等） |
+| `CommitIdPathSegment` | HTTP path `{commit_id}` 的canonical **base64url（RFC 4648 §5，无 padding）** 编码，承载UTF-8逻辑`CommitId`；caller不得在path中直接放置逻辑CommitId（如`commit-c1`）；非法或非canonical segment → `422 REQUEST_VALIDATION_FAILED`；最大长度`MAX_COMMIT_ID_PATH_SEGMENT_LENGTH`（5464） |
 | `RefName` | V1 mutation与resolve只接受literal `main` |
 | `IdempotencyKey` | caller生成的1..255 UTF-8 opaque string |
 | provider token | bounded opaque string，不施加UUID或canonical grammar |
@@ -147,6 +148,11 @@ GET  /v1/repositories/{repository_id}/operations/{operation_id}
 GET  /v1/repositories/{repository_id}/versioned/refs/{ref_name}
 GET  /v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog
 GET  /v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows?table_name=...
+```
+
+`{commit_id}` path segment使用canonical base64url（无padding）传输逻辑`CommitId`；OpenAPI以`pattern: ^[A-Za-z0-9_-]+$`与`maxLength: 5464`声明。`GetVersionedCatalog`成功JSON body不得超过`MAX_CATALOG_JSON_BYTES`（256 KiB）；超出时Service返回`503 SERVICE_NOT_READY`。
+
+```text
 GET  /healthz
 GET  /readyz
 ```

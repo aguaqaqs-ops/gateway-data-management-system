@@ -289,7 +289,8 @@ async def test_oversized_json_body_raises_protocol_error_and_closes_transport() 
         bearer_token="token",
         transport=ChunkedTransport(),
     )
-    with pytest.raises(RepositoryProtocolError, match="exceeds"):
+    with pytest.raises(RepositoryProtocolError, match="exceeds") as exc_info:
         await client.get_operation(repository_id=REPO_ID, operation_id=OP_ID)
 
+    assert exc_info.value.request_id == "req-big"
     assert closed["count"] >= 1

@@ -115,21 +115,21 @@ async def test_submit_import_does_not_rewrite_key_or_body_on_caller_mutation() -
 
 @pytest.mark.asyncio
 async def test_submit_import_snapshot_freezes_path_and_body_across_retry() -> None:
-    attempts = {"count": 0}
-    barrier = asyncio.Event()
     captured: list[tuple[str, bytes, str]] = []
     mutated_repo = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c99")
+    barrier = asyncio.Event()
+    request = _import_request()
 
     async def sleeper(_seconds: float) -> None:
-        attempts["count"] += 1
-        if attempts["count"] == 1:
-            request = _import_request()
-            request.repository_id = mutated_repo
-            barrier.set()
+        await barrier.wait()
+        request.repository_id = mutated_repo
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.append((request.url.path, request.read(), request.headers["Idempotency-Key"]))
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        captured.append(
+            (http_request.url.path, http_request.read(), http_request.headers["Idempotency-Key"])
+        )
         if len(captured) == 1:
+            barrier.set()
             return httpx.Response(
                 503,
                 json={"code": "SERVICE_NOT_READY", "message": "not ready"},
@@ -147,9 +147,9 @@ async def test_submit_import_snapshot_freezes_path_and_body_across_retry() -> No
         transport=httpx.MockTransport(handler),
         sleeper=sleeper,
     )
-    request = _import_request()
     await client.submit_versioned_import(idempotency_key="import-key", request=request)
 
+    assert request.repository_id == mutated_repo
     assert len(captured) == 2
     first_path, first_body, first_key = captured[0]
     second_path, second_body, second_key = captured[1]

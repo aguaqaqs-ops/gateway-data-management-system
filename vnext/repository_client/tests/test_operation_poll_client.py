@@ -190,6 +190,7 @@ async def test_wait_operation_deadline_covers_in_flight_get_retries() -> None:
     assert attempts["count"] == 2
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_wait_operation_times_out_during_slow_in_flight_get() -> None:
     class SlowTransport(httpx.AsyncBaseTransport):
@@ -239,3 +240,45 @@ def test_validate_deadline_seconds_rejects_non_finite(deadline: float) -> None:
 
     with pytest.raises(ValueError, match="positive finite"):
         validate_deadline_seconds(deadline)
+
+
+@pytest.mark.asyncio
+async def test_get_operation_times_out_when_deadline_at_is_now() -> None:
+    current_time = {"value": 100.0}
+
+    def clock() -> float:
+        return current_time["value"]
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
+        clock=clock,
+    )
+    with pytest.raises(RepositoryClientTimeoutError):
+        await client.get_operation(
+            repository_id=REPO_ID,
+            operation_id=OP_ID,
+            deadline_at=current_time["value"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_operation_times_out_when_deadline_at_is_past() -> None:
+    current_time = {"value": 100.0}
+
+    def clock() -> float:
+        return current_time["value"]
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
+        clock=clock,
+    )
+    with pytest.raises(RepositoryClientTimeoutError):
+        await client.get_operation(
+            repository_id=REPO_ID,
+            operation_id=OP_ID,
+            deadline_at=current_time["value"] - 1.0,
+        )

@@ -14,11 +14,13 @@ from gateway_repository_contracts.identifiers import (
     VersionedTableNameString,
 )
 from gateway_repository_contracts.path_transport import (
+    COMMIT_ID_PATH_SEGMENT_PATTERN,
     MAX_COMMIT_ID_PATH_SEGMENT_LENGTH,
     decode_commit_id_path_segment,
     encode_commit_id_path_segment,
 )
 from gateway_repository_contracts.types import CommitIdString, MainRefLiteral
+from gateway_repository_contracts.wire_limits import MAX_CATALOG_JSON_BYTES, MAX_WIRE_ERROR_JSON_BYTES
 from gateway_repository_contracts.versioned import (
     CreateRepositoryResponse,
     GetOperationResponse,
@@ -64,6 +66,7 @@ __all__ = [
     "VERSIONED_READ_ARROW_MEDIA_TYPE",
     "VERSIONED_READ_ERROR_CODES",
     "CommitIdString",
+    "COMMIT_ID_PATH_SEGMENT_PATTERN",
     "CreateRequestHeaders",
     "CreateRepositoryResponse",
     "decode_commit_id_path_segment",
@@ -73,7 +76,9 @@ __all__ = [
     "IdempotencyKeyString",
     "ImportRequestHeaders",
     "MainRefLiteral",
+    "MAX_CATALOG_JSON_BYTES",
     "MAX_COMMIT_ID_PATH_SEGMENT_LENGTH",
+    "MAX_WIRE_ERROR_JSON_BYTES",
     "OperationStatus",
     "RepositoryArtifactRef",
     "ResolveVersionedRefRequest",

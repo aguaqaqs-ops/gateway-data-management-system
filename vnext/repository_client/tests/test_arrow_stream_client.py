@@ -15,6 +15,7 @@ from gateway_repository_client import (
     RepositoryProtocolError,
     RepositoryStreamError,
 )
+from gateway_repository_client.arrow_stream import _close_pair
 from gateway_repository_contracts import VERSIONED_READ_ARROW_MEDIA_TYPE
 
 REPO_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
@@ -474,3 +475,61 @@ async def test_close_pair_closes_client_when_response_cancelled() -> None:
         async with stream:
             pass
     assert closed == ["response", "client"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_aclose_during_pre_byte_retry_does_not_reopen_transport() -> None:
+    attempts = {"count": 0}
+    sleeper_entered = asyncio.Event()
+    release_sleeper = asyncio.Event()
+
+    async def sleeper(_seconds: float) -> None:
+        sleeper_entered.set()
+        await release_sleeper.wait()
+
+    async def open_attempt() -> tuple[httpx.AsyncClient, httpx.Response]:
+        attempts["count"] += 1
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                request=request,
+                headers=ARROW_HEADERS,
+                stream=_PreByteFailingStream(fail=True),
+            )
+        )
+        client = httpx.AsyncClient(base_url="http://repository.test", transport=transport)
+        request = client.build_request("GET", "/rows")
+        response = await client.send(request, stream=True)
+        return client, response
+
+    stream = ArrowIpcByteStream(open_attempt=open_attempt, sleeper=sleeper)
+    async with stream:
+
+        async def consume() -> None:
+            async for _chunk in stream.aiter_bytes():
+                return None
+
+        read_task = asyncio.create_task(consume())
+        await sleeper_entered.wait()
+        await stream.aclose()
+        release_sleeper.set()
+        with pytest.raises(RuntimeError, match="closed"):
+            await read_task
+
+    assert attempts["count"] == 1
+    assert stream._client is None
+    assert stream._response is None
+
+
+@pytest.mark.asyncio
+async def test_close_pair_raises_when_both_resources_fail_to_close() -> None:
+    class FailingClient:
+        async def aclose(self) -> None:
+            raise OSError("client close failed")
+
+    class FailingResponse:
+        async def aclose(self) -> None:
+            raise OSError("response close failed")
+
+    with pytest.raises(ExceptionGroup):
+        await _close_pair(FailingClient(), FailingResponse())  # type: ignore[arg-type]

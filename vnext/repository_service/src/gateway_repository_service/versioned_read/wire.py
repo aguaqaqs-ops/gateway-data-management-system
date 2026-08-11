@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from gateway_repository_contracts import (
     COMMIT_NOT_FOUND_CODE,
     GetVersionedCatalogResponse,
+    MAX_CATALOG_JSON_BYTES,
     REF_NOT_FOUND_CODE,
     REPOSITORY_NOT_FOUND_CODE,
     REQUEST_VALIDATION_FAILED_CODE,
@@ -57,7 +58,7 @@ def build_resolve_response(commit_id: str) -> ResolveVersionedRefResponse:
 
 def build_catalog_response(commit_id: str, tables: tuple[TableCatalog, ...]) -> GetVersionedCatalogResponse:
     try:
-        return GetVersionedCatalogResponse(
+        response = GetVersionedCatalogResponse(
             catalog=VersionedCatalog(
                 commit_id=commit_id,
                 tables=tuple(_table_catalog_to_wire(table) for table in tables),
@@ -65,6 +66,14 @@ def build_catalog_response(commit_id: str, tables: tuple[TableCatalog, ...]) -> 
         )
     except ValidationError as exc:
         raise _catalog_wire_unavailable(exc) from exc
+    wire_size = len(response.model_dump_json().encode("utf-8"))
+    if wire_size > MAX_CATALOG_JSON_BYTES:
+        raise ServiceError(
+            code=SERVICE_NOT_READY_CODE,
+            message=_SERVICE_NOT_READY_MESSAGE,
+            status_code=503,
+        )
+    return response
 
 
 def _table_catalog_to_wire(table: TableCatalog) -> VersionedTable:

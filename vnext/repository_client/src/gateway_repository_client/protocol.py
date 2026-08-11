@@ -8,40 +8,57 @@ from typing import TypeVar
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from gateway_repository_contracts import SimpleError, VERSIONED_READ_ARROW_MEDIA_TYPE
+from gateway_repository_contracts import (
+    MAX_WIRE_ERROR_JSON_BYTES,
+    SimpleError,
+    VERSIONED_READ_ARROW_MEDIA_TYPE,
+)
 from gateway_repository_client.errors import RepositoryClientError, RepositoryProtocolError
 
 T = TypeVar("T", bound=BaseModel)
 
 _REQUEST_ID_HEADER = "X-Request-ID"
 _MAX_REQUEST_ID_LENGTH = 1024
-MAX_WIRE_JSON_BYTES = 64 * 1024
+MAX_WIRE_JSON_BYTES = MAX_WIRE_ERROR_JSON_BYTES
+
+
+def peek_request_id(response: httpx.Response) -> str | None:
+    """Return a validated X-Request-ID when present without raising."""
+
+    raw = response.headers.get(_REQUEST_ID_HEADER)
+    if raw is None or not isinstance(raw, str):
+        return None
+    if len(raw) == 0 or len(raw) > _MAX_REQUEST_ID_LENGTH:
+        return None
+    return raw
 
 
 def require_request_id(response: httpx.Response) -> str:
     """Return a validated X-Request-ID header value."""
 
-    raw = response.headers.get(_REQUEST_ID_HEADER)
-    if raw is None or not isinstance(raw, str):
-        raise RepositoryProtocolError(
-            "missing X-Request-ID header",
-            status_code=response.status_code,
-        )
-    if len(raw) == 0 or len(raw) > _MAX_REQUEST_ID_LENGTH:
+    request_id = peek_request_id(response)
+    if request_id is None:
+        if response.headers.get(_REQUEST_ID_HEADER) is None:
+            raise RepositoryProtocolError(
+                "missing X-Request-ID header",
+                status_code=response.status_code,
+            )
         raise RepositoryProtocolError(
             "illegal X-Request-ID header",
             status_code=response.status_code,
         )
-    return raw
+    return request_id
 
 
 async def read_bounded_bytes(
     response: httpx.Response,
     *,
-    limit: int = MAX_WIRE_JSON_BYTES,
+    limit: int = MAX_WIRE_ERROR_JSON_BYTES,
+    request_id: str | None = None,
 ) -> bytes:
     """Read a response body up to a fixed byte limit."""
 
+    resolved_request_id = request_id if request_id is not None else peek_request_id(response)
     chunks: list[bytes] = []
     total = 0
     try:
@@ -51,6 +68,7 @@ async def read_bounded_bytes(
                 raise RepositoryProtocolError(
                     f"response body exceeds {limit} byte limit",
                     status_code=response.status_code,
+                    request_id=resolved_request_id,
                 )
             chunks.append(chunk)
     except RepositoryProtocolError:
@@ -149,11 +167,12 @@ async def parse_json_response(
     *,
     expected_status: int,
     model: type[T],
+    max_body_bytes: int = MAX_WIRE_ERROR_JSON_BYTES,
 ) -> T:
     """Decode a JSON endpoint response or raise typed HTTP/protocol errors."""
 
     try:
-        body = await read_bounded_bytes(response)
+        body = await read_bounded_bytes(response, limit=max_body_bytes)
         if response.status_code == expected_status:
             return await parse_success_dto(
                 response,

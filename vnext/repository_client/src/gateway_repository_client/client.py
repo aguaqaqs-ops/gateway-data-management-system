@@ -16,6 +16,7 @@ from gateway_repository_contracts import (
     GetVersionedCatalogResponse,
     IdempotencyKeyString,
     MainRefLiteral,
+    MAX_CATALOG_JSON_BYTES,
     ResolveVersionedRefResponse,
     StreamVersionedTableRowsQuery,
     SubmitVersionedImportRequest,
@@ -320,6 +321,7 @@ class RepositoryClient:
                     response,
                     expected_status=200,
                     model=GetVersionedCatalogResponse,
+                    max_body_bytes=MAX_CATALOG_JSON_BYTES,
                 )
 
         return await retry_idempotent_request(

@@ -36,8 +36,10 @@ class MonotonicDeadline:
 
     @classmethod
     def at(cls, deadline_at: float, *, clock: Clock | None = None) -> MonotonicDeadline:
-        now = (clock or time.monotonic)()
-        return cls(seconds=max(0.0, deadline_at - now), clock=clock)
+        instance = cls.__new__(cls)
+        instance._clock = clock or time.monotonic
+        instance._deadline_at = deadline_at
+        return instance
 
     @property
     def deadline_at(self) -> float:

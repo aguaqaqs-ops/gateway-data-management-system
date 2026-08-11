@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 from gateway_repository_contracts import (
+    COMMIT_ID_PATH_SEGMENT_PATTERN,
     GetVersionedCatalogResponse,
     MAX_COMMIT_ID_PATH_SEGMENT_LENGTH,
     ResolveVersionedRefResponse,
@@ -60,7 +61,12 @@ def register_versioned_read_routes(app: FastAPI) -> None:
         repository_id: UUID,
         commit_id: Annotated[
             str,
-            Path(min_length=1, max_length=MAX_COMMIT_ID_PATH_SEGMENT_LENGTH),
+            Path(
+                min_length=1,
+                max_length=MAX_COMMIT_ID_PATH_SEGMENT_LENGTH,
+                pattern=COMMIT_ID_PATH_SEGMENT_PATTERN,
+                description="Canonical base64url (no padding) encoding of the logical CommitId.",
+            ),
         ],
         _authorized: Annotated[None, Depends(require_bearer_token)],
         _ready: Annotated[None, Depends(require_service_ready)],
@@ -80,7 +86,12 @@ def register_versioned_read_routes(app: FastAPI) -> None:
         repository_id: UUID,
         commit_id: Annotated[
             str,
-            Path(min_length=1, max_length=MAX_COMMIT_ID_PATH_SEGMENT_LENGTH),
+            Path(
+                min_length=1,
+                max_length=MAX_COMMIT_ID_PATH_SEGMENT_LENGTH,
+                pattern=COMMIT_ID_PATH_SEGMENT_PATTERN,
+                description="Canonical base64url (no padding) encoding of the logical CommitId.",
+            ),
         ],
         _authorized: Annotated[None, Depends(require_bearer_token)],
         _ready: Annotated[None, Depends(require_service_ready)],

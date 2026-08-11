@@ -9,13 +9,14 @@ from typing import Self
 
 import httpx
 
+from gateway_repository_contracts import MAX_WIRE_ERROR_JSON_BYTES
 from gateway_repository_client.errors import (
     RepositoryClientError,
     RepositoryProtocolError,
     RepositoryStreamError,
 )
 from gateway_repository_client.protocol import (
-    MAX_WIRE_JSON_BYTES,
+    peek_request_id,
     raise_for_error_response,
     read_bounded_bytes,
     require_arrow_media_type,
@@ -56,8 +57,10 @@ class ArrowIpcByteStream:
         self._media_type: str | None = None
         self._bytes_exposed = False
         self._closed = False
+        self._close_requested = False
         self._entered = False
         self._attempts_used = 0
+        self._lifecycle_lock = asyncio.Lock()
 
     @property
     def request_id(self) -> str:
@@ -93,6 +96,7 @@ class ArrowIpcByteStream:
             raise RuntimeError("Arrow stream is closed")
 
         while True:
+            self._ensure_open()
             assert self._response is not None
             try:
                 async for chunk in self._response.aiter_bytes():
@@ -115,37 +119,43 @@ class ArrowIpcByteStream:
                 await self._open_with_retry(backoff=True)
 
     async def aclose(self) -> None:
-        if self._closed:
-            return
-        await self._discard_transport()
-        self._closed = True
+        async with self._lifecycle_lock:
+            if self._closed:
+                return
+            self._close_requested = True
+            await self._discard_transport()
+            self._closed = True
 
     async def _open_with_retry(self, *, backoff: bool = False) -> None:
-        if self._closed:
-            raise RuntimeError("Arrow stream is closed")
+        self._ensure_open()
         if backoff:
             await self._backoff(self._attempts_used)
+            self._ensure_open()
 
         last_error: BaseException | None = None
         while self._attempts_used < self._max_attempts:
+            self._ensure_open()
             self._attempts_used += 1
             attempt = self._attempts_used
             client: httpx.AsyncClient | None = None
+            response: httpx.Response | None = None
             try:
                 client, response = await self._open_attempt()
             except httpx.TransportError as exc:
                 last_error = exc
                 if client is not None:
-                    await client.aclose()
+                    await _close_pair(client, None)
                 if attempt >= self._max_attempts:
                     raise
                 await self._backoff(attempt)
+                self._ensure_open()
                 continue
             except BaseException:
                 if client is not None:
-                    await client.aclose()
+                    await _close_pair(client, response)
                 raise
 
+            self._ensure_open()
             try:
                 await self._validate_open_response(response)
             except (RepositoryClientError, RepositoryProtocolError) as exc:
@@ -160,6 +170,7 @@ class ArrowIpcByteStream:
                     raise
                 last_error = exc
                 await self._backoff(attempt)
+                self._ensure_open()
                 continue
             except BaseException:
                 await _close_pair(client, response)
@@ -174,25 +185,32 @@ class ArrowIpcByteStream:
         raise RuntimeError("Arrow stream open exhausted attempts without result")
 
     async def _validate_open_response(self, response: httpx.Response) -> None:
+        request_id = peek_request_id(response)
         if response.status_code != 200:
             try:
-                body = await read_bounded_bytes(response, limit=MAX_WIRE_JSON_BYTES)
+                body = await read_bounded_bytes(
+                    response,
+                    limit=MAX_WIRE_ERROR_JSON_BYTES,
+                    request_id=request_id,
+                )
             except httpx.HTTPError as exc:
                 if response.status_code in RETRYABLE_STATUS_CODES:
                     raise RepositoryProtocolError(
                         "failed to read retryable error response body",
                         status_code=response.status_code,
+                        request_id=request_id,
                     ) from exc
                 raise RepositoryProtocolError(
                     "failed to read Arrow error response body",
                     status_code=response.status_code,
+                    request_id=request_id,
                 ) from exc
             await raise_for_error_response(response, body=body)
             return
 
-        request_id = require_request_id(response)
+        resolved_request_id = require_request_id(response)
         media_type = require_arrow_media_type(response)
-        self._request_id = request_id
+        self._request_id = resolved_request_id
         self._media_type = media_type
 
     async def _discard_transport(self) -> None:
@@ -209,27 +227,36 @@ class ArrowIpcByteStream:
         else:
             await self._sleeper(delay)
 
+    def _ensure_open(self) -> None:
+        if self._close_requested or self._closed:
+            raise RuntimeError("Arrow stream is closed")
+
 
 async def _close_pair(
     client: httpx.AsyncClient | None,
     response: httpx.Response | None,
 ) -> None:
     cancelled: BaseException | None = None
+    close_errors: list[Exception] = []
     if response is not None:
         try:
             await response.aclose()
         except BaseException as exc:
             if isinstance(exc, asyncio.CancelledError):
                 cancelled = exc
-            else:
-                pass
+            elif isinstance(exc, Exception):
+                close_errors.append(exc)
     if client is not None:
         try:
             await client.aclose()
         except BaseException as exc:
             if isinstance(exc, asyncio.CancelledError):
                 cancelled = exc
-            else:
-                pass
+            elif isinstance(exc, Exception):
+                close_errors.append(exc)
     if cancelled is not None:
         raise cancelled
+    if close_errors:
+        if len(close_errors) == 1:
+            raise close_errors[0]
+        raise ExceptionGroup("failed to close Arrow stream transport", close_errors)

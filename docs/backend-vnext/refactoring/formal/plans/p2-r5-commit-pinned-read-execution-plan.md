@@ -487,21 +487,30 @@ route。若需要Service production dependency或lockfile，立即执行containe
 
 **Goal**：完成V1 async façade、poll、retry、protocol error和owned raw Arrow stream。
 
-**Allowed paths**：Repository Client source/tests和必要Contracts exports。禁止Service import、
-PyArrow production dependency、Backend adapter或P3。
+**Allowed paths**：Repository Client source/tests、必要Contracts exports（含
+`path_transport`、`wire_limits`）、formal contract
+[`repository-service.md`](../contracts/repository-service.md) §5/§6 wire 声明，以及为
+对称执行上述 wire 所需的 Service `versioned_read` route/wire/tests 与 `versioned_import`
+operation wire guard/tests。禁止 PyArrow production dependency、Backend adapter 或 P3。
 
 **Tests**：MockTransport unit覆盖GET bounded retry、same-key mutation、nonrewindable单次、
 poll deadline/backoff、stream pre-byte retry/after-byte no retry、context close、wrong media type、
-malformed body和request-ID mismatch。
+malformed body和request-ID mismatch；catalog/operation success limit 与 error limit 分离；
+Arrow in-flight open ownership。
 
 **Directed gate**：Client `uv lock --check`、ruff、mypy、pytest；Contracts regression；
-`git diff --check`。
+Service versioned_read/operation HTTP subset；`git diff --check`。
 
-**Failure boundary**：Client distribution单独可回退；不改变Service wire。
+**Failure boundary**：Round-2/3/4 构成 **S3/formal wire reopen**（canonical base64url
+`CommitId` path segment、catalog/operation JSON size limits）；Client、Contracts、Service
+须同批交付或同批回退，**不得**再声明 Client distribution 单独可回退且 Service wire 不变。
+证据 commit：`37208a6`（Round-2）、`bc9aa49`（Round-3）、Round-4 fix commit。
 
-**Expected commit**：`feat(repository-client): complete V1 Repository client`
+**Expected commit**：`feat(repository-client): complete V1 Repository client`（初版）；
+后续 round fix：`fix(repository): close P2-R5-S4 independent round-N findings`。
 
-**Exit**：全部V1 method typed，stream ownership确定，无Service dependency，`s5_ready=yes`。
+**Exit**：全部V1 method typed，stream ownership确定，无Service dependency，formal wire 与
+stage authority 一致，`s5_ready=yes`。
 
 ### S5 — Contract-owned fixture consumer
 

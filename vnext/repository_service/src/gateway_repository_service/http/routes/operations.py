@@ -11,6 +11,7 @@ from gateway_repository_contracts import GetOperationResponse
 from gateway_repository_service.http.auth import require_bearer_token
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.versioned_import.submission import ImportSubmissionService
+from gateway_repository_service.versioned_import.wire import build_operation_response
 
 
 def register_operation_routes(app: FastAPI) -> None:
@@ -33,7 +34,7 @@ def register_operation_routes(app: FastAPI) -> None:
     ) -> GetOperationResponse:
         runtime = _runtime_from_state(request)
         service = ImportSubmissionService(runtime)
-        return service.get_operation(repository_id, operation_id)
+        return build_operation_response(service.get_operation(repository_id, operation_id))
 
 
 def _runtime_from_state(request: Request) -> ServiceRuntime:

@@ -20,7 +20,11 @@ from gateway_repository_contracts.path_transport import (
     encode_commit_id_path_segment,
 )
 from gateway_repository_contracts.types import CommitIdString, MainRefLiteral
-from gateway_repository_contracts.wire_limits import MAX_CATALOG_JSON_BYTES, MAX_WIRE_ERROR_JSON_BYTES
+from gateway_repository_contracts.wire_limits import (
+    MAX_CATALOG_JSON_BYTES,
+    MAX_OPERATION_JSON_BYTES,
+    MAX_WIRE_ERROR_JSON_BYTES,
+)
 from gateway_repository_contracts.versioned import (
     CreateRepositoryResponse,
     GetOperationResponse,
@@ -78,6 +82,7 @@ __all__ = [
     "MainRefLiteral",
     "MAX_CATALOG_JSON_BYTES",
     "MAX_COMMIT_ID_PATH_SEGMENT_LENGTH",
+    "MAX_OPERATION_JSON_BYTES",
     "MAX_WIRE_ERROR_JSON_BYTES",
     "OperationStatus",
     "RepositoryArtifactRef",

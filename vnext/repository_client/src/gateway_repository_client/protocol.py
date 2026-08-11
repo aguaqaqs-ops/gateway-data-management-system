@@ -167,12 +167,18 @@ async def parse_json_response(
     *,
     expected_status: int,
     model: type[T],
-    max_body_bytes: int = MAX_WIRE_ERROR_JSON_BYTES,
+    max_success_body_bytes: int = MAX_WIRE_ERROR_JSON_BYTES,
+    max_error_body_bytes: int = MAX_WIRE_ERROR_JSON_BYTES,
 ) -> T:
     """Decode a JSON endpoint response or raise typed HTTP/protocol errors."""
 
+    body_limit = (
+        max_success_body_bytes
+        if response.status_code == expected_status
+        else max_error_body_bytes
+    )
     try:
-        body = await read_bounded_bytes(response, limit=max_body_bytes)
+        body = await read_bounded_bytes(response, limit=body_limit)
         if response.status_code == expected_status:
             return await parse_success_dto(
                 response,

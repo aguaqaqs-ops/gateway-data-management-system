@@ -202,3 +202,57 @@ def test_production_openapi_operation_paths(env: ImportHttpTestEnvironment) -> N
     operation_path = paths["/v1/repositories/{repository_id}/operations/{operation_id}"]["get"]
     for status in ("200", "401", "404", "422", "503"):
         assert status in operation_path["responses"]
+
+
+def test_get_operation_large_failed_operation_is_accepted(env: ImportHttpTestEnvironment) -> None:
+    from gateway_repository_contracts import MAX_OPERATION_JSON_BYTES, MAX_WIRE_ERROR_JSON_BYTES
+
+    repository_id = env.seed_repository()
+    operation_id = _enqueue_operation(env, repository_id)[0]
+    env.runtime.import_store.claim_if_queued(operation_id)
+    padding_bytes = MAX_WIRE_ERROR_JSON_BYTES
+    env.runtime.import_store.mark_failed(
+        operation_id,
+        error=SimpleError(
+            code="IMPORT_REJECTED",
+            message="rejected",
+            details={"blob": "x" * padding_bytes},
+        ),
+    )
+    response = _get(env, repository_id, operation_id)
+    assert response.status_code == 200
+    wire_size = len(response.content)
+    assert wire_size > MAX_WIRE_ERROR_JSON_BYTES
+    assert wire_size < MAX_OPERATION_JSON_BYTES
+    operation = response.json()["operation"]
+    assert operation["status"] == OperationStatus.FAILED.value
+    assert operation["error"]["details"]["blob"] == "x" * padding_bytes
+
+
+def test_build_operation_response_rejects_oversized_wire_payload() -> None:
+    from uuid import uuid4
+
+    from gateway_repository_contracts import (
+        GetOperationResponse,
+        MAX_OPERATION_JSON_BYTES,
+        OperationStatus,
+        VersionedOperation,
+    )
+    from gateway_repository_service.http.errors import ServiceError
+    from gateway_repository_service.versioned_import.wire import build_operation_response
+
+    padding_bytes = MAX_OPERATION_JSON_BYTES
+    response = GetOperationResponse(
+        operation=VersionedOperation(
+            operation_id=uuid4(),
+            status=OperationStatus.FAILED,
+            error=SimpleError(
+                code="IMPORT_REJECTED",
+                message="rejected",
+                details={"blob": "x" * padding_bytes},
+            ),
+        )
+    )
+    with pytest.raises(ServiceError) as exc_info:
+        build_operation_response(response)
+    assert exc_info.value.status_code == 503

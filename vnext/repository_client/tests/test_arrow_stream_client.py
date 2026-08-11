@@ -12,6 +12,7 @@ import pytest
 from gateway_repository_client import (
     ArrowIpcByteStream,
     RepositoryClient,
+    RepositoryClientError,
     RepositoryProtocolError,
     RepositoryStreamError,
 )
@@ -533,3 +534,138 @@ async def test_close_pair_raises_when_both_resources_fail_to_close() -> None:
 
     with pytest.raises(ExceptionGroup):
         await _close_pair(FailingClient(), FailingResponse())  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_aclose_during_in_flight_open_closes_transport() -> None:
+    open_started = asyncio.Event()
+    release_open = asyncio.Event()
+    client_closed = {"value": False}
+    response_closed = {"value": False}
+
+    class BlockingStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"payload"
+
+        async def aclose(self) -> None:
+            response_closed["value"] = True
+
+    class BlockingTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            open_started.set()
+            await release_open.wait()
+            return httpx.Response(
+                200,
+                request=request,
+                headers=ARROW_HEADERS,
+                stream=BlockingStream(),
+            )
+
+    async def open_attempt() -> tuple[httpx.AsyncClient, httpx.Response]:
+        client = httpx.AsyncClient(
+            base_url="http://repository.test",
+            transport=BlockingTransport(),
+        )
+        request = client.build_request("GET", "/rows")
+        response = await client.send(request, stream=True)
+        original_client_close = client.aclose
+
+        async def track_client_close() -> None:
+            client_closed["value"] = True
+            await original_client_close()
+
+        client.aclose = track_client_close  # type: ignore[method-assign]
+        return client, response
+
+    stream = ArrowIpcByteStream(open_attempt=open_attempt)
+
+    async def enter_stream() -> None:
+        async with stream:
+            pass
+
+    enter_task = asyncio.create_task(enter_stream())
+    await open_started.wait()
+    await stream.aclose()
+    release_open.set()
+
+    with pytest.raises(RuntimeError, match="closed"):
+        await enter_task
+
+    assert client_closed["value"] is True
+    assert response_closed["value"] is True
+    assert stream._client is None
+    assert stream._response is None
+
+
+@pytest.mark.asyncio
+async def test_wrong_media_type_preserves_protocol_error_when_close_fails() -> None:
+    async def open_attempt() -> tuple[httpx.AsyncClient, httpx.Response]:
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                request=request,
+                headers={
+                    "X-Request-ID": "req-bad",
+                    "Content-Type": "application/json",
+                },
+                content=b"{}",
+            )
+        )
+        client = httpx.AsyncClient(base_url="http://repository.test", transport=transport)
+        request = client.build_request("GET", "/rows")
+        response = await client.send(request, stream=True)
+
+        async def failing_close() -> None:
+            raise OSError("response close failed")
+
+        response.aclose = failing_close  # type: ignore[method-assign]
+        return client, response
+
+    stream = ArrowIpcByteStream(open_attempt=open_attempt)
+    with pytest.raises(RepositoryProtocolError, match="Arrow media type") as exc_info:
+        async with stream:
+            pass
+
+    assert exc_info.value.request_id == "req-bad"
+    assert any("cleanup close failed" in note for note in exc_info.value.__notes__)
+
+
+@pytest.mark.asyncio
+async def test_retryable_503_preserves_error_when_close_fails() -> None:
+    attempts = {"count": 0}
+
+    async def sleeper(_seconds: float) -> None:
+        return None
+
+    async def open_attempt() -> tuple[httpx.AsyncClient, httpx.Response]:
+        attempts["count"] += 1
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                503,
+                request=request,
+                json={"code": "SERVICE_NOT_READY", "message": "not ready", "request_id": "req-503"},
+                headers={"X-Request-ID": "req-503"},
+            )
+        )
+        client = httpx.AsyncClient(base_url="http://repository.test", transport=transport)
+        request = client.build_request("GET", "/rows")
+        response = await client.send(request, stream=True)
+
+        async def failing_close() -> None:
+            raise OSError("response close failed")
+
+        response.aclose = failing_close  # type: ignore[method-assign]
+        return client, response
+
+    stream = ArrowIpcByteStream(
+        open_attempt=open_attempt,
+        max_attempts=2,
+        sleeper=sleeper,
+    )
+    with pytest.raises(RepositoryClientError) as exc_info:
+        async with stream:
+            pass
+
+    assert exc_info.value.status_code == 503
+    assert attempts["count"] == 2
+    assert any("cleanup close failed" in note for note in exc_info.value.__notes__)

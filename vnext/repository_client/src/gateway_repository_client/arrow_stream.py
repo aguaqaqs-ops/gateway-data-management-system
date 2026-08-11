@@ -140,45 +140,47 @@ class ArrowIpcByteStream:
             client: httpx.AsyncClient | None = None
             response: httpx.Response | None = None
             try:
-                client, response = await self._open_attempt()
-            except httpx.TransportError as exc:
-                last_error = exc
-                if client is not None:
-                    await _close_pair(client, None)
-                if attempt >= self._max_attempts:
-                    raise
-                await self._backoff(attempt)
-                self._ensure_open()
-                continue
-            except BaseException:
-                if client is not None:
-                    await _close_pair(client, response)
-                raise
+                try:
+                    client, response = await self._open_attempt()
+                except httpx.TransportError as exc:
+                    last_error = exc
+                    if attempt >= self._max_attempts:
+                        raise
+                    await self._backoff(attempt)
+                    self._ensure_open()
+                    continue
 
-            self._ensure_open()
-            try:
-                await self._validate_open_response(response)
-            except (RepositoryClientError, RepositoryProtocolError) as exc:
-                await _close_pair(client, response)
-                retryable = isinstance(exc, RepositoryClientError) and (
-                    exc.status_code in RETRYABLE_STATUS_CODES
-                ) or (
-                    isinstance(exc, RepositoryProtocolError)
-                    and exc.status_code in RETRYABLE_STATUS_CODES
-                )
-                if not retryable or attempt >= self._max_attempts:
-                    raise
-                last_error = exc
-                await self._backoff(attempt)
-                self._ensure_open()
-                continue
-            except BaseException:
-                await _close_pair(client, response)
-                raise
-
-            self._client = client
-            self._response = response
-            return
+                try:
+                    self._ensure_open()
+                    await self._validate_open_response(response)
+                    self._client = client
+                    self._response = response
+                    client = None
+                    response = None
+                    return
+                except (RepositoryClientError, RepositoryProtocolError) as exc:
+                    close_errors = await _close_pair_quiet(client, response)
+                    client = None
+                    response = None
+                    retryable = isinstance(exc, RepositoryClientError) and (
+                        exc.status_code in RETRYABLE_STATUS_CODES
+                    ) or (
+                        isinstance(exc, RepositoryProtocolError)
+                        and exc.status_code in RETRYABLE_STATUS_CODES
+                    )
+                    if not retryable or attempt >= self._max_attempts:
+                        _reraise_with_close_notes(exc, close_errors)
+                    last_error = exc
+                    await self._backoff(attempt)
+                    self._ensure_open()
+                    continue
+                except BaseException as exc:
+                    close_errors = await _close_pair_quiet(client, response)
+                    client = None
+                    response = None
+                    _reraise_with_close_notes(exc, close_errors)
+            finally:
+                await _close_pair_quiet(client, response)
 
         if last_error is not None:
             raise last_error
@@ -232,10 +234,10 @@ class ArrowIpcByteStream:
             raise RuntimeError("Arrow stream is closed")
 
 
-async def _close_pair(
+async def _close_pair_quiet(
     client: httpx.AsyncClient | None,
     response: httpx.Response | None,
-) -> None:
+) -> list[Exception]:
     cancelled: BaseException | None = None
     close_errors: list[Exception] = []
     if response is not None:
@@ -256,7 +258,30 @@ async def _close_pair(
                 close_errors.append(exc)
     if cancelled is not None:
         raise cancelled
+    return close_errors
+
+
+async def _close_pair(
+    client: httpx.AsyncClient | None,
+    response: httpx.Response | None,
+) -> None:
+    close_errors = await _close_pair_quiet(client, response)
     if close_errors:
         if len(close_errors) == 1:
             raise close_errors[0]
         raise ExceptionGroup("failed to close Arrow stream transport", close_errors)
+
+
+def _reraise_with_close_notes(
+    exc: BaseException,
+    close_errors: list[Exception],
+) -> None:
+    if close_errors:
+        if len(close_errors) == 1:
+            exc.add_note(f"cleanup close failed: {close_errors[0]}")
+        else:
+            exc.add_note(
+                "cleanup close failed: "
+                + "; ".join(str(error) for error in close_errors)
+            )
+    raise exc

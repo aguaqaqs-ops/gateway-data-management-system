@@ -282,3 +282,69 @@ async def test_get_operation_times_out_when_deadline_at_is_past() -> None:
             operation_id=OP_ID,
             deadline_at=current_time["value"] - 1.0,
         )
+
+
+def _large_failed_operation_payload(*, padding_bytes: int) -> dict[str, object]:
+    return {
+        "operation": {
+            "operation_id": str(OP_ID),
+            "status": "FAILED",
+            "result": None,
+            "error": {
+                "code": "IMPORT_REJECTED",
+                "message": "rejected",
+                "details": {"blob": "x" * padding_bytes},
+                "request_id": None,
+            },
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_large_failed_operation_exceeds_error_limit_but_is_accepted() -> None:
+    import json
+
+    from gateway_repository_contracts import (
+        GetOperationResponse,
+        MAX_OPERATION_JSON_BYTES,
+        MAX_WIRE_ERROR_JSON_BYTES,
+    )
+
+    padding_bytes = MAX_WIRE_ERROR_JSON_BYTES
+    payload = _large_failed_operation_payload(padding_bytes=padding_bytes)
+    wire_size = len(json.dumps(payload).encode("utf-8"))
+    assert wire_size > MAX_WIRE_ERROR_JSON_BYTES
+    assert wire_size < MAX_OPERATION_JSON_BYTES
+    GetOperationResponse.model_validate(payload)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=payload,
+            headers={"X-Request-ID": "req-operation"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+    )
+    response = await client.get_operation(repository_id=REPO_ID, operation_id=OP_ID)
+    assert response == GetOperationResponse.model_validate(payload)
+
+
+@pytest.mark.parametrize("deadline_at", [float("nan"), float("inf"), float("-inf")])
+def test_monotonic_deadline_at_rejects_non_finite(deadline_at: float) -> None:
+    from gateway_repository_client.deadline import MonotonicDeadline
+
+    with pytest.raises(ValueError, match="finite"):
+        MonotonicDeadline.at(deadline_at)
+
+
+def test_monotonic_deadline_at_allows_finite_past_deadline() -> None:
+    from gateway_repository_client import RepositoryClientTimeoutError
+    from gateway_repository_client.deadline import MonotonicDeadline
+
+    deadline = MonotonicDeadline.at(100.0, clock=lambda: 100.0)
+    with pytest.raises(RepositoryClientTimeoutError):
+        deadline.check()

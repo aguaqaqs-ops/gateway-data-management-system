@@ -36,6 +36,8 @@ class MonotonicDeadline:
 
     @classmethod
     def at(cls, deadline_at: float, *, clock: Clock | None = None) -> MonotonicDeadline:
+        if not math.isfinite(deadline_at):
+            raise ValueError("deadline_at must be a finite number")
         instance = cls.__new__(cls)
         instance._clock = clock or time.monotonic
         instance._deadline_at = deadline_at

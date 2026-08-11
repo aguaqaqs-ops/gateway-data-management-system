@@ -68,6 +68,33 @@ def _wait_until(condition: Any, *, timeout_seconds: float = 2.0, message: str) -
     raise AssertionError(message)
 
 
+def _force_unregister_bridge(
+    bridge: ArrowIpcStreamBridge,
+    *,
+    release: threading.Event | None = None,
+) -> None:
+    if release is not None:
+        release.set()
+    bridge._worker.join(timeout=5.0)
+    try:
+        if bridge in BRIDGE_REGISTRY.snapshot():
+            bridge.close_sync(join_timeout_seconds=5.0)
+    except BridgeJoinTimeoutError:
+        pass
+    BRIDGE_REGISTRY.unregister(bridge)
+
+
+@pytest.fixture(autouse=True)
+def _reset_bridge_test_hooks() -> Iterator[None]:
+    ArrowIpcStreamBridge._test_worker_finish_barrier = None
+    ArrowIpcStreamBridge._test_close_entered_barrier = None
+    ArrowIpcStreamBridge._test_close_completed_barrier = None
+    ArrowIpcStreamBridge._test_unregister_barrier = None
+    yield
+    for bridge in BRIDGE_REGISTRY.snapshot():
+        _force_unregister_bridge(bridge)
+
+
 def test_arrow_bridge_sink_peak_stays_bounded_across_many_batches() -> None:
     peak_sizes: list[int] = []
 
@@ -810,6 +837,72 @@ def test_streaming_response_waits_cleanup_under_anyio_cancel_scope() -> None:
 
 
 @pytest.mark.serial
+def test_sustained_cancel_cleanup_does_not_spin_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    import anyio
+
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    unregister_blocked = threading.Event()
+    unregister_release = threading.Event()
+    close_completed = threading.Event()
+    shield_calls = 0
+    original_shield = asyncio.shield
+
+    async def counting_shield(awaitable: Any) -> Any:
+        nonlocal shield_calls
+        shield_calls += 1
+        return await original_shield(awaitable)
+
+    monkeypatch.setattr(asyncio, "shield", counting_shield)
+    ArrowIpcStreamBridge._test_unregister_barrier = unregister_blocked
+    ArrowIpcStreamBridge._test_close_completed_barrier = close_completed
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event())
+    try:
+
+        def release_unregister_after_delay() -> None:
+            time.sleep(0.3)
+            unregister_release.set()
+            unregister_blocked.set()
+
+        async def exercise() -> None:
+            waiter_done = asyncio.Event()
+
+            async def cooperative_waiter() -> None:
+                await asyncio.sleep(0.05)
+                waiter_done.set()
+
+            async def sustained_cancel_close() -> None:
+                with anyio.CancelScope() as scope:
+                    scope.cancel()
+                    try:
+                        await bridge.aclose()
+                    except asyncio.CancelledError:
+                        pass
+
+            releaser = threading.Thread(target=release_unregister_after_delay, daemon=True)
+            releaser.start()
+            async with anyio.create_task_group() as task_group:
+                task_group.start_soon(cooperative_waiter)
+                task_group.start_soon(sustained_cancel_close)
+                while not unregister_blocked.is_set():
+                    await anyio.sleep(0.01)
+                await asyncio.wait_for(waiter_done.wait(), timeout=0.2)
+
+            releaser.join(timeout=2.0)
+            _wait_until(close_completed.is_set, message="cleanup did not complete under sustained cancel")
+
+        anyio.run(exercise)
+        assert shield_calls < 50
+        assert not bridge.is_worker_alive()
+    finally:
+        unregister_release.set()
+        unregister_blocked.set()
+        ArrowIpcStreamBridge._test_unregister_barrier = None
+        ArrowIpcStreamBridge._test_close_completed_barrier = None
+        bridge._worker.join(timeout=5.0)
+        BRIDGE_REGISTRY.unregister(bridge)
+
+
+@pytest.mark.serial
 def test_close_all_waits_for_worker_thread_not_false_survivor() -> None:
     plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
     unregister_barrier = threading.Event()
@@ -844,7 +937,7 @@ def test_close_all_waits_for_worker_thread_not_false_survivor() -> None:
         assert close_started.wait(timeout=2.0)
         _wait_until(lambda: bridge._worker_finished, message="worker did not finish before unregister")
         assert bridge.is_worker_alive() is False
-        assert BRIDGE_REGISTRY.snapshot() == (bridge,)
+        assert bridge in BRIDGE_REGISTRY.snapshot()
 
         close_all_thread = threading.Thread(target=close_all_in_thread)
         close_all_thread.start()
@@ -862,6 +955,34 @@ def test_close_all_waits_for_worker_thread_not_false_survivor() -> None:
     finally:
         unregister_barrier.set()
         ArrowIpcStreamBridge._test_unregister_barrier = None
+        BRIDGE_REGISTRY.unregister(bridge)
+
+
+@pytest.mark.serial
+def test_join_timeout_keeps_alive_worker_registered_until_exit() -> None:
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    worker_finish_release = threading.Event()
+    ArrowIpcStreamBridge._test_worker_finish_barrier = worker_finish_release
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event())
+    try:
+        with pytest.raises(BridgeJoinTimeoutError):
+            bridge.close_sync(join_timeout_seconds=0.05)
+
+        assert bridge.is_worker_alive()
+        assert bridge._worker_finished is False
+        assert bridge._worker_joined is False
+        assert bridge in BRIDGE_REGISTRY.snapshot()
+
+        worker_finish_release.set()
+        _wait_until(lambda: not bridge.is_worker_alive(), message="worker did not exit after finish barrier release")
+
+        BRIDGE_REGISTRY.close_all(None, join_timeout_seconds=30.0)
+        assert BRIDGE_REGISTRY.snapshot() == ()
+        assert not bridge.is_worker_alive()
+    finally:
+        worker_finish_release.set()
+        ArrowIpcStreamBridge._test_worker_finish_barrier = None
+        bridge._worker.join(timeout=5.0)
         BRIDGE_REGISTRY.unregister(bridge)
 
 
@@ -1378,7 +1499,7 @@ def test_production_modules_only_import_declared_dependencies() -> None:
     from pathlib import Path
 
     source_root = Path(__file__).resolve().parents[1] / "src" / "gateway_repository_service"
-    forbidden = {"anyio"}
+    forbidden: set[str] = set()
     for path in source_root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

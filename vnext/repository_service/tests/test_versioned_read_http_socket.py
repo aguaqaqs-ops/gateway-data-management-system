@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import http.client
 import threading
 import time
 from collections.abc import Iterator
 from typing import Any
 
+import httpx2 as httpx
 import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 import uvicorn
@@ -35,6 +35,11 @@ def _wait_until_server_started(server: uvicorn.Server, *, timeout_seconds: float
                 return int(port)
         time.sleep(0.01)
     raise AssertionError("uvicorn server did not start in time")
+
+
+def _abort_server_connections(server: uvicorn.Server) -> None:
+    for connection in list(server.server_state.connections):
+        connection.transport.abort()
 
 
 @pytest.fixture
@@ -71,32 +76,39 @@ def test_http_socket_midstream_failure_aborts_without_eos(
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     port = _wait_until_server_started(server)
-    path = _rows_url(env, commit_id)
-    query = "table_name=items"
+    url = f"http://127.0.0.1:{port}{_rows_url(env, commit_id)}?table_name=items"
     headers = _auth_headers()
 
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=30.0)
+    body = b""
+    transport_error: BaseException | None = None
+    first_chunk_seen = threading.Event()
+
+    def abort_midstream() -> None:
+        assert first_chunk_seen.wait(timeout=5.0)
+        _abort_server_connections(server)
+
+    aborter = threading.Thread(target=abort_midstream, daemon=True)
+    aborter.start()
     try:
-        connection.request(
-            "GET",
-            f"{path}?{query}",
-            headers={key: value for key, value in headers.items()},
-        )
-        response = connection.getresponse()
-        assert response.status == 200
-        body = b""
-        while True:
-            try:
-                chunk = response.read(4096)
-            except http.client.HTTPException:
-                break
-            if not chunk:
-                break
-            body += chunk
+        with httpx.Client(timeout=30.0) as client:
+            with client.stream("GET", url, headers=headers) as response:
+                assert response.status_code == 200
+                assert "chunked" in response.headers.get("transfer-encoding", "").lower()
+                try:
+                    for chunk in response.iter_bytes():
+                        body += chunk
+                        if chunk:
+                            first_chunk_seen.set()
+                except (httpx.RemoteProtocolError, httpx.ReadError) as exc:
+                    transport_error = exc
     finally:
-        connection.close()
+        first_chunk_seen.set()
+        aborter.join(timeout=2.0)
         server.should_exit = True
         thread.join(timeout=5.0)
 
     assert body
     assert_lacks_stream_eos(body)
+    assert transport_error is not None
+    assert isinstance(transport_error, (httpx.RemoteProtocolError, httpx.ReadError))
+    assert not thread.is_alive()

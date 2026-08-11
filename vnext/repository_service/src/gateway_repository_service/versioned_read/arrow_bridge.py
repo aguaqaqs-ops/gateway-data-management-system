@@ -239,9 +239,19 @@ class ArrowIpcStreamBridge:
             completed_barrier.set()
         outcome.raise_if_failed()
 
+    def _reset_retryable_close_outcome_locked(self) -> None:
+        if (
+            self._close_outcome is not None
+            and self._close_outcome.join_timeout is not None
+            and not self._worker_joined
+        ):
+            self._close_outcome = None
+            self._escalation_started = False
+
     def _await_close_outcome(self, runner: DoltRunner | None, deadline_at: float) -> _CloseOutcome:
         is_leader = False
         with self._close_condition:
+            self._reset_retryable_close_outcome_locked()
             if self._close_outcome is not None:
                 return self._close_outcome
             while not self._worker_finished and self._close_outcome is None:
@@ -297,9 +307,10 @@ class ArrowIpcStreamBridge:
                 join_timeout_error = BridgeJoinTimeoutError("versioned read arrow bridge worker did not exit")
 
         with self._close_condition:
-            if not self._worker_joined:
-                self._worker_joined = True
-                self._unregister_from_registry()
+            if not self._worker.is_alive():
+                if not self._worker_joined:
+                    self._worker_joined = True
+                    self._unregister_from_registry()
             self._close_outcome = _CloseOutcome(
                 join_timeout=join_timeout_error,
                 terminate_error=terminate_error,

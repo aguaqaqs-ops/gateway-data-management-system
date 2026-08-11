@@ -146,6 +146,7 @@ name = "gateway-repository-service"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "fastapi" },
     { name = "gateway-repository-contracts" },
     { name = "pyarrow" },
@@ -165,6 +166,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = "==4.14.2" },
     { name = "fastapi", specifier = "==0.139.0" },
     { name = "gateway-repository-contracts", editable = "../repository_contracts" },
     { name = "pyarrow", specifier = "==25.0.0" },

@@ -590,13 +590,14 @@ class ArtifactCleaner:
                 )
                 for stage_name in stage_names
             ]
+            # Stamp-first clears intent; clear receipt only when public names absent.
             if self._all_sidecars_cleared(outcomes) and not self._has_matching_sidecar_residual(
                 ready_dir_fd,
                 artifact_id=artifact_id,
                 expected_ino=int(intent_ino),
                 generation=str(intent_generation),
             ):
-                self._clear_intent_best_effort(
+                self._clear_receipt_best_effort(
                     artifact_id,
                     repository_id,
                     expected_dev=int(intent_dev),
@@ -674,13 +675,11 @@ class ArtifactCleaner:
         for entry_name in entries:
             parsed_stage = parse_unlink_stage_dir_name(entry_name)
             if parsed_stage is not None and parsed_stage[0] == artifact_id:
-                if not self._stage_only_size0_owned_tombstones(
-                    ready_dir_fd,
-                    entry_name,
-                    expected_ino=expected_ino,
-                ):
-                    return True
-                continue
+                # Empty stages may linger; any stage content blocks clear until
+                # destroy reclaims the victim. Size-0 public sidecars also block.
+                if self._stage_dir_is_empty(ready_dir_fd, entry_name):
+                    continue
+                return True
             parsed = parse_any_recoverable_sidecar(entry_name)
             if parsed is None:
                 continue
@@ -688,16 +687,28 @@ class ArtifactCleaner:
             if parsed_artifact_id != artifact_id:
                 continue
             if parsed_generation == generation and inode == expected_ino:
-                # Size-0 tombstones (verify/deleting/detach) are content-destroyed;
-                # they must not block receipt clear. Non-empty names still block.
-                if self._ready_entry_is_size0_owned_tombstone(
-                    ready_dir_fd,
-                    entry_name,
-                    expected_ino=expected_ino,
-                ):
-                    continue
+                # Round15: size-0 public names still block receipt clear until
+                # private reclaim proves the public name absent.
                 return True
         return False
+
+    def _stage_dir_is_empty(self, ready_dir_fd: int, stage_name: str) -> bool:
+        stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
+        if stage_dir_fd is None:
+            return False
+        try:
+            if not lock_unlink_stage_dir(stage_dir_fd):
+                return False
+            try:
+                try:
+                    names = os.listdir(stage_dir_fd)
+                except OSError:
+                    return False
+                return not names
+            finally:
+                unlock_unlink_stage_dir(stage_dir_fd)
+        finally:
+            os.close(stage_dir_fd)
 
     def _ready_entry_is_size0_owned_tombstone(
         self,
@@ -846,11 +857,72 @@ class ArtifactCleaner:
                 )
                 if not matches_intent:
                     return "retain"
+                assert intent_dev is not None and intent_ino is not None and intent_generation is not None
+
+                # Stamp-first: eligibility + CAS stamp before any truncate.
+                decision = self._import_store.evaluate_artifact_bytes_deletion(
+                    artifact_id,
+                    now=self._clock(),
+                    ttl_seconds=self._settings.artifact_ttl_seconds,
+                )
+                if not decision.eligible:
+                    restored = self._restore_staged_victim_to_ready(
+                        ready_dir_fd,
+                        stage_dir_fd,
+                        stage_name=stage_name,
+                        expected=q_stat,
+                        artifact_id=artifact_id,
+                        generation=generation,
+                    )
+                    if restored:
+                        self._clear_intent_best_effort(
+                            artifact_id,
+                            repository_id,
+                            expected_dev=int(intent_dev),
+                            expected_ino=int(intent_ino),
+                            expected_generation=str(intent_generation),
+                        )
+                        log_event(
+                            "artifact_cleanup",
+                            repository_id=repository_id,
+                            artifact_id=artifact_id,
+                            stage="quarantine",
+                            result="retained",
+                            cleanup_outcome="unlink_stage_restored_ineligible",
+                            logger=_LOGGER,
+                        )
+                        return "success"
+                    return "retain"
+                try:
+                    self._import_store.mark_artifact_bytes_deleted(
+                        artifact_id,
+                        deleted_at=self._deleted_at_stamp(),
+                        repository_id=repository_id,
+                        expected_dev=int(intent_dev),
+                        expected_ino=int(intent_ino),
+                        expected_generation=str(intent_generation),
+                    )
+                except Exception:
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                        stage="quarantine",
+                        result="retained",
+                        cleanup_outcome="stamp_failed",
+                        logger=_LOGGER,
+                    )
+                    return "retain"
+
                 unlinked = destroy_owned_bytes_and_reclaim_names(
                     ready_dir_fd,
                     q_fd,
                     q_stat,
                     [],
+                    artifact_id=artifact_id,
+                    generation=generation,
+                    held_stage_dir_fd=stage_dir_fd,
+                    held_stage_name=stage_name,
                 )
                 if unlinked:
                     log_event(
@@ -935,6 +1007,10 @@ class ArtifactCleaner:
                     q_fd,
                     q_stat,
                     [],
+                    artifact_id=artifact_id,
+                    generation=generation,
+                    held_stage_dir_fd=stage_dir_fd,
+                    held_stage_name=stage_name,
                 )
                 if unlinked:
                     log_event(
@@ -953,6 +1029,50 @@ class ArtifactCleaner:
         finally:
             unlock_unlink_stage_dir(stage_dir_fd)
             os.close(stage_dir_fd)
+
+    def _restore_staged_victim_to_ready(
+        self,
+        ready_dir_fd: int,
+        stage_dir_fd: int,
+        *,
+        stage_name: str,
+        expected: os.stat_result,
+        artifact_id: UUID,
+        generation: str,
+    ) -> bool:
+        """Rename stage victim back to ready (or recoverable verify) without truncate."""
+
+        from gateway_repository_service.upload_artifact.admission_pin import (
+            STAGE_VICTIM,
+            verify_sidecar_name_for,
+        )
+
+        ready_name = artifact_id.hex
+        restore_names = [ready_name]
+        parsed = parse_unlink_stage_dir_name(stage_name)
+        token = parsed[1] if parsed is not None else "restore"
+        restore_names.append(
+            verify_sidecar_name_for(
+                inode=int(expected.st_ino),
+                generation=generation,
+                artifact_id=artifact_id,
+                token=token,
+            )
+        )
+        for restore_name in restore_names:
+            try:
+                os.stat(restore_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                try:
+                    renameat2_noreplace(
+                        stage_dir_fd, STAGE_VICTIM, ready_dir_fd, restore_name
+                    )
+                    return True
+                except OSError:
+                    continue
+            except OSError:
+                continue
+        return False
 
     def _recover_artifact_sidecars(
         self,
@@ -1774,6 +1894,8 @@ class ArtifactCleaner:
             q_fd,
             expected,
             [sidecar_name],
+            artifact_id=artifact_id,
+            generation=generation,
         )
 
     def _unlink_sidecar_if_same_inode(

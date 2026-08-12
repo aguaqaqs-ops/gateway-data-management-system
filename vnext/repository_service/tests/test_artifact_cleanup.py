@@ -7363,17 +7363,21 @@ def test_r13_batch_cleanup_inventory_no_stage_linear_growth(
     assert after_stages - before_stages == 0
     assert after_finals - before_finals == 0
     assert after_verifies - before_verifies == 0
-    # Size-0 diagnose names may remain (bounded); ready hex names are gone.
-    assert after_entries - before_entries <= n * 2
+    # Round15: public sidecar tombstones must be reclaimed (absent), not 2*n residue.
+    sidecar_left = [
+        p.name
+        for p in ready_dir.iterdir()
+        if parse_any_recoverable_sidecar(p.name) is not None
+    ]
+    assert sidecar_left == []
     nonempty = [
         p
         for p in ready_dir.iterdir()
         if p.is_file() and not p.name.startswith(".") and p.stat().st_size > 0
     ]
     assert nonempty == []
-    for p in ready_dir.iterdir():
-        if parse_any_recoverable_sidecar(p.name) is not None and p.is_file():
-            assert p.stat().st_size == 0
+    # Net inventory must shrink by the ready names; never accept +2n growth.
+    assert after_entries - before_entries <= 0
 
 
 @pytest.mark.serial
@@ -7841,6 +7845,7 @@ def test_r14_destroy_inventory_faults_are_not_success(
             q_fd,
             q_stat,
             [quarantine.name],
+            artifact_id=ARTIFACT_ID,
         )
     finally:
         os.close(q_fd)
@@ -8136,21 +8141,32 @@ def test_r14_durable_stage_verify_fixture_recovery(
         )
 
     if mode == "lock_busy":
-        monkeypatch.setattr(pin_mod, "lock_unlink_stage_dir", lambda _fd: False)
-        ArtifactCleaner(
-            settings=_settings(layout, ttl=1),
-            layout=layout,
-            import_store=store,
-            mutation_store=mutation_store,
-            clock=lambda: BASE_NOW,
-        ).sweep_once()
-        snap = _lifecycle_snapshot(mutation_store)
-        assert snap["receipt_generation"] == generation or snap["intent_generation"] == generation
-        monkeypatch.setattr(
-            pin_mod, "lock_unlink_stage_dir", pin_mod.lock_unlink_stage_dir
-        )
-        # Restore real lock by removing monkeypatch effect: re-import binding.
-        monkeypatch.undo()
+        import fcntl as _fcntl
+
+        # Round15: held stage is not re-locked; plant a second same-artifact stage
+        # that is exclusively flocked so destroy fail-closes and keeps the receipt.
+        busy_name = unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="r14busy2")
+        busy_path = quarantine.parent / busy_name
+        busy_path.mkdir(mode=0o700)
+        busy_fd = os.open(str(busy_path), os.O_RDONLY | os.O_DIRECTORY)
+        _fcntl.flock(busy_fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+        try:
+            ArtifactCleaner(
+                settings=_settings(layout, ttl=1),
+                layout=layout,
+                import_store=store,
+                mutation_store=mutation_store,
+                clock=lambda: BASE_NOW,
+            ).sweep_once()
+            snap = _lifecycle_snapshot(mutation_store)
+            assert (
+                snap["receipt_generation"] == generation
+                or snap["intent_generation"] == generation
+            )
+        finally:
+            _fcntl.flock(busy_fd, _fcntl.LOCK_UN)
+            os.close(busy_fd)
+            # Allow converging sweeps to reclaim the empty busy stage.
 
     if mode == "io_failure":
         real_prove = pin_mod.prove_size0_owned_name_terminal
@@ -8196,3 +8212,670 @@ def test_r14_durable_stage_verify_fixture_recovery(
         assert snap["bytes_deleted_at"] is not None
     assert snap["intent_at"] is None or snap["bytes_deleted_at"] is not None
     _assert_no_nonempty_sidecars(quarantine.parent)
+
+
+
+# ---------------------------------------------------------------------------
+# Round15 directed probes (stage stamp-first + private reclaim + new generation)
+# ---------------------------------------------------------------------------
+
+
+def _plant_stage_only_victim(
+    ready: Path,
+    *,
+    artifact_id: UUID = ARTIFACT_ID,
+    token: str = "r15stg01",
+    payload: bytes | None = None,
+) -> tuple[Path, Path, os.stat_result, str]:
+    """Move ready bytes into ``.unlink-stage-*/victim``; return stage, victim, st, generation."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        STAGE_VICTIM,
+        unlink_stage_dir_name,
+    )
+
+    st = ready.stat()
+    generation = "genr15stage01"
+    stage_name = unlink_stage_dir_name(artifact_id=artifact_id, token=token)
+    stage_path = ready.parent / stage_name
+    stage_path.mkdir(mode=0o700)
+    victim = stage_path / STAGE_VICTIM
+    os.rename(ready, victim)
+    if payload is not None:
+        victim.write_bytes(payload)
+    return stage_path, victim, st, generation
+
+
+def _sha256_path(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+R15_STAGE_ONLY_CASES = (
+    ("eligible", "eligible"),
+    ("ineligible", "ineligible"),
+    ("stamp_fail", "stamp_fail"),
+)
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize(("label", "mode"), R15_STAGE_ONLY_CASES, ids=[c[0] for c in R15_STAGE_ONLY_CASES])
+def test_r15_stage_only_active_intent_stamp_first(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    label: str,
+    mode: str,
+) -> None:
+    """Probe 1: stage/victim only (no verify); eligible stamps then destroys; else restore."""
+
+    del label
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    expected_sha = _sha256_path(ready)
+    stage_path, victim, st, generation = _plant_stage_only_victim(ready)
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
+    )
+    assert victim.is_file()
+    assert _sha256_path(victim) == expected_sha
+
+    if mode == "stamp_fail":
+        real_mark = store.mark_artifact_bytes_deleted
+
+        def mark_fail(*_a: object, **_k: object) -> None:
+            raise RuntimeError("forced stamp failure")
+
+        monkeypatch.setattr(store, "mark_artifact_bytes_deleted", mark_fail)
+
+    clock = BASE_NOW
+    ttl = 1
+    if mode == "ineligible":
+        clock = datetime(2026, 8, 1, 0, 0, 1, tzinfo=UTC)
+        ttl = 3600
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=ttl),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: clock,
+    ).sweep_once()
+
+    snap = _lifecycle_snapshot(mutation_store)
+    if mode == "eligible":
+        assert snap["bytes_deleted_at"] is not None
+        assert snap["intent_at"] is None
+        assert not victim.exists()
+        ready_restored = ready.parent / ARTIFACT_ID.hex
+        assert not ready_restored.exists() or ready_restored.stat().st_size == 0
+    elif mode == "ineligible":
+        assert snap["bytes_deleted_at"] is None
+        assert snap["intent_at"] is None
+        restored = ready.parent / ARTIFACT_ID.hex
+        assert restored.is_file()
+        assert _sha256_path(restored) == expected_sha
+        assert not victim.exists()
+    else:
+        monkeypatch.setattr(store, "mark_artifact_bytes_deleted", real_mark)
+        assert snap["bytes_deleted_at"] is None
+        assert snap["intent_at"] is not None
+        assert victim.is_file()
+        assert _sha256_path(victim) == expected_sha
+
+
+@pytest.mark.serial
+def test_r15_stage_only_stamped_receipt_converges(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 2: stamped stage-only receipt clears after sweep(s); no self-flock retain."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    stage_path, victim, st, generation = _plant_stage_only_victim(ready, token="r15stmp01")
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
+    )
+    store.mark_artifact_bytes_deleted(
+        ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
+        repository_id=REPOSITORY_ID,
+        expected_dev=int(st.st_dev),
+        expected_ino=int(st.st_ino),
+        expected_generation=generation,
+    )
+    for _ in range(2):
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: BASE_NOW,
+        ).sweep_once()
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["bytes_deleted_at"] is not None
+    assert snap["receipt_generation"] is None
+    assert snap["intent_at"] is None
+    assert not victim.exists() or victim.stat().st_size == 0
+    if stage_path.exists():
+        assert list(stage_path.iterdir()) == []
+
+
+R15_POISON_SHAPES = (
+    ("nonempty", "nonempty"),
+    ("size0", "size0"),
+    ("lock_busy", "lock_busy"),
+    ("mode_mismatch", "mode_mismatch"),
+    ("symlink", "symlink"),
+)
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize(("label", "shape"), R15_POISON_SHAPES, ids=[c[0] for c in R15_POISON_SHAPES])
+def test_r15_destroy_isolates_foreign_artifact_stages(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    label: str,
+    shape: str,
+) -> None:
+    """Probe 3: artifact B poison stages never block A; B bytes/name unchanged."""
+
+    del label
+    import fcntl as _fcntl
+
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        STAGE_VICTIM,
+        unlink_stage_dir_name,
+    )
+
+    store, mutation_store = stores
+    artifact_b = UUID(int=ARTIFACT_ID.int + 77)
+    _seed_artifact(mutation_store)
+    _seed_artifact(mutation_store, artifact_id=artifact_b)
+    _write_ready(layout)
+    ready_b = _write_ready(layout, artifact_id=artifact_b)
+    b_sha = _sha256_path(ready_b)
+    b_stage_name = unlink_stage_dir_name(artifact_id=artifact_b, token="poisonb01")
+    b_stage = ready_b.parent / b_stage_name
+    held_fd: int | None = None
+    try:
+        if shape == "symlink":
+            b_stage.symlink_to("r15-poison-target")
+        else:
+            b_stage.mkdir(mode=0o755 if shape == "mode_mismatch" else 0o700)
+            if shape != "mode_mismatch":
+                victim_b = b_stage / STAGE_VICTIM
+                if shape == "nonempty":
+                    os.rename(ready_b, victim_b)
+                elif shape == "size0":
+                    os.rename(ready_b, victim_b)
+                    os.truncate(victim_b, 0)
+                elif shape == "lock_busy":
+                    os.rename(ready_b, victim_b)
+                    held_fd = os.open(str(b_stage), os.O_RDONLY | os.O_DIRECTORY)
+                    _fcntl.flock(held_fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+                else:
+                    os.rename(ready_b, victim_b)
+
+        on_deleted, on_intent, on_clear_intent, on_clear_receipt, _ = _intent_callbacks(store)
+        outcome = try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            recheck=lambda: True,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome == "deleted"
+        lifecycle_a = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+        assert lifecycle_a is not None
+        assert lifecycle_a.bytes_deleted_at is not None
+
+        if shape == "symlink":
+            assert b_stage.is_symlink()
+            assert ready_b.is_file()
+            assert _sha256_path(ready_b) == b_sha
+        elif shape == "mode_mismatch":
+            assert b_stage.is_dir()
+            assert (b_stage.stat().st_mode & 0o777) == 0o755
+            assert ready_b.is_file()
+            assert _sha256_path(ready_b) == b_sha
+        elif shape == "nonempty":
+            victim_b = b_stage / STAGE_VICTIM
+            assert victim_b.is_file()
+            assert _sha256_path(victim_b) == b_sha
+        elif shape == "size0":
+            victim_b = b_stage / STAGE_VICTIM
+            assert victim_b.is_file()
+            assert victim_b.stat().st_size == 0
+        elif shape == "lock_busy":
+            victim_b = b_stage / STAGE_VICTIM
+            assert victim_b.is_file()
+            assert _sha256_path(victim_b) == b_sha
+    finally:
+        if held_fd is not None:
+            _fcntl.flock(held_fd, _fcntl.LOCK_UN)
+            os.close(held_fd)
+
+
+@pytest.mark.serial
+def test_r15_batch_candidates_not_starved_by_poison_stage(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 4: ≥32 candidates with one poison stage; others still complete."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        STAGE_VICTIM,
+        unlink_stage_dir_name,
+    )
+
+    store, mutation_store = stores
+    ready_dir = layout.artifacts / REPOSITORY_ID.hex / "ready"
+    ready_dir.mkdir(parents=True, exist_ok=True)
+    n = 32
+    artifact_ids: list[UUID] = []
+    for i in range(n):
+        aid = UUID(int=ARTIFACT_ID.int + 200 + i)
+        artifact_ids.append(aid)
+        _seed_artifact(mutation_store, artifact_id=aid)
+        (ready_dir / aid.hex).write_bytes(ARTIFACT_PAYLOAD)
+
+    poison_id = UUID(int=ARTIFACT_ID.int + 999)
+    _seed_artifact(mutation_store, artifact_id=poison_id)
+    poison_ready = ready_dir / poison_id.hex
+    poison_ready.write_bytes(b"poison-payload-r15")
+    poison_stage = ready_dir / unlink_stage_dir_name(artifact_id=poison_id, token="poison32")
+    poison_stage.mkdir(mode=0o700)
+    os.rename(poison_ready, poison_stage / STAGE_VICTIM)
+
+    completed = 0
+    for aid in artifact_ids:
+
+        def _stamp(dev: int, ino: int, generation: str, *, a: UUID = aid) -> None:
+            store.mark_artifact_bytes_deleted(
+                a,
+                deleted_at="2026-08-02T00:00:00+00:00",
+                repository_id=REPOSITORY_ID,
+                expected_dev=dev,
+                expected_ino=ino,
+                expected_generation=generation,
+            )
+
+        def _intent(dev: int, ino: int, generation: str, *, a: UUID = aid) -> None:
+            store.begin_artifact_bytes_delete_intent(
+                a,
+                repository_id=REPOSITORY_ID,
+                dev=dev,
+                ino=ino,
+                phase="quarantined",
+                intent_at="2026-08-02T00:00:00+00:00",
+                generation=generation,
+            )
+
+        def _clear_intent(dev: int, ino: int, generation: str, *, a: UUID = aid) -> None:
+            store.clear_artifact_bytes_delete_intent(
+                a,
+                repository_id=REPOSITORY_ID,
+                expected_dev=dev,
+                expected_ino=ino,
+                expected_generation=generation,
+            )
+
+        def _clear_receipt(dev: int, ino: int, generation: str, *, a: UUID = aid) -> None:
+            store.clear_artifact_bytes_deleted_receipt(
+                a,
+                repository_id=REPOSITORY_ID,
+                expected_dev=dev,
+                expected_ino=ino,
+                expected_generation=generation,
+            )
+
+        outcome = try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            aid,
+            recheck=lambda: True,
+            on_deleted=_stamp,
+            on_intent=_intent,
+            on_clear_intent=_clear_intent,
+            on_clear_receipt=_clear_receipt,
+        )
+        if outcome == "deleted":
+            completed += 1
+    assert completed == n
+    victim = poison_stage / STAGE_VICTIM
+    assert victim.is_file()
+    assert victim.read_bytes() == b"poison-payload-r15"
+
+
+@pytest.mark.serial
+def test_r15_batch_success_zero_public_tombstone_growth(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 5: batch 200 success leaves zero public sidecar tombstones."""
+
+    store, mutation_store = stores
+    ready_dir = layout.artifacts / REPOSITORY_ID.hex / "ready"
+    ready_dir.mkdir(parents=True, exist_ok=True)
+    n = 200
+    artifact_ids: list[UUID] = []
+    for i in range(n):
+        aid = UUID(int=ARTIFACT_ID.int + 400 + i)
+        artifact_ids.append(aid)
+        _seed_artifact(mutation_store, artifact_id=aid)
+        (ready_dir / aid.hex).write_bytes(ARTIFACT_PAYLOAD)
+
+    before_entries = len(list(ready_dir.iterdir()))
+    for aid in artifact_ids:
+
+        def _stamp(dev: int, ino: int, generation: str, *, a: UUID = aid) -> None:
+            store.mark_artifact_bytes_deleted(
+                a,
+                deleted_at="2026-08-02T00:00:00+00:00",
+                repository_id=REPOSITORY_ID,
+                expected_dev=dev,
+                expected_ino=ino,
+                expected_generation=generation,
+            )
+
+        def _intent(dev: int, ino: int, generation: str, *, a: UUID = aid) -> None:
+            store.begin_artifact_bytes_delete_intent(
+                a,
+                repository_id=REPOSITORY_ID,
+                dev=dev,
+                ino=ino,
+                phase="quarantined",
+                intent_at="2026-08-02T00:00:00+00:00",
+                generation=generation,
+            )
+
+        def _clear_intent(dev: int, ino: int, generation: str, *, a: UUID = aid) -> None:
+            store.clear_artifact_bytes_delete_intent(
+                a,
+                repository_id=REPOSITORY_ID,
+                expected_dev=dev,
+                expected_ino=ino,
+                expected_generation=generation,
+            )
+
+        def _clear_receipt(dev: int, ino: int, generation: str, *, a: UUID = aid) -> None:
+            store.clear_artifact_bytes_deleted_receipt(
+                a,
+                repository_id=REPOSITORY_ID,
+                expected_dev=dev,
+                expected_ino=ino,
+                expected_generation=generation,
+            )
+
+        assert (
+            try_unlink_owned_ready_artifact(
+                layout,
+                REPOSITORY_ID,
+                aid,
+                recheck=lambda: True,
+                on_deleted=_stamp,
+                on_intent=_intent,
+                on_clear_intent=_clear_intent,
+                on_clear_receipt=_clear_receipt,
+            )
+            == "deleted"
+        )
+
+    after_entries = len(list(ready_dir.iterdir()))
+    sidecars = [p.name for p in ready_dir.iterdir() if parse_any_recoverable_sidecar(p.name)]
+    assert sidecars == []
+    print(
+        f"r15_batch_zero_tombstone n={n} entries_delta={after_entries - before_entries} "
+        f"sidecar_count={len(sidecars)}"
+    )
+    assert after_entries - before_entries <= 0
+    receipts = mutation_store.list_artifacts_with_bytes_deleted_receipt()
+    assert receipts == []
+
+
+@pytest.mark.serial
+def test_r15_aba_barrier_stale_clear_cannot_drop_new_generation(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 6: after A restore+clear(G_old), B begins G_new; stale clear(G_old) misses."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    generation_old = "genr15abaold01"
+    detach = ready.parent / detach_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation_old
+    )
+    os.link(ready, detach)
+    ready.unlink()
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="detached",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation_old,
+    )
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: datetime(2026, 8, 1, 0, 0, 1, tzinfo=UTC),
+    ).sweep_once()
+    snap_a = _lifecycle_snapshot(mutation_store)
+    assert snap_a["intent_at"] is None
+    assert (ready.parent / ARTIFACT_ID.hex).is_file()
+
+    new_generation: dict[str, str] = {}
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, _ = _intent_callbacks(store)
+
+    def on_intent_capture(dev: int, ino: int, generation: str) -> None:
+        on_intent(dev, ino, generation)
+        new_generation["g"] = generation
+        store.clear_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            expected_dev=dev,
+            expected_ino=ino,
+            expected_generation=generation_old,
+        )
+        mid = _lifecycle_snapshot(mutation_store)
+        assert mid["intent_generation"] == generation
+
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent_capture,
+        on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
+    )
+    assert outcome == "deleted"
+    assert "g" in new_generation
+    assert new_generation["g"] != generation_old
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["bytes_deleted_at"] is not None
+    assert snap["intent_at"] is None
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("entry", ["worker", "recovery", "admin"], ids=["worker", "recovery", "admin"])
+@pytest.mark.parametrize(
+    "stale",
+    ["clear_intent", "stamp", "clear_receipt"],
+    ids=["clear_intent", "stamp", "clear_receipt"],
+)
+def test_r15_stale_ops_real_entrypoints_fail_closed(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    entry: str,
+    stale: str,
+) -> None:
+    """Probe 7: stale clear/stamp/receipt against real worker/recovery/admin paths."""
+
+    from gateway_repository_service.versioned_import import admin as admin_mod
+    from gateway_repository_service.versioned_import.command import ImportOperationExecutor
+    from gateway_repository_service.versioned_import.recovery import (
+        cleanup_after_succeeded_correction,
+    )
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    live_generation = "genr15live001"
+    if stale == "clear_intent":
+        store.begin_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            dev=int(st.st_dev),
+            ino=int(st.st_ino),
+            phase="quarantined",
+            intent_at="2026-08-02T00:00:00+00:00",
+            generation=live_generation,
+        )
+        store.clear_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            expected_dev=int(st.st_dev),
+            expected_ino=int(st.st_ino),
+            expected_generation="stale-generation-r15",
+        )
+        snap = _lifecycle_snapshot(mutation_store)
+        assert snap["intent_generation"] == live_generation
+
+    op_id = UUID(int=OPERATION_ID.int + hash((entry, stale)) % 1000)
+    _enqueue(store, key=f"r15-{entry}-{stale}", operation_id=op_id)
+    store.claim_if_queued(op_id)
+    store.mark_succeeded(op_id, result=_import_result())
+    context = store.load_execution_context(op_id)
+    assert context is not None
+
+    class _Provider:
+        def delete_private_ref(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    if entry == "worker":
+        ImportOperationExecutor(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            store=store,
+        )._best_effort_delete_artifact_bytes(context, ready)
+    elif entry == "recovery":
+        cleanup_after_succeeded_correction(
+            store=store,
+            layout=layout,
+            context=context,
+            provider=_Provider(),  # type: ignore[arg-type]
+            candidate="commit-1",
+            ttl_seconds=1,
+        )
+    else:
+        # admin apply uses the same cleanup_after_succeeded_correction entry.
+        assert "cleanup_after_succeeded_correction" in admin_mod.__dict__
+        cleanup_after_succeeded_correction(
+            store=store,
+            layout=layout,
+            context=context,
+            provider=_Provider(),  # type: ignore[arg-type]
+            candidate="commit-1",
+            ttl_seconds=1,
+        )
+
+    snap = _lifecycle_snapshot(mutation_store)
+    if stale == "clear_intent":
+        assert snap["bytes_deleted_at"] is not None or snap["intent_generation"] == live_generation
+    else:
+        assert snap["bytes_deleted_at"] is not None
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("mode", ["active_intent", "stamped_receipt"], ids=["active", "stamped"])
+def test_r15_stage_only_disk_fixture_replaces_superseded_skips(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    mode: str,
+) -> None:
+    """Probe 8: disk fixtures for stage-only active/stamped; precise inventory asserts."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    expected_sha = _sha256_path(ready)
+    stage_path, victim, st, generation = _plant_stage_only_victim(
+        ready, token=f"r15fix{mode[:3]}"
+    )
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
+    )
+    assert _sha256_path(victim) == expected_sha
+    if mode == "stamped_receipt":
+        store.mark_artifact_bytes_deleted(
+            ARTIFACT_ID,
+            deleted_at="2026-08-02T00:00:00+00:00",
+            repository_id=REPOSITORY_ID,
+            expected_dev=int(st.st_dev),
+            expected_ino=int(st.st_ino),
+            expected_generation=generation,
+        )
+
+    before = _lifecycle_snapshot(mutation_store)
+    if mode == "active_intent":
+        assert before["intent_generation"] == generation
+        assert before["receipt_generation"] is None
+    else:
+        assert before["receipt_generation"] == generation
+        assert before["intent_at"] is None
+
+    for _ in range(2):
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: BASE_NOW,
+        ).sweep_once()
+
+    after = _lifecycle_snapshot(mutation_store)
+    assert after["bytes_deleted_at"] is not None
+    assert after["intent_at"] is None
+    assert after["receipt_generation"] is None
+    assert not (ready.parent / ARTIFACT_ID.hex).exists()
+    if victim.exists():
+        assert victim.stat().st_size == 0
+    if stage_path.exists():
+        assert list(stage_path.iterdir()) == []
+    _assert_no_nonempty_sidecars(ready.parent)

@@ -388,6 +388,7 @@ def parse_detach_name(name: str) -> tuple[int, UUID, str | None] | None:
 
 
 STAGE_VICTIM = "victim"
+RECLAIM_VICTIM = "victim"
 
 
 def unlink_stage_dir_name(*, artifact_id: UUID, token: str) -> str:
@@ -487,24 +488,24 @@ def parse_any_recoverable_sidecar(name: str) -> tuple[int, UUID, str | None, str
     return None
 
 
-def _find_matching_quarantine(
+def _find_matching_sidecar_slot(
     ready_dir_fd: int,
     *,
     inode: int,
     artifact_id: UUID,
 ) -> tuple[str, str] | None:
-    """Reuse an existing generation-bound quarantine or detach for inode+artifact.
+    """Locate an existing quarantine/detach dentry for inode+artifact (any generation).
 
-    Prefers quarantine. When only a matching detach exists, rename it into the
-    quarantine slot for that generation so the delete protocol stays bounded.
+    Prefers quarantine. Returns ``(name, kind)`` where kind is ``quarantine`` or
+    ``detach``. Callers must mint a fresh generation and migrate the name.
     """
 
     try:
         names = os.listdir(ready_dir_fd)
     except OSError:
         return None
-    quarantine_hit: tuple[str, str] | None = None
-    detach_hit: tuple[str, str] | None = None
+    quarantine_hit: str | None = None
+    detach_hit: str | None = None
     for name in names:
         parsed_q = parse_quarantine_name(name)
         if parsed_q is not None:
@@ -521,7 +522,7 @@ def _find_matching_quarantine(
                 continue
             if int(st.st_ino) != int(inode) or not stat.S_ISREG(st.st_mode):
                 continue
-            quarantine_hit = (name, generation)
+            quarantine_hit = name
             break
         parsed_d = parse_detach_name(name)
         if parsed_d is None:
@@ -540,35 +541,69 @@ def _find_matching_quarantine(
         if int(st.st_ino) != int(inode) or not stat.S_ISREG(st.st_mode):
             continue
         if detach_hit is None:
-            detach_hit = (name, generation)
+            detach_hit = name
     if quarantine_hit is not None:
-        return quarantine_hit
-    if detach_hit is None:
-        return None
-    detach_name, generation = detach_hit
-    quarantine = quarantine_name_for(
+        return quarantine_hit, "quarantine"
+    if detach_hit is not None:
+        return detach_hit, "detach"
+    return None
+
+
+def _migrate_sidecar_slot_to_generation(
+    ready_dir_fd: int,
+    *,
+    source_name: str,
+    inode: int,
+    artifact_id: UUID,
+    generation: str,
+) -> str | None:
+    """Rename an existing sidecar slot onto the quarantine name for ``generation``."""
+
+    target = quarantine_name_for(
         inode=int(inode),
         artifact_id=artifact_id,
         generation=generation,
     )
+    if source_name == target:
+        return target
     try:
-        os.stat(quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
-    except FileNotFoundError:
-        try:
-            renameat2_noreplace(ready_dir_fd, detach_name, ready_dir_fd, quarantine)
-        except (FileExistsError, OSError):
-            return None
-        return quarantine, generation
-    except OSError:
+        renameat2_noreplace(ready_dir_fd, source_name, ready_dir_fd, target)
+    except (FileExistsError, OSError):
         return None
-    # Quarantine name already present for this generation; keep using it.
-    try:
-        st = os.stat(quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
-    except OSError:
+    return target
+
+
+def _find_matching_quarantine(
+    ready_dir_fd: int,
+    *,
+    inode: int,
+    artifact_id: UUID,
+) -> tuple[str, str] | None:
+    """Locate a physical sidecar slot and migrate it onto a fresh generation.
+
+    Always mints a new generation so stale clear_intent(G_old) cannot ABA a
+    newer attempt that reused the same inode slot.
+    """
+
+    slot = _find_matching_sidecar_slot(
+        ready_dir_fd,
+        inode=inode,
+        artifact_id=artifact_id,
+    )
+    if slot is None:
         return None
-    if int(st.st_ino) != int(inode) or not stat.S_ISREG(st.st_mode):
+    source_name, _kind = slot
+    generation = uuid4().hex
+    migrated = _migrate_sidecar_slot_to_generation(
+        ready_dir_fd,
+        source_name=source_name,
+        inode=inode,
+        artifact_id=artifact_id,
+        generation=generation,
+    )
+    if migrated is None:
         return None
-    return quarantine, generation
+    return migrated, generation
 
 
 def find_unlink_verify_sidecar_name(
@@ -786,20 +821,159 @@ def prove_size0_owned_name_terminal(
         os.close(fd)
 
 
+def prove_name_absent(dir_fd: int, name: str) -> bool:
+    """Return True when ``name`` is absent under ``dir_fd``."""
+
+    try:
+        os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _reclaim_dir_name(*, artifact_id: UUID, token: str) -> str:
+    if not token or "-" in token:
+        raise ValueError("token must be non-empty and must not contain '-'")
+    return f".reclaim-{artifact_id.hex}-{token}"
+
+
+def _reclaim_owned_size0_via_private_dir(
+    ready_dir_fd: int,
+    name: str,
+    *,
+    expected_dev: int,
+    expected_ino: int,
+    artifact_id: UUID,
+) -> bool:
+    """Move an owned size-0 public name into a private reclaim dir, verify, unlink.
+
+    Returns True when the public name is absent afterward. Foreign/mismatched
+    inodes are never unlinked; the reclaim directory is best-effort cleaned.
+    """
+
+    if prove_name_absent(ready_dir_fd, name):
+        return True
+    # Gate through prove_size0 so callers/tests can observe fail-closed terminals
+    # before any rename/unlink, and so racing foreign plants are rejected.
+    if not prove_size0_owned_name_terminal(
+        ready_dir_fd,
+        name,
+        expected_dev=expected_dev,
+        expected_ino=expected_ino,
+    ):
+        return False
+    if prove_name_absent(ready_dir_fd, name):
+        return True
+
+    open_flags = _file_flags()
+    reclaim_fd: int | None = None
+    reclaim_name: str | None = None
+    locked = False
+    try:
+        for _ in range(8):
+            token = secrets.token_hex(8)
+            candidate = _reclaim_dir_name(artifact_id=artifact_id, token=token)
+            try:
+                os.mkdir(candidate, 0o700, dir_fd=ready_dir_fd)
+            except FileExistsError:
+                continue
+            except OSError:
+                return False
+            reclaim_name = candidate
+            break
+        if reclaim_name is None:
+            return False
+        try:
+            reclaim_fd = os.open(reclaim_name, _dir_flags(), dir_fd=ready_dir_fd)
+        except OSError:
+            return False
+        os.set_inheritable(reclaim_fd, False)
+        try:
+            fcntl.flock(reclaim_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return False
+        locked = True
+        try:
+            renameat2_noreplace(ready_dir_fd, name, reclaim_fd, RECLAIM_VICTIM)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        try:
+            victim_fd = os.open(RECLAIM_VICTIM, open_flags, dir_fd=reclaim_fd)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        try:
+            vst = os.fstat(victim_fd)
+            match = (
+                stat.S_ISREG(vst.st_mode)
+                and int(vst.st_dev) == int(expected_dev)
+                and int(vst.st_ino) == int(expected_ino)
+                and int(vst.st_size) == 0
+            )
+        except OSError:
+            return False
+        finally:
+            os.close(victim_fd)
+        if not match:
+            # Leave foreign bytes inside private reclaim; do not unlink.
+            return False
+        try:
+            os.unlink(RECLAIM_VICTIM, dir_fd=reclaim_fd)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return False
+        return prove_name_absent(ready_dir_fd, name)
+    finally:
+        if reclaim_fd is not None:
+            if locked:
+                try:
+                    fcntl.flock(reclaim_fd, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            try:
+                # Best-effort empty reclaim dir removal.
+                try:
+                    children = os.listdir(reclaim_fd)
+                except OSError:
+                    children = ["?"]
+                if not children and reclaim_name is not None:
+                    try:
+                        os.rmdir(reclaim_name, dir_fd=ready_dir_fd)
+                    except OSError:
+                        pass
+            finally:
+                os.close(reclaim_fd)
+
+
 def reclaim_size0_owned_name(
     dir_fd: int,
     name: str,
     *,
     expected_dev: int,
     expected_ino: int,
+    artifact_id: UUID | None = None,
 ) -> bool:
-    """Compatibility wrapper: prove terminal size-0/absent without pathname unlink."""
+    """Reclaim an owned size-0 public name via private dir when artifact_id is set."""
 
-    return prove_size0_owned_name_terminal(
+    if artifact_id is None:
+        return prove_size0_owned_name_terminal(
+            dir_fd,
+            name,
+            expected_dev=expected_dev,
+            expected_ino=expected_ino,
+        )
+    return _reclaim_owned_size0_via_private_dir(
         dir_fd,
         name,
         expected_dev=expected_dev,
         expected_ino=expected_ino,
+        artifact_id=artifact_id,
     )
 
 
@@ -808,14 +982,22 @@ def destroy_owned_bytes_and_reclaim_names(
     inode_fd: int,
     expected: os.stat_result,
     names: list[str],
+    *,
+    artifact_id: UUID,
+    generation: str | None = None,
+    held_stage_dir_fd: int | None = None,
+    held_stage_name: str | None = None,
 ) -> bool:
-    """fd-truncate owned bytes, then prove required/historical names are terminal.
+    """fd-truncate owned bytes, then reclaim required public names privately.
 
-    Does not create ``.unlink-stage-*`` / ``.unlink-verify-*`` entries and never
-    pathname-unlinks. Returns False on any required prove failure, inventory I/O
-    error, or stage lock busy so callers retain receipt ownership.
+    Enumerates ``.unlink-stage-*`` only for ``artifact_id``. When
+    ``held_stage_name`` matches, reuses ``held_stage_dir_fd`` without re-locking.
+    Success requires required public names to be absent on ready (not merely
+    size-0 tombstones). Foreign artifact stages are skipped and do not fail the
+    operation.
     """
 
+    del generation  # reserved for future generation-scoped verify filtering
     if not _ftruncate_inode_to_empty(inode_fd, expected):
         return False
     expected_dev = int(expected.st_dev)
@@ -823,14 +1005,15 @@ def destroy_owned_bytes_and_reclaim_names(
     for name in names:
         if not name:
             continue
-        if not prove_size0_owned_name_terminal(
+        if not _reclaim_owned_size0_via_private_dir(
             ready_dir_fd,
             name,
             expected_dev=expected_dev,
             expected_ino=expected_ino,
+            artifact_id=artifact_id,
         ):
             return False
-    # Historical Round12 verify/stage tombstones for this inode must also prove.
+    # Historical Round12 verify/stage tombstones for this inode must also reclaim.
     try:
         entries = os.listdir(ready_dir_fd)
     except OSError:
@@ -838,42 +1021,103 @@ def destroy_owned_bytes_and_reclaim_names(
     for entry_name in entries:
         parsed_verify = parse_unlink_verify_name(entry_name)
         if parsed_verify is not None:
-            ino, _artifact_id, _generation, _token = parsed_verify
+            ino, verify_artifact_id, _generation, _token = parsed_verify
+            if verify_artifact_id != artifact_id:
+                continue
             if int(ino) == expected_ino:
-                if not prove_size0_owned_name_terminal(
+                if not _reclaim_owned_size0_via_private_dir(
                     ready_dir_fd,
                     entry_name,
                     expected_dev=expected_dev,
                     expected_ino=expected_ino,
+                    artifact_id=artifact_id,
                 ):
                     return False
             continue
         parsed_stage = parse_unlink_stage_dir_name(entry_name)
         if parsed_stage is None:
             continue
-        stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, entry_name)
-        if stage_fd is None:
-            return False
+        stage_artifact_id, _token = parsed_stage
+        if stage_artifact_id != artifact_id:
+            # Other artifacts' stages never block this destroy.
+            continue
+        owned_stage_fd = False
+        stage_fd: int | None = None
+        stage_locked_here = False
         try:
-            if not lock_unlink_stage_dir(stage_fd):
-                return False
+            if held_stage_name is not None and entry_name == held_stage_name:
+                if held_stage_dir_fd is None:
+                    return False
+                stage_fd = held_stage_dir_fd
+            else:
+                stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, entry_name)
+                if stage_fd is None:
+                    # Mode/symlink mismatch for this artifact's stage: fail closed.
+                    return False
+                owned_stage_fd = True
+                if not lock_unlink_stage_dir(stage_fd):
+                    return False
+                stage_locked_here = True
+            assert stage_fd is not None
             try:
+                children = os.listdir(stage_fd)
+            except OSError:
+                return False
+            for child in children:
+                # Prove owned size-0 for this artifact inode; foreign children skip.
+                open_flags = _file_flags()
                 try:
-                    children = os.listdir(stage_fd)
+                    child_fd = os.open(child, open_flags, dir_fd=stage_fd)
+                except FileNotFoundError:
+                    continue
                 except OSError:
                     return False
-                for child in children:
-                    if not prove_size0_owned_name_terminal(
-                        stage_fd,
-                        child,
-                        expected_dev=expected_dev,
-                        expected_ino=expected_ino,
-                    ):
-                        return False
-            finally:
-                unlock_unlink_stage_dir(stage_fd)
+                try:
+                    cst = os.fstat(child_fd)
+                except OSError:
+                    return False
+                finally:
+                    os.close(child_fd)
+                if not stat.S_ISREG(cst.st_mode):
+                    return False
+                if int(cst.st_dev) != expected_dev or int(cst.st_ino) != expected_ino:
+                    # Foreign inode inside our stage: skip, do not fail batch.
+                    continue
+                if int(cst.st_size) != 0:
+                    return False
+                if not prove_size0_owned_name_terminal(
+                    stage_fd,
+                    child,
+                    expected_dev=expected_dev,
+                    expected_ino=expected_ino,
+                ):
+                    return False
+                if prove_name_absent(stage_fd, child):
+                    continue
+                try:
+                    os.unlink(child, dir_fd=stage_fd)
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    return False
+            # Best-effort rmdir empty stage when we own the fd lifecycle.
+            if owned_stage_fd:
+                try:
+                    if not os.listdir(stage_fd):
+                        os.rmdir(entry_name, dir_fd=ready_dir_fd)
+                except OSError:
+                    pass
         finally:
-            os.close(stage_fd)
+            if owned_stage_fd and stage_fd is not None:
+                if stage_locked_here:
+                    unlock_unlink_stage_dir(stage_fd)
+                os.close(stage_fd)
+    # Final gate: required public names must be absent.
+    for name in names:
+        if not name:
+            continue
+        if not prove_name_absent(ready_dir_fd, name):
+            return False
     return True
 
 
@@ -1237,18 +1481,15 @@ def unlink_sidecar_rename_verify(
     artifact_id: UUID,
     generation: str,
 ) -> bool:
-    """Destroy sidecar bytes via fd-truncate and reclaim the size-0 name.
+    """Destroy sidecar bytes via fd-truncate and reclaim the public name."""
 
-    Does not create staging/verify tombstones. ``artifact_id`` / ``generation``
-    retained for call-site compatibility.
-    """
-
-    del artifact_id, generation
     return destroy_owned_bytes_and_reclaim_names(
         ready_dir_fd,
         q_fd,
         expected,
         [sidecar_name],
+        artifact_id=artifact_id,
+        generation=generation,
     )
 
 
@@ -1463,17 +1704,28 @@ def try_unlink_owned_ready_artifact(
 
                 locked_dev = int(fd_stat.st_dev)
                 locked_ino = int(fd_stat.st_ino)
-                reused = _find_matching_quarantine(
+                # Always mint a fresh generation so stale clear_intent(G_old)
+                # cannot ABA a newer attempt on the same inode slot.
+                generation = uuid4().hex
+                locked_generation = generation
+                slot = _find_matching_sidecar_slot(
                     ready_dir_fd,
                     inode=int(fd_stat.st_ino),
                     artifact_id=artifact_id,
                 )
-                if reused is not None:
-                    quarantine, generation = reused
-                    locked_generation = generation
+                if slot is not None:
+                    source_name, _kind = slot
+                    migrated = _migrate_sidecar_slot_to_generation(
+                        ready_dir_fd,
+                        source_name=source_name,
+                        inode=int(fd_stat.st_ino),
+                        artifact_id=artifact_id,
+                        generation=generation,
+                    )
+                    if migrated is None:
+                        return "unlink_failed"
+                    quarantine = migrated
                 else:
-                    generation = uuid4().hex
-                    locked_generation = generation
                     quarantine = quarantine_name_for(
                         inode=fd_stat.st_ino,
                         artifact_id=artifact_id,
@@ -1617,6 +1869,8 @@ def try_unlink_owned_ready_artifact(
                     file_fd,
                     fd_stat,
                     reclaim_names,
+                    artifact_id=artifact_id,
+                    generation=locked_generation,
                 ):
                     keep_quarantine_on_abort = True
                     return "unlink_failed"

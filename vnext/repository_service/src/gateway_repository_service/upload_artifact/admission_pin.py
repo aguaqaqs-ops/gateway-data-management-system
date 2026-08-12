@@ -681,43 +681,131 @@ def remove_empty_stage_dir_if_same_inode(
     del ready_dir_fd, stage_name, stage_dir_fd
 
 
-def drop_extra_hardlink_if_same_inode(
+def reclaim_size0_owned_name(
     dir_fd: int,
     name: str,
-    expected: os.stat_result,
+    *,
+    expected_dev: int,
+    expected_ino: int,
 ) -> bool:
-    """Drop one hardlink by pathname when the entry still matches ``expected``.
+    """Best-effort unlink of a size-0 owned tombstone name.
 
-    Used only to remove a redundant hardlink while another link retains content
-    (never as the bytes-destruction path).
+    Opens and fstats immediately before unlink; non-empty or inode mismatch skips
+    so foreign content is never destroyed. Absent name counts as success.
     """
 
+    open_flags = _file_flags()
     try:
-        live_nlink = expected.st_nlink
-    except AttributeError:
-        live_nlink = 0
-    if int(live_nlink) < 2:
-        # Refuse to drop the last link via pathname; that would destroy bytes.
-        try:
-            pathname_stat = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
-        except OSError:
-            return False
-        if pathname_stat.st_nlink < 2:
-            return False
-    try:
-        pathname_stat = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        fd = os.open(name, open_flags, dir_fd=dir_fd)
     except FileNotFoundError:
-        return False
+        return True
     except OSError:
         return False
-    if (pathname_stat.st_dev, pathname_stat.st_ino) != (expected.st_dev, expected.st_ino):
+    try:
+        st = os.fstat(fd)
+    except OSError:
         return False
-    if pathname_stat.st_nlink < 2:
+    finally:
+        os.close(fd)
+    if not stat.S_ISREG(st.st_mode):
         return False
+    if int(st.st_dev) != int(expected_dev) or int(st.st_ino) != int(expected_ino):
+        return False
+    if int(st.st_size) != 0:
+        return False
+    # Re-open and re-check immediately before unlink (fresh fstat, not a stale gate).
+    try:
+        fd = os.open(name, open_flags, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    try:
+        st = os.fstat(fd)
+        if (
+            not stat.S_ISREG(st.st_mode)
+            or int(st.st_dev) != int(expected_dev)
+            or int(st.st_ino) != int(expected_ino)
+            or int(st.st_size) != 0
+        ):
+            return False
+    finally:
+        os.close(fd)
     try:
         os.unlink(name, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return True
     except OSError:
         return False
+    return True
+
+
+def destroy_owned_bytes_and_reclaim_names(
+    ready_dir_fd: int,
+    inode_fd: int,
+    expected: os.stat_result,
+    names: list[str],
+) -> bool:
+    """fd-truncate owned bytes, then best-effort reclaim size-0 directory names.
+
+    Does not create ``.unlink-stage-*`` / ``.unlink-verify-*`` entries.
+    """
+
+    if not _ftruncate_inode_to_empty(inode_fd, expected):
+        return False
+    expected_dev = int(expected.st_dev)
+    expected_ino = int(expected.st_ino)
+    for name in names:
+        if name:
+            reclaim_size0_owned_name(
+                ready_dir_fd,
+                name,
+                expected_dev=expected_dev,
+                expected_ino=expected_ino,
+            )
+    # Reclaim historical Round12 verify/stage tombstones for this inode.
+    try:
+        entries = os.listdir(ready_dir_fd)
+    except OSError:
+        return True
+    for entry_name in entries:
+        parsed_verify = parse_unlink_verify_name(entry_name)
+        if parsed_verify is not None:
+            ino, _artifact_id, _generation, _token = parsed_verify
+            if int(ino) == expected_ino:
+                reclaim_size0_owned_name(
+                    ready_dir_fd,
+                    entry_name,
+                    expected_dev=expected_dev,
+                    expected_ino=expected_ino,
+                )
+            continue
+        parsed_stage = parse_unlink_stage_dir_name(entry_name)
+        if parsed_stage is None:
+            continue
+        stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, entry_name)
+        if stage_fd is None:
+            continue
+        try:
+            if not lock_unlink_stage_dir(stage_fd):
+                continue
+            try:
+                try:
+                    children = os.listdir(stage_fd)
+                except OSError:
+                    continue
+                for child in children:
+                    reclaim_size0_owned_name(
+                        stage_fd,
+                        child,
+                        expected_dev=expected_dev,
+                        expected_ino=expected_ino,
+                    )
+                # Leave empty stage dir in place (no pathname rmdir).
+            finally:
+                unlock_unlink_stage_dir(stage_fd)
+        finally:
+            os.close(stage_fd)
     return True
 
 
@@ -1081,16 +1169,18 @@ def unlink_sidecar_rename_verify(
     artifact_id: UUID,
     generation: str,
 ) -> bool:
-    """Unlink a sidecar via staging rename-verify-unlink while holding flock on ``q_fd``."""
+    """Destroy sidecar bytes via fd-truncate and reclaim the size-0 name.
 
-    return unlink_verified_inode_via_staging(
+    Does not create staging/verify tombstones. ``artifact_id`` / ``generation``
+    retained for call-site compatibility.
+    """
+
+    del artifact_id, generation
+    return destroy_owned_bytes_and_reclaim_names(
         ready_dir_fd,
-        source_name=sidecar_name,
-        stage_name=None,
-        inode_fd=q_fd,
-        expected=expected,
-        artifact_id=artifact_id,
-        generation=generation,
+        q_fd,
+        expected,
+        [sidecar_name],
     )
 
 
@@ -1103,15 +1193,19 @@ def try_detach_ready_directory_entry(
     artifact_id: UUID,
     generation: str,
 ) -> tuple[str, str | None]:
-    """Detach ``ready_name`` via rename-verify-unlink.
+    """Rename ``ready_name`` to ``.detach-*`` without destroying bytes.
 
-    Returns ``(outcome, owned_detach_name)`` where outcome is ``ok``, ``replaced``,
-    or ``unlink_failed``. ``owned_detach_name`` is set only while a self-inode
-    ``.detach-*`` entry still needs cleanup.
+    Pre-stamp detach must preserve package payload. Destruction happens only
+    after the second eligibility recheck and durable receipt stamp.
     """
 
-    if os.fstat(file_fd).st_nlink < 2:
+    try:
+        before = os.fstat(file_fd)
+    except OSError:
+        return "unlink_failed", None
+    if before.st_nlink < 2:
         return "replaced", None
+    original_size = int(before.st_size)
 
     detach = detach_name_for(
         inode=int(fd_stat.st_ino),
@@ -1135,7 +1229,6 @@ def try_detach_ready_directory_entry(
         return "unlink_failed", detach
 
     if (det_stat.st_dev, det_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-        # Renamed a replacement entry; restore without covering a new ready.
         try:
             os.stat(ready_name, dir_fd=ready_dir_fd, follow_symlinks=False)
         except FileNotFoundError:
@@ -1146,13 +1239,9 @@ def try_detach_ready_directory_entry(
                 return "replaced", None
         except OSError:
             return "replaced", None
-        # Ready reappeared — never overwrite; leave foreign .detach for recovery.
         return "replaced", None
 
-    open_flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    if nofollow:
-        open_flags |= nofollow
+    open_flags = _file_flags()
     det_fd: int | None = None
     try:
         try:
@@ -1165,28 +1254,7 @@ def try_detach_ready_directory_entry(
             return "unlink_failed", detach
         if (det_fd_stat.st_dev, det_fd_stat.st_ino) != (det_stat.st_dev, det_stat.st_ino):
             return "unlink_failed", detach
-        if not unlink_sidecar_rename_verify(
-            ready_dir_fd,
-            detach,
-            det_fd,
-            det_stat,
-            artifact_id=artifact_id,
-            generation=generation,
-        ):
-            owned = find_unlink_verify_sidecar_name(
-                ready_dir_fd,
-                inode=int(det_stat.st_ino),
-                artifact_id=artifact_id,
-                generation=generation,
-            )
-            if owned is not None:
-                return "unlink_failed", owned
-            try:
-                os.stat(detach, dir_fd=ready_dir_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                return "unlink_failed", None
-            except OSError:
-                return "unlink_failed", detach
+        if not stat.S_ISREG(det_fd_stat.st_mode):
             return "unlink_failed", detach
     finally:
         if det_fd is not None:
@@ -1195,16 +1263,17 @@ def try_detach_ready_directory_entry(
     try:
         after = os.fstat(file_fd)
     except OSError:
-        return "unlink_failed", None
-    # fd-truncate leaves tombstone hardlinks; require content gone and detach name moved.
-    if int(after.st_size) != 0:
-        return "unlink_failed", None
+        return "unlink_failed", detach
+    if int(after.st_size) != original_size:
+        return "unlink_failed", detach
+    if (after.st_dev, after.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+        return "unlink_failed", detach
     try:
-        os.stat(detach, dir_fd=ready_dir_fd, follow_symlinks=False)
+        os.stat(ready_name, dir_fd=ready_dir_fd, follow_symlinks=False)
     except FileNotFoundError:
-        return "ok", None
+        return "ok", detach
     except OSError:
-        return "unlink_failed", None
+        return "unlink_failed", detach
     return "unlink_failed", detach
 
 
@@ -1225,8 +1294,8 @@ def try_unlink_owned_ready_artifact(
     1. linkat quarantine for the locked inode
     2. durable delete intent (phase quarantined)
     3. recheck eligibility
-    4. detach ready via rename-verify-unlink when ``nlink >= 2``
-    5. recheck again, then stamp, then unlink quarantine
+    4. rename-only detach of ready (bytes preserved)
+    5. recheck again, then stamp, then fd-truncate + reclaim size-0 names
 
     Replacement at the ready name never stamps and never returns ``deleted``.
     """
@@ -1247,7 +1316,6 @@ def try_unlink_owned_ready_artifact(
             return "unlink_failed"
         return "unlink_failed"
 
-    owned_quarantine: str | None = None
     owned_detach: str | None = None
     keep_quarantine_on_abort = False
     intent_written = False
@@ -1271,78 +1339,12 @@ def try_unlink_owned_ready_artifact(
         _clear_intent_best_effort()
         return "replaced"
 
-    def _unlink_owned_sidecar(name: str | None) -> bool:
-        """Rename-verify-unlink an owned sidecar.
-
-        Caller already holds exclusive ``flock`` on ``file_fd`` (same inode).
-        Do not acquire a second flock via another open — Linux treats that as
-        an independent lock and ``LOCK_NB`` fails with ``BlockingIOError``.
-        When the ready name still holds non-zero content for this inode, only
-        drop the extra hardlink (never ftruncate).
-        """
-
-        if name is None:
-            return True
-        if locked_generation is None:
-            return False
-        open_flags = _file_flags()
-        q_fd: int | None = None
-        try:
-            try:
-                q_fd = os.open(name, open_flags, dir_fd=ready_dir_fd)
-            except FileNotFoundError:
-                return True
-            except OSError:
-                return False
-            try:
-                q_stat = os.fstat(q_fd)
-            except OSError:
-                return False
-            locked_stat = os.fstat(file_fd)
-            if (q_stat.st_dev, q_stat.st_ino) != (locked_stat.st_dev, locked_stat.st_ino):
-                return False
-            if not stat.S_ISREG(q_stat.st_mode):
-                return False
-            ready_name = artifact_id.hex
-            try:
-                ready_stat = os.stat(
-                    ready_name, dir_fd=ready_dir_fd, follow_symlinks=False
-                )
-            except FileNotFoundError:
-                ready_stat = None
-            except OSError:
-                ready_stat = None
-            if (
-                ready_stat is not None
-                and (ready_stat.st_dev, ready_stat.st_ino)
-                == (q_stat.st_dev, q_stat.st_ino)
-                and int(ready_stat.st_size) > 0
-            ):
-                return drop_extra_hardlink_if_same_inode(
-                    ready_dir_fd, name, q_stat
-                )
-            return unlink_sidecar_rename_verify(
-                ready_dir_fd,
-                name,
-                q_fd,
-                q_stat,
-                artifact_id=artifact_id,
-                generation=locked_generation,
-            )
-        finally:
-            if q_fd is not None:
-                os.close(q_fd)
-
     def _cleanup_owned_sidecars_under_lock() -> None:
+        # Abort/ineligible: never pathname-unlink or truncate. Leave full-byte
+        # sidecars as diagnose tombstones; clear intent when safe to abandon.
         if keep_quarantine_on_abort:
             return
-        unlink_results: list[bool] = []
-        if owned_detach is not None:
-            unlink_results.append(_unlink_owned_sidecar(owned_detach))
-        if owned_quarantine is not None:
-            unlink_results.append(_unlink_owned_sidecar(owned_quarantine))
-        if unlink_results and all(unlink_results):
-            _clear_intent_best_effort()
+        _clear_intent_best_effort()
 
     try:
         try:
@@ -1447,7 +1449,6 @@ def try_unlink_owned_ready_artifact(
                     return "inode_mismatch"
                 if not stat.S_ISREG(q_stat.st_mode):
                     return "not_regular_file"
-                owned_quarantine = quarantine
 
                 if on_intent is not None:
                     try:
@@ -1516,10 +1517,18 @@ def try_unlink_owned_ready_artifact(
                         keep_quarantine_on_abort = True
                         return "stamp_failed"
 
-                if not _unlink_owned_sidecar(quarantine):
+                reclaim_names = [quarantine]
+                if owned_detach is not None:
+                    reclaim_names.append(owned_detach)
+                if not destroy_owned_bytes_and_reclaim_names(
+                    ready_dir_fd,
+                    file_fd,
+                    fd_stat,
+                    reclaim_names,
+                ):
                     keep_quarantine_on_abort = True
                     return "unlink_failed"
-                owned_quarantine = None
+                owned_detach = None
                 if on_clear_receipt is not None:
                     try:
                         assert (

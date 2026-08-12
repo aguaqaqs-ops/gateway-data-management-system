@@ -33,7 +33,7 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     STAGE_VICTIM,
-    drop_extra_hardlink_if_same_inode,
+    destroy_owned_bytes_and_reclaim_names,
     list_unlink_stage_dir_names,
     lock_unlink_stage_dir,
     normalize_unlink_stage_victim_via_fd,
@@ -44,8 +44,6 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     parse_unlink_stage_dir_name,
     parse_unlink_verify_name,
     try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
-    unlink_sidecar_rename_verify,
-    unlink_verified_inode_via_staging,
     unlock_unlink_stage_dir,
 )
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -686,13 +684,13 @@ class ArtifactCleaner:
             parsed = parse_any_recoverable_sidecar(entry_name)
             if parsed is None:
                 continue
-            inode, parsed_artifact_id, parsed_generation, kind = parsed
+            inode, parsed_artifact_id, parsed_generation, _kind = parsed
             if parsed_artifact_id != artifact_id:
                 continue
             if parsed_generation == generation and inode == expected_ino:
-                # Size-0 .unlink-verify-* tombstones are expected after fd-truncate.
-                # Quarantine/detach names must still be processed before ownership clear.
-                if kind == "unlink_verify" and self._ready_entry_is_size0_owned_tombstone(
+                # Size-0 tombstones (verify/deleting/detach) are content-destroyed;
+                # they must not block receipt clear. Non-empty names still block.
+                if self._ready_entry_is_size0_owned_tombstone(
                     ready_dir_fd,
                     entry_name,
                     expected_ino=expected_ino,
@@ -848,15 +846,11 @@ class ArtifactCleaner:
                 )
                 if not matches_intent:
                     return "retain"
-                unlinked = unlink_verified_inode_via_staging(
+                unlinked = destroy_owned_bytes_and_reclaim_names(
                     ready_dir_fd,
-                    source_name=None,
-                    stage_name=stage_name,
-                    inode_fd=q_fd,
-                    expected=q_stat,
-                    artifact_id=artifact_id,
-                    generation=generation,
-                    stage_dir_fd=stage_dir_fd,
+                    q_fd,
+                    q_stat,
+                    [],
                 )
                 if unlinked:
                     log_event(
@@ -936,15 +930,11 @@ class ArtifactCleaner:
                 )
                 if not matches_receipt or not retention_ok:
                     return "retain"
-                unlinked = unlink_verified_inode_via_staging(
+                unlinked = destroy_owned_bytes_and_reclaim_names(
                     ready_dir_fd,
-                    source_name=None,
-                    stage_name=stage_name,
-                    inode_fd=q_fd,
-                    expected=q_stat,
-                    artifact_id=artifact_id,
-                    generation=generation,
-                    stage_dir_fd=stage_dir_fd,
+                    q_fd,
+                    q_stat,
+                    [],
                 )
                 if unlinked:
                     log_event(
@@ -1166,7 +1156,13 @@ class ArtifactCleaner:
                 return
 
             if ready_absent:
-                restore_name = sidecars[0][0]
+                # Prefer quarantine over detach for restore; leave leftover detach
+                # as diagnose-only.
+                restore_sidecar = next(
+                    (item for item in sidecars if item[2] == "quarantine"),
+                    sidecars[0],
+                )
+                restore_name = restore_sidecar[0]
                 try:
                     os.stat(ready_name, dir_fd=ready_dir_fd, follow_symlinks=False)
                 except FileNotFoundError:
@@ -1174,7 +1170,7 @@ class ArtifactCleaner:
                         ready_dir_fd,
                         restore_name,
                         ready_name=ready_name,
-                        expected_ino=sidecars[0][1],
+                        expected_ino=restore_sidecar[1],
                         repository_id=repository_id,
                         artifact_id=artifact_id,
                     )
@@ -1189,30 +1185,15 @@ class ArtifactCleaner:
                             logger=_LOGGER,
                         )
                         return
-                    outcomes = [
-                        self._unlink_intent_sidecar_with_recheck(
-                            ready_dir_fd,
-                            sidecar_name,
-                            expected_ino=expected_ino,
-                            repository_id=repository_id,
-                            artifact_id=artifact_id,
-                        )
-                        for sidecar_name, expected_ino, _kind in sidecars
-                    ]
-                    if self._may_clear_ownership(
-                        ready_dir_fd,
-                        outcomes,
-                        artifact_id=artifact_id,
+                    # Ready restored with full payload. Leave any remaining
+                    # .detach-* as diagnose-only; never pathname-unlink them.
+                    self._clear_intent_best_effort(
+                        artifact_id,
+                        repository_id,
+                        expected_dev=int(intent_dev),
                         expected_ino=int(intent_ino),
-                        generation=str(intent_generation),
-                    ):
-                        self._clear_intent_best_effort(
-                            artifact_id,
-                            repository_id,
-                            expected_dev=int(intent_dev),
-                            expected_ino=int(intent_ino),
-                            expected_generation=str(intent_generation),
-                        )
+                        expected_generation=str(intent_generation),
+                    )
                     log_event(
                         "artifact_cleanup",
                         repository_id=repository_id,
@@ -1763,11 +1744,10 @@ class ArtifactCleaner:
         artifact_id: UUID,
         generation: str | None,
     ) -> bool:
-        """Destroy or drop a locked sidecar.
+        """Destroy a locked sidecar via fd-truncate + size-0 reclaim.
 
         When the ready name still holds the same inode with non-zero content,
-        only drop the extra hardlink (preserve bytes). Otherwise use the
-        linkat+ftruncate destruction protocol.
+        retain the sidecar as a diagnose tombstone (never pathname-unlink).
         """
 
         if generation is None:
@@ -1784,16 +1764,13 @@ class ArtifactCleaner:
             and (ready_stat.st_dev, ready_stat.st_ino) == (expected.st_dev, expected.st_ino)
             and int(ready_stat.st_size) > 0
         ):
-            return drop_extra_hardlink_if_same_inode(
-                ready_dir_fd, sidecar_name, expected
-            )
-        return unlink_sidecar_rename_verify(
+            # Diagnose-only: ready still exposes full package bytes.
+            return False
+        return destroy_owned_bytes_and_reclaim_names(
             ready_dir_fd,
-            sidecar_name,
             q_fd,
             expected,
-            artifact_id=artifact_id,
-            generation=generation,
+            [sidecar_name],
         )
 
     def _unlink_sidecar_if_same_inode(

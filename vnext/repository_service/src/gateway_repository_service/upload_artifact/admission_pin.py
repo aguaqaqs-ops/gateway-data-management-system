@@ -702,9 +702,9 @@ def _open_stage_dir(ready_dir_fd: int, stage_name: str) -> int:
 def open_owned_unlink_stage_dir(ready_dir_fd: int, stage_name: str) -> int | None:
     """Open a ``.unlink-stage-*`` dir without following symlinks.
 
-    Returns a directory fd whose ``fstat`` proves a real directory owned by the
-    current euid with mode ``0o700``, or ``None`` when unusable. Caller owns
-    the returned fd.
+    Returns a directory fd for a real directory with mode ``0700`` or ``0750``.
+    Owner may be the broker principal; gateway euid is not required. Caller
+    owns the returned fd.
     """
 
     try:
@@ -719,10 +719,7 @@ def open_owned_unlink_stage_dir(ready_dir_fd: int, stage_name: str) -> int | Non
     if not stat.S_ISDIR(stage_stat.st_mode):
         os.close(stage_dir_fd)
         return None
-    if int(stage_stat.st_uid) != int(os.geteuid()):
-        os.close(stage_dir_fd)
-        return None
-    if (int(stage_stat.st_mode) & 0o777) != 0o700:
+    if (int(stage_stat.st_mode) & 0o777) not in {0o700, 0o750}:
         os.close(stage_dir_fd)
         return None
     return stage_dir_fd

@@ -112,7 +112,7 @@ class ArtifactCleaner:
         self._started = False
         self._thread: threading.Thread | None = None
         self._stop_lock = threading.Lock()
-        self._cleanup_cursor: tuple[str, UUID] | None = None
+        self._cleanup_cursor: tuple[str, str] | None = None
 
     def start(self) -> None:
         with self._stop_lock:
@@ -190,17 +190,17 @@ class ArtifactCleaner:
         self._gc_bytes_deleted_receipts()
         try:
             after_created_at: str | None = None
-            after_artifact_id: UUID | None = None
+            after_artifact_id: str | None = None
             if self._cleanup_cursor is not None:
                 after_created_at, after_artifact_id = self._cleanup_cursor
-            candidates = self._mutation_store.list_artifacts_pending_byte_cleanup(
+            page = self._mutation_store.list_artifacts_pending_byte_cleanup(
                 limit=_CLEANUP_CANDIDATE_PAGE_SIZE,
                 after_created_at=after_created_at,
                 after_artifact_id=after_artifact_id,
             )
-            if not candidates and self._cleanup_cursor is not None:
+            if page.scanned == 0 and self._cleanup_cursor is not None:
                 self._cleanup_cursor = None
-                candidates = self._mutation_store.list_artifacts_pending_byte_cleanup(
+                page = self._mutation_store.list_artifacts_pending_byte_cleanup(
                     limit=_CLEANUP_CANDIDATE_PAGE_SIZE,
                 )
         except Exception:
@@ -214,8 +214,8 @@ class ArtifactCleaner:
             )
             return
 
-        # Bounded keyset pagination (ADR 0011): SQL LIMIT, rotating cursor.
-        sql_rows = len(candidates)
+        # Bounded keyset pagination: advance by the last raw SQL row, including poison.
+        candidates = page.records
         for lifecycle in candidates:
             if self._stopping:
                 return
@@ -235,14 +235,13 @@ class ArtifactCleaner:
                     cleanup_outcome="candidate_exception",
                     logger=_LOGGER,
                 )
+        sql_rows = page.scanned
         if sql_rows < _CLEANUP_CANDIDATE_PAGE_SIZE:
             self._cleanup_cursor = None
-        elif candidates:
-            last = candidates[-1]
-            if last.created_at is not None:
-                self._cleanup_cursor = (last.created_at, last.artifact_id)
-            else:
-                self._cleanup_cursor = None
+        elif page.cursor_created_at is not None and page.cursor_artifact_id is not None:
+            self._cleanup_cursor = (page.cursor_created_at, page.cursor_artifact_id)
+        else:
+            self._cleanup_cursor = None
 
         duration_ms = int((time.monotonic() - started) * 1000)
         log_event(
@@ -488,28 +487,9 @@ class ArtifactCleaner:
             for entry_name in names:
                 if parse_unlink_stage_dir_name(entry_name) is None:
                     continue
-                stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, entry_name)
-                if stage_dir_fd is None:
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        stage="quarantine",
-                        result="retained",
-                        cleanup_outcome="unknown_path_inventory",
-                        logger=_LOGGER,
-                    )
-                    continue
-                try:
-                    if not lock_unlink_stage_dir(stage_dir_fd):
-                        continue
-                    try:
-                        # Do not normalize here — unknown/mismatched artifacts must
-                        # remain byte-stable until lifecycle proves ownership.
-                        stage_dirs.append(entry_name)
-                    finally:
-                        unlock_unlink_stage_dir(stage_dir_fd)
-                finally:
-                    os.close(stage_dir_fd)
+                # Inventory by name only. Opening/locking the stage is the broker
+                # principal's job (reclaim_stage); gateway euid is not proof.
+                stage_dirs.append(entry_name)
             if not stage_dirs:
                 return
             by_artifact: dict[UUID, list[str]] = {}
@@ -2107,20 +2087,35 @@ class ArtifactCleaner:
         sidecars: list[tuple[str, int, str]],
         retention_ok: bool,
     ) -> None:
-        """Reclaim size-0 q/d/verify tombs after c4df9d9 receipt-null stamps.
-
-        Never forges a receipt. Non-zero / foreign / ino-mismatched names retain.
-        """
-
-        del repository_id
         if lifecycle.bytes_deleted_at is None or not retention_ok:
             return
         for sidecar_name, expected_ino, _kind in sidecars:
             parsed = parse_any_recoverable_sidecar(sidecar_name)
             if parsed is None:
                 continue
-            name_ino, parsed_artifact_id, _generation, _parsed_kind = parsed
+            name_ino, parsed_artifact_id, name_generation, _parsed_kind = parsed
             if parsed_artifact_id != artifact_id or int(name_ino) != int(expected_ino):
+                continue
+            durable_ino = lifecycle.bytes_delete_ino
+            durable_generation = lifecycle.bytes_delete_generation
+            if durable_ino is None:
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="receipt_null",
+                    result="retained",
+                    cleanup_outcome="missing_durable_ino",
+                    logger=_LOGGER,
+                )
+                continue
+            if int(name_ino) != int(durable_ino):
+                continue
+            if (
+                durable_generation is not None
+                and name_generation is not None
+                and name_generation != durable_generation
+            ):
                 continue
             self._reclaim_receipt_null_size0_entry(
                 ready_dir_fd,
@@ -2149,52 +2144,7 @@ class ArtifactCleaner:
             parsed = parse_unlink_stage_dir_name(stage_name)
             if parsed is None or parsed[0] != artifact_id:
                 continue
-            stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
-            if stage_fd is None:
-                continue
-            reclaimed_any = False
-            try:
-                if not lock_unlink_stage_dir(stage_fd):
-                    continue
-                try:
-                    try:
-                        children = os.listdir(stage_fd)
-                    except OSError:
-                        continue
-                    for child in children:
-                        open_flags = (
-                            os.O_RDONLY
-                            | getattr(os, "O_NOFOLLOW", 0)
-                            | getattr(os, "O_NONBLOCK", 0)
-                        )
-                        try:
-                            child_fd = os.open(child, open_flags, dir_fd=stage_fd)
-                        except FileNotFoundError:
-                            continue
-                        except OSError:
-                            continue
-                        try:
-                            st = os.fstat(child_fd)
-                        except OSError:
-                            continue
-                        finally:
-                            os.close(child_fd)
-                        if not stat_module.S_ISREG(st.st_mode) or int(st.st_size) != 0:
-                            continue
-                        if reclaim_size0_owned_name(
-                            stage_fd,
-                            child,
-                            expected_dev=int(st.st_dev),
-                            expected_ino=int(st.st_ino),
-                            artifact_id=artifact_id,
-                        ):
-                            reclaimed_any = True
-                finally:
-                    unlock_unlink_stage_dir(stage_fd)
-            finally:
-                os.close(stage_fd)
-            if reclaimed_any:
-                get_artifact_broker().rmdir_if_empty(ready_dir_fd, stage_name)
+            get_artifact_broker().reclaim_stage(ready_dir_fd, stage_name)
 
     def _reclaim_receipt_null_size0_entry(
         self,

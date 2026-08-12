@@ -10,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
 from typing import Self
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.publication import renameat2_noreplace
@@ -418,9 +418,9 @@ def try_unlink_owned_ready_artifact(
     artifact_id: UUID,
     *,
     recheck: Callable[[], bool],
-    on_deleted: Callable[[int, int], None] | None = None,
-    on_intent: Callable[[int, int], None] | None = None,
-    on_clear_intent: Callable[[int, int], None] | None = None,
+    on_deleted: Callable[[int, int, str], None] | None = None,
+    on_intent: Callable[[int, int, str], None] | None = None,
+    on_clear_intent: Callable[[int, int, str], None] | None = None,
 ) -> str:
     """Delete an owned ready artifact via fd-stable linkat quarantine.
 
@@ -456,15 +456,16 @@ def try_unlink_owned_ready_artifact(
     intent_written = False
     locked_dev: int | None = None
     locked_ino: int | None = None
+    locked_generation: str | None = None
 
     def _clear_intent_best_effort() -> None:
         nonlocal intent_written
         if not intent_written or on_clear_intent is None:
             return
-        if locked_dev is None or locked_ino is None:
+        if locked_dev is None or locked_ino is None or locked_generation is None:
             return
         try:
-            on_clear_intent(locked_dev, locked_ino)
+            on_clear_intent(locked_dev, locked_ino, locked_generation)
             intent_written = False
         except Exception:
             pass
@@ -484,159 +485,7 @@ def try_unlink_owned_ready_artifact(
         except OSError:
             pass
 
-    try:
-        try:
-            fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return "busy"
-        try:
-            fd_stat = os.fstat(file_fd)
-            if not stat.S_ISREG(fd_stat.st_mode):
-                return "not_regular_file"
-            if fd_stat.st_nlink == 0:
-                return "already_absent"
-
-            name = artifact_id.hex
-            try:
-                name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                return "already_absent"
-            except OSError:
-                return "unlink_failed"
-            if (name_stat.st_dev, name_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-                return "inode_mismatch"
-
-            quarantine = quarantine_name_for(inode=fd_stat.st_ino, artifact_id=artifact_id)
-            try:
-                os.link(
-                    f"/proc/self/fd/{file_fd}",
-                    quarantine,
-                    dst_dir_fd=ready_dir_fd,
-                )
-            except FileExistsError:
-                try:
-                    existing = os.stat(quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
-                except OSError:
-                    return "unlink_failed"
-                if (existing.st_dev, existing.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-                    return "inode_mismatch"
-            except OSError:
-                try:
-                    # Re-verify name still matches before pathname link fallback.
-                    name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
-                    if (name_stat.st_dev, name_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-                        return "inode_mismatch"
-                    os.link(
-                        name,
-                        quarantine,
-                        src_dir_fd=ready_dir_fd,
-                        dst_dir_fd=ready_dir_fd,
-                        follow_symlinks=False,
-                    )
-                except FileExistsError:
-                    try:
-                        existing = os.stat(
-                            quarantine, dir_fd=ready_dir_fd, follow_symlinks=False
-                        )
-                    except OSError:
-                        return "unlink_failed"
-                    if (existing.st_dev, existing.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-                        return "inode_mismatch"
-                except OSError:
-                    return "unlink_failed"
-
-            try:
-                q_stat = os.stat(quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                return "inode_mismatch"
-            except OSError:
-                return "unlink_failed"
-            if (q_stat.st_dev, q_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-                # Never unlink an unproven quarantine directory entry.
-                return "inode_mismatch"
-            if not stat.S_ISREG(q_stat.st_mode):
-                return "not_regular_file"
-            owned_quarantine = quarantine
-            locked_dev = int(fd_stat.st_dev)
-            locked_ino = int(fd_stat.st_ino)
-
-            if on_intent is not None:
-                try:
-                    on_intent(locked_dev, locked_ino)
-                    intent_written = True
-                except Exception:
-                    return "intent_failed"
-
-            if not recheck():
-                _clear_intent_best_effort()
-                return "ineligible"
-
-            # nlink gate: quarantine + ready must both still link our inode.
-            live = os.fstat(file_fd)
-            if live.st_nlink < 2:
-                return _abort_replaced()
-
-            post_name_stat: os.stat_result | None
-            try:
-                post_name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                post_name_stat = None
-            except OSError:
-                return "unlink_failed"
-
-            if post_name_stat is None:
-                # Ready name already absent; require quarantine-only nlink.
-                if os.fstat(file_fd).st_nlink != 1:
-                    keep_quarantine_on_abort = True
-                    return "unlink_failed"
-            elif (post_name_stat.st_dev, post_name_stat.st_ino) != (
-                fd_stat.st_dev,
-                fd_stat.st_ino,
-            ):
-                return _abort_replaced()
-            else:
-                detach_outcome, owned_detach = try_detach_ready_directory_entry(
-                    ready_dir_fd=ready_dir_fd,
-                    file_fd=file_fd,
-                    ready_name=name,
-                    fd_stat=fd_stat,
-                    artifact_id=artifact_id,
-                )
-                if detach_outcome == "replaced":
-                    return _abort_replaced()
-                if detach_outcome != "ok":
-                    keep_quarantine_on_abort = True
-                    return "unlink_failed"
-
-            if not recheck():
-                # Detached but no longer eligible: keep quarantine+intent for recovery.
-                keep_quarantine_on_abort = True
-                return "ineligible"
-
-            if on_deleted is not None:
-                try:
-                    assert locked_dev is not None and locked_ino is not None
-                    on_deleted(locked_dev, locked_ino)
-                    intent_written = False  # stamp clears intent
-                except Exception:
-                    keep_quarantine_on_abort = True
-                    return "stamp_failed"
-
-            try:
-                os.unlink(quarantine, dir_fd=ready_dir_fd)
-            except FileNotFoundError:
-                pass
-            except OSError:
-                keep_quarantine_on_abort = True
-                return "unlink_failed"
-            owned_quarantine = None
-            return "deleted"
-        finally:
-            try:
-                fcntl.flock(file_fd, fcntl.LOCK_UN)
-            except OSError:
-                pass
-    finally:
+    def _cleanup_owned_sidecars_under_lock() -> None:
         if not keep_quarantine_on_abort:
             _unlink_owned_sidecar(owned_detach)
             if owned_quarantine is not None:
@@ -645,6 +494,169 @@ def try_unlink_owned_ready_artifact(
         elif owned_detach is not None:
             # Detach residual of our inode is retained with quarantine+intent.
             pass
+
+    try:
+        try:
+            fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return "busy"
+        try:
+            try:
+                fd_stat = os.fstat(file_fd)
+                if not stat.S_ISREG(fd_stat.st_mode):
+                    return "not_regular_file"
+                if fd_stat.st_nlink == 0:
+                    return "already_absent"
+
+                name = artifact_id.hex
+                try:
+                    name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    return "already_absent"
+                except OSError:
+                    return "unlink_failed"
+                if (name_stat.st_dev, name_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                    return "inode_mismatch"
+
+                quarantine = quarantine_name_for(inode=fd_stat.st_ino, artifact_id=artifact_id)
+                try:
+                    os.link(
+                        f"/proc/self/fd/{file_fd}",
+                        quarantine,
+                        dst_dir_fd=ready_dir_fd,
+                    )
+                except FileExistsError:
+                    try:
+                        existing = os.stat(quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
+                    except OSError:
+                        return "unlink_failed"
+                    if (existing.st_dev, existing.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                        return "inode_mismatch"
+                except OSError:
+                    try:
+                        # Re-verify name still matches before pathname link fallback.
+                        name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
+                        if (name_stat.st_dev, name_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                            return "inode_mismatch"
+                        os.link(
+                            name,
+                            quarantine,
+                            src_dir_fd=ready_dir_fd,
+                            dst_dir_fd=ready_dir_fd,
+                            follow_symlinks=False,
+                        )
+                    except FileExistsError:
+                        try:
+                            existing = os.stat(
+                                quarantine, dir_fd=ready_dir_fd, follow_symlinks=False
+                            )
+                        except OSError:
+                            return "unlink_failed"
+                        if (existing.st_dev, existing.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                            return "inode_mismatch"
+                    except OSError:
+                        return "unlink_failed"
+
+                try:
+                    q_stat = os.stat(quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    return "inode_mismatch"
+                except OSError:
+                    return "unlink_failed"
+                if (q_stat.st_dev, q_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                    # Never unlink an unproven quarantine directory entry.
+                    return "inode_mismatch"
+                if not stat.S_ISREG(q_stat.st_mode):
+                    return "not_regular_file"
+                owned_quarantine = quarantine
+                locked_dev = int(fd_stat.st_dev)
+                locked_ino = int(fd_stat.st_ino)
+
+                generation = uuid4().hex
+                locked_generation = generation
+                if on_intent is not None:
+                    try:
+                        on_intent(locked_dev, locked_ino, generation)
+                        intent_written = True
+                    except Exception:
+                        return "intent_failed"
+
+                if not recheck():
+                    _clear_intent_best_effort()
+                    return "ineligible"
+
+                # nlink gate: quarantine + ready must both still link our inode.
+                live = os.fstat(file_fd)
+                if live.st_nlink < 2:
+                    return _abort_replaced()
+
+                post_name_stat: os.stat_result | None
+                try:
+                    post_name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    post_name_stat = None
+                except OSError:
+                    return "unlink_failed"
+
+                if post_name_stat is None:
+                    # Ready name already absent; require quarantine-only nlink.
+                    if os.fstat(file_fd).st_nlink != 1:
+                        keep_quarantine_on_abort = True
+                        return "unlink_failed"
+                elif (post_name_stat.st_dev, post_name_stat.st_ino) != (
+                    fd_stat.st_dev,
+                    fd_stat.st_ino,
+                ):
+                    return _abort_replaced()
+                else:
+                    detach_outcome, owned_detach = try_detach_ready_directory_entry(
+                        ready_dir_fd=ready_dir_fd,
+                        file_fd=file_fd,
+                        ready_name=name,
+                        fd_stat=fd_stat,
+                        artifact_id=artifact_id,
+                    )
+                    if detach_outcome == "replaced":
+                        return _abort_replaced()
+                    if detach_outcome != "ok":
+                        keep_quarantine_on_abort = True
+                        return "unlink_failed"
+
+                if not recheck():
+                    # Detached but no longer eligible: keep quarantine+intent for recovery.
+                    keep_quarantine_on_abort = True
+                    return "ineligible"
+
+                if on_deleted is not None:
+                    try:
+                        assert (
+                            locked_dev is not None
+                            and locked_ino is not None
+                            and locked_generation is not None
+                        )
+                        on_deleted(locked_dev, locked_ino, locked_generation)
+                        intent_written = False  # stamp clears intent
+                    except Exception:
+                        keep_quarantine_on_abort = True
+                        return "stamp_failed"
+
+                try:
+                    os.unlink(quarantine, dir_fd=ready_dir_fd)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    keep_quarantine_on_abort = True
+                    return "unlink_failed"
+                owned_quarantine = None
+                return "deleted"
+            finally:
+                _cleanup_owned_sidecars_under_lock()
+        finally:
+            try:
+                fcntl.flock(file_fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+    finally:
         os.close(file_fd)
         os.close(ready_dir_fd)
 
@@ -656,9 +668,9 @@ def try_unlink_ready_artifact_with_recheck(
     layout: DurableLayout | None = None,
     repository_id: UUID | None = None,
     artifact_id: UUID | None = None,
-    on_deleted: Callable[[int, int], None] | None = None,
-    on_intent: Callable[[int, int], None] | None = None,
-    on_clear_intent: Callable[[int, int], None] | None = None,
+    on_deleted: Callable[[int, int, str], None] | None = None,
+    on_intent: Callable[[int, int, str], None] | None = None,
+    on_clear_intent: Callable[[int, int, str], None] | None = None,
 ) -> str:
     """Delete ready bytes; prefer owned layout protocol when ids are provided."""
 
@@ -736,7 +748,7 @@ def try_unlink_ready_artifact_with_recheck(
                 return "path_recreated"
             if on_deleted is not None:
                 try:
-                    on_deleted(int(fd_stat.st_dev), int(fd_stat.st_ino))
+                    on_deleted(int(fd_stat.st_dev), int(fd_stat.st_ino), uuid4().hex)
                 except Exception:
                     return "stamp_failed"
             return "deleted"

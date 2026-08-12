@@ -149,7 +149,7 @@ def test_upload_artifact_bytes_reconciled_requires_deletion_stamp(
         ttl_seconds=24 * 60 * 60,
     )
 
-    import_store.begin_artifact_bytes_delete_intent(
+    generation = import_store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
         dev=1,
@@ -162,6 +162,7 @@ def test_upload_artifact_bytes_reconciled_requires_deletion_stamp(
         repository_id=REPOSITORY_ID,
         expected_dev=1,
         expected_ino=1,
+        expected_generation=generation,
     )
     assert upload_artifact_bytes_reconciled_after_import(
         import_store,

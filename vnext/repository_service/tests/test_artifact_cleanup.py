@@ -34,7 +34,11 @@ from gateway_repository_service.artifact_retention import (
     decide_artifact_bytes_deletion,
     retention_explains_missing_ready_bytes,
 )
-from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
+from gateway_repository_service.control_db import (
+    CONTROL_DB_USER_VERSION,
+    ControlDbError,
+    ControlStore,
+)
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_fingerprints import create_repository_fingerprint_v1
 from gateway_repository_service.mutation_reconciliation import (
@@ -1496,17 +1500,18 @@ def test_pathname_replace_during_recheck_preserves_replacement(
         ready.write_bytes(replacement)
         return True
 
-    def on_deleted(dev: int, ino: int) -> None:
+    def on_deleted(dev: int, ino: int, generation: str) -> None:
         store.mark_artifact_bytes_deleted(
             ARTIFACT_ID,
             deleted_at="2026-08-02T00:00:00+00:00",
             repository_id=REPOSITORY_ID,
             expected_dev=dev,
             expected_ino=ino,
+            expected_generation=generation,
         )
         stamped["ok"] = True
 
-    def on_intent(dev: int, ino: int) -> None:
+    def on_intent(dev: int, ino: int, generation: str) -> None:
         store.begin_artifact_bytes_delete_intent(
             ARTIFACT_ID,
             repository_id=REPOSITORY_ID,
@@ -1514,14 +1519,16 @@ def test_pathname_replace_during_recheck_preserves_replacement(
             ino=ino,
             phase="quarantined",
             intent_at="2026-08-02T00:00:00+00:00",
+            generation=generation,
         )
 
-    def on_clear_intent(dev: int, ino: int) -> None:
+    def on_clear_intent(dev: int, ino: int, generation: str) -> None:
         store.clear_artifact_bytes_delete_intent(
             ARTIFACT_ID,
             repository_id=REPOSITORY_ID,
             expected_dev=dev,
             expected_ino=ino,
+            expected_generation=generation,
         )
 
     outcome = try_unlink_owned_ready_artifact(
@@ -1689,6 +1696,7 @@ def test_stamp_failed_keeps_quarantine_and_recovers_on_next_sweep(
         repository_id: UUID | None = None,
         expected_dev: int,
         expected_ino: int,
+        expected_generation: str,
     ) -> None:
         calls["n"] += 1
         if calls["n"] == 1:
@@ -1699,6 +1707,7 @@ def test_stamp_failed_keeps_quarantine_and_recovers_on_next_sweep(
             repository_id=repository_id,
             expected_dev=expected_dev,
             expected_ino=expected_ino,
+            expected_generation=expected_generation,
         )
 
     store.mark_artifact_bytes_deleted = flaky_stamp  # type: ignore[method-assign]
@@ -1736,7 +1745,7 @@ def test_stamped_quarantine_residual_is_unlinked_on_sweep(
     quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
     os.link(ready, quarantine)
     ready.unlink()
-    store.begin_artifact_bytes_delete_intent(
+    generation = store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
         dev=int(st.st_dev),
@@ -1750,6 +1759,7 @@ def test_stamped_quarantine_residual_is_unlinked_on_sweep(
         repository_id=REPOSITORY_ID,
         expected_dev=int(st.st_dev),
         expected_ino=int(st.st_ino),
+        expected_generation=generation,
     )
     assert quarantine.is_file()
 
@@ -1876,24 +1886,25 @@ def test_unknown_uuid_repository_directory_is_diagnosed(
 def _intent_callbacks(
     store: ImportOperationStore,
 ) -> tuple[
-    Callable[[int, int], None],
-    Callable[[int, int], None],
-    Callable[[int, int], None],
+    Callable[[int, int, str], None],
+    Callable[[int, int, str], None],
+    Callable[[int, int, str], None],
     dict[str, bool],
 ]:
     stamped = {"ok": False}
 
-    def on_deleted(dev: int, ino: int) -> None:
+    def on_deleted(dev: int, ino: int, generation: str) -> None:
         store.mark_artifact_bytes_deleted(
             ARTIFACT_ID,
             deleted_at="2026-08-02T00:00:00+00:00",
             repository_id=REPOSITORY_ID,
             expected_dev=dev,
             expected_ino=ino,
+            expected_generation=generation,
         )
         stamped["ok"] = True
 
-    def on_intent(dev: int, ino: int) -> None:
+    def on_intent(dev: int, ino: int, generation: str) -> None:
         store.begin_artifact_bytes_delete_intent(
             ARTIFACT_ID,
             repository_id=REPOSITORY_ID,
@@ -1901,14 +1912,16 @@ def _intent_callbacks(
             ino=ino,
             phase="quarantined",
             intent_at="2026-08-02T00:00:00+00:00",
+            generation=generation,
         )
 
-    def on_clear_intent(dev: int, ino: int) -> None:
+    def on_clear_intent(dev: int, ino: int, generation: str) -> None:
         store.clear_artifact_bytes_delete_intent(
             ARTIFACT_ID,
             repository_id=REPOSITORY_ID,
             expected_dev=dev,
             expected_ino=ino,
+            expected_generation=generation,
         )
 
     return on_deleted, on_intent, on_clear_intent, stamped
@@ -2269,7 +2282,7 @@ def test_scope_change_before_stamp_keeps_quarantine(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
 
-    def on_intent(dev: int, ino: int) -> None:
+    def on_intent(dev: int, ino: int, generation: str) -> None:
         store.begin_artifact_bytes_delete_intent(
             ARTIFACT_ID,
             repository_id=REPOSITORY_ID,
@@ -2277,17 +2290,19 @@ def test_scope_change_before_stamp_keeps_quarantine(
             ino=ino,
             phase="quarantined",
             intent_at="2026-08-02T00:00:00+00:00",
+            generation=generation,
         )
 
-    def on_clear_intent(dev: int, ino: int) -> None:
+    def on_clear_intent(dev: int, ino: int, generation: str) -> None:
         store.clear_artifact_bytes_delete_intent(
             ARTIFACT_ID,
             repository_id=REPOSITORY_ID,
             expected_dev=dev,
             expected_ino=ino,
+            expected_generation=generation,
         )
 
-    def on_deleted(dev: int, ino: int) -> None:
+    def on_deleted(dev: int, ino: int, generation: str) -> None:
         with mutation_store._lock:
             mutation_store._connection.execute(
                 """
@@ -2304,6 +2319,7 @@ def test_scope_change_before_stamp_keeps_quarantine(
             repository_id=REPOSITORY_ID,
             expected_dev=dev,
             expected_ino=ino,
+            expected_generation=generation,
         )
 
     outcome = try_unlink_owned_ready_artifact(
@@ -2372,19 +2388,21 @@ def _begin_intent_for_ready(
     ready: Path,
     *,
     phase: str = "quarantined",
-) -> tuple[Path, int]:
+    generation: str | None = None,
+) -> tuple[Path, int, str]:
     st = ready.stat()
     quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
     os.link(ready, quarantine)
-    store.begin_artifact_bytes_delete_intent(
+    token = store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
         dev=int(st.st_dev),
         ino=int(st.st_ino),
         phase=phase,
         intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
     )
-    return quarantine, int(st.st_ino)
+    return quarantine, int(st.st_ino), token
 
 
 def test_crash_phase_quarantine_and_ready_same_inode_no_stamp(
@@ -2396,7 +2414,7 @@ def test_crash_phase_quarantine_and_ready_same_inode_no_stamp(
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    quarantine, _ino, _generation = _begin_intent_for_ready(store, ready)
     assert quarantine.is_file()
     assert ready.is_file()
 
@@ -2425,7 +2443,7 @@ def test_crash_phase_quarantine_ready_different_inode_with_intent(
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    quarantine, _ino, _generation = _begin_intent_for_ready(store, ready)
     ready.unlink()
     ready.write_bytes(b"replacement-after-intent")
     assert quarantine.stat().st_ino != ready.stat().st_ino
@@ -2561,7 +2579,7 @@ def test_legal_and_forged_quarantines_are_handled_independently(
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    legal, _ino = _begin_intent_for_ready(store, ready)
+    legal, _ino, _generation = _begin_intent_for_ready(store, ready)
     ready.unlink()
     decoy = legal.parent / f".decoy-{uuid4().hex}"
     decoy.write_bytes(b"forged-multi")
@@ -2613,17 +2631,22 @@ def test_illegal_stamp_quarantine_residual_fail_closed(
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
+    q_stat = quarantine.stat()
     ready.unlink()
+    store.mark_artifact_bytes_deleted(
+        ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
+        repository_id=REPOSITORY_ID,
+        expected_dev=int(q_stat.st_dev),
+        expected_ino=ino,
+        expected_generation=generation,
+    )
     with mutation_store._lock:
         mutation_store._connection.execute(
             """
             UPDATE artifact_lifecycle
-            SET bytes_deleted_at = ?,
-                bytes_delete_intent_at = NULL,
-                bytes_delete_dev = NULL,
-                bytes_delete_ino = NULL,
-                bytes_delete_phase = NULL
+            SET bytes_deleted_at = ?
             WHERE artifact_id = ?
             """,
             (stamp, str(ARTIFACT_ID)),
@@ -2659,7 +2682,7 @@ def test_protected_reference_with_stamp_keeps_quarantine(
     _seed_create_succeeded(mutation_store)
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    quarantine, ino = _begin_intent_for_ready(store, ready)
+    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
     q_stat = quarantine.stat()
     ready.unlink()
     store.mark_artifact_bytes_deleted(
@@ -2668,6 +2691,7 @@ def test_protected_reference_with_stamp_keeps_quarantine(
         repository_id=REPOSITORY_ID,
         expected_dev=int(q_stat.st_dev),
         expected_ino=ino,
+        expected_generation=generation,
     )
     _enqueue(store, key="protected-residual", operation_id=OTHER_OPERATION_ID)
     caplog.set_level(logging.INFO)
@@ -2700,7 +2724,7 @@ def test_ineligible_quarantine_restored_when_ready_absent(
     _seed_create_succeeded(mutation_store)
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    quarantine, _ino, _generation = _begin_intent_for_ready(store, ready)
     payload = ready.read_bytes()
     ready.unlink()
     _enqueue(store, key="block-restore", operation_id=OTHER_OPERATION_ID)
@@ -2741,7 +2765,7 @@ def test_ineligible_restore_skips_when_ready_reappears(
     _seed_create_succeeded(mutation_store)
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    quarantine, _ino, _generation = _begin_intent_for_ready(store, ready)
     ready.unlink()
     _enqueue(store, key="block-skip", operation_id=OTHER_OPERATION_ID)
     replacement = b"concurrent-ready"
@@ -2937,7 +2961,7 @@ def test_stamp_rejects_protected_reference_after_final_recheck(
     ready = _write_ready(layout)
     _on_deleted, on_intent_cb, on_clear_cb, stamped = _intent_callbacks(store)
 
-    def on_deleted(dev: int, ino: int) -> None:
+    def on_deleted(dev: int, ino: int, generation: str) -> None:
         _enqueue(store, key="stamp-race-pending", operation_id=OTHER_OPERATION_ID)
         store.mark_artifact_bytes_deleted(
             ARTIFACT_ID,
@@ -2945,6 +2969,7 @@ def test_stamp_rejects_protected_reference_after_final_recheck(
             repository_id=REPOSITORY_ID,
             expected_dev=dev,
             expected_ino=ino,
+            expected_generation=generation,
         )
         stamped["ok"] = True
 
@@ -3016,7 +3041,7 @@ def test_q_and_detach_ineligible_converge_both_sidecars(
     os.link(ready, quarantine)
     os.link(ready, detach)
     ready.unlink()
-    store.begin_artifact_bytes_delete_intent(
+    _generation = store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
         dev=int(st.st_dev),
@@ -3058,6 +3083,570 @@ MALFORMED_INTENT_CASES = (
             "bytes_delete_intent_at": "2026-08-02T00:00:00+00:00",
             "bytes_delete_dev": 1,
             "bytes_delete_ino": 2,
+            "bytes_delete_phase": "quarantined",
+            "bytes_delete_generation": None,
+        },
+        "integrity",
+    ),
+    (
+        "naive_timestamp",
+        {
+            "bytes_delete_intent_at": "2026-08-02T00:00:00",
+            "bytes_delete_dev": 1,
+            "bytes_delete_ino": 2,
+            "bytes_delete_phase": "quarantined",
+            "bytes_delete_generation": "gen-naive",
+        },
+        "projection",
+    ),
+    (
+        "bad_phase",
+        {
+            "bytes_delete_intent_at": "2026-08-02T00:00:00+00:00",
+            "bytes_delete_dev": 1,
+            "bytes_delete_ino": 2,
+            "bytes_delete_phase": "bogus",
+            "bytes_delete_generation": "gen-bad",
+        },
+        "integrity",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "fields", "expected_failure"),
+    MALFORMED_INTENT_CASES,
+    ids=[c[0] for c in MALFORMED_INTENT_CASES],
+)
+def test_malformed_delete_intent_projection_fail_closed(
+    stores: tuple[ImportOperationStore, MutationStore],
+    label: str,
+    fields: dict[str, object],
+    expected_failure: str,
+) -> None:
+    """Directed probe: malformed/partial intent fails closed on projection."""
+
+    del label
+    from gateway_repository_service.mutation_store import MutationStoreInvariantError
+
+    _store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    with mutation_store._lock:
+        if expected_failure == "integrity":
+            with pytest.raises(sqlite3.IntegrityError):
+                mutation_store._connection.execute(
+                    """
+                    UPDATE artifact_lifecycle
+                    SET bytes_delete_intent_at = ?,
+                        bytes_delete_dev = ?,
+                        bytes_delete_ino = ?,
+                        bytes_delete_phase = ?,
+                        bytes_delete_generation = ?
+                    WHERE artifact_id = ?
+                    """,
+                    (
+                        fields["bytes_delete_intent_at"],
+                        fields["bytes_delete_dev"],
+                        fields["bytes_delete_ino"],
+                        fields["bytes_delete_phase"],
+                        fields["bytes_delete_generation"],
+                        str(ARTIFACT_ID),
+                    ),
+                )
+                mutation_store._connection.commit()
+            mutation_store._connection.rollback()
+            return
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_delete_intent_at = ?,
+                bytes_delete_dev = ?,
+                bytes_delete_ino = ?,
+                bytes_delete_phase = ?,
+                bytes_delete_generation = ?
+            WHERE artifact_id = ?
+            """,
+            (
+                fields["bytes_delete_intent_at"],
+                fields["bytes_delete_dev"],
+                fields["bytes_delete_ino"],
+                fields["bytes_delete_phase"],
+                fields["bytes_delete_generation"],
+                str(ARTIFACT_ID),
+            ),
+        )
+        mutation_store._connection.commit()
+    with pytest.raises(MutationStoreInvariantError):
+        mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+
+
+def test_clear_intent_cas_does_not_clear_newer_inode(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Directed probe: clear for old inode must not erase a newer intent."""
+
+    store, mutation_store = stores
+    del layout
+    _seed_artifact(mutation_store)
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=10,
+        ino=100,
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation="gen1",
+    )
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=20,
+        ino=200,
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:01+00:00",
+        generation="gen2",
+    )
+    store.clear_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        expected_dev=10,
+        expected_ino=100,
+        expected_generation="gen1",
+    )
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_dev == 20
+    assert lifecycle.bytes_delete_ino == 200
+    assert lifecycle.bytes_delete_generation == "gen2"
+
+
+def _seed_artifact_on_connection(
+    connection: sqlite3.Connection,
+    *,
+    artifact_id: UUID = ARTIFACT_ID,
+    created_at: str = CREATED_AT,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO artifact_lifecycle (
+            artifact_id,
+            repository_scope,
+            media_type,
+            size_bytes,
+            raw_sha256,
+            created_at,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(artifact_id),
+            REPOSITORY_ID.hex,
+            MEDIA_TYPE,
+            len(ARTIFACT_PAYLOAD),
+            SHA256,
+            created_at,
+            created_at,
+        ),
+    )
+    connection.commit()
+
+
+def test_old_clear_generation_does_not_clear_newer_intent(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Round6 probe 1: stale generation clear must not erase newer intent."""
+
+    store, mutation_store = stores
+    del layout
+    _seed_artifact(mutation_store)
+    st_dev, st_ino = 1, 42
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=st_dev,
+        ino=st_ino,
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation="gen1",
+    )
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=st_dev,
+        ino=st_ino,
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:01+00:00",
+        generation="gen2",
+    )
+    store.clear_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        expected_dev=st_dev,
+        expected_ino=st_ino,
+        expected_generation="gen1",
+    )
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_generation == "gen2"
+    assert lifecycle.bytes_delete_dev == st_dev
+    assert lifecycle.bytes_delete_ino == st_ino
+
+
+@pytest.mark.serial
+def test_clear_failure_unlock_interleave_aba(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Round6 probe 2: clearing an old generation must not drop a newer quarantine."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
+    os.link(ready, quarantine)
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation="gen1",
+    )
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:01+00:00",
+        generation="gen2",
+    )
+    store.clear_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        expected_dev=int(st.st_dev),
+        expected_ino=int(st.st_ino),
+        expected_generation="gen1",
+    )
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_generation == "gen2"
+    assert quarantine.is_file()
+    assert ready.is_file()
+
+
+def test_recovery_ineligible_then_worker_same_inode_generation_cas(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Round6 probe 3: recovery clear with stale generation must not wipe newer intent."""
+
+    store, mutation_store = stores
+    del layout
+    _seed_artifact(mutation_store)
+    dev, ino = 5, 55
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=dev,
+        ino=ino,
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation="gen_old",
+    )
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=dev,
+        ino=ino,
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:01+00:00",
+        generation="gen_new",
+    )
+    store.clear_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        expected_dev=dev,
+        expected_ino=ino,
+        expected_generation="gen_old",
+    )
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_generation == "gen_new"
+    assert lifecycle.bytes_delete_intent_at is not None
+
+
+@pytest.mark.parametrize("ready_present", [True, False], ids=["ready_present", "ready_absent"])
+@pytest.mark.parametrize("sidecar_kind", ["deleting", "detach"], ids=["deleting", "detach"])
+def test_stamped_forged_deleting_and_detach_retained(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+    ready_present: bool,
+    sidecar_kind: str,
+) -> None:
+    """Round6 probe 4: forged stamped sidecars with wrong inode are retained."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, ino, generation = _begin_intent_for_ready(
+        store,
+        ready,
+        phase="detached" if sidecar_kind == "detach" else "quarantined",
+    )
+    if not ready_present:
+        ready.unlink()
+    q_stat = quarantine.stat()
+    store.mark_artifact_bytes_deleted(
+        ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
+        repository_id=REPOSITORY_ID,
+        expected_dev=int(q_stat.st_dev),
+        expected_ino=ino,
+        expected_generation=generation,
+    )
+    decoy = quarantine.parent / f".decoy-{uuid4().hex}"
+    decoy.write_bytes(b"forged-stamped")
+    name_fn = detach_name_for if sidecar_kind == "detach" else quarantine_name_for
+    forged = quarantine.parent / name_fn(inode=decoy.stat().st_ino, artifact_id=ARTIFACT_ID)
+    os.link(decoy, forged)
+    decoy.unlink()
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert forged.is_file()
+    assert not quarantine.exists()
+    diagnostics = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "unknown_path_inventory"
+    ]
+    assert diagnostics
+
+
+@pytest.mark.serial
+def test_pathname_replace_before_unlink_retains_replacement(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round6 probe 5: inode swap before stamped residual unlink retains replacement."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
+    payload = quarantine.read_bytes()
+    q_stat = quarantine.stat()
+    ready.unlink()
+    store.mark_artifact_bytes_deleted(
+        ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
+        repository_id=REPOSITORY_ID,
+        expected_dev=int(q_stat.st_dev),
+        expected_ino=ino,
+        expected_generation=generation,
+    )
+    replacement = b"replacement-before-unlink"
+    real_unlink = os.unlink
+
+    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
+        dir_fd = _dir_fd_from_kwargs(kwargs, "dir_fd")
+        if (
+            dir_fd is not None
+            and isinstance(path, str)
+            and path.startswith(".deleting-")
+        ):
+            real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+            fd = os.open(
+                path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o644,
+                dir_fd=dir_fd,
+            )
+            try:
+                os.write(fd, replacement)
+            finally:
+                os.close(fd)
+            return
+        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "unlink", unlink)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    swapped = list(quarantine.parent.glob(".deleting-*"))
+    assert len(swapped) == 1
+    assert swapped[0].read_bytes() == replacement
+    assert swapped[0].read_bytes() != payload
+
+
+@pytest.mark.parametrize(
+    ("branch", "setup"),
+    (
+        ("replacement", "replacement"),
+        ("restore", "restore"),
+        ("hardlink_drop", "hardlink_drop"),
+    ),
+    ids=["replacement", "restore", "hardlink_drop"],
+)
+def test_recovery_unlink_eperm_retains_intent(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    branch: str,
+    setup: str,
+) -> None:
+    """Round6 probe 6: EPERM during recovery unlink retains delete intent."""
+
+    del branch
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    payload = ready.read_bytes()
+    st = ready.stat()
+    quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
+    os.link(ready, quarantine)
+    if setup == "replacement":
+        ready.unlink()
+        ready.write_bytes(b"replacement-inode")
+        store.begin_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            dev=int(st.st_dev),
+            ino=int(st.st_ino),
+            phase="quarantined",
+            intent_at="2026-08-02T00:00:00+00:00",
+            generation="gen-replace",
+        )
+        _enqueue(store, key="eperm-replace", operation_id=OTHER_OPERATION_ID)
+    elif setup == "restore":
+        ready.unlink()
+        store.begin_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            dev=int(st.st_dev),
+            ino=int(st.st_ino),
+            phase="quarantined",
+            intent_at="2026-08-02T00:00:00+00:00",
+            generation="gen-restore",
+        )
+        _enqueue(store, key=f"eperm-{setup}", operation_id=OTHER_OPERATION_ID)
+    else:
+        store.begin_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            dev=int(st.st_dev),
+            ino=int(st.st_ino),
+            phase="quarantined",
+            intent_at="2026-08-02T00:00:00+00:00",
+            generation="gen-drop",
+        )
+        _enqueue(store, key=f"eperm-{setup}", operation_id=OTHER_OPERATION_ID)
+    real_unlink = os.unlink
+
+    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
+        if isinstance(path, str) and path.startswith(".deleting-"):
+            raise OSError(errno.EPERM, "forced unlink failure")
+        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "unlink", unlink)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC),
+    ).sweep_once()
+
+    assert quarantine.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_intent_at is not None
+    if setup == "restore":
+        assert not ready.is_file() or ready.read_bytes() == payload
+
+
+def test_q_and_detach_single_unlink_failure_retains_intent(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round6 probe 7: one sidecar unlink EPERM retains intent and failed sidecar."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
+    detach = ready.parent / detach_name_for(inode=int(st.st_ino), artifact_id=ARTIFACT_ID)
+    os.link(ready, quarantine)
+    os.link(ready, detach)
+    ready.unlink()
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation="gen-both",
+    )
+    _enqueue(store, key="q-detach-eperm", operation_id=OTHER_OPERATION_ID)
+    real_unlink = os.unlink
+    fail_detach = {"done": False}
+
+    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
+        if isinstance(path, str) and path.startswith(".detach-") and not fail_detach["done"]:
+            fail_detach["done"] = True
+            raise OSError(errno.EPERM, "forced detach unlink failure")
+        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "unlink", unlink)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_intent_at is not None
+    assert detach.is_file()
+    assert not quarantine.exists() or quarantine.is_file()
+
+
+MIGRATION_MALFORMED_INTENT_CASES = (
+    (
+        "partial_intent_at_only",
+        {
+            "bytes_delete_intent_at": "2026-08-02T00:00:00+00:00",
+            "bytes_delete_dev": None,
+            "bytes_delete_ino": None,
             "bytes_delete_phase": None,
         },
     ),
@@ -3084,81 +3673,167 @@ MALFORMED_INTENT_CASES = (
 
 @pytest.mark.parametrize(
     ("label", "fields"),
-    MALFORMED_INTENT_CASES,
-    ids=[c[0] for c in MALFORMED_INTENT_CASES],
+    MIGRATION_MALFORMED_INTENT_CASES,
+    ids=[c[0] for c in MIGRATION_MALFORMED_INTENT_CASES],
 )
-def test_malformed_delete_intent_projection_fail_closed(
-    stores: tuple[ImportOperationStore, MutationStore],
+def test_v9_to_v10_migration_malformed_blocks(
+    tmp_path: Path,
     label: str,
     fields: dict[str, object],
 ) -> None:
-    """Directed probe: malformed/partial intent fails closed on projection."""
+    """Round6 probe 8: malformed v9 intent rows block migration to current version."""
 
     del label
-    from gateway_repository_service.mutation_store import MutationStoreInvariantError
+    db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+    ControlStore.open(db_path, expected_version=9, busy_timeout_ms=1000).close()
+    connection = sqlite3.connect(db_path)
+    _seed_artifact_on_connection(connection)
+    connection.execute(
+        """
+        UPDATE artifact_lifecycle
+        SET bytes_delete_intent_at = ?,
+            bytes_delete_dev = ?,
+            bytes_delete_ino = ?,
+            bytes_delete_phase = ?
+        WHERE artifact_id = ?
+        """,
+        (
+            fields["bytes_delete_intent_at"],
+            fields["bytes_delete_dev"],
+            fields["bytes_delete_ino"],
+            fields["bytes_delete_phase"],
+            str(ARTIFACT_ID),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(ControlDbError, match="malformed artifact delete intent"):
+        ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+
+
+def test_v9_to_v11_migration_preserves_legal_intent_with_generation(
+    tmp_path: Path,
+) -> None:
+    """Round6 probe 8b: legal v9 intent migrates with generation backfilled."""
+
+    db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+    ControlStore.open(db_path, expected_version=9, busy_timeout_ms=1000).close()
+    connection = sqlite3.connect(db_path)
+    _seed_artifact_on_connection(connection)
+    connection.execute(
+        """
+        UPDATE artifact_lifecycle
+        SET bytes_delete_intent_at = ?,
+            bytes_delete_dev = ?,
+            bytes_delete_ino = ?,
+            bytes_delete_phase = ?
+        WHERE artifact_id = ?
+        """,
+        (
+            "2026-08-02T00:00:00+00:00",
+            7,
+            70,
+            "quarantined",
+            str(ARTIFACT_ID),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000).close()
+    configure_connection(connection := sqlite3.connect(db_path))
+    mutation_store = MutationStore(connection)
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_dev == 7
+    assert lifecycle.bytes_delete_ino == 70
+    assert lifecycle.bytes_delete_phase == "quarantined"
+    assert lifecycle.bytes_delete_generation is not None
+    connection.close()
+
+
+def test_partial_intent_without_generation_raises_integrity_error(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    """Round6 probe 9: v11 CHECK rejects partial intent without generation."""
 
     _store, mutation_store = stores
     _seed_artifact(mutation_store)
-    with mutation_store._lock:
-        try:
-            mutation_store._connection.execute(
-                """
-                UPDATE artifact_lifecycle
-                SET bytes_delete_intent_at = ?,
-                    bytes_delete_dev = ?,
-                    bytes_delete_ino = ?,
-                    bytes_delete_phase = ?
-                WHERE artifact_id = ?
-                """,
-                (
-                    fields["bytes_delete_intent_at"],
-                    fields["bytes_delete_dev"],
-                    fields["bytes_delete_ino"],
-                    fields["bytes_delete_phase"],
-                    str(ARTIFACT_ID),
-                ),
-            )
-            mutation_store._connection.commit()
-        except Exception:
-            # v10 CHECK may reject the row shape before projection runs.
-            mutation_store._connection.rollback()
-            return
-    with pytest.raises(MutationStoreInvariantError):
-        mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    with mutation_store._lock, pytest.raises(sqlite3.IntegrityError):
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_delete_intent_at = ?,
+                bytes_delete_dev = ?,
+                bytes_delete_ino = ?,
+                bytes_delete_phase = ?
+            WHERE artifact_id = ?
+            """,
+            (
+                "2026-08-02T00:00:00+00:00",
+                1,
+                2,
+                "quarantined",
+                str(ARTIFACT_ID),
+            ),
+        )
+        mutation_store._connection.commit()
 
 
-def test_clear_intent_cas_does_not_clear_newer_inode(
+def test_stamped_residual_only_receipt_match_unlinks(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Directed probe: clear for old inode must not erase a newer intent."""
+    """Round6 probe 10: only receipt-matching quarantine unlinks; forged sibling stays."""
 
     store, mutation_store = stores
-    del layout
     _seed_artifact(mutation_store)
-    store.begin_artifact_bytes_delete_intent(
+    ready = _write_ready(layout)
+    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
+    q_stat = quarantine.stat()
+    ready.unlink()
+    store.mark_artifact_bytes_deleted(
         ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
         repository_id=REPOSITORY_ID,
-        dev=10,
-        ino=100,
-        phase="quarantined",
-        intent_at="2026-08-02T00:00:00+00:00",
+        expected_dev=int(q_stat.st_dev),
+        expected_ino=ino,
+        expected_generation=generation,
     )
-    store.begin_artifact_bytes_delete_intent(
-        ARTIFACT_ID,
-        repository_id=REPOSITORY_ID,
-        dev=20,
-        ino=200,
-        phase="quarantined",
-        intent_at="2026-08-02T00:00:01+00:00",
+    decoy = quarantine.parent / f".decoy-{uuid4().hex}"
+    decoy.write_bytes(b"forged-residual")
+    forged = quarantine.parent / quarantine_name_for(
+        inode=decoy.stat().st_ino,
+        artifact_id=ARTIFACT_ID,
     )
-    store.clear_artifact_bytes_delete_intent(
-        ARTIFACT_ID,
-        repository_id=REPOSITORY_ID,
-        expected_dev=10,
-        expected_ino=100,
-    )
+    os.link(decoy, forged)
+    decoy.unlink()
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert not quarantine.exists()
+    assert forged.is_file()
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
-    assert lifecycle.bytes_delete_dev == 20
-    assert lifecycle.bytes_delete_ino == 200
+    assert lifecycle.bytes_deleted_at is not None
+    unlinked = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "quarantine_residual_unlinked"
+    ]
+    assert unlinked
+    retained = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "unknown_path_inventory"
+    ]
+    assert retained

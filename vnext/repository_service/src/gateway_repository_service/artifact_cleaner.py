@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from gateway_repository_contracts import OperationStatus
@@ -265,21 +265,23 @@ class ArtifactCleaner:
             return
 
         stamped = {"ok": False}
-        intent_ids: dict[str, int] = {}
+        intent_ids: dict[str, int | str] = {}
 
-        def _stamp(dev: int, ino: int) -> None:
+        def _stamp(dev: int, ino: int, generation: str) -> None:
             self._import_store.mark_artifact_bytes_deleted(
                 artifact_id,
                 deleted_at=self._deleted_at_stamp(),
                 repository_id=repository_id,
                 expected_dev=dev,
                 expected_ino=ino,
+                expected_generation=generation,
             )
             stamped["ok"] = True
 
-        def _on_intent(dev: int, ino: int) -> None:
+        def _on_intent(dev: int, ino: int, generation: str) -> None:
             intent_ids["dev"] = dev
             intent_ids["ino"] = ino
+            intent_ids["generation"] = generation
             self._import_store.begin_artifact_bytes_delete_intent(
                 artifact_id,
                 repository_id=repository_id,
@@ -287,14 +289,16 @@ class ArtifactCleaner:
                 ino=ino,
                 phase="quarantined",
                 intent_at=self._deleted_at_stamp(),
+                generation=generation,
             )
 
-        def _on_clear_intent(dev: int, ino: int) -> None:
+        def _on_clear_intent(dev: int, ino: int, generation: str) -> None:
             self._import_store.clear_artifact_bytes_delete_intent(
                 artifact_id,
                 repository_id=repository_id,
                 expected_dev=dev,
                 expected_ino=ino,
+                expected_generation=generation,
             )
 
         outcome = try_unlink_ready_artifact_with_recheck(
@@ -419,7 +423,7 @@ class ArtifactCleaner:
                 )
                 return
             if lifecycle is None or lifecycle.repository_id != repository_id:
-                for name, _ino, _kind in sidecars:
+                for _name, _ino, _kind in sidecars:
                     log_event(
                         "artifact_cleanup",
                         repository_id=repository_id,
@@ -431,37 +435,53 @@ class ArtifactCleaner:
                     )
                 return
 
+            if lifecycle.bytes_deleted_at is not None:
+                self._recover_stamped_residual_sidecars(
+                    ready_dir_fd,
+                    repository_id,
+                    artifact_id,
+                    lifecycle=lifecycle,
+                    sidecars=sidecars,
+                )
+                return
+
             intent_dev = lifecycle.bytes_delete_dev
             intent_ino = lifecycle.bytes_delete_ino
             intent_phase = lifecycle.bytes_delete_phase
+            intent_generation = lifecycle.bytes_delete_generation
             intent_present = (
                 lifecycle.bytes_delete_intent_at is not None
                 and intent_dev is not None
                 and intent_ino is not None
+                and intent_generation is not None
                 and intent_phase in {"quarantined", "detached"}
             )
 
             matching: list[tuple[str, int, str, os.stat_result]] = []
+            classify_busy = False
             for sidecar_name, expected_ino, kind in sidecars:
-                verified = self._verify_sidecar_stat(
+                locked = self._lock_sidecar(
                     ready_dir_fd,
                     sidecar_name,
                     expected_ino=expected_ino,
                     repository_id=repository_id,
                     artifact_id=artifact_id,
                 )
-                if verified is None:
+                if locked == "busy":
+                    classify_busy = True
                     continue
-                q_stat = verified
-                matches_intent = (
-                    intent_present
-                    and intent_dev is not None
-                    and intent_ino is not None
-                    and int(intent_dev) == int(q_stat.st_dev)
-                    and int(intent_ino) == int(q_stat.st_ino)
-                )
-                if lifecycle.bytes_deleted_at is not None:
-                    if intent_present and not matches_intent:
+                if locked is None:
+                    continue
+                q_fd, q_stat = locked
+                try:
+                    matches_intent = (
+                        intent_present
+                        and intent_dev is not None
+                        and intent_ino is not None
+                        and int(intent_dev) == int(q_stat.st_dev)
+                        and int(intent_ino) == int(q_stat.st_ino)
+                    )
+                    if not matches_intent:
                         log_event(
                             "artifact_cleanup",
                             repository_id=repository_id,
@@ -472,53 +492,20 @@ class ArtifactCleaner:
                             logger=_LOGGER,
                         )
                         continue
-                    if not self._retention_explains_deleted(
-                        lifecycle,
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                    ):
-                        log_event(
-                            "artifact_cleanup",
-                            repository_id=repository_id,
-                            artifact_id=artifact_id,
-                            stage="quarantine",
-                            result="retained",
-                            cleanup_outcome="fail_closed",
-                            logger=_LOGGER,
-                        )
-                        continue
-                    if self._unlink_sidecar_if_same_inode(
-                        ready_dir_fd, sidecar_name, q_stat
-                    ):
-                        log_event(
-                            "artifact_cleanup",
-                            repository_id=repository_id,
-                            artifact_id=artifact_id,
-                            stage="quarantine",
-                            result="deleted",
-                            cleanup_outcome="quarantine_residual_unlinked",
-                            logger=_LOGGER,
-                        )
-                    continue
-                if not matches_intent:
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="quarantine",
-                        result="retained",
-                        cleanup_outcome="unknown_path_inventory",
-                        logger=_LOGGER,
-                    )
-                    continue
-                # Phase/sidecar consistency: detach phase expects detach name.
-                if intent_phase == "detached" and kind == "quarantine":
-                    pass  # both may exist mid-crash; still intent-matched
-                matching.append((sidecar_name, expected_ino, kind, q_stat))
+                    # Phase/sidecar consistency: detach phase expects detach name.
+                    if intent_phase == "detached" and kind == "quarantine":
+                        pass  # both may exist mid-crash; still intent-matched
+                    matching.append((sidecar_name, expected_ino, kind, q_stat))
+                finally:
+                    self._unlock_sidecar(q_fd)
 
-            if lifecycle.bytes_deleted_at is not None or not matching:
+            if classify_busy or not matching:
                 return
-            assert intent_dev is not None and intent_ino is not None
+            assert (
+                intent_dev is not None
+                and intent_ino is not None
+                and intent_generation is not None
+            )
 
             ready_name = artifact_id.hex
             ready_stat: os.stat_result | None
@@ -544,14 +531,25 @@ class ArtifactCleaner:
 
             if ready_is_replacement:
                 # Never stamp when ready holds a different inode.
-                for sidecar_name, _ino, _kind, q_stat in matching:
-                    self._unlink_sidecar_if_same_inode(ready_dir_fd, sidecar_name, q_stat)
-                self._clear_intent_best_effort(
-                    artifact_id,
-                    repository_id,
-                    expected_dev=int(intent_dev),
-                    expected_ino=int(intent_ino),
-                )
+                op_ok = [
+                    self._unlink_sidecar_if_same_inode(
+                        ready_dir_fd,
+                        sidecar_name,
+                        expected_dev=int(q_stat.st_dev),
+                        expected_ino=int(q_stat.st_ino),
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                    )
+                    for sidecar_name, _ino, _kind, q_stat in matching
+                ]
+                if all(op_ok):
+                    self._clear_intent_best_effort(
+                        artifact_id,
+                        repository_id,
+                        expected_dev=int(intent_dev),
+                        expected_ino=int(intent_ino),
+                        expected_generation=str(intent_generation),
+                    )
                 log_event(
                     "artifact_cleanup",
                     repository_id=repository_id,
@@ -571,6 +569,7 @@ class ArtifactCleaner:
                         repository_id=repository_id,
                         expected_dev=int(intent_dev),
                         expected_ino=int(intent_ino),
+                        expected_generation=str(intent_generation),
                     )
                 except Exception:
                     log_event(
@@ -583,8 +582,26 @@ class ArtifactCleaner:
                         logger=_LOGGER,
                     )
                     return
-                for sidecar_name, _ino, _kind, q_stat in matching:
-                    self._unlink_sidecar_if_same_inode(ready_dir_fd, sidecar_name, q_stat)
+                # mark cleared intent and wrote residual receipt; unlink under flock.
+                unlink_ok = [
+                    self._unlink_sidecar_if_same_inode(
+                        ready_dir_fd,
+                        sidecar_name,
+                        expected_dev=int(intent_dev),
+                        expected_ino=int(intent_ino),
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                    )
+                    for sidecar_name, _ino, _kind, _q_stat in matching
+                ]
+                if all(unlink_ok):
+                    self._clear_receipt_best_effort(
+                        artifact_id,
+                        repository_id,
+                        expected_dev=int(intent_dev),
+                        expected_ino=int(intent_ino),
+                        expected_generation=str(intent_generation),
+                    )
                 log_event(
                     "artifact_cleanup",
                     repository_id=repository_id,
@@ -609,7 +626,7 @@ class ArtifactCleaner:
                 )
                 return
 
-            # Ineligible: restore or drop all matching sidecars, then clear intent once.
+            # Ineligible: restore or drop all matching sidecars; clear intent only if all ok.
             if ready_absent:
                 restore_name = matching[0][0]
                 try:
@@ -636,16 +653,25 @@ class ArtifactCleaner:
                         return
                     except OSError:
                         return
-                    for sidecar_name, _ino, _kind, q_stat in matching:
+                    unlink_ok = [
                         self._unlink_sidecar_if_same_inode(
-                            ready_dir_fd, sidecar_name, q_stat
+                            ready_dir_fd,
+                            sidecar_name,
+                            expected_dev=int(q_stat.st_dev),
+                            expected_ino=int(q_stat.st_ino),
+                            repository_id=repository_id,
+                            artifact_id=artifact_id,
                         )
-                    self._clear_intent_best_effort(
-                        artifact_id,
-                        repository_id,
-                        expected_dev=int(intent_dev),
-                        expected_ino=int(intent_ino),
-                    )
+                        for sidecar_name, _ino, _kind, q_stat in matching
+                    ]
+                    if all(unlink_ok):
+                        self._clear_intent_best_effort(
+                            artifact_id,
+                            repository_id,
+                            expected_dev=int(intent_dev),
+                            expected_ino=int(intent_ino),
+                            expected_generation=str(intent_generation),
+                        )
                     log_event(
                         "artifact_cleanup",
                         repository_id=repository_id,
@@ -670,14 +696,25 @@ class ArtifactCleaner:
                 return
 
             # ready_same_inode and ineligible: drop sidecars only.
-            for sidecar_name, _ino, _kind, q_stat in matching:
-                self._unlink_sidecar_if_same_inode(ready_dir_fd, sidecar_name, q_stat)
-            self._clear_intent_best_effort(
-                artifact_id,
-                repository_id,
-                expected_dev=int(intent_dev),
-                expected_ino=int(intent_ino),
-            )
+            unlink_ok = [
+                self._unlink_sidecar_if_same_inode(
+                    ready_dir_fd,
+                    sidecar_name,
+                    expected_dev=int(q_stat.st_dev),
+                    expected_ino=int(q_stat.st_ino),
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                )
+                for sidecar_name, _ino, _kind, q_stat in matching
+            ]
+            if all(unlink_ok):
+                self._clear_intent_best_effort(
+                    artifact_id,
+                    repository_id,
+                    expected_dev=int(intent_dev),
+                    expected_ino=int(intent_ino),
+                    expected_generation=str(intent_generation),
+                )
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
@@ -690,7 +727,116 @@ class ArtifactCleaner:
         finally:
             os.close(ready_dir_fd)
 
-    def _verify_sidecar_stat(
+    def _recover_stamped_residual_sidecars(
+        self,
+        ready_dir_fd: int,
+        repository_id: UUID,
+        artifact_id: UUID,
+        *,
+        lifecycle: ArtifactLifecycleRecord,
+        sidecars: list[tuple[str, int, str]],
+    ) -> None:
+        """Unlink stamped residuals only when they match residual receipt under flock."""
+
+        receipt_dev = lifecycle.bytes_deleted_receipt_dev
+        receipt_ino = lifecycle.bytes_deleted_receipt_ino
+        receipt_generation = lifecycle.bytes_deleted_receipt_generation
+        receipt_present = (
+            receipt_dev is not None
+            and receipt_ino is not None
+            and receipt_generation is not None
+        )
+        retention_ok = self._retention_explains_deleted(
+            lifecycle,
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+        )
+        matching_unlink_ok: list[bool] = []
+        retain_matching_failure = False
+        any_busy = False
+
+        for sidecar_name, expected_ino, _kind in sidecars:
+            locked = self._lock_sidecar(
+                ready_dir_fd,
+                sidecar_name,
+                expected_ino=expected_ino,
+                repository_id=repository_id,
+                artifact_id=artifact_id,
+            )
+            if locked == "busy":
+                any_busy = True
+                continue
+            if locked is None:
+                continue
+            q_fd, q_stat = locked
+            try:
+                matches_receipt = (
+                    receipt_present
+                    and receipt_dev is not None
+                    and receipt_ino is not None
+                    and int(receipt_dev) == int(q_stat.st_dev)
+                    and int(receipt_ino) == int(q_stat.st_ino)
+                )
+                if not matches_receipt:
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                        stage="quarantine",
+                        result="retained",
+                        cleanup_outcome="unknown_path_inventory",
+                        logger=_LOGGER,
+                    )
+                    continue
+                if not retention_ok:
+                    retain_matching_failure = True
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                        stage="quarantine",
+                        result="retained",
+                        cleanup_outcome="fail_closed",
+                        logger=_LOGGER,
+                    )
+                    continue
+                unlinked = self._unlink_locked_sidecar(
+                    ready_dir_fd, sidecar_name, q_fd, q_stat
+                )
+                matching_unlink_ok.append(unlinked)
+                if unlinked:
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                        stage="quarantine",
+                        result="deleted",
+                        cleanup_outcome="quarantine_residual_unlinked",
+                        logger=_LOGGER,
+                    )
+                else:
+                    retain_matching_failure = True
+            finally:
+                self._unlock_sidecar(q_fd)
+
+        if (
+            receipt_present
+            and receipt_dev is not None
+            and receipt_ino is not None
+            and receipt_generation is not None
+            and not any_busy
+            and not retain_matching_failure
+            and all(matching_unlink_ok)
+        ):
+            self._clear_receipt_best_effort(
+                artifact_id,
+                repository_id,
+                expected_dev=int(receipt_dev),
+                expected_ino=int(receipt_ino),
+                expected_generation=str(receipt_generation),
+            )
+
+    def _lock_sidecar(
         self,
         ready_dir_fd: int,
         sidecar_name: str,
@@ -698,17 +844,21 @@ class ArtifactCleaner:
         expected_ino: int,
         repository_id: UUID,
         artifact_id: UUID,
-    ) -> os.stat_result | None:
+    ) -> tuple[int, os.stat_result] | Literal["busy"] | None:
+        """Open + LOCK_NB + fstat. On success caller must `_unlock_sidecar`."""
+
         open_flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
         nofollow = getattr(os, "O_NOFOLLOW", 0)
         if nofollow:
             open_flags |= nofollow
         q_fd: int | None = None
         try:
-            try:
-                q_fd = os.open(sidecar_name, open_flags, dir_fd=ready_dir_fd)
-            except (FileNotFoundError, OSError):
-                return None
+            q_fd = os.open(sidecar_name, open_flags, dir_fd=ready_dir_fd)
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return None
+        try:
             try:
                 fcntl.flock(q_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
@@ -721,10 +871,12 @@ class ArtifactCleaner:
                     cleanup_outcome="lock_busy",
                     logger=_LOGGER,
                 )
-                return None
+                os.close(q_fd)
+                return "busy"
             try:
                 q_stat = os.fstat(q_fd)
             except OSError:
+                self._unlock_sidecar(q_fd)
                 return None
             if q_stat.st_ino != expected_ino or not stat_module.S_ISREG(q_stat.st_mode):
                 log_event(
@@ -736,26 +888,36 @@ class ArtifactCleaner:
                     cleanup_outcome="quarantine_inode_mismatch",
                     logger=_LOGGER,
                 )
+                self._unlock_sidecar(q_fd)
                 return None
-            return q_stat
-        finally:
+            return q_fd, q_stat
+        except Exception:
             if q_fd is not None:
-                try:
-                    fcntl.flock(q_fd, fcntl.LOCK_UN)
-                except OSError:
-                    pass
-                os.close(q_fd)
+                self._unlock_sidecar(q_fd)
+            raise
 
     @staticmethod
-    def _unlink_sidecar_if_same_inode(
+    def _unlock_sidecar(q_fd: int) -> None:
+        try:
+            fcntl.flock(q_fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        try:
+            os.close(q_fd)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _unlink_locked_sidecar(
         ready_dir_fd: int,
         sidecar_name: str,
+        q_fd: int,
         expected: os.stat_result,
     ) -> bool:
+        """unlinkat while still holding flock on ``q_fd``. Does not unlock/close."""
+
         try:
-            live = os.stat(sidecar_name, dir_fd=ready_dir_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            return True
+            live = os.fstat(q_fd)
         except OSError:
             return False
         if (live.st_dev, live.st_ino) != (expected.st_dev, expected.st_ino):
@@ -766,7 +928,87 @@ class ArtifactCleaner:
             return True
         except OSError:
             return False
-        return True
+        try:
+            leftover = os.stat(sidecar_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        # Name reappeared under a different inode after unlink — our entry is gone.
+        return (leftover.st_dev, leftover.st_ino) != (expected.st_dev, expected.st_ino)
+
+    def _unlink_sidecar_if_same_inode(
+        self,
+        ready_dir_fd: int,
+        sidecar_name: str,
+        *,
+        expected_dev: int,
+        expected_ino: int,
+        repository_id: UUID,
+        artifact_id: UUID,
+    ) -> bool:
+        """Open+flock+fstat match then unlinkat while holding flock. Fail closed."""
+
+        open_flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        if nofollow:
+            open_flags |= nofollow
+        q_fd: int | None = None
+        try:
+            try:
+                q_fd = os.open(sidecar_name, open_flags, dir_fd=ready_dir_fd)
+            except FileNotFoundError:
+                return True
+            except OSError:
+                return False
+            try:
+                fcntl.flock(q_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="lock_busy",
+                    logger=_LOGGER,
+                )
+                return False
+            try:
+                q_stat = os.fstat(q_fd)
+            except OSError:
+                return False
+            if (int(q_stat.st_dev), int(q_stat.st_ino)) != (
+                int(expected_dev),
+                int(expected_ino),
+            ):
+                return False
+            if not stat_module.S_ISREG(q_stat.st_mode):
+                return False
+            return self._unlink_locked_sidecar(ready_dir_fd, sidecar_name, q_fd, q_stat)
+        finally:
+            if q_fd is not None:
+                self._unlock_sidecar(q_fd)
+
+    def _clear_receipt_best_effort(
+        self,
+        artifact_id: UUID,
+        repository_id: UUID,
+        *,
+        expected_dev: int,
+        expected_ino: int,
+        expected_generation: str,
+    ) -> None:
+        try:
+            self._import_store.clear_artifact_bytes_deleted_receipt(
+                artifact_id,
+                repository_id=repository_id,
+                expected_dev=expected_dev,
+                expected_ino=expected_ino,
+                expected_generation=expected_generation,
+            )
+        except Exception:
+            pass
 
     def _clear_intent_best_effort(
         self,
@@ -775,6 +1017,7 @@ class ArtifactCleaner:
         *,
         expected_dev: int,
         expected_ino: int,
+        expected_generation: str,
     ) -> None:
         try:
             self._import_store.clear_artifact_bytes_delete_intent(
@@ -782,6 +1025,7 @@ class ArtifactCleaner:
                 repository_id=repository_id,
                 expected_dev=expected_dev,
                 expected_ino=expected_ino,
+                expected_generation=expected_generation,
             )
         except Exception:
             pass

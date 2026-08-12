@@ -982,6 +982,7 @@ class ImportOperationStore:
         repository_id: UUID | None = None,
         expected_dev: int,
         expected_ino: int,
+        expected_generation: str,
     ) -> None:
         with self._transaction():
             scope = repository_id
@@ -1006,6 +1007,7 @@ class ImportOperationStore:
                 repository_id=scope,
                 expected_dev=expected_dev,
                 expected_ino=expected_ino,
+                expected_generation=expected_generation,
             )
 
     def begin_artifact_bytes_delete_intent(
@@ -1017,15 +1019,17 @@ class ImportOperationStore:
         ino: int,
         phase: str,
         intent_at: str | None = None,
-    ) -> None:
+        generation: str | None = None,
+    ) -> str:
         with self._transaction():
-            self._mutation_store.begin_artifact_bytes_delete_intent(
+            return self._mutation_store.begin_artifact_bytes_delete_intent(
                 artifact_id,
                 repository_id=repository_id,
                 dev=dev,
                 ino=ino,
                 phase=phase,
                 intent_at=intent_at or utc_now_iso(),
+                generation=generation,
             )
 
     def clear_artifact_bytes_delete_intent(
@@ -1035,6 +1039,7 @@ class ImportOperationStore:
         repository_id: UUID,
         expected_dev: int,
         expected_ino: int,
+        expected_generation: str,
     ) -> None:
         with self._transaction():
             self._mutation_store.clear_artifact_bytes_delete_intent(
@@ -1042,6 +1047,25 @@ class ImportOperationStore:
                 repository_id=repository_id,
                 expected_dev=expected_dev,
                 expected_ino=expected_ino,
+                expected_generation=expected_generation,
+            )
+
+    def clear_artifact_bytes_deleted_receipt(
+        self,
+        artifact_id: UUID,
+        *,
+        repository_id: UUID,
+        expected_dev: int,
+        expected_ino: int,
+        expected_generation: str,
+    ) -> None:
+        with self._transaction():
+            self._mutation_store.clear_artifact_bytes_deleted_receipt(
+                artifact_id,
+                repository_id=repository_id,
+                expected_dev=expected_dev,
+                expected_ino=expected_ino,
+                expected_generation=expected_generation,
             )
 
     def has_succeeded_create_repository(self, repository_id: UUID) -> bool:
@@ -1083,7 +1107,8 @@ class ImportOperationStore:
                 bytes_delete_intent_at,
                 bytes_delete_dev,
                 bytes_delete_ino,
-                bytes_delete_phase
+                bytes_delete_phase,
+                bytes_delete_generation
             FROM artifact_lifecycle
             WHERE artifact_id = ?
             """,
@@ -1109,6 +1134,7 @@ class ImportOperationStore:
             row["bytes_delete_dev"],
             row["bytes_delete_ino"],
             row["bytes_delete_phase"],
+            row["bytes_delete_generation"],
         )
         if any(field is not None for field in intent_fields):
             if not all(field is not None for field in intent_fields):

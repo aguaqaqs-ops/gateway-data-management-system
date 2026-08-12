@@ -298,6 +298,26 @@ def test_r20_bind_requires_self_pidfd(
     assert forged.get("error") == "pidfd_identity_rejected"
 
 
+def test_r20_pidfd_alive_uses_poll_not_signal() -> None:
+    from gateway_repository_service.artifact_broker_server import _pidfd_alive
+
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        start_new_session=True,
+    )
+    pidfd = os.pidfd_open(child.pid)
+    try:
+        assert _pidfd_alive(pidfd) is True
+        child.kill()
+        child.wait(timeout=5)
+        assert _pidfd_alive(pidfd) is False
+    finally:
+        os.close(pidfd)
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=5)
+
+
 def test_r20_bound_peer_cannot_unlink_hex32(
     tmp_path: Path, bound_socket_broker: SocketArtifactDirBroker
 ) -> None:

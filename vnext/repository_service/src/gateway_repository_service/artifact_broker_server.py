@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import select
 import signal
 import socket
 import stat
@@ -108,16 +109,19 @@ def _proc_starttime(pid: int) -> int:
 
 
 def _pidfd_alive(pidfd: int) -> bool:
-    send_signal = getattr(os, "pidfd_send_signal", None) or getattr(
-        signal, "pidfd_send_signal", None
-    )
-    if send_signal is None:
-        return False
+    """True while the pidfd's process has not exited.
+
+    Do not use pidfd_send_signal: signaling another UID is EPERM without
+    CAP_KILL, which is the production dual-UID layout. A pidfd becomes
+    readable (POLLIN) when the referent process has terminated.
+    """
+
     try:
-        send_signal(pidfd, 0)
-    except (ProcessLookupError, OSError):
+        poller = select.poll()
+        poller.register(pidfd, select.POLLIN)
+        return not poller.poll(0)
+    except OSError:
         return False
-    return True
 
 
 def _pidfd_nspid(pidfd: int) -> int:

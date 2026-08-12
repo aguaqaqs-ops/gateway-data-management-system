@@ -10,15 +10,69 @@ import stat
 from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
-from typing import Self
+from typing import TYPE_CHECKING, Self
 from uuid import UUID, uuid4
 
 from gateway_repository_service.layout import DurableLayout, repository_key
-from gateway_repository_service.publication import renameat2_noreplace
 from gateway_repository_service.upload_artifact.visibility import (
     artifact_ready_path,
     verify_published_artifact_fd,
 )
+
+if TYPE_CHECKING:
+    from gateway_repository_service.artifact_broker import ArtifactDirBroker
+
+
+def _dir_broker() -> ArtifactDirBroker:
+    from gateway_repository_service.artifact_broker import get_artifact_broker
+
+    return get_artifact_broker()
+
+
+def _translate_broker_error(exc: BaseException) -> OSError:
+    from gateway_repository_service.artifact_broker import ArtifactBrokerError
+
+    if isinstance(exc, FileExistsError):
+        return exc
+    if isinstance(exc, ArtifactBrokerError):
+        return OSError(str(exc))
+    if isinstance(exc, OSError):
+        return exc
+    return OSError(str(exc))
+
+
+def _broker_mkdir(dir_fd: int, name: str, *, mode: int = 0o700) -> None:
+    try:
+        _dir_broker().mkdir(dir_fd, name, mode=mode)
+    except FileExistsError:
+        raise
+    except Exception as exc:
+        raise _translate_broker_error(exc) from exc
+
+
+def _broker_link_from_fd(dir_fd: int, name: str, src_fd: int) -> None:
+    try:
+        _dir_broker().link_from_fd(dir_fd, name, src_fd)
+    except FileExistsError:
+        raise
+    except Exception as exc:
+        raise _translate_broker_error(exc) from exc
+
+
+def _broker_rename_noreplace(
+    src_dir_fd: int,
+    src_name: str,
+    dst_dir_fd: int,
+    dst_name: str,
+) -> None:
+    try:
+        _dir_broker().rename_noreplace(src_dir_fd, src_name, dst_dir_fd, dst_name)
+    except FileExistsError:
+        raise
+    except FileNotFoundError:
+        raise
+    except Exception as exc:
+        raise _translate_broker_error(exc) from exc
 
 
 class ArtifactNotReadyForAdmission(RuntimeError):
@@ -579,7 +633,7 @@ def _migrate_sidecar_slot_to_generation(
     if source_name == target:
         return target
     try:
-        renameat2_noreplace(ready_dir_fd, source_name, ready_dir_fd, target)
+        _broker_rename_noreplace(ready_dir_fd, source_name, ready_dir_fd, target)
     except (FileExistsError, OSError):
         return None
     return target
@@ -750,7 +804,7 @@ def normalize_unlink_stage_victim_via_fd(
     if len(candidates) != 1:
         return False
     try:
-        renameat2_noreplace(stage_dir_fd, candidates[0], stage_dir_fd, STAGE_VICTIM)
+        _broker_rename_noreplace(stage_dir_fd, candidates[0], stage_dir_fd, STAGE_VICTIM)
     except OSError:
         return False
     try:
@@ -1049,11 +1103,7 @@ def _reanchor_inode_to_verify_sidecar(
             token=token,
         )
         try:
-            os.link(
-                f"/proc/self/fd/{inode_fd}",
-                name,
-                dst_dir_fd=ready_dir_fd,
-            )
+            _broker_link_from_fd(ready_dir_fd, name, inode_fd)
         except FileExistsError:
             continue
         except OSError:
@@ -1095,7 +1145,7 @@ def _restore_staged_victim_best_effort(
             os.stat(restore_name, dir_fd=ready_dir_fd, follow_symlinks=False)
         except FileNotFoundError:
             try:
-                renameat2_noreplace(stage_dir_fd, STAGE_VICTIM, ready_dir_fd, restore_name)
+                _broker_rename_noreplace(stage_dir_fd, STAGE_VICTIM, ready_dir_fd, restore_name)
                 break
             except OSError:
                 continue
@@ -1155,7 +1205,7 @@ def unlink_verified_inode_via_staging(
                 token = secrets.token_hex(8)
                 candidate = unlink_stage_dir_name(artifact_id=artifact_id, token=token)
                 try:
-                    os.mkdir(candidate, 0o700, dir_fd=ready_dir_fd)
+                    _broker_mkdir(ready_dir_fd, candidate, mode=0o700)
                 except FileExistsError:
                     continue
                 except OSError:
@@ -1175,7 +1225,7 @@ def unlink_verified_inode_via_staging(
                 return False
             stage_locked = True
             try:
-                renameat2_noreplace(ready_dir_fd, source_name, close_stage_fd, STAGE_VICTIM)
+                _broker_rename_noreplace(ready_dir_fd, source_name, close_stage_fd, STAGE_VICTIM)
             except OSError:
                 return False
         else:
@@ -1222,7 +1272,7 @@ def unlink_verified_inode_via_staging(
 
         final_name = f"final-{secrets.token_hex(8)}"
         try:
-            renameat2_noreplace(close_stage_fd, STAGE_VICTIM, close_stage_fd, final_name)
+            _broker_rename_noreplace(close_stage_fd, STAGE_VICTIM, close_stage_fd, final_name)
         except OSError:
             _restore_staged_victim_best_effort(
                 ready_dir_fd,
@@ -1241,7 +1291,7 @@ def unlink_verified_inode_via_staging(
                 final_fd = os.open(final_name, _file_flags(), dir_fd=close_stage_fd)
             except OSError:
                 try:
-                    renameat2_noreplace(close_stage_fd, final_name, close_stage_fd, STAGE_VICTIM)
+                    _broker_rename_noreplace(close_stage_fd, final_name, close_stage_fd, STAGE_VICTIM)
                 except OSError:
                     pass
                 _restore_staged_victim_best_effort(
@@ -1258,7 +1308,7 @@ def unlink_verified_inode_via_staging(
                 final_stat = os.fstat(final_fd)
             except OSError:
                 try:
-                    renameat2_noreplace(close_stage_fd, final_name, close_stage_fd, STAGE_VICTIM)
+                    _broker_rename_noreplace(close_stage_fd, final_name, close_stage_fd, STAGE_VICTIM)
                 except OSError:
                     pass
                 _restore_staged_victim_best_effort(
@@ -1273,7 +1323,7 @@ def unlink_verified_inode_via_staging(
                 return False
             if (final_stat.st_dev, final_stat.st_ino) != (expected.st_dev, expected.st_ino):
                 try:
-                    renameat2_noreplace(close_stage_fd, final_name, close_stage_fd, STAGE_VICTIM)
+                    _broker_rename_noreplace(close_stage_fd, final_name, close_stage_fd, STAGE_VICTIM)
                 except OSError:
                     pass
                 _restore_staged_victim_best_effort(
@@ -1297,7 +1347,7 @@ def unlink_verified_inode_via_staging(
             )
             if anchor_name is None:
                 try:
-                    renameat2_noreplace(close_stage_fd, final_name, close_stage_fd, STAGE_VICTIM)
+                    _broker_rename_noreplace(close_stage_fd, final_name, close_stage_fd, STAGE_VICTIM)
                 except OSError:
                     pass
                 else:
@@ -1421,7 +1471,7 @@ def try_detach_ready_directory_entry(
         return "unlink_failed", detach
 
     try:
-        renameat2_noreplace(ready_dir_fd, ready_name, ready_dir_fd, detach)
+        _broker_rename_noreplace(ready_dir_fd, ready_name, ready_dir_fd, detach)
     except FileNotFoundError:
         if os.fstat(file_fd).st_nlink != 1:
             return "replaced", None
@@ -1441,7 +1491,7 @@ def try_detach_ready_directory_entry(
             os.stat(ready_name, dir_fd=ready_dir_fd, follow_symlinks=False)
         except FileNotFoundError:
             try:
-                renameat2_noreplace(ready_dir_fd, detach, ready_dir_fd, ready_name)
+                _broker_rename_noreplace(ready_dir_fd, detach, ready_dir_fd, ready_name)
                 return "replaced", None
             except (FileExistsError, OSError):
                 return "replaced", None
@@ -1658,11 +1708,7 @@ def try_unlink_owned_ready_artifact(
                         generation=generation,
                     )
                     try:
-                        os.link(
-                            f"/proc/self/fd/{file_fd}",
-                            quarantine,
-                            dst_dir_fd=ready_dir_fd,
-                        )
+                        _broker_link_from_fd(ready_dir_fd, quarantine, file_fd)
                     except FileExistsError:
                         try:
                             existing = os.stat(
@@ -1686,13 +1732,7 @@ def try_unlink_owned_ready_artifact(
                                 fd_stat.st_ino,
                             ):
                                 return "inode_mismatch"
-                            os.link(
-                                name,
-                                quarantine,
-                                src_dir_fd=ready_dir_fd,
-                                dst_dir_fd=ready_dir_fd,
-                                follow_symlinks=False,
-                            )
+                            _broker_link_from_fd(ready_dir_fd, quarantine, file_fd)
                         except FileExistsError:
                             try:
                                 existing = os.stat(
@@ -1899,22 +1939,36 @@ def try_unlink_ready_artifact_with_recheck(
             if not recheck():
                 return "ineligible"
             parent = ready_path.parent
-            quarantine = parent / f".deleting-{fd_stat.st_ino}-{ready_path.name}"
+            quarantine_name = f".deleting-{fd_stat.st_ino}-{ready_path.name}"
+            parent_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
             try:
-                os.rename(ready_path, quarantine)
-            except FileNotFoundError:
-                return "already_absent"
-            except OSError:
-                return "unlink_failed"
-            try:
-                q_stat = quarantine.lstat()
-                if (q_stat.st_dev, q_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-                    return "inode_mismatch"
-                quarantine.unlink()
-            except FileNotFoundError:
-                return "already_absent"
-            except OSError:
-                return "unlink_failed"
+                try:
+                    _broker_rename_noreplace(
+                        parent_fd, ready_path.name, parent_fd, quarantine_name
+                    )
+                except FileNotFoundError:
+                    return "already_absent"
+                except OSError:
+                    return "unlink_failed"
+                try:
+                    q_stat = os.stat(
+                        quarantine_name, dir_fd=parent_fd, follow_symlinks=False
+                    )
+                    if (q_stat.st_dev, q_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                        return "inode_mismatch"
+                    if not _dir_broker().unlink_if_match(
+                        parent_fd,
+                        quarantine_name,
+                        expected_dev=int(fd_stat.st_dev),
+                        expected_ino=int(fd_stat.st_ino),
+                    ):
+                        return "unlink_failed"
+                except FileNotFoundError:
+                    return "already_absent"
+                except OSError:
+                    return "unlink_failed"
+            finally:
+                os.close(parent_fd)
             if not ready_artifact_entry_absent(ready_path):
                 return "path_recreated"
             if on_deleted is not None:

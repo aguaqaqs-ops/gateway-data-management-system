@@ -6,7 +6,7 @@ import hashlib
 import os
 from pathlib import Path
 
-from gateway_repository_service.publication import FaultPoint, atomic_publish_file
+from gateway_repository_service.publication import FaultPoint, atomic_publish_artifact_file
 
 
 class StreamingFileSinkAdapter:
@@ -55,4 +55,4 @@ class ArtifactFilesystemPublicationAdapter:
         *,
         fault: FaultPoint = FaultPoint.NONE,
     ) -> None:
-        atomic_publish_file(staging, target, fault=fault)
+        atomic_publish_artifact_file(staging, target, fault=fault)

@@ -193,13 +193,34 @@ class DurableLayout:
         return self.versioned / key
 
     def repository_artifact_directories(self, key: str) -> tuple[Path, Path]:
+        from gateway_repository_service.artifact_broker import get_artifact_broker
+
         self.artifacts.mkdir(parents=True, exist_ok=True)
-        base = self.artifacts / key
-        staging = base / "staging"
-        ready = base / "ready"
-        staging.mkdir(parents=True, exist_ok=True)
-        ready.mkdir(parents=True, exist_ok=True)
-        return staging, ready
+        broker = get_artifact_broker()
+        artifacts_fd = os.open(
+            self.artifacts, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        )
+        try:
+            try:
+                broker.mkdir(artifacts_fd, key, mode=0o750)
+            except FileExistsError:
+                pass
+            base_fd = os.open(
+                key,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                dir_fd=artifacts_fd,
+            )
+            try:
+                for name, mode in (("staging", 0o770), ("ready", 0o750)):
+                    try:
+                        broker.mkdir(base_fd, name, mode=mode)
+                    except FileExistsError:
+                        pass
+            finally:
+                os.close(base_fd)
+        finally:
+            os.close(artifacts_fd)
+        return self.artifacts / key / "staging", self.artifacts / key / "ready"
 
     def assert_same_filesystem(self) -> None:
         paths = [self.control, self.versioned, self.service_state, self.provider]

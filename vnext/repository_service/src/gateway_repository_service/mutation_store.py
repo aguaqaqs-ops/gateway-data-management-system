@@ -445,12 +445,18 @@ class MutationStore:
             except (TypeError, ValueError) as exc:
                 raise MutationStoreInvariantError("artifact lifecycle row is invalid") from exc
 
-    def list_artifacts_pending_byte_cleanup(self) -> list[ArtifactLifecycleRecord]:
-        """Return lifecycle rows that still may own undeleted ready bytes."""
+    def list_artifacts_pending_byte_cleanup(
+        self,
+        *,
+        limit: int = 64,
+        after_created_at: str | None = None,
+        after_artifact_id: UUID | None = None,
+    ) -> list[ArtifactLifecycleRecord]:
+        """Return one keyset page of lifecycle rows that may own undeleted ready bytes."""
 
-        with self._transaction():
-            cursor = self._connection.execute(
-                """
+        if limit <= 0:
+            return []
+        sql = """
                 SELECT
                     artifact_id,
                     repository_scope,
@@ -471,9 +477,25 @@ class MutationStore:
                     bytes_deleted_receipt_generation
                 FROM artifact_lifecycle
                 WHERE bytes_deleted_at IS NULL
-                ORDER BY created_at ASC, artifact_id ASC
                 """
+        params: list[object] = []
+        if after_created_at is not None and after_artifact_id is not None:
+            sql += """
+                AND (
+                    created_at > ?
+                    OR (created_at = ? AND artifact_id > ?)
+                )
+                """
+            params.extend(
+                [after_created_at, after_created_at, str(after_artifact_id)]
             )
+        sql += """
+                ORDER BY created_at ASC, artifact_id ASC
+                LIMIT ?
+                """
+        params.append(int(limit))
+        with self._transaction():
+            cursor = self._connection.execute(sql, params)
             records: list[ArtifactLifecycleRecord] = []
             for row in cursor.fetchall():
                 try:

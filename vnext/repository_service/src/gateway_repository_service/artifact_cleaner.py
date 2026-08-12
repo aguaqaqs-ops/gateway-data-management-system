@@ -16,6 +16,7 @@ from typing import Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from gateway_repository_contracts import OperationStatus
+from gateway_repository_service.artifact_broker import ArtifactBrokerError, get_artifact_broker
 from gateway_repository_service.artifact_retention import (
     ArtifactBytesDeletionReason,
     decide_artifact_bytes_deletion,
@@ -28,7 +29,6 @@ from gateway_repository_service.mutation_store import (
     MutationStore,
     MutationStoreInvariantError,
 )
-from gateway_repository_service.publication import renameat2_noreplace
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
@@ -43,6 +43,8 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     parse_quarantine_name,
     parse_unlink_stage_dir_name,
     parse_unlink_verify_name,
+    prove_size0_owned_name_terminal,
+    reclaim_size0_owned_name,
     try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
     unlock_unlink_stage_dir,
 )
@@ -52,6 +54,7 @@ from gateway_repository_service.versioned_import.store import ImportOperationSto
 _LOGGER = logging.getLogger(__name__)
 
 _HEX32 = frozenset("0123456789abcdef")
+_CLEANUP_CANDIDATE_PAGE_SIZE = 64
 
 SidecarOutcome = Literal["absent", "success", "retain"]
 
@@ -109,6 +112,7 @@ class ArtifactCleaner:
         self._started = False
         self._thread: threading.Thread | None = None
         self._stop_lock = threading.Lock()
+        self._cleanup_cursor: tuple[str, UUID] | None = None
 
     def start(self) -> None:
         with self._stop_lock:
@@ -185,7 +189,20 @@ class ArtifactCleaner:
         self._recover_delete_quarantines()
         self._gc_bytes_deleted_receipts()
         try:
-            candidates = self._mutation_store.list_artifacts_pending_byte_cleanup()
+            after_created_at: str | None = None
+            after_artifact_id: UUID | None = None
+            if self._cleanup_cursor is not None:
+                after_created_at, after_artifact_id = self._cleanup_cursor
+            candidates = self._mutation_store.list_artifacts_pending_byte_cleanup(
+                limit=_CLEANUP_CANDIDATE_PAGE_SIZE,
+                after_created_at=after_created_at,
+                after_artifact_id=after_artifact_id,
+            )
+            if not candidates and self._cleanup_cursor is not None:
+                self._cleanup_cursor = None
+                candidates = self._mutation_store.list_artifacts_pending_byte_cleanup(
+                    limit=_CLEANUP_CANDIDATE_PAGE_SIZE,
+                )
         except Exception:
             _LOGGER.exception("artifact cleaner failed to list candidates")
             log_event(
@@ -197,23 +214,11 @@ class ArtifactCleaner:
             )
             return
 
-        # Bounded pagination under backlog (ADR 0011): never walk the full pending
-        # set with a per-candidate ready listdir when saturated.
-        max_candidates = 64
-        for index, lifecycle in enumerate(candidates):
+        # Bounded keyset pagination (ADR 0011): SQL LIMIT, rotating cursor.
+        sql_rows = len(candidates)
+        for lifecycle in candidates:
             if self._stopping:
                 return
-            if index >= max_candidates:
-                log_event(
-                    "artifact_cleanup",
-                    stage="sweep",
-                    result="paginated",
-                    cleanup_outcome="candidate_page_limit",
-                    capacity=max_candidates,
-                    in_use=len(candidates),
-                    logger=_LOGGER,
-                )
-                break
             try:
                 self._process_candidate(lifecycle.artifact_id, lifecycle.repository_id)
             except Exception:
@@ -230,6 +235,14 @@ class ArtifactCleaner:
                     cleanup_outcome="candidate_exception",
                     logger=_LOGGER,
                 )
+        if sql_rows < _CLEANUP_CANDIDATE_PAGE_SIZE:
+            self._cleanup_cursor = None
+        elif candidates:
+            last = candidates[-1]
+            if last.created_at is not None:
+                self._cleanup_cursor = (last.created_at, last.artifact_id)
+            else:
+                self._cleanup_cursor = None
 
         duration_ms = int((time.monotonic() - started) * 1000)
         log_event(
@@ -238,6 +251,8 @@ class ArtifactCleaner:
             duration_ms=duration_ms,
             result="completed",
             cleanup_outcome="sweep_completed",
+            capacity=_CLEANUP_CANDIDATE_PAGE_SIZE,
+            in_use=sql_rows,
             logger=_LOGGER,
         )
 
@@ -640,6 +655,13 @@ class ArtifactCleaner:
             and receipt_generation is not None
         )
         if not receipt_present:
+            self._reclaim_receipt_null_size0_stages(
+                ready_dir_fd,
+                repository_id=repository_id,
+                artifact_id=artifact_id,
+                lifecycle=lifecycle,
+                stage_names=stage_names,
+            )
             return
         assert receipt_dev is not None and receipt_ino is not None and receipt_generation is not None
         retention_ok = self._retention_explains_deleted(
@@ -1106,14 +1128,12 @@ class ArtifactCleaner:
                 fd = os.open(restore_name, open_flags, dir_fd=ready_dir_fd)
             except FileNotFoundError:
                 try:
-                    os.link(
-                        f"/proc/self/fd/{victim_fd}",
-                        restore_name,
-                        dst_dir_fd=ready_dir_fd,
+                    get_artifact_broker().link_from_fd(
+                        ready_dir_fd, restore_name, victim_fd
                     )
                 except FileExistsError:
                     continue
-                except OSError:
+                except (OSError, ArtifactBrokerError):
                     continue
                 try:
                     fd = os.open(restore_name, open_flags, dir_fd=ready_dir_fd)
@@ -1469,6 +1489,16 @@ class ArtifactCleaner:
             repository_id=repository_id,
             artifact_id=artifact_id,
         )
+        if not receipt_present:
+            self._reclaim_receipt_null_size0_sidecars(
+                ready_dir_fd,
+                repository_id=repository_id,
+                artifact_id=artifact_id,
+                lifecycle=lifecycle,
+                sidecars=sidecars,
+                retention_ok=retention_ok,
+            )
+            return
         outcomes: list[SidecarOutcome] = []
 
         for sidecar_name, expected_ino, _kind in sidecars:
@@ -1776,12 +1806,12 @@ class ArtifactCleaner:
             if not matches_intent:
                 return False
             try:
-                renameat2_noreplace(
+                get_artifact_broker().rename_noreplace(
                     ready_dir_fd, sidecar_name, ready_dir_fd, ready_name
                 )
             except FileExistsError:
                 return False
-            except OSError:
+            except (OSError, ArtifactBrokerError):
                 return False
             return True
         finally:
@@ -2066,6 +2096,145 @@ class ArtifactCleaner:
             )
         except Exception:
             pass
+
+    def _reclaim_receipt_null_size0_sidecars(
+        self,
+        ready_dir_fd: int,
+        *,
+        repository_id: UUID,
+        artifact_id: UUID,
+        lifecycle: ArtifactLifecycleRecord,
+        sidecars: list[tuple[str, int, str]],
+        retention_ok: bool,
+    ) -> None:
+        """Reclaim size-0 q/d/verify tombs after c4df9d9 receipt-null stamps.
+
+        Never forges a receipt. Non-zero / foreign / ino-mismatched names retain.
+        """
+
+        del repository_id
+        if lifecycle.bytes_deleted_at is None or not retention_ok:
+            return
+        for sidecar_name, expected_ino, _kind in sidecars:
+            parsed = parse_any_recoverable_sidecar(sidecar_name)
+            if parsed is None:
+                continue
+            name_ino, parsed_artifact_id, _generation, _parsed_kind = parsed
+            if parsed_artifact_id != artifact_id or int(name_ino) != int(expected_ino):
+                continue
+            self._reclaim_receipt_null_size0_entry(
+                ready_dir_fd,
+                sidecar_name,
+                expected_ino=int(expected_ino),
+            )
+
+    def _reclaim_receipt_null_size0_stages(
+        self,
+        ready_dir_fd: int,
+        *,
+        repository_id: UUID,
+        artifact_id: UUID,
+        lifecycle: ArtifactLifecycleRecord,
+        stage_names: list[str],
+    ) -> None:
+        if lifecycle.bytes_deleted_at is None:
+            return
+        if not self._retention_explains_deleted(
+            lifecycle,
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+        ):
+            return
+        for stage_name in stage_names:
+            parsed = parse_unlink_stage_dir_name(stage_name)
+            if parsed is None or parsed[0] != artifact_id:
+                continue
+            stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
+            if stage_fd is None:
+                continue
+            reclaimed_any = False
+            try:
+                if not lock_unlink_stage_dir(stage_fd):
+                    continue
+                try:
+                    try:
+                        children = os.listdir(stage_fd)
+                    except OSError:
+                        continue
+                    for child in children:
+                        open_flags = (
+                            os.O_RDONLY
+                            | getattr(os, "O_NOFOLLOW", 0)
+                            | getattr(os, "O_NONBLOCK", 0)
+                        )
+                        try:
+                            child_fd = os.open(child, open_flags, dir_fd=stage_fd)
+                        except FileNotFoundError:
+                            continue
+                        except OSError:
+                            continue
+                        try:
+                            st = os.fstat(child_fd)
+                        except OSError:
+                            continue
+                        finally:
+                            os.close(child_fd)
+                        if not stat_module.S_ISREG(st.st_mode) or int(st.st_size) != 0:
+                            continue
+                        if reclaim_size0_owned_name(
+                            stage_fd,
+                            child,
+                            expected_dev=int(st.st_dev),
+                            expected_ino=int(st.st_ino),
+                            artifact_id=artifact_id,
+                        ):
+                            reclaimed_any = True
+                finally:
+                    unlock_unlink_stage_dir(stage_fd)
+            finally:
+                os.close(stage_fd)
+            if reclaimed_any:
+                get_artifact_broker().rmdir_if_empty(ready_dir_fd, stage_name)
+
+    def _reclaim_receipt_null_size0_entry(
+        self,
+        dir_fd: int,
+        name: str,
+        *,
+        expected_ino: int,
+    ) -> None:
+        open_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        try:
+            fd = os.open(name, open_flags, dir_fd=dir_fd)
+        except FileNotFoundError:
+            return
+        except OSError:
+            return
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            return
+        finally:
+            os.close(fd)
+        if not stat_module.S_ISREG(st.st_mode):
+            return
+        if int(st.st_ino) != int(expected_ino):
+            return
+        if int(st.st_size) != 0:
+            return
+        if not prove_size0_owned_name_terminal(
+            dir_fd,
+            name,
+            expected_dev=int(st.st_dev),
+            expected_ino=int(expected_ino),
+        ):
+            return
+        reclaim_size0_owned_name(
+            dir_fd,
+            name,
+            expected_dev=int(st.st_dev),
+            expected_ino=int(expected_ino),
+        )
 
     def _retention_explains_deleted(
         self,

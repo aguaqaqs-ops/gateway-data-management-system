@@ -84,12 +84,50 @@ def atomic_publish_file(
         raise RuntimeError("fault injected after publication rename")
 
 
+def atomic_publish_artifact_file(
+    staging: Path,
+    target: Path,
+    *,
+    fault: FaultPoint = FaultPoint.NONE,
+) -> None:
+    """Publish a staged artifact into ready via the directory-broker."""
+
+    if target.exists():
+        raise FileExistsError(target)
+    prepare_file_publish(staging)
+    if fault == FaultPoint.BEFORE_RENAME:
+        raise RuntimeError("fault injected before publication rename")
+    _rename_noreplace_via_broker(staging, target)
+    _fsync_directory(staging.parent)
+    _fsync_directory(target.parent)
+    if fault == FaultPoint.AFTER_RENAME:
+        raise RuntimeError("fault injected after publication rename")
+
+
 def _fsync_directory(path: Path) -> None:
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _rename_noreplace_via_broker(source: Path, target: Path) -> None:
+    """Publish into a broker-owned directory via SCM_RIGHTS rename_noreplace."""
+
+    from gateway_repository_service.artifact_broker import get_artifact_broker
+
+    src_dir_fd = os.open(source.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        dst_dir_fd = os.open(target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            get_artifact_broker().rename_noreplace(
+                src_dir_fd, source.name, dst_dir_fd, target.name
+            )
+        finally:
+            os.close(dst_dir_fd)
+    finally:
+        os.close(src_dir_fd)
 
 
 def _rename_noreplace(source: Path, target: Path) -> None:

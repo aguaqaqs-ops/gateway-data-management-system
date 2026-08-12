@@ -358,6 +358,7 @@ class TestControlDatabase:
             }
             assert tables == {
                 "artifact_lifecycle",
+                "artifact_residual",
                 "mutation_idempotency",
                 "repository_import_operations",
                 "repository_import_recovery_audit",
@@ -375,6 +376,7 @@ class TestControlDatabase:
                 "bytes_delete_dev",
                 "bytes_delete_ino",
                 "bytes_delete_phase",
+                "cleanup_seq",
             }.issubset(artifact_columns)
             operation_columns = {
                 row[1]
@@ -403,6 +405,7 @@ class TestControlDatabase:
                 "prevent_terminal_when_succeeded",
                 "prevent_insert_succeeded_when_terminal",
                 "prevent_insert_terminal_when_succeeded",
+                "artifact_lifecycle_assign_cleanup_seq",
             }
         finally:
             store.close()
@@ -603,14 +606,14 @@ class TestControlDatabase:
         with pytest.raises(ControlDbNewerVersionError):
             ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
-    def test_intermediate_user_version_fourteen_fails_closed(self, tmp_path: Path) -> None:
+    def test_intermediate_user_version_fifteen_fails_closed(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         db_path.parent.mkdir(parents=True)
         connection = sqlite3.connect(db_path)
-        connection.execute("PRAGMA user_version = 14")
+        connection.execute("PRAGMA user_version = 15")
         connection.commit()
         connection.close()
-        with pytest.raises(ControlDbNewerVersionError, match="user_version 14 is newer than supported 13"):
+        with pytest.raises(ControlDbNewerVersionError, match="user_version 15 is newer than supported 14"):
             ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
     def test_migration_v5_fails_on_contradictory_v3_data(self, tmp_path: Path) -> None:

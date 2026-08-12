@@ -327,8 +327,17 @@ def test_r19_layout_mkdir_goes_through_broker(tmp_path: Path) -> None:
         def release_tombstone_reservation(self, dir_fd: int, *, projected_new: int) -> None:
             inner.release_tombstone_reservation(dir_fd, projected_new=projected_new)
 
-        def reclaim_stage(self, dir_fd: int, name: str) -> bool:
-            return inner.reclaim_stage(dir_fd, name)
+        def assert_bound(self) -> None:
+            return None
+
+        def reclaim_stage(
+            self,
+            dir_fd: int,
+            name: str,
+            *,
+            children: list[tuple[str, int, int]] | None = None,
+        ) -> bool:
+            return inner.reclaim_stage(dir_fd, name, children=children)
 
     set_artifact_broker(_Probe())
     staging, ready = layout.repository_artifact_directories(repository_key(REPO_ID))

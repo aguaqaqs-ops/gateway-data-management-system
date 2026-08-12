@@ -49,6 +49,7 @@ from gateway_repository_service.mutation_reconciliation import (
 )
 from gateway_repository_service.mutation_store import (
     ArtifactLifecycleRecord,
+    CleanupCandidatePage,
     IdempotencyKeyHash,
     IdempotencyScope,
     MutationStore,
@@ -10787,12 +10788,10 @@ def test_r19_keyset_sql_limit_not_fetchall_slice(
     page = mutation_store.list_artifacts_pending_byte_cleanup(limit=64)
     assert page.scanned == 64
     assert len(page.records) == 64
-    last_created = page.cursor_created_at
-    last_id = page.cursor_artifact_id
+    last_seq = page.cursor_cleanup_seq
     rest = mutation_store.list_artifacts_pending_byte_cleanup(
         limit=64,
-        after_created_at=last_created,
-        after_artifact_id=last_id,
+        after_cleanup_seq=last_seq,
     )
     assert rest.scanned == 6
     page_ids = {row.artifact_id for row in page.records}
@@ -10833,8 +10832,8 @@ def test_r19_multi_repo_keyset_is_globally_ordered(
         mutation_store._connection.commit()
     page = mutation_store.list_artifacts_pending_byte_cleanup(limit=64)
     assert page.scanned == 64
-    created = [row.created_at or "" for row in page.records]
-    assert created == sorted(created)
+    assert page.cursor_cleanup_seq is not None
+    assert len(page.records) == 64
 
 
 def test_r19_receipt_null_size0_tombs_reclaim(
@@ -10894,12 +10893,13 @@ def test_r19_receipt_null_size0_tombs_reclaim(
         mutation_store=mutation_store,
         clock=lambda: BASE_NOW,
     ).sweep_once()
-    # Receipt-null rows cannot carry bytes_delete_ino (v12 CHECK). Sidecars retain.
+    # Receipt-null rows cannot carry bytes_delete_ino (v12 CHECK). Without residual
+    # proof, sidecars and stages retain.
     assert quarantine.is_file()
     assert detach.is_file()
     assert verify.is_file()
-    assert not victim.exists()
-    assert not stage.exists()
+    assert victim.is_file()
+    assert stage.is_dir()
 
 
 def test_r19_receipt_null_forged_and_nonzero_retain(
@@ -11078,12 +11078,12 @@ def test_r20_cleanup_query_uses_keyset_index(
         EXPLAIN QUERY PLAN
         SELECT artifact_id FROM artifact_lifecycle
         WHERE bytes_deleted_at IS NULL
-        ORDER BY created_at ASC, artifact_id ASC
+        ORDER BY cleanup_seq ASC
         LIMIT 64
         """
     ).fetchall()
     plan = " ".join(" ".join(str(col) for col in row) for row in plan_rows)
-    assert "artifact_lifecycle_cleanup_keyset_idx" in plan
+    assert "artifact_lifecycle_cleanup_seq_idx" in plan
     assert "USE TEMP B-TREE FOR ORDER BY" not in plan
 
 
@@ -11128,9 +11128,12 @@ def test_r20_empty_and_mode_mixed_stages_reclaim(
         mutation_store=mutation_store,
         clock=lambda: BASE_NOW,
     ).sweep_once()
-    assert not empty_0700.exists()
-    assert not empty_0750.exists()
-    assert not filled.exists()
+    assert empty_0700.is_dir()
+    assert empty_0750.is_dir()
+    assert filled.is_dir()
+    assert (filled / "victim").is_file()
+    assert (filled / "final-x").is_file()
+    assert (filled / "doom-y").is_file()
 
 
 def test_r20_receipt_null_symlink_sidecar_retains(
@@ -11257,3 +11260,407 @@ def test_r20_receipt_null_foreign_stage_retains(
     ).sweep_once()
     assert foreign.is_dir()
     assert (foreign / "victim").is_file()
+
+
+def _mark_receipt_null(mutation_store: MutationStore, *, artifact_id: UUID = ARTIFACT_ID) -> None:
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_deleted_receipt_dev = NULL,
+                bytes_deleted_receipt_ino = NULL,
+                bytes_deleted_receipt_generation = NULL
+            WHERE artifact_id = ?
+            """,
+            ("2026-08-02T00:00:00+00:00", str(artifact_id)),
+        )
+        mutation_store._connection.commit()
+
+
+def _insert_residual(
+    store: ImportOperationStore,
+    *,
+    kind: str,
+    name: str,
+    dev: int,
+    ino: int,
+    parent_name: str = "",
+    generation: str | None = "g1",
+    artifact_id: UUID = ARTIFACT_ID,
+) -> None:
+    store.insert_artifact_residual(
+        artifact_id,
+        repository_id=REPOSITORY_ID,
+        kind=kind,
+        name=name,
+        parent_name=parent_name,
+        dev=dev,
+        ino=ino,
+        generation=generation,
+        created_at=CREATED_AT,
+    )
+
+
+def _sweep(store: ImportOperationStore, mutation_store: MutationStore, layout: DurableLayout) -> None:
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+
+def test_r21_receipt_null_legal_with_proof_reclaims(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    parent = ready.parent
+    generation = "r21legal"
+    quarantine = parent / quarantine_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+    )
+    os.link(ready, quarantine)
+    os.truncate(quarantine, 0)
+    ready.unlink()
+    _mark_receipt_null(mutation_store)
+    _insert_residual(
+        store,
+        kind="deleting",
+        name=quarantine.name,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        generation=generation,
+    )
+    _sweep(store, mutation_store, layout)
+    assert not quarantine.exists()
+    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID) == []
+
+
+def test_r21_receipt_null_mismatch_forged_legacy_without_proof_retain(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    parent = ready.parent
+    mismatch = parent / quarantine_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation="mm"
+    )
+    os.link(ready, mismatch)
+    os.truncate(mismatch, 0)
+    ready.unlink()
+    forged = parent / quarantine_name_for(
+        inode=999999, artifact_id=ARTIFACT_ID, generation="fg"
+    )
+    forged.write_bytes(b"")
+    legacy = parent / f".deleting-{int(st.st_ino)}-{ARTIFACT_ID.hex}"
+    legacy.write_bytes(b"")
+    _mark_receipt_null(mutation_store)
+    _insert_residual(
+        store,
+        kind="deleting",
+        name=mismatch.name,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino) + 1,
+        generation="mm",
+    )
+    _sweep(store, mutation_store, layout)
+    assert mismatch.is_file()
+    assert forged.is_file()
+    assert legacy.is_file()
+
+
+def test_r21_forged_stage_shapes_without_proof_retain(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    from gateway_repository_service.upload_artifact.admission_pin import unlink_stage_dir_name
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    parent = ready.parent
+    ready.unlink()
+    empty = parent / unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="empty")
+    empty.mkdir(mode=0o700)
+    victim_stage = parent / unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="vic")
+    victim_stage.mkdir(mode=0o700)
+    (victim_stage / "victim").write_bytes(b"")
+    (victim_stage / "final-x").write_bytes(b"")
+    (victim_stage / "doom-y").write_bytes(b"")
+    nonzero = parent / unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="nz")
+    nonzero.mkdir(mode=0o700)
+    (nonzero / "victim").write_bytes(b"payload")
+    linked = parent / unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="sy")
+    linked.mkdir(mode=0o700)
+    (linked / "victim").symlink_to("/tmp/r21-stage-symlink")
+    _mark_receipt_null(mutation_store)
+    _sweep(store, mutation_store, layout)
+    assert empty.is_dir()
+    assert (victim_stage / "victim").is_file()
+    assert (victim_stage / "final-x").is_file()
+    assert (victim_stage / "doom-y").is_file()
+    assert (nonzero / "victim").is_file()
+    assert (linked / "victim").is_symlink()
+
+
+def test_r21_residual_crash_windows_converge(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    parent = ready.parent
+    name = quarantine_name_for(inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation="cw")
+    ready.unlink()
+    _insert_residual(
+        store,
+        kind="deleting",
+        name=name,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        generation="cw",
+    )
+    _sweep(store, mutation_store, layout)
+    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID) == []
+
+    tomb = parent / name
+    tomb.write_bytes(b"")
+    st2 = tomb.stat()
+    _insert_residual(
+        store,
+        kind="deleting",
+        name=name,
+        dev=int(st2.st_dev),
+        ino=int(st2.st_ino),
+        generation="cw",
+    )
+    _sweep(store, mutation_store, layout)
+    assert not tomb.exists()
+    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID) == []
+
+    leftover = parent / quarantine_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation="cw2"
+    )
+    leftover.write_bytes(b"")
+    st3 = leftover.stat()
+    leftover.unlink()
+    _insert_residual(
+        store,
+        kind="deleting",
+        name=leftover.name,
+        dev=int(st3.st_dev),
+        ino=int(st3.st_ino),
+        generation="cw2",
+    )
+    _sweep(store, mutation_store, layout)
+    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID) == []
+
+
+def test_r21_mixed_legal_and_forged_isolate(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    parent = ready.parent
+    legal = parent / quarantine_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation="ok"
+    )
+    os.link(ready, legal)
+    os.truncate(legal, 0)
+    ready.unlink()
+    forged = parent / quarantine_name_for(
+        inode=4242, artifact_id=ARTIFACT_ID, generation="bad"
+    )
+    forged.write_bytes(b"")
+    _insert_residual(
+        store,
+        kind="deleting",
+        name=legal.name,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        generation="ok",
+    )
+    _sweep(store, mutation_store, layout)
+    assert not legal.exists()
+    assert forged.is_file()
+
+
+def test_r21_blob_created_at_and_artifact_id_page_reaches_successor(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    for i in range(64):
+        aid = UUID(int=ARTIFACT_ID.int + i)
+        if i in {0, 32, 63}:
+            with mutation_store._lock:
+                mutation_store._connection.execute(
+                    """
+                    INSERT INTO artifact_lifecycle (
+                        artifact_id, repository_scope, media_type, size_bytes,
+                        raw_sha256, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        sqlite3.Binary(f"blob-id-{i}".encode()),
+                        sqlite3.Binary(b"not-a-uuid"),
+                        MEDIA_TYPE,
+                        1,
+                        "a" * 64,
+                        sqlite3.Binary(f"poison-{i}".encode()),
+                        sqlite3.Binary(f"poison-{i}".encode()),
+                    ),
+                )
+                mutation_store._connection.commit()
+            continue
+        _seed_artifact(mutation_store, artifact_id=aid, created_at=f"2026-08-01T00:00:00.{i:03d}+00:00")
+        _write_ready(layout, artifact_id=aid)
+    new_id = UUID(int=ARTIFACT_ID.int + 64)
+    _seed_artifact(mutation_store, artifact_id=new_id, created_at="2026-08-01T00:00:00.064+00:00")
+    new_ready = _write_ready(layout, artifact_id=new_id)
+    binding = _binding(artifact_id=new_id)
+    key_hash = IdempotencyKeyHash.from_raw_key("r21-blob-successor")
+    store.claim_or_enqueue(
+        binding,
+        key_hash=key_hash,
+        fingerprint=versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash),
+        operation_id=UUID(int=OPERATION_ID.int + 64),
+    )
+    store.claim_if_queued(UUID(int=OPERATION_ID.int + 64))
+    store.mark_succeeded(
+        UUID(int=OPERATION_ID.int + 64),
+        result=VersionedImportResult(
+            commit_id="commit-1",
+            target_ref="main",
+            artifact_id=new_id,
+            canonicalization_manifest_digest="manifest-1",
+            expected_commit_id="commit-0",
+            completed_verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        ),
+    )
+    page = mutation_store.list_artifacts_pending_byte_cleanup(limit=64)
+    assert page.scanned == 64
+    assert isinstance(page.cursor_cleanup_seq, int)
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=3600, interval=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    )
+    cleaner.sweep_once()
+    cleaner.sweep_once()
+    assert not new_ready.exists()
+
+
+def test_r21_repeated_cursor_advances_and_new_succeeded_is_reached(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    for i in range(64):
+        aid = UUID(int=ARTIFACT_ID.int + i)
+        _seed_artifact(mutation_store, artifact_id=aid, created_at=f"2026-08-01T00:00:00.{i:03d}+00:00")
+        _write_ready(layout, artifact_id=aid)
+    real_list = mutation_store.list_artifacts_pending_byte_cleanup
+    first = real_list(limit=64)
+    stuck = type(first)(
+        records=first.records,
+        scanned=64,
+        cursor_cleanup_seq=first.cursor_cleanup_seq,
+    )
+
+    calls = {"n": 0}
+
+    def stuck_then_real(
+        *, limit: int = 64, after_cleanup_seq: int | None = None
+    ) -> CleanupCandidatePage:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return stuck
+        if calls["n"] == 2:
+            assert after_cleanup_seq == stuck.cursor_cleanup_seq
+            return type(stuck)(
+                records=stuck.records,
+                scanned=64,
+                cursor_cleanup_seq=stuck.cursor_cleanup_seq,
+            )
+        return real_list(limit=limit, after_cleanup_seq=after_cleanup_seq)
+
+    monkeypatch.setattr(mutation_store, "list_artifacts_pending_byte_cleanup", stuck_then_real)
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=3600, interval=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    )
+    cleaner.sweep_once()
+    cleaner.sweep_once()
+    assert cleaner._cleanup_cursor == int(stuck.cursor_cleanup_seq or 0) + 1
+
+    new_id = UUID(int=ARTIFACT_ID.int + 80)
+    _seed_artifact(mutation_store, artifact_id=new_id, created_at="2026-08-01T00:00:01+00:00")
+    new_ready = _write_ready(layout, artifact_id=new_id)
+    binding = _binding(artifact_id=new_id)
+    key_hash = IdempotencyKeyHash.from_raw_key("r21-new-succeeded")
+    op = UUID(int=OPERATION_ID.int + 80)
+    store.claim_or_enqueue(
+        binding,
+        key_hash=key_hash,
+        fingerprint=versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash),
+        operation_id=op,
+    )
+    store.claim_if_queued(op)
+    store.mark_succeeded(
+        op,
+        result=VersionedImportResult(
+            commit_id="commit-1",
+            target_ref="main",
+            artifact_id=new_id,
+            canonicalization_manifest_digest="manifest-1",
+            expected_commit_id="commit-0",
+            completed_verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        ),
+    )
+    monkeypatch.setattr(mutation_store, "list_artifacts_pending_byte_cleanup", real_list)
+    cleaner._cleanup_cursor = None
+    cleaner.sweep_once()
+    cleaner.sweep_once()
+    assert not new_ready.exists()
+
+
+def test_r21_cleanup_list_binds_integer_seq_not_str() -> None:
+    source = Path(__file__).resolve().parents[1] / "src" / "gateway_repository_service" / "mutation_store.py"
+    text = source.read_text(encoding="utf-8")
+    start = text.index("def list_artifacts_pending_byte_cleanup")
+    end = text.index("def ", start + 4)
+    body = text[start:end]
+    assert "after_cleanup_seq" in body
+    assert "int(after_cleanup_seq)" in body
+    assert "str(row[8])" not in body
+    assert "cursor_created_at" not in body

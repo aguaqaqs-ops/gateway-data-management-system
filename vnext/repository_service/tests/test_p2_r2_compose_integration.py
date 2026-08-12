@@ -228,6 +228,7 @@ def test_r19_entrypoint_is_fail_closed_and_pings_broker() -> None:
     entrypoint = (REPO_ROOT / "docker-entrypoint.sh").read_text(encoding="utf-8")
     assert "|| true" not in entrypoint
     assert "chown -R" not in entrypoint
+    assert "find " not in entrypoint
     assert "artifact-broker.sock" in entrypoint
     assert ".ping()" in entrypoint
     assert "GATEWAY_REPOSITORY_ARTIFACT_BROKER_MODE=socket" in entrypoint

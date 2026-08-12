@@ -145,6 +145,14 @@ class ArtifactLifecycleRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class CleanupCandidatePage:
+    records: list[ArtifactLifecycleRecord]
+    scanned: int
+    cursor_created_at: str | None
+    cursor_artifact_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class ClaimResult:
     idempotency_id: int
     is_new: bool
@@ -450,12 +458,21 @@ class MutationStore:
         *,
         limit: int = 64,
         after_created_at: str | None = None,
-        after_artifact_id: UUID | None = None,
-    ) -> list[ArtifactLifecycleRecord]:
-        """Return one keyset page of lifecycle rows that may own undeleted ready bytes."""
+        after_artifact_id: str | None = None,
+    ) -> CleanupCandidatePage:
+        """Return one keyset page of lifecycle rows that may own undeleted ready bytes.
+
+        Cursor keys are the last raw SQL row, including poison rows that cannot
+        be projected into ``ArtifactLifecycleRecord``.
+        """
 
         if limit <= 0:
-            return []
+            return CleanupCandidatePage(
+                records=[],
+                scanned=0,
+                cursor_created_at=None,
+                cursor_artifact_id=None,
+            )
         sql = """
                 SELECT
                     artifact_id,
@@ -487,7 +504,7 @@ class MutationStore:
                 )
                 """
             params.extend(
-                [after_created_at, after_created_at, str(after_artifact_id)]
+                [after_created_at, after_created_at, after_artifact_id]
             )
         sql += """
                 ORDER BY created_at ASC, artifact_id ASC
@@ -497,11 +514,16 @@ class MutationStore:
         with self._transaction():
             cursor = self._connection.execute(sql, params)
             records: list[ArtifactLifecycleRecord] = []
+            scanned = 0
+            last_created_at: str | None = None
+            last_artifact_id: str | None = None
             for row in cursor.fetchall():
+                scanned += 1
+                last_artifact_id = str(row[0])
+                last_created_at = None if row[8] is None else str(row[8])
                 try:
                     records.append(self._artifact_lifecycle_from_row(row))
                 except (TypeError, ValueError):
-                    # Skip poison rows so one corrupt lifecycle cannot block cleanup.
                     log_event(
                         "artifact_cleanup",
                         stage="list_candidates",
@@ -509,7 +531,12 @@ class MutationStore:
                         cleanup_outcome="invalid_lifecycle_row",
                     )
                     continue
-            return records
+            return CleanupCandidatePage(
+                records=records,
+                scanned=scanned,
+                cursor_created_at=last_created_at,
+                cursor_artifact_id=last_artifact_id,
+            )
 
     def list_artifacts_with_bytes_deleted_receipt(self) -> list[ArtifactLifecycleRecord]:
         """Return lifecycle rows that still carry a bytes-deleted residual receipt."""

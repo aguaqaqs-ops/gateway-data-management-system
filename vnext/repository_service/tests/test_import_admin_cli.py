@@ -105,7 +105,7 @@ def test_control_db_newer_exit_4(tmp_path: Path) -> None:
         env.control_store.close()
         connection = sqlite3.connect(env.settings.control_db_path)
         try:
-            connection.execute("PRAGMA user_version = 13")
+            connection.execute("PRAGMA user_version = 14")
             connection.commit()
         finally:
             connection.close()

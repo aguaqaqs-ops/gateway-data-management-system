@@ -11,7 +11,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 12
+CONTROL_DB_USER_VERSION = 13
 
 ColumnShape = tuple[tuple[str, str, int, str | None, int], ...]
 
@@ -33,6 +33,7 @@ _ADMIN_CLI_REQUIRED_INDEXES: dict[str, tuple[str, ...]] = {
     ),
     "repository_import_operations_artifact_idx": ("artifact_id",),
     "artifact_lifecycle_repository_scope_idx": ("repository_scope",),
+    "artifact_lifecycle_cleanup_keyset_idx": ("created_at", "artifact_id"),
 }
 
 _ADMIN_CLI_REQUIRED_TRIGGER_NAMES: frozenset[str] = frozenset(
@@ -657,6 +658,15 @@ _MIGRATION_V12_STATEMENTS: tuple[str, ...] = (
 )
 
 
+_MIGRATION_V13_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE INDEX artifact_lifecycle_cleanup_keyset_idx
+    ON artifact_lifecycle (created_at, artifact_id)
+    WHERE bytes_deleted_at IS NULL
+    """,
+)
+
+
 _MIGRATION_V5_STATEMENTS: tuple[str, ...] = (
     """
     CREATE TRIGGER prevent_insert_succeeded_when_terminal
@@ -1180,6 +1190,9 @@ class ControlStore:
         if target_version == 12:
             ControlStore._validate_artifact_delete_intent_rows(connection)
             ControlStore._execute_statements(connection, _MIGRATION_V12_STATEMENTS)
+            return
+        if target_version == 13:
+            ControlStore._execute_statements(connection, _MIGRATION_V13_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

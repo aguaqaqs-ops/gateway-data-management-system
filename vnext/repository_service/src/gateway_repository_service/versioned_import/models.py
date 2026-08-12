@@ -319,6 +319,7 @@ class ArtifactOperationReference:
     durable_status: str
     status: OperationStatus | None
     is_protected: bool
+    completed_at: str | None = None
 
 
 def derive_private_ref_name(operation_id: UUID) -> str:

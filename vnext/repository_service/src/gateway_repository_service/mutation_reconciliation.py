@@ -118,12 +118,39 @@ def upload_artifact_bytes_reconciled_after_import(
     repository_id: UUID,
     artifact_id: UUID,
 ) -> bool:
-    """Return True when missing ready bytes are explained by a SUCCEEDED import."""
+    """Return True when missing ready bytes are explained by legal retention cleanup."""
+
+    from gateway_repository_service.artifact_retention import (
+        retention_explains_missing_ready_bytes,
+    )
 
     lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
-    if lifecycle is None or lifecycle.consumed_by_operation_id is None:
+    if lifecycle is None:
         return False
     if lifecycle.repository_id != repository_id:
+        return False
+
+    references = import_store.list_artifact_references(artifact_id)
+    consumed_operation_artifact_id: UUID | None = None
+    if lifecycle.consumed_by_operation_id is not None:
+        operation = import_store.get_operation(
+            repository_id,
+            lifecycle.consumed_by_operation_id,
+        )
+        if operation is not None:
+            consumed_operation_artifact_id = operation.artifact_id
+            if operation.status != OperationStatus.SUCCEEDED:
+                consumed_operation_artifact_id = None
+
+    if retention_explains_missing_ready_bytes(
+        lifecycle=lifecycle,
+        repository_id=repository_id,
+        references=references,
+        consumed_operation_artifact_id=consumed_operation_artifact_id,
+    ):
+        return True
+
+    if lifecycle.consumed_by_operation_id is None:
         return False
     if lifecycle.consumed_at is None and lifecycle.bytes_deleted_at is None:
         return False
@@ -137,7 +164,7 @@ def upload_artifact_bytes_reconciled_after_import(
         return False
     if operation.status != OperationStatus.SUCCEEDED:
         return False
-    for reference in import_store.list_artifact_references(artifact_id):
+    for reference in references:
         if reference.operation_id == lifecycle.consumed_by_operation_id:
             continue
         if reference.is_protected:

@@ -17,6 +17,7 @@ from gateway_repository_service.admission import (
     UploadCancelRegistry,
 )
 from gateway_repository_service.artifact_cleaner import (
+    ArtifactCleaner,
     ArtifactCleanerLifecycle,
     NoOpArtifactCleaner,
 )
@@ -195,7 +196,23 @@ class ServiceRuntime:
             row_stream_admission = PermitPool(settings.max_concurrent_row_streams)
             upload_inflight = InflightKeyGate()
             upload_cancels = UploadCancelRegistry()
-            cleaner = artifact_cleaner if artifact_cleaner is not None else NoOpArtifactCleaner()
+            if artifact_cleaner is not None:
+                cleaner = artifact_cleaner
+            else:
+                cleaner = ArtifactCleaner(
+                    settings=settings,
+                    layout=layout,
+                    import_store=import_store,
+                    mutation_store=mutation_store,
+                )
+            if isinstance(cleaner, ArtifactCleaner):
+                cleaner.start()
+                stack.callback(
+                    lambda: cleaner.stop(timeout=settings.import_shutdown_grace_seconds)
+                )
+            import_worker_pool.set_lifecycle_notify(
+                lambda: _notify_artifact_cleaner(cleaner)
+            )
             stack.pop_all()
             runtime = cls(
                 settings=settings,
@@ -420,6 +437,10 @@ class ServiceRuntime:
         size_bytes: int,
     ) -> None:
         self.consistency_watch.register_succeeded_upload(repository_id, artifact_id, size_bytes)
+        self.notify_artifact_lifecycle()
+
+    def notify_artifact_lifecycle(self) -> None:
+        _notify_artifact_cleaner(self.artifact_cleaner)
 
     def _readiness_failure(self) -> str | None:
         try:
@@ -472,3 +493,9 @@ class ServiceRuntime:
         if failure is None:
             return "service is not ready"
         return failure
+
+
+def _notify_artifact_cleaner(cleaner: ArtifactCleanerLifecycle) -> None:
+    notify = getattr(cleaner, "notify", None)
+    if callable(notify):
+        notify()

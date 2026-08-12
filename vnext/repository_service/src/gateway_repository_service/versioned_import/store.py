@@ -7,7 +7,8 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, cast
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -49,6 +50,9 @@ from gateway_repository_service.versioned_import.models import (
     validate_pending_operation_row,
     validate_result_matches_operation_row,
 )
+
+if TYPE_CHECKING:
+    from gateway_repository_service.artifact_retention import ArtifactBytesDeletionDecision
 
 
 class ImportOperationStore:
@@ -828,7 +832,7 @@ class ImportOperationStore:
         with self._transaction():
             cursor = self._connection.execute(
                 """
-                SELECT operation_id, status, error_json
+                SELECT operation_id, status, error_json, completed_at
                 FROM repository_import_operations
                 WHERE artifact_id = ?
                 ORDER BY enqueue_sequence ASC
@@ -839,6 +843,9 @@ class ImportOperationStore:
             for row in cursor.fetchall():
                 durable_status = str(row["status"])
                 error = self._parse_error_json(row["error_json"])
+                completed_at = (
+                    str(row["completed_at"]) if row["completed_at"] is not None else None
+                )
                 if durable_status == IMPORT_ADMISSION_PENDING_STATUS:
                     references.append(
                         ArtifactOperationReference(
@@ -846,16 +853,32 @@ class ImportOperationStore:
                             durable_status=durable_status,
                             status=None,
                             is_protected=True,
+                            completed_at=completed_at,
                         )
                     )
                     continue
-                wire_status = OperationStatus(durable_status)
+                try:
+                    wire_status = OperationStatus(durable_status)
+                except ValueError:
+                    references.append(
+                        ArtifactOperationReference(
+                            operation_id=UUID(str(row["operation_id"])),
+                            durable_status=durable_status,
+                            status=None,
+                            is_protected=True,
+                            completed_at=completed_at,
+                        )
+                    )
+                    continue
                 references.append(
                     ArtifactOperationReference(
                         operation_id=UUID(str(row["operation_id"])),
                         durable_status=durable_status,
                         status=wire_status,
-                        is_protected=is_protected_durable_status(durable_status, wire_status, error),
+                        is_protected=is_protected_durable_status(
+                            durable_status, wire_status, error
+                        ),
+                        completed_at=completed_at,
                     )
                 )
             return references
@@ -866,6 +889,25 @@ class ImportOperationStore:
             return False
         return any(
             reference.status == OperationStatus.SUCCEEDED for reference in references
+        )
+
+    def evaluate_artifact_bytes_deletion(
+        self,
+        artifact_id: UUID,
+        *,
+        now: datetime | None = None,
+        ttl_seconds: int,
+    ) -> ArtifactBytesDeletionDecision:
+        from gateway_repository_service.artifact_retention import decide_artifact_bytes_deletion
+
+        lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
+        references = self.list_artifact_references(artifact_id)
+        clock = now if now is not None else datetime.now(UTC)
+        return decide_artifact_bytes_deletion(
+            lifecycle=lifecycle,
+            references=references,
+            now=clock,
+            ttl_seconds=ttl_seconds,
         )
 
     def mark_artifact_bytes_deleted(self, artifact_id: UUID) -> None:

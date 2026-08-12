@@ -142,6 +142,10 @@ class ImportWorkerPool:
         self._cancellation_lock = threading.Lock()
         self._dispatcher: threading.Thread | None = None
         self._workers: list[threading.Thread] = []
+        self._lifecycle_notify: Callable[[], None] | None = None
+
+    def set_lifecycle_notify(self, callback: Callable[[], None] | None) -> None:
+        self._lifecycle_notify = callback
 
     def start(self) -> None:
         if self._dispatcher is not None:
@@ -211,6 +215,12 @@ class ImportWorkerPool:
     def notify(self) -> None:
         with self._notify:
             self._notify.notify_all()
+        callback = self._lifecycle_notify
+        if callback is not None:
+            try:
+                callback()
+            except Exception:
+                _LOGGER.exception("artifact lifecycle notify failed")
 
     def _is_shutting_down(self) -> bool:
         if self._shutdown.is_set():

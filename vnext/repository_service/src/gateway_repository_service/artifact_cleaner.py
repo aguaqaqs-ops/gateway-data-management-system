@@ -21,13 +21,14 @@ from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import MutationStore
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
-    ready_artifact_entry_absent,
     try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
 )
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 
 _LOGGER = logging.getLogger(__name__)
+
+_HEX32 = frozenset("0123456789abcdef")
 
 
 @runtime_checkable
@@ -81,8 +82,6 @@ class ArtifactCleaner:
             if self._started:
                 return
             self._stopping = False
-            # The worker always performs one immediate sweep. `_pending` is only
-            # for lifecycle notifications that arrive during/after that sweep.
             self._pending = False
             thread = threading.Thread(
                 target=self._run,
@@ -140,17 +139,16 @@ class ArtifactCleaner:
                 if self._stopping:
                     return
                 if self._pending:
-                    # Sticky wake consumed: resweep immediately without sleeping.
                     self._pending = False
                     continue
                 self._condition.wait(timeout=max(interval, 0.0))
                 if self._stopping:
                     return
-                # Timeout fallback or wake: clear sticky bit and loop for next sweep.
                 self._pending = False
 
     def _sweep(self) -> None:
         started = time.monotonic()
+        self._inventory_owned_artifact_tree()
         try:
             candidates = self._mutation_store.list_artifacts_pending_byte_cleanup()
         except Exception:
@@ -164,22 +162,10 @@ class ArtifactCleaner:
             )
             return
 
-        inventoried_repositories: set[UUID] = set()
         for lifecycle in candidates:
             if self._stopping:
                 return
             try:
-                if lifecycle.repository_id not in inventoried_repositories:
-                    ready_dir = artifact_ready_path(
-                        self._layout,
-                        lifecycle.repository_id,
-                        lifecycle.artifact_id,
-                    ).parent
-                    self._inventory_unknown_ready_entries(
-                        lifecycle.repository_id,
-                        ready_dir,
-                    )
-                    inventoried_repositories.add(lifecycle.repository_id)
                 self._process_candidate(lifecycle.artifact_id, lifecycle.repository_id)
             except Exception:
                 _LOGGER.exception(
@@ -239,22 +225,15 @@ class ArtifactCleaner:
             artifact_id=artifact_id,
         )
         if path_kind == "absent":
-            if not self._still_eligible(artifact_id):
-                return
-            if not ready_artifact_entry_absent(expected):
-                return
-            self._import_store.mark_artifact_bytes_deleted(
-                artifact_id,
-                deleted_at=self._deleted_at_stamp(),
-            )
+            # Missing bytes without a verified unlink in this call never mint a stamp.
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
                 artifact_id=artifact_id,
                 stage="delete",
-                result="deleted",
+                result="retained",
                 code=decision.reason.value,
-                cleanup_outcome="already_absent_recorded",
+                cleanup_outcome="already_absent_unproven",
                 logger=_LOGGER,
             )
             return
@@ -271,65 +250,24 @@ class ArtifactCleaner:
             )
             return
 
-        outcome = try_unlink_ready_artifact_with_recheck(
-            expected,
-            recheck=lambda: self._still_eligible(artifact_id),
-        )
-        if outcome == "busy":
-            log_event(
-                "artifact_cleanup",
-                repository_id=repository_id,
-                artifact_id=artifact_id,
-                stage="delete",
-                result="retained",
-                cleanup_outcome="lock_busy",
-                logger=_LOGGER,
-            )
-            return
-        if outcome == "ineligible":
-            log_event(
-                "artifact_cleanup",
-                repository_id=repository_id,
-                artifact_id=artifact_id,
-                stage="delete",
-                result="retained",
-                cleanup_outcome="eligibility_changed",
-                logger=_LOGGER,
-            )
-            return
-        if outcome in {
-            "unlink_failed",
-            "inode_mismatch",
-            "not_regular_file",
-            "path_recreated",
-            "symlink",
-        }:
-            log_event(
-                "artifact_cleanup",
-                repository_id=repository_id,
-                artifact_id=artifact_id,
-                stage="delete",
-                result="retained",
-                cleanup_outcome=outcome,
-                logger=_LOGGER,
-            )
-            return
-        if outcome in {"deleted", "already_absent"}:
-            if not ready_artifact_entry_absent(expected):
-                log_event(
-                    "artifact_cleanup",
-                    repository_id=repository_id,
-                    artifact_id=artifact_id,
-                    stage="delete",
-                    result="retained",
-                    cleanup_outcome="still_present_after_unlink",
-                    logger=_LOGGER,
-                )
-                return
+        stamped = {"ok": False}
+
+        def _stamp() -> None:
             self._import_store.mark_artifact_bytes_deleted(
                 artifact_id,
                 deleted_at=self._deleted_at_stamp(),
             )
+            stamped["ok"] = True
+
+        outcome = try_unlink_ready_artifact_with_recheck(
+            expected,
+            recheck=lambda: self._still_eligible(artifact_id),
+            layout=self._layout,
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+            on_deleted=_stamp,
+        )
+        if outcome == "deleted" and stamped["ok"]:
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
@@ -337,22 +275,94 @@ class ArtifactCleaner:
                 stage="delete",
                 result="deleted",
                 code=decision.reason.value,
-                cleanup_outcome=outcome,
+                cleanup_outcome="deleted",
                 logger=_LOGGER,
             )
+            return
+        if outcome == "busy":
+            cleanup_outcome = "lock_busy"
+        elif outcome == "ineligible":
+            cleanup_outcome = "eligibility_changed"
+        elif outcome == "already_absent":
+            cleanup_outcome = "already_absent_unproven"
+        else:
+            cleanup_outcome = outcome
+        log_event(
+            "artifact_cleanup",
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+            stage="delete",
+            result="retained",
+            cleanup_outcome=cleanup_outcome,
+            logger=_LOGGER,
+        )
 
     def _deleted_at_stamp(self) -> str:
         return self._clock().astimezone(UTC).replace(microsecond=0).isoformat()
 
-    def _inventory_unknown_ready_entries(
-        self,
-        repository_id: UUID,
-        ready_dir: Path,
-    ) -> None:
-        if not ready_dir.is_dir():
+    def _inventory_owned_artifact_tree(self) -> None:
+        artifacts_root = self._layout.artifacts
+        if not artifacts_root.is_dir():
             return
         try:
-            names = list(ready_dir.iterdir())
+            repo_entries = list(artifacts_root.iterdir())
+        except OSError:
+            log_event(
+                "artifact_cleanup",
+                stage="path_check",
+                result="retained",
+                cleanup_outcome="artifacts_root_unreadable",
+                logger=_LOGGER,
+            )
+            return
+        for repo_entry in repo_entries:
+            name = repo_entry.name
+            if len(name) != 32 or any(ch not in _HEX32 for ch in name):
+                log_event(
+                    "artifact_cleanup",
+                    stage="path_check",
+                    result="retained",
+                    cleanup_outcome="unknown_path_inventory",
+                    logger=_LOGGER,
+                )
+                continue
+            try:
+                repository_id = UUID(hex=name)
+            except ValueError:
+                log_event(
+                    "artifact_cleanup",
+                    stage="path_check",
+                    result="retained",
+                    cleanup_outcome="unknown_path_inventory",
+                    logger=_LOGGER,
+                )
+                continue
+            for sub in ("ready", "staging"):
+                self._inventory_directory_entries(
+                    repository_id,
+                    repo_entry / sub,
+                    allow_staging_shape=(sub == "staging"),
+                )
+
+        staging_artifacts = self._layout.staging_artifacts
+        if staging_artifacts.is_dir():
+            self._inventory_directory_entries(
+                None,
+                staging_artifacts,
+                allow_staging_shape=True,
+            )
+
+    def _inventory_directory_entries(
+        self,
+        repository_id: UUID | None,
+        directory: Path,
+        *,
+        allow_staging_shape: bool,
+    ) -> None:
+        if not directory.is_dir():
+            return
+        try:
+            entries = list(directory.iterdir())
         except OSError:
             log_event(
                 "artifact_cleanup",
@@ -363,15 +373,14 @@ class ArtifactCleaner:
                 logger=_LOGGER,
             )
             return
-        for entry in names:
+        for entry in entries:
             name = entry.name
-            if len(name) == 32 and all(ch in "0123456789abcdef" for ch in name):
-                try:
-                    lifecycle = self._mutation_store.get_artifact_lifecycle(UUID(hex=name))
-                except Exception:
-                    lifecycle = None
-                if lifecycle is not None and lifecycle.repository_id == repository_id:
-                    continue
+            if name.startswith(".deleting-"):
+                continue
+            if _is_exact_ready_name(name):
+                continue
+            if allow_staging_shape and _is_staging_shape(name):
+                continue
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
@@ -391,6 +400,18 @@ class ArtifactCleaner:
             ttl_seconds=self._settings.artifact_ttl_seconds,
         )
         return decision.eligible
+
+
+def _is_exact_ready_name(name: str) -> bool:
+    return len(name) == 32 and all(ch in _HEX32 for ch in name)
+
+
+def _is_staging_shape(name: str) -> bool:
+    # Upload staging: <artifact_hex>.<12-hex-nonce>
+    if "." not in name:
+        return False
+    left, right = name.split(".", 1)
+    return _is_exact_ready_name(left) and len(right) == 12 and all(ch in _HEX32 for ch in right)
 
 
 def classify_ready_artifact_path(

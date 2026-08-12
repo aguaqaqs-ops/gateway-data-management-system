@@ -50,7 +50,10 @@ from gateway_repository_service.versioned_import.locks import RepositoryLockRegi
 from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
 from gateway_repository_service.versioned_import.recovery import ImportStartupReconciler
 from gateway_repository_service.versioned_import.store import ImportOperationStore
-from gateway_repository_service.versioned_import.worker import ImportWorkerPool
+from gateway_repository_service.versioned_import.worker import (
+    ImportWorkerPool,
+    ImportWorkerShutdownError,
+)
 from gateway_repository_service.versioned_read.application import VersionedReadApplication
 from gateway_repository_service.versioned_read.arrow_bridge import BRIDGE_REGISTRY, BridgeShutdownError
 from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
@@ -308,6 +311,7 @@ class ServiceRuntime:
         cleanup_errors: list[Exception] = []
         bridge_shutdown_error: BridgeShutdownError | None = None
         cleaner_join_failed = False
+        worker_join_failed = False
 
         try:
             try:
@@ -332,11 +336,29 @@ class ServiceRuntime:
                 finally:
                     try:
                         self.import_worker_pool.stop(timeout=grace * 2)
+                    except ImportWorkerShutdownError as exc:
+                        _LOGGER.exception("import worker pool join failed; retaining durable ownership")
+                        cleanup_errors.append(exc)
+                        worker_join_failed = True
+                        self.dolt_runner.terminate_active_children(grace_seconds=grace)
+                        try:
+                            self.import_worker_pool.stop(timeout=grace)
+                        except ImportWorkerShutdownError as retry_exc:
+                            _LOGGER.exception("import worker pool still running after second stop")
+                            cleanup_errors.append(retry_exc)
+                            worker_join_failed = True
+                        except Exception as retry_exc:
+                            _LOGGER.exception("import worker pool second stop failed")
+                            cleanup_errors.append(retry_exc)
                     except Exception:
                         _LOGGER.exception("import worker pool did not stop cleanly")
                         self.dolt_runner.terminate_active_children(grace_seconds=grace)
                         try:
                             self.import_worker_pool.stop(timeout=grace)
+                        except ImportWorkerShutdownError as exc:
+                            _LOGGER.exception("import worker pool still running after second stop")
+                            cleanup_errors.append(exc)
+                            worker_join_failed = True
                         except Exception as exc:
                             _LOGGER.exception("import worker pool still running after second stop")
                             cleanup_errors.append(exc)
@@ -360,24 +382,30 @@ class ServiceRuntime:
             row_snap = self.row_stream_admission.snapshot()
             retain_ownership = (
                 cleaner_join_failed
+                or worker_join_failed
                 or not drained
                 or upload_snap.in_use != 0
                 or row_snap.in_use != 0
             )
             if retain_ownership:
+                if cleaner_join_failed:
+                    result = "cleaner_join_failed"
+                    cleanup_outcome = "cleaner_alive_after_join_timeout"
+                elif worker_join_failed:
+                    result = "worker_join_failed"
+                    cleanup_outcome = "worker_alive_after_join_timeout"
+                else:
+                    result = "permit_leak"
+                    cleanup_outcome = "permit_in_use_after_drain_wait"
                 log_event(
                     "runtime_shutdown",
-                    result="permit_leak" if not cleaner_join_failed else "cleaner_join_failed",
+                    result=result,
                     capacity=upload_snap.capacity,
                     in_use=upload_snap.in_use + row_snap.in_use,
-                    cleanup_outcome=(
-                        "cleaner_alive_after_join_timeout"
-                        if cleaner_join_failed
-                        else "permit_in_use_after_drain_wait"
-                    ),
+                    cleanup_outcome=cleanup_outcome,
                     logger=_LOGGER,
                 )
-                if not cleaner_join_failed:
+                if not cleaner_join_failed and not worker_join_failed:
                     drain_error = AdmissionDrainTimeoutError(
                         upload_in_use=upload_snap.in_use,
                         row_stream_in_use=row_snap.in_use,

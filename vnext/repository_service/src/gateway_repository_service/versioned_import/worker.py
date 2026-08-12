@@ -195,20 +195,27 @@ class ImportWorkerPool:
         with self._notify:
             self._notify.notify_all()
         timed_out: list[str] = []
+        remaining_workers: list[threading.Thread] = []
         dispatcher = self._dispatcher
-        self._dispatcher = None
         if dispatcher is not None:
             dispatcher.join(timeout=join_timeout)
             if dispatcher.is_alive():
                 timed_out.append(dispatcher.name)
+                # Keep the handle so a later stop can retry the join.
+            else:
+                self._dispatcher = None
         workers = list(self._workers)
-        self._workers.clear()
         for worker in workers:
             worker.join(timeout=join_timeout)
             if worker.is_alive():
                 timed_out.append(worker.name)
+                remaining_workers.append(worker)
+        self._workers = remaining_workers
         if timed_out:
-            message = f"import worker threads did not stop within {join_timeout}s: {', '.join(timed_out)}"
+            message = (
+                f"import worker threads did not stop within {join_timeout}s: "
+                f"{', '.join(timed_out)}"
+            )
             _LOGGER.error(message)
             raise ImportWorkerShutdownError(message)
 

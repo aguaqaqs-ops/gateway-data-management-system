@@ -26,7 +26,6 @@ from gateway_repository_service.artifact_cleaner import (
     ArtifactCleaner,
     ArtifactCleanerShutdownError,
     classify_ready_artifact_path,
-    try_unlink_ready_artifact_with_recheck,
 )
 from gateway_repository_service.artifact_retention import (
     ArtifactBytesDeletionReason,
@@ -52,6 +51,10 @@ from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupErr
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import ArtifactAdmissionPin
 from gateway_repository_service.upload_artifact.admission_pin import ArtifactNotReadyForAdmission
+from gateway_repository_service.upload_artifact.admission_pin import try_unlink_owned_ready_artifact
+from gateway_repository_service.upload_artifact.admission_pin import (
+    try_unlink_ready_artifact_with_recheck,
+)
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import import versioned_import_fingerprint_v1
 from gateway_repository_service.versioned_import.models import (
@@ -391,6 +394,31 @@ def test_protected_references_are_retained(label: str, reference: ArtifactOperat
 
 
 def test_succeeded_residual_is_immediately_eligible() -> None:
+    completed = "2026-08-02T00:00:00+00:00"
+    decision = decide_artifact_bytes_deletion(
+        lifecycle=_lifecycle(
+            consumed_by_operation_id=OPERATION_ID,
+            consumed_at=completed,
+        ),
+        references=[
+            ArtifactOperationReference(
+                operation_id=OPERATION_ID,
+                durable_status=OperationStatus.SUCCEEDED.value,
+                status=OperationStatus.SUCCEEDED,
+                is_protected=False,
+                completed_at=completed,
+                result_artifact_id=ARTIFACT_ID,
+                projection_valid=True,
+            )
+        ],
+        now=BASE_NOW,
+        ttl_seconds=86400,
+    )
+    assert decision.eligible is True
+    assert decision.reason is ArtifactBytesDeletionReason.SUCCEEDED_IMMEDIATE
+
+
+def test_succeeded_without_consumption_is_not_immediately_eligible() -> None:
     decision = decide_artifact_bytes_deletion(
         lifecycle=_lifecycle(),
         references=[
@@ -400,13 +428,15 @@ def test_succeeded_residual_is_immediately_eligible() -> None:
                 status=OperationStatus.SUCCEEDED,
                 is_protected=False,
                 completed_at="2026-08-02T00:00:00+00:00",
+                result_artifact_id=ARTIFACT_ID,
+                projection_valid=True,
             )
         ],
         now=BASE_NOW,
         ttl_seconds=86400,
     )
-    assert decision.eligible is True
-    assert decision.reason is ArtifactBytesDeletionReason.SUCCEEDED_IMMEDIATE
+    assert decision.eligible is False
+    assert decision.reason is ArtifactBytesDeletionReason.FAIL_CLOSED
 
 
 def test_multi_ordinary_failed_uses_conservative_latest_completed_at() -> None:
@@ -570,11 +600,11 @@ def test_cleanup_retries_after_first_failure(
     calls = {"n": 0}
     original = try_unlink_ready_artifact_with_recheck
 
-    def flaky(path: Path, *, recheck: object) -> str:
+    def flaky(path: Path, *, recheck: object, **kwargs: object) -> str:
         calls["n"] += 1
         if calls["n"] == 1:
             return "unlink_failed"
-        return original(path, recheck=recheck)  # type: ignore[arg-type]
+        return original(path, recheck=recheck, **kwargs)  # type: ignore[arg-type]
 
     import gateway_repository_service.artifact_cleaner as cleaner_mod
 
@@ -608,13 +638,13 @@ def test_cleanup_failure_retries_after_lifecycle_notification(
     original = try_unlink_ready_artifact_with_recheck
     calls = 0
 
-    def fail_once(path: Path, *, recheck: object) -> str:
+    def fail_once(path: Path, *, recheck: object, **kwargs: object) -> str:
         nonlocal calls
         calls += 1
         if calls == 1:
             first_failure.set()
             return "unlink_failed"
-        return original(path, recheck=recheck)  # type: ignore[arg-type]
+        return original(path, recheck=recheck, **kwargs)  # type: ignore[arg-type]
 
     import gateway_repository_service.artifact_cleaner as cleaner_mod
 
@@ -653,13 +683,13 @@ def test_cleanup_failure_retries_after_interval_fallback(
     original = try_unlink_ready_artifact_with_recheck
     calls = 0
 
-    def fail_once(path: Path, *, recheck: object) -> str:
+    def fail_once(path: Path, *, recheck: object, **kwargs: object) -> str:
         nonlocal calls
         calls += 1
         if calls == 1:
             first_failure.set()
             return "unlink_failed"
-        return original(path, recheck=recheck)  # type: ignore[arg-type]
+        return original(path, recheck=recheck, **kwargs)  # type: ignore[arg-type]
 
     import gateway_repository_service.artifact_cleaner as cleaner_mod
 
@@ -716,6 +746,7 @@ def test_lock_busy_retains_bytes(
         assert lifecycle.bytes_deleted_at is None
 
 
+@pytest.mark.serial
 def test_admission_pin_race_does_not_delete_pending_reference(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
@@ -741,6 +772,9 @@ def test_admission_pin_race_does_not_delete_pending_reference(
                 now=BASE_NOW,
                 ttl_seconds=1,
             ).eligible,
+            layout=layout,
+            repository_id=REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
         )
         outcome["result"] = result
 
@@ -801,7 +835,7 @@ def test_unlink_failure_does_not_record_bytes_deleted_at(
     assert lifecycle.bytes_deleted_at is None
 
 
-def test_already_absent_records_bytes_deleted_at(
+def test_already_absent_does_not_record_bytes_deleted_at(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
 ) -> None:
@@ -823,7 +857,52 @@ def test_already_absent_records_bytes_deleted_at(
     ).sweep_once()
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
-    assert lifecycle.bytes_deleted_at is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+def test_lost_bytes_before_ttl_still_block_readiness_after_ttl(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store, created_at=CREATED_AT)
+    ready = _write_ready(layout)
+    ready.unlink()
+    assert not ready.exists()
+
+    before_ttl = datetime.fromisoformat(CREATED_AT) + timedelta(seconds=10)
+    after_ttl = datetime.fromisoformat(CREATED_AT) + timedelta(seconds=120)
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=60, interval=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: after_ttl,
+    )
+    # Eligible by orphan TTL, but absence is unproven — must not mint stamp.
+    cleaner.sweep_once()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+    assert not retention_explains_missing_ready_bytes(
+        lifecycle=lifecycle,
+        repository_id=REPOSITORY_ID,
+        references=[],
+        ttl_seconds=60,
+        now=after_ttl,
+    )
+    watch = MutableConsistencyWatch()
+    watch.register_succeeded_upload(REPOSITORY_ID, ARTIFACT_ID, len(ARTIFACT_PAYLOAD))
+    failures = import_artifact_watch_failures(
+        store,
+        mutation_store,
+        watch.snapshot(),
+        layout,
+        ttl_seconds=60,
+        now=after_ttl,
+    )
+    assert failures
+    del before_ttl
 
 
 def test_symlink_and_malformed_paths_are_not_deleted(layout: DurableLayout, tmp_path: Path) -> None:
@@ -899,7 +978,8 @@ def test_unknown_and_malformed_ready_entries_are_retained_with_safe_diagnostics(
         for record in caplog.records
         if getattr(record, "cleanup_outcome", None) == "unknown_path_inventory"
     ]
-    assert len(unknown_diagnostics) == 2
+    # Exact UUID filenames are owned shape (candidate-driven); only malformed names inventory.
+    assert len(unknown_diagnostics) == 1
     assert all(str(ready_dir) not in record.getMessage() for record in unknown_diagnostics)
 
 
@@ -922,6 +1002,9 @@ def test_cleaner_wins_pin_race_admission_cannot_accept_missing_bytes(
         outcomes["cleaner"] = try_unlink_ready_artifact_with_recheck(
             ready,
             recheck=recheck,
+            layout=layout,
+            repository_id=REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
         )
 
     def admit() -> None:
@@ -1279,6 +1362,7 @@ def test_illegal_missing_artifact_still_blocks_readiness(
 
 
 @pytest.mark.integration
+@pytest.mark.serial
 def test_legal_ttl_delete_survives_restart_readiness(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     settings = settings.model_copy(
@@ -1361,3 +1445,235 @@ def test_runtime_start_failure_unwinds_cleaner_thread(
         if thread.name == "artifact-cleaner" and thread.ident not in existing_cleaners
     ]
     assert leaked == []
+
+
+def test_parent_symlink_escape_does_not_delete_outside_target(
+    layout: DurableLayout,
+    tmp_path: Path,
+) -> None:
+    ready = _write_ready(layout)
+    outside_dir = tmp_path / "escape-ready"
+    outside_dir.mkdir()
+    outside_target = outside_dir / ARTIFACT_ID.hex
+    ready.rename(outside_target)
+    ready_dir = ready.parent
+    ready_dir.rmdir()
+    ready_dir.symlink_to(outside_dir)
+
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+    )
+    assert outcome != "deleted"
+    assert outside_target.is_file()
+    assert outside_target.read_bytes() == ARTIFACT_PAYLOAD
+
+
+def test_pathname_replace_before_rename_does_not_claim_deleted(
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ready = _write_ready(layout)
+    original_stat = ready.stat()
+    real_rename = os.rename
+
+    def replace_then_rename(
+        src: str | bytes | os.PathLike[str],
+        dst: str | bytes | os.PathLike[str],
+        *args: object,
+        src_dir_fd: int | None = None,
+        dst_dir_fd: int | None = None,
+        **kwargs: object,
+    ) -> None:
+        if src_dir_fd is not None and str(src) == ARTIFACT_ID.hex:
+            os.unlink(str(src), dir_fd=src_dir_fd)
+            fd = os.open(
+                str(src),
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+                dir_fd=src_dir_fd,
+            )
+            try:
+                os.write(fd, b"replacement-inode")
+            finally:
+                os.close(fd)
+        real_rename(
+            src,
+            dst,
+            *args,
+            src_dir_fd=src_dir_fd,
+            dst_dir_fd=dst_dir_fd,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(os, "rename", replace_then_rename)
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+    )
+    assert outcome == "inode_mismatch"
+    # Original inode was unlinked by the attacker; replacement must not be reported as deleted.
+    assert outcome != "deleted"
+    del original_stat
+
+
+def test_bytes_deleted_stamp_is_written_while_flock_held(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import fcntl
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _write_ready(layout)
+    stamped_before_unlock = {"ok": False}
+    real_flock = fcntl.flock
+
+    def probe_flock(fd: int, operation: int) -> None:
+        if operation == fcntl.LOCK_UN:
+            lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+            stamped_before_unlock["ok"] = (
+                lifecycle is not None and lifecycle.bytes_deleted_at is not None
+            )
+        return real_flock(fd, operation)
+
+    monkeypatch.setattr(fcntl, "flock", probe_flock)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    assert stamped_before_unlock["ok"] is True
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None and lifecycle.bytes_deleted_at is not None
+
+
+def test_inventory_reports_unknown_entries_without_lifecycle(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store, mutation_store = stores
+    del mutation_store
+    unknown_repo = layout.artifacts / ("a" * 32)
+    ready_dir = unknown_repo / "ready"
+    ready_dir.mkdir(parents=True)
+    malformed = ready_dir / "not-an-artifact"
+    malformed.write_bytes(b"x")
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=stores[1],
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert malformed.is_file()
+    diagnostics = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "unknown_path_inventory"
+    ]
+    assert diagnostics
+    assert all(str(ready_dir) not in record.getMessage() for record in diagnostics)
+
+
+def test_malformed_succeeded_result_json_is_not_eligible(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    _enqueue(store, key="ok", operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_succeeded(OPERATION_ID, result=_import_result())
+
+    with store._lock:
+        store._connection.execute(
+            """
+            UPDATE repository_import_operations
+            SET result_json = NULL
+            WHERE operation_id = ?
+            """,
+            (str(OPERATION_ID),),
+        )
+        store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET consumed_by_operation_id = NULL, consumed_at = NULL
+            WHERE artifact_id = ?
+            """,
+            (str(ARTIFACT_ID),),
+        )
+        store._connection.commit()
+
+    decision = store.evaluate_artifact_bytes_deletion(
+        ARTIFACT_ID,
+        now=BASE_NOW,
+        ttl_seconds=1,
+    )
+    assert decision.eligible is False
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    assert ready.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+def test_succeeded_cleared_consumption_is_not_eligible(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    _enqueue(store, key="ok", operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_succeeded(OPERATION_ID, result=_import_result())
+
+    with store._lock:
+        store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET consumed_by_operation_id = NULL, consumed_at = NULL
+            WHERE artifact_id = ?
+            """,
+            (str(ARTIFACT_ID),),
+        )
+        store._connection.commit()
+
+    decision = store.evaluate_artifact_bytes_deletion(
+        ARTIFACT_ID,
+        now=BASE_NOW,
+        ttl_seconds=1,
+    )
+    assert decision.eligible is False
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    assert ready.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None

@@ -127,7 +127,12 @@ def compute_retention_boundary(
             if completed_at is None or completed_at < created_at:
                 return ArtifactRetentionBoundary(reason=ArtifactBytesDeletionReason.FAIL_CLOSED)
             if status == OperationStatus.SUCCEEDED:
-                if reference.is_protected or reference.error_code is not None:
+                if (
+                    reference.is_protected
+                    or reference.error_code is not None
+                    or not reference.projection_valid
+                    or reference.result_artifact_id is None
+                ):
                     return ArtifactRetentionBoundary(
                         reason=ArtifactBytesDeletionReason.FAIL_CLOSED
                     )
@@ -182,7 +187,9 @@ def compute_retention_boundary(
             continue
         return ArtifactRetentionBoundary(reason=ArtifactBytesDeletionReason.FAIL_CLOSED)
 
-    if has_consumed_operation:
+    if has_succeeded:
+        if not has_consumed_operation or consumed_at is None:
+            return ArtifactRetentionBoundary(reason=ArtifactBytesDeletionReason.FAIL_CLOSED)
         matching_consumed = [
             reference
             for reference in references
@@ -191,19 +198,21 @@ def compute_retention_boundary(
         if (
             len(matching_consumed) != 1
             or matching_consumed[0].status != OperationStatus.SUCCEEDED
-            or consumed_at is None
+            or not matching_consumed[0].projection_valid
+            or matching_consumed[0].result_artifact_id != lifecycle.artifact_id
         ):
             return ArtifactRetentionBoundary(reason=ArtifactBytesDeletionReason.FAIL_CLOSED)
-
-    if has_succeeded:
         earliest = max(succeeded_completed)
-        if consumed_at is not None:
-            earliest = max(earliest, consumed_at)
+        earliest = max(earliest, consumed_at)
         return ArtifactRetentionBoundary(
             reason=ArtifactBytesDeletionReason.SUCCEEDED_IMMEDIATE,
             earliest_eligible_at=earliest,
             immediate=True,
         )
+
+    if has_consumed_operation:
+        # Consumption without a valid SUCCEEDED projection is contradictory.
+        return ArtifactRetentionBoundary(reason=ArtifactBytesDeletionReason.FAIL_CLOSED)
 
     if not ordinary_failed_completed:
         return ArtifactRetentionBoundary(reason=ArtifactBytesDeletionReason.FAIL_CLOSED)

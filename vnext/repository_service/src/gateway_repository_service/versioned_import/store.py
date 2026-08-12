@@ -830,9 +830,27 @@ class ImportOperationStore:
 
     def list_artifact_references(self, artifact_id: UUID) -> list[ArtifactOperationReference]:
         with self._transaction():
+            lifecycle_row = self._connection.execute(
+                """
+                SELECT repository_scope
+                FROM artifact_lifecycle
+                WHERE artifact_id = ?
+                """,
+                (str(artifact_id),),
+            ).fetchone()
+            expected_scope = (
+                str(lifecycle_row["repository_scope"]) if lifecycle_row is not None else None
+            )
             cursor = self._connection.execute(
                 """
-                SELECT operation_id, status, error_json, completed_at
+                SELECT
+                    operation_id,
+                    status,
+                    error_json,
+                    completed_at,
+                    repository_scope,
+                    artifact_id,
+                    result_json
                 FROM repository_import_operations
                 WHERE artifact_id = ?
                 ORDER BY enqueue_sequence ASC
@@ -846,6 +864,14 @@ class ImportOperationStore:
                 completed_at = (
                     str(row["completed_at"]) if row["completed_at"] is not None else None
                 )
+                repository_scope = str(row["repository_scope"])
+                row_artifact_id = UUID(str(row["artifact_id"]))
+                result_artifact_id: UUID | None = None
+                projection_valid = True
+                if row_artifact_id != artifact_id:
+                    projection_valid = False
+                if expected_scope is not None and repository_scope != expected_scope:
+                    projection_valid = False
                 if durable_status == IMPORT_ADMISSION_PENDING_STATUS:
                     references.append(
                         ArtifactOperationReference(
@@ -855,6 +881,9 @@ class ImportOperationStore:
                             is_protected=True,
                             completed_at=completed_at,
                             error_code=error.code if error is not None else None,
+                            repository_scope=repository_scope,
+                            result_artifact_id=None,
+                            projection_valid=projection_valid,
                         )
                     )
                     continue
@@ -869,19 +898,41 @@ class ImportOperationStore:
                             is_protected=True,
                             completed_at=completed_at,
                             error_code=error.code if error is not None else None,
+                            repository_scope=repository_scope,
+                            result_artifact_id=None,
+                            projection_valid=False,
                         )
                     )
                     continue
+                if wire_status == OperationStatus.SUCCEEDED:
+                    try:
+                        if row["result_json"] is None:
+                            raise ValueError("missing result")
+                        payload = json.loads(str(row["result_json"]))
+                        result = VersionedImportResult.model_validate(payload)
+                        result_artifact_id = result.artifact_id
+                        if result.artifact_id != artifact_id:
+                            projection_valid = False
+                    except (TypeError, ValueError, ValidationError, json.JSONDecodeError):
+                        projection_valid = False
+                        result_artifact_id = None
                 references.append(
                     ArtifactOperationReference(
                         operation_id=UUID(str(row["operation_id"])),
                         durable_status=durable_status,
-                        status=wire_status,
-                        is_protected=is_protected_durable_status(
-                            durable_status, wire_status, error
+                        status=wire_status if projection_valid else None,
+                        is_protected=(
+                            True
+                            if not projection_valid
+                            else is_protected_durable_status(
+                                durable_status, wire_status, error
+                            )
                         ),
                         completed_at=completed_at,
                         error_code=error.code if error is not None else None,
+                        repository_scope=repository_scope,
+                        result_artifact_id=result_artifact_id,
+                        projection_valid=projection_valid,
                     )
                 )
             return references

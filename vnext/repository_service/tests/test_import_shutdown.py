@@ -221,15 +221,15 @@ def test_runtime_shutdown_closes_cleanly(tmp_path: Path) -> None:
 
 @pytest.mark.serial
 @pytest.mark.integration
-def test_runtime_shutdown_releases_root_lock_when_worker_hangs(tmp_path: Path) -> None:
+def test_runtime_shutdown_retains_ownership_when_worker_hangs(tmp_path: Path) -> None:
     import time
 
     from gateway_repository_contracts import RepositoryArtifactRef, UnknownTypePolicy, VerificationPolicy
-    from gateway_repository_service.locking import DurableRootLock
     from gateway_repository_service.mutation_store import IdempotencyKeyHash
     from gateway_repository_service.runtime import ServiceRuntime
     from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
     from gateway_repository_service.versioned_import import ImportRequestBinding, versioned_import_fingerprint_v1
+    from gateway_repository_service.versioned_import.worker import ImportWorkerShutdownError
     from support.import_worker_harness import FakeImportProvider, MEDIA_TYPE
     from support.lifecycle_harness import lifecycle_settings
     from test_import_package import build_package_bytes, write_artifact
@@ -238,7 +238,6 @@ def test_runtime_shutdown_releases_root_lock_when_worker_hangs(tmp_path: Path) -
         update={"import_shutdown_grace_seconds": 0.05, "max_import_workers": 1}
     )
     runtime = ServiceRuntime.start(settings)
-    lock_path = runtime.layout.service_lock
     provider = FakeImportProvider()
     blocker = threading.Event()
 
@@ -291,13 +290,25 @@ def test_runtime_shutdown_releases_root_lock_when_worker_hangs(tmp_path: Path) -
     runtime.import_worker_pool.notify()
     time.sleep(0.2)
     try:
-        runtime.shutdown()
-        assert not runtime.control_store.is_open()
-        assert not runtime.root_lock.is_held()
-        with DurableRootLock(lock_path):
-            pass
+        with pytest.raises(ExceptionGroup) as exc_info:
+            runtime.shutdown()
+        assert any(
+            isinstance(exc, ImportWorkerShutdownError) for exc in exc_info.value.exceptions
+        )
+        assert runtime.control_store.is_open()
+        assert runtime.root_lock.is_held()
+        # Alive worker handles must remain so a later stop can retry join.
+        assert any(worker.is_alive() for worker in runtime.import_worker_pool._workers)
     finally:
         blocker.set()
+        try:
+            runtime.import_worker_pool.stop(timeout=5.0)
+        except Exception:
+            pass
+        if runtime.control_store.is_open():
+            runtime.control_store.close()
+        if runtime.root_lock.is_held():
+            runtime.root_lock.release()
 
 
 @pytest.mark.serial
@@ -320,7 +331,7 @@ def test_runtime_shutdown_propagates_bridge_shutdown_error_after_releasing_resou
     runtime: ServiceRuntime | None = None
     try:
         settings = lifecycle_settings(tmp_path).model_copy(
-            update={"import_shutdown_grace_seconds": 0.05}
+            update={"import_shutdown_grace_seconds": 1.0}
         )
         runtime = ServiceRuntime.start(settings)
         lock_path = runtime.layout.service_lock

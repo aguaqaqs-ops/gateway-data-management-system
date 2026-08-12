@@ -321,6 +321,9 @@ class ArtifactOperationReference:
     is_protected: bool
     completed_at: str | None = None
     error_code: str | None = None
+    repository_scope: str | None = None
+    result_artifact_id: UUID | None = None
+    projection_valid: bool = True
 
 
 def derive_private_ref_name(operation_id: UUID) -> str:

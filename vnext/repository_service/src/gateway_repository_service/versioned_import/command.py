@@ -14,7 +14,6 @@ from gateway_repository_service.capacity import CapacityAdmissionError, assert_i
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
-    ready_artifact_entry_absent,
     try_unlink_ready_artifact_with_recheck,
 )
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -372,14 +371,22 @@ class ImportOperationExecutor:
         artifact_path: Path,
     ) -> None:
         try:
+            stamped = {"ok": False}
+
+            def _stamp() -> None:
+                self._store.mark_artifact_bytes_deleted(context.artifact_id)
+                stamped["ok"] = True
+
             outcome = try_unlink_ready_artifact_with_recheck(
                 artifact_path,
                 recheck=lambda: self._store.can_delete_artifact_bytes(context.artifact_id),
+                layout=self._layout,
+                repository_id=context.repository_id,
+                artifact_id=context.artifact_id,
+                on_deleted=_stamp,
             )
-            if outcome in {"deleted", "already_absent"} and ready_artifact_entry_absent(
-                artifact_path
-            ):
-                self._store.mark_artifact_bytes_deleted(context.artifact_id)
+            if outcome != "deleted" or not stamped["ok"]:
+                return
         except Exception:
             _LOGGER.exception(
                 "failed to delete artifact bytes for operation %s",

@@ -21,7 +21,6 @@ from gateway_repository_contracts import (
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
-    ready_artifact_entry_absent,
     try_unlink_ready_artifact_with_recheck,
 )
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -371,14 +370,22 @@ def cleanup_after_succeeded_correction(
         context.artifact_id,
     )
     try:
+        stamped = {"ok": False}
+
+        def _stamp() -> None:
+            store.mark_artifact_bytes_deleted(context.artifact_id)
+            stamped["ok"] = True
+
         outcome = try_unlink_ready_artifact_with_recheck(
             artifact_path,
             recheck=lambda: store.can_delete_artifact_bytes(context.artifact_id),
+            layout=layout,
+            repository_id=context.repository_id,
+            artifact_id=context.artifact_id,
+            on_deleted=_stamp,
         )
-        if outcome in {"deleted", "already_absent"} and ready_artifact_entry_absent(
-            artifact_path
-        ):
-            store.mark_artifact_bytes_deleted(context.artifact_id)
+        if outcome != "deleted" or not stamped["ok"]:
+            return
     except Exception:
         _LOGGER.exception(
             "failed to delete artifact bytes during admin succeeded cleanup for %s",

@@ -46,7 +46,11 @@ def test_dockerfile_cmd_is_uvicorn_factory() -> None:
 
 def test_dockerfile_runs_as_gateway_user_with_provenance_labels() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
-    assert "USER gateway" in dockerfile
+    # ADR 0011: entrypoint starts as root, launches artifact-broker, drops to gateway.
+    assert "USER root" in dockerfile
+    assert "ENTRYPOINT" in dockerfile
+    assert "artifact-broker" in dockerfile
+    assert "adduser --system --ingroup gateway gateway" in dockerfile
     for label in (
         "org.opencontainers.image.revision=",
         "gateway.p2r1.source-tree-sha256=",
@@ -103,6 +107,7 @@ def test_compose_repository_service_has_production_env_and_secret_mount() -> Non
 OPERATIONAL_COMPOSE_ENV_DEFAULTS = {
     "GATEWAY_REPOSITORY_ARTIFACT_TTL_SECONDS": "86400",
     "GATEWAY_REPOSITORY_ARTIFACT_CLEANUP_INTERVAL_SECONDS": "300",
+    "GATEWAY_REPOSITORY_ARTIFACT_TOMBSTONE_BUDGET": "50000",
     "GATEWAY_REPOSITORY_MAX_CONCURRENT_UPLOADS": "8",
     "GATEWAY_REPOSITORY_MAX_IMPORT_WORKERS": "4",
     "GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS": "64",

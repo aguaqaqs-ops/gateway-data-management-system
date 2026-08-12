@@ -197,9 +197,23 @@ class ArtifactCleaner:
             )
             return
 
-        for lifecycle in candidates:
+        # Bounded pagination under backlog (ADR 0011): never walk the full pending
+        # set with a per-candidate ready listdir when saturated.
+        max_candidates = 64
+        for index, lifecycle in enumerate(candidates):
             if self._stopping:
                 return
+            if index >= max_candidates:
+                log_event(
+                    "artifact_cleanup",
+                    stage="sweep",
+                    result="paginated",
+                    cleanup_outcome="candidate_page_limit",
+                    capacity=max_candidates,
+                    in_use=len(candidates),
+                    logger=_LOGGER,
+                )
+                break
             try:
                 self._process_candidate(lifecycle.artifact_id, lifecycle.repository_id)
             except Exception:
@@ -1050,13 +1064,13 @@ class ArtifactCleaner:
         artifact_id: UUID,
         generation: str,
     ) -> bool:
-        """Publish held victim inode to ready via linkat (fd-stable); never pathname rename.
+        """Publish held victim inode to exact ready via linkat (fd-stable).
 
-        Idempotent: an existing ready/verify name that already holds the expected
-        regular inode with full (non-truncated) size counts as success so crash
-        between linkat and clear-intent can converge. Stage victim pathname may
-        remain as a diagnose hardlink. Failure is fail-closed so callers retain
-        intent.
+        Idempotent for exact ready: an existing ready name that already holds the
+        expected regular inode with full (non-truncated) size counts as success.
+        Matching verify sidecars are diagnose-only and must not clear intent when
+        ready is foreign/symlink/I/O (ADR 0011). Stage victim pathname may remain.
+        Failure is fail-closed so callers retain intent.
         """
 
         from gateway_repository_service.upload_artifact.admission_pin import (
@@ -1086,6 +1100,7 @@ class ArtifactCleaner:
         ]
         open_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         for restore_name in restore_names:
+            is_ready_candidate = restore_name == ready_name
             fd: int | None = None
             try:
                 fd = os.open(restore_name, open_flags, dir_fd=ready_dir_fd)
@@ -1106,6 +1121,7 @@ class ArtifactCleaner:
                     return False
             except OSError:
                 # Symlink / I/O / permission: try next candidate.
+                # ADR 0011: foreign/symlink/EIO on ready must not clear intent via verify.
                 continue
             try:
                 st = os.fstat(fd)
@@ -1120,7 +1136,11 @@ class ArtifactCleaner:
                 continue
             if int(st.st_size) != expected_size:
                 continue
-            return True
+            # Only exact ready name may clear intent (ADR 0011 restore freeze).
+            if is_ready_candidate:
+                return True
+            # Matching verify is diagnose-only; keep searching / fail closed.
+            continue
         return False
 
     def _recover_artifact_sidecars(

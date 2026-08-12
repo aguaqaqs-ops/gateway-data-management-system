@@ -488,19 +488,16 @@ def parse_any_recoverable_sidecar(name: str) -> tuple[int, UUID, str | None, str
 
 
 def count_public_tombstone_names(ready_dir_fd: int) -> int:
-    """Count generation-bound public sidecar dentries under ready.
+    """Count permanent inventory under ready (public sidecars + unlink-stage dirs).
 
-    Includes ``.deleting-*``, ``.detach-*``, and ``.unlink-verify-*``. These are
-    the permanent size-0 tombs left by the same-euid prove-only success path.
+    Includes ``.deleting-*``, ``.detach-*``, ``.unlink-verify-*``, and
+    ``.unlink-stage-*``. Used by the tombstone circuit breaker (ADR 0011).
     Raises ``OSError`` when listing ready fails.
     """
 
-    names = os.listdir(ready_dir_fd)
-    count = 0
-    for name in names:
-        if parse_any_recoverable_sidecar(name) is not None:
-            count += 1
-    return count
+    from gateway_repository_service.artifact_broker import count_full_inventory_names
+
+    return count_full_inventory_names(ready_dir_fd)
 
 
 def _find_matching_sidecar_slot(
@@ -773,13 +770,15 @@ def remove_empty_stage_dir_if_same_inode(
     stage_name: str,
     stage_dir_fd: int,
 ) -> None:
-    """Diagnose-only: never rename/rmdir re-resolved stage pathnames.
+    """Remove empty stage directory via directory-broker when safe.
 
-    Empty stage directories may remain as residuals. Pathname trash-rename/rmdir
-    is unsafe against same-euid directory-entry replacement.
+    Caller must hold ``stage_dir_fd``. Broker rmdir fails closed if non-empty.
     """
 
-    del ready_dir_fd, stage_name, stage_dir_fd
+    del stage_dir_fd
+    from gateway_repository_service.artifact_broker import get_artifact_broker
+
+    get_artifact_broker().rmdir_if_empty(ready_dir_fd, stage_name)
 
 
 def prove_size0_owned_name_terminal(
@@ -844,10 +843,19 @@ def reclaim_size0_owned_name(
     expected_ino: int,
     artifact_id: UUID | None = None,
 ) -> bool:
-    """Compatibility wrapper: prove terminal size-0/absent without pathname unlink."""
+    """Prove size-0/absent then broker-unlink the owned tombstone name."""
 
     del artifact_id
-    return prove_size0_owned_name_terminal(
+    if not prove_size0_owned_name_terminal(
+        dir_fd,
+        name,
+        expected_dev=expected_dev,
+        expected_ino=expected_ino,
+    ):
+        return False
+    from gateway_repository_service.artifact_broker import get_artifact_broker
+
+    return get_artifact_broker().unlink_if_match(
         dir_fd,
         name,
         expected_dev=expected_dev,
@@ -866,16 +874,18 @@ def destroy_owned_bytes_and_reclaim_names(
     held_stage_dir_fd: int | None = None,
     held_stage_name: str | None = None,
 ) -> bool:
-    """fd-truncate owned bytes, then prove required names are terminal size-0/absent.
+    """fd-truncate owned bytes, prove size-0, then broker-unlink/rmdir tombs.
 
-    Never pathname-unlinks or rmdirs. Same-euid actors can replace names between
-    fstat and unlink; under that threat model success is prove-only. Enumerates
-    ``.unlink-stage-*`` only for ``artifact_id``. When ``held_stage_name`` matches,
-    reuses ``held_stage_dir_fd`` without re-locking. Foreign artifact stages are
-    skipped and do not fail the operation.
+    Directory mutations go through the artifact directory-broker (ADR 0011).
+    Enumerates ``.unlink-stage-*`` only for ``artifact_id``. When
+    ``held_stage_name`` matches, reuses ``held_stage_dir_fd`` without re-locking.
+    Foreign artifact stages are skipped and do not fail the operation.
     """
 
+    from gateway_repository_service.artifact_broker import get_artifact_broker
+
     del generation  # reserved for future generation-scoped verify filtering
+    broker = get_artifact_broker()
     if not _ftruncate_inode_to_empty(inode_fd, expected):
         return False
     expected_dev = int(expected.st_dev)
@@ -883,14 +893,15 @@ def destroy_owned_bytes_and_reclaim_names(
     for name in names:
         if not name:
             continue
-        if not prove_size0_owned_name_terminal(
+        if not reclaim_size0_owned_name(
             ready_dir_fd,
             name,
             expected_dev=expected_dev,
             expected_ino=expected_ino,
+            artifact_id=artifact_id,
         ):
             return False
-    # Historical Round12 verify/stage tombstones for this inode must also prove.
+    # Historical Round12 verify/stage tombstones for this inode must also reclaim.
     try:
         entries = os.listdir(ready_dir_fd)
     except OSError:
@@ -902,11 +913,12 @@ def destroy_owned_bytes_and_reclaim_names(
             if verify_artifact_id != artifact_id:
                 continue
             if int(ino) == expected_ino:
-                if not prove_size0_owned_name_terminal(
+                if not reclaim_size0_owned_name(
                     ready_dir_fd,
                     entry_name,
                     expected_dev=expected_dev,
                     expected_ino=expected_ino,
+                    artifact_id=artifact_id,
                 ):
                     return False
             continue
@@ -958,18 +970,28 @@ def destroy_owned_bytes_and_reclaim_names(
                     continue
                 if int(cst.st_size) != 0:
                     return False
-                if not prove_size0_owned_name_terminal(
+                if not reclaim_size0_owned_name(
                     stage_fd,
                     child,
                     expected_dev=expected_dev,
                     expected_ino=expected_ino,
+                    artifact_id=artifact_id,
                 ):
                     return False
-            # Never pathname-rmdir stages (same-euid race).
-        finally:
-            if owned_stage_fd and stage_fd is not None:
+            # Broker rmdir when empty (exclusive dir write under dual-UID deploy).
+            if stage_locked_here or (
+                held_stage_name is not None and entry_name == held_stage_name
+            ):
                 if stage_locked_here:
                     unlock_unlink_stage_dir(stage_fd)
+                    stage_locked_here = False
+                if not broker.rmdir_if_empty(ready_dir_fd, entry_name):
+                    # Non-empty residual: leave for next sweep; do not fail destroy.
+                    pass
+        finally:
+            if stage_locked_here and stage_fd is not None:
+                unlock_unlink_stage_dir(stage_fd)
+            if owned_stage_fd and stage_fd is not None:
                 os.close(stage_fd)
     return True
 
@@ -1537,14 +1559,23 @@ def try_unlink_owned_ready_artifact(
 
     try:
         if tombstone_budget is not None:
-            try:
-                tombs = count_public_tombstone_names(ready_dir_fd)
-            except OSError:
-                return "unlink_failed"
-            # Success leaves up to 2 public sidecars permanently; refuse at budget.
-            if tombs >= tombstone_budget:
+            from gateway_repository_service.artifact_broker import get_artifact_broker
+
+            # Projected reservation: success may add up to 2 public sidecars + 1 stage
+            # before reclaim; refuse when current+reserved+projected would exceed budget.
+            projected_new = 3
+            broker = get_artifact_broker()
+            if not broker.reserve_tombstone_slots(
+                ready_dir_fd,
+                budget=tombstone_budget,
+                projected_new=projected_new,
+            ):
                 from gateway_repository_service.diagnostics import log_event
 
+                try:
+                    tombs = count_public_tombstone_names(ready_dir_fd)
+                except OSError:
+                    tombs = tombstone_budget
                 log_event(
                     "artifact_cleanup",
                     repository_id=repository_id,
@@ -1556,9 +1587,28 @@ def try_unlink_owned_ready_artifact(
                     cleanup_outcome="tombstone_budget",
                 )
                 return "unlink_failed"
+            # Reservation held until delete returns; release on all exit paths below
+            # via finally-equivalent after flock section — see _release_reservation.
+            reservation_held = projected_new
+        else:
+            reservation_held = 0
+
+        def _release_reservation() -> None:
+            nonlocal reservation_held
+            if reservation_held <= 0:
+                return
+            from gateway_repository_service.artifact_broker import get_artifact_broker
+
+            get_artifact_broker().release_tombstone_reservation(
+                ready_dir_fd,
+                projected_new=reservation_held,
+            )
+            reservation_held = 0
+
         try:
             fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
+            _release_reservation()
             return "busy"
         try:
             try:
@@ -1770,6 +1820,10 @@ def try_unlink_owned_ready_artifact(
             except OSError:
                 pass
     finally:
+        try:
+            _release_reservation()
+        except NameError:
+            pass
         os.close(file_fd)
         os.close(ready_dir_fd)
 

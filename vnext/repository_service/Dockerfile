@@ -40,12 +40,22 @@ RUN test "$(/usr/local/bin/dolt version | awk '$1 == "dolt" && $2 == "version" &
     && test "$(uv --version | awk '{print $2}')" = "${UV_VERSION}" \
     && uv pip check --python /app/.venv/bin/python
 COPY repository_service/src ./src
-RUN addgroup --system gateway && adduser --system --ingroup gateway gateway \
-    && mkdir -p /home/gateway /var/lib/gateway/repository \
-    && chown -R gateway:gateway /home/gateway /var/lib/gateway
+COPY repository_service/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh \
+    && addgroup --system gateway \
+    && adduser --system --ingroup gateway gateway \
+    && addgroup --system artifact-broker \
+    && adduser --system --ingroup artifact-broker artifact-broker \
+    && usermod -a -G gateway artifact-broker \
+    && mkdir -p /home/gateway /home/artifact-broker /var/lib/gateway/repository \
+    && chown -R gateway:gateway /home/gateway \
+    && chown -R artifact-broker:artifact-broker /home/artifact-broker \
+    && chown -R gateway:gateway /var/lib/gateway
 ENV HOME="/home/gateway"
 ENV PATH="/app/.venv/bin:${PATH}" PYTHONPATH="/app/.venv/lib/python3.14/site-packages:/app/src:/repository_contracts/src"
-USER gateway
+# Entrypoint starts as root, launches artifact-broker, then drops to gateway (ADR 0011).
+USER root
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 LABEL org.opencontainers.image.revision="${BUILD_REVISION}" \
       gateway.p2r1.source-tree-sha256="${SOURCE_TREE_SHA256}" \
       gateway.p2r1.mysql-connector-version="${MYSQL_CONNECTOR_VERSION}" \

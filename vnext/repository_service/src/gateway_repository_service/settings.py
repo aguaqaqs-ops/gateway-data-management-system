@@ -64,10 +64,9 @@ class RepositoryServiceSettings(BaseSettings):
     max_decompressed_tar_stream_bytes: int = 4 * 1024 * 1024 * 1024
     artifact_ttl_seconds: int = 24 * 60 * 60
     artifact_cleanup_interval_seconds: int = 300
-    # Max public size-0 sidecar dentries (.deleting-/.detach-/.unlink-verify-) per
-    # repository ready dir. Same-euid threat model forbids pathname unlink, so
-    # successful deletes permanently leave up to 2 tombs each; this budget is the
-    # operational ceiling with backpressure — not a claim of zero-dentry convergence.
+    # Max permanent inventory dentries under ready (sidecars + unlink-stage).
+    # Transition circuit breaker only (ADR 0011) — not Contract compliance proof.
+    # Successful deletes reclaim via directory-broker; budget bounds backlog under fault.
     artifact_tombstone_budget: int = 50_000
     sqlite_busy_timeout_ms: int = 5000
     catalog_parallel_workers: int = 2

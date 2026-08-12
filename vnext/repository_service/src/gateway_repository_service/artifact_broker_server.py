@@ -202,6 +202,7 @@ def _handle(
     artifacts_root: FrozenArtifactsRoot,
     impl: InProcessArtifactDirBroker,
     bind_state: BrokerBindState,
+    stop: threading.Event | None,
 ) -> None:
     try:
         creds = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
@@ -248,6 +249,11 @@ def _handle(
             return
         if not _peer_is_bound(bind_state, int(pid)):
             _send_json(conn, {"ok": False, "error": "peer_pid_rejected"})
+            return
+        if op == "shutdown":
+            if stop is not None:
+                stop.set()
+            _send_json(conn, {"ok": True})
             return
         if not fds:
             _send_json(conn, {"ok": False, "error": "missing_dirfd"})
@@ -410,7 +416,7 @@ def serve(
                 raise
             thread = threading.Thread(
                 target=_serve_one,
-                args=(conn, expected_peer_uid, peer_gid, root, impl, bind_state),
+                args=(conn, expected_peer_uid, peer_gid, root, impl, bind_state, stop),
                 daemon=True,
                 name="artifact-broker-conn",
             )
@@ -434,6 +440,7 @@ def _serve_one(
     artifacts_root: FrozenArtifactsRoot,
     impl: InProcessArtifactDirBroker,
     bind_state: BrokerBindState,
+    stop: threading.Event | None,
 ) -> None:
     with conn:
         _handle(
@@ -443,6 +450,7 @@ def _serve_one(
             artifacts_root=artifacts_root,
             impl=impl,
             bind_state=bind_state,
+            stop=stop,
         )
 
 

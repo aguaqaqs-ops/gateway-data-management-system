@@ -292,6 +292,9 @@ def test_r19_layout_mkdir_goes_through_broker(tmp_path: Path) -> None:
         def bind(self) -> None:
             return None
 
+        def shutdown(self) -> None:
+            return None
+
         def mkdir(self, dir_fd: int, name: str, *, mode: int = 0o700) -> None:
             calls.append(name)
             inner.mkdir(dir_fd, name, mode=mode)

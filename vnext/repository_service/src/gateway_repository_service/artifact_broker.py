@@ -38,6 +38,7 @@ _OPS = frozenset(
         "reclaim_stage",
         "reserve_tombstone_slots",
         "release_tombstone_reservation",
+        "shutdown",
     }
 )
 
@@ -54,6 +55,8 @@ class ArtifactDirBroker(Protocol):
     def ping(self) -> None: ...
 
     def bind(self) -> None: ...
+
+    def shutdown(self) -> None: ...
 
     def mkdir(self, dir_fd: int, name: str, *, mode: int = 0o700) -> None: ...
 
@@ -179,6 +182,9 @@ class InProcessArtifactDirBroker:
         return None
 
     def bind(self) -> None:
+        return None
+
+    def shutdown(self) -> None:
         return None
 
     def _state_for(self, dir_fd: int) -> _ReservationState:
@@ -510,6 +516,11 @@ class SocketArtifactDirBroker:
         if not resp.get("ok"):
             raise ArtifactBrokerError(str(resp.get("error", "broker bind failed")))
 
+    def shutdown(self) -> None:
+        resp = self._call({"op": "shutdown"})
+        if not resp.get("ok"):
+            raise ArtifactBrokerError(str(resp.get("error", "broker shutdown failed")))
+
     def _connect(self) -> socket.socket:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(self._timeout)
@@ -703,6 +714,20 @@ def ping_artifact_broker() -> None:
     get_artifact_broker().ping()
 
 
+def _helper_pid_exists(pid: int) -> bool:
+    """True if pid exists. EPERM means it exists under another UID."""
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return Path(f"/proc/{pid}").is_dir()
+    return True
+
+
 def artifact_broker_helper_alive() -> bool:
     """Return True when no helper pidfile is configured, or the process still exists."""
 
@@ -715,15 +740,11 @@ def artifact_broker_helper_alive() -> bool:
         return False
     if pid <= 1:
         return False
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+    return _helper_pid_exists(pid)
 
 
 def stop_artifact_broker_helper(*, timeout: float = 2.0) -> None:
-    """SIGTERM the entrypoint-supervised helper when a pidfile is present.
+    """Ask the helper to exit, then join. Dual-UID cannot SIGTERM the helper.
 
     Join timeout is observable: callers must retain durable ownership.
     """
@@ -738,17 +759,31 @@ def stop_artifact_broker_helper(*, timeout: float = 2.0) -> None:
         raise ArtifactBrokerShutdownError("artifact-broker pidfile is unreadable") from exc
     if pid <= 1:
         raise ArtifactBrokerShutdownError("artifact-broker pidfile is invalid")
+    asked = False
+    try:
+        broker = get_artifact_broker()
+        if not isinstance(broker, InProcessArtifactDirBroker):
+            broker.shutdown()
+            asked = True
+    except ArtifactBrokerError:
+        asked = False
+    if asked:
+        deadline = time.monotonic() + max(timeout, 0.0)
+        while time.monotonic() < deadline:
+            if not _helper_pid_exists(pid):
+                return
+            time.sleep(0.05)
     try:
         os.kill(pid, 15)
     except ProcessLookupError:
         return
+    except PermissionError as exc:
+        raise ArtifactBrokerShutdownError("artifact-broker SIGTERM failed") from exc
     except OSError as exc:
         raise ArtifactBrokerShutdownError("artifact-broker SIGTERM failed") from exc
     deadline = time.monotonic() + max(timeout, 0.0)
     while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except OSError:
+        if not _helper_pid_exists(pid):
             return
         time.sleep(0.05)
     raise ArtifactBrokerShutdownError("artifact-broker join timed out")

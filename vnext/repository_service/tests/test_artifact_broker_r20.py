@@ -318,6 +318,28 @@ def test_r20_pidfd_alive_uses_poll_not_signal() -> None:
             child.wait(timeout=5)
 
 
+def test_r20_helper_alive_treats_cross_uid_eperm_as_alive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gateway_repository_service.artifact_broker import artifact_broker_helper_alive
+
+    pidfile = tmp_path / "broker.pid"
+    pidfile.write_text(str(os.getpid()), encoding="utf-8")
+    monkeypatch.setenv("GATEWAY_REPOSITORY_ARTIFACT_BROKER_PIDFILE", str(pidfile))
+
+    def _eperm(pid: int, sig: int) -> None:
+        raise PermissionError("cross-uid")
+
+    monkeypatch.setattr("gateway_repository_service.artifact_broker.os.kill", _eperm)
+    assert artifact_broker_helper_alive() is True
+
+    def _gone(pid: int, sig: int) -> None:
+        raise ProcessLookupError()
+
+    monkeypatch.setattr("gateway_repository_service.artifact_broker.os.kill", _gone)
+    assert artifact_broker_helper_alive() is False
+
+
 def test_r20_bound_peer_cannot_unlink_hex32(
     tmp_path: Path, bound_socket_broker: SocketArtifactDirBroker
 ) -> None:

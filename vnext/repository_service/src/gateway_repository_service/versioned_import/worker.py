@@ -148,20 +148,27 @@ class ImportWorkerPool:
             return
         self._shutdown.clear()
         self._stop_claiming = False
-        self._dispatcher = threading.Thread(
-            target=self._dispatch_loop,
-            name="import-worker-dispatcher",
-            daemon=False,
-        )
-        self._dispatcher.start()
-        for index in range(self._settings.max_import_workers):
-            worker = threading.Thread(
-                target=self._worker_loop,
-                name=f"import-worker-{index}",
+        try:
+            self._dispatcher = threading.Thread(
+                target=self._dispatch_loop,
+                name="import-worker-dispatcher",
                 daemon=False,
             )
-            worker.start()
-            self._workers.append(worker)
+            self._dispatcher.start()
+            for index in range(self._settings.max_import_workers):
+                worker = threading.Thread(
+                    target=self._worker_loop,
+                    name=f"import-worker-{index}",
+                    daemon=False,
+                )
+                worker.start()
+                self._workers.append(worker)
+        except Exception:
+            try:
+                self.stop(timeout=self._settings.import_shutdown_grace_seconds)
+            except Exception:
+                _LOGGER.exception("import worker pool cleanup after partial start failed")
+            raise
 
     def begin_shutdown(self) -> None:
         self._stop_claiming = True
@@ -184,16 +191,18 @@ class ImportWorkerPool:
         with self._notify:
             self._notify.notify_all()
         timed_out: list[str] = []
-        if self._dispatcher is not None:
-            self._dispatcher.join(timeout=join_timeout)
-            if self._dispatcher.is_alive():
-                timed_out.append(self._dispatcher.name)
-            self._dispatcher = None
-        for worker in self._workers:
+        dispatcher = self._dispatcher
+        self._dispatcher = None
+        if dispatcher is not None:
+            dispatcher.join(timeout=join_timeout)
+            if dispatcher.is_alive():
+                timed_out.append(dispatcher.name)
+        workers = list(self._workers)
+        self._workers.clear()
+        for worker in workers:
             worker.join(timeout=join_timeout)
             if worker.is_alive():
                 timed_out.append(worker.name)
-        self._workers.clear()
         if timed_out:
             message = f"import worker threads did not stop within {join_timeout}s: {', '.join(timed_out)}"
             _LOGGER.error(message)

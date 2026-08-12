@@ -947,3 +947,35 @@ def test_cancellable_provider_wrapper_propagates_caller_cancellation_exception()
     with pytest.raises(RuntimeError, match="caller callback failed"):
         wrapper.replay_sql("private-ref", Path("replay.sql"), cancellation=_boom)
     assert len(received) == 1
+
+
+@pytest.mark.serial
+def test_import_worker_pool_partial_start_joins_started_threads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = WorkerTestEnvironment(tmp_path, max_import_workers=2)
+    started: list[threading.Thread] = []
+    original_start = threading.Thread.start
+
+    def flaky_start(self: threading.Thread) -> None:
+        if len(started) >= 2:
+            raise RuntimeError("forced thread start failure")
+        original_start(self)
+        started.append(self)
+
+    monkeypatch.setattr(threading.Thread, "start", flaky_start)
+    with pytest.raises(RuntimeError, match="forced thread start failure"):
+        env.pool.start()
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if all(not thread.is_alive() for thread in started):
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("partially started import worker threads were not joined")
+
+    assert env.pool._dispatcher is None
+    assert env.pool._workers == []
+    env.close()

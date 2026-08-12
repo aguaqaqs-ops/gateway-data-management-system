@@ -19,7 +19,7 @@ from gateway_repository_service.artifact_cleaner import NoOpArtifactCleaner
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import ClaimResult, EffectRecord, EffectStatus, MutationStore
-from gateway_repository_service.runtime import ServiceRuntime
+from gateway_repository_service.runtime import AdmissionDrainTimeoutError, ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.command import UploadArtifactCommand
 from support.upload_harness import upload_sha256
@@ -349,6 +349,163 @@ def test_shutdown_control_store_close_error_still_releases_lock(
     with pytest.raises(RuntimeError, match="close boom"):
         runtime.shutdown()
     root_lock.release.assert_called_once()
+
+
+@pytest.mark.serial
+def test_shutdown_noncooperative_upload_retains_durable_ownership(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _fake_runtime(grace=0.15)
+    settings = RepositoryServiceSettings(
+        profile="test",
+        bearer_token="token",
+        data_root=tmp_path / "data-root",
+        max_concurrent_uploads=1,
+        min_free_disk_bytes=1,
+        min_free_disk_fraction=0.01,
+    )
+    layout = DurableLayout.create_service(settings.data_root)
+    store = MagicMock(spec=MutationStore)
+    store.hash_idempotency_key = MutationStore.hash_idempotency_key
+    store.claim_or_lookup.return_value = ClaimResult(
+        idempotency_id=1,
+        is_new=True,
+        fingerprint=b"fp",
+        effect=None,
+        terminal_not_published=False,
+    )
+    store.allocate_pending.return_value = EffectRecord(
+        effect_id=1,
+        idempotency_id=1,
+        resource_id=uuid4(),
+        status=EffectStatus.PENDING,
+        response_status=None,
+        response_body=None,
+    )
+    body_blocked = threading.Event()
+    release_body = threading.Event()
+    upload_done = threading.Event()
+
+    async def stuck_body() -> AsyncIterator[bytes]:
+        body_blocked.set()
+        # Block inside __anext__ so cooperative cancel cannot interrupt.
+        await asyncio.to_thread(release_body.wait)
+        yield b"x"
+
+    command = UploadArtifactCommand(
+        settings=settings,
+        layout=layout,
+        mutation_store=store,
+        upload_admission=runtime.upload_admission,
+        upload_inflight=runtime.upload_inflight,
+        upload_cancels=runtime.upload_cancels,
+        stopping=runtime.is_stopping,
+    )
+    payload = b"x"
+    headers = UploadRequestHeaders(
+        content_type=REPOSITORY_IMPORT_MEDIA_TYPE,
+        content_length=len(payload),
+        idempotency_key="noncoop-upload",
+        artifact_sha256=upload_sha256(payload),
+    )
+
+    def run_upload() -> None:
+        try:
+            with (
+                patch(
+                    "gateway_repository_service.upload_artifact.command.is_repository_visible",
+                    return_value=True,
+                ),
+                patch(
+                    "gateway_repository_service.upload_artifact.command.assert_upload_disk_admission",
+                    return_value=None,
+                ),
+            ):
+                asyncio.run(command.execute(uuid4(), headers, stuck_body()))
+        except BaseException:  # noqa: BLE001 — expected after unblock under shutdown
+            pass
+        finally:
+            upload_done.set()
+
+    close_db = MagicMock()
+    release_lock = MagicMock()
+    runtime.control_store.close = close_db  # type: ignore[method-assign]
+    runtime.root_lock.release = release_lock  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "gateway_repository_service.runtime.BRIDGE_REGISTRY.close_all",
+        lambda *_a, **_k: None,
+    )
+
+    thread = threading.Thread(target=run_upload)
+    thread.start()
+    assert body_blocked.wait(timeout=5.0)
+    assert runtime.upload_admission.in_use == 1
+
+    with pytest.raises(AdmissionDrainTimeoutError):
+        runtime.shutdown()
+
+    close_db.assert_not_called()
+    release_lock.assert_not_called()
+    assert runtime.control_store.is_open()
+    assert runtime.root_lock.is_held()
+    assert runtime.upload_admission.in_use == 1
+
+    release_body.set()
+    assert upload_done.wait(timeout=5.0)
+    thread.join(timeout=5.0)
+    assert not thread.is_alive()
+
+
+@pytest.mark.serial
+def test_shutdown_noncooperative_row_stream_retains_durable_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _fake_runtime(grace=0.15)
+    lease = runtime.row_stream_admission.try_acquire()
+    assert lease is not None
+    close_db = MagicMock()
+    release_lock = MagicMock()
+    runtime.control_store.close = close_db  # type: ignore[method-assign]
+    runtime.root_lock.release = release_lock  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "gateway_repository_service.runtime.BRIDGE_REGISTRY.close_all",
+        lambda *_a, **_k: None,
+    )
+
+    with pytest.raises(AdmissionDrainTimeoutError):
+        runtime.shutdown()
+
+    close_db.assert_not_called()
+    release_lock.assert_not_called()
+    assert runtime.control_store.is_open()
+    assert runtime.root_lock.is_held()
+    assert runtime.row_stream_admission.in_use == 1
+    lease.release()
+
+
+def test_shutdown_begin_shutdown_error_still_stops_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _fake_runtime()
+    worker = MagicMock()
+    worker.begin_shutdown.side_effect = RuntimeError("begin boom")
+    runtime.import_worker_pool = worker
+    root_lock = MagicMock()
+    root_lock.is_held.return_value = True
+    runtime.root_lock = root_lock
+    control_store = MagicMock()
+    control_store.is_open.return_value = True
+    runtime.control_store = control_store
+    monkeypatch.setattr(
+        "gateway_repository_service.runtime.BRIDGE_REGISTRY.close_all",
+        lambda *_a, **_k: None,
+    )
+    with pytest.raises(RuntimeError, match="begin boom"):
+        runtime.shutdown()
+    worker.stop.assert_called()
+    root_lock.release.assert_called_once()
+    control_store.close.assert_called_once()
 
 
 def test_noop_cleaner_does_not_start_thread() -> None:

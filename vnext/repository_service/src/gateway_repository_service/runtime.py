@@ -60,6 +60,18 @@ class ServiceStartupError(RuntimeError):
     """Raised when durable lifecycle initialization fails."""
 
 
+class AdmissionDrainTimeoutError(RuntimeError):
+    """Raised when upload/row-stream permits remain after shutdown drain grace."""
+
+    def __init__(self, *, upload_in_use: int, row_stream_in_use: int) -> None:
+        self.upload_in_use = upload_in_use
+        self.row_stream_in_use = row_stream_in_use
+        super().__init__(
+            "admission permits still held after shutdown drain grace: "
+            f"upload_in_use={upload_in_use} row_stream_in_use={row_stream_in_use}"
+        )
+
+
 @dataclass
 class ServiceRuntime:
     settings: RepositoryServiceSettings
@@ -164,10 +176,10 @@ class ServiceRuntime:
                 locks=import_locks,
                 shutdown_event=stopping,
             )
-            import_worker_pool.start()
             stack.callback(
                 lambda: import_worker_pool.stop(timeout=settings.import_shutdown_grace_seconds)
             )
+            import_worker_pool.start()
             import_worker_pool.notify()
             read_provider_factory = cls._build_read_provider_factory(
                 settings=settings,
@@ -286,20 +298,25 @@ class ServiceRuntime:
                 cleanup_errors.append(exc)
 
             try:
-                self.import_worker_pool.begin_shutdown()
-                if not self.import_worker_pool.wait_for_quiescence(timeout=grace):
-                    self.import_worker_pool.cancel_active_operations()
-                    self.dolt_runner.terminate_active_children(grace_seconds=grace)
                 try:
-                    self.import_worker_pool.stop(timeout=grace * 2)
-                except Exception:
-                    _LOGGER.exception("import worker pool did not stop cleanly")
-                    self.dolt_runner.terminate_active_children(grace_seconds=grace)
+                    self.import_worker_pool.begin_shutdown()
+                    if not self.import_worker_pool.wait_for_quiescence(timeout=grace):
+                        self.import_worker_pool.cancel_active_operations()
+                        self.dolt_runner.terminate_active_children(grace_seconds=grace)
+                except Exception as exc:
+                    _LOGGER.exception("import worker pre-stop failed")
+                    cleanup_errors.append(exc)
+                finally:
                     try:
-                        self.import_worker_pool.stop(timeout=grace)
-                    except Exception as exc:
-                        _LOGGER.exception("import worker pool still running after second stop")
-                        cleanup_errors.append(exc)
+                        self.import_worker_pool.stop(timeout=grace * 2)
+                    except Exception:
+                        _LOGGER.exception("import worker pool did not stop cleanly")
+                        self.dolt_runner.terminate_active_children(grace_seconds=grace)
+                        try:
+                            self.import_worker_pool.stop(timeout=grace)
+                        except Exception as exc:
+                            _LOGGER.exception("import worker pool still running after second stop")
+                            cleanup_errors.append(exc)
             except Exception as exc:
                 _LOGGER.exception("import worker shutdown failed")
                 cleanup_errors.append(exc)
@@ -318,7 +335,10 @@ class ServiceRuntime:
             drained = self._wait_for_admission_drain(timeout=grace)
             upload_snap = self.upload_admission.snapshot()
             row_snap = self.row_stream_admission.snapshot()
-            if not drained or upload_snap.in_use != 0 or row_snap.in_use != 0:
+            retain_ownership = (
+                not drained or upload_snap.in_use != 0 or row_snap.in_use != 0
+            )
+            if retain_ownership:
                 log_event(
                     "runtime_shutdown",
                     result="permit_leak",
@@ -327,29 +347,42 @@ class ServiceRuntime:
                     cleanup_outcome="permit_in_use_after_drain_wait",
                     logger=_LOGGER,
                 )
-
-            try:
-                if self.control_store.is_open():
-                    self.control_store.close()
-            except Exception as exc:
-                _LOGGER.exception("control store close failed")
-                cleanup_errors.append(exc)
-            finally:
+                drain_error = AdmissionDrainTimeoutError(
+                    upload_in_use=upload_snap.in_use,
+                    row_stream_in_use=row_snap.in_use,
+                )
+                cleanup_errors.append(drain_error)
+                log_event(
+                    "runtime_shutdown",
+                    result="stopped",
+                    capacity=upload_snap.capacity,
+                    in_use=upload_snap.in_use + row_snap.in_use,
+                    cleanup_outcome="durable_retained",
+                    logger=_LOGGER,
+                )
+            else:
                 try:
-                    if self.root_lock.is_held():
-                        self.root_lock.release()
+                    if self.control_store.is_open():
+                        self.control_store.close()
                 except Exception as exc:
-                    _LOGGER.exception("root lock release failed")
+                    _LOGGER.exception("control store close failed")
                     cleanup_errors.append(exc)
+                finally:
+                    try:
+                        if self.root_lock.is_held():
+                            self.root_lock.release()
+                    except Exception as exc:
+                        _LOGGER.exception("root lock release failed")
+                        cleanup_errors.append(exc)
 
-            log_event(
-                "runtime_shutdown",
-                result="stopped",
-                capacity=upload_snap.capacity,
-                in_use=self.upload_admission.in_use + self.row_stream_admission.in_use,
-                cleanup_outcome="durable_released",
-                logger=_LOGGER,
-            )
+                log_event(
+                    "runtime_shutdown",
+                    result="stopped",
+                    capacity=upload_snap.capacity,
+                    in_use=self.upload_admission.in_use + self.row_stream_admission.in_use,
+                    cleanup_outcome="durable_released",
+                    logger=_LOGGER,
+                )
 
             if bridge_shutdown_error is not None:
                 if cleanup_errors:

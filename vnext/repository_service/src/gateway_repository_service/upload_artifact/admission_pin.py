@@ -314,12 +314,16 @@ def quarantine_name_for(*, inode: int, artifact_id: UUID) -> str:
     return f".deleting-{inode}-{artifact_id.hex}"
 
 
-def parse_quarantine_name(name: str) -> tuple[int, UUID] | None:
-    """Parse ``.deleting-<ino>-<artifact_hex>``; return None when malformed."""
+def detach_name_for(*, inode: int, artifact_id: UUID) -> str:
+    """Return the transient rename target used to detach a ready directory entry."""
 
-    if not name.startswith(".deleting-"):
+    return f".detach-{inode}-{artifact_id.hex}"
+
+
+def _parse_sidecar_name(name: str, *, prefix: str) -> tuple[int, UUID] | None:
+    if not name.startswith(prefix):
         return None
-    rest = name[len(".deleting-") :]
+    rest = name[len(prefix) :]
     if "-" not in rest:
         return None
     ino_text, artifact_hex = rest.split("-", 1)
@@ -331,6 +335,80 @@ def parse_quarantine_name(name: str) -> tuple[int, UUID] | None:
         return int(ino_text), UUID(hex=artifact_hex)
     except ValueError:
         return None
+
+
+def parse_quarantine_name(name: str) -> tuple[int, UUID] | None:
+    """Parse ``.deleting-<ino>-<artifact_hex>``; return None when malformed."""
+
+    return _parse_sidecar_name(name, prefix=".deleting-")
+
+
+def parse_detach_name(name: str) -> tuple[int, UUID] | None:
+    """Parse ``.detach-<ino>-<artifact_hex>``; return None when malformed."""
+
+    return _parse_sidecar_name(name, prefix=".detach-")
+
+
+def try_detach_ready_directory_entry(
+    *,
+    ready_dir_fd: int,
+    file_fd: int,
+    ready_name: str,
+    fd_stat: os.stat_result,
+    artifact_id: UUID,
+) -> tuple[str, str | None]:
+    """Detach ``ready_name`` via rename-verify-unlink.
+
+    Returns ``(outcome, owned_detach_name)`` where outcome is ``ok``, ``replaced``,
+    or ``unlink_failed``. ``owned_detach_name`` is set only while a self-inode
+    ``.detach-*`` entry still needs cleanup.
+    """
+
+    if os.fstat(file_fd).st_nlink < 2:
+        return "replaced", None
+
+    detach = detach_name_for(inode=int(fd_stat.st_ino), artifact_id=artifact_id)
+    try:
+        os.rename(ready_name, detach, src_dir_fd=ready_dir_fd, dst_dir_fd=ready_dir_fd)
+    except FileNotFoundError:
+        if os.fstat(file_fd).st_nlink != 1:
+            return "replaced", None
+        return "ok", None
+    except FileExistsError:
+        return "unlink_failed", None
+    except OSError:
+        return "unlink_failed", None
+
+    try:
+        det_stat = os.stat(detach, dir_fd=ready_dir_fd, follow_symlinks=False)
+    except OSError:
+        return "unlink_failed", detach
+
+    if (det_stat.st_dev, det_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+        # Renamed a replacement entry; restore without covering a new ready.
+        try:
+            os.stat(ready_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            try:
+                os.rename(detach, ready_name, src_dir_fd=ready_dir_fd, dst_dir_fd=ready_dir_fd)
+                return "replaced", None
+            except (FileExistsError, OSError):
+                return "replaced", None
+        except OSError:
+            return "replaced", None
+        # Ready reappeared — never overwrite; leave foreign .detach for recovery.
+        return "replaced", None
+
+    try:
+        os.unlink(detach, dir_fd=ready_dir_fd)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return "unlink_failed", detach
+
+    if os.fstat(file_fd).st_nlink != 1:
+        return "unlink_failed", None
+    return "ok", None
 
 
 def try_unlink_owned_ready_artifact(
@@ -349,7 +427,7 @@ def try_unlink_owned_ready_artifact(
     1. linkat quarantine for the locked inode
     2. durable delete intent (phase quarantined)
     3. recheck eligibility
-    4. detach ready only when ``nlink >= 2`` proves ready still names us
+    4. detach ready via rename-verify-unlink when ``nlink >= 2``
     5. recheck again, then stamp, then unlink quarantine
 
     Replacement at the ready name never stamps and never returns ``deleted``.
@@ -372,6 +450,7 @@ def try_unlink_owned_ready_artifact(
         return "unlink_failed"
 
     owned_quarantine: str | None = None
+    owned_detach: str | None = None
     keep_quarantine_on_abort = False
     intent_written = False
 
@@ -388,6 +467,17 @@ def try_unlink_owned_ready_artifact(
     def _abort_replaced() -> str:
         _clear_intent_best_effort()
         return "replaced"
+
+    def _unlink_owned_sidecar(name: str | None) -> None:
+        if name is None:
+            return
+        try:
+            side_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
+            locked = os.fstat(file_fd)
+            if (side_stat.st_dev, side_stat.st_ino) == (locked.st_dev, locked.st_ino):
+                os.unlink(name, dir_fd=ready_dir_fd)
+        except OSError:
+            pass
 
     try:
         try:
@@ -505,17 +595,16 @@ def try_unlink_owned_ready_artifact(
             ):
                 return _abort_replaced()
             else:
-                # Re-check nlink immediately before unlink to close replace races.
-                if os.fstat(file_fd).st_nlink < 2:
+                detach_outcome, owned_detach = try_detach_ready_directory_entry(
+                    ready_dir_fd=ready_dir_fd,
+                    file_fd=file_fd,
+                    ready_name=name,
+                    fd_stat=fd_stat,
+                    artifact_id=artifact_id,
+                )
+                if detach_outcome == "replaced":
                     return _abort_replaced()
-                try:
-                    os.unlink(name, dir_fd=ready_dir_fd)
-                except FileNotFoundError:
-                    if os.fstat(file_fd).st_nlink != 1:
-                        return _abort_replaced()
-                except OSError:
-                    return "unlink_failed"
-                if os.fstat(file_fd).st_nlink != 1:
+                if detach_outcome != "ok":
                     keep_quarantine_on_abort = True
                     return "unlink_failed"
 
@@ -547,15 +636,14 @@ def try_unlink_owned_ready_artifact(
             except OSError:
                 pass
     finally:
-        if owned_quarantine is not None and not keep_quarantine_on_abort:
-            try:
-                q_stat = os.stat(owned_quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
-                locked = os.fstat(file_fd)
-                if (q_stat.st_dev, q_stat.st_ino) == (locked.st_dev, locked.st_ino):
-                    os.unlink(owned_quarantine, dir_fd=ready_dir_fd)
-            except OSError:
-                pass
-            _clear_intent_best_effort()
+        if not keep_quarantine_on_abort:
+            _unlink_owned_sidecar(owned_detach)
+            if owned_quarantine is not None:
+                _unlink_owned_sidecar(owned_quarantine)
+                _clear_intent_best_effort()
+        elif owned_detach is not None:
+            # Detach residual of our inode is retained with quarantine+intent.
+            pass
         os.close(file_fd)
         os.close(ready_dir_fd)
 

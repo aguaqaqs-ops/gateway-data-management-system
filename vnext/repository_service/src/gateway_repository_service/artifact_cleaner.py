@@ -31,7 +31,9 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     open_owned_ready_dir,
+    parse_detach_name,
     parse_quarantine_name,
+    try_detach_ready_directory_entry,
     try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
 )
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -361,6 +363,10 @@ class ArtifactCleaner:
                 if self._stopping:
                     return
                 parsed = parse_quarantine_name(entry.name)
+                kind = "quarantine"
+                if parsed is None:
+                    parsed = parse_detach_name(entry.name)
+                    kind = "detach"
                 if parsed is None:
                     continue
                 inode, artifact_id = parsed
@@ -370,6 +376,7 @@ class ArtifactCleaner:
                         artifact_id,
                         quarantine_name=entry.name,
                         expected_ino=inode,
+                        sidecar_kind=kind,
                     )
                 except Exception:
                     _LOGGER.exception(
@@ -384,7 +391,9 @@ class ArtifactCleaner:
         *,
         quarantine_name: str,
         expected_ino: int,
+        sidecar_kind: str = "quarantine",
     ) -> None:
+        del sidecar_kind  # kind reserved for future structured diagnostics
         try:
             ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
         except OwnedPathError:
@@ -583,8 +592,7 @@ class ArtifactCleaner:
                     )
                     return
 
-                # Ready still names our intent inode: leave for live helper, or
-                # complete detach under the nlink gate while flock is held.
+                # Ready still names our intent inode: complete detach under flock.
                 live = os.fstat(q_fd)
                 if live.st_nlink < 2:
                     log_event(
@@ -597,23 +605,25 @@ class ArtifactCleaner:
                         logger=_LOGGER,
                     )
                     return
-                try:
-                    os.unlink(ready_name, dir_fd=ready_dir_fd)
-                except FileNotFoundError:
-                    if os.fstat(q_fd).st_nlink != 1:
-                        log_event(
-                            "artifact_cleanup",
-                            repository_id=repository_id,
-                            artifact_id=artifact_id,
-                            stage="quarantine",
-                            result="retained",
-                            cleanup_outcome="replaced",
-                            logger=_LOGGER,
-                        )
-                        return
-                except OSError:
+                detach_outcome, _owned_detach = try_detach_ready_directory_entry(
+                    ready_dir_fd=ready_dir_fd,
+                    file_fd=q_fd,
+                    ready_name=ready_name,
+                    fd_stat=q_stat,
+                    artifact_id=artifact_id,
+                )
+                if detach_outcome == "replaced":
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                        stage="quarantine",
+                        result="retained",
+                        cleanup_outcome="replaced",
+                        logger=_LOGGER,
+                    )
                     return
-                if os.fstat(q_fd).st_nlink != 1:
+                if detach_outcome != "ok":
                     log_event(
                         "artifact_cleanup",
                         repository_id=repository_id,
@@ -900,10 +910,14 @@ class ArtifactCleaner:
             return
         for entry in entries:
             name = entry.name
-            if name.startswith(".deleting-"):
-                # Quarantine entries are recovered separately; still diagnose orphans
-                # with no matching lifecycle/scope below via parse failure path.
-                parsed = parse_quarantine_name(name)
+            if name.startswith(".deleting-") or name.startswith(".detach-"):
+                # Quarantine/detach sidecars are recovered separately; diagnose
+                # malformed names that fail to parse.
+                parsed = (
+                    parse_quarantine_name(name)
+                    if name.startswith(".deleting-")
+                    else parse_detach_name(name)
+                )
                 if parsed is None:
                     log_event(
                         "artifact_cleanup",

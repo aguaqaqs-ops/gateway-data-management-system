@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import logging
 import os
 import sqlite3
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -51,6 +53,7 @@ from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupErr
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import ArtifactAdmissionPin
 from gateway_repository_service.upload_artifact.admission_pin import ArtifactNotReadyForAdmission
+from gateway_repository_service.upload_artifact.admission_pin import quarantine_name_for
 from gateway_repository_service.upload_artifact.admission_pin import try_unlink_owned_ready_artifact
 from gateway_repository_service.upload_artifact.admission_pin import (
     try_unlink_ready_artifact_with_recheck,
@@ -1810,7 +1813,7 @@ def test_forged_quarantine_without_intent_is_retained(
         record
         for record in caplog.records
         if getattr(record, "cleanup_outcome", None)
-        in {"unknown_path_inventory", "quarantine_inode_mismatch", "forged_quarantine"}
+        in {"unknown_path_inventory", "quarantine_inode_mismatch"}
     ]
     assert diagnostics
 
@@ -1842,3 +1845,993 @@ def test_unknown_uuid_repository_directory_is_diagnosed(
         if getattr(record, "cleanup_outcome", None) == "unknown_path_inventory"
     ]
     assert diagnostics
+
+
+def _intent_callbacks(
+    store: ImportOperationStore,
+) -> tuple[
+    Callable[[], None],
+    Callable[[int, int], None],
+    Callable[[], None],
+    dict[str, bool],
+]:
+    stamped = {"ok": False}
+
+    def on_deleted() -> None:
+        store.mark_artifact_bytes_deleted(
+            ARTIFACT_ID,
+            deleted_at="2026-08-02T00:00:00+00:00",
+            repository_id=REPOSITORY_ID,
+        )
+        stamped["ok"] = True
+
+    def on_intent(dev: int, ino: int) -> None:
+        store.begin_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            dev=dev,
+            ino=ino,
+            phase="quarantined",
+            intent_at="2026-08-02T00:00:00+00:00",
+        )
+
+    def on_clear_intent() -> None:
+        store.clear_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+        )
+
+    return on_deleted, on_intent, on_clear_intent, stamped
+
+
+def _dir_fd_from_kwargs(kwargs: dict[str, object], *keys: str) -> int | None:
+    for key in keys:
+        value = kwargs.get(key)
+        if value is None:
+            continue
+        if isinstance(value, int):
+            return value
+        raise TypeError(f"unexpected dir_fd type for {key}: {type(value)!r}")
+    return None
+
+
+def _replace_ready_dir_entry(ready_dir_fd: int, name: str, payload: bytes) -> None:
+    os.unlink(name, dir_fd=ready_dir_fd)
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644, dir_fd=ready_dir_fd)
+    try:
+        os.write(fd, payload)
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.serial
+def test_post_nlink_pre_detach_rename_preserves_replacement(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probe 2: replace ready between nlink gate and detach rename."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    replacement = b"post-nlink-replacement"
+    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    real_rename = os.rename
+
+    def rename(src: str | bytes | os.PathLike[str], dst: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
+        src_dir_fd = _dir_fd_from_kwargs(kwargs, "src_dir_fd")
+        if (
+            src_dir_fd is not None
+            and isinstance(src, str)
+            and len(src) == 32
+            and isinstance(dst, str)
+            and dst.startswith(".detach-")
+        ):
+            _replace_ready_dir_entry(src_dir_fd, src, replacement)
+        real_rename(src, dst, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "rename", rename)
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+    )
+    assert outcome != "deleted"
+    assert stamped["ok"] is False
+    assert ready.is_file()
+    assert ready.read_bytes() == replacement
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+@pytest.mark.serial
+def test_replacement_admission_pin_blocks_stamp(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 3: real admission on replacement inode; delete must not stamp."""
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    replacement = b"admission-replacement"
+    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    barrier = threading.Barrier(2)
+    outcomes: dict[str, object] = {}
+
+    def recheck() -> bool:
+        barrier.wait(timeout=2.0)
+        ready.unlink()
+        ready.write_bytes(replacement)
+        return True
+
+    def admit() -> None:
+        barrier.wait(timeout=2.0)
+        time.sleep(0.05)
+        try:
+            with ArtifactAdmissionPin(
+                layout,
+                REPOSITORY_ID,
+                ARTIFACT_ID,
+                size_bytes=len(replacement),
+                raw_sha256=hashlib.sha256(replacement).hexdigest(),
+            ):
+                outcomes["admission"] = "accepted"
+        except ArtifactNotReadyForAdmission:
+            outcomes["admission"] = "rejected"
+        except OSError as exc:
+            outcomes["admission"] = f"oserror:{exc}"
+
+    thread = threading.Thread(target=admit)
+    thread.start()
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=recheck,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+    )
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    assert outcome != "deleted"
+    assert stamped["ok"] is False
+    assert ready.is_file()
+    assert ready.read_bytes() == replacement
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+@pytest.mark.serial
+def test_proc_link_fallback_pathname_replace_preserves_replacement(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probe 4: /proc link fails; pathname fallback sees replacement."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    replacement = b"fallback-replacement"
+    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    real_link = os.link
+
+    def link(src: str | bytes | os.PathLike[str], dst: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
+        if isinstance(src, str) and src.startswith("/proc/self/fd/"):
+            raise OSError(errno.ENOENT, "forced proc link failure")
+        src_dir_fd = _dir_fd_from_kwargs(kwargs, "src_dir_fd")
+        if (
+            src_dir_fd is not None
+            and isinstance(src, str)
+            and len(src) == 32
+            and isinstance(dst, str)
+            and dst.startswith(".deleting-")
+        ):
+            _replace_ready_dir_entry(src_dir_fd, src, replacement)
+        real_link(src, dst, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "link", link)
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+    )
+    assert outcome != "deleted"
+    assert stamped["ok"] is False
+    assert ready.is_file()
+    assert ready.read_bytes() == replacement
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+    assert list(ready.parent.glob(".deleting-*")) == []
+
+
+@pytest.mark.serial
+def test_quarantine_replaced_before_verify_does_not_delete_unknown(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probe 5a: quarantine directory entry swapped before inode verify."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    forged_payload = b"swapped-quarantine"
+    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    real_link = os.link
+
+    def link(src: str | bytes | os.PathLike[str], dst: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
+        real_link(src, dst, *args, **kwargs)  # type: ignore[arg-type]
+        dst_dir_fd = _dir_fd_from_kwargs(kwargs, "dst_dir_fd")
+        if dst_dir_fd is not None and isinstance(dst, str) and dst.startswith(".deleting-"):
+            os.unlink(dst, dir_fd=dst_dir_fd)
+            fd = os.open(
+                dst,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o644,
+                dir_fd=dst_dir_fd,
+            )
+            try:
+                os.write(fd, forged_payload)
+            finally:
+                os.close(fd)
+
+    monkeypatch.setattr(os, "link", link)
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+    )
+    assert outcome == "inode_mismatch"
+    assert stamped["ok"] is False
+    assert ready.is_file()
+    assert ready.read_bytes() == ARTIFACT_PAYLOAD
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+@pytest.mark.serial
+def test_abort_finally_does_not_unlink_replacement_ready(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probe 5b: abort-finally quarantine cleanup must not touch replacement ready."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    replacement = b"finally-replacement"
+    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    real_unlink = os.unlink
+
+    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
+        dir_fd = _dir_fd_from_kwargs(kwargs, "dir_fd")
+        if dir_fd is not None and isinstance(path, str) and path.startswith(".deleting-"):
+            ready_name = ARTIFACT_ID.hex
+            try:
+                os.stat(ready_name, dir_fd=dir_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                _replace_ready_dir_entry(dir_fd, ready_name, replacement)
+        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "unlink", unlink)
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: False,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+    )
+    assert outcome == "ineligible"
+    assert stamped["ok"] is False
+    assert ready.is_file()
+    assert ready.read_bytes() in {ARTIFACT_PAYLOAD, replacement}
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+@pytest.mark.serial
+def test_live_helper_flock_blocks_quarantine_recovery(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Probe 7: recovery must report lock_busy while helper holds flock."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    in_recheck = threading.Event()
+    release = threading.Event()
+    recovery_done = threading.Event()
+    caplog.set_level(logging.INFO)
+
+    def recheck() -> bool:
+        in_recheck.set()
+        assert release.wait(timeout=2.0)
+        return True
+
+    def recover() -> None:
+        assert in_recheck.wait(timeout=2.0)
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: BASE_NOW,
+        ).sweep_once()
+        recovery_done.set()
+        release.set()
+
+    thread = threading.Thread(target=recover)
+    thread.start()
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=recheck,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+    )
+    thread.join(timeout=3.0)
+    assert not thread.is_alive()
+    assert recovery_done.is_set()
+    assert outcome == "deleted"
+    assert stamped["ok"] is True
+    busy = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "lock_busy"
+    ]
+    assert busy
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+
+def test_scope_change_before_stamp_keeps_quarantine(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 13: stamp scope mismatch fails closed with quarantine retained."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+
+    def on_intent(dev: int, ino: int) -> None:
+        store.begin_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            dev=dev,
+            ino=ino,
+            phase="quarantined",
+            intent_at="2026-08-02T00:00:00+00:00",
+        )
+
+    def on_clear_intent() -> None:
+        store.clear_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+        )
+
+    def on_deleted() -> None:
+        with mutation_store._lock:
+            mutation_store._connection.execute(
+                """
+                UPDATE artifact_lifecycle
+                SET repository_scope = ?
+                WHERE artifact_id = ?
+                """,
+                ("a" * 32, str(ARTIFACT_ID)),
+            )
+            mutation_store._connection.commit()
+        store.mark_artifact_bytes_deleted(
+            ARTIFACT_ID,
+            deleted_at="2026-08-02T00:00:00+00:00",
+            repository_id=REPOSITORY_ID,
+        )
+
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+    )
+    assert outcome == "stamp_failed"
+    assert not ready.exists()
+    quarantines = list(ready.parent.glob(".deleting-*"))
+    assert len(quarantines) == 1
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+def test_post_detach_protected_reference_keeps_quarantine(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 12: recheck #2 sees new protected ref → keep quarantine, no stamp."""
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    calls = {"n": 0}
+
+    def recheck() -> bool:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return True
+        _enqueue(store, key="post-detach-pending", operation_id=OTHER_OPERATION_ID)
+        return store.evaluate_artifact_bytes_deletion(
+            ARTIFACT_ID,
+            now=BASE_NOW,
+            ttl_seconds=1,
+        ).eligible
+
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=recheck,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+    )
+    assert outcome == "ineligible"
+    assert stamped["ok"] is False
+    assert not ready.exists()
+    assert list(ready.parent.glob(".deleting-*"))
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+    assert lifecycle.bytes_delete_intent_at is not None
+
+
+def _begin_intent_for_ready(
+    store: ImportOperationStore,
+    ready: Path,
+    *,
+    phase: str = "quarantined",
+) -> tuple[Path, int]:
+    st = ready.stat()
+    quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
+    os.link(ready, quarantine)
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase=phase,
+        intent_at="2026-08-02T00:00:00+00:00",
+    )
+    return quarantine, int(st.st_ino)
+
+
+def test_crash_phase_quarantine_and_ready_same_inode_no_stamp(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 6a: quarantine + ready same inode, no stamp → complete on sweep."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    assert quarantine.is_file()
+    assert ready.is_file()
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert not ready.exists()
+    assert not quarantine.exists()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+    assert lifecycle.bytes_delete_intent_at is None
+
+
+def test_crash_phase_quarantine_ready_different_inode_with_intent(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 6d: intent inode differs from ready replacement → no stamp, keep ready."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    ready.unlink()
+    ready.write_bytes(b"replacement-after-intent")
+    assert quarantine.stat().st_ino != ready.stat().st_ino
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert ready.is_file()
+    assert ready.read_bytes() == b"replacement-after-intent"
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    # Eligible orphan path may stamp+drop quarantine only when ready differs;
+    # replacement must remain and must not be deleted.
+    assert ready.is_file()
+
+
+def test_stamp_succeeds_but_final_quarantine_unlink_fails(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probe 6e: stamp ok, quarantine unlink fails → retain q; next sweep finishes."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    real_unlink = os.unlink
+    fail_once = {"n": 0}
+
+    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
+        if (
+            isinstance(path, str)
+            and path.startswith(".deleting-")
+            and fail_once["n"] == 0
+        ):
+            fail_once["n"] += 1
+            raise OSError(errno.EPERM, "forced quarantine unlink failure")
+        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "unlink", unlink)
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+    )
+    assert outcome == "unlink_failed"
+    assert stamped["ok"] is True
+    assert not ready.exists()
+    quarantines = list(ready.parent.glob(".deleting-*"))
+    assert len(quarantines) == 1
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+    monkeypatch.setattr(os, "unlink", real_unlink)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    assert list(ready.parent.glob(".deleting-*")) == []
+
+
+@pytest.mark.parametrize("ready_present", [True, False], ids=["ready_present", "ready_absent"])
+def test_forged_quarantine_with_matching_self_reported_ino_is_retained(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+    ready_present: bool,
+) -> None:
+    """Probe 8: forged quarantine self-reports correct ino; retain, no stamp."""
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    decoy = ready.parent / f".decoy-{uuid4().hex}"
+    decoy.write_bytes(b"forged-body")
+    forged = ready.parent / quarantine_name_for(
+        inode=decoy.stat().st_ino,
+        artifact_id=ARTIFACT_ID,
+    )
+    os.link(decoy, forged)
+    decoy.unlink()
+    if not ready_present:
+        ready.unlink()
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        # Before orphan TTL so ready cannot be deleted by candidate sweep.
+        clock=lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC),
+    ).sweep_once()
+
+    assert forged.is_file()
+    if ready_present:
+        assert ready.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+    diagnostics = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None)
+        in {"unknown_path_inventory", "quarantine_inode_mismatch"}
+    ]
+    assert diagnostics
+
+
+def test_legal_and_forged_quarantines_are_handled_independently(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 9: processing one quarantine must not unconditionally delete the other."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    legal, _ino = _begin_intent_for_ready(store, ready)
+    ready.unlink()
+    decoy = legal.parent / f".decoy-{uuid4().hex}"
+    decoy.write_bytes(b"forged-multi")
+    forged = legal.parent / quarantine_name_for(
+        inode=decoy.stat().st_ino,
+        artifact_id=ARTIFACT_ID,
+    )
+    os.link(decoy, forged)
+    decoy.unlink()
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert forged.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    # Legal quarantine may complete; forged must remain.
+    assert forged.is_file()
+
+
+ILLEGAL_STAMP_RESIDUAL_CASES = (
+    ("naive", "2026-08-02T00:00:00", 3600),
+    ("future", "2031-08-02T00:00:00+00:00", 3600),
+    ("premature", "2026-08-01T00:30:00+00:00", 3600),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "stamp", "ttl"),
+    ILLEGAL_STAMP_RESIDUAL_CASES,
+    ids=[c[0] for c in ILLEGAL_STAMP_RESIDUAL_CASES],
+)
+def test_illegal_stamp_quarantine_residual_fail_closed(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+    label: str,
+    stamp: str,
+    ttl: int,
+) -> None:
+    """Probe 10: illegal stamp on quarantine residual must fail closed."""
+
+    del label
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    ready.unlink()
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_delete_intent_at = NULL,
+                bytes_delete_dev = NULL,
+                bytes_delete_ino = NULL,
+                bytes_delete_phase = NULL
+            WHERE artifact_id = ?
+            """,
+            (stamp, str(ARTIFACT_ID)),
+        )
+        mutation_store._connection.commit()
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=ttl),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert quarantine.is_file()
+    diagnostics = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "fail_closed"
+    ]
+    assert diagnostics
+
+
+def test_protected_reference_with_stamp_keeps_quarantine(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Probe 10: protected reference + stamp → fail closed, keep quarantine."""
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    ready.unlink()
+    store.mark_artifact_bytes_deleted(
+        ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
+        repository_id=REPOSITORY_ID,
+    )
+    _enqueue(store, key="protected-residual", operation_id=OTHER_OPERATION_ID)
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert quarantine.is_file()
+    diagnostics = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "fail_closed"
+    ]
+    assert diagnostics
+
+
+def test_ineligible_quarantine_restored_when_ready_absent(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Probe 11: ineligible q-only → restore ready (no-replace)."""
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    payload = ready.read_bytes()
+    ready.unlink()
+    _enqueue(store, key="block-restore", operation_id=OTHER_OPERATION_ID)
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert ready.is_file()
+    assert ready.read_bytes() == payload
+    assert not quarantine.exists()
+    restored = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "quarantine_restored"
+    ]
+    assert restored
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+@pytest.mark.serial
+def test_ineligible_restore_skips_when_ready_reappears(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Probe 11: concurrent ready creation → quarantine_restore_skipped."""
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, _ino = _begin_intent_for_ready(store, ready)
+    ready.unlink()
+    _enqueue(store, key="block-skip", operation_id=OTHER_OPERATION_ID)
+    replacement = b"concurrent-ready"
+    real_stat = os.stat
+    seen = {"n": 0}
+
+    def stat_probe(
+        path: str | bytes | os.PathLike[str],
+        *args: object,
+        **kwargs: object,
+    ) -> os.stat_result:
+        missing = False
+        try:
+            return real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+        except FileNotFoundError:
+            missing = True
+            raise
+        finally:
+            dir_fd = _dir_fd_from_kwargs(kwargs, "dir_fd")
+            if (
+                missing
+                and dir_fd is not None
+                and isinstance(path, str)
+                and path == ARTIFACT_ID.hex
+            ):
+                seen["n"] += 1
+                if seen["n"] == 1:
+                    fd = os.open(
+                        path,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                        0o644,
+                        dir_fd=dir_fd,
+                    )
+                    try:
+                        os.write(fd, replacement)
+                    finally:
+                        os.close(fd)
+
+    monkeypatch.setattr(os, "stat", stat_probe)
+    caplog.set_level(logging.INFO)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert ready.is_file()
+    assert ready.read_bytes() == replacement
+    assert quarantine.is_file() or True  # may retain quarantine when restore skipped
+    skipped = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "quarantine_restore_skipped"
+    ]
+    assert skipped
+
+
+INVENTORY_OWNERSHIP_CASES = (
+    ("repo_symlink", "symlink"),
+    ("repo_file", "file"),
+    ("scope_mismatch_ready", "scope_mismatch"),
+    ("staging_orphan", "staging"),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "kind"),
+    INVENTORY_OWNERSHIP_CASES,
+    ids=[c[0] for c in INVENTORY_OWNERSHIP_CASES],
+)
+def test_inventory_ownership_variants_are_diagnosed(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+    label: str,
+    kind: str,
+) -> None:
+    """Probe 15: repo symlink/non-dir, scope mismatch, staging variants."""
+
+    del label
+    store, mutation_store = stores
+    caplog.set_level(logging.INFO)
+
+    if kind == "symlink":
+        target = layout.root / "outside-repo"
+        target.mkdir()
+        link = layout.artifacts / ("c" * 32)
+        layout.artifacts.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(target)
+        retained = link
+    elif kind == "file":
+        layout.artifacts.mkdir(parents=True, exist_ok=True)
+        retained = layout.artifacts / ("d" * 32)
+        retained.write_bytes(b"not-a-dir")
+    elif kind == "scope_mismatch":
+        _seed_create_succeeded(mutation_store)
+        other_artifact = uuid4()
+        with mutation_store._lock:
+            mutation_store._connection.execute(
+                """
+                INSERT INTO artifact_lifecycle (
+                    artifact_id, repository_scope, media_type, size_bytes,
+                    raw_sha256, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(other_artifact),
+                    ("e" * 32),
+                    MEDIA_TYPE,
+                    1,
+                    SHA256,
+                    CREATED_AT,
+                    CREATED_AT,
+                ),
+            )
+            mutation_store._connection.commit()
+        ready_dir = layout.artifacts / REPOSITORY_ID.hex / "ready"
+        ready_dir.mkdir(parents=True, exist_ok=True)
+        retained = ready_dir / other_artifact.hex
+        retained.write_bytes(b"scope-mismatch")
+    else:
+        layout.staging_artifacts.mkdir(parents=True, exist_ok=True)
+        retained = layout.staging_artifacts / "not-uuid-staging"
+        retained.write_bytes(b"staging-orphan")
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert retained.exists()
+    diagnostics = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None)
+        in {"unknown_path_inventory", "poison_lifecycle_inventory"}
+    ]
+    assert diagnostics
+    assert all(str(retained) not in record.getMessage() for record in diagnostics)

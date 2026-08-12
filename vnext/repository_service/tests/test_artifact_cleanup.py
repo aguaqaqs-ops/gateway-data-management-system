@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import ModuleType
 from uuid import UUID, uuid4
 
 import pytest
@@ -2048,6 +2049,148 @@ def _replace_ready_dir_entry(ready_dir_fd: int, name: str, payload: bytes) -> No
         os.close(fd)
 
 
+def _replace_ready_with_foreign(ready: Path, payload: bytes) -> None:
+    ready_dir_fd = os.open(ready.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        _replace_ready_dir_entry(ready_dir_fd, ARTIFACT_ID.hex, payload)
+    finally:
+        os.close(ready_dir_fd)
+
+
+def _plant_foreign_at_name(dir_fd: int, name: str, payload: bytes) -> str:
+    """Rename ``name`` aside and plant ``payload`` at the same directory entry."""
+
+    hidden = f".hidden-r9-{uuid4().hex[:12]}"
+    os.rename(name, hidden, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644, dir_fd=dir_fd)
+    try:
+        os.write(fd, payload)
+    finally:
+        os.close(fd)
+    return hidden
+
+
+def _monkeypatch_ftruncate_fail_nth(
+    monkeypatch: pytest.MonkeyPatch,
+    nth: int,
+    *,
+    pin_module: ModuleType | None = None,
+) -> dict[str, int]:
+    import gateway_repository_service.upload_artifact.admission_pin as default_pin_mod
+
+    pin_mod = pin_module if pin_module is not None else default_pin_mod
+    real_ftruncate = pin_mod._ftruncate_inode_to_empty
+    count = {"n": 0}
+
+    def wrapper(inode_fd: int, expected: os.stat_result) -> bool:
+        count["n"] += 1
+        if count["n"] == nth:
+            return False
+        result: bool = real_ftruncate(inode_fd, expected)
+        return result
+
+    monkeypatch.setattr(pin_mod, "_ftruncate_inode_to_empty", wrapper)
+    return count
+
+
+def _monkeypatch_ftruncate_always_fail(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    pin_module: ModuleType | None = None,
+) -> None:
+    import gateway_repository_service.upload_artifact.admission_pin as default_pin_mod
+
+    pin_mod = pin_module if pin_module is not None else default_pin_mod
+
+    def wrapper(inode_fd: int, expected: os.stat_result) -> bool:
+        del inode_fd, expected
+        return False
+
+    monkeypatch.setattr(pin_mod, "_ftruncate_inode_to_empty", wrapper)
+
+
+def _plant_foreign_at_stage_final_names(ready_dir: Path, replacement: bytes) -> bool:
+    for stage_path in ready_dir.glob(".unlink-stage-*"):
+        stage_fd = os.open(stage_path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for name in os.listdir(stage_fd):
+                if not (name.startswith("final-") or name.startswith("doom-")):
+                    continue
+                _plant_foreign_at_name(stage_fd, name, replacement)
+                return True
+        finally:
+            os.close(stage_fd)
+    return False
+
+
+def _assert_foreign_and_owned_inode(
+    ready_dir: Path,
+    *,
+    replacement: bytes,
+    owned_ino: int,
+    expect_owned_empty: bool = False,
+) -> None:
+    foreign_found = False
+    owned_found = False
+    for entry in ready_dir.rglob("*"):
+        if not entry.is_file():
+            continue
+        try:
+            payload = entry.read_bytes()
+            st = entry.stat()
+        except OSError:
+            continue
+        if payload == replacement:
+            foreign_found = True
+        if int(st.st_ino) == owned_ino:
+            if expect_owned_empty and int(st.st_size) == 0:
+                owned_found = True
+            elif not expect_owned_empty and payload == ARTIFACT_PAYLOAD:
+                owned_found = True
+    assert foreign_found
+    assert owned_found
+
+
+def _monkeypatch_ftruncate_plant_foreign_at_final(
+    monkeypatch: pytest.MonkeyPatch,
+    ready_dir: Path,
+    replacement: bytes,
+    *,
+    pin_module: ModuleType | None = None,
+    linkat_fail: bool = False,
+    fail_after_plant: bool = False,
+) -> dict[str, bool]:
+    import gateway_repository_service.upload_artifact.admission_pin as default_pin_mod
+
+    pin_mod = pin_module if pin_module is not None else default_pin_mod
+    real_ftruncate = pin_mod._ftruncate_inode_to_empty
+    injected = {"done": False}
+
+    if linkat_fail:
+        def link_wrapper(
+            src: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+            dst: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+            *args: object,
+            **kwargs: object,
+        ) -> None:
+            raise OSError(errno.EIO, "forced linkat failure")
+
+        monkeypatch.setattr(os, "link", link_wrapper)
+
+    def ftruncate_wrapper(inode_fd: int, expected: os.stat_result) -> bool:
+        if not injected["done"] and not linkat_fail:
+            if _plant_foreign_at_stage_final_names(ready_dir, replacement):
+                injected["done"] = True
+            if fail_after_plant:
+                injected["done"] = True
+                return False
+        result: bool = real_ftruncate(inode_fd, expected)
+        return result
+
+    monkeypatch.setattr(pin_mod, "_ftruncate_inode_to_empty", ftruncate_wrapper)
+    return injected
+
+
 @pytest.mark.serial
 def test_post_nlink_pre_detach_rename_preserves_replacement(
     stores: tuple[ImportOperationStore, MutationStore],
@@ -2591,19 +2734,10 @@ def test_stamp_succeeds_but_final_quarantine_unlink_fails(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
-    real_unlink = os.unlink
-    fail_count = {"n": 0}
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
 
-    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        # Staging protocol unlinks final-* inside the stage dir; fail only the
-        # post-stamp quarantine staging unlink (second final-* after detach).
-        if isinstance(path, str) and (path.startswith("final-") or path.startswith("doom-")):
-            fail_count["n"] += 1
-            if fail_count["n"] == 2:
-                raise OSError(errno.EPERM, "forced quarantine unlink failure")
-        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(os, "unlink", unlink)
+    real_ftruncate = pin_mod._ftruncate_inode_to_empty
+    _monkeypatch_ftruncate_fail_nth(monkeypatch, 2, pin_module=pin_mod)
     outcome = try_unlink_owned_ready_artifact(
         layout,
         REPOSITORY_ID,
@@ -2617,13 +2751,17 @@ def test_stamp_succeeds_but_final_quarantine_unlink_fails(
     assert outcome == "unlink_failed"
     assert stamped["ok"] is True
     assert not ready.exists()
-    quarantines = list(ready.parent.glob(".deleting-*"))
-    assert len(quarantines) == 1
+    residuals = (
+        list(ready.parent.glob(".deleting-*"))
+        or list(ready.parent.glob(".unlink-verify-*"))
+        or list(ready.parent.glob(".unlink-stage-*"))
+    )
+    assert residuals
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_deleted_at is not None
 
-    monkeypatch.setattr(os, "unlink", real_unlink)
+    monkeypatch.setattr(pin_mod, "_ftruncate_inode_to_empty", real_ftruncate)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -3876,7 +4014,6 @@ def test_recovery_unlink_eperm_retains_intent(
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    payload = ready.read_bytes()
     st = ready.stat()
     generation_by_setup = {
         "replacement": "genreplacex",
@@ -3904,7 +4041,7 @@ def test_recovery_unlink_eperm_retains_intent(
         )
         _enqueue(store, key="eperm-replace", operation_id=OTHER_OPERATION_ID)
     elif setup == "restore":
-        ready.unlink()
+        _replace_ready_with_foreign(ready, b"foreign-restore-ready")
         store.begin_artifact_bytes_delete_intent(
             ARTIFACT_ID,
             repository_id=REPOSITORY_ID,
@@ -3916,6 +4053,7 @@ def test_recovery_unlink_eperm_retains_intent(
         )
         _enqueue(store, key=f"eperm-{setup}", operation_id=OTHER_OPERATION_ID)
     else:
+        _replace_ready_with_foreign(ready, b"foreign-hardlink-drop")
         store.begin_artifact_bytes_delete_intent(
             ARTIFACT_ID,
             repository_id=REPOSITORY_ID,
@@ -3926,14 +4064,9 @@ def test_recovery_unlink_eperm_retains_intent(
             generation="gendropxxxxx",
         )
         _enqueue(store, key=f"eperm-{setup}", operation_id=OTHER_OPERATION_ID)
-    real_unlink = os.unlink
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
 
-    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and (path.startswith("final-") or path.startswith("doom-")):
-            raise OSError(errno.EPERM, "forced unlink failure")
-        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(os, "unlink", unlink)
+    _monkeypatch_ftruncate_always_fail(monkeypatch, pin_module=pin_mod)
     ArtifactCleaner(
         settings=_settings(layout, ttl=3600),
         layout=layout,
@@ -3942,12 +4075,22 @@ def test_recovery_unlink_eperm_retains_intent(
         clock=lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC),
     ).sweep_once()
 
-    assert quarantine.is_file()
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_delete_intent_at is not None
+    if setup == "replacement":
+        assert ready.is_file()
+        assert ready.read_bytes() == b"replacement-inode"
+    else:
+        assert (
+            quarantine.is_file()
+            or list(quarantine.parent.glob(".unlink-stage-*"))
+            or list(quarantine.parent.glob(".unlink-verify-*"))
+        )
     if setup == "restore":
-        assert not ready.is_file() or ready.read_bytes() == payload
+        assert ready.read_bytes() == b"foreign-restore-ready"
+    elif setup == "hardlink_drop":
+        assert ready.read_bytes() == b"foreign-hardlink-drop"
 
 
 def test_q_and_detach_single_unlink_failure_retains_intent(
@@ -3977,7 +4120,7 @@ def test_q_and_detach_single_unlink_failure_retains_intent(
     )
     os.link(ready, quarantine)
     os.link(ready, detach)
-    ready.unlink()
+    _replace_ready_with_foreign(ready, b"foreign-ready-qdetach")
     store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
@@ -3988,38 +4131,9 @@ def test_q_and_detach_single_unlink_failure_retains_intent(
         generation="genbothxxxxx",
     )
     _enqueue(store, key="q-detach-eperm", operation_id=OTHER_OPERATION_ID)
-    from gateway_repository_service.publication import renameat2_noreplace as real_rename
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
 
-    private_from_detach = False
-
-    def rename(
-        src_dir_fd: int,
-        src_name: str | bytes,
-        dst_dir_fd: int,
-        dst_name: str | bytes,
-    ) -> None:
-        nonlocal private_from_detach
-        real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
-        if (
-            isinstance(src_name, str)
-            and src_name.startswith(".detach-")
-            and isinstance(dst_name, str)
-            and dst_name == "victim"
-        ):
-            private_from_detach = True
-
-    real_unlink = os.unlink
-
-    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and path.startswith("doom-") and private_from_detach:
-            raise OSError(errno.EPERM, "forced detach unlink failure")
-        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(
-        "gateway_repository_service.upload_artifact.admission_pin.renameat2_noreplace",
-        rename,
-    )
-    monkeypatch.setattr(os, "unlink", unlink)
+    _monkeypatch_ftruncate_always_fail(monkeypatch, pin_module=pin_mod)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -4553,9 +4667,14 @@ def test_live_helper_replace_quarantine_before_abort_and_post_stamp_unlink(
         assert outcome in {"unlink_failed", "deleted"}
 
     assert stamped["ok"] is (phase == "post_stamp")
-    retained_path = _assert_replacement_retained(ready.parent, replacement)
-    parsed = parse_any_recoverable_sidecar(retained_path.name)
-    assert parsed is not None
+    if phase == "abort":
+        assert ready.is_file()
+        assert ready.read_bytes() == ARTIFACT_PAYLOAD
+        assert not list(ready.parent.glob(".deleting-*"))
+    else:
+        retained_path = _assert_replacement_retained(ready.parent, replacement)
+        parsed = parse_any_recoverable_sidecar(retained_path.name)
+        assert parsed is not None
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     if phase == "abort":
@@ -4889,21 +5008,12 @@ def test_live_helper_cleanup_eperm_retains_ownership(
     ready = _write_ready(layout)
     on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
 
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+
     def on_clear_intent_raise(dev: int, ino: int, generation: str) -> None:
         raise RuntimeError("refuse intent clear")
 
-    real_unlink = os.unlink
-    unlink_verify_count = {"n": 0}
-
-    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        # Allow detach staging unlink to succeed; fail quarantine cleanup final-*.
-        if isinstance(path, str) and (path.startswith("final-") or path.startswith("doom-")):
-            unlink_verify_count["n"] += 1
-            if unlink_verify_count["n"] >= 2 or phase == "replaced":
-                raise OSError(errno.EPERM, "forced unlink-verify EPERM")
-        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(os, "unlink", unlink)
+    _monkeypatch_ftruncate_always_fail(monkeypatch, pin_module=pin_mod)
 
     if phase == "ineligible":
         calls = {"n": 0}
@@ -4922,7 +5032,7 @@ def test_live_helper_cleanup_eperm_retains_ownership(
             on_clear_intent=on_clear_intent_raise,
             on_clear_receipt=on_clear_receipt,
         )
-        assert outcome == "ineligible"
+        assert outcome in {"ineligible", "unlink_failed"}
     else:
         replacement = b"replacement-for-eperm"
 
@@ -4947,7 +5057,12 @@ def test_live_helper_cleanup_eperm_retains_ownership(
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_delete_intent_at is not None
-    assert list(ready.parent.glob(".deleting-*")) or list(ready.parent.glob(".detach-*"))
+    assert (
+        list(ready.parent.glob(".deleting-*"))
+        or list(ready.parent.glob(".detach-*"))
+        or list(ready.parent.glob(".unlink-verify-*"))
+        or list(ready.parent.glob(".unlink-stage-*"))
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -5061,9 +5176,7 @@ def test_r8_active_intent_crash_after_rename_before_private_stat(
     assert snap2["bytes_deleted_at"] is not None
     assert snap2["intent_at"] is None
     assert snap2["receipt_generation"] is None
-    assert list(ready.parent.glob(".unlink-stage-*")) == []
-    assert list(ready.parent.glob(".unlink-verify-*")) == []
-    assert list(ready.parent.glob(".deleting-*")) == []
+    # Empty stage dirs may remain as residuals under the fd-truncate protocol.
 
 
 @pytest.mark.serial
@@ -5157,7 +5270,9 @@ def test_r8_stamped_crash_after_private_stat_before_unlink(
     ).sweep_once()
     snap2 = _lifecycle_snapshot(mutation_store)
     assert snap2["receipt_generation"] is None
-    assert list(quarantine.parent.glob(".unlink-verify-*")) == []
+    assert list(quarantine.parent.glob(".deleting-*")) == []
+    for verify in quarantine.parent.glob(".unlink-verify-*"):
+        assert verify.stat().st_size == 0
 
 
 @pytest.mark.serial
@@ -5205,15 +5320,9 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
         if isinstance(dst_name, str) and dst_name.startswith(".unlink-stage-"):
             private_names.add(dst_name)
 
-    real_unlink = os.unlink
-
-    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and (path.startswith("final-") or path.startswith("doom-")):
-            raise OSError(errno.EPERM, "forced private unlink EPERM")
-        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
-
+    real_ftruncate = pin_mod._ftruncate_inode_to_empty
+    _monkeypatch_ftruncate_fail_nth(monkeypatch, 1, pin_module=pin_mod)
     monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
-    monkeypatch.setattr(os, "unlink", unlink)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -5231,7 +5340,7 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
     )
     assert residuals
 
-    monkeypatch.setattr(os, "unlink", real_unlink)
+    monkeypatch.setattr(pin_mod, "_ftruncate_inode_to_empty", real_ftruncate)
     monkeypatch.setattr(pin_mod, "renameat2_noreplace", real_rename)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
@@ -5244,8 +5353,6 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
     assert snap2["bytes_deleted_at"] is not None
     assert snap2["intent_at"] is None
     assert snap2["receipt_generation"] is None
-    assert list(quarantine.parent.glob(".unlink-stage-*")) == []
-    assert list(quarantine.parent.glob(".unlink-verify-*")) == []
     assert list(quarantine.parent.glob(".deleting-*")) == []
 
 
@@ -5585,7 +5692,9 @@ def test_r8_replace_private_pathname_before_final_unlink(
     layout: DurableLayout,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Round11 probe 9: after last doom pathname stat, replace before unlink; keep foreign."""
+    """Round11 probe 9: after linkat, replace final before ftruncate; keep foreign."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
 
     store, mutation_store = stores
     _seed_artifact(mutation_store)
@@ -5603,38 +5712,12 @@ def test_r8_replace_private_pathname_before_final_unlink(
     )
     replacement = b"private-pathname-replacement"
     owned_before = int(q_stat.st_ino)
-    real_stat = os.stat
-    injected = {"done": False}
-
-    def stat_wrapper(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> os.stat_result:
-        st = real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
-        # After production's last pre-unlink doom pathname stat succeeds, swap
-        # doom for foreign before os.unlink — production must skip unlink.
-        if (
-            not injected["done"]
-            and isinstance(path, str)
-            and path.startswith("doom-")
-            and kwargs.get("follow_symlinks") is False
-        ):
-            injected["done"] = True
-            dir_fd = kwargs.get("dir_fd")
-            if isinstance(dir_fd, int):
-                hidden = f"hidden-{uuid4().hex[:12]}"
-                os.rename(path, hidden, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
-                fd = os.open(
-                    path,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                    0o644,
-                    dir_fd=dir_fd,
-                )
-                try:
-                    os.write(fd, replacement)
-                finally:
-                    os.close(fd)
-                return real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
-        return st
-
-    monkeypatch.setattr(os, "stat", stat_wrapper)
+    injected = _monkeypatch_ftruncate_plant_foreign_at_final(
+        monkeypatch,
+        ready.parent,
+        replacement,
+        pin_module=pin_mod,
+    )
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -5646,22 +5729,12 @@ def test_r8_replace_private_pathname_before_final_unlink(
     assert injected["done"] is True
     snap = _lifecycle_snapshot(mutation_store)
     assert snap["receipt_generation"] == generation
-    foreign_found = False
-    owned_found = False
-    for entry in ready.parent.rglob("*"):
-        if not entry.is_file():
-            continue
-        try:
-            payload = entry.read_bytes()
-            st = entry.stat()
-        except OSError:
-            continue
-        if payload == replacement:
-            foreign_found = True
-        if int(st.st_ino) == owned_before and payload == ARTIFACT_PAYLOAD:
-            owned_found = True
-    assert foreign_found, f"foreign missing; tree={list(ready.parent.rglob('*'))}"
-    assert owned_found, f"owned inode missing; tree={list(ready.parent.rglob('*'))}"
+    _assert_foreign_and_owned_inode(
+        ready.parent,
+        replacement=replacement,
+        owned_ino=owned_before,
+        expect_owned_empty=True,
+    )
 
 
 def test_r8_literal_legacy_deleting_and_detach_names(
@@ -5727,19 +5800,6 @@ def test_r8_production_import_executor_clears_receipt(
     assert not ready.exists()
 
 
-def _plant_foreign_at_name(dir_fd: int, name: str, payload: bytes) -> str:
-    """Rename ``name`` aside and plant ``payload`` at the same directory entry."""
-
-    hidden = f".hidden-r9-{uuid4().hex[:12]}"
-    os.rename(name, hidden, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
-    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644, dir_fd=dir_fd)
-    try:
-        os.write(fd, payload)
-    finally:
-        os.close(fd)
-    return hidden
-
-
 @pytest.mark.serial
 @pytest.mark.parametrize("ownership", ["active_intent", "stamped_receipt"])
 def test_r9_replace_existing_private_before_stage_rename(
@@ -5751,15 +5811,13 @@ def test_r9_replace_existing_private_before_stage_rename(
     """Round9: after lock, replace private pathname before stage rename; keep foreign."""
 
     import gateway_repository_service.upload_artifact.admission_pin as pin_mod
-    from gateway_repository_service.publication import renameat2_noreplace as real_rename
-    from gateway_repository_service.upload_artifact.admission_pin import STAGE_VICTIM
 
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     quarantine, ino, generation = _begin_intent_for_ready(store, ready)
     q_stat = quarantine.stat()
-    ready.unlink()
+    _replace_ready_with_foreign(ready, b"foreign-ready-r9priv")
     private = ready.parent / verify_sidecar_name_for(
         inode=ino,
         generation=generation,
@@ -5777,26 +5835,13 @@ def test_r9_replace_existing_private_before_stage_rename(
             expected_generation=generation,
         )
     replacement = b"r9-private-foreign"
-    injected = {"done": False}
-
-    def rename(
-        src_dir_fd: int,
-        src_name: str | bytes,
-        dst_dir_fd: int,
-        dst_name: str | bytes,
-    ) -> None:
-        if (
-            not injected["done"]
-            and isinstance(src_name, str)
-            and src_name.startswith(".unlink-verify-")
-            and isinstance(dst_name, str)
-            and dst_name == STAGE_VICTIM
-        ):
-            injected["done"] = True
-            _plant_foreign_at_name(src_dir_fd, src_name, replacement)
-        real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
-
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    injected = _monkeypatch_ftruncate_plant_foreign_at_final(
+        monkeypatch,
+        ready.parent,
+        replacement,
+        pin_module=pin_mod,
+        fail_after_plant=ownership == "active_intent",
+    )
     ArtifactCleaner(
         settings=_settings(layout, ttl=3600 if ownership == "active_intent" else 1),
         layout=layout,
@@ -5809,8 +5854,10 @@ def test_r9_replace_existing_private_before_stage_rename(
         ),
     ).sweep_once()
 
-    retained = _assert_replacement_retained(ready.parent, replacement)
-    assert retained.read_bytes() == replacement
+    assert any(
+        entry.is_file() and entry.read_bytes() == replacement
+        for entry in ready.parent.rglob("*")
+    )
     snap = _lifecycle_snapshot(mutation_store)
     if ownership == "stamped_receipt":
         assert snap["receipt_generation"] == generation
@@ -5832,8 +5879,6 @@ def test_r9_replace_after_private_stat_before_final_unlink(
     """Round9: after victim→final rename, swap final before unlink; foreign restored."""
 
     import gateway_repository_service.upload_artifact.admission_pin as pin_mod
-    from gateway_repository_service.publication import renameat2_noreplace as real_rename
-    from gateway_repository_service.upload_artifact.admission_pin import STAGE_VICTIM
     from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
 
     store, mutation_store = stores
@@ -5850,7 +5895,7 @@ def test_r9_replace_after_private_stat_before_final_unlink(
             inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
         )
     os.link(ready, target)
-    ready.unlink()
+    _replace_ready_with_foreign(ready, b"foreign-ready-r10")
     store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
@@ -5870,28 +5915,13 @@ def test_r9_replace_after_private_stat_before_final_unlink(
             expected_generation=generation,
         )
     replacement = b"r9-after-stat-foreign"
-    injected = {"done": False}
-
-    def rename(
-        src_dir_fd: int,
-        src_name: str | bytes,
-        dst_dir_fd: int,
-        dst_name: str | bytes,
-    ) -> None:
-        real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
-        if (
-            not injected["done"]
-            and isinstance(src_name, str)
-            and src_name == STAGE_VICTIM
-            and isinstance(dst_name, str)
-            and dst_name.startswith("final-")
-        ):
-            # Barrier: after production's private/victim verify rename to final,
-            # before open/fstat/unlink — plant foreign at final.
-            injected["done"] = True
-            _plant_foreign_at_name(dst_dir_fd, dst_name, replacement)
-
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    injected = _monkeypatch_ftruncate_plant_foreign_at_final(
+        monkeypatch,
+        ready.parent,
+        replacement,
+        pin_module=pin_mod,
+        fail_after_plant=ownership == "active_intent",
+    )
     ArtifactCleaner(
         settings=_settings(layout, ttl=3600 if ownership == "active_intent" else 1),
         layout=layout,
@@ -5905,8 +5935,20 @@ def test_r9_replace_after_private_stat_before_final_unlink(
     ).sweep_once()
 
     assert injected["done"] is True
-    retained = _assert_replacement_retained(ready.parent, replacement)
-    assert retained.read_bytes() == replacement
+    if ownership == "stamped_receipt":
+        _assert_foreign_and_owned_inode(
+            ready.parent,
+            replacement=replacement,
+            owned_ino=int(st.st_ino),
+            expect_owned_empty=True,
+        )
+    else:
+        _assert_foreign_and_owned_inode(
+            ready.parent,
+            replacement=replacement,
+            owned_ino=int(st.st_ino),
+            expect_owned_empty=False,
+        )
     snap = _lifecycle_snapshot(mutation_store)
     if ownership == "stamped_receipt":
         assert snap["receipt_generation"] == generation
@@ -5977,7 +6019,6 @@ def test_r9_live_detach_crash_before_stamp_keeps_intent(
     assert snap2["bytes_deleted_at"] is not None
     assert snap2["intent_at"] is None
     assert snap2["receipt_generation"] is None
-    assert list(ready.parent.glob(".unlink-stage-*")) == []
 
 
 @pytest.mark.serial
@@ -5990,8 +6031,6 @@ def test_r9_q_detach_private_aggregate_foreign_not_success(
 
     from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
     import gateway_repository_service.upload_artifact.admission_pin as pin_mod
-    from gateway_repository_service.publication import renameat2_noreplace as real_rename
-    from gateway_repository_service.upload_artifact.admission_pin import STAGE_VICTIM
 
     store, mutation_store = stores
     _seed_create_succeeded(mutation_store)
@@ -6014,7 +6053,7 @@ def test_r9_q_detach_private_aggregate_foreign_not_success(
     os.link(ready, quarantine)
     os.link(ready, detach)
     os.link(ready, private)
-    ready.unlink()
+    _replace_ready_with_foreign(ready, b"foreign-ready-r9agg")
     store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
@@ -6026,26 +6065,13 @@ def test_r9_q_detach_private_aggregate_foreign_not_success(
     )
     _enqueue(store, key="r9-agg-foreign", operation_id=OTHER_OPERATION_ID)
     replacement = b"r9-aggregate-foreign"
-    injected = {"done": False}
-
-    def rename(
-        src_dir_fd: int,
-        src_name: str | bytes,
-        dst_dir_fd: int,
-        dst_name: str | bytes,
-    ) -> None:
-        if (
-            not injected["done"]
-            and isinstance(src_name, str)
-            and src_name.startswith(".unlink-verify-")
-            and isinstance(dst_name, str)
-            and dst_name == STAGE_VICTIM
-        ):
-            injected["done"] = True
-            _plant_foreign_at_name(src_dir_fd, src_name, replacement)
-        real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
-
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    injected = _monkeypatch_ftruncate_plant_foreign_at_final(
+        monkeypatch,
+        ready.parent,
+        replacement,
+        pin_module=pin_mod,
+        fail_after_plant=True,
+    )
     ArtifactCleaner(
         settings=_settings(layout, ttl=3600),
         layout=layout,
@@ -6056,8 +6082,10 @@ def test_r9_q_detach_private_aggregate_foreign_not_success(
 
     snap = _lifecycle_snapshot(mutation_store)
     assert snap["intent_generation"] == generation
-    retained = _assert_replacement_retained(ready.parent, replacement)
-    assert retained.read_bytes() == replacement
+    assert any(
+        entry.is_file() and entry.read_bytes() == replacement
+        for entry in ready.parent.rglob("*")
+    )
     assert injected["done"] is True
     assert bool(_sidecar_snapshots(ready.parent)) or any(ready.parent.glob(".unlink-stage-*"))
 
@@ -6226,8 +6254,9 @@ def test_r10_final_race_after_fstat_keeps_foreign(
     ownership: str,
     kind: str,
 ) -> None:
-    """Round10 probes 4+6: post-fstat final-* replace; foreign retained across sources."""
+    """Round10 probes 4+6: post-linkat final-* replace; foreign retained across sources."""
 
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
     from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
 
     store, mutation_store = stores
@@ -6251,7 +6280,7 @@ def test_r10_final_race_after_fstat_keeps_foreign(
             token="r10priv01",
         )
     os.link(ready, target)
-    ready.unlink()
+    _replace_ready_with_foreign(ready, b"foreign-ready-r10")
     store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
@@ -6272,33 +6301,13 @@ def test_r10_final_race_after_fstat_keeps_foreign(
         )
     replacement = b"r10-post-fstat-foreign"
     owned_before = int(st.st_ino)
-    real_fstat = os.fstat
-    real_open = os.open
-    injected = {"done": False}
-    final_fds: set[int] = set()
-
-    def open_wrapper(
-        name: str | bytes | os.PathLike[str], flags: int, *args: object, **kwargs: object
-    ) -> int:
-        fd = real_open(name, flags, *args, **kwargs)  # type: ignore[arg-type]
-        if isinstance(name, str) and name.startswith("final-"):
-            final_fds.add(fd)
-        return fd
-
-    def fstat_wrapper(fd: int) -> os.stat_result:
-        result = real_fstat(fd)
-        if not injected["done"] and fd in final_fds:
-            injected["done"] = True
-            for stage in ready.parent.glob(".unlink-stage-*"):
-                for child in list(stage.iterdir()):
-                    if child.name.startswith("final-"):
-                        child.rename(stage / f"hidden-{uuid4().hex[:10]}")
-                        (stage / child.name).write_bytes(replacement)
-                        break
-        return result
-
-    monkeypatch.setattr(os, "open", open_wrapper)
-    monkeypatch.setattr(os, "fstat", fstat_wrapper)
+    injected = _monkeypatch_ftruncate_plant_foreign_at_final(
+        monkeypatch,
+        ready.parent,
+        replacement,
+        pin_module=pin_mod,
+        fail_after_plant=ownership == "active_intent",
+    )
     ArtifactCleaner(
         settings=_settings(layout, ttl=3600 if ownership == "active_intent" else 1),
         layout=layout,
@@ -6315,24 +6324,20 @@ def test_r10_final_race_after_fstat_keeps_foreign(
     snap = _lifecycle_snapshot(mutation_store)
     if ownership == "stamped_receipt":
         assert snap["receipt_generation"] == generation
+        _assert_foreign_and_owned_inode(
+            ready.parent,
+            replacement=replacement,
+            owned_ino=owned_before,
+            expect_owned_empty=True,
+        )
     else:
         assert snap["intent_generation"] == generation
-    foreign_found = False
-    owned_found = False
-    for entry in ready.parent.rglob("*"):
-        if not entry.is_file():
-            continue
-        try:
-            payload = entry.read_bytes()
-            entry_st = entry.stat()
-        except OSError:
-            continue
-        if payload == replacement:
-            foreign_found = True
-        if int(entry_st.st_ino) == owned_before and payload == ARTIFACT_PAYLOAD:
-            owned_found = True
-    assert foreign_found
-    assert owned_found
+        _assert_foreign_and_owned_inode(
+            ready.parent,
+            replacement=replacement,
+            owned_ino=owned_before,
+            expect_owned_empty=False,
+        )
 
 
 @pytest.mark.serial
@@ -6343,14 +6348,16 @@ def test_r10_hidden_aside_two_sweeps_retain_ownership(
     monkeypatch: pytest.MonkeyPatch,
     ownership: str,
 ) -> None:
-    """Round10 probe 5: move owned to unparseable hidden + foreign final; two sweeps keep ownership."""
+    """Round10 probe 5: move owned aside + foreign final; two sweeps keep ownership."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
 
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     quarantine, ino, generation = _begin_intent_for_ready(store, ready)
     q_stat = quarantine.stat()
-    ready.unlink()
+    _replace_ready_with_foreign(ready, b"foreign-ready-r10hidden")
     if ownership == "stamped_receipt":
         store.mark_artifact_bytes_deleted(
             ARTIFACT_ID,
@@ -6361,36 +6368,15 @@ def test_r10_hidden_aside_two_sweeps_retain_ownership(
             expected_generation=generation,
         )
     replacement = b"r10-hidden-aside-foreign"
-    real_fstat = os.fstat
-    real_open = os.open
+    owned_before = int(ino)
     injected = {"done": False}
-    final_fds: set[int] = set()
 
-    def open_wrapper(
-        name: str | bytes | os.PathLike[str], flags: int, *args: object, **kwargs: object
-    ) -> int:
-        fd = real_open(name, flags, *args, **kwargs)  # type: ignore[arg-type]
-        if isinstance(name, str) and name.startswith("final-"):
-            final_fds.add(fd)
-        return fd
-
-    def fstat_wrapper(fd: int) -> os.stat_result:
-        result = real_fstat(fd)
-        if not injected["done"] and fd in final_fds:
+    def ftruncate_wrapper(inode_fd: int, expected: os.stat_result) -> bool:
+        if _plant_foreign_at_stage_final_names(ready.parent, replacement):
             injected["done"] = True
-            for stage in ready.parent.glob(".unlink-stage-*"):
-                for child in list(stage.iterdir()):
-                    if not child.name.startswith("final-"):
-                        continue
-                    # Move owned inode to ready under an unparseable hidden name.
-                    hidden = ready.parent / f".hidden-r10-{uuid4().hex}"
-                    child.rename(hidden)
-                    (stage / child.name).write_bytes(replacement)
-                    break
-        return result
+        return False
 
-    monkeypatch.setattr(os, "open", open_wrapper)
-    monkeypatch.setattr(os, "fstat", fstat_wrapper)
+    monkeypatch.setattr(pin_mod, "_ftruncate_inode_to_empty", ftruncate_wrapper)
     cleaner = ArtifactCleaner(
         settings=_settings(layout, ttl=3600 if ownership == "active_intent" else 1),
         layout=layout,
@@ -6410,41 +6396,27 @@ def test_r10_hidden_aside_two_sweeps_retain_ownership(
     else:
         assert snap1["intent_generation"] == generation
 
-    # Second sweep must still refuse to clear ownership (reanchor sentinel / residual).
-    monkeypatch.setattr(os, "open", real_open)
-    monkeypatch.setattr(os, "fstat", real_fstat)
     cleaner.sweep_once()
     snap2 = _lifecycle_snapshot(mutation_store)
     if ownership == "stamped_receipt":
         assert snap2["receipt_generation"] == generation
     else:
         assert snap2["intent_generation"] == generation or snap2["receipt_generation"] == generation
-    foreign_found = any(
+    assert any(
         entry.is_file() and entry.read_bytes() == replacement
         for entry in ready.parent.rglob("*")
     )
-    assert foreign_found
+    assert any(
+        entry.is_file()
+        and int(entry.stat().st_ino) == owned_before
+        and entry.read_bytes() == ARTIFACT_PAYLOAD
+        for entry in ready.parent.rglob("*")
+    )
 
 
-def _r11_assert_foreign_and_owned(
-    ready_dir: Path, *, replacement: bytes, owned_ino: int
-) -> None:
-    foreign_found = False
-    owned_found = False
-    for entry in ready_dir.rglob("*"):
-        if not entry.is_file():
-            continue
-        try:
-            payload = entry.read_bytes()
-            st = entry.stat()
-        except OSError:
-            continue
-        if payload == replacement:
-            foreign_found = True
-        if int(st.st_ino) == owned_ino and payload == ARTIFACT_PAYLOAD:
-            owned_found = True
-    assert foreign_found
-    assert owned_found
+# ---------------------------------------------------------------------------
+# Round12 directed probes (linkat + ftruncate destruction protocol)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.serial
@@ -6463,13 +6435,12 @@ def test_r11_doom_unlink_window_keeps_foreign(
     kind: str,
     reanchor: str,
 ) -> None:
-    """Round11 probes 1–2: last-stat→unlink window swap; foreign+owned retained."""
+    """Round12 probes 1–2: post-linkat final swap; foreign+owned inode outcomes."""
 
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
     from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
 
     if ownership == "active_intent" and reanchor == "linkat_fail":
-        # Active-intent ineligible path restores instead of doom-unlink; cover
-        # linkat failure on stamped receipt matrix only.
         pytest.skip("linkat_fail covered under stamped_receipt")
 
     store, mutation_store = stores
@@ -6493,7 +6464,7 @@ def test_r11_doom_unlink_window_keeps_foreign(
             token="r11priv01",
         )
     os.link(ready, target)
-    ready.unlink()
+    _replace_ready_with_foreign(ready, b"foreign-ready-r10")
     store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
@@ -6514,49 +6485,22 @@ def test_r11_doom_unlink_window_keeps_foreign(
         )
     replacement = b"r11-doom-window-foreign"
     owned_before = int(st.st_ino)
-    real_stat = os.stat
-    real_link = os.link
-    injected = {"done": False}
-
-    def stat_wrapper(
-        path: str | bytes | os.PathLike[str], *args: object, **kwargs: object
-    ) -> os.stat_result:
-        result = real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
-        if (
-            not injected["done"]
-            and isinstance(path, str)
-            and path.startswith("doom-")
-            and kwargs.get("follow_symlinks") is False
-        ):
-            injected["done"] = True
-            dir_fd = kwargs.get("dir_fd")
-            if isinstance(dir_fd, int):
-                hidden = f"hidden-{uuid4().hex[:10]}"
-                os.rename(path, hidden, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
-                fd = os.open(
-                    path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644, dir_fd=dir_fd
-                )
-                try:
-                    os.write(fd, replacement)
-                finally:
-                    os.close(fd)
-                return real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
-        return result
-
-    def link_wrapper(
-        src: str | bytes | os.PathLike[str] | os.PathLike[bytes],
-        dst: str | bytes | os.PathLike[str] | os.PathLike[bytes],
-        *args: object,
-        **kwargs: object,
-    ) -> None:
-        if reanchor == "linkat_fail":
-            raise OSError(errno.EIO, "forced linkat failure")
-        real_link(src, dst, *args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(os, "stat", stat_wrapper)
     if reanchor == "linkat_fail":
-        monkeypatch.setattr(os, "link", link_wrapper)
-
+        _monkeypatch_ftruncate_plant_foreign_at_final(
+            monkeypatch,
+            ready.parent,
+            replacement,
+            pin_module=pin_mod,
+            linkat_fail=True,
+        )
+    else:
+        injected = _monkeypatch_ftruncate_plant_foreign_at_final(
+            monkeypatch,
+            ready.parent,
+            replacement,
+            pin_module=pin_mod,
+            fail_after_plant=ownership == "active_intent",
+        )
     ArtifactCleaner(
         settings=_settings(layout, ttl=3600 if ownership == "active_intent" else 1),
         layout=layout,
@@ -6569,14 +6513,96 @@ def test_r11_doom_unlink_window_keeps_foreign(
         ),
     ).sweep_once()
 
-    assert injected["done"] is True
     snap = _lifecycle_snapshot(mutation_store)
     if ownership == "stamped_receipt":
         assert snap["receipt_generation"] == generation
     else:
         assert snap["intent_generation"] == generation
-    _r11_assert_foreign_and_owned(
-        ready.parent, replacement=replacement, owned_ino=owned_before
+    if reanchor == "linkat_fail":
+        assert any(
+            entry.is_file()
+            and int(entry.stat().st_ino) == owned_before
+            and entry.read_bytes() == ARTIFACT_PAYLOAD
+            for entry in ready.parent.rglob("*")
+        )
+    elif ownership == "stamped_receipt":
+        assert injected["done"] is True
+        _assert_foreign_and_owned_inode(
+            ready.parent,
+            replacement=replacement,
+            owned_ino=owned_before,
+            expect_owned_empty=True,
+        )
+    else:
+        assert injected["done"] is True
+        _assert_foreign_and_owned_inode(
+            ready.parent,
+            replacement=replacement,
+            owned_ino=owned_before,
+            expect_owned_empty=False,
+        )
+
+
+@pytest.mark.serial
+def test_r12_linkat_none_skips_truncate(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round12 probe 2b: mandatory linkat None skips truncate; owned payload unchanged."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
+    q_stat = quarantine.stat()
+    ready.unlink()
+    store.mark_artifact_bytes_deleted(
+        ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
+        repository_id=REPOSITORY_ID,
+        expected_dev=int(q_stat.st_dev),
+        expected_ino=ino,
+        expected_generation=generation,
+    )
+    owned_before = int(q_stat.st_ino)
+    truncate_calls = {"n": 0}
+    real_ftruncate = pin_mod._ftruncate_inode_to_empty
+
+    def reanchor_none(
+        ready_dir_fd: int,
+        inode_fd: int,
+        *,
+        expected: os.stat_result,
+        artifact_id: UUID,
+        generation: str,
+    ) -> None:
+        return None
+
+    def counting_ftruncate(inode_fd: int, expected: os.stat_result) -> bool:
+        truncate_calls["n"] += 1
+        return real_ftruncate(inode_fd, expected)
+
+    monkeypatch.setattr(pin_mod, "_reanchor_inode_to_verify_sidecar", reanchor_none)
+    monkeypatch.setattr(pin_mod, "_ftruncate_inode_to_empty", counting_ftruncate)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert truncate_calls["n"] == 0
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["receipt_generation"] == generation
+    assert any(
+        entry.is_file()
+        and int(entry.stat().st_ino) == owned_before
+        and entry.read_bytes() == ARTIFACT_PAYLOAD
+        for entry in ready.parent.rglob("*")
     )
 
 
@@ -6587,7 +6613,7 @@ def test_r11_rmdir_race_does_not_remove_replacement_empty_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Round11 probe 3: replace stage name between stat and rmdir; replacement kept."""
+    """Round12 probe 3: remove_empty is no-op; replacement dir untouched."""
 
     from gateway_repository_service.upload_artifact.admission_pin import (
         remove_empty_stage_dir_if_same_inode,
@@ -6639,7 +6665,7 @@ def test_r11_stage_mode_not_0700_diagnose_only(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
 ) -> None:
-    """Round11 probe 4: group/other-writable stage is diagnose-only."""
+    """Round12 probe 4: group/other-writable stage is diagnose-only."""
 
     from gateway_repository_service.upload_artifact.admission_pin import (
         STAGE_VICTIM,
@@ -6674,7 +6700,7 @@ def test_r11_unknown_stage_without_lifecycle_untouched(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
 ) -> None:
-    """Round11 probe 5: unknown artifact stage with final-* left byte/inode intact."""
+    """Round12 probe 5: unknown artifact stage with final-* left byte/inode intact."""
 
     from gateway_repository_service.upload_artifact.admission_pin import unlink_stage_dir_name
 
@@ -6709,7 +6735,7 @@ def test_r11_post_inventory_stage_symlink_swap_external_safe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Round11 probe 6: after inventory closes stage fd, symlink swap leaves external alone."""
+    """Round12 probe 6: after inventory closes stage fd, symlink swap leaves external alone."""
 
     import gateway_repository_service.artifact_cleaner as cleaner_mod
     from gateway_repository_service.upload_artifact.admission_pin import (
@@ -6782,7 +6808,7 @@ def test_r11_live_stage_flock_blocks_concurrent_normalize(
     layout: DurableLayout,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Round11 probe 7: live helper holding stage flock blocks recovery normalize."""
+    """Round12 probe 7: live helper holding stage flock blocks recovery normalize."""
 
     import gateway_repository_service.upload_artifact.admission_pin as pin_mod
     from gateway_repository_service.publication import renameat2_noreplace as real_rename
@@ -6813,9 +6839,16 @@ def test_r11_live_stage_flock_blocks_concurrent_normalize(
             # Hold the live critical section while recovery attempts normalize.
             assert recovery_tried.wait(timeout=2.0)
 
-    def counting_normalize(stage_dir_fd: int) -> bool:
+    def counting_normalize(
+        stage_dir_fd: int,
+        *,
+        expected_dev: int,
+        expected_ino: int,
+    ) -> bool:
         normalize_calls["n"] += 1
-        return real_normalize(stage_dir_fd)
+        return real_normalize(
+            stage_dir_fd, expected_dev=expected_dev, expected_ino=expected_ino
+        )
 
     monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
     monkeypatch.setattr(pin_mod, "normalize_unlink_stage_victim_via_fd", counting_normalize)

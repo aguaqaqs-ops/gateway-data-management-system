@@ -28,10 +28,12 @@ from gateway_repository_service.mutation_store import (
     MutationStore,
     MutationStoreInvariantError,
 )
+from gateway_repository_service.publication import renameat2_noreplace
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     STAGE_VICTIM,
+    drop_extra_hardlink_if_same_inode,
     list_unlink_stage_dir_names,
     lock_unlink_stage_dir,
     normalize_unlink_stage_victim_via_fd,
@@ -41,7 +43,6 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     parse_quarantine_name,
     parse_unlink_stage_dir_name,
     parse_unlink_verify_name,
-    remove_empty_stage_dir_if_same_inode,
     try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
     unlink_sidecar_rename_verify,
     unlink_verified_inode_via_staging,
@@ -583,6 +584,7 @@ class ArtifactCleaner:
                 self._unlink_intent_unlink_stage_with_recheck(
                     ready_dir_fd,
                     stage_name,
+                    expected_dev=int(intent_dev),
                     expected_ino=int(intent_ino),
                     repository_id=repository_id,
                     artifact_id=artifact_id,
@@ -637,6 +639,7 @@ class ArtifactCleaner:
                 self._unlink_stamped_unlink_stage_with_recheck(
                     ready_dir_fd,
                     stage_name,
+                    expected_dev=int(receipt_dev),
                     expected_ino=int(receipt_ino),
                     repository_id=repository_id,
                     artifact_id=artifact_id,
@@ -673,16 +676,104 @@ class ArtifactCleaner:
         for entry_name in entries:
             parsed_stage = parse_unlink_stage_dir_name(entry_name)
             if parsed_stage is not None and parsed_stage[0] == artifact_id:
-                return True
+                if not self._stage_only_size0_owned_tombstones(
+                    ready_dir_fd,
+                    entry_name,
+                    expected_ino=expected_ino,
+                ):
+                    return True
+                continue
             parsed = parse_any_recoverable_sidecar(entry_name)
             if parsed is None:
                 continue
-            inode, parsed_artifact_id, parsed_generation, _kind = parsed
+            inode, parsed_artifact_id, parsed_generation, kind = parsed
             if parsed_artifact_id != artifact_id:
                 continue
             if parsed_generation == generation and inode == expected_ino:
+                # Size-0 .unlink-verify-* tombstones are expected after fd-truncate.
+                # Quarantine/detach names must still be processed before ownership clear.
+                if kind == "unlink_verify" and self._ready_entry_is_size0_owned_tombstone(
+                    ready_dir_fd,
+                    entry_name,
+                    expected_ino=expected_ino,
+                ):
+                    continue
                 return True
         return False
+
+    def _ready_entry_is_size0_owned_tombstone(
+        self,
+        ready_dir_fd: int,
+        entry_name: str,
+        *,
+        expected_ino: int,
+    ) -> bool:
+        try:
+            fd = os.open(
+                entry_name,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+                dir_fd=ready_dir_fd,
+            )
+        except OSError:
+            return False
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            return False
+        finally:
+            os.close(fd)
+        return (
+            stat_module.S_ISREG(st.st_mode)
+            and int(st.st_ino) == int(expected_ino)
+            and int(st.st_size) == 0
+        )
+
+    def _stage_only_size0_owned_tombstones(
+        self,
+        ready_dir_fd: int,
+        stage_name: str,
+        *,
+        expected_ino: int,
+    ) -> bool:
+        stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
+        if stage_dir_fd is None:
+            return False
+        try:
+            if not lock_unlink_stage_dir(stage_dir_fd):
+                return False
+            try:
+                try:
+                    names = os.listdir(stage_dir_fd)
+                except OSError:
+                    return False
+                if not names:
+                    return True
+                for name in names:
+                    try:
+                        fd = os.open(
+                            name,
+                            os.O_RDONLY
+                            | getattr(os, "O_NOFOLLOW", 0)
+                            | getattr(os, "O_NONBLOCK", 0),
+                            dir_fd=stage_dir_fd,
+                        )
+                    except OSError:
+                        return False
+                    try:
+                        st = os.fstat(fd)
+                    except OSError:
+                        return False
+                    finally:
+                        os.close(fd)
+                    if not stat_module.S_ISREG(st.st_mode):
+                        return False
+                    if int(st.st_ino) != int(expected_ino) or int(st.st_size) != 0:
+                        return False
+                return True
+            finally:
+                unlock_unlink_stage_dir(stage_dir_fd)
+        finally:
+            os.close(stage_dir_fd)
 
     def _list_artifact_unlink_stages(
         self,
@@ -699,111 +790,98 @@ class ArtifactCleaner:
     def _staged_victim_path(self, stage_name: str) -> str:
         return f"{stage_name}/{STAGE_VICTIM}"
 
-    def _normalize_unlink_stage_under_flock(
-        self,
-        ready_dir_fd: int,
-        stage_name: str,
-    ) -> bool:
-        """Promote final-*/doom-* → victim under exclusive stage flock.
-
-        Lifecycle ownership must already be proven by the caller. Returns False
-        when the stage cannot be opened, locked, or normalized (including empty
-        stages that are trash-removed).
-        """
-
-        stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
-        if stage_dir_fd is None:
-            return False
-        try:
-            if not lock_unlink_stage_dir(stage_dir_fd):
-                return False
-            try:
-                if not normalize_unlink_stage_victim_via_fd(stage_dir_fd):
-                    remove_empty_stage_dir_if_same_inode(
-                        ready_dir_fd, stage_name, stage_dir_fd
-                    )
-                    return False
-                return True
-            finally:
-                unlock_unlink_stage_dir(stage_dir_fd)
-        finally:
-            os.close(stage_dir_fd)
-
     def _unlink_intent_unlink_stage_with_recheck(
         self,
         ready_dir_fd: int,
         stage_name: str,
         *,
+        expected_dev: int,
         expected_ino: int,
         repository_id: UUID,
         artifact_id: UUID,
         generation: str,
     ) -> SidecarOutcome:
-        if not self._normalize_unlink_stage_under_flock(ready_dir_fd, stage_name):
+        stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
+        if stage_dir_fd is None:
             return "retain"
-        victim_path = self._staged_victim_path(stage_name)
-        lock_result, q_fd, q_stat = self._lock_sidecar(
-            ready_dir_fd,
-            victim_path,
-            expected_ino=expected_ino,
-            repository_id=repository_id,
-            artifact_id=artifact_id,
-        )
-        if lock_result == SidecarLockResult.ABSENT:
-            return "absent"
-        if lock_result != SidecarLockResult.LOCKED or q_fd is None or q_stat is None:
+        if not lock_unlink_stage_dir(stage_dir_fd):
+            os.close(stage_dir_fd)
             return "retain"
         try:
-            try:
-                lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
-            except (MutationStoreInvariantError, Exception):
+            if not normalize_unlink_stage_victim_via_fd(
+                stage_dir_fd,
+                expected_dev=expected_dev,
+                expected_ino=expected_ino,
+            ):
                 return "retain"
-            if lifecycle is None or lifecycle.repository_id != repository_id:
-                return "retain"
-            intent_dev = lifecycle.bytes_delete_dev
-            intent_ino = lifecycle.bytes_delete_ino
-            intent_generation = lifecycle.bytes_delete_generation
-            matches_intent = (
-                lifecycle.bytes_delete_intent_at is not None
-                and intent_dev is not None
-                and intent_ino is not None
-                and intent_generation is not None
-                and lifecycle.bytes_delete_phase in {"quarantined", "detached"}
-                and int(intent_dev) == int(q_stat.st_dev)
-                and int(intent_ino) == int(q_stat.st_ino)
-                and generation == intent_generation
-            )
-            if not matches_intent:
-                return "retain"
-            unlinked = unlink_verified_inode_via_staging(
+            victim_path = self._staged_victim_path(stage_name)
+            lock_result, q_fd, q_stat = self._lock_sidecar(
                 ready_dir_fd,
-                source_name=None,
-                stage_name=stage_name,
-                inode_fd=q_fd,
-                expected=q_stat,
+                victim_path,
+                expected_ino=expected_ino,
+                repository_id=repository_id,
                 artifact_id=artifact_id,
-                generation=generation,
             )
-            if unlinked:
-                log_event(
-                    "artifact_cleanup",
-                    repository_id=repository_id,
-                    artifact_id=artifact_id,
-                    stage="quarantine",
-                    result="deleted",
-                    cleanup_outcome="unlink_stage_residual_unlinked",
-                    logger=_LOGGER,
+            if lock_result == SidecarLockResult.ABSENT:
+                return "absent"
+            if lock_result != SidecarLockResult.LOCKED or q_fd is None or q_stat is None:
+                return "retain"
+            try:
+                try:
+                    lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
+                except (MutationStoreInvariantError, Exception):
+                    return "retain"
+                if lifecycle is None or lifecycle.repository_id != repository_id:
+                    return "retain"
+                intent_dev = lifecycle.bytes_delete_dev
+                intent_ino = lifecycle.bytes_delete_ino
+                intent_generation = lifecycle.bytes_delete_generation
+                matches_intent = (
+                    lifecycle.bytes_delete_intent_at is not None
+                    and intent_dev is not None
+                    and intent_ino is not None
+                    and intent_generation is not None
+                    and lifecycle.bytes_delete_phase in {"quarantined", "detached"}
+                    and int(intent_dev) == int(q_stat.st_dev)
+                    and int(intent_ino) == int(q_stat.st_ino)
+                    and generation == intent_generation
                 )
-                return "success"
-            return "retain"
+                if not matches_intent:
+                    return "retain"
+                unlinked = unlink_verified_inode_via_staging(
+                    ready_dir_fd,
+                    source_name=None,
+                    stage_name=stage_name,
+                    inode_fd=q_fd,
+                    expected=q_stat,
+                    artifact_id=artifact_id,
+                    generation=generation,
+                    stage_dir_fd=stage_dir_fd,
+                )
+                if unlinked:
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                        stage="quarantine",
+                        result="deleted",
+                        cleanup_outcome="unlink_stage_residual_unlinked",
+                        logger=_LOGGER,
+                    )
+                    return "success"
+                return "retain"
+            finally:
+                self._unlock_sidecar(q_fd)
         finally:
-            self._unlock_sidecar(q_fd)
+            unlock_unlink_stage_dir(stage_dir_fd)
+            os.close(stage_dir_fd)
 
     def _unlink_stamped_unlink_stage_with_recheck(
         self,
         ready_dir_fd: int,
         stage_name: str,
         *,
+        expected_dev: int,
         expected_ino: int,
         repository_id: UUID,
         artifact_id: UUID,
@@ -812,64 +890,79 @@ class ArtifactCleaner:
     ) -> SidecarOutcome:
         if generation is None:
             return "retain"
-        if not self._normalize_unlink_stage_under_flock(ready_dir_fd, stage_name):
+        stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
+        if stage_dir_fd is None:
             return "retain"
-        victim_path = self._staged_victim_path(stage_name)
-        lock_result, q_fd, q_stat = self._lock_sidecar(
-            ready_dir_fd,
-            victim_path,
-            expected_ino=expected_ino,
-            repository_id=repository_id,
-            artifact_id=artifact_id,
-        )
-        if lock_result == SidecarLockResult.ABSENT:
-            return "absent"
-        if lock_result != SidecarLockResult.LOCKED or q_fd is None or q_stat is None:
+        if not lock_unlink_stage_dir(stage_dir_fd):
+            os.close(stage_dir_fd)
             return "retain"
         try:
-            try:
-                lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
-            except (MutationStoreInvariantError, Exception):
+            if not normalize_unlink_stage_victim_via_fd(
+                stage_dir_fd,
+                expected_dev=expected_dev,
+                expected_ino=expected_ino,
+            ):
                 return "retain"
-            if lifecycle is None or lifecycle.repository_id != repository_id:
-                return "retain"
-            receipt_dev = lifecycle.bytes_deleted_receipt_dev
-            receipt_ino = lifecycle.bytes_deleted_receipt_ino
-            receipt_generation = lifecycle.bytes_deleted_receipt_generation
-            matches_receipt = (
-                lifecycle.bytes_deleted_at is not None
-                and receipt_dev is not None
-                and receipt_ino is not None
-                and receipt_generation is not None
-                and int(receipt_dev) == int(q_stat.st_dev)
-                and int(receipt_ino) == int(q_stat.st_ino)
-                and generation == receipt_generation
-            )
-            if not matches_receipt or not retention_ok:
-                return "retain"
-            unlinked = unlink_verified_inode_via_staging(
+            victim_path = self._staged_victim_path(stage_name)
+            lock_result, q_fd, q_stat = self._lock_sidecar(
                 ready_dir_fd,
-                source_name=None,
-                stage_name=stage_name,
-                inode_fd=q_fd,
-                expected=q_stat,
+                victim_path,
+                expected_ino=expected_ino,
+                repository_id=repository_id,
                 artifact_id=artifact_id,
-                generation=generation,
             )
-            if unlinked:
-                log_event(
-                    "artifact_cleanup",
-                    repository_id=repository_id,
-                    artifact_id=artifact_id,
-                    stage="quarantine",
-                    result="deleted",
-                    cleanup_outcome="unlink_stage_residual_unlinked",
-                    logger=_LOGGER,
+            if lock_result == SidecarLockResult.ABSENT:
+                return "absent"
+            if lock_result != SidecarLockResult.LOCKED or q_fd is None or q_stat is None:
+                return "retain"
+            try:
+                try:
+                    lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
+                except (MutationStoreInvariantError, Exception):
+                    return "retain"
+                if lifecycle is None or lifecycle.repository_id != repository_id:
+                    return "retain"
+                receipt_dev = lifecycle.bytes_deleted_receipt_dev
+                receipt_ino = lifecycle.bytes_deleted_receipt_ino
+                receipt_generation = lifecycle.bytes_deleted_receipt_generation
+                matches_receipt = (
+                    lifecycle.bytes_deleted_at is not None
+                    and receipt_dev is not None
+                    and receipt_ino is not None
+                    and receipt_generation is not None
+                    and int(receipt_dev) == int(q_stat.st_dev)
+                    and int(receipt_ino) == int(q_stat.st_ino)
+                    and generation == receipt_generation
                 )
-                return "success"
-            return "retain"
+                if not matches_receipt or not retention_ok:
+                    return "retain"
+                unlinked = unlink_verified_inode_via_staging(
+                    ready_dir_fd,
+                    source_name=None,
+                    stage_name=stage_name,
+                    inode_fd=q_fd,
+                    expected=q_stat,
+                    artifact_id=artifact_id,
+                    generation=generation,
+                    stage_dir_fd=stage_dir_fd,
+                )
+                if unlinked:
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                        stage="quarantine",
+                        result="deleted",
+                        cleanup_outcome="unlink_stage_residual_unlinked",
+                        logger=_LOGGER,
+                    )
+                    return "success"
+                return "retain"
+            finally:
+                self._unlock_sidecar(q_fd)
         finally:
-            self._unlock_sidecar(q_fd)
+            unlock_unlink_stage_dir(stage_dir_fd)
+            os.close(stage_dir_fd)
 
     def _recover_artifact_sidecars(
         self,
@@ -1510,12 +1603,8 @@ class ArtifactCleaner:
             if not matches_intent:
                 return False
             try:
-                os.link(
-                    sidecar_name,
-                    ready_name,
-                    src_dir_fd=ready_dir_fd,
-                    dst_dir_fd=ready_dir_fd,
-                    follow_symlinks=False,
+                renameat2_noreplace(
+                    ready_dir_fd, sidecar_name, ready_dir_fd, ready_name
                 )
             except FileExistsError:
                 return False
@@ -1664,8 +1753,8 @@ class ArtifactCleaner:
         except OSError:
             pass
 
-    @staticmethod
     def _unlink_locked_sidecar(
+        self,
         ready_dir_fd: int,
         sidecar_name: str,
         q_fd: int,
@@ -1674,10 +1763,30 @@ class ArtifactCleaner:
         artifact_id: UUID,
         generation: str | None,
     ) -> bool:
-        """Rename-verify-unlink while still holding flock on ``q_fd``."""
+        """Destroy or drop a locked sidecar.
+
+        When the ready name still holds the same inode with non-zero content,
+        only drop the extra hardlink (preserve bytes). Otherwise use the
+        linkat+ftruncate destruction protocol.
+        """
 
         if generation is None:
             return False
+        ready_name = artifact_id.hex
+        try:
+            ready_stat = os.stat(ready_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            ready_stat = None
+        except OSError:
+            ready_stat = None
+        if (
+            ready_stat is not None
+            and (ready_stat.st_dev, ready_stat.st_ino) == (expected.st_dev, expected.st_ino)
+            and int(ready_stat.st_size) > 0
+        ):
+            return drop_extra_hardlink_if_same_inode(
+                ready_dir_fd, sidecar_name, expected
+            )
         return unlink_sidecar_rename_verify(
             ready_dir_fd,
             sidecar_name,

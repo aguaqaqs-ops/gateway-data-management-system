@@ -5585,7 +5585,7 @@ def test_r8_replace_private_pathname_before_final_unlink(
     layout: DurableLayout,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Round9 probe 9: replace staged final BEFORE real_unlink, then delegate unlink."""
+    """Round10 probe 9: after final_fd fstat, replace final-* before unlink; keep foreign."""
 
     store, mutation_store = stores
     _seed_artifact(mutation_store)
@@ -5602,30 +5602,37 @@ def test_r8_replace_private_pathname_before_final_unlink(
         expected_generation=generation,
     )
     replacement = b"private-pathname-replacement"
-    real_unlink = os.unlink
     owned_before = int(q_stat.st_ino)
+    real_fstat = os.fstat
+    injected = {"done": False}
+    final_fds: set[int] = set()
+    real_open = os.open
 
-    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        dir_fd = _dir_fd_from_kwargs(kwargs, "dir_fd")
-        # Barrier: after production verified final-*, before the real unlink call —
-        # rename owned aside and plant foreign at the unlink target, then delegate.
-        if dir_fd is not None and isinstance(path, str) and path.startswith("final-"):
-            hidden = f"hidden-{uuid4().hex[:16]}"
-            os.rename(path, hidden, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
-            fd = os.open(
-                path,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                0o644,
-                dir_fd=dir_fd,
-            )
-            try:
-                os.write(fd, replacement)
-            finally:
-                os.close(fd)
-            return real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
-        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+    def open_wrapper(
+        name: str | bytes | os.PathLike[str], flags: int, *args: object, **kwargs: object
+    ) -> int:
+        fd = real_open(name, flags, *args, **kwargs)  # type: ignore[arg-type]
+        if isinstance(name, str) and name.startswith("final-"):
+            final_fds.add(fd)
+        return fd
 
-    monkeypatch.setattr(os, "unlink", unlink)
+    def fstat_wrapper(fd: int) -> os.stat_result:
+        st = real_fstat(fd)
+        # After production fstat proves final_fd matches expected, plant foreign
+        # at the pathname before pre-unlink recheck / unlink.
+        if not injected["done"] and fd in final_fds:
+            injected["done"] = True
+            for stage in ready.parent.glob(".unlink-stage-*"):
+                for child in stage.iterdir():
+                    if child.name.startswith("final-"):
+                        hidden = stage / f"hidden-{uuid4().hex[:12]}"
+                        child.rename(hidden)
+                        (stage / child.name).write_bytes(replacement)
+                        break
+        return st
+
+    monkeypatch.setattr(os, "open", open_wrapper)
+    monkeypatch.setattr(os, "fstat", fstat_wrapper)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -5634,26 +5641,25 @@ def test_r8_replace_private_pathname_before_final_unlink(
         clock=lambda: BASE_NOW,
     ).sweep_once()
 
+    assert injected["done"] is True
     snap = _lifecycle_snapshot(mutation_store)
     assert snap["receipt_generation"] == generation
-    assert snap["bytes_deleted_at"] is not None
-    # Foreign was the unlink target (deleted); owned inode must still be reachable
-    # and ownership evidence must not have been cleared as a successful delete.
+    foreign_found = False
     owned_found = False
     for entry in ready.parent.rglob("*"):
         if not entry.is_file():
             continue
         try:
+            payload = entry.read_bytes()
             st = entry.stat()
         except OSError:
             continue
-        if int(st.st_ino) == owned_before and entry.read_bytes() == ARTIFACT_PAYLOAD:
+        if payload == replacement:
+            foreign_found = True
+        if int(st.st_ino) == owned_before and payload == ARTIFACT_PAYLOAD:
             owned_found = True
-            break
-    assert owned_found, f"owned inode missing after swap-before-unlink; tree={list(ready.parent.rglob('*'))}"
-    assert snap["intent_at"] is None  # stamped path — intent already cleared at stamp time
-    # Receipt must remain: nlink proof failed so clearer must not treat as success.
-    assert snap["receipt_generation"] == generation
+    assert foreign_found, f"foreign missing; tree={list(ready.parent.rglob('*'))}"
+    assert owned_found, f"owned inode missing; tree={list(ready.parent.rglob('*'))}"
 
 
 def test_r8_literal_legacy_deleting_and_detach_names(
@@ -6052,3 +6058,367 @@ def test_r9_q_detach_private_aggregate_foreign_not_success(
     assert retained.read_bytes() == replacement
     assert injected["done"] is True
     assert bool(_sidecar_snapshots(ready.parent)) or any(ready.parent.glob(".unlink-stage-*"))
+
+
+def _external_tree_fingerprint(root: Path) -> dict[str, tuple[int, int, int, bytes | None]]:
+    """Map relative path -> (ino, mode, size, payload_or_none for files)."""
+
+    rows: dict[str, tuple[int, int, int, bytes | None]] = {}
+    for entry in sorted(root.rglob("*")):
+        rel = str(entry.relative_to(root))
+        st = entry.lstat()
+        payload: bytes | None = None
+        if entry.is_symlink():
+            payload = os.readlink(entry).encode()
+        elif entry.is_file():
+            payload = entry.read_bytes()
+        rows[rel] = (int(st.st_ino), int(st.st_mode), int(st.st_size), payload)
+    return rows
+
+
+def test_r10_stage_symlink_to_external_final_untouched(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    tmp_path: Path,
+) -> None:
+    """Round10 probe 1: stage-shaped symlink to external dir with final-*; external unchanged."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import unlink_stage_dir_name
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    final = outside / "final-ext0001"
+    final.write_bytes(b"external-final-bytes")
+    stage_name = unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="symext001")
+    link = ready.parent / stage_name
+    link.symlink_to(outside)
+    before = _external_tree_fingerprint(outside)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert _external_tree_fingerprint(outside) == before
+    assert link.is_symlink()
+    assert final.read_bytes() == b"external-final-bytes"
+
+
+def test_r10_stage_symlink_to_external_victim_untouched(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    tmp_path: Path,
+) -> None:
+    """Round10 probe 2: stage symlink to external with victim; no mutate of target."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        STAGE_VICTIM,
+        unlink_stage_dir_name,
+    )
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    outside = tmp_path / "outside-victim"
+    outside.mkdir()
+    victim = outside / STAGE_VICTIM
+    victim.write_bytes(b"external-victim-bytes")
+    victim_ino = victim.stat().st_ino
+    stage_name = unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="symvic001")
+    (ready.parent / stage_name).symlink_to(outside)
+    before = _external_tree_fingerprint(outside)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert _external_tree_fingerprint(outside) == before
+    assert victim.stat().st_ino == victim_ino
+    assert victim.read_bytes() == b"external-victim-bytes"
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["nondir_file", "dir_replaced_by_symlink", "open_inode_swap"],
+    ids=["nondir_file", "dir_replaced_by_symlink", "open_inode_swap"],
+)
+def test_r10_stage_malformed_or_swapped_diagnose_only(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    """Round10 probe 3: non-dir / symlink-replace / inode-swap stage → diagnose only."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import unlink_stage_dir_name
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    stage_name = unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="malform01")
+    stage_path = ready.parent / stage_name
+    outside = tmp_path / "swap-target"
+    outside.mkdir()
+    (outside / "final-x").write_bytes(b"should-not-touch")
+    before_outside = _external_tree_fingerprint(outside)
+
+    if case == "nondir_file":
+        stage_path.write_bytes(b"not-a-directory")
+    elif case == "dir_replaced_by_symlink":
+        stage_path.mkdir(mode=0o700)
+        (stage_path / "final-y").write_bytes(b"local-final")
+        # Replace directory with symlink after creation; inventory must not follow.
+        for child in stage_path.iterdir():
+            child.unlink()
+        stage_path.rmdir()
+        stage_path.symlink_to(outside)
+    else:
+        stage_path.mkdir(mode=0o700)
+        (stage_path / "final-z").write_bytes(b"local-final")
+        real_open = pin_mod.open_owned_unlink_stage_dir
+
+        def swap_then_open(ready_dir_fd: int, name: str) -> int | None:
+            # Between name resolution and use: replace stage dir with symlink.
+            if name == stage_name and stage_path.is_dir():
+                for child in stage_path.iterdir():
+                    child.unlink()
+                stage_path.rmdir()
+                stage_path.symlink_to(outside)
+            return real_open(ready_dir_fd, name)
+
+        monkeypatch.setattr(pin_mod, "open_owned_unlink_stage_dir", swap_then_open)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert _external_tree_fingerprint(outside) == before_outside
+    if case == "nondir_file":
+        assert stage_path.is_file()
+        assert stage_path.read_bytes() == b"not-a-directory"
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("ownership", ["active_intent", "stamped_receipt"])
+@pytest.mark.parametrize("kind", ["quarantine", "detach", "private"])
+def test_r10_final_race_after_fstat_keeps_foreign(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    ownership: str,
+    kind: str,
+) -> None:
+    """Round10 probes 4+6: post-fstat final-* replace; foreign retained across sources."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    generation = "genr10fin01"
+    if kind == "quarantine":
+        target = ready.parent / quarantine_name_for(
+            inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+        )
+    elif kind == "detach":
+        target = ready.parent / detach_name_for(
+            inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+        )
+    else:
+        target = ready.parent / verify_sidecar_name_for(
+            inode=int(st.st_ino),
+            generation=generation,
+            artifact_id=ARTIFACT_ID,
+            token="r10priv01",
+        )
+    os.link(ready, target)
+    ready.unlink()
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
+    )
+    if ownership == "stamped_receipt":
+        store.mark_artifact_bytes_deleted(
+            ARTIFACT_ID,
+            deleted_at="2026-08-02T00:00:00+00:00",
+            repository_id=REPOSITORY_ID,
+            expected_dev=int(st.st_dev),
+            expected_ino=int(st.st_ino),
+            expected_generation=generation,
+        )
+    replacement = b"r10-post-fstat-foreign"
+    owned_before = int(st.st_ino)
+    real_fstat = os.fstat
+    real_open = os.open
+    injected = {"done": False}
+    final_fds: set[int] = set()
+
+    def open_wrapper(
+        name: str | bytes | os.PathLike[str], flags: int, *args: object, **kwargs: object
+    ) -> int:
+        fd = real_open(name, flags, *args, **kwargs)  # type: ignore[arg-type]
+        if isinstance(name, str) and name.startswith("final-"):
+            final_fds.add(fd)
+        return fd
+
+    def fstat_wrapper(fd: int) -> os.stat_result:
+        result = real_fstat(fd)
+        if not injected["done"] and fd in final_fds:
+            injected["done"] = True
+            for stage in ready.parent.glob(".unlink-stage-*"):
+                for child in list(stage.iterdir()):
+                    if child.name.startswith("final-"):
+                        child.rename(stage / f"hidden-{uuid4().hex[:10]}")
+                        (stage / child.name).write_bytes(replacement)
+                        break
+        return result
+
+    monkeypatch.setattr(os, "open", open_wrapper)
+    monkeypatch.setattr(os, "fstat", fstat_wrapper)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=3600 if ownership == "active_intent" else 1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=(
+            (lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC))
+            if ownership == "active_intent"
+            else (lambda: BASE_NOW)
+        ),
+    ).sweep_once()
+
+    assert injected["done"] is True
+    snap = _lifecycle_snapshot(mutation_store)
+    if ownership == "stamped_receipt":
+        assert snap["receipt_generation"] == generation
+    else:
+        assert snap["intent_generation"] == generation
+    foreign_found = False
+    owned_found = False
+    for entry in ready.parent.rglob("*"):
+        if not entry.is_file():
+            continue
+        try:
+            payload = entry.read_bytes()
+            entry_st = entry.stat()
+        except OSError:
+            continue
+        if payload == replacement:
+            foreign_found = True
+        if int(entry_st.st_ino) == owned_before and payload == ARTIFACT_PAYLOAD:
+            owned_found = True
+    assert foreign_found
+    assert owned_found
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("ownership", ["active_intent", "stamped_receipt"])
+def test_r10_hidden_aside_two_sweeps_retain_ownership(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    ownership: str,
+) -> None:
+    """Round10 probe 5: move owned to unparseable hidden + foreign final; two sweeps keep ownership."""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
+    q_stat = quarantine.stat()
+    ready.unlink()
+    if ownership == "stamped_receipt":
+        store.mark_artifact_bytes_deleted(
+            ARTIFACT_ID,
+            deleted_at="2026-08-02T00:00:00+00:00",
+            repository_id=REPOSITORY_ID,
+            expected_dev=int(q_stat.st_dev),
+            expected_ino=ino,
+            expected_generation=generation,
+        )
+    replacement = b"r10-hidden-aside-foreign"
+    real_fstat = os.fstat
+    real_open = os.open
+    injected = {"done": False}
+    final_fds: set[int] = set()
+
+    def open_wrapper(
+        name: str | bytes | os.PathLike[str], flags: int, *args: object, **kwargs: object
+    ) -> int:
+        fd = real_open(name, flags, *args, **kwargs)  # type: ignore[arg-type]
+        if isinstance(name, str) and name.startswith("final-"):
+            final_fds.add(fd)
+        return fd
+
+    def fstat_wrapper(fd: int) -> os.stat_result:
+        result = real_fstat(fd)
+        if not injected["done"] and fd in final_fds:
+            injected["done"] = True
+            for stage in ready.parent.glob(".unlink-stage-*"):
+                for child in list(stage.iterdir()):
+                    if not child.name.startswith("final-"):
+                        continue
+                    # Move owned inode to ready under an unparseable hidden name.
+                    hidden = ready.parent / f".hidden-r10-{uuid4().hex}"
+                    child.rename(hidden)
+                    (stage / child.name).write_bytes(replacement)
+                    break
+        return result
+
+    monkeypatch.setattr(os, "open", open_wrapper)
+    monkeypatch.setattr(os, "fstat", fstat_wrapper)
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=3600 if ownership == "active_intent" else 1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=(
+            (lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC))
+            if ownership == "active_intent"
+            else (lambda: BASE_NOW)
+        ),
+    )
+    cleaner.sweep_once()
+    assert injected["done"] is True
+    snap1 = _lifecycle_snapshot(mutation_store)
+    if ownership == "stamped_receipt":
+        assert snap1["receipt_generation"] == generation
+    else:
+        assert snap1["intent_generation"] == generation
+
+    # Second sweep must still refuse to clear ownership (reanchor sentinel / residual).
+    monkeypatch.setattr(os, "open", real_open)
+    monkeypatch.setattr(os, "fstat", real_fstat)
+    cleaner.sweep_once()
+    snap2 = _lifecycle_snapshot(mutation_store)
+    if ownership == "stamped_receipt":
+        assert snap2["receipt_generation"] == generation
+    else:
+        assert snap2["intent_generation"] == generation or snap2["receipt_generation"] == generation
+    foreign_found = any(
+        entry.is_file() and entry.read_bytes() == replacement
+        for entry in ready.parent.rglob("*")
+    )
+    assert foreign_found

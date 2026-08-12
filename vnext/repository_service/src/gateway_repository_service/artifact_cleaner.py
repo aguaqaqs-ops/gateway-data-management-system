@@ -33,11 +33,14 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     STAGE_VICTIM,
     list_unlink_stage_dir_names,
+    normalize_unlink_stage_victim_via_fd,
     open_owned_ready_dir,
+    open_owned_unlink_stage_dir,
     parse_any_recoverable_sidecar,
     parse_quarantine_name,
     parse_unlink_stage_dir_name,
     parse_unlink_verify_name,
+    remove_empty_stage_dir_if_same_inode,
     try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
     unlink_sidecar_rename_verify,
     unlink_verified_inode_via_staging,
@@ -425,95 +428,80 @@ class ArtifactCleaner:
                         artifact_id,
                     )
 
-    def _normalize_unlink_stage_victim(self, stage_dir: Path) -> bool:
-        """Ensure ``victim`` exists; promote leftover ``final-*`` when needed."""
-
-        victim = stage_dir / STAGE_VICTIM
-        try:
-            if victim.is_file():
-                return True
-        except OSError:
-            return False
-        try:
-            children = list(stage_dir.iterdir())
-        except OSError:
-            return False
-        finals = [
-            child
-            for child in children
-            if child.name.startswith("final-")
-        ]
-        usable: list[Path] = []
-        for child in finals:
-            try:
-                if child.is_file():
-                    usable.append(child)
-            except OSError:
-                continue
-        if len(usable) != 1:
-            return False
-        try:
-            os.rename(usable[0], victim)
-        except OSError:
-            return False
-        try:
-            return victim.is_file()
-        except OSError:
-            return False
-
     def _recover_unlink_stage_dirs_for_ready(
         self,
         repository_id: UUID,
         ready_dir: Path,
     ) -> None:
+        del ready_dir  # path used only to reach owned ready_dir_fd
         try:
-            entries = list(ready_dir.iterdir())
+            ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
+        except OwnedPathError:
+            return
         except OSError:
+            log_event(
+                "artifact_cleanup",
+                repository_id=repository_id,
+                stage="quarantine",
+                result="retained",
+                cleanup_outcome="unknown_path_inventory",
+                logger=_LOGGER,
+            )
             return
-        stage_dirs: list[str] = []
-        for entry in entries:
-            if parse_unlink_stage_dir_name(entry.name) is None:
-                continue
+        try:
             try:
-                if not entry.is_dir():
-                    continue
+                names = os.listdir(ready_dir_fd)
             except OSError:
-                continue
-            if not self._normalize_unlink_stage_victim(entry):
-                try:
-                    next(entry.iterdir())
-                except StopIteration:
-                    try:
-                        entry.rmdir()
-                    except OSError:
-                        pass
-                except OSError:
-                    pass
-                continue
-            stage_dirs.append(entry.name)
-        if not stage_dirs:
-            return
-        by_artifact: dict[UUID, list[str]] = {}
-        for stage_name in stage_dirs:
-            parsed = parse_unlink_stage_dir_name(stage_name)
-            if parsed is None:
-                continue
-            artifact_id, _token = parsed
-            by_artifact.setdefault(artifact_id, []).append(stage_name)
-        for artifact_id, stages in by_artifact.items():
-            if self._stopping:
                 return
-            try:
-                self._recover_artifact_unlink_stages(
-                    repository_id,
-                    artifact_id,
-                    stage_names=stages,
-                )
-            except Exception:
-                _LOGGER.exception(
-                    "artifact unlink-stage recovery failed for artifact %s",
-                    artifact_id,
-                )
+            stage_dirs: list[str] = []
+            for entry_name in names:
+                if parse_unlink_stage_dir_name(entry_name) is None:
+                    continue
+                stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, entry_name)
+                if stage_dir_fd is None:
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        stage="quarantine",
+                        result="retained",
+                        cleanup_outcome="unknown_path_inventory",
+                        logger=_LOGGER,
+                    )
+                    continue
+                try:
+                    if not normalize_unlink_stage_victim_via_fd(stage_dir_fd):
+                        remove_empty_stage_dir_if_same_inode(
+                            ready_dir_fd, entry_name, stage_dir_fd
+                        )
+                        continue
+                    stage_dirs.append(entry_name)
+                finally:
+                    os.close(stage_dir_fd)
+            if not stage_dirs:
+                return
+            by_artifact: dict[UUID, list[str]] = {}
+            for stage_name in stage_dirs:
+                parsed = parse_unlink_stage_dir_name(stage_name)
+                if parsed is None:
+                    continue
+                artifact_id, _token = parsed
+                by_artifact.setdefault(artifact_id, []).append(stage_name)
+            for artifact_id, stages in by_artifact.items():
+                if self._stopping:
+                    return
+                try:
+                    self._recover_artifact_unlink_stages(
+                        repository_id,
+                        artifact_id,
+                        stage_names=stages,
+                    )
+                except Exception:
+                    _LOGGER.exception(
+                        "artifact unlink-stage recovery failed for artifact %s",
+                        artifact_id,
+                    )
+        finally:
+            os.close(ready_dir_fd)
 
     def _recover_artifact_unlink_stages(
         self,

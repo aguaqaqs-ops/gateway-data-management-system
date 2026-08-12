@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -194,6 +195,22 @@ class DurableLayout:
 
     def repository_artifact_directories(self, key: str) -> tuple[Path, Path]:
         from gateway_repository_service.artifact_broker import get_artifact_broker
+
+        staging = self.artifacts / key / "staging"
+        ready = self.artifacts / key / "ready"
+        try:
+            staging_st = staging.lstat()
+            ready_st = ready.lstat()
+        except OSError:
+            staging_st = None
+            ready_st = None
+        if (
+            staging_st is not None
+            and ready_st is not None
+            and stat.S_ISDIR(staging_st.st_mode)
+            and stat.S_ISDIR(ready_st.st_mode)
+        ):
+            return staging, ready
 
         self.artifacts.mkdir(parents=True, exist_ok=True)
         broker = get_artifact_broker()

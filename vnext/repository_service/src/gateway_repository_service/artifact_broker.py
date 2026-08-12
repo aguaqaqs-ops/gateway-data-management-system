@@ -29,11 +29,13 @@ _MAX_JSON = 65_536
 _OPS = frozenset(
     {
         "ping",
+        "bind",
         "mkdir",
         "link_from_fd",
         "rename_noreplace",
         "unlink_if_match",
         "rmdir_if_empty",
+        "reclaim_stage",
         "reserve_tombstone_slots",
         "release_tombstone_reservation",
     }
@@ -44,8 +46,14 @@ class ArtifactBrokerError(RuntimeError):
     """Raised when a broker directory operation fails closed."""
 
 
+class ArtifactBrokerShutdownError(ArtifactBrokerError):
+    """Raised when the helper cannot be joined; durable ownership must be retained."""
+
+
 class ArtifactDirBroker(Protocol):
     def ping(self) -> None: ...
+
+    def bind(self) -> None: ...
 
     def mkdir(self, dir_fd: int, name: str, *, mode: int = 0o700) -> None: ...
 
@@ -79,6 +87,8 @@ class ArtifactDirBroker(Protocol):
     ) -> bool: ...
 
     def release_tombstone_reservation(self, dir_fd: int, *, projected_new: int) -> None: ...
+
+    def reclaim_stage(self, dir_fd: int, name: str) -> bool: ...
 
 
 def is_single_path_component(name: str) -> bool:
@@ -122,6 +132,16 @@ def mkdir_name_allowed(name: str) -> bool:
     return name in {"ready", "staging"} or is_hex32(name) or name.startswith(".unlink-stage-")
 
 
+def mkdir_fixed_mode(name: str) -> int:
+    """Server-side mode whitelist; caller-supplied mode is ignored."""
+
+    if name == "staging":
+        return 0o770
+    if name.startswith(".unlink-stage-"):
+        return 0o750
+    return 0o750
+
+
 def link_or_rename_name_allowed(name: str) -> bool:
     if not is_single_path_component(name):
         return False
@@ -136,9 +156,9 @@ def link_or_rename_name_allowed(name: str) -> bool:
     )
 
 
-def path_is_under(path: str, root: str) -> bool:
+def path_is_under(path: str, root: str, *, canonicalize_root: bool = True) -> bool:
     real_path = os.path.realpath(path)
-    real_root = os.path.realpath(root)
+    real_root = os.path.realpath(root) if canonicalize_root else os.path.normpath(root)
     return real_path == real_root or real_path.startswith(real_root.rstrip("/") + "/")
 
 
@@ -156,6 +176,9 @@ class InProcessArtifactDirBroker:
         self._meta_lock = threading.Lock()
 
     def ping(self) -> None:
+        return None
+
+    def bind(self) -> None:
         return None
 
     def _state_for(self, dir_fd: int) -> _ReservationState:
@@ -244,6 +267,9 @@ class InProcessArtifactDirBroker:
         with state.lock:
             state.reserved = max(0, state.reserved - max(0, projected_new))
 
+    def reclaim_stage(self, dir_fd: int, name: str) -> bool:
+        return reclaim_stage_dir(dir_fd, name)
+
 
 def _unlink_if_match_fd(
     dir_fd: int,
@@ -278,6 +304,173 @@ def _unlink_if_match_fd(
     return True
 
 
+def reclaim_stage_dir(ready_dir_fd: int, name: str) -> bool:
+    """Unlink size-0 stage children then rmdir if empty. Broker-principal path."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import parse_unlink_stage_dir_name
+
+    if parse_unlink_stage_dir_name(name) is None:
+        return False
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        stage_fd = os.open(name, flags, dir_fd=ready_dir_fd)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    try:
+        try:
+            fcntl.flock(stage_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return False
+        try:
+            try:
+                children = os.listdir(stage_fd)
+            except OSError:
+                return False
+            for child in children:
+                if not _is_stage_child_name(child):
+                    continue
+                open_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+                try:
+                    child_fd = os.open(child, open_flags, dir_fd=stage_fd)
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    continue
+                try:
+                    st = os.fstat(child_fd)
+                except OSError:
+                    continue
+                finally:
+                    os.close(child_fd)
+                if not stat.S_ISREG(st.st_mode) or int(st.st_size) != 0:
+                    continue
+                _unlink_if_match_fd(
+                    stage_fd,
+                    child,
+                    expected_dev=int(st.st_dev),
+                    expected_ino=int(st.st_ino),
+                )
+            os.rmdir(name, dir_fd=ready_dir_fd)
+            return True
+        except OSError:
+            return False
+        finally:
+            try:
+                fcntl.flock(stage_fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+    finally:
+        os.close(stage_fd)
+
+
+def _dir_basename(dir_fd: int) -> str:
+    return os.path.basename(os.path.realpath(f"/proc/self/fd/{dir_fd}"))
+
+
+def _fstat_name(dir_fd: int, name: str) -> os.stat_result | None:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(name, flags, dir_fd=dir_fd)
+    except OSError:
+        return None
+    try:
+        return os.fstat(fd)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def rename_edge_allowed(
+    src_dir_fd: int,
+    src_name: str,
+    dst_dir_fd: int,
+    dst_name: str,
+) -> bool:
+    """Strict source/destination role matrix for rename_noreplace."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        parse_any_recoverable_sidecar,
+        parse_detach_name,
+        parse_quarantine_name,
+        parse_unlink_stage_dir_name,
+    )
+
+    if not link_or_rename_name_allowed(src_name) or not link_or_rename_name_allowed(dst_name):
+        return False
+    src_base = _dir_basename(src_dir_fd)
+    dst_base = _dir_basename(dst_dir_fd)
+    src_is_stage = parse_unlink_stage_dir_name(src_base) is not None
+    dst_is_stage = parse_unlink_stage_dir_name(dst_base) is not None
+    src_is_ready = src_base == "ready"
+    dst_is_ready = dst_base == "ready"
+    src_is_staging = src_base == "staging"
+
+    if (
+        src_is_staging
+        and dst_is_ready
+        and _is_staging_upload_name(src_name)
+        and is_hex32(dst_name)
+    ):
+        return True
+
+    if src_is_ready and dst_is_ready and is_hex32(src_name):
+        parsed = parse_quarantine_name(dst_name) or parse_detach_name(dst_name)
+        if parsed is None:
+            return False
+        st = _fstat_name(src_dir_fd, src_name)
+        if st is None or not stat.S_ISREG(st.st_mode):
+            return False
+        name_ino, artifact_id, _generation = parsed
+        return int(name_ino) == int(st.st_ino) and artifact_id.hex == src_name
+
+    if src_is_ready and dst_is_ready and is_hex32(dst_name):
+        parsed = parse_quarantine_name(src_name) or parse_detach_name(src_name)
+        if parsed is None:
+            return False
+        _ino, artifact_id, _generation = parsed
+        return artifact_id.hex == dst_name
+
+    if src_is_ready and dst_is_stage and dst_name == "victim":
+        return is_hex32(src_name) or parse_any_recoverable_sidecar(src_name) is not None
+
+    if src_is_stage and dst_is_stage and _is_stage_child_name(src_name) and _is_stage_child_name(
+        dst_name
+    ):
+        return True
+
+    if src_is_stage and dst_is_ready and src_name == "victim":
+        return is_hex32(dst_name) or parse_quarantine_name(dst_name) is not None
+
+    return False
+
+
+def unlink_identity_matches(
+    dir_fd: int,
+    name: str,
+    *,
+    expected_dev: int,
+    expected_ino: int,
+) -> bool:
+    """Require fstat identity to match both caller tuple and name-encoded ino."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import parse_any_recoverable_sidecar
+
+    if is_hex32(name) or not unlink_name_allowed(name):
+        return False
+    st = _fstat_name(dir_fd, name)
+    if st is None or not stat.S_ISREG(st.st_mode):
+        return False
+    if int(st.st_dev) != int(expected_dev) or int(st.st_ino) != int(expected_ino):
+        return False
+    parsed = parse_any_recoverable_sidecar(name)
+    if parsed is not None and int(parsed[0]) != int(st.st_ino):
+        return False
+    return True
+
+
 def _pack_request(payload: dict[str, object]) -> bytes:
     data = json.dumps(payload).encode("utf-8")
     if len(data) > _MAX_JSON:
@@ -306,6 +499,11 @@ class SocketArtifactDirBroker:
         resp = self._call({"op": "ping"})
         if not resp.get("ok"):
             raise ArtifactBrokerError("broker ping failed")
+
+    def bind(self) -> None:
+        resp = self._call({"op": "bind"})
+        if not resp.get("ok"):
+            raise ArtifactBrokerError(str(resp.get("error", "broker bind failed")))
 
     def _connect(self) -> socket.socket:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -338,6 +536,8 @@ class SocketArtifactDirBroker:
             if not isinstance(parsed, dict):
                 raise ArtifactBrokerError("invalid broker response")
             return parsed
+        except (OSError, TimeoutError, json.JSONDecodeError) as exc:
+            raise ArtifactBrokerError(f"broker transport failed: {type(exc).__name__}") from exc
         finally:
             conn.close()
 
@@ -420,6 +620,10 @@ class SocketArtifactDirBroker:
             fds=[dir_fd],
         )
 
+    def reclaim_stage(self, dir_fd: int, name: str) -> bool:
+        resp = self._call({"op": "reclaim_stage", "name": name}, fds=[dir_fd])
+        return bool(resp.get("ok"))
+
 
 def count_full_inventory_names(ready_dir_fd: int) -> int:
     from gateway_repository_service.upload_artifact.admission_pin import (
@@ -486,6 +690,7 @@ def install_artifact_broker(*, profile: str) -> ArtifactDirBroker:
     mode = resolve_broker_mode(profile=profile)
     broker = _make_broker(mode)
     set_artifact_broker(broker)
+    broker.bind()
     return broker
 
 
@@ -493,8 +698,30 @@ def ping_artifact_broker() -> None:
     get_artifact_broker().ping()
 
 
+def artifact_broker_helper_alive() -> bool:
+    """Return True when no helper pidfile is configured, or the process still exists."""
+
+    pidfile = os.environ.get("GATEWAY_REPOSITORY_ARTIFACT_BROKER_PIDFILE")
+    if not pidfile:
+        return True
+    try:
+        pid = int(Path(pidfile).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    if pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 def stop_artifact_broker_helper(*, timeout: float = 2.0) -> None:
-    """SIGTERM the entrypoint-supervised helper when a pidfile is present."""
+    """SIGTERM the entrypoint-supervised helper when a pidfile is present.
+
+    Join timeout is observable: callers must retain durable ownership.
+    """
 
     pidfile = os.environ.get("GATEWAY_REPOSITORY_ARTIFACT_BROKER_PIDFILE")
     if not pidfile:
@@ -502,14 +729,16 @@ def stop_artifact_broker_helper(*, timeout: float = 2.0) -> None:
     try:
         raw = Path(pidfile).read_text(encoding="utf-8").strip()
         pid = int(raw)
-    except (OSError, ValueError):
-        return
+    except (OSError, ValueError) as exc:
+        raise ArtifactBrokerShutdownError("artifact-broker pidfile is unreadable") from exc
     if pid <= 1:
-        return
+        raise ArtifactBrokerShutdownError("artifact-broker pidfile is invalid")
     try:
         os.kill(pid, 15)
-    except OSError:
+    except ProcessLookupError:
         return
+    except OSError as exc:
+        raise ArtifactBrokerShutdownError("artifact-broker SIGTERM failed") from exc
     deadline = time.monotonic() + max(timeout, 0.0)
     while time.monotonic() < deadline:
         try:
@@ -517,6 +746,7 @@ def stop_artifact_broker_helper(*, timeout: float = 2.0) -> None:
         except OSError:
             return
         time.sleep(0.05)
+    raise ArtifactBrokerShutdownError("artifact-broker join timed out")
 
 
 def _make_broker(mode: Literal["inprocess", "socket"]) -> ArtifactDirBroker:

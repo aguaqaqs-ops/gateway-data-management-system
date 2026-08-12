@@ -20,6 +20,7 @@ from gateway_repository_service.artifact_broker import (
     ArtifactBrokerError,
     ArtifactBrokerShutdownError,
     artifact_broker_helper_alive,
+    assert_artifact_broker_bound,
     install_artifact_broker,
     ping_artifact_broker,
     stop_artifact_broker_helper,
@@ -67,6 +68,15 @@ from gateway_repository_service.versioned_read.arrow_bridge import BRIDGE_REGIST
 from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _unwind_artifact_broker_helper(timeout: float) -> None:
+    """Best-effort helper stop so startup unwind still releases lock and DB."""
+
+    try:
+        stop_artifact_broker_helper(timeout=timeout)
+    except (ArtifactBrokerShutdownError, ArtifactBrokerError):
+        pass
 
 
 class ServiceStartupError(RuntimeError):
@@ -156,10 +166,14 @@ class ServiceRuntime:
             try:
                 install_artifact_broker(profile=settings.profile)
                 ping_artifact_broker()
+                assert_artifact_broker_bound()
             except ArtifactBrokerError as exc:
                 raise ServiceStartupError(
                     f"artifact directory-broker is unavailable: {exc}"
                 ) from exc
+            stack.callback(
+                lambda: _unwind_artifact_broker_helper(settings.import_shutdown_grace_seconds)
+            )
             reconciliation = SynchronousMutationReconciler(
                 settings=settings,
                 layout=layout,
@@ -575,6 +589,7 @@ class ServiceRuntime:
             if not artifact_broker_helper_alive():
                 return False
             ping_artifact_broker()
+            assert_artifact_broker_bound()
         except ArtifactBrokerError:
             return False
         except Exception:

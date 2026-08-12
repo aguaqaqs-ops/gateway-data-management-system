@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import fcntl
 import logging
-import os
 import stat as stat_module
 import threading
 import time
@@ -22,6 +20,10 @@ from gateway_repository_service.diagnostics import log_event
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import MutationStore
 from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.upload_artifact.admission_pin import (
+    ready_artifact_entry_absent,
+    try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
+)
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 
@@ -79,7 +81,9 @@ class ArtifactCleaner:
             if self._started:
                 return
             self._stopping = False
-            self._pending = True
+            # The worker always performs one immediate sweep. `_pending` is only
+            # for lifecycle notifications that arrive during/after that sweep.
+            self._pending = False
             thread = threading.Thread(
                 target=self._run,
                 name="artifact-cleaner",
@@ -160,10 +164,22 @@ class ArtifactCleaner:
             )
             return
 
+        inventoried_repositories: set[UUID] = set()
         for lifecycle in candidates:
             if self._stopping:
                 return
             try:
+                if lifecycle.repository_id not in inventoried_repositories:
+                    ready_dir = artifact_ready_path(
+                        self._layout,
+                        lifecycle.repository_id,
+                        lifecycle.artifact_id,
+                    ).parent
+                    self._inventory_unknown_ready_entries(
+                        lifecycle.repository_id,
+                        ready_dir,
+                    )
+                    inventoried_repositories.add(lifecycle.repository_id)
                 self._process_candidate(lifecycle.artifact_id, lifecycle.repository_id)
             except Exception:
                 _LOGGER.exception(
@@ -217,13 +233,16 @@ class ArtifactCleaner:
             return
 
         expected = artifact_ready_path(self._layout, repository_id, artifact_id)
-        self._inventory_unknown_ready_entries(repository_id, expected.parent)
         path_kind = classify_ready_artifact_path(
             expected,
             expected=expected,
             artifact_id=artifact_id,
         )
         if path_kind == "absent":
+            if not self._still_eligible(artifact_id):
+                return
+            if not ready_artifact_entry_absent(expected):
+                return
             self._import_store.mark_artifact_bytes_deleted(
                 artifact_id,
                 deleted_at=self._deleted_at_stamp(),
@@ -278,7 +297,13 @@ class ArtifactCleaner:
                 logger=_LOGGER,
             )
             return
-        if outcome in {"unlink_failed", "inode_mismatch", "symlink"}:
+        if outcome in {
+            "unlink_failed",
+            "inode_mismatch",
+            "not_regular_file",
+            "path_recreated",
+            "symlink",
+        }:
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
@@ -290,7 +315,7 @@ class ArtifactCleaner:
             )
             return
         if outcome in {"deleted", "already_absent"}:
-            if expected.exists():
+            if not ready_artifact_entry_absent(expected):
                 log_event(
                     "artifact_cleanup",
                     repository_id=repository_id,
@@ -341,7 +366,12 @@ class ArtifactCleaner:
         for entry in names:
             name = entry.name
             if len(name) == 32 and all(ch in "0123456789abcdef" for ch in name):
-                continue
+                try:
+                    lifecycle = self._mutation_store.get_artifact_lifecycle(UUID(hex=name))
+                except Exception:
+                    lifecycle = None
+                if lifecycle is not None and lifecycle.repository_id == repository_id:
+                    continue
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
@@ -371,99 +401,24 @@ def classify_ready_artifact_path(
 ) -> str:
     """Classify a candidate ready path without logging the raw path."""
 
-    try:
-        resolved_path = path.resolve(strict=False)
-        resolved_expected = expected.resolve(strict=False)
-    except OSError:
-        return "unresolvable"
-    if resolved_path != resolved_expected:
+    if path != expected:
         return "unexpected_path"
     if artifact_id is not None and path.name != artifact_id.hex:
         return "malformed_name"
     try:
-        if resolved_path.parent != resolved_expected.parent:
-            return "unexpected_path"
-    except OSError:
-        return "unresolvable"
-    if not path.exists():
+        path_stat = path.lstat()
+    except FileNotFoundError:
         return "absent"
-    try:
-        if path.is_symlink():
-            return "symlink"
-        if not path.is_file():
-            return "not_regular_file"
     except OSError:
+        return "stat_failed"
+    try:
+        if stat_module.S_ISLNK(path_stat.st_mode):
+            return "symlink"
+        if not stat_module.S_ISREG(path_stat.st_mode):
+            return "not_regular_file"
+    except (AttributeError, TypeError):
         return "stat_failed"
     name = path.name
     if len(name) != 32 or any(ch not in "0123456789abcdef" for ch in name):
         return "malformed_name"
     return "regular_file"
-
-
-def try_unlink_ready_artifact_with_recheck(
-    ready_path: Path,
-    *,
-    recheck: Callable[[], bool],
-) -> str:
-    """Acquire admission flock, recheck eligibility and inode, then unlink when safe."""
-
-    open_flags = os.O_RDONLY
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    if nofollow:
-        open_flags |= nofollow
-    try:
-        fd = os.open(ready_path, open_flags)
-    except FileNotFoundError:
-        return "already_absent"
-    except OSError:
-        return "unlink_failed"
-    try:
-        os.set_inheritable(fd, False)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return "busy"
-        try:
-            fd_stat = os.fstat(fd)
-            if fd_stat.st_nlink == 0:
-                return "already_absent"
-            if not nofollow:
-                try:
-                    if ready_path.is_symlink():
-                        return "symlink"
-                except OSError:
-                    return "unlink_failed"
-            try:
-                path_stat = ready_path.lstat()
-            except FileNotFoundError:
-                return "already_absent"
-            except OSError:
-                return "unlink_failed"
-            if path_stat.st_ino != fd_stat.st_ino:
-                return "inode_mismatch"
-            if stat_is_symlink(path_stat):
-                return "symlink"
-            if not recheck():
-                return "ineligible"
-            try:
-                # Recheck path inode immediately before unlink.
-                path_stat = ready_path.lstat()
-                if path_stat.st_ino != fd_stat.st_ino or path_stat.st_nlink == 0:
-                    return "inode_mismatch"
-                ready_path.unlink()
-            except FileNotFoundError:
-                return "already_absent"
-            except OSError:
-                return "unlink_failed"
-            return "deleted"
-        finally:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            except OSError:
-                pass
-    finally:
-        os.close(fd)
-
-
-def stat_is_symlink(path_stat: os.stat_result) -> bool:
-    return stat_module.S_ISLNK(path_stat.st_mode)

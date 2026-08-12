@@ -13,7 +13,10 @@ from gateway_repository_contracts import SimpleError, VersionedImportResult
 from gateway_repository_service.capacity import CapacityAdmissionError, assert_import_disk_admission
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
-from gateway_repository_service.upload_artifact.admission_pin import try_unlink_ready_artifact
+from gateway_repository_service.upload_artifact.admission_pin import (
+    ready_artifact_entry_absent,
+    try_unlink_ready_artifact_with_recheck,
+)
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.errors import (
     ImportProviderError,
@@ -369,10 +372,13 @@ class ImportOperationExecutor:
         artifact_path: Path,
     ) -> None:
         try:
-            if not self._store.can_delete_artifact_bytes(context.artifact_id):
-                return
-            try_unlink_ready_artifact(artifact_path)
-            if not artifact_path.is_file():
+            outcome = try_unlink_ready_artifact_with_recheck(
+                artifact_path,
+                recheck=lambda: self._store.can_delete_artifact_bytes(context.artifact_id),
+            )
+            if outcome in {"deleted", "already_absent"} and ready_artifact_entry_absent(
+                artifact_path
+            ):
                 self._store.mark_artifact_bytes_deleted(context.artifact_id)
         except Exception:
             _LOGGER.exception(

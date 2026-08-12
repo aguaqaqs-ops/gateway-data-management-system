@@ -32,7 +32,6 @@ from gateway_repository_service.upload_artifact.visibility import (
     has_ready_artifact_size,
 )
 from gateway_repository_service.versioned_import.store import ImportOperationStore
-from gateway_repository_service.versioned_import.models import IMPORT_ADMISSION_PENDING_STATUS
 
 
 class ReconciliationError(RuntimeError):
@@ -155,34 +154,7 @@ def upload_artifact_bytes_reconciled_after_import(
         consumed_operation_artifact_id=consumed_operation_artifact_id,
     ):
         return True
-
-    if lifecycle.consumed_by_operation_id is None:
-        return False
-    if lifecycle.consumed_at is None and lifecycle.bytes_deleted_at is None:
-        return False
-    operation = import_store.get_operation(
-        repository_id,
-        lifecycle.consumed_by_operation_id,
-    )
-    if operation is None:
-        return False
-    if operation.artifact_id != artifact_id:
-        return False
-    if operation.status != OperationStatus.SUCCEEDED:
-        return False
-    for reference in references:
-        if reference.operation_id == lifecycle.consumed_by_operation_id:
-            continue
-        if reference.is_protected:
-            return False
-        if reference.durable_status == IMPORT_ADMISSION_PENDING_STATUS:
-            return False
-        if reference.status in {
-            OperationStatus.QUEUED,
-            OperationStatus.RUNNING,
-        }:
-            return False
-    return True
+    return False
 
 
 def filesystem_watch_failures(

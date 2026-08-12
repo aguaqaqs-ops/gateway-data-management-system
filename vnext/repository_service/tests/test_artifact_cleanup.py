@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import sqlite3
 import threading
@@ -47,9 +48,10 @@ from gateway_repository_service.mutation_store import (
     MutationStore,
     configure_connection,
 )
-from gateway_repository_service.runtime import ServiceRuntime
+from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import ArtifactAdmissionPin
+from gateway_repository_service.upload_artifact.admission_pin import ArtifactNotReadyForAdmission
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import import versioned_import_fingerprint_v1
 from gateway_repository_service.versioned_import.models import (
@@ -58,6 +60,7 @@ from gateway_repository_service.versioned_import.models import (
     IMPORT_ADMISSION_PENDING_STATUS,
 )
 from gateway_repository_service.versioned_import.store import ImportOperationStore
+from gateway_repository_service.versioned_import.worker import ImportWorkerPool
 from support.lifecycle_harness import lifecycle_settings
 from support.recovery_harness import ready_client, replay_create
 from support.upload_harness import upload_headers
@@ -70,7 +73,7 @@ ARTIFACT_PAYLOAD = b"artifact-cleanup-payload"
 SHA256 = hashlib.sha256(ARTIFACT_PAYLOAD).hexdigest()
 MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
 CREATED_AT = "2026-08-01T00:00:00+00:00"
-BASE_NOW = datetime(2026, 8, 2, tzinfo=UTC)
+BASE_NOW = datetime(2030, 8, 2, tzinfo=UTC)
 
 TTL_BOUNDARY_CASES = (
     ("just_before", timedelta(seconds=-1), False, ArtifactBytesDeletionReason.TTL_NOT_ELAPSED),
@@ -123,6 +126,49 @@ PROTECTED_REFERENCE_CASES = (
             status=OperationStatus.FAILED,
             is_protected=True,
             completed_at="2026-08-01T00:00:00+00:00",
+            error_code="MANUAL_RECOVERY_REQUIRED",
+        ),
+    ),
+)
+
+MALFORMED_REFERENCE_CASES = (
+    (
+        "failed_without_error",
+        ArtifactOperationReference(
+            operation_id=OPERATION_ID,
+            durable_status=OperationStatus.FAILED.value,
+            status=OperationStatus.FAILED,
+            is_protected=False,
+            completed_at="2026-08-01T12:00:00+00:00",
+        ),
+    ),
+    (
+        "failed_unknown_error",
+        ArtifactOperationReference(
+            operation_id=OPERATION_ID,
+            durable_status=OperationStatus.FAILED.value,
+            status=OperationStatus.FAILED,
+            is_protected=False,
+            completed_at="2026-08-01T12:00:00+00:00",
+            error_code="UNKNOWN_FAILURE",
+        ),
+    ),
+    (
+        "succeeded_without_completion",
+        ArtifactOperationReference(
+            operation_id=OPERATION_ID,
+            durable_status=OperationStatus.SUCCEEDED.value,
+            status=OperationStatus.SUCCEEDED,
+            is_protected=False,
+        ),
+    ),
+    (
+        "unknown_durable_status",
+        ArtifactOperationReference(
+            operation_id=OPERATION_ID,
+            durable_status="BROKEN",
+            status=None,
+            is_protected=True,
         ),
     ),
 )
@@ -299,6 +345,7 @@ def test_ordinary_failed_ttl_boundaries(
                 status=OperationStatus.FAILED,
                 is_protected=False,
                 completed_at=completed_at,
+                error_code="IMPORT_REJECTED",
             )
         ],
         now=boundary + timedelta(seconds=3600) + delta,
@@ -372,6 +419,7 @@ def test_multi_ordinary_failed_uses_conservative_latest_completed_at() -> None:
             status=OperationStatus.FAILED,
             is_protected=False,
             completed_at=earlier,
+            error_code="IMPORT_REJECTED",
         ),
         ArtifactOperationReference(
             operation_id=OTHER_OPERATION_ID,
@@ -379,6 +427,7 @@ def test_multi_ordinary_failed_uses_conservative_latest_completed_at() -> None:
             status=OperationStatus.FAILED,
             is_protected=False,
             completed_at=later,
+            error_code="VERIFICATION_FAILED_NOT_PUBLISHED",
         ),
     ]
     before_latest_ttl = decide_artifact_bytes_deletion(
@@ -414,6 +463,25 @@ def test_already_deleted_and_malformed_fail_closed() -> None:
     )
     assert malformed.eligible is False
     assert malformed.reason is ArtifactBytesDeletionReason.FAIL_CLOSED
+
+
+@pytest.mark.parametrize(
+    ("_label", "reference"),
+    MALFORMED_REFERENCE_CASES,
+    ids=[case[0] for case in MALFORMED_REFERENCE_CASES],
+)
+def test_malformed_reference_evidence_fails_closed(
+    _label: str,
+    reference: ArtifactOperationReference,
+) -> None:
+    decision = decide_artifact_bytes_deletion(
+        lifecycle=_lifecycle(),
+        references=[reference],
+        now=BASE_NOW + timedelta(days=30),
+        ttl_seconds=1,
+    )
+    assert decision.eligible is False
+    assert decision.reason is ArtifactBytesDeletionReason.FAIL_CLOSED
 
 
 def test_ordinary_failed_artifact_expires(
@@ -525,6 +593,95 @@ def test_cleanup_retries_after_first_failure(
         assert lifecycle.bytes_deleted_at is not None
     finally:
         setattr(cleaner_mod, "try_unlink_ready_artifact_with_recheck", original)
+
+
+@pytest.mark.serial
+def test_cleanup_failure_retries_after_lifecycle_notification(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    first_failure = threading.Event()
+    original = try_unlink_ready_artifact_with_recheck
+    calls = 0
+
+    def fail_once(path: Path, *, recheck: object) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            first_failure.set()
+            return "unlink_failed"
+        return original(path, recheck=recheck)  # type: ignore[arg-type]
+
+    import gateway_repository_service.artifact_cleaner as cleaner_mod
+
+    monkeypatch.setattr(cleaner_mod, "try_unlink_ready_artifact_with_recheck", fail_once)
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=1, interval=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    )
+    cleaner.start()
+    try:
+        assert first_failure.wait(timeout=2.0)
+        assert ready.is_file()
+        cleaner.notify()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and ready.exists():
+            time.sleep(0.01)
+        assert not ready.exists()
+        assert calls == 2
+    finally:
+        cleaner.stop(timeout=2.0)
+
+
+@pytest.mark.serial
+def test_cleanup_failure_retries_after_interval_fallback(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    first_failure = threading.Event()
+    original = try_unlink_ready_artifact_with_recheck
+    calls = 0
+
+    def fail_once(path: Path, *, recheck: object) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            first_failure.set()
+            return "unlink_failed"
+        return original(path, recheck=recheck)  # type: ignore[arg-type]
+
+    import gateway_repository_service.artifact_cleaner as cleaner_mod
+
+    monkeypatch.setattr(cleaner_mod, "try_unlink_ready_artifact_with_recheck", fail_once)
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=1, interval=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    )
+    cleaner.start()
+    try:
+        assert first_failure.wait(timeout=2.0)
+        assert ready.is_file()
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and ready.exists():
+            time.sleep(0.01)
+        assert not ready.exists()
+        assert calls == 2
+    finally:
+        cleaner.stop(timeout=2.0)
 
 
 def test_lock_busy_retains_bytes(
@@ -688,6 +845,139 @@ def test_symlink_and_malformed_paths_are_not_deleted(layout: DurableLayout, tmp_
     )
 
 
+def test_broken_symlink_is_retained_without_deleted_stamp(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = artifact_ready_path(layout, REPOSITORY_ID, ARTIFACT_ID)
+    ready.parent.mkdir(parents=True, exist_ok=True)
+    ready.symlink_to(ready.parent / "missing-target")
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert ready.is_symlink()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+def test_unknown_and_malformed_ready_entries_are_retained_with_safe_diagnostics(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready_dir = artifact_ready_path(layout, REPOSITORY_ID, ARTIFACT_ID).parent
+    ready_dir.mkdir(parents=True, exist_ok=True)
+    unknown_uuid_entry = ready_dir / uuid4().hex
+    malformed_entry = ready_dir / "not-an-artifact"
+    unknown_uuid_entry.write_bytes(b"unknown")
+    malformed_entry.write_bytes(b"malformed")
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert unknown_uuid_entry.is_file()
+    assert malformed_entry.is_file()
+    unknown_diagnostics = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "unknown_path_inventory"
+    ]
+    assert len(unknown_diagnostics) == 2
+    assert all(str(ready_dir) not in record.getMessage() for record in unknown_diagnostics)
+
+
+@pytest.mark.serial
+def test_cleaner_wins_pin_race_admission_cannot_accept_missing_bytes(
+    layout: DurableLayout,
+) -> None:
+    ready = _write_ready(layout)
+    recheck_entered = threading.Event()
+    release_cleaner = threading.Event()
+    admission_started = threading.Event()
+    outcomes: dict[str, str] = {}
+
+    def recheck() -> bool:
+        recheck_entered.set()
+        assert release_cleaner.wait(timeout=2.0)
+        return True
+
+    def clean() -> None:
+        outcomes["cleaner"] = try_unlink_ready_artifact_with_recheck(
+            ready,
+            recheck=recheck,
+        )
+
+    def admit() -> None:
+        admission_started.set()
+        try:
+            with ArtifactAdmissionPin(
+                layout,
+                REPOSITORY_ID,
+                ARTIFACT_ID,
+                size_bytes=len(ARTIFACT_PAYLOAD),
+                raw_sha256=SHA256,
+            ):
+                outcomes["admission"] = "accepted"
+        except ArtifactNotReadyForAdmission:
+            outcomes["admission"] = "rejected"
+
+    cleaner_thread = threading.Thread(target=clean)
+    admission_thread = threading.Thread(target=admit)
+    cleaner_thread.start()
+    assert recheck_entered.wait(timeout=2.0)
+    admission_thread.start()
+    assert admission_started.wait(timeout=2.0)
+    release_cleaner.set()
+    cleaner_thread.join(timeout=2.0)
+    admission_thread.join(timeout=2.0)
+
+    assert not cleaner_thread.is_alive()
+    assert not admission_thread.is_alive()
+    assert outcomes == {"cleaner": "deleted", "admission": "rejected"}
+    assert not ready.exists()
+
+
+def test_recorded_delete_is_not_processed_twice(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _write_ready(layout)
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    )
+    cleaner.sweep_once()
+    first = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert first is not None and first.bytes_deleted_at is not None
+
+    cleaner.sweep_once()
+    second = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert second is not None
+    assert second.bytes_deleted_at == first.bytes_deleted_at
+
+
 def test_classify_rejects_path_outside_layout_ready_dir(
     layout: DurableLayout,
     tmp_path: Path,
@@ -768,6 +1058,10 @@ def test_inode_mismatch_retains_bytes_without_deleted_at(
         @property
         def st_ino(self) -> int:
             return int(self._base.st_ino) + 1
+
+        @property
+        def st_dev(self) -> int:
+            return int(self._base.st_dev)
 
         @property
         def st_nlink(self) -> int:
@@ -1038,3 +1332,32 @@ def test_legal_ttl_delete_survives_restart_readiness(tmp_path: Path) -> None:
         assert restarted.is_ready()
     finally:
         restarted.shutdown()
+
+
+@pytest.mark.integration
+def test_runtime_start_failure_unwinds_cleaner_thread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = lifecycle_settings(tmp_path).model_copy(update={"max_import_workers": 1})
+    existing_cleaners = {
+        thread.ident for thread in threading.enumerate() if thread.name == "artifact-cleaner"
+    }
+
+    def fail_lifecycle_wiring(
+        self: ImportWorkerPool,
+        callback: object,
+    ) -> None:
+        del self, callback
+        raise RuntimeError("forced lifecycle wiring failure")
+
+    monkeypatch.setattr(ImportWorkerPool, "set_lifecycle_notify", fail_lifecycle_wiring)
+    with pytest.raises(ServiceStartupError, match="forced lifecycle wiring failure"):
+        ServiceRuntime.start(settings)
+
+    leaked = [
+        thread
+        for thread in threading.enumerate()
+        if thread.name == "artifact-cleaner" and thread.ident not in existing_cleaners
+    ]
+    assert leaked == []

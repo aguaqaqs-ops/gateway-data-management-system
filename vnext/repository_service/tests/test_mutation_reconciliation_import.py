@@ -116,7 +116,7 @@ def _enqueue_operation(
 
 
 @pytest.mark.unit
-def test_upload_artifact_bytes_reconciled_happy_path(
+def test_upload_artifact_bytes_reconciled_requires_deletion_stamp(
     stores: tuple[ImportOperationStore, MutationStore],
 ) -> None:
     import_store, mutation_store = stores
@@ -141,6 +141,15 @@ def test_upload_artifact_bytes_reconciled_happy_path(
         ),
     )
 
+    assert not upload_artifact_bytes_reconciled_after_import(
+        import_store,
+        mutation_store,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        ttl_seconds=24 * 60 * 60,
+    )
+
+    import_store.mark_artifact_bytes_deleted(ARTIFACT_ID)
     assert upload_artifact_bytes_reconciled_after_import(
         import_store,
         mutation_store,

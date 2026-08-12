@@ -854,6 +854,7 @@ class ImportOperationStore:
                             status=None,
                             is_protected=True,
                             completed_at=completed_at,
+                            error_code=error.code if error is not None else None,
                         )
                     )
                     continue
@@ -867,6 +868,7 @@ class ImportOperationStore:
                             status=None,
                             is_protected=True,
                             completed_at=completed_at,
+                            error_code=error.code if error is not None else None,
                         )
                     )
                     continue
@@ -879,6 +881,7 @@ class ImportOperationStore:
                             durable_status, wire_status, error
                         ),
                         completed_at=completed_at,
+                        error_code=error.code if error is not None else None,
                     )
                 )
             return references

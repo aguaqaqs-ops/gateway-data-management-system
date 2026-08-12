@@ -379,7 +379,10 @@ class ImportOperationExecutor:
 
             outcome = try_unlink_ready_artifact_with_recheck(
                 artifact_path,
-                recheck=lambda: self._store.can_delete_artifact_bytes(context.artifact_id),
+                recheck=lambda: self._store.can_delete_artifact_bytes(
+                    context.artifact_id,
+                    ttl_seconds=self._settings.artifact_ttl_seconds,
+                ),
                 layout=self._layout,
                 repository_id=context.repository_id,
                 artifact_id=context.artifact_id,

@@ -331,6 +331,7 @@ def _run_apply(
                 context=context,
                 provider=provider,
                 candidate=final_result.commit_id,
+                ttl_seconds=settings.artifact_ttl_seconds,
             )
         else:
             if not evidence_supports_not_published_decision(evidence):

@@ -937,13 +937,18 @@ class ImportOperationStore:
                 )
             return references
 
-    def can_delete_artifact_bytes(self, artifact_id: UUID) -> bool:
-        references = self.list_artifact_references(artifact_id)
-        if any(reference.is_protected for reference in references):
-            return False
-        return any(
-            reference.status == OperationStatus.SUCCEEDED for reference in references
-        )
+    def can_delete_artifact_bytes(
+        self,
+        artifact_id: UUID,
+        *,
+        ttl_seconds: int,
+        now: datetime | None = None,
+    ) -> bool:
+        return self.evaluate_artifact_bytes_deletion(
+            artifact_id,
+            now=now,
+            ttl_seconds=ttl_seconds,
+        ).eligible
 
     def evaluate_artifact_bytes_deletion(
         self,

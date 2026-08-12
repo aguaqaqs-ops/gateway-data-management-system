@@ -253,6 +253,86 @@ def open_owned_ready_artifact(
         os.close(artifacts_fd)
 
 
+def open_owned_ready_dir(
+    layout: DurableLayout,
+    repository_id: UUID,
+) -> int:
+    """Open the owned ready directory via verified dirfds. Caller owns the fd."""
+
+    key = repository_key(repository_id)
+
+    def _open_component(path: str | Path, *, dir_fd: int | None, missing: str, label: str) -> int:
+        try:
+            if dir_fd is None:
+                return os.open(path, _dir_flags())
+            return os.open(path, _dir_flags(), dir_fd=dir_fd)
+        except FileNotFoundError as exc:
+            raise OwnedPathError(missing) from exc
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise OwnedPathError(f"{label} symlink or non-directory") from exc
+            raise OwnedPathError(f"{label} is unavailable") from exc
+
+    artifacts_fd = _open_component(
+        layout.artifacts,
+        dir_fd=None,
+        missing="artifacts root is missing",
+        label="artifacts root",
+    )
+    try:
+        os.set_inheritable(artifacts_fd, False)
+        repo_fd = _open_component(
+            key,
+            dir_fd=artifacts_fd,
+            missing="repository artifact directory is missing",
+            label="repository",
+        )
+        try:
+            os.set_inheritable(repo_fd, False)
+            ready_dir_fd = _open_component(
+                "ready",
+                dir_fd=repo_fd,
+                missing="ready directory is missing",
+                label="ready",
+            )
+            os.set_inheritable(ready_dir_fd, False)
+            ready_stat = os.fstat(ready_dir_fd)
+            if not stat.S_ISDIR(ready_stat.st_mode):
+                os.close(ready_dir_fd)
+                raise OwnedPathError("ready path is not a directory")
+            kept = ready_dir_fd
+            return kept
+        finally:
+            os.close(repo_fd)
+    finally:
+        os.close(artifacts_fd)
+
+
+def quarantine_name_for(*, inode: int, artifact_id: UUID) -> str:
+    """Return the durable quarantine directory entry for an owned ready inode."""
+
+    return f".deleting-{inode}-{artifact_id.hex}"
+
+
+def parse_quarantine_name(name: str) -> tuple[int, UUID] | None:
+    """Parse ``.deleting-<ino>-<artifact_hex>``; return None when malformed."""
+
+    if not name.startswith(".deleting-"):
+        return None
+    rest = name[len(".deleting-") :]
+    if "-" not in rest:
+        return None
+    ino_text, artifact_hex = rest.split("-", 1)
+    if not ino_text.isdigit():
+        return None
+    if len(artifact_hex) != 32 or any(ch not in "0123456789abcdef" for ch in artifact_hex):
+        return None
+    try:
+        return int(ino_text), UUID(hex=artifact_hex)
+    except ValueError:
+        return None
+
+
 def try_unlink_owned_ready_artifact(
     layout: DurableLayout,
     repository_id: UUID,
@@ -261,11 +341,17 @@ def try_unlink_owned_ready_artifact(
     recheck: Callable[[], bool],
     on_deleted: Callable[[], None] | None = None,
 ) -> str:
-    """Delete an owned ready artifact via dirfd renameat/unlinkat.
+    """Delete an owned ready artifact via fd-stable linkat quarantine.
 
-    When ``on_deleted`` is provided it runs while the flock is still held, after
-    the verified inode has been unlinked. Only outcome ``deleted`` means this
-    call removed bytes; ``already_absent`` never stamps deletion evidence.
+    Protocol (while flock is held):
+    1. linkat from the locked fd into ``.deleting-<ino>-<hex>``
+    2. unlink the ready name only when it still names the locked inode
+    3. run ``on_deleted`` (stamp) while the quarantine hardlink still exists
+    4. unlink the quarantine hardlink
+
+    Only outcome ``deleted`` means this call completed stamp + final unlink.
+    ``already_absent`` never invents deletion evidence. Abort paths never unlink
+    a directory entry that was not verified as the locked inode.
     """
 
     try:
@@ -275,7 +361,6 @@ def try_unlink_owned_ready_artifact(
         if "missing" in message:
             return "already_absent"
         if "symlink" in message or "unavailable" in message:
-            # Distinguish common failure modes for diagnostics.
             try:
                 ready_path = artifact_ready_path(layout, repository_id, artifact_id)
                 if stat.S_ISLNK(ready_path.lstat().st_mode):
@@ -285,7 +370,9 @@ def try_unlink_owned_ready_artifact(
             return "unlink_failed"
         return "unlink_failed"
 
-    quarantine: str | None = None
+    # Only unlink quarantine in abort paths when we verified it is our inode.
+    owned_quarantine: str | None = None
+    keep_quarantine_on_abort = False
     try:
         try:
             fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -297,22 +384,55 @@ def try_unlink_owned_ready_artifact(
                 return "not_regular_file"
             if fd_stat.st_nlink == 0:
                 return "already_absent"
-            if not recheck():
-                return "ineligible"
 
             name = artifact_id.hex
-            quarantine = f".deleting-{fd_stat.st_ino}-{name}"
+            # Create the quarantine hardlink while the locked inode still has a
+            # directory link. Linking after an unlink is not portable (e.g. WSL).
             try:
-                os.rename(name, quarantine, src_dir_fd=ready_dir_fd, dst_dir_fd=ready_dir_fd)
+                name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
             except FileNotFoundError:
                 return "already_absent"
             except OSError:
                 return "unlink_failed"
-
-            # Confirm the open fd still names the quarantined inode.
-            post_rename = os.fstat(file_fd)
-            if (post_rename.st_dev, post_rename.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+            if (name_stat.st_dev, name_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
                 return "inode_mismatch"
+
+            quarantine = quarantine_name_for(inode=fd_stat.st_ino, artifact_id=artifact_id)
+            try:
+                os.link(
+                    f"/proc/self/fd/{file_fd}",
+                    quarantine,
+                    dst_dir_fd=ready_dir_fd,
+                )
+            except FileExistsError:
+                try:
+                    existing = os.stat(quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
+                except OSError:
+                    return "unlink_failed"
+                if (existing.st_dev, existing.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                    return "inode_mismatch"
+            except OSError:
+                # Fall back to linking the verified ready name (same inode).
+                try:
+                    os.link(
+                        name,
+                        quarantine,
+                        src_dir_fd=ready_dir_fd,
+                        dst_dir_fd=ready_dir_fd,
+                        follow_symlinks=False,
+                    )
+                except FileExistsError:
+                    try:
+                        existing = os.stat(
+                            quarantine, dir_fd=ready_dir_fd, follow_symlinks=False
+                        )
+                    except OSError:
+                        return "unlink_failed"
+                    if (existing.st_dev, existing.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                        return "inode_mismatch"
+                except OSError:
+                    return "unlink_failed"
+
             try:
                 q_stat = os.stat(quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
             except FileNotFoundError:
@@ -320,33 +440,60 @@ def try_unlink_owned_ready_artifact(
             except OSError:
                 return "unlink_failed"
             if (q_stat.st_dev, q_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                # Quarantine hardlink is not our inode — drop only that hardlink.
+                try:
+                    os.unlink(quarantine, dir_fd=ready_dir_fd)
+                except OSError:
+                    pass
                 return "inode_mismatch"
             if not stat.S_ISREG(q_stat.st_mode):
+                try:
+                    os.unlink(quarantine, dir_fd=ready_dir_fd)
+                except OSError:
+                    pass
                 return "not_regular_file"
+            owned_quarantine = quarantine
 
+            if not recheck():
+                return "ineligible"
+
+            # Drop the ready name only when it still points at our locked inode.
+            post_name_stat: os.stat_result | None
             try:
-                os.unlink(quarantine, dir_fd=ready_dir_fd)
+                post_name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
             except FileNotFoundError:
-                return "already_absent"
+                post_name_stat = None
             except OSError:
                 return "unlink_failed"
-            quarantine = None
-
-            # Original name must be absent; quarantine must be gone.
-            try:
-                os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
-                return "path_recreated"
-            except FileNotFoundError:
-                pass
-            except OSError:
-                return "unlink_failed"
+            if post_name_stat is not None:
+                if (post_name_stat.st_dev, post_name_stat.st_ino) == (
+                    fd_stat.st_dev,
+                    fd_stat.st_ino,
+                ):
+                    try:
+                        os.unlink(name, dir_fd=ready_dir_fd)
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        return "unlink_failed"
+                # else: replacement at ready name — leave it alone
 
             if on_deleted is not None:
                 try:
                     on_deleted()
                 except Exception:
-                    # Bytes are gone; leave stamp absent for a later verified retry.
+                    # Quarantine hardlink retained so a later sweep can finish.
+                    keep_quarantine_on_abort = True
                     return "stamp_failed"
+
+            try:
+                os.unlink(quarantine, dir_fd=ready_dir_fd)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                keep_quarantine_on_abort = True
+                return "unlink_failed"
+            owned_quarantine = None
             return "deleted"
         finally:
             try:
@@ -354,9 +501,12 @@ def try_unlink_owned_ready_artifact(
             except OSError:
                 pass
     finally:
-        if quarantine is not None:
+        if owned_quarantine is not None and not keep_quarantine_on_abort:
             try:
-                os.unlink(quarantine, dir_fd=ready_dir_fd)
+                q_stat = os.stat(owned_quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
+                locked = os.fstat(file_fd)
+                if (q_stat.st_dev, q_stat.st_ino) == (locked.st_dev, locked.st_ino):
+                    os.unlink(owned_quarantine, dir_fd=ready_dir_fd)
             except OSError:
                 pass
         os.close(file_fd)

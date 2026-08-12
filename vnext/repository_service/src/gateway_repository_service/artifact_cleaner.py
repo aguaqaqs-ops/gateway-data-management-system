@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import stat as stat_module
 import threading
 import time
@@ -21,6 +22,9 @@ from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import MutationStore
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
+    OwnedPathError,
+    open_owned_ready_dir,
+    parse_quarantine_name,
     try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
 )
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -149,6 +153,7 @@ class ArtifactCleaner:
     def _sweep(self) -> None:
         started = time.monotonic()
         self._inventory_owned_artifact_tree()
+        self._recover_delete_quarantines()
         try:
             candidates = self._mutation_store.list_artifacts_pending_byte_cleanup()
         except Exception:
@@ -225,7 +230,8 @@ class ArtifactCleaner:
             artifact_id=artifact_id,
         )
         if path_kind == "absent":
-            # Missing bytes without a verified unlink in this call never mint a stamp.
+            # Missing ready name without a verified delete in this call never mints a stamp.
+            # Quarantine residuals are handled by _recover_delete_quarantines.
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
@@ -299,6 +305,202 @@ class ArtifactCleaner:
 
     def _deleted_at_stamp(self) -> str:
         return self._clock().astimezone(UTC).replace(microsecond=0).isoformat()
+
+    def _recover_delete_quarantines(self) -> None:
+        artifacts_root = self._layout.artifacts
+        if not artifacts_root.is_dir():
+            return
+        try:
+            repo_entries = list(artifacts_root.iterdir())
+        except OSError:
+            return
+        for repo_entry in repo_entries:
+            name = repo_entry.name
+            if len(name) != 32 or any(ch not in _HEX32 for ch in name):
+                continue
+            try:
+                repository_id = UUID(hex=name)
+            except ValueError:
+                continue
+            ready_dir = repo_entry / "ready"
+            if not ready_dir.is_dir():
+                continue
+            try:
+                entries = list(ready_dir.iterdir())
+            except OSError:
+                continue
+            for entry in entries:
+                if self._stopping:
+                    return
+                parsed = parse_quarantine_name(entry.name)
+                if parsed is None:
+                    continue
+                inode, artifact_id = parsed
+                try:
+                    self._recover_one_quarantine(
+                        repository_id,
+                        artifact_id,
+                        quarantine_name=entry.name,
+                        expected_ino=inode,
+                    )
+                except Exception:
+                    _LOGGER.exception(
+                        "artifact quarantine recovery failed for artifact %s",
+                        artifact_id,
+                    )
+
+    def _recover_one_quarantine(
+        self,
+        repository_id: UUID,
+        artifact_id: UUID,
+        *,
+        quarantine_name: str,
+        expected_ino: int,
+    ) -> None:
+        try:
+            ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
+        except OwnedPathError:
+            return
+        try:
+            try:
+                q_stat = os.stat(quarantine_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return
+            except OSError:
+                return
+            if q_stat.st_ino != expected_ino or not stat_module.S_ISREG(q_stat.st_mode):
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="quarantine_inode_mismatch",
+                    logger=_LOGGER,
+                )
+                return
+
+            lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
+            if lifecycle is None or lifecycle.repository_id != repository_id:
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="unknown_path_inventory",
+                    logger=_LOGGER,
+                )
+                return
+
+            ready_name = artifact_id.hex
+            ready_stat: os.stat_result | None
+            try:
+                ready_stat = os.stat(ready_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                ready_stat = None
+            except OSError:
+                return
+
+            if lifecycle.bytes_deleted_at is not None:
+                try:
+                    os.unlink(quarantine_name, dir_fd=ready_dir_fd)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    return
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="deleted",
+                    cleanup_outcome="quarantine_residual_unlinked",
+                    logger=_LOGGER,
+                )
+                return
+
+            decision = self._import_store.evaluate_artifact_bytes_deletion(
+                artifact_id,
+                now=self._clock(),
+                ttl_seconds=self._settings.artifact_ttl_seconds,
+            )
+            if decision.eligible:
+                self._import_store.mark_artifact_bytes_deleted(
+                    artifact_id,
+                    deleted_at=self._deleted_at_stamp(),
+                )
+                try:
+                    os.unlink(quarantine_name, dir_fd=ready_dir_fd)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    return
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="deleted",
+                    cleanup_outcome="quarantine_completed",
+                    logger=_LOGGER,
+                )
+                return
+
+            # Rollback incomplete delete when no longer eligible.
+            if ready_stat is None:
+                try:
+                    os.rename(
+                        quarantine_name,
+                        ready_name,
+                        src_dir_fd=ready_dir_fd,
+                        dst_dir_fd=ready_dir_fd,
+                    )
+                except OSError:
+                    return
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="quarantine_restored",
+                    logger=_LOGGER,
+                )
+                return
+
+            if (ready_stat.st_dev, ready_stat.st_ino) == (q_stat.st_dev, q_stat.st_ino):
+                try:
+                    os.unlink(quarantine_name, dir_fd=ready_dir_fd)
+                except OSError:
+                    return
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="quarantine_hardlink_dropped",
+                    logger=_LOGGER,
+                )
+                return
+
+            # Ready name holds a different inode; drop only our quarantine hardlink.
+            try:
+                os.unlink(quarantine_name, dir_fd=ready_dir_fd)
+            except OSError:
+                return
+            log_event(
+                "artifact_cleanup",
+                repository_id=repository_id,
+                artifact_id=artifact_id,
+                stage="quarantine",
+                result="retained",
+                cleanup_outcome="quarantine_orphaned_dropped",
+                logger=_LOGGER,
+            )
+        finally:
+            os.close(ready_dir_fd)
 
     def _inventory_owned_artifact_tree(self) -> None:
         artifacts_root = self._layout.artifacts
@@ -376,10 +578,73 @@ class ArtifactCleaner:
         for entry in entries:
             name = entry.name
             if name.startswith(".deleting-"):
+                # Quarantine entries are recovered separately; still diagnose orphans
+                # with no matching lifecycle/scope below via parse failure path.
+                parsed = parse_quarantine_name(name)
+                if parsed is None:
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        stage="path_check",
+                        result="retained",
+                        cleanup_outcome="unknown_path_inventory",
+                        logger=_LOGGER,
+                    )
                 continue
             if _is_exact_ready_name(name):
+                try:
+                    artifact_id = UUID(hex=name)
+                except ValueError:
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        stage="path_check",
+                        result="retained",
+                        cleanup_outcome="unknown_path_inventory",
+                        logger=_LOGGER,
+                    )
+                    continue
+                lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
+                if lifecycle is None or (
+                    repository_id is not None and lifecycle.repository_id != repository_id
+                ):
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                        stage="path_check",
+                        result="retained",
+                        cleanup_outcome="unknown_path_inventory",
+                        logger=_LOGGER,
+                    )
                 continue
             if allow_staging_shape and _is_staging_shape(name):
+                left, _right = name.split(".", 1)
+                try:
+                    artifact_id = UUID(hex=left)
+                except ValueError:
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        stage="path_check",
+                        result="retained",
+                        cleanup_outcome="unknown_path_inventory",
+                        logger=_LOGGER,
+                    )
+                    continue
+                lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
+                if lifecycle is None or (
+                    repository_id is not None and lifecycle.repository_id != repository_id
+                ):
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                        stage="path_check",
+                        result="retained",
+                        cleanup_outcome="unknown_path_inventory",
+                        logger=_LOGGER,
+                    )
                 continue
             log_event(
                 "artifact_cleanup",

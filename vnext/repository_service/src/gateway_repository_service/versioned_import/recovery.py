@@ -355,6 +355,7 @@ def cleanup_after_succeeded_correction(
     context: ImportOperationExecutionContext,
     provider: VersionedImportProvider,
     candidate: str,
+    ttl_seconds: int,
 ) -> None:
     try:
         provider.delete_private_ref(context.private_ref_name, expected_candidate=candidate)
@@ -378,7 +379,10 @@ def cleanup_after_succeeded_correction(
 
         outcome = try_unlink_ready_artifact_with_recheck(
             artifact_path,
-            recheck=lambda: store.can_delete_artifact_bytes(context.artifact_id),
+            recheck=lambda: store.can_delete_artifact_bytes(
+                context.artifact_id,
+                ttl_seconds=ttl_seconds,
+            ),
             layout=layout,
             repository_id=context.repository_id,
             artifact_id=context.artifact_id,
@@ -638,6 +642,7 @@ class ImportStartupReconciler:
             context=context,
             provider=provider,
             candidate=inspection.candidate,
+            ttl_seconds=self._settings.artifact_ttl_seconds,
         )
         return "recovered"
 
@@ -769,6 +774,7 @@ class ImportStartupReconciler:
                 context=context,
                 provider=provider,
                 candidate=candidate,
+                ttl_seconds=self._settings.artifact_ttl_seconds,
             )
             return "recovered"
         except ImportVerificationError as exc:
@@ -902,6 +908,7 @@ class ImportStartupReconciler:
                 context=context,
                 provider=provider,
                 candidate=candidate,
+                ttl_seconds=self._settings.artifact_ttl_seconds,
             )
             return "recovered"
         except ImportVerificationError as exc:
@@ -947,6 +954,7 @@ class ImportStartupReconciler:
             context=context,
             provider=provider,
             candidate=operation.result.commit_id,
+            ttl_seconds=self._settings.artifact_ttl_seconds,
         )
         return True
 

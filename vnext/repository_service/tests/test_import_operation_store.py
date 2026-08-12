@@ -491,7 +491,7 @@ def test_can_delete_artifact_bytes_requires_no_protected_references(
     store.claim_if_queued(OTHER_OPERATION_ID)
     store.mark_succeeded(OTHER_OPERATION_ID, result=_import_result())
 
-    assert store.can_delete_artifact_bytes(ARTIFACT_ID) is False
+    assert store.can_delete_artifact_bytes(ARTIFACT_ID, ttl_seconds=3600) is False
 
     store.claim_if_queued(OPERATION_ID)
     store.mark_failed(
@@ -499,7 +499,38 @@ def test_can_delete_artifact_bytes_requires_no_protected_references(
         error=SimpleError(code="IMPORT_REJECTED", message="rejected"),
     )
 
-    assert store.can_delete_artifact_bytes(ARTIFACT_ID) is True
+    assert store.can_delete_artifact_bytes(ARTIFACT_ID, ttl_seconds=3600) is True
+
+
+def test_can_delete_artifact_bytes_requires_matching_consumption(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _enqueue(store, key="ok", operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_succeeded(OPERATION_ID, result=_import_result())
+    assert store.can_delete_artifact_bytes(ARTIFACT_ID, ttl_seconds=3600) is True
+
+    with store._lock:
+        store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET consumed_by_operation_id = NULL, consumed_at = NULL
+            WHERE artifact_id = ?
+            """,
+            (str(ARTIFACT_ID),),
+        )
+        store._connection.commit()
+
+    assert store.can_delete_artifact_bytes(ARTIFACT_ID, ttl_seconds=3600) is False
+    assert (
+        store.evaluate_artifact_bytes_deletion(
+            ARTIFACT_ID,
+            ttl_seconds=3600,
+        ).eligible
+        is False
+    )
 
 
 def test_mark_artifact_bytes_deleted_records_timestamp(

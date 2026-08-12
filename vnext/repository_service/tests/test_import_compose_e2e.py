@@ -295,6 +295,19 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
         saved = json.loads(state_path.read_text(encoding="utf-8"))
         assert verify_body["operation_id"] == saved["operation_id"]
         assert verify_body["status"] == "SUCCEEDED"
+        tombs = _run(
+            [
+                "docker",
+                "exec",
+                container_id,
+                "sh",
+                "-c",
+                "find /var/lib/gateway/repository/artifacts -name '.deleting-*' "
+                "-o -name '.detach-*' -o -name '.unlink-verify-*' "
+                "-o -name '.unlink-stage-*' | wc -l",
+            ]
+        )
+        assert tombs.stdout.strip() == "0"
         print(f"compose_project={project}", flush=True)
     finally:
         _cleanup_compose(project, env)

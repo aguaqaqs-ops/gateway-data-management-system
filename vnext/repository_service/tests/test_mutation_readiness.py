@@ -324,6 +324,11 @@ def test_consumed_artifact_missing_bytes_does_not_block_readiness(tmp_path: Path
         else:
             raise AssertionError("import did not succeed")
 
+        from gateway_repository_service.artifact_cleaner import ArtifactCleaner
+
+        cleaner = runtime.artifact_cleaner
+        if isinstance(cleaner, ArtifactCleaner):
+            cleaner.sweep_once()
         if ready_path.exists():
             ready_path.unlink()
         assert runtime.is_ready()

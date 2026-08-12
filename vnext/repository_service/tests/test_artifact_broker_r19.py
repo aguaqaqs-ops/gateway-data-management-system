@@ -118,6 +118,7 @@ def socket_broker(tmp_path: Path) -> Iterator[SocketArtifactDirBroker]:
     assert sock.exists()
     broker = SocketArtifactDirBroker(sock)
     broker.ping()
+    broker.bind()
     set_artifact_broker(broker)
     try:
         yield broker
@@ -155,7 +156,7 @@ def test_r19_socket_mkdir_applies_peer_gid_and_requested_mode(
         os.umask(previous_umask)
         os.close(fd)
     st = os.stat(artifacts / key)
-    assert stat.S_IMODE(st.st_mode) == 0o770
+    assert stat.S_IMODE(st.st_mode) == 0o750
     assert st.st_uid == os.getuid()
     assert st.st_gid == os.getgid()
 
@@ -288,6 +289,9 @@ def test_r19_layout_mkdir_goes_through_broker(tmp_path: Path) -> None:
         def ping(self) -> None:
             return None
 
+        def bind(self) -> None:
+            return None
+
         def mkdir(self, dir_fd: int, name: str, *, mode: int = 0o700) -> None:
             calls.append(name)
             inner.mkdir(dir_fd, name, mode=mode)
@@ -319,6 +323,9 @@ def test_r19_layout_mkdir_goes_through_broker(tmp_path: Path) -> None:
 
         def release_tombstone_reservation(self, dir_fd: int, *, projected_new: int) -> None:
             inner.release_tombstone_reservation(dir_fd, projected_new=projected_new)
+
+        def reclaim_stage(self, dir_fd: int, name: str) -> bool:
+            return inner.reclaim_stage(dir_fd, name)
 
     set_artifact_broker(_Probe())
     staging, ready = layout.repository_artifact_directories(repository_key(REPO_ID))

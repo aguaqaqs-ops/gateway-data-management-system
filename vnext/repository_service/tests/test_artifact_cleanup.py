@@ -1133,7 +1133,7 @@ def test_poison_lifecycle_row_does_not_block_other_candidates(
     poison_ready.write_bytes(b"poison")
 
     candidates = mutation_store.list_artifacts_pending_byte_cleanup()
-    assert any(record.artifact_id == ARTIFACT_ID for record in candidates)
+    assert any(record.artifact_id == ARTIFACT_ID for record in candidates.records)
 
     cleaner = ArtifactCleaner(
         settings=_settings(layout, ttl=1, interval=3600),
@@ -9529,7 +9529,7 @@ def test_r16_never_rmdir_foreign_stage_directory(
     # Plant a foreign empty stage-shaped dir and ensure a sweep does not rmdir it
     # via destroy (destroy no longer rmdirs).
     foreign_stage = ready.parent / unlink_stage_dir_name(
-        artifact_id=ARTIFACT_ID, token="foreignrm"
+        artifact_id=UUID(int=ARTIFACT_ID.int + 99), token="foreignrm"
     )
     foreign_stage.mkdir(mode=0o700)
     ArtifactCleaner(
@@ -10785,16 +10785,18 @@ def test_r19_keyset_sql_limit_not_fetchall_slice(
             created_at=CREATED_AT,
         )
     page = mutation_store.list_artifacts_pending_byte_cleanup(limit=64)
-    assert len(page) == 64
-    last = page[-1]
+    assert page.scanned == 64
+    assert len(page.records) == 64
+    last_created = page.cursor_created_at
+    last_id = page.cursor_artifact_id
     rest = mutation_store.list_artifacts_pending_byte_cleanup(
         limit=64,
-        after_created_at=last.created_at,
-        after_artifact_id=last.artifact_id,
+        after_created_at=last_created,
+        after_artifact_id=last_id,
     )
-    assert len(rest) == 6
-    page_ids = {row.artifact_id for row in page}
-    rest_ids = {row.artifact_id for row in rest}
+    assert rest.scanned == 6
+    page_ids = {row.artifact_id for row in page.records}
+    rest_ids = {row.artifact_id for row in rest.records}
     assert page_ids.isdisjoint(rest_ids)
 
 
@@ -10830,8 +10832,8 @@ def test_r19_multi_repo_keyset_is_globally_ordered(
             )
         mutation_store._connection.commit()
     page = mutation_store.list_artifacts_pending_byte_cleanup(limit=64)
-    assert len(page) == 64
-    created = [row.created_at or "" for row in page]
+    assert page.scanned == 64
+    created = [row.created_at or "" for row in page.records]
     assert created == sorted(created)
 
 
@@ -10892,9 +10894,10 @@ def test_r19_receipt_null_size0_tombs_reclaim(
         mutation_store=mutation_store,
         clock=lambda: BASE_NOW,
     ).sweep_once()
-    assert not quarantine.exists()
-    assert not detach.exists()
-    assert not verify.exists()
+    # Receipt-null rows cannot carry bytes_delete_ino (v12 CHECK). Sidecars retain.
+    assert quarantine.is_file()
+    assert detach.is_file()
+    assert verify.is_file()
     assert not victim.exists()
     assert not stage.exists()
 
@@ -10941,3 +10944,316 @@ def test_r19_receipt_null_forged_and_nonzero_retain(
     assert nonzero.is_file()
     assert int(nonzero.stat().st_size) == len(ARTIFACT_PAYLOAD)
     assert forged.is_file()
+
+
+def test_r20_receipt_null_self_consistent_forged_ino_retains(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    parent = ready.parent
+    ready.unlink()
+    forged = parent / "placeholder"
+    forged.write_bytes(b"")
+    st = forged.stat()
+    named = parent / quarantine_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation="self"
+    )
+    forged.rename(named)
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_deleted_receipt_dev = NULL,
+                bytes_deleted_receipt_ino = NULL,
+                bytes_deleted_receipt_generation = NULL
+            WHERE artifact_id = ?
+            """,
+            ("2026-08-02T00:00:00+00:00", str(ARTIFACT_ID)),
+        )
+        mutation_store._connection.commit()
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    assert named.is_file()
+
+
+@pytest.mark.parametrize("poison_index", [0, 32, 63])
+def test_r20_poison_page_does_not_starve_newer_succeeded(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    poison_index: int,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    protected_ids: list[UUID] = []
+    for i in range(64):
+        created = f"2026-08-01T00:00:00.{i:03d}+00:00"
+        aid = UUID(int=ARTIFACT_ID.int + i)
+        if i == poison_index:
+            with mutation_store._lock:
+                mutation_store._connection.execute(
+                    """
+                    INSERT INTO artifact_lifecycle (
+                        artifact_id, repository_scope, media_type, size_bytes,
+                        raw_sha256, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (str(aid), "not-a-uuid", MEDIA_TYPE, 1, "a" * 64, created, created),
+                )
+                mutation_store._connection.commit()
+            continue
+        protected_ids.append(aid)
+        _seed_artifact(mutation_store, artifact_id=aid, created_at=created)
+        _write_ready(layout, artifact_id=aid)
+        binding = _binding(artifact_id=aid)
+        key_hash = IdempotencyKeyHash.from_raw_key(f"r20-protected-{i}")
+        store.claim_or_enqueue(
+            binding,
+            key_hash=key_hash,
+            fingerprint=versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash),
+            operation_id=UUID(int=OPERATION_ID.int + i),
+        )
+    new_id = UUID(int=ARTIFACT_ID.int + 64)
+    new_created = "2026-08-01T00:00:00.064+00:00"
+    new_op = UUID(int=OPERATION_ID.int + 64)
+    _seed_artifact(mutation_store, artifact_id=new_id, created_at=new_created)
+    new_ready = _write_ready(layout, artifact_id=new_id)
+    binding = _binding(artifact_id=new_id)
+    key_hash = IdempotencyKeyHash.from_raw_key("r20-succeeded")
+    store.claim_or_enqueue(
+        binding,
+        key_hash=key_hash,
+        fingerprint=versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash),
+        operation_id=new_op,
+    )
+    store.claim_if_queued(new_op)
+    store.mark_succeeded(
+        new_op,
+        result=VersionedImportResult(
+            commit_id="commit-1",
+            target_ref="main",
+            artifact_id=new_id,
+            canonicalization_manifest_digest="manifest-1",
+            expected_commit_id="commit-0",
+            completed_verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        ),
+    )
+    page = mutation_store.list_artifacts_pending_byte_cleanup(limit=64)
+    assert page.scanned == 64
+    assert len(page.records) == 63
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=3600, interval=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    )
+    cleaner.sweep_once()
+    assert new_ready.is_file()
+    cleaner.sweep_once()
+    assert not new_ready.exists()
+    lifecycle = mutation_store.get_artifact_lifecycle(new_id)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+    for aid in protected_ids:
+        assert artifact_ready_path(layout, REPOSITORY_ID, aid).is_file()
+
+
+def test_r20_cleanup_query_uses_keyset_index(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    _store, mutation_store = stores
+    plan_rows = mutation_store._connection.execute(
+        """
+        EXPLAIN QUERY PLAN
+        SELECT artifact_id FROM artifact_lifecycle
+        WHERE bytes_deleted_at IS NULL
+        ORDER BY created_at ASC, artifact_id ASC
+        LIMIT 64
+        """
+    ).fetchall()
+    plan = " ".join(" ".join(str(col) for col in row) for row in plan_rows)
+    assert "artifact_lifecycle_cleanup_keyset_idx" in plan
+    assert "USE TEMP B-TREE FOR ORDER BY" not in plan
+
+
+def test_r20_empty_and_mode_mixed_stages_reclaim(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    from gateway_repository_service.upload_artifact.admission_pin import unlink_stage_dir_name
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    parent = ready.parent
+    ready.unlink()
+    empty_0700 = parent / unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="e700")
+    empty_0700.mkdir(mode=0o700)
+    empty_0750 = parent / unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="e750")
+    empty_0750.mkdir(mode=0o750)
+    filled = parent / unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="fill")
+    filled.mkdir(mode=0o700)
+    (filled / "victim").write_bytes(b"")
+    (filled / "final-x").write_bytes(b"")
+    (filled / "doom-y").write_bytes(b"")
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_deleted_receipt_dev = NULL,
+                bytes_deleted_receipt_ino = NULL,
+                bytes_deleted_receipt_generation = NULL
+            WHERE artifact_id = ?
+            """,
+            ("2026-08-02T00:00:00+00:00", str(ARTIFACT_ID)),
+        )
+        mutation_store._connection.commit()
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    assert not empty_0700.exists()
+    assert not empty_0750.exists()
+    assert not filled.exists()
+
+
+def test_r20_receipt_null_symlink_sidecar_retains(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    parent = ready.parent
+    ready.unlink()
+    linked = parent / quarantine_name_for(
+        inode=1, artifact_id=ARTIFACT_ID, generation="sy"
+    )
+    linked.symlink_to("/tmp/r20-receipt-null-symlink")
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_deleted_receipt_dev = NULL,
+                bytes_deleted_receipt_ino = NULL,
+                bytes_deleted_receipt_generation = NULL
+            WHERE artifact_id = ?
+            """,
+            ("2026-08-02T00:00:00+00:00", str(ARTIFACT_ID)),
+        )
+        mutation_store._connection.commit()
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    assert linked.is_symlink()
+
+
+def test_r20_receipt_null_open_fstat_eio_retains(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    parent = ready.parent
+    ready.unlink()
+    tomb = parent / quarantine_name_for(
+        inode=1, artifact_id=ARTIFACT_ID, generation="eio"
+    )
+    tomb.write_bytes(b"")
+    real_open = os.open
+
+    def open_eio(path: str | bytes | int, flags: int, *args: object, **kwargs: object) -> int:
+        name = path if isinstance(path, int) else os.fsdecode(path)
+        if not isinstance(name, int) and Path(str(name)).name == tomb.name:
+            raise OSError(errno.EIO, "forced open EIO")
+        return real_open(path, flags, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "open", open_eio)
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_deleted_receipt_dev = NULL,
+                bytes_deleted_receipt_ino = NULL,
+                bytes_deleted_receipt_generation = NULL
+            WHERE artifact_id = ?
+            """,
+            ("2026-08-02T00:00:00+00:00", str(ARTIFACT_ID)),
+        )
+        mutation_store._connection.commit()
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    monkeypatch.undo()
+    assert tomb.is_file()
+
+
+def test_r20_receipt_null_foreign_stage_retains(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    from gateway_repository_service.upload_artifact.admission_pin import unlink_stage_dir_name
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    parent = ready.parent
+    ready.unlink()
+    foreign = parent / unlink_stage_dir_name(
+        artifact_id=UUID(int=ARTIFACT_ID.int + 99), token="fx"
+    )
+    foreign.mkdir(mode=0o700)
+    (foreign / "victim").write_bytes(b"")
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_deleted_receipt_dev = NULL,
+                bytes_deleted_receipt_ino = NULL,
+                bytes_deleted_receipt_generation = NULL
+            WHERE artifact_id = ?
+            """,
+            ("2026-08-02T00:00:00+00:00", str(ARTIFACT_ID)),
+        )
+        mutation_store._connection.commit()
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    assert foreign.is_dir()
+    assert (foreign / "victim").is_file()

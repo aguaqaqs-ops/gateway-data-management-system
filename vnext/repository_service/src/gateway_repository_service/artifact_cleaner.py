@@ -33,7 +33,6 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     open_owned_ready_dir,
     parse_detach_name,
     parse_quarantine_name,
-    try_detach_ready_directory_entry,
     try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
 )
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -266,16 +265,21 @@ class ArtifactCleaner:
             return
 
         stamped = {"ok": False}
+        intent_ids: dict[str, int] = {}
 
-        def _stamp() -> None:
+        def _stamp(dev: int, ino: int) -> None:
             self._import_store.mark_artifact_bytes_deleted(
                 artifact_id,
                 deleted_at=self._deleted_at_stamp(),
                 repository_id=repository_id,
+                expected_dev=dev,
+                expected_ino=ino,
             )
             stamped["ok"] = True
 
         def _on_intent(dev: int, ino: int) -> None:
+            intent_ids["dev"] = dev
+            intent_ids["ino"] = ino
             self._import_store.begin_artifact_bytes_delete_intent(
                 artifact_id,
                 repository_id=repository_id,
@@ -285,10 +289,12 @@ class ArtifactCleaner:
                 intent_at=self._deleted_at_stamp(),
             )
 
-        def _on_clear_intent() -> None:
+        def _on_clear_intent(dev: int, ino: int) -> None:
             self._import_store.clear_artifact_bytes_delete_intent(
                 artifact_id,
                 repository_id=repository_id,
+                expected_dev=dev,
+                expected_ino=ino,
             )
 
         outcome = try_unlink_ready_artifact_with_recheck(
@@ -359,9 +365,8 @@ class ArtifactCleaner:
                 entries = list(ready_dir.iterdir())
             except OSError:
                 continue
+            by_artifact: dict[UUID, list[tuple[str, int, str]]] = {}
             for entry in entries:
-                if self._stopping:
-                    return
                 parsed = parse_quarantine_name(entry.name)
                 kind = "quarantine"
                 if parsed is None:
@@ -370,13 +375,15 @@ class ArtifactCleaner:
                 if parsed is None:
                     continue
                 inode, artifact_id = parsed
+                by_artifact.setdefault(artifact_id, []).append((entry.name, inode, kind))
+            for artifact_id, sidecars in by_artifact.items():
+                if self._stopping:
+                    return
                 try:
-                    self._recover_one_quarantine(
+                    self._recover_artifact_sidecars(
                         repository_id,
                         artifact_id,
-                        quarantine_name=entry.name,
-                        expected_ino=inode,
-                        sidecar_kind=kind,
+                        sidecars=sidecars,
                     )
                 except Exception:
                     _LOGGER.exception(
@@ -384,62 +391,20 @@ class ArtifactCleaner:
                         artifact_id,
                     )
 
-    def _recover_one_quarantine(
+    def _recover_artifact_sidecars(
         self,
         repository_id: UUID,
         artifact_id: UUID,
         *,
-        quarantine_name: str,
-        expected_ino: int,
-        sidecar_kind: str = "quarantine",
+        sidecars: list[tuple[str, int, str]],
     ) -> None:
-        del sidecar_kind  # kind reserved for future structured diagnostics
+        """Recover all deleting/detach sidecars for one artifact under one intent."""
+
         try:
             ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
         except OwnedPathError:
             return
-        q_fd: int | None = None
         try:
-            open_flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
-            nofollow = getattr(os, "O_NOFOLLOW", 0)
-            if nofollow:
-                open_flags |= nofollow
-            try:
-                q_fd = os.open(quarantine_name, open_flags, dir_fd=ready_dir_fd)
-            except FileNotFoundError:
-                return
-            except OSError:
-                return
-            try:
-                fcntl.flock(q_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                log_event(
-                    "artifact_cleanup",
-                    repository_id=repository_id,
-                    artifact_id=artifact_id,
-                    stage="quarantine",
-                    result="retained",
-                    cleanup_outcome="lock_busy",
-                    logger=_LOGGER,
-                )
-                return
-
-            try:
-                q_stat = os.fstat(q_fd)
-            except OSError:
-                return
-            if q_stat.st_ino != expected_ino or not stat_module.S_ISREG(q_stat.st_mode):
-                log_event(
-                    "artifact_cleanup",
-                    repository_id=repository_id,
-                    artifact_id=artifact_id,
-                    stage="quarantine",
-                    result="retained",
-                    cleanup_outcome="quarantine_inode_mismatch",
-                    logger=_LOGGER,
-                )
-                return
-
             try:
                 lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
             except (MutationStoreInvariantError, Exception):
@@ -454,34 +419,7 @@ class ArtifactCleaner:
                 )
                 return
             if lifecycle is None or lifecycle.repository_id != repository_id:
-                log_event(
-                    "artifact_cleanup",
-                    repository_id=repository_id,
-                    artifact_id=artifact_id,
-                    stage="quarantine",
-                    result="retained",
-                    cleanup_outcome="unknown_path_inventory",
-                    logger=_LOGGER,
-                )
-                return
-
-            intent_dev = lifecycle.bytes_delete_dev
-            intent_ino = lifecycle.bytes_delete_ino
-            intent_present = (
-                lifecycle.bytes_delete_intent_at is not None
-                and intent_dev is not None
-                and intent_ino is not None
-            )
-            intent_matches = (
-                intent_present
-                and intent_dev is not None
-                and intent_ino is not None
-                and int(intent_dev) == int(q_stat.st_dev)
-                and int(intent_ino) == int(q_stat.st_ino)
-            )
-
-            if lifecycle.bytes_deleted_at is not None:
-                if intent_present and not intent_matches:
+                for name, _ino, _kind in sidecars:
                     log_event(
                         "artifact_cleanup",
                         repository_id=repository_id,
@@ -491,50 +429,96 @@ class ArtifactCleaner:
                         cleanup_outcome="unknown_path_inventory",
                         logger=_LOGGER,
                     )
-                    return
-                if not self._retention_explains_deleted(
-                    lifecycle,
+                return
+
+            intent_dev = lifecycle.bytes_delete_dev
+            intent_ino = lifecycle.bytes_delete_ino
+            intent_phase = lifecycle.bytes_delete_phase
+            intent_present = (
+                lifecycle.bytes_delete_intent_at is not None
+                and intent_dev is not None
+                and intent_ino is not None
+                and intent_phase in {"quarantined", "detached"}
+            )
+
+            matching: list[tuple[str, int, str, os.stat_result]] = []
+            for sidecar_name, expected_ino, kind in sidecars:
+                verified = self._verify_sidecar_stat(
+                    ready_dir_fd,
+                    sidecar_name,
+                    expected_ino=expected_ino,
                     repository_id=repository_id,
                     artifact_id=artifact_id,
-                ):
+                )
+                if verified is None:
+                    continue
+                q_stat = verified
+                matches_intent = (
+                    intent_present
+                    and intent_dev is not None
+                    and intent_ino is not None
+                    and int(intent_dev) == int(q_stat.st_dev)
+                    and int(intent_ino) == int(q_stat.st_ino)
+                )
+                if lifecycle.bytes_deleted_at is not None:
+                    if intent_present and not matches_intent:
+                        log_event(
+                            "artifact_cleanup",
+                            repository_id=repository_id,
+                            artifact_id=artifact_id,
+                            stage="quarantine",
+                            result="retained",
+                            cleanup_outcome="unknown_path_inventory",
+                            logger=_LOGGER,
+                        )
+                        continue
+                    if not self._retention_explains_deleted(
+                        lifecycle,
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                    ):
+                        log_event(
+                            "artifact_cleanup",
+                            repository_id=repository_id,
+                            artifact_id=artifact_id,
+                            stage="quarantine",
+                            result="retained",
+                            cleanup_outcome="fail_closed",
+                            logger=_LOGGER,
+                        )
+                        continue
+                    if self._unlink_sidecar_if_same_inode(
+                        ready_dir_fd, sidecar_name, q_stat
+                    ):
+                        log_event(
+                            "artifact_cleanup",
+                            repository_id=repository_id,
+                            artifact_id=artifact_id,
+                            stage="quarantine",
+                            result="deleted",
+                            cleanup_outcome="quarantine_residual_unlinked",
+                            logger=_LOGGER,
+                        )
+                    continue
+                if not matches_intent:
                     log_event(
                         "artifact_cleanup",
                         repository_id=repository_id,
                         artifact_id=artifact_id,
                         stage="quarantine",
                         result="retained",
-                        cleanup_outcome="fail_closed",
+                        cleanup_outcome="unknown_path_inventory",
                         logger=_LOGGER,
                     )
-                    return
-                try:
-                    os.unlink(quarantine_name, dir_fd=ready_dir_fd)
-                except FileNotFoundError:
-                    pass
-                except OSError:
-                    return
-                log_event(
-                    "artifact_cleanup",
-                    repository_id=repository_id,
-                    artifact_id=artifact_id,
-                    stage="quarantine",
-                    result="deleted",
-                    cleanup_outcome="quarantine_residual_unlinked",
-                    logger=_LOGGER,
-                )
-                return
+                    continue
+                # Phase/sidecar consistency: detach phase expects detach name.
+                if intent_phase == "detached" and kind == "quarantine":
+                    pass  # both may exist mid-crash; still intent-matched
+                matching.append((sidecar_name, expected_ino, kind, q_stat))
 
-            if not intent_matches:
-                log_event(
-                    "artifact_cleanup",
-                    repository_id=repository_id,
-                    artifact_id=artifact_id,
-                    stage="quarantine",
-                    result="retained",
-                    cleanup_outcome="unknown_path_inventory",
-                    logger=_LOGGER,
-                )
+            if lifecycle.bytes_deleted_at is not None or not matching:
                 return
+            assert intent_dev is not None and intent_ino is not None
 
             ready_name = artifact_id.hex
             ready_stat: os.stat_result | None
@@ -548,108 +532,45 @@ class ArtifactCleaner:
             ready_same_inode = ready_stat is not None and (
                 ready_stat.st_dev,
                 ready_stat.st_ino,
-            ) == (q_stat.st_dev, q_stat.st_ino)
-            quarantine_only = ready_stat is None or not ready_same_inode
+            ) == (int(intent_dev), int(intent_ino))
+            ready_absent = ready_stat is None
+            ready_is_replacement = ready_stat is not None and not ready_same_inode
 
             decision = self._import_store.evaluate_artifact_bytes_deletion(
                 artifact_id,
                 now=self._clock(),
                 ttl_seconds=self._settings.artifact_ttl_seconds,
             )
-            if decision.eligible:
-                if quarantine_only:
-                    try:
-                        self._import_store.mark_artifact_bytes_deleted(
-                            artifact_id,
-                            deleted_at=self._deleted_at_stamp(),
-                            repository_id=repository_id,
-                        )
-                    except Exception:
-                        log_event(
-                            "artifact_cleanup",
-                            repository_id=repository_id,
-                            artifact_id=artifact_id,
-                            stage="quarantine",
-                            result="retained",
-                            cleanup_outcome="stamp_failed",
-                            logger=_LOGGER,
-                        )
-                        return
-                    try:
-                        os.unlink(quarantine_name, dir_fd=ready_dir_fd)
-                    except FileNotFoundError:
-                        pass
-                    except OSError:
-                        return
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="quarantine",
-                        result="deleted",
-                        cleanup_outcome="quarantine_completed",
-                        logger=_LOGGER,
-                    )
-                    return
 
-                # Ready still names our intent inode: complete detach under flock.
-                live = os.fstat(q_fd)
-                if live.st_nlink < 2:
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="quarantine",
-                        result="retained",
-                        cleanup_outcome="replaced",
-                        logger=_LOGGER,
-                    )
-                    return
-                detach_outcome, _owned_detach = try_detach_ready_directory_entry(
-                    ready_dir_fd=ready_dir_fd,
-                    file_fd=q_fd,
-                    ready_name=ready_name,
-                    fd_stat=q_stat,
-                    artifact_id=artifact_id,
+            if ready_is_replacement:
+                # Never stamp when ready holds a different inode.
+                for sidecar_name, _ino, _kind, q_stat in matching:
+                    self._unlink_sidecar_if_same_inode(ready_dir_fd, sidecar_name, q_stat)
+                self._clear_intent_best_effort(
+                    artifact_id,
+                    repository_id,
+                    expected_dev=int(intent_dev),
+                    expected_ino=int(intent_ino),
                 )
-                if detach_outcome == "replaced":
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="quarantine",
-                        result="retained",
-                        cleanup_outcome="replaced",
-                        logger=_LOGGER,
-                    )
-                    return
-                if detach_outcome != "ok":
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="quarantine",
-                        result="retained",
-                        cleanup_outcome="unlink_failed",
-                        logger=_LOGGER,
-                    )
-                    return
-                if not self._still_eligible(artifact_id):
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="quarantine",
-                        result="retained",
-                        cleanup_outcome="eligibility_changed",
-                        logger=_LOGGER,
-                    )
-                    return
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="quarantine_orphaned_dropped",
+                    logger=_LOGGER,
+                )
+                return
+
+            if decision.eligible and ready_absent:
                 try:
                     self._import_store.mark_artifact_bytes_deleted(
                         artifact_id,
                         deleted_at=self._deleted_at_stamp(),
                         repository_id=repository_id,
+                        expected_dev=int(intent_dev),
+                        expected_ino=int(intent_ino),
                     )
                 except Exception:
                     log_event(
@@ -662,12 +583,8 @@ class ArtifactCleaner:
                         logger=_LOGGER,
                     )
                     return
-                try:
-                    os.unlink(quarantine_name, dir_fd=ready_dir_fd)
-                except FileNotFoundError:
-                    pass
-                except OSError:
-                    return
+                for sidecar_name, _ino, _kind, q_stat in matching:
+                    self._unlink_sidecar_if_same_inode(ready_dir_fd, sidecar_name, q_stat)
                 log_event(
                     "artifact_cleanup",
                     repository_id=repository_id,
@@ -679,44 +596,68 @@ class ArtifactCleaner:
                 )
                 return
 
-            # Ineligible: no-replace rollback / drop our intent hardlink only.
-            if ready_stat is None:
+            if decision.eligible and ready_same_inode:
+                # Leave to live helper / next sweep with flock on ready.
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="eligibility_changed",
+                    logger=_LOGGER,
+                )
+                return
+
+            # Ineligible: restore or drop all matching sidecars, then clear intent once.
+            if ready_absent:
+                restore_name = matching[0][0]
                 try:
                     os.stat(ready_name, dir_fd=ready_dir_fd, follow_symlinks=False)
                 except FileNotFoundError:
                     try:
                         os.link(
-                            quarantine_name,
+                            restore_name,
                             ready_name,
                             src_dir_fd=ready_dir_fd,
                             dst_dir_fd=ready_dir_fd,
                             follow_symlinks=False,
                         )
                     except FileExistsError:
-                        pass
-                    except OSError:
-                        return
-                    else:
-                        try:
-                            os.unlink(quarantine_name, dir_fd=ready_dir_fd)
-                        except FileNotFoundError:
-                            pass
-                        except OSError:
-                            return
-                        self._clear_intent_best_effort(artifact_id, repository_id)
                         log_event(
                             "artifact_cleanup",
                             repository_id=repository_id,
                             artifact_id=artifact_id,
                             stage="quarantine",
                             result="retained",
-                            cleanup_outcome="quarantine_restored",
+                            cleanup_outcome="quarantine_restore_skipped",
                             logger=_LOGGER,
                         )
                         return
+                    except OSError:
+                        return
+                    for sidecar_name, _ino, _kind, q_stat in matching:
+                        self._unlink_sidecar_if_same_inode(
+                            ready_dir_fd, sidecar_name, q_stat
+                        )
+                    self._clear_intent_best_effort(
+                        artifact_id,
+                        repository_id,
+                        expected_dev=int(intent_dev),
+                        expected_ino=int(intent_ino),
+                    )
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        artifact_id=artifact_id,
+                        stage="quarantine",
+                        result="retained",
+                        cleanup_outcome="quarantine_restored",
+                        logger=_LOGGER,
+                    )
+                    return
                 except OSError:
                     return
-                # Ready appeared between checks — never rename/link over it.
                 log_event(
                     "artifact_cleanup",
                     repository_id=repository_id,
@@ -728,38 +669,75 @@ class ArtifactCleaner:
                 )
                 return
 
-            if ready_same_inode:
-                try:
-                    os.unlink(quarantine_name, dir_fd=ready_dir_fd)
-                except OSError:
-                    return
-                self._clear_intent_best_effort(artifact_id, repository_id)
-                log_event(
-                    "artifact_cleanup",
-                    repository_id=repository_id,
-                    artifact_id=artifact_id,
-                    stage="quarantine",
-                    result="retained",
-                    cleanup_outcome="quarantine_hardlink_dropped",
-                    logger=_LOGGER,
-                )
-                return
-
-            # Ready name holds a different inode; drop only our intent quarantine.
-            try:
-                os.unlink(quarantine_name, dir_fd=ready_dir_fd)
-            except OSError:
-                return
-            self._clear_intent_best_effort(artifact_id, repository_id)
+            # ready_same_inode and ineligible: drop sidecars only.
+            for sidecar_name, _ino, _kind, q_stat in matching:
+                self._unlink_sidecar_if_same_inode(ready_dir_fd, sidecar_name, q_stat)
+            self._clear_intent_best_effort(
+                artifact_id,
+                repository_id,
+                expected_dev=int(intent_dev),
+                expected_ino=int(intent_ino),
+            )
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
                 artifact_id=artifact_id,
                 stage="quarantine",
                 result="retained",
-                cleanup_outcome="quarantine_orphaned_dropped",
+                cleanup_outcome="quarantine_hardlink_dropped",
                 logger=_LOGGER,
             )
+        finally:
+            os.close(ready_dir_fd)
+
+    def _verify_sidecar_stat(
+        self,
+        ready_dir_fd: int,
+        sidecar_name: str,
+        *,
+        expected_ino: int,
+        repository_id: UUID,
+        artifact_id: UUID,
+    ) -> os.stat_result | None:
+        open_flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        if nofollow:
+            open_flags |= nofollow
+        q_fd: int | None = None
+        try:
+            try:
+                q_fd = os.open(sidecar_name, open_flags, dir_fd=ready_dir_fd)
+            except (FileNotFoundError, OSError):
+                return None
+            try:
+                fcntl.flock(q_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="lock_busy",
+                    logger=_LOGGER,
+                )
+                return None
+            try:
+                q_stat = os.fstat(q_fd)
+            except OSError:
+                return None
+            if q_stat.st_ino != expected_ino or not stat_module.S_ISREG(q_stat.st_mode):
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="quarantine_inode_mismatch",
+                    logger=_LOGGER,
+                )
+                return None
+            return q_stat
         finally:
             if q_fd is not None:
                 try:
@@ -767,13 +745,43 @@ class ArtifactCleaner:
                 except OSError:
                     pass
                 os.close(q_fd)
-            os.close(ready_dir_fd)
 
-    def _clear_intent_best_effort(self, artifact_id: UUID, repository_id: UUID) -> None:
+    @staticmethod
+    def _unlink_sidecar_if_same_inode(
+        ready_dir_fd: int,
+        sidecar_name: str,
+        expected: os.stat_result,
+    ) -> bool:
+        try:
+            live = os.stat(sidecar_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        if (live.st_dev, live.st_ino) != (expected.st_dev, expected.st_ino):
+            return False
+        try:
+            os.unlink(sidecar_name, dir_fd=ready_dir_fd)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        return True
+
+    def _clear_intent_best_effort(
+        self,
+        artifact_id: UUID,
+        repository_id: UUID,
+        *,
+        expected_dev: int,
+        expected_ino: int,
+    ) -> None:
         try:
             self._import_store.clear_artifact_bytes_delete_intent(
                 artifact_id,
                 repository_id=repository_id,
+                expected_dev=expected_dev,
+                expected_ino=expected_ino,
             )
         except Exception:
             pass

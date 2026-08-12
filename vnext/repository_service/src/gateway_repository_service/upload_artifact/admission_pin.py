@@ -13,6 +13,7 @@ from typing import Self
 from uuid import UUID
 
 from gateway_repository_service.layout import DurableLayout, repository_key
+from gateway_repository_service.publication import renameat2_noreplace
 from gateway_repository_service.upload_artifact.visibility import (
     artifact_ready_path,
     verify_published_artifact_fd,
@@ -369,7 +370,7 @@ def try_detach_ready_directory_entry(
 
     detach = detach_name_for(inode=int(fd_stat.st_ino), artifact_id=artifact_id)
     try:
-        os.rename(ready_name, detach, src_dir_fd=ready_dir_fd, dst_dir_fd=ready_dir_fd)
+        renameat2_noreplace(ready_dir_fd, ready_name, ready_dir_fd, detach)
     except FileNotFoundError:
         if os.fstat(file_fd).st_nlink != 1:
             return "replaced", None
@@ -390,7 +391,7 @@ def try_detach_ready_directory_entry(
             os.stat(ready_name, dir_fd=ready_dir_fd, follow_symlinks=False)
         except FileNotFoundError:
             try:
-                os.rename(detach, ready_name, src_dir_fd=ready_dir_fd, dst_dir_fd=ready_dir_fd)
+                renameat2_noreplace(ready_dir_fd, detach, ready_dir_fd, ready_name)
                 return "replaced", None
             except (FileExistsError, OSError):
                 return "replaced", None
@@ -417,9 +418,9 @@ def try_unlink_owned_ready_artifact(
     artifact_id: UUID,
     *,
     recheck: Callable[[], bool],
-    on_deleted: Callable[[], None] | None = None,
+    on_deleted: Callable[[int, int], None] | None = None,
     on_intent: Callable[[int, int], None] | None = None,
-    on_clear_intent: Callable[[], None] | None = None,
+    on_clear_intent: Callable[[int, int], None] | None = None,
 ) -> str:
     """Delete an owned ready artifact via fd-stable linkat quarantine.
 
@@ -453,13 +454,17 @@ def try_unlink_owned_ready_artifact(
     owned_detach: str | None = None
     keep_quarantine_on_abort = False
     intent_written = False
+    locked_dev: int | None = None
+    locked_ino: int | None = None
 
     def _clear_intent_best_effort() -> None:
         nonlocal intent_written
         if not intent_written or on_clear_intent is None:
             return
+        if locked_dev is None or locked_ino is None:
+            return
         try:
-            on_clear_intent()
+            on_clear_intent(locked_dev, locked_ino)
             intent_written = False
         except Exception:
             pass
@@ -547,22 +552,17 @@ def try_unlink_owned_ready_artifact(
             except OSError:
                 return "unlink_failed"
             if (q_stat.st_dev, q_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-                try:
-                    os.unlink(quarantine, dir_fd=ready_dir_fd)
-                except OSError:
-                    pass
+                # Never unlink an unproven quarantine directory entry.
                 return "inode_mismatch"
             if not stat.S_ISREG(q_stat.st_mode):
-                try:
-                    os.unlink(quarantine, dir_fd=ready_dir_fd)
-                except OSError:
-                    pass
                 return "not_regular_file"
             owned_quarantine = quarantine
+            locked_dev = int(fd_stat.st_dev)
+            locked_ino = int(fd_stat.st_ino)
 
             if on_intent is not None:
                 try:
-                    on_intent(int(fd_stat.st_dev), int(fd_stat.st_ino))
+                    on_intent(locked_dev, locked_ino)
                     intent_written = True
                 except Exception:
                     return "intent_failed"
@@ -615,7 +615,8 @@ def try_unlink_owned_ready_artifact(
 
             if on_deleted is not None:
                 try:
-                    on_deleted()
+                    assert locked_dev is not None and locked_ino is not None
+                    on_deleted(locked_dev, locked_ino)
                     intent_written = False  # stamp clears intent
                 except Exception:
                     keep_quarantine_on_abort = True
@@ -655,9 +656,9 @@ def try_unlink_ready_artifact_with_recheck(
     layout: DurableLayout | None = None,
     repository_id: UUID | None = None,
     artifact_id: UUID | None = None,
-    on_deleted: Callable[[], None] | None = None,
+    on_deleted: Callable[[int, int], None] | None = None,
     on_intent: Callable[[int, int], None] | None = None,
-    on_clear_intent: Callable[[], None] | None = None,
+    on_clear_intent: Callable[[int, int], None] | None = None,
 ) -> str:
     """Delete ready bytes; prefer owned layout protocol when ids are provided."""
 
@@ -735,7 +736,7 @@ def try_unlink_ready_artifact_with_recheck(
                 return "path_recreated"
             if on_deleted is not None:
                 try:
-                    on_deleted()
+                    on_deleted(int(fd_stat.st_dev), int(fd_stat.st_ino))
                 except Exception:
                     return "stamp_failed"
             return "deleted"

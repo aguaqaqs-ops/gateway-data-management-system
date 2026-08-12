@@ -373,12 +373,31 @@ def cleanup_after_succeeded_correction(
     try:
         stamped = {"ok": False}
 
-        def _stamp() -> None:
+        def _stamp(dev: int, ino: int) -> None:
             store.mark_artifact_bytes_deleted(
                 context.artifact_id,
                 repository_id=context.repository_id,
+                expected_dev=dev,
+                expected_ino=ino,
             )
             stamped["ok"] = True
+
+        def _on_intent(dev: int, ino: int) -> None:
+            store.begin_artifact_bytes_delete_intent(
+                context.artifact_id,
+                repository_id=context.repository_id,
+                dev=dev,
+                ino=ino,
+                phase="quarantined",
+            )
+
+        def _on_clear_intent(dev: int, ino: int) -> None:
+            store.clear_artifact_bytes_delete_intent(
+                context.artifact_id,
+                repository_id=context.repository_id,
+                expected_dev=dev,
+                expected_ino=ino,
+            )
 
         outcome = try_unlink_ready_artifact_with_recheck(
             artifact_path,
@@ -390,6 +409,8 @@ def cleanup_after_succeeded_correction(
             repository_id=context.repository_id,
             artifact_id=context.artifact_id,
             on_deleted=_stamp,
+            on_intent=_on_intent,
+            on_clear_intent=_on_clear_intent,
         )
         if outcome != "deleted" or not stamped["ok"]:
             return

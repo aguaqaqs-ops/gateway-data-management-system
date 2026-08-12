@@ -830,112 +830,117 @@ class ImportOperationStore:
 
     def list_artifact_references(self, artifact_id: UUID) -> list[ArtifactOperationReference]:
         with self._transaction():
-            lifecycle_row = self._connection.execute(
-                """
-                SELECT repository_scope
-                FROM artifact_lifecycle
-                WHERE artifact_id = ?
-                """,
-                (str(artifact_id),),
-            ).fetchone()
-            expected_scope = (
-                str(lifecycle_row["repository_scope"]) if lifecycle_row is not None else None
+            return self._list_artifact_references_locked(artifact_id)
+
+    def _list_artifact_references_locked(
+        self, artifact_id: UUID
+    ) -> list[ArtifactOperationReference]:
+        lifecycle_row = self._connection.execute(
+            """
+            SELECT repository_scope
+            FROM artifact_lifecycle
+            WHERE artifact_id = ?
+            """,
+            (str(artifact_id),),
+        ).fetchone()
+        expected_scope = (
+            str(lifecycle_row["repository_scope"]) if lifecycle_row is not None else None
+        )
+        cursor = self._connection.execute(
+            """
+            SELECT
+                operation_id,
+                status,
+                error_json,
+                completed_at,
+                repository_scope,
+                artifact_id,
+                result_json
+            FROM repository_import_operations
+            WHERE artifact_id = ?
+            ORDER BY enqueue_sequence ASC
+            """,
+            (str(artifact_id),),
+        )
+        references: list[ArtifactOperationReference] = []
+        for row in cursor.fetchall():
+            durable_status = str(row["status"])
+            error = self._parse_error_json(row["error_json"])
+            completed_at = (
+                str(row["completed_at"]) if row["completed_at"] is not None else None
             )
-            cursor = self._connection.execute(
-                """
-                SELECT
-                    operation_id,
-                    status,
-                    error_json,
-                    completed_at,
-                    repository_scope,
-                    artifact_id,
-                    result_json
-                FROM repository_import_operations
-                WHERE artifact_id = ?
-                ORDER BY enqueue_sequence ASC
-                """,
-                (str(artifact_id),),
-            )
-            references: list[ArtifactOperationReference] = []
-            for row in cursor.fetchall():
-                durable_status = str(row["status"])
-                error = self._parse_error_json(row["error_json"])
-                completed_at = (
-                    str(row["completed_at"]) if row["completed_at"] is not None else None
-                )
-                repository_scope = str(row["repository_scope"])
-                row_artifact_id = UUID(str(row["artifact_id"]))
-                result_artifact_id: UUID | None = None
-                projection_valid = True
-                if row_artifact_id != artifact_id:
-                    projection_valid = False
-                if expected_scope is not None and repository_scope != expected_scope:
-                    projection_valid = False
-                if durable_status == IMPORT_ADMISSION_PENDING_STATUS:
-                    references.append(
-                        ArtifactOperationReference(
-                            operation_id=UUID(str(row["operation_id"])),
-                            durable_status=durable_status,
-                            status=None,
-                            is_protected=True,
-                            completed_at=completed_at,
-                            error_code=error.code if error is not None else None,
-                            repository_scope=repository_scope,
-                            result_artifact_id=None,
-                            projection_valid=projection_valid,
-                        )
-                    )
-                    continue
-                try:
-                    wire_status = OperationStatus(durable_status)
-                except ValueError:
-                    references.append(
-                        ArtifactOperationReference(
-                            operation_id=UUID(str(row["operation_id"])),
-                            durable_status=durable_status,
-                            status=None,
-                            is_protected=True,
-                            completed_at=completed_at,
-                            error_code=error.code if error is not None else None,
-                            repository_scope=repository_scope,
-                            result_artifact_id=None,
-                            projection_valid=False,
-                        )
-                    )
-                    continue
-                if wire_status == OperationStatus.SUCCEEDED:
-                    try:
-                        if row["result_json"] is None:
-                            raise ValueError("missing result")
-                        payload = json.loads(str(row["result_json"]))
-                        result = VersionedImportResult.model_validate(payload)
-                        result_artifact_id = result.artifact_id
-                        if result.artifact_id != artifact_id:
-                            projection_valid = False
-                    except (TypeError, ValueError, ValidationError, json.JSONDecodeError):
-                        projection_valid = False
-                        result_artifact_id = None
+            repository_scope = str(row["repository_scope"])
+            row_artifact_id = UUID(str(row["artifact_id"]))
+            result_artifact_id: UUID | None = None
+            projection_valid = True
+            if row_artifact_id != artifact_id:
+                projection_valid = False
+            if expected_scope is not None and repository_scope != expected_scope:
+                projection_valid = False
+            if durable_status == IMPORT_ADMISSION_PENDING_STATUS:
                 references.append(
                     ArtifactOperationReference(
                         operation_id=UUID(str(row["operation_id"])),
                         durable_status=durable_status,
-                        status=wire_status if projection_valid else None,
-                        is_protected=(
-                            True
-                            if not projection_valid
-                            else is_protected_durable_status(
-                                durable_status, wire_status, error
-                            )
-                        ),
+                        status=None,
+                        is_protected=True,
                         completed_at=completed_at,
                         error_code=error.code if error is not None else None,
                         repository_scope=repository_scope,
-                        result_artifact_id=result_artifact_id,
+                        result_artifact_id=None,
                         projection_valid=projection_valid,
                     )
                 )
-            return references
+                continue
+            try:
+                wire_status = OperationStatus(durable_status)
+            except ValueError:
+                references.append(
+                    ArtifactOperationReference(
+                        operation_id=UUID(str(row["operation_id"])),
+                        durable_status=durable_status,
+                        status=None,
+                        is_protected=True,
+                        completed_at=completed_at,
+                        error_code=error.code if error is not None else None,
+                        repository_scope=repository_scope,
+                        result_artifact_id=None,
+                        projection_valid=False,
+                    )
+                )
+                continue
+            if wire_status == OperationStatus.SUCCEEDED:
+                try:
+                    if row["result_json"] is None:
+                        raise ValueError("missing result")
+                    payload = json.loads(str(row["result_json"]))
+                    result = VersionedImportResult.model_validate(payload)
+                    result_artifact_id = result.artifact_id
+                    if result.artifact_id != artifact_id:
+                        projection_valid = False
+                except (TypeError, ValueError, ValidationError, json.JSONDecodeError):
+                    projection_valid = False
+                    result_artifact_id = None
+            references.append(
+                ArtifactOperationReference(
+                    operation_id=UUID(str(row["operation_id"])),
+                    durable_status=durable_status,
+                    status=wire_status if projection_valid else None,
+                    is_protected=(
+                        True
+                        if not projection_valid
+                        else is_protected_durable_status(
+                            durable_status, wire_status, error
+                        )
+                    ),
+                    completed_at=completed_at,
+                    error_code=error.code if error is not None else None,
+                    repository_scope=repository_scope,
+                    result_artifact_id=result_artifact_id,
+                    projection_valid=projection_valid,
+                )
+            )
+        return references
 
     def can_delete_artifact_bytes(
         self,
@@ -975,6 +980,8 @@ class ImportOperationStore:
         *,
         deleted_at: str | None = None,
         repository_id: UUID | None = None,
+        expected_dev: int,
+        expected_ino: int,
     ) -> None:
         with self._transaction():
             scope = repository_id
@@ -990,10 +997,15 @@ class ImportOperationStore:
                 if row is None:
                     raise ImportOperationStoreError("artifact lifecycle row is missing")
                 scope = UUID(str(row["repository_scope"]))
+            references = self._list_artifact_references_locked(artifact_id)
+            if any(reference.is_protected for reference in references):
+                raise ImportOperationStoreError("protected references block bytes_deleted stamp")
             self._mutation_store.record_artifact_bytes_deleted(
                 artifact_id,
                 deleted_at=deleted_at or utc_now_iso(),
                 repository_id=scope,
+                expected_dev=expected_dev,
+                expected_ino=expected_ino,
             )
 
     def begin_artifact_bytes_delete_intent(
@@ -1021,11 +1033,15 @@ class ImportOperationStore:
         artifact_id: UUID,
         *,
         repository_id: UUID,
+        expected_dev: int,
+        expected_ino: int,
     ) -> None:
         with self._transaction():
             self._mutation_store.clear_artifact_bytes_delete_intent(
                 artifact_id,
                 repository_id=repository_id,
+                expected_dev=expected_dev,
+                expected_ino=expected_ino,
             )
 
     def has_succeeded_create_repository(self, repository_id: UUID) -> bool:
@@ -1063,7 +1079,11 @@ class ImportOperationStore:
                 raw_sha256,
                 consumed_by_operation_id,
                 consumed_at,
-                bytes_deleted_at
+                bytes_deleted_at,
+                bytes_delete_intent_at,
+                bytes_delete_dev,
+                bytes_delete_ino,
+                bytes_delete_phase
             FROM artifact_lifecycle
             WHERE artifact_id = ?
             """,
@@ -1084,6 +1104,18 @@ class ImportOperationStore:
             raise ImportArtifactBindingRejected("artifact is already consumed")
         if row["bytes_deleted_at"] is not None:
             raise ImportArtifactBindingRejected("artifact bytes are deleted")
+        intent_fields = (
+            row["bytes_delete_intent_at"],
+            row["bytes_delete_dev"],
+            row["bytes_delete_ino"],
+            row["bytes_delete_phase"],
+        )
+        if any(field is not None for field in intent_fields):
+            if not all(field is not None for field in intent_fields):
+                raise ImportArtifactBindingRejected("artifact has malformed delete intent")
+            if str(row["bytes_delete_phase"]) not in {"quarantined", "detached"}:
+                raise ImportArtifactBindingRejected("artifact has malformed delete intent")
+            raise ImportArtifactBindingRejected("artifact has active delete intent")
 
     def _allocate_enqueue_sequence(self, repository_id: UUID) -> int:
         row = self._connection.execute(

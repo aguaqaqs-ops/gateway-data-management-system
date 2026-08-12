@@ -11,7 +11,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 9
+CONTROL_DB_USER_VERSION = 10
 
 ColumnShape = tuple[tuple[str, str, int, str | None, int], ...]
 
@@ -345,6 +345,114 @@ _MIGRATION_V9_STATEMENTS: tuple[str, ...] = (
     """
     ALTER TABLE artifact_lifecycle
     ADD COLUMN bytes_delete_phase TEXT NULL
+    """,
+)
+
+
+_MIGRATION_V10_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE artifact_lifecycle_v10 (
+        artifact_id TEXT PRIMARY KEY,
+        repository_scope TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+        raw_sha256 TEXT NOT NULL CHECK (length(raw_sha256) = 64),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        consumed_by_operation_id TEXT NULL,
+        consumed_at TEXT NULL,
+        bytes_deleted_at TEXT NULL,
+        bytes_delete_intent_at TEXT NULL,
+        bytes_delete_dev INTEGER NULL,
+        bytes_delete_ino INTEGER NULL,
+        bytes_delete_phase TEXT NULL,
+        CHECK (
+            (
+                bytes_delete_intent_at IS NULL
+                AND bytes_delete_dev IS NULL
+                AND bytes_delete_ino IS NULL
+                AND bytes_delete_phase IS NULL
+            )
+            OR (
+                bytes_delete_intent_at IS NOT NULL
+                AND bytes_delete_dev IS NOT NULL
+                AND bytes_delete_ino IS NOT NULL
+                AND bytes_delete_phase IN ('quarantined', 'detached')
+            )
+        )
+    )
+    """,
+    """
+    INSERT INTO artifact_lifecycle_v10 (
+        artifact_id,
+        repository_scope,
+        media_type,
+        size_bytes,
+        raw_sha256,
+        created_at,
+        updated_at,
+        consumed_by_operation_id,
+        consumed_at,
+        bytes_deleted_at,
+        bytes_delete_intent_at,
+        bytes_delete_dev,
+        bytes_delete_ino,
+        bytes_delete_phase
+    )
+    SELECT
+        artifact_id,
+        repository_scope,
+        media_type,
+        size_bytes,
+        raw_sha256,
+        created_at,
+        updated_at,
+        consumed_by_operation_id,
+        consumed_at,
+        bytes_deleted_at,
+        CASE
+            WHEN bytes_delete_intent_at IS NOT NULL
+             AND bytes_delete_dev IS NOT NULL
+             AND bytes_delete_ino IS NOT NULL
+             AND bytes_delete_phase IN ('quarantined', 'detached')
+            THEN bytes_delete_intent_at
+            ELSE NULL
+        END,
+        CASE
+            WHEN bytes_delete_intent_at IS NOT NULL
+             AND bytes_delete_dev IS NOT NULL
+             AND bytes_delete_ino IS NOT NULL
+             AND bytes_delete_phase IN ('quarantined', 'detached')
+            THEN bytes_delete_dev
+            ELSE NULL
+        END,
+        CASE
+            WHEN bytes_delete_intent_at IS NOT NULL
+             AND bytes_delete_dev IS NOT NULL
+             AND bytes_delete_ino IS NOT NULL
+             AND bytes_delete_phase IN ('quarantined', 'detached')
+            THEN bytes_delete_ino
+            ELSE NULL
+        END,
+        CASE
+            WHEN bytes_delete_intent_at IS NOT NULL
+             AND bytes_delete_dev IS NOT NULL
+             AND bytes_delete_ino IS NOT NULL
+             AND bytes_delete_phase IN ('quarantined', 'detached')
+            THEN bytes_delete_phase
+            ELSE NULL
+        END
+    FROM artifact_lifecycle
+    """,
+    """
+    DROP TABLE artifact_lifecycle
+    """,
+    """
+    ALTER TABLE artifact_lifecycle_v10 RENAME TO artifact_lifecycle
+    """,
+    """
+    CREATE INDEX artifact_lifecycle_repository_scope_idx
+    ON artifact_lifecycle (repository_scope)
     """,
 )
 
@@ -787,6 +895,9 @@ class ControlStore:
             return
         if target_version == 9:
             ControlStore._execute_statements(connection, _MIGRATION_V9_STATEMENTS)
+            return
+        if target_version == 10:
+            ControlStore._execute_statements(connection, _MIGRATION_V10_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

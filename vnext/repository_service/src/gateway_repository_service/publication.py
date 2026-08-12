@@ -95,24 +95,42 @@ def _fsync_directory(path: Path) -> None:
 def _rename_noreplace(source: Path, target: Path) -> None:
     """Perform Linux atomic rename with an in-kernel no-replace check."""
 
+    renameat2_noreplace(
+        -100,  # AT_FDCWD
+        os.fsencode(source),
+        -100,
+        os.fsencode(target),
+    )
+
+
+def renameat2_noreplace(
+    src_dir_fd: int,
+    src_name: str | bytes,
+    dst_dir_fd: int,
+    dst_name: str | bytes,
+) -> None:
+    """``renameat2(..., RENAME_NOREPLACE)`` using directory file descriptors."""
+
     if os.name != "posix":
         raise OSError("atomic no-replace rename is unavailable on this platform")
     try:
         libc = ctypes.CDLL(None, use_errno=True)
         renameat2 = libc.renameat2
     except AttributeError as exc:
-        raise OSError("renameat2 is unavailable; refusing non-atomic publication") from exc
+        raise OSError("renameat2 is unavailable; refusing non-atomic rename") from exc
     renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
     renameat2.restype = ctypes.c_int
+    src_bytes = src_name if isinstance(src_name, bytes) else os.fsencode(src_name)
+    dst_bytes = dst_name if isinstance(dst_name, bytes) else os.fsencode(dst_name)
     result = renameat2(
-        -100,
-        os.fsencode(source),
-        -100,
-        os.fsencode(target),
+        int(src_dir_fd),
+        src_bytes,
+        int(dst_dir_fd),
+        dst_bytes,
         1,  # RENAME_NOREPLACE
     )
     if result != 0:
         error = ctypes.get_errno()
         if error == errno.EEXIST:
-            raise FileExistsError(target)
-        raise OSError(error, os.strerror(error), str(target))
+            raise FileExistsError(errno.EEXIST, os.strerror(error), os.fsdecode(dst_bytes))
+        raise OSError(error, os.strerror(error), os.fsdecode(dst_bytes))

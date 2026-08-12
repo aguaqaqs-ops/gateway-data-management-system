@@ -2595,9 +2595,9 @@ def test_stamp_succeeds_but_final_quarantine_unlink_fails(
     fail_count = {"n": 0}
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        # Detach now also uses rename-verify-unlink; fail only the post-stamp
-        # quarantine verify unlink (second .unlink-verify-* unlink).
-        if isinstance(path, str) and path.startswith(".unlink-verify-"):
+        # Staging protocol unlinks final-* inside the stage dir; fail only the
+        # post-stamp quarantine staging unlink (second final-* after detach).
+        if isinstance(path, str) and path.startswith("final-"):
             fail_count["n"] += 1
             if fail_count["n"] == 2:
                 raise OSError(errno.EPERM, "forced quarantine unlink failure")
@@ -3929,7 +3929,7 @@ def test_recovery_unlink_eperm_retains_intent(
     real_unlink = os.unlink
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and path.startswith(".unlink-verify-"):
+        if isinstance(path, str) and path.startswith("final-"):
             raise OSError(errno.EPERM, "forced unlink failure")
         real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
 
@@ -3990,7 +3990,7 @@ def test_q_and_detach_single_unlink_failure_retains_intent(
     _enqueue(store, key="q-detach-eperm", operation_id=OTHER_OPERATION_ID)
     from gateway_repository_service.publication import renameat2_noreplace as real_rename
 
-    private_from_detach: set[str] = set()
+    private_from_detach = False
 
     def rename(
         src_dir_fd: int,
@@ -3998,16 +3998,20 @@ def test_q_and_detach_single_unlink_failure_retains_intent(
         dst_dir_fd: int,
         dst_name: str | bytes,
     ) -> None:
+        nonlocal private_from_detach
         real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
-        if isinstance(src_name, str) and src_name.startswith(".detach-") and isinstance(
-            dst_name, str
+        if (
+            isinstance(src_name, str)
+            and src_name.startswith(".detach-")
+            and isinstance(dst_name, str)
+            and dst_name == "victim"
         ):
-            private_from_detach.add(dst_name)
+            private_from_detach = True
 
     real_unlink = os.unlink
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and path in private_from_detach:
+        if isinstance(path, str) and path.startswith("final-") and private_from_detach:
             raise OSError(errno.EPERM, "forced detach unlink failure")
         real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
 
@@ -4027,8 +4031,11 @@ def test_q_and_detach_single_unlink_failure_retains_intent(
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_delete_intent_at is not None
-    assert detach.is_file() or list(detach.parent.glob(".unlink-verify-*")) or list(
-        detach.parent.glob(".detach-*")
+    assert (
+        detach.is_file()
+        or list(detach.parent.glob(".unlink-verify-*"))
+        or list(detach.parent.glob(".detach-*"))
+        or list(detach.parent.glob(".unlink-stage-*"))
     )
     assert not quarantine.exists() or quarantine.is_file()
 
@@ -4889,8 +4896,8 @@ def test_live_helper_cleanup_eperm_retains_ownership(
     unlink_verify_count = {"n": 0}
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        # Allow detach rename-verify to succeed; fail quarantine cleanup verify.
-        if isinstance(path, str) and path.startswith(".unlink-verify-"):
+        # Allow detach staging unlink to succeed; fail quarantine cleanup final-*.
+        if isinstance(path, str) and path.startswith("final-"):
             unlink_verify_count["n"] += 1
             if unlink_verify_count["n"] >= 2 or phase == "replaced":
                 raise OSError(errno.EPERM, "forced unlink-verify EPERM")
@@ -4992,17 +4999,18 @@ def test_r8_active_intent_crash_after_rename_before_private_stat(
     layout: DurableLayout,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Round8 probe 1: crash after q→unlink-verify rename, before private stat."""
+    """Round9 probe 1: crash after staging rename into victim, before stamp (active intent)."""
 
     import gateway_repository_service.upload_artifact.admission_pin as pin_mod
     from gateway_repository_service.publication import renameat2_noreplace as real_rename
+    from gateway_repository_service.upload_artifact.admission_pin import STAGE_VICTIM
 
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
-    ready.unlink()
-    crashed_private: dict[str, str] = {}
+    ready_stat = ready.stat()
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
+    staged: dict[str, str] = {}
 
     def rename(
         src_dir_fd: int,
@@ -5011,75 +5019,51 @@ def test_r8_active_intent_crash_after_rename_before_private_stat(
         dst_name: str | bytes,
     ) -> None:
         real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
-        if isinstance(dst_name, str) and dst_name.startswith(".unlink-verify-"):
-            crashed_private["name"] = dst_name
-            raise OSError(errno.EIO, "crash after rename before private stat")
+        # Live detach path: after ready/detach lands as stage/victim, crash before
+        # private fstat / stamp so intent remains active.
+        if isinstance(dst_name, str) and dst_name == STAGE_VICTIM:
+            staged["victim"] = STAGE_VICTIM
+            raise OSError(errno.EIO, "crash after stage rename before private stat")
 
-    real_verify = pin_mod.unlink_sidecar_rename_verify
+    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
 
-    def crashy_verify(
-        ready_dir_fd: int,
-        sidecar_name: str,
-        q_fd: int,
-        expected: os.stat_result,
-        *,
-        artifact_id: UUID,
-        generation: str,
-    ) -> bool:
-        private = verify_sidecar_name_for(
-            inode=int(expected.st_ino),
-            generation=generation,
-            artifact_id=artifact_id,
-            token="crashstat1",
-        )
-        try:
-            rename(ready_dir_fd, sidecar_name, ready_dir_fd, private)
-        except OSError:
-            return False
-        return False
-
-    monkeypatch.setattr(pin_mod, "unlink_sidecar_rename_verify", crashy_verify)
-    monkeypatch.setattr(
-        "gateway_repository_service.artifact_cleaner.unlink_sidecar_rename_verify",
-        crashy_verify,
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
     )
-
-    ArtifactCleaner(
-        settings=_settings(layout, ttl=1),
-        layout=layout,
-        import_store=store,
-        mutation_store=mutation_store,
-        clock=lambda: BASE_NOW,
-    ).sweep_once()
+    assert outcome == "unlink_failed"
+    assert stamped["ok"] is False
 
     snap = _lifecycle_snapshot(mutation_store)
-    # eligible+absent stamps first; unlink crash leaves receipt + private residual.
-    assert snap["intent_at"] is None
-    assert snap["receipt_generation"] == generation
-    privates = list(quarantine.parent.glob(".unlink-verify-*"))
-    assert privates
-    assert parse_unlink_verify_name(privates[0].name) is not None
-    assert int(privates[0].stat().st_ino) == ino
+    assert snap["intent_at"] is not None
+    assert snap["intent_generation"] is not None
+    assert snap["intent_dev"] == int(ready_stat.st_dev)
+    assert snap["intent_ino"] == int(ready_stat.st_ino)
+    assert snap["bytes_deleted_at"] is None
+    stages = list(ready.parent.glob(".unlink-stage-*"))
+    assert stages, "expected staged victim residual after crash"
+    assert staged.get("victim") == STAGE_VICTIM
+    victim = stages[0] / STAGE_VICTIM
+    assert victim.is_file()
+    assert int(victim.stat().st_ino) == int(ready_stat.st_ino)
+    assert victim.read_bytes() == ARTIFACT_PAYLOAD
 
-    monkeypatch.setattr(pin_mod, "unlink_sidecar_rename_verify", real_verify)
-    monkeypatch.setattr(
-        "gateway_repository_service.artifact_cleaner.unlink_sidecar_rename_verify",
-        real_verify,
-    )
-    ArtifactCleaner(
-        settings=_settings(layout, ttl=1),
-        layout=layout,
-        import_store=store,
-        mutation_store=mutation_store,
-        clock=lambda: BASE_NOW,
-    ).sweep_once()
+    monkeypatch.setattr(pin_mod, "renameat2_noreplace", real_rename)
+    _artifact_cleaner(layout, store, mutation_store).sweep_once()
 
     snap2 = _lifecycle_snapshot(mutation_store)
     assert snap2["bytes_deleted_at"] is not None
     assert snap2["intent_at"] is None
     assert snap2["receipt_generation"] is None
-    assert list(quarantine.parent.glob(".unlink-verify-*")) == []
-    assert list(quarantine.parent.glob(".deleting-*")) == []
+    assert list(ready.parent.glob(".unlink-stage-*")) == []
+    assert list(ready.parent.glob(".unlink-verify-*")) == []
+    assert list(ready.parent.glob(".deleting-*")) == []
 
 
 @pytest.mark.serial
@@ -5186,6 +5170,7 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
 
     import gateway_repository_service.upload_artifact.admission_pin as pin_mod
     from gateway_repository_service.publication import renameat2_noreplace as real_rename
+    from gateway_repository_service.upload_artifact.admission_pin import STAGE_VICTIM
 
     store, mutation_store = stores
     _seed_artifact(mutation_store)
@@ -5200,21 +5185,30 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
         dst_dir_fd: int,
         dst_name: str | bytes,
     ) -> None:
-        if (
-            isinstance(src_name, str)
-            and src_name.startswith(".unlink-verify-")
-            and isinstance(dst_name, str)
-            and dst_name.startswith(".deleting-")
+        # Fail restore of staged victim back to a ready-visible sidecar name.
+        if isinstance(src_name, str) and src_name == STAGE_VICTIM and isinstance(
+            dst_name, str
+        ) and (
+            dst_name.startswith(".deleting-")
+            or dst_name.startswith(".unlink-verify-")
+            or dst_name.startswith(".detach-")
         ):
             raise OSError(errno.EIO, "forced restore failure")
+        if (
+            isinstance(src_name, str)
+            and src_name.startswith("final-")
+            and isinstance(dst_name, str)
+            and dst_name == STAGE_VICTIM
+        ):
+            raise OSError(errno.EIO, "forced final restore failure")
         real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
-        if isinstance(dst_name, str) and dst_name.startswith(".unlink-verify-"):
+        if isinstance(dst_name, str) and dst_name.startswith(".unlink-stage-"):
             private_names.add(dst_name)
 
     real_unlink = os.unlink
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and path.startswith(".unlink-verify-"):
+        if isinstance(path, str) and path.startswith("final-"):
             raise OSError(errno.EPERM, "forced private unlink EPERM")
         real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
 
@@ -5230,7 +5224,12 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
 
     snap = _lifecycle_snapshot(mutation_store)
     assert snap["intent_generation"] == generation or snap["receipt_generation"] == generation
-    assert list(quarantine.parent.glob(".unlink-verify-*"))
+    residuals = (
+        list(quarantine.parent.glob(".unlink-stage-*"))
+        or list(quarantine.parent.glob(".unlink-verify-*"))
+        or list(quarantine.parent.glob(".deleting-*"))
+    )
+    assert residuals
 
     monkeypatch.setattr(os, "unlink", real_unlink)
     monkeypatch.setattr(pin_mod, "renameat2_noreplace", real_rename)
@@ -5245,7 +5244,9 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
     assert snap2["bytes_deleted_at"] is not None
     assert snap2["intent_at"] is None
     assert snap2["receipt_generation"] is None
+    assert list(quarantine.parent.glob(".unlink-stage-*")) == []
     assert list(quarantine.parent.glob(".unlink-verify-*")) == []
+    assert list(quarantine.parent.glob(".deleting-*")) == []
 
 
 @pytest.mark.serial
@@ -5584,10 +5585,7 @@ def test_r8_replace_private_pathname_before_final_unlink(
     layout: DurableLayout,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Round8 probe 9: replace private pathname after stat, before final unlink."""
-
-    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
-    from gateway_repository_service.publication import renameat2_noreplace as real_rename
+    """Round9 probe 9: replace staged final BEFORE real_unlink, then delegate unlink."""
 
     store, mutation_store = stores
     _seed_artifact(mutation_store)
@@ -5605,16 +5603,15 @@ def test_r8_replace_private_pathname_before_final_unlink(
     )
     replacement = b"private-pathname-replacement"
     real_unlink = os.unlink
+    owned_before = int(q_stat.st_ino)
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
         dir_fd = _dir_fd_from_kwargs(kwargs, "dir_fd")
-        if (
-            dir_fd is not None
-            and isinstance(path, str)
-            and path.startswith(".unlink-verify-")
-        ):
-            # Replace private directory entry before the implementation unlinks it.
-            real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+        # Barrier: after production verified final-*, before the real unlink call —
+        # rename owned aside and plant foreign at the unlink target, then delegate.
+        if dir_fd is not None and isinstance(path, str) and path.startswith("final-"):
+            hidden = f"hidden-{uuid4().hex[:16]}"
+            os.rename(path, hidden, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
             fd = os.open(
                 path,
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL,
@@ -5625,13 +5622,10 @@ def test_r8_replace_private_pathname_before_final_unlink(
                 os.write(fd, replacement)
             finally:
                 os.close(fd)
-            return
+            return real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
         real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
 
-    # Force rename-verify path (not already-private short circuit) via normal q name.
     monkeypatch.setattr(os, "unlink", unlink)
-    # Also ensure rename uses real rename
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", real_rename)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -5640,9 +5634,26 @@ def test_r8_replace_private_pathname_before_final_unlink(
         clock=lambda: BASE_NOW,
     ).sweep_once()
 
-    retained = _assert_replacement_retained(ready.parent, replacement)
-    assert retained.read_bytes() == replacement
-    assert retained.read_bytes() != ARTIFACT_PAYLOAD
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["receipt_generation"] == generation
+    assert snap["bytes_deleted_at"] is not None
+    # Foreign was the unlink target (deleted); owned inode must still be reachable
+    # and ownership evidence must not have been cleared as a successful delete.
+    owned_found = False
+    for entry in ready.parent.rglob("*"):
+        if not entry.is_file():
+            continue
+        try:
+            st = entry.stat()
+        except OSError:
+            continue
+        if int(st.st_ino) == owned_before and entry.read_bytes() == ARTIFACT_PAYLOAD:
+            owned_found = True
+            break
+    assert owned_found, f"owned inode missing after swap-before-unlink; tree={list(ready.parent.rglob('*'))}"
+    assert snap["intent_at"] is None  # stamped path — intent already cleared at stamp time
+    # Receipt must remain: nlink proof failed so clearer must not treat as success.
+    assert snap["receipt_generation"] == generation
 
 
 def test_r8_literal_legacy_deleting_and_detach_names(
@@ -5706,3 +5717,338 @@ def test_r8_production_import_executor_clears_receipt(
     assert snap["bytes_deleted_at"] is not None
     assert snap["receipt_generation"] is None
     assert not ready.exists()
+
+
+def _plant_foreign_at_name(dir_fd: int, name: str, payload: bytes) -> str:
+    """Rename ``name`` aside and plant ``payload`` at the same directory entry."""
+
+    hidden = f".hidden-r9-{uuid4().hex[:12]}"
+    os.rename(name, hidden, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644, dir_fd=dir_fd)
+    try:
+        os.write(fd, payload)
+    finally:
+        os.close(fd)
+    return hidden
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("ownership", ["active_intent", "stamped_receipt"])
+def test_r9_replace_existing_private_before_stage_rename(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    ownership: str,
+) -> None:
+    """Round9: after lock, replace private pathname before stage rename; keep foreign."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+    from gateway_repository_service.publication import renameat2_noreplace as real_rename
+    from gateway_repository_service.upload_artifact.admission_pin import STAGE_VICTIM
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
+    q_stat = quarantine.stat()
+    ready.unlink()
+    private = ready.parent / verify_sidecar_name_for(
+        inode=ino,
+        generation=generation,
+        artifact_id=ARTIFACT_ID,
+        token="r9priv001",
+    )
+    os.rename(quarantine, private)
+    if ownership == "stamped_receipt":
+        store.mark_artifact_bytes_deleted(
+            ARTIFACT_ID,
+            deleted_at="2026-08-02T00:00:00+00:00",
+            repository_id=REPOSITORY_ID,
+            expected_dev=int(q_stat.st_dev),
+            expected_ino=ino,
+            expected_generation=generation,
+        )
+    replacement = b"r9-private-foreign"
+    injected = {"done": False}
+
+    def rename(
+        src_dir_fd: int,
+        src_name: str | bytes,
+        dst_dir_fd: int,
+        dst_name: str | bytes,
+    ) -> None:
+        if (
+            not injected["done"]
+            and isinstance(src_name, str)
+            and src_name.startswith(".unlink-verify-")
+            and isinstance(dst_name, str)
+            and dst_name == STAGE_VICTIM
+        ):
+            injected["done"] = True
+            _plant_foreign_at_name(src_dir_fd, src_name, replacement)
+        real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
+
+    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=3600 if ownership == "active_intent" else 1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=(
+            (lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC))
+            if ownership == "active_intent"
+            else (lambda: BASE_NOW)
+        ),
+    ).sweep_once()
+
+    retained = _assert_replacement_retained(ready.parent, replacement)
+    assert retained.read_bytes() == replacement
+    snap = _lifecycle_snapshot(mutation_store)
+    if ownership == "stamped_receipt":
+        assert snap["receipt_generation"] == generation
+    else:
+        assert snap["intent_generation"] == generation
+    assert injected["done"] is True
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("ownership", ["active_intent", "stamped_receipt"])
+@pytest.mark.parametrize("kind", ["quarantine", "detach"])
+def test_r9_replace_after_private_stat_before_final_unlink(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    ownership: str,
+    kind: str,
+) -> None:
+    """Round9: after victim→final rename, swap final before unlink; foreign restored."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+    from gateway_repository_service.publication import renameat2_noreplace as real_rename
+    from gateway_repository_service.upload_artifact.admission_pin import STAGE_VICTIM
+    from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    generation = "genr9stat01"
+    if kind == "quarantine":
+        target = ready.parent / quarantine_name_for(
+            inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+        )
+    else:
+        target = ready.parent / detach_name_for(
+            inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+        )
+    os.link(ready, target)
+    ready.unlink()
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
+    )
+    if ownership == "stamped_receipt":
+        store.mark_artifact_bytes_deleted(
+            ARTIFACT_ID,
+            deleted_at="2026-08-02T00:00:00+00:00",
+            repository_id=REPOSITORY_ID,
+            expected_dev=int(st.st_dev),
+            expected_ino=int(st.st_ino),
+            expected_generation=generation,
+        )
+    replacement = b"r9-after-stat-foreign"
+    injected = {"done": False}
+
+    def rename(
+        src_dir_fd: int,
+        src_name: str | bytes,
+        dst_dir_fd: int,
+        dst_name: str | bytes,
+    ) -> None:
+        real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
+        if (
+            not injected["done"]
+            and isinstance(src_name, str)
+            and src_name == STAGE_VICTIM
+            and isinstance(dst_name, str)
+            and dst_name.startswith("final-")
+        ):
+            # Barrier: after production's private/victim verify rename to final,
+            # before open/fstat/unlink — plant foreign at final.
+            injected["done"] = True
+            _plant_foreign_at_name(dst_dir_fd, dst_name, replacement)
+
+    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=3600 if ownership == "active_intent" else 1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=(
+            (lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC))
+            if ownership == "active_intent"
+            else (lambda: BASE_NOW)
+        ),
+    ).sweep_once()
+
+    assert injected["done"] is True
+    retained = _assert_replacement_retained(ready.parent, replacement)
+    assert retained.read_bytes() == replacement
+    snap = _lifecycle_snapshot(mutation_store)
+    if ownership == "stamped_receipt":
+        assert snap["receipt_generation"] == generation
+    else:
+        assert snap["intent_generation"] == generation
+
+
+@pytest.mark.serial
+def test_r9_live_detach_crash_before_stamp_keeps_intent(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round9: live detach already private/staged; crash before stamp; intent stays bound."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+    from gateway_repository_service.publication import renameat2_noreplace as real_rename
+    from gateway_repository_service.upload_artifact.admission_pin import STAGE_VICTIM
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    ready_stat = ready.stat()
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
+    crashed = {"ok": False}
+
+    def rename(
+        src_dir_fd: int,
+        src_name: str | bytes,
+        dst_dir_fd: int,
+        dst_name: str | bytes,
+    ) -> None:
+        real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
+        if isinstance(dst_name, str) and dst_name == STAGE_VICTIM and not crashed["ok"]:
+            crashed["ok"] = True
+            raise OSError(errno.EIO, "live detach crash before stamp")
+
+    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
+    )
+    assert outcome == "unlink_failed"
+    assert stamped["ok"] is False
+    assert crashed["ok"] is True
+
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["intent_at"] is not None
+    assert snap["intent_generation"] is not None
+    assert snap["intent_dev"] == int(ready_stat.st_dev)
+    assert snap["intent_ino"] == int(ready_stat.st_ino)
+    assert snap["bytes_deleted_at"] is None
+    stages = list(ready.parent.glob(".unlink-stage-*"))
+    assert stages
+    victim = stages[0] / STAGE_VICTIM
+    assert victim.is_file()
+    assert int(victim.stat().st_ino) == int(ready_stat.st_ino)
+
+    monkeypatch.setattr(pin_mod, "renameat2_noreplace", real_rename)
+    _artifact_cleaner(layout, store, mutation_store).sweep_once()
+    snap2 = _lifecycle_snapshot(mutation_store)
+    assert snap2["bytes_deleted_at"] is not None
+    assert snap2["intent_at"] is None
+    assert snap2["receipt_generation"] is None
+    assert list(ready.parent.glob(".unlink-stage-*")) == []
+
+
+@pytest.mark.serial
+def test_r9_q_detach_private_aggregate_foreign_not_success(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round9: q+detach+private aggregate; private foreign/mismatch must not count success."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+    from gateway_repository_service.publication import renameat2_noreplace as real_rename
+    from gateway_repository_service.upload_artifact.admission_pin import STAGE_VICTIM
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    generation = "genr9agg01"
+    quarantine = ready.parent / quarantine_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+    )
+    detach = ready.parent / detach_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+    )
+    private = ready.parent / verify_sidecar_name_for(
+        inode=int(st.st_ino),
+        generation=generation,
+        artifact_id=ARTIFACT_ID,
+        token="r9aggpriv",
+    )
+    os.link(ready, quarantine)
+    os.link(ready, detach)
+    os.link(ready, private)
+    ready.unlink()
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
+    )
+    _enqueue(store, key="r9-agg-foreign", operation_id=OTHER_OPERATION_ID)
+    replacement = b"r9-aggregate-foreign"
+    injected = {"done": False}
+
+    def rename(
+        src_dir_fd: int,
+        src_name: str | bytes,
+        dst_dir_fd: int,
+        dst_name: str | bytes,
+    ) -> None:
+        if (
+            not injected["done"]
+            and isinstance(src_name, str)
+            and src_name.startswith(".unlink-verify-")
+            and isinstance(dst_name, str)
+            and dst_name == STAGE_VICTIM
+        ):
+            injected["done"] = True
+            _plant_foreign_at_name(src_dir_fd, src_name, replacement)
+        real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
+
+    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC),
+    ).sweep_once()
+
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["intent_generation"] == generation
+    retained = _assert_replacement_retained(ready.parent, replacement)
+    assert retained.read_bytes() == replacement
+    assert injected["done"] is True
+    assert bool(_sidecar_snapshots(ready.parent)) or any(ready.parent.glob(".unlink-stage-*"))

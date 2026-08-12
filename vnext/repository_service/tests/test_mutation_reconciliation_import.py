@@ -146,6 +146,7 @@ def test_upload_artifact_bytes_reconciled_happy_path(
         mutation_store,
         REPOSITORY_ID,
         ARTIFACT_ID,
+        ttl_seconds=24 * 60 * 60,
     )
 
 
@@ -356,6 +357,7 @@ def test_upload_artifact_bytes_reconciled_negative_cases(
             mutation_store,
             query_repository_id,
             ARTIFACT_ID,
+            ttl_seconds=24 * 60 * 60,
         )
         is expected
     )
@@ -397,6 +399,7 @@ def test_protected_manual_pin_blocks_readiness_when_bytes_deleted(
         mutation_store,
         ConsistencyWatch(create_repository_ids=(), upload_artifacts=()),
         layout,
+        ttl_seconds=24 * 60 * 60,
     )
     assert failures
     assert any("protected import artifact" in failure for failure in failures)

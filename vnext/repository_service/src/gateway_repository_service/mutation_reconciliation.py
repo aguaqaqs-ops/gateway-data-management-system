@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -117,6 +118,9 @@ def upload_artifact_bytes_reconciled_after_import(
     mutation_store: MutationStore,
     repository_id: UUID,
     artifact_id: UUID,
+    *,
+    ttl_seconds: int,
+    now: datetime | None = None,
 ) -> bool:
     """Return True when missing ready bytes are explained by legal retention cleanup."""
 
@@ -146,6 +150,8 @@ def upload_artifact_bytes_reconciled_after_import(
         lifecycle=lifecycle,
         repository_id=repository_id,
         references=references,
+        ttl_seconds=ttl_seconds,
+        now=now,
         consumed_operation_artifact_id=consumed_operation_artifact_id,
     ):
         return True
@@ -195,6 +201,9 @@ def import_artifact_watch_failures(
     mutation_store: MutationStore,
     watch: ConsistencyWatch,
     layout: DurableLayout,
+    *,
+    ttl_seconds: int,
+    now: datetime | None = None,
 ) -> tuple[str, ...]:
     blocking: list[str] = []
     for repository_id, artifact_id, size_bytes in watch.upload_artifacts:
@@ -210,6 +219,8 @@ def import_artifact_watch_failures(
             mutation_store,
             repository_id,
             artifact_id,
+            ttl_seconds=ttl_seconds,
+            now=now,
         ):
             continue
         blocking.append(f"ready artifact {artifact_id} is missing or truncated")
@@ -317,6 +328,7 @@ class SynchronousMutationReconciler:
                     self._mutation_store,
                     repository_id,
                     effect.resource_id,
+                    ttl_seconds=self._settings.artifact_ttl_seconds,
                 ):
                     blocking.append(
                         f"upload effect {effect.effect_id} succeeded without matching ready artifact"

@@ -910,9 +910,17 @@ class ImportOperationStore:
             ttl_seconds=ttl_seconds,
         )
 
-    def mark_artifact_bytes_deleted(self, artifact_id: UUID) -> None:
+    def mark_artifact_bytes_deleted(
+        self,
+        artifact_id: UUID,
+        *,
+        deleted_at: str | None = None,
+    ) -> None:
         with self._transaction():
-            self._mutation_store.record_artifact_bytes_deleted(artifact_id, deleted_at=utc_now_iso())
+            self._mutation_store.record_artifact_bytes_deleted(
+                artifact_id,
+                deleted_at=deleted_at or utc_now_iso(),
+            )
 
     def _has_succeeded_create_locked(self, repository_id: UUID) -> bool:
         from gateway_repository_service.mutation_store import EffectStatus, MutationKind

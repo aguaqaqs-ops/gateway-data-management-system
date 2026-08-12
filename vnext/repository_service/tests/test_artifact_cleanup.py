@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import sqlite3
 import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -674,11 +675,121 @@ def test_symlink_and_malformed_paths_are_not_deleted(layout: DurableLayout, tmp_
     target = tmp_path / "target.bin"
     target.write_bytes(ARTIFACT_PAYLOAD)
     ready.symlink_to(target)
-    assert classify_ready_artifact_path(ready, expected=ready) == "symlink"
+    assert (
+        classify_ready_artifact_path(ready, expected=ready, artifact_id=ARTIFACT_ID)
+        == "symlink"
+    )
 
     malformed = ready.parent / "not-a-uuid"
     malformed.write_bytes(b"x")
-    assert classify_ready_artifact_path(malformed, expected=ready) == "unexpected_path"
+    assert (
+        classify_ready_artifact_path(malformed, expected=ready, artifact_id=ARTIFACT_ID)
+        == "unexpected_path"
+    )
+
+
+def test_classify_rejects_path_outside_layout_ready_dir(
+    layout: DurableLayout,
+    tmp_path: Path,
+) -> None:
+    expected = artifact_ready_path(layout, REPOSITORY_ID, ARTIFACT_ID)
+    expected.parent.mkdir(parents=True, exist_ok=True)
+    outsider = tmp_path / "other" / ARTIFACT_ID.hex
+    outsider.parent.mkdir(parents=True, exist_ok=True)
+    outsider.write_bytes(ARTIFACT_PAYLOAD)
+    assert (
+        classify_ready_artifact_path(outsider, expected=expected, artifact_id=ARTIFACT_ID)
+        == "unexpected_path"
+    )
+
+
+def test_poison_lifecycle_row_does_not_block_other_candidates(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            INSERT INTO artifact_lifecycle (
+                artifact_id,
+                repository_scope,
+                media_type,
+                size_bytes,
+                raw_sha256,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(uuid4()),
+                "not-a-uuid",
+                MEDIA_TYPE,
+                1,
+                "a" * 64,
+                CREATED_AT,
+                CREATED_AT,
+            ),
+        )
+        mutation_store._connection.commit()
+
+    candidates = mutation_store.list_artifacts_pending_byte_cleanup()
+    assert any(record.artifact_id == ARTIFACT_ID for record in candidates)
+
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=1, interval=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: datetime.fromisoformat(CREATED_AT) + timedelta(seconds=2),
+    )
+    cleaner.sweep_once()
+    assert not ready.exists()
+
+
+def test_inode_mismatch_retains_bytes_without_deleted_at(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    _enqueue(store, key="ok", operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_succeeded(OPERATION_ID, result=_import_result())
+
+    class _MismatchedStat:
+        def __init__(self, base: os.stat_result) -> None:
+            self._base = base
+
+        @property
+        def st_ino(self) -> int:
+            return int(self._base.st_ino) + 1
+
+        @property
+        def st_nlink(self) -> int:
+            return int(self._base.st_nlink)
+
+        @property
+        def st_mode(self) -> int:
+            return int(self._base.st_mode)
+
+    def flaky_lstat(self: Path) -> os.stat_result:
+        base = os.lstat(self)
+        if self.resolve() == ready.resolve():
+            return _MismatchedStat(base)  # type: ignore[return-value]
+        return base
+
+    monkeypatch.setattr(Path, "lstat", flaky_lstat)
+    outcome = try_unlink_ready_artifact_with_recheck(ready, recheck=lambda: True)
+    assert outcome == "inode_mismatch"
+    assert ready.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
 
 
 @pytest.mark.serial
@@ -778,23 +889,79 @@ def test_legal_bytes_deleted_explains_missing_ready_bytes(
 ) -> None:
     store, mutation_store = stores
     _seed_artifact(mutation_store)
+    # Orphan TTL=3600 from CREATED_AT → earliest 2026-08-01T01:00:00Z; stamp after boundary.
+    deleted_at = "2026-08-01T01:00:00+00:00"
     with mutation_store._lock:
         mutation_store._connection.execute(
             "UPDATE artifact_lifecycle SET bytes_deleted_at = ? WHERE artifact_id = ?",
-            ("2026-08-02T00:00:00+00:00", str(ARTIFACT_ID)),
+            (deleted_at, str(ARTIFACT_ID)),
         )
         mutation_store._connection.commit()
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    now = datetime(2026, 8, 2, tzinfo=UTC)
     assert retention_explains_missing_ready_bytes(
         lifecycle=lifecycle,
         repository_id=REPOSITORY_ID,
         references=[],
+        ttl_seconds=3600,
+        now=now,
     )
     assert upload_artifact_bytes_reconciled_after_import(
         store,
         mutation_store,
         REPOSITORY_ID,
         ARTIFACT_ID,
+        ttl_seconds=3600,
+        now=now,
+    )
+
+
+def test_premature_bytes_deleted_at_does_not_explain_missing_bytes() -> None:
+    lifecycle = _lifecycle(bytes_deleted_at="2026-08-01T00:30:00+00:00")
+    now = datetime(2026, 8, 2, tzinfo=UTC)
+    assert (
+        retention_explains_missing_ready_bytes(
+            lifecycle=lifecycle,
+            repository_id=REPOSITORY_ID,
+            references=[],
+            ttl_seconds=3600,
+            now=now,
+        )
+        is False
+    )
+    decision = decide_artifact_bytes_deletion(
+        lifecycle=_lifecycle(),
+        references=[],
+        now=datetime(2026, 8, 1, 0, 30, tzinfo=UTC),
+        ttl_seconds=3600,
+    )
+    assert decision.eligible is False
+    assert decision.reason is ArtifactBytesDeletionReason.TTL_NOT_ELAPSED
+
+
+def test_naive_and_future_bytes_deleted_at_fail_closed() -> None:
+    now = datetime(2026, 8, 2, tzinfo=UTC)
+    naive = _lifecycle(bytes_deleted_at="2026-08-02T00:00:00")
+    assert (
+        retention_explains_missing_ready_bytes(
+            lifecycle=naive,
+            repository_id=REPOSITORY_ID,
+            references=[],
+            ttl_seconds=1,
+            now=now,
+        )
+        is False
+    )
+    future = _lifecycle(bytes_deleted_at="2026-08-03T00:00:00+00:00")
+    assert (
+        retention_explains_missing_ready_bytes(
+            lifecycle=future,
+            repository_id=REPOSITORY_ID,
+            references=[],
+            ttl_seconds=1,
+            now=now,
+        )
+        is False
     )
 
 
@@ -811,6 +978,7 @@ def test_illegal_missing_artifact_still_blocks_readiness(
         mutation_store,
         watch.snapshot(),
         layout,
+        ttl_seconds=3600,
     )
     assert failures
     assert any("missing" in item for item in failures)
@@ -842,12 +1010,17 @@ def test_legal_ttl_delete_survives_restart_readiness(tmp_path: Path) -> None:
             assert upload.status_code == 201
             artifact_id = UUID(str(upload.json()["artifact_ref"]["artifact_id"]))
 
-        lifecycle = runtime.mutation_store.get_artifact_lifecycle(artifact_id)
-        assert lifecycle is not None
-        created = datetime.fromisoformat(lifecycle.created_at or CREATED_AT)
+        # Backdate durable created_at so wall-clock TTL has elapsed (cleaner clock == wall).
+        past = (datetime.now(UTC) - timedelta(seconds=10)).replace(microsecond=0).isoformat()
+        with runtime.mutation_store._lock:
+            runtime.mutation_store._connection.execute(
+                "UPDATE artifact_lifecycle SET created_at = ? WHERE artifact_id = ?",
+                (past, str(artifact_id)),
+            )
+            runtime.mutation_store._connection.commit()
+
         cleaner = runtime.artifact_cleaner
         assert isinstance(cleaner, ArtifactCleaner)
-        setattr(cleaner, "_clock", lambda: created + timedelta(seconds=2))
         cleaner.notify()
         ready = artifact_ready_path(runtime.layout, repository_id, artifact_id)
         deadline = time.monotonic() + 3.0

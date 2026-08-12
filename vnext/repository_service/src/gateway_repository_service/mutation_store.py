@@ -14,6 +14,8 @@ from enum import StrEnum
 from typing import Any, cast
 from uuid import UUID
 
+from gateway_repository_service.diagnostics import log_event
+
 SYNCHRONOUS_MUTATION_SUCCESS_STATUS = 201
 
 
@@ -452,10 +454,15 @@ class MutationStore:
             for row in cursor.fetchall():
                 try:
                     records.append(self._artifact_lifecycle_from_row(row))
-                except (TypeError, ValueError) as exc:
-                    raise MutationStoreInvariantError(
-                        "artifact lifecycle row is invalid"
-                    ) from exc
+                except (TypeError, ValueError):
+                    # Skip poison rows so one corrupt lifecycle cannot block cleanup.
+                    log_event(
+                        "artifact_cleanup",
+                        stage="list_candidates",
+                        result="skipped",
+                        cleanup_outcome="invalid_lifecycle_row",
+                    )
+                    continue
             return records
 
     @staticmethod

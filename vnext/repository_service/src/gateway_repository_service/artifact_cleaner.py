@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import logging
 import os
+import stat as stat_module
 import threading
 import time
 from collections.abc import Callable
@@ -215,10 +216,18 @@ class ArtifactCleaner:
             )
             return
 
-        ready_path = artifact_ready_path(self._layout, repository_id, artifact_id)
-        path_kind = classify_ready_artifact_path(ready_path, expected=ready_path)
+        expected = artifact_ready_path(self._layout, repository_id, artifact_id)
+        self._inventory_unknown_ready_entries(repository_id, expected.parent)
+        path_kind = classify_ready_artifact_path(
+            expected,
+            expected=expected,
+            artifact_id=artifact_id,
+        )
         if path_kind == "absent":
-            self._import_store.mark_artifact_bytes_deleted(artifact_id)
+            self._import_store.mark_artifact_bytes_deleted(
+                artifact_id,
+                deleted_at=self._deleted_at_stamp(),
+            )
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
@@ -244,7 +253,7 @@ class ArtifactCleaner:
             return
 
         outcome = try_unlink_ready_artifact_with_recheck(
-            ready_path,
+            expected,
             recheck=lambda: self._still_eligible(artifact_id),
         )
         if outcome == "busy":
@@ -269,19 +278,19 @@ class ArtifactCleaner:
                 logger=_LOGGER,
             )
             return
-        if outcome == "unlink_failed":
+        if outcome in {"unlink_failed", "inode_mismatch", "symlink"}:
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
                 artifact_id=artifact_id,
                 stage="delete",
                 result="retained",
-                cleanup_outcome="unlink_failed",
+                cleanup_outcome=outcome,
                 logger=_LOGGER,
             )
             return
         if outcome in {"deleted", "already_absent"}:
-            if ready_path.exists():
+            if expected.exists():
                 log_event(
                     "artifact_cleanup",
                     repository_id=repository_id,
@@ -292,7 +301,10 @@ class ArtifactCleaner:
                     logger=_LOGGER,
                 )
                 return
-            self._import_store.mark_artifact_bytes_deleted(artifact_id)
+            self._import_store.mark_artifact_bytes_deleted(
+                artifact_id,
+                deleted_at=self._deleted_at_stamp(),
+            )
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
@@ -301,6 +313,41 @@ class ArtifactCleaner:
                 result="deleted",
                 code=decision.reason.value,
                 cleanup_outcome=outcome,
+                logger=_LOGGER,
+            )
+
+    def _deleted_at_stamp(self) -> str:
+        return self._clock().astimezone(UTC).replace(microsecond=0).isoformat()
+
+    def _inventory_unknown_ready_entries(
+        self,
+        repository_id: UUID,
+        ready_dir: Path,
+    ) -> None:
+        if not ready_dir.is_dir():
+            return
+        try:
+            names = list(ready_dir.iterdir())
+        except OSError:
+            log_event(
+                "artifact_cleanup",
+                repository_id=repository_id,
+                stage="path_check",
+                result="retained",
+                cleanup_outcome="ready_dir_unreadable",
+                logger=_LOGGER,
+            )
+            return
+        for entry in names:
+            name = entry.name
+            if len(name) == 32 and all(ch in "0123456789abcdef" for ch in name):
+                continue
+            log_event(
+                "artifact_cleanup",
+                repository_id=repository_id,
+                stage="path_check",
+                result="retained",
+                cleanup_outcome="unknown_path_inventory",
                 logger=_LOGGER,
             )
 
@@ -316,11 +363,25 @@ class ArtifactCleaner:
         return decision.eligible
 
 
-def classify_ready_artifact_path(path: Path, *, expected: Path) -> str:
+def classify_ready_artifact_path(
+    path: Path,
+    *,
+    expected: Path,
+    artifact_id: UUID | None = None,
+) -> str:
     """Classify a candidate ready path without logging the raw path."""
 
     try:
-        if path.resolve(strict=False) != expected.resolve(strict=False):
+        resolved_path = path.resolve(strict=False)
+        resolved_expected = expected.resolve(strict=False)
+    except OSError:
+        return "unresolvable"
+    if resolved_path != resolved_expected:
+        return "unexpected_path"
+    if artifact_id is not None and path.name != artifact_id.hex:
+        return "malformed_name"
+    try:
+        if resolved_path.parent != resolved_expected.parent:
             return "unexpected_path"
     except OSError:
         return "unresolvable"
@@ -344,10 +405,14 @@ def try_unlink_ready_artifact_with_recheck(
     *,
     recheck: Callable[[], bool],
 ) -> str:
-    """Acquire admission flock, recheck eligibility, then unlink when safe."""
+    """Acquire admission flock, recheck eligibility and inode, then unlink when safe."""
 
+    open_flags = os.O_RDONLY
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    if nofollow:
+        open_flags |= nofollow
     try:
-        fd = os.open(ready_path, os.O_RDONLY)
+        fd = os.open(ready_path, open_flags)
     except FileNotFoundError:
         return "already_absent"
     except OSError:
@@ -359,9 +424,32 @@ def try_unlink_ready_artifact_with_recheck(
         except BlockingIOError:
             return "busy"
         try:
+            fd_stat = os.fstat(fd)
+            if fd_stat.st_nlink == 0:
+                return "already_absent"
+            if not nofollow:
+                try:
+                    if ready_path.is_symlink():
+                        return "symlink"
+                except OSError:
+                    return "unlink_failed"
+            try:
+                path_stat = ready_path.lstat()
+            except FileNotFoundError:
+                return "already_absent"
+            except OSError:
+                return "unlink_failed"
+            if path_stat.st_ino != fd_stat.st_ino:
+                return "inode_mismatch"
+            if stat_is_symlink(path_stat):
+                return "symlink"
             if not recheck():
                 return "ineligible"
             try:
+                # Recheck path inode immediately before unlink.
+                path_stat = ready_path.lstat()
+                if path_stat.st_ino != fd_stat.st_ino or path_stat.st_nlink == 0:
+                    return "inode_mismatch"
                 ready_path.unlink()
             except FileNotFoundError:
                 return "already_absent"
@@ -375,3 +463,7 @@ def try_unlink_ready_artifact_with_recheck(
                 pass
     finally:
         os.close(fd)
+
+
+def stat_is_symlink(path_stat: os.stat_result) -> bool:
+    return stat_module.S_ISLNK(path_stat.st_mode)

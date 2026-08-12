@@ -19,6 +19,7 @@ from gateway_repository_service.admission import (
 from gateway_repository_service.artifact_cleaner import (
     ArtifactCleaner,
     ArtifactCleanerLifecycle,
+    ArtifactCleanerShutdownError,
     NoOpArtifactCleaner,
 )
 from gateway_repository_service.auth_state import AuthState
@@ -306,10 +307,15 @@ class ServiceRuntime:
         grace = self.settings.import_shutdown_grace_seconds
         cleanup_errors: list[Exception] = []
         bridge_shutdown_error: BridgeShutdownError | None = None
+        cleaner_join_failed = False
 
         try:
             try:
                 self.artifact_cleaner.stop(timeout=grace)
+            except ArtifactCleanerShutdownError as exc:
+                _LOGGER.exception("artifact cleaner join failed; retaining durable ownership")
+                cleanup_errors.append(exc)
+                cleaner_join_failed = True
             except Exception as exc:
                 _LOGGER.exception("artifact cleaner stop failed")
                 cleanup_errors.append(exc)
@@ -353,22 +359,30 @@ class ServiceRuntime:
             upload_snap = self.upload_admission.snapshot()
             row_snap = self.row_stream_admission.snapshot()
             retain_ownership = (
-                not drained or upload_snap.in_use != 0 or row_snap.in_use != 0
+                cleaner_join_failed
+                or not drained
+                or upload_snap.in_use != 0
+                or row_snap.in_use != 0
             )
             if retain_ownership:
                 log_event(
                     "runtime_shutdown",
-                    result="permit_leak",
+                    result="permit_leak" if not cleaner_join_failed else "cleaner_join_failed",
                     capacity=upload_snap.capacity,
                     in_use=upload_snap.in_use + row_snap.in_use,
-                    cleanup_outcome="permit_in_use_after_drain_wait",
+                    cleanup_outcome=(
+                        "cleaner_alive_after_join_timeout"
+                        if cleaner_join_failed
+                        else "permit_in_use_after_drain_wait"
+                    ),
                     logger=_LOGGER,
                 )
-                drain_error = AdmissionDrainTimeoutError(
-                    upload_in_use=upload_snap.in_use,
-                    row_stream_in_use=row_snap.in_use,
-                )
-                cleanup_errors.append(drain_error)
+                if not cleaner_join_failed:
+                    drain_error = AdmissionDrainTimeoutError(
+                        upload_in_use=upload_snap.in_use,
+                        row_stream_in_use=row_snap.in_use,
+                    )
+                    cleanup_errors.append(drain_error)
                 log_event(
                     "runtime_shutdown",
                     result="stopped",
@@ -460,6 +474,7 @@ class ServiceRuntime:
                 self.mutation_store,
                 watch_snapshot,
                 self.layout,
+                ttl_seconds=self.settings.artifact_ttl_seconds,
             ):
                 return "mutation ledger and filesystem are inconsistent"
             if not self._provider_ready():

@@ -331,6 +331,38 @@ def test_shutdown_cleaner_error_still_releases_lock_and_stops_workers(
     control_store.close.assert_called_once()
 
 
+def test_shutdown_cleaner_join_timeout_retains_durable_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service.artifact_cleaner import ArtifactCleanerShutdownError
+
+    runtime = _fake_runtime()
+    cleaner = MagicMock()
+    cleaner.stop.side_effect = ArtifactCleanerShutdownError(
+        "artifact cleaner thread did not stop within 0.05s"
+    )
+    runtime.artifact_cleaner = cleaner
+    worker = MagicMock()
+    worker.wait_for_quiescence.return_value = True
+    runtime.import_worker_pool = worker
+    root_lock = MagicMock()
+    root_lock.is_held.return_value = True
+    runtime.root_lock = root_lock
+    control_store = MagicMock()
+    control_store.is_open.return_value = True
+    runtime.control_store = control_store
+    monkeypatch.setattr(
+        "gateway_repository_service.runtime.BRIDGE_REGISTRY.close_all",
+        lambda *_a, **_k: None,
+    )
+    with pytest.raises(ArtifactCleanerShutdownError):
+        runtime.shutdown()
+    worker.begin_shutdown.assert_called()
+    worker.stop.assert_called()
+    root_lock.release.assert_not_called()
+    control_store.close.assert_not_called()
+
+
 def test_shutdown_control_store_close_error_still_releases_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

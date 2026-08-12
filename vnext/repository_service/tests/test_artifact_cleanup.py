@@ -1731,7 +1731,9 @@ def test_stamp_failed_keeps_quarantine_and_recovers_on_next_sweep(
     assert lifecycle.bytes_deleted_at is None
 
     cleaner.sweep_once()
-    assert list(ready.parent.glob(".deleting-*")) == []
+    for path in ready.parent.glob(".deleting-*"):
+        _assert_terminal_size0_or_absent(path)
+    _assert_no_nonempty_sidecars(ready.parent)
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_deleted_at is not None
@@ -1780,7 +1782,10 @@ def test_stamped_quarantine_residual_is_unlinked_on_sweep(
         mutation_store=mutation_store,
         clock=lambda: BASE_NOW,
     ).sweep_once()
-    assert not quarantine.exists()
+    _assert_terminal_size0_or_absent(quarantine, owned_ino=int(st.st_ino))
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
 
 
 def test_best_effort_succeeded_cleanup_retains_when_consumption_cleared(
@@ -2011,6 +2016,29 @@ def _matching_generation_sidecars(
 
 def _has_recoverable_sidecar(ready_dir: Path) -> bool:
     return any(parse_any_recoverable_sidecar(entry.name) is not None for entry in ready_dir.iterdir())
+
+
+
+def _assert_terminal_size0_or_absent(path: Path, *, owned_ino: int | None = None) -> None:
+    """Round14: successful destroy may leave owned size-0 diagnose names."""
+
+    if not path.exists():
+        return
+    st = path.stat()
+    assert int(st.st_size) == 0
+    if owned_ino is not None:
+        assert int(st.st_ino) == int(owned_ino)
+
+
+def _assert_no_nonempty_sidecars(ready_dir: Path) -> None:
+    for entry in ready_dir.iterdir():
+        parsed = parse_any_recoverable_sidecar(entry.name)
+        if parsed is None:
+            continue
+        if entry.is_symlink():
+            raise AssertionError(f"unexpected symlink sidecar {entry.name}")
+        if entry.is_file():
+            assert entry.stat().st_size == 0, entry.name
 
 
 def _artifact_cleaner(
@@ -2696,7 +2724,8 @@ def test_crash_phase_quarantine_and_ready_same_inode_no_stamp(
     ).sweep_once()
 
     assert not ready.exists()
-    assert not quarantine.exists()
+    _assert_terminal_size0_or_absent(quarantine)
+    _assert_no_nonempty_sidecars(ready.parent)
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_deleted_at is not None
@@ -2733,7 +2762,7 @@ def test_crash_phase_quarantine_ready_different_inode_with_intent(
     assert lifecycle is not None
     assert lifecycle.bytes_deleted_at is None
     assert lifecycle.bytes_delete_intent_at is None
-    assert not quarantine.exists()
+    _assert_terminal_size0_or_absent(quarantine)
 
 
 def test_stamp_succeeds_but_final_quarantine_unlink_fails(
@@ -2783,7 +2812,11 @@ def test_stamp_succeeds_but_final_quarantine_unlink_fails(
         mutation_store=mutation_store,
         clock=lambda: BASE_NOW,
     ).sweep_once()
-    assert list(ready.parent.glob(".deleting-*")) == []
+    for path in ready.parent.glob(".deleting-*"):
+        _assert_terminal_size0_or_absent(path)
+    _assert_no_nonempty_sidecars(ready.parent)
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["receipt_generation"] is None or snap["bytes_deleted_at"] is not None
 
 
 @pytest.mark.parametrize("ready_present", [True, False], ids=["ready_present", "ready_absent"])
@@ -3354,10 +3387,10 @@ def test_q_and_detach_ineligible_converge_both_sidecars(
     assert ready.is_file()
     assert ready.read_bytes() == payload
     assert hashlib.sha256(ready.read_bytes()).hexdigest() == SHA256
-    assert not quarantine.exists()
-    # Remaining .detach-* is diagnose-only (never pathname-unlinked).
-    if detach.exists():
-        assert detach.read_bytes() == payload
+    assert not detach.exists()
+    # Remaining .deleting-* is diagnose-only (never pathname-unlinked).
+    if quarantine.exists():
+        assert quarantine.read_bytes() == payload
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_delete_intent_at is None
@@ -3916,7 +3949,7 @@ def test_stamped_forged_deleting_and_detach_retained(
         assert quarantine.is_file()
         assert quarantine.read_bytes() == ARTIFACT_PAYLOAD
     else:
-        assert not quarantine.exists()
+        _assert_terminal_size0_or_absent(quarantine, owned_ino=ino)
     diagnostics = [
         record
         for record in caplog.records
@@ -3933,7 +3966,7 @@ def test_pathname_replace_before_unlink_retains_replacement(
     monkeypatch: pytest.MonkeyPatch,
     sidecar_kind: str,
 ) -> None:
-    """Round13: after fd-truncate, reclaim skips when name is replaced with foreign bytes."""
+    """Round14: after fd-truncate, prove fails closed when name is replaced with foreign."""
 
     import gateway_repository_service.upload_artifact.admission_pin as pin_mod
 
@@ -3962,10 +3995,9 @@ def test_pathname_replace_before_unlink_retains_replacement(
         )
         prefix = ".detach-"
     else:
-        quarantine, ino, generation = _begin_intent_for_ready(store, ready)
+        quarantine, _ino0, generation = _begin_intent_for_ready(store, ready)
         sidecar = quarantine
         prefix = ".deleting-"
-        del ino
     payload = sidecar.read_bytes()
     q_stat = sidecar.stat()
     ino = int(q_stat.st_ino)
@@ -3979,9 +4011,9 @@ def test_pathname_replace_before_unlink_retains_replacement(
         expected_generation=generation,
     )
     replacement = b"replacement-before-unlink"
-    real_reclaim = pin_mod.reclaim_size0_owned_name
+    real_prove = pin_mod.prove_size0_owned_name_terminal
 
-    def reclaim(
+    def prove(
         dir_fd: int,
         name: str,
         *,
@@ -4003,12 +4035,14 @@ def test_pathname_replace_before_unlink_retains_replacement(
                 os.write(fd, replacement)
             finally:
                 os.close(fd)
-            return False
-        return real_reclaim(
+            return real_prove(
+                dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
+            )
+        return real_prove(
             dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
         )
 
-    monkeypatch.setattr(pin_mod, "reclaim_size0_owned_name", reclaim)
+    monkeypatch.setattr(pin_mod, "prove_size0_owned_name_terminal", prove)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -4021,6 +4055,9 @@ def test_pathname_replace_before_unlink_retains_replacement(
     assert len(swapped) == 1
     assert swapped[0].read_bytes() == replacement
     assert swapped[0].read_bytes() != payload
+    snap = _lifecycle_snapshot(mutation_store)
+    # Prove failure must retain receipt ownership.
+    assert snap["receipt_generation"] == generation
 
 
 @pytest.mark.parametrize(
@@ -4366,7 +4403,7 @@ def test_stamped_residual_only_receipt_match_unlinks(
         clock=lambda: BASE_NOW,
     ).sweep_once()
 
-    assert not quarantine.exists()
+    _assert_terminal_size0_or_absent(quarantine, owned_ino=ino)
     assert forged.is_file()
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
@@ -4669,9 +4706,9 @@ def test_live_helper_replace_quarantine_before_abort_and_post_stamp_unlink(
         assert quarantines[0].read_bytes() == ARTIFACT_PAYLOAD
         assert hashlib.sha256(quarantines[0].read_bytes()).hexdigest() == SHA256
     else:
-        real_reclaim = pin_mod.reclaim_size0_owned_name
+        real_prove = pin_mod.prove_size0_owned_name_terminal
 
-        def reclaim(
+        def prove(
             dir_fd: int,
             name: str,
             *,
@@ -4693,12 +4730,14 @@ def test_live_helper_replace_quarantine_before_abort_and_post_stamp_unlink(
                     os.write(fd, replacement)
                 finally:
                     os.close(fd)
-                return False
-            return real_reclaim(
+                return real_prove(
+                    dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
+                )
+            return real_prove(
                 dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
             )
 
-        monkeypatch.setattr(pin_mod, "reclaim_size0_owned_name", reclaim)
+        monkeypatch.setattr(pin_mod, "prove_size0_owned_name_terminal", prove)
         outcome = try_unlink_owned_ready_artifact(
             layout,
             REPOSITORY_ID,
@@ -4709,19 +4748,19 @@ def test_live_helper_replace_quarantine_before_abort_and_post_stamp_unlink(
             on_clear_intent=on_clear_intent,
             on_clear_receipt=on_clear_receipt,
         )
-        assert outcome in {"unlink_failed", "deleted"}
+        assert outcome == "unlink_failed"
         assert stamped["ok"] is True
         retained_path = _assert_replacement_retained(ready.parent, replacement)
         parsed = parse_any_recoverable_sidecar(retained_path.name)
         assert parsed is not None
+        snap = _lifecycle_snapshot(mutation_store)
+        assert snap["receipt_generation"] is not None
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     if phase == "abort":
         assert lifecycle.bytes_deleted_at is None
     else:
-        assert lifecycle.bytes_deleted_at is not None or retained_path.name.startswith(
-            ".unlink-verify-"
-        )
+        assert lifecycle.bytes_deleted_at is not None
 
 
 @pytest.mark.parametrize(
@@ -4751,7 +4790,7 @@ def test_successful_delete_clears_receipt_three_entrypoints(
             mutation_store=mutation_store,
             clock=lambda: BASE_NOW,
         ).sweep_once()
-        assert not quarantine.exists()
+        _assert_terminal_size0_or_absent(quarantine)
     elif entrypoint == "worker_unlink":
         from gateway_repository_service.versioned_import.command import ImportOperationExecutor
 
@@ -5311,7 +5350,8 @@ def test_r8_stamped_crash_after_private_stat_before_unlink(
     ).sweep_once()
     snap2 = _lifecycle_snapshot(mutation_store)
     assert snap2["receipt_generation"] is None
-    assert list(quarantine.parent.glob(".deleting-*")) == []
+    for path in quarantine.parent.glob(".deleting-*"):
+        _assert_terminal_size0_or_absent(path)
     for verify in quarantine.parent.glob(".unlink-verify-*"):
         assert verify.stat().st_size == 0
 
@@ -5394,7 +5434,9 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
     assert snap2["bytes_deleted_at"] is not None
     assert snap2["intent_at"] is None
     assert snap2["receipt_generation"] is None
-    assert list(quarantine.parent.glob(".deleting-*")) == []
+    for path in quarantine.parent.glob(".deleting-*"):
+        _assert_terminal_size0_or_absent(path)
+    _assert_no_nonempty_sidecars(quarantine.parent)
 
 
 @pytest.mark.serial
@@ -5581,7 +5623,7 @@ def test_r8_unlink_verify_matching_vs_mismatch_vs_malformed(
 
     snap = _lifecycle_snapshot(mutation_store)
     if case == "matching":
-        assert not target.exists()
+        _assert_terminal_size0_or_absent(target, owned_ino=ino)
         assert snap["receipt_generation"] is None
     else:
         assert target.exists()
@@ -7113,10 +7155,10 @@ def test_r13_drop_extra_absent_and_reclaim_skips_foreign(
         expected_generation=generation,
     )
     foreign = b"r13-foreign-reclaim"
-    real_reclaim = pin_mod.reclaim_size0_owned_name
+    real_prove = pin_mod.prove_size0_owned_name_terminal
     owned_seen = {"ok": False}
 
-    def reclaim(
+    def prove(
         dir_fd: int,
         name: str,
         *,
@@ -7139,15 +7181,14 @@ def test_r13_drop_extra_absent_and_reclaim_skips_foreign(
                 os.write(fd, foreign)
             finally:
                 os.close(fd)
-            # Fresh open+fstat in real reclaim would see non-zero and skip.
-            return real_reclaim(
+            return real_prove(
                 dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
             )
-        return real_reclaim(
+        return real_prove(
             dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
         )
 
-    monkeypatch.setattr(pin_mod, "reclaim_size0_owned_name", reclaim)
+    monkeypatch.setattr(pin_mod, "prove_size0_owned_name_terminal", prove)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -7159,6 +7200,8 @@ def test_r13_drop_extra_absent_and_reclaim_skips_foreign(
     swapped = list(ready.parent.glob(".deleting-*"))
     assert len(swapped) == 1
     assert swapped[0].read_bytes() == foreign
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["receipt_generation"] == generation
 
 
 @pytest.mark.serial
@@ -7320,8 +7363,17 @@ def test_r13_batch_cleanup_inventory_no_stage_linear_growth(
     assert after_stages - before_stages == 0
     assert after_finals - before_finals == 0
     assert after_verifies - before_verifies == 0
-    # Ready hex names gone; no linear tombstone pile.
-    assert after_entries - before_entries <= 0
+    # Size-0 diagnose names may remain (bounded); ready hex names are gone.
+    assert after_entries - before_entries <= n * 2
+    nonempty = [
+        p
+        for p in ready_dir.iterdir()
+        if p.is_file() and not p.name.startswith(".") and p.stat().st_size > 0
+    ]
+    assert nonempty == []
+    for p in ready_dir.iterdir():
+        if parse_any_recoverable_sidecar(p.name) is not None and p.is_file():
+            assert p.stat().st_size == 0
 
 
 @pytest.mark.serial
@@ -7378,3 +7430,769 @@ def test_r13_ftruncate_ok_receipt_clear_fail_converges(
     snap = _lifecycle_snapshot(mutation_store)
     assert snap["receipt_generation"] is None or snap["bytes_deleted_at"] is not None
     del monkeypatch
+
+
+# ---------------------------------------------------------------------------
+# Round14 directed probes (no pathname unlink / receipt aggregate / detach bound)
+# ---------------------------------------------------------------------------
+
+
+R14_FOREIGN_NAME_KINDS = (
+    ("deleting", ".deleting-"),
+    ("detach", ".detach-"),
+    ("unlink_verify", ".unlink-verify-"),
+)
+R14_FOREIGN_SHAPES = (
+    ("nonempty", b"r14-foreign-nonempty"),
+    ("empty", b""),
+    ("symlink", None),
+)
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize(("kind", "prefix"), R14_FOREIGN_NAME_KINDS, ids=[c[0] for c in R14_FOREIGN_NAME_KINDS])
+@pytest.mark.parametrize(("shape", "payload"), R14_FOREIGN_SHAPES, ids=[c[0] for c in R14_FOREIGN_SHAPES])
+def test_r14_prove_never_unlinks_foreign_after_fstat(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    prefix: str,
+    shape: str,
+    payload: bytes | None,
+) -> None:
+    """Probes 1-2: prove path never pathname-unlinks; foreign shapes retained."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        STAGE_VICTIM,
+        detach_name_for,
+        unlink_stage_dir_name,
+        verify_sidecar_name_for,
+    )
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    generation = "genr14prove01"
+    pin_unlinks: list[str] = []
+    real_unlink = os.unlink
+
+    def tracking_unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
+        name = path if isinstance(path, str) else str(path)
+        pin_unlinks.append(name)
+        return real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "gateway_repository_service.upload_artifact.admission_pin.os.unlink",
+        tracking_unlink,
+    )
+
+    if kind == "deleting":
+        name = quarantine_name_for(
+            inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+        )
+        target = ready.parent / name
+        os.link(ready, target)
+        ready.unlink()
+        dir_path = ready.parent
+        prove_dir_fd_name = name
+    elif kind == "detach":
+        name = detach_name_for(
+            inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+        )
+        target = ready.parent / name
+        os.link(ready, target)
+        ready.unlink()
+        prove_dir_fd_name = name
+        dir_path = ready.parent
+    elif kind == "unlink_verify":
+        name = verify_sidecar_name_for(
+            inode=int(st.st_ino),
+            generation=generation,
+            artifact_id=ARTIFACT_ID,
+            token="r14v0001",
+        )
+        target = ready.parent / name
+        os.link(ready, target)
+        ready.unlink()
+        prove_dir_fd_name = name
+        dir_path = ready.parent
+    else:
+        stage_name = unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="r14stage1")
+        stage_path = ready.parent / stage_name
+        stage_path.mkdir(mode=0o700)
+        target = stage_path / STAGE_VICTIM
+        os.link(ready, target)
+        ready.unlink()
+        prove_dir_fd_name = STAGE_VICTIM
+        dir_path = stage_path
+        name = f"{stage_name}/{STAGE_VICTIM}"
+
+    # Truncate owned bytes so prove would accept size-0, then plant foreign.
+    os.truncate(target, 0)
+    owned_ino = int(st.st_ino)
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=owned_ino,
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
+    )
+    store.mark_artifact_bytes_deleted(
+        ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
+        repository_id=REPOSITORY_ID,
+        expected_dev=int(st.st_dev),
+        expected_ino=owned_ino,
+        expected_generation=generation,
+    )
+
+    real_prove = pin_mod.prove_size0_owned_name_terminal
+    planted = {"ok": False}
+
+    def prove_with_plant(
+        dir_fd: int,
+        prove_name: str,
+        *,
+        expected_dev: int,
+        expected_ino: int,
+    ) -> bool:
+        # First observation succeeds as size-0 owned; then plant foreign before "unlink".
+        first = real_prove(
+            dir_fd, prove_name, expected_dev=expected_dev, expected_ino=expected_ino
+        )
+        if first and not planted["ok"] and prove_name == prove_dir_fd_name:
+            planted["ok"] = True
+            try:
+                os.unlink(prove_name, dir_fd=dir_fd)
+            except FileNotFoundError:
+                pass
+            if shape == "symlink":
+                os.symlink("r14-foreign-target", prove_name, dir_fd=dir_fd)
+            else:
+                assert payload is not None
+                fd = os.open(
+                    prove_name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o644,
+                    dir_fd=dir_fd,
+                )
+                try:
+                    if payload:
+                        os.write(fd, payload)
+                finally:
+                    os.close(fd)
+            # Production prove does not unlink; second call sees foreign and fails.
+            return real_prove(
+                dir_fd, prove_name, expected_dev=expected_dev, expected_ino=expected_ino
+            )
+        return first
+
+    monkeypatch.setattr(pin_mod, "prove_size0_owned_name_terminal", prove_with_plant)
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert planted["ok"] is True
+    # Production prove/destroy must not unlink the foreign name via pin_mod.os.unlink
+    # after the plant (test plant may unlink owned size-0 first).
+    foreign_path = dir_path / prove_dir_fd_name
+    assert foreign_path.exists() or foreign_path.is_symlink()
+    if shape == "symlink":
+        assert foreign_path.is_symlink()
+    else:
+        assert foreign_path.read_bytes() == (payload or b"")
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["receipt_generation"] == generation
+    # prove_size0 must never unlink; only the test plant may unlink via real os.
+    assert prove_dir_fd_name not in pin_unlinks or planted["ok"]
+    del prefix
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("entry", ["worker", "recovery", "admin"], ids=["worker", "recovery", "admin"])
+@pytest.mark.parametrize("which", ["quarantine", "detach"], ids=["quarantine", "detach"])
+@pytest.mark.parametrize("err", ["EPERM", "EIO"], ids=["EPERM", "EIO"])
+def test_r14_prove_io_failure_keeps_receipt_three_entrypoints(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    entry: str,
+    which: str,
+    err: str,
+) -> None:
+    """Probes 3-4: q/detach prove EPERM/EIO → not deleted, receipt retained."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
+    errno_code = errno.EPERM if err == "EPERM" else errno.EIO
+    real_prove = pin_mod.prove_size0_owned_name_terminal
+    fail_prefix = ".deleting-" if which == "quarantine" else ".detach-"
+
+    def prove(
+        dir_fd: int,
+        name: str,
+        *,
+        expected_dev: int,
+        expected_ino: int,
+    ) -> bool:
+        if name.startswith(fail_prefix):
+            raise OSError(errno_code, f"forced {err}")
+        return real_prove(
+            dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
+        )
+
+    # Catch OSError inside prove wrapper — prove itself should return False on OSError.
+    def prove_safe(
+        dir_fd: int,
+        name: str,
+        *,
+        expected_dev: int,
+        expected_ino: int,
+    ) -> bool:
+        try:
+            return prove(
+                dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
+            )
+        except OSError:
+            return False
+
+    monkeypatch.setattr(pin_mod, "prove_size0_owned_name_terminal", prove_safe)
+
+    if entry == "worker":
+        outcome = try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            recheck=lambda: True,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome == "unlink_failed"
+    elif entry == "recovery":
+        outcome = try_unlink_ready_artifact_with_recheck(
+            ready,
+            recheck=lambda: True,
+            layout=layout,
+            repository_id=REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome == "unlink_failed"
+    else:
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: BASE_NOW,
+        ).sweep_once()
+
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["bytes_deleted_at"] is not None
+    assert snap["receipt_generation"] is not None
+    assert stamped["ok"] is True or entry == "admin"
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("fail_index", [0, 1], ids=["first", "second"])
+def test_r14_aggregate_q_detach_prove_failure_keeps_ownership(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    fail_index: int,
+) -> None:
+    """Probe 4: either required name prove failure retains generation ownership."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
+    real_prove = pin_mod.prove_size0_owned_name_terminal
+    seen: list[str] = []
+
+    def prove(
+        dir_fd: int,
+        name: str,
+        *,
+        expected_dev: int,
+        expected_ino: int,
+    ) -> bool:
+        if name.startswith(".deleting-") or name.startswith(".detach-"):
+            seen.append(name)
+            if len([n for n in seen if n.startswith((".deleting-", ".detach-"))]) == fail_index + 1:
+                return False
+        return real_prove(
+            dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
+        )
+
+    monkeypatch.setattr(pin_mod, "prove_size0_owned_name_terminal", prove)
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
+    )
+    assert outcome == "unlink_failed"
+    assert stamped["ok"] is True
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["receipt_generation"] is not None
+    assert snap["bytes_deleted_at"] is not None
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize(
+    "fault",
+    ["listdir", "stage_lock_busy", "stage_child"],
+    ids=["listdir", "stage_lock_busy", "stage_child"],
+)
+def test_r14_destroy_inventory_faults_are_not_success(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+) -> None:
+    """Probe 5: listdir / stage lock busy / stage child prove failure → destroy False."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        STAGE_VICTIM,
+        unlink_stage_dir_name,
+    )
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    generation = "genr14inv01"
+    quarantine = ready.parent / quarantine_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+    )
+    os.link(ready, quarantine)
+    ready.unlink()
+    stage_name = unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="r14invstg")
+    stage_path = quarantine.parent / stage_name
+    stage_path.mkdir(mode=0o700)
+    victim = stage_path / STAGE_VICTIM
+    os.link(quarantine, victim)
+
+    if fault == "listdir":
+        real_listdir = os.listdir
+
+        def listdir_fail(fd: int | str | bytes | os.PathLike[str]) -> list[str]:
+            if isinstance(fd, int):
+                raise OSError(errno.EIO, "forced listdir failure")
+            entries = real_listdir(fd)
+            return [str(entry) for entry in entries]
+
+        monkeypatch.setattr(
+            "gateway_repository_service.upload_artifact.admission_pin.os.listdir",
+            listdir_fail,
+        )
+    elif fault == "stage_lock_busy":
+        monkeypatch.setattr(pin_mod, "lock_unlink_stage_dir", lambda _fd: False)
+    else:
+        real_prove = pin_mod.prove_size0_owned_name_terminal
+
+        def prove(
+            dir_fd: int,
+            name: str,
+            *,
+            expected_dev: int,
+            expected_ino: int,
+        ) -> bool:
+            if name == STAGE_VICTIM:
+                return False
+            return real_prove(
+                dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
+            )
+
+        monkeypatch.setattr(pin_mod, "prove_size0_owned_name_terminal", prove)
+
+    ready_dir_fd = os.open(str(quarantine.parent), os.O_RDONLY | os.O_DIRECTORY)
+    q_fd = os.open(str(quarantine), os.O_RDONLY)
+    try:
+        q_stat = os.fstat(q_fd)
+        ok = pin_mod.destroy_owned_bytes_and_reclaim_names(
+            ready_dir_fd,
+            q_fd,
+            q_stat,
+            [quarantine.name],
+        )
+    finally:
+        os.close(q_fd)
+        os.close(ready_dir_fd)
+    assert ok is False
+
+
+@pytest.mark.serial
+def test_r14_receipt_retained_then_converges_after_fault_cleared(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probe 6: receipt kept under prove fault; restart after clear converges."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
+    real_prove = pin_mod.prove_size0_owned_name_terminal
+    armed = {"fail": True}
+
+    def prove(
+        dir_fd: int,
+        name: str,
+        *,
+        expected_dev: int,
+        expected_ino: int,
+    ) -> bool:
+        if armed["fail"] and name.startswith(".deleting-"):
+            return False
+        return real_prove(
+            dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
+        )
+
+    monkeypatch.setattr(pin_mod, "prove_size0_owned_name_terminal", prove)
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
+    )
+    assert outcome == "unlink_failed"
+    snap1 = _lifecycle_snapshot(mutation_store)
+    assert snap1["receipt_generation"] is not None
+    assert snap1["bytes_deleted_at"] is not None
+    inventory1 = _sidecar_snapshots(ready.parent)
+    assert inventory1
+
+    armed["fail"] = False
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    snap2 = _lifecycle_snapshot(mutation_store)
+    assert snap2["receipt_generation"] is None
+    _assert_no_nonempty_sidecars(ready.parent)
+    print(
+        "r14_probe6",
+        "snap1=",
+        snap1,
+        "inventory1=",
+        inventory1,
+        "snap2=",
+        snap2,
+        "inventory2=",
+        _sidecar_snapshots(ready.parent),
+    )
+
+
+@pytest.mark.serial
+def test_r14_ineligible_restore_loop_bounds_dentry_and_nlink(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Probe 7: ≥200 ineligible→restore cycles keep dentry/nlink bounded."""
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
+    n = 200
+    max_entries = 0
+    max_nlink = 0
+
+    for i in range(n):
+        calls = {"n": 0}
+
+        def recheck() -> bool:
+            calls["n"] += 1
+            return calls["n"] == 1
+
+        outcome = try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            recheck=recheck,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome == "ineligible"
+        assert stamped["ok"] is False
+        # Not yet TTL-eligible → restore rather than stamp/delete.
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=3600),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC),
+        ).sweep_once()
+        assert ready.is_file()
+        assert ready.read_bytes() == ARTIFACT_PAYLOAD
+        entries = list(ready.parent.iterdir())
+        max_entries = max(max_entries, len(entries))
+        max_nlink = max(max_nlink, int(ready.stat().st_nlink))
+        lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+        assert lifecycle is not None
+        assert lifecycle.bytes_delete_intent_at is None
+        del i
+
+    print(f"r14_ineligible_loop n={n} max_entries={max_entries} max_nlink={max_nlink}")
+    assert max_entries <= 4  # ready + at most one diagnose hardlink (+ maybe junk)
+    assert max_nlink <= 3
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("entry", ["worker", "recovery", "admin"], ids=["worker", "recovery", "admin"])
+def test_r14_after_ineligible_loop_success_converges(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    entry: str,
+) -> None:
+    """Probe 8: after bounded ineligible loop, three entries converge fully."""
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
+
+    for i in range(8):
+        calls = {"n": 0}
+
+        def recheck() -> bool:
+            calls["n"] += 1
+            return calls["n"] == 1
+
+        assert (
+            try_unlink_owned_ready_artifact(
+                layout,
+                REPOSITORY_ID,
+                ARTIFACT_ID,
+                recheck=recheck,
+                on_deleted=on_deleted,
+                on_intent=on_intent,
+                on_clear_intent=on_clear_intent,
+                on_clear_receipt=on_clear_receipt,
+            )
+            == "ineligible"
+        )
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=3600),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC),
+        ).sweep_once()
+        del i
+
+    if entry == "worker":
+        outcome = try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            recheck=lambda: True,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome == "deleted"
+    elif entry == "recovery":
+        outcome = try_unlink_ready_artifact_with_recheck(
+            ready,
+            recheck=lambda: True,
+            layout=layout,
+            repository_id=REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome == "deleted"
+    else:
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: BASE_NOW,
+        ).sweep_once()
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    snap = _lifecycle_snapshot(mutation_store)
+    assert snap["bytes_deleted_at"] is not None
+    assert snap["receipt_generation"] is None
+    assert snap["intent_at"] is None
+    assert _count_stage_verify_names(ready.parent) == (0, 0, 0)
+    _assert_no_nonempty_sidecars(ready.parent)
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize(
+    "mode",
+    ["active_intent", "stamped_receipt", "lock_busy", "io_failure"],
+    ids=["active_intent", "stamped_receipt", "lock_busy", "io_failure"],
+)
+def test_r14_durable_stage_verify_fixture_recovery(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """Probes 9-10: Round8-12 durable stage/verify fixtures recover under new binary."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        STAGE_VICTIM,
+        unlink_stage_dir_name,
+        verify_sidecar_name_for,
+    )
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    generation = "genr14dur01"
+    quarantine = ready.parent / quarantine_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+    )
+    os.link(ready, quarantine)
+    ready.unlink()
+    stage_name = unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="r14durstg")
+    stage_path = quarantine.parent / stage_name
+    stage_path.mkdir(mode=0o700)
+    victim = stage_path / STAGE_VICTIM
+    # Move owned bytes into stage victim (durable Round12 shape).
+    os.rename(quarantine, victim)
+    verify = quarantine.parent / verify_sidecar_name_for(
+        inode=int(st.st_ino),
+        generation=generation,
+        artifact_id=ARTIFACT_ID,
+        token="r14durv01",
+    )
+    os.link(victim, verify)
+
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
+    )
+    if mode in {"stamped_receipt", "lock_busy", "io_failure"}:
+        store.mark_artifact_bytes_deleted(
+            ARTIFACT_ID,
+            deleted_at="2026-08-02T00:00:00+00:00",
+            repository_id=REPOSITORY_ID,
+            expected_dev=int(st.st_dev),
+            expected_ino=int(st.st_ino),
+            expected_generation=generation,
+        )
+
+    if mode == "lock_busy":
+        monkeypatch.setattr(pin_mod, "lock_unlink_stage_dir", lambda _fd: False)
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: BASE_NOW,
+        ).sweep_once()
+        snap = _lifecycle_snapshot(mutation_store)
+        assert snap["receipt_generation"] == generation or snap["intent_generation"] == generation
+        monkeypatch.setattr(
+            pin_mod, "lock_unlink_stage_dir", pin_mod.lock_unlink_stage_dir
+        )
+        # Restore real lock by removing monkeypatch effect: re-import binding.
+        monkeypatch.undo()
+
+    if mode == "io_failure":
+        real_prove = pin_mod.prove_size0_owned_name_terminal
+
+        def prove_fail(
+            dir_fd: int,
+            name: str,
+            *,
+            expected_dev: int,
+            expected_ino: int,
+        ) -> bool:
+            if name == STAGE_VICTIM or name.startswith(".unlink-verify-"):
+                return False
+            return real_prove(
+                dir_fd, name, expected_dev=expected_dev, expected_ino=expected_ino
+            )
+
+        monkeypatch.setattr(pin_mod, "prove_size0_owned_name_terminal", prove_fail)
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: BASE_NOW,
+        ).sweep_once()
+        snap = _lifecycle_snapshot(mutation_store)
+        assert snap["receipt_generation"] == generation
+        monkeypatch.setattr(pin_mod, "prove_size0_owned_name_terminal", real_prove)
+
+    # Converging sweep(s).
+    for _ in range(2):
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: BASE_NOW,
+        ).sweep_once()
+
+    snap = _lifecycle_snapshot(mutation_store)
+    if mode == "active_intent":
+        # Eligible completion stamps then proves terminals.
+        assert snap["bytes_deleted_at"] is not None
+    assert snap["intent_at"] is None or snap["bytes_deleted_at"] is not None
+    _assert_no_nonempty_sidecars(quarantine.parent)

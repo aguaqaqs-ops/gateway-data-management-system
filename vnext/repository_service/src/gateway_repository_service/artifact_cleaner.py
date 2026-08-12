@@ -1156,11 +1156,14 @@ class ArtifactCleaner:
                 return
 
             if ready_absent:
-                # Prefer quarantine over detach for restore; leave leftover detach
-                # as diagnose-only.
+                # Prefer detach→ready so leftover is at most one quarantine hardlink.
+                # Falling back to quarantine leaves at most one detach diagnose.
                 restore_sidecar = next(
-                    (item for item in sidecars if item[2] == "quarantine"),
-                    sidecars[0],
+                    (item for item in sidecars if item[2] == "detach"),
+                    next(
+                        (item for item in sidecars if item[2] == "quarantine"),
+                        sidecars[0],
+                    ),
                 )
                 restore_name = restore_sidecar[0]
                 try:
@@ -1185,8 +1188,8 @@ class ArtifactCleaner:
                             logger=_LOGGER,
                         )
                         return
-                    # Ready restored with full payload. Leave any remaining
-                    # .detach-* as diagnose-only; never pathname-unlink them.
+                    # Ready restored with full payload. Remaining same-inode
+                    # sidecars are diagnose-only; never pathname-unlink them.
                     self._clear_intent_best_effort(
                         artifact_id,
                         repository_id,

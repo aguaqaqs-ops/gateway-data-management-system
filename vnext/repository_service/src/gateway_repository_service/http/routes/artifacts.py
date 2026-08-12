@@ -68,6 +68,9 @@ def register_artifact_routes(app: FastAPI) -> None:
             layout=runtime.layout,
             mutation_store=runtime.mutation_store,
             upload_admission=runtime.upload_admission,
+            upload_inflight=runtime.upload_inflight,
+            upload_cancels=runtime.upload_cancels,
+            stopping=runtime.is_stopping,
             request_id=str(request_id) if request_id is not None else None,
         )
 

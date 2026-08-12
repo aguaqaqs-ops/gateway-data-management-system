@@ -5,12 +5,17 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from gateway_repository_service.admission import PermitPool
+from gateway_repository_service.admission import (
+    InflightKeyGate,
+    PermitPool,
+    UploadCancelRegistry,
+)
 from gateway_repository_service.artifact_cleaner import (
     ArtifactCleanerLifecycle,
     NoOpArtifactCleaner,
@@ -71,6 +76,11 @@ class ServiceRuntime:
     auth_state: AuthState
     upload_admission: PermitPool = field(default_factory=lambda: PermitPool(8), repr=False)
     row_stream_admission: PermitPool = field(default_factory=lambda: PermitPool(8), repr=False)
+    upload_inflight: InflightKeyGate = field(default_factory=InflightKeyGate, repr=False)
+    upload_cancels: UploadCancelRegistry = field(
+        default_factory=UploadCancelRegistry,
+        repr=False,
+    )
     artifact_cleaner: ArtifactCleanerLifecycle = field(
         default_factory=NoOpArtifactCleaner,
         repr=False,
@@ -155,6 +165,9 @@ class ServiceRuntime:
                 shutdown_event=stopping,
             )
             import_worker_pool.start()
+            stack.callback(
+                lambda: import_worker_pool.stop(timeout=settings.import_shutdown_grace_seconds)
+            )
             import_worker_pool.notify()
             read_provider_factory = cls._build_read_provider_factory(
                 settings=settings,
@@ -168,6 +181,8 @@ class ServiceRuntime:
             )
             upload_admission = PermitPool(settings.max_concurrent_uploads)
             row_stream_admission = PermitPool(settings.max_concurrent_row_streams)
+            upload_inflight = InflightKeyGate()
+            upload_cancels = UploadCancelRegistry()
             cleaner = artifact_cleaner if artifact_cleaner is not None else NoOpArtifactCleaner()
             stack.pop_all()
             runtime = cls(
@@ -185,6 +200,8 @@ class ServiceRuntime:
                 auth_state=AuthState(bearer_token=bearer_token),
                 upload_admission=upload_admission,
                 row_stream_admission=row_stream_admission,
+                upload_inflight=upload_inflight,
+                upload_cancels=upload_cancels,
                 artifact_cleaner=cleaner,
                 admission_fault_injector=admission_fault_injector or NoOpImportAdmissionFaultInjector(),
                 reconciliation_failures=reconciliation.blocking_failures,
@@ -256,24 +273,37 @@ class ServiceRuntime:
             in_use=self.upload_admission.in_use,
             logger=_LOGGER,
         )
+        self.upload_cancels.cancel_all()
         grace = self.settings.import_shutdown_grace_seconds
-        self.artifact_cleaner.stop(timeout=grace)
-        self.import_worker_pool.begin_shutdown()
+        cleanup_errors: list[Exception] = []
+        bridge_shutdown_error: BridgeShutdownError | None = None
+
         try:
-            if not self.import_worker_pool.wait_for_quiescence(timeout=grace):
-                self.import_worker_pool.cancel_active_operations()
-                self.dolt_runner.terminate_active_children(grace_seconds=grace)
             try:
-                self.import_worker_pool.stop(timeout=grace * 2)
-            except Exception:
-                _LOGGER.exception("import worker pool did not stop cleanly")
-                self.dolt_runner.terminate_active_children(grace_seconds=grace)
+                self.artifact_cleaner.stop(timeout=grace)
+            except Exception as exc:
+                _LOGGER.exception("artifact cleaner stop failed")
+                cleanup_errors.append(exc)
+
+            try:
+                self.import_worker_pool.begin_shutdown()
+                if not self.import_worker_pool.wait_for_quiescence(timeout=grace):
+                    self.import_worker_pool.cancel_active_operations()
+                    self.dolt_runner.terminate_active_children(grace_seconds=grace)
                 try:
-                    self.import_worker_pool.stop(timeout=grace)
+                    self.import_worker_pool.stop(timeout=grace * 2)
                 except Exception:
-                    _LOGGER.exception("import worker pool still running after second stop")
+                    _LOGGER.exception("import worker pool did not stop cleanly")
+                    self.dolt_runner.terminate_active_children(grace_seconds=grace)
+                    try:
+                        self.import_worker_pool.stop(timeout=grace)
+                    except Exception as exc:
+                        _LOGGER.exception("import worker pool still running after second stop")
+                        cleanup_errors.append(exc)
+            except Exception as exc:
+                _LOGGER.exception("import worker shutdown failed")
+                cleanup_errors.append(exc)
         finally:
-            bridge_shutdown_error: BridgeShutdownError | None = None
             try:
                 BRIDGE_REGISTRY.close_all(
                     self.dolt_runner,
@@ -281,21 +311,37 @@ class ServiceRuntime:
                 )
             except BridgeShutdownError as exc:
                 bridge_shutdown_error = exc
+            except Exception as exc:
+                _LOGGER.exception("bridge registry close_all failed")
+                cleanup_errors.append(exc)
+
+            drained = self._wait_for_admission_drain(timeout=grace)
             upload_snap = self.upload_admission.snapshot()
             row_snap = self.row_stream_admission.snapshot()
-            if upload_snap.in_use != 0 or row_snap.in_use != 0:
+            if not drained or upload_snap.in_use != 0 or row_snap.in_use != 0:
                 log_event(
                     "runtime_shutdown",
                     result="permit_leak",
                     capacity=upload_snap.capacity,
                     in_use=upload_snap.in_use + row_snap.in_use,
-                    cleanup_outcome="permit_in_use_before_durable_release",
+                    cleanup_outcome="permit_in_use_after_drain_wait",
                     logger=_LOGGER,
                 )
-            if self.control_store.is_open():
-                self.control_store.close()
-            if self.root_lock.is_held():
-                self.root_lock.release()
+
+            try:
+                if self.control_store.is_open():
+                    self.control_store.close()
+            except Exception as exc:
+                _LOGGER.exception("control store close failed")
+                cleanup_errors.append(exc)
+            finally:
+                try:
+                    if self.root_lock.is_held():
+                        self.root_lock.release()
+                except Exception as exc:
+                    _LOGGER.exception("root lock release failed")
+                    cleanup_errors.append(exc)
+
             log_event(
                 "runtime_shutdown",
                 result="stopped",
@@ -304,11 +350,32 @@ class ServiceRuntime:
                 cleanup_outcome="durable_released",
                 logger=_LOGGER,
             )
+
             if bridge_shutdown_error is not None:
+                if cleanup_errors:
+                    raise ExceptionGroup(
+                        "runtime shutdown cleanup failures",
+                        [bridge_shutdown_error, *cleanup_errors],
+                    ) from bridge_shutdown_error
                 raise bridge_shutdown_error
+            if cleanup_errors:
+                if len(cleanup_errors) == 1:
+                    raise cleanup_errors[0]
+                raise ExceptionGroup("runtime shutdown cleanup failures", cleanup_errors)
+
+    def _wait_for_admission_drain(self, *, timeout: float) -> bool:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self.upload_admission.in_use == 0 and self.row_stream_admission.in_use == 0:
+                return True
+            time.sleep(0.01)
+        return self.upload_admission.in_use == 0 and self.row_stream_admission.in_use == 0
 
     def is_accepting_import_effects(self) -> bool:
         return not self._stopping.is_set()
+
+    def is_stopping(self) -> bool:
+        return self._stopping.is_set()
 
     def register_succeeded_create(self, repository_id: UUID) -> None:
         self.consistency_watch.register_succeeded_create(repository_id)

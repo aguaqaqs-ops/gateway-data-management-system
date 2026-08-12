@@ -117,18 +117,12 @@ class RepositoryServiceSettings(BaseSettings):
         "max_queued_imports",
         "max_concurrent_row_streams",
         "full_scan_timeout_seconds",
+        "import_headroom_bytes",
     )
     @classmethod
     def _bounds_must_be_positive(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("bounds must be positive")
-        return value
-
-    @field_validator("import_headroom_bytes")
-    @classmethod
-    def _import_headroom_must_be_non_negative(cls, value: int) -> int:
-        if value < 0:
-            raise ValueError("import_headroom_bytes must be non-negative")
         return value
 
     @field_validator("catalog_parallel_workers")

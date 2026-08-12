@@ -94,3 +94,51 @@ class PermitPool:
             if self._in_use <= 0:
                 raise RuntimeError("permit pool released more leases than acquired")
             self._in_use -= 1
+
+
+@final
+class InflightKeyGate:
+    """Process-local gate so only one concurrent owner proceeds per opaque key."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._inflight: set[str] = set()
+
+    def try_enter(self, key: str) -> bool:
+        with self._lock:
+            if key in self._inflight:
+                return False
+            self._inflight.add(key)
+            return True
+
+    def exit(self, key: str) -> None:
+        with self._lock:
+            self._inflight.discard(key)
+
+    @property
+    def size(self) -> int:
+        with self._lock:
+            return len(self._inflight)
+
+
+@final
+class UploadCancelRegistry:
+    """Runtime-owned cancel signals for in-flight uploads."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._cancels: set[threading.Event] = set()
+
+    def register(self, cancel: threading.Event) -> None:
+        with self._lock:
+            self._cancels.add(cancel)
+
+    def unregister(self, cancel: threading.Event) -> None:
+        with self._lock:
+            self._cancels.discard(cancel)
+
+    def cancel_all(self) -> None:
+        with self._lock:
+            events = tuple(self._cancels)
+        for event in events:
+            event.set()

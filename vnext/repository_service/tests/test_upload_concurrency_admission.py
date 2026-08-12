@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import AsyncIterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,7 +12,7 @@ from uuid import uuid4
 import pytest
 
 from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE, UploadRequestHeaders
-from gateway_repository_service.admission import PermitPool
+from gateway_repository_service.admission import InflightKeyGate, PermitPool
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import (
@@ -50,6 +51,7 @@ def _command(
     *,
     pool: PermitPool,
     store: MutationStore | MagicMock | None = None,
+    inflight: InflightKeyGate | None = None,
 ) -> UploadArtifactCommand:
     layout = DurableLayout.create_service(settings.data_root)
     return UploadArtifactCommand(
@@ -57,6 +59,7 @@ def _command(
         layout=layout,
         mutation_store=store or MagicMock(spec=MutationStore),
         upload_admission=pool,
+        upload_inflight=inflight if inflight is not None else InflightKeyGate(),
     )
 
 
@@ -275,3 +278,110 @@ def test_closed_pool_denies_new_upload(tmp_path: Path) -> None:
         asyncio.run(command.execute(uuid4(), _headers(key="closed", payload=b"z"), body()))
     assert exc_info.value.code == "UPLOAD_CONCURRENCY_LIMIT"
     store.allocate_pending.assert_not_called()
+
+
+@pytest.mark.serial
+def test_concurrent_same_key_loser_is_409_without_consuming_permit(tmp_path: Path) -> None:
+    settings = _settings(tmp_path).model_copy(update={"max_concurrent_uploads": 1})
+    pool = PermitPool(1)
+    inflight = InflightKeyGate()
+    store = MagicMock(spec=MutationStore)
+    store.hash_idempotency_key = MutationStore.hash_idempotency_key
+    store.claim_or_lookup.return_value = ClaimResult(
+        idempotency_id=1,
+        is_new=True,
+        fingerprint=b"fp-race",
+        effect=None,
+        terminal_not_published=False,
+    )
+    winner_holding = threading.Event()
+    release_winner = threading.Event()
+    peak_in_use = 0
+    peak_lock = threading.Lock()
+    results: list[BaseException | object] = []
+
+    def track_peak() -> None:
+        nonlocal peak_in_use
+        with peak_lock:
+            peak_in_use = max(peak_in_use, pool.in_use)
+
+    async def winner_body() -> AsyncIterator[bytes]:
+        winner_holding.set()
+        while not release_winner.wait(timeout=0.01):
+            yield b""
+        yield b"x"
+
+    async def loser_body() -> AsyncIterator[bytes]:
+        yield b"x"
+
+    repository_id = uuid4()
+    headers = _headers(key="same-key", payload=b"x")
+    winner = _command(settings, pool=pool, store=store, inflight=inflight)
+    loser = _command(settings, pool=pool, store=store, inflight=inflight)
+
+    def run_winner() -> None:
+        try:
+            with (
+                patch(
+                    "gateway_repository_service.upload_artifact.command.is_repository_visible",
+                    return_value=True,
+                ),
+                patch(
+                    "gateway_repository_service.upload_artifact.command.assert_upload_disk_admission",
+                    return_value=None,
+                ),
+            ):
+                def allocate(*_a: object, **_k: object) -> EffectRecord:
+                    track_peak()
+                    return EffectRecord(
+                        effect_id=1,
+                        idempotency_id=1,
+                        resource_id=uuid4(),
+                        status=EffectStatus.PENDING,
+                        response_status=None,
+                        response_body=None,
+                    )
+
+                store.allocate_pending.side_effect = allocate
+                asyncio.run(winner.execute(repository_id, headers, winner_body()))
+        except BaseException as exc:  # noqa: BLE001 — collect for assertion
+            results.append(exc)
+
+    def run_loser() -> None:
+        assert winner_holding.wait(timeout=5.0)
+        track_peak()
+        try:
+            with patch(
+                "gateway_repository_service.upload_artifact.command.is_repository_visible",
+                return_value=True,
+            ):
+                asyncio.run(loser.execute(repository_id, headers, loser_body()))
+                results.append("unexpected-success")
+        except BaseException as exc:  # noqa: BLE001 — collect for assertion
+            results.append(exc)
+        finally:
+            release_winner.set()
+
+    threads = [
+        threading.Thread(target=run_winner),
+        threading.Thread(target=run_loser),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10.0)
+        assert not thread.is_alive()
+
+    track_peak()
+    assert peak_in_use == 1
+    assert pool.in_use == 0
+    assert store.allocate_pending.call_count == 1
+    assert any(
+        isinstance(item, ServiceError)
+        and item.status_code == 409
+        and item.code == "IDEMPOTENCY_CONFLICT"
+        for item in results
+    )
+    assert not any(
+        isinstance(item, ServiceError) and item.status_code == 429 for item in results
+    )

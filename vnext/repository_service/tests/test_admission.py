@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from gateway_repository_service.admission import PermitPool
+from gateway_repository_service.admission import InflightKeyGate, PermitPool, UploadCancelRegistry
 
 
 def test_permit_pool_rejects_non_positive_capacity() -> None:
@@ -110,3 +110,30 @@ def test_same_lease_concurrent_release_is_atomic() -> None:
     assert not errors
     assert pool.in_use == 0
     assert pool.try_acquire() is not None
+
+
+def test_inflight_key_gate_allows_one_owner() -> None:
+    gate = InflightKeyGate()
+    assert gate.try_enter("a") is True
+    assert gate.try_enter("a") is False
+    assert gate.try_enter("b") is True
+    assert gate.size == 2
+    gate.exit("a")
+    gate.exit("a")  # idempotent
+    assert gate.try_enter("a") is True
+    gate.exit("a")
+    gate.exit("b")
+    assert gate.size == 0
+
+
+def test_upload_cancel_registry_cancels_all() -> None:
+    registry = UploadCancelRegistry()
+    first = threading.Event()
+    second = threading.Event()
+    registry.register(first)
+    registry.register(second)
+    registry.cancel_all()
+    assert first.is_set()
+    assert second.is_set()
+    registry.unregister(first)
+    registry.unregister(second)

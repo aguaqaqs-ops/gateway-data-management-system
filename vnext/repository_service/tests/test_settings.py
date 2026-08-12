@@ -117,6 +117,7 @@ def test_control_db_user_version_is_not_configurable(tmp_path: Path, monkeypatch
         "max_total_expanded_entry_bytes",
         "max_decompressed_tar_stream_bytes",
         "artifact_ttl_seconds",
+        "import_headroom_bytes",
     ],
 )
 def test_positive_bounds_reject_zero(tmp_path: Path, field: str) -> None:
@@ -125,9 +126,11 @@ def test_positive_bounds_reject_zero(tmp_path: Path, field: str) -> None:
         RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]
 
 
-def test_import_headroom_bytes_rejects_negative(tmp_path: Path) -> None:
+def test_import_headroom_bytes_rejects_non_positive(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         RepositoryServiceSettings(data_root=tmp_path / "root", import_headroom_bytes=-1)
+    with pytest.raises(ValueError):
+        RepositoryServiceSettings(data_root=tmp_path / "root", import_headroom_bytes=0)
 
 
 def test_import_queue_settings_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

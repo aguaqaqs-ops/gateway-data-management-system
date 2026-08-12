@@ -64,7 +64,7 @@ def test_import_disk_admission_uses_fraction_and_min_bytes(tmp_path: Path) -> No
         data_root=tmp_path / "data-root",
         min_free_disk_bytes=5_000,
         min_free_disk_fraction=0.10,
-        import_headroom_bytes=0,
+        import_headroom_bytes=1,
     )
     with patch(
         "gateway_repository_service.capacity.os.statvfs",
@@ -75,7 +75,7 @@ def test_import_disk_admission_uses_fraction_and_min_bytes(tmp_path: Path) -> No
         )(),
     ):
         admission = measure_import_disk_admission(tmp_path, settings)
-    assert admission.required_free_bytes == 5_000
+    assert admission.required_free_bytes == 5_001
     assert admission.admitted is False
 
 

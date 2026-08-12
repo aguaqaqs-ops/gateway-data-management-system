@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import threading
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -13,7 +14,12 @@ from gateway_repository_contracts import (
     validate_upload_content_length,
 )
 
-from gateway_repository_service.admission import PermitLease, PermitPool
+from gateway_repository_service.admission import (
+    InflightKeyGate,
+    PermitLease,
+    PermitPool,
+    UploadCancelRegistry,
+)
 from gateway_repository_service.capacity import (
     CapacityAdmissionError,
     assert_upload_disk_admission,
@@ -60,6 +66,9 @@ class UploadArtifactCommand:
         fault_injector: UploadArtifactFaultInjector | None = None,
         sink_factory: type[StreamingFileSinkAdapter] = StreamingFileSinkAdapter,
         upload_admission: PermitPool | None = None,
+        upload_inflight: InflightKeyGate | None = None,
+        upload_cancels: UploadCancelRegistry | None = None,
+        stopping: Callable[[], bool] | None = None,
         request_id: str | None = None,
     ) -> None:
         self._settings = settings
@@ -69,6 +78,9 @@ class UploadArtifactCommand:
         self._fault_injector = fault_injector or NoOpUploadArtifactFaultInjector()
         self._sink_factory = sink_factory
         self._upload_admission = upload_admission
+        self._upload_inflight = upload_inflight
+        self._upload_cancels = upload_cancels
+        self._stopping = stopping
         self._request_id = request_id
 
     async def execute(
@@ -102,32 +114,50 @@ class UploadArtifactCommand:
             # In-flight / non-replayable same-key must not consume an upload permit.
             raise _idempotency_conflict()
 
-        lease = self._acquire_upload_permit(repository_id)
+        inflight_key = _inflight_key(scope, key_hash)
+        gate = self._upload_inflight
+        if gate is not None and not gate.try_enter(inflight_key):
+            raise _idempotency_conflict()
+
+        cancel = threading.Event()
+        cancels = self._upload_cancels
+        lease: PermitLease | None = None
         try:
-            return await self._execute_new_upload(
-                repository_id=repository_id,
-                headers=headers,
-                body=body,
-                scope=scope,
-                key_hash=key_hash,
-                fingerprint=fingerprint,
-            )
-        finally:
-            if lease is not None:
-                lease.release()
-                snap = (
-                    self._upload_admission.snapshot()
-                    if self._upload_admission is not None
-                    else None
-                )
-                log_event(
-                    "upload_admission_released",
-                    request_id=self._request_id,
+            if cancels is not None:
+                cancels.register(cancel)
+            self._raise_if_cancelled(cancel)
+            lease = self._acquire_upload_permit(repository_id)
+            try:
+                return await self._execute_new_upload(
                     repository_id=repository_id,
-                    capacity=snap.capacity if snap is not None else None,
-                    in_use=snap.in_use if snap is not None else None,
-                    result="released",
+                    headers=headers,
+                    body=body,
+                    scope=scope,
+                    key_hash=key_hash,
+                    fingerprint=fingerprint,
+                    cancel=cancel,
                 )
+            finally:
+                if lease is not None:
+                    lease.release()
+                    snap = (
+                        self._upload_admission.snapshot()
+                        if self._upload_admission is not None
+                        else None
+                    )
+                    log_event(
+                        "upload_admission_released",
+                        request_id=self._request_id,
+                        repository_id=repository_id,
+                        capacity=snap.capacity if snap is not None else None,
+                        in_use=snap.in_use if snap is not None else None,
+                        result="released",
+                    )
+        finally:
+            if cancels is not None:
+                cancels.unregister(cancel)
+            if gate is not None:
+                gate.exit(inflight_key)
 
     async def _execute_new_upload(
         self,
@@ -138,8 +168,11 @@ class UploadArtifactCommand:
         scope: IdempotencyScope,
         key_hash: IdempotencyKeyHash,
         fingerprint: bytes,
+        cancel: threading.Event,
     ) -> UploadArtifactResponse:
+        self._raise_if_cancelled(cancel)
         self._assert_pre_pending_guards(repository_id, headers)
+        self._raise_if_cancelled(cancel)
 
         artifact_id = uuid4()
         staged_path: Path | None = None
@@ -179,6 +212,7 @@ class UploadArtifactCommand:
         partial_body_faulted = False
         try:
             async for chunk in body:
+                self._raise_if_cancelled(cancel)
                 if chunk:
                     sink.write_chunk(chunk)
                     if not partial_body_faulted:
@@ -188,6 +222,7 @@ class UploadArtifactCommand:
                 if received_so_far > headers.content_length:
                     raise _upload_body_mismatch("upload body exceeds declared Content-Length")
 
+            self._raise_if_cancelled(cancel)
             received_bytes, computed_sha = sink.close()
             sink = None
             if received_bytes != headers.content_length:
@@ -252,6 +287,14 @@ class UploadArtifactCommand:
                 staged_path.unlink()
             raise
 
+    def _raise_if_cancelled(self, cancel: threading.Event) -> None:
+        if cancel.is_set() or (self._stopping is not None and self._stopping()):
+            raise ServiceError(
+                code="SERVICE_NOT_READY",
+                message="service is shutting down",
+                status_code=503,
+            )
+
     def _acquire_upload_permit(self, repository_id: UUID) -> PermitLease | None:
         pool = self._upload_admission
         if pool is None:
@@ -306,6 +349,10 @@ class UploadArtifactCommand:
             )
         except CapacityAdmissionError as exc:
             raise _disk_admission_denied() from exc
+
+
+def _inflight_key(scope: IdempotencyScope, key_hash: IdempotencyKeyHash) -> str:
+    return f"{scope.mutation_kind.value}:{scope.repository_scope()}:{key_hash.digest.hex()}"
 
 
 def _sink_received_bytes(sink: ArtifactBodySink) -> int:

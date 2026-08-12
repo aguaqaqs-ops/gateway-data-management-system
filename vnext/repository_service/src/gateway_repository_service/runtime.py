@@ -18,6 +18,8 @@ from gateway_repository_service.admission import (
 )
 from gateway_repository_service.artifact_broker import (
     ArtifactBrokerError,
+    ArtifactBrokerShutdownError,
+    artifact_broker_helper_alive,
     install_artifact_broker,
     ping_artifact_broker,
     stop_artifact_broker_helper,
@@ -151,6 +153,13 @@ class ServiceRuntime:
             )
             provider_gate = OfflineCliCapabilityGate.verify(settings, layout)
             dolt_runner = DoltRunner(settings, layout.root)
+            try:
+                install_artifact_broker(profile=settings.profile)
+                ping_artifact_broker()
+            except ArtifactBrokerError as exc:
+                raise ServiceStartupError(
+                    f"artifact directory-broker is unavailable: {exc}"
+                ) from exc
             reconciliation = SynchronousMutationReconciler(
                 settings=settings,
                 layout=layout,
@@ -174,13 +183,6 @@ class ServiceRuntime:
                     "import startup recovery is blocked: "
                     + "; ".join(import_reconciliation.blocking_failures)
                 )
-            try:
-                install_artifact_broker(profile=settings.profile)
-                ping_artifact_broker()
-            except ArtifactBrokerError as exc:
-                raise ServiceStartupError(
-                    f"artifact directory-broker is unavailable: {exc}"
-                ) from exc
             if not is_durable_root_writable(layout.service_state):
                 raise ServiceStartupError("durable root is not writable")
             if not has_free_disk_admission(layout.root, settings):
@@ -320,12 +322,21 @@ class ServiceRuntime:
             logger=_LOGGER,
         )
         self.upload_cancels.cancel_all()
-        stop_artifact_broker_helper(timeout=2.0)
         grace = self.settings.import_shutdown_grace_seconds
         cleanup_errors: list[Exception] = []
         bridge_shutdown_error: BridgeShutdownError | None = None
         cleaner_join_failed = False
         worker_join_failed = False
+        broker_join_failed = False
+
+        if not self._wait_for_admission_drain(timeout=grace):
+            log_event(
+                "runtime_shutdown",
+                result="drain_pending",
+                capacity=self.upload_admission.capacity,
+                in_use=self.upload_admission.in_use,
+                logger=_LOGGER,
+            )
 
         try:
             try:
@@ -381,6 +392,17 @@ class ServiceRuntime:
                 cleanup_errors.append(exc)
         finally:
             try:
+                stop_artifact_broker_helper(timeout=grace)
+            except ArtifactBrokerShutdownError as exc:
+                _LOGGER.exception("artifact broker join failed; retaining durable ownership")
+                cleanup_errors.append(exc)
+                broker_join_failed = True
+            except Exception as exc:
+                _LOGGER.exception("artifact broker stop failed")
+                cleanup_errors.append(exc)
+                broker_join_failed = True
+
+            try:
                 BRIDGE_REGISTRY.close_all(
                     self.dolt_runner,
                     join_timeout_seconds=grace,
@@ -397,6 +419,7 @@ class ServiceRuntime:
             retain_ownership = (
                 cleaner_join_failed
                 or worker_join_failed
+                or broker_join_failed
                 or not drained
                 or upload_snap.in_use != 0
                 or row_snap.in_use != 0
@@ -408,6 +431,9 @@ class ServiceRuntime:
                 elif worker_join_failed:
                     result = "worker_join_failed"
                     cleanup_outcome = "worker_alive_after_join_timeout"
+                elif broker_join_failed:
+                    result = "broker_join_failed"
+                    cleanup_outcome = "broker_alive_after_join_timeout"
                 else:
                     result = "permit_leak"
                     cleanup_outcome = "permit_in_use_after_drain_wait"
@@ -419,7 +445,7 @@ class ServiceRuntime:
                     cleanup_outcome=cleanup_outcome,
                     logger=_LOGGER,
                 )
-                if not cleaner_join_failed and not worker_join_failed:
+                if not cleaner_join_failed and not worker_join_failed and not broker_join_failed:
                     drain_error = AdmissionDrainTimeoutError(
                         upload_in_use=upload_snap.in_use,
                         row_stream_in_use=row_snap.in_use,
@@ -525,6 +551,8 @@ class ServiceRuntime:
                 return "durable root is not writable"
             if not has_free_disk_admission(self.layout.root, self.settings):
                 return "free disk admission failed"
+            if not self._artifact_broker_ready():
+                return "artifact directory-broker is unavailable"
             return None
         except Exception:
             return "readiness check failed"
@@ -541,6 +569,17 @@ class ServiceRuntime:
     def _provider_ready(self) -> bool:
         binary = self.provider_gate.executable_path()
         return binary.is_file() and os.access(binary, os.X_OK)
+
+    def _artifact_broker_ready(self) -> bool:
+        try:
+            if not artifact_broker_helper_alive():
+                return False
+            ping_artifact_broker()
+        except ArtifactBrokerError:
+            return False
+        except Exception:
+            return False
+        return True
 
     def is_ready(self) -> bool:
         return self._readiness_failure() is None

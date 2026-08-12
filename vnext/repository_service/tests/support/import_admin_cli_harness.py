@@ -69,6 +69,8 @@ def run_admin_cli(
         str(settings_data_root),
     ]
     merged_env = os.environ.copy()
+    merged_env.setdefault("GATEWAY_REPOSITORY_PROFILE", "test")
+    merged_env.setdefault("GATEWAY_REPOSITORY_ARTIFACT_BROKER_MODE", "inprocess")
     if env is not None:
         merged_env.update(env)
     return subprocess.run(

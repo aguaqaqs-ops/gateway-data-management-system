@@ -2597,7 +2597,7 @@ def test_stamp_succeeds_but_final_quarantine_unlink_fails(
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
         # Staging protocol unlinks final-* inside the stage dir; fail only the
         # post-stamp quarantine staging unlink (second final-* after detach).
-        if isinstance(path, str) and path.startswith("final-"):
+        if isinstance(path, str) and (path.startswith("final-") or path.startswith("doom-")):
             fail_count["n"] += 1
             if fail_count["n"] == 2:
                 raise OSError(errno.EPERM, "forced quarantine unlink failure")
@@ -3929,7 +3929,7 @@ def test_recovery_unlink_eperm_retains_intent(
     real_unlink = os.unlink
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and path.startswith("final-"):
+        if isinstance(path, str) and (path.startswith("final-") or path.startswith("doom-")):
             raise OSError(errno.EPERM, "forced unlink failure")
         real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
 
@@ -4011,7 +4011,7 @@ def test_q_and_detach_single_unlink_failure_retains_intent(
     real_unlink = os.unlink
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and path.startswith("final-") and private_from_detach:
+        if isinstance(path, str) and path.startswith("doom-") and private_from_detach:
             raise OSError(errno.EPERM, "forced detach unlink failure")
         real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
 
@@ -4897,7 +4897,7 @@ def test_live_helper_cleanup_eperm_retains_ownership(
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
         # Allow detach staging unlink to succeed; fail quarantine cleanup final-*.
-        if isinstance(path, str) and path.startswith("final-"):
+        if isinstance(path, str) and (path.startswith("final-") or path.startswith("doom-")):
             unlink_verify_count["n"] += 1
             if unlink_verify_count["n"] >= 2 or phase == "replaced":
                 raise OSError(errno.EPERM, "forced unlink-verify EPERM")
@@ -5196,7 +5196,7 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
             raise OSError(errno.EIO, "forced restore failure")
         if (
             isinstance(src_name, str)
-            and src_name.startswith("final-")
+            and (src_name.startswith("final-") or src_name.startswith("doom-"))
             and isinstance(dst_name, str)
             and dst_name == STAGE_VICTIM
         ):
@@ -5208,7 +5208,7 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
     real_unlink = os.unlink
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and path.startswith("final-"):
+        if isinstance(path, str) and (path.startswith("final-") or path.startswith("doom-")):
             raise OSError(errno.EPERM, "forced private unlink EPERM")
         real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
 
@@ -5585,7 +5585,7 @@ def test_r8_replace_private_pathname_before_final_unlink(
     layout: DurableLayout,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Round10 probe 9: after final_fd fstat, replace final-* before unlink; keep foreign."""
+    """Round11 probe 9: after last doom pathname stat, replace before unlink; keep foreign."""
 
     store, mutation_store = stores
     _seed_artifact(mutation_store)
@@ -5603,36 +5603,38 @@ def test_r8_replace_private_pathname_before_final_unlink(
     )
     replacement = b"private-pathname-replacement"
     owned_before = int(q_stat.st_ino)
-    real_fstat = os.fstat
+    real_stat = os.stat
     injected = {"done": False}
-    final_fds: set[int] = set()
-    real_open = os.open
 
-    def open_wrapper(
-        name: str | bytes | os.PathLike[str], flags: int, *args: object, **kwargs: object
-    ) -> int:
-        fd = real_open(name, flags, *args, **kwargs)  # type: ignore[arg-type]
-        if isinstance(name, str) and name.startswith("final-"):
-            final_fds.add(fd)
-        return fd
-
-    def fstat_wrapper(fd: int) -> os.stat_result:
-        st = real_fstat(fd)
-        # After production fstat proves final_fd matches expected, plant foreign
-        # at the pathname before pre-unlink recheck / unlink.
-        if not injected["done"] and fd in final_fds:
+    def stat_wrapper(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> os.stat_result:
+        st = real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+        # After production's last pre-unlink doom pathname stat succeeds, swap
+        # doom for foreign before os.unlink — production must skip unlink.
+        if (
+            not injected["done"]
+            and isinstance(path, str)
+            and path.startswith("doom-")
+            and kwargs.get("follow_symlinks") is False
+        ):
             injected["done"] = True
-            for stage in ready.parent.glob(".unlink-stage-*"):
-                for child in stage.iterdir():
-                    if child.name.startswith("final-"):
-                        hidden = stage / f"hidden-{uuid4().hex[:12]}"
-                        child.rename(hidden)
-                        (stage / child.name).write_bytes(replacement)
-                        break
+            dir_fd = kwargs.get("dir_fd")
+            if isinstance(dir_fd, int):
+                hidden = f"hidden-{uuid4().hex[:12]}"
+                os.rename(path, hidden, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+                fd = os.open(
+                    path,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o644,
+                    dir_fd=dir_fd,
+                )
+                try:
+                    os.write(fd, replacement)
+                finally:
+                    os.close(fd)
+                return real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
         return st
 
-    monkeypatch.setattr(os, "open", open_wrapper)
-    monkeypatch.setattr(os, "fstat", fstat_wrapper)
+    monkeypatch.setattr(os, "stat", stat_wrapper)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -6422,3 +6424,430 @@ def test_r10_hidden_aside_two_sweeps_retain_ownership(
         for entry in ready.parent.rglob("*")
     )
     assert foreign_found
+
+
+def _r11_assert_foreign_and_owned(
+    ready_dir: Path, *, replacement: bytes, owned_ino: int
+) -> None:
+    foreign_found = False
+    owned_found = False
+    for entry in ready_dir.rglob("*"):
+        if not entry.is_file():
+            continue
+        try:
+            payload = entry.read_bytes()
+            st = entry.stat()
+        except OSError:
+            continue
+        if payload == replacement:
+            foreign_found = True
+        if int(st.st_ino) == owned_ino and payload == ARTIFACT_PAYLOAD:
+            owned_found = True
+    assert foreign_found
+    assert owned_found
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("ownership", ["active_intent", "stamped_receipt"])
+@pytest.mark.parametrize("kind", ["quarantine", "detach", "private"])
+@pytest.mark.parametrize(
+    "reanchor",
+    ["ok", "linkat_fail"],
+    ids=["reanchor_ok", "linkat_fail"],
+)
+def test_r11_doom_unlink_window_keeps_foreign(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    ownership: str,
+    kind: str,
+    reanchor: str,
+) -> None:
+    """Round11 probes 1–2: last-stat→unlink window swap; foreign+owned retained."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
+
+    if ownership == "active_intent" and reanchor == "linkat_fail":
+        # Active-intent ineligible path restores instead of doom-unlink; cover
+        # linkat failure on stamped receipt matrix only.
+        pytest.skip("linkat_fail covered under stamped_receipt")
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    generation = "genr11doom1"
+    if kind == "quarantine":
+        target = ready.parent / quarantine_name_for(
+            inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+        )
+    elif kind == "detach":
+        target = ready.parent / detach_name_for(
+            inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+        )
+    else:
+        target = ready.parent / verify_sidecar_name_for(
+            inode=int(st.st_ino),
+            generation=generation,
+            artifact_id=ARTIFACT_ID,
+            token="r11priv01",
+        )
+    os.link(ready, target)
+    ready.unlink()
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
+    )
+    if ownership == "stamped_receipt":
+        store.mark_artifact_bytes_deleted(
+            ARTIFACT_ID,
+            deleted_at="2026-08-02T00:00:00+00:00",
+            repository_id=REPOSITORY_ID,
+            expected_dev=int(st.st_dev),
+            expected_ino=int(st.st_ino),
+            expected_generation=generation,
+        )
+    replacement = b"r11-doom-window-foreign"
+    owned_before = int(st.st_ino)
+    real_stat = os.stat
+    real_link = os.link
+    injected = {"done": False}
+
+    def stat_wrapper(
+        path: str | bytes | os.PathLike[str], *args: object, **kwargs: object
+    ) -> os.stat_result:
+        result = real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+        if (
+            not injected["done"]
+            and isinstance(path, str)
+            and path.startswith("doom-")
+            and kwargs.get("follow_symlinks") is False
+        ):
+            injected["done"] = True
+            dir_fd = kwargs.get("dir_fd")
+            if isinstance(dir_fd, int):
+                hidden = f"hidden-{uuid4().hex[:10]}"
+                os.rename(path, hidden, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+                fd = os.open(
+                    path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644, dir_fd=dir_fd
+                )
+                try:
+                    os.write(fd, replacement)
+                finally:
+                    os.close(fd)
+                return real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+        return result
+
+    def link_wrapper(
+        src: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        dst: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        if reanchor == "linkat_fail":
+            raise OSError(errno.EIO, "forced linkat failure")
+        real_link(src, dst, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "stat", stat_wrapper)
+    if reanchor == "linkat_fail":
+        monkeypatch.setattr(os, "link", link_wrapper)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=3600 if ownership == "active_intent" else 1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=(
+            (lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC))
+            if ownership == "active_intent"
+            else (lambda: BASE_NOW)
+        ),
+    ).sweep_once()
+
+    assert injected["done"] is True
+    snap = _lifecycle_snapshot(mutation_store)
+    if ownership == "stamped_receipt":
+        assert snap["receipt_generation"] == generation
+    else:
+        assert snap["intent_generation"] == generation
+    _r11_assert_foreign_and_owned(
+        ready.parent, replacement=replacement, owned_ino=owned_before
+    )
+
+
+@pytest.mark.serial
+def test_r11_rmdir_race_does_not_remove_replacement_empty_dir(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round11 probe 3: replace stage name between stat and rmdir; replacement kept."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        remove_empty_stage_dir_if_same_inode,
+        unlink_stage_dir_name,
+    )
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    stage_name = unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="rmdir0001")
+    stage_path = ready.parent / stage_name
+    stage_path.mkdir(mode=0o700)
+    replacement = tmp_path / "replacement-empty"
+    replacement.mkdir(mode=0o700)
+    before = _external_tree_fingerprint(replacement)
+
+    ready_dir_fd = os.open(ready.parent, os.O_RDONLY | os.O_DIRECTORY)
+    stage_dir_fd = os.open(stage_name, os.O_RDONLY | os.O_DIRECTORY, dir_fd=ready_dir_fd)
+    try:
+        real_stat = os.stat
+
+        def stat_wrapper(
+            path: str | bytes | os.PathLike[str], *args: object, **kwargs: object
+        ) -> os.stat_result:
+            result = real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+            if (
+                isinstance(path, str)
+                and path == stage_name
+                and kwargs.get("follow_symlinks") is False
+                and stage_path.is_dir()
+                and not stage_path.is_symlink()
+            ):
+                # After name-stat matches stage fd, swap ready name to replacement empty dir.
+                os.rmdir(stage_path)
+                os.symlink(replacement, stage_path)
+            return result
+
+        monkeypatch.setattr(os, "stat", stat_wrapper)
+        remove_empty_stage_dir_if_same_inode(ready_dir_fd, stage_name, stage_dir_fd)
+    finally:
+        os.close(stage_dir_fd)
+        os.close(ready_dir_fd)
+
+    assert _external_tree_fingerprint(replacement) == before
+    assert replacement.is_dir()
+
+
+def test_r11_stage_mode_not_0700_diagnose_only(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Round11 probe 4: group/other-writable stage is diagnose-only."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        STAGE_VICTIM,
+        unlink_stage_dir_name,
+    )
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    stage_name = unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="mode77001")
+    stage_path = ready.parent / stage_name
+    stage_path.mkdir(mode=0o770)
+    victim = stage_path / STAGE_VICTIM
+    victim.write_bytes(b"mode-probe-bytes")
+    victim_ino = victim.stat().st_ino
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert stage_path.is_dir()
+    assert victim.is_file()
+    assert victim.stat().st_ino == victim_ino
+    assert victim.read_bytes() == b"mode-probe-bytes"
+
+
+def test_r11_unknown_stage_without_lifecycle_untouched(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Round11 probe 5: unknown artifact stage with final-* left byte/inode intact."""
+
+    from gateway_repository_service.upload_artifact.admission_pin import unlink_stage_dir_name
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    unknown = uuid4()
+    stage_name = unlink_stage_dir_name(artifact_id=unknown, token="unknown01")
+    stage_path = ready.parent / stage_name
+    stage_path.mkdir(mode=0o700)
+    final = stage_path / "final-orphan01"
+    final.write_bytes(b"unknown-stage-bytes")
+    final_ino = final.stat().st_ino
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert final.is_file()
+    assert final.stat().st_ino == final_ino
+    assert final.read_bytes() == b"unknown-stage-bytes"
+
+
+@pytest.mark.serial
+def test_r11_post_inventory_stage_symlink_swap_external_safe(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round11 probe 6: after inventory closes stage fd, symlink swap leaves external alone."""
+
+    import gateway_repository_service.artifact_cleaner as cleaner_mod
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        STAGE_VICTIM,
+        unlink_stage_dir_name,
+    )
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
+    q_stat = quarantine.stat()
+    ready.unlink()
+    store.mark_artifact_bytes_deleted(
+        ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
+        repository_id=REPOSITORY_ID,
+        expected_dev=int(q_stat.st_dev),
+        expected_ino=ino,
+        expected_generation=generation,
+    )
+    stage_name = unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="postinv01")
+    stage_path = ready.parent / stage_name
+    stage_path.mkdir(mode=0o700)
+    os.rename(quarantine, stage_path / STAGE_VICTIM)
+
+    outside = tmp_path / "external-after-close"
+    outside.mkdir()
+    (outside / STAGE_VICTIM).write_bytes(b"external-after-close")
+    before = _external_tree_fingerprint(outside)
+
+    real_recover = cleaner_mod.ArtifactCleaner._recover_artifact_unlink_stages
+
+    def swap_then_recover(
+        self: ArtifactCleaner,
+        repository_id: UUID,
+        artifact_id: UUID,
+        *,
+        stage_names: list[str],
+    ) -> None:
+        if stage_path.is_dir() and not stage_path.is_symlink():
+            victim = stage_path / STAGE_VICTIM
+            if victim.exists():
+                victim.rename(ready.parent / f".hidden-post-{uuid4().hex[:8]}")
+            stage_path.rmdir()
+            stage_path.symlink_to(outside)
+        return real_recover(
+            self, repository_id, artifact_id, stage_names=stage_names
+        )
+
+    monkeypatch.setattr(
+        cleaner_mod.ArtifactCleaner,
+        "_recover_artifact_unlink_stages",
+        swap_then_recover,
+    )
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert _external_tree_fingerprint(outside) == before
+
+
+@pytest.mark.serial
+def test_r11_live_stage_flock_blocks_concurrent_normalize(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round11 probe 7: live helper holding stage flock blocks recovery normalize."""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+    from gateway_repository_service.publication import renameat2_noreplace as real_rename
+    from gateway_repository_service.upload_artifact.admission_pin import STAGE_VICTIM
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(
+        store
+    )
+    barrier = threading.Event()
+    recovery_tried = threading.Event()
+    normalize_calls = {"n": 0}
+    armed = {"ok": True}
+    real_normalize = pin_mod.normalize_unlink_stage_victim_via_fd
+
+    def rename(
+        src_dir_fd: int,
+        src_name: str | bytes,
+        dst_dir_fd: int,
+        dst_name: str | bytes,
+    ) -> None:
+        real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
+        if armed["ok"] and isinstance(dst_name, str) and dst_name == STAGE_VICTIM:
+            armed["ok"] = False
+            barrier.set()
+            # Hold the live critical section while recovery attempts normalize.
+            assert recovery_tried.wait(timeout=2.0)
+
+    def counting_normalize(stage_dir_fd: int) -> bool:
+        normalize_calls["n"] += 1
+        return real_normalize(stage_dir_fd)
+
+    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    monkeypatch.setattr(pin_mod, "normalize_unlink_stage_victim_via_fd", counting_normalize)
+
+    def live() -> None:
+        try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            recheck=lambda: True,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
+        )
+
+    live_thread = threading.Thread(target=live)
+    live_thread.start()
+    assert barrier.wait(timeout=2.0)
+
+    # Concurrent recovery while live holds stage flock — lock busy, no normalize mutate.
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    recovery_tried.set()
+    live_thread.join(timeout=5.0)
+    assert live_thread.is_alive() is False
+    assert stamped["ok"] is False or stamped["ok"] is True
+    # Recovery must not have normalized under a contended stage lock.
+    # Inventory may skip locked stages entirely (normalize_calls stays 0).
+    assert normalize_calls["n"] == 0

@@ -551,8 +551,8 @@ def open_owned_unlink_stage_dir(ready_dir_fd: int, stage_name: str) -> int | Non
     """Open a ``.unlink-stage-*`` dir without following symlinks.
 
     Returns a directory fd whose ``fstat`` proves a real directory owned by the
-    current euid, or ``None`` when the entry is a symlink / non-dir / unusable.
-    Caller owns the returned fd.
+    current euid with mode ``0o700``, or ``None`` when unusable. Caller owns
+    the returned fd.
     """
 
     try:
@@ -570,14 +570,36 @@ def open_owned_unlink_stage_dir(ready_dir_fd: int, stage_name: str) -> int | Non
     if int(stage_stat.st_uid) != int(os.geteuid()):
         os.close(stage_dir_fd)
         return None
+    if (int(stage_stat.st_mode) & 0o777) != 0o700:
+        os.close(stage_dir_fd)
+        return None
     return stage_dir_fd
 
 
-def normalize_unlink_stage_victim_via_fd(stage_dir_fd: int) -> bool:
-    """Ensure ``victim`` exists inside an already-verified stage directory fd.
+def lock_unlink_stage_dir(stage_dir_fd: int) -> bool:
+    """Acquire exclusive non-blocking flock on an owned stage directory fd."""
 
-    Promotes a unique leftover ``final-*`` regular file to ``victim``. All ops
-    use ``stage_dir_fd`` only (no Path follow).
+    try:
+        fcntl.flock(stage_dir_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    except OSError:
+        return False
+    return True
+
+
+def unlock_unlink_stage_dir(stage_dir_fd: int) -> None:
+    try:
+        fcntl.flock(stage_dir_fd, fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
+def normalize_unlink_stage_victim_via_fd(stage_dir_fd: int) -> bool:
+    """Ensure ``victim`` exists inside an already-locked stage directory fd.
+
+    Promotes a unique leftover ``final-*`` regular file to ``victim``. Caller
+    must hold ``LOCK_EX`` on ``stage_dir_fd``. All ops use the fd only.
     """
 
     try:
@@ -595,7 +617,7 @@ def normalize_unlink_stage_victim_via_fd(stage_dir_fd: int) -> bool:
         return False
     finals: list[str] = []
     for name in children:
-        if not name.startswith("final-"):
+        if not (name.startswith("final-") or name.startswith("doom-")):
             continue
         try:
             child_stat = os.stat(name, dir_fd=stage_dir_fd, follow_symlinks=False)
@@ -621,7 +643,7 @@ def remove_empty_stage_dir_if_same_inode(
     stage_name: str,
     stage_dir_fd: int,
 ) -> None:
-    """Remove ``stage_name`` only when its directory entry still matches ``stage_dir_fd``."""
+    """Remove an empty stage dir via trash-rename while holding stage flock."""
 
     try:
         entries = os.listdir(stage_dir_fd)
@@ -638,10 +660,45 @@ def remove_empty_stage_dir_if_same_inode(
         return
     if (name_stat.st_dev, name_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
         return
+    trash_name = f".unlink-stage-trash-{secrets.token_hex(8)}"
     try:
-        os.rmdir(stage_name, dir_fd=ready_dir_fd)
+        renameat2_noreplace(ready_dir_fd, stage_name, ready_dir_fd, trash_name)
+    except OSError:
+        return
+    try:
+        trash_stat = os.stat(trash_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+    except OSError:
+        return
+    if not stat.S_ISDIR(trash_stat.st_mode):
+        return
+    if (trash_stat.st_dev, trash_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+        return
+    try:
+        os.rmdir(trash_name, dir_fd=ready_dir_fd)
     except OSError:
         pass
+
+
+def _unlink_dir_entry_if_same_inode(
+    dir_fd: int,
+    name: str,
+    expected: os.stat_result,
+) -> bool:
+    """Unlink ``name`` only when a final pathname stat still matches ``expected``."""
+
+    try:
+        pathname_stat = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+    if (pathname_stat.st_dev, pathname_stat.st_ino) != (expected.st_dev, expected.st_ino):
+        return False
+    try:
+        os.unlink(name, dir_fd=dir_fd)
+    except OSError:
+        return False
+    return True
 
 
 def _reanchor_inode_to_verify_sidecar(
@@ -741,11 +798,15 @@ def unlink_verified_inode_via_staging(
     artifact_id: UUID,
     generation: str,
 ) -> bool:
-    """Unlink an inode via a private staging directory while holding ``inode_fd``.
+    """Unlink an inode via an exclusive staging directory while holding ``inode_fd``.
 
     When ``source_name`` is set, create a fresh ``.unlink-stage-*`` directory and
     rename the ready entry into ``victim`` inside it. When ``stage_name`` is set
     instead, the victim is already staged and only verify-unlink runs.
+
+    Holds ``LOCK_EX`` on the stage directory for the whole verify→doom→unlink
+    window. Transfers ownership via linkat to a ready verify sidecar before any
+    pathname unlink so foreign replacements are never deleted on mismatch.
     """
 
     if (source_name is None) == (stage_name is None):
@@ -761,7 +822,10 @@ def unlink_verified_inode_via_staging(
 
     active_stage_name = stage_name
     stage_dir_fd: int | None = None
+    stage_locked = False
     victim_fd: int | None = None
+    anchor_name: str | None = None
+    nlink_gate_base = nlink_before
 
     try:
         if source_name is not None:
@@ -781,14 +845,16 @@ def unlink_verified_inode_via_staging(
             if not created or active_stage_name is None:
                 return False
 
-            try:
-                stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, active_stage_name)
-            except OSError:
-                stage_dir_fd = None
+            stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, active_stage_name)
             if stage_dir_fd is None:
                 _remove_empty_stage_dir(ready_dir_fd, active_stage_name)
                 return False
-
+            if not lock_unlink_stage_dir(stage_dir_fd):
+                os.close(stage_dir_fd)
+                stage_dir_fd = None
+                _remove_empty_stage_dir(ready_dir_fd, active_stage_name)
+                return False
+            stage_locked = True
             try:
                 renameat2_noreplace(ready_dir_fd, source_name, stage_dir_fd, STAGE_VICTIM)
             except OSError:
@@ -801,11 +867,15 @@ def unlink_verified_inode_via_staging(
             stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, active_stage_name)
             if stage_dir_fd is None:
                 return False
-
-        assert stage_dir_fd is not None and active_stage_name is not None
-        if source_name is None:
+            if not lock_unlink_stage_dir(stage_dir_fd):
+                os.close(stage_dir_fd)
+                stage_dir_fd = None
+                return False
+            stage_locked = True
             if not normalize_unlink_stage_victim_via_fd(stage_dir_fd):
                 return False
+
+        assert stage_dir_fd is not None and active_stage_name is not None
         try:
             victim_fd = os.open(STAGE_VICTIM, _file_flags(), dir_fd=stage_dir_fd)
         except OSError:
@@ -829,9 +899,6 @@ def unlink_verified_inode_via_staging(
             )
             return False
 
-        # Final rename-verify inside the exclusive stage: if the directory entry
-        # was replaced after the first fstat, we move the foreign file aside and
-        # restore it instead of unlinking it.
         final_name = f"final-{secrets.token_hex(8)}"
         try:
             renameat2_noreplace(stage_dir_fd, STAGE_VICTIM, stage_dir_fd, final_name)
@@ -847,24 +914,25 @@ def unlink_verified_inode_via_staging(
             )
             return False
 
+        final_fd: int | None = None
         try:
-            final_fd = os.open(final_name, _file_flags(), dir_fd=stage_dir_fd)
-        except OSError:
             try:
-                renameat2_noreplace(stage_dir_fd, final_name, stage_dir_fd, STAGE_VICTIM)
+                final_fd = os.open(final_name, _file_flags(), dir_fd=stage_dir_fd)
             except OSError:
-                pass
-            _restore_staged_victim_best_effort(
-                ready_dir_fd,
-                stage_dir_fd,
-                source_name=source_name,
-                stage_name=active_stage_name,
-                expected=expected,
-                artifact_id=artifact_id,
-                generation=generation,
-            )
-            return False
-        try:
+                try:
+                    renameat2_noreplace(stage_dir_fd, final_name, stage_dir_fd, STAGE_VICTIM)
+                except OSError:
+                    pass
+                _restore_staged_victim_best_effort(
+                    ready_dir_fd,
+                    stage_dir_fd,
+                    source_name=source_name,
+                    stage_name=active_stage_name,
+                    expected=expected,
+                    artifact_id=artifact_id,
+                    generation=generation,
+                )
+                return False
             try:
                 final_stat = os.fstat(final_fd)
             except OSError:
@@ -897,70 +965,97 @@ def unlink_verified_inode_via_staging(
                     generation=generation,
                 )
                 return False
-            # Pre-unlink pathname recheck: if final-* was replaced after fstat,
-            # leave foreign in place and reanchor the owned inode.
+
+            # Ownership-transfer: durable ready link before any pathname unlink.
+            anchor_name = _reanchor_inode_to_verify_sidecar(
+                ready_dir_fd,
+                inode_fd,
+                expected=expected,
+                artifact_id=artifact_id,
+                generation=generation,
+            )
             try:
-                pathname_stat = os.stat(
-                    final_name, dir_fd=stage_dir_fd, follow_symlinks=False
-                )
-            except FileNotFoundError:
-                _reanchor_inode_to_verify_sidecar(
-                    ready_dir_fd,
-                    inode_fd,
-                    expected=expected,
-                    artifact_id=artifact_id,
-                    generation=generation,
-                )
-                remove_empty_stage_dir_if_same_inode(
-                    ready_dir_fd, active_stage_name, stage_dir_fd
-                )
-                return False
+                nlink_gate_base = os.fstat(inode_fd).st_nlink
             except OSError:
-                _reanchor_inode_to_verify_sidecar(
-                    ready_dir_fd,
-                    inode_fd,
-                    expected=expected,
-                    artifact_id=artifact_id,
-                    generation=generation,
-                )
                 return False
-            if (pathname_stat.st_dev, pathname_stat.st_ino) != (
-                expected.st_dev,
-                expected.st_ino,
-            ) or (pathname_stat.st_dev, pathname_stat.st_ino) != (
-                final_stat.st_dev,
-                final_stat.st_ino,
-            ):
-                _reanchor_inode_to_verify_sidecar(
-                    ready_dir_fd,
-                    inode_fd,
-                    expected=expected,
-                    artifact_id=artifact_id,
-                    generation=generation,
-                )
-                remove_empty_stage_dir_if_same_inode(
-                    ready_dir_fd, active_stage_name, stage_dir_fd
-                )
-                return False
+
+            doom_name = f"doom-{secrets.token_hex(8)}"
             try:
-                os.unlink(final_name, dir_fd=stage_dir_fd)
+                renameat2_noreplace(stage_dir_fd, final_name, stage_dir_fd, doom_name)
             except OSError:
+                return False
+
+            doom_fd: int | None = None
+            try:
                 try:
-                    renameat2_noreplace(stage_dir_fd, final_name, stage_dir_fd, STAGE_VICTIM)
+                    doom_fd = os.open(doom_name, _file_flags(), dir_fd=stage_dir_fd)
                 except OSError:
-                    pass
-                _restore_staged_victim_best_effort(
-                    ready_dir_fd,
-                    stage_dir_fd,
-                    source_name=source_name,
-                    stage_name=active_stage_name,
-                    expected=expected,
-                    artifact_id=artifact_id,
-                    generation=generation,
-                )
-                return False
+                    try:
+                        renameat2_noreplace(stage_dir_fd, doom_name, stage_dir_fd, final_name)
+                    except OSError:
+                        pass
+                    return False
+                try:
+                    doom_stat = os.fstat(doom_fd)
+                except OSError:
+                    try:
+                        renameat2_noreplace(stage_dir_fd, doom_name, stage_dir_fd, final_name)
+                    except OSError:
+                        pass
+                    return False
+                if (doom_stat.st_dev, doom_stat.st_ino) != (expected.st_dev, expected.st_ino):
+                    try:
+                        renameat2_noreplace(stage_dir_fd, doom_name, stage_dir_fd, final_name)
+                    except OSError:
+                        pass
+                    return False
+                if not _unlink_dir_entry_if_same_inode(stage_dir_fd, doom_name, expected):
+                    # Distinguish EPERM/IO on owned doom from foreign replacement.
+                    try:
+                        leftover = os.stat(
+                            doom_name, dir_fd=stage_dir_fd, follow_symlinks=False
+                        )
+                    except FileNotFoundError:
+                        leftover = None
+                    except OSError:
+                        return False
+                    if leftover is not None and (leftover.st_dev, leftover.st_ino) == (
+                        expected.st_dev,
+                        expected.st_ino,
+                    ):
+                        try:
+                            renameat2_noreplace(
+                                stage_dir_fd, doom_name, stage_dir_fd, STAGE_VICTIM
+                            )
+                        except OSError:
+                            pass
+                        else:
+                            _restore_staged_victim_best_effort(
+                                ready_dir_fd,
+                                stage_dir_fd,
+                                source_name=source_name,
+                                stage_name=active_stage_name,
+                                expected=expected,
+                                artifact_id=artifact_id,
+                                generation=generation,
+                            )
+                        return False
+                    try:
+                        os.stat(final_name, dir_fd=stage_dir_fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        try:
+                            renameat2_noreplace(
+                                stage_dir_fd, doom_name, stage_dir_fd, final_name
+                            )
+                        except OSError:
+                            pass
+                    return False
+            finally:
+                if doom_fd is not None:
+                    os.close(doom_fd)
         finally:
-            os.close(final_fd)
+            if final_fd is not None:
+                os.close(final_fd)
 
         remove_empty_stage_dir_if_same_inode(ready_dir_fd, active_stage_name, stage_dir_fd)
 
@@ -968,68 +1063,40 @@ def unlink_verified_inode_via_staging(
             after = os.fstat(inode_fd)
         except OSError:
             return False
-        if after.st_nlink == nlink_before - 1:
-            return True
-        # Unlink did not prove deletion of our inode (e.g. final name was swapped
-        # inside the unlink window). Reanchor owned and restore any leftover
-        # matching directory entry still inside the stage.
-        _reanchor_inode_to_verify_sidecar(
-            ready_dir_fd,
-            inode_fd,
-            expected=expected,
-            artifact_id=artifact_id,
-            generation=generation,
-        )
-        if stage_dir_fd is not None and active_stage_name is not None:
+        if after.st_nlink != nlink_gate_base - 1:
+            _reanchor_inode_to_verify_sidecar(
+                ready_dir_fd,
+                inode_fd,
+                expected=expected,
+                artifact_id=artifact_id,
+                generation=generation,
+            )
+            return False
+
+        if anchor_name is not None:
+            _unlink_dir_entry_if_same_inode(ready_dir_fd, anchor_name, expected)
             try:
-                for entry_name in os.listdir(stage_dir_fd):
-                    try:
-                        entry_stat = os.stat(
-                            entry_name, dir_fd=stage_dir_fd, follow_symlinks=False
-                        )
-                    except OSError:
-                        continue
-                    if (entry_stat.st_dev, entry_stat.st_ino) != (
-                        expected.st_dev,
-                        expected.st_ino,
-                    ):
-                        continue
-                    if entry_name != STAGE_VICTIM:
-                        try:
-                            os.stat(STAGE_VICTIM, dir_fd=stage_dir_fd, follow_symlinks=False)
-                        except FileNotFoundError:
-                            try:
-                                os.rename(
-                                    entry_name,
-                                    STAGE_VICTIM,
-                                    src_dir_fd=stage_dir_fd,
-                                    dst_dir_fd=stage_dir_fd,
-                                )
-                            except OSError:
-                                continue
-                        except OSError:
-                            continue
-                        else:
-                            continue
-                    _restore_staged_victim_best_effort(
-                        ready_dir_fd,
-                        stage_dir_fd,
-                        source_name=source_name,
-                        stage_name=active_stage_name,
-                        expected=expected,
-                        artifact_id=artifact_id,
-                        generation=generation,
-                    )
-                    break
+                final_nlink = os.fstat(inode_fd).st_nlink
             except OSError:
-                pass
-        return False
+                return False
+            if final_nlink != nlink_before - 1:
+                _reanchor_inode_to_verify_sidecar(
+                    ready_dir_fd,
+                    inode_fd,
+                    expected=expected,
+                    artifact_id=artifact_id,
+                    generation=generation,
+                )
+                return False
+        return True
     except OSError:
         if stage_dir_fd is not None and active_stage_name is not None:
             try:
                 os.stat(STAGE_VICTIM, dir_fd=stage_dir_fd, follow_symlinks=False)
             except FileNotFoundError:
-                _remove_empty_stage_dir(ready_dir_fd, active_stage_name)
+                remove_empty_stage_dir_if_same_inode(
+                    ready_dir_fd, active_stage_name, stage_dir_fd
+                )
             except OSError:
                 pass
             else:
@@ -1047,7 +1114,10 @@ def unlink_verified_inode_via_staging(
         if victim_fd is not None:
             os.close(victim_fd)
         if stage_dir_fd is not None:
+            if stage_locked:
+                unlock_unlink_stage_dir(stage_dir_fd)
             os.close(stage_dir_fd)
+
 
 
 def unlink_sidecar_rename_verify(

@@ -33,6 +33,7 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     STAGE_VICTIM,
     list_unlink_stage_dir_names,
+    lock_unlink_stage_dir,
     normalize_unlink_stage_victim_via_fd,
     open_owned_ready_dir,
     open_owned_unlink_stage_dir,
@@ -44,6 +45,7 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
     unlink_sidecar_rename_verify,
     unlink_verified_inode_via_staging,
+    unlock_unlink_stage_dir,
 )
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.store import ImportOperationStore
@@ -469,12 +471,14 @@ class ArtifactCleaner:
                     )
                     continue
                 try:
-                    if not normalize_unlink_stage_victim_via_fd(stage_dir_fd):
-                        remove_empty_stage_dir_if_same_inode(
-                            ready_dir_fd, entry_name, stage_dir_fd
-                        )
+                    if not lock_unlink_stage_dir(stage_dir_fd):
                         continue
-                    stage_dirs.append(entry_name)
+                    try:
+                        # Do not normalize here — unknown/mismatched artifacts must
+                        # remain byte-stable until lifecycle proves ownership.
+                        stage_dirs.append(entry_name)
+                    finally:
+                        unlock_unlink_stage_dir(stage_dir_fd)
                 finally:
                     os.close(stage_dir_fd)
             if not stage_dirs:
@@ -695,6 +699,36 @@ class ArtifactCleaner:
     def _staged_victim_path(self, stage_name: str) -> str:
         return f"{stage_name}/{STAGE_VICTIM}"
 
+    def _normalize_unlink_stage_under_flock(
+        self,
+        ready_dir_fd: int,
+        stage_name: str,
+    ) -> bool:
+        """Promote final-*/doom-* → victim under exclusive stage flock.
+
+        Lifecycle ownership must already be proven by the caller. Returns False
+        when the stage cannot be opened, locked, or normalized (including empty
+        stages that are trash-removed).
+        """
+
+        stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
+        if stage_dir_fd is None:
+            return False
+        try:
+            if not lock_unlink_stage_dir(stage_dir_fd):
+                return False
+            try:
+                if not normalize_unlink_stage_victim_via_fd(stage_dir_fd):
+                    remove_empty_stage_dir_if_same_inode(
+                        ready_dir_fd, stage_name, stage_dir_fd
+                    )
+                    return False
+                return True
+            finally:
+                unlock_unlink_stage_dir(stage_dir_fd)
+        finally:
+            os.close(stage_dir_fd)
+
     def _unlink_intent_unlink_stage_with_recheck(
         self,
         ready_dir_fd: int,
@@ -705,6 +739,8 @@ class ArtifactCleaner:
         artifact_id: UUID,
         generation: str,
     ) -> SidecarOutcome:
+        if not self._normalize_unlink_stage_under_flock(ready_dir_fd, stage_name):
+            return "retain"
         victim_path = self._staged_victim_path(stage_name)
         lock_result, q_fd, q_stat = self._lock_sidecar(
             ready_dir_fd,
@@ -775,6 +811,8 @@ class ArtifactCleaner:
         generation: str | None,
     ) -> SidecarOutcome:
         if generation is None:
+            return "retain"
+        if not self._normalize_unlink_stage_under_flock(ready_dir_fd, stage_name):
             return "retain"
         victim_path = self._staged_victim_path(stage_name)
         lock_result, q_fd, q_stat = self._lock_sidecar(

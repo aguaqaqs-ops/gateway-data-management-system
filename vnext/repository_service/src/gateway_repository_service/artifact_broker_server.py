@@ -11,6 +11,7 @@ import socket
 import stat
 import struct
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -31,6 +32,10 @@ from gateway_repository_service.artifact_broker import (
 )
 
 _CMSG_SPACE = socket.CMSG_SPACE(4 * 8)
+_MAX_WORKER_THREADS = 16
+_IO_RESERVE_THREADS = 8
+_CONTROL_OPS = frozenset({"ping", "bind", "shutdown", "assert_bound"})
+_MAX_FDS = 8
 
 
 @dataclass
@@ -48,34 +53,72 @@ class FrozenArtifactsRoot:
     ino: int
 
 
+class _DirLocks:
+    def __init__(self) -> None:
+        self._guard = threading.Lock()
+        self._locks: dict[tuple[int, int], threading.Lock] = {}
+
+    def lock_for_key(self, key: tuple[int, int]) -> threading.Lock:
+        with self._guard:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._locks[key] = lock
+            return lock
+
+    def lock_for(self, fd: int) -> threading.Lock:
+        st = os.fstat(fd)
+        return self.lock_for_key((int(st.st_dev), int(st.st_ino)))
+
+
 def _send_json(conn: socket.socket, payload: dict[str, object]) -> None:
     data = json.dumps(payload).encode("utf-8")
     conn.sendall(struct.pack("!I", len(data)) + data)
 
 
-def _recv_request(conn: socket.socket) -> tuple[dict[str, object], list[int]]:
-    conn.settimeout(_REQUEST_TIMEOUT_SECONDS)
-    msg, ancdata, _flags, _addr = conn.recvmsg(_MAX_JSON + 4, _CMSG_SPACE)
-    if len(msg) < 4:
-        raise ArtifactBrokerError("short broker header")
-    (length,) = struct.unpack("!I", msg[:4])
-    if length <= 0 or length > _MAX_JSON:
-        raise ArtifactBrokerError("invalid broker message length")
-    body = msg[4:]
-    while len(body) < length:
-        chunk = conn.recv(length - len(body))
-        if not chunk:
-            raise ArtifactBrokerError("broker client closed")
-        body += chunk
-    parsed = json.loads(body.decode("utf-8"))
-    if not isinstance(parsed, dict):
-        raise ArtifactBrokerError("broker message must be object")
+def _extract_fds(ancdata: list[tuple[int, int, bytes]]) -> list[int]:
     fds: list[int] = []
     for cmsg_level, cmsg_type, cmsg_data in ancdata:
         if cmsg_level == socket.SOL_SOCKET and cmsg_type == socket.SCM_RIGHTS:
             n = len(cmsg_data) // 4
             fds.extend(struct.unpack(f"{n}i", cmsg_data[: n * 4]))
-    return parsed, fds
+    return fds
+
+
+def _close_fds(fds: list[int], *, keep: set[int] | None = None) -> None:
+    retained = keep or set()
+    for fd in fds:
+        if fd in retained:
+            continue
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+def _recv_request(conn: socket.socket) -> tuple[dict[str, object], list[int]]:
+    conn.settimeout(_REQUEST_TIMEOUT_SECONDS)
+    msg, ancdata, _flags, _addr = conn.recvmsg(_MAX_JSON + 4, _CMSG_SPACE)
+    fds = _extract_fds(ancdata)
+    try:
+        if len(msg) < 4:
+            raise ArtifactBrokerError("short broker header")
+        (length,) = struct.unpack("!I", msg[:4])
+        if length <= 0 or length > _MAX_JSON:
+            raise ArtifactBrokerError("invalid broker message length")
+        body = msg[4:]
+        while len(body) < length:
+            chunk = conn.recv(length - len(body))
+            if not chunk:
+                raise ArtifactBrokerError("broker client closed")
+            body += chunk
+        parsed = json.loads(body.decode("utf-8"))
+        if not isinstance(parsed, dict):
+            raise ArtifactBrokerError("broker message must be object")
+        return parsed, fds
+    except Exception:
+        _close_fds(fds)
+        raise
 
 
 def _fd_path(fd: int) -> str:
@@ -139,7 +182,7 @@ def _pidfd_nspid(pidfd: int) -> int:
     raise ArtifactBrokerError("pidfd_identity_rejected")
 
 
-def _bind_peer(state: BrokerBindState, pid: int, pidfd: int) -> None:
+def _bind_peer(state: BrokerBindState, pid: int, pidfd: int) -> bool:
     """Take ownership of the peer-supplied self pidfd (SCM_RIGHTS).
 
     Dual-UID production cannot ``pidfd_open(cred.pid)`` from the helper: that
@@ -157,7 +200,7 @@ def _bind_peer(state: BrokerBindState, pid: int, pidfd: int) -> None:
             if state.pid != pid or state.starttime != starttime:
                 raise ArtifactBrokerError("peer_pid_rejected")
             os.close(pidfd)
-            return
+            return False
         if state.pidfd is not None:
             try:
                 os.close(state.pidfd)
@@ -166,6 +209,7 @@ def _bind_peer(state: BrokerBindState, pid: int, pidfd: int) -> None:
         state.pid = pid
         state.pidfd = pidfd
         state.starttime = starttime
+        return True
 
 
 def _peer_is_bound(state: BrokerBindState, pid: int) -> bool:
@@ -203,17 +247,19 @@ def _handle(
     impl: InProcessArtifactDirBroker,
     bind_state: BrokerBindState,
     stop: threading.Event | None,
+    dir_locks: _DirLocks,
+    dir_sema: threading.Semaphore,
 ) -> None:
+    fds: list[int] = []
+    keep: set[int] = set()
     try:
         creds = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
         pid, uid, _gid = struct.unpack("3i", creds)
         req, fds = _recv_request(conn)
+        if len(fds) > _MAX_FDS:
+            _send_json(conn, {"ok": False, "error": "extra_fds"})
+            return
         if int(uid) != int(expected_peer_uid):
-            for fd in fds:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
             _send_json(conn, {"ok": False, "error": "peer_uid_rejected"})
             return
         op = str(req.get("op", ""))
@@ -224,41 +270,71 @@ def _handle(
             _send_json(conn, {"ok": False, "error": "unknown_op"})
             return
         if op == "ping":
+            if fds:
+                _send_json(conn, {"ok": False, "error": "extra_fds"})
+                return
             _send_json(conn, {"ok": True})
             return
         if op == "bind":
-            owned = False
+            if len(fds) != 1:
+                _send_json(conn, {"ok": False, "error": "missing_pidfd"})
+                return
             try:
-                if len(fds) != 1:
-                    _send_json(conn, {"ok": False, "error": "missing_pidfd"})
-                    return
-                _bind_peer(bind_state, int(pid), fds[0])
-                owned = True
-                _send_json(conn, {"ok": True})
+                owned = _bind_peer(bind_state, int(pid), fds[0])
             except ArtifactBrokerError as exc:
                 _send_json(conn, {"ok": False, "error": str(exc)})
+                return
             except OSError as exc:
                 _send_json(conn, {"ok": False, "error": type(exc).__name__})
-            finally:
-                if not owned:
-                    for fd in fds:
-                        try:
-                            os.close(fd)
-                        except OSError:
-                            pass
+                return
+            if owned:
+                keep.add(fds[0])
+            _send_json(conn, {"ok": True})
             return
         if not _peer_is_bound(bind_state, int(pid)):
             _send_json(conn, {"ok": False, "error": "peer_pid_rejected"})
             return
+        if op == "assert_bound":
+            if fds:
+                _send_json(conn, {"ok": False, "error": "extra_fds"})
+                return
+            _send_json(conn, {"ok": True})
+            return
         if op == "shutdown":
+            if fds:
+                _send_json(conn, {"ok": False, "error": "extra_fds"})
+                return
             if stop is not None:
                 stop.set()
             _send_json(conn, {"ok": True})
             return
-        if not fds:
-            _send_json(conn, {"ok": False, "error": "missing_dirfd"})
+        expected_fds = 2 if op in {"link_from_fd", "rename_noreplace"} else 1
+        if len(fds) < expected_fds:
+            missing = "missing_srcfd" if op == "link_from_fd" else (
+                "missing_dstfd" if op == "rename_noreplace" else "missing_dirfd"
+            )
+            _send_json(conn, {"ok": False, "error": missing})
             return
+        if len(fds) > expected_fds:
+            _send_json(conn, {"ok": False, "error": "extra_fds"})
+            return
+        if not dir_sema.acquire(timeout=_REQUEST_TIMEOUT_SECONDS):
+            _send_json(conn, {"ok": False, "error": "busy"})
+            return
+        acquired: list[threading.Lock] = []
         try:
+            keys: list[tuple[int, int]] = []
+            seen: set[tuple[int, int]] = set()
+            for fd in fds[:expected_fds]:
+                st = os.fstat(fd)
+                key = (int(st.st_dev), int(st.st_ino))
+                if key not in seen:
+                    seen.add(key)
+                    keys.append(key)
+            for key in sorted(keys):
+                lock = dir_locks.lock_for_key(key)
+                lock.acquire()
+                acquired.append(lock)
             _require_dir_under_root(fds[0], artifacts_root)
             if op == "mkdir":
                 name = str(req["name"])
@@ -318,7 +394,21 @@ def _handle(
                 _send_json(conn, {"ok": impl.rmdir_if_empty(fds[0], name)})
             elif op == "reclaim_stage":
                 name = str(req["name"])
-                _send_json(conn, {"ok": reclaim_stage_dir(fds[0], name)})
+                raw_children = req.get("children", [])
+                children: list[tuple[str, int, int]] = []
+                if isinstance(raw_children, list):
+                    for item in raw_children:
+                        if not isinstance(item, dict):
+                            continue
+                        child_name = str(item.get("name", ""))
+                        child_dev = item.get("expected_dev")
+                        child_ino = item.get("expected_ino")
+                        if isinstance(child_dev, int) and isinstance(child_ino, int):
+                            children.append((child_name, child_dev, child_ino))
+                _send_json(
+                    conn,
+                    {"ok": reclaim_stage_dir(fds[0], name, children=children)},
+                )
             elif op == "link_from_fd":
                 if len(fds) < 2:
                     _send_json(conn, {"ok": False, "error": "missing_srcfd"})
@@ -369,16 +459,16 @@ def _handle(
         except OSError as exc:
             _send_json(conn, {"ok": False, "error": type(exc).__name__})
         finally:
-            for fd in fds:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
+            for lock in reversed(acquired):
+                lock.release()
+            dir_sema.release()
     except Exception as exc:
         try:
             _send_json(conn, {"ok": False, "error": type(exc).__name__})
         except Exception:
             pass
+    finally:
+        _close_fds(fds, keep=keep)
 
 
 def serve(
@@ -391,19 +481,24 @@ def serve(
 ) -> None:
     impl = InProcessArtifactDirBroker()
     bind_state = BrokerBindState()
+    dir_locks = _DirLocks()
     if socket_path.exists():
         socket_path.unlink()
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(socket_path))
     os.chmod(socket_path, 0o660)
-    server.listen(16)
+    server.listen(128)
     server.settimeout(1.0)
     resolved = os.path.realpath(str(artifacts_root))
     root_st = os.stat(resolved)
     root = FrozenArtifactsRoot(path=resolved, dev=int(root_st.st_dev), ino=int(root_st.st_ino))
     peer_gid = os.getgid() if expected_peer_gid is None else expected_peer_gid
-    workers: list[threading.Thread] = []
+    dir_sema = threading.Semaphore(_MAX_WORKER_THREADS)
+    executor = ThreadPoolExecutor(
+        max_workers=_MAX_WORKER_THREADS + _IO_RESERVE_THREADS,
+        thread_name_prefix="artifact-broker",
+    )
     try:
         while stop is None or not stop.is_set():
             try:
@@ -414,23 +509,29 @@ def serve(
                 if stop is not None and stop.is_set():
                     break
                 raise
-            thread = threading.Thread(
-                target=_serve_one,
-                args=(conn, expected_peer_uid, peer_gid, root, impl, bind_state, stop),
-                daemon=True,
-                name="artifact-broker-conn",
-            )
-            workers.append(thread)
-            thread.start()
+            try:
+                executor.submit(
+                    _serve_one,
+                    conn,
+                    expected_peer_uid,
+                    peer_gid,
+                    root,
+                    impl,
+                    bind_state,
+                    stop,
+                    dir_locks,
+                    dir_sema,
+                )
+            except RuntimeError:
+                conn.close()
     finally:
         server.close()
+        executor.shutdown(wait=True, cancel_futures=False)
         if bind_state.pidfd is not None:
             try:
                 os.close(bind_state.pidfd)
             except OSError:
                 pass
-        for thread in workers:
-            thread.join(timeout=2.0)
 
 
 def _serve_one(
@@ -441,6 +542,8 @@ def _serve_one(
     impl: InProcessArtifactDirBroker,
     bind_state: BrokerBindState,
     stop: threading.Event | None,
+    dir_locks: _DirLocks,
+    dir_sema: threading.Semaphore,
 ) -> None:
     with conn:
         _handle(
@@ -451,6 +554,8 @@ def _serve_one(
             impl=impl,
             bind_state=bind_state,
             stop=stop,
+            dir_locks=dir_locks,
+            dir_sema=dir_sema,
         )
 
 

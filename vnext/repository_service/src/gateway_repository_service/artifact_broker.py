@@ -39,6 +39,7 @@ _OPS = frozenset(
         "reserve_tombstone_slots",
         "release_tombstone_reservation",
         "shutdown",
+        "assert_bound",
     }
 )
 
@@ -57,6 +58,8 @@ class ArtifactDirBroker(Protocol):
     def bind(self) -> None: ...
 
     def shutdown(self) -> None: ...
+
+    def assert_bound(self) -> None: ...
 
     def mkdir(self, dir_fd: int, name: str, *, mode: int = 0o700) -> None: ...
 
@@ -91,7 +94,13 @@ class ArtifactDirBroker(Protocol):
 
     def release_tombstone_reservation(self, dir_fd: int, *, projected_new: int) -> None: ...
 
-    def reclaim_stage(self, dir_fd: int, name: str) -> bool: ...
+    def reclaim_stage(
+        self,
+        dir_fd: int,
+        name: str,
+        *,
+        children: list[tuple[str, int, int]] | None = None,
+    ) -> bool: ...
 
 
 def is_single_path_component(name: str) -> bool:
@@ -187,6 +196,9 @@ class InProcessArtifactDirBroker:
     def shutdown(self) -> None:
         return None
 
+    def assert_bound(self) -> None:
+        return None
+
     def _state_for(self, dir_fd: int) -> _ReservationState:
         st = os.fstat(dir_fd)
         key = (int(st.st_dev) << 32) ^ int(st.st_ino)
@@ -273,8 +285,14 @@ class InProcessArtifactDirBroker:
         with state.lock:
             state.reserved = max(0, state.reserved - max(0, projected_new))
 
-    def reclaim_stage(self, dir_fd: int, name: str) -> bool:
-        return reclaim_stage_dir(dir_fd, name)
+    def reclaim_stage(
+        self,
+        dir_fd: int,
+        name: str,
+        *,
+        children: list[tuple[str, int, int]] | None = None,
+    ) -> bool:
+        return reclaim_stage_dir(dir_fd, name, children=children)
 
 
 def _unlink_if_match_fd(
@@ -310,8 +328,17 @@ def _unlink_if_match_fd(
     return True
 
 
-def reclaim_stage_dir(ready_dir_fd: int, name: str) -> bool:
-    """Unlink size-0 stage children then rmdir if empty. Broker-principal path."""
+def reclaim_stage_dir(
+    ready_dir_fd: int,
+    name: str,
+    *,
+    children: list[tuple[str, int, int]] | None = None,
+) -> bool:
+    """Unlink proof-backed stage children then rmdir if empty.
+
+    ``children`` is ``(name, expected_dev, expected_ino)``. Without proofs no
+    child is unlinked; empty stages may still rmdir. Live fstat is not proof.
+    """
 
     from gateway_repository_service.upload_artifact.admission_pin import parse_unlink_stage_dir_name
 
@@ -330,33 +357,14 @@ def reclaim_stage_dir(ready_dir_fd: int, name: str) -> bool:
         except OSError:
             return False
         try:
-            try:
-                children = os.listdir(stage_fd)
-            except OSError:
-                return False
-            for child in children:
-                if not _is_stage_child_name(child):
-                    continue
-                open_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-                try:
-                    child_fd = os.open(child, open_flags, dir_fd=stage_fd)
-                except FileNotFoundError:
-                    continue
-                except OSError:
-                    continue
-                try:
-                    st = os.fstat(child_fd)
-                except OSError:
-                    continue
-                finally:
-                    os.close(child_fd)
-                if not stat.S_ISREG(st.st_mode) or int(st.st_size) != 0:
+            for child_name, expected_dev, expected_ino in children or ():
+                if not _is_stage_child_name(child_name):
                     continue
                 _unlink_if_match_fd(
                     stage_fd,
-                    child,
-                    expected_dev=int(st.st_dev),
-                    expected_ino=int(st.st_ino),
+                    child_name,
+                    expected_dev=int(expected_dev),
+                    expected_ino=int(expected_ino),
                 )
             os.rmdir(name, dir_fd=ready_dir_fd)
             return True
@@ -521,6 +529,11 @@ class SocketArtifactDirBroker:
         if not resp.get("ok"):
             raise ArtifactBrokerError(str(resp.get("error", "broker shutdown failed")))
 
+    def assert_bound(self) -> None:
+        resp = self._call({"op": "assert_bound"})
+        if not resp.get("ok"):
+            raise ArtifactBrokerError(str(resp.get("error", "broker bind lost")))
+
     def _connect(self) -> socket.socket:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(self._timeout)
@@ -636,8 +649,20 @@ class SocketArtifactDirBroker:
             fds=[dir_fd],
         )
 
-    def reclaim_stage(self, dir_fd: int, name: str) -> bool:
-        resp = self._call({"op": "reclaim_stage", "name": name}, fds=[dir_fd])
+    def reclaim_stage(
+        self,
+        dir_fd: int,
+        name: str,
+        *,
+        children: list[tuple[str, int, int]] | None = None,
+    ) -> bool:
+        payload: dict[str, object] = {"op": "reclaim_stage", "name": name}
+        if children:
+            payload["children"] = [
+                {"name": child_name, "expected_dev": int(dev), "expected_ino": int(ino)}
+                for child_name, dev, ino in children
+            ]
+        resp = self._call(payload, fds=[dir_fd])
         return bool(resp.get("ok"))
 
 
@@ -712,6 +737,10 @@ def install_artifact_broker(*, profile: str) -> ArtifactDirBroker:
 
 def ping_artifact_broker() -> None:
     get_artifact_broker().ping()
+
+
+def assert_artifact_broker_bound() -> None:
+    get_artifact_broker().assert_bound()
 
 
 def _helper_pid_exists(pid: int) -> bool:

@@ -120,12 +120,39 @@ def _pidfd_alive(pidfd: int) -> bool:
     return True
 
 
-def _bind_peer(state: BrokerBindState, pid: int) -> None:
+def _pidfd_nspid(pidfd: int) -> int:
+    """Read the pidfd's target PID. Helper cannot pidfd_open() a different UID."""
+
+    try:
+        raw = Path(f"/proc/self/fdinfo/{pidfd}").read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ArtifactBrokerError("pidfd_identity_rejected") from exc
+    for line in raw.splitlines():
+        if line.startswith("NSpid:") or line.startswith("Pid:"):
+            fields = line.split(":", 1)[1].split()
+            if fields:
+                return int(fields[0])
+    raise ArtifactBrokerError("pidfd_identity_rejected")
+
+
+def _bind_peer(state: BrokerBindState, pid: int, pidfd: int) -> None:
+    """Take ownership of the peer-supplied self pidfd (SCM_RIGHTS).
+
+    Dual-UID production cannot ``pidfd_open(cred.pid)`` from the helper: that
+    is a PTRACE_MODE_READ_FSCREDS check and returns EPERM across UIDs. The
+    gateway opens its own pidfd (always allowed) and passes it.
+    """
+
+    if _pidfd_nspid(pidfd) != pid:
+        raise ArtifactBrokerError("pidfd_identity_rejected")
+    if not _pidfd_alive(pidfd):
+        raise ArtifactBrokerError("peer_pid_rejected")
     starttime = _proc_starttime(pid)
     with state.lock:
         if state.pidfd is not None and _pidfd_alive(state.pidfd):
             if state.pid != pid or state.starttime != starttime:
                 raise ArtifactBrokerError("peer_pid_rejected")
+            os.close(pidfd)
             return
         if state.pidfd is not None:
             try:
@@ -133,7 +160,7 @@ def _bind_peer(state: BrokerBindState, pid: int) -> None:
             except OSError:
                 pass
         state.pid = pid
-        state.pidfd = os.pidfd_open(pid)
+        state.pidfd = pidfd
         state.starttime = starttime
 
 
@@ -195,15 +222,25 @@ def _handle(
             _send_json(conn, {"ok": True})
             return
         if op == "bind":
+            owned = False
             try:
-                _bind_peer(bind_state, int(pid))
+                if len(fds) != 1:
+                    _send_json(conn, {"ok": False, "error": "missing_pidfd"})
+                    return
+                _bind_peer(bind_state, int(pid), fds[0])
+                owned = True
+                _send_json(conn, {"ok": True})
             except ArtifactBrokerError as exc:
                 _send_json(conn, {"ok": False, "error": str(exc)})
-                return
             except OSError as exc:
                 _send_json(conn, {"ok": False, "error": type(exc).__name__})
-                return
-            _send_json(conn, {"ok": True})
+            finally:
+                if not owned:
+                    for fd in fds:
+                        try:
+                            os.close(fd)
+                        except OSError:
+                            pass
             return
         if not _peer_is_bound(bind_state, int(pid)):
             _send_json(conn, {"ok": False, "error": "peer_pid_rejected"})

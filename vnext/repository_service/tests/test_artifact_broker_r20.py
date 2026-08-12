@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import array
+import json
 import os
 import signal
+import socket
 import stat
+import struct
 import subprocess
 import sys
 import threading
@@ -60,7 +64,11 @@ def rpc(sock, payload, fds=None):
     return json.loads(body.decode("utf-8"))
 
 sock, ready, hex_name = sys.argv[1], sys.argv[2], sys.argv[3]
-bind = rpc(sock, {"op": "bind"})
+pidfd = os.pidfd_open(os.getpid())
+try:
+    bind = rpc(sock, {"op": "bind"}, [pidfd])
+finally:
+    os.close(pidfd)
 if bind.get("ok") is True:
     raise SystemExit(11)
 ready_fd = os.open(ready, os.O_RDONLY | os.O_DIRECTORY)
@@ -208,14 +216,22 @@ def test_r20_second_pid_and_fork_child_cannot_bind(
     protected = _plant_protected(tmp_path, bound_socket_broker)
     sock = str(tmp_path / "run" / "artifact-broker.sock")
     script = r"""
-import json, os, socket, struct, sys
+import array, json, os, socket, struct, sys
 sock = sys.argv[1]
 if os.fork() == 0:
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     conn.settimeout(2.0)
     conn.connect(sock)
     payload = json.dumps({"op": "bind"}).encode("utf-8")
-    conn.sendall(struct.pack("!I", len(payload)) + payload)
+    header = struct.pack("!I", len(payload)) + payload
+    pidfd = os.pidfd_open(os.getpid())
+    try:
+        conn.sendmsg(
+            [header],
+            [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", [pidfd]).tobytes())],
+        )
+    finally:
+        os.close(pidfd)
     hdr = conn.recv(4)
     (length,) = struct.unpack("!I", hdr)
     body = json.loads(conn.recv(length).decode("utf-8"))
@@ -241,6 +257,45 @@ raise SystemExit(os.waitstatus_to_exitcode(status))
     )
     assert dolt_child.returncode == 0, dolt_child.stderr
     assert protected.is_file()
+
+
+def _raw_bind(sock: str, fds: list[int] | None = None) -> dict[str, object]:
+    conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.settimeout(2.0)
+    conn.connect(sock)
+    payload = json.dumps({"op": "bind"}).encode("utf-8")
+    header = struct.pack("!I", len(payload)) + payload
+    if fds:
+        conn.sendmsg(
+            [header],
+            [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", fds).tobytes())],
+        )
+    else:
+        conn.sendall(header)
+    hdr = conn.recv(4)
+    (length,) = struct.unpack("!I", hdr)
+    parsed = json.loads(conn.recv(length).decode("utf-8"))
+    conn.close()
+    if not isinstance(parsed, dict):
+        raise AssertionError("broker bind response must be an object")
+    return parsed
+
+
+def test_r20_bind_requires_self_pidfd(
+    tmp_path: Path, bound_socket_broker: SocketArtifactDirBroker
+) -> None:
+    sock = str(tmp_path / "run" / "artifact-broker.sock")
+    missing = _raw_bind(sock)
+    assert missing.get("ok") is not True
+    assert missing.get("error") == "missing_pidfd"
+    artifacts = tmp_path / "artifacts"
+    dir_fd = os.open(artifacts, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        forged = _raw_bind(sock, [dir_fd])
+    finally:
+        os.close(dir_fd)
+    assert forged.get("ok") is not True
+    assert forged.get("error") == "pidfd_identity_rejected"
 
 
 def test_r20_bound_peer_cannot_unlink_hex32(

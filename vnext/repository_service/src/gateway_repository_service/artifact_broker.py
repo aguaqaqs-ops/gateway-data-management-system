@@ -501,7 +501,12 @@ class SocketArtifactDirBroker:
             raise ArtifactBrokerError("broker ping failed")
 
     def bind(self) -> None:
-        resp = self._call({"op": "bind"})
+        # Dual-UID: helper cannot pidfd_open(peer); send self pidfd via SCM_RIGHTS.
+        pidfd = os.pidfd_open(os.getpid())
+        try:
+            resp = self._call({"op": "bind"}, fds=[pidfd])
+        finally:
+            os.close(pidfd)
         if not resp.get("ok"):
             raise ArtifactBrokerError(str(resp.get("error", "broker bind failed")))
 

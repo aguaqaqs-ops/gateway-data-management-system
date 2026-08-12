@@ -125,25 +125,22 @@ process boundary 的生产语义，不仅服务于测试提速。全新 HOME 下
 查询最新发布版本，单次 3~5 秒。任何新增的、会创建全新 dolt HOME 的代码路径都必须
 沿用这一预置，否则既拖慢测试，也违反 offline provider 边界。
 
-## Artifact tombstone 容量与扫描复杂度（S2）
+## Artifact cleanup 收敛与 tombstone circuit breaker（S2）
 
-同 euid 威胁模型下，成功 bytes-delete 的 prove-only 路径会永久留下 generation-bound
-size-0 public sidecar（通常每成功删除最多 2 个：`.deleting-*` 与 `.detach-*`）以及
-对应的零长度 inode；**不得**把「`<= n*2`」误称为收敛到零 dentry。
+权威边界见 [ADR 0011](refactoring/formal/adr/0011-artifact-directory-broker-reclaim.md)：
+成功 cleanup 必须经 directory-broker reclaim 使 Service-owned dentry/inode 回到固定基线
+或严格常数残差，**不得**用「`<= n*2`」或 budget 替代 Contract 收敛语义。同 euid
+pathname unlink 不安全，禁止作为合规证明。
 
-运维与测试门禁：
+运维 circuit breaker（非合规证明）：
 
-- Settings：`artifact_tombstone_budget`（默认 `50000`）是单 repo ready 目录下可接受的
-  `.deleting-*` / `.detach-*` / `.unlink-verify-*` 数量上限。
-- 背压：ready 枚举的 tombstone 计数 `>= budget` 时，新的 bytes-delete 尝试 fail-closed
-  （保留 bytes / 不清 receipt），并打 `cleanup_outcome=tombstone_budget` 诊断事件；禁止
-  静默继续线性堆高。
-- 扫描：cleaner / sweep 对 ready 的 `listdir` 与 per-tombstone DB lifecycle 查询随
-  tombstone 数近似 `O(T)`，并以 budget 为硬上限；无新 delete 时闲置 sweep 不得继续
-  增长绝对计数。
-- 跨 UID 安全 pathname unlink / reclaim **不在**本阶段范围。
+- Settings：`artifact_tombstone_budget`（默认 `50000`）覆盖 ready 下 public sidecar 与
+  `.unlink-stage-*` 等全 inventory；创建前 projected reservation；饱和时 fail-closed 并
+  `cleanup_outcome=tombstone_budget`。
+- 饱和 backlog 必须有界重试/分页，禁止每轮对 pending 行无界 `O(M*(T+M))` listdir。
+- 容器证明双 UID broker；`profile=test` 的 in-process broker 只验证功能协议。
 
-定向探针见 `tests/test_artifact_cleanup.py` 的 `r17_*` 矩阵。
+定向探针见 `tests/test_artifact_cleanup.py` 的 `r18_*`（及既有 `r17_*` 回归）矩阵。
 
 ## 历史基线
 

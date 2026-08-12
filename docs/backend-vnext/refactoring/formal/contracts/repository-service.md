@@ -467,13 +467,17 @@ Artifact是临时import输入，不是长期对象存储：
 
 - RUNNING operation引用的artifact不得清理；
 - import成功且operation结果已持久化后删除本地package；
+- 成功清理必须使本地package与Service-owned filesystem对象实际收敛：不得每次成功
+  永久净增对象；允许严格常数残差（残差形态与ownership边界由私有实现/ADR规定，
+  不进入本Contract的UID/helper细节）；
 - orphan和普通失败artifact使用可配置TTL做best-effort清理；
 - 初始建议TTL为24小时；
 - `MANUAL_RECOVERY_REQUIRED`引用的artifact保留到人工处理；
 - 不提供public artifact delete、retention或GC API。
 
 Artifact清理失败不得改变已经成功的commit或operation结果；通过普通日志和磁盘
-admission暴露，不建立独立cleanup evidence状态机。
+admission暴露，不建立独立cleanup evidence状态机。容量circuit breaker若存在，只作
+运维背压，不得替代「成功后实际收敛」语义。
 
 ## 13. Catalog and row stream
 
@@ -645,7 +649,8 @@ additive sibling加入：
   replay通过；
 - commit前中断、commit后响应丢失和人工恢复分支通过；
 - raw Arrow IPC可由client直接读取，截断时由HTTP/Arrow失败；
-- package成功后清理且RUNNING/manual-recovery artifact不被删除；
+- package成功后清理且RUNNING/manual-recovery artifact不被删除；成功清理后
+  Service-owned filesystem对象不得随成功次数`O(n)`永久净增；
 - Phase 0–1 canonical bytes、Python/Rust核心golden保持不变。
 - Repository package不依赖Shared Kernel/conformance；SUCCEEDED result的artifact与
   manifest binding可由Backend T3核对。

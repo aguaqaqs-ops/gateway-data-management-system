@@ -118,6 +118,7 @@ v8 launcher。没有发现会改变public contract或阻断S1的冲突。
 | --- | --- | ---: | --- |
 | ordinary failed/orphan TTL | `GATEWAY_REPOSITORY_ARTIFACT_TTL_SECONDS` | `86400` | container recreate |
 | cleanup fallback interval | `GATEWAY_REPOSITORY_ARTIFACT_CLEANUP_INTERVAL_SECONDS` | `300` | container recreate |
+| tombstone circuit breaker | `GATEWAY_REPOSITORY_ARTIFACT_TOMBSTONE_BUDGET` | `50000` | container recreate |
 | concurrent uploads | `GATEWAY_REPOSITORY_MAX_CONCURRENT_UPLOADS` | `8` | container recreate |
 | import workers | `GATEWAY_REPOSITORY_MAX_IMPORT_WORKERS` | `4` | container recreate |
 | queued imports | `GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS` | `64` | container recreate |
@@ -155,13 +156,34 @@ Settings在process启动时一次性解析和校验。部署方用受控env file
 
 `ServiceRuntime`拥有一个non-daemon cleaner。startup reconciliation完成后立即sweep一次；
 artifact lifecycle变化触发sticky wake，300秒只作为漏通知/外部时间推进的fallback。shutdown
-先停止和join cleaner，再关闭control DB并释放durable-root lock。
+先停止和join cleaner与artifact-broker helper，再关闭control DB并释放durable-root lock。
 
-删除顺序固定为：枚举Service-owned exact UUID/staging shape；取得artifact admission pin；用
-durable references复核eligible；unlink/确认已不存在；记录bytes-deleted timestamp。未知、
-畸形或无法证明owner的path只记录脱敏诊断，不删除。成功结果持久化后继续即时删除并由cleaner
-重试residual；ordinary FAILED从`completed_at`起24小时，unreferenced orphan从artifact
-`created_at`起24小时。PENDING/QUEUED/RUNNING/manual FAILED无限期保留到状态改变。
+删除顺序固定为：枚举exact UUID/staging shape；取得artifact admission pin；用durable
+references复核eligible；经directory-broker unlink/确认已不存在；记录bytes-deleted
+timestamp。未知、畸形或无法证明owner的path只记录脱敏诊断，不删除。成功结果持久化后继续
+即时删除并由cleaner重试residual；ordinary FAILED从`completed_at`起24小时，unreferenced
+orphan从artifact `created_at`起24小时。PENDING/QUEUED/RUNNING/manual FAILED无限期保留到
+状态改变。
+
+#### Directory-broker私有协议（ADR 0011）
+
+- **目录所有权**：`artifacts/<repo>/ready/` owner为`artifact-broker`；mode禁止`gateway`
+  写目录项。Service进程不得直接`unlink`/`rename`/`rmdir`/`linkat-create` ready目录名。
+- **IPC**：Unix-domain socket（data root下私有路径）；peer credential仅接受`gateway` UID；
+  目录变异请求经SCM_RIGHTS传递已持有inode fd，并携带`(op, name, expected_dev,
+  expected_ino, generation?)`；broker openat+fstat复核后执行。
+- **允许op**：`mkdir_ready`、`link_from_fd`、`rename_noreplace`、`unlink_if_match`、
+  `rmdir_if_empty`；拒绝未知op。
+- **锁序**：admission pin flock → broker目录op → durable stamp/clear intent/receipt。
+- **crash**：半完成create/unlink/rename后restart必须收敛；broker幂等：已缺席的
+  `unlink_if_match`与已存在且匹配的`link_from_fd`为成功。
+- **存量收敛**：`.deleting-*`、`.detach-*`、`.unlink-verify-*`、`.unlink-stage-*`（含
+  Round15–17 prove-only残留）均须经broker reclaim到缺席或严格常数残差；不得只修新删除。
+- **ineligible restore**：仅当exact ready名证明expected `(dev,ino,full size)`时可clear
+  intent；foreign/symlink/EIO·EPERM下不得因verify sidecar清intent（ADR 0011表）。
+- **`GATEWAY_REPOSITORY_ARTIFACT_TOMBSTONE_BUDGET`**：过渡circuit breaker。计数口径覆盖
+  public sidecar与`.unlink-stage-*`等永久inventory；创建前做projected atomic reservation
+  （预留本次最多新增目录项）；饱和candidate有界重试/分页。budget**不是**Contract合规证明。
 
 upload permit在创建PENDING、打开staging文件或读取request body前non-blocking取得；满载返回
 429，所有正常、异常和disconnect路径释放。replay不重新占upload permit，仍受import worker、

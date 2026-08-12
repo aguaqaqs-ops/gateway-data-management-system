@@ -11,7 +11,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 8
+CONTROL_DB_USER_VERSION = 9
 
 ColumnShape = tuple[tuple[str, str, int, str | None, int], ...]
 
@@ -325,6 +325,26 @@ _MIGRATION_V8_STATEMENTS: tuple[str, ...] = (
     """
     CREATE INDEX repository_import_operations_artifact_idx
     ON repository_import_operations (artifact_id)
+    """,
+)
+
+
+_MIGRATION_V9_STATEMENTS: tuple[str, ...] = (
+    """
+    ALTER TABLE artifact_lifecycle
+    ADD COLUMN bytes_delete_intent_at TEXT NULL
+    """,
+    """
+    ALTER TABLE artifact_lifecycle
+    ADD COLUMN bytes_delete_dev INTEGER NULL
+    """,
+    """
+    ALTER TABLE artifact_lifecycle
+    ADD COLUMN bytes_delete_ino INTEGER NULL
+    """,
+    """
+    ALTER TABLE artifact_lifecycle
+    ADD COLUMN bytes_delete_phase TEXT NULL
     """,
 )
 
@@ -764,6 +784,9 @@ class ControlStore:
             return
         if target_version == 8:
             ControlStore._execute_statements(connection, _MIGRATION_V8_STATEMENTS)
+            return
+        if target_version == 9:
+            ControlStore._execute_statements(connection, _MIGRATION_V9_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

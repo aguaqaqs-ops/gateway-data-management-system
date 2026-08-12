@@ -974,12 +974,65 @@ class ImportOperationStore:
         artifact_id: UUID,
         *,
         deleted_at: str | None = None,
+        repository_id: UUID | None = None,
     ) -> None:
         with self._transaction():
+            scope = repository_id
+            if scope is None:
+                row = self._connection.execute(
+                    """
+                    SELECT repository_scope
+                    FROM artifact_lifecycle
+                    WHERE artifact_id = ?
+                    """,
+                    (str(artifact_id),),
+                ).fetchone()
+                if row is None:
+                    raise ImportOperationStoreError("artifact lifecycle row is missing")
+                scope = UUID(str(row["repository_scope"]))
             self._mutation_store.record_artifact_bytes_deleted(
                 artifact_id,
                 deleted_at=deleted_at or utc_now_iso(),
+                repository_id=scope,
             )
+
+    def begin_artifact_bytes_delete_intent(
+        self,
+        artifact_id: UUID,
+        *,
+        repository_id: UUID,
+        dev: int,
+        ino: int,
+        phase: str,
+        intent_at: str | None = None,
+    ) -> None:
+        with self._transaction():
+            self._mutation_store.begin_artifact_bytes_delete_intent(
+                artifact_id,
+                repository_id=repository_id,
+                dev=dev,
+                ino=ino,
+                phase=phase,
+                intent_at=intent_at or utc_now_iso(),
+            )
+
+    def clear_artifact_bytes_delete_intent(
+        self,
+        artifact_id: UUID,
+        *,
+        repository_id: UUID,
+    ) -> None:
+        with self._transaction():
+            self._mutation_store.clear_artifact_bytes_delete_intent(
+                artifact_id,
+                repository_id=repository_id,
+            )
+
+    def has_succeeded_create_repository(self, repository_id: UUID) -> bool:
+        """Return True when a create-repository effect has succeeded for this id."""
+
+        with self._transaction():
+            return self._has_succeeded_create_locked(repository_id)
 
     def _has_succeeded_create_locked(self, repository_id: UUID) -> bool:
         from gateway_repository_service.mutation_store import EffectStatus, MutationKind

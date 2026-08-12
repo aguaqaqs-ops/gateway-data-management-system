@@ -340,18 +340,19 @@ def try_unlink_owned_ready_artifact(
     *,
     recheck: Callable[[], bool],
     on_deleted: Callable[[], None] | None = None,
+    on_intent: Callable[[int, int], None] | None = None,
+    on_clear_intent: Callable[[], None] | None = None,
 ) -> str:
     """Delete an owned ready artifact via fd-stable linkat quarantine.
 
     Protocol (while flock is held):
-    1. linkat from the locked fd into ``.deleting-<ino>-<hex>``
-    2. unlink the ready name only when it still names the locked inode
-    3. run ``on_deleted`` (stamp) while the quarantine hardlink still exists
-    4. unlink the quarantine hardlink
+    1. linkat quarantine for the locked inode
+    2. durable delete intent (phase quarantined)
+    3. recheck eligibility
+    4. detach ready only when ``nlink >= 2`` proves ready still names us
+    5. recheck again, then stamp, then unlink quarantine
 
-    Only outcome ``deleted`` means this call completed stamp + final unlink.
-    ``already_absent`` never invents deletion evidence. Abort paths never unlink
-    a directory entry that was not verified as the locked inode.
+    Replacement at the ready name never stamps and never returns ``deleted``.
     """
 
     try:
@@ -370,9 +371,24 @@ def try_unlink_owned_ready_artifact(
             return "unlink_failed"
         return "unlink_failed"
 
-    # Only unlink quarantine in abort paths when we verified it is our inode.
     owned_quarantine: str | None = None
     keep_quarantine_on_abort = False
+    intent_written = False
+
+    def _clear_intent_best_effort() -> None:
+        nonlocal intent_written
+        if not intent_written or on_clear_intent is None:
+            return
+        try:
+            on_clear_intent()
+            intent_written = False
+        except Exception:
+            pass
+
+    def _abort_replaced() -> str:
+        _clear_intent_best_effort()
+        return "replaced"
+
     try:
         try:
             fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -386,8 +402,6 @@ def try_unlink_owned_ready_artifact(
                 return "already_absent"
 
             name = artifact_id.hex
-            # Create the quarantine hardlink while the locked inode still has a
-            # directory link. Linking after an unlink is not portable (e.g. WSL).
             try:
                 name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
             except FileNotFoundError:
@@ -412,8 +426,11 @@ def try_unlink_owned_ready_artifact(
                 if (existing.st_dev, existing.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
                     return "inode_mismatch"
             except OSError:
-                # Fall back to linking the verified ready name (same inode).
                 try:
+                    # Re-verify name still matches before pathname link fallback.
+                    name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
+                    if (name_stat.st_dev, name_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                        return "inode_mismatch"
                     os.link(
                         name,
                         quarantine,
@@ -440,7 +457,6 @@ def try_unlink_owned_ready_artifact(
             except OSError:
                 return "unlink_failed"
             if (q_stat.st_dev, q_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-                # Quarantine hardlink is not our inode — drop only that hardlink.
                 try:
                     os.unlink(quarantine, dir_fd=ready_dir_fd)
                 except OSError:
@@ -454,10 +470,22 @@ def try_unlink_owned_ready_artifact(
                 return "not_regular_file"
             owned_quarantine = quarantine
 
+            if on_intent is not None:
+                try:
+                    on_intent(int(fd_stat.st_dev), int(fd_stat.st_ino))
+                    intent_written = True
+                except Exception:
+                    return "intent_failed"
+
             if not recheck():
+                _clear_intent_best_effort()
                 return "ineligible"
 
-            # Drop the ready name only when it still points at our locked inode.
+            # nlink gate: quarantine + ready must both still link our inode.
+            live = os.fstat(file_fd)
+            if live.st_nlink < 2:
+                return _abort_replaced()
+
             post_name_stat: os.stat_result | None
             try:
                 post_name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
@@ -465,24 +493,42 @@ def try_unlink_owned_ready_artifact(
                 post_name_stat = None
             except OSError:
                 return "unlink_failed"
-            if post_name_stat is not None:
-                if (post_name_stat.st_dev, post_name_stat.st_ino) == (
-                    fd_stat.st_dev,
-                    fd_stat.st_ino,
-                ):
-                    try:
-                        os.unlink(name, dir_fd=ready_dir_fd)
-                    except FileNotFoundError:
-                        pass
-                    except OSError:
-                        return "unlink_failed"
-                # else: replacement at ready name — leave it alone
+
+            if post_name_stat is None:
+                # Ready name already absent; require quarantine-only nlink.
+                if os.fstat(file_fd).st_nlink != 1:
+                    keep_quarantine_on_abort = True
+                    return "unlink_failed"
+            elif (post_name_stat.st_dev, post_name_stat.st_ino) != (
+                fd_stat.st_dev,
+                fd_stat.st_ino,
+            ):
+                return _abort_replaced()
+            else:
+                # Re-check nlink immediately before unlink to close replace races.
+                if os.fstat(file_fd).st_nlink < 2:
+                    return _abort_replaced()
+                try:
+                    os.unlink(name, dir_fd=ready_dir_fd)
+                except FileNotFoundError:
+                    if os.fstat(file_fd).st_nlink != 1:
+                        return _abort_replaced()
+                except OSError:
+                    return "unlink_failed"
+                if os.fstat(file_fd).st_nlink != 1:
+                    keep_quarantine_on_abort = True
+                    return "unlink_failed"
+
+            if not recheck():
+                # Detached but no longer eligible: keep quarantine+intent for recovery.
+                keep_quarantine_on_abort = True
+                return "ineligible"
 
             if on_deleted is not None:
                 try:
                     on_deleted()
+                    intent_written = False  # stamp clears intent
                 except Exception:
-                    # Quarantine hardlink retained so a later sweep can finish.
                     keep_quarantine_on_abort = True
                     return "stamp_failed"
 
@@ -509,6 +555,7 @@ def try_unlink_owned_ready_artifact(
                     os.unlink(owned_quarantine, dir_fd=ready_dir_fd)
             except OSError:
                 pass
+            _clear_intent_best_effort()
         os.close(file_fd)
         os.close(ready_dir_fd)
 
@@ -521,6 +568,8 @@ def try_unlink_ready_artifact_with_recheck(
     repository_id: UUID | None = None,
     artifact_id: UUID | None = None,
     on_deleted: Callable[[], None] | None = None,
+    on_intent: Callable[[int, int], None] | None = None,
+    on_clear_intent: Callable[[], None] | None = None,
 ) -> str:
     """Delete ready bytes; prefer owned layout protocol when ids are provided."""
 
@@ -534,6 +583,8 @@ def try_unlink_ready_artifact_with_recheck(
             artifact_id,
             recheck=recheck,
             on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
         )
 
     # Legacy pathname path kept for narrow test helpers; still fail closed on symlink.

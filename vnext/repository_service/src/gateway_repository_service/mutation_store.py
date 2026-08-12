@@ -134,6 +134,10 @@ class ArtifactLifecycleRecord:
     consumed_at: str | None = None
     bytes_deleted_at: str | None = None
     created_at: str | None = None
+    bytes_delete_intent_at: str | None = None
+    bytes_delete_dev: int | None = None
+    bytes_delete_ino: int | None = None
+    bytes_delete_phase: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,7 +419,11 @@ class MutationStore:
                     consumed_by_operation_id,
                     consumed_at,
                     bytes_deleted_at,
-                    created_at
+                    created_at,
+                    bytes_delete_intent_at,
+                    bytes_delete_dev,
+                    bytes_delete_ino,
+                    bytes_delete_phase
                 FROM artifact_lifecycle
                 WHERE artifact_id = ?
                 """,
@@ -444,7 +452,11 @@ class MutationStore:
                     consumed_by_operation_id,
                     consumed_at,
                     bytes_deleted_at,
-                    created_at
+                    created_at,
+                    bytes_delete_intent_at,
+                    bytes_delete_dev,
+                    bytes_delete_ino,
+                    bytes_delete_phase
                 FROM artifact_lifecycle
                 WHERE bytes_deleted_at IS NULL
                 ORDER BY created_at ASC, artifact_id ASC
@@ -468,6 +480,13 @@ class MutationStore:
     @staticmethod
     def _artifact_lifecycle_from_row(row: sqlite3.Row) -> ArtifactLifecycleRecord:
         consumed_by_operation_id = row["consumed_by_operation_id"]
+        phase = row["bytes_delete_phase"] if "bytes_delete_phase" in row.keys() else None
+        if phase is not None:
+            phase_text = str(phase)
+            if phase_text not in {"quarantined", "detached"}:
+                raise ValueError("invalid bytes_delete_phase")
+        else:
+            phase_text = None
         return ArtifactLifecycleRecord(
             artifact_id=UUID(str(row["artifact_id"])),
             repository_id=UUID(str(row["repository_scope"])),
@@ -484,6 +503,18 @@ class MutationStore:
                 str(row["bytes_deleted_at"]) if row["bytes_deleted_at"] is not None else None
             ),
             created_at=str(row["created_at"]) if row["created_at"] is not None else None,
+            bytes_delete_intent_at=(
+                str(row["bytes_delete_intent_at"])
+                if row["bytes_delete_intent_at"] is not None
+                else None
+            ),
+            bytes_delete_dev=(
+                int(row["bytes_delete_dev"]) if row["bytes_delete_dev"] is not None else None
+            ),
+            bytes_delete_ino=(
+                int(row["bytes_delete_ino"]) if row["bytes_delete_ino"] is not None else None
+            ),
+            bytes_delete_phase=phase_text,
         )
 
     def record_artifact_consumed(
@@ -514,15 +545,110 @@ class MutationStore:
         if cursor.rowcount != 1:
             raise MutationStoreError("artifact lifecycle row is missing or scope mismatch")
 
-    def record_artifact_bytes_deleted(self, artifact_id: UUID, *, deleted_at: str) -> None:
-        self._connection.execute(
+    def record_artifact_bytes_deleted(
+        self,
+        artifact_id: UUID,
+        *,
+        deleted_at: str,
+        repository_id: UUID,
+    ) -> None:
+        cursor = self._connection.execute(
             """
             UPDATE artifact_lifecycle
             SET bytes_deleted_at = COALESCE(bytes_deleted_at, ?),
-                updated_at = ?
+                updated_at = ?,
+                bytes_delete_intent_at = NULL,
+                bytes_delete_dev = NULL,
+                bytes_delete_ino = NULL,
+                bytes_delete_phase = NULL
+            WHERE artifact_id = ?
+              AND repository_scope = ?
+            """,
+            (deleted_at, deleted_at, str(artifact_id), repository_id.hex),
+        )
+        if cursor.rowcount != 1:
+            raise MutationStoreError("artifact lifecycle row is missing or scope mismatch")
+        row = self._connection.execute(
+            """
+            SELECT bytes_deleted_at, repository_scope
+            FROM artifact_lifecycle
             WHERE artifact_id = ?
             """,
-            (deleted_at, deleted_at, str(artifact_id)),
+            (str(artifact_id),),
+        ).fetchone()
+        if (
+            row is None
+            or str(row["repository_scope"]) != repository_id.hex
+            or row["bytes_deleted_at"] is None
+        ):
+            raise MutationStoreError("artifact bytes_deleted_at readback failed")
+
+    def begin_artifact_bytes_delete_intent(
+        self,
+        artifact_id: UUID,
+        *,
+        repository_id: UUID,
+        dev: int,
+        ino: int,
+        phase: str,
+        intent_at: str,
+    ) -> None:
+        if phase not in {"quarantined", "detached"}:
+            raise MutationStoreError("invalid delete intent phase")
+        cursor = self._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_delete_intent_at = ?,
+                bytes_delete_dev = ?,
+                bytes_delete_ino = ?,
+                bytes_delete_phase = ?,
+                updated_at = ?
+            WHERE artifact_id = ?
+              AND repository_scope = ?
+              AND bytes_deleted_at IS NULL
+            """,
+            (
+                intent_at,
+                int(dev),
+                int(ino),
+                phase,
+                intent_at,
+                str(artifact_id),
+                repository_id.hex,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise MutationStoreError("artifact delete intent row missing or already deleted")
+
+    def clear_artifact_bytes_delete_intent(
+        self,
+        artifact_id: UUID,
+        *,
+        repository_id: UUID,
+    ) -> None:
+        row = self._connection.execute(
+            """
+            SELECT repository_scope
+            FROM artifact_lifecycle
+            WHERE artifact_id = ?
+            """,
+            (str(artifact_id),),
+        ).fetchone()
+        if row is None:
+            raise MutationStoreError("artifact lifecycle row is missing")
+        if str(row["repository_scope"]) != repository_id.hex:
+            raise MutationStoreError("artifact delete intent scope mismatch")
+        self._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_delete_intent_at = NULL,
+                bytes_delete_dev = NULL,
+                bytes_delete_ino = NULL,
+                bytes_delete_phase = NULL
+            WHERE artifact_id = ?
+              AND repository_scope = ?
+            """,
+            (str(artifact_id), repository_id.hex),
         )
 
     def mark_terminal_not_published(

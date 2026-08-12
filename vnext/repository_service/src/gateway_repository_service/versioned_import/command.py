@@ -374,7 +374,10 @@ class ImportOperationExecutor:
             stamped = {"ok": False}
 
             def _stamp() -> None:
-                self._store.mark_artifact_bytes_deleted(context.artifact_id)
+                self._store.mark_artifact_bytes_deleted(
+                    context.artifact_id,
+                    repository_id=context.repository_id,
+                )
                 stamped["ok"] = True
 
             outcome = try_unlink_ready_artifact_with_recheck(

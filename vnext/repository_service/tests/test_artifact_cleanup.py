@@ -954,6 +954,7 @@ def test_unknown_and_malformed_ready_entries_are_retained_with_safe_diagnostics(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
     _seed_artifact(mutation_store)
     ready_dir = artifact_ready_path(layout, REPOSITORY_ID, ARTIFACT_ID).parent
     ready_dir.mkdir(parents=True, exist_ok=True)
@@ -1081,8 +1082,10 @@ def test_poison_lifecycle_row_does_not_block_other_candidates(
     layout: DurableLayout,
 ) -> None:
     store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
+    poison_id = uuid4()
     with mutation_store._lock:
         mutation_store._connection.execute(
             """
@@ -1097,7 +1100,7 @@ def test_poison_lifecycle_row_does_not_block_other_candidates(
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                str(uuid4()),
+                str(poison_id),
                 "not-a-uuid",
                 MEDIA_TYPE,
                 1,
@@ -1107,6 +1110,9 @@ def test_poison_lifecycle_row_does_not_block_other_candidates(
             ),
         )
         mutation_store._connection.commit()
+    poison_ready = artifact_ready_path(layout, REPOSITORY_ID, poison_id)
+    poison_ready.parent.mkdir(parents=True, exist_ok=True)
+    poison_ready.write_bytes(b"poison")
 
     candidates = mutation_store.list_artifacts_pending_byte_cleanup()
     assert any(record.artifact_id == ARTIFACT_ID for record in candidates)
@@ -1120,6 +1126,7 @@ def test_poison_lifecycle_row_does_not_block_other_candidates(
     )
     cleaner.sweep_once()
     assert not ready.exists()
+    assert poison_ready.is_file()
 
 
 def test_inode_mismatch_retains_bytes_without_deleted_at(
@@ -1472,26 +1479,61 @@ def test_parent_symlink_escape_does_not_delete_outside_target(
 
 
 def test_pathname_replace_during_recheck_preserves_replacement(
+    stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
 ) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     replacement = b"replacement-inode"
+    stamped = {"ok": False}
 
     def recheck() -> bool:
         ready.unlink()
         ready.write_bytes(replacement)
         return True
 
+    def on_deleted() -> None:
+        store.mark_artifact_bytes_deleted(
+            ARTIFACT_ID,
+            deleted_at="2026-08-02T00:00:00+00:00",
+            repository_id=REPOSITORY_ID,
+        )
+        stamped["ok"] = True
+
+    def on_intent(dev: int, ino: int) -> None:
+        store.begin_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            dev=dev,
+            ino=ino,
+            phase="quarantined",
+            intent_at="2026-08-02T00:00:00+00:00",
+        )
+
+    def on_clear_intent() -> None:
+        store.clear_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+        )
+
     outcome = try_unlink_owned_ready_artifact(
         layout,
         REPOSITORY_ID,
         ARTIFACT_ID,
         recheck=recheck,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
     )
-    # Locked inode is removed via quarantine; the replacement at the ready name stays.
-    assert outcome == "deleted"
+    # Replacement must not be stamped as deleted; ready content stays.
+    assert outcome != "deleted"
+    assert stamped["ok"] is False
     assert ready.is_file()
     assert ready.read_bytes() == replacement
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
 
 
 def test_bytes_deleted_stamp_is_written_while_flock_held(
@@ -1633,11 +1675,16 @@ def test_stamp_failed_keeps_quarantine_and_recovers_on_next_sweep(
     calls = {"n": 0}
     original = store.mark_artifact_bytes_deleted
 
-    def flaky_stamp(artifact_id: UUID, *, deleted_at: str | None = None) -> None:
+    def flaky_stamp(
+        artifact_id: UUID,
+        *,
+        deleted_at: str | None = None,
+        repository_id: UUID | None = None,
+    ) -> None:
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("forced stamp failure")
-        original(artifact_id, deleted_at=deleted_at)
+        original(artifact_id, deleted_at=deleted_at, repository_id=repository_id)
 
     store.mark_artifact_bytes_deleted = flaky_stamp  # type: ignore[method-assign]
     cleaner = ArtifactCleaner(
@@ -1732,3 +1779,66 @@ def test_best_effort_succeeded_cleanup_retains_when_consumption_cleared(
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_deleted_at is None
+
+
+def test_forged_quarantine_without_intent_is_retained(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    forged = ready.parent / f".deleting-{ready.stat().st_ino}-{ARTIFACT_ID.hex}"
+    forged.write_bytes(b"forged-quarantine")
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert forged.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+    diagnostics = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None)
+        in {"unknown_path_inventory", "quarantine_inode_mismatch", "forged_quarantine"}
+    ]
+    assert diagnostics
+
+
+def test_unknown_uuid_repository_directory_is_diagnosed(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store, mutation_store = stores
+    del mutation_store
+    unknown_repo = layout.artifacts / ("b" * 32)
+    unknown_repo.mkdir(parents=True)
+    (unknown_repo / "ready").mkdir()
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=stores[1],
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert unknown_repo.is_dir()
+    diagnostics = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "unknown_path_inventory"
+    ]
+    assert diagnostics

@@ -332,14 +332,17 @@ def detach_name_for(*, inode: int, artifact_id: UUID, generation: str) -> str:
 
 
 def verify_sidecar_name_for(*, inode: int, generation: str, artifact_id: UUID, token: str) -> str:
-    """Return the private verify sidecar used during rename-verify-unlink."""
+    """Return the private verify sidecar used during rename-verify-unlink.
+
+    Verify names are inventory-recoverable via ``parse_unlink_verify_name`` but
+    must not match ``.deleting-`` / ``.detach-`` inventory parsers.
+    """
 
     _validate_generation(generation)
     if not token:
         raise ValueError("token must be non-empty")
     if "-" in token:
         raise ValueError("token must not contain '-'")
-    # Prefix must not match ``.deleting-`` / ``.detach-`` inventory parsers.
     return f".unlink-verify-{inode}-{generation}-{artifact_id.hex}-{token}"
 
 
@@ -384,6 +387,58 @@ def parse_detach_name(name: str) -> tuple[int, UUID, str | None] | None:
     return _parse_sidecar_name(name, prefix=".detach-")
 
 
+def parse_unlink_verify_name(name: str) -> tuple[int, UUID, str, str] | None:
+    """Parse ``.unlink-verify-{ino}-{generation}-{artifact_hex}-{token}``."""
+
+    prefix = ".unlink-verify-"
+    if not name.startswith(prefix):
+        return None
+    rest = name[len(prefix) :]
+    if "-" not in rest:
+        return None
+    token = rest.rsplit("-", 1)[1]
+    if not token or "-" in token:
+        return None
+    rest = rest[: -(len(token) + 1)]
+    if "-" not in rest:
+        return None
+    artifact_hex = rest.rsplit("-", 1)[1]
+    if len(artifact_hex) != 32 or any(ch not in "0123456789abcdef" for ch in artifact_hex):
+        return None
+    remainder = rest[: -(len(artifact_hex) + 1)]
+    if "-" not in remainder:
+        return None
+    ino_text, generation = remainder.split("-", 1)
+    if not ino_text.isdigit() or not generation or "-" in generation:
+        return None
+    try:
+        return int(ino_text), UUID(hex=artifact_hex), generation, token
+    except ValueError:
+        return None
+
+
+def parse_any_recoverable_sidecar(name: str) -> tuple[int, UUID, str | None, str] | None:
+    """Return (ino, artifact_id, generation, kind) where kind in quarantine|detach|unlink_verify.
+
+    For unlink_verify generation is always str (never None).
+    Legacy deleting/detach may have generation=None.
+    """
+
+    parsed_verify = parse_unlink_verify_name(name)
+    if parsed_verify is not None:
+        ino, artifact_id, generation, _token = parsed_verify
+        return ino, artifact_id, generation, "unlink_verify"
+    parsed_quarantine = parse_quarantine_name(name)
+    if parsed_quarantine is not None:
+        ino, artifact_id, quarantine_generation = parsed_quarantine
+        return ino, artifact_id, quarantine_generation, "quarantine"
+    parsed_detach = parse_detach_name(name)
+    if parsed_detach is not None:
+        ino, artifact_id, detach_generation = parsed_detach
+        return ino, artifact_id, detach_generation, "detach"
+    return None
+
+
 def _find_matching_quarantine(
     ready_dir_fd: int,
     *,
@@ -417,6 +472,29 @@ def _find_matching_quarantine(
     return None
 
 
+def find_unlink_verify_sidecar_name(
+    ready_dir_fd: int,
+    *,
+    inode: int,
+    artifact_id: UUID,
+    generation: str,
+) -> str | None:
+    """Return a private ``.unlink-verify-*`` entry matching inode/generation/artifact."""
+
+    prefix = f".unlink-verify-{inode}-{generation}-{artifact_id.hex}-"
+    try:
+        names = os.listdir(ready_dir_fd)
+    except OSError:
+        return None
+    for name in names:
+        if not name.startswith(prefix):
+            continue
+        if parse_unlink_verify_name(name) is None:
+            continue
+        return name
+    return None
+
+
 def unlink_sidecar_rename_verify(
     ready_dir_fd: int,
     sidecar_name: str,
@@ -434,6 +512,13 @@ def unlink_sidecar_rename_verify(
         return False
     if (live.st_dev, live.st_ino) != (expected.st_dev, expected.st_ino):
         return False
+
+    if parse_unlink_verify_name(sidecar_name) is not None:
+        try:
+            os.unlink(sidecar_name, dir_fd=ready_dir_fd)
+        except OSError:
+            return False
+        return True
 
     private = verify_sidecar_name_for(
         inode=int(expected.st_ino),
@@ -528,12 +613,48 @@ def try_detach_ready_directory_entry(
         # Ready reappeared — never overwrite; leave foreign .detach for recovery.
         return "replaced", None
 
+    open_flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    if nofollow:
+        open_flags |= nofollow
+    det_fd: int | None = None
     try:
-        os.unlink(detach, dir_fd=ready_dir_fd)
-    except FileNotFoundError:
-        pass
-    except OSError:
-        return "unlink_failed", detach
+        try:
+            det_fd = os.open(detach, open_flags, dir_fd=ready_dir_fd)
+        except OSError:
+            return "unlink_failed", detach
+        try:
+            det_fd_stat = os.fstat(det_fd)
+        except OSError:
+            return "unlink_failed", detach
+        if (det_fd_stat.st_dev, det_fd_stat.st_ino) != (det_stat.st_dev, det_stat.st_ino):
+            return "unlink_failed", detach
+        if not unlink_sidecar_rename_verify(
+            ready_dir_fd,
+            detach,
+            det_fd,
+            det_stat,
+            artifact_id=artifact_id,
+            generation=generation,
+        ):
+            owned = find_unlink_verify_sidecar_name(
+                ready_dir_fd,
+                inode=int(det_stat.st_ino),
+                artifact_id=artifact_id,
+                generation=generation,
+            )
+            if owned is not None:
+                return "unlink_failed", owned
+            try:
+                os.stat(detach, dir_fd=ready_dir_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return "unlink_failed", None
+            except OSError:
+                return "unlink_failed", detach
+            return "unlink_failed", detach
+    finally:
+        if det_fd is not None:
+            os.close(det_fd)
 
     if os.fstat(file_fd).st_nlink != 1:
         return "unlink_failed", None

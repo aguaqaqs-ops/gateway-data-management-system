@@ -32,8 +32,9 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     open_owned_ready_dir,
-    parse_detach_name,
+    parse_any_recoverable_sidecar,
     parse_quarantine_name,
+    parse_unlink_verify_name,
     try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
     unlink_sidecar_rename_verify,
 )
@@ -394,14 +395,10 @@ class ArtifactCleaner:
                 continue
             by_artifact: dict[UUID, list[tuple[str, int, str]]] = {}
             for entry in entries:
-                parsed = parse_quarantine_name(entry.name)
-                kind = "quarantine"
-                if parsed is None:
-                    parsed = parse_detach_name(entry.name)
-                    kind = "detach"
+                parsed = parse_any_recoverable_sidecar(entry.name)
                 if parsed is None:
                     continue
-                inode, artifact_id, _generation = parsed
+                inode, artifact_id, _generation, kind = parsed
                 by_artifact.setdefault(artifact_id, []).append((entry.name, inode, kind))
             for artifact_id, sidecars in by_artifact.items():
                 if self._stopping:
@@ -760,9 +757,7 @@ class ArtifactCleaner:
         return bool(outcomes) and all(outcome in {"absent", "success"} for outcome in outcomes)
 
     def _parse_sidecar_generation(self, sidecar_name: str) -> str | None:
-        parsed = parse_quarantine_name(sidecar_name)
-        if parsed is None:
-            parsed = parse_detach_name(sidecar_name)
+        parsed = parse_any_recoverable_sidecar(sidecar_name)
         if parsed is None:
             return None
         return parsed[2]
@@ -1066,15 +1061,16 @@ class ArtifactCleaner:
                 return
             has_matching_generation_sidecar = False
             for entry_name in entries:
-                parsed = parse_quarantine_name(entry_name)
-                if parsed is None:
-                    parsed = parse_detach_name(entry_name)
+                parsed = parse_any_recoverable_sidecar(entry_name)
                 if parsed is None:
                     continue
-                _inode, parsed_artifact_id, parsed_generation = parsed
+                inode, parsed_artifact_id, parsed_generation, _kind = parsed
                 if parsed_artifact_id != lifecycle.artifact_id:
                     continue
-                if parsed_generation == receipt_generation:
+                if (
+                    parsed_generation == receipt_generation
+                    and inode == int(receipt_ino)
+                ):
                     has_matching_generation_sidecar = True
                     break
             if has_matching_generation_sidecar:
@@ -1198,12 +1194,10 @@ class ArtifactCleaner:
     ) -> bool:
         """Open+flock+fstat match then rename-verify-unlink while holding flock."""
 
-        parsed = parse_quarantine_name(sidecar_name)
-        if parsed is None:
-            parsed = parse_detach_name(sidecar_name)
+        parsed = parse_any_recoverable_sidecar(sidecar_name)
         if parsed is None:
             return False
-        _inode, _parsed_artifact_id, generation = parsed
+        _inode, _parsed_artifact_id, generation, _kind = parsed
         if generation is None:
             return False
 
@@ -1407,15 +1401,20 @@ class ArtifactCleaner:
             return
         for entry in entries:
             name = entry.name
-            if name.startswith(".deleting-") or name.startswith(".detach-"):
-                # Quarantine/detach sidecars are recovered separately; diagnose
+            if (
+                name.startswith(".deleting-")
+                or name.startswith(".detach-")
+                or name.startswith(".unlink-verify-")
+            ):
+                # Quarantine/detach/verify sidecars are recovered separately; diagnose
                 # malformed names that fail to parse.
-                parsed = (
-                    parse_quarantine_name(name)
-                    if name.startswith(".deleting-")
-                    else parse_detach_name(name)
-                )
-                if parsed is None:
+                if name.startswith(".unlink-verify-"):
+                    malformed = parse_unlink_verify_name(name) is None
+                elif name.startswith(".deleting-"):
+                    malformed = parse_quarantine_name(name) is None
+                else:
+                    malformed = parse_any_recoverable_sidecar(name) is None
+                if malformed:
                     log_event(
                         "artifact_cleanup",
                         repository_id=repository_id,

@@ -675,9 +675,13 @@ class ArtifactCleaner:
         for entry_name in entries:
             parsed_stage = parse_unlink_stage_dir_name(entry_name)
             if parsed_stage is not None and parsed_stage[0] == artifact_id:
-                # Empty stages may linger; any stage content blocks clear until
-                # destroy reclaims the victim. Size-0 public sidecars also block.
-                if self._stage_dir_is_empty(ready_dir_fd, entry_name):
+                # Empty stages or owned size-0 victims do not block clear.
+                # Non-empty owned content still blocks.
+                if self._stage_dir_is_terminal_or_empty(
+                    ready_dir_fd,
+                    entry_name,
+                    expected_ino=expected_ino,
+                ):
                     continue
                 return True
             parsed = parse_any_recoverable_sidecar(entry_name)
@@ -687,8 +691,13 @@ class ArtifactCleaner:
             if parsed_artifact_id != artifact_id:
                 continue
             if parsed_generation == generation and inode == expected_ino:
-                # Round15: size-0 public names still block receipt clear until
-                # private reclaim proves the public name absent.
+                # Round16: owned size-0 tombstones are terminal; do not block.
+                if self._ready_entry_is_size0_owned_tombstone(
+                    ready_dir_fd,
+                    entry_name,
+                    expected_ino=expected_ino,
+                ):
+                    continue
                 return True
         return False
 
@@ -710,40 +719,15 @@ class ArtifactCleaner:
         finally:
             os.close(stage_dir_fd)
 
-    def _ready_entry_is_size0_owned_tombstone(
-        self,
-        ready_dir_fd: int,
-        entry_name: str,
-        *,
-        expected_ino: int,
-    ) -> bool:
-        try:
-            fd = os.open(
-                entry_name,
-                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
-                dir_fd=ready_dir_fd,
-            )
-        except OSError:
-            return False
-        try:
-            st = os.fstat(fd)
-        except OSError:
-            return False
-        finally:
-            os.close(fd)
-        return (
-            stat_module.S_ISREG(st.st_mode)
-            and int(st.st_ino) == int(expected_ino)
-            and int(st.st_size) == 0
-        )
-
-    def _stage_only_size0_owned_tombstones(
+    def _stage_dir_is_terminal_or_empty(
         self,
         ready_dir_fd: int,
         stage_name: str,
         *,
         expected_ino: int,
     ) -> bool:
+        """True when stage is empty or every child is owned size-0 of expected_ino."""
+
         stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
         if stage_dir_fd is None:
             return False
@@ -783,6 +767,33 @@ class ArtifactCleaner:
                 unlock_unlink_stage_dir(stage_dir_fd)
         finally:
             os.close(stage_dir_fd)
+
+    def _ready_entry_is_size0_owned_tombstone(
+        self,
+        ready_dir_fd: int,
+        entry_name: str,
+        *,
+        expected_ino: int,
+    ) -> bool:
+        try:
+            fd = os.open(
+                entry_name,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+                dir_fd=ready_dir_fd,
+            )
+        except OSError:
+            return False
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            return False
+        finally:
+            os.close(fd)
+        return (
+            stat_module.S_ISREG(st.st_mode)
+            and int(st.st_ino) == int(expected_ino)
+            and int(st.st_size) == 0
+        )
 
     def _list_artifact_unlink_stages(
         self,
@@ -868,8 +879,7 @@ class ArtifactCleaner:
                 if not decision.eligible:
                     restored = self._restore_staged_victim_to_ready(
                         ready_dir_fd,
-                        stage_dir_fd,
-                        stage_name=stage_name,
+                        victim_fd=q_fd,
                         expected=q_stat,
                         artifact_id=artifact_id,
                         generation=generation,
@@ -1033,45 +1043,66 @@ class ArtifactCleaner:
     def _restore_staged_victim_to_ready(
         self,
         ready_dir_fd: int,
-        stage_dir_fd: int,
         *,
-        stage_name: str,
+        victim_fd: int,
         expected: os.stat_result,
         artifact_id: UUID,
         generation: str,
     ) -> bool:
-        """Rename stage victim back to ready (or recoverable verify) without truncate."""
+        """Publish held victim inode to ready via linkat (fd-stable); never pathname rename.
+
+        Stage victim pathname may remain as a diagnose hardlink. Failure is
+        fail-closed so callers must retain intent.
+        """
 
         from gateway_repository_service.upload_artifact.admission_pin import (
-            STAGE_VICTIM,
             verify_sidecar_name_for,
         )
 
+        try:
+            live = os.fstat(victim_fd)
+        except OSError:
+            return False
+        if (live.st_dev, live.st_ino) != (expected.st_dev, expected.st_ino):
+            return False
+        if int(live.st_size) == 0:
+            # Truncated victim is not a valid ineligible restore source.
+            return False
+
         ready_name = artifact_id.hex
-        restore_names = [ready_name]
-        parsed = parse_unlink_stage_dir_name(stage_name)
-        token = parsed[1] if parsed is not None else "restore"
-        restore_names.append(
+        restore_names = [
+            ready_name,
             verify_sidecar_name_for(
                 inode=int(expected.st_ino),
                 generation=generation,
                 artifact_id=artifact_id,
-                token=token,
-            )
-        )
+                token="restore",
+            ),
+        ]
         for restore_name in restore_names:
             try:
                 os.stat(restore_name, dir_fd=ready_dir_fd, follow_symlinks=False)
             except FileNotFoundError:
                 try:
-                    renameat2_noreplace(
-                        stage_dir_fd, STAGE_VICTIM, ready_dir_fd, restore_name
+                    os.link(
+                        f"/proc/self/fd/{victim_fd}",
+                        restore_name,
+                        dst_dir_fd=ready_dir_fd,
                     )
-                    return True
+                except FileExistsError:
+                    continue
                 except OSError:
                     continue
+                # Confirm the published name still matches the held inode.
+                try:
+                    st = os.stat(restore_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+                except OSError:
+                    return False
+                if (st.st_dev, st.st_ino) != (expected.st_dev, expected.st_ino):
+                    return False
+                return True
             except OSError:
-                continue
+                return False
         return False
 
     def _recover_artifact_sidecars(
@@ -1754,10 +1785,17 @@ class ArtifactCleaner:
                 entries = os.listdir(ready_dir_fd)
             except OSError:
                 return
-            has_matching_generation_sidecar = False
+            has_blocking_residual = False
             for entry_name in entries:
                 parsed_stage = parse_unlink_stage_dir_name(entry_name)
                 if parsed_stage is not None and parsed_stage[0] == lifecycle.artifact_id:
+                    if self._stage_dir_is_terminal_or_empty(
+                        ready_dir_fd,
+                        entry_name,
+                        expected_ino=int(receipt_ino),
+                    ):
+                        continue
+                    # Non-empty / unreadable stage blocks receipt GC.
                     return
                 parsed = parse_any_recoverable_sidecar(entry_name)
                 if parsed is None:
@@ -1769,9 +1807,15 @@ class ArtifactCleaner:
                     parsed_generation == receipt_generation
                     and inode == int(receipt_ino)
                 ):
-                    has_matching_generation_sidecar = True
+                    if self._ready_entry_is_size0_owned_tombstone(
+                        ready_dir_fd,
+                        entry_name,
+                        expected_ino=int(receipt_ino),
+                    ):
+                        continue
+                    has_blocking_residual = True
                     break
-            if has_matching_generation_sidecar:
+            if has_blocking_residual:
                 return
             self._clear_receipt_best_effort(
                 lifecycle.artifact_id,

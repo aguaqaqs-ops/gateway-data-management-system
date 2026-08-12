@@ -388,7 +388,6 @@ def parse_detach_name(name: str) -> tuple[int, UUID, str | None] | None:
 
 
 STAGE_VICTIM = "victim"
-RECLAIM_VICTIM = "victim"
 
 
 def unlink_stage_dir_name(*, artifact_id: UUID, token: str) -> str:
@@ -821,136 +820,6 @@ def prove_size0_owned_name_terminal(
         os.close(fd)
 
 
-def prove_name_absent(dir_fd: int, name: str) -> bool:
-    """Return True when ``name`` is absent under ``dir_fd``."""
-
-    try:
-        os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
-    except FileNotFoundError:
-        return True
-    except OSError:
-        return False
-    return False
-
-
-def _reclaim_dir_name(*, artifact_id: UUID, token: str) -> str:
-    if not token or "-" in token:
-        raise ValueError("token must be non-empty and must not contain '-'")
-    return f".reclaim-{artifact_id.hex}-{token}"
-
-
-def _reclaim_owned_size0_via_private_dir(
-    ready_dir_fd: int,
-    name: str,
-    *,
-    expected_dev: int,
-    expected_ino: int,
-    artifact_id: UUID,
-) -> bool:
-    """Move an owned size-0 public name into a private reclaim dir, verify, unlink.
-
-    Returns True when the public name is absent afterward. Foreign/mismatched
-    inodes are never unlinked; the reclaim directory is best-effort cleaned.
-    """
-
-    if prove_name_absent(ready_dir_fd, name):
-        return True
-    # Gate through prove_size0 so callers/tests can observe fail-closed terminals
-    # before any rename/unlink, and so racing foreign plants are rejected.
-    if not prove_size0_owned_name_terminal(
-        ready_dir_fd,
-        name,
-        expected_dev=expected_dev,
-        expected_ino=expected_ino,
-    ):
-        return False
-    if prove_name_absent(ready_dir_fd, name):
-        return True
-
-    open_flags = _file_flags()
-    reclaim_fd: int | None = None
-    reclaim_name: str | None = None
-    locked = False
-    try:
-        for _ in range(8):
-            token = secrets.token_hex(8)
-            candidate = _reclaim_dir_name(artifact_id=artifact_id, token=token)
-            try:
-                os.mkdir(candidate, 0o700, dir_fd=ready_dir_fd)
-            except FileExistsError:
-                continue
-            except OSError:
-                return False
-            reclaim_name = candidate
-            break
-        if reclaim_name is None:
-            return False
-        try:
-            reclaim_fd = os.open(reclaim_name, _dir_flags(), dir_fd=ready_dir_fd)
-        except OSError:
-            return False
-        os.set_inheritable(reclaim_fd, False)
-        try:
-            fcntl.flock(reclaim_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            return False
-        locked = True
-        try:
-            renameat2_noreplace(ready_dir_fd, name, reclaim_fd, RECLAIM_VICTIM)
-        except FileNotFoundError:
-            return True
-        except OSError:
-            return False
-        try:
-            victim_fd = os.open(RECLAIM_VICTIM, open_flags, dir_fd=reclaim_fd)
-        except FileNotFoundError:
-            return True
-        except OSError:
-            return False
-        try:
-            vst = os.fstat(victim_fd)
-            match = (
-                stat.S_ISREG(vst.st_mode)
-                and int(vst.st_dev) == int(expected_dev)
-                and int(vst.st_ino) == int(expected_ino)
-                and int(vst.st_size) == 0
-            )
-        except OSError:
-            return False
-        finally:
-            os.close(victim_fd)
-        if not match:
-            # Leave foreign bytes inside private reclaim; do not unlink.
-            return False
-        try:
-            os.unlink(RECLAIM_VICTIM, dir_fd=reclaim_fd)
-        except FileNotFoundError:
-            pass
-        except OSError:
-            return False
-        return prove_name_absent(ready_dir_fd, name)
-    finally:
-        if reclaim_fd is not None:
-            if locked:
-                try:
-                    fcntl.flock(reclaim_fd, fcntl.LOCK_UN)
-                except OSError:
-                    pass
-            try:
-                # Best-effort empty reclaim dir removal.
-                try:
-                    children = os.listdir(reclaim_fd)
-                except OSError:
-                    children = ["?"]
-                if not children and reclaim_name is not None:
-                    try:
-                        os.rmdir(reclaim_name, dir_fd=ready_dir_fd)
-                    except OSError:
-                        pass
-            finally:
-                os.close(reclaim_fd)
-
-
 def reclaim_size0_owned_name(
     dir_fd: int,
     name: str,
@@ -959,21 +828,14 @@ def reclaim_size0_owned_name(
     expected_ino: int,
     artifact_id: UUID | None = None,
 ) -> bool:
-    """Reclaim an owned size-0 public name via private dir when artifact_id is set."""
+    """Compatibility wrapper: prove terminal size-0/absent without pathname unlink."""
 
-    if artifact_id is None:
-        return prove_size0_owned_name_terminal(
-            dir_fd,
-            name,
-            expected_dev=expected_dev,
-            expected_ino=expected_ino,
-        )
-    return _reclaim_owned_size0_via_private_dir(
+    del artifact_id
+    return prove_size0_owned_name_terminal(
         dir_fd,
         name,
         expected_dev=expected_dev,
         expected_ino=expected_ino,
-        artifact_id=artifact_id,
     )
 
 
@@ -988,13 +850,13 @@ def destroy_owned_bytes_and_reclaim_names(
     held_stage_dir_fd: int | None = None,
     held_stage_name: str | None = None,
 ) -> bool:
-    """fd-truncate owned bytes, then reclaim required public names privately.
+    """fd-truncate owned bytes, then prove required names are terminal size-0/absent.
 
-    Enumerates ``.unlink-stage-*`` only for ``artifact_id``. When
-    ``held_stage_name`` matches, reuses ``held_stage_dir_fd`` without re-locking.
-    Success requires required public names to be absent on ready (not merely
-    size-0 tombstones). Foreign artifact stages are skipped and do not fail the
-    operation.
+    Never pathname-unlinks or rmdirs. Same-euid actors can replace names between
+    fstat and unlink; under that threat model success is prove-only. Enumerates
+    ``.unlink-stage-*`` only for ``artifact_id``. When ``held_stage_name`` matches,
+    reuses ``held_stage_dir_fd`` without re-locking. Foreign artifact stages are
+    skipped and do not fail the operation.
     """
 
     del generation  # reserved for future generation-scoped verify filtering
@@ -1005,15 +867,14 @@ def destroy_owned_bytes_and_reclaim_names(
     for name in names:
         if not name:
             continue
-        if not _reclaim_owned_size0_via_private_dir(
+        if not prove_size0_owned_name_terminal(
             ready_dir_fd,
             name,
             expected_dev=expected_dev,
             expected_ino=expected_ino,
-            artifact_id=artifact_id,
         ):
             return False
-    # Historical Round12 verify/stage tombstones for this inode must also reclaim.
+    # Historical Round12 verify/stage tombstones for this inode must also prove.
     try:
         entries = os.listdir(ready_dir_fd)
     except OSError:
@@ -1025,12 +886,11 @@ def destroy_owned_bytes_and_reclaim_names(
             if verify_artifact_id != artifact_id:
                 continue
             if int(ino) == expected_ino:
-                if not _reclaim_owned_size0_via_private_dir(
+                if not prove_size0_owned_name_terminal(
                     ready_dir_fd,
                     entry_name,
                     expected_dev=expected_dev,
                     expected_ino=expected_ino,
-                    artifact_id=artifact_id,
                 ):
                     return False
             continue
@@ -1039,7 +899,6 @@ def destroy_owned_bytes_and_reclaim_names(
             continue
         stage_artifact_id, _token = parsed_stage
         if stage_artifact_id != artifact_id:
-            # Other artifacts' stages never block this destroy.
             continue
         owned_stage_fd = False
         stage_fd: int | None = None
@@ -1052,7 +911,6 @@ def destroy_owned_bytes_and_reclaim_names(
             else:
                 stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, entry_name)
                 if stage_fd is None:
-                    # Mode/symlink mismatch for this artifact's stage: fail closed.
                     return False
                 owned_stage_fd = True
                 if not lock_unlink_stage_dir(stage_fd):
@@ -1064,7 +922,6 @@ def destroy_owned_bytes_and_reclaim_names(
             except OSError:
                 return False
             for child in children:
-                # Prove owned size-0 for this artifact inode; foreign children skip.
                 open_flags = _file_flags()
                 try:
                     child_fd = os.open(child, open_flags, dir_fd=stage_fd)
@@ -1092,32 +949,12 @@ def destroy_owned_bytes_and_reclaim_names(
                     expected_ino=expected_ino,
                 ):
                     return False
-                if prove_name_absent(stage_fd, child):
-                    continue
-                try:
-                    os.unlink(child, dir_fd=stage_fd)
-                except FileNotFoundError:
-                    continue
-                except OSError:
-                    return False
-            # Best-effort rmdir empty stage when we own the fd lifecycle.
-            if owned_stage_fd:
-                try:
-                    if not os.listdir(stage_fd):
-                        os.rmdir(entry_name, dir_fd=ready_dir_fd)
-                except OSError:
-                    pass
+            # Never pathname-rmdir stages (same-euid race).
         finally:
             if owned_stage_fd and stage_fd is not None:
                 if stage_locked_here:
                     unlock_unlink_stage_dir(stage_fd)
                 os.close(stage_fd)
-    # Final gate: required public names must be absent.
-    for name in names:
-        if not name:
-            continue
-        if not prove_name_absent(ready_dir_fd, name):
-            return False
     return True
 
 
@@ -1481,7 +1318,7 @@ def unlink_sidecar_rename_verify(
     artifact_id: UUID,
     generation: str,
 ) -> bool:
-    """Destroy sidecar bytes via fd-truncate and reclaim the public name."""
+    """Destroy sidecar bytes via fd-truncate and prove size-0/absent terminal."""
 
     return destroy_owned_bytes_and_reclaim_names(
         ready_dir_fd,

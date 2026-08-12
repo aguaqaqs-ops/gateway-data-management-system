@@ -7,7 +7,9 @@ import fcntl
 import os
 import secrets
 import stat
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Self
@@ -21,6 +23,37 @@ from gateway_repository_service.upload_artifact.visibility import (
 
 if TYPE_CHECKING:
     from gateway_repository_service.artifact_broker import ArtifactDirBroker
+
+ResidualCallback = Callable[[str, str, str, int, int, str | None], None]
+
+_residual_callback: ContextVar[ResidualCallback | None] = ContextVar(
+    "artifact_residual_callback", default=None
+)
+
+
+@contextmanager
+def artifact_residual_sink(callback: ResidualCallback | None) -> Iterator[None]:
+    """Record residual proofs before creating tombs (same thread)."""
+
+    token = _residual_callback.set(callback)
+    try:
+        yield
+    finally:
+        _residual_callback.reset(token)
+
+
+def _note_residual(
+    kind: str,
+    name: str,
+    parent_name: str,
+    dev: int,
+    ino: int,
+    generation: str | None,
+) -> None:
+    callback = _residual_callback.get()
+    if callback is None:
+        return
+    callback(kind, name, parent_name, int(dev), int(ino), generation)
 
 
 def _dir_broker() -> ArtifactDirBroker:
@@ -1100,6 +1133,14 @@ def _reanchor_inode_to_verify_sidecar(
             token=token,
         )
         try:
+            _note_residual(
+                "verify",
+                name,
+                "",
+                int(expected.st_dev),
+                int(expected.st_ino),
+                generation,
+            )
             _broker_link_from_fd(ready_dir_fd, name, inode_fd)
         except FileExistsError:
             continue
@@ -1207,6 +1248,18 @@ def unlink_verified_inode_via_staging(
                     continue
                 except OSError:
                     return False
+                try:
+                    stage_st = os.stat(candidate, dir_fd=ready_dir_fd, follow_symlinks=False)
+                except OSError:
+                    return False
+                _note_residual(
+                    "stage",
+                    candidate,
+                    "",
+                    int(stage_st.st_dev),
+                    int(stage_st.st_ino),
+                    generation,
+                )
                 active_stage_name = candidate
                 created = True
                 break
@@ -1222,6 +1275,14 @@ def unlink_verified_inode_via_staging(
                 return False
             stage_locked = True
             try:
+                _note_residual(
+                    "stage_child",
+                    STAGE_VICTIM,
+                    active_stage_name,
+                    int(expected.st_dev),
+                    int(expected.st_ino),
+                    generation,
+                )
                 _broker_rename_noreplace(ready_dir_fd, source_name, close_stage_fd, STAGE_VICTIM)
             except OSError:
                 return False
@@ -1269,6 +1330,14 @@ def unlink_verified_inode_via_staging(
 
         final_name = f"final-{secrets.token_hex(8)}"
         try:
+            _note_residual(
+                "stage_child",
+                final_name,
+                active_stage_name,
+                int(expected.st_dev),
+                int(expected.st_ino),
+                generation,
+            )
             _broker_rename_noreplace(close_stage_fd, STAGE_VICTIM, close_stage_fd, final_name)
         except OSError:
             _restore_staged_victim_best_effort(

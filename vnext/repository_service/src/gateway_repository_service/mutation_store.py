@@ -148,8 +148,21 @@ class ArtifactLifecycleRecord:
 class CleanupCandidatePage:
     records: list[ArtifactLifecycleRecord]
     scanned: int
-    cursor_created_at: str | None
-    cursor_artifact_id: str | None
+    cursor_cleanup_seq: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactResidualRecord:
+    residual_id: int
+    artifact_id: UUID
+    repository_id: UUID
+    kind: str
+    name: str
+    parent_name: str
+    dev: int
+    ino: int
+    generation: str | None
+    created_at: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -457,21 +470,18 @@ class MutationStore:
         self,
         *,
         limit: int = 64,
-        after_created_at: str | None = None,
-        after_artifact_id: str | None = None,
+        after_cleanup_seq: int | None = None,
     ) -> CleanupCandidatePage:
         """Return one keyset page of lifecycle rows that may own undeleted ready bytes.
 
-        Cursor keys are the last raw SQL row, including poison rows that cannot
-        be projected into ``ArtifactLifecycleRecord``.
+        Cursor is the last raw SQL ``cleanup_seq`` (INTEGER), including poison rows.
         """
 
         if limit <= 0:
             return CleanupCandidatePage(
                 records=[],
                 scanned=0,
-                cursor_created_at=None,
-                cursor_artifact_id=None,
+                cursor_cleanup_seq=None,
             )
         sql = """
                 SELECT
@@ -491,23 +501,19 @@ class MutationStore:
                     bytes_delete_generation,
                     bytes_deleted_receipt_dev,
                     bytes_deleted_receipt_ino,
-                    bytes_deleted_receipt_generation
+                    bytes_deleted_receipt_generation,
+                    cleanup_seq
                 FROM artifact_lifecycle
                 WHERE bytes_deleted_at IS NULL
                 """
         params: list[object] = []
-        if after_created_at is not None and after_artifact_id is not None:
+        if after_cleanup_seq is not None:
             sql += """
-                AND (
-                    created_at > ?
-                    OR (created_at = ? AND artifact_id > ?)
-                )
+                AND cleanup_seq > ?
                 """
-            params.extend(
-                [after_created_at, after_created_at, after_artifact_id]
-            )
+            params.append(int(after_cleanup_seq))
         sql += """
-                ORDER BY created_at ASC, artifact_id ASC
+                ORDER BY cleanup_seq ASC
                 LIMIT ?
                 """
         params.append(int(limit))
@@ -515,12 +521,17 @@ class MutationStore:
             cursor = self._connection.execute(sql, params)
             records: list[ArtifactLifecycleRecord] = []
             scanned = 0
-            last_created_at: str | None = None
-            last_artifact_id: str | None = None
+            last_seq: int | None = None
             for row in cursor.fetchall():
                 scanned += 1
-                last_artifact_id = str(row[0])
-                last_created_at = None if row[8] is None else str(row[8])
+                seq_raw = row["cleanup_seq"] if "cleanup_seq" in row.keys() else row[-1]
+                if isinstance(seq_raw, int):
+                    last_seq = seq_raw
+                elif seq_raw is not None:
+                    try:
+                        last_seq = int(seq_raw)
+                    except (TypeError, ValueError):
+                        last_seq = last_seq
                 try:
                     records.append(self._artifact_lifecycle_from_row(row))
                 except (TypeError, ValueError):
@@ -534,8 +545,7 @@ class MutationStore:
             return CleanupCandidatePage(
                 records=records,
                 scanned=scanned,
-                cursor_created_at=last_created_at,
-                cursor_artifact_id=last_artifact_id,
+                cursor_cleanup_seq=last_seq,
             )
 
     def list_artifacts_with_bytes_deleted_receipt(self) -> list[ArtifactLifecycleRecord]:
@@ -843,7 +853,161 @@ class MutationStore:
         )
         if cursor.rowcount != 1:
             raise MutationStoreError("artifact delete intent row missing or already deleted")
+        self._insert_intent_sidecar_residuals(
+            artifact_id,
+            repository_id=repository_id,
+            dev=int(dev),
+            ino=int(ino),
+            generation=token,
+            created_at=intent_at,
+        )
         return token
+
+    def _insert_intent_sidecar_residuals(
+        self,
+        artifact_id: UUID,
+        *,
+        repository_id: UUID,
+        dev: int,
+        ino: int,
+        generation: str,
+        created_at: str,
+    ) -> None:
+        from gateway_repository_service.upload_artifact.admission_pin import (
+            detach_name_for,
+            quarantine_name_for,
+        )
+
+        planned = (
+            ("deleting", quarantine_name_for(inode=ino, artifact_id=artifact_id, generation=generation)),
+            ("detach", detach_name_for(inode=ino, artifact_id=artifact_id, generation=generation)),
+        )
+        for kind, name in planned:
+            self.insert_artifact_residual(
+                artifact_id,
+                repository_id=repository_id,
+                kind=kind,
+                name=name,
+                parent_name="",
+                dev=dev,
+                ino=ino,
+                generation=generation,
+                created_at=created_at,
+            )
+
+    def insert_artifact_residual(
+        self,
+        artifact_id: UUID,
+        *,
+        repository_id: UUID,
+        kind: str,
+        name: str,
+        parent_name: str,
+        dev: int,
+        ino: int,
+        generation: str | None,
+        created_at: str,
+        commit: bool = False,
+    ) -> None:
+        if kind not in {"deleting", "detach", "verify", "stage", "stage_child"}:
+            raise MutationStoreError("invalid residual kind")
+        self._connection.execute(
+            """
+            INSERT INTO artifact_residual (
+                artifact_id, repository_scope, kind, name, parent_name,
+                dev, ino, generation, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(artifact_id, kind, name, parent_name) DO UPDATE SET
+                dev = excluded.dev,
+                ino = excluded.ino,
+                generation = excluded.generation
+            """,
+            (
+                str(artifact_id),
+                repository_id.hex,
+                kind,
+                name,
+                parent_name,
+                int(dev),
+                int(ino),
+                generation,
+                created_at,
+            ),
+        )
+        if commit:
+            self._connection.commit()
+
+    def clear_artifact_residual(
+        self,
+        *,
+        residual_id: int,
+        expected_dev: int,
+        expected_ino: int,
+    ) -> None:
+        self._connection.execute(
+            """
+            DELETE FROM artifact_residual
+            WHERE residual_id = ?
+              AND dev = ?
+              AND ino = ?
+            """,
+            (int(residual_id), int(expected_dev), int(expected_ino)),
+        )
+        self._connection.commit()
+
+    def list_artifact_residuals(
+        self,
+        *,
+        artifact_id: UUID | None = None,
+        limit: int = 256,
+        after_residual_id: int | None = None,
+    ) -> list[ArtifactResidualRecord]:
+        sql = """
+            SELECT residual_id, artifact_id, repository_scope, kind, name, parent_name,
+                   dev, ino, generation, created_at
+            FROM artifact_residual
+            """
+        params: list[object] = []
+        clauses: list[str] = []
+        if artifact_id is not None:
+            clauses.append("artifact_id = ?")
+            params.append(str(artifact_id))
+        if after_residual_id is not None:
+            clauses.append("residual_id > ?")
+            params.append(int(after_residual_id))
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY residual_id ASC LIMIT ?"
+        params.append(int(limit))
+        rows = self._connection.execute(sql, params).fetchall()
+        records: list[ArtifactResidualRecord] = []
+        for row in rows:
+            try:
+                records.append(
+                    ArtifactResidualRecord(
+                        residual_id=int(row["residual_id"]),
+                        artifact_id=UUID(str(row["artifact_id"])),
+                        repository_id=UUID(hex=str(row["repository_scope"])),
+                        kind=str(row["kind"]),
+                        name=str(row["name"]),
+                        parent_name=str(row["parent_name"]),
+                        dev=int(row["dev"]),
+                        ino=int(row["ino"]),
+                        generation=(
+                            None if row["generation"] is None else str(row["generation"])
+                        ),
+                        created_at=str(row["created_at"]),
+                    )
+                )
+            except (TypeError, ValueError):
+                log_event(
+                    "artifact_cleanup",
+                    stage="list_residuals",
+                    result="skipped",
+                    cleanup_outcome="invalid_residual_row",
+                )
+                continue
+        return records
 
     def clear_artifact_bytes_delete_intent(
         self,

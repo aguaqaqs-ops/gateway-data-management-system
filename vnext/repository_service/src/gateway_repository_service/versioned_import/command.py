@@ -411,21 +411,45 @@ class ImportOperationExecutor:
                     expected_generation=generation,
                 )
 
-            outcome = try_unlink_ready_artifact_with_recheck(
-                artifact_path,
-                recheck=lambda: self._store.can_delete_artifact_bytes(
+            def _on_residual(
+                kind: str,
+                name: str,
+                parent_name: str,
+                dev: int,
+                ino: int,
+                generation: str | None,
+            ) -> None:
+                self._store.insert_artifact_residual(
                     context.artifact_id,
-                    ttl_seconds=self._settings.artifact_ttl_seconds,
-                ),
-                layout=self._layout,
-                repository_id=context.repository_id,
-                artifact_id=context.artifact_id,
-                on_deleted=_stamp,
-                on_intent=_on_intent,
-                on_clear_intent=_on_clear_intent,
-                on_clear_receipt=_on_clear_receipt,
-                tombstone_budget=self._settings.artifact_tombstone_budget,
+                    repository_id=context.repository_id,
+                    kind=kind,
+                    name=name,
+                    parent_name=parent_name,
+                    dev=dev,
+                    ino=ino,
+                    generation=generation,
+                )
+
+            from gateway_repository_service.upload_artifact.admission_pin import (
+                artifact_residual_sink,
             )
+
+            with artifact_residual_sink(_on_residual):
+                outcome = try_unlink_ready_artifact_with_recheck(
+                    artifact_path,
+                    recheck=lambda: self._store.can_delete_artifact_bytes(
+                        context.artifact_id,
+                        ttl_seconds=self._settings.artifact_ttl_seconds,
+                    ),
+                    layout=self._layout,
+                    repository_id=context.repository_id,
+                    artifact_id=context.artifact_id,
+                    on_deleted=_stamp,
+                    on_intent=_on_intent,
+                    on_clear_intent=_on_clear_intent,
+                    on_clear_receipt=_on_clear_receipt,
+                    tombstone_budget=self._settings.artifact_tombstone_budget,
+                )
             if outcome != "deleted" or not stamped["ok"]:
                 return
         except Exception:

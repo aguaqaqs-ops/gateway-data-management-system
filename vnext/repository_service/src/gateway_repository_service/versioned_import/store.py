@@ -1036,6 +1036,32 @@ class ImportOperationStore:
                 generation=generation,
             )
 
+    def insert_artifact_residual(
+        self,
+        artifact_id: UUID,
+        *,
+        repository_id: UUID,
+        kind: str,
+        name: str,
+        parent_name: str,
+        dev: int,
+        ino: int,
+        generation: str | None,
+        created_at: str | None = None,
+    ) -> None:
+        with self._transaction():
+            self._mutation_store.insert_artifact_residual(
+                artifact_id,
+                repository_id=repository_id,
+                kind=kind,
+                name=name,
+                parent_name=parent_name,
+                dev=dev,
+                ino=ino,
+                generation=generation,
+                created_at=created_at or utc_now_iso(),
+            )
+
     def clear_artifact_bytes_delete_intent(
         self,
         artifact_id: UUID,

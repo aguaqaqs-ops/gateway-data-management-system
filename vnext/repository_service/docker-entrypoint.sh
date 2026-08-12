@@ -10,19 +10,48 @@ BROKER_USER="${GATEWAY_REPOSITORY_ARTIFACT_BROKER_USER:-artifact-broker}"
 GATEWAY_USER="${GATEWAY_REPOSITORY_GATEWAY_USER:-gateway}"
 ARTIFACTS="${DATA_ROOT}/artifacts"
 
+_is_hex32() {
+  [ "${#1}" -eq 32 ] || return 1
+  case "$1" in
+    *[!0-9a-f]*) return 1 ;;
+  esac
+  return 0
+}
+
+_same_dev_as_parent() {
+  _path="$1"
+  _parent=$(dirname "${_path}")
+  _dev=$(stat -c %d "${_path}" 2>/dev/null || echo "")
+  _pdev=$(stat -c %d "${_parent}" 2>/dev/null || echo "")
+  [ -n "${_dev}" ] && [ "${_dev}" = "${_pdev}" ]
+}
+
 mkdir -p "${RUN_DIR}" "${ARTIFACTS}"
 chown "${BROKER_USER}:${GATEWAY_USER}" "${RUN_DIR}"
 chmod 0750 "${RUN_DIR}"
-# Directory tree only: broker owns dentries; do not recursively chown file contents.
+# Own only the known layout: artifacts/, hex32 repo dirs, ready/, staging/.
+# Do not recurse, follow symlinks, enter mount points, or touch unknown names.
 chown "${BROKER_USER}:${GATEWAY_USER}" "${ARTIFACTS}"
 chmod 0750 "${ARTIFACTS}"
-if [ -d "${ARTIFACTS}" ]; then
-  find "${ARTIFACTS}" -type d -exec chown "${BROKER_USER}:${GATEWAY_USER}" {} \;
-  find "${ARTIFACTS}" -type d -name ready -exec chmod 0750 {} \;
-  find "${ARTIFACTS}" -type d -name staging -exec chmod 0770 {} \;
-  find "${ARTIFACTS}" -type d ! -name ready ! -name staging -exec chmod 0750 {} \;
-  # Keep existing files readable/writable by gateway group without taking content ownership away.
-  find "${ARTIFACTS}" -type f -exec chmod g+rw {} \;
+if [ -d "${ARTIFACTS}" ] && [ ! -L "${ARTIFACTS}" ]; then
+  for repo in "${ARTIFACTS}"/*; do
+    [ -e "${repo}" ] || continue
+    [ -L "${repo}" ] && continue
+    [ -d "${repo}" ] || continue
+    _same_dev_as_parent "${repo}" || continue
+    base=$(basename "${repo}")
+    _is_hex32 "${base}" || continue
+    chown "${BROKER_USER}:${GATEWAY_USER}" "${repo}"
+    chmod 0750 "${repo}"
+    if [ -d "${repo}/ready" ] && [ ! -L "${repo}/ready" ] && _same_dev_as_parent "${repo}/ready"; then
+      chown "${BROKER_USER}:${GATEWAY_USER}" "${repo}/ready"
+      chmod 0750 "${repo}/ready"
+    fi
+    if [ -d "${repo}/staging" ] && [ ! -L "${repo}/staging" ] && _same_dev_as_parent "${repo}/staging"; then
+      chown "${BROKER_USER}:${GATEWAY_USER}" "${repo}/staging"
+      chmod 0770 "${repo}/staging"
+    fi
+  done
 fi
 
 GATEWAY_UID="$(id -u "${GATEWAY_USER}")"

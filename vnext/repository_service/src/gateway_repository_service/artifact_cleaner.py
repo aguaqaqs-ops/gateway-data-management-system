@@ -26,6 +26,7 @@ from gateway_repository_service.diagnostics import log_event
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import (
     ArtifactLifecycleRecord,
+    ArtifactResidualRecord,
     MutationStore,
     MutationStoreInvariantError,
 )
@@ -33,6 +34,7 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     STAGE_VICTIM,
+    artifact_residual_sink,
     destroy_owned_bytes_and_reclaim_names,
     list_unlink_stage_dir_names,
     lock_unlink_stage_dir,
@@ -112,7 +114,7 @@ class ArtifactCleaner:
         self._started = False
         self._thread: threading.Thread | None = None
         self._stop_lock = threading.Lock()
-        self._cleanup_cursor: tuple[str, str] | None = None
+        self._cleanup_cursor: int | None = None
 
     def start(self) -> None:
         with self._stop_lock:
@@ -188,15 +190,14 @@ class ArtifactCleaner:
         self._inventory_owned_artifact_tree()
         self._recover_delete_quarantines()
         self._gc_bytes_deleted_receipts()
+        self._reclaim_durable_residuals()
         try:
-            after_created_at: str | None = None
-            after_artifact_id: str | None = None
+            after_seq: int | None = None
             if self._cleanup_cursor is not None:
-                after_created_at, after_artifact_id = self._cleanup_cursor
+                after_seq = self._cleanup_cursor
             page = self._mutation_store.list_artifacts_pending_byte_cleanup(
                 limit=_CLEANUP_CANDIDATE_PAGE_SIZE,
-                after_created_at=after_created_at,
-                after_artifact_id=after_artifact_id,
+                after_cleanup_seq=after_seq,
             )
             if page.scanned == 0 and self._cleanup_cursor is not None:
                 self._cleanup_cursor = None
@@ -238,8 +239,18 @@ class ArtifactCleaner:
         sql_rows = page.scanned
         if sql_rows < _CLEANUP_CANDIDATE_PAGE_SIZE:
             self._cleanup_cursor = None
-        elif page.cursor_created_at is not None and page.cursor_artifact_id is not None:
-            self._cleanup_cursor = (page.cursor_created_at, page.cursor_artifact_id)
+        elif page.cursor_cleanup_seq is not None:
+            next_seq = int(page.cursor_cleanup_seq)
+            if after_seq is not None and next_seq <= after_seq:
+                log_event(
+                    "artifact_cleanup",
+                    stage="list_candidates",
+                    result="skipped",
+                    cleanup_outcome="repeated_cleanup_cursor",
+                    logger=_LOGGER,
+                )
+                next_seq = after_seq + 1
+            self._cleanup_cursor = next_seq
         else:
             self._cleanup_cursor = None
 
@@ -360,18 +371,40 @@ class ArtifactCleaner:
                 expected_generation=generation,
             )
 
-        outcome = try_unlink_ready_artifact_with_recheck(
-            expected,
-            recheck=lambda: self._still_eligible(artifact_id),
-            layout=self._layout,
-            repository_id=repository_id,
-            artifact_id=artifact_id,
-            on_deleted=_stamp,
-            on_intent=_on_intent,
-            on_clear_intent=_on_clear_intent,
-            on_clear_receipt=_on_clear_receipt,
-            tombstone_budget=self._settings.artifact_tombstone_budget,
-        )
+        def _on_residual(
+            kind: str,
+            name: str,
+            parent_name: str,
+            dev: int,
+            ino: int,
+            generation: str | None,
+        ) -> None:
+            self._mutation_store.insert_artifact_residual(
+                artifact_id,
+                repository_id=repository_id,
+                kind=kind,
+                name=name,
+                parent_name=parent_name,
+                dev=dev,
+                ino=ino,
+                generation=generation,
+                created_at=self._deleted_at_stamp(),
+                commit=True,
+            )
+
+        with artifact_residual_sink(_on_residual):
+            outcome = try_unlink_ready_artifact_with_recheck(
+                expected,
+                recheck=lambda: self._still_eligible(artifact_id),
+                layout=self._layout,
+                repository_id=repository_id,
+                artifact_id=artifact_id,
+                on_deleted=_stamp,
+                on_intent=_on_intent,
+                on_clear_intent=_on_clear_intent,
+                on_clear_receipt=_on_clear_receipt,
+                tombstone_budget=self._settings.artifact_tombstone_budget,
+            )
         if outcome == "deleted" and stamped["ok"]:
             log_event(
                 "artifact_cleanup",
@@ -2089,39 +2122,50 @@ class ArtifactCleaner:
     ) -> None:
         if lifecycle.bytes_deleted_at is None or not retention_ok:
             return
-        for sidecar_name, expected_ino, _kind in sidecars:
+        kind_map = {"quarantine": "deleting", "detach": "detach", "unlink_verify": "verify"}
+        proofs = {
+            (row.kind, row.name): row
+            for row in self._mutation_store.list_artifact_residuals(artifact_id=artifact_id)
+            if row.kind in {"deleting", "detach", "verify"}
+        }
+        for sidecar_name, expected_ino, kind in sidecars:
             parsed = parse_any_recoverable_sidecar(sidecar_name)
             if parsed is None:
                 continue
             name_ino, parsed_artifact_id, name_generation, _parsed_kind = parsed
             if parsed_artifact_id != artifact_id or int(name_ino) != int(expected_ino):
                 continue
-            durable_ino = lifecycle.bytes_delete_ino
-            durable_generation = lifecycle.bytes_delete_generation
-            if durable_ino is None:
+            proof = proofs.get((kind_map.get(kind, kind), sidecar_name))
+            if proof is None:
                 log_event(
                     "artifact_cleanup",
                     repository_id=repository_id,
                     artifact_id=artifact_id,
                     stage="receipt_null",
                     result="retained",
-                    cleanup_outcome="missing_durable_ino",
+                    cleanup_outcome="missing_residual_proof",
                     logger=_LOGGER,
                 )
                 continue
-            if int(name_ino) != int(durable_ino):
+            if int(name_ino) != int(proof.ino):
                 continue
             if (
-                durable_generation is not None
+                proof.generation is not None
                 and name_generation is not None
-                and name_generation != durable_generation
+                and name_generation != proof.generation
             ):
                 continue
-            self._reclaim_receipt_null_size0_entry(
+            if self._reclaim_receipt_null_size0_entry(
                 ready_dir_fd,
                 sidecar_name,
-                expected_ino=int(expected_ino),
-            )
+                expected_ino=int(proof.ino),
+                expected_dev=int(proof.dev),
+            ):
+                self._mutation_store.clear_artifact_residual(
+                    residual_id=proof.residual_id,
+                    expected_dev=int(proof.dev),
+                    expected_ino=int(proof.ino),
+                )
 
     def _reclaim_receipt_null_size0_stages(
         self,
@@ -2140,11 +2184,183 @@ class ArtifactCleaner:
             artifact_id=artifact_id,
         ):
             return
+        residuals = self._mutation_store.list_artifact_residuals(artifact_id=artifact_id)
+        stage_proofs = {row.name: row for row in residuals if row.kind == "stage"}
+        child_proofs = [row for row in residuals if row.kind == "stage_child"]
         for stage_name in stage_names:
             parsed = parse_unlink_stage_dir_name(stage_name)
             if parsed is None or parsed[0] != artifact_id:
                 continue
-            get_artifact_broker().reclaim_stage(ready_dir_fd, stage_name)
+            proof = stage_proofs.get(stage_name)
+            if proof is None:
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="receipt_null",
+                    result="retained",
+                    cleanup_outcome="missing_residual_proof",
+                    logger=_LOGGER,
+                )
+                continue
+            children = [
+                (row.name, int(row.dev), int(row.ino))
+                for row in child_proofs
+                if row.parent_name == stage_name
+            ]
+            if get_artifact_broker().reclaim_stage(
+                ready_dir_fd, stage_name, children=children
+            ):
+                self._mutation_store.clear_artifact_residual(
+                    residual_id=proof.residual_id,
+                    expected_dev=int(proof.dev),
+                    expected_ino=int(proof.ino),
+                )
+                for row in child_proofs:
+                    if row.parent_name == stage_name:
+                        self._mutation_store.clear_artifact_residual(
+                            residual_id=row.residual_id,
+                            expected_dev=int(row.dev),
+                            expected_ino=int(row.ino),
+                        )
+
+    def _reclaim_durable_residuals(self) -> None:
+        after: int | None = None
+        while True:
+            if self._stopping:
+                return
+            rows = self._mutation_store.list_artifact_residuals(
+                limit=64, after_residual_id=after
+            )
+            if not rows:
+                return
+            for row in rows:
+                after = row.residual_id
+                try:
+                    self._reclaim_one_residual(row)
+                except Exception:
+                    _LOGGER.exception(
+                        "artifact residual reclaim failed for %s", row.residual_id
+                    )
+
+    def _reclaim_one_residual(self, row: ArtifactResidualRecord) -> None:
+        try:
+            ready_dir_fd = open_owned_ready_dir(self._layout, row.repository_id)
+        except OwnedPathError:
+            return
+        try:
+            if self._residual_name_absent(ready_dir_fd, row):
+                self._mutation_store.clear_artifact_residual(
+                    residual_id=row.residual_id,
+                    expected_dev=int(row.dev),
+                    expected_ino=int(row.ino),
+                )
+                return
+            lifecycle = self._mutation_store.get_artifact_lifecycle(row.artifact_id)
+            active_intent = (
+                lifecycle is not None
+                and lifecycle.bytes_deleted_at is None
+                and lifecycle.bytes_delete_intent_at is not None
+            )
+            if active_intent:
+                return
+            if not self._residual_is_size0(ready_dir_fd, row):
+                return
+            if row.kind == "stage_child":
+                stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, row.parent_name)
+                if stage_fd is None:
+                    self._mutation_store.clear_artifact_residual(
+                        residual_id=row.residual_id,
+                        expected_dev=int(row.dev),
+                        expected_ino=int(row.ino),
+                    )
+                    return
+                try:
+                    if get_artifact_broker().unlink_if_match(
+                        stage_fd,
+                        row.name,
+                        expected_dev=int(row.dev),
+                        expected_ino=int(row.ino),
+                    ):
+                        self._mutation_store.clear_artifact_residual(
+                            residual_id=row.residual_id,
+                            expected_dev=int(row.dev),
+                            expected_ino=int(row.ino),
+                        )
+                finally:
+                    os.close(stage_fd)
+                return
+            if row.kind == "stage":
+                children = [
+                    (child.name, int(child.dev), int(child.ino))
+                    for child in self._mutation_store.list_artifact_residuals(
+                        artifact_id=row.artifact_id
+                    )
+                    if child.kind == "stage_child" and child.parent_name == row.name
+                ]
+                if get_artifact_broker().reclaim_stage(
+                    ready_dir_fd, row.name, children=children
+                ):
+                    self._mutation_store.clear_artifact_residual(
+                        residual_id=row.residual_id,
+                        expected_dev=int(row.dev),
+                        expected_ino=int(row.ino),
+                    )
+                return
+            if get_artifact_broker().unlink_if_match(
+                ready_dir_fd,
+                row.name,
+                expected_dev=int(row.dev),
+                expected_ino=int(row.ino),
+            ):
+                self._mutation_store.clear_artifact_residual(
+                    residual_id=row.residual_id,
+                    expected_dev=int(row.dev),
+                    expected_ino=int(row.ino),
+                )
+        finally:
+            os.close(ready_dir_fd)
+
+    def _residual_name_absent(self, ready_dir_fd: int, row: ArtifactResidualRecord) -> bool:
+        if row.kind == "stage_child":
+            stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, row.parent_name)
+            if stage_fd is None:
+                return True
+            try:
+                os.stat(row.name, dir_fd=stage_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return True
+            except OSError:
+                return False
+            finally:
+                os.close(stage_fd)
+            return False
+        try:
+            os.stat(row.name, dir_fd=ready_dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        return False
+
+    def _residual_is_size0(self, ready_dir_fd: int, row: ArtifactResidualRecord) -> bool:
+        dir_fd = ready_dir_fd
+        stage_fd: int | None = None
+        if row.kind == "stage_child":
+            stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, row.parent_name)
+            if stage_fd is None:
+                return True
+            dir_fd = stage_fd
+        try:
+            st = os.stat(row.name, dir_fd=dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        finally:
+            if stage_fd is not None:
+                os.close(stage_fd)
+        return int(st.st_size) == 0
 
     def _reclaim_receipt_null_size0_entry(
         self,
@@ -2152,34 +2368,37 @@ class ArtifactCleaner:
         name: str,
         *,
         expected_ino: int,
-    ) -> None:
+        expected_dev: int | None = None,
+    ) -> bool:
         open_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         try:
             fd = os.open(name, open_flags, dir_fd=dir_fd)
         except FileNotFoundError:
-            return
+            return True
         except OSError:
-            return
+            return False
         try:
             st = os.fstat(fd)
         except OSError:
-            return
+            return False
         finally:
             os.close(fd)
         if not stat_module.S_ISREG(st.st_mode):
-            return
+            return False
         if int(st.st_ino) != int(expected_ino):
-            return
+            return False
+        if expected_dev is not None and int(st.st_dev) != int(expected_dev):
+            return False
         if int(st.st_size) != 0:
-            return
+            return False
         if not prove_size0_owned_name_terminal(
             dir_fd,
             name,
             expected_dev=int(st.st_dev),
             expected_ino=int(expected_ino),
         ):
-            return
-        reclaim_size0_owned_name(
+            return False
+        return reclaim_size0_owned_name(
             dir_fd,
             name,
             expected_dev=int(st.st_dev),

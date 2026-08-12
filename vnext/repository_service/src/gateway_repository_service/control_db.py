@@ -11,7 +11,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 13
+CONTROL_DB_USER_VERSION = 14
 
 ColumnShape = tuple[tuple[str, str, int, str | None, int], ...]
 
@@ -22,6 +22,7 @@ _ADMIN_CLI_REQUIRED_TABLES: frozenset[str] = frozenset(
         "artifact_lifecycle",
         "repository_import_operations",
         "repository_import_recovery_audit",
+        "artifact_residual",
     }
 )
 
@@ -34,6 +35,7 @@ _ADMIN_CLI_REQUIRED_INDEXES: dict[str, tuple[str, ...]] = {
     "repository_import_operations_artifact_idx": ("artifact_id",),
     "artifact_lifecycle_repository_scope_idx": ("repository_scope",),
     "artifact_lifecycle_cleanup_keyset_idx": ("created_at", "artifact_id"),
+    "artifact_lifecycle_cleanup_seq_idx": ("cleanup_seq",),
 }
 
 _ADMIN_CLI_REQUIRED_TRIGGER_NAMES: frozenset[str] = frozenset(
@@ -667,6 +669,55 @@ _MIGRATION_V13_STATEMENTS: tuple[str, ...] = (
 )
 
 
+_MIGRATION_V14_STATEMENTS: tuple[str, ...] = (
+    """
+    ALTER TABLE artifact_lifecycle ADD COLUMN cleanup_seq INTEGER
+    """,
+    """
+    UPDATE artifact_lifecycle SET cleanup_seq = rowid WHERE cleanup_seq IS NULL
+    """,
+    """
+    CREATE UNIQUE INDEX artifact_lifecycle_cleanup_seq_uidx
+    ON artifact_lifecycle (cleanup_seq)
+    """,
+    """
+    CREATE INDEX artifact_lifecycle_cleanup_seq_idx
+    ON artifact_lifecycle (cleanup_seq)
+    WHERE bytes_deleted_at IS NULL
+    """,
+    """
+    CREATE TRIGGER artifact_lifecycle_assign_cleanup_seq
+    AFTER INSERT ON artifact_lifecycle
+    FOR EACH ROW
+    WHEN NEW.cleanup_seq IS NULL
+    BEGIN
+        UPDATE artifact_lifecycle
+        SET cleanup_seq = (
+            SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle
+        )
+        WHERE artifact_id = NEW.artifact_id AND cleanup_seq IS NULL;
+    END
+    """,
+    """
+    CREATE TABLE artifact_residual (
+        residual_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        artifact_id TEXT NOT NULL,
+        repository_scope TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (
+            kind IN ('deleting', 'detach', 'verify', 'stage', 'stage_child')
+        ),
+        name TEXT NOT NULL,
+        parent_name TEXT NOT NULL DEFAULT '',
+        dev INTEGER NOT NULL,
+        ino INTEGER NOT NULL,
+        generation TEXT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (artifact_id, kind, name, parent_name)
+    )
+    """,
+)
+
+
 _MIGRATION_V5_STATEMENTS: tuple[str, ...] = (
     """
     CREATE TRIGGER prevent_insert_succeeded_when_terminal
@@ -1193,6 +1244,9 @@ class ControlStore:
             return
         if target_version == 13:
             ControlStore._execute_statements(connection, _MIGRATION_V13_STATEMENTS)
+            return
+        if target_version == 14:
+            ControlStore._execute_statements(connection, _MIGRATION_V14_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

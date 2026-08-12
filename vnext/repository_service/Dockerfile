@@ -47,10 +47,12 @@ RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh \
     && addgroup --system artifact-broker \
     && adduser --system --ingroup artifact-broker artifact-broker \
     && usermod -a -G gateway artifact-broker \
-    && mkdir -p /home/gateway /home/artifact-broker /var/lib/gateway/repository \
+    && mkdir -p /home/gateway /home/artifact-broker /var/lib/gateway/repository/run /var/lib/gateway/repository/artifacts \
     && chown -R gateway:gateway /home/gateway \
     && chown -R artifact-broker:artifact-broker /home/artifact-broker \
-    && chown -R gateway:gateway /var/lib/gateway
+    && chown gateway:gateway /var/lib/gateway /var/lib/gateway/repository \
+    && chown artifact-broker:gateway /var/lib/gateway/repository/run /var/lib/gateway/repository/artifacts \
+    && chmod 0750 /var/lib/gateway/repository/run /var/lib/gateway/repository/artifacts
 ENV HOME="/home/gateway"
 ENV PATH="/app/.venv/bin:${PATH}" PYTHONPATH="/app/.venv/lib/python3.14/site-packages:/app/src:/repository_contracts/src"
 # Entrypoint starts as root, launches artifact-broker, then drops to gateway (ADR 0011).

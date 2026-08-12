@@ -16,6 +16,12 @@ from gateway_repository_service.admission import (
     PermitPool,
     UploadCancelRegistry,
 )
+from gateway_repository_service.artifact_broker import (
+    ArtifactBrokerError,
+    install_artifact_broker,
+    ping_artifact_broker,
+    stop_artifact_broker_helper,
+)
 from gateway_repository_service.artifact_cleaner import (
     ArtifactCleaner,
     ArtifactCleanerLifecycle,
@@ -168,6 +174,13 @@ class ServiceRuntime:
                     "import startup recovery is blocked: "
                     + "; ".join(import_reconciliation.blocking_failures)
                 )
+            try:
+                install_artifact_broker(profile=settings.profile)
+                ping_artifact_broker()
+            except ArtifactBrokerError as exc:
+                raise ServiceStartupError(
+                    f"artifact directory-broker is unavailable: {exc}"
+                ) from exc
             if not is_durable_root_writable(layout.service_state):
                 raise ServiceStartupError("durable root is not writable")
             if not has_free_disk_admission(layout.root, settings):
@@ -307,6 +320,7 @@ class ServiceRuntime:
             logger=_LOGGER,
         )
         self.upload_cancels.cancel_all()
+        stop_artifact_broker_helper(timeout=2.0)
         grace = self.settings.import_shutdown_grace_seconds
         cleanup_errors: list[Exception] = []
         bridge_shutdown_error: BridgeShutdownError | None = None

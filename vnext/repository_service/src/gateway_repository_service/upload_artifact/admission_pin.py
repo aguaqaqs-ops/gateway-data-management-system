@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import fcntl
 import os
+import secrets
 import stat
 from collections.abc import Callable
 from pathlib import Path
@@ -309,45 +310,167 @@ def open_owned_ready_dir(
         os.close(artifacts_fd)
 
 
-def quarantine_name_for(*, inode: int, artifact_id: UUID) -> str:
+def _validate_generation(generation: str) -> None:
+    if not generation:
+        raise ValueError("generation must be non-empty")
+    if "-" in generation:
+        raise ValueError("generation must not contain '-'")
+
+
+def quarantine_name_for(*, inode: int, artifact_id: UUID, generation: str) -> str:
     """Return the durable quarantine directory entry for an owned ready inode."""
 
-    return f".deleting-{inode}-{artifact_id.hex}"
+    _validate_generation(generation)
+    return f".deleting-{inode}-{generation}-{artifact_id.hex}"
 
 
-def detach_name_for(*, inode: int, artifact_id: UUID) -> str:
+def detach_name_for(*, inode: int, artifact_id: UUID, generation: str) -> str:
     """Return the transient rename target used to detach a ready directory entry."""
 
-    return f".detach-{inode}-{artifact_id.hex}"
+    _validate_generation(generation)
+    return f".detach-{inode}-{generation}-{artifact_id.hex}"
 
 
-def _parse_sidecar_name(name: str, *, prefix: str) -> tuple[int, UUID] | None:
+def verify_sidecar_name_for(*, inode: int, generation: str, artifact_id: UUID, token: str) -> str:
+    """Return the private verify sidecar used during rename-verify-unlink."""
+
+    _validate_generation(generation)
+    if not token:
+        raise ValueError("token must be non-empty")
+    if "-" in token:
+        raise ValueError("token must not contain '-'")
+    # Prefix must not match ``.deleting-`` / ``.detach-`` inventory parsers.
+    return f".unlink-verify-{inode}-{generation}-{artifact_id.hex}-{token}"
+
+
+def _parse_sidecar_name(name: str, *, prefix: str) -> tuple[int, UUID, str | None] | None:
     if not name.startswith(prefix):
         return None
     rest = name[len(prefix) :]
     if "-" not in rest:
         return None
-    ino_text, artifact_hex = rest.split("-", 1)
-    if not ino_text.isdigit():
-        return None
+    artifact_hex = rest.rsplit("-", 1)[1]
     if len(artifact_hex) != 32 or any(ch not in "0123456789abcdef" for ch in artifact_hex):
         return None
+    remainder = rest[: -(len(artifact_hex) + 1)]
+    if not remainder:
+        return None
+    if "-" in remainder:
+        ino_text, generation = remainder.split("-", 1)
+        if not generation or "-" in generation:
+            return None
+    elif remainder.isdigit():
+        ino_text = remainder
+        generation = None
+    else:
+        return None
+    if not ino_text.isdigit():
+        return None
     try:
-        return int(ino_text), UUID(hex=artifact_hex)
+        return int(ino_text), UUID(hex=artifact_hex), generation
     except ValueError:
         return None
 
 
-def parse_quarantine_name(name: str) -> tuple[int, UUID] | None:
-    """Parse ``.deleting-<ino>-<artifact_hex>``; return None when malformed."""
+def parse_quarantine_name(name: str) -> tuple[int, UUID, str | None] | None:
+    """Parse quarantine sidecar names; return None when malformed."""
 
     return _parse_sidecar_name(name, prefix=".deleting-")
 
 
-def parse_detach_name(name: str) -> tuple[int, UUID] | None:
-    """Parse ``.detach-<ino>-<artifact_hex>``; return None when malformed."""
+def parse_detach_name(name: str) -> tuple[int, UUID, str | None] | None:
+    """Parse detach sidecar names; return None when malformed."""
 
     return _parse_sidecar_name(name, prefix=".detach-")
+
+
+def _find_matching_quarantine(
+    ready_dir_fd: int,
+    *,
+    inode: int,
+    artifact_id: UUID,
+) -> tuple[str, str] | None:
+    """Reuse an existing generation-bound quarantine for the same inode+artifact."""
+
+    try:
+        names = os.listdir(ready_dir_fd)
+    except OSError:
+        return None
+    for name in names:
+        parsed = parse_quarantine_name(name)
+        if parsed is None:
+            continue
+        parsed_ino, parsed_artifact_id, generation = parsed
+        if (
+            generation is None
+            or parsed_ino != int(inode)
+            or parsed_artifact_id != artifact_id
+        ):
+            continue
+        try:
+            st = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
+        except OSError:
+            continue
+        if int(st.st_ino) != int(inode) or not stat.S_ISREG(st.st_mode):
+            continue
+        return name, generation
+    return None
+
+
+def unlink_sidecar_rename_verify(
+    ready_dir_fd: int,
+    sidecar_name: str,
+    q_fd: int,
+    expected: os.stat_result,
+    *,
+    artifact_id: UUID,
+    generation: str,
+) -> bool:
+    """Unlink a sidecar via rename-verify-unlink while holding flock on ``q_fd``."""
+
+    try:
+        live = os.fstat(q_fd)
+    except OSError:
+        return False
+    if (live.st_dev, live.st_ino) != (expected.st_dev, expected.st_ino):
+        return False
+
+    private = verify_sidecar_name_for(
+        inode=int(expected.st_ino),
+        generation=generation,
+        artifact_id=artifact_id,
+        token=secrets.token_hex(8),
+    )
+    try:
+        renameat2_noreplace(ready_dir_fd, sidecar_name, ready_dir_fd, private)
+    except OSError:
+        return False
+
+    try:
+        private_stat = os.stat(private, dir_fd=ready_dir_fd, follow_symlinks=False)
+    except OSError:
+        try:
+            renameat2_noreplace(ready_dir_fd, private, ready_dir_fd, sidecar_name)
+        except OSError:
+            pass
+        return False
+
+    if (private_stat.st_dev, private_stat.st_ino) != (expected.st_dev, expected.st_ino):
+        try:
+            renameat2_noreplace(ready_dir_fd, private, ready_dir_fd, sidecar_name)
+        except OSError:
+            pass
+        return False
+
+    try:
+        os.unlink(private, dir_fd=ready_dir_fd)
+    except OSError:
+        try:
+            renameat2_noreplace(ready_dir_fd, private, ready_dir_fd, sidecar_name)
+        except OSError:
+            pass
+        return False
+    return True
 
 
 def try_detach_ready_directory_entry(
@@ -357,6 +480,7 @@ def try_detach_ready_directory_entry(
     ready_name: str,
     fd_stat: os.stat_result,
     artifact_id: UUID,
+    generation: str,
 ) -> tuple[str, str | None]:
     """Detach ``ready_name`` via rename-verify-unlink.
 
@@ -368,7 +492,11 @@ def try_detach_ready_directory_entry(
     if os.fstat(file_fd).st_nlink < 2:
         return "replaced", None
 
-    detach = detach_name_for(inode=int(fd_stat.st_ino), artifact_id=artifact_id)
+    detach = detach_name_for(
+        inode=int(fd_stat.st_ino),
+        artifact_id=artifact_id,
+        generation=generation,
+    )
     try:
         renameat2_noreplace(ready_dir_fd, ready_name, ready_dir_fd, detach)
     except FileNotFoundError:
@@ -421,6 +549,7 @@ def try_unlink_owned_ready_artifact(
     on_deleted: Callable[[int, int, str], None] | None = None,
     on_intent: Callable[[int, int, str], None] | None = None,
     on_clear_intent: Callable[[int, int, str], None] | None = None,
+    on_clear_receipt: Callable[[int, int, str], None] | None = None,
 ) -> str:
     """Delete an owned ready artifact via fd-stable linkat quarantine.
 
@@ -474,26 +603,58 @@ def try_unlink_owned_ready_artifact(
         _clear_intent_best_effort()
         return "replaced"
 
-    def _unlink_owned_sidecar(name: str | None) -> None:
+    def _unlink_owned_sidecar(name: str | None) -> bool:
+        """Rename-verify-unlink an owned sidecar.
+
+        Caller already holds exclusive ``flock`` on ``file_fd`` (same inode).
+        Do not acquire a second flock via another open — Linux treats that as
+        an independent lock and ``LOCK_NB`` fails with ``BlockingIOError``.
+        """
+
         if name is None:
-            return
+            return True
+        if locked_generation is None:
+            return False
+        open_flags = _file_flags()
+        q_fd: int | None = None
         try:
-            side_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
-            locked = os.fstat(file_fd)
-            if (side_stat.st_dev, side_stat.st_ino) == (locked.st_dev, locked.st_ino):
-                os.unlink(name, dir_fd=ready_dir_fd)
-        except OSError:
-            pass
+            try:
+                q_fd = os.open(name, open_flags, dir_fd=ready_dir_fd)
+            except FileNotFoundError:
+                return True
+            except OSError:
+                return False
+            try:
+                q_stat = os.fstat(q_fd)
+            except OSError:
+                return False
+            locked_stat = os.fstat(file_fd)
+            if (q_stat.st_dev, q_stat.st_ino) != (locked_stat.st_dev, locked_stat.st_ino):
+                return False
+            if not stat.S_ISREG(q_stat.st_mode):
+                return False
+            return unlink_sidecar_rename_verify(
+                ready_dir_fd,
+                name,
+                q_fd,
+                q_stat,
+                artifact_id=artifact_id,
+                generation=locked_generation,
+            )
+        finally:
+            if q_fd is not None:
+                os.close(q_fd)
 
     def _cleanup_owned_sidecars_under_lock() -> None:
-        if not keep_quarantine_on_abort:
-            _unlink_owned_sidecar(owned_detach)
-            if owned_quarantine is not None:
-                _unlink_owned_sidecar(owned_quarantine)
-                _clear_intent_best_effort()
-        elif owned_detach is not None:
-            # Detach residual of our inode is retained with quarantine+intent.
-            pass
+        if keep_quarantine_on_abort:
+            return
+        unlink_results: list[bool] = []
+        if owned_detach is not None:
+            unlink_results.append(_unlink_owned_sidecar(owned_detach))
+        if owned_quarantine is not None:
+            unlink_results.append(_unlink_owned_sidecar(owned_quarantine))
+        if unlink_results and all(unlink_results):
+            _clear_intent_best_effort()
 
     try:
         try:
@@ -518,32 +679,29 @@ def try_unlink_owned_ready_artifact(
                 if (name_stat.st_dev, name_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
                     return "inode_mismatch"
 
-                quarantine = quarantine_name_for(inode=fd_stat.st_ino, artifact_id=artifact_id)
-                try:
-                    os.link(
-                        f"/proc/self/fd/{file_fd}",
-                        quarantine,
-                        dst_dir_fd=ready_dir_fd,
+                locked_dev = int(fd_stat.st_dev)
+                locked_ino = int(fd_stat.st_ino)
+                reused = _find_matching_quarantine(
+                    ready_dir_fd,
+                    inode=int(fd_stat.st_ino),
+                    artifact_id=artifact_id,
+                )
+                if reused is not None:
+                    quarantine, generation = reused
+                    locked_generation = generation
+                else:
+                    generation = uuid4().hex
+                    locked_generation = generation
+                    quarantine = quarantine_name_for(
+                        inode=fd_stat.st_ino,
+                        artifact_id=artifact_id,
+                        generation=generation,
                     )
-                except FileExistsError:
                     try:
-                        existing = os.stat(quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
-                    except OSError:
-                        return "unlink_failed"
-                    if (existing.st_dev, existing.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-                        return "inode_mismatch"
-                except OSError:
-                    try:
-                        # Re-verify name still matches before pathname link fallback.
-                        name_stat = os.stat(name, dir_fd=ready_dir_fd, follow_symlinks=False)
-                        if (name_stat.st_dev, name_stat.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
-                            return "inode_mismatch"
                         os.link(
-                            name,
+                            f"/proc/self/fd/{file_fd}",
                             quarantine,
-                            src_dir_fd=ready_dir_fd,
                             dst_dir_fd=ready_dir_fd,
-                            follow_symlinks=False,
                         )
                     except FileExistsError:
                         try:
@@ -552,10 +710,43 @@ def try_unlink_owned_ready_artifact(
                             )
                         except OSError:
                             return "unlink_failed"
-                        if (existing.st_dev, existing.st_ino) != (fd_stat.st_dev, fd_stat.st_ino):
+                        if (existing.st_dev, existing.st_ino) != (
+                            fd_stat.st_dev,
+                            fd_stat.st_ino,
+                        ):
                             return "inode_mismatch"
                     except OSError:
-                        return "unlink_failed"
+                        try:
+                            # Re-verify name still matches before pathname link fallback.
+                            name_stat = os.stat(
+                                name, dir_fd=ready_dir_fd, follow_symlinks=False
+                            )
+                            if (name_stat.st_dev, name_stat.st_ino) != (
+                                fd_stat.st_dev,
+                                fd_stat.st_ino,
+                            ):
+                                return "inode_mismatch"
+                            os.link(
+                                name,
+                                quarantine,
+                                src_dir_fd=ready_dir_fd,
+                                dst_dir_fd=ready_dir_fd,
+                                follow_symlinks=False,
+                            )
+                        except FileExistsError:
+                            try:
+                                existing = os.stat(
+                                    quarantine, dir_fd=ready_dir_fd, follow_symlinks=False
+                                )
+                            except OSError:
+                                return "unlink_failed"
+                            if (existing.st_dev, existing.st_ino) != (
+                                fd_stat.st_dev,
+                                fd_stat.st_ino,
+                            ):
+                                return "inode_mismatch"
+                        except OSError:
+                            return "unlink_failed"
 
                 try:
                     q_stat = os.stat(quarantine, dir_fd=ready_dir_fd, follow_symlinks=False)
@@ -569,11 +760,7 @@ def try_unlink_owned_ready_artifact(
                 if not stat.S_ISREG(q_stat.st_mode):
                     return "not_regular_file"
                 owned_quarantine = quarantine
-                locked_dev = int(fd_stat.st_dev)
-                locked_ino = int(fd_stat.st_ino)
 
-                generation = uuid4().hex
-                locked_generation = generation
                 if on_intent is not None:
                     try:
                         on_intent(locked_dev, locked_ino, generation)
@@ -615,6 +802,7 @@ def try_unlink_owned_ready_artifact(
                         ready_name=name,
                         fd_stat=fd_stat,
                         artifact_id=artifact_id,
+                        generation=generation,
                     )
                     if detach_outcome == "replaced":
                         return _abort_replaced()
@@ -640,14 +828,20 @@ def try_unlink_owned_ready_artifact(
                         keep_quarantine_on_abort = True
                         return "stamp_failed"
 
-                try:
-                    os.unlink(quarantine, dir_fd=ready_dir_fd)
-                except FileNotFoundError:
-                    pass
-                except OSError:
+                if not _unlink_owned_sidecar(quarantine):
                     keep_quarantine_on_abort = True
                     return "unlink_failed"
                 owned_quarantine = None
+                if on_clear_receipt is not None:
+                    try:
+                        assert (
+                            locked_dev is not None
+                            and locked_ino is not None
+                            and locked_generation is not None
+                        )
+                        on_clear_receipt(locked_dev, locked_ino, locked_generation)
+                    except Exception:
+                        pass
                 return "deleted"
             finally:
                 _cleanup_owned_sidecars_under_lock()
@@ -671,6 +865,7 @@ def try_unlink_ready_artifact_with_recheck(
     on_deleted: Callable[[int, int, str], None] | None = None,
     on_intent: Callable[[int, int, str], None] | None = None,
     on_clear_intent: Callable[[int, int, str], None] | None = None,
+    on_clear_receipt: Callable[[int, int, str], None] | None = None,
 ) -> str:
     """Delete ready bytes; prefer owned layout protocol when ids are provided."""
 
@@ -686,6 +881,7 @@ def try_unlink_ready_artifact_with_recheck(
             on_deleted=on_deleted,
             on_intent=on_intent,
             on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
         )
 
     # Legacy pathname path kept for narrow test helpers; still fail closed on symlink.

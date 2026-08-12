@@ -21,7 +21,11 @@ from gateway_repository_contracts import (
     VersionedImportResult,
     VersionedOperation,
 )
-from gateway_repository_service.mutation_store import IdempotencyKeyHash, MutationStore
+from gateway_repository_service.mutation_store import (
+    ArtifactLifecycleRecord,
+    IdempotencyKeyHash,
+    MutationStore,
+)
 from gateway_repository_service.versioned_import.models import (
     ArtifactOperationReference,
     ClaimOrEnqueueResult,
@@ -1067,6 +1071,9 @@ class ImportOperationStore:
                 expected_ino=expected_ino,
                 expected_generation=expected_generation,
             )
+
+    def list_artifacts_with_bytes_deleted_receipt(self) -> list[ArtifactLifecycleRecord]:
+        return self._mutation_store.list_artifacts_with_bytes_deleted_receipt()
 
     def has_succeeded_create_repository(self, repository_id: UUID) -> bool:
         """Return True when a create-repository effect has succeeded for this id."""

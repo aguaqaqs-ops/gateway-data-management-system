@@ -402,6 +402,15 @@ class ImportOperationExecutor:
                     expected_generation=generation,
                 )
 
+            def _on_clear_receipt(dev: int, ino: int, generation: str) -> None:
+                self._store.clear_artifact_bytes_deleted_receipt(
+                    context.artifact_id,
+                    repository_id=context.repository_id,
+                    expected_dev=dev,
+                    expected_ino=ino,
+                    expected_generation=generation,
+                )
+
             outcome = try_unlink_ready_artifact_with_recheck(
                 artifact_path,
                 recheck=lambda: self._store.can_delete_artifact_bytes(
@@ -414,6 +423,7 @@ class ImportOperationExecutor:
                 on_deleted=_stamp,
                 on_intent=_on_intent,
                 on_clear_intent=_on_clear_intent,
+                on_clear_receipt=_on_clear_receipt,
             )
             if outcome != "deleted" or not stamped["ok"]:
                 return

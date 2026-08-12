@@ -1742,7 +1742,12 @@ def test_stamped_quarantine_residual_is_unlinked_on_sweep(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     st = ready.stat()
-    quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
+    generation = uuid4().hex
+    quarantine = ready.parent / quarantine_name_for(
+        inode=st.st_ino,
+        artifact_id=ARTIFACT_ID,
+        generation=generation,
+    )
     os.link(ready, quarantine)
     ready.unlink()
     generation = store.begin_artifact_bytes_delete_intent(
@@ -1752,6 +1757,7 @@ def test_stamped_quarantine_residual_is_unlinked_on_sweep(
         ino=int(st.st_ino),
         phase="quarantined",
         intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
     )
     store.mark_artifact_bytes_deleted(
         ARTIFACT_ID,
@@ -1834,11 +1840,12 @@ def test_forged_quarantine_without_intent_is_retained(
     caplog.set_level(logging.INFO)
 
     ArtifactCleaner(
-        settings=_settings(layout, ttl=1),
+        settings=_settings(layout, ttl=3600),
         layout=layout,
         import_store=store,
         mutation_store=mutation_store,
-        clock=lambda: BASE_NOW,
+        # Before orphan TTL so only forged quarantine inventory is exercised.
+        clock=lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC),
     ).sweep_once()
 
     assert forged.is_file()
@@ -1889,6 +1896,7 @@ def _intent_callbacks(
     Callable[[int, int, str], None],
     Callable[[int, int, str], None],
     Callable[[int, int, str], None],
+    Callable[[int, int, str], None],
     dict[str, bool],
 ]:
     stamped = {"ok": False}
@@ -1924,7 +1932,24 @@ def _intent_callbacks(
             expected_generation=generation,
         )
 
-    return on_deleted, on_intent, on_clear_intent, stamped
+    def on_clear_receipt(dev: int, ino: int, generation: str) -> None:
+        store.clear_artifact_bytes_deleted_receipt(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            expected_dev=dev,
+            expected_ino=ino,
+            expected_generation=generation,
+        )
+
+    return on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped
+
+
+def _assert_receipt_cleared(mutation_store: MutationStore) -> None:
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_receipt_dev is None
+    assert lifecycle.bytes_deleted_receipt_ino is None
+    assert lifecycle.bytes_deleted_receipt_generation is None
 
 
 def _dir_fd_from_kwargs(kwargs: dict[str, object], *keys: str) -> int | None:
@@ -1962,7 +1987,7 @@ def test_post_nlink_pre_detach_rename_preserves_replacement(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     replacement = b"post-nlink-replacement"
-    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
 
     def rename(
         src_dir_fd: int,
@@ -1988,6 +2013,7 @@ def test_post_nlink_pre_detach_rename_preserves_replacement(
         on_deleted=on_deleted,
         on_intent=on_intent,
         on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
     )
     assert outcome != "deleted"
     assert stamped["ok"] is False
@@ -2010,7 +2036,7 @@ def test_replacement_admission_pin_blocks_stamp(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     replacement = b"admission-replacement"
-    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
     barrier = threading.Barrier(2)
     outcomes: dict[str, object] = {}
 
@@ -2047,6 +2073,7 @@ def test_replacement_admission_pin_blocks_stamp(
         on_deleted=on_deleted,
         on_intent=on_intent,
         on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
     )
     thread.join(timeout=2.0)
     assert not thread.is_alive()
@@ -2071,7 +2098,7 @@ def test_proc_link_fallback_pathname_replace_preserves_replacement(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     replacement = b"fallback-replacement"
-    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
     real_link = os.link
 
     def link(src: str | bytes | os.PathLike[str], dst: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
@@ -2097,6 +2124,7 @@ def test_proc_link_fallback_pathname_replace_preserves_replacement(
         on_deleted=on_deleted,
         on_intent=on_intent,
         on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
     )
     assert outcome != "deleted"
     assert stamped["ok"] is False
@@ -2124,7 +2152,7 @@ def test_quarantine_replaced_before_verify_does_not_delete_unknown(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     forged_payload = b"swapped-quarantine"
-    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
     real_link = os.link
 
     def link(src: str | bytes | os.PathLike[str], dst: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
@@ -2152,6 +2180,7 @@ def test_quarantine_replaced_before_verify_does_not_delete_unknown(
         on_deleted=on_deleted,
         on_intent=on_intent,
         on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
     )
     assert outcome == "inode_mismatch"
     assert stamped["ok"] is False
@@ -2177,7 +2206,7 @@ def test_abort_finally_does_not_unlink_replacement_ready(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     replacement = b"finally-replacement"
-    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
     real_unlink = os.unlink
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
@@ -2201,6 +2230,7 @@ def test_abort_finally_does_not_unlink_replacement_ready(
         on_deleted=on_deleted,
         on_intent=on_intent,
         on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
     )
     assert outcome == "ineligible"
     assert stamped["ok"] is False
@@ -2222,7 +2252,7 @@ def test_live_helper_flock_blocks_quarantine_recovery(
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     _write_ready(layout)
-    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
     in_recheck = threading.Event()
     release = threading.Event()
     recovery_done = threading.Event()
@@ -2255,6 +2285,7 @@ def test_live_helper_flock_blocks_quarantine_recovery(
         on_deleted=on_deleted,
         on_intent=on_intent,
         on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
     )
     thread.join(timeout=3.0)
     assert not thread.is_alive()
@@ -2350,7 +2381,7 @@ def test_post_detach_protected_reference_keeps_quarantine(
     _seed_create_succeeded(mutation_store)
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
     calls = {"n": 0}
 
     def recheck() -> bool:
@@ -2372,6 +2403,7 @@ def test_post_detach_protected_reference_keeps_quarantine(
         on_deleted=on_deleted,
         on_intent=on_intent,
         on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
     )
     assert outcome == "ineligible"
     assert stamped["ok"] is False
@@ -2391,7 +2423,12 @@ def _begin_intent_for_ready(
     generation: str | None = None,
 ) -> tuple[Path, int, str]:
     st = ready.stat()
-    quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
+    token = generation if generation is not None else uuid4().hex
+    quarantine = ready.parent / quarantine_name_for(
+        inode=st.st_ino,
+        artifact_id=ARTIFACT_ID,
+        generation=token,
+    )
     os.link(ready, quarantine)
     token = store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
@@ -2400,7 +2437,7 @@ def _begin_intent_for_ready(
         ino=int(st.st_ino),
         phase=phase,
         intent_at="2026-08-02T00:00:00+00:00",
-        generation=generation,
+        generation=token,
     )
     return quarantine, int(st.st_ino), token
 
@@ -2477,14 +2514,14 @@ def test_stamp_succeeds_but_final_quarantine_unlink_fails(
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
     real_unlink = os.unlink
     fail_once = {"n": 0}
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
         if (
             isinstance(path, str)
-            and path.startswith(".deleting-")
+            and path.startswith(".unlink-verify-")
             and fail_once["n"] == 0
         ):
             fail_once["n"] += 1
@@ -2500,6 +2537,7 @@ def test_stamp_succeeds_but_final_quarantine_unlink_fails(
         on_deleted=on_deleted,
         on_intent=on_intent,
         on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
     )
     assert outcome == "unlink_failed"
     assert stamped["ok"] is True
@@ -2539,6 +2577,7 @@ def test_forged_quarantine_with_matching_self_reported_ino_is_retained(
     forged = ready.parent / quarantine_name_for(
         inode=decoy.stat().st_ino,
         artifact_id=ARTIFACT_ID,
+        generation=uuid4().hex,
     )
     os.link(decoy, forged)
     decoy.unlink()
@@ -2586,6 +2625,7 @@ def test_legal_and_forged_quarantines_are_handled_independently(
     forged = legal.parent / quarantine_name_for(
         inode=decoy.stat().st_ino,
         artifact_id=ARTIFACT_ID,
+        generation=uuid4().hex,
     )
     os.link(decoy, forged)
     decoy.unlink()
@@ -2959,7 +2999,7 @@ def test_stamp_rejects_protected_reference_after_final_recheck(
     _seed_create_succeeded(mutation_store)
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    _on_deleted, on_intent_cb, on_clear_cb, stamped = _intent_callbacks(store)
+    _on_deleted, on_intent_cb, on_clear_cb, _on_clear_receipt, stamped = _intent_callbacks(store)
 
     def on_deleted(dev: int, ino: int, generation: str) -> None:
         _enqueue(store, key="stamp-race-pending", operation_id=OTHER_OPERATION_ID)
@@ -2993,6 +3033,7 @@ def test_stamp_rejects_protected_reference_after_final_recheck(
 def test_detach_destination_preexists_is_not_overwritten(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Directed probe: pre-existing .detach-* must not be overwritten."""
 
@@ -3002,9 +3043,18 @@ def test_detach_destination_preexists_is_not_overwritten(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     st = ready.stat()
-    preexisting = ready.parent / detach_name_for(inode=int(st.st_ino), artifact_id=ARTIFACT_ID)
+    fixed_generation = "a" * 32
+    monkeypatch.setattr(
+        "gateway_repository_service.upload_artifact.admission_pin.uuid4",
+        lambda: type("U", (), {"hex": fixed_generation})(),
+    )
+    preexisting = ready.parent / detach_name_for(
+        inode=int(st.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation=fixed_generation,
+    )
     preexisting.write_bytes(b"preexisting-detach")
-    on_deleted, on_intent, on_clear_intent, stamped = _intent_callbacks(store)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
     outcome = try_unlink_owned_ready_artifact(
         layout,
         REPOSITORY_ID,
@@ -3013,6 +3063,7 @@ def test_detach_destination_preexists_is_not_overwritten(
         on_deleted=on_deleted,
         on_intent=on_intent,
         on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
     )
     assert outcome != "deleted"
     assert stamped["ok"] is False
@@ -3036,8 +3087,17 @@ def test_q_and_detach_ineligible_converge_both_sidecars(
     ready = _write_ready(layout)
     payload = ready.read_bytes()
     st = ready.stat()
-    quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
-    detach = ready.parent / detach_name_for(inode=int(st.st_ino), artifact_id=ARTIFACT_ID)
+    generation = uuid4().hex
+    quarantine = ready.parent / quarantine_name_for(
+        inode=st.st_ino,
+        artifact_id=ARTIFACT_ID,
+        generation=generation,
+    )
+    detach = ready.parent / detach_name_for(
+        inode=int(st.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation=generation,
+    )
     os.link(ready, quarantine)
     os.link(ready, detach)
     ready.unlink()
@@ -3048,6 +3108,7 @@ def test_q_and_detach_ineligible_converge_both_sidecars(
         ino=int(st.st_ino),
         phase="quarantined",
         intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
     )
     _enqueue(store, key="q-detach-block", operation_id=OTHER_OPERATION_ID)
     caplog.set_level(logging.INFO)
@@ -3305,7 +3366,11 @@ def test_clear_failure_unlock_interleave_aba(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     st = ready.stat()
-    quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
+    quarantine = ready.parent / quarantine_name_for(
+        inode=st.st_ino,
+        artifact_id=ARTIFACT_ID,
+        generation="gen2",
+    )
     os.link(ready, quarantine)
     store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
@@ -3339,45 +3404,213 @@ def test_clear_failure_unlock_interleave_aba(
     assert ready.is_file()
 
 
-def test_recovery_ineligible_then_worker_same_inode_generation_cas(
+@pytest.mark.serial
+def test_recovery_g1_paused_worker_g2_stamp_fail_retains_evidence(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Round6 probe 3: recovery clear with stale generation must not wipe newer intent."""
+    """Round7 probe 1: tests/test_artifact_cleanup.py::test_recovery_g1_paused_worker_g2_stamp_fail_retains_evidence"""
 
     store, mutation_store = stores
-    del layout
+    _seed_create_succeeded(mutation_store)
     _seed_artifact(mutation_store)
-    dev, ino = 5, 55
-    store.begin_artifact_bytes_delete_intent(
+    ready = _write_ready(layout)
+    gen_g1 = "gen_g1_r7p1"
+    quarantine, _ino, _ = _begin_intent_for_ready(store, ready, generation=gen_g1)
+    ready.unlink()
+
+    g1_at_stamp = threading.Event()
+    worker_done = threading.Event()
+    allow_g1_stamp = threading.Event()
+    real_mark = store.mark_artifact_bytes_deleted
+
+    def paused_mark(
+        artifact_id: UUID,
+        *,
+        deleted_at: str | None = None,
+        repository_id: UUID | None = None,
+        expected_dev: int,
+        expected_ino: int,
+        expected_generation: str,
+    ) -> None:
+        g1_at_stamp.set()
+        assert worker_done.wait(timeout=2.0)
+        allow_g1_stamp.wait(timeout=2.0)
+        real_mark(
+            artifact_id,
+            deleted_at=deleted_at,
+            repository_id=repository_id,
+            expected_dev=expected_dev,
+            expected_ino=expected_ino,
+            expected_generation=expected_generation,
+        )
+
+    monkeypatch.setattr(store, "mark_artifact_bytes_deleted", paused_mark)
+
+    def run_recovery() -> None:
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: BASE_NOW,
+        ).sweep_once()
+
+    recovery_thread = threading.Thread(target=run_recovery)
+    recovery_thread.start()
+    assert g1_at_stamp.wait(timeout=2.0)
+
+    os.link(quarantine, ready)
+    gen_g2 = "gen_g2_r7p1"
+
+    def on_intent_g2(dev: int, ino: int, _generation: str) -> None:
+        store.begin_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            dev=dev,
+            ino=ino,
+            phase="quarantined",
+            intent_at="2026-08-02T00:00:01+00:00",
+            generation=gen_g2,
+        )
+
+    def stamp_fail(*_args: object) -> None:
+        raise RuntimeError("forced stamp failure")
+
+    def on_clear_intent(dev: int, ino: int, generation: str) -> None:
+        store.clear_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            expected_dev=dev,
+            expected_ino=ino,
+            expected_generation=generation,
+        )
+
+    worker_outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
         ARTIFACT_ID,
-        repository_id=REPOSITORY_ID,
-        dev=dev,
-        ino=ino,
-        phase="quarantined",
-        intent_at="2026-08-02T00:00:00+00:00",
-        generation="gen_old",
+        recheck=lambda: True,
+        on_deleted=stamp_fail,
+        on_intent=on_intent_g2,
+        on_clear_intent=on_clear_intent,
     )
+    worker_done.set()
+    allow_g1_stamp.set()
+    recovery_thread.join(timeout=3.0)
+    assert not recovery_thread.is_alive()
+
+    assert worker_outcome == "stamp_failed"
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_generation == gen_g2
+    assert lifecycle.bytes_deleted_at is None
+    sidecars = list(ready.parent.glob(".deleting-*")) + list(ready.parent.glob(".detach-*"))
+    has_evidence = (
+        lifecycle.bytes_delete_intent_at is not None
+        or bool(sidecars)
+        or ready.is_file()
+        or quarantine.is_file()
+    )
+    assert has_evidence
+    assert not (
+        not ready.is_file()
+        and not sidecars
+        and lifecycle.bytes_deleted_at is None
+        and lifecycle.bytes_delete_intent_at is None
+    )
+
+
+@pytest.mark.serial
+def test_recovery_reread_generation_changed_skips_unlink(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round7 probe 2: tests/test_artifact_cleanup.py::test_recovery_reread_generation_changed_skips_unlink"""
+
+    from gateway_repository_service.artifact_cleaner import ArtifactCleaner, SidecarLockResult
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    gen_g1 = "gen_g1_r7p2"
+    quarantine, ino, _ = _begin_intent_for_ready(store, ready, generation=gen_g1)
+    st = quarantine.stat()
+    ready.unlink()
+    ready.write_bytes(b"replacement-after-g1")
+
+    paused = threading.Event()
+    resume = threading.Event()
+    mutated = {"done": False}
+    real_lock = ArtifactCleaner._lock_sidecar
+
+    def lock_sidecar(
+        self: ArtifactCleaner,
+        ready_dir_fd: int,
+        sidecar_name: str,
+        *,
+        expected_ino: int,
+        repository_id: UUID,
+        artifact_id: UUID,
+    ) -> tuple[SidecarLockResult, int | None, os.stat_result | None]:
+        result = real_lock(
+            self,
+            ready_dir_fd,
+            sidecar_name,
+            expected_ino=expected_ino,
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+        )
+        if result[0] == SidecarLockResult.LOCKED and not mutated["done"]:
+            mutated["done"] = True
+            paused.set()
+            assert resume.wait(timeout=2.0)
+        return result
+
+    monkeypatch.setattr(ArtifactCleaner, "_lock_sidecar", lock_sidecar)
+
+    def run_sweep() -> None:
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=3600),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC),
+        ).sweep_once()
+
+    sweep_thread = threading.Thread(target=run_sweep)
+    sweep_thread.start()
+    assert paused.wait(timeout=2.0)
     store.begin_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
-        dev=dev,
+        dev=int(st.st_dev),
         ino=ino,
         phase="quarantined",
         intent_at="2026-08-02T00:00:01+00:00",
-        generation="gen_new",
+        generation="gen_g2_r7p2",
     )
+    resume.set()
+    sweep_thread.join(timeout=3.0)
+    assert not sweep_thread.is_alive()
+
+    assert quarantine.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_generation == "gen_g2_r7p2"
+    assert lifecycle.bytes_delete_intent_at is not None
     store.clear_artifact_bytes_delete_intent(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
-        expected_dev=dev,
+        expected_dev=int(st.st_dev),
         expected_ino=ino,
-        expected_generation="gen_old",
+        expected_generation="gen_g1_r7p2",
     )
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
-    assert lifecycle.bytes_delete_generation == "gen_new"
-    assert lifecycle.bytes_delete_intent_at is not None
+    assert lifecycle.bytes_delete_generation == "gen_g2_r7p2"
 
 
 @pytest.mark.parametrize("ready_present", [True, False], ids=["ready_present", "ready_absent"])
@@ -3415,7 +3648,11 @@ def test_stamped_forged_deleting_and_detach_retained(
     decoy = quarantine.parent / f".decoy-{uuid4().hex}"
     decoy.write_bytes(b"forged-stamped")
     name_fn = detach_name_for if sidecar_kind == "detach" else quarantine_name_for
-    forged = quarantine.parent / name_fn(inode=decoy.stat().st_ino, artifact_id=ARTIFACT_ID)
+    forged = quarantine.parent / name_fn(
+        inode=decoy.stat().st_ino,
+        artifact_id=ARTIFACT_ID,
+        generation=uuid4().hex,
+    )
     os.link(decoy, forged)
     decoy.unlink()
     caplog.set_level(logging.INFO)
@@ -3438,20 +3675,49 @@ def test_stamped_forged_deleting_and_detach_retained(
     assert diagnostics
 
 
+@pytest.mark.parametrize("sidecar_kind", ["deleting", "detach"], ids=["deleting", "detach"])
 @pytest.mark.serial
 def test_pathname_replace_before_unlink_retains_replacement(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
     monkeypatch: pytest.MonkeyPatch,
+    sidecar_kind: str,
 ) -> None:
-    """Round6 probe 5: inode swap before stamped residual unlink retains replacement."""
+    """Round7 probe 3: tests/test_artifact_cleanup.py::test_pathname_replace_before_unlink_retains_replacement"""
+
+    from gateway_repository_service.publication import renameat2_noreplace as real_rename
 
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
-    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
-    payload = quarantine.read_bytes()
-    q_stat = quarantine.stat()
+    st = ready.stat()
+    if sidecar_kind == "detach":
+        from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
+
+        generation = uuid4().hex
+        sidecar = ready.parent / detach_name_for(
+            inode=int(st.st_ino),
+            artifact_id=ARTIFACT_ID,
+            generation=generation,
+        )
+        os.link(ready, sidecar)
+        store.begin_artifact_bytes_delete_intent(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            dev=int(st.st_dev),
+            ino=int(st.st_ino),
+            phase="detached",
+            intent_at="2026-08-02T00:00:00+00:00",
+            generation=generation,
+        )
+        prefix = ".detach-"
+    else:
+        quarantine, ino, generation = _begin_intent_for_ready(store, ready)
+        sidecar = quarantine
+        prefix = ".deleting-"
+    payload = sidecar.read_bytes()
+    q_stat = sidecar.stat()
+    ino = int(q_stat.st_ino)
     ready.unlink()
     store.mark_artifact_bytes_deleted(
         ARTIFACT_ID,
@@ -3462,30 +3728,31 @@ def test_pathname_replace_before_unlink_retains_replacement(
         expected_generation=generation,
     )
     replacement = b"replacement-before-unlink"
-    real_unlink = os.unlink
 
-    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        dir_fd = _dir_fd_from_kwargs(kwargs, "dir_fd")
-        if (
-            dir_fd is not None
-            and isinstance(path, str)
-            and path.startswith(".deleting-")
-        ):
-            real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+    def rename(
+        src_dir_fd: int,
+        src_name: str | bytes,
+        dst_dir_fd: int,
+        dst_name: str | bytes,
+    ) -> None:
+        if isinstance(src_name, str) and src_name.startswith(prefix):
+            os.unlink(src_name, dir_fd=src_dir_fd)
             fd = os.open(
-                path,
+                src_name,
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                 0o644,
-                dir_fd=dir_fd,
+                dir_fd=src_dir_fd,
             )
             try:
                 os.write(fd, replacement)
             finally:
                 os.close(fd)
-            return
-        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+        return real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
 
-    monkeypatch.setattr(os, "unlink", unlink)
+    monkeypatch.setattr(
+        "gateway_repository_service.upload_artifact.admission_pin.renameat2_noreplace",
+        rename,
+    )
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -3494,7 +3761,7 @@ def test_pathname_replace_before_unlink_retains_replacement(
         clock=lambda: BASE_NOW,
     ).sweep_once()
 
-    swapped = list(quarantine.parent.glob(".deleting-*"))
+    swapped = list(ready.parent.glob(f"{prefix}*"))
     assert len(swapped) == 1
     assert swapped[0].read_bytes() == replacement
     assert swapped[0].read_bytes() != payload
@@ -3524,7 +3791,17 @@ def test_recovery_unlink_eperm_retains_intent(
     ready = _write_ready(layout)
     payload = ready.read_bytes()
     st = ready.stat()
-    quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
+    generation_by_setup = {
+        "replacement": "genreplacex",
+        "restore": "genrestorexx",
+        "hardlink_drop": "gendropxxxxx",
+    }
+    generation = generation_by_setup[setup]
+    quarantine = ready.parent / quarantine_name_for(
+        inode=st.st_ino,
+        artifact_id=ARTIFACT_ID,
+        generation=generation,
+    )
     os.link(ready, quarantine)
     if setup == "replacement":
         ready.unlink()
@@ -3536,7 +3813,7 @@ def test_recovery_unlink_eperm_retains_intent(
             ino=int(st.st_ino),
             phase="quarantined",
             intent_at="2026-08-02T00:00:00+00:00",
-            generation="gen-replace",
+            generation="genreplacex",
         )
         _enqueue(store, key="eperm-replace", operation_id=OTHER_OPERATION_ID)
     elif setup == "restore":
@@ -3548,7 +3825,7 @@ def test_recovery_unlink_eperm_retains_intent(
             ino=int(st.st_ino),
             phase="quarantined",
             intent_at="2026-08-02T00:00:00+00:00",
-            generation="gen-restore",
+            generation="genrestorexx",
         )
         _enqueue(store, key=f"eperm-{setup}", operation_id=OTHER_OPERATION_ID)
     else:
@@ -3559,13 +3836,13 @@ def test_recovery_unlink_eperm_retains_intent(
             ino=int(st.st_ino),
             phase="quarantined",
             intent_at="2026-08-02T00:00:00+00:00",
-            generation="gen-drop",
+            generation="gendropxxxxx",
         )
         _enqueue(store, key=f"eperm-{setup}", operation_id=OTHER_OPERATION_ID)
     real_unlink = os.unlink
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and path.startswith(".deleting-"):
+        if isinstance(path, str) and path.startswith(".unlink-verify-"):
             raise OSError(errno.EPERM, "forced unlink failure")
         real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
 
@@ -3600,8 +3877,17 @@ def test_q_and_detach_single_unlink_failure_retains_intent(
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     st = ready.stat()
-    quarantine = ready.parent / quarantine_name_for(inode=st.st_ino, artifact_id=ARTIFACT_ID)
-    detach = ready.parent / detach_name_for(inode=int(st.st_ino), artifact_id=ARTIFACT_ID)
+    generation = "genbothxxxxx"
+    quarantine = ready.parent / quarantine_name_for(
+        inode=st.st_ino,
+        artifact_id=ARTIFACT_ID,
+        generation=generation,
+    )
+    detach = ready.parent / detach_name_for(
+        inode=int(st.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation=generation,
+    )
     os.link(ready, quarantine)
     os.link(ready, detach)
     ready.unlink()
@@ -3612,18 +3898,36 @@ def test_q_and_detach_single_unlink_failure_retains_intent(
         ino=int(st.st_ino),
         phase="quarantined",
         intent_at="2026-08-02T00:00:00+00:00",
-        generation="gen-both",
+        generation="genbothxxxxx",
     )
     _enqueue(store, key="q-detach-eperm", operation_id=OTHER_OPERATION_ID)
+    from gateway_repository_service.publication import renameat2_noreplace as real_rename
+
+    private_from_detach: set[str] = set()
+
+    def rename(
+        src_dir_fd: int,
+        src_name: str | bytes,
+        dst_dir_fd: int,
+        dst_name: str | bytes,
+    ) -> None:
+        real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
+        if isinstance(src_name, str) and src_name.startswith(".detach-") and isinstance(
+            dst_name, str
+        ):
+            private_from_detach.add(dst_name)
+
     real_unlink = os.unlink
-    fail_detach = {"done": False}
 
     def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(path, str) and path.startswith(".detach-") and not fail_detach["done"]:
-            fail_detach["done"] = True
+        if isinstance(path, str) and path in private_from_detach:
             raise OSError(errno.EPERM, "forced detach unlink failure")
         real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
 
+    monkeypatch.setattr(
+        "gateway_repository_service.upload_artifact.admission_pin.renameat2_noreplace",
+        rename,
+    )
     monkeypatch.setattr(os, "unlink", unlink)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
@@ -3636,7 +3940,9 @@ def test_q_and_detach_single_unlink_failure_retains_intent(
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_delete_intent_at is not None
-    assert detach.is_file()
+    assert detach.is_file() or list(detach.parent.glob(".unlink-verify-*")) or list(
+        detach.parent.glob(".detach-*")
+    )
     assert not quarantine.exists() or quarantine.is_file()
 
 
@@ -3712,7 +4018,7 @@ def test_v9_to_v10_migration_malformed_blocks(
         ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
 
-def test_v9_to_v11_migration_preserves_legal_intent_with_generation(
+def test_v9_to_v12_migration_preserves_legal_intent_with_generation(
     tmp_path: Path,
 ) -> None:
     """Round6 probe 8b: legal v9 intent migrates with generation backfilled."""
@@ -3756,7 +4062,7 @@ def test_v9_to_v11_migration_preserves_legal_intent_with_generation(
 def test_partial_intent_without_generation_raises_integrity_error(
     stores: tuple[ImportOperationStore, MutationStore],
 ) -> None:
-    """Round6 probe 9: v11 CHECK rejects partial intent without generation."""
+    """Round6 probe 9: v12 CHECK rejects partial intent without generation."""
 
     _store, mutation_store = stores
     _seed_artifact(mutation_store)
@@ -3807,6 +4113,7 @@ def test_stamped_residual_only_receipt_match_unlinks(
     forged = quarantine.parent / quarantine_name_for(
         inode=decoy.stat().st_ino,
         artifact_id=ARTIFACT_ID,
+        generation=uuid4().hex,
     )
     os.link(decoy, forged)
     decoy.unlink()
@@ -3837,3 +4144,695 @@ def test_stamped_residual_only_receipt_match_unlinks(
         if getattr(record, "cleanup_outcome", None) == "unknown_path_inventory"
     ]
     assert retained
+
+
+MALFORMED_TIMESTAMP_MIGRATION_CASES = (
+    ("naive", "2026-08-02T00:00:00"),
+    ("illegal_offset", "2026-08-02T00:00:00+99:00"),
+    ("garbage_suffix", "not-a-timestamp+00:00"),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "intent_at"),
+    MALFORMED_TIMESTAMP_MIGRATION_CASES,
+    ids=[c[0] for c in MALFORMED_TIMESTAMP_MIGRATION_CASES],
+)
+def test_v10_malformed_timestamp_blocks_upgrade_to_v12(
+    tmp_path: Path,
+    label: str,
+    intent_at: str,
+) -> None:
+    """Round7 probe 11: tests/test_artifact_cleanup.py::test_v10_malformed_timestamp_blocks_upgrade_to_v12"""
+
+    del label
+    db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+    ControlStore.open(db_path, expected_version=10, busy_timeout_ms=1000).close()
+    connection = sqlite3.connect(db_path)
+    _seed_artifact_on_connection(connection)
+    connection.execute(
+        """
+        UPDATE artifact_lifecycle
+        SET bytes_delete_intent_at = ?,
+            bytes_delete_dev = ?,
+            bytes_delete_ino = ?,
+            bytes_delete_phase = ?
+        WHERE artifact_id = ?
+        """,
+        (
+            intent_at,
+            1,
+            2,
+            "quarantined",
+            str(ARTIFACT_ID),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(ControlDbError, match="malformed artifact delete intent"):
+        ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+
+    connection = sqlite3.connect(db_path)
+    version = connection.execute("PRAGMA user_version").fetchone()
+    connection.close()
+    assert int(version[0]) == 10
+
+
+@pytest.mark.parametrize(
+    ("label", "intent_at"),
+    MALFORMED_TIMESTAMP_MIGRATION_CASES,
+    ids=[c[0] for c in MALFORMED_TIMESTAMP_MIGRATION_CASES],
+)
+def test_v9_malformed_timestamp_validator_matches_parse_durable(
+    tmp_path: Path,
+    label: str,
+    intent_at: str,
+) -> None:
+    """Round7 probe 12: tests/test_artifact_cleanup.py::test_v9_malformed_timestamp_validator_matches_parse_durable"""
+
+    del label
+    db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+    ControlStore.open(db_path, expected_version=9, busy_timeout_ms=1000).close()
+    connection = sqlite3.connect(db_path)
+    _seed_artifact_on_connection(connection)
+    connection.execute(
+        """
+        UPDATE artifact_lifecycle
+        SET bytes_delete_intent_at = ?,
+            bytes_delete_dev = ?,
+            bytes_delete_ino = ?,
+            bytes_delete_phase = ?
+        WHERE artifact_id = ?
+        """,
+        (
+            intent_at,
+            1,
+            2,
+            "quarantined",
+            str(ARTIFACT_ID),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(ControlDbError, match="malformed artifact delete intent"):
+        ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+
+
+def test_v10_stamped_residual_no_receipt_upgrade_retains(
+    layout: DurableLayout,
+    tmp_path: Path,
+) -> None:
+    """Round7 probe 13: tests/test_artifact_cleanup.py::test_v10_stamped_residual_no_receipt_upgrade_retains"""
+
+    db_path = tmp_path / "v10-residual" / "repository-service.sqlite3"
+    ControlStore.open(db_path, expected_version=10, busy_timeout_ms=1000).close()
+    connection = sqlite3.connect(db_path)
+    _seed_artifact_on_connection(connection)
+    connection.execute(
+        """
+        UPDATE artifact_lifecycle
+        SET bytes_deleted_at = ?,
+            bytes_delete_intent_at = NULL,
+            bytes_delete_dev = NULL,
+            bytes_delete_ino = NULL,
+            bytes_delete_phase = NULL
+        WHERE artifact_id = ?
+        """,
+        ("2026-08-02T00:00:00+00:00", str(ARTIFACT_ID)),
+    )
+    connection.commit()
+    connection.close()
+
+    ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000).close()
+    configure_connection(connection := sqlite3.connect(db_path))
+    import_store = ImportOperationStore(connection)
+    mutation_store = import_store.mutation_store
+
+    ready = _write_ready(layout)
+    residual = ready.parent / quarantine_name_for(
+        inode=ready.stat().st_ino,
+        artifact_id=ARTIFACT_ID,
+        generation=uuid4().hex,
+    )
+    os.link(ready, residual)
+    ready.unlink()
+
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+    assert lifecycle.bytes_deleted_receipt_dev is None
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=import_store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert residual.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+    assert lifecycle.bytes_deleted_receipt_dev is None
+    connection.close()
+
+
+def test_v12_rejects_deleted_at_with_active_intent(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    """Round7 probe 14: tests/test_artifact_cleanup.py::test_v12_rejects_deleted_at_with_active_intent"""
+
+    from gateway_repository_service.mutation_store import MutationStoreInvariantError
+
+    _store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    with mutation_store._lock, pytest.raises(sqlite3.IntegrityError):
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_delete_intent_at = ?,
+                bytes_delete_dev = ?,
+                bytes_delete_ino = ?,
+                bytes_delete_phase = ?,
+                bytes_delete_generation = ?
+            WHERE artifact_id = ?
+            """,
+            (
+                "2026-08-02T00:00:00+00:00",
+                "2026-08-02T00:00:00+00:00",
+                1,
+                2,
+                "quarantined",
+                "gen-both",
+                str(ARTIFACT_ID),
+            ),
+        )
+        mutation_store._connection.commit()
+    mutation_store._connection.rollback()
+
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        """
+        CREATE TABLE artifact_lifecycle (
+            artifact_id TEXT,
+            repository_scope TEXT,
+            media_type TEXT,
+            size_bytes INTEGER,
+            raw_sha256 TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            consumed_by_operation_id TEXT,
+            consumed_at TEXT,
+            bytes_deleted_at TEXT,
+            bytes_delete_intent_at TEXT,
+            bytes_delete_dev INTEGER,
+            bytes_delete_ino INTEGER,
+            bytes_delete_phase TEXT,
+            bytes_delete_generation TEXT,
+            bytes_deleted_receipt_dev INTEGER,
+            bytes_deleted_receipt_ino INTEGER,
+            bytes_deleted_receipt_generation TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO artifact_lifecycle VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(ARTIFACT_ID),
+            REPOSITORY_ID.hex,
+            MEDIA_TYPE,
+            len(ARTIFACT_PAYLOAD),
+            SHA256,
+            CREATED_AT,
+            CREATED_AT,
+            None,
+            None,
+            "2026-08-02T00:00:00+00:00",
+            "2026-08-02T00:00:00+00:00",
+            1,
+            2,
+            "quarantined",
+            "gen-projection",
+            None,
+            None,
+            None,
+        ),
+    )
+    row = connection.execute("SELECT * FROM artifact_lifecycle").fetchone()
+    assert row is not None
+    with pytest.raises(MutationStoreInvariantError):
+        MutationStore._artifact_lifecycle_from_row(row)
+    connection.close()
+
+
+@pytest.mark.parametrize("phase", ["abort", "post_stamp"], ids=["abort", "post_stamp"])
+@pytest.mark.serial
+def test_live_helper_replace_quarantine_before_abort_and_post_stamp_unlink(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: str,
+) -> None:
+    """Round7 probe 4: tests/test_artifact_cleanup.py::test_live_helper_replace_quarantine_before_abort_and_post_stamp_unlink"""
+
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+    from gateway_repository_service.publication import renameat2_noreplace as real_rename
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    replacement = b"foreign-quarantine-bytes"
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
+
+    def rename(
+        src_dir_fd: int,
+        src_name: str | bytes,
+        dst_dir_fd: int,
+        dst_name: str | bytes,
+    ) -> None:
+        if isinstance(src_name, str) and src_name.startswith(".deleting-"):
+            os.unlink(src_name, dir_fd=src_dir_fd)
+            fd = os.open(
+                src_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o644,
+                dir_fd=src_dir_fd,
+            )
+            try:
+                os.write(fd, replacement)
+            finally:
+                os.close(fd)
+        return real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
+
+    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+
+    if phase == "abort":
+        outcome = try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            recheck=lambda: False,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome == "ineligible"
+    else:
+        outcome = try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            recheck=lambda: True,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome in {"unlink_failed", "deleted"}
+
+    assert stamped["ok"] is (phase == "post_stamp")
+    swapped = list(ready.parent.glob(".deleting-*"))
+    if swapped:
+        assert swapped[0].read_bytes() == replacement
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    if phase == "abort":
+        assert lifecycle.bytes_deleted_at is None
+    else:
+        assert lifecycle.bytes_deleted_at is not None or bool(swapped)
+
+
+@pytest.mark.parametrize(
+    "entrypoint",
+    ["cleaner_sweep", "worker_unlink", "admin_cleanup"],
+    ids=["cleaner_sweep", "worker_unlink", "admin_cleanup"],
+)
+def test_successful_delete_clears_receipt_three_entrypoints(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    entrypoint: str,
+) -> None:
+    """Round7 probe 5: tests/test_artifact_cleanup.py::test_successful_delete_clears_receipt_three_entrypoints"""
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
+
+    if entrypoint == "cleaner_sweep":
+        quarantine, _ino, _generation = _begin_intent_for_ready(store, ready)
+        ready.unlink()
+        ArtifactCleaner(
+            settings=_settings(layout, ttl=1),
+            layout=layout,
+            import_store=store,
+            mutation_store=mutation_store,
+            clock=lambda: BASE_NOW,
+        ).sweep_once()
+        assert not quarantine.exists()
+    elif entrypoint == "worker_unlink":
+        outcome = try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            recheck=lambda: True,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome == "deleted"
+        assert stamped["ok"] is True
+    else:
+        from gateway_repository_service.versioned_import.recovery import (
+            cleanup_after_succeeded_correction,
+        )
+
+        _enqueue(store, key="receipt-clear", operation_id=OPERATION_ID)
+        store.claim_if_queued(OPERATION_ID)
+        store.mark_succeeded(OPERATION_ID, result=_import_result())
+        context = store.load_execution_context(OPERATION_ID)
+        assert context is not None
+
+        class _Provider:
+            def delete_private_ref(self, *_args: object, **_kwargs: object) -> None:
+                return None
+
+        cleanup_after_succeeded_correction(
+            store=store,
+            layout=layout,
+            context=context,
+            provider=_Provider(),  # type: ignore[arg-type]
+            candidate="commit-1",
+            ttl_seconds=1,
+        )
+
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+    _assert_receipt_cleared(mutation_store)
+
+
+def test_receipt_clear_db_failure_retried_on_sidecarless_sweep(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """Round7 probe 6: tests/test_artifact_cleanup.py::test_receipt_clear_db_failure_retried_on_sidecarless_sweep"""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, _base_clear_receipt, stamped = _intent_callbacks(store)
+    clear_calls = {"n": 0}
+
+    def on_clear_receipt(dev: int, ino: int, generation: str) -> None:
+        clear_calls["n"] += 1
+        if clear_calls["n"] == 1:
+            raise RuntimeError("forced receipt clear failure")
+        store.clear_artifact_bytes_deleted_receipt(
+            ARTIFACT_ID,
+            repository_id=REPOSITORY_ID,
+            expected_dev=dev,
+            expected_ino=ino,
+            expected_generation=generation,
+        )
+
+    outcome = try_unlink_owned_ready_artifact(
+        layout,
+        REPOSITORY_ID,
+        ARTIFACT_ID,
+        recheck=lambda: True,
+        on_deleted=on_deleted,
+        on_intent=on_intent,
+        on_clear_intent=on_clear_intent,
+        on_clear_receipt=on_clear_receipt,
+    )
+    assert outcome == "deleted"
+    assert stamped["ok"] is True
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_receipt_dev is not None
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    _assert_receipt_cleared(mutation_store)
+
+
+@pytest.mark.parametrize("forged_generation", ["gen_g2_forged", ""], ids=["gen_g2", "legacy_empty"])
+def test_long_lived_receipt_forged_different_generation_retained(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    caplog: pytest.LogCaptureFixture,
+    forged_generation: str,
+) -> None:
+    """Round7 probe 7: tests/test_artifact_cleanup.py::test_long_lived_receipt_forged_different_generation_retained"""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    gen_g1 = "gen_g1_receipt"
+    quarantine, ino, _ = _begin_intent_for_ready(store, ready, generation=gen_g1)
+    q_stat = quarantine.stat()
+    ready.unlink()
+    store.mark_artifact_bytes_deleted(
+        ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
+        repository_id=REPOSITORY_ID,
+        expected_dev=int(q_stat.st_dev),
+        expected_ino=ino,
+        expected_generation=gen_g1,
+    )
+    quarantine.unlink()
+    decoy = ready.parent / f".decoy-{uuid4().hex}"
+    decoy.write_bytes(b"forged-receipt")
+    forged = ready.parent / quarantine_name_for(
+        inode=int(q_stat.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation=forged_generation or uuid4().hex,
+    )
+    os.link(decoy, forged)
+    decoy.unlink()
+    caplog.set_level(logging.INFO)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    assert forged.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_receipt_dev is None
+    retained = [
+        record
+        for record in caplog.records
+        if getattr(record, "cleanup_outcome", None) == "unknown_path_inventory"
+    ]
+    assert retained
+
+
+@pytest.mark.parametrize("fault", ["open_eio", "fstat_eio"], ids=["open_eio", "fstat_eio"])
+def test_active_q_detach_open_or_fstat_eio_retains_intent(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+) -> None:
+    """Round7 probe 8: tests/test_artifact_cleanup.py::test_active_q_detach_open_or_fstat_eio_retains_intent"""
+
+    from gateway_repository_service.artifact_cleaner import ArtifactCleaner
+    from gateway_repository_service.upload_artifact.admission_pin import detach_name_for
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    generation = "gen_eio_r7p8"
+    quarantine = ready.parent / quarantine_name_for(
+        inode=st.st_ino,
+        artifact_id=ARTIFACT_ID,
+        generation=generation,
+    )
+    detach = ready.parent / detach_name_for(
+        inode=int(st.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation=generation,
+    )
+    os.link(ready, quarantine)
+    os.link(ready, detach)
+    ready.unlink()
+    store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        intent_at="2026-08-02T00:00:00+00:00",
+        generation=generation,
+    )
+    _enqueue(store, key="eio-retain", operation_id=OTHER_OPERATION_ID)
+
+    real_open = os.open
+    real_fstat = os.fstat
+
+    def open_wrapper(name: str | bytes | os.PathLike[str], flags: int, *args: object, **kwargs: object) -> int:
+        if fault == "open_eio" and isinstance(name, str) and (
+            name.startswith(".deleting-") or name.startswith(".detach-")
+        ):
+            raise OSError(errno.EIO, "forced open EIO")
+        return real_open(name, flags, *args, **kwargs)  # type: ignore[arg-type]
+
+    def fstat_wrapper(fd: int) -> os.stat_result:
+        if fault == "fstat_eio" and fd > 2:
+            raise OSError(errno.EIO, "forced fstat EIO")
+        return real_fstat(fd)
+
+    monkeypatch.setattr("gateway_repository_service.artifact_cleaner.os.open", open_wrapper)
+    monkeypatch.setattr("gateway_repository_service.artifact_cleaner.os.fstat", fstat_wrapper)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: datetime(2026, 8, 1, 0, 0, 30, tzinfo=UTC),
+    ).sweep_once()
+
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_intent_at is not None
+    assert quarantine.is_file() or detach.is_file()
+
+
+def test_stamped_matching_sidecar_open_fstat_failure_retains_receipt(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round7 probe 9: tests/test_artifact_cleanup.py::test_stamped_matching_sidecar_open_fstat_failure_retains_receipt"""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    quarantine, ino, generation = _begin_intent_for_ready(store, ready)
+    q_stat = quarantine.stat()
+    ready.unlink()
+    store.mark_artifact_bytes_deleted(
+        ARTIFACT_ID,
+        deleted_at="2026-08-02T00:00:00+00:00",
+        repository_id=REPOSITORY_ID,
+        expected_dev=int(q_stat.st_dev),
+        expected_ino=ino,
+        expected_generation=generation,
+    )
+    real_open = os.open
+
+    def open_wrapper(name: str | bytes | os.PathLike[str], flags: int, *args: object, **kwargs: object) -> int:
+        if isinstance(name, str) and name.startswith(".deleting-"):
+            raise OSError(errno.EIO, "forced stamped lock EIO")
+        return real_open(name, flags, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("gateway_repository_service.artifact_cleaner.os.open", open_wrapper)
+
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_receipt_dev is not None
+    assert quarantine.is_file()
+
+
+@pytest.mark.parametrize("phase", ["ineligible", "replaced"], ids=["ineligible", "replaced"])
+@pytest.mark.serial
+def test_live_helper_cleanup_eperm_retains_ownership(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: str,
+) -> None:
+    """Round7 probe 10: tests/test_artifact_cleanup.py::test_live_helper_cleanup_eperm_retains_ownership"""
+
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
+
+    def on_clear_intent_raise(dev: int, ino: int, generation: str) -> None:
+        raise RuntimeError("refuse intent clear")
+
+    real_unlink = os.unlink
+
+    def unlink(path: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
+        if isinstance(path, str) and path.startswith(".unlink-verify-"):
+            raise OSError(errno.EPERM, "forced unlink-verify EPERM")
+        real_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "unlink", unlink)
+
+    if phase == "ineligible":
+        calls = {"n": 0}
+
+        def recheck() -> bool:
+            calls["n"] += 1
+            return calls["n"] == 1
+
+        outcome = try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            recheck=recheck,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent_raise,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome == "ineligible"
+    else:
+        replacement = b"replacement-for-eperm"
+
+        def recheck() -> bool:
+            ready.unlink()
+            ready.write_bytes(replacement)
+            return True
+
+        outcome = try_unlink_owned_ready_artifact(
+            layout,
+            REPOSITORY_ID,
+            ARTIFACT_ID,
+            recheck=recheck,
+            on_deleted=on_deleted,
+            on_intent=on_intent,
+            on_clear_intent=on_clear_intent_raise,
+            on_clear_receipt=on_clear_receipt,
+        )
+        assert outcome == "replaced"
+
+    assert stamped["ok"] is False
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_delete_intent_at is not None
+    assert list(ready.parent.glob(".deleting-*")) or list(ready.parent.glob(".detach-*"))

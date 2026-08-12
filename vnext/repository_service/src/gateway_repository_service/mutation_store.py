@@ -489,6 +489,51 @@ class MutationStore:
                     continue
             return records
 
+    def list_artifacts_with_bytes_deleted_receipt(self) -> list[ArtifactLifecycleRecord]:
+        """Return lifecycle rows that still carry a bytes-deleted residual receipt."""
+
+        with self._transaction():
+            cursor = self._connection.execute(
+                """
+                SELECT
+                    artifact_id,
+                    repository_scope,
+                    media_type,
+                    size_bytes,
+                    raw_sha256,
+                    consumed_by_operation_id,
+                    consumed_at,
+                    bytes_deleted_at,
+                    created_at,
+                    bytes_delete_intent_at,
+                    bytes_delete_dev,
+                    bytes_delete_ino,
+                    bytes_delete_phase,
+                    bytes_delete_generation,
+                    bytes_deleted_receipt_dev,
+                    bytes_deleted_receipt_ino,
+                    bytes_deleted_receipt_generation
+                FROM artifact_lifecycle
+                WHERE bytes_deleted_receipt_dev IS NOT NULL
+                  AND bytes_deleted_receipt_ino IS NOT NULL
+                  AND bytes_deleted_receipt_generation IS NOT NULL
+                ORDER BY created_at ASC, artifact_id ASC
+                """
+            )
+            records: list[ArtifactLifecycleRecord] = []
+            for row in cursor.fetchall():
+                try:
+                    records.append(self._artifact_lifecycle_from_row(row))
+                except (TypeError, ValueError, MutationStoreInvariantError):
+                    log_event(
+                        "artifact_cleanup",
+                        stage="list_receipt_gc",
+                        result="skipped",
+                        cleanup_outcome="invalid_lifecycle_row",
+                    )
+                    continue
+            return records
+
     @staticmethod
     def _artifact_lifecycle_from_row(row: sqlite3.Row) -> ArtifactLifecycleRecord:
         from gateway_repository_service.artifact_retention import parse_durable_timestamp
@@ -575,6 +620,11 @@ class MutationStore:
             receipt_dev = None
             receipt_ino = None
             receipt_generation = None
+
+        if bytes_deleted_at is not None and any(intent_present):
+            raise MutationStoreInvariantError(
+                "bytes_deleted_at cannot coexist with delete intent fields"
+            )
 
         return ArtifactLifecycleRecord(
             artifact_id=UUID(str(row["artifact_id"])),

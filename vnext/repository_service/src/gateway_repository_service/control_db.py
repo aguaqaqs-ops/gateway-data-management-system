@@ -11,7 +11,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 11
+CONTROL_DB_USER_VERSION = 12
 
 ColumnShape = tuple[tuple[str, str, int, str | None, int], ...]
 
@@ -540,6 +540,123 @@ _MIGRATION_V11_STATEMENTS: tuple[str, ...] = (
 )
 
 
+_MIGRATION_V12_STATEMENTS: tuple[str, ...] = (
+    """
+    CREATE TABLE artifact_lifecycle_v12 (
+        artifact_id TEXT PRIMARY KEY,
+        repository_scope TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+        raw_sha256 TEXT NOT NULL CHECK (length(raw_sha256) = 64),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        consumed_by_operation_id TEXT NULL,
+        consumed_at TEXT NULL,
+        bytes_deleted_at TEXT NULL,
+        bytes_delete_intent_at TEXT NULL,
+        bytes_delete_dev INTEGER NULL,
+        bytes_delete_ino INTEGER NULL,
+        bytes_delete_phase TEXT NULL,
+        bytes_delete_generation TEXT NULL,
+        bytes_deleted_receipt_dev INTEGER NULL,
+        bytes_deleted_receipt_ino INTEGER NULL,
+        bytes_deleted_receipt_generation TEXT NULL,
+        CHECK (
+            (
+                bytes_delete_intent_at IS NULL
+                AND bytes_delete_dev IS NULL
+                AND bytes_delete_ino IS NULL
+                AND bytes_delete_phase IS NULL
+                AND bytes_delete_generation IS NULL
+            )
+            OR (
+                bytes_delete_intent_at IS NOT NULL
+                AND bytes_delete_dev IS NOT NULL
+                AND bytes_delete_ino IS NOT NULL
+                AND bytes_delete_phase IN ('quarantined', 'detached')
+                AND bytes_delete_generation IS NOT NULL
+            )
+        ),
+        CHECK (
+            (
+                bytes_deleted_receipt_dev IS NULL
+                AND bytes_deleted_receipt_ino IS NULL
+                AND bytes_deleted_receipt_generation IS NULL
+            )
+            OR (
+                bytes_deleted_at IS NOT NULL
+                AND bytes_deleted_receipt_dev IS NOT NULL
+                AND bytes_deleted_receipt_ino IS NOT NULL
+                AND bytes_deleted_receipt_generation IS NOT NULL
+            )
+        ),
+        CHECK (
+            bytes_deleted_at IS NULL
+            OR (
+                bytes_delete_intent_at IS NULL
+                AND bytes_delete_dev IS NULL
+                AND bytes_delete_ino IS NULL
+                AND bytes_delete_phase IS NULL
+                AND bytes_delete_generation IS NULL
+            )
+        )
+    )
+    """,
+    """
+    INSERT INTO artifact_lifecycle_v12 (
+        artifact_id,
+        repository_scope,
+        media_type,
+        size_bytes,
+        raw_sha256,
+        created_at,
+        updated_at,
+        consumed_by_operation_id,
+        consumed_at,
+        bytes_deleted_at,
+        bytes_delete_intent_at,
+        bytes_delete_dev,
+        bytes_delete_ino,
+        bytes_delete_phase,
+        bytes_delete_generation,
+        bytes_deleted_receipt_dev,
+        bytes_deleted_receipt_ino,
+        bytes_deleted_receipt_generation
+    )
+    SELECT
+        artifact_id,
+        repository_scope,
+        media_type,
+        size_bytes,
+        raw_sha256,
+        created_at,
+        updated_at,
+        consumed_by_operation_id,
+        consumed_at,
+        bytes_deleted_at,
+        bytes_delete_intent_at,
+        bytes_delete_dev,
+        bytes_delete_ino,
+        bytes_delete_phase,
+        bytes_delete_generation,
+        bytes_deleted_receipt_dev,
+        bytes_deleted_receipt_ino,
+        bytes_deleted_receipt_generation
+    FROM artifact_lifecycle
+    """,
+    """
+    DROP TABLE artifact_lifecycle
+    """,
+    """
+    ALTER TABLE artifact_lifecycle_v12 RENAME TO artifact_lifecycle
+    """,
+    """
+    CREATE INDEX artifact_lifecycle_repository_scope_idx
+    ON artifact_lifecycle (repository_scope)
+    """,
+)
+
+
 _MIGRATION_V5_STATEMENTS: tuple[str, ...] = (
     """
     CREATE TRIGGER prevent_insert_succeeded_when_terminal
@@ -952,7 +1069,9 @@ class ControlStore:
 
     @staticmethod
     def _validate_artifact_delete_intent_rows(connection: sqlite3.Connection) -> None:
-        """Fail closed when v9 intent columns are partial or illegally shaped."""
+        """Fail closed when intent columns are partial or illegally shaped."""
+
+        from gateway_repository_service.artifact_retention import parse_durable_timestamp
 
         columns = {
             str(row[1])
@@ -966,34 +1085,60 @@ class ControlStore:
         }
         if not required.issubset(columns):
             return
-        row = connection.execute(
-            """
-            SELECT COUNT(*) FROM artifact_lifecycle
-            WHERE NOT (
-                (
-                    bytes_delete_intent_at IS NULL
-                    AND bytes_delete_dev IS NULL
-                    AND bytes_delete_ino IS NULL
-                    AND bytes_delete_phase IS NULL
-                )
-                OR (
-                    bytes_delete_intent_at IS NOT NULL
-                    AND bytes_delete_dev IS NOT NULL
-                    AND bytes_delete_ino IS NOT NULL
-                    AND bytes_delete_phase IN ('quarantined', 'detached')
-                    AND (
-                        bytes_delete_intent_at LIKE '%+%'
-                        OR bytes_delete_intent_at LIKE '%Z'
-                    )
-                )
-            )
-            """
-        ).fetchone()
-        if row is not None and int(row[0]) > 0:
+
+        has_generation = "bytes_delete_generation" in columns
+        has_bytes_deleted_at = "bytes_deleted_at" in columns
+
+        select_columns = [
+            "bytes_delete_intent_at",
+            "bytes_delete_dev",
+            "bytes_delete_ino",
+            "bytes_delete_phase",
+        ]
+        if has_generation:
+            select_columns.append("bytes_delete_generation")
+        if has_bytes_deleted_at:
+            select_columns.append("bytes_deleted_at")
+
+        rows = connection.execute(
+            f"SELECT {', '.join(select_columns)} FROM artifact_lifecycle"
+        ).fetchall()
+
+        def malformed() -> None:
             raise ControlDbError(
                 "malformed artifact delete intent blocks migration; "
                 "operator intervention is required before migration"
             )
+
+        for row in rows:
+            intent_at = row[0]
+            intent_dev = row[1]
+            intent_ino = row[2]
+            phase = row[3]
+            column_index = 4
+            generation = row[column_index] if has_generation else None
+            if has_generation:
+                column_index += 1
+            bytes_deleted_at = row[column_index] if has_bytes_deleted_at else None
+
+            intent_fields: list[object | None] = [intent_at, intent_dev, intent_ino, phase]
+            if has_generation:
+                intent_fields.append(generation)
+
+            intent_present = any(field is not None for field in intent_fields)
+            if intent_present:
+                if not all(field is not None for field in intent_fields):
+                    malformed()
+                if phase not in ("quarantined", "detached"):
+                    malformed()
+                if parse_durable_timestamp(str(intent_at)) is None:
+                    malformed()
+            elif any(field is not None for field in intent_fields):
+                malformed()
+
+            if has_bytes_deleted_at and bytes_deleted_at is not None:
+                if any(field is not None for field in intent_fields):
+                    malformed()
 
     @staticmethod
     def _apply_migration_step(connection: sqlite3.Connection, target_version: int) -> None:
@@ -1029,7 +1174,12 @@ class ControlStore:
             ControlStore._execute_statements(connection, _MIGRATION_V10_STATEMENTS)
             return
         if target_version == 11:
+            ControlStore._validate_artifact_delete_intent_rows(connection)
             ControlStore._execute_statements(connection, _MIGRATION_V11_STATEMENTS)
+            return
+        if target_version == 12:
+            ControlStore._validate_artifact_delete_intent_rows(connection)
+            ControlStore._execute_statements(connection, _MIGRATION_V12_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

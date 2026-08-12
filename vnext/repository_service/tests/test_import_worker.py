@@ -426,6 +426,11 @@ def test_context_load_failure_releases_reservation_and_in_flight(
     env.wait_for_status(REPOSITORY_ID, first_operation, OperationStatus.FAILED, timeout=5.0)
     env.wait_for_status(REPOSITORY_ID, second_operation, OperationStatus.SUCCEEDED, timeout=5.0)
 
+    # Terminal status is committed inside the executor; reservation release is
+    # the immediately following worker-finally step and may not yet be visible.
+    deadline = time.monotonic() + 5.0
+    while env.locks.is_active(REPOSITORY_ID) and time.monotonic() < deadline:
+        time.sleep(0.01)
     assert env.locks.is_active(REPOSITORY_ID) is False
     first = env.store.get_operation(REPOSITORY_ID, first_operation)
     assert first is not None

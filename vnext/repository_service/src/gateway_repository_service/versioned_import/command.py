@@ -424,6 +424,7 @@ class ImportOperationExecutor:
                 on_intent=_on_intent,
                 on_clear_intent=_on_clear_intent,
                 on_clear_receipt=_on_clear_receipt,
+                tombstone_budget=self._settings.artifact_tombstone_budget,
             )
             if outcome != "deleted" or not stamped["ok"]:
                 return

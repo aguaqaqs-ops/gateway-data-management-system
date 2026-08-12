@@ -125,6 +125,26 @@ process boundary 的生产语义，不仅服务于测试提速。全新 HOME 下
 查询最新发布版本，单次 3~5 秒。任何新增的、会创建全新 dolt HOME 的代码路径都必须
 沿用这一预置，否则既拖慢测试，也违反 offline provider 边界。
 
+## Artifact tombstone 容量与扫描复杂度（S2）
+
+同 euid 威胁模型下，成功 bytes-delete 的 prove-only 路径会永久留下 generation-bound
+size-0 public sidecar（通常每成功删除最多 2 个：`.deleting-*` 与 `.detach-*`）以及
+对应的零长度 inode；**不得**把「`<= n*2`」误称为收敛到零 dentry。
+
+运维与测试门禁：
+
+- Settings：`artifact_tombstone_budget`（默认 `50000`）是单 repo ready 目录下可接受的
+  `.deleting-*` / `.detach-*` / `.unlink-verify-*` 数量上限。
+- 背压：ready 枚举的 tombstone 计数 `>= budget` 时，新的 bytes-delete 尝试 fail-closed
+  （保留 bytes / 不清 receipt），并打 `cleanup_outcome=tombstone_budget` 诊断事件；禁止
+  静默继续线性堆高。
+- 扫描：cleaner / sweep 对 ready 的 `listdir` 与 per-tombstone DB lifecycle 查询随
+  tombstone 数近似 `O(T)`，并以 budget 为硬上限；无新 delete 时闲置 sweep 不得继续
+  增长绝对计数。
+- 跨 UID 安全 pathname unlink / reclaim **不在**本阶段范围。
+
+定向探针见 `tests/test_artifact_cleanup.py` 的 `r17_*` 矩阵。
+
 ## 历史基线
 
 | 阶段 | `repository_service` 全量耗时 |

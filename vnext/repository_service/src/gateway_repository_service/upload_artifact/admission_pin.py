@@ -487,6 +487,22 @@ def parse_any_recoverable_sidecar(name: str) -> tuple[int, UUID, str | None, str
     return None
 
 
+def count_public_tombstone_names(ready_dir_fd: int) -> int:
+    """Count generation-bound public sidecar dentries under ready.
+
+    Includes ``.deleting-*``, ``.detach-*``, and ``.unlink-verify-*``. These are
+    the permanent size-0 tombs left by the same-euid prove-only success path.
+    Raises ``OSError`` when listing ready fails.
+    """
+
+    names = os.listdir(ready_dir_fd)
+    count = 0
+    for name in names:
+        if parse_any_recoverable_sidecar(name) is not None:
+            count += 1
+    return count
+
+
 def _find_matching_sidecar_slot(
     ready_dir_fd: int,
     *,
@@ -1457,6 +1473,7 @@ def try_unlink_owned_ready_artifact(
     on_intent: Callable[[int, int, str], None] | None = None,
     on_clear_intent: Callable[[int, int, str], None] | None = None,
     on_clear_receipt: Callable[[int, int, str], None] | None = None,
+    tombstone_budget: int | None = None,
 ) -> str:
     """Delete an owned ready artifact via fd-stable linkat quarantine.
 
@@ -1468,6 +1485,8 @@ def try_unlink_owned_ready_artifact(
     5. recheck again, then stamp, then fd-truncate + reclaim size-0 names
 
     Replacement at the ready name never stamps and never returns ``deleted``.
+    When ``tombstone_budget`` is set, refuse to start if public sidecar count
+    already meets or exceeds the budget (backpressure).
     """
 
     try:
@@ -1517,6 +1536,26 @@ def try_unlink_owned_ready_artifact(
         _clear_intent_best_effort()
 
     try:
+        if tombstone_budget is not None:
+            try:
+                tombs = count_public_tombstone_names(ready_dir_fd)
+            except OSError:
+                return "unlink_failed"
+            # Success leaves up to 2 public sidecars permanently; refuse at budget.
+            if tombs >= tombstone_budget:
+                from gateway_repository_service.diagnostics import log_event
+
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="delete",
+                    result="tombstone_budget",
+                    capacity=tombstone_budget,
+                    in_use=tombs,
+                    cleanup_outcome="tombstone_budget",
+                )
+                return "unlink_failed"
         try:
             fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -1746,6 +1785,7 @@ def try_unlink_ready_artifact_with_recheck(
     on_intent: Callable[[int, int, str], None] | None = None,
     on_clear_intent: Callable[[int, int, str], None] | None = None,
     on_clear_receipt: Callable[[int, int, str], None] | None = None,
+    tombstone_budget: int | None = None,
 ) -> str:
     """Delete ready bytes; prefer owned layout protocol when ids are provided."""
 
@@ -1762,6 +1802,7 @@ def try_unlink_ready_artifact_with_recheck(
             on_intent=on_intent,
             on_clear_intent=on_clear_intent,
             on_clear_receipt=on_clear_receipt,
+            tombstone_budget=tombstone_budget,
         )
 
     # Legacy pathname path kept for narrow test helpers; still fail closed on symlink.

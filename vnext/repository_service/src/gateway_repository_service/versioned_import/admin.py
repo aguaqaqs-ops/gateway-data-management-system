@@ -332,6 +332,7 @@ def _run_apply(
                 provider=provider,
                 candidate=final_result.commit_id,
                 ttl_seconds=settings.artifact_ttl_seconds,
+                tombstone_budget=settings.artifact_tombstone_budget,
             )
         else:
             if not evidence_supports_not_published_decision(evidence):

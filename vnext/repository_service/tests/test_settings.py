@@ -59,6 +59,7 @@ def test_default_upload_and_ttl_settings() -> None:
     assert settings.max_decompressed_tar_stream_bytes == 4 * 1024 * 1024 * 1024
     assert settings.artifact_ttl_seconds == 24 * 60 * 60
     assert settings.artifact_cleanup_interval_seconds == 300
+    assert settings.artifact_tombstone_budget == 50_000
     assert settings.max_concurrent_uploads == 8
     assert settings.max_import_workers == 4
     assert settings.max_queued_imports == 64
@@ -75,6 +76,7 @@ def test_default_upload_and_ttl_settings() -> None:
         "max_import_workers",
         "max_queued_imports",
         "artifact_cleanup_interval_seconds",
+        "artifact_tombstone_budget",
         "max_concurrent_uploads",
         "max_concurrent_row_streams",
         "full_scan_timeout_seconds",

@@ -356,6 +356,7 @@ def cleanup_after_succeeded_correction(
     provider: VersionedImportProvider,
     candidate: str,
     ttl_seconds: int,
+    tombstone_budget: int,
 ) -> None:
     try:
         provider.delete_private_ref(context.private_ref_name, expected_candidate=candidate)
@@ -424,6 +425,7 @@ def cleanup_after_succeeded_correction(
             on_intent=_on_intent,
             on_clear_intent=_on_clear_intent,
             on_clear_receipt=_on_clear_receipt,
+            tombstone_budget=tombstone_budget,
         )
         if outcome != "deleted" or not stamped["ok"]:
             return
@@ -680,6 +682,7 @@ class ImportStartupReconciler:
             provider=provider,
             candidate=inspection.candidate,
             ttl_seconds=self._settings.artifact_ttl_seconds,
+            tombstone_budget=self._settings.artifact_tombstone_budget,
         )
         return "recovered"
 
@@ -812,6 +815,7 @@ class ImportStartupReconciler:
                 provider=provider,
                 candidate=candidate,
                 ttl_seconds=self._settings.artifact_ttl_seconds,
+                tombstone_budget=self._settings.artifact_tombstone_budget,
             )
             return "recovered"
         except ImportVerificationError as exc:
@@ -946,6 +950,7 @@ class ImportStartupReconciler:
                 provider=provider,
                 candidate=candidate,
                 ttl_seconds=self._settings.artifact_ttl_seconds,
+                tombstone_budget=self._settings.artifact_tombstone_budget,
             )
             return "recovered"
         except ImportVerificationError as exc:
@@ -992,6 +997,7 @@ class ImportStartupReconciler:
             provider=provider,
             candidate=operation.result.commit_id,
             ttl_seconds=self._settings.artifact_ttl_seconds,
+            tombstone_budget=self._settings.artifact_tombstone_budget,
         )
         return True
 

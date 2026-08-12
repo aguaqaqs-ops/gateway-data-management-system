@@ -342,6 +342,7 @@ class ArtifactCleaner:
             on_intent=_on_intent,
             on_clear_intent=_on_clear_intent,
             on_clear_receipt=_on_clear_receipt,
+            tombstone_budget=self._settings.artifact_tombstone_budget,
         )
         if outcome == "deleted" and stamped["ok"]:
             log_event(
@@ -1051,8 +1052,11 @@ class ArtifactCleaner:
     ) -> bool:
         """Publish held victim inode to ready via linkat (fd-stable); never pathname rename.
 
-        Stage victim pathname may remain as a diagnose hardlink. Failure is
-        fail-closed so callers must retain intent.
+        Idempotent: an existing ready/verify name that already holds the expected
+        regular inode with full (non-truncated) size counts as success so crash
+        between linkat and clear-intent can converge. Stage victim pathname may
+        remain as a diagnose hardlink. Failure is fail-closed so callers retain
+        intent.
         """
 
         from gateway_repository_service.upload_artifact.admission_pin import (
@@ -1068,6 +1072,7 @@ class ArtifactCleaner:
         if int(live.st_size) == 0:
             # Truncated victim is not a valid ineligible restore source.
             return False
+        expected_size = int(expected.st_size)
 
         ready_name = artifact_id.hex
         restore_names = [
@@ -1079,9 +1084,11 @@ class ArtifactCleaner:
                 token="restore",
             ),
         ]
+        open_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         for restore_name in restore_names:
+            fd: int | None = None
             try:
-                os.stat(restore_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+                fd = os.open(restore_name, open_flags, dir_fd=ready_dir_fd)
             except FileNotFoundError:
                 try:
                     os.link(
@@ -1093,16 +1100,27 @@ class ArtifactCleaner:
                     continue
                 except OSError:
                     continue
-                # Confirm the published name still matches the held inode.
                 try:
-                    st = os.stat(restore_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+                    fd = os.open(restore_name, open_flags, dir_fd=ready_dir_fd)
                 except OSError:
                     return False
-                if (st.st_dev, st.st_ino) != (expected.st_dev, expected.st_ino):
-                    return False
-                return True
+            except OSError:
+                # Symlink / I/O / permission: try next candidate.
+                continue
+            try:
+                st = os.fstat(fd)
             except OSError:
                 return False
+            finally:
+                if fd is not None:
+                    os.close(fd)
+            if not stat_module.S_ISREG(st.st_mode):
+                continue
+            if (st.st_dev, st.st_ino) != (expected.st_dev, expected.st_ino):
+                continue
+            if int(st.st_size) != expected_size:
+                continue
+            return True
         return False
 
     def _recover_artifact_sidecars(

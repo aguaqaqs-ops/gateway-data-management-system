@@ -18,7 +18,7 @@ from gateway_repository_service.create_repository.ports import NoOpCreateReposit
 from gateway_repository_service.publication import (
     FaultPoint,
     atomic_publish,
-    atomic_publish_file,
+    atomic_publish_artifact_file,
     prepare_directory_publish,
     prepare_file_publish,
 )
@@ -80,7 +80,7 @@ class CrashArtifactPublicationAdapter(ArtifactFilesystemPublicationAdapter):
                 raise FileExistsError(target)
             prepare_file_publish(staging)
             _crash()
-        atomic_publish_file(staging, target, fault=FaultPoint.NONE)
+        atomic_publish_artifact_file(staging, target, fault=FaultPoint.NONE)
         if self._point == "after_rename":
             _crash()
 

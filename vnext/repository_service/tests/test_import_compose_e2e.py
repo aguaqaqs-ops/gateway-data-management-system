@@ -169,6 +169,10 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
             _run(["docker", "run", "--rm", "--entrypoint", "id", image, "-g", "gateway"]).stdout.strip()
         )
         os.chown(token_file, gateway_uid, gateway_gid)
+        broker_uid = int(
+            _run(["docker", "run", "--rm", "--entrypoint", "id", image, "-u", "artifact-broker"]).stdout.strip()
+        )
+        assert broker_uid != gateway_uid
 
         _run(
             [
@@ -205,6 +209,32 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
         ).stdout.strip()
         assert container_id
         _wait_healthy(container_id)
+        _run(
+            [
+                "docker",
+                "exec",
+                container_id,
+                "test",
+                "-S",
+                "/var/lib/gateway/repository/run/artifact-broker.sock",
+            ]
+        )
+        mkdir_probe = subprocess.run(
+            [
+                "docker",
+                "exec",
+                "-u",
+                "gateway",
+                container_id,
+                "mkdir",
+                "/var/lib/gateway/repository/artifacts/.gateway-write-probe",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert mkdir_probe.returncode != 0
 
         _run(["docker", "cp", str(RUNNER), f"{container_id}:{runner_in_container}"])
         _run(["docker", "cp", str(payload_path), f"{container_id}:{payload_in_container}"])

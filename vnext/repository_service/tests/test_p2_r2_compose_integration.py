@@ -215,3 +215,21 @@ def test_source_tree_has_no_forbidden_route_registrations(pattern: str, descript
         if compiled.search(text):
             offenders.append(str(path.relative_to(REPO_ROOT)))
     assert not offenders, f"found forbidden {description} in: {offenders}"
+
+
+def test_r19_dockerfile_prepares_broker_run_dir() -> None:
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    assert "/var/lib/gateway/repository/run" in dockerfile
+    assert "artifact-broker:gateway" in dockerfile
+    assert "USER root" in dockerfile
+
+
+def test_r19_entrypoint_is_fail_closed_and_pings_broker() -> None:
+    entrypoint = (REPO_ROOT / "docker-entrypoint.sh").read_text(encoding="utf-8")
+    assert "|| true" not in entrypoint
+    assert "chown -R" not in entrypoint
+    assert "artifact-broker.sock" in entrypoint
+    assert ".ping()" in entrypoint
+    assert "GATEWAY_REPOSITORY_ARTIFACT_BROKER_MODE=socket" in entrypoint
+    assert "--peer-gid" in entrypoint
+    assert "exit 1" in entrypoint

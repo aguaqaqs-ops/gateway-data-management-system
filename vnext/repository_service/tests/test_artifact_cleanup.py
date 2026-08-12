@@ -2259,7 +2259,7 @@ def test_post_nlink_pre_detach_rename_preserves_replacement(
             _replace_ready_dir_entry(src_dir_fd, src_name, replacement)
         real_renameat2(src_dir_fd, src_name, dst_dir_fd, dst_name)
 
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    monkeypatch.setattr(pin_mod, "_broker_rename_noreplace", rename)
     outcome = try_unlink_owned_ready_artifact(
         layout,
         REPOSITORY_ID,
@@ -2349,28 +2349,34 @@ def test_proc_link_fallback_pathname_replace_preserves_replacement(
 ) -> None:
     """Probe 4: /proc link fails; pathname fallback sees replacement."""
 
+    import gateway_repository_service.upload_artifact.admission_pin as pin_mod
+
     store, mutation_store = stores
     _seed_artifact(mutation_store)
     ready = _write_ready(layout)
     replacement = b"fallback-replacement"
     on_deleted, on_intent, on_clear_intent, on_clear_receipt, stamped = _intent_callbacks(store)
-    real_link = os.link
+    real_link = pin_mod._broker_link_from_fd
+    calls = {"n": 0}
 
-    def link(src: str | bytes | os.PathLike[str], dst: str | bytes | os.PathLike[str], *args: object, **kwargs: object) -> None:
-        if isinstance(src, str) and src.startswith("/proc/self/fd/"):
-            raise OSError(errno.ENOENT, "forced proc link failure")
-        src_dir_fd = _dir_fd_from_kwargs(kwargs, "src_dir_fd")
-        if (
-            src_dir_fd is not None
-            and isinstance(src, str)
-            and len(src) == 32
-            and isinstance(dst, str)
-            and dst.startswith(".deleting-")
-        ):
-            _replace_ready_dir_entry(src_dir_fd, src, replacement)
-        real_link(src, dst, *args, **kwargs)  # type: ignore[arg-type]
+    def link_from_fd(dir_fd: int, name: str, src_fd: int) -> None:
+        if name.startswith(".deleting-"):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OSError(errno.ENOENT, "forced proc link failure")
+            _replace_ready_dir_entry(dir_fd, ARTIFACT_ID.hex, replacement)
+            repl_fd = os.open(
+                ARTIFACT_ID.hex,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=dir_fd,
+            )
+            try:
+                return real_link(dir_fd, name, repl_fd)
+            finally:
+                os.close(repl_fd)
+        return real_link(dir_fd, name, src_fd)
 
-    monkeypatch.setattr(os, "link", link)
+    monkeypatch.setattr(pin_mod, "_broker_link_from_fd", link_from_fd)
     outcome = try_unlink_owned_ready_artifact(
         layout,
         REPOSITORY_ID,
@@ -5228,7 +5234,7 @@ def test_r8_active_intent_crash_after_rename_before_private_stat(
             staged["victim"] = STAGE_VICTIM
             raise OSError(errno.EIO, "crash after stage rename before private stat")
 
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    monkeypatch.setattr(pin_mod, "_broker_rename_noreplace", rename)
 
     outcome = try_unlink_owned_ready_artifact(
         layout,
@@ -5257,7 +5263,7 @@ def test_r8_active_intent_crash_after_rename_before_private_stat(
     assert int(victim.stat().st_ino) == int(ready_stat.st_ino)
     assert victim.read_bytes() == ARTIFACT_PAYLOAD
 
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", real_rename)
+    monkeypatch.setattr(pin_mod, "_broker_rename_noreplace", real_rename)
     _artifact_cleaner(layout, store, mutation_store).sweep_once()
 
     snap2 = _lifecycle_snapshot(mutation_store)
@@ -5412,7 +5418,7 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
 
     real_ftruncate = pin_mod._ftruncate_inode_to_empty
     _monkeypatch_ftruncate_fail_nth(monkeypatch, 1, pin_module=pin_mod)
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    monkeypatch.setattr(pin_mod, "_broker_rename_noreplace", rename)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -5431,7 +5437,7 @@ def test_r8_private_unlink_eperm_restore_fail_then_converge(
     assert residuals
 
     monkeypatch.setattr(pin_mod, "_ftruncate_inode_to_empty", real_ftruncate)
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", real_rename)
+    monkeypatch.setattr(pin_mod, "_broker_rename_noreplace", real_rename)
     ArtifactCleaner(
         settings=_settings(layout, ttl=1),
         layout=layout,
@@ -5687,7 +5693,7 @@ def test_r8_live_detach_replace_after_stat_before_unlink(
                 os.close(fd)
         return real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
 
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    monkeypatch.setattr(pin_mod, "_broker_rename_noreplace", rename)
     outcome = try_unlink_owned_ready_artifact(
         layout,
         REPOSITORY_ID,
@@ -5753,7 +5759,7 @@ def test_r8_detach_moved_aside_replacement_no_clear(
             return
         return real_rename(src_dir_fd, src_name, dst_dir_fd, dst_name)
 
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    monkeypatch.setattr(pin_mod, "_broker_rename_noreplace", rename)
     outcome = try_unlink_owned_ready_artifact(
         layout,
         REPOSITORY_ID,
@@ -6088,7 +6094,7 @@ def test_r9_live_detach_crash_before_stamp_keeps_intent(
             crashed["ok"] = True
             raise OSError(errno.EIO, "live detach crash before stamp")
 
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    monkeypatch.setattr(pin_mod, "_broker_rename_noreplace", rename)
     outcome = try_unlink_owned_ready_artifact(
         layout,
         REPOSITORY_ID,
@@ -6115,7 +6121,7 @@ def test_r9_live_detach_crash_before_stamp_keeps_intent(
     assert victim.is_file()
     assert int(victim.stat().st_ino) == int(ready_stat.st_ino)
 
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", real_rename)
+    monkeypatch.setattr(pin_mod, "_broker_rename_noreplace", real_rename)
     _artifact_cleaner(layout, store, mutation_store).sweep_once()
     snap2 = _lifecycle_snapshot(mutation_store)
     assert snap2["bytes_deleted_at"] is not None
@@ -6958,7 +6964,7 @@ def test_r11_live_stage_flock_blocks_concurrent_normalize(
             stage_dir_fd, expected_dev=expected_dev, expected_ino=expected_ino
         )
 
-    monkeypatch.setattr(pin_mod, "renameat2_noreplace", rename)
+    monkeypatch.setattr(pin_mod, "_broker_rename_noreplace", rename)
     monkeypatch.setattr(pin_mod, "normalize_unlink_stage_victim_via_fd", counting_normalize)
 
     def live() -> None:
@@ -10696,3 +10702,242 @@ def test_r18_restore_foreign_symlink_eio_keeps_intent(
         assert ready_path.read_bytes() == b"foreign-r18"
     elif kind == "symlink":
         assert ready_path.is_symlink()
+
+
+# ---------------------------------------------------------------------------
+# Round19 directed probes (fail-closed broker E2E, fair keyset, receipt-null)
+# ---------------------------------------------------------------------------
+
+
+def test_r19_keyset_page_does_not_starve_newer_succeeded(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    """64 TTL-not-elapsed rows cannot starve the 65th SUCCEEDED residual."""
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    old_created = CREATED_AT
+    new_created = "2026-08-01T01:00:00+00:00"
+    old_ids = [UUID(int=ARTIFACT_ID.int + i) for i in range(64)]
+    new_id = UUID(int=ARTIFACT_ID.int + 64)
+    new_op = UUID(int=OPERATION_ID.int + 64)
+    for i, aid in enumerate(old_ids):
+        _seed_artifact(mutation_store, artifact_id=aid, created_at=old_created)
+        _write_ready(layout, artifact_id=aid)
+        binding = _binding(artifact_id=aid)
+        key_hash = IdempotencyKeyHash.from_raw_key(f"r19-protected-{i}")
+        store.claim_or_enqueue(
+            binding,
+            key_hash=key_hash,
+            fingerprint=versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash),
+            operation_id=UUID(int=OPERATION_ID.int + i),
+        )
+    _seed_artifact(mutation_store, artifact_id=new_id, created_at=new_created)
+    new_ready = _write_ready(layout, artifact_id=new_id)
+    binding = _binding(artifact_id=new_id)
+    key_hash = IdempotencyKeyHash.from_raw_key("r19-succeeded")
+    store.claim_or_enqueue(
+        binding,
+        key_hash=key_hash,
+        fingerprint=versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash),
+        operation_id=new_op,
+    )
+    store.claim_if_queued(new_op)
+    store.mark_succeeded(
+        new_op,
+        result=VersionedImportResult(
+            commit_id="commit-1",
+            target_ref="main",
+            artifact_id=new_id,
+            canonicalization_manifest_digest="manifest-1",
+            expected_commit_id="commit-0",
+            completed_verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        ),
+    )
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=3600, interval=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    )
+    cleaner.sweep_once()
+    assert new_ready.is_file()
+    for aid in old_ids:
+        assert artifact_ready_path(layout, REPOSITORY_ID, aid).is_file()
+    cleaner.sweep_once()
+    assert not new_ready.exists()
+    lifecycle = mutation_store.get_artifact_lifecycle(new_id)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+
+def test_r19_keyset_sql_limit_not_fetchall_slice(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    _store, mutation_store = stores
+    for i in range(70):
+        _seed_artifact(
+            mutation_store,
+            artifact_id=UUID(int=ARTIFACT_ID.int + i),
+            created_at=CREATED_AT,
+        )
+    page = mutation_store.list_artifacts_pending_byte_cleanup(limit=64)
+    assert len(page) == 64
+    last = page[-1]
+    rest = mutation_store.list_artifacts_pending_byte_cleanup(
+        limit=64,
+        after_created_at=last.created_at,
+        after_artifact_id=last.artifact_id,
+    )
+    assert len(rest) == 6
+    page_ids = {row.artifact_id for row in page}
+    rest_ids = {row.artifact_id for row in rest}
+    assert page_ids.isdisjoint(rest_ids)
+
+
+def test_r19_multi_repo_keyset_is_globally_ordered(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    _store, mutation_store = stores
+    other = UUID(int=REPOSITORY_ID.int + 1)
+    for i in range(40):
+        _seed_artifact(
+            mutation_store,
+            artifact_id=UUID(int=ARTIFACT_ID.int + i),
+            created_at=f"2026-08-01T00:00:{i:02d}+00:00",
+        )
+    with mutation_store._lock:
+        for i in range(40, 80):
+            mutation_store._connection.execute(
+                """
+                INSERT INTO artifact_lifecycle (
+                    artifact_id, repository_scope, media_type, size_bytes,
+                    raw_sha256, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(UUID(int=ARTIFACT_ID.int + i)),
+                    other.hex,
+                    MEDIA_TYPE,
+                    len(ARTIFACT_PAYLOAD),
+                    SHA256,
+                    f"2026-08-01T00:00:{i - 40:02d}+00:00",
+                    CREATED_AT,
+                ),
+            )
+        mutation_store._connection.commit()
+    page = mutation_store.list_artifacts_pending_byte_cleanup(limit=64)
+    assert len(page) == 64
+    created = [row.created_at or "" for row in page]
+    assert created == sorted(created)
+
+
+def test_r19_receipt_null_size0_tombs_reclaim(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    from gateway_repository_service.upload_artifact.admission_pin import (
+        detach_name_for,
+        unlink_stage_dir_name,
+    )
+
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    generation = "r19nullgen"
+    parent = ready.parent
+    quarantine = parent / quarantine_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+    )
+    detach = parent / detach_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation=generation
+    )
+    verify = parent / verify_sidecar_name_for(
+        inode=int(st.st_ino),
+        generation=generation,
+        artifact_id=ARTIFACT_ID,
+        token="t0",
+    )
+    os.link(ready, quarantine)
+    os.link(ready, detach)
+    os.link(ready, verify)
+    os.truncate(quarantine, 0)
+    ready.unlink()
+    stage = parent / unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="r19s0")
+    stage.mkdir(mode=0o700)
+    victim = stage / "victim"
+    victim.write_bytes(b"")
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_deleted_receipt_dev = NULL,
+                bytes_deleted_receipt_ino = NULL,
+                bytes_deleted_receipt_generation = NULL
+            WHERE artifact_id = ?
+            """,
+            ("2026-08-02T00:00:00+00:00", str(ARTIFACT_ID)),
+        )
+        mutation_store._connection.commit()
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    assert not quarantine.exists()
+    assert not detach.exists()
+    assert not verify.exists()
+    assert not victim.exists()
+    assert not stage.exists()
+
+
+def test_r19_receipt_null_forged_and_nonzero_retain(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    _seed_artifact(mutation_store)
+    ready = _write_ready(layout)
+    st = ready.stat()
+    parent = ready.parent
+    nonzero = parent / quarantine_name_for(
+        inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation="nz"
+    )
+    os.link(ready, nonzero)
+    ready.unlink()
+    forged = parent / quarantine_name_for(
+        inode=999999, artifact_id=ARTIFACT_ID, generation="fg"
+    )
+    forged.write_bytes(b"")
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_deleted_receipt_dev = NULL,
+                bytes_deleted_receipt_ino = NULL,
+                bytes_deleted_receipt_generation = NULL
+            WHERE artifact_id = ?
+            """,
+            ("2026-08-02T00:00:00+00:00", str(ARTIFACT_ID)),
+        )
+        mutation_store._connection.commit()
+    ArtifactCleaner(
+        settings=_settings(layout, ttl=1),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    ).sweep_once()
+    assert nonzero.is_file()
+    assert int(nonzero.stat().st_size) == len(ARTIFACT_PAYLOAD)
+    assert forged.is_file()

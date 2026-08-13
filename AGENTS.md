@@ -63,6 +63,40 @@ uv run pytest -m unit; mv /usr/local/bin/dolt.parked /usr/local/bin/dolt
 sha256sum vnext/repository_service/uv.lock
 ```
 
+## Docker / Compose 验证
+
+阶段性修改不要求每轮、每个提交都重建镜像。是否重建按改动是否触碰 image、deployment
+或 container-only runtime boundary 判定；同一轮内可先完成相关修改，再对该轮最终 HEAD
+构建一次。
+
+以下改动必须重建当前 HEAD 并运行相应容器门禁：
+
+- Dockerfile、依赖锁/production 依赖闭包、基础镜像、镜像构建或传输脚本；
+- entrypoint、Compose、环境变量接线、healthcheck/readiness 接线；
+- UID/GID、目录权限、volume/mount、socket、pidfile、broker/helper；
+- 依赖容器用户、PID、signal、mount 或 filesystem 隔离才能证明的 startup/shutdown 行为；
+- 修改实际 Docker/Compose e2e 或 container harness，或本轮要宣称当前 HEAD 已通过容器门禁；
+- 阶段退出、S3 ready、发布或最终 production gate。最终候选 HEAD 无论此前是否延期，
+  都必须重建。
+
+纯 Python 内部逻辑、SQL/状态机、测试或普通文档改动，在 focused/unit/integration 已覆盖
+且未触碰上述边界时，可以把镜像构建延期到必要节点。旧镜像结果只能作为回归证据，不得
+表述为当前 HEAD 已验证。每轮评审必须记录当前 HEAD、是否触发重建及理由、最后验证的
+image revision/source-tree，以及延期到哪个节点。完整规则与记录模板见
+[docs/backend-vnext/testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
+
+## Artifact cleanup 保障边界
+
+权威决策是
+[ADR 0012](docs/backend-vnext/refactoring/formal/adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)：
+V1同机Service进程属于单一信任域。实现和评审聚焦协作并发、崩溃、I/O错误、protected
+artifact、server-owned path与root/symlink边界；不要为同euid恶意pathname换名新增broker、
+sidecar状态机或安全探针，除非先按reopen conditions修订ADR。
+
+cleanup测试按Contract行为命名，不按`r8_*`、`r19_*`等修复轮次命名；不可逆的Dolt commit/
+main CAS、control DB事务和跨root误操作仍保持强验证。完整测试取舍见
+[docs/backend-vnext/testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
+
 ## 提交前
 
 五个 Python 包都要过 ruff 与 mypy（`repository_service` 为 `strict = true` 且覆盖

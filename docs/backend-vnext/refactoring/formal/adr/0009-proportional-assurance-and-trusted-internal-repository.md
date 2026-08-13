@@ -180,6 +180,10 @@ cross-phase interface reconciliation。两阶段设计闭合后，Phase 0–2代
 [DX Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)。下一入口为
 `P2-R1`，不直接启动后续 Repository feature。
 
+2026-08-13 follow-up：[ADR 0012](0012-cooperative-artifact-cleanup-and-proportional-assurance.md)
+将artifact cleanup重新对齐本ADR的单一信任域。ADR 0011曾引入的同euid非协作actor、
+双UID directory-broker及其证明墙不再是v1安全或阶段退出要求。
+
 先设计后联合清理避免Phase 2刚替换Artifact/contract，随后又因Phase 0–1 owner
 调整重复返工；“联合”只表示同一执行计划，不允许把删除压成一个不可审查的大提交。
 

@@ -1,8 +1,8 @@
 # P2-R6 Operational Closure Staged Execution Plan
 
-状态：Accepted — P2-R6-S0 design freeze complete, implementation ready
+状态：Accepted — P2-R6-S0 design freeze complete；2026-08-13按ADR 0012修订cleanup私有协议
 
-日期：2026-08-12
+日期：2026-08-12；2026-08-13 amended
 
 Owner：Backend vNext Architecture（stage boundary、final candidate与handoff）；Repository
 Service Contract（wire、artifact、capacity、persistence与恢复语义）；Repository Service
@@ -118,7 +118,6 @@ v8 launcher。没有发现会改变public contract或阻断S1的冲突。
 | --- | --- | ---: | --- |
 | ordinary failed/orphan TTL | `GATEWAY_REPOSITORY_ARTIFACT_TTL_SECONDS` | `86400` | container recreate |
 | cleanup fallback interval | `GATEWAY_REPOSITORY_ARTIFACT_CLEANUP_INTERVAL_SECONDS` | `300` | container recreate |
-| tombstone circuit breaker | `GATEWAY_REPOSITORY_ARTIFACT_TOMBSTONE_BUDGET` | `50000` | container recreate |
 | concurrent uploads | `GATEWAY_REPOSITORY_MAX_CONCURRENT_UPLOADS` | `8` | container recreate |
 | import workers | `GATEWAY_REPOSITORY_MAX_IMPORT_WORKERS` | `4` | container recreate |
 | queued imports | `GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS` | `64` | container recreate |
@@ -156,34 +155,30 @@ Settings在process启动时一次性解析和校验。部署方用受控env file
 
 `ServiceRuntime`拥有一个non-daemon cleaner。startup reconciliation完成后立即sweep一次；
 artifact lifecycle变化触发sticky wake，300秒只作为漏通知/外部时间推进的fallback。shutdown
-先停止和join cleaner与artifact-broker helper，再关闭control DB并释放durable-root lock。
+先停止intake和worker，再停止并join cleaner，最后关闭control DB并释放durable-root lock。
 
 删除顺序固定为：枚举exact UUID/staging shape；取得artifact admission pin；用durable
-references复核eligible；经directory-broker unlink/确认已不存在；记录bytes-deleted
-timestamp。未知、畸形或无法证明owner的path只记录脱敏诊断，不删除。成功结果持久化后继续
-即时删除并由cleaner重试residual；ordinary FAILED从`completed_at`起24小时，unreferenced
-orphan从artifact `created_at`起24小时。PENDING/QUEUED/RUNNING/manual FAILED无限期保留到
-状态改变。
+references复核eligible；用ready dirfd对exact名执行不跟随symlink的普通unlink；记录
+bytes-deleted timestamp。只有复核eligible之后，`ENOENT`才是幂等完成。未知、畸形、symlink、
+越界或无法解释的path只记录脱敏诊断，不删除；其他I/O失败保留并由后续sweep重试。成功结果
+持久化后继续即时删除；ordinary FAILED从`completed_at`起24小时，unreferenced orphan从
+artifact `created_at`起24小时。PENDING/QUEUED/RUNNING/manual FAILED无限期保留到状态改变。
 
-#### Directory-broker私有协议（ADR 0011）
+#### Cooperative cleanup私有协议（ADR 0012）
 
-- **目录所有权**：`artifacts/<repo>/ready/` owner为`artifact-broker`；mode禁止`gateway`
-  写目录项。Service进程不得直接`unlink`/`rename`/`rmdir`/`linkat-create` ready目录名。
-- **IPC**：Unix-domain socket（data root下私有路径）；peer credential仅接受`gateway` UID；
-  目录变异请求经SCM_RIGHTS传递已持有inode fd，并携带`(op, name, expected_dev,
-  expected_ino, generation?)`；broker openat+fstat复核后执行。
-- **允许op**：`mkdir_ready`、`link_from_fd`、`rename_noreplace`、`unlink_if_match`、
-  `rmdir_if_empty`；拒绝未知op。
-- **锁序**：admission pin flock → broker目录op → durable stamp/clear intent/receipt。
-- **crash**：半完成create/unlink/rename后restart必须收敛；broker幂等：已缺席的
-  `unlink_if_match`与已存在且匹配的`link_from_fd`为成功。
-- **存量收敛**：`.deleting-*`、`.detach-*`、`.unlink-verify-*`、`.unlink-stage-*`（含
-  Round15–17 prove-only残留）均须经broker reclaim到缺席或严格常数残差；不得只修新删除。
-- **ineligible restore**：仅当exact ready名证明expected `(dev,ino,full size)`时可clear
-  intent；foreign/symlink/EIO·EPERM下不得因verify sidecar清intent（ADR 0011表）。
-- **`GATEWAY_REPOSITORY_ARTIFACT_TOMBSTONE_BUDGET`**：过渡circuit breaker。计数口径覆盖
-  public sidecar与`.unlink-stage-*`等永久inventory；创建前做projected atomic reservation
-  （预留本次最多新增目录项）；饱和candidate有界重试/分页。budget**不是**Contract合规证明。
+- **信任边界**：Service、worker、recovery、admin和cleaner是同一可信部署域内的协作路径，
+  共用artifact admission pin与durable eligibility；不对抗同euid恶意pathname换名。
+- **基础硬化**：artifact ID和root由server生成；使用dirfd、`O_NOFOLLOW`/不跟随symlink、
+  regular-file与scope检查；不得接受caller path或递归处理未知目录。
+- **新写路径**：不得创建`.deleting-*`、`.detach-*`、`.unlink-verify-*`、
+  `.unlink-stage-*`、`.reclaim-*`或等价per-success sidecar；不写新的delete generation、receipt
+  或residual proof。
+- **失败语义**：cleanup在业务成功持久化之后；失败只形成日志、重试和容量压力，不撤销commit/
+  result。free-disk admission继续阻止容量耗尽，不另建tombstone budget合规协议。
+- **legacy**：既有sidecar/cleanup metadata在root lock下有界处理。eligible且可解释者best
+  effort收敛；protected、畸形或矛盾者保留并诊断。不得为legacy继续维护完整对抗竞态状态机。
+- **持久化兼容**：control DB user_version不得倒退；优先停止写入旧列而不做破坏性schema
+  downgrade，只有现有constraint确实阻止简化语义时才增加最小前向migration。
 
 upload permit在创建PENDING、打开staging文件或读取request body前non-blocking取得；满载返回
 429，所有正常、异常和disconnect路径释放。replay不重新占upload permit，仍受import worker、

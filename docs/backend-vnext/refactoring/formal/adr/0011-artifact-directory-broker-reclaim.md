@@ -1,12 +1,16 @@
 # ADR 0011: Artifact Directory-Broker Reclaim
 
-状态：Accepted
+状态：Superseded by [ADR 0012](0012-cooperative-artifact-cleanup-and-proportional-assurance.md)
 
 日期：2026-08-12
 
 决策 owner：Backend vNext Repository Storage / P2-R9-S2
 
 关联阶段：Phase 2（P2-R6 operational closure / P2-R9-S2 artifact cleanup）
+
+> 2026-08-13：本ADR记录Round 18–22采用过的设计，但不再是v1实现或评审权威。
+> ADR 0012恢复ADR 0009的单一信任域与比例化保障，directory-broker及其同euid对抗
+> 证明将在前向简化中移除。
 
 ## Context
 

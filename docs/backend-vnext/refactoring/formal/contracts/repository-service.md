@@ -65,6 +65,12 @@ V1是单一信任域：
 - TLS由deployment ingress/sidecar拥有；
 - token泄漏等价于完整Repository写权限泄漏，这是已接受的边界。
 
+由部署方授权、能够以Service euid执行代码、写durable root或管理宿主机/container的主体
+属于同一可信部署域；V1不额外抵御这类主体对artifact pathname的恶意换名。该范围外边界
+不取消server-owned path、root containment、symlink、regular-file、size和非shell执行检查。
+具体比例化保障见
+[ADR 0012](../adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)。
+
 Production token优先从只读secret file加载；environment只允许dev/test profile。
 Production缺失或空token必须启动失败。V1不支持hot rotation，token变更通过rolling
 restart完成。`healthz`是未认证liveness；`readyz`不使用业务bearer，但必须由部署网络
@@ -466,18 +472,18 @@ lock；默认只inspect，`--apply`只允许根据既有marker/ref/filesystem证
 Artifact是临时import输入，不是长期对象存储：
 
 - RUNNING operation引用的artifact不得清理；
-- import成功且operation结果已持久化后删除本地package；
-- 成功清理必须使本地package与Service-owned filesystem对象实际收敛：不得每次成功
-  永久净增对象；允许严格常数残差（残差形态与ownership边界由私有实现/ADR规定，
-  不进入本Contract的UID/helper细节）；
+- import成功且operation结果已持久化后best effort删除本地package；正常路径目标是package
+  消失，且实现不得为每次成功主动创建永久sidecar；
 - orphan和普通失败artifact使用可配置TTL做best-effort清理；
 - 初始建议TTL为24小时；
 - `MANUAL_RECOVERY_REQUIRED`引用的artifact保留到人工处理；
 - 不提供public artifact delete、retention或GC API。
 
 Artifact清理失败不得改变已经成功的commit或operation结果；通过普通日志和磁盘
-admission暴露，不建立独立cleanup evidence状态机。容量circuit breaker若存在，只作
-运维背压，不得替代「成功后实际收敛」语义。
+admission暴露，不建立独立cleanup evidence状态机。普通I/O失败或legacy残差属于容量/运维
+问题，可由后续sweep重试或人工处理，不构成operation失败，也不要求inode-CAS unlink、
+directory-broker或严格常数残差证明。实现仍必须统一判断durable eligibility、保护active/
+manual引用，并拒绝越界、symlink、畸形和不可解释的对象。
 
 ## 13. Catalog and row stream
 
@@ -649,8 +655,8 @@ additive sibling加入：
   replay通过；
 - commit前中断、commit后响应丢失和人工恢复分支通过；
 - raw Arrow IPC可由client直接读取，截断时由HTTP/Arrow失败；
-- package成功后清理且RUNNING/manual-recovery artifact不被删除；成功清理后
-  Service-owned filesystem对象不得随成功次数`O(n)`永久净增；
+- package成功后正常路径best effort清理，失败可重试且不改变成功result；RUNNING/
+  manual-recovery artifact不被删除；
 - Phase 0–1 canonical bytes、Python/Rust核心golden保持不变。
 - Repository package不依赖Shared Kernel/conformance；SUCCEEDED result的artifact与
   manifest binding可由Backend T3核对。
@@ -660,6 +666,7 @@ additive sibling加入：
 以下变化需要新增或修订ADR/contract：
 
 - untrusted tenant、外网直连或per-repository授权；
+- 同机不可信插件/tenant代码、非协作同UID进程或shared writable artifact root；
 - multi-node/shared writable root；
 - rollback、promotion或审批发布需要独立CAS；
 - resumable/multipart upload或外部对象存储；

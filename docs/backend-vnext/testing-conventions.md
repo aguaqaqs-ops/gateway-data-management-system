@@ -1,6 +1,7 @@
 # Testing Conventions
 
-状态：2026-08-07 建立；2026-08-09 增补P2后半段container gate合并规则
+状态：2026-08-07 建立；2026-08-09 增补P2后半段container gate合并规则；
+2026-08-13 冻结Docker/Compose触发式重建、评审记录与artifact cleanup比例化验证规则
 
 本文规定 vNext Python 包的测试分层、执行入口与性能约束。Fixture 材料语义由
 [Testing Fixtures](testing-fixtures.md) 拥有，本文不重复。
@@ -51,6 +52,53 @@ P2专用执行规则见
 全部延期Compose nodeid和资源清理后，才可宣布P2完成。任何Dockerfile、production依赖闭包、
 Compose/container wiring或container harness变更都会提前终止延期，并要求在所属round执行
 相应容器门禁。
+
+### Docker / Compose触发式重建
+
+镜像构建验证的是某个精确source tree的image/deployment/container runtime行为，不是所有
+代码修改的默认单元测试入口。阶段迭代不要求每轮、每个提交都重建；同一轮内即使有多个触发
+改动，也允许先完成相关修改，再对该轮最终HEAD构建一次。是否重建按以下边界判定。
+
+必须重建当前HEAD并运行受影响容器门禁：
+
+- Dockerfile、依赖锁或production依赖闭包、基础镜像、OS package、build/save/load脚本发生变化；
+- entrypoint、Compose、环境变量接线、healthcheck/readiness接线发生变化；
+- UID/GID、ownership/mode、volume/mount、socket、pidfile、broker/helper协议或生命周期发生变化；
+- startup/shutdown、signal、子进程监督或filesystem行为的正确性依赖容器用户、PID namespace、
+  mount namespace或双UID隔离；
+- 修改实际Docker/Compose e2e、container harness，或评审结论要声称当前HEAD已经通过容器门禁；
+- 阶段退出、S3 ready、发布或最终production gate。最终候选HEAD必须重新构建并核对provenance，
+  不能用祖先提交的镜像替代。
+
+通常可以延期到必要节点：
+
+- 可由focused/unit/integration完整覆盖的纯Python内部算法、SQL、projection或状态机修改；
+- 不改变production artifact的测试、注释和普通文档修改；
+- 只读审核，以及没有修改image/deployment/container-only runtime boundary的修复轮。
+
+“可以延期”不等于旧镜像仍代表当前HEAD。只要image label中的revision/source-tree与当前HEAD
+不一致，旧Compose结果就只能作为祖先提交的回归证据；报告必须把当前HEAD的container gate
+标为`deferred`或`stale`，不得写成“当前HEAD PASSED”。若后续任一改动触发上面的强制条件，
+应在相关改动收敛后重建，不必为中间提交重复构建。
+
+### 每轮评审记录
+
+实现汇报和独立评审都必须记录Docker/Compose决策，即使决定不构建。最少包含：
+
+```text
+Current HEAD: <sha>
+Container rebuild required: yes | no
+Reason: <命中的触发项，或未触碰container boundary的依据>
+Last verified image revision: <sha | none>
+Last verified source-tree/image id: <digest | none>
+Container gate for current HEAD: passed | deferred | stale | not-applicable
+Deferred gates/nodeids: <精确命令、path或nodeid>
+Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发布前>
+```
+
+若`Container rebuild required: yes`，评审不得用旧镜像结果关闭相关finding；若为`no`，评审应
+检查理由是否确实不依赖容器边界。无论中间轮次如何决定，阶段最终候选都必须让image revision、
+source-tree provenance与最终HEAD一致，并执行权威Compose/production gate。
 
 ## Marker 分层
 
@@ -125,22 +173,34 @@ process boundary 的生产语义，不仅服务于测试提速。全新 HOME 下
 查询最新发布版本，单次 3~5 秒。任何新增的、会创建全新 dolt HOME 的代码路径都必须
 沿用这一预置，否则既拖慢测试，也违反 offline provider 边界。
 
-## Artifact cleanup 收敛与 tombstone circuit breaker（S2）
+## Artifact cleanup 比例化验证（S2）
 
-权威边界见 [ADR 0011](refactoring/formal/adr/0011-artifact-directory-broker-reclaim.md)：
-成功 cleanup 必须经 directory-broker reclaim 使 Service-owned dentry/inode 回到固定基线
-或严格常数残差，**不得**用「`<= n*2`」或 budget 替代 Contract 收敛语义。同 euid
-pathname unlink 不安全，禁止作为合规证明。
+权威边界见
+[ADR 0012](refactoring/formal/adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)：
+V1把同euid本地进程视为可信部署组件，不对抗恶意pathname换名。测试必须证明功能自身在
+协作并发、崩溃和普通I/O错误下健壮，不得把directory-broker、inode-CAS unlink、双UID、
+SCM_RIGHTS、pidfd或sidecar收敛重新设为S2/S3硬门。
 
-运维 circuit breaker（非合规证明）：
+保留的核心验证按业务后果组织：
 
-- Settings：`artifact_tombstone_budget`（默认 `50000`）覆盖 ready 下 public sidecar 与
-  `.unlink-stage-*` 等全 inventory；创建前 projected reservation；饱和时 fail-closed 并
-  `cleanup_outcome=tombstone_budget`。
-- 饱和 backlog 必须有界重试/分页，禁止每轮对 pending 行无界 `O(M*(T+M))` listdir。
-- 容器证明双 UID broker；`profile=test` 的 in-process broker 只验证功能协议。
+- eligibility纯逻辑：SUCCEEDED、ordinary FAILED TTL、orphan TTL与protected引用；
+- 正常成功删除、eligible `ENOENT`幂等、I/O失败重试且不改变commit/result；
+- PENDING/QUEUED/RUNNING/manual-recovery保留，admission pin与cleaner协作竞态；
+- server-owned root、caller path拒绝、symlink/regular-file/scope与跨repository边界；
+- 业务成功持久化前、成功后cleanup前、cleanup失败后重试三个crash/restart语义屏障；
+- bounded candidate pagination、shutdown无遗留线程，以及一条legacy sidecar/DB fixture路径。
 
-定向探针见 `tests/test_artifact_cleanup.py` 的 `r18_*`（及既有 `r17_*` 回归）矩阵。
+以下不再是权威验证：
+
+- `r8_*`、`r9_*`至`r22_*`按历史修复轮次命名的quarantine/detach/unlink-verify/stage、
+  generation、receipt、residual proof或broker syscall-window矩阵；
+- 同euid恶意ancestor/pathname替换、broker partial frame、capability/peer角色、fd/pidfd与双UID
+  隔离证明。生产机制删除时对应测试一并删除，不保留mock实现考古。
+
+不可逆或大故障域不变量不能因本次简化而降级：Dolt commit/main CAS、control DB transaction、
+跨repository/root误操作和protected artifact误删仍需强验证。但测试语义屏障，不穷举每两个
+系统调用之间的调度窗口。同一Contract不变量只保留一处权威断言，同构shape用共享参数表；
+保留的测试不得继续使用round编号命名。
 
 ## 历史基线
 

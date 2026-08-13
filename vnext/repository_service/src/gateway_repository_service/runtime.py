@@ -71,12 +71,13 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _unwind_artifact_broker_helper(timeout: float) -> None:
-    """Best-effort helper stop so startup unwind still releases lock and DB."""
+    stop_artifact_broker_helper(timeout=timeout)
 
-    try:
-        stop_artifact_broker_helper(timeout=timeout)
-    except (ArtifactBrokerShutdownError, ArtifactBrokerError):
-        pass
+
+def _retain_startup_ownership() -> None:
+    """Abort the process when helper join fails during startup."""
+
+    os._exit(1)
 
 
 class ServiceStartupError(RuntimeError):
@@ -140,18 +141,33 @@ class ServiceRuntime:
         artifact_cleaner: ArtifactCleanerLifecycle | None = None,
     ) -> "ServiceRuntime":
         stack = ExitStack()
+        retain = {"value": False}
         try:
             bearer_token = settings.resolve_bearer_token()
             layout = DurableLayout.create_service(settings.data_root)
             root_lock = DurableRootLock(layout.service_lock)
             root_lock.acquire()
-            stack.callback(root_lock.release)
+
+            def _release_root() -> None:
+                if retain["value"]:
+                    return
+                if root_lock.is_held():
+                    root_lock.release()
+
+            stack.callback(_release_root)
             control_store = ControlStore.open(
                 settings.control_db_path,
                 expected_version=CONTROL_DB_USER_VERSION,
                 busy_timeout_ms=settings.sqlite_busy_timeout_ms,
             )
-            stack.callback(control_store.close)
+
+            def _close_db() -> None:
+                if retain["value"]:
+                    return
+                if control_store.is_open():
+                    control_store.close()
+
+            stack.callback(_close_db)
             configure_connection(control_store.connection)
             mutation_store = MutationStore(
                 control_store.connection,
@@ -171,9 +187,14 @@ class ServiceRuntime:
                 raise ServiceStartupError(
                     f"artifact directory-broker is unavailable: {exc}"
                 ) from exc
-            stack.callback(
-                lambda: _unwind_artifact_broker_helper(settings.import_shutdown_grace_seconds)
-            )
+            def _unwind_helper() -> None:
+                try:
+                    _unwind_artifact_broker_helper(settings.import_shutdown_grace_seconds)
+                except ArtifactBrokerShutdownError:
+                    retain["value"] = True
+                    raise
+
+            stack.callback(_unwind_helper)
             reconciliation = SynchronousMutationReconciler(
                 settings=settings,
                 layout=layout,
@@ -283,10 +304,19 @@ class ServiceRuntime:
             raise ServiceStartupError(str(exc)) from exc
         except ServiceStartupError:
             raise
+        except ArtifactBrokerShutdownError as exc:
+            retain["value"] = True
+            _retain_startup_ownership()
+            raise ServiceStartupError(str(exc)) from exc
         except Exception as exc:
             raise ServiceStartupError(str(exc)) from exc
         finally:
-            stack.close()
+            try:
+                stack.close()
+            except ArtifactBrokerShutdownError as exc:
+                retain["value"] = True
+                _retain_startup_ownership()
+                raise ServiceStartupError(str(exc)) from exc
 
     @staticmethod
     def _build_provider_factory(

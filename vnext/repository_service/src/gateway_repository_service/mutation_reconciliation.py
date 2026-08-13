@@ -63,6 +63,8 @@ def build_consistency_watch(mutation_store: MutationStore) -> ConsistencyWatch:
         lifecycle = mutation_store.get_artifact_lifecycle(effect.resource_id)
         if lifecycle is None:
             continue
+        if lifecycle.bytes_deleted_at is not None:
+            continue
         upload_artifacts.append((repository_id, effect.resource_id, lifecycle.size_bytes))
     return ConsistencyWatch(
         create_repository_ids=tuple(create_repository_ids),
@@ -72,7 +74,7 @@ def build_consistency_watch(mutation_store: MutationStore) -> ConsistencyWatch:
 
 @dataclass
 class MutableConsistencyWatch:
-    """Thread-safe, monotonic consistency watch for runtime readiness probes."""
+    """Thread-safe consistency watch for runtime readiness probes."""
 
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _create_repository_ids: set[UUID] = field(default_factory=set, repr=False)
@@ -90,6 +92,10 @@ class MutableConsistencyWatch:
     ) -> None:
         with self._lock:
             self._upload_artifacts[(repository_id, artifact_id)] = size_bytes
+
+    def forget_succeeded_upload(self, repository_id: UUID, artifact_id: UUID) -> None:
+        with self._lock:
+            self._upload_artifacts.pop((repository_id, artifact_id), None)
 
     def snapshot(self) -> ConsistencyWatch:
         with self._lock:
@@ -176,6 +182,7 @@ def import_artifact_watch_failures(
     *,
     ttl_seconds: int,
     now: datetime | None = None,
+    forget: MutableConsistencyWatch | None = None,
 ) -> tuple[str, ...]:
     blocking: list[str] = []
     for repository_id, artifact_id, size_bytes in watch.upload_artifacts:
@@ -194,6 +201,8 @@ def import_artifact_watch_failures(
             ttl_seconds=ttl_seconds,
             now=now,
         ):
+            if forget is not None:
+                forget.forget_succeeded_upload(repository_id, artifact_id)
             continue
         blocking.append(f"ready artifact {artifact_id} is missing or truncated")
 

@@ -220,6 +220,19 @@ class ServiceRuntime:
                 )
             if not is_durable_root_writable(layout.service_state):
                 raise ServiceStartupError("durable root is not writable")
+            if artifact_cleaner is not None:
+                cleaner = artifact_cleaner
+            else:
+                cleaner = ArtifactCleaner(
+                    settings=settings,
+                    layout=layout,
+                    import_store=import_store,
+                    mutation_store=mutation_store,
+                )
+            if isinstance(cleaner, ArtifactCleaner):
+                cleaner.reclaim_until_disk_admission(
+                    admitted=lambda: has_free_disk_admission(layout.root, settings),
+                )
             if not has_free_disk_admission(layout.root, settings):
                 raise ServiceStartupError("durable root free disk is below admission threshold")
             stopping = threading.Event()
@@ -250,15 +263,6 @@ class ServiceRuntime:
             row_stream_admission = PermitPool(settings.max_concurrent_row_streams)
             upload_inflight = InflightKeyGate()
             upload_cancels = UploadCancelRegistry()
-            if artifact_cleaner is not None:
-                cleaner = artifact_cleaner
-            else:
-                cleaner = ArtifactCleaner(
-                    settings=settings,
-                    layout=layout,
-                    import_store=import_store,
-                    mutation_store=mutation_store,
-                )
             if isinstance(cleaner, ArtifactCleaner):
                 cleaner.start()
                 stack.callback(
@@ -587,6 +591,7 @@ class ServiceRuntime:
                 watch_snapshot,
                 self.layout,
                 ttl_seconds=self.settings.artifact_ttl_seconds,
+                forget=self.consistency_watch,
             ):
                 return "mutation ledger and filesystem are inconsistent"
             if not self._provider_ready():

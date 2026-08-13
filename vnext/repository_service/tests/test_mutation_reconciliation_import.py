@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -16,10 +17,25 @@ from gateway_repository_contracts import (
     VersionedImportResult,
 )
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
+from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.mutation_fingerprints import upload_artifact_fingerprint_v1
+from gateway_repository_service.mutation_reconciliation import (
+    ConsistencyWatch,
+    MutableConsistencyWatch,
+    build_consistency_watch,
+    import_artifact_watch_failures,
+    upload_artifact_bytes_reconciled_after_import,
+)
 from gateway_repository_service.mutation_store import (
+    ArtifactLifecycleRecord,
     IdempotencyKeyHash,
+    IdempotencyScope,
     MutationStore,
     configure_connection,
+)
+from gateway_repository_service.upload_artifact.visibility import (
+    artifact_ready_path,
+    has_ready_artifact_size,
 )
 from gateway_repository_service.versioned_import import (
     ImportOperationStore,
@@ -27,11 +43,6 @@ from gateway_repository_service.versioned_import import (
     versioned_import_fingerprint_v1,
 )
 from gateway_repository_service.versioned_import.models import MANUAL_RECOVERY_REQUIRED_CODE
-from gateway_repository_service.mutation_reconciliation import (
-    ConsistencyWatch,
-    import_artifact_watch_failures,
-    upload_artifact_bytes_reconciled_after_import,
-)
 
 REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
 OTHER_REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c12")
@@ -426,3 +437,146 @@ def test_protected_manual_pin_blocks_readiness_when_bytes_deleted(
     )
     assert failures
     assert any("protected import artifact" in failure for failure in failures)
+
+
+def _seed_succeeded_upload(
+    mutation_store: MutationStore,
+    *,
+    artifact_id: UUID,
+    repository_id: UUID = REPOSITORY_ID,
+    created_at: str = NOW,
+    bytes_deleted_at: str | None = None,
+) -> None:
+    scope = IdempotencyScope.for_upload(repository_id)
+    key_hash = IdempotencyKeyHash.from_raw_key(f"upload-{artifact_id}")
+    fingerprint = upload_artifact_fingerprint_v1(
+        media_type=MEDIA_TYPE,
+        declared_size=12,
+        raw_sha256_hex=SHA256,
+    )
+    effect = mutation_store.allocate_pending(
+        scope,
+        key_hash=key_hash,
+        fingerprint=fingerprint,
+        resource_id=artifact_id,
+    )
+    mutation_store.mark_succeeded(
+        effect.effect_id,
+        response_body={
+            "artifact_ref": {
+                "artifact_id": str(artifact_id),
+                "media_type": MEDIA_TYPE,
+                "size_bytes": 12,
+                "raw_sha256": SHA256,
+            }
+        },
+        artifact_lifecycle=ArtifactLifecycleRecord(
+            artifact_id=artifact_id,
+            repository_id=repository_id,
+            media_type=MEDIA_TYPE,
+            size_bytes=12,
+            raw_sha256=SHA256,
+        ),
+    )
+    mutation_store._connection.execute(
+        """
+        UPDATE artifact_lifecycle
+        SET created_at = ?, bytes_deleted_at = ?
+        WHERE artifact_id = ?
+        """,
+        (created_at, bytes_deleted_at, str(artifact_id)),
+    )
+    mutation_store._connection.commit()
+
+
+@pytest.mark.unit
+def test_build_consistency_watch_skips_stamped_uploads(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    _import_store, mutation_store = stores
+    live_id = ARTIFACT_ID
+    stamped_id = OTHER_ARTIFACT_ID
+    _seed_succeeded_upload(mutation_store, artifact_id=live_id)
+    _seed_succeeded_upload(
+        mutation_store,
+        artifact_id=stamped_id,
+        created_at="2026-08-01T00:00:00+00:00",
+        bytes_deleted_at="2026-08-02T00:00:00+00:00",
+    )
+    watch = build_consistency_watch(mutation_store)
+    watched_ids = {artifact_id for _repository_id, artifact_id, _size in watch.upload_artifacts}
+    assert live_id in watched_ids
+    assert stamped_id not in watched_ids
+
+
+@pytest.mark.unit
+def test_readiness_watch_drops_stamped_history_and_does_not_rescan(
+    stores: tuple[ImportOperationStore, MutationStore],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import_store, mutation_store = stores
+    layout = DurableLayout.create_for_probe(tmp_path)
+    historical_ids = [UUID(int=ARTIFACT_ID.int + i) for i in range(50)]
+    live_id = UUID(int=ARTIFACT_ID.int + 50)
+    for artifact_id in historical_ids:
+        _seed_succeeded_upload(
+            mutation_store,
+            artifact_id=artifact_id,
+            created_at="2026-08-01T00:00:00+00:00",
+            bytes_deleted_at="2026-08-02T00:00:00+00:00",
+        )
+    _seed_succeeded_upload(mutation_store, artifact_id=live_id)
+    live_path = artifact_ready_path(layout, REPOSITORY_ID, live_id)
+    live_path.parent.mkdir(parents=True, exist_ok=True)
+    live_path.write_bytes(b"x" * 12)
+
+    watch = MutableConsistencyWatch()
+    for artifact_id in [*historical_ids, live_id]:
+        watch.register_succeeded_upload(REPOSITORY_ID, artifact_id, 12)
+
+    stats = {"n": 0}
+    original = has_ready_artifact_size
+
+    def counting_stat(
+        layout_arg: DurableLayout,
+        repository_id: UUID,
+        artifact_id: UUID,
+        *,
+        size_bytes: int,
+    ) -> bool:
+        stats["n"] += 1
+        return original(layout_arg, repository_id, artifact_id, size_bytes=size_bytes)
+
+    monkeypatch.setattr(
+        "gateway_repository_service.mutation_reconciliation.has_ready_artifact_size",
+        counting_stat,
+    )
+    first = import_artifact_watch_failures(
+        import_store,
+        mutation_store,
+        watch.snapshot(),
+        layout,
+        ttl_seconds=3600,
+        now=datetime.fromisoformat(NOW),
+        forget=watch,
+    )
+    assert first == ()
+    first_stats = stats["n"]
+    assert first_stats >= 50
+    remaining = {artifact_id for _repo, artifact_id, _size in watch.snapshot().upload_artifacts}
+    assert remaining == {live_id}
+
+    stats["n"] = 0
+    second = import_artifact_watch_failures(
+        import_store,
+        mutation_store,
+        watch.snapshot(),
+        layout,
+        ttl_seconds=3600,
+        now=datetime.fromisoformat(NOW),
+        forget=watch,
+    )
+    assert second == ()
+    assert stats["n"] == 1
+    assert stats["n"] < first_stats

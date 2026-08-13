@@ -1229,6 +1229,99 @@ def test_sticky_notification_not_lost_during_sweep_wait(
         cleaner.stop(timeout=2.0)
 
 
+def test_notify_restarts_cursor_so_low_seq_success_residual_is_not_starved(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    _seed_create_succeeded(mutation_store)
+    created = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=10)
+    created_at = created.isoformat()
+    clock = {"now": created + timedelta(seconds=1)}
+    ids = [UUID(int=ARTIFACT_ID.int + i) for i in range(70)]
+    for aid in ids:
+        _seed_artifact(mutation_store, artifact_id=aid, created_at=created_at)
+        _write_ready(layout, artifact_id=aid)
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=3600, interval=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: clock["now"],
+    )
+    cleaner.sweep_once()
+    assert cleaner._cleanup_cursor is not None  # noqa: SLF001
+    for aid in ids:
+        assert artifact_ready_path(layout, REPOSITORY_ID, aid).is_file()
+
+    low_id = ids[0]
+    low_op = UUID(int=OPERATION_ID.int + 1000)
+    binding = _binding(artifact_id=low_id)
+    key_hash = IdempotencyKeyHash.from_raw_key("notify-low-seq-success")
+    store.claim_or_enqueue(
+        binding,
+        key_hash=key_hash,
+        fingerprint=versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash),
+        operation_id=low_op,
+    )
+    store.claim_if_queued(low_op)
+    store.mark_succeeded(
+        low_op,
+        result=VersionedImportResult(
+            commit_id="commit-1",
+            target_ref="main",
+            artifact_id=low_id,
+            canonicalization_manifest_digest="manifest-1",
+            expected_commit_id="commit-0",
+            completed_verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        ),
+    )
+    clock["now"] = datetime.now(UTC) + timedelta(seconds=1)
+    decision = store.evaluate_artifact_bytes_deletion(
+        low_id,
+        now=clock["now"],
+        ttl_seconds=3600,
+    )
+    assert decision.eligible, (decision.reason, decision.earliest_eligible_at)
+    cleaner.notify()
+    cleaner.sweep_once()
+    assert not artifact_ready_path(layout, REPOSITORY_ID, low_id).exists()
+    for aid in ids[1:]:
+        assert artifact_ready_path(layout, REPOSITORY_ID, aid).is_file()
+
+
+def test_startup_reclaim_deletes_expired_orphans_until_disk_admission(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    ids = [UUID(int=ARTIFACT_ID.int + i) for i in range(70)]
+    for aid in ids:
+        _seed_artifact(mutation_store, artifact_id=aid, created_at=CREATED_AT)
+        _write_ready(layout, artifact_id=aid)
+    cleaner = ArtifactCleaner(
+        settings=_settings(layout, ttl=60, interval=3600),
+        layout=layout,
+        import_store=store,
+        mutation_store=mutation_store,
+        clock=lambda: BASE_NOW,
+    )
+
+    def admitted() -> bool:
+        return not any(
+            artifact_ready_path(layout, REPOSITORY_ID, aid).exists() for aid in ids
+        )
+
+    assert not admitted()
+    cleaner.reclaim_until_disk_admission(admitted=admitted)
+    assert admitted()
+    for aid in ids:
+        lifecycle = mutation_store.get_artifact_lifecycle(aid)
+        assert lifecycle is not None
+        assert lifecycle.bytes_deleted_at is not None
+
+
 @pytest.mark.serial
 def test_shutdown_leaves_no_cleaner_thread(
     stores: tuple[ImportOperationStore, MutationStore],
@@ -1439,6 +1532,66 @@ def test_legal_ttl_delete_survives_restart_readiness(tmp_path: Path) -> None:
 
     restarted = ServiceRuntime.start(settings)
     try:
+        assert restarted.is_ready()
+    finally:
+        restarted.shutdown()
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_startup_reclaims_expired_orphans_before_disk_admission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = lifecycle_settings(tmp_path)
+    settings = settings.model_copy(
+        update={
+            "artifact_ttl_seconds": 1,
+            "artifact_cleanup_interval_seconds": 3600,
+            "max_import_workers": 1,
+        }
+    )
+    runtime = ServiceRuntime.start(settings)
+    try:
+        repository_id = UUID(
+            str(replay_create(runtime, idempotency_key="startup-reclaim-create").repository_id)
+        )
+        payload = b"startup-reclaim-orphan"
+        headers = upload_headers(idempotency_key="startup-reclaim-upload", payload=payload)
+        with ready_client(runtime) as client:
+            upload = client.post(
+                f"/v1/repositories/{repository_id}/artifacts",
+                headers=headers,
+                content=payload,
+            )
+            assert upload.status_code == 201
+            artifact_id = UUID(str(upload.json()["artifact_ref"]["artifact_id"]))
+        past = (datetime.now(UTC) - timedelta(seconds=10)).replace(microsecond=0).isoformat()
+        with runtime.mutation_store._lock:
+            runtime.mutation_store._connection.execute(
+                "UPDATE artifact_lifecycle SET created_at = ? WHERE artifact_id = ?",
+                (past, str(artifact_id)),
+            )
+            runtime.mutation_store._connection.commit()
+        ready = artifact_ready_path(runtime.layout, repository_id, artifact_id)
+        assert ready.is_file()
+    finally:
+        runtime.shutdown()
+
+    assert ready.is_file()
+
+    def admission(_root: Path, _settings: RepositoryServiceSettings) -> bool:
+        return not ready.exists()
+
+    monkeypatch.setattr(
+        "gateway_repository_service.runtime.has_free_disk_admission",
+        admission,
+    )
+    restarted = ServiceRuntime.start(settings)
+    try:
+        assert not ready.exists()
+        lifecycle = restarted.mutation_store.get_artifact_lifecycle(artifact_id)
+        assert lifecycle is not None and lifecycle.bytes_deleted_at is not None
         assert restarted.is_ready()
     finally:
         restarted.shutdown()

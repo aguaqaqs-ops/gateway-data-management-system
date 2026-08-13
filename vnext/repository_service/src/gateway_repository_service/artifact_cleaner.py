@@ -117,6 +117,7 @@ class ArtifactCleaner:
         self._thread: threading.Thread | None = None
         self._stop_lock = threading.Lock()
         self._cleanup_cursor: int | None = None
+        self._restart_cursor = False
 
     def start(self) -> None:
         with self._stop_lock:
@@ -136,6 +137,7 @@ class ArtifactCleaner:
     def notify(self) -> None:
         with self._condition:
             self._pending = True
+            self._restart_cursor = True
             self._condition.notify_all()
 
     def stop(self, *, timeout: float | None = None) -> None:
@@ -162,6 +164,23 @@ class ArtifactCleaner:
 
         self._sweep()
 
+    def reclaim_until_disk_admission(self, *, admitted: Callable[[], bool]) -> None:
+        """Page eligible cleanup until disk admission passes or a cycle deletes nothing."""
+
+        with self._condition:
+            self._cleanup_cursor = None
+            self._restart_cursor = False
+        cycle_deleted = 0
+        first = True
+        while not admitted():
+            deleted = self._sweep(housekeeping=first)
+            first = False
+            cycle_deleted += deleted
+            if self._cleanup_cursor is None:
+                if cycle_deleted == 0:
+                    return
+                cycle_deleted = 0
+
     def _run(self) -> None:
         interval = float(self._settings.artifact_cleanup_interval_seconds)
         while True:
@@ -187,12 +206,18 @@ class ArtifactCleaner:
                     return
                 self._pending = False
 
-    def _sweep(self) -> None:
+    def _sweep(self, *, housekeeping: bool = True) -> int:
+        with self._condition:
+            restart = self._restart_cursor
+            self._restart_cursor = False
+        if restart:
+            self._cleanup_cursor = None
         started = time.monotonic()
-        self._inventory_owned_artifact_tree()
-        self._recover_delete_quarantines()
-        self._gc_bytes_deleted_receipts()
-        self._reclaim_durable_residuals()
+        if housekeeping:
+            self._inventory_owned_artifact_tree()
+            self._recover_delete_quarantines()
+            self._gc_bytes_deleted_receipts()
+            self._reclaim_durable_residuals()
         try:
             after_seq: int | None = None
             if self._cleanup_cursor is not None:
@@ -215,15 +240,17 @@ class ArtifactCleaner:
                 cleanup_outcome="list_failed",
                 logger=_LOGGER,
             )
-            return
+            return 0
 
         # Bounded keyset pagination: advance by the last raw SQL row, including poison.
+        deleted = 0
         candidates = page.records
         for lifecycle in candidates:
             if self._stopping:
-                return
+                return deleted
             try:
-                self._process_candidate(lifecycle.artifact_id, lifecycle.repository_id)
+                if self._process_candidate(lifecycle.artifact_id, lifecycle.repository_id):
+                    deleted += 1
             except Exception:
                 _LOGGER.exception(
                     "artifact cleaner failed for artifact %s",
@@ -269,8 +296,9 @@ class ArtifactCleaner:
             in_use=sql_rows,
             logger=_LOGGER,
         )
+        return deleted
 
-    def _process_candidate(self, artifact_id: UUID, repository_id: UUID) -> None:
+    def _process_candidate(self, artifact_id: UUID, repository_id: UUID) -> bool:
         now = self._clock()
         decision = self._import_store.evaluate_artifact_bytes_deletion(
             artifact_id,
@@ -283,7 +311,7 @@ class ArtifactCleaner:
                 ArtifactBytesDeletionReason.PROTECTED,
                 ArtifactBytesDeletionReason.TTL_NOT_ELAPSED,
             }:
-                return
+                return False
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
@@ -294,7 +322,7 @@ class ArtifactCleaner:
                 cleanup_outcome="fail_closed",
                 logger=_LOGGER,
             )
-            return
+            return False
 
         expected = artifact_ready_path(self._layout, repository_id, artifact_id)
         path_kind = classify_ready_artifact_path(
@@ -315,7 +343,7 @@ class ArtifactCleaner:
                 cleanup_outcome="already_absent_unproven",
                 logger=_LOGGER,
             )
-            return
+            return False
         if path_kind != "regular_file":
             log_event(
                 "artifact_cleanup",
@@ -327,7 +355,7 @@ class ArtifactCleaner:
                 cleanup_outcome="unsafe_path",
                 logger=_LOGGER,
             )
-            return
+            return False
 
         stamped = {"ok": False}
         intent_ids: dict[str, int | str] = {}
@@ -419,7 +447,7 @@ class ArtifactCleaner:
                 cleanup_outcome="deleted",
                 logger=_LOGGER,
             )
-            return
+            return True
         if outcome == "busy":
             cleanup_outcome = "lock_busy"
         elif outcome == "ineligible":
@@ -439,6 +467,7 @@ class ArtifactCleaner:
             cleanup_outcome=cleanup_outcome,
             logger=_LOGGER,
         )
+        return False
 
     def _deleted_at_stamp(self) -> str:
         return self._clock().astimezone(UTC).replace(microsecond=0).isoformat()

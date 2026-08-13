@@ -87,7 +87,7 @@ def cleanup_ready_artifact_bytes(
             )
         except OwnedPathError as exc:
             message = str(exc)
-            if "missing" in message:
+            if message == "ready artifact file is missing":
                 return _stamp_if_eligible()
             if (
                 "symlink" in message

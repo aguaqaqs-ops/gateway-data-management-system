@@ -838,47 +838,7 @@ class MutationStore:
         )
         if cursor.rowcount != 1:
             raise MutationStoreError("artifact delete intent row missing or already deleted")
-        self._insert_intent_sidecar_residuals(
-            artifact_id,
-            repository_id=repository_id,
-            dev=int(dev),
-            ino=int(ino),
-            generation=token,
-            created_at=intent_at,
-        )
         return token
-
-    def _insert_intent_sidecar_residuals(
-        self,
-        artifact_id: UUID,
-        *,
-        repository_id: UUID,
-        dev: int,
-        ino: int,
-        generation: str,
-        created_at: str,
-    ) -> None:
-        from gateway_repository_service.upload_artifact.admission_pin import (
-            detach_name_for,
-            quarantine_name_for,
-        )
-
-        planned = (
-            ("deleting", quarantine_name_for(inode=ino, artifact_id=artifact_id, generation=generation)),
-            ("detach", detach_name_for(inode=ino, artifact_id=artifact_id, generation=generation)),
-        )
-        for kind, name in planned:
-            self.insert_artifact_residual(
-                artifact_id,
-                repository_id=repository_id,
-                kind=kind,
-                name=name,
-                parent_name="",
-                dev=dev,
-                ino=ino,
-                generation=generation,
-                created_at=created_at,
-            )
 
     def insert_artifact_residual(
         self,

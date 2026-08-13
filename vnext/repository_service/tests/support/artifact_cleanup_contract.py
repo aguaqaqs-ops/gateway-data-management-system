@@ -45,6 +45,39 @@ OTHER_ARTIFACT_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
 OPERATION_ID = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c21")
 OTHER_OPERATION_ID = UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c21")
 ARTIFACT_PAYLOAD = b"artifact-cleanup-contract-payload"
+
+
+def _validate_leftover_generation(generation: str) -> None:
+    if not generation:
+        raise ValueError("generation must be non-empty")
+    if "-" in generation:
+        raise ValueError("generation must not contain '-'")
+
+
+def quarantine_name_for(*, inode: int, artifact_id: UUID, generation: str) -> str:
+    """Test-only leftover ``.deleting-*`` name matching inventory parsers."""
+
+    _validate_leftover_generation(generation)
+    return f".deleting-{inode}-{generation}-{artifact_id.hex}"
+
+
+def detach_name_for(*, inode: int, artifact_id: UUID, generation: str) -> str:
+    """Test-only leftover ``.detach-*`` name matching inventory parsers."""
+
+    _validate_leftover_generation(generation)
+    return f".detach-{inode}-{generation}-{artifact_id.hex}"
+
+
+def unlink_stage_dir_name(*, artifact_id: UUID, token: str) -> str:
+    """Test-only leftover ``.unlink-stage-*`` name matching inventory parsers."""
+
+    if not token:
+        raise ValueError("token must be non-empty")
+    if "-" in token:
+        raise ValueError("token must not contain '-'")
+    return f".unlink-stage-{artifact_id.hex}-{token}"
+
+
 SHA256 = hashlib.sha256(ARTIFACT_PAYLOAD).hexdigest()
 MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
 CREATED_AT = "2026-08-01T00:00:00+00:00"

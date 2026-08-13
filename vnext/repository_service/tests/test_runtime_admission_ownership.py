@@ -147,11 +147,12 @@ def test_shutdown_closes_admission_then_stops_cleaner_before_db_and_lock(
 
     runtime.shutdown()
 
-    assert order.index("close_upload") < order.index("cleaner_stop")
-    assert order.index("close_row") < order.index("cleaner_stop")
-    assert order.index("cleaner_stop") < order.index("begin_shutdown")
+    assert order.index("close_upload") < order.index("begin_shutdown")
+    assert order.index("close_row") < order.index("begin_shutdown")
+    assert order.index("begin_shutdown") < order.index("cleaner_stop")
     assert order.index("bridge_close") < order.index("close_db")
     assert order.index("cleaner_stop") < order.index("close_db")
+    assert order.index("begin_shutdown") < order.index("close_db")
     assert order.index("close_db") < order.index("release_lock")
     assert runtime.upload_admission.in_use == 0
     assert runtime.row_stream_admission.in_use == 0

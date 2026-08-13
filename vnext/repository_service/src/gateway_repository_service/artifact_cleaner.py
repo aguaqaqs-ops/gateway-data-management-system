@@ -51,6 +51,7 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     prove_size0_owned_name_terminal,
     reclaim_size0_owned_name,
     reclaim_stage_dir,
+    rmdir_if_empty,
     unlink_if_match,
     unlock_unlink_stage_dir,
 )
@@ -345,6 +346,18 @@ class ArtifactCleaner:
             )
             return False
 
+        if self._artifact_has_parseable_leftovers(repository_id, artifact_id):
+            log_event(
+                "artifact_cleanup",
+                repository_id=repository_id,
+                artifact_id=artifact_id,
+                stage="delete",
+                result="retained",
+                cleanup_outcome="leftover_pending",
+                logger=_LOGGER,
+            )
+            return False
+
         outcome = artifact_cleanup.cleanup_ready_artifact_bytes(
             self._import_store,
             self._layout,
@@ -389,6 +402,253 @@ class ArtifactCleaner:
 
     def _deleted_at_stamp(self) -> str:
         return self._clock().astimezone(UTC).replace(microsecond=0).isoformat()
+
+    @staticmethod
+    def _leftover_file_flags() -> int:
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        if nofollow:
+            flags |= nofollow
+        return flags
+
+    def _should_converge_eligible_leftover(self, artifact_id: UUID) -> bool:
+        try:
+            lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
+        except (MutationStoreInvariantError, Exception):
+            return False
+        if lifecycle is None:
+            return False
+        if lifecycle.bytes_deleted_at is not None:
+            return self._retention_explains_deleted(
+                lifecycle,
+                repository_id=lifecycle.repository_id,
+                artifact_id=artifact_id,
+            )
+        decision = self._import_store.evaluate_artifact_bytes_deletion(
+            artifact_id,
+            now=self._clock(),
+            ttl_seconds=self._settings.artifact_ttl_seconds,
+        )
+        return decision.eligible
+
+    def _artifact_has_parseable_leftovers(
+        self,
+        repository_id: UUID,
+        artifact_id: UUID,
+    ) -> bool:
+        try:
+            ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
+        except OwnedPathError:
+            return False
+        except OSError:
+            return True
+        try:
+            try:
+                names = os.listdir(ready_dir_fd)
+            except OSError:
+                return True
+            for name in names:
+                parsed = parse_any_recoverable_sidecar(name)
+                if parsed is not None and parsed[1] == artifact_id:
+                    return True
+                stage = parse_unlink_stage_dir_name(name)
+                if stage is not None and stage[0] == artifact_id:
+                    return True
+        finally:
+            os.close(ready_dir_fd)
+        return False
+
+    def _dirfd_unlink_regular_leftover(self, ready_dir_fd: int, name: str) -> bool:
+        """Unlink a parseable leftover regular file. True means gone or absent."""
+
+        try:
+            fd = os.open(name, self._leftover_file_flags(), dir_fd=ready_dir_fd)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        try:
+            try:
+                st = os.fstat(fd)
+            except OSError:
+                return False
+            if not stat_module.S_ISREG(st.st_mode):
+                return False
+        finally:
+            os.close(fd)
+        try:
+            os.unlink(name, dir_fd=ready_dir_fd)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        return True
+
+    def _dirfd_remove_unlink_stage(self, ready_dir_fd: int, stage_name: str) -> bool:
+        """Unlink leftover stage children then rmdir. Does not truncate inodes."""
+
+        stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
+        if stage_dir_fd is None:
+            try:
+                os.stat(stage_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return True
+            except OSError:
+                return False
+            return False
+        if not lock_unlink_stage_dir(stage_dir_fd):
+            os.close(stage_dir_fd)
+            return False
+        try:
+            try:
+                children = os.listdir(stage_dir_fd)
+            except OSError:
+                return False
+            for child in children:
+                if not self._dirfd_unlink_regular_leftover(stage_dir_fd, child):
+                    return False
+        finally:
+            unlock_unlink_stage_dir(stage_dir_fd)
+            os.close(stage_dir_fd)
+        return rmdir_if_empty(ready_dir_fd, stage_name)
+
+    def _clear_leftover_residuals(self, artifact_id: UUID, names: set[str]) -> None:
+        if not names:
+            return
+        try:
+            page = self._import_store.list_artifact_residuals(artifact_id=artifact_id)
+        except Exception:
+            return
+        for row in page.records:
+            if row.name not in names and row.parent_name not in names:
+                continue
+            try:
+                self._import_store.clear_artifact_residual(
+                    residual_id=row.residual_id,
+                    expected_dev=row.dev,
+                    expected_ino=row.ino,
+                )
+            except Exception:
+                continue
+
+    def _stamp_eligible_leftover_if_needed(
+        self,
+        ready_dir_fd: int,
+        repository_id: UUID,
+        artifact_id: UUID,
+    ) -> bool:
+        lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
+        if lifecycle is None or lifecycle.bytes_deleted_at is not None:
+            return True
+        try:
+            os.stat(artifact_id.hex, dir_fd=ready_dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return False
+        else:
+            # Exact UUID still present; candidate/facade unlinks and stamps.
+            return True
+        try:
+            self._import_store.mark_artifact_bytes_deleted(
+                artifact_id,
+                deleted_at=self._deleted_at_stamp(),
+                repository_id=repository_id,
+            )
+        except Exception:
+            log_event(
+                "artifact_cleanup",
+                repository_id=repository_id,
+                artifact_id=artifact_id,
+                stage="quarantine",
+                result="retained",
+                cleanup_outcome="stamp_failed",
+                logger=_LOGGER,
+            )
+            return False
+        return True
+
+    def _converge_eligible_leftover_sidecars(
+        self,
+        ready_dir_fd: int,
+        repository_id: UUID,
+        artifact_id: UUID,
+        *,
+        sidecars: list[tuple[str, int, str]],
+    ) -> None:
+        cleared: set[str] = set()
+        all_gone = True
+        for name, _ino, _kind in sidecars:
+            if self._dirfd_unlink_regular_leftover(ready_dir_fd, name):
+                cleared.add(name)
+            else:
+                all_gone = False
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="unlink_failed",
+                    logger=_LOGGER,
+                )
+        if all_gone:
+            if not self._stamp_eligible_leftover_if_needed(
+                ready_dir_fd, repository_id, artifact_id
+            ):
+                self._clear_leftover_residuals(artifact_id, cleared)
+                return
+            log_event(
+                "artifact_cleanup",
+                repository_id=repository_id,
+                artifact_id=artifact_id,
+                stage="quarantine",
+                result="deleted",
+                cleanup_outcome="leftover_unlinked",
+                logger=_LOGGER,
+            )
+        self._clear_leftover_residuals(artifact_id, cleared)
+
+    def _converge_eligible_leftover_stages(
+        self,
+        ready_dir_fd: int,
+        repository_id: UUID,
+        artifact_id: UUID,
+        *,
+        stage_names: list[str],
+    ) -> None:
+        cleared: set[str] = set()
+        all_gone = True
+        for stage_name in stage_names:
+            if self._dirfd_remove_unlink_stage(ready_dir_fd, stage_name):
+                cleared.add(stage_name)
+            else:
+                all_gone = False
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="unlink_failed",
+                    logger=_LOGGER,
+                )
+        if all_gone:
+            if not self._stamp_eligible_leftover_if_needed(
+                ready_dir_fd, repository_id, artifact_id
+            ):
+                self._clear_leftover_residuals(artifact_id, cleared)
+                return
+            log_event(
+                "artifact_cleanup",
+                repository_id=repository_id,
+                artifact_id=artifact_id,
+                stage="quarantine",
+                result="deleted",
+                cleanup_outcome="leftover_stage_unlinked",
+                logger=_LOGGER,
+            )
+        self._clear_leftover_residuals(artifact_id, cleared)
 
     def _recover_delete_quarantines(self) -> None:
         artifacts_root = self._layout.artifacts
@@ -535,6 +795,15 @@ class ArtifactCleaner:
                         cleanup_outcome="unknown_path_inventory",
                         logger=_LOGGER,
                     )
+                return
+
+            if self._should_converge_eligible_leftover(artifact_id):
+                self._converge_eligible_leftover_stages(
+                    ready_dir_fd,
+                    repository_id,
+                    artifact_id,
+                    stage_names=stage_names,
+                )
                 return
 
             if lifecycle.bytes_deleted_at is not None:
@@ -1134,6 +1403,15 @@ class ArtifactCleaner:
                         cleanup_outcome="unknown_path_inventory",
                         logger=_LOGGER,
                     )
+                return
+
+            if self._should_converge_eligible_leftover(artifact_id):
+                self._converge_eligible_leftover_sidecars(
+                    ready_dir_fd,
+                    repository_id,
+                    artifact_id,
+                    sidecars=sidecars,
+                )
                 return
 
             if lifecycle.bytes_deleted_at is not None:

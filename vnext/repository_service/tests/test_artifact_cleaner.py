@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import errno
+import fcntl
 import os
 import stat
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -20,7 +22,7 @@ from gateway_repository_service.artifact_cleaner import (
 from gateway_repository_service.artifact_retention import retention_explains_missing_ready_bytes
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import MutationStore
-from gateway_repository_service.upload_artifact.admission_pin import quarantine_name_for
+from gateway_repository_service.upload_artifact.admission_pin import OwnedPathError
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from support.artifact_cleanup_contract import (
@@ -34,11 +36,14 @@ from support.artifact_cleanup_contract import (
     OTHER_REPOSITORY_ID,
     REPOSITORY_ID,
     cleaner,
+    detach_name_for,
     enqueue,
     mark_succeeded_consumed,
     open_contract_stores,
+    quarantine_name_for,
     seed_artifact,
     seed_create_succeeded,
+    unlink_stage_dir_name,
     write_ready,
 )
 
@@ -586,16 +591,361 @@ def test_eligible_leftover_deleting_sidecar_does_not_starve_other_candidate(
     )
     os.link(leftover_ready, sidecar)
     leftover_ready.unlink()
+    store.insert_artifact_residual(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        kind="deleting",
+        name=sidecar.name,
+        parent_name="",
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        generation=generation,
+        created_at=CREATED_AT,
+    )
 
     cleaner(layout, store, mutation_store).sweep_once()
 
     leftover = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert leftover is not None
     assert leftover.bytes_deleted_at is not None
+    assert not sidecar.exists()
+    assert store.list_artifact_residuals(artifact_id=ARTIFACT_ID).records == []
     assert not other_ready.exists()
     other = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
     assert other is not None
     assert other.bytes_deleted_at is not None
+
+
+def test_protected_leftover_sidecar_is_retained(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    enqueue(store, key="protected-pending", operation_id=OPERATION_ID)
+    st = ready.stat()
+    sidecar = ready.parent / quarantine_name_for(
+        inode=int(st.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation="g1",
+    )
+    os.link(ready, sidecar)
+
+    cleaner(layout, store, mutation_store).sweep_once()
+
+    assert ready.is_file()
+    assert sidecar.is_file()
+    assert sidecar.read_bytes() == ARTIFACT_PAYLOAD
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+def test_eligible_leftover_detach_sidecar_is_unlinked(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    mark_succeeded_consumed(store, key="detach-leftover")
+    st = ready.stat()
+    sidecar = ready.parent / detach_name_for(
+        inode=int(st.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation="g1",
+    )
+    os.link(ready, sidecar)
+    ready.unlink()
+
+    cleaner(layout, store, mutation_store).sweep_once()
+
+    assert not sidecar.exists()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+
+def test_eligible_leftover_unlink_stage_is_removed(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    mark_succeeded_consumed(store, key="stage-leftover")
+    ready = artifact_ready_path(layout, REPOSITORY_ID, ARTIFACT_ID)
+    ready.parent.mkdir(parents=True, exist_ok=True)
+    stage = ready.parent / unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="tok1")
+    stage.mkdir()
+    os.chmod(stage, 0o700)
+    (stage / "victim").write_bytes(ARTIFACT_PAYLOAD)
+
+    cleaner(layout, store, mutation_store).sweep_once()
+
+    assert not stage.exists()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+
+def test_malformed_leftover_name_is_retained(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    mark_succeeded_consumed(store, key="malformed-neighbor")
+    malformed = ready.parent / ".deleting-not-a-parseable-sidecar"
+    malformed.write_bytes(b"keep-me")
+
+    cleaner(layout, store, mutation_store).sweep_once()
+
+    assert not ready.exists()
+    assert malformed.is_file()
+    assert malformed.read_bytes() == b"keep-me"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [ARTIFACT_PAYLOAD, b""],
+    ids=["full-payload", "size-0"],
+)
+def test_eligible_leftover_sidecar_is_unlinked_regardless_of_size(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    payload: bytes,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    ready.write_bytes(payload)
+    mark_succeeded_consumed(store, key="size-leftover")
+    st = ready.stat()
+    sidecar = ready.parent / quarantine_name_for(
+        inode=int(st.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation="g1",
+    )
+    os.link(ready, sidecar)
+    ready.unlink()
+
+    cleaner(layout, store, mutation_store).sweep_once()
+
+    assert not sidecar.exists()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+
+def test_leftover_hardlink_does_not_truncate_other_inode(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    tmp_path: Path,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    mark_succeeded_consumed(store, key="hardlink-leftover")
+    st = ready.stat()
+    sidecar = ready.parent / quarantine_name_for(
+        inode=int(st.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation="g1",
+    )
+    os.link(ready, sidecar)
+    witness = tmp_path / "witness"
+    os.link(ready, witness)
+
+    cleaner(layout, store, mutation_store).sweep_once()
+
+    assert not ready.exists()
+    assert not sidecar.exists()
+    assert witness.is_file()
+    assert witness.read_bytes() == ARTIFACT_PAYLOAD
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+
+@pytest.mark.parametrize("injected_errno", [errno.EPERM, errno.EIO])
+def test_housekeeping_leftover_unlink_io_failure_does_not_stamp(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    injected_errno: int,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    mark_succeeded_consumed(store, key="housekeeping-io")
+    st = ready.stat()
+    sidecar = ready.parent / quarantine_name_for(
+        inode=int(st.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation="g1",
+    )
+    os.link(ready, sidecar)
+    ready.unlink()
+    calls = {"n": 0}
+    original = os.unlink
+
+    def fail_once(path: str, *, dir_fd: int | None = None) -> None:
+        name = path if isinstance(path, str) else os.fsdecode(path)
+        if name.startswith(".deleting-") and calls["n"] == 0:
+            calls["n"] += 1
+            raise OSError(injected_errno, "injected housekeeping unlink")
+        original(path, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "unlink", fail_once)
+    instance = cleaner(layout, store, mutation_store)
+    instance.sweep_once()
+    assert sidecar.is_file()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+    monkeypatch.undo()
+    instance.sweep_once()
+    assert not sidecar.exists()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+
+def test_facade_ready_directory_missing_does_not_stamp(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    from gateway_repository_service import artifact_cleanup
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    mark_succeeded_consumed(store, key="ready-dir-missing")
+    ready.unlink()
+    ready.parent.rmdir()
+
+    outcome = artifact_cleanup.cleanup_ready_artifact_bytes(
+        store,
+        layout,
+        repository_id=REPOSITORY_ID,
+        artifact_id=ARTIFACT_ID,
+        ttl_seconds=3600,
+        recheck=lambda: True,
+    )
+    assert outcome == "unlink_failed"
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+def test_facade_ready_unavailable_does_not_stamp(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleanup
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    write_ready(layout)
+    mark_succeeded_consumed(store, key="ready-unavailable")
+
+    def boom(*_args: object, **_kwargs: object) -> tuple[int, int]:
+        raise OwnedPathError("ready is unavailable")
+
+    monkeypatch.setattr(artifact_cleanup, "open_owned_ready_artifact", boom)
+    outcome = artifact_cleanup.cleanup_ready_artifact_bytes(
+        store,
+        layout,
+        repository_id=REPOSITORY_ID,
+        artifact_id=ARTIFACT_ID,
+        ttl_seconds=3600,
+        recheck=lambda: True,
+    )
+    assert outcome == "unlink_failed"
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+
+@pytest.mark.serial
+def test_admission_pin_blocks_cleaner_thread_until_released(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleanup
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    mark_succeeded_consumed(store, key="pin-thread")
+    outcomes: list[str] = []
+    original = artifact_cleanup.cleanup_ready_artifact_bytes
+
+    def wrapped(
+        pinned_store: ImportOperationStore,
+        pinned_layout: DurableLayout,
+        *,
+        repository_id: UUID,
+        artifact_id: UUID,
+        ttl_seconds: int,
+        deleted_at: str | None = None,
+        recheck: Callable[[], bool] | None = None,
+    ) -> str:
+        result = original(
+            pinned_store,
+            pinned_layout,
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+            ttl_seconds=ttl_seconds,
+            deleted_at=deleted_at,
+            recheck=recheck,
+        )
+        outcomes.append(result)
+        return result
+
+    monkeypatch.setattr(artifact_cleanup, "cleanup_ready_artifact_bytes", wrapped)
+    file_fd = os.open(ready, os.O_RDONLY)
+    try:
+        fcntl.flock(file_fd, fcntl.LOCK_EX)
+        instance = cleaner(layout, store, mutation_store, interval=60)
+        instance.start()
+        try:
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not outcomes:
+                time.sleep(0.01)
+            assert outcomes == ["busy"]
+            assert ready.is_file()
+            lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+            assert lifecycle is not None
+            assert lifecycle.bytes_deleted_at is None
+            fcntl.flock(file_fd, fcntl.LOCK_UN)
+            instance.notify()
+            gone_deadline = time.monotonic() + 2.0
+            while time.monotonic() < gone_deadline and ready.exists():
+                time.sleep(0.01)
+            assert not ready.exists()
+            lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+            assert lifecycle is not None
+            assert lifecycle.bytes_deleted_at is not None
+        finally:
+            instance.stop(timeout=2.0)
+    finally:
+        os.close(file_fd)
 
 
 @pytest.mark.serial

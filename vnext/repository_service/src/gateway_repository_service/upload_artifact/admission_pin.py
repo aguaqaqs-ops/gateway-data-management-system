@@ -445,42 +445,6 @@ def open_owned_ready_dir(
         os.close(artifacts_fd)
 
 
-def _validate_generation(generation: str) -> None:
-    if not generation:
-        raise ValueError("generation must be non-empty")
-    if "-" in generation:
-        raise ValueError("generation must not contain '-'")
-
-
-def quarantine_name_for(*, inode: int, artifact_id: UUID, generation: str) -> str:
-    """Return the durable quarantine directory entry for an owned ready inode."""
-
-    _validate_generation(generation)
-    return f".deleting-{inode}-{generation}-{artifact_id.hex}"
-
-
-def detach_name_for(*, inode: int, artifact_id: UUID, generation: str) -> str:
-    """Return the transient rename target used to detach a ready directory entry."""
-
-    _validate_generation(generation)
-    return f".detach-{inode}-{generation}-{artifact_id.hex}"
-
-
-def verify_sidecar_name_for(*, inode: int, generation: str, artifact_id: UUID, token: str) -> str:
-    """Return the private verify sidecar used during rename-verify-unlink.
-
-    Verify names are inventory-recoverable via ``parse_unlink_verify_name`` but
-    must not match ``.deleting-`` / ``.detach-`` inventory parsers.
-    """
-
-    _validate_generation(generation)
-    if not token:
-        raise ValueError("token must be non-empty")
-    if "-" in token:
-        raise ValueError("token must not contain '-'")
-    return f".unlink-verify-{inode}-{generation}-{artifact_id.hex}-{token}"
-
-
 def _parse_sidecar_name(name: str, *, prefix: str) -> tuple[int, UUID, str | None] | None:
     if not name.startswith(prefix):
         return None
@@ -523,16 +487,6 @@ def parse_detach_name(name: str) -> tuple[int, UUID, str | None] | None:
 
 
 STAGE_VICTIM = "victim"
-
-
-def unlink_stage_dir_name(*, artifact_id: UUID, token: str) -> str:
-    """Return the private staging directory used during rename-verify-unlink."""
-
-    if not token:
-        raise ValueError("token must be non-empty")
-    if "-" in token:
-        raise ValueError("token must not contain '-'")
-    return f".unlink-stage-{artifact_id.hex}-{token}"
 
 
 def parse_unlink_stage_dir_name(name: str) -> tuple[UUID, str] | None:

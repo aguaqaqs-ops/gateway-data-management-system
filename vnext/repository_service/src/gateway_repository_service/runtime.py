@@ -338,16 +338,6 @@ class ServiceRuntime:
 
         try:
             try:
-                self.artifact_cleaner.stop(timeout=grace)
-            except ArtifactCleanerShutdownError as exc:
-                _LOGGER.exception("artifact cleaner join failed; retaining durable ownership")
-                cleanup_errors.append(exc)
-                cleaner_join_failed = True
-            except Exception as exc:
-                _LOGGER.exception("artifact cleaner stop failed")
-                cleanup_errors.append(exc)
-
-            try:
                 try:
                     self.import_worker_pool.begin_shutdown()
                     if not self.import_worker_pool.wait_for_quiescence(timeout=grace):
@@ -387,6 +377,16 @@ class ServiceRuntime:
                             cleanup_errors.append(exc)
             except Exception as exc:
                 _LOGGER.exception("import worker shutdown failed")
+                cleanup_errors.append(exc)
+
+            try:
+                self.artifact_cleaner.stop(timeout=grace)
+            except ArtifactCleanerShutdownError as exc:
+                _LOGGER.exception("artifact cleaner join failed; retaining durable ownership")
+                cleanup_errors.append(exc)
+                cleaner_join_failed = True
+            except Exception as exc:
+                _LOGGER.exception("artifact cleaner stop failed")
                 cleanup_errors.append(exc)
         finally:
             try:

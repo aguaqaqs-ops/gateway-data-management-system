@@ -20,6 +20,7 @@ from gateway_repository_service.artifact_cleaner import (
     ArtifactCleaner,
     ArtifactCleanerShutdownError,
     classify_ready_artifact_path,
+    _HousekeepingBudget,
 )
 from gateway_repository_service.artifact_retention import retention_explains_missing_ready_bytes
 from gateway_repository_service.layout import DurableLayout
@@ -1781,6 +1782,384 @@ def test_held_recover_poison_prefix_does_not_starve_leftover_or_receipt(
         lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
         assert lifecycle is not None
         assert lifecycle.bytes_deleted_at is None
+
+
+def test_operator_cleared_fifo_leftover_allows_stamp(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    mark_succeeded_consumed(store, key="operator-cleared-fifo")
+    fifo = _fifo_leftover(layout, artifact_id=ARTIFACT_ID, generation="op")
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    for _ in range(8):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+        assert lifecycle is not None
+        assert lifecycle.bytes_deleted_at is None
+    assert fifo.exists()
+    fifo.unlink()
+    stamped = False
+    for _ in range(16):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+        assert lifecycle is not None
+        if lifecycle.bytes_deleted_at is not None:
+            stamped = True
+            break
+    assert stamped
+
+
+def test_operator_cleared_fifo_leftover_allows_receipt_gc(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store, artifact_id=OTHER_ARTIFACT_ID)
+    seed_bytes_deleted_receipt(
+        mutation_store,
+        artifact_id=OTHER_ARTIFACT_ID,
+        generation="g1",
+    )
+    fifo = _fifo_leftover(layout, artifact_id=OTHER_ARTIFACT_ID, generation="op")
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    for _ in range(8):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        later = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
+        assert later is not None
+        assert later.bytes_deleted_receipt_generation is not None
+    assert fifo.exists()
+    fifo.unlink()
+    cleared = False
+    for _ in range(16):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        later = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
+        assert later is not None
+        if later.bytes_deleted_receipt_generation is None:
+            cleared = True
+            break
+    assert cleared
+
+
+def test_ready_open_failure_does_not_stamp_after_fifo_observation(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    mark_succeeded_consumed(store, key="open-fail-fifo")
+    fifo = _fifo_leftover(layout, artifact_id=ARTIFACT_ID, generation="of")
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    for _ in range(8):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+    assert fifo.exists()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is None
+
+    def fail_open(*_args: object, **_kwargs: object) -> int:
+        raise OwnedPathError("ready dir unreadable")
+
+    monkeypatch.setattr(
+        "gateway_repository_service.artifact_cleaner.open_owned_ready_dir",
+        fail_open,
+    )
+    for _ in range(8):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+        assert lifecycle is not None
+        assert lifecycle.bytes_deleted_at is None
+    assert fifo.exists()
+
+
+def test_leftover_observation_does_not_grow_with_retained_names(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    poison_repos = [UUID(int=index) for index in range(1, 6)]
+    legal_repo = UUID(int=6)
+    retained_names = 80
+    for repo in poison_repos:
+        artifact_id = UUID(int=ARTIFACT_ID.int + repo.int)
+        seed_create_succeeded(mutation_store, repository_id=repo)
+        seed_artifact(mutation_store, artifact_id=artifact_id, repository_id=repo)
+        for index in range(retained_names):
+            _fifo_leftover(
+                layout,
+                artifact_id=artifact_id,
+                generation=f"n{index:02d}",
+                repository_id=repo,
+            )
+    seed_create_succeeded(mutation_store, repository_id=legal_repo)
+    seed_artifact(mutation_store, artifact_id=ARTIFACT_ID, repository_id=legal_repo)
+    target = _regular_leftover(
+        layout,
+        artifact_id=ARTIFACT_ID,
+        generation="legal",
+        repository_id=legal_repo,
+    )
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    orig_from_path = cleaner_mod._HeldScan.from_path
+
+    def from_path(path: str | Path) -> object:
+        if Path(path).resolve() == layout.artifacts.resolve():
+            return _SortedRootScan(layout.artifacts)
+        return orig_from_path(path)
+
+    monkeypatch.setattr(cleaner_mod._HeldScan, "from_path", from_path)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    fd_samples: list[int] = []
+    seen_samples: list[int] = []
+    legal_done = False
+    extra_cycles = 0
+    for _ in range(80):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        fd_samples.append(_proc_self_fd_count())
+        seen_samples.append(len(instance._leftover_seen))
+        assert len(instance._leftover_counts) <= retained_names
+        leftover = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+        assert leftover is not None
+        if not legal_done and not target.exists() and leftover.bytes_deleted_at is not None:
+            legal_done = True
+        elif legal_done:
+            extra_cycles += 1
+            if extra_cycles >= 16:
+                break
+    assert legal_done
+    assert not target.exists()
+    name_total = len(poison_repos) * retained_names
+    assert max(seen_samples) <= len(poison_repos) + 1
+    assert seen_samples[-1] <= len(poison_repos) + 1
+    assert max(seen_samples) * 10 < name_total
+    assert len(instance._leftover_counts) == 0 or instance._recover_ready is not None
+    if len(fd_samples) >= 4:
+        warmed = fd_samples[2:]
+        assert max(warmed) - min(warmed) <= 8
+
+
+def test_receipt_gc_bills_each_row_once(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store, artifact_id=OTHER_ARTIFACT_ID)
+    seed_bytes_deleted_receipt(
+        mutation_store,
+        artifact_id=OTHER_ARTIFACT_ID,
+        generation="g1",
+    )
+    write_ready(layout, artifact_id=OTHER_ARTIFACT_ID).unlink()
+
+    events: list[dict[str, object]] = []
+    receipt_used: list[int] = []
+    clear_calls = {"n": 0}
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    orig_gc = cleaner_mod.ArtifactCleaner._gc_bytes_deleted_receipts
+    orig_clear = store.clear_artifact_bytes_deleted_receipt
+
+    def counting_gc(self: ArtifactCleaner, budget: _HousekeepingBudget) -> None:
+        before = budget.used
+        orig_gc(self, budget)
+        receipt_used.append(budget.used - before)
+
+    def counting_clear(
+        artifact_id: UUID,
+        *,
+        repository_id: UUID,
+        expected_dev: int,
+        expected_ino: int,
+        expected_generation: str,
+    ) -> None:
+        clear_calls["n"] += 1
+        orig_clear(
+            artifact_id,
+            repository_id=repository_id,
+            expected_dev=expected_dev,
+            expected_ino=expected_ino,
+            expected_generation=expected_generation,
+        )
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    monkeypatch.setattr(
+        cleaner_mod.ArtifactCleaner,
+        "_gc_bytes_deleted_receipts",
+        counting_gc,
+    )
+    monkeypatch.setattr(store, "clear_artifact_bytes_deleted_receipt", counting_clear)
+    instance = cleaner(layout, store, mutation_store)
+    for _ in range(16):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        later = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
+        assert later is not None
+        if later.bytes_deleted_receipt_generation is None:
+            break
+    later = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
+    assert later is not None
+    assert later.bytes_deleted_receipt_generation is None
+    assert clear_calls["n"] == 1
+    billed = [used for used in receipt_used if used > 0]
+    assert billed
+    assert billed[0] == 1
+    assert all(used <= 2 for used in billed)
+
+
+def test_receipt_mixed_page_bills_scanned_rows_once(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    poison_id = UUID(int=1)
+    legal_id = UUID(int=2)
+    seed_artifact(mutation_store, artifact_id=poison_id)
+    seed_bytes_deleted_receipt(
+        mutation_store,
+        artifact_id=poison_id,
+        generation="",
+    )
+    seed_artifact(mutation_store, artifact_id=legal_id)
+    seed_bytes_deleted_receipt(
+        mutation_store,
+        artifact_id=legal_id,
+        generation="g1",
+    )
+    write_ready(layout, artifact_id=legal_id).unlink()
+
+    events: list[dict[str, object]] = []
+    receipt_used: list[int] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    orig_gc = cleaner_mod.ArtifactCleaner._gc_bytes_deleted_receipts
+
+    def counting_gc(self: ArtifactCleaner, budget: _HousekeepingBudget) -> None:
+        before = budget.used
+        orig_gc(self, budget)
+        receipt_used.append(budget.used - before)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    monkeypatch.setattr(
+        cleaner_mod.ArtifactCleaner,
+        "_gc_bytes_deleted_receipts",
+        counting_gc,
+    )
+    instance = cleaner(layout, store, mutation_store)
+    for _ in range(16):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        later = mutation_store.get_artifact_lifecycle(legal_id)
+        assert later is not None
+        if later.bytes_deleted_receipt_generation is None:
+            break
+    later = mutation_store.get_artifact_lifecycle(legal_id)
+    assert later is not None
+    assert later.bytes_deleted_receipt_generation is None
+    billed = [used for used in receipt_used if used > 0]
+    assert billed
+    assert billed[0] == 2
+    assert all(used <= 2 for used in billed)
 
 
 @pytest.mark.serial

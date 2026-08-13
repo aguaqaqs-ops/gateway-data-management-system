@@ -275,10 +275,8 @@ class ArtifactCleaner:
         self._recover_stage_name: str | None = None
         self._recover_stage_blocked: bool = False
         self._leftover_seen: set[tuple[UUID, UUID]] = set()
-        self._leftover_names: dict[tuple[UUID, UUID], set[str]] = {}
+        self._leftover_counts: dict[tuple[UUID, UUID], int] = {}
         self._leftover_ready_complete: set[UUID] = set()
-        self._recover_finished_repos: set[UUID] = set()
-        self._recover_ready_reset = False
 
     def start(self) -> None:
         with self._stop_lock:
@@ -671,16 +669,23 @@ class ArtifactCleaner:
 
     def _reset_leftover_observations(self) -> None:
         self._leftover_seen.clear()
-        self._leftover_names.clear()
+        self._leftover_counts.clear()
         self._leftover_ready_complete.clear()
+
+    def _revoke_absent_proof(self, repository_id: UUID) -> None:
+        self._leftover_ready_complete.discard(repository_id)
 
     def _forget_repo_leftovers(self, repository_id: UUID) -> None:
         self._leftover_ready_complete.discard(repository_id)
-        self._recover_finished_repos.discard(repository_id)
         drop = [key for key in self._leftover_seen if key[0] == repository_id]
         for key in drop:
             self._leftover_seen.discard(key)
-            self._leftover_names.pop(key, None)
+            self._leftover_counts.pop(key, None)
+
+    def _drop_repo_counts(self, repository_id: UUID) -> None:
+        drop = [key for key in self._leftover_counts if key[0] == repository_id]
+        for key in drop:
+            self._leftover_counts.pop(key, None)
 
     def _note_leftover_name(self, repository_id: UUID, name: str) -> UUID | None:
         artifact_id: UUID | None = None
@@ -694,7 +699,7 @@ class ArtifactCleaner:
         if artifact_id is None:
             return None
         key = (repository_id, artifact_id)
-        self._leftover_names.setdefault(key, set()).add(name)
+        self._leftover_counts[key] = self._leftover_counts.get(key, 0) + 1
         self._leftover_seen.add(key)
         self._recover_processed_ids.add(artifact_id)
         return artifact_id
@@ -705,14 +710,16 @@ class ArtifactCleaner:
         artifact_id: UUID,
         name: str,
     ) -> None:
+        del name
         key = (repository_id, artifact_id)
-        names = self._leftover_names.get(key)
-        if names is None:
+        remaining = self._leftover_counts.get(key)
+        if remaining is None:
             return
-        names.discard(name)
-        if not names:
-            self._leftover_names.pop(key, None)
+        if remaining <= 1:
+            self._leftover_counts.pop(key, None)
             self._leftover_seen.discard(key)
+            return
+        self._leftover_counts[key] = remaining - 1
 
     def _dirfd_unlink_regular_leftover(
         self,
@@ -871,28 +878,6 @@ class ArtifactCleaner:
                 )
             except Exception:
                 continue
-
-    def _collect_parseable_leftover_ids(
-        self,
-        ready_dir_fd: int,
-        budget: _HousekeepingBudget,
-    ) -> set[UUID] | None:
-        found: set[UUID] = set()
-        try:
-            scan = _BilledScan()
-            for name in _billed_iter(_scandir_names(ready_dir_fd), budget, scan):
-                parsed = parse_any_recoverable_sidecar(name)
-                if parsed is not None:
-                    found.add(parsed[1])
-                    continue
-                stage = parse_unlink_stage_dir_name(name)
-                if stage is not None:
-                    found.add(stage[0])
-            if scan.truncated:
-                return None
-        except OSError:
-            return None
-        return found
 
     def _stamp_eligible_leftover_if_needed(
         self,
@@ -1084,14 +1069,12 @@ class ArtifactCleaner:
             self._recover_ready_fd = None
         self._recover_repo_id = None
         self._recover_processed_ids = set()
-        self._recover_ready_reset = False
 
     def _close_recover_scans(self) -> None:
         self._close_recover_ready()
         if self._recover_root is not None:
             self._recover_root.close()
             self._recover_root = None
-        self._recover_finished_repos.clear()
 
     def _stage_scan_is_held(self, stage_name: str) -> bool:
         return (
@@ -1116,30 +1099,30 @@ class ArtifactCleaner:
     def _begin_ready_scan(self, repository_id: UUID) -> None:
         self._recover_processed_ids = set()
         self._recover_repo_id = repository_id
-        self._recover_ready_reset = True
         try:
             ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
         except (OwnedPathError, OSError):
+            self._revoke_absent_proof(repository_id)
             self._recover_repo_id = None
-            self._recover_ready_reset = False
             return
         ready_dir = self._layout.artifacts / repository_key(repository_id) / "ready"
         try:
             self._recover_ready = _HeldScan.from_path(ready_dir)
         except OSError:
             os.close(ready_dir_fd)
+            self._revoke_absent_proof(repository_id)
             self._recover_repo_id = None
-            self._recover_ready_reset = False
             return
         self._recover_ready_fd = ready_dir_fd
+        self._forget_repo_leftovers(repository_id)
 
     def _finish_ready_scan(self) -> None:
         repository_id = self._recover_repo_id
         ready_dir_fd = self._recover_ready_fd
         processed = set(self._recover_processed_ids)
         if repository_id is not None:
+            self._drop_repo_counts(repository_id)
             self._leftover_ready_complete.add(repository_id)
-            self._recover_finished_repos.add(repository_id)
             if ready_dir_fd is not None:
                 for artifact_id in processed:
                     self._stamp_eligible_leftover_if_needed(
@@ -1197,9 +1180,6 @@ class ArtifactCleaner:
             if ready_name is None:
                 self._close_recover_ready()
                 return False
-            if self._recover_ready_reset:
-                self._forget_repo_leftovers(repository_id)
-                self._recover_ready_reset = False
             self._note_leftover_name(repository_id, ready_name)
             try:
                 paused = self._recover_one_ready_entry(
@@ -2603,31 +2583,6 @@ class ArtifactCleaner:
             self._receipt_after_artifact_id = str(page.records[processed - 1].artifact_id)
         else:
             self._receipt_after_artifact_id = page.cursor_artifact_id
-        poison_rows = max(0, page.scanned - len(page.records))
-        for _ in range(poison_rows):
-            if not budget.consume():
-                self._receipt_after_artifact_id = page.cursor_artifact_id
-                return
-        processed = 0
-        for lifecycle in page.records:
-            if not budget.consume():
-                break
-            processed += 1
-            if self._stopping:
-                break
-            try:
-                self._gc_one_bytes_deleted_receipt(lifecycle, budget)
-            except Exception:
-                _LOGGER.exception(
-                    "artifact receipt GC failed for artifact %s",
-                    lifecycle.artifact_id,
-                )
-            if budget.remaining() <= 0:
-                break
-        if processed < len(page.records) and processed > 0:
-            self._receipt_after_artifact_id = str(page.records[processed - 1].artifact_id)
-        else:
-            self._receipt_after_artifact_id = page.cursor_artifact_id
 
     def _gc_one_bytes_deleted_receipt(
         self,
@@ -2647,12 +2602,7 @@ class ArtifactCleaner:
         leftover = self._leftover_presence(
             lifecycle.repository_id, lifecycle.artifact_id
         )
-        if leftover == "present":
-            return
-        if leftover == "unknown" and (
-            lifecycle.repository_id not in self._recover_finished_repos
-            or (lifecycle.repository_id, lifecycle.artifact_id) in self._leftover_seen
-        ):
+        if leftover != "absent":
             return
         self._clear_receipt_best_effort(
             lifecycle.artifact_id,

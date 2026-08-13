@@ -38,6 +38,20 @@ class StageDirLookup:
     fd: int | None = None
 
 
+class NormalizeVictimStatus(StrEnum):
+    SUCCESS = "success"
+    RETAIN = "retain"
+    PAUSED = "paused"
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizeVictimResult:
+    status: NormalizeVictimStatus
+    last_child: str | None = None
+    match_count: int = 0
+    match_name: str | None = None
+
+
 def _is_single_path_component(name: str) -> bool:
     return bool(name) and "/" not in name and name not in {".", ".."} and "\x00" not in name
 
@@ -644,12 +658,17 @@ def normalize_unlink_stage_victim_via_fd(
     expected_dev: int,
     expected_ino: int,
     consume: Callable[[], bool] | None = None,
-) -> bool:
+    after_child: str | None = None,
+    match_count: int = 0,
+    match_name: str | None = None,
+) -> NormalizeVictimResult:
     """Ensure owned ``victim`` exists inside an already-locked stage directory fd.
 
     Promotes a unique leftover ``final-*`` / ``doom-*`` regular file to ``victim``
     only after open+fstat proves ``(dev,ino) == expected``. Caller must hold
     ``LOCK_EX`` on ``stage_dir_fd``. Foreign entries are left untouched.
+    Uniqueness is proven only after a complete child scan; budget exhaustion
+    pauses with a child cursor instead of restarting from the first name.
     """
 
     def _matches(st: os.stat_result) -> bool:
@@ -659,25 +678,61 @@ def normalize_unlink_stage_victim_via_fd(
             and int(st.st_ino) == int(expected_ino)
         )
 
+    def _retain(
+        *,
+        last_child: str | None = None,
+        count: int = 0,
+        name: str | None = None,
+    ) -> NormalizeVictimResult:
+        return NormalizeVictimResult(
+            status=NormalizeVictimStatus.RETAIN,
+            last_child=last_child,
+            match_count=count,
+            match_name=name,
+        )
+
+    def _paused(
+        last_child: str | None,
+        count: int,
+        name: str | None,
+    ) -> NormalizeVictimResult:
+        return NormalizeVictimResult(
+            status=NormalizeVictimStatus.PAUSED,
+            last_child=last_child if last_child is not None else "",
+            match_count=count,
+            match_name=name,
+        )
+
     try:
         victim_fd = os.open(STAGE_VICTIM, _file_flags(), dir_fd=stage_dir_fd)
     except FileNotFoundError:
         victim_fd = None
     except OSError:
-        return False
+        return _retain()
     if victim_fd is not None:
         try:
-            return _matches(os.fstat(victim_fd))
+            if _matches(os.fstat(victim_fd)):
+                return NormalizeVictimResult(status=NormalizeVictimStatus.SUCCESS)
+            return _retain()
         except OSError:
-            return False
+            return _retain()
         finally:
             os.close(victim_fd)
 
-    candidates: list[str] = []
+    skipping = after_child is not None
+    count = match_count
+    found_name = match_name
+    last_child: str | None = None
     try:
         for name in scandir_dir_fd_names(stage_dir_fd):
+            if skipping:
+                if name != after_child:
+                    continue
+                skipping = False
+                continue
             if consume is not None and not consume():
-                return False
+                return _paused(last_child, count, found_name)
+            last_child = name
             if not (name.startswith("final-") or name.startswith("doom-")):
                 continue
             try:
@@ -690,24 +745,32 @@ def normalize_unlink_stage_victim_via_fd(
                 os.close(child_fd)
                 continue
             os.close(child_fd)
-            if _matches(child_stat):
-                candidates.append(name)
+            if not _matches(child_stat):
+                continue
+            count += 1
+            found_name = name
+            if count >= 2:
+                return _retain(last_child=last_child, count=count, name=found_name)
     except OSError:
-        return False
-    if len(candidates) != 1:
-        return False
+        return _retain(last_child=last_child, count=count, name=found_name)
+    if skipping:
+        return _retain(count=0)
+    if count != 1 or found_name is None:
+        return _retain(last_child=last_child, count=count, name=found_name)
     try:
-        renameat2_noreplace(stage_dir_fd, candidates[0], stage_dir_fd, STAGE_VICTIM)
+        renameat2_noreplace(stage_dir_fd, found_name, stage_dir_fd, STAGE_VICTIM)
     except OSError:
-        return False
+        return _retain(last_child=last_child, count=count, name=found_name)
     try:
         after_fd = os.open(STAGE_VICTIM, _file_flags(), dir_fd=stage_dir_fd)
     except OSError:
-        return False
+        return _retain(last_child=last_child, count=count, name=found_name)
     try:
-        return _matches(os.fstat(after_fd))
+        if _matches(os.fstat(after_fd)):
+            return NormalizeVictimResult(status=NormalizeVictimStatus.SUCCESS)
+        return _retain(last_child=last_child, count=count, name=found_name)
     except OSError:
-        return False
+        return _retain(last_child=last_child, count=count, name=found_name)
     finally:
         os.close(after_fd)
 

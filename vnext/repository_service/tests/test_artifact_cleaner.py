@@ -1247,6 +1247,354 @@ def test_housekeeping_budget_bounds_ready_leftovers_in_one_repository(
     assert leftover.bytes_deleted_at is not None
 
 
+def _count_scandir_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, int]:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    enumerated = {"n": 0}
+    orig_scandir = cleaner_mod._scandir_names
+
+    def counting_scandir(dir_fd: int) -> Iterator[str]:
+        for name in orig_scandir(dir_fd):
+            enumerated["n"] += 1
+            yield name
+
+    monkeypatch.setattr(cleaner_mod, "_scandir_names", counting_scandir)
+    return enumerated
+
+
+def test_housekeeping_budget_bounds_three_pages_of_same_artifact_sidecars(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    leftover_ready = write_ready(layout)
+    mark_succeeded_consumed(store, key="budget-three-pages")
+    ready_dir = leftover_ready.parent
+    leftover_ready.unlink()
+    sidecars: list[Path] = []
+    for index in range(240):
+        tmp = ready_dir / f"tmp-leftover-{index:03d}"
+        tmp.write_bytes(ARTIFACT_PAYLOAD)
+        st = tmp.stat()
+        sidecar = ready_dir / quarantine_name_for(
+            inode=int(st.st_ino),
+            artifact_id=ARTIFACT_ID,
+            generation=f"g{index:03d}",
+        )
+        tmp.rename(sidecar)
+        sidecars.append(sidecar)
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    enumerated = _count_scandir_names(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    for _ in range(40):
+        enumerated["n"] = 0
+        events.clear()
+        instance.sweep_once()
+        bounded = [
+            event
+            for event in events
+            if event.get("cleanup_outcome") == "housekeeping_bounded"
+        ]
+        assert len(bounded) == 1
+        used = bounded[0]["in_use"]
+        assert isinstance(used, int)
+        assert used <= 64
+        assert enumerated["n"] <= 64
+        if not any(path.exists() for path in sidecars):
+            break
+    assert not any(path.exists() for path in sidecars)
+    leftover = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert leftover is not None
+    assert leftover.bytes_deleted_at is not None
+
+
+def test_housekeeping_budget_bounds_fifo_leftovers_across_artifacts(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    fifos: list[Path] = []
+    for index in range(64):
+        artifact_id = UUID(int=ARTIFACT_ID.int + index + 10)
+        operation_id = UUID(int=OPERATION_ID.int + index + 10)
+        seed_artifact(mutation_store, artifact_id=artifact_id)
+        ready = write_ready(layout, artifact_id=artifact_id)
+        mark_succeeded_consumed(
+            store,
+            key=f"fifo-{index:02d}",
+            operation_id=operation_id,
+            artifact_id=artifact_id,
+        )
+        st = ready.stat()
+        sidecar = ready.parent / quarantine_name_for(
+            inode=int(st.st_ino),
+            artifact_id=artifact_id,
+            generation="g1",
+        )
+        os.mkfifo(sidecar)
+        ready.unlink()
+        fifos.append(sidecar)
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    enumerated = _count_scandir_names(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    for _ in range(4):
+        enumerated["n"] = 0
+        events.clear()
+        instance.sweep_once()
+        bounded = [
+            event
+            for event in events
+            if event.get("cleanup_outcome") == "housekeeping_bounded"
+        ]
+        assert len(bounded) == 1
+        used = bounded[0]["in_use"]
+        assert isinstance(used, int)
+        assert used <= 64
+        assert enumerated["n"] <= 64
+    assert all(path.exists() for path in fifos)
+    for index in range(64):
+        artifact_id = UUID(int=ARTIFACT_ID.int + index + 10)
+        lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
+        assert lifecycle is not None
+        assert lifecycle.bytes_deleted_at is None
+
+
+def test_recover_cursor_name_deleted_still_converges_within_budget(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    leftover_ready = write_ready(layout)
+    mark_succeeded_consumed(store, key="cursor-deleted")
+    ready_dir = leftover_ready.parent
+    leftover_ready.unlink()
+    sidecars: list[Path] = []
+    for index in range(80):
+        tmp = ready_dir / f"tmp-cursor-{index:02d}"
+        tmp.write_bytes(ARTIFACT_PAYLOAD)
+        st = tmp.stat()
+        sidecar = ready_dir / quarantine_name_for(
+            inode=int(st.st_ino),
+            artifact_id=ARTIFACT_ID,
+            generation=f"c{index:02d}",
+        )
+        tmp.rename(sidecar)
+        sidecars.append(sidecar)
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    enumerated = _count_scandir_names(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    enumerated["n"] = 0
+    instance.sweep_once()
+    cursor_name = instance._recover_after_name
+    if cursor_name is not None:
+        cursor_path = ready_dir / cursor_name
+        if cursor_path.exists():
+            cursor_path.unlink()
+    for _ in range(16):
+        enumerated["n"] = 0
+        events.clear()
+        instance.sweep_once()
+        bounded = [
+            event
+            for event in events
+            if event.get("cleanup_outcome") == "housekeeping_bounded"
+        ]
+        assert len(bounded) == 1
+        used = bounded[0]["in_use"]
+        assert isinstance(used, int)
+        assert used <= 64
+        assert enumerated["n"] <= 64
+        if not any(path.exists() for path in sidecars):
+            break
+    assert not any(path.exists() for path in sidecars)
+
+
+def _seed_large_foreign_stage(
+    layout: DurableLayout,
+    *,
+    artifact_id: UUID,
+    token: str,
+    payload_path: Path,
+) -> Path:
+    ready = artifact_ready_path(layout, REPOSITORY_ID, artifact_id)
+    ready.parent.mkdir(parents=True, exist_ok=True)
+    stage = ready.parent / unlink_stage_dir_name(artifact_id=artifact_id, token=token)
+    stage.mkdir()
+    os.chmod(stage, 0o700)
+    os.link(payload_path, stage / "final-match")
+    for index in range(70):
+        (stage / f"final-x{index:02d}").write_bytes(b"foreign")
+    return stage
+
+
+def test_active_intent_large_stage_does_not_starve_later_receipt(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    st = ready.stat()
+    seed_bytes_delete_intent(
+        mutation_store,
+        artifact_id=ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+        generation="intent1",
+    )
+    stage = _seed_large_foreign_stage(
+        layout, artifact_id=ARTIFACT_ID, token="toki", payload_path=ready
+    )
+    ready.unlink()
+    seed_artifact(mutation_store, artifact_id=OTHER_ARTIFACT_ID)
+    seed_bytes_deleted_receipt(
+        mutation_store,
+        artifact_id=OTHER_ARTIFACT_ID,
+        generation="g1",
+    )
+    write_ready(layout, artifact_id=OTHER_ARTIFACT_ID).unlink()
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(
+        layout,
+        store,
+        mutation_store,
+        ttl=3600,
+        clock=datetime(2026, 8, 1, 0, 30, tzinfo=UTC),
+    )
+    receipt_cleared = False
+    for _ in range(24):
+        events.clear()
+        instance.sweep_once()
+        bounded = [
+            event
+            for event in events
+            if event.get("cleanup_outcome") == "housekeeping_bounded"
+        ]
+        assert len(bounded) == 1
+        used = bounded[0]["in_use"]
+        assert isinstance(used, int)
+        assert used <= 64
+        later = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
+        assert later is not None
+        if later.bytes_deleted_receipt_generation is None:
+            receipt_cleared = True
+            break
+    assert receipt_cleared
+    assert stage.is_dir()
+
+
+def test_stamped_large_stage_does_not_starve_later_receipt(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    st = ready.stat()
+    seed_bytes_deleted_receipt(
+        mutation_store,
+        artifact_id=ARTIFACT_ID,
+        generation="g1",
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+    )
+    enqueue(store, key="stamped-protected", operation_id=OPERATION_ID)
+    stage = _seed_large_foreign_stage(
+        layout, artifact_id=ARTIFACT_ID, token="toks", payload_path=ready
+    )
+    ready.unlink()
+    seed_artifact(mutation_store, artifact_id=OTHER_ARTIFACT_ID)
+    seed_bytes_deleted_receipt(
+        mutation_store,
+        artifact_id=OTHER_ARTIFACT_ID,
+        generation="g2",
+    )
+    write_ready(layout, artifact_id=OTHER_ARTIFACT_ID).unlink()
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    receipt_cleared = False
+    for _ in range(24):
+        events.clear()
+        instance.sweep_once()
+        bounded = [
+            event
+            for event in events
+            if event.get("cleanup_outcome") == "housekeeping_bounded"
+        ]
+        assert len(bounded) == 1
+        used = bounded[0]["in_use"]
+        assert isinstance(used, int)
+        assert used <= 64
+        later = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
+        assert later is not None
+        if later.bytes_deleted_receipt_generation is None:
+            receipt_cleared = True
+            break
+    assert receipt_cleared
+    assert stage.is_dir()
+
+
 def test_receipt_poison_page_advances_raw_cursor_to_later_row(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,

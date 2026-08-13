@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
-import stat
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -194,40 +194,47 @@ class DurableLayout:
         return self.versioned / key
 
     def repository_artifact_directories(self, key: str) -> tuple[Path, Path]:
-        staging = self.artifacts / key / "staging"
-        ready = self.artifacts / key / "ready"
-        try:
-            staging_st = staging.lstat()
-            ready_st = ready.lstat()
-        except OSError:
-            staging_st = None
-            ready_st = None
-        if (
-            staging_st is not None
-            and ready_st is not None
-            and stat.S_ISDIR(staging_st.st_mode)
-            and stat.S_ISDIR(ready_st.st_mode)
-        ):
-            return staging, ready
-
         if not key or "/" in key or key in {".", ".."} or "\x00" in key:
-            raise RuntimeError("invalid repository artifact key")
+            raise LayoutError("invalid repository artifact key")
 
         dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
         self.artifacts.mkdir(parents=True, exist_ok=True)
-        artifacts_fd = os.open(self.artifacts, dir_flags)
+        try:
+            artifacts_fd = os.open(self.artifacts, dir_flags)
+        except OSError as exc:
+            raise LayoutError("artifacts root is a symlink, non-directory, or unavailable") from exc
         try:
             try:
                 os.mkdir(key, 0o750, dir_fd=artifacts_fd)
             except FileExistsError:
                 pass
-            base_fd = os.open(key, dir_flags, dir_fd=artifacts_fd)
+            except OSError as exc:
+                raise LayoutError("repository artifact directory is unavailable") from exc
+            try:
+                base_fd = os.open(key, dir_flags, dir_fd=artifacts_fd)
+            except OSError as exc:
+                if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                    raise LayoutError(
+                        "repository artifact path is a symlink or non-directory"
+                    ) from exc
+                raise LayoutError("repository artifact directory is unavailable") from exc
             try:
                 for name in ("staging", "ready"):
                     try:
                         os.mkdir(name, 0o750, dir_fd=base_fd)
                     except FileExistsError:
                         pass
+                    except OSError as exc:
+                        raise LayoutError(f"{name} directory is unavailable") from exc
+                    try:
+                        child_fd = os.open(name, dir_flags, dir_fd=base_fd)
+                    except OSError as exc:
+                        if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                            raise LayoutError(
+                                f"{name} is a symlink or non-directory"
+                            ) from exc
+                        raise LayoutError(f"{name} directory is unavailable") from exc
+                    os.close(child_fd)
             finally:
                 os.close(base_fd)
         finally:

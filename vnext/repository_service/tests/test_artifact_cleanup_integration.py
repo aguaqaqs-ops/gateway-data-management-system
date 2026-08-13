@@ -42,6 +42,7 @@ from support.artifact_cleanup_contract import (
     mark_succeeded_consumed,
     open_contract_stores,
     seed_artifact,
+    seed_bytes_delete_intent,
     seed_create_succeeded,
     settings,
     write_ready,
@@ -250,8 +251,9 @@ def test_leftover_intent_on_eligible_artifact_is_projected_and_stamped(
     ready = write_ready(layout)
     mark_succeeded_consumed(store, key="ok")
     st = ready.stat()
-    store.begin_artifact_bytes_delete_intent(
-        ARTIFACT_ID,
+    seed_bytes_delete_intent(
+        mutation_store,
+        artifact_id=ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
         dev=int(st.st_dev),
         ino=int(st.st_ino),
@@ -285,8 +287,9 @@ def test_leftover_intent_on_protected_artifact_still_blocks_admission(
     ready = write_ready(layout)
     enqueue(store, key="protected-pending", operation_id=OPERATION_ID)
     st = ready.stat()
-    store.begin_artifact_bytes_delete_intent(
-        ARTIFACT_ID,
+    seed_bytes_delete_intent(
+        mutation_store,
+        artifact_id=ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
         dev=int(st.st_dev),
         ino=int(st.st_ino),

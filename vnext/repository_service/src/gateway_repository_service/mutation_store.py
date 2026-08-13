@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from gateway_repository_service.diagnostics import log_event
 
@@ -551,12 +551,16 @@ class MutationStore:
                 cursor_cleanup_seq=last_seq,
             )
 
-    def list_artifacts_with_bytes_deleted_receipt(self) -> list[ArtifactLifecycleRecord]:
+    def list_artifacts_with_bytes_deleted_receipt(
+        self,
+        *,
+        limit: int = 64,
+        after_artifact_id: UUID | None = None,
+    ) -> list[ArtifactLifecycleRecord]:
         """Return lifecycle rows that still carry a bytes-deleted residual receipt."""
 
         with self._transaction():
-            cursor = self._connection.execute(
-                """
+            sql = """
                 SELECT
                     artifact_id,
                     repository_scope,
@@ -579,9 +583,14 @@ class MutationStore:
                 WHERE bytes_deleted_receipt_dev IS NOT NULL
                   AND bytes_deleted_receipt_ino IS NOT NULL
                   AND bytes_deleted_receipt_generation IS NOT NULL
-                ORDER BY created_at ASC, artifact_id ASC
                 """
-            )
+            params: list[object] = []
+            if after_artifact_id is not None:
+                sql += " AND artifact_id > ?"
+                params.append(str(after_artifact_id))
+            sql += " ORDER BY artifact_id ASC LIMIT ?"
+            params.append(int(limit))
+            cursor = self._connection.execute(sql, params)
             records: list[ArtifactLifecycleRecord] = []
             for row in cursor.fetchall():
                 try:
@@ -795,91 +804,6 @@ class MutationStore:
             or row["bytes_delete_generation"] is not None
         ):
             raise MutationStoreError("artifact bytes_deleted_at readback failed")
-
-    def begin_artifact_bytes_delete_intent(
-        self,
-        artifact_id: UUID,
-        *,
-        repository_id: UUID,
-        dev: int,
-        ino: int,
-        phase: str,
-        intent_at: str,
-        generation: str | None = None,
-    ) -> str:
-        if phase not in {"quarantined", "detached"}:
-            raise MutationStoreError("invalid delete intent phase")
-        token = generation if generation is not None else uuid4().hex
-        if not token:
-            raise MutationStoreError("invalid delete intent generation")
-        cursor = self._connection.execute(
-            """
-            UPDATE artifact_lifecycle
-            SET bytes_delete_intent_at = ?,
-                bytes_delete_dev = ?,
-                bytes_delete_ino = ?,
-                bytes_delete_phase = ?,
-                bytes_delete_generation = ?,
-                updated_at = ?
-            WHERE artifact_id = ?
-              AND repository_scope = ?
-              AND bytes_deleted_at IS NULL
-            """,
-            (
-                intent_at,
-                int(dev),
-                int(ino),
-                phase,
-                token,
-                intent_at,
-                str(artifact_id),
-                repository_id.hex,
-            ),
-        )
-        if cursor.rowcount != 1:
-            raise MutationStoreError("artifact delete intent row missing or already deleted")
-        return token
-
-    def insert_artifact_residual(
-        self,
-        artifact_id: UUID,
-        *,
-        repository_id: UUID,
-        kind: str,
-        name: str,
-        parent_name: str,
-        dev: int,
-        ino: int,
-        generation: str | None,
-        created_at: str,
-    ) -> None:
-        """Insert residual proof. Caller must already hold the transaction lock."""
-
-        if kind not in {"deleting", "detach", "verify", "stage", "stage_child"}:
-            raise MutationStoreError("invalid residual kind")
-        self._connection.execute(
-            """
-            INSERT INTO artifact_residual (
-                artifact_id, repository_scope, kind, name, parent_name,
-                dev, ino, generation, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(artifact_id, kind, name, parent_name) DO UPDATE SET
-                dev = excluded.dev,
-                ino = excluded.ino,
-                generation = excluded.generation
-            """,
-            (
-                str(artifact_id),
-                repository_id.hex,
-                kind,
-                name,
-                parent_name,
-                int(dev),
-                int(ino),
-                generation,
-                created_at,
-            ),
-        )
 
     def clear_artifact_residual(
         self,

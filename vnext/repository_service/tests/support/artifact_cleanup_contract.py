@@ -7,7 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from gateway_repository_contracts import (
     OperationStatus,
@@ -286,6 +286,85 @@ def seed_artifact(
                 len(ARTIFACT_PAYLOAD),
                 SHA256,
                 created_at,
+                created_at,
+            ),
+        )
+        mutation_store._connection.commit()
+
+
+def seed_bytes_delete_intent(
+    mutation_store: MutationStore,
+    *,
+    artifact_id: UUID = ARTIFACT_ID,
+    repository_id: UUID = REPOSITORY_ID,
+    dev: int,
+    ino: int,
+    phase: str = "quarantined",
+    generation: str | None = None,
+    intent_at: str = CREATED_AT,
+) -> str:
+    token = generation if generation is not None else uuid4().hex
+    with mutation_store._lock:
+        cursor = mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_delete_intent_at = ?,
+                bytes_delete_dev = ?,
+                bytes_delete_ino = ?,
+                bytes_delete_phase = ?,
+                bytes_delete_generation = ?,
+                updated_at = ?
+            WHERE artifact_id = ?
+              AND repository_scope = ?
+              AND bytes_deleted_at IS NULL
+            """,
+            (
+                intent_at,
+                int(dev),
+                int(ino),
+                phase,
+                token,
+                intent_at,
+                str(artifact_id),
+                repository_id.hex,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("failed to seed delete intent")
+        mutation_store._connection.commit()
+    return token
+
+
+def seed_artifact_residual(
+    mutation_store: MutationStore,
+    *,
+    artifact_id: UUID = ARTIFACT_ID,
+    repository_id: UUID = REPOSITORY_ID,
+    kind: str,
+    name: str,
+    parent_name: str = "",
+    dev: int,
+    ino: int,
+    generation: str | None,
+    created_at: str = CREATED_AT,
+) -> None:
+    with mutation_store._lock:
+        mutation_store._connection.execute(
+            """
+            INSERT INTO artifact_residual (
+                artifact_id, repository_scope, kind, name, parent_name,
+                dev, ino, generation, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(artifact_id),
+                repository_id.hex,
+                kind,
+                name,
+                parent_name,
+                int(dev),
+                int(ino),
+                generation,
                 created_at,
             ),
         )

@@ -91,22 +91,24 @@ def _ensure_real_dir(
         os.close(parent_fd)
 
 
-def _open_child_dir(parent_fd: int, name: str) -> int | None:
+def _open_child_dir(parent_fd: int, name: str, *, label: str) -> int | None:
     try:
         st = os.lstat(name, dir_fd=parent_fd)
     except FileNotFoundError:
         return None
-    except OSError:
-        return None
-    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
-        return None
+    except OSError as exc:
+        raise ArtifactRootError(f"{label} is unavailable: {name}") from exc
+    if stat.S_ISLNK(st.st_mode):
+        raise ArtifactRootError(f"refusing symlink directory: {name}")
+    if not stat.S_ISDIR(st.st_mode):
+        raise ArtifactRootError(f"refusing non-directory {label}: {name}")
     try:
         child_fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
-    except OSError:
-        return None
+    except OSError as exc:
+        raise ArtifactRootError(f"{label} is unavailable: {name}") from exc
     if not same_mount(parent_fd, child_fd):
         os.close(child_fd)
-        return None
+        raise ArtifactRootError(f"refusing bind-mount directory: {name}")
     return child_fd
 
 
@@ -140,18 +142,18 @@ def prepare_artifact_layout(
         for name in os.listdir(artifacts_fd):
             if not _is_hex32(name):
                 continue
-            repo_fd = _open_child_dir(artifacts_fd, name)
+            repo_fd = _open_child_dir(artifacts_fd, name, label="repository")
             if repo_fd is None:
                 continue
             try:
                 _fchown_chmod(repo_fd, uid=gateway_uid, gid=gateway_gid, mode=0o750)
-                ready_fd = _open_child_dir(repo_fd, "ready")
+                ready_fd = _open_child_dir(repo_fd, "ready", label="ready")
                 if ready_fd is not None:
                     try:
                         _fchown_chmod(ready_fd, uid=gateway_uid, gid=gateway_gid, mode=0o750)
                     finally:
                         os.close(ready_fd)
-                staging_fd = _open_child_dir(repo_fd, "staging")
+                staging_fd = _open_child_dir(repo_fd, "staging", label="staging")
                 if staging_fd is not None:
                     try:
                         _fchown_chmod(

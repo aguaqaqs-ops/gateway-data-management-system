@@ -715,20 +715,6 @@ def normalize_unlink_stage_victim_via_fd(
         os.close(after_fd)
 
 
-def remove_empty_stage_dir_if_same_inode(
-    ready_dir_fd: int,
-    stage_name: str,
-    stage_dir_fd: int,
-) -> None:
-    """Remove empty stage directory when safe.
-
-    Caller must hold ``stage_dir_fd``. rmdir fails closed if non-empty.
-    """
-
-    del stage_dir_fd
-    rmdir_if_empty(ready_dir_fd, stage_name)
-
-
 def prove_size0_owned_name_terminal(
     dir_fd: int,
     name: str,

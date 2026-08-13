@@ -1015,54 +1015,6 @@ class ImportOperationStore:
                 expected_generation=expected_generation,
             )
 
-    def begin_artifact_bytes_delete_intent(
-        self,
-        artifact_id: UUID,
-        *,
-        repository_id: UUID,
-        dev: int,
-        ino: int,
-        phase: str,
-        intent_at: str | None = None,
-        generation: str | None = None,
-    ) -> str:
-        with self._transaction():
-            return self._mutation_store.begin_artifact_bytes_delete_intent(
-                artifact_id,
-                repository_id=repository_id,
-                dev=dev,
-                ino=ino,
-                phase=phase,
-                intent_at=intent_at or utc_now_iso(),
-                generation=generation,
-            )
-
-    def insert_artifact_residual(
-        self,
-        artifact_id: UUID,
-        *,
-        repository_id: UUID,
-        kind: str,
-        name: str,
-        parent_name: str,
-        dev: int,
-        ino: int,
-        generation: str | None,
-        created_at: str | None = None,
-    ) -> None:
-        with self._transaction():
-            self._mutation_store.insert_artifact_residual(
-                artifact_id,
-                repository_id=repository_id,
-                kind=kind,
-                name=name,
-                parent_name=parent_name,
-                dev=dev,
-                ino=ino,
-                generation=generation,
-                created_at=created_at or utc_now_iso(),
-            )
-
     def clear_artifact_residual(
         self,
         *,
@@ -1127,8 +1079,16 @@ class ImportOperationStore:
                 expected_generation=expected_generation,
             )
 
-    def list_artifacts_with_bytes_deleted_receipt(self) -> list[ArtifactLifecycleRecord]:
-        return self._mutation_store.list_artifacts_with_bytes_deleted_receipt()
+    def list_artifacts_with_bytes_deleted_receipt(
+        self,
+        *,
+        limit: int = 64,
+        after_artifact_id: UUID | None = None,
+    ) -> list[ArtifactLifecycleRecord]:
+        return self._mutation_store.list_artifacts_with_bytes_deleted_receipt(
+            limit=limit,
+            after_artifact_id=after_artifact_id,
+        )
 
     def has_succeeded_create_repository(self, repository_id: UUID) -> bool:
         """Return True when a create-repository effect has succeeded for this id."""

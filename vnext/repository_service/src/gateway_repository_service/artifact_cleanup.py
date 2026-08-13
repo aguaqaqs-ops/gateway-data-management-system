@@ -19,7 +19,7 @@ from collections.abc import Callable
 from uuid import UUID
 
 from gateway_repository_service.layout import DurableLayout
-from gateway_repository_service.mutation_store import MutationStoreError
+from gateway_repository_service.mutation_store import MutationStoreError, MutationStoreInvariantError
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     open_owned_ready_artifact,
@@ -57,6 +57,18 @@ def cleanup_ready_artifact_bytes(
 
     eligibility_check = recheck if recheck is not None else _default_recheck
 
+    def _scope_matches() -> bool:
+        try:
+            lifecycle = store.mutation_store.get_artifact_lifecycle(artifact_id)
+        except (ImportOperationStoreError, MutationStoreError, MutationStoreInvariantError):
+            return False
+        return lifecycle is not None and lifecycle.repository_id == repository_id
+
+    def _pinned_eligible() -> bool:
+        if not _scope_matches():
+            return False
+        return eligibility_check()
+
     def _try_stamp() -> bool:
         try:
             store.mark_artifact_bytes_deleted(
@@ -69,7 +81,7 @@ def cleanup_ready_artifact_bytes(
         return True
 
     def _stamp_if_eligible() -> str:
-        if not eligibility_check():
+        if not _pinned_eligible():
             return "ineligible"
         if not _try_stamp():
             return "ineligible"
@@ -107,7 +119,7 @@ def cleanup_ready_artifact_bytes(
             return "unlink_failed"
         locked = True
 
-        if not eligibility_check():
+        if not _pinned_eligible():
             return "ineligible"
 
         try:

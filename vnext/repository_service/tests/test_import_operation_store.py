@@ -542,19 +542,9 @@ def test_mark_artifact_bytes_deleted_records_timestamp(
     store.claim_if_queued(OPERATION_ID)
     store.mark_succeeded(OPERATION_ID, result=_import_result())
 
-    generation = store.begin_artifact_bytes_delete_intent(
-        ARTIFACT_ID,
-        repository_id=REPOSITORY_ID,
-        dev=1,
-        ino=1,
-        phase="quarantined",
-    )
     store.mark_artifact_bytes_deleted(
         ARTIFACT_ID,
         repository_id=REPOSITORY_ID,
-        expected_dev=1,
-        expected_ino=1,
-        expected_generation=generation,
     )
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
 

@@ -38,7 +38,6 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     StageDirStatus,
     destroy_owned_bytes_and_reclaim_names,
     link_from_fd,
-    list_unlink_stage_dir_names,
     lock_unlink_stage_dir,
     lookup_unlink_stage_dir,
     normalize_unlink_stage_victim_via_fd,
@@ -62,6 +61,25 @@ _LOGGER = logging.getLogger(__name__)
 
 _HEX32 = frozenset("0123456789abcdef")
 _CLEANUP_CANDIDATE_PAGE_SIZE = 64
+_HOUSEKEEPING_ENTRY_BUDGET = 64
+
+
+class _HousekeepingBudget:
+    """Shared per-sweep cap for inventory, leftover recovery, and receipt/residual GC."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.used = 0
+
+    def remaining(self) -> int:
+        return max(0, self.limit - self.used)
+
+    def consume(self) -> bool:
+        if self.used >= self.limit:
+            return False
+        self.used += 1
+        return True
+
 
 SidecarOutcome = Literal["absent", "success", "retain"]
 
@@ -121,6 +139,10 @@ class ArtifactCleaner:
         self._stop_lock = threading.Lock()
         self._cleanup_cursor: int | None = None
         self._restart_cursor = False
+        self._inventory_after_name: str | None = None
+        self._recover_after_name: str | None = None
+        self._receipt_after_artifact_id: UUID | None = None
+        self._residual_after_id: int | None = None
 
     def start(self) -> None:
         with self._stop_lock:
@@ -217,10 +239,20 @@ class ArtifactCleaner:
             self._cleanup_cursor = None
         started = time.monotonic()
         if housekeeping:
-            self._inventory_owned_artifact_tree()
-            self._recover_delete_quarantines()
-            self._gc_bytes_deleted_receipts()
-            self._reclaim_durable_residuals()
+            budget = _HousekeepingBudget(_HOUSEKEEPING_ENTRY_BUDGET)
+            self._inventory_owned_artifact_tree(budget)
+            self._recover_delete_quarantines(budget)
+            self._gc_bytes_deleted_receipts(budget)
+            self._reclaim_durable_residuals(budget)
+            log_event(
+                "artifact_cleanup",
+                stage="housekeeping",
+                result="completed",
+                cleanup_outcome="housekeeping_bounded",
+                capacity=_HOUSEKEEPING_ENTRY_BUDGET,
+                in_use=budget.used,
+                logger=_LOGGER,
+            )
         try:
             after_seq: int | None = None
             if self._cleanup_cursor is not None:
@@ -365,7 +397,7 @@ class ArtifactCleaner:
             artifact_id=artifact_id,
             ttl_seconds=self._settings.artifact_ttl_seconds,
             deleted_at=self._deleted_at_stamp(),
-            recheck=lambda: self._still_eligible(artifact_id),
+            recheck=lambda: self._still_eligible(artifact_id, repository_id),
         )
         if outcome == "deleted":
             log_event(
@@ -458,7 +490,13 @@ class ArtifactCleaner:
             os.close(ready_dir_fd)
         return False
 
-    def _dirfd_unlink_regular_leftover(self, ready_dir_fd: int, name: str) -> bool:
+    def _dirfd_unlink_regular_leftover(
+        self,
+        ready_dir_fd: int,
+        name: str,
+        *,
+        expected_ino: int | None = None,
+    ) -> bool:
         """Unlink a parseable leftover regular file. True means gone or absent."""
 
         try:
@@ -474,6 +512,8 @@ class ArtifactCleaner:
                 return False
             if not stat_module.S_ISREG(st.st_mode):
                 return False
+            if expected_ino is not None and int(st.st_ino) != int(expected_ino):
+                return False
         finally:
             os.close(fd)
         try:
@@ -483,6 +523,10 @@ class ArtifactCleaner:
         except OSError:
             return False
         return True
+
+    @staticmethod
+    def _is_known_unlink_stage_child(name: str) -> bool:
+        return name == STAGE_VICTIM or name.startswith("final-") or name.startswith("doom-")
 
     def _dirfd_remove_unlink_stage(self, ready_dir_fd: int, stage_name: str) -> bool:
         """Unlink leftover stage children then rmdir. Does not truncate inodes."""
@@ -504,7 +548,28 @@ class ArtifactCleaner:
                 children = os.listdir(stage_dir_fd)
             except OSError:
                 return False
+            known: list[str] = []
             for child in children:
+                if not self._is_known_unlink_stage_child(child):
+                    return False
+                try:
+                    child_fd = os.open(
+                        child, self._leftover_file_flags(), dir_fd=stage_dir_fd
+                    )
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    return False
+                try:
+                    st = os.fstat(child_fd)
+                except OSError:
+                    return False
+                finally:
+                    os.close(child_fd)
+                if not stat_module.S_ISREG(st.st_mode):
+                    return False
+                known.append(child)
+            for child in known:
                 if not self._dirfd_unlink_regular_leftover(stage_dir_fd, child):
                     return False
         finally:
@@ -578,8 +643,10 @@ class ArtifactCleaner:
     ) -> None:
         cleared: set[str] = set()
         all_gone = True
-        for name, _ino, _kind in sidecars:
-            if self._dirfd_unlink_regular_leftover(ready_dir_fd, name):
+        for name, ino, _kind in sidecars:
+            if self._dirfd_unlink_regular_leftover(
+                ready_dir_fd, name, expected_ino=ino
+            ):
                 cleared.add(name)
             else:
                 all_gone = False
@@ -650,56 +717,84 @@ class ArtifactCleaner:
             )
         self._clear_leftover_residuals(artifact_id, cleared)
 
-    def _recover_delete_quarantines(self) -> None:
+    def _recover_delete_quarantines(self, budget: _HousekeepingBudget) -> None:
         artifacts_root = self._layout.artifacts
         if not artifacts_root.is_dir():
             return
+        skipping = self._recover_after_name is not None
+        last_name: str | None = None
+        exhausted = False
         try:
-            repo_entries = list(artifacts_root.iterdir())
+            with os.scandir(artifacts_root) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if skipping:
+                        if name == self._recover_after_name:
+                            skipping = False
+                        continue
+                    if len(name) != 32 or any(ch not in _HEX32 for ch in name):
+                        continue
+                    try:
+                        repository_id = UUID(hex=name)
+                    except ValueError:
+                        continue
+                    try:
+                        if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                            continue
+                    except OSError:
+                        continue
+                    if not budget.consume():
+                        exhausted = True
+                        break
+                    last_name = name
+                    try:
+                        ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
+                    except OwnedPathError:
+                        continue
+                    try:
+                        try:
+                            ready_names = os.listdir(ready_dir_fd)
+                        except OSError:
+                            ready_names = []
+                    finally:
+                        os.close(ready_dir_fd)
+                    by_artifact: dict[UUID, list[tuple[str, int, str]]] = {}
+                    for ready_name in ready_names:
+                        parsed = parse_any_recoverable_sidecar(ready_name)
+                        if parsed is None:
+                            continue
+                        inode, artifact_id, _generation, kind = parsed
+                        by_artifact.setdefault(artifact_id, []).append(
+                            (ready_name, inode, kind)
+                        )
+                    try:
+                        self._recover_unlink_stage_dirs_for_ready(
+                            repository_id,
+                            artifacts_root / name / "ready",
+                        )
+                    except Exception:
+                        _LOGGER.exception(
+                            "artifact unlink-stage recovery failed for repository %s",
+                            repository_id,
+                        )
+                    for artifact_id, sidecars in by_artifact.items():
+                        if self._stopping:
+                            self._recover_after_name = last_name
+                            return
+                        try:
+                            self._recover_artifact_sidecars(
+                                repository_id,
+                                artifact_id,
+                                sidecars=sidecars,
+                            )
+                        except Exception:
+                            _LOGGER.exception(
+                                "artifact quarantine recovery failed for artifact %s",
+                                artifact_id,
+                            )
         except OSError:
             return
-        for repo_entry in repo_entries:
-            name = repo_entry.name
-            if len(name) != 32 or any(ch not in _HEX32 for ch in name):
-                continue
-            try:
-                repository_id = UUID(hex=name)
-            except ValueError:
-                continue
-            ready_dir = repo_entry / "ready"
-            if not ready_dir.is_dir():
-                continue
-            try:
-                entries = list(ready_dir.iterdir())
-            except OSError:
-                continue
-            by_artifact: dict[UUID, list[tuple[str, int, str]]] = {}
-            for entry in entries:
-                parsed = parse_any_recoverable_sidecar(entry.name)
-                if parsed is None:
-                    continue
-                inode, artifact_id, _generation, kind = parsed
-                by_artifact.setdefault(artifact_id, []).append((entry.name, inode, kind))
-            # Stage residuals first so sidecar/receipt paths never clear ownership
-            # while a matching .unlink-stage-* victim still exists.
-            self._recover_unlink_stage_dirs_for_ready(
-                repository_id,
-                ready_dir,
-            )
-            for artifact_id, sidecars in by_artifact.items():
-                if self._stopping:
-                    return
-                try:
-                    self._recover_artifact_sidecars(
-                        repository_id,
-                        artifact_id,
-                        sidecars=sidecars,
-                    )
-                except Exception:
-                    _LOGGER.exception(
-                        "artifact quarantine recovery failed for artifact %s",
-                        artifact_id,
-                    )
+        self._recover_after_name = last_name if exhausted else None
 
     def _recover_unlink_stage_dirs_for_ready(
         self,
@@ -970,24 +1065,6 @@ class ArtifactCleaner:
                 return True
         return False
 
-    def _stage_dir_is_empty(self, ready_dir_fd: int, stage_name: str) -> bool:
-        stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
-        if stage_dir_fd is None:
-            return False
-        try:
-            if not lock_unlink_stage_dir(stage_dir_fd):
-                return False
-            try:
-                try:
-                    names = os.listdir(stage_dir_fd)
-                except OSError:
-                    return False
-                return not names
-            finally:
-                unlock_unlink_stage_dir(stage_dir_fd)
-        finally:
-            os.close(stage_dir_fd)
-
     def _stage_dir_is_terminal_or_empty(
         self,
         ready_dir_fd: int,
@@ -1063,18 +1140,6 @@ class ArtifactCleaner:
             and int(st.st_ino) == int(expected_ino)
             and int(st.st_size) == 0
         )
-
-    def _list_artifact_unlink_stages(
-        self,
-        ready_dir_fd: int,
-        artifact_id: UUID,
-    ) -> list[str]:
-        names: list[str] = []
-        for stage_name in list_unlink_stage_dir_names(ready_dir_fd):
-            parsed = parse_unlink_stage_dir_name(stage_name)
-            if parsed is not None and parsed[0] == artifact_id:
-                names.append(stage_name)
-        return names
 
     def _staged_victim_path(self, stage_name: str) -> str:
         return f"{stage_name}/{STAGE_VICTIM}"
@@ -2028,15 +2093,29 @@ class ArtifactCleaner:
         finally:
             self._unlock_sidecar(q_fd)
 
-    def _gc_bytes_deleted_receipts(self) -> None:
+    def _gc_bytes_deleted_receipts(self, budget: _HousekeepingBudget) -> None:
+        remaining = budget.remaining()
+        if remaining <= 0:
+            return
         try:
-            receipts = self._mutation_store.list_artifacts_with_bytes_deleted_receipt()
+            receipts = self._mutation_store.list_artifacts_with_bytes_deleted_receipt(
+                limit=remaining,
+                after_artifact_id=self._receipt_after_artifact_id,
+            )
         except Exception:
             _LOGGER.exception("artifact cleaner failed to list receipt GC candidates")
             return
+        if not receipts:
+            self._receipt_after_artifact_id = None
+            return
+        last: UUID | None = None
         for lifecycle in receipts:
             if self._stopping:
+                self._receipt_after_artifact_id = last
                 return
+            if not budget.consume():
+                break
+            last = lifecycle.artifact_id
             try:
                 self._gc_one_bytes_deleted_receipt(lifecycle)
             except Exception:
@@ -2044,6 +2123,7 @@ class ArtifactCleaner:
                     "artifact receipt GC failed for artifact %s",
                     lifecycle.artifact_id,
                 )
+        self._receipt_after_artifact_id = last
 
     def _gc_one_bytes_deleted_receipt(self, lifecycle: ArtifactLifecycleRecord) -> None:
         receipt_generation = lifecycle.bytes_deleted_receipt_generation
@@ -2422,26 +2502,30 @@ class ArtifactCleaner:
                             expected_ino=int(row.ino),
                         )
 
-    def _reclaim_durable_residuals(self) -> None:
-        after: int | None = None
-        while True:
-            if self._stopping:
-                return
-            page = self._import_store.list_artifact_residuals(
-                limit=64, after_residual_id=after
-            )
-            if page.scanned == 0:
-                return
-            for row in page.records:
-                try:
-                    self._reclaim_one_residual(row)
-                except Exception:
-                    _LOGGER.exception(
-                        "artifact residual reclaim failed for %s", row.residual_id
-                    )
-            if page.cursor_residual_id is None:
-                return
-            after = page.cursor_residual_id
+    def _reclaim_durable_residuals(self, budget: _HousekeepingBudget) -> None:
+        remaining = budget.remaining()
+        if remaining <= 0:
+            return
+        if self._stopping:
+            return
+        page = self._import_store.list_artifact_residuals(
+            limit=remaining, after_residual_id=self._residual_after_id
+        )
+        if page.scanned == 0:
+            self._residual_after_id = None
+            return
+        last_id: int | None = None
+        for row in page.records:
+            if not budget.consume():
+                break
+            last_id = row.residual_id
+            try:
+                self._reclaim_one_residual(row)
+            except Exception:
+                _LOGGER.exception(
+                    "artifact residual reclaim failed for %s", row.residual_id
+                )
+        self._residual_after_id = last_id if last_id is not None else page.cursor_residual_id
 
     def _reclaim_one_residual(self, row: ArtifactResidualRecord) -> None:
         try:
@@ -2635,12 +2719,29 @@ class ArtifactCleaner:
             consumed_operation_artifact_id=consumed_operation_artifact_id,
         )
 
-    def _inventory_owned_artifact_tree(self) -> None:
+    def _inventory_owned_artifact_tree(self, budget: _HousekeepingBudget) -> None:
         artifacts_root = self._layout.artifacts
         if not artifacts_root.is_dir():
             return
+        skipping = self._inventory_after_name is not None
+        last_name: str | None = None
+        exhausted = False
         try:
-            repo_entries = list(artifacts_root.iterdir())
+            with os.scandir(artifacts_root) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if skipping:
+                        if name == self._inventory_after_name:
+                            skipping = False
+                        continue
+                    if not budget.consume():
+                        exhausted = True
+                        break
+                    last_name = name
+                    self._inventory_one_artifacts_entry(entry, budget)
+                    if not budget.remaining():
+                        exhausted = True
+                        break
         except OSError:
             log_event(
                 "artifact_cleanup",
@@ -2650,73 +2751,76 @@ class ArtifactCleaner:
                 logger=_LOGGER,
             )
             return
-        for repo_entry in repo_entries:
-            name = repo_entry.name
-            try:
-                entry_stat = repo_entry.lstat()
-            except OSError:
-                log_event(
-                    "artifact_cleanup",
-                    stage="path_check",
-                    result="retained",
-                    cleanup_outcome="unknown_path_inventory",
-                    logger=_LOGGER,
-                )
-                continue
-            if stat_module.S_ISLNK(entry_stat.st_mode) or not stat_module.S_ISDIR(
-                entry_stat.st_mode
-            ):
-                log_event(
-                    "artifact_cleanup",
-                    stage="path_check",
-                    result="retained",
-                    cleanup_outcome="unknown_path_inventory",
-                    logger=_LOGGER,
-                )
-                continue
-            if len(name) != 32 or any(ch not in _HEX32 for ch in name):
-                log_event(
-                    "artifact_cleanup",
-                    stage="path_check",
-                    result="retained",
-                    cleanup_outcome="unknown_path_inventory",
-                    logger=_LOGGER,
-                )
-                continue
-            try:
-                repository_id = UUID(hex=name)
-            except ValueError:
-                log_event(
-                    "artifact_cleanup",
-                    stage="path_check",
-                    result="retained",
-                    cleanup_outcome="unknown_path_inventory",
-                    logger=_LOGGER,
-                )
-                continue
-            owned = self._import_store.has_succeeded_create_repository(repository_id)
-            if not owned:
-                log_event(
-                    "artifact_cleanup",
-                    repository_id=repository_id,
-                    stage="path_check",
-                    result="retained",
-                    cleanup_outcome="unknown_path_inventory",
-                    logger=_LOGGER,
-                )
-            for sub in ("ready", "staging"):
+        if budget.remaining():
+            staging_artifacts = self._layout.staging_artifacts
+            if staging_artifacts.is_dir():
                 self._inventory_directory_entries(
-                    repository_id,
-                    repo_entry / sub,
-                    allow_staging_shape=(sub == "staging"),
+                    None,
+                    staging_artifacts,
+                    allow_staging_shape=True,
+                    budget=budget,
                 )
+        self._inventory_after_name = last_name if exhausted else None
 
-        staging_artifacts = self._layout.staging_artifacts
-        if staging_artifacts.is_dir():
+    def _inventory_one_artifacts_entry(
+        self, entry: os.DirEntry[str], budget: _HousekeepingBudget
+    ) -> None:
+        name = entry.name
+        try:
+            if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                log_event(
+                    "artifact_cleanup",
+                    stage="path_check",
+                    result="retained",
+                    cleanup_outcome="unknown_path_inventory",
+                    logger=_LOGGER,
+                )
+                return
+        except OSError:
+            log_event(
+                "artifact_cleanup",
+                stage="path_check",
+                result="retained",
+                cleanup_outcome="unknown_path_inventory",
+                logger=_LOGGER,
+            )
+            return
+        if len(name) != 32 or any(ch not in _HEX32 for ch in name):
+            log_event(
+                "artifact_cleanup",
+                stage="path_check",
+                result="retained",
+                cleanup_outcome="unknown_path_inventory",
+                logger=_LOGGER,
+            )
+            return
+        try:
+            repository_id = UUID(hex=name)
+        except ValueError:
+            log_event(
+                "artifact_cleanup",
+                stage="path_check",
+                result="retained",
+                cleanup_outcome="unknown_path_inventory",
+                logger=_LOGGER,
+            )
+            return
+        owned = self._import_store.has_succeeded_create_repository(repository_id)
+        if not owned:
+            log_event(
+                "artifact_cleanup",
+                repository_id=repository_id,
+                stage="path_check",
+                result="retained",
+                cleanup_outcome="unknown_path_inventory",
+                logger=_LOGGER,
+            )
+        for sub in ("ready", "staging"):
             self._inventory_directory_entries(
-                None,
-                staging_artifacts,
-                allow_staging_shape=True,
+                repository_id,
+                Path(entry.path) / sub,
+                allow_staging_shape=(sub == "staging"),
+                budget=budget,
             )
 
     def _inventory_directory_entries(
@@ -2725,11 +2829,159 @@ class ArtifactCleaner:
         directory: Path,
         *,
         allow_staging_shape: bool,
+        budget: _HousekeepingBudget,
     ) -> None:
-        if not directory.is_dir():
+        try:
+            dir_st = directory.lstat()
+        except OSError:
+            return
+        if stat_module.S_ISLNK(dir_st.st_mode) or not stat_module.S_ISDIR(dir_st.st_mode):
             return
         try:
-            entries = list(directory.iterdir())
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if not budget.consume():
+                        return
+                    name = entry.name
+                    if (
+                        name.startswith(".deleting-")
+                        or name.startswith(".detach-")
+                        or name.startswith(".unlink-verify-")
+                        or name.startswith(".unlink-stage-")
+                    ):
+                        if name.startswith(".unlink-verify-"):
+                            malformed = parse_unlink_verify_name(name) is None
+                        elif name.startswith(".unlink-stage-"):
+                            malformed = parse_unlink_stage_dir_name(name) is None
+                        elif name.startswith(".deleting-"):
+                            malformed = parse_quarantine_name(name) is None
+                        else:
+                            malformed = parse_any_recoverable_sidecar(name) is None
+                        if malformed:
+                            log_event(
+                                "artifact_cleanup",
+                                repository_id=repository_id,
+                                stage="path_check",
+                                result="retained",
+                                cleanup_outcome="unknown_path_inventory",
+                                logger=_LOGGER,
+                            )
+                        continue
+                    if _is_exact_ready_name(name):
+                        try:
+                            artifact_id = UUID(hex=name)
+                        except ValueError:
+                            log_event(
+                                "artifact_cleanup",
+                                repository_id=repository_id,
+                                stage="path_check",
+                                result="retained",
+                                cleanup_outcome="unknown_path_inventory",
+                                logger=_LOGGER,
+                            )
+                            continue
+                        try:
+                            lifecycle = self._mutation_store.get_artifact_lifecycle(
+                                artifact_id
+                            )
+                        except MutationStoreInvariantError:
+                            log_event(
+                                "artifact_cleanup",
+                                repository_id=repository_id,
+                                artifact_id=artifact_id,
+                                stage="path_check",
+                                result="retained",
+                                cleanup_outcome="poison_lifecycle_inventory",
+                                logger=_LOGGER,
+                            )
+                            continue
+                        except Exception:
+                            log_event(
+                                "artifact_cleanup",
+                                repository_id=repository_id,
+                                artifact_id=artifact_id,
+                                stage="path_check",
+                                result="retained",
+                                cleanup_outcome="unknown_path_inventory",
+                                logger=_LOGGER,
+                            )
+                            continue
+                        if lifecycle is None or (
+                            repository_id is not None
+                            and lifecycle.repository_id != repository_id
+                        ):
+                            log_event(
+                                "artifact_cleanup",
+                                repository_id=repository_id,
+                                artifact_id=artifact_id,
+                                stage="path_check",
+                                result="retained",
+                                cleanup_outcome="unknown_path_inventory",
+                                logger=_LOGGER,
+                            )
+                        continue
+                    if allow_staging_shape and _is_staging_shape(name):
+                        left, _right = name.split(".", 1)
+                        try:
+                            artifact_id = UUID(hex=left)
+                        except ValueError:
+                            log_event(
+                                "artifact_cleanup",
+                                repository_id=repository_id,
+                                stage="path_check",
+                                result="retained",
+                                cleanup_outcome="unknown_path_inventory",
+                                logger=_LOGGER,
+                            )
+                            continue
+                        try:
+                            lifecycle = self._mutation_store.get_artifact_lifecycle(
+                                artifact_id
+                            )
+                        except MutationStoreInvariantError:
+                            log_event(
+                                "artifact_cleanup",
+                                repository_id=repository_id,
+                                artifact_id=artifact_id,
+                                stage="path_check",
+                                result="retained",
+                                cleanup_outcome="poison_lifecycle_inventory",
+                                logger=_LOGGER,
+                            )
+                            continue
+                        except Exception:
+                            log_event(
+                                "artifact_cleanup",
+                                repository_id=repository_id,
+                                artifact_id=artifact_id,
+                                stage="path_check",
+                                result="retained",
+                                cleanup_outcome="unknown_path_inventory",
+                                logger=_LOGGER,
+                            )
+                            continue
+                        if lifecycle is None or (
+                            repository_id is not None
+                            and lifecycle.repository_id != repository_id
+                        ):
+                            log_event(
+                                "artifact_cleanup",
+                                repository_id=repository_id,
+                                artifact_id=artifact_id,
+                                stage="path_check",
+                                result="retained",
+                                cleanup_outcome="unknown_path_inventory",
+                                logger=_LOGGER,
+                            )
+                        continue
+                    log_event(
+                        "artifact_cleanup",
+                        repository_id=repository_id,
+                        stage="path_check",
+                        result="retained",
+                        cleanup_outcome="unknown_path_inventory",
+                        logger=_LOGGER,
+                    )
         except OSError:
             log_event(
                 "artifact_cleanup",
@@ -2739,147 +2991,11 @@ class ArtifactCleaner:
                 cleanup_outcome="ready_dir_unreadable",
                 logger=_LOGGER,
             )
-            return
-        for entry in entries:
-            name = entry.name
-            if (
-                name.startswith(".deleting-")
-                or name.startswith(".detach-")
-                or name.startswith(".unlink-verify-")
-                or name.startswith(".unlink-stage-")
-            ):
-                # Quarantine/detach/verify/stage sidecars are recovered separately; diagnose
-                # malformed names that fail to parse.
-                if name.startswith(".unlink-verify-"):
-                    malformed = parse_unlink_verify_name(name) is None
-                elif name.startswith(".unlink-stage-"):
-                    malformed = parse_unlink_stage_dir_name(name) is None
-                elif name.startswith(".deleting-"):
-                    malformed = parse_quarantine_name(name) is None
-                else:
-                    malformed = parse_any_recoverable_sidecar(name) is None
-                if malformed:
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        stage="path_check",
-                        result="retained",
-                        cleanup_outcome="unknown_path_inventory",
-                        logger=_LOGGER,
-                    )
-                continue
-            if _is_exact_ready_name(name):
-                try:
-                    artifact_id = UUID(hex=name)
-                except ValueError:
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        stage="path_check",
-                        result="retained",
-                        cleanup_outcome="unknown_path_inventory",
-                        logger=_LOGGER,
-                    )
-                    continue
-                try:
-                    lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
-                except MutationStoreInvariantError:
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="path_check",
-                        result="retained",
-                        cleanup_outcome="poison_lifecycle_inventory",
-                        logger=_LOGGER,
-                    )
-                    continue
-                except Exception:
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="path_check",
-                        result="retained",
-                        cleanup_outcome="unknown_path_inventory",
-                        logger=_LOGGER,
-                    )
-                    continue
-                if lifecycle is None or (
-                    repository_id is not None and lifecycle.repository_id != repository_id
-                ):
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="path_check",
-                        result="retained",
-                        cleanup_outcome="unknown_path_inventory",
-                        logger=_LOGGER,
-                    )
-                continue
-            if allow_staging_shape and _is_staging_shape(name):
-                left, _right = name.split(".", 1)
-                try:
-                    artifact_id = UUID(hex=left)
-                except ValueError:
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        stage="path_check",
-                        result="retained",
-                        cleanup_outcome="unknown_path_inventory",
-                        logger=_LOGGER,
-                    )
-                    continue
-                try:
-                    lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
-                except MutationStoreInvariantError:
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="path_check",
-                        result="retained",
-                        cleanup_outcome="poison_lifecycle_inventory",
-                        logger=_LOGGER,
-                    )
-                    continue
-                except Exception:
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="path_check",
-                        result="retained",
-                        cleanup_outcome="unknown_path_inventory",
-                        logger=_LOGGER,
-                    )
-                    continue
-                if lifecycle is None or (
-                    repository_id is not None and lifecycle.repository_id != repository_id
-                ):
-                    log_event(
-                        "artifact_cleanup",
-                        repository_id=repository_id,
-                        artifact_id=artifact_id,
-                        stage="path_check",
-                        result="retained",
-                        cleanup_outcome="unknown_path_inventory",
-                        logger=_LOGGER,
-                    )
-                continue
-            log_event(
-                "artifact_cleanup",
-                repository_id=repository_id,
-                stage="path_check",
-                result="retained",
-                cleanup_outcome="unknown_path_inventory",
-                logger=_LOGGER,
-            )
 
-    def _still_eligible(self, artifact_id: UUID) -> bool:
+    def _still_eligible(self, artifact_id: UUID, repository_id: UUID) -> bool:
         lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
+        if lifecycle is None or lifecycle.repository_id != repository_id:
+            return False
         references = self._import_store.list_artifact_references(artifact_id)
         decision = decide_artifact_bytes_deletion(
             lifecycle=lifecycle,

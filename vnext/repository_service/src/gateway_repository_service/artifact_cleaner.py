@@ -16,6 +16,7 @@ from typing import Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from gateway_repository_contracts import OperationStatus
+from gateway_repository_service import artifact_cleanup
 from gateway_repository_service.artifact_broker import ArtifactBrokerError, get_artifact_broker
 from gateway_repository_service.artifact_retention import (
     ArtifactBytesDeletionReason,
@@ -35,7 +36,6 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     STAGE_VICTIM,
     StageDirStatus,
-    artifact_residual_sink,
     destroy_owned_bytes_and_reclaim_names,
     list_unlink_stage_dir_names,
     lock_unlink_stage_dir,
@@ -49,7 +49,6 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     parse_unlink_verify_name,
     prove_size0_owned_name_terminal,
     reclaim_size0_owned_name,
-    try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
     unlock_unlink_stage_dir,
 )
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -357,86 +356,17 @@ class ArtifactCleaner:
             )
             return False
 
-        stamped = {"ok": False}
-        intent_ids: dict[str, int | str] = {}
-
-        def _stamp(dev: int, ino: int, generation: str) -> None:
-            self._import_store.mark_artifact_bytes_deleted(
-                artifact_id,
-                deleted_at=self._deleted_at_stamp(),
-                repository_id=repository_id,
-                expected_dev=dev,
-                expected_ino=ino,
-                expected_generation=generation,
-            )
-            stamped["ok"] = True
-
-        def _on_intent(dev: int, ino: int, generation: str) -> None:
-            intent_ids["dev"] = dev
-            intent_ids["ino"] = ino
-            intent_ids["generation"] = generation
-            self._import_store.begin_artifact_bytes_delete_intent(
-                artifact_id,
-                repository_id=repository_id,
-                dev=dev,
-                ino=ino,
-                phase="quarantined",
-                intent_at=self._deleted_at_stamp(),
-                generation=generation,
-            )
-
-        def _on_clear_intent(dev: int, ino: int, generation: str) -> None:
-            self._import_store.clear_artifact_bytes_delete_intent(
-                artifact_id,
-                repository_id=repository_id,
-                expected_dev=dev,
-                expected_ino=ino,
-                expected_generation=generation,
-            )
-
-        def _on_clear_receipt(dev: int, ino: int, generation: str) -> None:
-            self._import_store.clear_artifact_bytes_deleted_receipt(
-                artifact_id,
-                repository_id=repository_id,
-                expected_dev=dev,
-                expected_ino=ino,
-                expected_generation=generation,
-            )
-
-        def _on_residual(
-            kind: str,
-            name: str,
-            parent_name: str,
-            dev: int,
-            ino: int,
-            generation: str | None,
-        ) -> None:
-            self._import_store.insert_artifact_residual(
-                artifact_id,
-                repository_id=repository_id,
-                kind=kind,
-                name=name,
-                parent_name=parent_name,
-                dev=dev,
-                ino=ino,
-                generation=generation,
-                created_at=self._deleted_at_stamp(),
-            )
-
-        with artifact_residual_sink(_on_residual):
-            outcome = try_unlink_ready_artifact_with_recheck(
-                expected,
-                recheck=lambda: self._still_eligible(artifact_id),
-                layout=self._layout,
-                repository_id=repository_id,
-                artifact_id=artifact_id,
-                on_deleted=_stamp,
-                on_intent=_on_intent,
-                on_clear_intent=_on_clear_intent,
-                on_clear_receipt=_on_clear_receipt,
-                tombstone_budget=self._settings.artifact_tombstone_budget,
-            )
-        if outcome == "deleted" and stamped["ok"]:
+        outcome = artifact_cleanup.cleanup_ready_artifact_bytes(
+            self._import_store,
+            self._layout,
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+            ttl_seconds=self._settings.artifact_ttl_seconds,
+            tombstone_budget=self._settings.artifact_tombstone_budget,
+            deleted_at=self._deleted_at_stamp(),
+            recheck=lambda: self._still_eligible(artifact_id),
+        )
+        if outcome == "deleted":
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,

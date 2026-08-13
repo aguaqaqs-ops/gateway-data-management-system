@@ -6,6 +6,9 @@
 
 设计基线：`3616ef0d9707e6ec165376d175003ca80843ab1a`
 
+工作树（Step A 起）：`fb066194dbfea984a8e87c72a1284c9df19927b8`（基线之后的文档提交
+`c6369a3` 与 cleanup 优化修复）。调用图与 schema inventory 见第 8 节。
+
 权威语义：
 
 - [ADR 0012](../formal/adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)
@@ -205,3 +208,79 @@ unlink-verify/generation/receipt/proof syscall窗口的测试。安全相关的�
 8. container：最终HEAD镜像与Compose evidence对齐。
 
 只有上述全部闭合后才能重新判断`S3 ready`。本计划本身和文档提交不代表实现已完成。
+
+## 8. Step A inventory (working baseline `fb06619`)
+
+文档设计基线仍是 `3616ef0`。Step A 冻结的工作树是其后的 `c6369a3`（ADR 0012 / 本计划）加
+`fb06619`（notify 从第一页重启 cursor、startup 在 disk gate 前 reclaim、readiness 忘掉已
+stamp 的 upload）。本节是执行记录，不升级为长期第二权威。
+
+### 8.1 Production call graph and lock order
+
+Eligibility 已统一：`artifact_retention.decide_artifact_bytes_deletion`，经
+`ImportOperationStore.evaluate_artifact_bytes_deletion` / `can_delete_artifact_bytes`。
+
+Ready-bytes 删除在 Step A 之前没有统一入口。三处复制 stamp/intent/receipt/residual 回调后
+调用 `try_unlink_ready_artifact_with_recheck` → `try_unlink_owned_ready_artifact`：
+
+- Worker：`ImportOperationExecutor._best_effort_delete_artifact_bytes`。SUCCEEDED 先持久化，
+  再 best-effort 删 private ref / bytes。`ImportWorkerPool.set_lifecycle_notify` 唤醒 cleaner。
+- Recovery / Admin：`cleanup_after_succeeded_correction`（private ref + staging + bytes）。
+  Admin 是 stopped-service CLI，先拿 `DurableRootLock`。
+- Cleaner：`ArtifactCleaner._process_candidate` 先 eligibility 与
+  `classify_ready_artifact_path`；absent 记 `already_absent_unproven` 且不 stamp。
+
+Step A 把上述 duplicated 回调抽到 `artifact_cleanup.cleanup_ready_artifact_bytes`，协议仍是
+旧 owned unlink。Cleaner housekeeping（quarantine / receipt GC / residual reclaim / inventory）
+不进入 facade。
+
+非 ready-bytes、不要误收进 facade：
+
+- upload 成功只 `notify` cleaner；
+- mutation reconciliation 只清 import staging；
+- admin `NOT_PUBLISHED` 只清 private ref + staging；
+- `versioned_read/async_cleanup.py` 与 artifact bytes 无关。
+
+锁序（HEAD，Step A 不改）：
+
+1. 服务持有 durable-root lock；admin CLI 在服务停止时独占同一把锁。
+2. Worker 另持 `repository_execution`。Cleanup 不持该锁。
+3. Admission pin：ready inode `LOCK_EX`（阻塞）。
+4. Owned unlink：tombstone reserve（ready dir flock）→ ready inode `LOCK_EX|LOCK_NB` →
+   broker link/rename → control DB intent/stamp/residual → ftruncate/reclaim → unlock。
+5. 目标「cleanup 取得 admission pin，同一临界区重读 eligibility」尚未实现。
+
+`fb06619`：`notify()` 置 `_restart_cursor`，下次 sweep 从 page one 重扫；startup 在
+`has_free_disk_admission` 之前调用 `reclaim_until_disk_admission`。
+
+### 8.2 Stop-write / compatibility-read / deletable
+
+`CONTROL_DB_USER_VERSION = 15`。不降 user_version。本步继续按 HEAD 写入；下表供 Step B/C。
+
+| object | HEAD | later disposition | leftover blocks admission? |
+| --- | --- | --- | --- |
+| `bytes_deleted_at` | 仍写（成功 stamp） | **继续写** | 是：已 stamp 拒绝 import |
+| intent 五列（at/dev/ino/phase/generation） | 仍写 | Step B **停写**，列留 ballast；CHECK 仍要求全空或完整 | **是**：active intent → `ImportArtifactBindingRejected` |
+| receipt 三列 | 仍写（stamp 时从 intent 拷贝） | Step B **停写**，列留 ballast | 否（直接） |
+| 表 `artifact_residual` | 仍写 | Step B **停写**；表 admin 必选，删表需 migration | 否（直接） |
+| `cleanup_seq` INTEGER + unique/partial index + immutable trigger | 仍写 | **保留**（分页 / poison 隔离） | 否 |
+| 索引 `(created_at, artifact_id) WHERE bytes_deleted_at IS NULL` | schema 仍在，生产 SELECT 已不用 | **ballast**；删索引需新 migration | 否 |
+| sidecar `.deleting-` / `.detach-` / `.unlink-verify-` / `.unlink-stage-` 及 stage children | 仍创建 | Step B **停止创建**；磁盘 legal eligible 可 best-effort 收敛 | 间接：计入 tombstone budget，挡新 delete |
+| `artifact_tombstone_budget`（默认 50_000，Compose `GATEWAY_REPOSITORY_ARTIFACT_TOMBSTONE_BUDGET`） | 仍接线 | Step B **删除**设置 / env / projected reservation | 间接（budget） |
+| broker socket / SCM_RIGHTS / pidfd / helper / `_DirLocks` | 仍存在 | Step C **删除** | n/a |
+
+磁盘最小 fixture（Step B 才造收敛器）：legal eligible ready、protected、malformed/ambiguous
+sidecar、I/O failure。
+
+### 8.3 Step B behavior deltas (not in Step A)
+
+Step A Contract 冻结 HEAD：
+
+- eligible `ENOENT` 幂等完成调用，**不**盖 `bytes_deleted_at`；ineligible missing 仍 fail closed。
+- cleanup 与 admission 靠同一 ready inode flock 协作，不改协议。
+
+Step B 才改：
+
+- eligible `ENOENT` 可盖 `bytes_deleted_at`，readiness 视为完成；
+- cleanup 先拿 admission pin，同一临界区重读 eligibility，再 dirfd unlink；
+- 停止创建 sidecar / generation / receipt / residual / tombstone reservation。

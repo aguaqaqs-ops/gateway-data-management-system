@@ -625,10 +625,10 @@ def test_cleanup_retries_after_first_failure(
             return "unlink_failed"
         return original(path, recheck=recheck, **kwargs)  # type: ignore[arg-type]
 
-    import gateway_repository_service.artifact_cleaner as cleaner_mod
+    import gateway_repository_service.artifact_cleanup as cleanup_mod
 
     monkey = flaky
-    setattr(cleaner_mod, "try_unlink_ready_artifact_with_recheck", monkey)
+    setattr(cleanup_mod, "try_unlink_ready_artifact_with_recheck", monkey)
     try:
         cleaner.sweep_once()
         assert ready.is_file()
@@ -641,7 +641,7 @@ def test_cleanup_retries_after_first_failure(
         assert lifecycle is not None
         assert lifecycle.bytes_deleted_at is not None
     finally:
-        setattr(cleaner_mod, "try_unlink_ready_artifact_with_recheck", original)
+        setattr(cleanup_mod, "try_unlink_ready_artifact_with_recheck", original)
 
 
 @pytest.mark.serial
@@ -665,9 +665,9 @@ def test_cleanup_failure_retries_after_lifecycle_notification(
             return "unlink_failed"
         return original(path, recheck=recheck, **kwargs)  # type: ignore[arg-type]
 
-    import gateway_repository_service.artifact_cleaner as cleaner_mod
+    import gateway_repository_service.artifact_cleanup as cleanup_mod
 
-    monkeypatch.setattr(cleaner_mod, "try_unlink_ready_artifact_with_recheck", fail_once)
+    monkeypatch.setattr(cleanup_mod, "try_unlink_ready_artifact_with_recheck", fail_once)
     cleaner = ArtifactCleaner(
         settings=_settings(layout, ttl=1, interval=3600),
         layout=layout,
@@ -710,9 +710,9 @@ def test_cleanup_failure_retries_after_interval_fallback(
             return "unlink_failed"
         return original(path, recheck=recheck, **kwargs)  # type: ignore[arg-type]
 
-    import gateway_repository_service.artifact_cleaner as cleaner_mod
+    import gateway_repository_service.artifact_cleanup as cleanup_mod
 
-    monkeypatch.setattr(cleaner_mod, "try_unlink_ready_artifact_with_recheck", fail_once)
+    monkeypatch.setattr(cleanup_mod, "try_unlink_ready_artifact_with_recheck", fail_once)
     cleaner = ArtifactCleaner(
         settings=_settings(layout, ttl=1, interval=1),
         layout=layout,
@@ -829,11 +829,11 @@ def test_unlink_failure_does_not_record_bytes_deleted_at(
     store.claim_if_queued(OPERATION_ID)
     store.mark_succeeded(OPERATION_ID, result=_import_result())
 
-    import gateway_repository_service.artifact_cleaner as cleaner_mod
+    import gateway_repository_service.artifact_cleanup as cleanup_mod
 
-    original = cleaner_mod.try_unlink_ready_artifact_with_recheck
+    original = cleanup_mod.try_unlink_ready_artifact_with_recheck
     setattr(
-        cleaner_mod,
+        cleanup_mod,
         "try_unlink_ready_artifact_with_recheck",
         lambda *args, **kwargs: "unlink_failed",
     )
@@ -846,7 +846,7 @@ def test_unlink_failure_does_not_record_bytes_deleted_at(
             clock=lambda: BASE_NOW,
         ).sweep_once()
     finally:
-        setattr(cleaner_mod, "try_unlink_ready_artifact_with_recheck", original)
+        setattr(cleanup_mod, "try_unlink_ready_artifact_with_recheck", original)
 
     assert ready.is_file()
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)

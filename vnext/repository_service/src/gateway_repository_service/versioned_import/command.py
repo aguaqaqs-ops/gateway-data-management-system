@@ -10,12 +10,10 @@ from typing import Literal
 
 from gateway_repository_contracts import SimpleError, VersionedImportResult
 
+from gateway_repository_service import artifact_cleanup
 from gateway_repository_service.capacity import CapacityAdmissionError, assert_import_disk_admission
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
-from gateway_repository_service.upload_artifact.admission_pin import (
-    try_unlink_ready_artifact_with_recheck,
-)
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.errors import (
     ImportProviderError,
@@ -371,87 +369,21 @@ class ImportOperationExecutor:
         artifact_path: Path,
     ) -> None:
         try:
-            stamped = {"ok": False}
-
-            def _stamp(dev: int, ino: int, generation: str) -> None:
-                self._store.mark_artifact_bytes_deleted(
-                    context.artifact_id,
-                    repository_id=context.repository_id,
-                    expected_dev=dev,
-                    expected_ino=ino,
-                    expected_generation=generation,
-                )
-                stamped["ok"] = True
-
-            def _on_intent(dev: int, ino: int, generation: str) -> None:
-                self._store.begin_artifact_bytes_delete_intent(
-                    context.artifact_id,
-                    repository_id=context.repository_id,
-                    dev=dev,
-                    ino=ino,
-                    phase="quarantined",
-                    generation=generation,
-                )
-
-            def _on_clear_intent(dev: int, ino: int, generation: str) -> None:
-                self._store.clear_artifact_bytes_delete_intent(
-                    context.artifact_id,
-                    repository_id=context.repository_id,
-                    expected_dev=dev,
-                    expected_ino=ino,
-                    expected_generation=generation,
-                )
-
-            def _on_clear_receipt(dev: int, ino: int, generation: str) -> None:
-                self._store.clear_artifact_bytes_deleted_receipt(
-                    context.artifact_id,
-                    repository_id=context.repository_id,
-                    expected_dev=dev,
-                    expected_ino=ino,
-                    expected_generation=generation,
-                )
-
-            def _on_residual(
-                kind: str,
-                name: str,
-                parent_name: str,
-                dev: int,
-                ino: int,
-                generation: str | None,
-            ) -> None:
-                self._store.insert_artifact_residual(
-                    context.artifact_id,
-                    repository_id=context.repository_id,
-                    kind=kind,
-                    name=name,
-                    parent_name=parent_name,
-                    dev=dev,
-                    ino=ino,
-                    generation=generation,
-                )
-
-            from gateway_repository_service.upload_artifact.admission_pin import (
-                artifact_residual_sink,
+            expected = artifact_ready_path(
+                self._layout,
+                context.repository_id,
+                context.artifact_id,
             )
-
-            with artifact_residual_sink(_on_residual):
-                outcome = try_unlink_ready_artifact_with_recheck(
-                    artifact_path,
-                    recheck=lambda: self._store.can_delete_artifact_bytes(
-                        context.artifact_id,
-                        ttl_seconds=self._settings.artifact_ttl_seconds,
-                    ),
-                    layout=self._layout,
-                    repository_id=context.repository_id,
-                    artifact_id=context.artifact_id,
-                    on_deleted=_stamp,
-                    on_intent=_on_intent,
-                    on_clear_intent=_on_clear_intent,
-                    on_clear_receipt=_on_clear_receipt,
-                    tombstone_budget=self._settings.artifact_tombstone_budget,
-                )
-            if outcome != "deleted" or not stamped["ok"]:
+            if artifact_path != expected:
                 return
+            artifact_cleanup.cleanup_ready_artifact_bytes(
+                self._store,
+                self._layout,
+                repository_id=context.repository_id,
+                artifact_id=context.artifact_id,
+                ttl_seconds=self._settings.artifact_ttl_seconds,
+                tombstone_budget=self._settings.artifact_tombstone_budget,
+            )
         except Exception:
             _LOGGER.exception(
                 "failed to delete artifact bytes for operation %s",

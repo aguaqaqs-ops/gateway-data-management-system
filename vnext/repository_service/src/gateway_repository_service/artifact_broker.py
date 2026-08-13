@@ -505,39 +505,55 @@ def _recv_exact(conn: socket.socket, size: int) -> bytes:
 class SocketArtifactDirBroker:
     """Client: JSON + SCM_RIGHTS dir/src fds. No path-string reopen on the server."""
 
-    def __init__(self, socket_path: Path, *, timeout: float = _REQUEST_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        socket_path: Path,
+        *,
+        control_socket_path: Path | None = None,
+        timeout: float = _REQUEST_TIMEOUT_SECONDS,
+    ) -> None:
         self._socket_path = socket_path
+        self._control_socket_path = control_socket_path or (
+            socket_path.parent / f"{socket_path.stem}-control.sock"
+        )
         self._timeout = timeout
 
     def ping(self) -> None:
-        resp = self._call({"op": "ping"})
-        if not resp.get("ok"):
-            raise ArtifactBrokerError("broker ping failed")
+        for attempt in range(3):
+            resp = self._call({"op": "ping"}, control=True)
+            if resp.get("ok"):
+                return
+            if resp.get("error") != "overloaded" or attempt == 2:
+                raise ArtifactBrokerError("broker ping failed")
 
     def bind(self) -> None:
         # Dual-UID: helper cannot pidfd_open(peer); send self pidfd via SCM_RIGHTS.
         pidfd = os.pidfd_open(os.getpid())
         try:
-            resp = self._call({"op": "bind"}, fds=[pidfd])
+            resp = self._call({"op": "bind"}, fds=[pidfd], control=True)
         finally:
             os.close(pidfd)
         if not resp.get("ok"):
             raise ArtifactBrokerError(str(resp.get("error", "broker bind failed")))
 
     def shutdown(self) -> None:
-        resp = self._call({"op": "shutdown"})
+        resp = self._call({"op": "shutdown"}, control=True)
         if not resp.get("ok"):
             raise ArtifactBrokerError(str(resp.get("error", "broker shutdown failed")))
 
     def assert_bound(self) -> None:
-        resp = self._call({"op": "assert_bound"})
-        if not resp.get("ok"):
-            raise ArtifactBrokerError(str(resp.get("error", "broker bind lost")))
+        for attempt in range(3):
+            resp = self._call({"op": "assert_bound"}, control=True)
+            if resp.get("ok"):
+                return
+            if resp.get("error") != "overloaded" or attempt == 2:
+                raise ArtifactBrokerError(str(resp.get("error", "broker bind lost")))
 
-    def _connect(self) -> socket.socket:
+    def _connect(self, *, control: bool = False) -> socket.socket:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(self._timeout)
-        conn.connect(str(self._socket_path))
+        target = self._control_socket_path if control else self._socket_path
+        conn.connect(str(target))
         return conn
 
     def _call(
@@ -545,30 +561,42 @@ class SocketArtifactDirBroker:
         payload: dict[str, object],
         *,
         fds: list[int] | None = None,
+        control: bool = False,
     ) -> dict[str, object]:
-        conn = self._connect()
-        try:
-            blob = _pack_request(payload)
-            if fds:
-                conn.sendmsg(
-                    [blob],
-                    [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", fds).tobytes())],
-                )
-            else:
-                conn.sendall(blob)
-            hdr = _recv_exact(conn, 4)
-            (length,) = struct.unpack("!I", hdr)
-            if length <= 0 or length > _MAX_JSON:
-                raise ArtifactBrokerError("invalid broker response")
-            body = _recv_exact(conn, length)
-            parsed = json.loads(body.decode("utf-8"))
-            if not isinstance(parsed, dict):
-                raise ArtifactBrokerError("invalid broker response")
-            return parsed
-        except (OSError, TimeoutError, json.JSONDecodeError) as exc:
-            raise ArtifactBrokerError(f"broker transport failed: {type(exc).__name__}") from exc
-        finally:
-            conn.close()
+        last_exc: BaseException | None = None
+        for attempt in range(3):
+            conn = self._connect(control=control)
+            try:
+                blob = _pack_request(payload)
+                if fds:
+                    conn.sendmsg(
+                        [blob],
+                        [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", fds).tobytes())],
+                    )
+                else:
+                    conn.sendall(blob)
+                hdr = _recv_exact(conn, 4)
+                (length,) = struct.unpack("!I", hdr)
+                if length <= 0 or length > _MAX_JSON:
+                    raise ArtifactBrokerError("invalid broker response")
+                body = _recv_exact(conn, length)
+                parsed = json.loads(body.decode("utf-8"))
+                if not isinstance(parsed, dict):
+                    raise ArtifactBrokerError("invalid broker response")
+                return parsed
+            except (OSError, TimeoutError, json.JSONDecodeError) as exc:
+                last_exc = exc
+                if not isinstance(exc, ConnectionResetError) or attempt == 2:
+                    raise ArtifactBrokerError(
+                        f"broker transport failed: {type(exc).__name__}"
+                    ) from exc
+            finally:
+                conn.close()
+        if last_exc is None:
+            raise ArtifactBrokerError("broker transport failed")
+        raise ArtifactBrokerError(
+            f"broker transport failed: {type(last_exc).__name__}"
+        ) from last_exc
 
     def mkdir(self, dir_fd: int, name: str, *, mode: int = 0o700) -> None:
         resp = self._call({"op": "mkdir", "name": name, "mode": int(mode)}, fds=[dir_fd])
@@ -823,5 +851,9 @@ def _make_broker(mode: Literal["inprocess", "socket"]) -> ArtifactDirBroker:
         sock = os.environ.get("GATEWAY_REPOSITORY_ARTIFACT_BROKER_SOCKET")
         if not sock:
             raise ArtifactBrokerError("artifact broker socket is required")
-        return SocketArtifactDirBroker(Path(sock))
+        control = os.environ.get("GATEWAY_REPOSITORY_ARTIFACT_BROKER_CONTROL_SOCKET")
+        return SocketArtifactDirBroker(
+            Path(sock),
+            control_socket_path=Path(control) if control else None,
+        )
     return InProcessArtifactDirBroker()

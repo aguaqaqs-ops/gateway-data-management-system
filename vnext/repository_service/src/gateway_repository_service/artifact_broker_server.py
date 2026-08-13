@@ -30,12 +30,21 @@ from gateway_repository_service.artifact_broker import (
     unlink_identity_matches,
     unlink_name_allowed,
 )
+from gateway_repository_service.artifact_root import (
+    ArtifactRootError,
+    assert_no_symlink_ancestors,
+    mnt_id_for_fd,
+    open_dir_nofollow,
+    same_mount,
+)
 
 _CMSG_SPACE = socket.CMSG_SPACE(4 * 8)
 _MAX_WORKER_THREADS = 16
-_IO_RESERVE_THREADS = 8
+_CONTROL_WORKER_THREADS = 4
+_IO_RESERVE_THREADS = _CONTROL_WORKER_THREADS
 _CONTROL_OPS = frozenset({"ping", "bind", "shutdown", "assert_bound"})
 _MAX_FDS = 8
+_LAST_DIR_LOCKS: "_DirLocks | None" = None
 
 
 @dataclass
@@ -51,12 +60,54 @@ class FrozenArtifactsRoot:
     path: str
     dev: int
     ino: int
+    mnt_id: int
+    root_fd: int
 
 
 class _DirLocks:
     def __init__(self) -> None:
         self._guard = threading.Lock()
         self._locks: dict[tuple[int, int], threading.Lock] = {}
+        self._refs: dict[tuple[int, int], int] = {}
+
+    @property
+    def retained(self) -> int:
+        with self._guard:
+            return len(self._locks)
+
+    def acquire_keys(self, keys: list[tuple[int, int]]) -> list[tuple[int, int]]:
+        ordered = sorted(set(keys))
+        held: list[tuple[int, int]] = []
+        try:
+            for key in ordered:
+                with self._guard:
+                    lock = self._locks.get(key)
+                    if lock is None:
+                        lock = threading.Lock()
+                        self._locks[key] = lock
+                        self._refs[key] = 0
+                lock.acquire()
+                held.append(key)
+                with self._guard:
+                    self._refs[key] = self._refs.get(key, 0) + 1
+            return held
+        except BaseException:
+            self.release_keys(held)
+            raise
+
+    def release_keys(self, keys: list[tuple[int, int]]) -> None:
+        for key in reversed(keys):
+            with self._guard:
+                lock = self._locks.get(key)
+            if lock is not None:
+                lock.release()
+            with self._guard:
+                refs = self._refs.get(key, 0) - 1
+                if refs <= 0:
+                    self._refs.pop(key, None)
+                    self._locks.pop(key, None)
+                else:
+                    self._refs[key] = refs
 
     def lock_for_key(self, key: tuple[int, int]) -> threading.Lock:
         with self._guard:
@@ -64,11 +115,19 @@ class _DirLocks:
             if lock is None:
                 lock = threading.Lock()
                 self._locks[key] = lock
+                self._refs[key] = 0
             return lock
 
     def lock_for(self, fd: int) -> threading.Lock:
         st = os.fstat(fd)
         return self.lock_for_key((int(st.st_dev), int(st.st_ino)))
+
+
+def dir_lock_table_size() -> int:
+    locks = _LAST_DIR_LOCKS
+    if locks is None:
+        return 0
+    return locks.retained
 
 
 def _send_json(conn: socket.socket, payload: dict[str, object]) -> None:
@@ -127,21 +186,29 @@ def _fd_path(fd: int) -> str:
 
 def _require_dir_under_root(fd: int, artifacts_root: FrozenArtifactsRoot) -> None:
     try:
-        root_st = os.lstat(artifacts_root.path)
+        root_st = os.fstat(artifacts_root.root_fd)
     except OSError as exc:
         raise ArtifactBrokerError("dirfd outside artifacts root") from exc
-    if stat.S_ISLNK(root_st.st_mode):
-        raise ArtifactBrokerError("dirfd outside artifacts root")
     if int(root_st.st_dev) != int(artifacts_root.dev) or int(root_st.st_ino) != int(
         artifacts_root.ino
     ):
         raise ArtifactBrokerError("dirfd outside artifacts root")
+    try:
+        if mnt_id_for_fd(artifacts_root.root_fd) != int(artifacts_root.mnt_id):
+            raise ArtifactBrokerError("dirfd outside artifacts root")
+    except ArtifactRootError as exc:
+        raise ArtifactBrokerError("dirfd outside artifacts root") from exc
     path = _fd_path(fd)
     if not path_is_under(path, artifacts_root.path, canonicalize_root=False):
         raise ArtifactBrokerError("dirfd outside artifacts root")
     st = os.fstat(fd)
     if not (st.st_mode & 0o170000 == 0o040000):
         raise ArtifactBrokerError("dirfd is not a directory")
+    try:
+        if mnt_id_for_fd(fd) != int(artifacts_root.mnt_id):
+            raise ArtifactBrokerError("dirfd outside artifacts root")
+    except ArtifactRootError as exc:
+        raise ArtifactBrokerError("dirfd outside artifacts root") from exc
 
 
 def _proc_starttime(pid: int) -> int:
@@ -248,7 +315,7 @@ def _handle(
     bind_state: BrokerBindState,
     stop: threading.Event | None,
     dir_locks: _DirLocks,
-    dir_sema: threading.Semaphore,
+    control_only: bool,
 ) -> None:
     fds: list[int] = []
     keep: set[int] = set()
@@ -268,6 +335,12 @@ def _handle(
             return
         if op not in _OPS:
             _send_json(conn, {"ok": False, "error": "unknown_op"})
+            return
+        if control_only and op not in _CONTROL_OPS:
+            _send_json(conn, {"ok": False, "error": "control_only"})
+            return
+        if not control_only and op in _CONTROL_OPS:
+            _send_json(conn, {"ok": False, "error": "data_socket_rejected"})
             return
         if op == "ping":
             if fds:
@@ -318,23 +391,22 @@ def _handle(
         if len(fds) > expected_fds:
             _send_json(conn, {"ok": False, "error": "extra_fds"})
             return
-        if not dir_sema.acquire(timeout=_REQUEST_TIMEOUT_SECONDS):
-            _send_json(conn, {"ok": False, "error": "busy"})
-            return
-        acquired: list[threading.Lock] = []
+        acquired_keys: list[tuple[int, int]] = []
         try:
             keys: list[tuple[int, int]] = []
             seen: set[tuple[int, int]] = set()
-            for fd in fds[:expected_fds]:
+            dir_fds = [fds[0]]
+            if op == "rename_noreplace":
+                dir_fds = [fds[0], fds[1]]
+            for fd in dir_fds:
                 st = os.fstat(fd)
+                if not stat.S_ISDIR(st.st_mode):
+                    continue
                 key = (int(st.st_dev), int(st.st_ino))
                 if key not in seen:
                     seen.add(key)
                     keys.append(key)
-            for key in sorted(keys):
-                lock = dir_locks.lock_for_key(key)
-                lock.acquire()
-                acquired.append(lock)
+            acquired_keys = dir_locks.acquire_keys(keys)
             _require_dir_under_root(fds[0], artifacts_root)
             if op == "mkdir":
                 name = str(req["name"])
@@ -459,9 +531,7 @@ def _handle(
         except OSError as exc:
             _send_json(conn, {"ok": False, "error": type(exc).__name__})
         finally:
-            for lock in reversed(acquired):
-                lock.release()
-            dir_sema.release()
+            dir_locks.release_keys(acquired_keys)
     except Exception as exc:
         try:
             _send_json(conn, {"ok": False, "error": type(exc).__name__})
@@ -471,6 +541,10 @@ def _handle(
         _close_fds(fds, keep=keep)
 
 
+def _default_control_socket(socket_path: Path) -> Path:
+    return socket_path.parent / f"{socket_path.stem}-control.sock"
+
+
 def serve(
     socket_path: Path,
     *,
@@ -478,60 +552,118 @@ def serve(
     artifacts_root: Path,
     stop: threading.Event | None = None,
     expected_peer_gid: int | None = None,
+    control_socket_path: Path | None = None,
 ) -> None:
+    global _LAST_DIR_LOCKS
     impl = InProcessArtifactDirBroker()
     bind_state = BrokerBindState()
     dir_locks = _DirLocks()
-    if socket_path.exists():
-        socket_path.unlink()
-    socket_path.parent.mkdir(parents=True, exist_ok=True)
-    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server.bind(str(socket_path))
-    os.chmod(socket_path, 0o660)
-    server.listen(128)
-    server.settimeout(1.0)
-    resolved = os.path.realpath(str(artifacts_root))
-    root_st = os.stat(resolved)
-    root = FrozenArtifactsRoot(path=resolved, dev=int(root_st.st_dev), ino=int(root_st.st_ino))
+    _LAST_DIR_LOCKS = dir_locks
+    control_path = control_socket_path or _default_control_socket(socket_path)
+    for path in (socket_path, control_path):
+        if path.exists():
+            path.unlink()
+        path.parent.mkdir(parents=True, exist_ok=True)
+    artifacts_root = Path(artifacts_root)
+    assert_no_symlink_ancestors(artifacts_root)
+    root_fd = open_dir_nofollow(artifacts_root)
+    try:
+        parent = artifacts_root.parent
+        if parent != artifacts_root:
+            parent_fd = open_dir_nofollow(parent)
+            try:
+                if not same_mount(parent_fd, root_fd):
+                    raise ArtifactRootError(
+                        f"refusing bind-mount artifacts root: {artifacts_root}"
+                    )
+            finally:
+                os.close(parent_fd)
+        root_st = os.fstat(root_fd)
+        root = FrozenArtifactsRoot(
+            path=os.path.normpath(str(artifacts_root)),
+            dev=int(root_st.st_dev),
+            ino=int(root_st.st_ino),
+            mnt_id=mnt_id_for_fd(root_fd),
+            root_fd=root_fd,
+        )
+    except BaseException:
+        os.close(root_fd)
+        raise
     peer_gid = os.getgid() if expected_peer_gid is None else expected_peer_gid
-    dir_sema = threading.Semaphore(_MAX_WORKER_THREADS)
-    executor = ThreadPoolExecutor(
-        max_workers=_MAX_WORKER_THREADS + _IO_RESERVE_THREADS,
-        thread_name_prefix="artifact-broker",
+    data_server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    control_server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    data_slots = threading.BoundedSemaphore(_MAX_WORKER_THREADS)
+    control_slots = threading.BoundedSemaphore(_CONTROL_WORKER_THREADS)
+    data_executor = ThreadPoolExecutor(
+        max_workers=_MAX_WORKER_THREADS,
+        thread_name_prefix="artifact-broker-data",
+    )
+    control_executor = ThreadPoolExecutor(
+        max_workers=_CONTROL_WORKER_THREADS,
+        thread_name_prefix="artifact-broker-ctrl",
     )
     try:
+        data_server.bind(str(socket_path))
+        control_server.bind(str(control_path))
+        os.chmod(socket_path, 0o660)
+        os.chmod(control_path, 0o660)
+        data_server.listen(_MAX_WORKER_THREADS)
+        control_server.listen(max(_CONTROL_WORKER_THREADS * 8, _MAX_WORKER_THREADS))
+        data_server.settimeout(1.0)
+        control_server.settimeout(1.0)
         while stop is None or not stop.is_set():
-            try:
-                conn, _ = server.accept()
-            except TimeoutError:
-                continue
-            except OSError:
-                if stop is not None and stop.is_set():
-                    break
-                raise
-            try:
-                executor.submit(
-                    _serve_one,
-                    conn,
-                    expected_peer_uid,
-                    peer_gid,
-                    root,
-                    impl,
-                    bind_state,
-                    stop,
-                    dir_locks,
-                    dir_sema,
-                )
-            except RuntimeError:
-                conn.close()
+            ready, _, _ = select.select([data_server, control_server], [], [], 1.0)
+            for listener in ready:
+                try:
+                    conn, _ = listener.accept()
+                except TimeoutError:
+                    continue
+                except OSError:
+                    if stop is not None and stop.is_set():
+                        break
+                    raise
+                control_only = listener is control_server
+                slots = control_slots if control_only else data_slots
+                executor = control_executor if control_only else data_executor
+                if not _try_acquire(slots):
+                    try:
+                        _send_json(conn, {"ok": False, "error": "overloaded"})
+                    except OSError:
+                        pass
+                    conn.close()
+                    continue
+                try:
+                    executor.submit(
+                        _serve_one,
+                        conn,
+                        expected_peer_uid,
+                        peer_gid,
+                        root,
+                        impl,
+                        bind_state,
+                        stop,
+                        dir_locks,
+                        slots,
+                        control_only,
+                    )
+                except RuntimeError:
+                    conn.close()
+                    slots.release()
     finally:
-        server.close()
-        executor.shutdown(wait=True, cancel_futures=False)
+        data_server.close()
+        control_server.close()
+        data_executor.shutdown(wait=False, cancel_futures=True)
+        control_executor.shutdown(wait=False, cancel_futures=True)
+        os.close(root_fd)
         if bind_state.pidfd is not None:
             try:
                 os.close(bind_state.pidfd)
             except OSError:
                 pass
+
+
+def _try_acquire(slots: threading.BoundedSemaphore) -> bool:
+    return bool(slots.acquire(blocking=False))
 
 
 def _serve_one(
@@ -544,8 +676,9 @@ def _serve_one(
     stop: threading.Event | None,
     dir_locks: _DirLocks,
     dir_sema: threading.Semaphore,
+    control_only: bool,
 ) -> None:
-    with conn:
+    try:
         _handle(
             conn,
             expected_peer_uid=expected_peer_uid,
@@ -555,13 +688,20 @@ def _serve_one(
             bind_state=bind_state,
             stop=stop,
             dir_locks=dir_locks,
-            dir_sema=dir_sema,
+            control_only=control_only,
         )
+    finally:
+        dir_sema.release()
+        try:
+            conn.close()
+        except OSError:
+            pass
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="artifact-broker")
     parser.add_argument("--socket", type=Path, required=True)
+    parser.add_argument("--control-socket", type=Path, default=None)
     parser.add_argument("--peer-uid", type=int, required=True)
     parser.add_argument("--peer-gid", type=int, required=True)
     parser.add_argument("--artifacts-root", type=Path, required=True)
@@ -575,6 +715,7 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, _stop)
     serve(
         args.socket,
+        control_socket_path=args.control_socket,
         expected_peer_uid=args.peer_uid,
         expected_peer_gid=args.peer_gid,
         artifacts_root=args.artifacts_root,

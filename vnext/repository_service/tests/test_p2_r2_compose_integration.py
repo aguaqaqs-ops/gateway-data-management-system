@@ -46,11 +46,10 @@ def test_dockerfile_cmd_is_uvicorn_factory() -> None:
 
 def test_dockerfile_runs_as_gateway_user_with_provenance_labels() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
-    # ADR 0011: entrypoint starts as root, launches artifact-broker, drops to gateway.
     assert "USER root" in dockerfile
     assert "ENTRYPOINT" in dockerfile
-    assert "artifact-broker" in dockerfile
     assert "adduser --system --ingroup gateway gateway" in dockerfile
+    assert "artifact-broker" not in dockerfile
     for label in (
         "org.opencontainers.image.revision=",
         "gateway.p2r1.source-tree-sha256=",
@@ -107,7 +106,6 @@ def test_compose_repository_service_has_production_env_and_secret_mount() -> Non
 OPERATIONAL_COMPOSE_ENV_DEFAULTS = {
     "GATEWAY_REPOSITORY_ARTIFACT_TTL_SECONDS": "86400",
     "GATEWAY_REPOSITORY_ARTIFACT_CLEANUP_INTERVAL_SECONDS": "300",
-    "GATEWAY_REPOSITORY_ARTIFACT_TOMBSTONE_BUDGET": "50000",
     "GATEWAY_REPOSITORY_MAX_CONCURRENT_UPLOADS": "8",
     "GATEWAY_REPOSITORY_MAX_IMPORT_WORKERS": "4",
     "GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS": "64",
@@ -217,22 +215,24 @@ def test_source_tree_has_no_forbidden_route_registrations(pattern: str, descript
     assert not offenders, f"found forbidden {description} in: {offenders}"
 
 
-def test_r19_dockerfile_prepares_broker_run_dir() -> None:
+def test_dockerfile_prepares_gateway_owned_artifacts() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
-    assert "/var/lib/gateway/repository/run" in dockerfile
-    assert "artifact-broker:gateway" in dockerfile
+    assert "/var/lib/gateway/repository/artifacts" in dockerfile
+    assert "chown gateway:gateway /var/lib/gateway /var/lib/gateway/repository /var/lib/gateway/repository/artifacts" in dockerfile
+    assert "chmod 0750 /var/lib/gateway/repository/artifacts" in dockerfile
+    assert "artifact-broker" not in dockerfile
     assert "USER root" in dockerfile
 
 
-def test_r19_entrypoint_is_fail_closed_and_pings_broker() -> None:
+def test_entrypoint_prepares_layout_then_drops_to_gateway() -> None:
     entrypoint = (REPO_ROOT / "docker-entrypoint.sh").read_text(encoding="utf-8")
     assert "|| true" not in entrypoint
     assert "chown -R" not in entrypoint
     assert "find " not in entrypoint
-    assert "artifact-broker.sock" in entrypoint
-    assert "artifact-broker-control.sock" in entrypoint
     assert "artifact_layout" in entrypoint
-    assert ".ping()" in entrypoint
-    assert "GATEWAY_REPOSITORY_ARTIFACT_BROKER_MODE=socket" in entrypoint
-    assert "--peer-gid" in entrypoint
-    assert "exit 1" in entrypoint
+    assert "artifact-broker" not in entrypoint
+    assert "artifact-broker.sock" not in entrypoint
+    assert "--peer-gid" not in entrypoint
+    assert "GATEWAY_REPOSITORY_ARTIFACT_BROKER" not in entrypoint
+    assert "runuser -u" in entrypoint
+    assert "unlink-stage" not in entrypoint

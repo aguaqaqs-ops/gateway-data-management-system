@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
 import pytest
 
-from gateway_repository_service.artifact_broker import (
-    InProcessArtifactDirBroker,
-    set_artifact_broker,
-)
 from support.lifecycle_harness import dolt_available
 
 # Fixtures that initialize a real Dolt repository. Requesting one of these
@@ -18,15 +12,6 @@ from support.lifecycle_harness import dolt_available
 _DOLT_FIXTURES = frozenset({"import_layout", "import_provider"})
 
 _DOLT_MISSING = pytest.mark.skip(reason="dolt executable is unavailable")
-
-
-@pytest.fixture(autouse=True)
-def _inprocess_artifact_broker() -> Iterator[None]:
-    """Explicit in-process double for tests. Not a dual-UID security proof."""
-
-    set_artifact_broker(InProcessArtifactDirBroker())
-    yield
-    set_artifact_broker(None)
 
 
 def pytest_collection_modifyitems(

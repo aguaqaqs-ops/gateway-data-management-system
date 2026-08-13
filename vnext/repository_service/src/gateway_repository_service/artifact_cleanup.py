@@ -1,23 +1,35 @@
 """Cooperative ready-bytes cleanup seam.
 
-Worker, recovery/admin, and the background cleaner share this entry. The current
-implementation still adapts to the owned unlink protocol (sidecar / intent /
-receipt). Callers keep eligibility pre-checks, private-ref/staging cleanup, and
-cleaner housekeeping outside this function.
+Worker, recovery/admin, and the background cleaner share this entry.
+The protocol is: non-blocking inode flock (the same pin admission uses),
+re-read durable eligibility in that critical section, dirfd-relative
+``unlinkat`` of the exact UUID name, then stamp ``bytes_deleted_at``.
+Eligible ``ENOENT`` is idempotent completion and stamps. The path does
+not create sidecars, delete intent, receipt, residual rows, or tombstone
+reservations. Callers keep eligibility pre-checks, private-ref/staging
+cleanup, and cleaner housekeeping outside this function.
 """
 
 from __future__ import annotations
 
+import errno
+import fcntl
+import os
 from collections.abc import Callable
 from uuid import UUID
 
 from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.mutation_store import MutationStoreError
 from gateway_repository_service.upload_artifact.admission_pin import (
-    artifact_residual_sink,
-    try_unlink_ready_artifact_with_recheck as try_unlink_ready_artifact_with_recheck,
+    OwnedPathError,
+    open_owned_ready_artifact,
 )
-from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
+from gateway_repository_service.versioned_import.models import ImportOperationStoreError
 from gateway_repository_service.versioned_import.store import ImportOperationStore
+
+
+def _unlink_ready_name(name: str, *, dir_fd: int) -> None:
+    os.unlink(name, dir_fd=dir_fd)
 
 
 def cleanup_ready_artifact_bytes(
@@ -27,14 +39,14 @@ def cleanup_ready_artifact_bytes(
     repository_id: UUID,
     artifact_id: UUID,
     ttl_seconds: int,
-    tombstone_budget: int,
     deleted_at: str | None = None,
     recheck: Callable[[], bool] | None = None,
 ) -> str:
-    """Delete owned ready bytes via the current unlink protocol.
+    """Delete owned ready bytes via pin, eligibility recheck, and dirfd unlink.
 
-    Returns the underlying unlink outcome string. Eligible ``ENOENT`` does not
-    stamp ``bytes_deleted_at``; that remains a Step B behavior change.
+    Returns an outcome string: ``deleted``, ``busy``, ``ineligible``,
+    ``unlink_failed``, or ``unsafe_path``. Eligible absence stamps
+    ``bytes_deleted_at``. I/O errors do not stamp.
     """
 
     def _default_recheck() -> bool:
@@ -45,76 +57,76 @@ def cleanup_ready_artifact_bytes(
 
     eligibility_check = recheck if recheck is not None else _default_recheck
 
-    def _stamp(dev: int, ino: int, generation: str) -> None:
-        store.mark_artifact_bytes_deleted(
-            artifact_id,
-            deleted_at=deleted_at,
-            repository_id=repository_id,
-            expected_dev=dev,
-            expected_ino=ino,
-            expected_generation=generation,
-        )
+    def _try_stamp() -> bool:
+        try:
+            store.mark_artifact_bytes_deleted(
+                artifact_id,
+                deleted_at=deleted_at,
+                repository_id=repository_id,
+            )
+        except (ImportOperationStoreError, MutationStoreError):
+            return False
+        return True
 
-    def _on_intent(dev: int, ino: int, generation: str) -> None:
-        store.begin_artifact_bytes_delete_intent(
-            artifact_id,
-            repository_id=repository_id,
-            dev=dev,
-            ino=ino,
-            phase="quarantined",
-            intent_at=deleted_at,
-            generation=generation,
-        )
+    def _stamp_if_eligible() -> str:
+        if not eligibility_check():
+            return "ineligible"
+        if not _try_stamp():
+            return "ineligible"
+        return "deleted"
 
-    def _on_clear_intent(dev: int, ino: int, generation: str) -> None:
-        store.clear_artifact_bytes_delete_intent(
-            artifact_id,
-            repository_id=repository_id,
-            expected_dev=dev,
-            expected_ino=ino,
-            expected_generation=generation,
-        )
+    file_fd = -1
+    ready_dir_fd = -1
+    locked = False
+    try:
+        try:
+            file_fd, ready_dir_fd = open_owned_ready_artifact(
+                layout,
+                repository_id,
+                artifact_id,
+            )
+        except OwnedPathError as exc:
+            message = str(exc)
+            if "missing" in message:
+                return _stamp_if_eligible()
+            if (
+                "symlink" in message
+                or "not a regular file" in message
+                or "non-directory" in message
+            ):
+                return "unsafe_path"
+            return "unlink_failed"
 
-    def _on_clear_receipt(dev: int, ino: int, generation: str) -> None:
-        store.clear_artifact_bytes_deleted_receipt(
-            artifact_id,
-            repository_id=repository_id,
-            expected_dev=dev,
-            expected_ino=ino,
-            expected_generation=generation,
-        )
+        try:
+            fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return "busy"
+        except OSError as exc:
+            if exc.errno in {errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES}:
+                return "busy"
+            return "unlink_failed"
+        locked = True
 
-    def _on_residual(
-        kind: str,
-        name: str,
-        parent_name: str,
-        dev: int,
-        ino: int,
-        generation: str | None,
-    ) -> None:
-        store.insert_artifact_residual(
-            artifact_id,
-            repository_id=repository_id,
-            kind=kind,
-            name=name,
-            parent_name=parent_name,
-            dev=dev,
-            ino=ino,
-            generation=generation,
-            created_at=deleted_at,
-        )
+        if not eligibility_check():
+            return "ineligible"
 
-    ready_path = artifact_ready_path(layout, repository_id, artifact_id)
-    with artifact_residual_sink(_on_residual):
-        return try_unlink_ready_artifact_with_recheck(
-            ready_path,
-            recheck=eligibility_check,
-            layout=layout,
-            repository_id=repository_id,
-            artifact_id=artifact_id,
-            on_deleted=_stamp,
-            on_intent=_on_intent,
-            on_clear_intent=_on_clear_intent,
-            on_clear_receipt=_on_clear_receipt,
-            tombstone_budget=tombstone_budget,
-        )
+        try:
+            _unlink_ready_name(artifact_id.hex, dir_fd=ready_dir_fd)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return "unlink_failed"
+
+        if not _try_stamp():
+            return "unlink_failed"
+        return "deleted"
+    finally:
+        if locked and file_fd >= 0:
+            try:
+                fcntl.flock(file_fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        if file_fd >= 0:
+            os.close(file_fd)
+        if ready_dir_fd >= 0:
+            os.close(ready_dir_fd)

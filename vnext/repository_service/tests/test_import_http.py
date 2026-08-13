@@ -23,12 +23,10 @@ from gateway_repository_contracts import (
     VerificationPolicy,
     VersionedImportResult,
 )
+from gateway_repository_service import artifact_cleanup
 from gateway_repository_service.app import create_app
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
-from gateway_repository_service.upload_artifact.admission_pin import (
-    ArtifactAdmissionPin,
-    try_unlink_ready_artifact,
-)
+from gateway_repository_service.upload_artifact.admission_pin import ArtifactAdmissionPin
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import import ImportRequestBinding, versioned_import_fingerprint_v1
 from support.http_harness import (
@@ -1063,7 +1061,15 @@ def test_submit_admission_pin_blocks_cooperative_cleanup(env: ImportHttpTestEnvi
 
     def cleanup_worker() -> None:
         assert pause_before_admit.wait(timeout=5)
-        assert try_unlink_ready_artifact(ready_path) is False
+        outcome = artifact_cleanup.cleanup_ready_artifact_bytes(
+            import_store,
+            env.layout,
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+            ttl_seconds=env.settings.artifact_ttl_seconds,
+        )
+        assert outcome == "busy"
+        assert ready_path.is_file()
         resume_admit.set()
 
     cleanup_thread = threading.Thread(target=cleanup_worker)

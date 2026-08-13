@@ -17,7 +17,6 @@ from uuid import UUID
 
 from gateway_repository_contracts import OperationStatus
 from gateway_repository_service import artifact_cleanup
-from gateway_repository_service.artifact_broker import ArtifactBrokerError, get_artifact_broker
 from gateway_repository_service.artifact_retention import (
     ArtifactBytesDeletionReason,
     decide_artifact_bytes_deletion,
@@ -31,12 +30,14 @@ from gateway_repository_service.mutation_store import (
     MutationStore,
     MutationStoreInvariantError,
 )
+from gateway_repository_service.publication import renameat2_noreplace
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     STAGE_VICTIM,
     StageDirStatus,
     destroy_owned_bytes_and_reclaim_names,
+    link_from_fd,
     list_unlink_stage_dir_names,
     lock_unlink_stage_dir,
     lookup_unlink_stage_dir,
@@ -49,6 +50,8 @@ from gateway_repository_service.upload_artifact.admission_pin import (
     parse_unlink_verify_name,
     prove_size0_owned_name_terminal,
     reclaim_size0_owned_name,
+    reclaim_stage_dir,
+    unlink_if_match,
     unlock_unlink_stage_dir,
 )
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -329,21 +332,7 @@ class ArtifactCleaner:
             expected=expected,
             artifact_id=artifact_id,
         )
-        if path_kind == "absent":
-            # Missing ready name without a verified delete in this call never mints a stamp.
-            # Quarantine residuals are handled by _recover_delete_quarantines.
-            log_event(
-                "artifact_cleanup",
-                repository_id=repository_id,
-                artifact_id=artifact_id,
-                stage="delete",
-                result="retained",
-                code=decision.reason.value,
-                cleanup_outcome="already_absent_unproven",
-                logger=_LOGGER,
-            )
-            return False
-        if path_kind != "regular_file":
+        if path_kind not in {"regular_file", "absent"}:
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,
@@ -362,7 +351,6 @@ class ArtifactCleaner:
             repository_id=repository_id,
             artifact_id=artifact_id,
             ttl_seconds=self._settings.artifact_ttl_seconds,
-            tombstone_budget=self._settings.artifact_tombstone_budget,
             deleted_at=self._deleted_at_stamp(),
             recheck=lambda: self._still_eligible(artifact_id),
         )
@@ -383,8 +371,8 @@ class ArtifactCleaner:
         elif outcome == "ineligible":
             cleanup_outcome = "eligibility_changed"
         elif outcome == "already_absent":
-            cleanup_outcome = "already_absent_unproven"
-        elif outcome in {"replaced", "intent_failed"}:
+            cleanup_outcome = "already_absent"
+        elif outcome in {"replaced", "intent_failed", "unsafe_path"}:
             cleanup_outcome = outcome
         else:
             cleanup_outcome = outcome
@@ -482,8 +470,8 @@ class ArtifactCleaner:
             for entry_name in names:
                 if parse_unlink_stage_dir_name(entry_name) is None:
                     continue
-                # Inventory by name only. Opening/locking the stage is the broker
-                # principal's job (reclaim_stage); gateway euid is not proof.
+                # Inventory by name only. Opening/locking the leftover stage
+                # happens in reclaim_stage on this Service euid.
                 stage_dirs.append(entry_name)
             if not stage_dirs:
                 return
@@ -894,7 +882,6 @@ class ArtifactCleaner:
                         victim_fd=q_fd,
                         expected=q_stat,
                         artifact_id=artifact_id,
-                        generation=generation,
                     )
                     if restored:
                         self._clear_intent_best_effort(
@@ -1059,20 +1046,13 @@ class ArtifactCleaner:
         victim_fd: int,
         expected: os.stat_result,
         artifact_id: UUID,
-        generation: str,
     ) -> bool:
         """Publish held victim inode to exact ready via linkat (fd-stable).
 
         Idempotent for exact ready: an existing ready name that already holds the
         expected regular inode with full (non-truncated) size counts as success.
-        Matching verify sidecars are diagnose-only and must not clear intent when
-        ready is foreign/symlink/I/O (ADR 0011). Stage victim pathname may remain.
-        Failure is fail-closed so callers retain intent.
+        Symlink, foreign inode, or I/O failure retains the leftover stage victim.
         """
-
-        from gateway_repository_service.upload_artifact.admission_pin import (
-            verify_sidecar_name_for,
-        )
 
         try:
             live = os.fstat(victim_fd)
@@ -1086,57 +1066,35 @@ class ArtifactCleaner:
         expected_size = int(expected.st_size)
 
         ready_name = artifact_id.hex
-        restore_names = [
-            ready_name,
-            verify_sidecar_name_for(
-                inode=int(expected.st_ino),
-                generation=generation,
-                artifact_id=artifact_id,
-                token="restore",
-            ),
-        ]
         open_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-        for restore_name in restore_names:
-            is_ready_candidate = restore_name == ready_name
-            fd: int | None = None
+        fd: int | None = None
+        try:
+            fd = os.open(ready_name, open_flags, dir_fd=ready_dir_fd)
+        except FileNotFoundError:
             try:
-                fd = os.open(restore_name, open_flags, dir_fd=ready_dir_fd)
-            except FileNotFoundError:
-                try:
-                    get_artifact_broker().link_from_fd(
-                        ready_dir_fd, restore_name, victim_fd
-                    )
-                except FileExistsError:
-                    continue
-                except (OSError, ArtifactBrokerError):
-                    continue
-                try:
-                    fd = os.open(restore_name, open_flags, dir_fd=ready_dir_fd)
-                except OSError:
-                    return False
-            except OSError:
-                # Symlink / I/O / permission: try next candidate.
-                # ADR 0011: foreign/symlink/EIO on ready must not clear intent via verify.
-                continue
+                link_from_fd(ready_dir_fd, ready_name, victim_fd)
+            except (FileExistsError, OSError):
+                return False
             try:
-                st = os.fstat(fd)
+                fd = os.open(ready_name, open_flags, dir_fd=ready_dir_fd)
             except OSError:
                 return False
-            finally:
-                if fd is not None:
-                    os.close(fd)
-            if not stat_module.S_ISREG(st.st_mode):
-                continue
-            if (st.st_dev, st.st_ino) != (expected.st_dev, expected.st_ino):
-                continue
-            if int(st.st_size) != expected_size:
-                continue
-            # Only exact ready name may clear intent (ADR 0011 restore freeze).
-            if is_ready_candidate:
-                return True
-            # Matching verify is diagnose-only; keep searching / fail closed.
-            continue
-        return False
+        except OSError:
+            return False
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            return False
+        finally:
+            if fd is not None:
+                os.close(fd)
+        if not stat_module.S_ISREG(st.st_mode):
+            return False
+        if (st.st_dev, st.st_ino) != (expected.st_dev, expected.st_ino):
+            return False
+        if int(st.st_size) != expected_size:
+            return False
+        return True
 
     def _recover_artifact_sidecars(
         self,
@@ -1781,12 +1739,12 @@ class ArtifactCleaner:
             if not matches_intent:
                 return False
             try:
-                get_artifact_broker().rename_noreplace(
+                renameat2_noreplace(
                     ready_dir_fd, sidecar_name, ready_dir_fd, ready_name
                 )
             except FileExistsError:
                 return False
-            except (OSError, ArtifactBrokerError):
+            except OSError:
                 return False
             return True
         finally:
@@ -2170,7 +2128,7 @@ class ArtifactCleaner:
                 for row in child_proofs
                 if row.parent_name == stage_name
             ]
-            if get_artifact_broker().reclaim_stage(
+            if reclaim_stage_dir(
                 ready_dir_fd, stage_name, children=children
             ):
                 self._import_store.clear_artifact_residual(
@@ -2243,7 +2201,7 @@ class ArtifactCleaner:
                     return
                 stage_fd = lookup.fd
                 try:
-                    if get_artifact_broker().unlink_if_match(
+                    if unlink_if_match(
                         stage_fd,
                         row.name,
                         expected_dev=int(row.dev),
@@ -2265,7 +2223,7 @@ class ArtifactCleaner:
                     ).records
                     if child.kind == "stage_child" and child.parent_name == row.name
                 ]
-                if get_artifact_broker().reclaim_stage(
+                if reclaim_stage_dir(
                     ready_dir_fd, row.name, children=children
                 ):
                     self._import_store.clear_artifact_residual(
@@ -2274,7 +2232,7 @@ class ArtifactCleaner:
                         expected_ino=int(row.ino),
                     )
                 return
-            if get_artifact_broker().unlink_if_match(
+            if unlink_if_match(
                 ready_dir_fd,
                 row.name,
                 expected_dev=int(row.dev),

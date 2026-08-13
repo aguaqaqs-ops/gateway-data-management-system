@@ -64,10 +64,6 @@ class RepositoryServiceSettings(BaseSettings):
     max_decompressed_tar_stream_bytes: int = 4 * 1024 * 1024 * 1024
     artifact_ttl_seconds: int = 24 * 60 * 60
     artifact_cleanup_interval_seconds: int = 300
-    # Max permanent inventory dentries under ready (sidecars + unlink-stage).
-    # Transition circuit breaker only (ADR 0011) — not Contract compliance proof.
-    # Successful deletes reclaim via directory-broker; budget bounds backlog under fault.
-    artifact_tombstone_budget: int = 50_000
     sqlite_busy_timeout_ms: int = 5000
     catalog_parallel_workers: int = 2
     max_concurrent_uploads: int = 8
@@ -114,7 +110,6 @@ class RepositoryServiceSettings(BaseSettings):
         "max_decompressed_tar_stream_bytes",
         "artifact_ttl_seconds",
         "artifact_cleanup_interval_seconds",
-        "artifact_tombstone_budget",
         "sqlite_busy_timeout_ms",
         "catalog_parallel_workers",
         "max_concurrent_uploads",

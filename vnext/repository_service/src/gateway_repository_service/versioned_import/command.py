@@ -382,7 +382,6 @@ class ImportOperationExecutor:
                 repository_id=context.repository_id,
                 artifact_id=context.artifact_id,
                 ttl_seconds=self._settings.artifact_ttl_seconds,
-                tombstone_budget=self._settings.artifact_tombstone_budget,
             )
         except Exception:
             _LOGGER.exception(

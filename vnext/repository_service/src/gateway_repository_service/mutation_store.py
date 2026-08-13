@@ -746,18 +746,16 @@ class MutationStore:
         *,
         deleted_at: str,
         repository_id: UUID,
-        expected_dev: int,
-        expected_ino: int,
-        expected_generation: str,
+        expected_dev: int | None = None,
+        expected_ino: int | None = None,
+        expected_generation: str | None = None,
     ) -> None:
+        del expected_dev, expected_ino, expected_generation
         cursor = self._connection.execute(
             """
             UPDATE artifact_lifecycle
             SET bytes_deleted_at = ?,
                 updated_at = ?,
-                bytes_deleted_receipt_dev = bytes_delete_dev,
-                bytes_deleted_receipt_ino = bytes_delete_ino,
-                bytes_deleted_receipt_generation = bytes_delete_generation,
                 bytes_delete_intent_at = NULL,
                 bytes_delete_dev = NULL,
                 bytes_delete_ino = NULL,
@@ -766,20 +764,12 @@ class MutationStore:
             WHERE artifact_id = ?
               AND repository_scope = ?
               AND bytes_deleted_at IS NULL
-              AND bytes_delete_intent_at IS NOT NULL
-              AND bytes_delete_dev = ?
-              AND bytes_delete_ino = ?
-              AND bytes_delete_generation = ?
-              AND bytes_delete_phase IN ('quarantined', 'detached')
             """,
             (
                 deleted_at,
                 deleted_at,
                 str(artifact_id),
                 repository_id.hex,
-                int(expected_dev),
-                int(expected_ino),
-                expected_generation,
             ),
         )
         if cursor.rowcount != 1:
@@ -788,9 +778,7 @@ class MutationStore:
             """
             SELECT bytes_deleted_at, repository_scope,
                    bytes_delete_intent_at, bytes_delete_dev, bytes_delete_ino,
-                   bytes_delete_phase, bytes_delete_generation,
-                   bytes_deleted_receipt_dev, bytes_deleted_receipt_ino,
-                   bytes_deleted_receipt_generation
+                   bytes_delete_phase, bytes_delete_generation
             FROM artifact_lifecycle
             WHERE artifact_id = ?
             """,
@@ -805,12 +793,6 @@ class MutationStore:
             or row["bytes_delete_ino"] is not None
             or row["bytes_delete_phase"] is not None
             or row["bytes_delete_generation"] is not None
-            or row["bytes_deleted_receipt_dev"] is None
-            or row["bytes_deleted_receipt_ino"] is None
-            or row["bytes_deleted_receipt_generation"] is None
-            or int(row["bytes_deleted_receipt_dev"]) != int(expected_dev)
-            or int(row["bytes_deleted_receipt_ino"]) != int(expected_ino)
-            or str(row["bytes_deleted_receipt_generation"]) != expected_generation
         ):
             raise MutationStoreError("artifact bytes_deleted_at readback failed")
 

@@ -107,6 +107,49 @@ PROTECTED_REFERENCE_CASES = (
 )
 
 
+MALFORMED_REFERENCE_CASES = (
+    (
+        "failed_without_error",
+        ArtifactOperationReference(
+            operation_id=OPERATION_ID,
+            durable_status=OperationStatus.FAILED.value,
+            status=OperationStatus.FAILED,
+            is_protected=False,
+            completed_at="2026-08-01T12:00:00+00:00",
+        ),
+    ),
+    (
+        "failed_unknown_error",
+        ArtifactOperationReference(
+            operation_id=OPERATION_ID,
+            durable_status=OperationStatus.FAILED.value,
+            status=OperationStatus.FAILED,
+            is_protected=False,
+            completed_at="2026-08-01T12:00:00+00:00",
+            error_code="UNKNOWN_FAILURE",
+        ),
+    ),
+    (
+        "succeeded_without_completion",
+        ArtifactOperationReference(
+            operation_id=OPERATION_ID,
+            durable_status=OperationStatus.SUCCEEDED.value,
+            status=OperationStatus.SUCCEEDED,
+            is_protected=False,
+        ),
+    ),
+    (
+        "unknown_durable_status",
+        ArtifactOperationReference(
+            operation_id=OPERATION_ID,
+            durable_status="BROKEN",
+            status=None,
+            is_protected=True,
+        ),
+    ),
+)
+
+
 def open_contract_stores(tmp_path: Path) -> tuple[ImportOperationStore, MutationStore]:
     db_path = tmp_path / "service-state" / "repository-service.sqlite3"
     ControlStore.open(

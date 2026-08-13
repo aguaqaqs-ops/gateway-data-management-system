@@ -194,8 +194,6 @@ class DurableLayout:
         return self.versioned / key
 
     def repository_artifact_directories(self, key: str) -> tuple[Path, Path]:
-        from gateway_repository_service.artifact_broker import get_artifact_broker
-
         staging = self.artifacts / key / "staging"
         ready = self.artifacts / key / "ready"
         try:
@@ -212,25 +210,22 @@ class DurableLayout:
         ):
             return staging, ready
 
+        if not key or "/" in key or key in {".", ".."} or "\x00" in key:
+            raise RuntimeError("invalid repository artifact key")
+
+        dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
         self.artifacts.mkdir(parents=True, exist_ok=True)
-        broker = get_artifact_broker()
-        artifacts_fd = os.open(
-            self.artifacts, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        )
+        artifacts_fd = os.open(self.artifacts, dir_flags)
         try:
             try:
-                broker.mkdir(artifacts_fd, key, mode=0o750)
+                os.mkdir(key, 0o750, dir_fd=artifacts_fd)
             except FileExistsError:
                 pass
-            base_fd = os.open(
-                key,
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
-                dir_fd=artifacts_fd,
-            )
+            base_fd = os.open(key, dir_flags, dir_fd=artifacts_fd)
             try:
-                for name, mode in (("staging", 0o770), ("ready", 0o750)):
+                for name in ("staging", "ready"):
                     try:
-                        broker.mkdir(base_fd, name, mode=mode)
+                        os.mkdir(name, 0o750, dir_fd=base_fd)
                     except FileExistsError:
                         pass
             finally:

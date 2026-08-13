@@ -156,8 +156,11 @@ unlink-verify/generation/receipt/proof syscall窗口的测试。安全相关的�
 - 实现单一路径的pin → eligibility → dirfd unlink → stamp/retry；
 - 停止创建sidecar、intent generation、receipt/proof与tombstone reservation；
 - 保留必要legacy read/convergence适配，不做schema downgrade；
-- 删除不再可达的cleaner分支与store投影，跑focused/unit/serial和五包ruff/mypy；
-- 纯Python阶段可暂缓Docker。
+- 删除不再可达的cleaner分支与store投影；
+- 验证 **不** 要求 `tests/test_artifact_cleanup.py` 全绿（该文件留到 Step D 删除）。
+  focused 门禁：新 Contract 三文件 + `test_import_worker.py` +
+  `test_mutation_reconciliation_import.py` + 五包 ruff/mypy。parked-Dolt `-m unit` 抽查；
+- 纯Python阶段可暂缓Docker。双 UID 容器在 Step C 改 layout 所有权之前不可部署。
 
 建议提交：`refactor(repository): restore cooperative artifact cleanup`
 
@@ -284,3 +287,43 @@ Step B 才改：
 - eligible `ENOENT` 可盖 `bytes_deleted_at`，readiness 视为完成；
 - cleanup 先拿 admission pin，同一临界区重读 eligibility，再 dirfd unlink；
 - 停止创建 sidecar / generation / receipt / residual / tombstone reservation。
+
+## 9. Step B execution (from `60a19c4`)
+
+工作基线是 Step A 提交 `60a19c4`，不是文档原先写的 `fb06619`。`fb06619` 之后没有
+另一轮改 unlink/pin/sidecar 语义的优化修复。
+
+已确认的范围裁决：
+
+- Step B **不**要求 `test_artifact_cleanup.py` 全绿；该文件的 sidecar/intent/ENOENT
+  旧断言留到 Step D 删除。mypy 对该模块 `ignore_errors`，避免为签名变化改写 1.1 万行。
+- 新路径对 exact ready 名做同 UID `unlinkat(dir_fd=...)`，不经 broker。双 UID
+  容器（artifacts `0750` broker-owned）直到 Step C 改所有权之前不可部署。不重建 Docker。
+- Python 删除 `artifact_tombstone_budget` 设置与 facade 参数。Compose env
+  `GATEWAY_REPOSITORY_ARTIFACT_TOMBSTONE_BUDGET` 留到 Step C。
+- Cleanup 与 admission 争同一 ready inode flock：cleanup 侧 `LOCK_EX|LOCK_NB`（busy
+  则重试），不复用 `ArtifactAdmissionPin` class（它关 dirfd、校验 size/SHA、缺文件无法 stamp）。
+- `record_artifact_bytes_deleted` 不再要求 intent、不再填写 receipt；同一 UPDATE 清掉
+  leftover intent 五列。PROTECTED leftover intent 不投影，admission 仍拒绝。
+
+Production 入口：`cleanup_ready_artifact_bytes` → open owned ready → flock NB →
+eligibility recheck → `unlinkat` → stamp。Eligible `ENOENT` 盖 `bytes_deleted_at`。
+Cleaner housekeeping 仍可读/收敛 leftover sidecar，新成功路径不再创建。
+
+## 10. Step C execution (from current HEAD after Step B)
+
+本步删除 directory-broker 与双 UID 部署边界。生产 mkdir/publish/housekeeping 改本地
+dirfd syscall；leftover `try_unlink_owned_*` 仍保留 `_broker_*` 函数名（实现已是本地
+syscall）供 Step D 证明墙 monkeypatch。Compose `GATEWAY_REPOSITORY_ARTIFACT_TOMBSTONE_BUDGET`
+已删除。容器不重建；静态 Dockerfile/entrypoint/Compose 测试改写为单一 `gateway` 主体。
+
+因收集约束，`test_artifact_broker_r{19,20,21,22}.py` 与 conftest inprocess autouse 在本步
+删除（计划原文把 broker 协议测试写在 Step D）。`test_artifact_cleanup.py` 仍留给 Step D。
+
+## 11. Step D execution
+
+删除 `tests/test_artifact_cleanup.py` 与对该文件的 mypy 豁免。conventions/§5 缺口迁到
+`test_artifact_retention.py` / `test_artifact_cleaner.py` /
+`test_artifact_cleanup_integration.py`（去 `rNN_` 名）。生产侧删除无调用者的
+`try_unlink_owned_*` / `_broker_*` CREATE 路径；housekeeping restore 只 link 到 exact
+UUID ready 名。不重建容器。

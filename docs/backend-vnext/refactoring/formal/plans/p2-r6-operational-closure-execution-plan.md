@@ -520,7 +520,7 @@ next_stage_ready: Phase 3 full design only when phase_2_complete=yes
 | Contract §17 full regression | Repository contracts/service/client与fixture consumer四命令；`./vnext/scripts/run-tests.sh`无`--ignore` | existing command | S8–S10 |
 | success cleanup failure不改结果 | `tests/test_import_worker.py::test_success_cleanup_failure_does_not_change_result` | existing | S2 |
 | succeeded residual startup cleanup | `tests/test_import_recovery.py::test_succeeded_residual_cleanup_on_reconcile` | existing | S2 |
-| ordinary failed TTL/orphan TTL | `tests/test_artifact_cleanup.py::test_ordinary_failed_artifact_expires`；`tests/test_artifact_cleanup.py::test_orphan_artifact_expires` | planned | S2 |
+| ordinary failed TTL/orphan TTL | `tests/test_artifact_retention.py::test_ordinary_failed_ttl_boundaries`；`tests/test_artifact_retention.py::test_orphan_ttl_boundaries` | existing | S2 |
 | RUNNING/manual/PENDING/QUEUED retention | existing `tests/test_import_operation_store.py::test_artifact_references_mark_protected_states`、`tests/test_import_recovery.py::test_manual_failed_retained_after_reconcile` plus planned cleaner clock cases | mixed | S2 |
 | exact protected deletion decision | `tests/test_import_operation_store.py::test_can_delete_artifact_bytes_requires_no_protected_references` | existing | S2 |
 | upload concurrency/fail-before-effect | `tests/test_upload_concurrency.py::test_ninth_upload_is_rejected_before_pending_and_body` | planned | S1–S2 |

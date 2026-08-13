@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import stat
 import threading
@@ -12,18 +13,28 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from gateway_repository_service.artifact_cleaner import (
+    ArtifactCleanerShutdownError,
+    classify_ready_artifact_path,
+)
+from gateway_repository_service.artifact_retention import retention_explains_missing_ready_bytes
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import MutationStore
+from gateway_repository_service.upload_artifact.admission_pin import quarantine_name_for
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from support.artifact_cleanup_contract import (
     ARTIFACT_ID,
+    ARTIFACT_PAYLOAD,
+    BASE_NOW,
     CREATED_AT,
     OPERATION_ID,
     OTHER_ARTIFACT_ID,
+    OTHER_OPERATION_ID,
     OTHER_REPOSITORY_ID,
     REPOSITORY_ID,
     cleaner,
+    enqueue,
     mark_succeeded_consumed,
     open_contract_stores,
     seed_artifact,
@@ -60,7 +71,7 @@ def test_eligible_exact_ready_is_deleted(
     assert lifecycle.bytes_deleted_at is not None
 
 
-def test_eligible_absent_is_idempotent_without_stamp(
+def test_eligible_absent_is_idempotent_and_stamps(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
 ) -> None:
@@ -75,7 +86,15 @@ def test_eligible_absent_is_idempotent_without_stamp(
 
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
-    assert lifecycle.bytes_deleted_at is None
+    assert lifecycle.bytes_deleted_at is not None
+    assert retention_explains_missing_ready_bytes(
+        lifecycle=lifecycle,
+        repository_id=REPOSITORY_ID,
+        references=store.list_artifact_references(ARTIFACT_ID),
+        ttl_seconds=3600,
+        now=BASE_NOW,
+        consumed_operation_artifact_id=ARTIFACT_ID,
+    )
 
 
 def test_ineligible_absent_is_not_washed(
@@ -87,7 +106,13 @@ def test_ineligible_absent_is_not_washed(
     ready = write_ready(layout)
     ready.unlink()
 
-    cleaner(layout, store, mutation_store, ttl=3600).sweep_once()
+    cleaner(
+        layout,
+        store,
+        mutation_store,
+        ttl=3600,
+        clock=datetime(2026, 8, 1, 0, 30, tzinfo=UTC),
+    ).sweep_once()
 
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
@@ -158,10 +183,12 @@ def test_unknown_and_cross_repository_entries_are_retained(
     assert foreign.is_file()
 
 
+@pytest.mark.parametrize("injected_errno", [errno.EIO, errno.EPERM])
 def test_io_failure_retains_and_retries_after_cleared(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
     monkeypatch: pytest.MonkeyPatch,
+    injected_errno: int,
 ) -> None:
     store, mutation_store = stores
     seed_create_succeeded(mutation_store)
@@ -171,15 +198,15 @@ def test_io_failure_retains_and_retries_after_cleared(
     calls = {"n": 0}
     import gateway_repository_service.artifact_cleanup as cleanup_mod
 
-    original = cleanup_mod.try_unlink_ready_artifact_with_recheck
+    original = cleanup_mod._unlink_ready_name
 
-    def fail_once(*args: object, **kwargs: object) -> str:
+    def fail_once(name: str, *, dir_fd: int) -> None:
         calls["n"] += 1
         if calls["n"] == 1:
-            return "unlink_failed"
-        return original(*args, **kwargs)  # type: ignore[arg-type]
+            raise OSError(injected_errno, "injected I/O failure")
+        original(name, dir_fd=dir_fd)
 
-    monkeypatch.setattr(cleanup_mod, "try_unlink_ready_artifact_with_recheck", fail_once)
+    monkeypatch.setattr(cleanup_mod, "_unlink_ready_name", fail_once)
     instance = cleaner(layout, store, mutation_store)
     instance.sweep_once()
     assert ready.is_file()
@@ -328,16 +355,16 @@ def test_cleanup_retries_after_notification(
     calls = {"n": 0}
     import gateway_repository_service.artifact_cleanup as cleanup_mod
 
-    original = cleanup_mod.try_unlink_ready_artifact_with_recheck
+    original = cleanup_mod._unlink_ready_name
 
-    def fail_once(*args: object, **kwargs: object) -> str:
+    def fail_once(name: str, *, dir_fd: int) -> None:
         calls["n"] += 1
         if calls["n"] == 1:
             first_failure.set()
-            return "unlink_failed"
-        return original(*args, **kwargs)  # type: ignore[arg-type]
+            raise OSError(errno.EIO, "injected I/O failure")
+        original(name, dir_fd=dir_fd)
 
-    monkeypatch.setattr(cleanup_mod, "try_unlink_ready_artifact_with_recheck", fail_once)
+    monkeypatch.setattr(cleanup_mod, "_unlink_ready_name", fail_once)
     instance = cleaner(layout, store, mutation_store, ttl=1, interval=3600)
     instance.start()
     try:
@@ -350,3 +377,289 @@ def test_cleanup_retries_after_notification(
         assert not ready.exists()
     finally:
         instance.stop(timeout=2.0)
+
+
+def test_cleanup_keyset_sql_limit_not_fetchall_slice(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    _store, mutation_store = stores
+    for i in range(70):
+        seed_artifact(
+            mutation_store,
+            artifact_id=UUID(int=ARTIFACT_ID.int + i),
+            created_at=CREATED_AT,
+        )
+    page = mutation_store.list_artifacts_pending_byte_cleanup(limit=64)
+    assert page.scanned == 64
+    assert len(page.records) == 64
+    last_seq = page.cursor_cleanup_seq
+    rest = mutation_store.list_artifacts_pending_byte_cleanup(
+        limit=64,
+        after_cleanup_seq=last_seq,
+    )
+    assert rest.scanned == 6
+    page_ids = {row.artifact_id for row in page.records}
+    rest_ids = {row.artifact_id for row in rest.records}
+    assert page_ids.isdisjoint(rest_ids)
+
+
+def test_cleanup_multi_repo_keyset_is_globally_ordered(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    _store, mutation_store = stores
+    for i in range(40):
+        seed_artifact(
+            mutation_store,
+            artifact_id=UUID(int=ARTIFACT_ID.int + i),
+            created_at=CREATED_AT,
+        )
+    for i in range(40, 80):
+        seed_artifact(
+            mutation_store,
+            artifact_id=UUID(int=ARTIFACT_ID.int + i),
+            repository_id=OTHER_REPOSITORY_ID,
+            created_at=CREATED_AT,
+        )
+    page = mutation_store.list_artifacts_pending_byte_cleanup(limit=64)
+    assert page.scanned == 64
+    assert isinstance(page.cursor_cleanup_seq, int)
+    repos = {record.repository_id for record in page.records}
+    assert REPOSITORY_ID in repos
+    assert OTHER_REPOSITORY_ID in repos
+    rest = mutation_store.list_artifacts_pending_byte_cleanup(
+        limit=64,
+        after_cleanup_seq=page.cursor_cleanup_seq,
+    )
+    page_ids = {row.artifact_id for row in page.records}
+    rest_ids = {row.artifact_id for row in rest.records}
+    assert page_ids.isdisjoint(rest_ids)
+    assert rest.scanned == 16
+
+
+def test_cleanup_query_uses_keyset_index(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    _store, mutation_store = stores
+    plan_rows = mutation_store._connection.execute(
+        """
+        EXPLAIN QUERY PLAN
+        SELECT artifact_id FROM artifact_lifecycle
+        WHERE bytes_deleted_at IS NULL
+        ORDER BY cleanup_seq ASC
+        LIMIT 64
+        """
+    ).fetchall()
+    plan = " ".join(" ".join(str(col) for col in row) for row in plan_rows)
+    assert "artifact_lifecycle_cleanup_seq_idx" in plan
+    assert "USE TEMP B-TREE FOR ORDER BY" not in plan
+
+
+def test_cleanup_list_binds_integer_seq_not_str() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "gateway_repository_service"
+        / "mutation_store.py"
+    )
+    text = source.read_text(encoding="utf-8")
+    start = text.index("def list_artifacts_pending_byte_cleanup")
+    end = text.index("def ", start + 4)
+    body = text[start:end]
+    assert "after_cleanup_seq" in body
+    assert "int(after_cleanup_seq)" in body
+    assert "str(row[8])" not in body
+    assert "cursor_created_at" not in body
+
+
+def test_keyset_page_does_not_starve_later_succeeded(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    old_ids = [UUID(int=ARTIFACT_ID.int + i) for i in range(64)]
+    new_id = UUID(int=ARTIFACT_ID.int + 64)
+    new_op = UUID(int=OPERATION_ID.int + 64)
+    for i, aid in enumerate(old_ids):
+        seed_artifact(mutation_store, artifact_id=aid)
+        write_ready(layout, artifact_id=aid)
+        enqueue(
+            store,
+            key=f"protected-{i}",
+            operation_id=UUID(int=OPERATION_ID.int + i),
+            artifact_id=aid,
+        )
+    seed_artifact(mutation_store, artifact_id=new_id, created_at="2026-08-01T01:00:00+00:00")
+    new_ready = write_ready(layout, artifact_id=new_id)
+    mark_succeeded_consumed(
+        store,
+        key="later-succeeded",
+        operation_id=new_op,
+        artifact_id=new_id,
+    )
+    instance = cleaner(layout, store, mutation_store)
+    instance.sweep_once()
+    assert new_ready.is_file()
+    for aid in old_ids:
+        assert artifact_ready_path(layout, REPOSITORY_ID, aid).is_file()
+    instance.sweep_once()
+    assert not new_ready.exists()
+    lifecycle = mutation_store.get_artifact_lifecycle(new_id)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+
+def test_classify_rejects_path_outside_layout_ready_dir(
+    layout: DurableLayout,
+    tmp_path: Path,
+) -> None:
+    expected = artifact_ready_path(layout, REPOSITORY_ID, ARTIFACT_ID)
+    expected.parent.mkdir(parents=True, exist_ok=True)
+    outsider = tmp_path / "other" / ARTIFACT_ID.hex
+    outsider.parent.mkdir(parents=True, exist_ok=True)
+    outsider.write_bytes(ARTIFACT_PAYLOAD)
+    assert (
+        classify_ready_artifact_path(outsider, expected=expected, artifact_id=ARTIFACT_ID)
+        == "unexpected_path"
+    )
+
+
+def test_parent_symlink_escape_does_not_delete_outside_target(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    tmp_path: Path,
+) -> None:
+    from gateway_repository_service import artifact_cleanup
+
+    store, _mutation_store = stores
+    ready = write_ready(layout)
+    outside_dir = tmp_path / "escape-ready"
+    outside_dir.mkdir()
+    outside_target = outside_dir / ARTIFACT_ID.hex
+    ready.rename(outside_target)
+    ready_dir = ready.parent
+    ready_dir.rmdir()
+    ready_dir.symlink_to(outside_dir)
+
+    outcome = artifact_cleanup.cleanup_ready_artifact_bytes(
+        store,
+        layout,
+        repository_id=REPOSITORY_ID,
+        artifact_id=ARTIFACT_ID,
+        ttl_seconds=3600,
+        recheck=lambda: True,
+    )
+    assert outcome == "unsafe_path"
+    assert outside_target.is_file()
+    assert outside_target.read_bytes() == ARTIFACT_PAYLOAD
+
+
+def test_eligible_leftover_deleting_sidecar_does_not_starve_other_candidate(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    seed_artifact(mutation_store, artifact_id=OTHER_ARTIFACT_ID)
+    leftover_ready = write_ready(layout)
+    other_ready = write_ready(layout, artifact_id=OTHER_ARTIFACT_ID)
+    mark_succeeded_consumed(store, key="leftover")
+    mark_succeeded_consumed(
+        store,
+        key="other",
+        operation_id=OTHER_OPERATION_ID,
+        artifact_id=OTHER_ARTIFACT_ID,
+    )
+    st = leftover_ready.stat()
+    generation = store.begin_artifact_bytes_delete_intent(
+        ARTIFACT_ID,
+        repository_id=REPOSITORY_ID,
+        dev=int(st.st_dev),
+        ino=int(st.st_ino),
+        phase="quarantined",
+    )
+    sidecar = leftover_ready.parent / quarantine_name_for(
+        inode=int(st.st_ino),
+        artifact_id=ARTIFACT_ID,
+        generation=generation,
+    )
+    os.link(leftover_ready, sidecar)
+    leftover_ready.unlink()
+
+    cleaner(layout, store, mutation_store).sweep_once()
+
+    leftover = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert leftover is not None
+    assert leftover.bytes_deleted_at is not None
+    assert not other_ready.exists()
+    other = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
+    assert other is not None
+    assert other.bytes_deleted_at is not None
+
+
+@pytest.mark.serial
+def test_cleanup_failure_retries_after_interval_fallback(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, mutation_store = stores
+    seed_artifact(mutation_store)
+    ready = write_ready(layout)
+    first_failure = threading.Event()
+    calls = {"n": 0}
+    import gateway_repository_service.artifact_cleanup as cleanup_mod
+
+    original = cleanup_mod._unlink_ready_name
+
+    def fail_once(name: str, *, dir_fd: int) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            first_failure.set()
+            raise OSError(errno.EIO, "injected I/O failure")
+        original(name, dir_fd=dir_fd)
+
+    monkeypatch.setattr(cleanup_mod, "_unlink_ready_name", fail_once)
+    instance = cleaner(layout, store, mutation_store, ttl=1, interval=1)
+    instance.start()
+    try:
+        assert first_failure.wait(timeout=2.0)
+        assert ready.is_file()
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and ready.exists():
+            time.sleep(0.01)
+        assert not ready.exists()
+        assert calls["n"] == 2
+    finally:
+        instance.stop(timeout=2.0)
+
+
+@pytest.mark.serial
+def test_join_timeout_raises(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    hang = threading.Event()
+    instance = cleaner(layout, store, mutation_store, interval=60)
+
+    def hanging_sweep() -> None:
+        hang.wait(timeout=5.0)
+
+    setattr(instance, "_sweep", hanging_sweep)
+    instance.start()
+    try:
+        with pytest.raises(ArtifactCleanerShutdownError):
+            instance.stop(timeout=0.05)
+    finally:
+        hang.set()
+        thread = instance._thread  # noqa: SLF001
+        if thread is not None and thread.is_alive():
+            with instance._condition:  # noqa: SLF001
+                instance._stopping = True  # noqa: SLF001
+                instance._pending = True  # noqa: SLF001
+                instance._condition.notify_all()  # noqa: SLF001
+            thread.join(timeout=2.0)
+            instance._thread = None  # noqa: SLF001
+            instance._started = False  # noqa: SLF001

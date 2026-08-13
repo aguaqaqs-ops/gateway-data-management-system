@@ -1,4 +1,4 @@
-"""Root-only layout preparation for artifacts/run without following mounts."""
+"""Root-only layout preparation for artifacts without following mounts."""
 
 from __future__ import annotations
 
@@ -113,17 +113,13 @@ def _open_child_dir(parent_fd: int, name: str) -> int | None:
 def prepare_artifact_layout(
     *,
     data_root: Path,
-    run_dir: Path,
     artifacts: Path,
-    broker_uid: int,
     gateway_uid: int,
     gateway_gid: int,
 ) -> None:
     data_root = Path(data_root)
-    run_dir = Path(run_dir)
     artifacts = Path(artifacts)
     assert_no_symlink_ancestors(data_root)
-    assert_no_symlink_ancestors(run_dir)
     assert_no_symlink_ancestors(artifacts)
     data_fd = _ensure_real_dir(
         data_root,
@@ -133,17 +129,9 @@ def prepare_artifact_layout(
         require_same_parent_mount=False,
     )
     os.close(data_fd)
-    run_fd = _ensure_real_dir(
-        run_dir,
-        uid=broker_uid,
-        gid=gateway_gid,
-        mode=0o750,
-        require_same_parent_mount=True,
-    )
-    os.close(run_fd)
     artifacts_fd = _ensure_real_dir(
         artifacts,
-        uid=broker_uid,
+        uid=gateway_uid,
         gid=gateway_gid,
         mode=0o750,
         require_same_parent_mount=True,
@@ -156,17 +144,19 @@ def prepare_artifact_layout(
             if repo_fd is None:
                 continue
             try:
-                _fchown_chmod(repo_fd, uid=broker_uid, gid=gateway_gid, mode=0o750)
+                _fchown_chmod(repo_fd, uid=gateway_uid, gid=gateway_gid, mode=0o750)
                 ready_fd = _open_child_dir(repo_fd, "ready")
                 if ready_fd is not None:
                     try:
-                        _fchown_chmod(ready_fd, uid=broker_uid, gid=gateway_gid, mode=0o750)
+                        _fchown_chmod(ready_fd, uid=gateway_uid, gid=gateway_gid, mode=0o750)
                     finally:
                         os.close(ready_fd)
                 staging_fd = _open_child_dir(repo_fd, "staging")
                 if staging_fd is not None:
                     try:
-                        _fchown_chmod(staging_fd, uid=broker_uid, gid=gateway_gid, mode=0o770)
+                        _fchown_chmod(
+                            staging_fd, uid=gateway_uid, gid=gateway_gid, mode=0o750
+                        )
                     finally:
                         os.close(staging_fd)
             finally:
@@ -178,19 +168,14 @@ def prepare_artifact_layout(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="artifact-layout")
     parser.add_argument("--data-root", type=Path, required=True)
-    parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, required=True)
-    parser.add_argument("--broker-user", required=True)
     parser.add_argument("--gateway-user", required=True)
     args = parser.parse_args(argv)
     try:
-        broker_uid = pwd.getpwnam(args.broker_user).pw_uid
         gateway_pw = pwd.getpwnam(args.gateway_user)
         prepare_artifact_layout(
             data_root=args.data_root,
-            run_dir=args.run_dir,
             artifacts=args.artifacts,
-            broker_uid=broker_uid,
             gateway_uid=gateway_pw.pw_uid,
             gateway_gid=gateway_pw.pw_gid,
         )

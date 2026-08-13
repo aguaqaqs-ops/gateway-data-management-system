@@ -985,9 +985,9 @@ class ImportOperationStore:
         *,
         deleted_at: str | None = None,
         repository_id: UUID | None = None,
-        expected_dev: int,
-        expected_ino: int,
-        expected_generation: str,
+        expected_dev: int | None = None,
+        expected_ino: int | None = None,
+        expected_generation: str | None = None,
     ) -> None:
         with self._transaction():
             scope = repository_id

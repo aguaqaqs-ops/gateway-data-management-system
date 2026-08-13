@@ -12,10 +12,6 @@ from uuid import UUID
 
 from gateway_repository_contracts import OperationStatus
 
-from gateway_repository_service.artifact_broker import (
-    ArtifactBrokerError,
-    install_artifact_broker,
-)
 from gateway_repository_service.control_db import (
     CONTROL_DB_USER_VERSION,
     ControlDbError,
@@ -336,7 +332,6 @@ def _run_apply(
                 provider=provider,
                 candidate=final_result.commit_id,
                 ttl_seconds=settings.artifact_ttl_seconds,
-                tombstone_budget=settings.artifact_tombstone_budget,
             )
         else:
             if not evidence_supports_not_published_decision(evidence):
@@ -406,11 +401,6 @@ def main(argv: list[str] | None = None) -> None:
     if operation_id is None:
         print("invalid operation id", file=sys.stderr)
         raise SystemExit(2)
-
-    try:
-        install_artifact_broker(profile=settings.profile)
-    except ArtifactBrokerError:
-        pass
 
     if args.command == "inspect":
         raise SystemExit(_run_inspect(settings=settings, operation_id=operation_id))

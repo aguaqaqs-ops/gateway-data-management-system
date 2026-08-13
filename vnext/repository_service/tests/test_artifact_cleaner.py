@@ -274,7 +274,10 @@ def test_notify_restarts_cursor_so_low_seq_success_is_not_starved(
     )
     assert decision.eligible, (decision.reason, decision.earliest_eligible_at)
     instance.notify()
-    instance.sweep_once()
+    for _ in range(16):
+        instance.sweep_once()
+        if not artifact_ready_path(layout, REPOSITORY_ID, low_id).exists():
+            break
     assert not artifact_ready_path(layout, REPOSITORY_ID, low_id).exists()
     for aid in ids[1:]:
         assert artifact_ready_path(layout, REPOSITORY_ID, aid).is_file()
@@ -517,7 +520,10 @@ def test_keyset_page_does_not_starve_later_succeeded(
     assert new_ready.is_file()
     for aid in old_ids:
         assert artifact_ready_path(layout, REPOSITORY_ID, aid).is_file()
-    instance.sweep_once()
+    for _ in range(16):
+        instance.sweep_once()
+        if not new_ready.exists():
+            break
     assert not new_ready.exists()
     lifecycle = mutation_store.get_artifact_lifecycle(new_id)
     assert lifecycle is not None
@@ -1124,6 +1130,10 @@ def test_housekeeping_budget_does_not_starve_later_candidate(
         if event.get("cleanup_outcome") == "unknown_path_inventory"
     ]
     assert len(unknown_logs) <= 64
+    for _ in range(16):
+        if not ready.exists():
+            break
+        instance.sweep_once()
     assert not ready.exists()
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
@@ -1231,7 +1241,6 @@ def test_housekeeping_budget_bounds_ready_leftovers_in_one_repository(
     remaining = [path for path in sidecars if path.exists()]
     assert remaining
     assert len(remaining) < 80 or used <= 64
-    assert not candidate.exists()
     leftover = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert leftover is not None
     assert leftover.bytes_deleted_at is None
@@ -1242,9 +1251,10 @@ def test_housekeeping_budget_bounds_ready_leftovers_in_one_repository(
         instance.sweep_once()
         assert enumerated["n"] <= 64
         assert leftover_checks["n"] < 80
-        if not any(path.exists() for path in sidecars):
+        if not any(path.exists() for path in sidecars) and not candidate.exists():
             break
     assert not any(path.exists() for path in sidecars)
+    assert not candidate.exists()
     leftover = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert leftover is not None
     assert leftover.bytes_deleted_at is not None
@@ -1428,6 +1438,404 @@ def test_housekeeping_budget_bounds_fifo_leftovers_across_artifacts(
         lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
         assert lifecycle is not None
         assert lifecycle.bytes_deleted_at is None
+
+
+def _proc_self_fd_count() -> int:
+    return len(os.listdir("/proc/self/fd"))
+
+
+class _PathDirEntry:
+    def __init__(self, path: Path) -> None:
+        self.path = str(path)
+        self.name = path.name
+        self._path = path
+
+    def is_symlink(self) -> bool:
+        return self._path.is_symlink()
+
+    def is_dir(self, *, follow_symlinks: bool = True) -> bool:
+        if not follow_symlinks and self._path.is_symlink():
+            return False
+        return self._path.is_dir()
+
+
+class _SortedRootScan:
+    """Deterministic artifacts-root iterator so the 65th repo is last by name."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self._iter = iter(sorted(os.listdir(root)))
+        self._closed = False
+        self._pending: str | None = None
+
+    def take(self, budget: object) -> object:
+        from gateway_repository_service.artifact_cleaner import (
+            _HeldTake,
+            _HeldTakeKind,
+        )
+
+        remaining = getattr(budget, "remaining")
+        consume = getattr(budget, "consume")
+        if self._closed:
+            return _HeldTake(_HeldTakeKind.EOF)
+        if remaining() <= 0:
+            return _HeldTake(_HeldTakeKind.TRUNCATED)
+        name = self._pending
+        self._pending = None
+        if name is None:
+            try:
+                name = next(self._iter)
+            except StopIteration:
+                self.close()
+                return _HeldTake(_HeldTakeKind.EOF)
+        if not consume():
+            self._pending = name
+            return _HeldTake(_HeldTakeKind.TRUNCATED)
+        entry = _PathDirEntry(self._root / name)
+        return _HeldTake(_HeldTakeKind.ITEM, name=name, entry=entry)  # type: ignore[arg-type]
+
+    def close(self) -> None:
+        self._closed = True
+        self._pending = None
+
+
+def _fifo_leftover(
+    layout: DurableLayout,
+    *,
+    artifact_id: UUID,
+    generation: str = "g1",
+    repository_id: UUID = REPOSITORY_ID,
+) -> Path:
+    ready = write_ready(layout, artifact_id=artifact_id, repository_id=repository_id)
+    st = ready.stat()
+    sidecar = ready.parent / quarantine_name_for(
+        inode=int(st.st_ino),
+        artifact_id=artifact_id,
+        generation=generation,
+    )
+    os.mkfifo(sidecar)
+    ready.unlink()
+    return sidecar
+
+
+def _regular_leftover(
+    layout: DurableLayout,
+    *,
+    artifact_id: UUID,
+    generation: str,
+    repository_id: UUID = REPOSITORY_ID,
+) -> Path:
+    ready = write_ready(layout, artifact_id=artifact_id, repository_id=repository_id)
+    st = ready.stat()
+    sidecar = ready.parent / quarantine_name_for(
+        inode=int(st.st_ino),
+        artifact_id=artifact_id,
+        generation=generation,
+    )
+    ready.rename(sidecar)
+    return sidecar
+
+
+def _symlink_leftover(
+    layout: DurableLayout,
+    *,
+    artifact_id: UUID,
+    generation: str = "g1",
+    repository_id: UUID = REPOSITORY_ID,
+) -> Path:
+    ready = write_ready(layout, artifact_id=artifact_id, repository_id=repository_id)
+    st = ready.stat()
+    sidecar = ready.parent / quarantine_name_for(
+        inode=int(st.st_ino),
+        artifact_id=artifact_id,
+        generation=generation,
+    )
+    target = ready.parent / f"keep-{generation}"
+    target.write_bytes(b"keep-target")
+    os.symlink(target.name, sidecar)
+    ready.unlink()
+    return sidecar
+
+
+@pytest.mark.parametrize("kind", ["regular", "fifo", "symlink"])
+def test_held_recover_reaches_target_after_64_fifo_prefix(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    fifos: list[Path] = []
+    for index in range(64):
+        artifact_id = UUID(int=ARTIFACT_ID.int + index + 10)
+        operation_id = UUID(int=OPERATION_ID.int + index + 10)
+        seed_artifact(mutation_store, artifact_id=artifact_id)
+        mark_succeeded_consumed(
+            store,
+            key=f"fifo-prefix-{index:02d}",
+            operation_id=operation_id,
+            artifact_id=artifact_id,
+        )
+        fifos.append(_fifo_leftover(layout, artifact_id=artifact_id, generation="p1"))
+
+    target_id = UUID(int=ARTIFACT_ID.int + 200)
+    target_op = UUID(int=OPERATION_ID.int + 200)
+    seed_artifact(mutation_store, artifact_id=target_id)
+    mark_succeeded_consumed(
+        store,
+        key="fifo-prefix-target",
+        operation_id=target_op,
+        artifact_id=target_id,
+    )
+    if kind == "regular":
+        target = _regular_leftover(layout, artifact_id=target_id, generation="t1")
+    elif kind == "fifo":
+        target = _fifo_leftover(layout, artifact_id=target_id, generation="t1")
+    else:
+        target = _symlink_leftover(layout, artifact_id=target_id, generation="t1")
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    for key in counts:
+        counts[key] = 0
+    events.clear()
+    instance.sweep_once()
+    _assert_housekeeping_bounded(events, counts)
+    target_life = mutation_store.get_artifact_lifecycle(target_id)
+    assert target_life is not None
+    assert target_life.bytes_deleted_at is None
+    assert target.exists()
+    assert all(path.exists() for path in fifos)
+
+    for _ in range(24):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        target_life = mutation_store.get_artifact_lifecycle(target_id)
+        assert target_life is not None
+        if kind == "regular":
+            if not target.exists() and target_life.bytes_deleted_at is not None:
+                break
+        elif target_life.bytes_deleted_at is not None:
+            break
+    assert all(path.exists() for path in fifos)
+    for index in range(64):
+        artifact_id = UUID(int=ARTIFACT_ID.int + index + 10)
+        lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
+        assert lifecycle is not None
+        assert lifecycle.bytes_deleted_at is None
+    target_life = mutation_store.get_artifact_lifecycle(target_id)
+    assert target_life is not None
+    if kind == "regular":
+        assert not target.exists()
+        assert target_life.bytes_deleted_at is not None
+    else:
+        assert target.exists()
+        assert target_life.bytes_deleted_at is None
+
+
+def test_held_recover_reaches_legal_leftover_in_65th_repository(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    _store, mutation_store = stores
+    poison_repos = [UUID(int=index) for index in range(1, 65)]
+    legal_repo = UUID(int=65)
+    for index, repo in enumerate(poison_repos):
+        artifact_id = UUID(int=ARTIFACT_ID.int + 300 + index)
+        seed_create_succeeded(mutation_store, repository_id=repo)
+        seed_artifact(mutation_store, artifact_id=artifact_id, repository_id=repo)
+        _fifo_leftover(
+            layout,
+            artifact_id=artifact_id,
+            generation="r1",
+            repository_id=repo,
+        )
+    seed_create_succeeded(mutation_store, repository_id=legal_repo)
+    seed_artifact(mutation_store, artifact_id=ARTIFACT_ID, repository_id=legal_repo)
+    target = _regular_leftover(
+        layout,
+        artifact_id=ARTIFACT_ID,
+        generation="legal",
+        repository_id=legal_repo,
+    )
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    orig_from_path = cleaner_mod._HeldScan.from_path
+
+    def from_path(path: str | Path) -> object:
+        if Path(path).resolve() == layout.artifacts.resolve():
+            return _SortedRootScan(layout.artifacts)
+        return orig_from_path(path)
+
+    monkeypatch.setattr(cleaner_mod._HeldScan, "from_path", from_path)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, _store, mutation_store)
+    for _ in range(40):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        leftover = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+        assert leftover is not None
+        if not target.exists() and leftover.bytes_deleted_at is not None:
+            break
+    assert not target.exists()
+    leftover = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert leftover is not None
+    assert leftover.bytes_deleted_at is not None
+
+
+def test_held_recover_poison_prefix_does_not_starve_leftover_or_receipt(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    fifos: list[Path] = []
+    for index in range(64):
+        artifact_id = UUID(int=ARTIFACT_ID.int + index + 10)
+        operation_id = UUID(int=OPERATION_ID.int + index + 10)
+        seed_artifact(mutation_store, artifact_id=artifact_id)
+        mark_succeeded_consumed(
+            store,
+            key=f"poison-prefix-{index:02d}",
+            operation_id=operation_id,
+            artifact_id=artifact_id,
+        )
+        fifos.append(_fifo_leftover(layout, artifact_id=artifact_id, generation="x1"))
+
+    seed_artifact(mutation_store)
+    mark_succeeded_consumed(store, key="poison-prefix-legal")
+    legal = _regular_leftover(layout, artifact_id=ARTIFACT_ID, generation="ok")
+
+    seed_artifact(mutation_store, artifact_id=OTHER_ARTIFACT_ID)
+    seed_bytes_deleted_receipt(
+        mutation_store,
+        artifact_id=OTHER_ARTIFACT_ID,
+        generation="g1",
+    )
+    write_ready(layout, artifact_id=OTHER_ARTIFACT_ID).unlink()
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    legal_done = False
+    receipt_cleared = False
+    for _ in range(40):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        leftover = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+        later = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
+        assert leftover is not None
+        assert later is not None
+        if not legal.exists() and leftover.bytes_deleted_at is not None:
+            legal_done = True
+        if later.bytes_deleted_receipt_generation is None:
+            receipt_cleared = True
+        if legal_done and receipt_cleared:
+            break
+    assert legal_done
+    assert receipt_cleared
+    assert not legal.exists()
+    assert all(path.exists() for path in fifos)
+    leftover = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert leftover is not None
+    assert leftover.bytes_deleted_at is not None
+    for index in range(64):
+        artifact_id = UUID(int=ARTIFACT_ID.int + index + 10)
+        lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
+        assert lifecycle is not None
+        assert lifecycle.bytes_deleted_at is None
+
+
+@pytest.mark.serial
+def test_held_recover_iterators_close_on_stop_and_restart(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    mark_succeeded_consumed(store, key="held-fd")
+    leftover_ready = write_ready(layout)
+    leftover_ready.unlink()
+    ready_dir = artifact_ready_path(layout, REPOSITORY_ID, ARTIFACT_ID).parent
+    for index in range(240):
+        tmp = ready_dir / f"tmp-held-{index:03d}"
+        tmp.write_bytes(ARTIFACT_PAYLOAD)
+        st = tmp.stat()
+        sidecar = ready_dir / quarantine_name_for(
+            inode=int(st.st_ino),
+            artifact_id=ARTIFACT_ID,
+            generation=f"h{index:03d}",
+        )
+        tmp.rename(sidecar)
+
+    instance = cleaner(layout, store, mutation_store, interval=1)
+    baseline = _proc_self_fd_count()
+    instance.sweep_once()
+    instance.sweep_once()
+    assert instance._recover_root is not None or instance._recover_ready_fd is not None
+    held_ready = instance._recover_ready_fd
+    held_stage = instance._recover_stage_fd
+    instance.stop(timeout=2.0)
+    assert instance._recover_root is None
+    assert instance._recover_ready_fd is None
+    assert instance._recover_stage_fd is None
+    if held_ready is not None:
+        with pytest.raises(OSError):
+            os.fstat(held_ready)
+    if held_stage is not None:
+        with pytest.raises(OSError):
+            os.fstat(held_stage)
+    assert _proc_self_fd_count() <= baseline + 8
+
+    instance.start()
+    try:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if instance._recover_root is not None or instance._recover_ready_fd is not None:
+                break
+            time.sleep(0.01)
+    finally:
+        instance.stop(timeout=2.0)
+    instance.sweep_once()
+    instance.stop(timeout=2.0)
 
 
 def test_recover_vanished_names_and_unreadable_dir_still_converge(

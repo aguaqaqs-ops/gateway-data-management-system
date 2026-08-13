@@ -236,20 +236,24 @@ def succeeded_reference(
     )
 
 
-def seed_create_succeeded(mutation_store: MutationStore) -> None:
+def seed_create_succeeded(
+    mutation_store: MutationStore,
+    *,
+    repository_id: UUID = REPOSITORY_ID,
+) -> None:
     scope = IdempotencyScope.for_create()
-    key_hash = IdempotencyKeyHash.from_raw_key(f"create-{REPOSITORY_ID}")
+    key_hash = IdempotencyKeyHash.from_raw_key(f"create-{repository_id}")
     fingerprint = create_repository_fingerprint_v1()
     effect = mutation_store.allocate_pending(
         scope,
         key_hash=key_hash,
         fingerprint=fingerprint,
-        resource_id=REPOSITORY_ID,
+        resource_id=repository_id,
     )
     mutation_store.mark_succeeded(
         effect.effect_id,
         response_body={
-            "repository_id": str(REPOSITORY_ID),
+            "repository_id": str(repository_id),
             "default_ref": "main",
             "initial_commit_id": "commit-0",
         },

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Literal, Protocol, TypeVar, runtime_checkable
+from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
 from uuid import UUID
 
 from gateway_repository_contracts import OperationStatus
@@ -24,7 +24,7 @@ from gateway_repository_service.artifact_retention import (
     retention_explains_missing_ready_bytes,
 )
 from gateway_repository_service.diagnostics import log_event
-from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.mutation_store import (
     ArtifactLifecycleRecord,
     ArtifactResidualRecord,
@@ -122,7 +122,88 @@ def _scandir_names(dir_fd: int) -> Iterator[str]:
     yield from scandir_dir_fd_names(dir_fd)
 
 
+class _HeldTakeKind(Enum):
+    ITEM = "item"
+    TRUNCATED = "truncated"
+    EOF = "eof"
+    ERROR = "error"
+
+
+@dataclass(frozen=True, slots=True)
+class _HeldTake:
+    kind: _HeldTakeKind
+    name: str | None = None
+    entry: os.DirEntry[str] | None = None
+
+
+class _HeldScan:
+    """Billed scandir that stays open across sweeps until EOF or close."""
+
+    def __init__(self, raw: Any) -> None:
+        self._raw = raw
+        self._entered = False
+        self._closed = False
+        self._pending_entry: os.DirEntry[str] | None = None
+        enter = getattr(raw, "__enter__", None)
+        if enter is not None:
+            inner = enter()
+            self._entered = True
+            self._iter: Iterator[os.DirEntry[str]] = iter(inner)
+        else:
+            self._iter = iter(raw)
+
+    @classmethod
+    def from_path(cls, path: str | Path) -> _HeldScan:
+        return cls(os.scandir(path))
+
+    @classmethod
+    def from_dirfd(cls, dir_fd: int) -> _HeldScan:
+        return cls(os.scandir(f"/proc/self/fd/{dir_fd}"))
+
+    def take(self, budget: _HousekeepingBudget) -> _HeldTake:
+        if self._closed:
+            return _HeldTake(_HeldTakeKind.EOF)
+        if budget.remaining() <= 0:
+            return _HeldTake(_HeldTakeKind.TRUNCATED)
+        entry = self._pending_entry
+        self._pending_entry = None
+        if entry is None:
+            try:
+                entry = next(self._iter)
+            except StopIteration:
+                self.close()
+                return _HeldTake(_HeldTakeKind.EOF)
+            except OSError:
+                self.close()
+                return _HeldTake(_HeldTakeKind.ERROR)
+        if not budget.consume():
+            self._pending_entry = entry
+            return _HeldTake(_HeldTakeKind.TRUNCATED)
+        return _HeldTake(_HeldTakeKind.ITEM, name=entry.name, entry=entry)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._pending_entry = None
+        if self._entered:
+            exit_fn = getattr(self._raw, "__exit__", None)
+            if exit_fn is not None:
+                try:
+                    exit_fn(None, None, None)
+                except OSError:
+                    pass
+            return
+        close_fn = getattr(self._raw, "close", None)
+        if close_fn is not None:
+            try:
+                close_fn()
+            except OSError:
+                pass
+
+
 SidecarOutcome = Literal["absent", "success", "retain", "paused"]
+LeftoverPresence = Literal["present", "absent", "unknown"]
 
 
 class SidecarLockResult(Enum):
@@ -184,11 +265,27 @@ class ArtifactCleaner:
         self._oversize_stage_keys: set[tuple[UUID, str]] = set()
         self._receipt_after_artifact_id: str | None = None
         self._residual_after_id: int | None = None
+        self._recover_root: _HeldScan | None = None
+        self._recover_ready: _HeldScan | None = None
+        self._recover_ready_fd: int | None = None
+        self._recover_repo_id: UUID | None = None
+        self._recover_processed_ids: set[UUID] = set()
+        self._recover_stage: _HeldScan | None = None
+        self._recover_stage_fd: int | None = None
+        self._recover_stage_name: str | None = None
+        self._recover_stage_blocked: bool = False
+        self._leftover_seen: set[tuple[UUID, UUID]] = set()
+        self._leftover_names: dict[tuple[UUID, UUID], set[str]] = {}
+        self._leftover_ready_complete: set[UUID] = set()
+        self._recover_finished_repos: set[UUID] = set()
+        self._recover_ready_reset = False
 
     def start(self) -> None:
         with self._stop_lock:
             if self._started:
                 return
+            self._close_recover_scans()
+            self._reset_leftover_observations()
             self._stopping = False
             self._pending = False
             thread = threading.Thread(
@@ -210,6 +307,8 @@ class ArtifactCleaner:
         with self._stop_lock:
             thread = self._thread
             if thread is None:
+                self._close_recover_scans()
+                self._reset_leftover_observations()
                 self._started = False
                 return
             with self._condition:
@@ -224,6 +323,8 @@ class ArtifactCleaner:
                 )
             self._thread = None
             self._started = False
+            self._close_recover_scans()
+            self._reset_leftover_observations()
             self._oversize_stage_keys.clear()
             self._housekeeping_phase = 0
 
@@ -239,40 +340,48 @@ class ArtifactCleaner:
             self._cleanup_cursor = None
             self._restart_cursor = False
         cycle_deleted = 0
-        first = True
         while not admitted():
-            deleted = self._sweep(housekeeping=first)
-            first = False
+            deleted = self._sweep(housekeeping=True)
             cycle_deleted += deleted
             if self._cleanup_cursor is None:
-                if cycle_deleted == 0:
+                recover_held = (
+                    self._recover_root is not None
+                    or self._recover_ready is not None
+                    or self._recover_stage is not None
+                )
+                if cycle_deleted == 0 and not recover_held:
                     return
                 cycle_deleted = 0
 
     def _run(self) -> None:
         interval = float(self._settings.artifact_cleanup_interval_seconds)
-        while True:
-            try:
-                self._sweep()
-            except Exception:
-                _LOGGER.exception("artifact cleaner sweep failed")
-                log_event(
-                    "artifact_cleanup",
-                    stage="sweep",
-                    result="error",
-                    cleanup_outcome="sweep_exception",
-                    logger=_LOGGER,
-                )
-            with self._condition:
-                if self._stopping:
-                    return
-                if self._pending:
+        try:
+            while True:
+                try:
+                    self._sweep()
+                except Exception:
+                    self._close_recover_scans()
+                    self._reset_leftover_observations()
+                    _LOGGER.exception("artifact cleaner sweep failed")
+                    log_event(
+                        "artifact_cleanup",
+                        stage="sweep",
+                        result="error",
+                        cleanup_outcome="sweep_exception",
+                        logger=_LOGGER,
+                    )
+                with self._condition:
+                    if self._stopping:
+                        return
+                    if self._pending:
+                        self._pending = False
+                        continue
+                    self._condition.wait(timeout=max(interval, 0.0))
+                    if self._stopping:
+                        return
                     self._pending = False
-                    continue
-                self._condition.wait(timeout=max(interval, 0.0))
-                if self._stopping:
-                    return
-                self._pending = False
+        finally:
+            self._close_recover_scans()
 
     def _sweep(self, *, housekeeping: bool = True) -> int:
         with self._condition:
@@ -283,7 +392,12 @@ class ArtifactCleaner:
         started = time.monotonic()
         if housekeeping:
             budget = _HousekeepingBudget(_HOUSEKEEPING_ENTRY_BUDGET)
-            self._run_housekeeping(budget)
+            try:
+                self._run_housekeeping(budget)
+            except Exception:
+                self._close_recover_scans()
+                self._reset_leftover_observations()
+                raise
             log_event(
                 "artifact_cleanup",
                 stage="housekeeping",
@@ -528,38 +642,77 @@ class ArtifactCleaner:
         )
         return decision.eligible
 
+    def _leftover_presence(
+        self,
+        repository_id: UUID,
+        artifact_id: UUID,
+    ) -> LeftoverPresence:
+        """Presence is the current recover walk's observation, not a fresh cap-64 scan.
+
+        ``absent`` only after that repository's ready iterator reached StopIteration
+        without a remaining parseable leftover for this artifact. Truncation, I/O
+        failure, and repos not yet visited stay ``unknown``.
+        """
+
+        if (repository_id, artifact_id) in self._leftover_seen:
+            return "present"
+        if repository_id in self._leftover_ready_complete:
+            return "absent"
+        return "unknown"
+
     def _artifact_has_parseable_leftovers(
         self,
         repository_id: UUID,
         artifact_id: UUID,
     ) -> bool:
-        try:
-            ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
-        except OwnedPathError:
-            return False
-        except OSError:
-            return True
-        try:
-            names = iter(scandir_dir_fd_names(ready_dir_fd))
-            scanned = 0
-            try:
-                while scanned < _HOUSEKEEPING_ENTRY_BUDGET:
-                    try:
-                        name = next(names)
-                    except StopIteration:
-                        return False
-                    scanned += 1
-                    parsed = parse_any_recoverable_sidecar(name)
-                    if parsed is not None and parsed[1] == artifact_id:
-                        return True
-                    stage = parse_unlink_stage_dir_name(name)
-                    if stage is not None and stage[0] == artifact_id:
-                        return True
-            except OSError:
-                return True
-            return False
-        finally:
-            os.close(ready_dir_fd)
+        """True when leftovers are present or unproven (fail closed)."""
+
+        return self._leftover_presence(repository_id, artifact_id) != "absent"
+
+    def _reset_leftover_observations(self) -> None:
+        self._leftover_seen.clear()
+        self._leftover_names.clear()
+        self._leftover_ready_complete.clear()
+
+    def _forget_repo_leftovers(self, repository_id: UUID) -> None:
+        self._leftover_ready_complete.discard(repository_id)
+        self._recover_finished_repos.discard(repository_id)
+        drop = [key for key in self._leftover_seen if key[0] == repository_id]
+        for key in drop:
+            self._leftover_seen.discard(key)
+            self._leftover_names.pop(key, None)
+
+    def _note_leftover_name(self, repository_id: UUID, name: str) -> UUID | None:
+        artifact_id: UUID | None = None
+        parsed = parse_any_recoverable_sidecar(name)
+        if parsed is not None:
+            artifact_id = parsed[1]
+        else:
+            stage = parse_unlink_stage_dir_name(name)
+            if stage is not None:
+                artifact_id = stage[0]
+        if artifact_id is None:
+            return None
+        key = (repository_id, artifact_id)
+        self._leftover_names.setdefault(key, set()).add(name)
+        self._leftover_seen.add(key)
+        self._recover_processed_ids.add(artifact_id)
+        return artifact_id
+
+    def _forget_leftover_name(
+        self,
+        repository_id: UUID,
+        artifact_id: UUID,
+        name: str,
+    ) -> None:
+        key = (repository_id, artifact_id)
+        names = self._leftover_names.get(key)
+        if names is None:
+            return
+        names.discard(name)
+        if not names:
+            self._leftover_names.pop(key, None)
+            self._leftover_seen.discard(key)
 
     def _dirfd_unlink_regular_leftover(
         self,
@@ -608,61 +761,97 @@ class ArtifactCleaner:
         """Unlink known leftover stage children immediately, then rmdir.
 
         Returns ``(removed, last_child)``. ``last_child`` is set when the shared
-        budget pauses mid-stage so the next sweep can re-enter the same stage.
-        Unknown / non-regular children stop the walk without rmdir or stamp.
+        budget pauses mid-stage so the next sweep can resume the held iterator.
+        Unknown / non-regular children are consumed without unlink; rmdir is
+        skipped if any such child was seen.
         """
 
-        stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
-        if stage_dir_fd is None:
-            try:
-                os.stat(stage_name, dir_fd=ready_dir_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                return True, None
-            except OSError:
+        if not self._stage_scan_is_held(stage_name):
+            self._close_recover_stage()
+            stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
+            if stage_dir_fd is None:
+                try:
+                    os.stat(stage_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    return True, None
+                except OSError:
+                    return False, None
                 return False, None
+            try:
+                self._recover_stage = _HeldScan.from_dirfd(stage_dir_fd)
+            except OSError:
+                os.close(stage_dir_fd)
+                return False, None
+            self._recover_stage_fd = stage_dir_fd
+            self._recover_stage_name = stage_name
+            self._recover_stage_blocked = False
+        stage_dir_fd = self._recover_stage_fd
+        scan = self._recover_stage
+        if stage_dir_fd is None or scan is None:
             return False, None
         if not lock_unlink_stage_dir(stage_dir_fd):
-            os.close(stage_dir_fd)
-            return False, None
-        last_child: str | None = None
+            return False, ""
         paused = False
+        finished = False
+        io_error = False
+        last_child: str | None = None
         try:
-            try:
-                scan = _BilledScan()
-                for child in _billed_iter(_scandir_names(stage_dir_fd), budget, scan):
-                    last_child = child
-                    if not self._is_known_unlink_stage_child(child):
-                        return False, None
-                    try:
-                        child_fd = os.open(
-                            child, self._leftover_file_flags(), dir_fd=stage_dir_fd
-                        )
-                    except FileNotFoundError:
-                        continue
-                    except OSError:
-                        return False, None
-                    try:
-                        st = os.fstat(child_fd)
-                    except OSError:
-                        return False, None
-                    finally:
-                        os.close(child_fd)
-                    if not stat_module.S_ISREG(st.st_mode):
-                        return False, None
-                    if not self._dirfd_unlink_regular_leftover(stage_dir_fd, child):
-                        return False, None
-                if scan.truncated:
+            while True:
+                taken = scan.take(budget)
+                if taken.kind is _HeldTakeKind.TRUNCATED:
                     paused = True
-            except OSError:
-                return False, None
+                    last_child = taken.name if taken.name is not None else ""
+                    break
+                if taken.kind is _HeldTakeKind.ERROR:
+                    io_error = True
+                    finished = True
+                    break
+                if taken.kind is _HeldTakeKind.EOF:
+                    finished = True
+                    break
+                child = taken.name
+                if child is None:
+                    io_error = True
+                    finished = True
+                    break
+                last_child = child
+                if not self._unlink_known_stage_child(stage_dir_fd, child):
+                    self._recover_stage_blocked = True
         finally:
             unlock_unlink_stage_dir(stage_dir_fd)
-            os.close(stage_dir_fd)
         if paused:
             return False, last_child if last_child is not None else ""
+        if not finished:
+            return False, None
+        blocked = self._recover_stage_blocked
+        self._close_recover_stage()
+        if io_error or blocked:
+            return False, None
         if rmdir_if_empty(ready_dir_fd, stage_name):
             return True, None
         return False, None
+
+    def _unlink_known_stage_child(self, stage_dir_fd: int, child: str) -> bool:
+        """Unlink one known regular stage child. False means skip (do not abort)."""
+
+        if not self._is_known_unlink_stage_child(child):
+            return False
+        try:
+            child_fd = os.open(child, self._leftover_file_flags(), dir_fd=stage_dir_fd)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        try:
+            try:
+                st = os.fstat(child_fd)
+            except OSError:
+                return False
+        finally:
+            os.close(child_fd)
+        if not stat_module.S_ISREG(st.st_mode):
+            return False
+        return self._dirfd_unlink_regular_leftover(stage_dir_fd, child)
 
     def _clear_leftover_residuals(self, artifact_id: UUID, names: set[str]) -> None:
         if not names:
@@ -773,6 +962,7 @@ class ArtifactCleaner:
                 ready_dir_fd, name, expected_ino=ino
             ):
                 cleared.add(name)
+                self._forget_leftover_name(repository_id, artifact_id, name)
             else:
                 log_event(
                     "artifact_cleanup",
@@ -802,6 +992,7 @@ class ArtifactCleaner:
             )
             if removed:
                 cleared.add(stage_name)
+                self._forget_leftover_name(repository_id, artifact_id, stage_name)
                 continue
             if last_child is not None:
                 paused_child = last_child
@@ -823,89 +1014,210 @@ class ArtifactCleaner:
     def _recover_delete_quarantines(self, budget: _HousekeepingBudget) -> None:
         artifacts_root = self._layout.artifacts
         if not artifacts_root.is_dir():
+            self._close_recover_scans()
             return
-        try:
-            with os.scandir(artifacts_root) as entries:
-                scan = _BilledScan()
-                for entry in _billed_iter(iter(entries), budget, scan):
-                    name = entry.name
-                    if len(name) != 32 or any(ch not in _HEX32 for ch in name):
-                        continue
-                    try:
-                        repository_id = UUID(hex=name)
-                    except ValueError:
-                        continue
-                    try:
-                        if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
-                            continue
-                    except OSError:
-                        continue
-                    if self._recover_one_ready_dir(repository_id, budget):
-                        return
-                    if self._stopping:
-                        return
-                if scan.truncated:
+        if self._recover_root is None:
+            try:
+                self._recover_root = _HeldScan.from_path(artifacts_root)
+            except OSError:
+                return
+        while budget.remaining() > 0 and not self._stopping:
+            if self._recover_ready is not None or self._recover_ready_fd is not None:
+                repository_id = self._recover_repo_id
+                if repository_id is None:
+                    self._close_recover_ready()
+                    continue
+                if self._recover_one_ready_dir(repository_id, budget):
                     return
-        except OSError:
+                continue
+            taken = self._recover_root.take(budget)
+            if taken.kind is _HeldTakeKind.TRUNCATED:
+                return
+            if taken.kind is _HeldTakeKind.ERROR:
+                self._close_recover_scans()
+                return
+            if taken.kind is _HeldTakeKind.EOF:
+                self._recover_root = None
+                return
+            entry = taken.entry
+            name = taken.name
+            if entry is None or name is None:
+                continue
+            if len(name) != 32 or any(ch not in _HEX32 for ch in name):
+                continue
+            try:
+                repository_id = UUID(hex=name)
+            except ValueError:
+                continue
+            try:
+                if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                    continue
+            except OSError:
+                continue
+            if self._recover_one_ready_dir(repository_id, budget):
+                return
+
+    def _close_recover_stage(self) -> None:
+        if self._recover_stage is not None:
+            self._recover_stage.close()
+            self._recover_stage = None
+        if self._recover_stage_fd is not None:
+            unlock_unlink_stage_dir(self._recover_stage_fd)
+            try:
+                os.close(self._recover_stage_fd)
+            except OSError:
+                pass
+            self._recover_stage_fd = None
+        self._recover_stage_name = None
+        self._recover_stage_blocked = False
+
+    def _close_recover_ready(self) -> None:
+        self._close_recover_stage()
+        if self._recover_ready is not None:
+            self._recover_ready.close()
+            self._recover_ready = None
+        if self._recover_ready_fd is not None:
+            try:
+                os.close(self._recover_ready_fd)
+            except OSError:
+                pass
+            self._recover_ready_fd = None
+        self._recover_repo_id = None
+        self._recover_processed_ids = set()
+        self._recover_ready_reset = False
+
+    def _close_recover_scans(self) -> None:
+        self._close_recover_ready()
+        if self._recover_root is not None:
+            self._recover_root.close()
+            self._recover_root = None
+        self._recover_finished_repos.clear()
+
+    def _stage_scan_is_held(self, stage_name: str) -> bool:
+        return (
+            self._recover_stage is not None
+            and self._recover_stage_fd is not None
+            and self._recover_stage_name == stage_name
+        )
+
+    def _owned_ready_dir_fd(self, repository_id: UUID) -> tuple[int, bool] | None:
+        """Return ``(fd, owned)``. ``owned`` means the caller must close ``fd``."""
+
+        if (
+            self._recover_ready_fd is not None
+            and self._recover_repo_id == repository_id
+        ):
+            return self._recover_ready_fd, False
+        try:
+            return open_owned_ready_dir(self._layout, repository_id), True
+        except OwnedPathError:
+            return None
+
+    def _begin_ready_scan(self, repository_id: UUID) -> None:
+        self._recover_processed_ids = set()
+        self._recover_repo_id = repository_id
+        self._recover_ready_reset = True
+        try:
+            ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
+        except (OwnedPathError, OSError):
+            self._recover_repo_id = None
+            self._recover_ready_reset = False
             return
+        ready_dir = self._layout.artifacts / repository_key(repository_id) / "ready"
+        try:
+            self._recover_ready = _HeldScan.from_path(ready_dir)
+        except OSError:
+            os.close(ready_dir_fd)
+            self._recover_repo_id = None
+            self._recover_ready_reset = False
+            return
+        self._recover_ready_fd = ready_dir_fd
+
+    def _finish_ready_scan(self) -> None:
+        repository_id = self._recover_repo_id
+        ready_dir_fd = self._recover_ready_fd
+        processed = set(self._recover_processed_ids)
+        if repository_id is not None:
+            self._leftover_ready_complete.add(repository_id)
+            self._recover_finished_repos.add(repository_id)
+            if ready_dir_fd is not None:
+                for artifact_id in processed:
+                    self._stamp_eligible_leftover_if_needed(
+                        ready_dir_fd,
+                        repository_id,
+                        artifact_id,
+                        leftovers_present=(repository_id, artifact_id)
+                        in self._leftover_seen,
+                    )
+        self._close_recover_ready()
 
     def _recover_one_ready_dir(
         self,
         repository_id: UUID,
         budget: _HousekeepingBudget,
     ) -> bool:
-        if budget.remaining() <= 0:
-            return True
-        try:
-            ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
-        except (OwnedPathError, OSError):
-            return False
-        processed_ids: set[UUID] = set()
-        try:
-            try:
-                scan = _BilledScan()
-                for ready_name in _billed_iter(
-                    _scandir_names(ready_dir_fd), budget, scan
-                ):
-                    parsed = parse_any_recoverable_sidecar(ready_name)
-                    if parsed is not None:
-                        processed_ids.add(parsed[1])
-                    stage = parse_unlink_stage_dir_name(ready_name)
-                    if stage is not None:
-                        processed_ids.add(stage[0])
-                    try:
-                        paused = self._recover_one_ready_entry(
-                            repository_id,
-                            ready_name,
-                            budget,
-                        )
-                    except Exception:
-                        _LOGGER.exception(
-                            "artifact leftover recovery failed for repository %s",
-                            repository_id,
-                        )
-                        paused = False
-                    if paused:
-                        return True
-                    if self._stopping:
-                        return True
-                if scan.truncated:
-                    return True
-            except OSError:
+        if self._recover_repo_id != repository_id or self._recover_ready is None:
+            self._close_recover_ready()
+            self._begin_ready_scan(repository_id)
+            if self._recover_ready is None:
                 return False
-            if processed_ids:
-                leftover_ids = self._collect_parseable_leftover_ids(ready_dir_fd, budget)
-                if leftover_ids is not None:
-                    for artifact_id in processed_ids:
-                        self._stamp_eligible_leftover_if_needed(
-                            ready_dir_fd,
-                            repository_id,
-                            artifact_id,
-                            leftovers_present=artifact_id in leftover_ids,
-                        )
-            return False
-        finally:
-            os.close(ready_dir_fd)
+        scan = self._recover_ready
+        while budget.remaining() > 0 and not self._stopping:
+            if self._recover_stage is not None:
+                stage_name = self._recover_stage_name
+                if stage_name is None:
+                    self._close_recover_stage()
+                    continue
+                try:
+                    paused = self._recover_one_ready_entry(
+                        repository_id,
+                        stage_name,
+                        budget,
+                    )
+                except Exception:
+                    _LOGGER.exception(
+                        "artifact leftover recovery failed for repository %s",
+                        repository_id,
+                    )
+                    self._close_recover_stage()
+                    paused = False
+                if paused:
+                    return True
+                continue
+            taken = scan.take(budget)
+            if taken.kind is _HeldTakeKind.TRUNCATED:
+                return True
+            if taken.kind is _HeldTakeKind.ERROR:
+                self._close_recover_ready()
+                return False
+            if taken.kind is _HeldTakeKind.EOF:
+                self._finish_ready_scan()
+                return False
+            ready_name = taken.name
+            if ready_name is None:
+                self._close_recover_ready()
+                return False
+            if self._recover_ready_reset:
+                self._forget_repo_leftovers(repository_id)
+                self._recover_ready_reset = False
+            self._note_leftover_name(repository_id, ready_name)
+            try:
+                paused = self._recover_one_ready_entry(
+                    repository_id,
+                    ready_name,
+                    budget,
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "artifact leftover recovery failed for repository %s",
+                    repository_id,
+                )
+                paused = False
+            if paused:
+                return True
+            if self._stopping:
+                return True
+        return budget.remaining() <= 0 or self._stopping
 
     def _recover_one_ready_entry(
         self,
@@ -943,10 +1255,10 @@ class ArtifactCleaner:
         stage_names: list[str],
         budget: _HousekeepingBudget,
     ) -> bool:
-        try:
-            ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
-        except OwnedPathError:
+        opened = self._owned_ready_dir_fd(repository_id)
+        if opened is None:
             return False
+        ready_dir_fd, owned_fd = opened
         try:
             try:
                 lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
@@ -1048,7 +1360,8 @@ class ArtifactCleaner:
                 )
             return False
         finally:
-            os.close(ready_dir_fd)
+            if owned_fd:
+                os.close(ready_dir_fd)
 
     def _recover_stamped_unlink_stages(
         self,
@@ -1578,10 +1891,10 @@ class ArtifactCleaner:
     ) -> None:
         """Recover all deleting/detach sidecars for one artifact under one intent."""
 
-        try:
-            ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
-        except OwnedPathError:
+        opened = self._owned_ready_dir_fd(repository_id)
+        if opened is None:
             return
+        ready_dir_fd, owned_fd = opened
         try:
             try:
                 lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
@@ -1878,7 +2191,8 @@ class ArtifactCleaner:
                 logger=_LOGGER,
             )
         finally:
-            os.close(ready_dir_fd)
+            if owned_fd:
+                os.close(ready_dir_fd)
 
     def _recover_stamped_residual_sidecars(
         self,
@@ -2244,9 +2558,51 @@ class ArtifactCleaner:
         except Exception:
             _LOGGER.exception("artifact cleaner failed to list receipt GC candidates")
             return
+        if page.scanned == 0 and self._receipt_after_artifact_id is not None:
+            # Keyset wrap in this same phase so a leftover-absent window is not
+            # lost to recover starting a new ready scan before the next receipts.
+            self._receipt_after_artifact_id = None
+            remaining = budget.remaining()
+            if remaining <= 0:
+                return
+            try:
+                page = self._mutation_store.list_artifacts_with_bytes_deleted_receipt(
+                    limit=remaining,
+                    after_artifact_id=None,
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "artifact cleaner failed to list receipt GC candidates"
+                )
+                return
         if page.scanned == 0:
             self._receipt_after_artifact_id = None
             return
+        poison_rows = max(0, page.scanned - len(page.records))
+        for _ in range(poison_rows):
+            if not budget.consume():
+                self._receipt_after_artifact_id = page.cursor_artifact_id
+                return
+        processed = 0
+        for lifecycle in page.records:
+            if not budget.consume():
+                break
+            processed += 1
+            if self._stopping:
+                break
+            try:
+                self._gc_one_bytes_deleted_receipt(lifecycle, budget)
+            except Exception:
+                _LOGGER.exception(
+                    "artifact receipt GC failed for artifact %s",
+                    lifecycle.artifact_id,
+                )
+            if budget.remaining() <= 0:
+                break
+        if processed < len(page.records) and processed > 0:
+            self._receipt_after_artifact_id = str(page.records[processed - 1].artifact_id)
+        else:
+            self._receipt_after_artifact_id = page.cursor_artifact_id
         poison_rows = max(0, page.scanned - len(page.records))
         for _ in range(poison_rows):
             if not budget.consume():
@@ -2278,6 +2634,7 @@ class ArtifactCleaner:
         lifecycle: ArtifactLifecycleRecord,
         budget: _HousekeepingBudget,
     ) -> None:
+        del budget
         receipt_generation = lifecycle.bytes_deleted_receipt_generation
         receipt_dev = lifecycle.bytes_deleted_receipt_dev
         receipt_ino = lifecycle.bytes_deleted_receipt_ino
@@ -2287,58 +2644,23 @@ class ArtifactCleaner:
             or receipt_ino is None
         ):
             return
-        try:
-            ready_dir_fd = open_owned_ready_dir(self._layout, lifecycle.repository_id)
-        except OwnedPathError:
+        leftover = self._leftover_presence(
+            lifecycle.repository_id, lifecycle.artifact_id
+        )
+        if leftover == "present":
             return
-        try:
-            try:
-                scan = _BilledScan()
-                has_blocking_residual = False
-                for entry_name in _billed_iter(
-                    _scandir_names(ready_dir_fd), budget, scan
-                ):
-                    parsed_stage = parse_unlink_stage_dir_name(entry_name)
-                    if parsed_stage is not None and parsed_stage[0] == lifecycle.artifact_id:
-                        if self._stage_dir_is_terminal_or_empty(
-                            ready_dir_fd,
-                            entry_name,
-                            expected_ino=int(receipt_ino),
-                            budget=budget,
-                        ):
-                            continue
-                        return
-                    parsed = parse_any_recoverable_sidecar(entry_name)
-                    if parsed is None:
-                        continue
-                    inode, parsed_artifact_id, parsed_generation, _kind = parsed
-                    if parsed_artifact_id != lifecycle.artifact_id:
-                        continue
-                    if (
-                        parsed_generation == receipt_generation
-                        and inode == int(receipt_ino)
-                    ):
-                        if self._ready_entry_is_size0_owned_tombstone(
-                            ready_dir_fd,
-                            entry_name,
-                            expected_ino=int(receipt_ino),
-                        ):
-                            continue
-                        has_blocking_residual = True
-                        break
-                if scan.truncated or has_blocking_residual:
-                    return
-            except OSError:
-                return
-            self._clear_receipt_best_effort(
-                lifecycle.artifact_id,
-                lifecycle.repository_id,
-                expected_dev=int(receipt_dev),
-                expected_ino=int(receipt_ino),
-                expected_generation=str(receipt_generation),
-            )
-        finally:
-            os.close(ready_dir_fd)
+        if leftover == "unknown" and (
+            lifecycle.repository_id not in self._recover_finished_repos
+            or (lifecycle.repository_id, lifecycle.artifact_id) in self._leftover_seen
+        ):
+            return
+        self._clear_receipt_best_effort(
+            lifecycle.artifact_id,
+            lifecycle.repository_id,
+            expected_dev=int(receipt_dev),
+            expected_ino=int(receipt_ino),
+            expected_generation=str(receipt_generation),
+        )
 
     def _lock_sidecar(
         self,

@@ -9,10 +9,11 @@ import stat as stat_module
 import threading
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, TypeVar, runtime_checkable
 from uuid import UUID
 
 from gateway_repository_contracts import OperationStatus
@@ -64,6 +65,8 @@ _LOGGER = logging.getLogger(__name__)
 _HEX32 = frozenset("0123456789abcdef")
 _CLEANUP_CANDIDATE_PAGE_SIZE = 64
 _HOUSEKEEPING_ENTRY_BUDGET = 64
+_HOUSEKEEPING_PHASES = ("inventory", "recover", "receipts", "residuals")
+_T = TypeVar("_T")
 
 
 class _HousekeepingBudget:
@@ -81,6 +84,36 @@ class _HousekeepingBudget:
             return False
         self.used += 1
         return True
+
+
+@dataclass
+class _BilledScan:
+    truncated: bool = False
+
+
+def _billed_iter(
+    raw: Iterator[_T],
+    budget: _HousekeepingBudget,
+    scan: _BilledScan,
+) -> Iterator[_T]:
+    """Yield dirents only after the shared budget still has room.
+
+    Checks ``remaining`` before pulling the next name so a 64-entry cap
+    cannot observe a 65th scandir yield.
+    """
+
+    while True:
+        if budget.remaining() <= 0:
+            scan.truncated = True
+            return
+        try:
+            item = next(raw)
+        except StopIteration:
+            return
+        if not budget.consume():
+            scan.truncated = True
+            return
+        yield item
 
 
 def _scandir_names(dir_fd: int) -> Iterator[str]:
@@ -147,16 +180,8 @@ class ArtifactCleaner:
         self._stop_lock = threading.Lock()
         self._cleanup_cursor: int | None = None
         self._restart_cursor = False
-        self._inventory_after_repo: str | None = None
-        self._inventory_after_sub: str | None = None
-        self._inventory_after_name: str | None = None
-        self._recover_after_repo: str | None = None
-        self._recover_after_name: str | None = None
-        self._recover_after_stage_child: str | None = None
-        self._normalize_match_count = 0
-        self._normalize_match_name: str | None = None
-        self._paused_stage_child: str | None = None
-        self._defer_recover_once = False
+        self._housekeeping_phase = 0
+        self._oversize_stage_keys: set[tuple[UUID, str]] = set()
         self._receipt_after_artifact_id: str | None = None
         self._residual_after_id: int | None = None
 
@@ -199,6 +224,8 @@ class ArtifactCleaner:
                 )
             self._thread = None
             self._started = False
+            self._oversize_stage_keys.clear()
+            self._housekeeping_phase = 0
 
     def sweep_once(self) -> None:
         """Run one sweep synchronously (tests / startup-compatible probe)."""
@@ -256,18 +283,7 @@ class ArtifactCleaner:
         started = time.monotonic()
         if housekeeping:
             budget = _HousekeepingBudget(_HOUSEKEEPING_ENTRY_BUDGET)
-            self._inventory_owned_artifact_tree(budget)
-            if self._defer_recover_once:
-                self._defer_recover_once = False
-                self._gc_bytes_deleted_receipts(budget)
-                self._reclaim_durable_residuals(budget)
-                self._recover_delete_quarantines(budget)
-            else:
-                self._recover_delete_quarantines(budget)
-                if budget.remaining() <= 0:
-                    self._defer_recover_once = True
-                self._gc_bytes_deleted_receipts(budget)
-                self._reclaim_durable_residuals(budget)
+            self._run_housekeeping(budget)
             log_event(
                 "artifact_cleanup",
                 stage="housekeeping",
@@ -356,6 +372,31 @@ class ArtifactCleaner:
             logger=_LOGGER,
         )
         return deleted
+
+    def _run_housekeeping(self, budget: _HousekeepingBudget) -> None:
+        started = self._housekeeping_phase
+        exhausted_next: int | None = None
+        for offset in range(len(_HOUSEKEEPING_PHASES)):
+            index = (started + offset) % len(_HOUSEKEEPING_PHASES)
+            if budget.remaining() <= 0:
+                exhausted_next = index
+                break
+            phase = _HOUSEKEEPING_PHASES[index]
+            if phase == "inventory":
+                self._inventory_owned_artifact_tree(budget)
+            elif phase == "recover":
+                self._recover_delete_quarantines(budget)
+            elif phase == "receipts":
+                self._gc_bytes_deleted_receipts(budget)
+            else:
+                self._reclaim_durable_residuals(budget)
+            if budget.remaining() <= 0:
+                exhausted_next = (index + 1) % len(_HOUSEKEEPING_PHASES)
+                break
+        if exhausted_next is not None:
+            self._housekeeping_phase = exhausted_next
+        else:
+            self._housekeeping_phase = 0
 
     def _process_candidate(self, artifact_id: UUID, repository_id: UUID) -> bool:
         now = self._clock()
@@ -499,8 +540,15 @@ class ArtifactCleaner:
         except OSError:
             return True
         try:
+            names = iter(scandir_dir_fd_names(ready_dir_fd))
+            scanned = 0
             try:
-                for name in scandir_dir_fd_names(ready_dir_fd):
+                while scanned < _HOUSEKEEPING_ENTRY_BUDGET:
+                    try:
+                        name = next(names)
+                    except StopIteration:
+                        return False
+                    scanned += 1
                     parsed = parse_any_recoverable_sidecar(name)
                     if parsed is not None and parsed[1] == artifact_id:
                         return True
@@ -509,9 +557,9 @@ class ArtifactCleaner:
                         return True
             except OSError:
                 return True
+            return False
         finally:
             os.close(ready_dir_fd)
-        return False
 
     def _dirfd_unlink_regular_leftover(
         self,
@@ -580,10 +628,8 @@ class ArtifactCleaner:
         paused = False
         try:
             try:
-                for child in _scandir_names(stage_dir_fd):
-                    if not budget.consume():
-                        paused = True
-                        break
+                scan = _BilledScan()
+                for child in _billed_iter(_scandir_names(stage_dir_fd), budget, scan):
                     last_child = child
                     if not self._is_known_unlink_stage_child(child):
                         return False, None
@@ -605,6 +651,8 @@ class ArtifactCleaner:
                         return False, None
                     if not self._dirfd_unlink_regular_leftover(stage_dir_fd, child):
                         return False, None
+                if scan.truncated:
+                    paused = True
             except OSError:
                 return False, None
         finally:
@@ -642,9 +690,8 @@ class ArtifactCleaner:
     ) -> set[UUID] | None:
         found: set[UUID] = set()
         try:
-            for name in _scandir_names(ready_dir_fd):
-                if not budget.consume():
-                    return None
+            scan = _BilledScan()
+            for name in _billed_iter(_scandir_names(ready_dir_fd), budget, scan):
                 parsed = parse_any_recoverable_sidecar(name)
                 if parsed is not None:
                     found.add(parsed[1])
@@ -652,6 +699,8 @@ class ArtifactCleaner:
                 stage = parse_unlink_stage_dir_name(name)
                 if stage is not None:
                     found.add(stage[0])
+            if scan.truncated:
+                return None
         except OSError:
             return None
         return found
@@ -775,24 +824,11 @@ class ArtifactCleaner:
         artifacts_root = self._layout.artifacts
         if not artifacts_root.is_dir():
             return
-        after_repo = self._recover_after_repo
-        after_name = self._recover_after_name
-        after_child = self._recover_after_stage_child
-        skipping_repo = after_repo is not None
-        last_repo: str | None = None
-        last_name: str | None = None
-        last_child: str | None = None
-        exhausted = False
         try:
             with os.scandir(artifacts_root) as entries:
-                for entry in entries:
+                scan = _BilledScan()
+                for entry in _billed_iter(iter(entries), budget, scan):
                     name = entry.name
-                    resume = False
-                    if skipping_repo:
-                        if name != after_repo:
-                            continue
-                        skipping_repo = False
-                        resume = True
                     if len(name) != 32 or any(ch not in _HEX32 for ch in name):
                         continue
                     try:
@@ -804,70 +840,33 @@ class ArtifactCleaner:
                             continue
                     except OSError:
                         continue
-                    page_exhausted, page_last, page_child = self._recover_one_ready_dir(
-                        repository_id,
-                        budget,
-                        after_name=after_name if resume else None,
-                        after_stage_child=after_child if resume else None,
-                    )
-                    last_repo = name
-                    if page_exhausted:
-                        last_name = page_last
-                        last_child = page_child
-                        exhausted = True
-                        break
-                    after_name = None
-                    after_child = None
+                    if self._recover_one_ready_dir(repository_id, budget):
+                        return
                     if self._stopping:
-                        exhausted = True
-                        last_name = page_last
-                        last_child = page_child
-                        break
+                        return
+                if scan.truncated:
+                    return
         except OSError:
             return
-        if exhausted:
-            self._recover_after_repo = last_repo
-            self._recover_after_name = last_name
-            self._recover_after_stage_child = last_child
-        else:
-            self._recover_after_repo = None
-            self._recover_after_name = None
-            self._recover_after_stage_child = None
-            self._normalize_match_count = 0
-            self._normalize_match_name = None
 
     def _recover_one_ready_dir(
         self,
         repository_id: UUID,
         budget: _HousekeepingBudget,
-        *,
-        after_name: str | None,
-        after_stage_child: str | None,
-    ) -> tuple[bool, str | None, str | None]:
+    ) -> bool:
         if budget.remaining() <= 0:
-            return True, after_name, after_stage_child
+            return True
         try:
             ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
-        except OwnedPathError:
-            return False, None, None
+        except (OwnedPathError, OSError):
+            return False
         processed_ids: set[UUID] = set()
         try:
-            skipping = after_name is not None
-            resume_stage = after_stage_child is not None
-            last: str | None = None
             try:
-                for ready_name in _scandir_names(ready_dir_fd):
-                    if skipping:
-                        if not budget.consume():
-                            return True, None, None
-                        if ready_name != after_name:
-                            continue
-                        skipping = False
-                        if not resume_stage:
-                            continue
-                    elif not budget.consume():
-                        return True, None, None
-                    last = ready_name
+                scan = _BilledScan()
+                for ready_name in _billed_iter(
+                    _scandir_names(ready_dir_fd), budget, scan
+                ):
                     parsed = parse_any_recoverable_sidecar(ready_name)
                     if parsed is not None:
                         processed_ids.add(parsed[1])
@@ -875,13 +874,10 @@ class ArtifactCleaner:
                     if stage is not None:
                         processed_ids.add(stage[0])
                     try:
-                        paused, paused_child = self._recover_one_ready_entry(
+                        paused = self._recover_one_ready_entry(
                             repository_id,
                             ready_name,
                             budget,
-                            after_stage_child=(
-                                after_stage_child if resume_stage else None
-                            ),
                         )
                     except Exception:
                         _LOGGER.exception(
@@ -889,19 +885,14 @@ class ArtifactCleaner:
                             repository_id,
                         )
                         paused = False
-                        paused_child = None
-                    resume_stage = False
-                    after_stage_child = None
                     if paused:
-                        return True, last, paused_child
-                    self._normalize_match_count = 0
-                    self._normalize_match_name = None
+                        return True
                     if self._stopping:
-                        return True, last, None
+                        return True
+                if scan.truncated:
+                    return True
             except OSError:
-                return False, None, None
-            if skipping:
-                return False, None, None
+                return False
             if processed_ids:
                 leftover_ids = self._collect_parseable_leftover_ids(ready_dir_fd, budget)
                 if leftover_ids is not None:
@@ -912,7 +903,7 @@ class ArtifactCleaner:
                             artifact_id,
                             leftovers_present=artifact_id in leftover_ids,
                         )
-            return False, None, None
+            return False
         finally:
             os.close(ready_dir_fd)
 
@@ -921,9 +912,7 @@ class ArtifactCleaner:
         repository_id: UUID,
         ready_name: str,
         budget: _HousekeepingBudget,
-        *,
-        after_stage_child: str | None = None,
-    ) -> tuple[bool, str | None]:
+    ) -> bool:
         parsed = parse_any_recoverable_sidecar(ready_name)
         if parsed is not None:
             inode, artifact_id, _generation, kind = parsed
@@ -932,17 +921,18 @@ class ArtifactCleaner:
                 artifact_id,
                 sidecars=[(ready_name, inode, kind)],
             )
-            return False, None
+            return False
         stage = parse_unlink_stage_dir_name(ready_name)
         if stage is None:
-            return False, None
+            return False
+        if (repository_id, ready_name) in self._oversize_stage_keys:
+            return False
         artifact_id, _token = stage
         return self._recover_artifact_unlink_stages(
             repository_id,
             artifact_id,
             stage_names=[ready_name],
             budget=budget,
-            after_stage_child=after_stage_child,
         )
 
     def _recover_artifact_unlink_stages(
@@ -952,12 +942,11 @@ class ArtifactCleaner:
         *,
         stage_names: list[str],
         budget: _HousekeepingBudget,
-        after_stage_child: str | None = None,
-    ) -> tuple[bool, str | None]:
+    ) -> bool:
         try:
             ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
         except OwnedPathError:
-            return False, None
+            return False
         try:
             try:
                 lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
@@ -971,7 +960,7 @@ class ArtifactCleaner:
                     cleanup_outcome="poison_lifecycle_inventory",
                     logger=_LOGGER,
                 )
-                return False, None
+                return False
             if lifecycle is None or lifecycle.repository_id != repository_id:
                 for _stage_name in stage_names:
                     log_event(
@@ -983,27 +972,28 @@ class ArtifactCleaner:
                         cleanup_outcome="unknown_path_inventory",
                         logger=_LOGGER,
                     )
-                return False, None
+                return False
 
             if self._should_converge_eligible_leftover(artifact_id):
-                return self._converge_eligible_leftover_stages(
+                paused, _paused_child = self._converge_eligible_leftover_stages(
                     ready_dir_fd,
                     repository_id,
                     artifact_id,
                     stage_names=stage_names,
                     budget=budget,
                 )
+                return paused
 
             if lifecycle.bytes_deleted_at is not None:
-                return self._recover_stamped_unlink_stages(
+                self._recover_stamped_unlink_stages(
                     ready_dir_fd,
                     repository_id,
                     artifact_id,
                     lifecycle=lifecycle,
                     stage_names=stage_names,
                     budget=budget,
-                    after_stage_child=after_stage_child,
                 )
+                return False
 
             intent_dev = lifecycle.bytes_delete_dev
             intent_ino = lifecycle.bytes_delete_ino
@@ -1026,11 +1016,10 @@ class ArtifactCleaner:
                         cleanup_outcome="unknown_path_inventory",
                         logger=_LOGGER,
                     )
-                return False, None
+                return False
             assert intent_dev is not None and intent_ino is not None and intent_generation is not None
 
             outcomes: list[SidecarOutcome] = []
-            resume_child = after_stage_child
             for stage_name in stage_names:
                 outcome = self._unlink_intent_unlink_stage_with_recheck(
                     ready_dir_fd,
@@ -1041,18 +1030,14 @@ class ArtifactCleaner:
                     artifact_id=artifact_id,
                     generation=str(intent_generation),
                     budget=budget,
-                    after_stage_child=resume_child,
                 )
-                resume_child = None
-                if outcome == "paused":
-                    return True, self._paused_stage_child
                 outcomes.append(outcome)
-            # Stamp-first clears intent; clear receipt only when public names absent.
             if self._all_sidecars_cleared(outcomes) and not self._has_matching_sidecar_residual(
                 ready_dir_fd,
                 artifact_id=artifact_id,
                 expected_ino=int(intent_ino),
                 generation=str(intent_generation),
+                budget=budget,
             ):
                 self._clear_receipt_best_effort(
                     artifact_id,
@@ -1061,7 +1046,7 @@ class ArtifactCleaner:
                     expected_ino=int(intent_ino),
                     expected_generation=str(intent_generation),
                 )
-            return False, None
+            return False
         finally:
             os.close(ready_dir_fd)
 
@@ -1074,8 +1059,7 @@ class ArtifactCleaner:
         lifecycle: ArtifactLifecycleRecord,
         stage_names: list[str],
         budget: _HousekeepingBudget,
-        after_stage_child: str | None = None,
-    ) -> tuple[bool, str | None]:
+    ) -> None:
         receipt_dev = lifecycle.bytes_deleted_receipt_dev
         receipt_ino = lifecycle.bytes_deleted_receipt_ino
         receipt_generation = lifecycle.bytes_deleted_receipt_generation
@@ -1092,7 +1076,7 @@ class ArtifactCleaner:
                 lifecycle=lifecycle,
                 stage_names=stage_names,
             )
-            return False, None
+            return
         assert receipt_dev is not None and receipt_ino is not None and receipt_generation is not None
         retention_ok = self._retention_explains_deleted(
             lifecycle,
@@ -1100,29 +1084,26 @@ class ArtifactCleaner:
             artifact_id=artifact_id,
         )
         outcomes: list[SidecarOutcome] = []
-        resume_child = after_stage_child
         for stage_name in stage_names:
-            outcome = self._unlink_stamped_unlink_stage_with_recheck(
-                ready_dir_fd,
-                stage_name,
-                expected_dev=int(receipt_dev),
-                expected_ino=int(receipt_ino),
-                repository_id=repository_id,
-                artifact_id=artifact_id,
-                retention_ok=retention_ok,
-                generation=str(receipt_generation),
-                budget=budget,
-                after_stage_child=resume_child,
+            outcomes.append(
+                self._unlink_stamped_unlink_stage_with_recheck(
+                    ready_dir_fd,
+                    stage_name,
+                    expected_dev=int(receipt_dev),
+                    expected_ino=int(receipt_ino),
+                    repository_id=repository_id,
+                    artifact_id=artifact_id,
+                    retention_ok=retention_ok,
+                    generation=str(receipt_generation),
+                    budget=budget,
+                )
             )
-            resume_child = None
-            if outcome == "paused":
-                return True, self._paused_stage_child
-            outcomes.append(outcome)
         if self._all_sidecars_cleared(outcomes) and not self._has_matching_sidecar_residual(
             ready_dir_fd,
             artifact_id=artifact_id,
             expected_ino=int(receipt_ino),
             generation=str(receipt_generation),
+            budget=budget,
         ):
             self._clear_receipt_best_effort(
                 artifact_id,
@@ -1131,7 +1112,6 @@ class ArtifactCleaner:
                 expected_ino=int(receipt_ino),
                 expected_generation=str(receipt_generation),
             )
-        return False, None
 
     def _has_matching_sidecar_residual(
         self,
@@ -1140,17 +1120,19 @@ class ArtifactCleaner:
         artifact_id: UUID,
         expected_ino: int,
         generation: str,
+        budget: _HousekeepingBudget | None = None,
     ) -> bool:
+        local = budget if budget is not None else _HousekeepingBudget(_HOUSEKEEPING_ENTRY_BUDGET)
         try:
-            for entry_name in _scandir_names(ready_dir_fd):
+            scan = _BilledScan()
+            for entry_name in _billed_iter(_scandir_names(ready_dir_fd), local, scan):
                 parsed_stage = parse_unlink_stage_dir_name(entry_name)
                 if parsed_stage is not None and parsed_stage[0] == artifact_id:
-                    # Empty stages or owned size-0 victims do not block clear.
-                    # Non-empty owned content still blocks.
                     if self._stage_dir_is_terminal_or_empty(
                         ready_dir_fd,
                         entry_name,
                         expected_ino=expected_ino,
+                        budget=local,
                     ):
                         continue
                     return True
@@ -1161,7 +1143,6 @@ class ArtifactCleaner:
                 if parsed_artifact_id != artifact_id:
                     continue
                 if parsed_generation == generation and inode == expected_ino:
-                    # Round16: owned size-0 tombstones are terminal; do not block.
                     if self._ready_entry_is_size0_owned_tombstone(
                         ready_dir_fd,
                         entry_name,
@@ -1169,6 +1150,8 @@ class ArtifactCleaner:
                     ):
                         continue
                     return True
+            if scan.truncated:
+                return True
         except OSError:
             return True
         return False
@@ -1179,18 +1162,21 @@ class ArtifactCleaner:
         stage_name: str,
         *,
         expected_ino: int,
+        budget: _HousekeepingBudget | None = None,
     ) -> bool:
         """True when stage is empty or every child is owned size-0 of expected_ino."""
 
         stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
         if stage_dir_fd is None:
             return False
+        local = budget if budget is not None else _HousekeepingBudget(_HOUSEKEEPING_ENTRY_BUDGET)
         try:
             if not lock_unlink_stage_dir(stage_dir_fd):
                 return False
             try:
                 try:
-                    for name in _scandir_names(stage_dir_fd):
+                    scan = _BilledScan()
+                    for name in _billed_iter(_scandir_names(stage_dir_fd), local, scan):
                         try:
                             fd = os.open(
                                 name,
@@ -1211,6 +1197,8 @@ class ArtifactCleaner:
                             return False
                         if int(st.st_ino) != int(expected_ino) or int(st.st_size) != 0:
                             return False
+                    if scan.truncated:
+                        return False
                     return True
                 except OSError:
                     return False
@@ -1256,29 +1244,27 @@ class ArtifactCleaner:
         expected_dev: int,
         expected_ino: int,
         budget: _HousekeepingBudget,
-        after_stage_child: str | None,
+        repository_id: UUID,
+        stage_name: str,
     ) -> SidecarOutcome:
         result = normalize_unlink_stage_victim_via_fd(
             stage_dir_fd,
             expected_dev=expected_dev,
             expected_ino=expected_ino,
             consume=budget.consume,
-            after_child=after_stage_child,
-            match_count=(
-                self._normalize_match_count if after_stage_child is not None else 0
-            ),
-            match_name=(
-                self._normalize_match_name if after_stage_child is not None else None
-            ),
+            remaining=budget.remaining,
         )
         if result.status is NormalizeVictimStatus.PAUSED:
-            self._normalize_match_count = result.match_count
-            self._normalize_match_name = result.match_name
-            self._paused_stage_child = result.last_child
-            return "paused"
-        self._normalize_match_count = 0
-        self._normalize_match_name = None
-        self._paused_stage_child = None
+            self._oversize_stage_keys.add((repository_id, stage_name))
+            log_event(
+                "artifact_cleanup",
+                repository_id=repository_id,
+                stage="quarantine",
+                result="retained",
+                cleanup_outcome="unlink_stage_scan_truncated",
+                logger=_LOGGER,
+            )
+            return "retain"
         if result.status is NormalizeVictimStatus.SUCCESS:
             return "success"
         return "retain"
@@ -1294,7 +1280,6 @@ class ArtifactCleaner:
         artifact_id: UUID,
         generation: str,
         budget: _HousekeepingBudget,
-        after_stage_child: str | None = None,
     ) -> SidecarOutcome:
         stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
         if stage_dir_fd is None:
@@ -1308,10 +1293,9 @@ class ArtifactCleaner:
                 expected_dev=expected_dev,
                 expected_ino=expected_ino,
                 budget=budget,
-                after_stage_child=after_stage_child,
+                repository_id=repository_id,
+                stage_name=stage_name,
             )
-            if normalized == "paused":
-                return "paused"
             if normalized != "success":
                 return "retain"
             victim_path = self._staged_victim_path(stage_name)
@@ -1412,6 +1396,8 @@ class ArtifactCleaner:
                     generation=generation,
                     held_stage_dir_fd=stage_dir_fd,
                     held_stage_name=stage_name,
+                    consume=budget.consume,
+                    remaining=budget.remaining,
                 )
                 if unlinked:
                     log_event(
@@ -1443,7 +1429,6 @@ class ArtifactCleaner:
         retention_ok: bool,
         generation: str | None,
         budget: _HousekeepingBudget,
-        after_stage_child: str | None = None,
     ) -> SidecarOutcome:
         if generation is None:
             return "retain"
@@ -1459,10 +1444,9 @@ class ArtifactCleaner:
                 expected_dev=expected_dev,
                 expected_ino=expected_ino,
                 budget=budget,
-                after_stage_child=after_stage_child,
+                repository_id=repository_id,
+                stage_name=stage_name,
             )
-            if normalized == "paused":
-                return "paused"
             if normalized != "success":
                 return "retain"
             victim_path = self._staged_victim_path(stage_name)
@@ -1507,6 +1491,8 @@ class ArtifactCleaner:
                     generation=generation,
                     held_stage_dir_fd=stage_dir_fd,
                     held_stage_name=stage_name,
+                    consume=budget.consume,
+                    remaining=budget.remaining,
                 )
                 if unlinked:
                     log_event(
@@ -2261,22 +2247,37 @@ class ArtifactCleaner:
         if page.scanned == 0:
             self._receipt_after_artifact_id = None
             return
-        for _ in range(page.scanned):
+        poison_rows = max(0, page.scanned - len(page.records))
+        for _ in range(poison_rows):
+            if not budget.consume():
+                self._receipt_after_artifact_id = page.cursor_artifact_id
+                return
+        processed = 0
+        for lifecycle in page.records:
             if not budget.consume():
                 break
-        for lifecycle in page.records:
+            processed += 1
             if self._stopping:
                 break
             try:
-                self._gc_one_bytes_deleted_receipt(lifecycle)
+                self._gc_one_bytes_deleted_receipt(lifecycle, budget)
             except Exception:
                 _LOGGER.exception(
                     "artifact receipt GC failed for artifact %s",
                     lifecycle.artifact_id,
                 )
-        self._receipt_after_artifact_id = page.cursor_artifact_id
+            if budget.remaining() <= 0:
+                break
+        if processed < len(page.records) and processed > 0:
+            self._receipt_after_artifact_id = str(page.records[processed - 1].artifact_id)
+        else:
+            self._receipt_after_artifact_id = page.cursor_artifact_id
 
-    def _gc_one_bytes_deleted_receipt(self, lifecycle: ArtifactLifecycleRecord) -> None:
+    def _gc_one_bytes_deleted_receipt(
+        self,
+        lifecycle: ArtifactLifecycleRecord,
+        budget: _HousekeepingBudget,
+    ) -> None:
         receipt_generation = lifecycle.bytes_deleted_receipt_generation
         receipt_dev = lifecycle.bytes_deleted_receipt_dev
         receipt_ino = lifecycle.bytes_deleted_receipt_ino
@@ -2292,40 +2293,42 @@ class ArtifactCleaner:
             return
         try:
             try:
-                entries = _scandir_names(ready_dir_fd)
-            except OSError:
-                return
-            has_blocking_residual = False
-            for entry_name in entries:
-                parsed_stage = parse_unlink_stage_dir_name(entry_name)
-                if parsed_stage is not None and parsed_stage[0] == lifecycle.artifact_id:
-                    if self._stage_dir_is_terminal_or_empty(
-                        ready_dir_fd,
-                        entry_name,
-                        expected_ino=int(receipt_ino),
-                    ):
-                        continue
-                    # Non-empty / unreadable stage blocks receipt GC.
-                    return
-                parsed = parse_any_recoverable_sidecar(entry_name)
-                if parsed is None:
-                    continue
-                inode, parsed_artifact_id, parsed_generation, _kind = parsed
-                if parsed_artifact_id != lifecycle.artifact_id:
-                    continue
-                if (
-                    parsed_generation == receipt_generation
-                    and inode == int(receipt_ino)
+                scan = _BilledScan()
+                has_blocking_residual = False
+                for entry_name in _billed_iter(
+                    _scandir_names(ready_dir_fd), budget, scan
                 ):
-                    if self._ready_entry_is_size0_owned_tombstone(
-                        ready_dir_fd,
-                        entry_name,
-                        expected_ino=int(receipt_ino),
-                    ):
+                    parsed_stage = parse_unlink_stage_dir_name(entry_name)
+                    if parsed_stage is not None and parsed_stage[0] == lifecycle.artifact_id:
+                        if self._stage_dir_is_terminal_or_empty(
+                            ready_dir_fd,
+                            entry_name,
+                            expected_ino=int(receipt_ino),
+                            budget=budget,
+                        ):
+                            continue
+                        return
+                    parsed = parse_any_recoverable_sidecar(entry_name)
+                    if parsed is None:
                         continue
-                    has_blocking_residual = True
-                    break
-            if has_blocking_residual:
+                    inode, parsed_artifact_id, parsed_generation, _kind = parsed
+                    if parsed_artifact_id != lifecycle.artifact_id:
+                        continue
+                    if (
+                        parsed_generation == receipt_generation
+                        and inode == int(receipt_ino)
+                    ):
+                        if self._ready_entry_is_size0_owned_tombstone(
+                            ready_dir_fd,
+                            entry_name,
+                            expected_ino=int(receipt_ino),
+                        ):
+                            continue
+                        has_blocking_residual = True
+                        break
+                if scan.truncated or has_blocking_residual:
+                    return
+            except OSError:
                 return
             self._clear_receipt_best_effort(
                 lifecycle.artifact_id,
@@ -2874,51 +2877,19 @@ class ArtifactCleaner:
         artifacts_root = self._layout.artifacts
         if not artifacts_root.is_dir():
             return
-        after_repo = self._inventory_after_repo
-        after_sub = self._inventory_after_sub
-        after_name = self._inventory_after_name
-        skipping_repo = after_repo is not None
-        last_repo: str | None = None
-        last_sub: str | None = None
-        last_entry: str | None = None
-        exhausted = False
+        truncated = False
         try:
             with os.scandir(artifacts_root) as entries:
-                for entry in entries:
-                    name = entry.name
-                    resume_inside = False
-                    if skipping_repo:
-                        if name != after_repo:
-                            continue
-                        skipping_repo = False
-                        if after_sub is None:
-                            continue
-                        resume_inside = True
-                    if not resume_inside:
-                        if not budget.consume():
-                            exhausted = True
-                            break
-                        last_repo = name
-                        last_sub = None
-                        last_entry = None
-                    else:
-                        last_repo = name
-                    inner_exhausted, inner_sub, inner_name = self._inventory_one_artifacts_entry(
-                        entry,
-                        budget,
-                        after_sub=after_sub if resume_inside else None,
-                        after_name=after_name if resume_inside else None,
-                    )
-                    if inner_exhausted:
-                        last_sub = inner_sub
-                        last_entry = inner_name
-                        exhausted = True
+                scan = _BilledScan()
+                for entry in _billed_iter(iter(entries), budget, scan):
+                    if self._inventory_one_artifacts_entry(entry, budget):
+                        truncated = True
                         break
-                    if not budget.remaining():
-                        exhausted = True
+                    if budget.remaining() <= 0:
+                        truncated = True
                         break
-                    after_sub = None
-                    after_name = None
+                if scan.truncated:
+                    truncated = True
         except OSError:
             log_event(
                 "artifact_cleanup",
@@ -2928,33 +2899,29 @@ class ArtifactCleaner:
                 logger=_LOGGER,
             )
             return
-        if not exhausted and budget.remaining():
+        if not truncated and budget.remaining():
             staging_artifacts = self._layout.staging_artifacts
             if staging_artifacts.is_dir():
-                self._inventory_directory_entries(
+                truncated = self._inventory_directory_entries(
                     None,
                     staging_artifacts,
                     allow_staging_shape=True,
                     budget=budget,
-                    after_name=None,
                 )
-        if exhausted:
-            self._inventory_after_repo = last_repo
-            self._inventory_after_sub = last_sub
-            self._inventory_after_name = last_entry
-        else:
-            self._inventory_after_repo = None
-            self._inventory_after_sub = None
-            self._inventory_after_name = None
+        if truncated:
+            log_event(
+                "artifact_cleanup",
+                stage="path_check",
+                result="retained",
+                cleanup_outcome="inventory_truncated",
+                logger=_LOGGER,
+            )
 
     def _inventory_one_artifacts_entry(
         self,
         entry: os.DirEntry[str],
         budget: _HousekeepingBudget,
-        *,
-        after_sub: str | None,
-        after_name: str | None,
-    ) -> tuple[bool, str | None, str | None]:
+    ) -> bool:
         name = entry.name
         try:
             if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
@@ -2965,7 +2932,7 @@ class ArtifactCleaner:
                     cleanup_outcome="unknown_path_inventory",
                     logger=_LOGGER,
                 )
-                return False, None, None
+                return False
         except OSError:
             log_event(
                 "artifact_cleanup",
@@ -2974,7 +2941,7 @@ class ArtifactCleaner:
                 cleanup_outcome="unknown_path_inventory",
                 logger=_LOGGER,
             )
-            return False, None, None
+            return False
         if len(name) != 32 or any(ch not in _HEX32 for ch in name):
             log_event(
                 "artifact_cleanup",
@@ -2983,7 +2950,7 @@ class ArtifactCleaner:
                 cleanup_outcome="unknown_path_inventory",
                 logger=_LOGGER,
             )
-            return False, None, None
+            return False
         try:
             repository_id = UUID(hex=name)
         except ValueError:
@@ -2994,7 +2961,7 @@ class ArtifactCleaner:
                 cleanup_outcome="unknown_path_inventory",
                 logger=_LOGGER,
             )
-            return False, None, None
+            return False
         owned = self._import_store.has_succeeded_create_repository(repository_id)
         if not owned:
             log_event(
@@ -3005,23 +2972,15 @@ class ArtifactCleaner:
                 cleanup_outcome="unknown_path_inventory",
                 logger=_LOGGER,
             )
-        skipping_sub = after_sub is not None
         for sub in ("ready", "staging"):
-            if skipping_sub:
-                if sub != after_sub:
-                    continue
-                skipping_sub = False
-            sub_exhausted, sub_last = self._inventory_directory_entries(
+            if self._inventory_directory_entries(
                 repository_id,
                 Path(entry.path) / sub,
                 allow_staging_shape=(sub == "staging"),
                 budget=budget,
-                after_name=after_name if sub == after_sub else None,
-            )
-            after_name = None
-            if sub_exhausted:
-                return True, sub, sub_last
-        return False, None, None
+            ):
+                return True
+        return False
 
     def _inventory_directory_entries(
         self,
@@ -3030,27 +2989,18 @@ class ArtifactCleaner:
         *,
         allow_staging_shape: bool,
         budget: _HousekeepingBudget,
-        after_name: str | None,
-    ) -> tuple[bool, str | None]:
+    ) -> bool:
         try:
             dir_st = directory.lstat()
         except OSError:
-            return False, None
+            return False
         if stat_module.S_ISLNK(dir_st.st_mode) or not stat_module.S_ISDIR(dir_st.st_mode):
-            return False, None
-        skipping = after_name is not None
-        last: str | None = None
+            return False
         try:
             with os.scandir(directory) as entries:
-                for entry in entries:
+                scan = _BilledScan()
+                for entry in _billed_iter(iter(entries), budget, scan):
                     name = entry.name
-                    if skipping:
-                        if name == after_name:
-                            skipping = False
-                        continue
-                    if not budget.consume():
-                        return True, last
-                    last = name
                     if (
                         name.startswith(".deleting-")
                         or name.startswith(".detach-")
@@ -3190,6 +3140,8 @@ class ArtifactCleaner:
                         cleanup_outcome="unknown_path_inventory",
                         logger=_LOGGER,
                     )
+                if scan.truncated:
+                    return True
         except OSError:
             log_event(
                 "artifact_cleanup",
@@ -3199,8 +3151,8 @@ class ArtifactCleaner:
                 cleanup_outcome="ready_dir_unreadable",
                 logger=_LOGGER,
             )
-            return False, None
-        return False, None
+            return False
+        return False
 
     def _still_eligible(self, artifact_id: UUID, repository_id: UUID) -> bool:
         lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)

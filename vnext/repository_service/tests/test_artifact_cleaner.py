@@ -24,7 +24,10 @@ from gateway_repository_service.artifact_cleaner import (
 from gateway_repository_service.artifact_retention import retention_explains_missing_ready_bytes
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import MutationStore
-from gateway_repository_service.upload_artifact.admission_pin import OwnedPathError
+from gateway_repository_service.upload_artifact.admission_pin import (
+    OwnedPathError,
+    open_owned_ready_dir,
+)
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from support.artifact_cleanup_contract import (
@@ -1247,21 +1250,80 @@ def test_housekeeping_budget_bounds_ready_leftovers_in_one_repository(
     assert leftover.bytes_deleted_at is not None
 
 
-def _count_scandir_names(
+def _count_housekeeping_yields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, int]:
     from gateway_repository_service import artifact_cleaner as cleaner_mod
+    from gateway_repository_service.upload_artifact import admission_pin as pin_mod
 
-    enumerated = {"n": 0}
-    orig_scandir = cleaner_mod._scandir_names
+    counts = {"os_scandir": 0, "scandir_names": 0, "stage_fd": 0}
+    orig_os_scandir = os.scandir
+    orig_scandir_names = cleaner_mod._scandir_names
+    orig_stage = pin_mod.scandir_dir_fd_names
 
-    def counting_scandir(dir_fd: int) -> Iterator[str]:
-        for name in orig_scandir(dir_fd):
-            enumerated["n"] += 1
+    class _CountingScandir:
+        def __init__(self, wrapped: object) -> None:
+            self._wrapped = wrapped
+
+        def __enter__(self) -> Iterator[object]:
+            inner = self._wrapped.__enter__()  # type: ignore[attr-defined]
+
+            def _counted() -> Iterator[object]:
+                for item in inner:
+                    counts["os_scandir"] += 1
+                    yield item
+
+            return _counted()
+
+        def __exit__(
+            self,
+            *args: object,
+        ) -> None:
+            self._wrapped.__exit__(*args)  # type: ignore[attr-defined]
+
+    def counting_os_scandir(
+        path: str | os.PathLike[str] | int,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        wrapped = orig_os_scandir(path, *args, **kwargs)
+        path_text = str(path)
+        if path_text.startswith("/proc/self/fd/"):
+            return wrapped
+        return _CountingScandir(wrapped)
+
+    def counting_scandir_names(dir_fd: int) -> Iterator[str]:
+        for name in orig_scandir_names(dir_fd):
+            counts["scandir_names"] += 1
             yield name
 
-    monkeypatch.setattr(cleaner_mod, "_scandir_names", counting_scandir)
-    return enumerated
+    def counting_stage(dir_fd: int) -> Iterator[str]:
+        for name in orig_stage(dir_fd):
+            counts["stage_fd"] += 1
+            yield name
+
+    monkeypatch.setattr(os, "scandir", counting_os_scandir)
+    monkeypatch.setattr(cleaner_mod, "_scandir_names", counting_scandir_names)
+    monkeypatch.setattr(pin_mod, "scandir_dir_fd_names", counting_stage)
+    return counts
+
+
+def _assert_housekeeping_bounded(
+    events: list[dict[str, object]],
+    counts: dict[str, int],
+) -> None:
+    bounded = [
+        event
+        for event in events
+        if event.get("cleanup_outcome") == "housekeeping_bounded"
+    ]
+    assert len(bounded) == 1
+    used = bounded[0]["in_use"]
+    assert isinstance(used, int)
+    assert used <= 64
+    assert counts["os_scandir"] <= 64
+    assert counts["scandir_names"] <= 64
+    assert counts["stage_fd"] <= 64
 
 
 def test_housekeeping_budget_bounds_three_pages_of_same_artifact_sidecars(
@@ -1297,23 +1359,15 @@ def test_housekeeping_budget_bounds_three_pages_of_same_artifact_sidecars(
         del args
         events.append(kwargs)
 
-    enumerated = _count_scandir_names(monkeypatch)
+    counts = _count_housekeeping_yields(monkeypatch)
     monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
     instance = cleaner(layout, store, mutation_store)
     for _ in range(40):
-        enumerated["n"] = 0
+        for key in counts:
+            counts[key] = 0
         events.clear()
         instance.sweep_once()
-        bounded = [
-            event
-            for event in events
-            if event.get("cleanup_outcome") == "housekeeping_bounded"
-        ]
-        assert len(bounded) == 1
-        used = bounded[0]["in_use"]
-        assert isinstance(used, int)
-        assert used <= 64
-        assert enumerated["n"] <= 64
+        _assert_housekeeping_bounded(events, counts)
         if not any(path.exists() for path in sidecars):
             break
     assert not any(path.exists() for path in sidecars)
@@ -1359,23 +1413,15 @@ def test_housekeeping_budget_bounds_fifo_leftovers_across_artifacts(
         del args
         events.append(kwargs)
 
-    enumerated = _count_scandir_names(monkeypatch)
+    counts = _count_housekeeping_yields(monkeypatch)
     monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
     instance = cleaner(layout, store, mutation_store)
     for _ in range(4):
-        enumerated["n"] = 0
+        for key in counts:
+            counts[key] = 0
         events.clear()
         instance.sweep_once()
-        bounded = [
-            event
-            for event in events
-            if event.get("cleanup_outcome") == "housekeeping_bounded"
-        ]
-        assert len(bounded) == 1
-        used = bounded[0]["in_use"]
-        assert isinstance(used, int)
-        assert used <= 64
-        assert enumerated["n"] <= 64
+        _assert_housekeeping_bounded(events, counts)
     assert all(path.exists() for path in fifos)
     for index in range(64):
         artifact_id = UUID(int=ARTIFACT_ID.int + index + 10)
@@ -1384,7 +1430,7 @@ def test_housekeeping_budget_bounds_fifo_leftovers_across_artifacts(
         assert lifecycle.bytes_deleted_at is None
 
 
-def test_recover_cursor_name_deleted_still_converges_within_budget(
+def test_recover_vanished_names_and_unreadable_dir_still_converge(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
     monkeypatch: pytest.MonkeyPatch,
@@ -1417,30 +1463,35 @@ def test_recover_cursor_name_deleted_still_converges_within_budget(
         del args
         events.append(kwargs)
 
-    enumerated = _count_scandir_names(monkeypatch)
+    counts = _count_housekeeping_yields(monkeypatch)
+    fail_open = {"n": 0}
+
+    def flaky_open(layout: DurableLayout, repository_id: UUID) -> int:
+        if fail_open["n"] == 1:
+            fail_open["n"] += 1
+            raise OwnedPathError("ready dir unreadable")
+        return open_owned_ready_dir(layout, repository_id)
+
+    monkeypatch.setattr(
+        "gateway_repository_service.artifact_cleaner.open_owned_ready_dir",
+        flaky_open,
+    )
     monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
     instance = cleaner(layout, store, mutation_store)
-    enumerated["n"] = 0
+    for key in counts:
+        counts[key] = 0
     instance.sweep_once()
-    cursor_name = instance._recover_after_name
-    if cursor_name is not None:
-        cursor_path = ready_dir / cursor_name
-        if cursor_path.exists():
-            cursor_path.unlink()
+    _assert_housekeeping_bounded(events, counts)
+    remaining = [path for path in sidecars if path.exists()]
+    for path in remaining[:8]:
+        path.unlink()
+    fail_open["n"] = 1
     for _ in range(16):
-        enumerated["n"] = 0
+        for key in counts:
+            counts[key] = 0
         events.clear()
         instance.sweep_once()
-        bounded = [
-            event
-            for event in events
-            if event.get("cleanup_outcome") == "housekeeping_bounded"
-        ]
-        assert len(bounded) == 1
-        used = bounded[0]["in_use"]
-        assert isinstance(used, int)
-        assert used <= 64
-        assert enumerated["n"] <= 64
+        _assert_housekeeping_bounded(events, counts)
         if not any(path.exists() for path in sidecars):
             break
     assert not any(path.exists() for path in sidecars)
@@ -1452,6 +1503,7 @@ def _seed_large_foreign_stage(
     artifact_id: UUID,
     token: str,
     payload_path: Path,
+    foreign_count: int = 239,
 ) -> Path:
     ready = artifact_ready_path(layout, REPOSITORY_ID, artifact_id)
     ready.parent.mkdir(parents=True, exist_ok=True)
@@ -1459,8 +1511,8 @@ def _seed_large_foreign_stage(
     stage.mkdir()
     os.chmod(stage, 0o700)
     os.link(payload_path, stage / "final-match")
-    for index in range(70):
-        (stage / f"final-x{index:02d}").write_bytes(b"foreign")
+    for index in range(foreign_count):
+        (stage / f"final-x{index:03d}").write_bytes(b"foreign")
     return stage
 
 
@@ -1503,6 +1555,7 @@ def test_active_intent_large_stage_does_not_starve_later_receipt(
         del args
         events.append(kwargs)
 
+    counts = _count_housekeeping_yields(monkeypatch)
     monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
     instance = cleaner(
         layout,
@@ -1513,17 +1566,11 @@ def test_active_intent_large_stage_does_not_starve_later_receipt(
     )
     receipt_cleared = False
     for _ in range(24):
+        for key in counts:
+            counts[key] = 0
         events.clear()
         instance.sweep_once()
-        bounded = [
-            event
-            for event in events
-            if event.get("cleanup_outcome") == "housekeeping_bounded"
-        ]
-        assert len(bounded) == 1
-        used = bounded[0]["in_use"]
-        assert isinstance(used, int)
-        assert used <= 64
+        _assert_housekeeping_bounded(events, counts)
         later = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
         assert later is not None
         if later.bytes_deleted_receipt_generation is None:
@@ -1571,21 +1618,16 @@ def test_stamped_large_stage_does_not_starve_later_receipt(
         del args
         events.append(kwargs)
 
+    counts = _count_housekeeping_yields(monkeypatch)
     monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
     instance = cleaner(layout, store, mutation_store)
     receipt_cleared = False
     for _ in range(24):
+        for key in counts:
+            counts[key] = 0
         events.clear()
         instance.sweep_once()
-        bounded = [
-            event
-            for event in events
-            if event.get("cleanup_outcome") == "housekeeping_bounded"
-        ]
-        assert len(bounded) == 1
-        used = bounded[0]["in_use"]
-        assert isinstance(used, int)
-        assert used <= 64
+        _assert_housekeeping_bounded(events, counts)
         later = mutation_store.get_artifact_lifecycle(OTHER_ARTIFACT_ID)
         assert later is not None
         if later.bytes_deleted_receipt_generation is None:
@@ -1593,6 +1635,7 @@ def test_stamped_large_stage_does_not_starve_later_receipt(
             break
     assert receipt_cleared
     assert stage.is_dir()
+
 
 
 def test_receipt_poison_page_advances_raw_cursor_to_later_row(

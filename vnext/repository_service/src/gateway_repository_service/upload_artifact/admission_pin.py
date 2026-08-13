@@ -658,9 +658,7 @@ def normalize_unlink_stage_victim_via_fd(
     expected_dev: int,
     expected_ino: int,
     consume: Callable[[], bool] | None = None,
-    after_child: str | None = None,
-    match_count: int = 0,
-    match_name: str | None = None,
+    remaining: Callable[[], int] | None = None,
 ) -> NormalizeVictimResult:
     """Ensure owned ``victim`` exists inside an already-locked stage directory fd.
 
@@ -668,7 +666,7 @@ def normalize_unlink_stage_victim_via_fd(
     only after open+fstat proves ``(dev,ino) == expected``. Caller must hold
     ``LOCK_EX`` on ``stage_dir_fd``. Foreign entries are left untouched.
     Uniqueness is proven only after a complete child scan; budget exhaustion
-    pauses with a child cursor instead of restarting from the first name.
+    retains the stage instead of promoting or seeking a child name cursor.
     """
 
     def _matches(st: os.stat_result) -> bool:
@@ -719,19 +717,23 @@ def normalize_unlink_stage_victim_via_fd(
         finally:
             os.close(victim_fd)
 
-    skipping = after_child is not None
-    count = match_count
-    found_name = match_name
+    count = 0
+    found_name: str | None = None
     last_child: str | None = None
+    truncated = False
     try:
-        for name in scandir_dir_fd_names(stage_dir_fd):
-            if skipping:
-                if name != after_child:
-                    continue
-                skipping = False
-                continue
+        names = iter(scandir_dir_fd_names(stage_dir_fd))
+        while True:
+            if remaining is not None and remaining() <= 0:
+                truncated = True
+                break
+            try:
+                name = next(names)
+            except StopIteration:
+                break
             if consume is not None and not consume():
-                return _paused(last_child, count, found_name)
+                truncated = True
+                break
             last_child = name
             if not (name.startswith("final-") or name.startswith("doom-")):
                 continue
@@ -753,8 +755,8 @@ def normalize_unlink_stage_victim_via_fd(
                 return _retain(last_child=last_child, count=count, name=found_name)
     except OSError:
         return _retain(last_child=last_child, count=count, name=found_name)
-    if skipping:
-        return _retain(count=0)
+    if truncated:
+        return _paused(last_child, count, found_name)
     if count != 1 or found_name is None:
         return _retain(last_child=last_child, count=count, name=found_name)
     try:
@@ -865,6 +867,8 @@ def destroy_owned_bytes_and_reclaim_names(
     generation: str | None = None,
     held_stage_dir_fd: int | None = None,
     held_stage_name: str | None = None,
+    consume: Callable[[], bool] | None = None,
+    remaining: Callable[[], int] | None = None,
 ) -> bool:
     """fd-truncate owned bytes, prove size-0, then unlink/rmdir tombs.
 
@@ -890,11 +894,35 @@ def destroy_owned_bytes_and_reclaim_names(
         ):
             return False
     # Historical Round12 verify/stage tombstones for this inode must also reclaim.
+    local_used = 0
+
+    def _remaining() -> int:
+        if remaining is not None:
+            return remaining()
+        return max(0, 64 - local_used)
+
+    def _consume() -> bool:
+        nonlocal local_used
+        if consume is not None:
+            return consume()
+        if local_used >= 64:
+            return False
+        local_used += 1
+        return True
+
     try:
-        entries = scandir_dir_fd_names(ready_dir_fd)
+        entries = iter(scandir_dir_fd_names(ready_dir_fd))
     except OSError:
         return False
-    for entry_name in entries:
+    while True:
+        if _remaining() <= 0:
+            return False
+        try:
+            entry_name = next(entries)
+        except StopIteration:
+            break
+        if not _consume():
+            return False
         parsed_verify = parse_unlink_verify_name(entry_name)
         if parsed_verify is not None:
             ino, verify_artifact_id, _generation, _token = parsed_verify
@@ -934,10 +962,18 @@ def destroy_owned_bytes_and_reclaim_names(
                 stage_locked_here = True
             assert stage_fd is not None
             try:
-                children = scandir_dir_fd_names(stage_fd)
+                children = iter(scandir_dir_fd_names(stage_fd))
             except OSError:
                 return False
-            for child in children:
+            while True:
+                if _remaining() <= 0:
+                    return False
+                try:
+                    child = next(children)
+                except StopIteration:
+                    break
+                if not _consume():
+                    return False
                 open_flags = _file_flags()
                 try:
                     child_fd = os.open(child, open_flags, dir_fd=stage_fd)

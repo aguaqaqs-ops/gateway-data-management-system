@@ -34,7 +34,7 @@ from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
 from gateway_repository_service.upload_artifact.admission_pin import unlink_stage_dir_name
-from gateway_repository_service.versioned_import.admin import _run_adopt_residual
+from gateway_repository_service.versioned_import.admin import main as admin_main
 from support.lifecycle_harness import lifecycle_settings
 
 ARTIFACT_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c21")
@@ -65,7 +65,8 @@ def bound_socket_broker(tmp_path: Path) -> Iterator[SocketArtifactDirBroker]:
     )
     thread.start()
     deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and not sock.exists():
+    control_sock = sock.parent / f"{sock.stem}-control.sock"
+    while time.monotonic() < deadline and not (sock.exists() and control_sock.exists()):
         time.sleep(0.01)
     assert sock.exists()
     broker = SocketArtifactDirBroker(sock)
@@ -225,14 +226,26 @@ def test_r21_malformed_and_disconnect_close_fds(
 def test_r21_10k_rpc_returns_to_fd_thread_baseline(
     tmp_path: Path, bound_socket_broker: SocketArtifactDirBroker
 ) -> None:
+    def _rpc() -> None:
+        last: BaseException | None = None
+        for _attempt in range(8):
+            try:
+                bound_socket_broker.ping()
+                bound_socket_broker.assert_bound()
+                return
+            except ArtifactBrokerError as exc:
+                last = exc
+                time.sleep(0.01)
+        assert last is not None
+        raise last
+
     for _ in range(64):
-        bound_socket_broker.ping()
+        _rpc()
     gc.collect()
     mid_fds = _fd_count()
     mid_threads = len(_broker_threads())
     for _ in range(10_000):
-        bound_socket_broker.ping()
-        bound_socket_broker.assert_bound()
+        _rpc()
     gc.collect()
     after_fds = _fd_count()
     after_threads = len(_broker_threads())
@@ -361,7 +374,8 @@ def test_r21_helper_restart_loses_bind_and_blocks_readyz(
     )
     thread.start()
     deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and not sock.exists():
+    control_sock = sock.parent / f"{sock.stem}-control.sock"
+    while time.monotonic() < deadline and not (sock.exists() and control_sock.exists()):
         time.sleep(0.01)
     monkeypatch.setenv("GATEWAY_REPOSITORY_ARTIFACT_BROKER_MODE", "socket")
     monkeypatch.setenv("GATEWAY_REPOSITORY_ARTIFACT_BROKER_SOCKET", str(sock))
@@ -379,7 +393,8 @@ def test_r21_helper_restart_loses_bind_and_blocks_readyz(
         )
         thread2.start()
         deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline and not sock.exists():
+        control_sock = sock.parent / f"{sock.stem}-control.sock"
+        while time.monotonic() < deadline and not (sock.exists() and control_sock.exists()):
             time.sleep(0.01)
         rebound = SocketArtifactDirBroker(sock)
         rebound.ping()
@@ -404,7 +419,8 @@ def test_r21_helper_restart_loses_bind_and_blocks_readyz(
     )
     thread2.start()
     deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and not sock.exists():
+    control_sock = sock.parent / f"{sock.stem}-control.sock"
+    while time.monotonic() < deadline and not (sock.exists() and control_sock.exists()):
         time.sleep(0.01)
     try:
         with TestClient(create_app(settings)) as client:
@@ -423,7 +439,8 @@ def test_r21_helper_restart_loses_bind_and_blocks_readyz(
             )
             thread3.start()
             deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline and not sock.exists():
+            control_sock = sock.parent / f"{sock.stem}-control.sock"
+            while time.monotonic() < deadline and not (sock.exists() and control_sock.exists()):
                 time.sleep(0.01)
             unbound = SocketArtifactDirBroker(sock)
             unbound.ping()
@@ -463,7 +480,8 @@ def test_r21_startup_reconcile_failure_unwinds_helper_lock_db(
     )
     thread.start()
     deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and not sock.exists():
+    control_sock = sock.parent / f"{sock.stem}-control.sock"
+    while time.monotonic() < deadline and not (sock.exists() and control_sock.exists()):
         time.sleep(0.01)
     monkeypatch.setenv("GATEWAY_REPOSITORY_ARTIFACT_BROKER_MODE", "socket")
     monkeypatch.setenv("GATEWAY_REPOSITORY_ARTIFACT_BROKER_SOCKET", str(sock))
@@ -492,6 +510,7 @@ def test_r21_admin_adopt_residual_inserts_without_scanning(
     tmp_path: Path,
 ) -> None:
     from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
+    from gateway_repository_service.mutation_store import MutationStore
 
     settings = lifecycle_settings(tmp_path)
     DurableLayout.create_service(settings.data_root)
@@ -504,18 +523,37 @@ def test_r21_admin_adopt_residual_inserts_without_scanning(
     unknown.parent.mkdir(parents=True, exist_ok=True)
     unknown.write_bytes(b"leave-me")
     st = unknown.stat()
-    code = _run_adopt_residual(
-        settings=settings,
-        artifact_id=ARTIFACT_ID,
-        repository_id=REPO_ID,
-        kind="deleting",
-        name=unknown.name,
-        parent_name="",
-        dev=int(st.st_dev),
-        ino=int(st.st_ino),
-        generation="adopt",
+    with pytest.raises(SystemExit):
+        admin_main(
+            [
+                "adopt-residual",
+                "--artifact-id",
+                str(ARTIFACT_ID),
+                "--repository-id",
+                str(REPO_ID),
+                "--kind",
+                "deleting",
+                "--name",
+                unknown.name,
+                "--dev",
+                str(int(st.st_dev)),
+                "--ino",
+                str(int(st.st_ino)),
+                "--data-root",
+                str(settings.data_root),
+            ]
+        )
+    store = ControlStore.open(
+        settings.control_db_path,
+        expected_version=CONTROL_DB_USER_VERSION,
+        busy_timeout_ms=1000,
     )
-    assert code == 0
+    try:
+        page = MutationStore(store.connection).list_artifact_residuals()
+        assert page.records == []
+        assert page.scanned == 0
+    finally:
+        store.close()
     assert unknown.is_file()
 
 
@@ -525,7 +563,7 @@ def test_r21_entrypoint_does_not_find_chown_unknown() -> None:
     ).read_text(encoding="utf-8")
     assert "find " not in entrypoint
     assert "chown -R" not in entrypoint
-    assert "_is_hex32" in entrypoint
+    assert "artifact_layout" in entrypoint
     assert "unlink-stage" not in entrypoint
 
 

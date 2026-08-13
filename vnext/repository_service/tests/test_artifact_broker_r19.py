@@ -113,7 +113,8 @@ def socket_broker(tmp_path: Path) -> Iterator[SocketArtifactDirBroker]:
     )
     thread.start()
     deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and not sock.exists():
+    control_sock = sock.parent / f"{sock.stem}-control.sock"
+    while time.monotonic() < deadline and not (sock.exists() and control_sock.exists()):
         time.sleep(0.01)
     assert sock.exists()
     broker = SocketArtifactDirBroker(sock)
@@ -210,7 +211,8 @@ def test_r19_socket_rejects_foreign_peer_uid(tmp_path: Path) -> None:
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
     deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and not sock.exists():
+    control_sock = sock.parent / f"{sock.stem}-control.sock"
+    while time.monotonic() < deadline and not (sock.exists() and control_sock.exists()):
         time.sleep(0.01)
     try:
         broker = SocketArtifactDirBroker(sock)

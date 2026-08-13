@@ -192,7 +192,7 @@ def seed_queued_dolt_import(
             """
             INSERT INTO artifact_lifecycle (
                 artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
             """,
             (
                 str(resolved_artifact_id),

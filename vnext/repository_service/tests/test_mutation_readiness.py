@@ -286,7 +286,7 @@ def test_consumed_artifact_missing_bytes_does_not_block_readiness(tmp_path: Path
             """
             INSERT INTO artifact_lifecycle (
                 artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
             """,
             (str(artifact_id), repository_id.hex, MEDIA_TYPE, size_bytes, raw_sha256, now, now),
         )

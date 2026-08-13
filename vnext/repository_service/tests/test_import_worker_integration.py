@@ -112,7 +112,7 @@ def test_dolt_worker_happy_path(
                 raw_sha256,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
             """,
             (
                 str(ARTIFACT_ID),
@@ -224,7 +224,7 @@ def _seed_import_operation(
             """
             INSERT INTO artifact_lifecycle (
                 artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
             """,
             (str(artifact_id), repository_id.hex, MEDIA_TYPE, size_bytes, raw_sha256, now, now),
         )

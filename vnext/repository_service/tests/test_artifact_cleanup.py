@@ -261,7 +261,7 @@ def _seed_artifact(
                 raw_sha256,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
             """,
             (
                 str(artifact_id),
@@ -1116,7 +1116,7 @@ def test_poison_lifecycle_row_does_not_block_other_candidates(
                 raw_sha256,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
             """,
             (
                 str(poison_id),
@@ -3186,7 +3186,7 @@ def test_inventory_ownership_variants_are_diagnosed(
                 INSERT INTO artifact_lifecycle (
                     artifact_id, repository_scope, media_type, size_bytes,
                     raw_sha256, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
                 """,
                 (
                     str(other_artifact),
@@ -10817,7 +10817,7 @@ def test_r19_multi_repo_keyset_is_globally_ordered(
                 INSERT INTO artifact_lifecycle (
                     artifact_id, repository_scope, media_type, size_bytes,
                     raw_sha256, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
                 """,
                 (
                     str(UUID(int=ARTIFACT_ID.int + i)),
@@ -11005,7 +11005,7 @@ def test_r20_poison_page_does_not_starve_newer_succeeded(
                     INSERT INTO artifact_lifecycle (
                         artifact_id, repository_scope, media_type, size_bytes,
                         raw_sha256, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
                     """,
                     (str(aid), "not-a-uuid", MEDIA_TYPE, 1, "a" * 64, created, created),
                 )
@@ -11340,7 +11340,7 @@ def test_r21_receipt_null_legal_with_proof_reclaims(
     )
     _sweep(store, mutation_store, layout)
     assert not quarantine.exists()
-    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID) == []
+    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID).records == []
 
 
 def test_r21_receipt_null_mismatch_forged_legacy_without_proof_retain(
@@ -11436,7 +11436,7 @@ def test_r21_residual_crash_windows_converge(
         generation="cw",
     )
     _sweep(store, mutation_store, layout)
-    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID) == []
+    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID).records == []
 
     tomb = parent / name
     tomb.write_bytes(b"")
@@ -11451,7 +11451,7 @@ def test_r21_residual_crash_windows_converge(
     )
     _sweep(store, mutation_store, layout)
     assert not tomb.exists()
-    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID) == []
+    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID).records == []
 
     leftover = parent / quarantine_name_for(
         inode=int(st.st_ino), artifact_id=ARTIFACT_ID, generation="cw2"
@@ -11468,7 +11468,7 @@ def test_r21_residual_crash_windows_converge(
         generation="cw2",
     )
     _sweep(store, mutation_store, layout)
-    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID) == []
+    assert mutation_store.list_artifact_residuals(artifact_id=ARTIFACT_ID).records == []
 
 
 def test_r21_mixed_legal_and_forged_isolate(
@@ -11518,8 +11518,8 @@ def test_r21_blob_created_at_and_artifact_id_page_reaches_successor(
                     """
                     INSERT INTO artifact_lifecycle (
                         artifact_id, repository_scope, media_type, size_bytes,
-                        raw_sha256, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        raw_sha256, created_at, updated_at, cleanup_seq
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         sqlite3.Binary(f"blob-id-{i}".encode()),
@@ -11529,6 +11529,7 @@ def test_r21_blob_created_at_and_artifact_id_page_reaches_successor(
                         "a" * 64,
                         sqlite3.Binary(f"poison-{i}".encode()),
                         sqlite3.Binary(f"poison-{i}".encode()),
+                        i + 1,
                     ),
                 )
                 mutation_store._connection.commit()

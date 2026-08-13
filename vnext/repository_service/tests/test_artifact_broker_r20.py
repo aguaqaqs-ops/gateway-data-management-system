@@ -115,7 +115,8 @@ def bound_socket_broker(tmp_path: Path) -> Iterator[SocketArtifactDirBroker]:
     )
     thread.start()
     deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and not sock.exists():
+    control_sock = sock.parent / f"{sock.stem}-control.sock"
+    while time.monotonic() < deadline and not (sock.exists() and control_sock.exists()):
         time.sleep(0.01)
     assert sock.exists()
     broker = SocketArtifactDirBroker(sock)
@@ -284,14 +285,18 @@ def _raw_bind(sock: str, fds: list[int] | None = None) -> dict[str, object]:
 def test_r20_bind_requires_self_pidfd(
     tmp_path: Path, bound_socket_broker: SocketArtifactDirBroker
 ) -> None:
-    sock = str(tmp_path / "run" / "artifact-broker.sock")
-    missing = _raw_bind(sock)
+    data_sock = str(tmp_path / "run" / "artifact-broker.sock")
+    control_sock = str(tmp_path / "run" / "artifact-broker-control.sock")
+    rejected = _raw_bind(data_sock)
+    assert rejected.get("ok") is not True
+    assert rejected.get("error") == "data_socket_rejected"
+    missing = _raw_bind(control_sock)
     assert missing.get("ok") is not True
     assert missing.get("error") == "missing_pidfd"
     artifacts = tmp_path / "artifacts"
     dir_fd = os.open(artifacts, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        forged = _raw_bind(sock, [dir_fd])
+        forged = _raw_bind(control_sock, [dir_fd])
     finally:
         os.close(dir_fd)
     assert forged.get("ok") is not True

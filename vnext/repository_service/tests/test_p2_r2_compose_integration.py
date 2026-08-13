@@ -230,6 +230,8 @@ def test_r19_entrypoint_is_fail_closed_and_pings_broker() -> None:
     assert "chown -R" not in entrypoint
     assert "find " not in entrypoint
     assert "artifact-broker.sock" in entrypoint
+    assert "artifact-broker-control.sock" in entrypoint
+    assert "artifact_layout" in entrypoint
     assert ".ping()" in entrypoint
     assert "GATEWAY_REPOSITORY_ARTIFACT_BROKER_MODE=socket" in entrypoint
     assert "--peer-gid" in entrypoint

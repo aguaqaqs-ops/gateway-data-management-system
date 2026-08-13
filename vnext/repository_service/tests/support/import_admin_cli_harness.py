@@ -221,7 +221,7 @@ class AdminCliControlDbEnvironment:
                     raw_sha256,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
                 """,
                 (
                     str(artifact_id),
@@ -665,7 +665,7 @@ class AdminCliEnvironment:
                     raw_sha256,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
                 """,
                 (
                     str(artifact_id),

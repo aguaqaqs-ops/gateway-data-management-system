@@ -405,7 +405,7 @@ class TestControlDatabase:
                 "prevent_terminal_when_succeeded",
                 "prevent_insert_succeeded_when_terminal",
                 "prevent_insert_terminal_when_succeeded",
-                "artifact_lifecycle_assign_cleanup_seq",
+                "artifact_lifecycle_forbid_cleanup_seq_update",
             }
         finally:
             store.close()
@@ -610,10 +610,10 @@ class TestControlDatabase:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         db_path.parent.mkdir(parents=True)
         connection = sqlite3.connect(db_path)
-        connection.execute("PRAGMA user_version = 15")
+        connection.execute("PRAGMA user_version = 16")
         connection.commit()
         connection.close()
-        with pytest.raises(ControlDbNewerVersionError, match="user_version 15 is newer than supported 14"):
+        with pytest.raises(ControlDbNewerVersionError, match="user_version 16 is newer than supported 15"):
             ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
     def test_migration_v5_fails_on_contradictory_v3_data(self, tmp_path: Path) -> None:

@@ -107,7 +107,7 @@ def test_control_db_user_version_is_not_configurable(tmp_path: Path, monkeypatch
     monkeypatch.setenv("GATEWAY_REPOSITORY_CONTROL_DB_USER_VERSION", "1")
     settings = RepositoryServiceSettings(data_root=tmp_path / "root", profile="test", bearer_token="token")
     assert not hasattr(settings, "control_db_user_version")
-    assert CONTROL_DB_USER_VERSION == 14
+    assert CONTROL_DB_USER_VERSION == 15
 
 
 @pytest.mark.parametrize(

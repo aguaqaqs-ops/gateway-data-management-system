@@ -555,7 +555,7 @@ def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) 
             """
             INSERT INTO artifact_lifecycle (
                 artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
             """,
             (str(ARTIFACT_ID), REPOSITORY_ID.hex, MEDIA_TYPE, size_bytes, raw_sha256, now, now),
         )
@@ -720,7 +720,7 @@ def test_subprocess_crash_then_runtime_restart_recovers(tmp_path: Path) -> None:
             """
             INSERT INTO artifact_lifecycle (
                 artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
             """,
             (str(ARTIFACT_ID), REPOSITORY_ID.hex, MEDIA_TYPE, size_bytes, raw_sha256, now, now),
         )
@@ -822,7 +822,7 @@ def test_startup_blocks_when_running_operation_provider_unreadable(tmp_path: Pat
             """
             INSERT INTO artifact_lifecycle (
                 artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
             """,
             (
                 str(other_artifact_id),

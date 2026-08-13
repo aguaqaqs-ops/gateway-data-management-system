@@ -261,7 +261,7 @@ def test_runtime_shutdown_retains_ownership_when_worker_hangs(tmp_path: Path) ->
             """
             INSERT INTO artifact_lifecycle (
                 artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
             """,
             (str(ARTIFACT_ID), REPOSITORY_ID.hex, MEDIA_TYPE, size_bytes, raw_sha256, now, now),
         )

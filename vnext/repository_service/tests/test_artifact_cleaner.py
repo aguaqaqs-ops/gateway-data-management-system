@@ -9,7 +9,7 @@ import re
 import stat
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from gateway_repository_service.artifact_cleaner import (
+    ArtifactCleaner,
     ArtifactCleanerShutdownError,
     classify_ready_artifact_path,
 )
@@ -36,6 +37,8 @@ from support.artifact_cleanup_contract import (
     OTHER_OPERATION_ID,
     OTHER_REPOSITORY_ID,
     REPOSITORY_ID,
+    SHA256,
+    MEDIA_TYPE,
     cleaner,
     detach_name_for,
     enqueue,
@@ -973,7 +976,6 @@ def test_unknown_unlink_stage_child_is_retained(
     assert stage.is_dir()
     assert unexpected.is_file()
     assert unexpected.read_bytes() == b"keep-me"
-    assert (stage / "victim").is_file()
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_deleted_at is None
@@ -1036,6 +1038,41 @@ def test_eligible_leftover_stage_with_known_children_converges(
 
     cleaner(layout, store, mutation_store).sweep_once()
 
+    assert not stage.exists()
+    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
+    assert lifecycle is not None
+    assert lifecycle.bytes_deleted_at is not None
+
+
+def test_eligible_leftover_stage_larger_than_budget_converges_across_sweeps(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+) -> None:
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    seed_artifact(mutation_store)
+    mark_succeeded_consumed(store, key="large-stage-children")
+    ready = artifact_ready_path(layout, REPOSITORY_ID, ARTIFACT_ID)
+    ready.parent.mkdir(parents=True, exist_ok=True)
+    stage = ready.parent / unlink_stage_dir_name(artifact_id=ARTIFACT_ID, token="tok3")
+    stage.mkdir()
+    os.chmod(stage, 0o700)
+    (stage / "victim").write_bytes(ARTIFACT_PAYLOAD)
+    for index in range(70):
+        (stage / f"final-{index:02d}").write_bytes(b"final")
+
+    instance = cleaner(layout, store, mutation_store)
+    child_counts: list[int] = []
+    for _ in range(8):
+        instance.sweep_once()
+        if stage.exists():
+            child_counts.append(len(list(stage.iterdir())))
+        else:
+            child_counts.append(0)
+            break
+    assert child_counts
+    assert child_counts[-1] == 0
+    assert min(child_counts) < 71
     assert not stage.exists()
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
@@ -1148,8 +1185,33 @@ def test_housekeeping_budget_bounds_ready_leftovers_in_one_repository(
         del args
         events.append(kwargs)
 
+    leftover_checks = {"n": 0}
+    orig_leftover = ArtifactCleaner._artifact_has_parseable_leftovers
+
+    def counting_leftover(
+        self: ArtifactCleaner,
+        repository_id: UUID,
+        artifact_id: UUID,
+    ) -> bool:
+        leftover_checks["n"] += 1
+        return orig_leftover(self, repository_id, artifact_id)
+
+    enumerated = {"n": 0}
+    orig_scandir = cleaner_mod._scandir_names
+
+    def counting_scandir(dir_fd: int) -> Iterator[str]:
+        for name in orig_scandir(dir_fd):
+            enumerated["n"] += 1
+            yield name
+
+    monkeypatch.setattr(
+        ArtifactCleaner, "_artifact_has_parseable_leftovers", counting_leftover
+    )
+    monkeypatch.setattr(cleaner_mod, "_scandir_names", counting_scandir)
     monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
     instance = cleaner(layout, store, mutation_store)
+    leftover_checks["n"] = 0
+    enumerated["n"] = 0
     instance.sweep_once()
 
     bounded = [
@@ -1161,6 +1223,8 @@ def test_housekeeping_budget_bounds_ready_leftovers_in_one_repository(
     used = bounded[0]["in_use"]
     assert isinstance(used, int)
     assert used <= 64
+    assert enumerated["n"] <= 64
+    assert leftover_checks["n"] < 80
     remaining = [path for path in sidecars if path.exists()]
     assert remaining
     assert len(remaining) < 80 or used <= 64
@@ -1170,7 +1234,11 @@ def test_housekeeping_budget_bounds_ready_leftovers_in_one_repository(
     assert leftover.bytes_deleted_at is None
 
     for _ in range(8):
+        leftover_checks["n"] = 0
+        enumerated["n"] = 0
         instance.sweep_once()
+        assert enumerated["n"] <= 64
+        assert leftover_checks["n"] < 80
         if not any(path.exists() for path in sidecars):
             break
     assert not any(path.exists() for path in sidecars)
@@ -1206,7 +1274,7 @@ def test_receipt_poison_page_advances_raw_cursor_to_later_row(
     page = mutation_store.list_artifacts_with_bytes_deleted_receipt(limit=64)
     assert page.scanned == 64
     assert page.records == []
-    assert page.cursor_artifact_id == poison_ids[-1]
+    assert page.cursor_artifact_id == str(poison_ids[-1])
 
     rest = mutation_store.list_artifacts_with_bytes_deleted_receipt(
         limit=64,
@@ -1218,6 +1286,107 @@ def test_receipt_poison_page_advances_raw_cursor_to_later_row(
 
     instance = cleaner(layout, store, mutation_store)
     instance.sweep_once()
+    first = mutation_store.get_artifact_lifecycle(legal_id)
+    assert first is not None
+    assert first.bytes_deleted_receipt_generation is not None
+    for _ in range(4):
+        instance.sweep_once()
+        later = mutation_store.get_artifact_lifecycle(legal_id)
+        assert later is not None
+        if later.bytes_deleted_receipt_generation is None:
+            break
+    later = mutation_store.get_artifact_lifecycle(legal_id)
+    assert later is not None
+    assert later.bytes_deleted_receipt_generation is None
+    assert later.bytes_deleted_at is not None
+
+
+def test_receipt_malformed_artifact_id_advances_raw_cursor_and_charges_budget(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    poison_ids = [f"000-poison-{index:02d}" for index in range(64)]
+    legal_id = ARTIFACT_ID
+    with mutation_store._lock:
+        for poison_id in poison_ids:
+            mutation_store._connection.execute(
+                """
+                INSERT INTO artifact_lifecycle (
+                    artifact_id,
+                    repository_scope,
+                    media_type,
+                    size_bytes,
+                    raw_sha256,
+                    created_at,
+                    updated_at,
+                    bytes_deleted_at,
+                    bytes_deleted_receipt_dev,
+                    bytes_deleted_receipt_ino,
+                    bytes_deleted_receipt_generation,
+                    cleanup_seq
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (
+                    SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle
+                ))
+                """,
+                (
+                    poison_id,
+                    REPOSITORY_ID.hex,
+                    MEDIA_TYPE,
+                    len(ARTIFACT_PAYLOAD),
+                    SHA256,
+                    CREATED_AT,
+                    CREATED_AT,
+                    CREATED_AT,
+                    1,
+                    1,
+                    "g1",
+                ),
+            )
+        mutation_store._connection.commit()
+    seed_artifact(mutation_store, artifact_id=legal_id)
+    seed_bytes_deleted_receipt(
+        mutation_store,
+        artifact_id=legal_id,
+        generation="g1",
+    )
+    write_ready(layout, artifact_id=legal_id).unlink()
+
+    page = mutation_store.list_artifacts_with_bytes_deleted_receipt(limit=64)
+    assert page.scanned == 64
+    assert page.records == []
+    assert page.cursor_artifact_id == poison_ids[-1]
+
+    rest = mutation_store.list_artifacts_with_bytes_deleted_receipt(
+        limit=64,
+        after_artifact_id=page.cursor_artifact_id,
+    )
+    assert rest.scanned == 1
+    assert len(rest.records) == 1
+    assert rest.records[0].artifact_id == legal_id
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    instance.sweep_once()
+    bounded = [
+        event
+        for event in events
+        if event.get("cleanup_outcome") == "housekeeping_bounded"
+    ]
+    assert len(bounded) == 1
+    used = bounded[0]["in_use"]
+    assert isinstance(used, int)
+    assert used == 64
     first = mutation_store.get_artifact_lifecycle(legal_id)
     assert first is not None
     assert first.bytes_deleted_receipt_generation is not None

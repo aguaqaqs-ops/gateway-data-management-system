@@ -155,7 +155,7 @@ class CleanupCandidatePage:
 class ReceiptGcPage:
     records: list[ArtifactLifecycleRecord]
     scanned: int
-    cursor_artifact_id: UUID | None
+    cursor_artifact_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -562,7 +562,7 @@ class MutationStore:
         self,
         *,
         limit: int = 64,
-        after_artifact_id: UUID | None = None,
+        after_artifact_id: str | None = None,
     ) -> ReceiptGcPage:
         """Return lifecycle rows that still carry a bytes-deleted residual receipt."""
 
@@ -594,19 +594,16 @@ class MutationStore:
             params: list[object] = []
             if after_artifact_id is not None:
                 sql += " AND artifact_id > ?"
-                params.append(str(after_artifact_id))
+                params.append(after_artifact_id)
             sql += " ORDER BY artifact_id ASC LIMIT ?"
             params.append(int(limit))
             cursor = self._connection.execute(sql, params)
             records: list[ArtifactLifecycleRecord] = []
             scanned = 0
-            last_id: UUID | None = None
+            last_id: str | None = None
             for row in cursor.fetchall():
                 scanned += 1
-                try:
-                    last_id = UUID(str(row["artifact_id"]))
-                except (TypeError, ValueError):
-                    pass
+                last_id = str(row["artifact_id"])
                 try:
                     records.append(self._artifact_lifecycle_from_row(row))
                 except (TypeError, ValueError, MutationStoreInvariantError):

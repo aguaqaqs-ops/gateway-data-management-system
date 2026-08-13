@@ -6,6 +6,7 @@ import errno
 import fcntl
 import os
 import stat
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -47,6 +48,14 @@ def _is_hex32(name: str) -> bool:
 
 def _is_stage_child_name(name: str) -> bool:
     return name == "victim" or name.startswith("final-") or name.startswith("doom-")
+
+
+def scandir_dir_fd_names(dir_fd: int) -> Iterator[str]:
+    """Yield names from an owned directory fd without materializing the full listing."""
+
+    with os.scandir(f"/proc/self/fd/{dir_fd}") as entries:
+        for entry in entries:
+            yield entry.name
 
 
 def link_from_fd(dir_fd: int, name: str, src_fd: int) -> None:
@@ -634,6 +643,7 @@ def normalize_unlink_stage_victim_via_fd(
     *,
     expected_dev: int,
     expected_ino: int,
+    consume: Callable[[], bool] | None = None,
 ) -> bool:
     """Ensure owned ``victim`` exists inside an already-locked stage directory fd.
 
@@ -663,26 +673,27 @@ def normalize_unlink_stage_victim_via_fd(
         finally:
             os.close(victim_fd)
 
+    candidates: list[str] = []
     try:
-        children = os.listdir(stage_dir_fd)
+        for name in scandir_dir_fd_names(stage_dir_fd):
+            if consume is not None and not consume():
+                return False
+            if not (name.startswith("final-") or name.startswith("doom-")):
+                continue
+            try:
+                child_fd = os.open(name, _file_flags(), dir_fd=stage_dir_fd)
+            except OSError:
+                continue
+            try:
+                child_stat = os.fstat(child_fd)
+            except OSError:
+                os.close(child_fd)
+                continue
+            os.close(child_fd)
+            if _matches(child_stat):
+                candidates.append(name)
     except OSError:
         return False
-    candidates: list[str] = []
-    for name in children:
-        if not (name.startswith("final-") or name.startswith("doom-")):
-            continue
-        try:
-            child_fd = os.open(name, _file_flags(), dir_fd=stage_dir_fd)
-        except OSError:
-            continue
-        try:
-            child_stat = os.fstat(child_fd)
-        except OSError:
-            os.close(child_fd)
-            continue
-        os.close(child_fd)
-        if _matches(child_stat):
-            candidates.append(name)
     if len(candidates) != 1:
         return False
     try:
@@ -817,7 +828,7 @@ def destroy_owned_bytes_and_reclaim_names(
             return False
     # Historical Round12 verify/stage tombstones for this inode must also reclaim.
     try:
-        entries = os.listdir(ready_dir_fd)
+        entries = scandir_dir_fd_names(ready_dir_fd)
     except OSError:
         return False
     for entry_name in entries:
@@ -860,7 +871,7 @@ def destroy_owned_bytes_and_reclaim_names(
                 stage_locked_here = True
             assert stage_fd is not None
             try:
-                children = os.listdir(stage_fd)
+                children = scandir_dir_fd_names(stage_fd)
             except OSError:
                 return False
             for child in children:

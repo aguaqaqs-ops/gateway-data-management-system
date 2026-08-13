@@ -24,7 +24,6 @@ from gateway_repository_service.control_db import (
 )
 from gateway_repository_service.layout import DurableLayout, LayoutError
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
-from gateway_repository_service.mutation_store import MutationStoreError
 from gateway_repository_service.process import DoltRunner
 from gateway_repository_service.provider_lifecycle import (
     OfflineCliCapabilityGate,
@@ -383,77 +382,6 @@ def _run_apply(
         root_lock.release()
 
 
-def _run_adopt_residual(
-    *,
-    settings: RepositoryServiceSettings,
-    artifact_id: UUID,
-    repository_id: UUID,
-    kind: str,
-    name: str,
-    parent_name: str,
-    dev: int,
-    ino: int,
-    generation: str | None,
-) -> int:
-    try:
-        layout = _bind_admin_layout(settings)
-    except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
-        return _control_db_exit_code(exc)
-
-    root_lock = DurableRootLock(layout.service_lock)
-    control_store: ControlStore | None = None
-    try:
-        try:
-            root_lock.acquire()
-        except RootLockBusy:
-            print("durable root lock is held by a running service", file=sys.stderr)
-            return 3
-
-        try:
-            control_store, import_store = _open_control_store(settings)
-        except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
-            return _control_db_exit_code(exc)
-
-        try:
-            import_store.insert_artifact_residual(
-                artifact_id,
-                repository_id=repository_id,
-                kind=kind,
-                name=name,
-                parent_name=parent_name,
-                dev=dev,
-                ino=ino,
-                generation=generation,
-                created_at=utc_now_iso(),
-            )
-        except MutationStoreError as exc:
-            print(str(exc), file=sys.stderr)
-            return 2
-        except sqlite3.Error as exc:
-            return _control_db_exit_code(exc)
-
-        summary = {
-            "artifact_id": str(artifact_id),
-            "repository_id": str(repository_id),
-            "kind": kind,
-            "name": name,
-            "parent_name": parent_name,
-            "dev": dev,
-            "ino": ino,
-            "generation": generation,
-            "action": "adopt-residual",
-        }
-        _print_json_summary(summary)
-        return 0
-    finally:
-        if control_store is not None:
-            control_store.close()
-        try:
-            root_lock.release()
-        except Exception:
-            pass
-
-
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Private Versioned import recovery admin CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -467,48 +395,12 @@ def main(argv: list[str] | None = None) -> None:
     apply_parser.add_argument("--decision", required=True, choices=[item.value for item in ManualCorrectionDecision])
     apply_parser.add_argument("--data-root", type=Path)
 
-    adopt_parser = subparsers.add_parser("adopt-residual")
-    adopt_parser.add_argument("--artifact-id", required=True)
-    adopt_parser.add_argument("--repository-id", required=True)
-    adopt_parser.add_argument(
-        "--kind",
-        required=True,
-        choices=["deleting", "detach", "verify", "stage", "stage_child"],
-    )
-    adopt_parser.add_argument("--name", required=True)
-    adopt_parser.add_argument("--parent-name", default="")
-    adopt_parser.add_argument("--dev", type=int, required=True)
-    adopt_parser.add_argument("--ino", type=int, required=True)
-    adopt_parser.add_argument("--generation", default=None)
-    adopt_parser.add_argument("--data-root", type=Path)
-
     args = parser.parse_args(argv)
 
     settings = RepositoryServiceSettings()
     data_root = getattr(args, "data_root", None)
     if data_root is not None:
         settings = settings.model_copy(update={"data_root": data_root})
-
-    if args.command == "adopt-residual":
-        artifact_id = _parse_operation_id(args.artifact_id)
-        repository_id = _parse_operation_id(args.repository_id)
-        if artifact_id is None or repository_id is None:
-            print("invalid artifact or repository id", file=sys.stderr)
-            raise SystemExit(2)
-        generation = args.generation if args.generation else None
-        raise SystemExit(
-            _run_adopt_residual(
-                settings=settings,
-                artifact_id=artifact_id,
-                repository_id=repository_id,
-                kind=args.kind,
-                name=args.name,
-                parent_name=args.parent_name,
-                dev=args.dev,
-                ino=args.ino,
-                generation=generation,
-            )
-        )
 
     operation_id = _parse_operation_id(args.operation_id)
     if operation_id is None:

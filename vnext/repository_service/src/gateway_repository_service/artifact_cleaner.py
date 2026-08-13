@@ -9,7 +9,7 @@ import stat as stat_module
 import threading
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -65,6 +65,8 @@ _LOGGER = logging.getLogger(__name__)
 _HEX32 = frozenset("0123456789abcdef")
 _CLEANUP_CANDIDATE_PAGE_SIZE = 64
 _HOUSEKEEPING_ENTRY_BUDGET = 64
+_LEFTOVER_ARTIFACT_CAP = 64
+_LEFTOVER_REPO_CAP = 64
 _HOUSEKEEPING_PHASES = ("inventory", "recover", "receipts", "residuals")
 _T = TypeVar("_T")
 
@@ -120,6 +122,14 @@ def _scandir_names(dir_fd: int) -> Iterator[str]:
     """Stream directory names from an owned fd without a full listdir."""
 
     yield from scandir_dir_fd_names(dir_fd)
+
+
+@dataclass
+class _RepoLeftovers:
+    seen: set[UUID] = field(default_factory=set)
+    counts: dict[UUID, int] = field(default_factory=dict)
+    complete: bool = False
+    overflow: bool = False
 
 
 class _HeldTakeKind(Enum):
@@ -269,14 +279,11 @@ class ArtifactCleaner:
         self._recover_ready: _HeldScan | None = None
         self._recover_ready_fd: int | None = None
         self._recover_repo_id: UUID | None = None
-        self._recover_processed_ids: set[UUID] = set()
         self._recover_stage: _HeldScan | None = None
         self._recover_stage_fd: int | None = None
         self._recover_stage_name: str | None = None
         self._recover_stage_blocked: bool = False
-        self._leftover_seen: set[tuple[UUID, UUID]] = set()
-        self._leftover_counts: dict[tuple[UUID, UUID], int] = {}
-        self._leftover_ready_complete: set[UUID] = set()
+        self._leftover_repos: dict[UUID, _RepoLeftovers] = {}
 
     def start(self) -> None:
         with self._stop_lock:
@@ -649,12 +656,17 @@ class ArtifactCleaner:
 
         ``absent`` only after that repository's ready iterator reached StopIteration
         without a remaining parseable leftover for this artifact. Truncation, I/O
-        failure, and repos not yet visited stay ``unknown``.
+        failure, overflow, and repos not yet visited stay ``unknown``.
         """
 
-        if (repository_id, artifact_id) in self._leftover_seen:
+        bucket = self._leftover_repos.get(repository_id)
+        if bucket is None:
+            return "unknown"
+        if artifact_id in bucket.seen:
             return "present"
-        if repository_id in self._leftover_ready_complete:
+        if bucket.overflow:
+            return "unknown"
+        if bucket.complete:
             return "absent"
         return "unknown"
 
@@ -668,26 +680,45 @@ class ArtifactCleaner:
         return self._leftover_presence(repository_id, artifact_id) != "absent"
 
     def _reset_leftover_observations(self) -> None:
-        self._leftover_seen.clear()
-        self._leftover_counts.clear()
-        self._leftover_ready_complete.clear()
+        self._leftover_repos.clear()
 
     def _revoke_absent_proof(self, repository_id: UUID) -> None:
-        self._leftover_ready_complete.discard(repository_id)
+        bucket = self._leftover_repos.get(repository_id)
+        if bucket is not None:
+            bucket.complete = False
 
     def _forget_repo_leftovers(self, repository_id: UUID) -> None:
-        self._leftover_ready_complete.discard(repository_id)
-        drop = [key for key in self._leftover_seen if key[0] == repository_id]
-        for key in drop:
-            self._leftover_seen.discard(key)
-            self._leftover_counts.pop(key, None)
+        self._leftover_repos.pop(repository_id, None)
 
     def _drop_repo_counts(self, repository_id: UUID) -> None:
-        drop = [key for key in self._leftover_counts if key[0] == repository_id]
-        for key in drop:
-            self._leftover_counts.pop(key, None)
+        bucket = self._leftover_repos.get(repository_id)
+        if bucket is not None:
+            bucket.counts.clear()
 
-    def _note_leftover_name(self, repository_id: UUID, name: str) -> UUID | None:
+    def _evict_complete_leftover_repos(self) -> None:
+        if len(self._leftover_repos) <= _LEFTOVER_REPO_CAP:
+            return
+        in_progress = self._recover_repo_id
+        for repository_id in list(self._leftover_repos):
+            if len(self._leftover_repos) <= _LEFTOVER_REPO_CAP:
+                return
+            if repository_id == in_progress:
+                continue
+            bucket = self._leftover_repos[repository_id]
+            if bucket.complete:
+                self._leftover_repos.pop(repository_id, None)
+
+    def _ensure_leftover_bucket(self, repository_id: UUID) -> _RepoLeftovers:
+        bucket = self._leftover_repos.get(repository_id)
+        if bucket is None:
+            bucket = _RepoLeftovers()
+            self._leftover_repos[repository_id] = bucket
+            self._evict_complete_leftover_repos()
+        return bucket
+
+    def _note_leftover_name(
+        self, repository_id: UUID, name: str
+    ) -> tuple[UUID | None, bool]:
         artifact_id: UUID | None = None
         parsed = parse_any_recoverable_sidecar(name)
         if parsed is not None:
@@ -697,12 +728,37 @@ class ArtifactCleaner:
             if stage is not None:
                 artifact_id = stage[0]
         if artifact_id is None:
-            return None
-        key = (repository_id, artifact_id)
-        self._leftover_counts[key] = self._leftover_counts.get(key, 0) + 1
-        self._leftover_seen.add(key)
-        self._recover_processed_ids.add(artifact_id)
-        return artifact_id
+            return None, False
+        bucket = self._ensure_leftover_bucket(repository_id)
+        if artifact_id in bucket.seen:
+            bucket.counts[artifact_id] = bucket.counts.get(artifact_id, 0) + 1
+            return artifact_id, True
+        if len(bucket.seen) < _LEFTOVER_ARTIFACT_CAP:
+            bucket.seen.add(artifact_id)
+            bucket.counts[artifact_id] = 1
+            return artifact_id, True
+        return artifact_id, False
+
+    def _mark_overflow_if_skipped_leftover_retained(
+        self,
+        repository_id: UUID,
+        ready_name: str,
+    ) -> None:
+        ready_dir_fd = self._recover_ready_fd
+        if ready_dir_fd is None:
+            bucket = self._ensure_leftover_bucket(repository_id)
+            bucket.overflow = True
+            return
+        try:
+            os.stat(ready_name, dir_fd=ready_dir_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        except OSError:
+            bucket = self._ensure_leftover_bucket(repository_id)
+            bucket.overflow = True
+            return
+        bucket = self._ensure_leftover_bucket(repository_id)
+        bucket.overflow = True
 
     def _forget_leftover_name(
         self,
@@ -711,15 +767,17 @@ class ArtifactCleaner:
         name: str,
     ) -> None:
         del name
-        key = (repository_id, artifact_id)
-        remaining = self._leftover_counts.get(key)
+        bucket = self._leftover_repos.get(repository_id)
+        if bucket is None:
+            return
+        remaining = bucket.counts.get(artifact_id)
         if remaining is None:
             return
         if remaining <= 1:
-            self._leftover_counts.pop(key, None)
-            self._leftover_seen.discard(key)
+            bucket.counts.pop(artifact_id, None)
+            bucket.seen.discard(artifact_id)
             return
-        self._leftover_counts[key] = remaining - 1
+        bucket.counts[artifact_id] = remaining - 1
 
     def _dirfd_unlink_regular_leftover(
         self,
@@ -879,60 +937,6 @@ class ArtifactCleaner:
             except Exception:
                 continue
 
-    def _stamp_eligible_leftover_if_needed(
-        self,
-        ready_dir_fd: int,
-        repository_id: UUID,
-        artifact_id: UUID,
-        *,
-        leftovers_present: bool | None = None,
-    ) -> bool:
-        lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)
-        if lifecycle is None or lifecycle.bytes_deleted_at is not None:
-            return True
-        try:
-            os.stat(artifact_id.hex, dir_fd=ready_dir_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            pass
-        except OSError:
-            return False
-        else:
-            # Exact UUID still present; candidate/facade unlinks and stamps.
-            return True
-        if leftovers_present is None:
-            leftovers_present = self._artifact_has_parseable_leftovers(
-                repository_id, artifact_id
-            )
-        if leftovers_present:
-            return False
-        try:
-            self._import_store.mark_artifact_bytes_deleted(
-                artifact_id,
-                deleted_at=self._deleted_at_stamp(),
-                repository_id=repository_id,
-            )
-        except Exception:
-            log_event(
-                "artifact_cleanup",
-                repository_id=repository_id,
-                artifact_id=artifact_id,
-                stage="quarantine",
-                result="retained",
-                cleanup_outcome="stamp_failed",
-                logger=_LOGGER,
-            )
-            return False
-        log_event(
-            "artifact_cleanup",
-            repository_id=repository_id,
-            artifact_id=artifact_id,
-            stage="quarantine",
-            result="deleted",
-            cleanup_outcome="leftover_unlinked",
-            logger=_LOGGER,
-        )
-        return True
-
     def _converge_eligible_leftover_sidecars(
         self,
         ready_dir_fd: int,
@@ -1068,7 +1072,6 @@ class ArtifactCleaner:
                 pass
             self._recover_ready_fd = None
         self._recover_repo_id = None
-        self._recover_processed_ids = set()
 
     def _close_recover_scans(self) -> None:
         self._close_recover_ready()
@@ -1097,7 +1100,6 @@ class ArtifactCleaner:
             return None
 
     def _begin_ready_scan(self, repository_id: UUID) -> None:
-        self._recover_processed_ids = set()
         self._recover_repo_id = repository_id
         try:
             ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
@@ -1118,20 +1120,22 @@ class ArtifactCleaner:
 
     def _finish_ready_scan(self) -> None:
         repository_id = self._recover_repo_id
-        ready_dir_fd = self._recover_ready_fd
-        processed = set(self._recover_processed_ids)
         if repository_id is not None:
+            bucket = self._ensure_leftover_bucket(repository_id)
             self._drop_repo_counts(repository_id)
-            self._leftover_ready_complete.add(repository_id)
-            if ready_dir_fd is not None:
-                for artifact_id in processed:
-                    self._stamp_eligible_leftover_if_needed(
-                        ready_dir_fd,
-                        repository_id,
-                        artifact_id,
-                        leftovers_present=(repository_id, artifact_id)
-                        in self._leftover_seen,
-                    )
+            if bucket.overflow:
+                bucket.complete = False
+                log_event(
+                    "artifact_cleanup",
+                    repository_id=repository_id,
+                    stage="quarantine",
+                    result="retained",
+                    cleanup_outcome="leftover_observation_overflow",
+                    logger=_LOGGER,
+                )
+            else:
+                bucket.complete = True
+            self._evict_complete_leftover_repos()
         self._close_recover_ready()
 
     def _recover_one_ready_dir(
@@ -1180,7 +1184,7 @@ class ArtifactCleaner:
             if ready_name is None:
                 self._close_recover_ready()
                 return False
-            self._note_leftover_name(repository_id, ready_name)
+            _artifact_id, noted = self._note_leftover_name(repository_id, ready_name)
             try:
                 paused = self._recover_one_ready_entry(
                     repository_id,
@@ -1193,6 +1197,10 @@ class ArtifactCleaner:
                     repository_id,
                 )
                 paused = False
+            if _artifact_id is not None and not noted:
+                self._mark_overflow_if_skipped_leftover_retained(
+                    repository_id, ready_name
+                )
             if paused:
                 return True
             if self._stopping:

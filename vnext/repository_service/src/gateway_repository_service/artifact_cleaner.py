@@ -139,7 +139,10 @@ class ArtifactCleaner:
         self._stop_lock = threading.Lock()
         self._cleanup_cursor: int | None = None
         self._restart_cursor = False
+        self._inventory_after_repo: str | None = None
+        self._inventory_after_sub: str | None = None
         self._inventory_after_name: str | None = None
+        self._recover_after_repo: str | None = None
         self._recover_after_name: str | None = None
         self._receipt_after_artifact_id: UUID | None = None
         self._residual_after_id: int | None = None
@@ -528,7 +531,12 @@ class ArtifactCleaner:
     def _is_known_unlink_stage_child(name: str) -> bool:
         return name == STAGE_VICTIM or name.startswith("final-") or name.startswith("doom-")
 
-    def _dirfd_remove_unlink_stage(self, ready_dir_fd: int, stage_name: str) -> bool:
+    def _dirfd_remove_unlink_stage(
+        self,
+        ready_dir_fd: int,
+        stage_name: str,
+        budget: _HousekeepingBudget,
+    ) -> bool:
         """Unlink leftover stage children then rmdir. Does not truncate inodes."""
 
         stage_dir_fd = open_owned_unlink_stage_dir(ready_dir_fd, stage_name)
@@ -550,6 +558,8 @@ class ArtifactCleaner:
                 return False
             known: list[str] = []
             for child in children:
+                if not budget.consume():
+                    return False
                 if not self._is_known_unlink_stage_child(child):
                     return False
                 try:
@@ -614,6 +624,8 @@ class ArtifactCleaner:
         else:
             # Exact UUID still present; candidate/facade unlinks and stamps.
             return True
+        if self._artifact_has_parseable_leftovers(repository_id, artifact_id):
+            return False
         try:
             self._import_store.mark_artifact_bytes_deleted(
                 artifact_id,
@@ -660,6 +672,9 @@ class ArtifactCleaner:
                     logger=_LOGGER,
                 )
         if all_gone:
+            if self._artifact_has_parseable_leftovers(repository_id, artifact_id):
+                self._clear_leftover_residuals(artifact_id, cleared)
+                return
             if not self._stamp_eligible_leftover_if_needed(
                 ready_dir_fd, repository_id, artifact_id
             ):
@@ -683,11 +698,12 @@ class ArtifactCleaner:
         artifact_id: UUID,
         *,
         stage_names: list[str],
+        budget: _HousekeepingBudget,
     ) -> None:
         cleared: set[str] = set()
         all_gone = True
         for stage_name in stage_names:
-            if self._dirfd_remove_unlink_stage(ready_dir_fd, stage_name):
+            if self._dirfd_remove_unlink_stage(ready_dir_fd, stage_name, budget):
                 cleared.add(stage_name)
             else:
                 all_gone = False
@@ -701,6 +717,9 @@ class ArtifactCleaner:
                     logger=_LOGGER,
                 )
         if all_gone:
+            if self._artifact_has_parseable_leftovers(repository_id, artifact_id):
+                self._clear_leftover_residuals(artifact_id, cleared)
+                return
             if not self._stamp_eligible_leftover_if_needed(
                 ready_dir_fd, repository_id, artifact_id
             ):
@@ -721,17 +740,22 @@ class ArtifactCleaner:
         artifacts_root = self._layout.artifacts
         if not artifacts_root.is_dir():
             return
-        skipping = self._recover_after_name is not None
+        after_repo = self._recover_after_repo
+        after_name = self._recover_after_name
+        skipping_repo = after_repo is not None
+        last_repo: str | None = None
         last_name: str | None = None
         exhausted = False
         try:
             with os.scandir(artifacts_root) as entries:
                 for entry in entries:
                     name = entry.name
-                    if skipping:
-                        if name == self._recover_after_name:
-                            skipping = False
-                        continue
+                    resume = False
+                    if skipping_repo:
+                        if name != after_repo:
+                            continue
+                        skipping_repo = False
+                        resume = True
                     if len(name) != 32 or any(ch not in _HEX32 for ch in name):
                         continue
                     try:
@@ -743,116 +767,96 @@ class ArtifactCleaner:
                             continue
                     except OSError:
                         continue
-                    if not budget.consume():
+                    page_exhausted, page_last = self._recover_one_ready_dir(
+                        repository_id,
+                        budget,
+                        after_name=after_name if resume else None,
+                    )
+                    last_repo = name
+                    if page_exhausted:
+                        last_name = page_last if page_last is not None else after_name
                         exhausted = True
                         break
-                    last_name = name
-                    try:
-                        ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
-                    except OwnedPathError:
-                        continue
-                    try:
-                        try:
-                            ready_names = os.listdir(ready_dir_fd)
-                        except OSError:
-                            ready_names = []
-                    finally:
-                        os.close(ready_dir_fd)
-                    by_artifact: dict[UUID, list[tuple[str, int, str]]] = {}
-                    for ready_name in ready_names:
-                        parsed = parse_any_recoverable_sidecar(ready_name)
-                        if parsed is None:
-                            continue
-                        inode, artifact_id, _generation, kind = parsed
-                        by_artifact.setdefault(artifact_id, []).append(
-                            (ready_name, inode, kind)
-                        )
-                    try:
-                        self._recover_unlink_stage_dirs_for_ready(
-                            repository_id,
-                            artifacts_root / name / "ready",
-                        )
-                    except Exception:
-                        _LOGGER.exception(
-                            "artifact unlink-stage recovery failed for repository %s",
-                            repository_id,
-                        )
-                    for artifact_id, sidecars in by_artifact.items():
-                        if self._stopping:
-                            self._recover_after_name = last_name
-                            return
-                        try:
-                            self._recover_artifact_sidecars(
-                                repository_id,
-                                artifact_id,
-                                sidecars=sidecars,
-                            )
-                        except Exception:
-                            _LOGGER.exception(
-                                "artifact quarantine recovery failed for artifact %s",
-                                artifact_id,
-                            )
+                    after_name = None
+                    if self._stopping:
+                        exhausted = True
+                        last_name = page_last
+                        break
         except OSError:
             return
-        self._recover_after_name = last_name if exhausted else None
+        if exhausted:
+            self._recover_after_repo = last_repo
+            self._recover_after_name = last_name
+        else:
+            self._recover_after_repo = None
+            self._recover_after_name = None
 
-    def _recover_unlink_stage_dirs_for_ready(
+    def _recover_one_ready_dir(
         self,
         repository_id: UUID,
-        ready_dir: Path,
-    ) -> None:
-        del ready_dir  # path used only to reach owned ready_dir_fd
+        budget: _HousekeepingBudget,
+        *,
+        after_name: str | None,
+    ) -> tuple[bool, str | None]:
         try:
             ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
         except OwnedPathError:
-            return
-        except OSError:
-            log_event(
-                "artifact_cleanup",
-                repository_id=repository_id,
-                stage="quarantine",
-                result="retained",
-                cleanup_outcome="unknown_path_inventory",
-                logger=_LOGGER,
-            )
-            return
+            return False, None
         try:
             try:
-                names = os.listdir(ready_dir_fd)
+                ready_names = os.listdir(ready_dir_fd)
             except OSError:
-                return
-            stage_dirs: list[str] = []
-            for entry_name in names:
-                if parse_unlink_stage_dir_name(entry_name) is None:
+                return False, None
+            skipping = after_name is not None
+            last: str | None = None
+            for ready_name in ready_names:
+                if skipping:
+                    if ready_name == after_name:
+                        skipping = False
                     continue
-                # Inventory by name only. Opening/locking the leftover stage
-                # happens in reclaim_stage on this Service euid.
-                stage_dirs.append(entry_name)
-            if not stage_dirs:
-                return
-            by_artifact: dict[UUID, list[str]] = {}
-            for stage_name in stage_dirs:
-                parsed = parse_unlink_stage_dir_name(stage_name)
-                if parsed is None:
-                    continue
-                artifact_id, _token = parsed
-                by_artifact.setdefault(artifact_id, []).append(stage_name)
-            for artifact_id, stages in by_artifact.items():
-                if self._stopping:
-                    return
+                if not budget.consume():
+                    return True, last
+                last = ready_name
                 try:
-                    self._recover_artifact_unlink_stages(
-                        repository_id,
-                        artifact_id,
-                        stage_names=stages,
+                    self._recover_one_ready_entry(
+                        repository_id, ready_name, budget
                     )
                 except Exception:
                     _LOGGER.exception(
-                        "artifact unlink-stage recovery failed for artifact %s",
-                        artifact_id,
+                        "artifact leftover recovery failed for repository %s",
+                        repository_id,
                     )
+                if self._stopping:
+                    return True, last
+            return False, None
         finally:
             os.close(ready_dir_fd)
+
+    def _recover_one_ready_entry(
+        self,
+        repository_id: UUID,
+        ready_name: str,
+        budget: _HousekeepingBudget,
+    ) -> None:
+        parsed = parse_any_recoverable_sidecar(ready_name)
+        if parsed is not None:
+            inode, artifact_id, _generation, kind = parsed
+            self._recover_artifact_sidecars(
+                repository_id,
+                artifact_id,
+                sidecars=[(ready_name, inode, kind)],
+            )
+            return
+        stage = parse_unlink_stage_dir_name(ready_name)
+        if stage is None:
+            return
+        artifact_id, _token = stage
+        self._recover_artifact_unlink_stages(
+            repository_id,
+            artifact_id,
+            stage_names=[ready_name],
+            budget=budget,
+        )
 
     def _recover_artifact_unlink_stages(
         self,
@@ -860,6 +864,7 @@ class ArtifactCleaner:
         artifact_id: UUID,
         *,
         stage_names: list[str],
+        budget: _HousekeepingBudget,
     ) -> None:
         try:
             ready_dir_fd = open_owned_ready_dir(self._layout, repository_id)
@@ -898,6 +903,7 @@ class ArtifactCleaner:
                     repository_id,
                     artifact_id,
                     stage_names=stage_names,
+                    budget=budget,
                 )
                 return
 
@@ -2098,24 +2104,21 @@ class ArtifactCleaner:
         if remaining <= 0:
             return
         try:
-            receipts = self._mutation_store.list_artifacts_with_bytes_deleted_receipt(
+            page = self._mutation_store.list_artifacts_with_bytes_deleted_receipt(
                 limit=remaining,
                 after_artifact_id=self._receipt_after_artifact_id,
             )
         except Exception:
             _LOGGER.exception("artifact cleaner failed to list receipt GC candidates")
             return
-        if not receipts:
+        if page.scanned == 0:
             self._receipt_after_artifact_id = None
             return
-        last: UUID | None = None
-        for lifecycle in receipts:
+        for lifecycle in page.records:
             if self._stopping:
-                self._receipt_after_artifact_id = last
-                return
+                break
             if not budget.consume():
                 break
-            last = lifecycle.artifact_id
             try:
                 self._gc_one_bytes_deleted_receipt(lifecycle)
             except Exception:
@@ -2123,7 +2126,7 @@ class ArtifactCleaner:
                     "artifact receipt GC failed for artifact %s",
                     lifecycle.artifact_id,
                 )
-        self._receipt_after_artifact_id = last
+        self._receipt_after_artifact_id = page.cursor_artifact_id
 
     def _gc_one_bytes_deleted_receipt(self, lifecycle: ArtifactLifecycleRecord) -> None:
         receipt_generation = lifecycle.bytes_deleted_receipt_generation
@@ -2723,25 +2726,51 @@ class ArtifactCleaner:
         artifacts_root = self._layout.artifacts
         if not artifacts_root.is_dir():
             return
-        skipping = self._inventory_after_name is not None
-        last_name: str | None = None
+        after_repo = self._inventory_after_repo
+        after_sub = self._inventory_after_sub
+        after_name = self._inventory_after_name
+        skipping_repo = after_repo is not None
+        last_repo: str | None = None
+        last_sub: str | None = None
+        last_entry: str | None = None
         exhausted = False
         try:
             with os.scandir(artifacts_root) as entries:
                 for entry in entries:
                     name = entry.name
-                    if skipping:
-                        if name == self._inventory_after_name:
-                            skipping = False
-                        continue
-                    if not budget.consume():
+                    resume_inside = False
+                    if skipping_repo:
+                        if name != after_repo:
+                            continue
+                        skipping_repo = False
+                        if after_sub is None:
+                            continue
+                        resume_inside = True
+                    if not resume_inside:
+                        if not budget.consume():
+                            exhausted = True
+                            break
+                        last_repo = name
+                        last_sub = None
+                        last_entry = None
+                    else:
+                        last_repo = name
+                    inner_exhausted, inner_sub, inner_name = self._inventory_one_artifacts_entry(
+                        entry,
+                        budget,
+                        after_sub=after_sub if resume_inside else None,
+                        after_name=after_name if resume_inside else None,
+                    )
+                    if inner_exhausted:
+                        last_sub = inner_sub
+                        last_entry = inner_name if inner_name is not None else after_name
                         exhausted = True
                         break
-                    last_name = name
-                    self._inventory_one_artifacts_entry(entry, budget)
                     if not budget.remaining():
                         exhausted = True
                         break
+                    after_sub = None
+                    after_name = None
         except OSError:
             log_event(
                 "artifact_cleanup",
@@ -2751,7 +2780,7 @@ class ArtifactCleaner:
                 logger=_LOGGER,
             )
             return
-        if budget.remaining():
+        if not exhausted and budget.remaining():
             staging_artifacts = self._layout.staging_artifacts
             if staging_artifacts.is_dir():
                 self._inventory_directory_entries(
@@ -2759,12 +2788,25 @@ class ArtifactCleaner:
                     staging_artifacts,
                     allow_staging_shape=True,
                     budget=budget,
+                    after_name=None,
                 )
-        self._inventory_after_name = last_name if exhausted else None
+        if exhausted:
+            self._inventory_after_repo = last_repo
+            self._inventory_after_sub = last_sub
+            self._inventory_after_name = last_entry
+        else:
+            self._inventory_after_repo = None
+            self._inventory_after_sub = None
+            self._inventory_after_name = None
 
     def _inventory_one_artifacts_entry(
-        self, entry: os.DirEntry[str], budget: _HousekeepingBudget
-    ) -> None:
+        self,
+        entry: os.DirEntry[str],
+        budget: _HousekeepingBudget,
+        *,
+        after_sub: str | None,
+        after_name: str | None,
+    ) -> tuple[bool, str | None, str | None]:
         name = entry.name
         try:
             if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
@@ -2775,7 +2817,7 @@ class ArtifactCleaner:
                     cleanup_outcome="unknown_path_inventory",
                     logger=_LOGGER,
                 )
-                return
+                return False, None, None
         except OSError:
             log_event(
                 "artifact_cleanup",
@@ -2784,7 +2826,7 @@ class ArtifactCleaner:
                 cleanup_outcome="unknown_path_inventory",
                 logger=_LOGGER,
             )
-            return
+            return False, None, None
         if len(name) != 32 or any(ch not in _HEX32 for ch in name):
             log_event(
                 "artifact_cleanup",
@@ -2793,7 +2835,7 @@ class ArtifactCleaner:
                 cleanup_outcome="unknown_path_inventory",
                 logger=_LOGGER,
             )
-            return
+            return False, None, None
         try:
             repository_id = UUID(hex=name)
         except ValueError:
@@ -2804,7 +2846,7 @@ class ArtifactCleaner:
                 cleanup_outcome="unknown_path_inventory",
                 logger=_LOGGER,
             )
-            return
+            return False, None, None
         owned = self._import_store.has_succeeded_create_repository(repository_id)
         if not owned:
             log_event(
@@ -2815,13 +2857,23 @@ class ArtifactCleaner:
                 cleanup_outcome="unknown_path_inventory",
                 logger=_LOGGER,
             )
+        skipping_sub = after_sub is not None
         for sub in ("ready", "staging"):
-            self._inventory_directory_entries(
+            if skipping_sub:
+                if sub != after_sub:
+                    continue
+                skipping_sub = False
+            sub_exhausted, sub_last = self._inventory_directory_entries(
                 repository_id,
                 Path(entry.path) / sub,
                 allow_staging_shape=(sub == "staging"),
                 budget=budget,
+                after_name=after_name if sub == after_sub else None,
             )
+            after_name = None
+            if sub_exhausted:
+                return True, sub, sub_last
+        return False, None, None
 
     def _inventory_directory_entries(
         self,
@@ -2830,19 +2882,27 @@ class ArtifactCleaner:
         *,
         allow_staging_shape: bool,
         budget: _HousekeepingBudget,
-    ) -> None:
+        after_name: str | None,
+    ) -> tuple[bool, str | None]:
         try:
             dir_st = directory.lstat()
         except OSError:
-            return
+            return False, None
         if stat_module.S_ISLNK(dir_st.st_mode) or not stat_module.S_ISDIR(dir_st.st_mode):
-            return
+            return False, None
+        skipping = after_name is not None
+        last: str | None = None
         try:
             with os.scandir(directory) as entries:
                 for entry in entries:
-                    if not budget.consume():
-                        return
                     name = entry.name
+                    if skipping:
+                        if name == after_name:
+                            skipping = False
+                        continue
+                    if not budget.consume():
+                        return True, last
+                    last = name
                     if (
                         name.startswith(".deleting-")
                         or name.startswith(".detach-")
@@ -2991,6 +3051,8 @@ class ArtifactCleaner:
                 cleanup_outcome="ready_dir_unreadable",
                 logger=_LOGGER,
             )
+            return False, None
+        return False, None
 
     def _still_eligible(self, artifact_id: UUID, repository_id: UUID) -> bool:
         lifecycle = self._mutation_store.get_artifact_lifecycle(artifact_id)

@@ -152,6 +152,13 @@ class CleanupCandidatePage:
 
 
 @dataclass(frozen=True, slots=True)
+class ReceiptGcPage:
+    records: list[ArtifactLifecycleRecord]
+    scanned: int
+    cursor_artifact_id: UUID | None
+
+
+@dataclass(frozen=True, slots=True)
 class ResidualPage:
     records: list["ArtifactResidualRecord"]
     scanned: int
@@ -556,7 +563,7 @@ class MutationStore:
         *,
         limit: int = 64,
         after_artifact_id: UUID | None = None,
-    ) -> list[ArtifactLifecycleRecord]:
+    ) -> ReceiptGcPage:
         """Return lifecycle rows that still carry a bytes-deleted residual receipt."""
 
         with self._transaction():
@@ -592,7 +599,14 @@ class MutationStore:
             params.append(int(limit))
             cursor = self._connection.execute(sql, params)
             records: list[ArtifactLifecycleRecord] = []
+            scanned = 0
+            last_id: UUID | None = None
             for row in cursor.fetchall():
+                scanned += 1
+                try:
+                    last_id = UUID(str(row["artifact_id"]))
+                except (TypeError, ValueError):
+                    pass
                 try:
                     records.append(self._artifact_lifecycle_from_row(row))
                 except (TypeError, ValueError, MutationStoreInvariantError):
@@ -603,7 +617,11 @@ class MutationStore:
                         cleanup_outcome="invalid_lifecycle_row",
                     )
                     continue
-            return records
+            return ReceiptGcPage(
+                records=records,
+                scanned=scanned,
+                cursor_artifact_id=last_id,
+            )
 
     @staticmethod
     def _artifact_lifecycle_from_row(row: sqlite3.Row) -> ArtifactLifecycleRecord:

@@ -510,20 +510,6 @@ def parse_unlink_stage_dir_name(name: str) -> tuple[UUID, str] | None:
         return None
 
 
-def list_unlink_stage_dir_names(ready_dir_fd: int) -> list[str]:
-    """Return parsed ``.unlink-stage-*`` directory names under ``ready_dir_fd``."""
-
-    try:
-        names = os.listdir(ready_dir_fd)
-    except OSError:
-        return []
-    result: list[str] = []
-    for name in names:
-        if parse_unlink_stage_dir_name(name) is not None:
-            result.append(name)
-    return result
-
-
 def parse_unlink_verify_name(name: str) -> tuple[int, UUID, str, str] | None:
     """Parse ``.unlink-verify-{ino}-{generation}-{artifact_hex}-{token}``."""
 

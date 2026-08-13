@@ -371,6 +371,43 @@ def seed_artifact_residual(
         mutation_store._connection.commit()
 
 
+def seed_bytes_deleted_receipt(
+    mutation_store: MutationStore,
+    *,
+    artifact_id: UUID = ARTIFACT_ID,
+    repository_id: UUID = REPOSITORY_ID,
+    dev: int = 1,
+    ino: int = 1,
+    generation: str,
+    deleted_at: str = CREATED_AT,
+) -> None:
+    with mutation_store._lock:
+        cursor = mutation_store._connection.execute(
+            """
+            UPDATE artifact_lifecycle
+            SET bytes_deleted_at = ?,
+                bytes_deleted_receipt_dev = ?,
+                bytes_deleted_receipt_ino = ?,
+                bytes_deleted_receipt_generation = ?,
+                updated_at = ?
+            WHERE artifact_id = ?
+              AND repository_scope = ?
+            """,
+            (
+                deleted_at,
+                int(dev),
+                int(ino),
+                generation,
+                deleted_at,
+                str(artifact_id),
+                repository_id.hex,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RuntimeError("failed to seed deleted receipt")
+        mutation_store._connection.commit()
+
+
 def binding(*, artifact_id: UUID = ARTIFACT_ID) -> ImportRequestBinding:
     return ImportRequestBinding(
         repository_id=REPOSITORY_ID,

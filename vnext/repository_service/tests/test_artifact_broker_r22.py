@@ -187,6 +187,7 @@ def test_r22_artifacts_root_symlink_and_bind_mount_leave_target(tmp_path: Path) 
             run_dir=data_root / "run",
             artifacts=artifacts,
             broker_uid=os.getuid(),
+            gateway_uid=os.getuid(),
             gateway_gid=os.getgid(),
         )
     after = real_artifacts.stat()
@@ -204,6 +205,7 @@ def test_r22_artifacts_root_symlink_and_bind_mount_leave_target(tmp_path: Path) 
             run_dir=ancestor / "nested" / "run",
             artifacts=ancestor / "nested" / "artifacts",
             broker_uid=os.getuid(),
+            gateway_uid=os.getuid(),
             gateway_gid=os.getgid(),
         )
 
@@ -231,6 +233,7 @@ def test_r22_artifacts_root_symlink_and_bind_mount_leave_target(tmp_path: Path) 
                 run_dir=mounted.parent / "run",
                 artifacts=mounted,
                 broker_uid=os.getuid(),
+                gateway_uid=os.getuid(),
                 gateway_gid=os.getgid(),
             )
         after_bind = bind_target.stat()

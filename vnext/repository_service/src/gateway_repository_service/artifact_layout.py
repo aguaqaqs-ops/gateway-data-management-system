@@ -116,6 +116,7 @@ def prepare_artifact_layout(
     run_dir: Path,
     artifacts: Path,
     broker_uid: int,
+    gateway_uid: int,
     gateway_gid: int,
 ) -> None:
     data_root = Path(data_root)
@@ -126,7 +127,7 @@ def prepare_artifact_layout(
     assert_no_symlink_ancestors(artifacts)
     data_fd = _ensure_real_dir(
         data_root,
-        uid=broker_uid,
+        uid=gateway_uid,
         gid=gateway_gid,
         mode=0o750,
         require_same_parent_mount=False,
@@ -184,13 +185,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         broker_uid = pwd.getpwnam(args.broker_user).pw_uid
-        gateway_gid = pwd.getpwnam(args.gateway_user).pw_gid
+        gateway_pw = pwd.getpwnam(args.gateway_user)
         prepare_artifact_layout(
             data_root=args.data_root,
             run_dir=args.run_dir,
             artifacts=args.artifacts,
             broker_uid=broker_uid,
-            gateway_gid=gateway_gid,
+            gateway_uid=gateway_pw.pw_uid,
+            gateway_gid=gateway_pw.pw_gid,
         )
     except ArtifactRootError as exc:
         print(str(exc), flush=True)

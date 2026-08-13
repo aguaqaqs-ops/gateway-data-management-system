@@ -262,6 +262,12 @@ P2-R6全部exit通过后，才开始P3 capability的完整`grill-me`/design阶�
 真实P2 client与stream行为选择各业务use case的verification policy，而不反向预建P2
 feature。
 
+P3入口同时遵守
+[Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)：
+先区分权威业务事实、可恢复operation、可重建projection/artifact与外部信任边界，再决定
+安全、恢复和测试强度。不得把Repository曾经采用过的同euid对抗模型、broker/evidence机制
+复制到capability或业务模块；需要新的安全主体或威胁边界时先修订owning ADR/contract。
+
 结论：整个P2在设计层面完备，P2-R1 v8 exit=`go`，P2-R2至P2-R4 exit均已通过；
 P2-R5 functional exit complete，P2-R6-S0 design freeze complete、`s1_ready=yes`；完整handoff见
 [P2-R5 Commit-pinned Read Staged Execution Plan — P2-R5-S7 final handoff — 2026-08-12](p2-r5-commit-pinned-read-execution-plan.md#p2-r5-s7-final-handoff--2026-08-12)。

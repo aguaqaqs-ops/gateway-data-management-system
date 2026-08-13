@@ -9,7 +9,9 @@ interface reconciliation与S02联合代码清理均已闭合；P2-R1 v8 formal �
 入口为`P2-R2`，随后按修订后的Phase 2 feature delivery恢复 Repository 能力。P2-R1
 默认 provider 为Candidate A offline CLI，Candidate B保留但默认禁用。该顺序由
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
-和[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)共同约束。
+和[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)共同约束；Phase 0–9的安全、
+恢复、证据与测试强度统一遵守
+[Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)。
 
 ## 1. 实施原则
 
@@ -60,6 +62,13 @@ interface reconciliation与S02联合代码清理均已闭合；P2-R1 v8 formal �
 ### 1.4 阶段门禁
 
 每个 Phase 必须满足退出条件后，才能把下一 Phase 的产物接入正式主路径。允许提前开展验证性 spike，但 spike 代码不能绕过 contract 和门禁直接成为正式实现。
+
+### 1.5 风险分级先于机制
+
+每个Phase、WP或纵切在设计入口轻量登记authoritative/irreversible事实、recoverable durable
+状态、derived/temporary状态、外部信任边界、最高风险等级、必要语义屏障和明确非目标。
+新增安全主体/UID、自定义IPC、持久evidence状态机、sidecar/quarantine或syscall-window证明墙
+属于架构升级，必须先有具体威胁/损失/consumer依据和ADR；不能由普通Finding逐轮累加形成。
 
 ## 2. 阶段总览
 
@@ -358,6 +367,10 @@ P2实现期间不穿插Phase 3完整设计；P2-R5只实现contract-owned fixtur
 完整设计。若consumer evidence需要改变Phase 2 public contract，必须显式reopen owning
 contract或ADR。
 
+Phase 3设计入口必须先按全局比例化保障policy登记每个capability的权威输出、可重建
+projection/cache/artifact、外部输入边界和实际失败成本。默认不把同机可信模块/worker设为
+攻击者；若需要不可信plugin/tenant、本地进程隔离或新的安全主体，先修订ADR再设计实现。
+
 Storage/comparison projection、artifact retention、ordered identity和business
 verification policy以
 [Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md)
@@ -380,12 +393,17 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 
 ### 每个 capability 的固定步骤
 
-1. 定义或收口 `contracts.py`，固定 scalar、ordering、digest 和 Arrow/Parquet 边界。
+1. 定义或收口 `contracts.py`，只固定当前consumer实际依赖的scalar、ordering、digest和
+   Arrow/Parquet边界；未被消费的字段、version或digest不预建。
 2. 实现只覆盖小规模语义和边界 case 的 Python reference oracle。
-3. 通过 Phase 0 golden/property fixtures，记录 component candidate measurement 和 implementation route；不要求 legacy 对比或已不存在的 numeric baseline。
+3. 只消费该capability已有consumer所需的golden/property fixtures；记录必要的component
+   measurement和implementation route，不要求legacy对比、通用evidence closure或已不存在的
+   numeric baseline。
 4. 对满足 ADR 0001 门禁的稳定热点，直接实现 Rust production provider；其他能力使用 Python/Polars 验证语义。
-5. 实现 artifact 输入输出、closure、失败映射和受控 provider fallback。
-6. 增加独立 kernel/end-to-end benchmark 和 diagnostics。
+5. 仅在consumer需要时实现artifact输入输出、retention/完整性和失败映射；不为每个
+   capability复制通用closure、digest、journal或provider fallback。
+6. 增加与风险和容量目标相称的kernel/end-to-end measurement与diagnostics；没有已接受
+   性能目标时不把benchmark矩阵设为退出门。
 
 ### 重点调整
 
@@ -404,13 +422,14 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 - Capability contract、Python reference oracle 和按门禁选择的 production implementations。
 - 首批 Rust core/PyO3 providers 及跨语言 differential tests。
 - Capability-level unit、contract 和 benchmark tests。
-- Artifact schemas和普通round-trip validation。
+- 当前consumer实际使用的Artifact schema和普通round-trip validation；没有artifact边界的
+  capability不为形式统一创建artifact。
 - 无环 capability dependency report。
 
 ### 退出条件
 
 - 每个 capability 可脱离 API、application 和 Operation Runtime 单独调用。
-- 相同输入、版本和 policy 产生稳定结果与 digest。
+- 相同输入、版本和policy产生稳定结果；digest只有在owner contract定义时才进入一致性断言。
 - Rust production provider 与 Python reference 在 golden/property fixtures 上语义一致。
 - Python/Rust直接消费既有canonical cases并逐字节一致；Repository不依赖该corpus。
 - Capability 不包含 Workspace、Submission、Archive、History request 等 flow identity。
@@ -437,7 +456,8 @@ Operation 与业务 execution/effect evidence 的分界以 [External Effect and 
 - 稳定 `operation_kind + step_name -> JobDefinition handler` 注册。
 - Step output 只保存稳定 DTO、business ID、artifact ref、repository operation ID 和 checkpoint。
 - 大型 Comparison/Risk/Surface 结果必须通过 artifact/checkpoint 重载，不能依赖 Python 闭包。
-- 实现 retry、cancel、supersede、final failure 和 READY closure。
+- 实现retry、cancel、supersede、final failure和owner定义的READY条件，不引入通用
+  evidence/closure状态空间。
 - 建立 Repository remote operation 的 submit/poll/evidence checkpoint 模式，不占用线程阻塞等待。
 - Takeover `RUNNING` step时先读取durable checkpoint并以既有Repository operation ID
   查询；SUCCEEDED进入T3，三种普通未发布stable failure允许abort，
@@ -454,10 +474,13 @@ Operation 与业务 execution/effect evidence 的分界以 [External Effect and 
 
 ### 退出条件
 
-- 任意 step 后终止 worker，另一 worker 能从 checkpoint/evidence 继续、reconcile 或给出精确 attention；只有证据允许时才进入业务终态。
+- 对具有外部effect或不可安全重算的step，终止worker后另一worker能从最小checkpoint继续、
+  reconcile或给出明确attention；无外部effect且可重算的纯compute step允许幂等重算，不强制
+  持久evidence。
 - 已提交的 repository 写操作不会因业务 step 重试而重复提交。
 - 不存在“保守重做整个 step”的 blind replay 路径。
-- READY 前 artifact closure 完整，READY 后后台优化不改变正式结果。
+- READY前owner contract要求的artifact存在且可读，READY后后台优化不改变正式结果；
+  不建立跨所有artifact的通用closure协议。
 - Operation Runtime 不依赖具体业务模型或 capability 实现。
 
 ### 本阶段不做
@@ -481,7 +504,7 @@ HTTP
   -> source/snapshot
   -> comparison/risk
   -> surface/bundle
-  -> artifact closure
+  -> consumer-required artifact retention
   -> preview response
 ```
 
@@ -656,9 +679,11 @@ gateway-compute-worker     artifact-based worker/CLI
 - 删除旧 Flow、统一 StateStore、Dolt local adapter、重复 DTO 和路径字段。
 - 从业务容器移除 Dolt 二进制和 repository volume。
 - 删除不再使用的 feature flag、shadow writer 和 compatibility artifact。
-- 完成 Repository Service backup/restore、GC、Dolt upgrade/rollback 和容量 runbook。
+- 只完成当时accepted contract和生产运维实际需要的Repository Service backup/restore、GC、
+  Dolt upgrade/rollback与容量runbook；不得借production hardening重开已延期的通用治理surface。
 - 完成 operation backlog、lease、cache、artifact、repository disk 和业务 journey observability。
-- 执行故障注入、灾难恢复、滚动升级和安全审计。
+- 按已登记A/B类风险执行关键故障注入、灾难恢复、滚动升级和安全审计；C/D类只验证失败不
+  污染权威事实、可重试/诊断，不穷举内部interleaving。
 - 更新所有架构、contract、部署和运维文档。
 
 ### 退出条件
@@ -667,7 +692,8 @@ gateway-compute-worker     artifact-based worker/CLI
 - 业务容器不执行 Dolt 命令、不访问 repository 本地目录。
 - API 不拥有业务状态机，Domain 不依赖 infrastructure。
 - Operation 可跨进程恢复，Repository 写操作可审计和恢复。
-- 完整 journey、故障注入、恢复演练、性能和安全验收通过。
+- 完整journey通过；accepted contracts与风险登记要求的故障、恢复、性能和安全验收通过，
+  不以未接受的理论威胁或全故障点矩阵阻塞退出。
 
 ## 13. 跨阶段工作流
 
@@ -707,8 +733,12 @@ capability/provider/version
 ### 13.4 安全
 
 - Interface 执行用户认证和业务授权。
-- Repository Service 执行 service/tenant/repository 授权和资源隔离。
-- Import、SQL、archive 和 artifact 解压从第一版就设置配额，不作为生产化阶段才补的功能。
+- Repository Service v1执行global service bearer认证和server-owned repository scope，不预建
+  per-tenant/per-repository ACL；需要多租户隔离时先reopen owning contract/ADR。
+- Import、SQL、archive和artifact解压等不可信或高资源输入从第一版就采用有测量依据的bounded
+  limits；不要求为所有内部对象建立通用quota/accounting平台。
+- 同机受控模块/worker默认属于单一信任域。引入不可信plugin、本地恶意actor、独立UID/helper
+  或自定义安全IPC前必须通过全局比例化保障policy的架构升级门。
 
 ## 14. 全局 Definition of Done
 
@@ -716,8 +746,9 @@ capability/provider/version
 
 - 行为和 contract 测试通过。
 - 架构依赖测试通过。
-- 关键失败路径和幂等测试通过。
-- 产物有 digest、diagnostics 和 owner。
+- 按风险登记要求的关键语义屏障、幂等和失败测试通过；不要求全故障点矩阵。
+- 产物有明确owner和必要diagnostics；只有当内容相等性、transport integrity或consumer
+  contract确实需要时才要求digest，不为所有内部产物统一加digest/evidence。
 - 没有新增 host path、隐式全局状态或跨层 DTO re-export。
 - 初始 correctness route 有 component evidence；任何优化/回归性能结论都有 accepted vNext baseline 或容量数据支持。
 - 文档、ADR、runbook 与实现一致。

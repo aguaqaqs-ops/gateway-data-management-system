@@ -184,6 +184,11 @@ cross-phase interface reconciliation。两阶段设计闭合后，Phase 0–2代
 将artifact cleanup重新对齐本ADR的单一信任域。ADR 0011曾引入的同euid非协作actor、
 双UID directory-broker及其证明墙不再是v1安全或阶段退出要求。
 
+同日 follow-up：
+[Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)
+把本ADR的判断方式提升为Phase 0–9及后续维护的跨阶段工程约束；ADR 0012继续只作为
+Repository cleanup的具体应用，不承担全项目authority。
+
 先设计后联合清理避免Phase 2刚替换Artifact/contract，随后又因Phase 0–1 owner
 调整重复返工；“联合”只表示同一执行计划，不允许把删除压成一个不可审查的大提交。
 

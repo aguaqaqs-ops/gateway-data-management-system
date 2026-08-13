@@ -50,6 +50,11 @@ Candidate A offline CLI，Candidate B保留但默认禁用。
 - 新机制必须说明owner、当前consumer、失败成本、最小验收和重新进入条件。仅为
   未来可能需要的CurrentTableStore、ACL、恢复或治理能力不得进入当前主路径。
 
+上述原则在Phase 0–9的设计、实现和评审规则由
+[Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)
+统一执行。每个纵切必须区分权威/不可逆事实、可恢复durable状态、derived/temporary状态与
+外部信任边界；不得为C/D类对象静默引入新的安全主体、IPC、持久evidence状态机或证明墙。
+
 精确Repository信任边界、最小contract、恢复策略、Current扩展方式和过渡顺序由
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 规定。
@@ -518,6 +523,8 @@ JSON payload：
 
 ### 9.5 安全边界
 
+- Repository及后续业务/capability安全机制遵守全局比例化保障policy；本节列出当前accepted
+  边界，不隐含同机零信任、tenant隔离或独立安全主体。
 - 服务使用一个global bearer token；有效token可访问全部Repository。
 - TLS由deployment ingress/sidecar拥有。
 - 禁止客户端提交任意宿主机路径。
@@ -639,8 +646,9 @@ bytes、Python/Rust核心和业务golden在清理中保持不变。联合清理�
   end-to-end。
 - Canonical core：Python/Rust直接消费既有128个canonical cases并逐字节验证；
   Repository不消费该corpus。
-- Failure tests：覆盖关键import的commit前中断、commit后响应丢失和矛盾状态；不建设
-  全故障点evidence matrix。
+- Failure tests：按风险等级覆盖语义屏障。权威/不可逆事实覆盖effect前中断、effect后响应
+  丢失、幂等/CAS和恢复；derived/temporary对象覆盖失败不污染权威事实与可重试/诊断；
+  不建设全故障点或内部interleaving evidence matrix。
 - End-to-end journey：upload -> preview -> submit -> review -> archive -> history compare。
 - Measurement：correctness优先，只记录correctness-passed production path的
   dataset/version、环境说明和raw results；不运行legacy性能门禁或formal capture gate。
@@ -668,12 +676,14 @@ bytes、Python/Rust核心和业务golden在清理中保持不变。联合清理�
 
 ## 14. 已完成 ADR
 
-以下 ADR 已完成：[最小持久状态（0002）](../adr/0002-minimal-persisted-business-state.md)、[external-effect reconciliation（0003）](../adr/0003-external-effect-reconciliation.md)、[raw artifact/canonical Dolt（0004）](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)、[shared canonical encoding（0005）](../adr/0005-shared-canonical-encoding.md)、[language-neutral fixture oracle（0006，已被0010替代）](../adr/0006-language-neutral-fixture-oracle.md)、[vNext performance baseline authority（0007，已被0010替代）](../adr/0007-vnext-performance-baseline-authority.md)、[generic dual-store/caller-selected rigor（0008，WP1-R1后被替代）](../adr/0008-generic-dual-store-and-caller-selected-rigor.md)、[适度保障与可信内网Repository（0009）](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)和[最小golden与普通CI（0010）](../adr/0010-minimal-golden-and-ordinary-ci.md)。
+以下 ADR 已完成：[最小持久状态（0002）](../adr/0002-minimal-persisted-business-state.md)、[external-effect reconciliation（0003）](../adr/0003-external-effect-reconciliation.md)、[raw artifact/canonical Dolt（0004）](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)、[shared canonical encoding（0005）](../adr/0005-shared-canonical-encoding.md)、[language-neutral fixture oracle（0006，已被0010替代）](../adr/0006-language-neutral-fixture-oracle.md)、[vNext performance baseline authority（0007，已被0010替代）](../adr/0007-vnext-performance-baseline-authority.md)、[generic dual-store/caller-selected rigor（0008，WP1-R1后被替代）](../adr/0008-generic-dual-store-and-caller-selected-rigor.md)、[适度保障与可信内网Repository（0009）](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、[最小golden与普通CI（0010）](../adr/0010-minimal-golden-and-ordinary-ci.md)和[协作式artifact cleanup（0012，替代0011）](../adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)。
 
 Phase 2修订方向已固定为HTTP/OpenAPI、raw Arrow IPC、repository-bound upload、
 single-root writer、最小operation marker和Versioned-only surface。CurrentTableStore、
 multi-node/shared writer、legacy cutover、额外platform/provider、resumable upload
 和复杂maintenance/security governance均需按ADR 0009重新进入。
+Phase 3及之后新增的安全、恢复、evidence和测试机制还必须通过全局比例化保障policy的
+风险分类与架构升级门。
 
 ## 15. 与现有文档的关系
 

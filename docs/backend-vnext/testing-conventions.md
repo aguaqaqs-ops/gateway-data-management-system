@@ -1,7 +1,7 @@
 # Testing Conventions
 
 状态：2026-08-07 建立；2026-08-09 增补P2后半段container gate合并规则；
-2026-08-13 冻结Docker/Compose触发式重建、评审记录与artifact cleanup比例化验证规则
+2026-08-13 冻结Docker/Compose触发式重建、评审记录、全局风险验证与artifact cleanup规则
 
 本文规定 vNext Python 包的测试分层、执行入口与性能约束。Fixture 材料语义由
 [Testing Fixtures](testing-fixtures.md) 拥有，本文不重复。
@@ -172,6 +172,36 @@ dolt 的版本检查与 metrics 上报。该写入发生在 `DoltRunner` 构造�
 process boundary 的生产语义，不仅服务于测试提速。全新 HOME 下 `dolt version` 会联网
 查询最新发布版本，单次 3~5 秒。任何新增的、会创建全新 dolt HOME 的代码路径都必须
 沿用这一预置，否则既拖慢测试，也违反 offline provider 边界。
+
+## 全局风险分级与测试预算
+
+权威规则见
+[Proportional Assurance and Risk-Based Verification Policy](refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)。
+该规则适用于Repository Service之外的Phase 3 capability、Phase 4 Operation Runtime、Phase 5
+业务纵切以及后续优化、cutover和production hardening。
+
+新增或修改功能时，先标出测试对象：
+
+| 对象 | 测试重点 |
+| --- | --- |
+| 权威/不可逆事实与外部安全边界 | Contract、negative、transaction/CAS/idempotency、关键crash/restart和scope隔离 |
+| 可恢复durable workflow | claim/terminal、retry/takeover、一个代表性矛盾与人工修复分支 |
+| derived/temporary/rebuildable对象 | 正常/边界输入、失败不污染权威事实、bounded重试/诊断 |
+| 私有helper/adapter/纯转换 | 最小输入输出、类型和owner contract；不复制production状态机 |
+
+测试设计约束：
+
+- 证明业务语义屏障，不默认在每两个syscall、transaction statement或线程事件间注入；
+- 每个不变量只有一个权威owner；其他层只保留必要integration smoke；
+- 参数矩阵的每个维度必须会改变行为或错误边界，否则合并；
+- 测试按Contract行为命名，不用`rNN_*`、finding编号或实现技巧命名；
+- production机制删除时同步删除mock、fixture、probe和historical proof；
+- 单文件/单功能测试明显主导所在包，或新增用例主要证明私有interleaving时，暂停追加并复核
+  风险等级、owner和重复性。没有机械LOC比例，通过拆文件不能规避复核。
+
+新增独立UID/helper/service、自定义IPC/capability、持久evidence状态机、sidecar/quarantine、
+tombstone或同机恶意actor调度证明，不是普通测试扩展；必须先有owning Contract/ADR接受的威胁、
+损失和验收场景。安全探针可以交给实现者执行，但探针不能自行扩大当前威胁模型。
 
 ## Artifact cleanup 比例化验证（S2）
 

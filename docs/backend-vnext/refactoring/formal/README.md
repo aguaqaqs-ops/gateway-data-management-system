@@ -26,6 +26,7 @@
 - [P2-R4 Async Versioned Import Staged Execution Plan](plans/p2-r4-async-versioned-import-execution-plan.md)
 - [P2-R5 Commit-pinned Read Staged Execution Plan](plans/p2-r5-commit-pinned-read-execution-plan.md)
 - [P2-R6 Operational Closure Staged Execution Plan](plans/p2-r6-operational-closure-execution-plan.md)
+- [Proportional Assurance and Risk-Based Verification Policy](policies/proportional-assurance-and-risk-based-verification-policy.md)
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)
@@ -47,11 +48,15 @@
 - [ADR 0008: Generic Dual-Store Repository and Caller-Selected Rigor](adr/0008-generic-dual-store-and-caller-selected-rigor.md)（WP1-R1后被替代）
 - [ADR 0009: Proportional Assurance and Trusted Internal Repository](adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 - [ADR 0010: Minimal Golden and Ordinary CI](adr/0010-minimal-golden-and-ordinary-ci.md)
+- [ADR 0011: Artifact Directory-Broker Reclaim](adr/0011-artifact-directory-broker-reclaim.md)（被ADR 0012替代）
+- [ADR 0012: Cooperative Artifact Cleanup and Proportional Assurance](adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)
 
 ## 权威关系
 
 - Architecture 定义总体边界与依赖方向；Implementation Stages 定义交付顺序和 gate。
 - Cross-stage policy定义不属于业务contract、但必须由工程和CI持续执行的安全、工具链与实现约束。
+- 比例化保障与风险验证policy适用于Phase 0–9及后续维护；专项ADR/contract只能在有明确
+  威胁、损失或consumer依据时提高保障，不能在实现评审中静默扩大威胁模型。
 - Contract 是字段语义、状态、byte contract、artifact、fixture 和 measurement 的 normative owner；ADR 只记录为何选择该方案，并链接 contract，不复制精确状态表或字段表。
 - 同一规则只在 owning contract 中定义。Architecture、计划和其他 contract 只引用，不建立第二份规范。
 - `temporary/` 只保存活动中的讨论或执行协调，不拥有正式语义。结论formalized且执行
@@ -70,4 +75,5 @@ P3 design尚未开始。完整handoff见
 [P2-R5 Commit-pinned Read Staged Execution Plan — P2-R5-S7 final handoff — 2026-08-12](plans/p2-r5-commit-pinned-read-execution-plan.md#p2-r5-s7-final-handoff--2026-08-12)。
 R6执行边界见
 [P2-R6 Operational Closure Staged Execution Plan](plans/p2-r6-operational-closure-execution-plan.md)。
-P3完整设计只在P2-R6通过后开始。
+P3完整设计只在P2-R6通过后开始，并从全局比例化保障policy的轻量风险登记开始；不得把
+Repository专项历史安全机制复制为P3默认边界。

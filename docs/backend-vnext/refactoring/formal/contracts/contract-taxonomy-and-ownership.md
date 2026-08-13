@@ -6,6 +6,10 @@
 
 本文定义 backend vNext 重构后的 contract 分类、语义所有权、存放位置、依赖方向和变更治理。本文只固定长期规则，不记录讨论过程；讨论记录保留在对应的 `refactoring/temporary/phase-*/` 目录。
 
+是否需要把内部约定提升为正式contract、增加版本/digest/evidence或扩大验证矩阵，还必须遵守
+[Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)；
+跨边界本身不是无限增加保障机制的充分理由。
+
 ## 1. 设计目标
 
 - 让每个稳定 contract 只有一个明确 owner。
@@ -33,6 +37,9 @@ Contract 是两个独立演进单元之间稳定、可验证的约定，包括�
 - 持久化后需要恢复或重放。
 - 被 artifact/cache 长期保存。
 - 需要独立版本化或由外部调用方消费。
+
+满足上述形状只表示“可能需要稳定约定”，不自动要求新schema版本轴、digest、兼容矩阵或
+持久evidence。owner还必须说明当前consumer、风险等级和失败成本，并选择最小可用contract。
 
 ### 2.2 Owner
 

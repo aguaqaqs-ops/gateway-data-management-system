@@ -85,6 +85,24 @@ sha256sum vnext/repository_service/uv.lock
 image revision/source-tree，以及延期到哪个节点。完整规则与记录模板见
 [docs/backend-vnext/testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
 
+## 全局比例化保障
+
+Phase 0–9及后续维护统一遵守
+[Proportional Assurance and Risk-Based Verification Policy](docs/backend-vnext/refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)。
+
+- 新安全、恢复、一致性、evidence或治理机制必须对应当前威胁、明确业务损失、已确认consumer
+  或已发生的可复现故障；否则使用标准平台能力和最小机制。
+- 先区分权威/不可逆事实、可恢复durable状态、derived/temporary状态和内部实现细节。
+  前两类保持强Contract、事务/CAS/幂等及关键crash验证；后两类优先bounded处理、重试、诊断
+  和人工处置，不自动建立同等证明。
+- 同机受控模块、worker和同一Service euid默认属于单一信任域。新增独立UID/helper/service、
+  自定义IPC/capability、持久evidence状态机、sidecar/quarantine/tombstone或syscall-window
+  安全证明前，必须先修订owning Contract/ADR，不能由普通审核Finding直接扩大威胁模型。
+- 测试证明Contract语义屏障，不穷举内部步骤。每个不变量只有一个权威测试owner；测试按业务
+  行为命名，不按round/finding编号命名；删除production机制时同步删除其mock和证明探针。
+- API认证授权、secret、caller输入、path/archive/symlink/root逃逸、非shell执行、资源上限、
+  transaction/CAS和跨scope误写等基础边界不能用“比例化”跳过。
+
 ## Artifact cleanup 保障边界
 
 权威决策是

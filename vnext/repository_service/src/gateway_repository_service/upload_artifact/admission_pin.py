@@ -10,6 +10,8 @@ import stat
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Self
@@ -25,6 +27,20 @@ if TYPE_CHECKING:
     from gateway_repository_service.artifact_broker import ArtifactDirBroker
 
 ResidualCallback = Callable[[str, str, str, int, int, str | None], None]
+
+
+class StageDirStatus(StrEnum):
+    OPENED = "opened"
+    ABSENT = "absent"
+    BUSY = "busy"
+    MISMATCH = "mismatch"
+    IO_ERROR = "io_error"
+
+
+@dataclass(frozen=True, slots=True)
+class StageDirLookup:
+    status: StageDirStatus
+    fd: int | None = None
 
 _residual_callback: ContextVar[ResidualCallback | None] = ContextVar(
     "artifact_residual_callback", default=None
@@ -732,30 +748,49 @@ def _open_stage_dir(ready_dir_fd: int, stage_name: str) -> int:
     return os.open(stage_name, _dir_flags(), dir_fd=ready_dir_fd)
 
 
+def lookup_unlink_stage_dir(ready_dir_fd: int, stage_name: str) -> StageDirLookup:
+    """Classify a ``.unlink-stage-*`` name without following symlinks."""
+
+    try:
+        stage_dir_fd = _open_stage_dir(ready_dir_fd, stage_name)
+    except FileNotFoundError:
+        return StageDirLookup(StageDirStatus.ABSENT)
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+            return StageDirLookup(StageDirStatus.MISMATCH)
+        if exc.errno in {errno.EAGAIN, errno.EBUSY}:
+            return StageDirLookup(StageDirStatus.BUSY)
+        if exc.errno in {errno.EIO, errno.EPERM, errno.EACCES}:
+            return StageDirLookup(StageDirStatus.IO_ERROR)
+        if exc.errno == errno.ENOENT:
+            return StageDirLookup(StageDirStatus.ABSENT)
+        return StageDirLookup(StageDirStatus.IO_ERROR)
+    try:
+        stage_stat = os.fstat(stage_dir_fd)
+    except OSError as exc:
+        os.close(stage_dir_fd)
+        if exc.errno in {errno.EIO, errno.EPERM, errno.EACCES}:
+            return StageDirLookup(StageDirStatus.IO_ERROR)
+        return StageDirLookup(StageDirStatus.IO_ERROR)
+    if not stat.S_ISDIR(stage_stat.st_mode):
+        os.close(stage_dir_fd)
+        return StageDirLookup(StageDirStatus.MISMATCH)
+    if (int(stage_stat.st_mode) & 0o777) not in {0o700, 0o750}:
+        os.close(stage_dir_fd)
+        return StageDirLookup(StageDirStatus.MISMATCH)
+    return StageDirLookup(StageDirStatus.OPENED, fd=stage_dir_fd)
+
+
 def open_owned_unlink_stage_dir(ready_dir_fd: int, stage_name: str) -> int | None:
     """Open a ``.unlink-stage-*`` dir without following symlinks.
 
     Returns a directory fd for a real directory with mode ``0700`` or ``0750``.
     Owner may be the broker principal; gateway euid is not required. Caller
-    owns the returned fd.
+    owns the returned fd. Non-opened lookups return ``None`` (admission skip).
     """
 
-    try:
-        stage_dir_fd = _open_stage_dir(ready_dir_fd, stage_name)
-    except OSError:
-        return None
-    try:
-        stage_stat = os.fstat(stage_dir_fd)
-    except OSError:
-        os.close(stage_dir_fd)
-        return None
-    if not stat.S_ISDIR(stage_stat.st_mode):
-        os.close(stage_dir_fd)
-        return None
-    if (int(stage_stat.st_mode) & 0o777) not in {0o700, 0o750}:
-        os.close(stage_dir_fd)
-        return None
-    return stage_dir_fd
+    lookup = lookup_unlink_stage_dir(ready_dir_fd, stage_name)
+    return lookup.fd
 
 
 def lock_unlink_stage_dir(stage_dir_fd: int) -> bool:

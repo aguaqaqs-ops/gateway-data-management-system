@@ -11,7 +11,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 14
+CONTROL_DB_USER_VERSION = 15
 
 ColumnShape = tuple[tuple[str, str, int, str | None, int], ...]
 
@@ -36,6 +36,7 @@ _ADMIN_CLI_REQUIRED_INDEXES: dict[str, tuple[str, ...]] = {
     "artifact_lifecycle_repository_scope_idx": ("repository_scope",),
     "artifact_lifecycle_cleanup_keyset_idx": ("created_at", "artifact_id"),
     "artifact_lifecycle_cleanup_seq_idx": ("cleanup_seq",),
+    "artifact_lifecycle_cleanup_seq_uidx": ("cleanup_seq",),
 }
 
 _ADMIN_CLI_REQUIRED_TRIGGER_NAMES: frozenset[str] = frozenset(
@@ -44,6 +45,7 @@ _ADMIN_CLI_REQUIRED_TRIGGER_NAMES: frozenset[str] = frozenset(
         "prevent_terminal_when_succeeded",
         "prevent_insert_succeeded_when_terminal",
         "prevent_insert_terminal_when_succeeded",
+        "artifact_lifecycle_forbid_cleanup_seq_update",
     }
 )
 
@@ -718,6 +720,164 @@ _MIGRATION_V14_STATEMENTS: tuple[str, ...] = (
 )
 
 
+_MIGRATION_V15_STATEMENTS: tuple[str, ...] = (
+    """
+    DROP TRIGGER IF EXISTS artifact_lifecycle_assign_cleanup_seq
+    """,
+    """
+    DROP INDEX IF EXISTS artifact_lifecycle_cleanup_seq_uidx
+    """,
+    """
+    DROP INDEX IF EXISTS artifact_lifecycle_cleanup_seq_idx
+    """,
+    """
+    DROP INDEX IF EXISTS artifact_lifecycle_cleanup_keyset_idx
+    """,
+    """
+    DROP INDEX IF EXISTS artifact_lifecycle_repository_scope_idx
+    """,
+    """
+    CREATE TABLE artifact_lifecycle_v15 (
+        artifact_id TEXT PRIMARY KEY,
+        repository_scope TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+        raw_sha256 TEXT NOT NULL CHECK (length(raw_sha256) = 64),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        consumed_by_operation_id TEXT NULL,
+        consumed_at TEXT NULL,
+        bytes_deleted_at TEXT NULL,
+        bytes_delete_intent_at TEXT NULL,
+        bytes_delete_dev INTEGER NULL,
+        bytes_delete_ino INTEGER NULL,
+        bytes_delete_phase TEXT NULL,
+        bytes_delete_generation TEXT NULL,
+        bytes_deleted_receipt_dev INTEGER NULL,
+        bytes_deleted_receipt_ino INTEGER NULL,
+        bytes_deleted_receipt_generation TEXT NULL,
+        cleanup_seq INTEGER NOT NULL CHECK (
+            typeof(cleanup_seq) = 'integer' AND cleanup_seq > 0
+        ),
+        CHECK (
+            (
+                bytes_delete_intent_at IS NULL
+                AND bytes_delete_dev IS NULL
+                AND bytes_delete_ino IS NULL
+                AND bytes_delete_phase IS NULL
+                AND bytes_delete_generation IS NULL
+            )
+            OR (
+                bytes_delete_intent_at IS NOT NULL
+                AND bytes_delete_dev IS NOT NULL
+                AND bytes_delete_ino IS NOT NULL
+                AND bytes_delete_phase IN ('quarantined', 'detached')
+                AND bytes_delete_generation IS NOT NULL
+            )
+        ),
+        CHECK (
+            (
+                bytes_deleted_receipt_dev IS NULL
+                AND bytes_deleted_receipt_ino IS NULL
+                AND bytes_deleted_receipt_generation IS NULL
+            )
+            OR (
+                bytes_deleted_at IS NOT NULL
+                AND bytes_deleted_receipt_dev IS NOT NULL
+                AND bytes_deleted_receipt_ino IS NOT NULL
+                AND bytes_deleted_receipt_generation IS NOT NULL
+            )
+        ),
+        CHECK (
+            bytes_deleted_at IS NULL
+            OR (
+                bytes_delete_intent_at IS NULL
+                AND bytes_delete_dev IS NULL
+                AND bytes_delete_ino IS NULL
+                AND bytes_delete_phase IS NULL
+                AND bytes_delete_generation IS NULL
+            )
+        )
+    )
+    """,
+    """
+    INSERT INTO artifact_lifecycle_v15 (
+        artifact_id,
+        repository_scope,
+        media_type,
+        size_bytes,
+        raw_sha256,
+        created_at,
+        updated_at,
+        consumed_by_operation_id,
+        consumed_at,
+        bytes_deleted_at,
+        bytes_delete_intent_at,
+        bytes_delete_dev,
+        bytes_delete_ino,
+        bytes_delete_phase,
+        bytes_delete_generation,
+        bytes_deleted_receipt_dev,
+        bytes_deleted_receipt_ino,
+        bytes_deleted_receipt_generation,
+        cleanup_seq
+    )
+    SELECT
+        artifact_id,
+        repository_scope,
+        media_type,
+        size_bytes,
+        raw_sha256,
+        created_at,
+        updated_at,
+        consumed_by_operation_id,
+        consumed_at,
+        bytes_deleted_at,
+        bytes_delete_intent_at,
+        bytes_delete_dev,
+        bytes_delete_ino,
+        bytes_delete_phase,
+        bytes_delete_generation,
+        bytes_deleted_receipt_dev,
+        bytes_deleted_receipt_ino,
+        bytes_deleted_receipt_generation,
+        rowid
+    FROM artifact_lifecycle
+    """,
+    """
+    DROP TABLE artifact_lifecycle
+    """,
+    """
+    ALTER TABLE artifact_lifecycle_v15 RENAME TO artifact_lifecycle
+    """,
+    """
+    CREATE UNIQUE INDEX artifact_lifecycle_cleanup_seq_uidx
+    ON artifact_lifecycle (cleanup_seq)
+    """,
+    """
+    CREATE INDEX artifact_lifecycle_cleanup_seq_idx
+    ON artifact_lifecycle (cleanup_seq)
+    WHERE bytes_deleted_at IS NULL
+    """,
+    """
+    CREATE INDEX artifact_lifecycle_cleanup_keyset_idx
+    ON artifact_lifecycle (created_at, artifact_id)
+    WHERE bytes_deleted_at IS NULL
+    """,
+    """
+    CREATE INDEX artifact_lifecycle_repository_scope_idx
+    ON artifact_lifecycle (repository_scope)
+    """,
+    """
+    CREATE TRIGGER artifact_lifecycle_forbid_cleanup_seq_update
+    BEFORE UPDATE OF cleanup_seq ON artifact_lifecycle
+    BEGIN
+        SELECT RAISE(ABORT, 'cleanup_seq is immutable');
+    END
+    """,
+)
+
+
 _MIGRATION_V5_STATEMENTS: tuple[str, ...] = (
     """
     CREATE TRIGGER prevent_insert_succeeded_when_terminal
@@ -1247,6 +1407,9 @@ class ControlStore:
             return
         if target_version == 14:
             ControlStore._execute_statements(connection, _MIGRATION_V14_STATEMENTS)
+            return
+        if target_version == 15:
+            ControlStore._execute_statements(connection, _MIGRATION_V15_STATEMENTS)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

@@ -34,10 +34,12 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     STAGE_VICTIM,
+    StageDirStatus,
     artifact_residual_sink,
     destroy_owned_bytes_and_reclaim_names,
     list_unlink_stage_dir_names,
     lock_unlink_stage_dir,
+    lookup_unlink_stage_dir,
     normalize_unlink_stage_victim_via_fd,
     open_owned_ready_dir,
     open_owned_unlink_stage_dir,
@@ -251,8 +253,10 @@ class ArtifactCleaner:
                 )
                 next_seq = after_seq + 1
             self._cleanup_cursor = next_seq
+        elif after_seq is not None:
+            self._cleanup_cursor = after_seq + 1
         else:
-            self._cleanup_cursor = None
+            self._cleanup_cursor = 1
 
         duration_ms = int((time.monotonic() - started) * 1000)
         log_event(
@@ -379,7 +383,7 @@ class ArtifactCleaner:
             ino: int,
             generation: str | None,
         ) -> None:
-            self._mutation_store.insert_artifact_residual(
+            self._import_store.insert_artifact_residual(
                 artifact_id,
                 repository_id=repository_id,
                 kind=kind,
@@ -389,7 +393,6 @@ class ArtifactCleaner:
                 ino=ino,
                 generation=generation,
                 created_at=self._deleted_at_stamp(),
-                commit=True,
             )
 
         with artifact_residual_sink(_on_residual):
@@ -2125,7 +2128,7 @@ class ArtifactCleaner:
         kind_map = {"quarantine": "deleting", "detach": "detach", "unlink_verify": "verify"}
         proofs = {
             (row.kind, row.name): row
-            for row in self._mutation_store.list_artifact_residuals(artifact_id=artifact_id)
+            for row in self._import_store.list_artifact_residuals(artifact_id=artifact_id).records
             if row.kind in {"deleting", "detach", "verify"}
         }
         for sidecar_name, expected_ino, kind in sidecars:
@@ -2161,7 +2164,7 @@ class ArtifactCleaner:
                 expected_ino=int(proof.ino),
                 expected_dev=int(proof.dev),
             ):
-                self._mutation_store.clear_artifact_residual(
+                self._import_store.clear_artifact_residual(
                     residual_id=proof.residual_id,
                     expected_dev=int(proof.dev),
                     expected_ino=int(proof.ino),
@@ -2184,7 +2187,7 @@ class ArtifactCleaner:
             artifact_id=artifact_id,
         ):
             return
-        residuals = self._mutation_store.list_artifact_residuals(artifact_id=artifact_id)
+        residuals = self._import_store.list_artifact_residuals(artifact_id=artifact_id).records
         stage_proofs = {row.name: row for row in residuals if row.kind == "stage"}
         child_proofs = [row for row in residuals if row.kind == "stage_child"]
         for stage_name in stage_names:
@@ -2211,14 +2214,14 @@ class ArtifactCleaner:
             if get_artifact_broker().reclaim_stage(
                 ready_dir_fd, stage_name, children=children
             ):
-                self._mutation_store.clear_artifact_residual(
+                self._import_store.clear_artifact_residual(
                     residual_id=proof.residual_id,
                     expected_dev=int(proof.dev),
                     expected_ino=int(proof.ino),
                 )
                 for row in child_proofs:
                     if row.parent_name == stage_name:
-                        self._mutation_store.clear_artifact_residual(
+                        self._import_store.clear_artifact_residual(
                             residual_id=row.residual_id,
                             expected_dev=int(row.dev),
                             expected_ino=int(row.ino),
@@ -2229,19 +2232,21 @@ class ArtifactCleaner:
         while True:
             if self._stopping:
                 return
-            rows = self._mutation_store.list_artifact_residuals(
+            page = self._import_store.list_artifact_residuals(
                 limit=64, after_residual_id=after
             )
-            if not rows:
+            if page.scanned == 0:
                 return
-            for row in rows:
-                after = row.residual_id
+            for row in page.records:
                 try:
                     self._reclaim_one_residual(row)
                 except Exception:
                     _LOGGER.exception(
                         "artifact residual reclaim failed for %s", row.residual_id
                     )
+            if page.cursor_residual_id is None:
+                return
+            after = page.cursor_residual_id
 
     def _reclaim_one_residual(self, row: ArtifactResidualRecord) -> None:
         try:
@@ -2250,7 +2255,7 @@ class ArtifactCleaner:
             return
         try:
             if self._residual_name_absent(ready_dir_fd, row):
-                self._mutation_store.clear_artifact_residual(
+                self._import_store.clear_artifact_residual(
                     residual_id=row.residual_id,
                     expected_dev=int(row.dev),
                     expected_ino=int(row.ino),
@@ -2267,14 +2272,17 @@ class ArtifactCleaner:
             if not self._residual_is_size0(ready_dir_fd, row):
                 return
             if row.kind == "stage_child":
-                stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, row.parent_name)
-                if stage_fd is None:
-                    self._mutation_store.clear_artifact_residual(
+                lookup = lookup_unlink_stage_dir(ready_dir_fd, row.parent_name)
+                if lookup.status is StageDirStatus.ABSENT:
+                    self._import_store.clear_artifact_residual(
                         residual_id=row.residual_id,
                         expected_dev=int(row.dev),
                         expected_ino=int(row.ino),
                     )
                     return
+                if lookup.status is not StageDirStatus.OPENED or lookup.fd is None:
+                    return
+                stage_fd = lookup.fd
                 try:
                     if get_artifact_broker().unlink_if_match(
                         stage_fd,
@@ -2282,7 +2290,7 @@ class ArtifactCleaner:
                         expected_dev=int(row.dev),
                         expected_ino=int(row.ino),
                     ):
-                        self._mutation_store.clear_artifact_residual(
+                        self._import_store.clear_artifact_residual(
                             residual_id=row.residual_id,
                             expected_dev=int(row.dev),
                             expected_ino=int(row.ino),
@@ -2293,15 +2301,15 @@ class ArtifactCleaner:
             if row.kind == "stage":
                 children = [
                     (child.name, int(child.dev), int(child.ino))
-                    for child in self._mutation_store.list_artifact_residuals(
+                    for child in self._import_store.list_artifact_residuals(
                         artifact_id=row.artifact_id
-                    )
+                    ).records
                     if child.kind == "stage_child" and child.parent_name == row.name
                 ]
                 if get_artifact_broker().reclaim_stage(
                     ready_dir_fd, row.name, children=children
                 ):
-                    self._mutation_store.clear_artifact_residual(
+                    self._import_store.clear_artifact_residual(
                         residual_id=row.residual_id,
                         expected_dev=int(row.dev),
                         expected_ino=int(row.ino),
@@ -2313,7 +2321,7 @@ class ArtifactCleaner:
                 expected_dev=int(row.dev),
                 expected_ino=int(row.ino),
             ):
-                self._mutation_store.clear_artifact_residual(
+                self._import_store.clear_artifact_residual(
                     residual_id=row.residual_id,
                     expected_dev=int(row.dev),
                     expected_ino=int(row.ino),
@@ -2323,9 +2331,10 @@ class ArtifactCleaner:
 
     def _residual_name_absent(self, ready_dir_fd: int, row: ArtifactResidualRecord) -> bool:
         if row.kind == "stage_child":
-            stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, row.parent_name)
-            if stage_fd is None:
-                return True
+            lookup = lookup_unlink_stage_dir(ready_dir_fd, row.parent_name)
+            if lookup.status is not StageDirStatus.OPENED or lookup.fd is None:
+                return lookup.status is StageDirStatus.ABSENT
+            stage_fd = lookup.fd
             try:
                 os.stat(row.name, dir_fd=stage_fd, follow_symlinks=False)
             except FileNotFoundError:
@@ -2347,9 +2356,10 @@ class ArtifactCleaner:
         dir_fd = ready_dir_fd
         stage_fd: int | None = None
         if row.kind == "stage_child":
-            stage_fd = open_owned_unlink_stage_dir(ready_dir_fd, row.parent_name)
-            if stage_fd is None:
-                return True
+            lookup = lookup_unlink_stage_dir(ready_dir_fd, row.parent_name)
+            if lookup.status is not StageDirStatus.OPENED or lookup.fd is None:
+                return False
+            stage_fd = lookup.fd
             dir_fd = stage_fd
         try:
             st = os.stat(row.name, dir_fd=dir_fd, follow_symlinks=False)

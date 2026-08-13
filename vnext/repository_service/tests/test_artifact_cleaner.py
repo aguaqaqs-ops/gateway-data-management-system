@@ -1507,6 +1507,33 @@ class _SortedRootScan:
         self._pending = None
 
 
+class _ErrorAfterFirstReady:
+    """Ready iterator that notes one leftover then fails closed without EOF."""
+
+    def __init__(self, inner: object) -> None:
+        self._inner = inner
+        self._items = 0
+
+    def take(self, budget: object) -> object:
+        from gateway_repository_service.artifact_cleaner import (
+            _HeldTake,
+            _HeldTakeKind,
+        )
+
+        if self._items >= 1:
+            self.close()
+            return _HeldTake(_HeldTakeKind.ERROR)
+        taken = getattr(self._inner, "take")(budget)
+        if getattr(taken, "kind") is _HeldTakeKind.ITEM:
+            self._items += 1
+        return taken
+
+    def close(self) -> None:
+        close = getattr(self._inner, "close", None)
+        if close is not None:
+            close()
+
+
 def _fifo_leftover(
     layout: DurableLayout,
     *,
@@ -2226,6 +2253,182 @@ def test_multi_repository_observation_does_not_rescan_global_set(
     assert len(instance._leftover_repos) <= 64
 
 
+def test_overflow_leftover_buckets_evict_oldest_non_current(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    repos = [UUID(int=index) for index in range(1, 66)]
+    eligible: dict[UUID, UUID] = {}
+    receipts: dict[UUID, UUID] = {}
+    fifos_by_repo: dict[UUID, list[Path]] = {}
+    for repo_index, repo in enumerate(repos):
+        seed_create_succeeded(mutation_store, repository_id=repo)
+        repo_fifos: list[Path] = []
+        for leftover_index in range(65):
+            artifact_id = UUID(int=80_000 + repo_index * 65 + leftover_index)
+            seed_artifact(
+                mutation_store, artifact_id=artifact_id, repository_id=repo
+            )
+            if leftover_index == 0:
+                eligible[repo] = artifact_id
+            repo_fifos.append(
+                _fifo_leftover(
+                    layout,
+                    artifact_id=artifact_id,
+                    generation=f"f{leftover_index:02d}",
+                    repository_id=repo,
+                )
+            )
+        receipt_id = UUID(int=90_000 + repo_index)
+        seed_artifact(mutation_store, artifact_id=receipt_id, repository_id=repo)
+        seed_bytes_deleted_receipt(
+            mutation_store,
+            artifact_id=receipt_id,
+            repository_id=repo,
+            generation="g1",
+        )
+        receipts[repo] = receipt_id
+        fifos_by_repo[repo] = repo_fifos
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    orig_from_path = cleaner_mod._HeldScan.from_path
+
+    def from_path(path: str | Path) -> object:
+        if Path(path).resolve() == layout.artifacts.resolve():
+            return _SortedRootScan(layout.artifacts)
+        return orig_from_path(path)
+
+    monkeypatch.setattr(cleaner_mod._HeldScan, "from_path", from_path)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    overflowed = False
+    target = repos[0]
+    for _ in range(400):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        repo_n, seen_n, _count_n = _leftover_observation_sizes(instance)
+        assert repo_n <= 64
+        assert seen_n <= 64 * 64
+        if any(
+            event.get("cleanup_outcome") == "leftover_observation_overflow"
+            for event in events
+        ):
+            overflowed = True
+        for repo, artifact_id in eligible.items():
+            assert instance._leftover_presence(repo, artifact_id) != "absent"
+            lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
+            assert lifecycle is not None
+            assert lifecycle.bytes_deleted_at is None
+        for repo, artifact_id in receipts.items():
+            assert instance._leftover_presence(repo, artifact_id) != "absent"
+            lifecycle = mutation_store.get_artifact_lifecycle(artifact_id)
+            assert lifecycle is not None
+            assert lifecycle.bytes_deleted_receipt_generation is not None
+        if overflowed and len(instance._leftover_repos) <= 64:
+            break
+    assert overflowed
+    assert len(instance._leftover_repos) <= 64
+
+    for path in fifos_by_repo[target]:
+        path.unlink()
+    stamped = False
+    receipt_cleared = False
+    for _ in range(400):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        repo_n, _seen_n, _count_n = _leftover_observation_sizes(instance)
+        assert repo_n <= 64
+        target_life = mutation_store.get_artifact_lifecycle(eligible[target])
+        assert target_life is not None
+        if target_life.bytes_deleted_at is not None:
+            stamped = True
+        target_receipt = mutation_store.get_artifact_lifecycle(receipts[target])
+        assert target_receipt is not None
+        if target_receipt.bytes_deleted_receipt_generation is None:
+            receipt_cleared = True
+        if stamped and receipt_cleared:
+            break
+    assert stamped
+    assert receipt_cleared
+    for repo in repos[1:]:
+        lifecycle = mutation_store.get_artifact_lifecycle(eligible[repo])
+        assert lifecycle is not None
+        assert lifecycle.bytes_deleted_at is None
+        assert all(path.exists() for path in fifos_by_repo[repo])
+
+
+def test_iterator_error_incomplete_buckets_stay_within_repo_cap(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    repos = [UUID(int=index) for index in range(1, 66)]
+    for index, repo in enumerate(repos):
+        artifact_id = UUID(int=70_000 + index)
+        seed_create_succeeded(mutation_store, repository_id=repo)
+        seed_artifact(mutation_store, artifact_id=artifact_id, repository_id=repo)
+        _fifo_leftover(
+            layout,
+            artifact_id=artifact_id,
+            generation="e1",
+            repository_id=repo,
+        )
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    orig_from_path = cleaner_mod._HeldScan.from_path
+
+    def from_path(path: str | Path) -> object:
+        if Path(path).resolve() == layout.artifacts.resolve():
+            return _SortedRootScan(layout.artifacts)
+        return _ErrorAfterFirstReady(orig_from_path(path))
+
+    monkeypatch.setattr(cleaner_mod._HeldScan, "from_path", from_path)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(layout, store, mutation_store)
+    saw_incomplete = False
+    for _ in range(80):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        repo_n, seen_n, _count_n = _leftover_observation_sizes(instance)
+        assert repo_n <= 64
+        assert seen_n <= 64
+        if instance._leftover_repos:
+            saw_incomplete = True
+            assert all(
+                not bucket.complete for bucket in instance._leftover_repos.values()
+            )
+    assert saw_incomplete
+    assert len(instance._leftover_repos) <= 64
+
+
 def test_receipt_gc_bills_each_row_once(
     stores: tuple[ImportOperationStore, MutationStore],
     layout: DurableLayout,
@@ -2500,8 +2703,9 @@ def _seed_large_foreign_stage(
     token: str,
     payload_path: Path,
     foreign_count: int = 239,
+    repository_id: UUID = REPOSITORY_ID,
 ) -> Path:
-    ready = artifact_ready_path(layout, REPOSITORY_ID, artifact_id)
+    ready = artifact_ready_path(layout, repository_id, artifact_id)
     ready.parent.mkdir(parents=True, exist_ok=True)
     stage = ready.parent / unlink_stage_dir_name(artifact_id=artifact_id, token=token)
     stage.mkdir()
@@ -2632,6 +2836,79 @@ def test_stamped_large_stage_does_not_starve_later_receipt(
     assert receipt_cleared
     assert stage.is_dir()
 
+
+def test_oversize_stage_skip_cache_evicts_oldest_keys(
+    stores: tuple[ImportOperationStore, MutationStore],
+    layout: DurableLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service import artifact_cleaner as cleaner_mod
+
+    store, mutation_store = stores
+    seed_create_succeeded(mutation_store)
+    stages: list[Path] = []
+    for index in range(65):
+        artifact_id = UUID(int=60_000 + index)
+        seed_artifact(mutation_store, artifact_id=artifact_id)
+        ready = write_ready(layout, artifact_id=artifact_id)
+        st = ready.stat()
+        seed_bytes_delete_intent(
+            mutation_store,
+            artifact_id=artifact_id,
+            repository_id=REPOSITORY_ID,
+            dev=int(st.st_dev),
+            ino=int(st.st_ino),
+            phase="quarantined",
+            generation=f"osi{index:02d}",
+        )
+        stages.append(
+            _seed_large_foreign_stage(
+                layout,
+                artifact_id=artifact_id,
+                token=f"t{index:02d}",
+                payload_path=ready,
+                foreign_count=80,
+            )
+        )
+        ready.unlink()
+
+    events: list[dict[str, object]] = []
+
+    def capture_log(*args: object, **kwargs: object) -> None:
+        del args
+        events.append(kwargs)
+
+    counts = _count_housekeeping_yields(monkeypatch)
+    monkeypatch.setattr(cleaner_mod, "log_event", capture_log)
+    instance = cleaner(
+        layout,
+        store,
+        mutation_store,
+        ttl=3600,
+        clock=datetime(2026, 8, 1, 0, 30, tzinfo=UTC),
+    )
+    max_keys = 0
+    paused = False
+    for _ in range(250):
+        for key in counts:
+            counts[key] = 0
+        events.clear()
+        instance.sweep_once()
+        _assert_housekeeping_bounded(events, counts)
+        key_n = len(instance._oversize_stage_keys)
+        max_keys = max(max_keys, key_n)
+        assert key_n <= 64
+        if any(
+            event.get("cleanup_outcome") == "unlink_stage_scan_truncated"
+            for event in events
+        ):
+            paused = True
+        if paused and max_keys == 64:
+            break
+    assert paused
+    assert max_keys == 64
+    assert len(instance._oversize_stage_keys) <= 64
+    assert all(stage.is_dir() for stage in stages)
 
 
 def test_receipt_poison_page_advances_raw_cursor_to_later_row(

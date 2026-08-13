@@ -67,6 +67,7 @@ _CLEANUP_CANDIDATE_PAGE_SIZE = 64
 _HOUSEKEEPING_ENTRY_BUDGET = 64
 _LEFTOVER_ARTIFACT_CAP = 64
 _LEFTOVER_REPO_CAP = 64
+_OVERSIZE_STAGE_CAP = 64
 _HOUSEKEEPING_PHASES = ("inventory", "recover", "receipts", "residuals")
 _T = TypeVar("_T")
 
@@ -272,7 +273,7 @@ class ArtifactCleaner:
         self._cleanup_cursor: int | None = None
         self._restart_cursor = False
         self._housekeeping_phase = 0
-        self._oversize_stage_keys: set[tuple[UUID, str]] = set()
+        self._oversize_stage_keys: dict[tuple[UUID, str], None] = {}
         self._receipt_after_artifact_id: str | None = None
         self._residual_after_id: int | None = None
         self._recover_root: _HeldScan | None = None
@@ -695,7 +696,7 @@ class ArtifactCleaner:
         if bucket is not None:
             bucket.counts.clear()
 
-    def _evict_complete_leftover_repos(self) -> None:
+    def _evict_leftover_repos(self) -> None:
         if len(self._leftover_repos) <= _LEFTOVER_REPO_CAP:
             return
         in_progress = self._recover_repo_id
@@ -704,16 +705,23 @@ class ArtifactCleaner:
                 return
             if repository_id == in_progress:
                 continue
-            bucket = self._leftover_repos[repository_id]
-            if bucket.complete:
-                self._leftover_repos.pop(repository_id, None)
+            self._leftover_repos.pop(repository_id, None)
+
+    def _remember_oversize_stage(self, repository_id: UUID, stage_name: str) -> None:
+        key = (repository_id, stage_name)
+        if key in self._oversize_stage_keys:
+            return
+        self._oversize_stage_keys[key] = None
+        while len(self._oversize_stage_keys) > _OVERSIZE_STAGE_CAP:
+            oldest = next(iter(self._oversize_stage_keys))
+            self._oversize_stage_keys.pop(oldest, None)
 
     def _ensure_leftover_bucket(self, repository_id: UUID) -> _RepoLeftovers:
         bucket = self._leftover_repos.get(repository_id)
         if bucket is None:
             bucket = _RepoLeftovers()
             self._leftover_repos[repository_id] = bucket
-            self._evict_complete_leftover_repos()
+            self._evict_leftover_repos()
         return bucket
 
     def _note_leftover_name(
@@ -1135,7 +1143,7 @@ class ArtifactCleaner:
                 )
             else:
                 bucket.complete = True
-            self._evict_complete_leftover_repos()
+            self._evict_leftover_repos()
         self._close_recover_ready()
 
     def _recover_one_ready_dir(
@@ -1556,7 +1564,7 @@ class ArtifactCleaner:
             remaining=budget.remaining,
         )
         if result.status is NormalizeVictimStatus.PAUSED:
-            self._oversize_stage_keys.add((repository_id, stage_name))
+            self._remember_oversize_stage(repository_id, stage_name)
             log_event(
                 "artifact_cleanup",
                 repository_id=repository_id,

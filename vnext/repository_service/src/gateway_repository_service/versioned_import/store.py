@@ -25,6 +25,7 @@ from gateway_repository_service.mutation_store import (
     ArtifactLifecycleRecord,
     IdempotencyKeyHash,
     MutationStore,
+    ResidualPage,
 )
 from gateway_repository_service.versioned_import.models import (
     ArtifactOperationReference,
@@ -1060,6 +1061,34 @@ class ImportOperationStore:
                 ino=ino,
                 generation=generation,
                 created_at=created_at or utc_now_iso(),
+            )
+
+    def clear_artifact_residual(
+        self,
+        *,
+        residual_id: int,
+        expected_dev: int,
+        expected_ino: int,
+    ) -> None:
+        with self._transaction():
+            self._mutation_store.clear_artifact_residual(
+                residual_id=residual_id,
+                expected_dev=expected_dev,
+                expected_ino=expected_ino,
+            )
+
+    def list_artifact_residuals(
+        self,
+        *,
+        artifact_id: UUID | None = None,
+        limit: int = 256,
+        after_residual_id: int | None = None,
+    ) -> ResidualPage:
+        with self._transaction():
+            return self._mutation_store.list_artifact_residuals(
+                artifact_id=artifact_id,
+                limit=limit,
+                after_residual_id=after_residual_id,
             )
 
     def clear_artifact_bytes_delete_intent(

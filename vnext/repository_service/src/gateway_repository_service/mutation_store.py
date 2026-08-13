@@ -152,6 +152,13 @@ class CleanupCandidatePage:
 
 
 @dataclass(frozen=True, slots=True)
+class ResidualPage:
+    records: list["ArtifactResidualRecord"]
+    scanned: int
+    cursor_residual_id: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class ArtifactResidualRecord:
     residual_id: int
     artifact_id: UUID
@@ -525,13 +532,9 @@ class MutationStore:
             for row in cursor.fetchall():
                 scanned += 1
                 seq_raw = row["cleanup_seq"] if "cleanup_seq" in row.keys() else row[-1]
-                if isinstance(seq_raw, int):
-                    last_seq = seq_raw
-                elif seq_raw is not None:
-                    try:
-                        last_seq = int(seq_raw)
-                    except (TypeError, ValueError):
-                        last_seq = last_seq
+                parsed_seq = _parse_cleanup_seq(seq_raw)
+                if parsed_seq is not None:
+                    last_seq = parsed_seq
                 try:
                     records.append(self._artifact_lifecycle_from_row(row))
                 except (TypeError, ValueError):
@@ -907,8 +910,9 @@ class MutationStore:
         ino: int,
         generation: str | None,
         created_at: str,
-        commit: bool = False,
     ) -> None:
+        """Insert residual proof. Caller must already hold the transaction lock."""
+
         if kind not in {"deleting", "detach", "verify", "stage", "stage_child"}:
             raise MutationStoreError("invalid residual kind")
         self._connection.execute(
@@ -934,8 +938,6 @@ class MutationStore:
                 created_at,
             ),
         )
-        if commit:
-            self._connection.commit()
 
     def clear_artifact_residual(
         self,
@@ -944,6 +946,8 @@ class MutationStore:
         expected_dev: int,
         expected_ino: int,
     ) -> None:
+        """Delete residual proof. Caller must already hold the transaction lock."""
+
         self._connection.execute(
             """
             DELETE FROM artifact_residual
@@ -953,7 +957,6 @@ class MutationStore:
             """,
             (int(residual_id), int(expected_dev), int(expected_ino)),
         )
-        self._connection.commit()
 
     def list_artifact_residuals(
         self,
@@ -961,7 +964,9 @@ class MutationStore:
         artifact_id: UUID | None = None,
         limit: int = 256,
         after_residual_id: int | None = None,
-    ) -> list[ArtifactResidualRecord]:
+    ) -> ResidualPage:
+        """List residual rows. Caller must already hold the transaction lock."""
+
         sql = """
             SELECT residual_id, artifact_id, repository_scope, kind, name, parent_name,
                    dev, ino, generation, created_at
@@ -981,7 +986,14 @@ class MutationStore:
         params.append(int(limit))
         rows = self._connection.execute(sql, params).fetchall()
         records: list[ArtifactResidualRecord] = []
+        scanned = 0
+        last_id: int | None = None
         for row in rows:
+            scanned += 1
+            try:
+                last_id = int(row["residual_id"])
+            except (TypeError, ValueError, KeyError):
+                pass
             try:
                 records.append(
                     ArtifactResidualRecord(
@@ -1007,7 +1019,11 @@ class MutationStore:
                     cleanup_outcome="invalid_residual_row",
                 )
                 continue
-        return records
+        return ResidualPage(
+            records=records,
+            scanned=scanned,
+            cursor_residual_id=last_id,
+        )
 
     def clear_artifact_bytes_delete_intent(
         self,
@@ -1244,8 +1260,13 @@ class MutationStore:
                 size_bytes,
                 raw_sha256,
                 created_at,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                updated_at,
+                cleanup_seq
+            )
+            VALUES (
+                ?, ?, ?, ?, ?, ?, ?,
+                (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle)
+            )
             ON CONFLICT(artifact_id) DO UPDATE SET
                 repository_scope = excluded.repository_scope,
                 media_type = excluded.media_type,
@@ -1263,6 +1284,22 @@ class MutationStore:
                 now,
             ),
         )
+
+
+def _parse_cleanup_seq(seq_raw: object) -> int | None:
+    if isinstance(seq_raw, bool):
+        return None
+    if isinstance(seq_raw, int) and seq_raw > 0:
+        return seq_raw
+    if isinstance(seq_raw, (str, bytes, bytearray)):
+        try:
+            parsed = int(seq_raw)
+        except (TypeError, ValueError):
+            return None
+        if parsed <= 0:
+            return None
+        return parsed
+    return None
 
 
 def _utc_now_iso() -> str:

@@ -624,21 +624,123 @@ def test_dispatcher_survives_storage_glitch(
     env = WorkerTestEnvironment(tmp_path, max_import_workers=2)
     env.pool.start()
     calls = {"count": 0}
-    original = env.store.has_unresolved_manual_barrier
+    original = env.store.list_earliest_queued_per_repository
 
-    def _flaky_barrier(repository_id: UUID) -> bool:
+    def _flaky_candidates() -> list[tuple[UUID, UUID, int]]:
         calls["count"] += 1
         if calls["count"] == 1:
             raise sqlite3.OperationalError("cannot start a transaction within a transaction")
-        return original(repository_id)
+        return original()
 
-    monkeypatch.setattr(env.store, "has_unresolved_manual_barrier", _flaky_barrier)
+    monkeypatch.setattr(env.store, "list_earliest_queued_per_repository", _flaky_candidates)
 
     try:
         operation_id = env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID, key="dispatcher-survives")
         env.wait_for_status(REPOSITORY_ID, operation_id, OperationStatus.SUCCEEDED, timeout=10.0)
         assert env.pool._dispatcher is not None
         assert env.pool._dispatcher.is_alive()
+    finally:
+        env.close()
+
+
+def test_import_worker_pool_starts_exactly_one_dispatcher(tmp_path: Path) -> None:
+    env = WorkerTestEnvironment(tmp_path, max_import_workers=2)
+    env.pool.start()
+    try:
+        dispatcher = env.pool._dispatcher
+        assert dispatcher is not None
+        assert dispatcher.name == "import-worker-dispatcher"
+        assert dispatcher.is_alive()
+        env.pool.start()
+        assert env.pool._dispatcher is dispatcher
+        assert len(env.pool._workers) == 2
+    finally:
+        env.close()
+
+
+@pytest.mark.serial
+def test_dispatcher_idle_does_not_poll(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = WorkerTestEnvironment(tmp_path, max_import_workers=1)
+    original = env.store.list_earliest_queued_per_repository
+    query_times: list[float] = []
+    query_lock = threading.Lock()
+    original_wait = env.pool._notify.wait
+
+    def _counting_list() -> list[tuple[UUID, UUID, int]]:
+        with query_lock:
+            query_times.append(time.monotonic())
+        return original()
+
+    def _wait_without_idle_timeout(timeout: float | None = None) -> bool:
+        assert timeout is None
+        return original_wait(timeout=timeout)
+
+    monkeypatch.setattr(env.store, "list_earliest_queued_per_repository", _counting_list)
+    monkeypatch.setattr(env.pool._notify, "wait", _wait_without_idle_timeout)
+    env.pool.start()
+    try:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            with query_lock:
+                if query_times:
+                    break
+            time.sleep(0.01)
+        with query_lock:
+            assert query_times
+            baseline = len(query_times)
+        time.sleep(0.5)
+        with query_lock:
+            assert len(query_times) == baseline
+        operation_id = env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID, key="idle-wake")
+        env.wait_for_status(REPOSITORY_ID, operation_id, OperationStatus.SUCCEEDED, timeout=10.0)
+        with query_lock:
+            assert len(query_times) > baseline
+    finally:
+        env.close()
+
+
+@pytest.mark.serial
+def test_notification_generation_prevents_lost_wakeup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = WorkerTestEnvironment(tmp_path, max_import_workers=1)
+    original = env.store.list_earliest_queued_per_repository
+    entered_query = threading.Event()
+    release_query = threading.Event()
+    calls = {"count": 0}
+    wait_timeouts: list[float | None] = []
+    original_wait = env.pool._notify.wait
+
+    def _gated_list() -> list[tuple[UUID, UUID, int]]:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            entered_query.set()
+            assert release_query.wait(timeout=5.0)
+            return []
+        return original()
+
+    def _record_wait(timeout: float | None = None) -> bool:
+        wait_timeouts.append(timeout)
+        return original_wait(timeout=timeout)
+
+    monkeypatch.setattr(env.store, "list_earliest_queued_per_repository", _gated_list)
+    monkeypatch.setattr(env.pool._notify, "wait", _record_wait)
+    env.pool.start()
+    try:
+        assert entered_query.wait(timeout=5.0)
+        operation_id = env.enqueue(
+            REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            key="lost-wakeup",
+        )
+        release_query.set()
+        env.wait_for_status(REPOSITORY_ID, operation_id, OperationStatus.SUCCEEDED, timeout=10.0)
+        assert all(timeout is None for timeout in wait_timeouts)
+        assert calls["count"] >= 2
     finally:
         env.close()
 

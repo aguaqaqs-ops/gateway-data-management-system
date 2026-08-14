@@ -135,6 +135,7 @@ class ImportWorkerPool:
         self._shutdown = threading.Event()
         self._stop_claiming = False
         self._notify = threading.Condition()
+        self._notify_generation = 0
         self._round_robin_index = 0
         self._in_flight = 0
         self._in_flight_lock = threading.Lock()
@@ -177,6 +178,7 @@ class ImportWorkerPool:
     def begin_shutdown(self) -> None:
         self._stop_claiming = True
         with self._notify:
+            self._notify_generation += 1
             self._notify.notify_all()
 
     def cancel_active_operations(self) -> None:
@@ -193,6 +195,7 @@ class ImportWorkerPool:
         self.begin_shutdown()
         self._shutdown.set()
         with self._notify:
+            self._notify_generation += 1
             self._notify.notify_all()
         timed_out: list[str] = []
         remaining_workers: list[threading.Thread] = []
@@ -221,6 +224,7 @@ class ImportWorkerPool:
 
     def notify(self) -> None:
         with self._notify:
+            self._notify_generation += 1
             self._notify.notify_all()
         callback = self._lifecycle_notify
         if callback is not None:
@@ -237,18 +241,18 @@ class ImportWorkerPool:
     def _dispatch_loop(self) -> None:
         while not self._shutdown.is_set():
             try:
+                with self._notify:
+                    generation = self._notify_generation
                 claimed = self._try_claim_one()
                 if claimed is not None:
                     self._work_queue.put(claimed)
                     continue
                 with self._notify:
-                    self._notify.wait(timeout=0.1)
+                    if self._notify_generation == generation and not self._shutdown.is_set():
+                        self._notify.wait()
             except Exception:
                 _LOGGER.exception("import dispatcher failed while claiming queued operation")
                 self._shutdown.wait(timeout=0.25)
-
-    def _repository_has_barrier(self, repository_id: UUID) -> bool:
-        return self._store.has_unresolved_manual_barrier(repository_id)
 
     def _try_claim_one(self) -> tuple[UUID, UUID] | None:
         if self._stop_claiming or self._is_shutting_down():
@@ -261,8 +265,6 @@ class ImportWorkerPool:
             return None
         ordered = self._rotate_candidates(candidates)
         for repository_id, operation_id, _enqueue_sequence in ordered:
-            if self._repository_has_barrier(repository_id):
-                continue
             if not self._locks.try_reserve(repository_id):
                 continue
             claimed = self._store.claim_if_queued(operation_id)

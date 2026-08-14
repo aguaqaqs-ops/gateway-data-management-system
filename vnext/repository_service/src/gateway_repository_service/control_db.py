@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from dataclasses import dataclass, field
@@ -11,7 +12,7 @@ from typing import Self
 
 from gateway_repository_service.mutation_store import configure_connection
 
-CONTROL_DB_USER_VERSION = 15
+CONTROL_DB_USER_VERSION = 16
 
 ColumnShape = tuple[tuple[str, str, int, str | None, int], ...]
 
@@ -33,6 +34,7 @@ _ADMIN_CLI_REQUIRED_INDEXES: dict[str, tuple[str, ...]] = {
         "enqueue_sequence",
     ),
     "repository_import_operations_artifact_idx": ("artifact_id",),
+    "repository_import_operations_manual_barrier_idx": ("repository_scope",),
     "artifact_lifecycle_repository_scope_idx": ("repository_scope",),
     "artifact_lifecycle_cleanup_keyset_idx": ("created_at", "artifact_id"),
     "artifact_lifecycle_cleanup_seq_idx": ("cleanup_seq",),
@@ -878,6 +880,24 @@ _MIGRATION_V15_STATEMENTS: tuple[str, ...] = (
 )
 
 
+_MIGRATION_V16_ADD_MANUAL_RECOVERY_COLUMN = """
+    ALTER TABLE repository_import_operations
+    ADD COLUMN manual_recovery_required INTEGER NOT NULL DEFAULT 0
+        CHECK (manual_recovery_required IN (0, 1))
+"""
+
+_MIGRATION_V16_MANUAL_BARRIER_INDEX = """
+    CREATE INDEX repository_import_operations_manual_barrier_idx
+    ON repository_import_operations (repository_scope)
+    WHERE manual_recovery_required = 1
+"""
+
+_MALFORMED_FAILED_IMPORT_EVIDENCE_MESSAGE = (
+    "malformed FAILED import evidence blocks migration; "
+    "operator intervention is required before migration"
+)
+
+
 _MIGRATION_V5_STATEMENTS: tuple[str, ...] = (
     """
     CREATE TRIGGER prevent_insert_succeeded_when_terminal
@@ -1362,6 +1382,49 @@ class ControlStore:
                     malformed()
 
     @staticmethod
+    def _manual_recovery_required_for_failed_error_json(error_json: object) -> int:
+        from pydantic import ValidationError
+
+        from gateway_repository_contracts import SimpleError
+        from gateway_repository_service.versioned_import.models import (
+            MANUAL_RECOVERY_REQUIRED_CODE,
+            ORDINARY_TERMINAL_ERROR_CODES,
+        )
+
+        if error_json is None:
+            raise ControlDbError(_MALFORMED_FAILED_IMPORT_EVIDENCE_MESSAGE)
+        try:
+            parsed = json.loads(str(error_json))
+            error = SimpleError.model_validate(parsed)
+        except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+            raise ControlDbError(_MALFORMED_FAILED_IMPORT_EVIDENCE_MESSAGE) from exc
+        if error.code == MANUAL_RECOVERY_REQUIRED_CODE:
+            return 1
+        if error.code in ORDINARY_TERMINAL_ERROR_CODES:
+            return 0
+        raise ControlDbError(_MALFORMED_FAILED_IMPORT_EVIDENCE_MESSAGE)
+
+    @staticmethod
+    def _backfill_manual_recovery_required(connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            """
+            SELECT operation_id, error_json
+            FROM repository_import_operations
+            WHERE status = 'FAILED'
+            """
+        ).fetchall()
+        for row in rows:
+            flag = ControlStore._manual_recovery_required_for_failed_error_json(row["error_json"])
+            connection.execute(
+                """
+                UPDATE repository_import_operations
+                SET manual_recovery_required = ?
+                WHERE operation_id = ?
+                """,
+                (flag, str(row["operation_id"])),
+            )
+
+    @staticmethod
     def _apply_migration_step(connection: sqlite3.Connection, target_version: int) -> None:
         if target_version == 1:
             return
@@ -1410,6 +1473,11 @@ class ControlStore:
             return
         if target_version == 15:
             ControlStore._execute_statements(connection, _MIGRATION_V15_STATEMENTS)
+            return
+        if target_version == 16:
+            connection.execute(_MIGRATION_V16_ADD_MANUAL_RECOVERY_COLUMN)
+            ControlStore._backfill_manual_recovery_required(connection)
+            connection.execute(_MIGRATION_V16_MANUAL_BARRIER_INDEX)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
 

@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from typing import cast
 
+from gateway_repository_contracts import SimpleError
 from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlDbError, ControlDbNewerVersionError, ControlStore
 from gateway_repository_service.layout import DurableLayout, LAYOUT_FORMAT_VERSION
@@ -385,6 +386,16 @@ class TestControlDatabase:
                 ).fetchall()
             }
             assert "enqueue_sequence" in operation_columns
+            assert "manual_recovery_required" in operation_columns
+            barrier_index = store.connection.execute(
+                """
+                SELECT sql FROM sqlite_master
+                WHERE type = 'index'
+                  AND name = 'repository_import_operations_manual_barrier_idx'
+                """
+            ).fetchone()
+            assert barrier_index is not None
+            assert "manual_recovery_required = 1" in str(barrier_index[0])
             idempotency_sql = store.connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name = 'mutation_idempotency'"
             ).fetchone()[0]
@@ -606,14 +617,14 @@ class TestControlDatabase:
         with pytest.raises(ControlDbNewerVersionError):
             ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
-    def test_intermediate_user_version_fifteen_fails_closed(self, tmp_path: Path) -> None:
+    def test_intermediate_user_version_sixteen_fails_closed(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         db_path.parent.mkdir(parents=True)
         connection = sqlite3.connect(db_path)
-        connection.execute("PRAGMA user_version = 16")
+        connection.execute("PRAGMA user_version = 17")
         connection.commit()
         connection.close()
-        with pytest.raises(ControlDbNewerVersionError, match="user_version 16 is newer than supported 15"):
+        with pytest.raises(ControlDbNewerVersionError, match="user_version 17 is newer than supported 16"):
             ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
     def test_migration_v5_fails_on_contradictory_v3_data(self, tmp_path: Path) -> None:
@@ -734,6 +745,7 @@ class TestControlDatabase:
                 ).fetchall()
             }
             assert "enqueue_sequence" in operation_columns
+            assert "manual_recovery_required" in operation_columns
         finally:
             store.close()
 
@@ -766,6 +778,289 @@ class TestControlDatabase:
         connection.close()
         assert int(version[0]) == 6
         assert "repository_import_operations" not in tables
+
+    def _insert_v15_import_operation(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        operation_id: str,
+        repository_scope: str,
+        status: str,
+        key_hash: bytes,
+        error_json: str | None,
+        enqueue_sequence: int = 1,
+    ) -> None:
+        now = "2026-08-14T00:00:00+00:00"
+        connection.execute(
+            """
+            INSERT INTO repository_import_operations (
+                operation_id,
+                repository_scope,
+                key_hash,
+                request_fingerprint,
+                artifact_id,
+                artifact_media_type,
+                artifact_size_bytes,
+                artifact_raw_sha256,
+                target_ref,
+                expected_commit_id,
+                requested_verification_policy,
+                unknown_type_policy,
+                status,
+                private_ref_name,
+                operation_marker,
+                canonicalization_manifest_digest,
+                automatic_replay_count,
+                enqueue_sequence,
+                result_json,
+                error_json,
+                created_at,
+                started_at,
+                updated_at,
+                completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'main', 'commit-0', 'NONE', 'REJECT',
+                      ?, ?, ?, NULL, 0, ?, NULL, ?, ?, NULL, ?, ?)
+            """,
+            (
+                operation_id,
+                repository_scope,
+                key_hash,
+                b"fingerprint",
+                "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
+                "application/vnd.gateway.repository-import.v1+tar+zstd",
+                1,
+                "a" * 64,
+                status,
+                f"private-{operation_id}",
+                f"marker-{operation_id}",
+                enqueue_sequence,
+                error_json,
+                now,
+                now,
+                now if status in {"FAILED", "SUCCEEDED"} else None,
+            ),
+        )
+
+    def test_migration_upgrades_version_fifteen_to_sixteen(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        ControlStore.open(db_path, expected_version=15, busy_timeout_ms=1000).close()
+
+        store = ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
+        try:
+            version = store.connection.execute("PRAGMA user_version").fetchone()
+            assert int(version[0]) == 16
+            columns = {
+                row[1]
+                for row in store.connection.execute(
+                    "PRAGMA table_info(repository_import_operations)"
+                ).fetchall()
+            }
+            assert "manual_recovery_required" in columns
+        finally:
+            store.close()
+
+    def test_migration_v16_backfills_manual_and_ordinary_failed_rows(
+        self, tmp_path: Path
+    ) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        v15 = ControlStore.open(db_path, expected_version=15, busy_timeout_ms=1000)
+        try:
+            self._insert_v15_import_operation(
+                v15.connection,
+                operation_id="op-manual",
+                repository_scope="a" * 32,
+                status="FAILED",
+                key_hash=b"\x01" * 32,
+                error_json=json.dumps(
+                    SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual").model_dump(
+                        mode="json"
+                    ),
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+            )
+            self._insert_v15_import_operation(
+                v15.connection,
+                operation_id="op-rejected",
+                repository_scope="a" * 32,
+                status="FAILED",
+                key_hash=b"\x02" * 32,
+                error_json=json.dumps(
+                    SimpleError(code="IMPORT_REJECTED", message="rejected").model_dump(mode="json"),
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+                enqueue_sequence=2,
+            )
+            self._insert_v15_import_operation(
+                v15.connection,
+                operation_id="op-mismatch",
+                repository_scope="b" * 32,
+                status="FAILED",
+                key_hash=b"\x03" * 32,
+                error_json=json.dumps(
+                    SimpleError(code="EXPECTED_COMMIT_MISMATCH", message="mismatch").model_dump(
+                        mode="json"
+                    ),
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+            )
+            self._insert_v15_import_operation(
+                v15.connection,
+                operation_id="op-not-published",
+                repository_scope="c" * 32,
+                status="FAILED",
+                key_hash=b"\x04" * 32,
+                error_json=json.dumps(
+                    SimpleError(
+                        code="VERIFICATION_FAILED_NOT_PUBLISHED",
+                        message="not published",
+                    ).model_dump(mode="json"),
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+            )
+            self._insert_v15_import_operation(
+                v15.connection,
+                operation_id="op-queued",
+                repository_scope="d" * 32,
+                status="QUEUED",
+                key_hash=b"\x05" * 32,
+                error_json=None,
+            )
+            self._insert_v15_import_operation(
+                v15.connection,
+                operation_id="op-succeeded",
+                repository_scope="e" * 32,
+                status="SUCCEEDED",
+                key_hash=b"\x06" * 32,
+                error_json=None,
+            )
+            v15.connection.commit()
+        finally:
+            v15.close()
+
+        store = ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
+        try:
+            flags = {
+                str(row["operation_id"]): int(row["manual_recovery_required"])
+                for row in store.connection.execute(
+                    """
+                    SELECT operation_id, manual_recovery_required
+                    FROM repository_import_operations
+                    """
+                )
+            }
+            assert flags == {
+                "op-manual": 1,
+                "op-rejected": 0,
+                "op-mismatch": 0,
+                "op-not-published": 0,
+                "op-queued": 0,
+                "op-succeeded": 0,
+            }
+        finally:
+            store.close()
+
+    @pytest.mark.parametrize(
+        ("label", "error_json"),
+        [
+            ("missing", None),
+            ("not_json", "not-json"),
+            ("empty_object", "{}"),
+            ("json_null", "null"),
+            ("unknown_code", '{"code":"NOT_A_STABLE_CODE","message":"x"}'),
+            ("truncated", '{"code":"IMPORT_REJECTED","message":'),
+            ("whitespace_code", '{"code":" IMPORT_REJECTED","message":"x"}'),
+        ],
+        ids=[
+            "missing",
+            "not_json",
+            "empty_object",
+            "json_null",
+            "unknown_code",
+            "truncated",
+            "whitespace_code",
+        ],
+    )
+    def test_migration_v16_fails_closed_on_malformed_failed_evidence(
+        self,
+        tmp_path: Path,
+        label: str,
+        error_json: str | None,
+    ) -> None:
+        del label
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        v15 = ControlStore.open(db_path, expected_version=15, busy_timeout_ms=1000)
+        try:
+            self._insert_v15_import_operation(
+                v15.connection,
+                operation_id="op-malformed",
+                repository_scope="a" * 32,
+                status="FAILED",
+                key_hash=b"\x01" * 32,
+                error_json=error_json,
+            )
+            v15.connection.commit()
+        finally:
+            v15.close()
+
+        with pytest.raises(ControlDbError, match="malformed FAILED import evidence"):
+            ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
+
+        connection = sqlite3.connect(db_path)
+        try:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(repository_import_operations)")
+            }
+        finally:
+            connection.close()
+        assert version == 15
+        assert "manual_recovery_required" not in columns
+
+    def test_migration_v16_reopen_is_idempotent(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        first = ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
+        first.close()
+        second = ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
+        try:
+            version = second.connection.execute("PRAGMA user_version").fetchone()
+            assert int(version[0]) == 16
+        finally:
+            second.close()
+
+    def test_migration_v16_rolls_back_on_failure(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        ControlStore.open(db_path, expected_version=15, busy_timeout_ms=1000).close()
+        original = ControlStore._apply_migration_step
+
+        def failing_step(connection: sqlite3.Connection, target_version: int) -> None:
+            if target_version == 16:
+                raise RuntimeError("v16 migration failure")
+            original(connection, target_version)
+
+        monkeypatch.setattr(ControlStore, "_apply_migration_step", staticmethod(failing_step))
+        with pytest.raises(RuntimeError, match="v16 migration failure"):
+            ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
+
+        connection = sqlite3.connect(db_path)
+        try:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(repository_import_operations)")
+            }
+        finally:
+            connection.close()
+        assert version == 15
+        assert "manual_recovery_required" not in columns
 
 
 class TestProviderLifecycle:

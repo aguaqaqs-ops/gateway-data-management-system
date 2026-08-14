@@ -122,11 +122,12 @@ class ImportOperationStore:
                     enqueue_sequence,
                     result_json,
                     error_json,
+                    manual_recovery_required,
                     created_at,
                     started_at,
                     updated_at,
                     completed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, NULL, NULL, ?, NULL, ?, NULL)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, NULL, NULL, 0, ?, NULL, ?, NULL)
                 """,
                 (
                     str(new_operation_id),
@@ -286,11 +287,12 @@ class ImportOperationStore:
                     enqueue_sequence,
                     result_json,
                     error_json,
+                    manual_recovery_required,
                     created_at,
                     started_at,
                     updated_at,
                     completed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, NULL, NULL, ?, NULL, ?, NULL)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, NULL, NULL, 0, ?, NULL, ?, NULL)
                 """,
                 (
                     str(new_operation_id),
@@ -412,6 +414,12 @@ class ImportOperationStore:
                     WHERE inner.repository_scope = candidate.repository_scope
                       AND inner.status = ?
                   )
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM repository_import_operations AS barrier
+                    WHERE barrier.repository_scope = candidate.repository_scope
+                      AND barrier.manual_recovery_required = 1
+                  )
                 ORDER BY repository_scope ASC
                 """,
                 (OperationStatus.QUEUED.value, OperationStatus.QUEUED.value),
@@ -475,6 +483,7 @@ class ImportOperationStore:
                 SET status = ?,
                     result_json = ?,
                     error_json = NULL,
+                    manual_recovery_required = 0,
                     canonicalization_manifest_digest = ?,
                     updated_at = ?,
                     completed_at = ?
@@ -523,12 +532,14 @@ class ImportOperationStore:
                 separators=(",", ":"),
                 sort_keys=True,
             )
+            manual_recovery_required = 1 if is_manual_recovery_error(validated.error) else 0
             self._connection.execute(
                 """
                 UPDATE repository_import_operations
                 SET status = ?,
                     result_json = NULL,
                     error_json = ?,
+                    manual_recovery_required = ?,
                     updated_at = ?,
                     completed_at = ?
                 WHERE operation_id = ?
@@ -537,6 +548,7 @@ class ImportOperationStore:
                 (
                     OperationStatus.FAILED.value,
                     error_json,
+                    manual_recovery_required,
                     now,
                     now,
                     str(operation_id),
@@ -616,6 +628,7 @@ class ImportOperationStore:
                     SET status = ?,
                         result_json = ?,
                         error_json = NULL,
+                        manual_recovery_required = 0,
                         canonicalization_manifest_digest = ?,
                         updated_at = ?,
                         completed_at = ?
@@ -672,6 +685,7 @@ class ImportOperationStore:
                     SET status = ?,
                         result_json = NULL,
                         error_json = ?,
+                        manual_recovery_required = 0,
                         updated_at = ?,
                         completed_at = ?
                     WHERE operation_id = ?
@@ -753,18 +767,13 @@ class ImportOperationStore:
         with self._lock:
             cursor = self._connection.execute(
                 """
-                SELECT DISTINCT repository_scope, error_json
+                SELECT DISTINCT repository_scope
                 FROM repository_import_operations
-                WHERE status = ?
+                WHERE manual_recovery_required = 1
+                ORDER BY repository_scope ASC
                 """,
-                (OperationStatus.FAILED.value,),
             )
-            repositories: list[UUID] = []
-            for row in cursor.fetchall():
-                error = self._parse_error_json(row["error_json"])
-                if is_manual_recovery_error(error):
-                    repositories.append(UUID(str(row["repository_scope"])))
-            return repositories
+            return [UUID(str(row["repository_scope"])) for row in cursor.fetchall()]
 
     def get_automatic_replay_count(self, operation_id: UUID) -> int:
         with self._lock:
@@ -819,18 +828,15 @@ class ImportOperationStore:
     def _has_unresolved_manual_barrier_locked(self, repository_id: UUID) -> bool:
         cursor = self._connection.execute(
             """
-            SELECT error_json
+            SELECT 1
             FROM repository_import_operations
             WHERE repository_scope = ?
-              AND status = ?
+              AND manual_recovery_required = 1
+            LIMIT 1
             """,
-            (repository_id.hex, OperationStatus.FAILED.value),
+            (repository_id.hex,),
         )
-        for row in cursor.fetchall():
-            error = self._parse_error_json(row["error_json"])
-            if is_manual_recovery_error(error):
-                return True
-        return False
+        return cursor.fetchone() is not None
 
     def list_artifact_references(self, artifact_id: UUID) -> list[ArtifactOperationReference]:
         with self._transaction():

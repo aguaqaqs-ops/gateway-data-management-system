@@ -48,6 +48,7 @@ from gateway_repository_service.versioned_import.models import (
 )
 
 REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
+OTHER_REPOSITORY_ID = UUID("018f0f3e-7b0a-7c15-9a9e-2e4b9f4d2c11")
 ARTIFACT_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
 OPERATION_ID = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11")
 OTHER_OPERATION_ID = UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c11")
@@ -189,6 +190,19 @@ def _enqueue(
         operation_id=operation_id,
     )
     return key_hash, fingerprint
+
+
+def _manual_recovery_required(store: ImportOperationStore, operation_id: UUID) -> int:
+    row = store._connection.execute(
+        """
+        SELECT manual_recovery_required
+        FROM repository_import_operations
+        WHERE operation_id = ?
+        """,
+        (str(operation_id),),
+    ).fetchone()
+    assert row is not None
+    return int(row["manual_recovery_required"])
 
 
 def _admit_and_publish(
@@ -383,6 +397,7 @@ def test_mark_failed_persists_terminal_error(stores: tuple[ImportOperationStore,
     assert operation.error is not None
     assert operation.error.code == "IMPORT_REJECTED"
     assert operation.result is None
+    assert _manual_recovery_required(store, OPERATION_ID) == 0
 
 
 def test_mark_failed_rejects_request_id(stores: tuple[ImportOperationStore, MutationStore]) -> None:
@@ -423,6 +438,7 @@ def test_manual_correction_and_audit_clear_barrier(
     )
 
     assert store.has_unresolved_manual_barrier(REPOSITORY_ID) is True
+    assert _manual_recovery_required(store, OPERATION_ID) == 1
 
     corrected = store.apply_manual_correction(
         OPERATION_ID,
@@ -433,6 +449,7 @@ def test_manual_correction_and_audit_clear_barrier(
 
     assert corrected.status == OperationStatus.SUCCEEDED
     assert store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
+    assert _manual_recovery_required(store, OPERATION_ID) == 0
 
     audit_count = mutation_store._connection.execute(
         "SELECT COUNT(*) FROM repository_import_recovery_audit WHERE operation_id = ?",
@@ -835,6 +852,83 @@ def test_admit_new_import_rejects_manual_barrier(
             fingerprint=fingerprint,
             max_queued_imports=64,
         )
+
+
+def test_not_published_correction_clears_durable_manual_barrier(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, _ = stores
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_failed(
+        OPERATION_ID,
+        error=SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual"),
+    )
+    assert _manual_recovery_required(store, OPERATION_ID) == 1
+
+    corrected = store.apply_manual_correction(
+        OPERATION_ID,
+        decision=ManualCorrectionDecision.NOT_PUBLISHED,
+        evidence_summary={"summary": "not published"},
+        final_error=SimpleError(
+            code="VERIFICATION_FAILED_NOT_PUBLISHED",
+            message="not published",
+        ),
+    )
+
+    assert corrected.status == OperationStatus.FAILED
+    assert corrected.error is not None
+    assert corrected.error.code == "VERIFICATION_FAILED_NOT_PUBLISHED"
+    assert _manual_recovery_required(store, OPERATION_ID) == 0
+    assert store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
+
+
+def test_mark_succeeded_clears_durable_manual_barrier_flag(
+    stores: tuple[ImportOperationStore, MutationStore],
+) -> None:
+    store, mutation_store = stores
+    _seed_artifact(mutation_store)
+    _enqueue(store, operation_id=OPERATION_ID)
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_succeeded(OPERATION_ID, result=_import_result())
+    assert _manual_recovery_required(store, OPERATION_ID) == 0
+
+
+def test_candidate_query_excludes_barrier_repository_without_parsing_error_json(
+    stores: tuple[ImportOperationStore, MutationStore],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, _ = stores
+    _enqueue(store, operation_id=OPERATION_ID, key="blocked-failed")
+    store.claim_if_queued(OPERATION_ID)
+    store.mark_failed(
+        OPERATION_ID,
+        error=SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual"),
+    )
+    _enqueue(store, operation_id=OTHER_OPERATION_ID, key="blocked-queued")
+    other_binding = ImportRequestBinding(
+        repository_id=OTHER_REPOSITORY_ID,
+        artifact_ref=_artifact_ref(),
+        target_ref="main",
+        expected_commit_id="commit-0",
+        verification_policy=VerificationPolicy.STRUCTURAL,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+    other_operation_id = UUID("018f0f3e-7b0a-7c19-8a9e-2e4b9f4d2c11")
+    _enqueue(
+        store,
+        operation_id=other_operation_id,
+        key="other-queued",
+        binding=other_binding,
+    )
+
+    def _forbidden_parse(payload: object) -> SimpleError | None:
+        raise AssertionError("candidate query must not parse error_json")
+
+    monkeypatch.setattr(ImportOperationStore, "_parse_error_json", staticmethod(_forbidden_parse))
+    candidates = store.list_earliest_queued_per_repository()
+    assert candidates == [(OTHER_REPOSITORY_ID, other_operation_id, 1)]
+    assert store.list_repositories_with_manual_barrier() == [REPOSITORY_ID]
 
 
 def test_admit_new_import_rejects_when_queue_full(

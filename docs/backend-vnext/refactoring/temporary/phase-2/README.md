@@ -30,6 +30,7 @@ contract语义：
 | --- | --- |
 | [P2-R3 Synchronous Create and Upload Execution Plan](p2-r3-synchronous-create-upload-execution-plan.md) | 当前P2-R3阶段边界、checkout顺序、fault/restart matrix、gate与handoff |
 | [P2-R3 Staged Implementation Task Prompts](p2-r3-implementation-task-prompts.md) | S1-S5独立代码实现任务提示词；必须结合上一阶段handoff使用 |
+| [P2-R6-S3 Staged Execution Guide](p2-r6-s3-staged-execution-guide.md) | 将正式P2-R6-S3拆为A–E五个串行实现对话、独立评审与最终Step E；不拥有Contract语义 |
 
 ## Document map
 

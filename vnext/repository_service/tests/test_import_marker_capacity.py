@@ -18,7 +18,7 @@ import pytest
 from gateway_repository_service.candidate_a.ref_validation import IMPORT_MAIN_REF
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.providers import OfflineCliProvider
-from gateway_repository_service.process import DoltRunner
+from gateway_repository_service.process import DoltRunner, StreamCancellationCheck
 from gateway_repository_service.versioned_import.models import derive_private_ref_name
 from gateway_repository_service.versioned_import.ports import MarkerInspectionUnique
 from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
@@ -117,10 +117,17 @@ def _inspect_with_counts(
         timeout: float,
         *,
         stdin_path: Path | None = None,
+        cancellation: StreamCancellationCheck | None = None,
     ) -> object:
         nonlocal process_count
         process_count += 1
-        return original_run_cli(kind, args, timeout, stdin_path=stdin_path)
+        return original_run_cli(
+            kind,
+            args,
+            timeout,
+            stdin_path=stdin_path,
+            cancellation=cancellation,
+        )
 
     started = time.perf_counter()
     with (

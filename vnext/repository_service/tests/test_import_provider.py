@@ -35,6 +35,7 @@ from gateway_repository_service.process import (
     CommandResult,
     DoltRunner,
     ProcessBoundaryError,
+    StreamCancellationCheck,
     _Capture,
 )
 from gateway_repository_service.providers import OfflineCliProvider
@@ -286,10 +287,17 @@ def _run_cli_malformed_json_side_effect(
         timeout: float,
         *,
         stdin_path: Path | None = None,
+        cancellation: StreamCancellationCheck | None = None,
     ) -> CommandResult:
         if kind in kinds:
             return _malformed_json_command_result(stdout, kind)
-        return original_run_cli(kind, args, timeout, stdin_path=stdin_path)
+        return original_run_cli(
+            kind,
+            args,
+            timeout,
+            stdin_path=stdin_path,
+            cancellation=cancellation,
+        )
 
     return side_effect
 
@@ -2270,8 +2278,10 @@ def test_read_catalog_and_type_catalog_reject_duplicate_parent_rows(
         sql: str,
         *,
         revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: object | None = None,
     ) -> list[dict[str, object]]:
-        del sql, revision
+        del sql, revision, cancellation, call_timeout
         if kind == "candidate_parent":
             return [
                 {"parents": "parent-a,parent-b"},

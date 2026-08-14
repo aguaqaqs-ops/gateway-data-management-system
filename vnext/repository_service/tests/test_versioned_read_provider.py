@@ -42,7 +42,7 @@ from gateway_repository_service.mutation_store import (
     MutationStore,
     configure_connection,
 )
-from gateway_repository_service.process import CommandResult, DoltRunner, ProcessStreamCancelledError
+from gateway_repository_service.process import CommandResult, DoltRunner, ProcessStreamCancelledError, StreamCancellationCheck
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_read.application import VersionedReadApplication
@@ -152,8 +152,15 @@ def test_catalog_at_does_not_query_parent(tmp_path: Path) -> None:
     target = "opaque-token-1"
     captured: list[str] = []
 
-    def query_json(kind: str, sql: str, *, revision: str | None = None) -> list[dict[str, Any]]:
-        del revision
+    def query_json(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: Any | None = None,
+    ) -> list[dict[str, Any]]:
+        del revision, cancellation, call_timeout
         captured.append(sql)
         if kind == "catalog_tables":
             return []
@@ -191,8 +198,15 @@ def test_catalog_at_binds_same_literal_for_schema_and_count(tmp_path: Path) -> N
 
     captured_sql: list[str] = []
 
-    def query_json(kind: str, sql: str, *, revision: str | None = None) -> list[dict[str, Any]]:
-        del revision
+    def query_json(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: Any | None = None,
+    ) -> list[dict[str, Any]]:
+        del revision, cancellation, call_timeout
         if kind == "catalog_tables":
             return [
                 {

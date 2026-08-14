@@ -44,20 +44,6 @@ from gateway_repository_service.versioned_import.ports import (
 def _as_import_provider_error(exc: BaseException) -> ImportProviderError:
     if isinstance(exc, ImportProviderError):
         return exc
-    if isinstance(
-        exc,
-        (
-            CandidateAError,
-            ProcessBoundaryError,
-            ValueError,
-            TypeError,
-            IndexError,
-            OSError,
-            csv.Error,
-            UnicodeDecodeError,
-        ),
-    ):
-        return ImportProviderError(str(exc))
     return ImportProviderError(str(exc))
 
 

@@ -15,7 +15,6 @@ from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import MutationStore
 from gateway_repository_service.versioned_read.errors import (
     CommitNotFoundError,
-    MainRefNotFoundError,
     ProviderUnavailableError,
     RepositoryNotVisibleError,
     TableNotFoundError,
@@ -51,10 +50,7 @@ class VersionedReadApplication:
 
     def resolve_main(self, repository_id: UUID) -> str:
         provider = self._require_visible(repository_id)
-        try:
-            return provider.read_ref(MAIN_REF)
-        except MainRefNotFoundError:
-            raise
+        return provider.read_ref(MAIN_REF)
 
     def get_catalog(self, repository_id: UUID, commit_id: str) -> tuple[TableCatalog, ...]:
         provider = self._require_visible(repository_id)

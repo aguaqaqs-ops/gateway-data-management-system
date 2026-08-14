@@ -155,21 +155,27 @@ Prior provenance records are superseded. Current gate evidence:
 
 ```text
 test: tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
-result: PASSED (61s)
-compose_project: gateway-p2r4-s10-e1333a00185a
-cache: http://172.17.0.1:18080 (HTTP 200)
-validated_code_sha: 13ec2137d7ed8f3da406bf550da68647d2536c77
-container_validated_code_sha: 13ec2137d7ed8f3da406bf550da68647d2536c77
-build_input_revision: 13ec2137d7ed8f3da406bf550da68647d2536c77
-source_tree_sha256: sha256:3fc42731e27e4f596cc56c50d4ea86ea29860d3ac8f2c4d6120b524a68c9c630
-image_id: sha256:19abf63d9894fa4f8f66ac74088833e62eef3f3afb5819e9a8bad836599cd0d9
-image_label gateway.p2r1.source-tree-sha256: sha256:3fc42731e27e4f596cc56c50d4ea86ea29860d3ac8f2c4d6120b524a68c9c630
-image_label org.opencontainers.image.revision: 13ec2137d7ed8f3da406bf550da68647d2536c77
+result: PASSED (27.44s)
+directed_probe: v15 leftover/FIFO/symlink/receipt + owner/mode + restart
+compose_project: gateway-p2r9-e-1c12969750e6
+cache: remote http://172.17.0.1:18080 (HTTP 200); image loaded locally
+validated_code_sha: e78b564a112b2a040740e3e07d7e6f04329d06e9
+container_validated_code_sha: e78b564a112b2a040740e3e07d7e6f04329d06e9
+build_input_revision: e78b564a112b2a040740e3e07d7e6f04329d06e9
+source_tree_sha256: sha256:2cc377e74be2ab342ee09028ce54ff77a4690c5a5f12ce633959bfe6643172a2
+image_id: sha256:87e4e908bfa63370033256b380c6582c39fb6888749131633d5e856ae649a007
+image_label gateway.p2r1.source-tree-sha256: sha256:2cc377e74be2ab342ee09028ce54ff77a4690c5a5f12ce633959bfe6643172a2
+image_label org.opencontainers.image.revision: e78b564a112b2a040740e3e07d7e6f04329d06e9
+S3 ready: yes
+full_record: docs/backend-vnext/refactoring/temporary/p2-r9-s2-step-e-container-gate.md
 ```
 
 Superseded runs:
 
 ```text
+validated_code_sha: 13ec2137d7ed8f3da406bf550da68647d2536c77
+compose_project: gateway-p2r4-s10-e1333a00185a
+reason: superseded_by_e78b564_step_e
 validated_code_sha: cb1ef42db7dd4957d20cdc4ce3b61cb35c7b9596
 compose_project: gateway-p2r4-s10-7720cf769b61
 reason: commit_b_touched_repository_service_readme; build context drift from HEAD

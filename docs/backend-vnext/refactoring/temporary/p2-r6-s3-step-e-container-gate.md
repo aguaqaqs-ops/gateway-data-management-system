@@ -3,11 +3,15 @@
 状态：Executed
 
 候选 SHA（`validated_code_sha` / `container_validated_code_sha`）：
-`71250c8790be6688bc9d2042e2e0a79a783447`
+`71250c8790be6688bc9d2042e2e0a0e79a783447`
 
 本文件在 build-context digest 之外（不位于 `vnext/repository_service/**` 或
 `vnext/repository_contracts/**`）。本提交的 SHA 是 `provenance_documentation_sha`，
 不得回填进候选代码或镜像 label。
+
+注：首次 provenance 提交 `37e01cba7fa7099cf219b041376929bd6033f07a` 将 candidate SHA
+误记为 38 字符；本提交仅修正文档记录，不改变 `validated_code_sha`、镜像 identity 或
+container gate 结论。
 
 S2 image `e78b564` / `sha256:87e4e908bfa6...` 仅作祖先证据，已 superseded for S3 exit。
 
@@ -15,18 +19,18 @@ S2 image `e78b564` / `sha256:87e4e908bfa6...` 仅作祖先证据，已 supersede
 
 ```text
 remote worktree: /home/tmpuser/gateway-gate-71250c8790be
-remote HEAD: 71250c8790be6688bc9d2042e2e0a79a783447
-local HEAD:  71250c8790be6688bc9d2042e2e0a79a783447
+remote HEAD: 71250c8790be6688bc9d2042e2e0a0e79a783447
+local HEAD:  71250c8790be6688bc9d2042e2e0a0e79a783447
 worktree_clean: yes
 build_command: vnext/scripts/build-repository-service-image.sh (remote, --no-cache after label mismatch)
 cache_endpoint: http://172.17.0.1:18080 (HTTP 200 on 10.10.60.4)
-build_input_revision: 71250c8790be6688bc9d2042e2e0a79a783447
+build_input_revision: 71250c8790be6688bc9d2042e2e0a0e79a783447
 source_tree_sha256: sha256:5222659983e79f8f4c9a548fc6f9a749b66bffdd1c13c2aeec9278522349e6c0
 image: gateway-repository-service:71250c8790be
 image_id: sha256:0d0f6b4f9c547de5a0635b9af20175507e606028e1641e7064c567184d5a093f
 remote_image_id: sha256:0d0f6b4f9c547de5a0635b9af20175507e606028e1641e7064c567184d5a093f
 local_image_id: sha256:0d0f6b4f9c547de5a0635b9af20175507e606028e1641e7064c567184d5a093f
-image_label org.opencontainers.image.revision: 71250c8790be6688bc9d2042e2e0a79a783447
+image_label org.opencontainers.image.revision: 71250c8790be6688bc9d2042e2e0a0e79a783447
 image_label gateway.p2r1.source-tree-sha256: sha256:5222659983e79f8f4c9a548fc6f9a749b66bffdd1c13c2aeec9278522349e6c0
 image_label gateway.p2r1.uv-lock-sha256: 6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11
 image_matches_build_context: true
@@ -77,7 +81,7 @@ Directed probe 脚本位于 gate host `/tmp/s3_step_e_gate_probe.py` 与
 ## Docker record
 
 ```text
-Current HEAD: 71250c8790be6688bc9d2042e2e0a79a783447
+Current HEAD: 71250c8790be6688bc9d2042e2e0a0e79a783447
 Container rebuild required: yes (executed at Step E)
 Reason: S3 exact candidate; source tree superseded S2 e78b564 image
 Last verified image revision (S2, superseded): e78b564a112b2a040740e3e07d7e6f04329d06e9
@@ -88,8 +92,8 @@ Required execution point: S3 exact-candidate Step E
 ```
 
 ```yaml
-validated_code_sha: 71250c8790be6688bc9d2042e2e0a79a783447
-container_validated_code_sha: 71250c8790be6688bc9d2042e2e0a79a783447
+validated_code_sha: 71250c8790be6688bc9d2042e2e0a0e79a783447
+container_validated_code_sha: 71250c8790be6688bc9d2042e2e0a0e79a783447
 provenance_documentation_sha: <this commit>
 image_id: sha256:0d0f6b4f9c547de5a0635b9af20175507e606028e1641e7064c567184d5a093f
 source_tree_sha256: sha256:5222659983e79f8f4c9a548fc6f9a749b66bffdd1c13c2aeec9278522349e6c0

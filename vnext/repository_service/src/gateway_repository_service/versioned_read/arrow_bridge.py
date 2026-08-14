@@ -11,7 +11,7 @@ import time
 import weakref
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
@@ -62,6 +62,19 @@ class BridgeShutdownError(RuntimeError):
             parts.append(f"{survivor_count} survivor(s)")
         summary = ", ".join(parts) if parts else "shutdown incomplete"
         super().__init__(f"versioned read bridge shutdown failed: {summary}")
+
+
+@dataclass(frozen=True)
+class BridgeTestProbe:
+    """Optional instance-scoped synchronization points for bridge lifecycle tests."""
+
+    close_entered_barrier: threading.Event | None = None
+    close_completed_barrier: threading.Event | None = None
+    close_follower_waiting_barrier: threading.Event | None = None
+    close_outcome_published_barrier: threading.Event | None = None
+    hold_outcome_publish_barrier: threading.Event | None = None
+    worker_finish_barrier: threading.Event | None = None
+    unregister_barrier: threading.Event | None = None
 
 
 @dataclass(frozen=True)
@@ -136,14 +149,6 @@ BRIDGE_REGISTRY = _BridgeRegistry()
 class ArrowIpcStreamBridge:
     """Owns a non-daemon worker thread and bounded queue for Arrow IPC bytes."""
 
-    _test_close_entered_barrier: ClassVar[threading.Event | None] = None
-    _test_close_completed_barrier: ClassVar[threading.Event | None] = None
-    _test_close_follower_waiting_barrier: ClassVar[threading.Event | None] = None
-    _test_close_outcome_published_barrier: ClassVar[threading.Event | None] = None
-    _test_hold_outcome_publish_barrier: ClassVar[threading.Event | None] = None
-    _test_worker_finish_barrier: ClassVar[threading.Event | None] = None
-    _test_unregister_barrier: ClassVar[threading.Event | None] = None
-
     def __init__(
         self,
         plan: CompiledTablePlan,
@@ -152,12 +157,14 @@ class ArrowIpcStreamBridge:
         *,
         dolt_runner: DoltRunner | None = None,
         stream_owner: object | None = None,
+        test_probe: BridgeTestProbe | None = None,
     ) -> None:
         self._plan = plan
         self._row_iterator = row_iterator
         self._cancellation = cancellation
         self._dolt_runner = dolt_runner
         self._stream_owner = stream_owner
+        self._test_probe = test_probe
         self._queue: queue.Queue[bytes | object] = queue.Queue(maxsize=_QUEUE_MAXSIZE)
         self._worker_done = threading.Event()
         self._close_lock = threading.Lock()
@@ -168,6 +175,8 @@ class ArrowIpcStreamBridge:
         self._escalation_started = False
         self._close_outcome: _CloseOutcome | None = None
         self._terminal_outcome: TerminalOutcome = "pending"
+        self._consumer_loop: asyncio.AbstractEventLoop | None = None
+        self._consumer_wakeup: asyncio.Event | None = None
         self._worker = threading.Thread(
             target=self._run_worker,
             name="versioned-read-arrow-bridge",
@@ -180,16 +189,26 @@ class ArrowIpcStreamBridge:
         return self._worker.is_alive()
 
     async def iter_bytes(self) -> AsyncIterator[bytes]:
+        loop = asyncio.get_running_loop()
+        self._consumer_loop = loop
+        self._consumer_wakeup = asyncio.Event()
         try:
             while True:
                 try:
-                    item = await asyncio.to_thread(self._queue.get, True, _POLL_TIMEOUT_SECONDS)
+                    item = self._queue.get_nowait()
                 except queue.Empty:
-                    if self._worker_finished:
-                        if self._terminal_outcome == "success":
+                    with self._close_lock:
+                        worker_finished = self._worker_finished
+                        terminal_outcome = self._terminal_outcome
+                    if worker_finished:
+                        if terminal_outcome == "success":
                             break
                         raise BridgeStreamAbortedError("versioned read arrow stream aborted")
-                    await asyncio.sleep(0)
+                    wakeup = self._consumer_wakeup
+                    if wakeup is None:
+                        raise RuntimeError("versioned read bridge consumer wakeup was not initialized")
+                    wakeup.clear()
+                    await wakeup.wait()
                     continue
                 if item is _SUCCESS_SENTINEL:
                     break
@@ -228,16 +247,26 @@ class ArrowIpcStreamBridge:
             self._close_requested = True
             self._cancellation.set()
 
+    def _notify_consumer(self) -> None:
+        loop = self._consumer_loop
+        wakeup = self._consumer_wakeup
+        if loop is not None and wakeup is not None and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(wakeup.set)
+            except RuntimeError:
+                pass
+
     def _complete_close_sync(
         self,
         runner: DoltRunner | None,
         deadline_at: float,
     ) -> None:
-        barrier = ArrowIpcStreamBridge._test_close_entered_barrier
+        probe = self._test_probe
+        barrier = probe.close_entered_barrier if probe is not None else None
         if barrier is not None:
             barrier.set()
         outcome = self._await_close_outcome(runner, deadline_at)
-        completed_barrier = ArrowIpcStreamBridge._test_close_completed_barrier
+        completed_barrier = probe.close_completed_barrier if probe is not None else None
         if completed_barrier is not None:
             completed_barrier.set()
         outcome.raise_if_failed()
@@ -253,13 +282,15 @@ class ArrowIpcStreamBridge:
 
     def _set_close_outcome_locked(self, outcome: _CloseOutcome) -> None:
         self._close_outcome = outcome
-        published_barrier = ArrowIpcStreamBridge._test_close_outcome_published_barrier
+        probe = self._test_probe
+        published_barrier = probe.close_outcome_published_barrier if probe is not None else None
         if published_barrier is not None:
             published_barrier.set()
         self._close_condition.notify_all()
 
     def _await_close_outcome(self, runner: DoltRunner | None, deadline_at: float) -> _CloseOutcome:
         is_leader = False
+        probe = self._test_probe
         with self._close_condition:
             self._reset_retryable_close_outcome_locked()
             if self._close_outcome is not None:
@@ -278,7 +309,7 @@ class ArrowIpcStreamBridge:
                 self._set_close_outcome_locked(outcome)
                 return outcome
             if self._escalation_started:
-                waiting_barrier = ArrowIpcStreamBridge._test_close_follower_waiting_barrier
+                waiting_barrier = probe.close_follower_waiting_barrier if probe is not None else None
                 if waiting_barrier is not None:
                     waiting_barrier.set()
                 while self._close_outcome is None:
@@ -295,7 +326,7 @@ class ArrowIpcStreamBridge:
             is_leader = True
 
         if not is_leader:
-            waiting_barrier = ArrowIpcStreamBridge._test_close_follower_waiting_barrier
+            waiting_barrier = probe.close_follower_waiting_barrier if probe is not None else None
             if waiting_barrier is not None:
                 waiting_barrier.set()
             with self._close_condition:
@@ -331,7 +362,7 @@ class ArrowIpcStreamBridge:
                 join_timeout=join_timeout_error,
                 terminate_error=terminate_error,
             )
-        hold_barrier = ArrowIpcStreamBridge._test_hold_outcome_publish_barrier
+        hold_barrier = probe.hold_outcome_publish_barrier if probe is not None else None
         if hold_barrier is not None:
             hold_barrier.wait()
         with self._close_condition:
@@ -339,7 +370,8 @@ class ArrowIpcStreamBridge:
         return outcome
 
     def _unregister_from_registry(self) -> None:
-        barrier = ArrowIpcStreamBridge._test_unregister_barrier
+        probe = self._test_probe
+        barrier = probe.unregister_barrier if probe is not None else None
         if barrier is not None:
             barrier.wait()
         BRIDGE_REGISTRY.unregister(self)
@@ -361,6 +393,7 @@ class ArrowIpcStreamBridge:
                     with self._close_lock:
                         if self._terminal_outcome == "pending":
                             self._terminal_outcome = "success"
+                self._notify_consumer()
                 return True
             except queue.Full:
                 if self._cancellation.is_set():
@@ -374,6 +407,7 @@ class ArrowIpcStreamBridge:
         while True:
             try:
                 self._queue.put(chunk, timeout=_POLL_TIMEOUT_SECONDS)
+                self._notify_consumer()
                 return True
             except queue.Full:
                 if self._cancellation.is_set():
@@ -388,7 +422,8 @@ class ArrowIpcStreamBridge:
         return True
 
     def _finish_worker(self, *, completed: bool) -> None:
-        barrier = ArrowIpcStreamBridge._test_worker_finish_barrier
+        probe = self._test_probe
+        barrier = probe.worker_finish_barrier if probe is not None else None
         if barrier is not None:
             barrier.wait()
         if not completed:
@@ -397,6 +432,7 @@ class ArrowIpcStreamBridge:
         with self._close_condition:
             self._worker_finished = True
             self._close_condition.notify_all()
+        self._notify_consumer()
 
     def _run_worker(self) -> None:
         sink = io.BytesIO()
@@ -426,6 +462,6 @@ class ArrowIpcStreamBridge:
             if writer is not None and not completed:
                 del writer
             try:
-                close_row_iterator(self._row_iterator)
+                close_row_iterator(self._row_iterator, cancelled=self._cancellation.is_set())
             finally:
                 self._finish_worker(completed=completed)

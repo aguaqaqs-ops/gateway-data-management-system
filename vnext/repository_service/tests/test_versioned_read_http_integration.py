@@ -11,7 +11,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import httpx2 as httpx
@@ -32,7 +32,7 @@ from gateway_repository_service.mutation_store import (
     MutationStore,
     configure_connection,
 )
-from gateway_repository_service.process import DoltRunner
+from gateway_repository_service.process import CommandResult, DoltRunner, ProcessStream
 from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.runtime import ServiceRuntime
@@ -45,6 +45,7 @@ from gateway_repository_service.versioned_read.arrow_bridge import (
     ArrowIpcStreamBridge,
     BridgeShutdownError,
     BridgeStreamAbortedError,
+    BridgeTestProbe,
 )
 from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
 from support.http_harness import ReadyReadiness, create_test_client
@@ -63,6 +64,28 @@ pytestmark = pytest.mark.integration
 _LOGGER = logging.getLogger(__name__)
 
 CancellationCallback = Callable[[], bool]
+
+
+def _inject_bridge_test_probe(probe: BridgeTestProbe) -> Any:
+    original_init = ArrowIpcStreamBridge.__init__
+
+    def _init_with_probe(
+        self: ArrowIpcStreamBridge,
+        plan: Any,
+        row_iterator: Iterator[pa.RecordBatch],
+        cancellation: threading.Event,
+        **kwargs: Any,
+    ) -> None:
+        original_init(
+            self,
+            plan,
+            row_iterator,
+            cancellation,
+            test_probe=probe,
+            **kwargs,
+        )
+
+    return patch.object(ArrowIpcStreamBridge, "__init__", _init_with_probe)
 
 
 def _patch_gated_open_table_rows(
@@ -261,17 +284,11 @@ def _force_read_http_cleanup(
 
 @pytest.fixture
 def read_http_env(tmp_path: Path) -> Iterator[ReadHttpIntegrationEnvironment]:
-    ArrowIpcStreamBridge._test_worker_finish_barrier = None
-    ArrowIpcStreamBridge._test_close_entered_barrier = None
-    ArrowIpcStreamBridge._test_close_completed_barrier = None
     assert BRIDGE_REGISTRY.snapshot() == ()
     environment = create_read_http_environment(tmp_path)
     try:
         yield environment
     finally:
-        ArrowIpcStreamBridge._test_worker_finish_barrier = None
-        ArrowIpcStreamBridge._test_close_entered_barrier = None
-        ArrowIpcStreamBridge._test_close_completed_barrier = None
         _force_read_http_cleanup(environment)
         environment.close()
 
@@ -540,83 +557,122 @@ def test_http_disconnect_cancels_worker_and_cleans_query_files(read_http_env: Re
     captured_cancellations: list[CancellationCallback | None] = []
     disconnect_errors: list[BaseException] = []
     disconnect_done = threading.Event()
-    ArrowIpcStreamBridge._test_worker_finish_barrier = worker_can_finish
-    ArrowIpcStreamBridge._test_close_entered_barrier = close_entered
-    ArrowIpcStreamBridge._test_close_completed_barrier = close_completed
+    bridge_probe = BridgeTestProbe(
+        worker_finish_barrier=worker_can_finish,
+        close_entered_barrier=close_entered,
+        close_completed_barrier=close_completed,
+    )
     try:
-        _patch_gated_open_table_rows(
-            env,
-            producer_waiting=producer_waiting,
-            release=release,
-            captured_cancellations=captured_cancellations,
-        )
+        with _inject_bridge_test_probe(bridge_probe):
+            _patch_gated_open_table_rows(
+                env,
+                producer_waiting=producer_waiting,
+                release=release,
+                captured_cancellations=captured_cancellations,
+            )
 
-        def disconnect_in_background() -> None:
-            try:
+            def disconnect_in_background() -> None:
+                try:
 
-                async def exercise() -> None:
-                    async with create_async_streaming_client(env.app) as client:
-                        response = await stream_rows(
-                            client,
-                            path=_rows_url(env, commit_id),
-                            params={"table_name": "items"},
-                            headers=_auth_headers(),
-                        )
-                        assert response.status_code == 200
-                        first_chunk = await read_first_chunk(response)
-                        assert first_chunk
-                        observed_pids.extend(
-                            process.pid for process in env.runner._active_children.snapshot()
-                        )
-                        await response.aclose()
-                        disconnect_done.set()
+                    async def exercise() -> None:
+                        async with create_async_streaming_client(env.app) as client:
+                            response = await stream_rows(
+                                client,
+                                path=_rows_url(env, commit_id),
+                                params={"table_name": "items"},
+                                headers=_auth_headers(),
+                            )
+                            assert response.status_code == 200
+                            first_chunk = await read_first_chunk(response)
+                            assert first_chunk
+                            observed_pids.extend(
+                                process.pid for process in env.runner._active_children.snapshot()
+                            )
+                            await response.aclose()
+                            disconnect_done.set()
 
-                run_async(exercise())
-            except BaseException as exc:
-                disconnect_errors.append(exc)
+                    run_async(exercise())
+                except BaseException as exc:
+                    disconnect_errors.append(exc)
 
-        disconnect_thread = threading.Thread(target=disconnect_in_background)
-        disconnect_thread.start()
-        assert producer_waiting.wait(timeout=10.0)
-        _wait_until(
-            lambda: bool(
-                captured_cancellations
-                and captured_cancellations[0] is not None
-                and captured_cancellations[0]()
-            ),
-            timeout_seconds=15.0,
-            message="disconnect did not set cancellation",
-        )
-        assert close_entered.wait(timeout=15.0), "response close did not enter bridge cleanup"
-        assert not close_completed.wait(timeout=0.5), "bridge cleanup finished before worker release"
-        assert not disconnect_done.is_set(), "response close returned before worker cleanup finished"
-        assert BRIDGE_REGISTRY.snapshot() != ()
-        worker_can_finish.set()
-        assert close_completed.wait(timeout=15.0), "bridge cleanup did not finish after worker release"
-        disconnect_thread.join(timeout=30.0)
-        if disconnect_errors:
-            raise disconnect_errors[0]
-        assert disconnect_done.is_set()
-        _wait_until(
-            lambda: BRIDGE_REGISTRY.snapshot() == (),
-            timeout_seconds=10.0,
-            message="versioned read bridge worker did not exit after disconnect",
-        )
-        _wait_until(
-            lambda: env.runner._active_children.snapshot() == (),
-            timeout_seconds=10.0,
-            message="dolt child processes were not reaped after disconnect",
-        )
-        for process in observed_pids:
-            _wait_until_pid_reaped(process)
-        query_dir = env.layout.staging_artifacts
-        assert list(query_dir.glob("query-*.sql")) == []
+            disconnect_thread = threading.Thread(target=disconnect_in_background)
+            disconnect_thread.start()
+            assert producer_waiting.wait(timeout=10.0)
+            _wait_until(
+                lambda: bool(
+                    captured_cancellations
+                    and captured_cancellations[0] is not None
+                    and captured_cancellations[0]()
+                ),
+                timeout_seconds=15.0,
+                message="disconnect did not set cancellation",
+            )
+            assert close_entered.wait(timeout=15.0), "response close did not enter bridge cleanup"
+            assert not close_completed.wait(timeout=0.5), "bridge cleanup finished before worker release"
+            assert not disconnect_done.is_set(), "response close returned before worker cleanup finished"
+            assert BRIDGE_REGISTRY.snapshot() != ()
+            worker_can_finish.set()
+            assert close_completed.wait(timeout=15.0), "bridge cleanup did not finish after worker release"
+            disconnect_thread.join(timeout=30.0)
+            if disconnect_errors:
+                raise disconnect_errors[0]
+            assert disconnect_done.is_set()
+            _wait_until(
+                lambda: BRIDGE_REGISTRY.snapshot() == (),
+                timeout_seconds=10.0,
+                message="versioned read bridge worker did not exit after disconnect",
+            )
+            _wait_until(
+                lambda: env.runner._active_children.snapshot() == (),
+                timeout_seconds=10.0,
+                message="dolt child processes were not reaped after disconnect",
+            )
+            for process in observed_pids:
+                _wait_until_pid_reaped(process)
+            query_dir = env.layout.staging_artifacts
+            assert list(query_dir.glob("query-*.sql")) == []
     finally:
         worker_can_finish.set()
         close_completed.set()
-        ArrowIpcStreamBridge._test_worker_finish_barrier = None
-        ArrowIpcStreamBridge._test_close_entered_barrier = None
-        ArrowIpcStreamBridge._test_close_completed_barrier = None
+
+
+@pytest.mark.serial
+def test_http_disconnect_reports_command_result_cancelled(
+    read_http_env: ReadHttpIntegrationEnvironment,
+) -> None:
+    env = read_http_env
+    commit_id = _seed_large_items_table(env, sql_name="cancelled.sql", marker_suffix="18")
+    close_results: list[CommandResult] = []
+    original_close = ProcessStream.close
+
+    def recording_close(
+        self: ProcessStream,
+        *,
+        cancelled: bool = False,
+        timed_out: bool = False,
+    ) -> CommandResult:
+        result = original_close(self, cancelled=cancelled, timed_out=timed_out)
+        close_results.append(result)
+        return result
+
+    async def exercise() -> None:
+        async with create_async_streaming_client(env.app) as client:
+            response = await stream_rows(
+                client,
+                path=_rows_url(env, commit_id),
+                params={"table_name": "items"},
+                headers=_auth_headers(),
+            )
+            assert response.status_code == 200
+            first_chunk = await read_first_chunk(response)
+            assert first_chunk
+            await response.aclose()
+
+    with patch.object(ProcessStream, "close", recording_close):
+        run_async(exercise())
+
+    assert close_results
+    assert any(result.cancelled for result in close_results)
 
 
 @pytest.mark.serial

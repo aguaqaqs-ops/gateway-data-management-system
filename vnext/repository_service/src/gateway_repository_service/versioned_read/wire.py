@@ -170,10 +170,13 @@ def _catalog_wire_unavailable(exc: ValidationError) -> ServiceError:
     )
 
 
-def close_row_iterator(iterator: Iterator[pa.RecordBatch]) -> None:
+def close_row_iterator(iterator: Iterator[pa.RecordBatch], *, cancelled: bool = False) -> None:
     close = getattr(iterator, "close", None)
     if callable(close):
-        close()
+        try:
+            close(cancelled=cancelled)
+        except TypeError:
+            close()
         return
     throw = getattr(iterator, "throw", None)
     if callable(throw):

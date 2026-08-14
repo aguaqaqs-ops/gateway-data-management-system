@@ -28,6 +28,7 @@ from gateway_repository_service.versioned_read.arrow_bridge import (
     BridgeJoinTimeoutError,
     BridgeShutdownError,
     BridgeStreamAbortedError,
+    BridgeTestProbe,
     _POLL_TIMEOUT_SECONDS,
 )
 
@@ -85,14 +86,7 @@ def _force_unregister_bridge(
 
 
 @pytest.fixture(autouse=True)
-def _reset_bridge_test_hooks() -> Iterator[None]:
-    ArrowIpcStreamBridge._test_worker_finish_barrier = None
-    ArrowIpcStreamBridge._test_close_entered_barrier = None
-    ArrowIpcStreamBridge._test_close_completed_barrier = None
-    ArrowIpcStreamBridge._test_close_follower_waiting_barrier = None
-    ArrowIpcStreamBridge._test_close_outcome_published_barrier = None
-    ArrowIpcStreamBridge._test_hold_outcome_publish_barrier = None
-    ArrowIpcStreamBridge._test_unregister_barrier = None
+def _cleanup_bridge_registry() -> Iterator[None]:
     yield
     for bridge in BRIDGE_REGISTRY.snapshot():
         _force_unregister_bridge(bridge)
@@ -698,10 +692,12 @@ def test_aclose_completes_cleanup_when_awaiting_task_cancelled() -> None:
     close_completed = threading.Event()
     close_entered = threading.Event()
     barrier_delay_seconds = 0.3
-    ArrowIpcStreamBridge._test_unregister_barrier = unregister_blocked
-    ArrowIpcStreamBridge._test_close_completed_barrier = close_completed
-    ArrowIpcStreamBridge._test_close_entered_barrier = close_entered
-    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event())
+    probe = BridgeTestProbe(
+        unregister_barrier=unregister_blocked,
+        close_completed_barrier=close_completed,
+        close_entered_barrier=close_entered,
+    )
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event(), test_probe=probe)
     try:
 
         def release_unregister_after_delay() -> None:
@@ -745,9 +741,6 @@ def test_aclose_completes_cleanup_when_awaiting_task_cancelled() -> None:
         assert not bridge.is_worker_alive()
     finally:
         unregister_blocked.set()
-        ArrowIpcStreamBridge._test_unregister_barrier = None
-        ArrowIpcStreamBridge._test_close_completed_barrier = None
-        ArrowIpcStreamBridge._test_close_entered_barrier = None
         bridge._worker.join(timeout=5.0)
         BRIDGE_REGISTRY.unregister(bridge)
 
@@ -768,7 +761,7 @@ def _gated_bridge_for_cancel_cleanup(
     producer_blocked = threading.Event()
     close_completed = threading.Event()
     cancellation = threading.Event()
-    ArrowIpcStreamBridge._test_close_completed_barrier = close_completed
+    probe = BridgeTestProbe(close_completed_barrier=close_completed)
 
     def gated_rows() -> Iterator[pa.RecordBatch]:
         yield batches[0]
@@ -780,7 +773,7 @@ def _gated_bridge_for_cancel_cleanup(
         if batch_count > 1:
             yield batches[1]
 
-    bridge = ArrowIpcStreamBridge(plan, gated_rows(), cancellation)
+    bridge = ArrowIpcStreamBridge(plan, gated_rows(), cancellation, test_probe=probe)
     return bridge, release, producer_blocked, close_completed, cancellation
 
 
@@ -813,7 +806,6 @@ def test_aclose_completes_cleanup_under_anyio_cancel_scope() -> None:
         assert BRIDGE_REGISTRY.snapshot() == ()
     finally:
         release.set()
-        ArrowIpcStreamBridge._test_close_completed_barrier = None
         BRIDGE_REGISTRY.unregister(bridge)
 
 
@@ -875,7 +867,6 @@ def test_streaming_response_waits_cleanup_under_anyio_cancel_scope() -> None:
         assert BRIDGE_REGISTRY.snapshot() == ()
     finally:
         release.set()
-        ArrowIpcStreamBridge._test_close_completed_barrier = None
         BRIDGE_REGISTRY.unregister(bridge)
 
 
@@ -896,9 +887,11 @@ def test_sustained_cancel_cleanup_does_not_spin_event_loop(monkeypatch: pytest.M
         return await original_shield(awaitable)
 
     monkeypatch.setattr(asyncio, "shield", counting_shield)
-    ArrowIpcStreamBridge._test_unregister_barrier = unregister_blocked
-    ArrowIpcStreamBridge._test_close_completed_barrier = close_completed
-    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event())
+    probe = BridgeTestProbe(
+        unregister_barrier=unregister_blocked,
+        close_completed_barrier=close_completed,
+    )
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event(), test_probe=probe)
     try:
 
         def release_unregister_after_delay() -> None:
@@ -939,8 +932,6 @@ def test_sustained_cancel_cleanup_does_not_spin_event_loop(monkeypatch: pytest.M
     finally:
         unregister_release.set()
         unregister_blocked.set()
-        ArrowIpcStreamBridge._test_unregister_barrier = None
-        ArrowIpcStreamBridge._test_close_completed_barrier = None
         bridge._worker.join(timeout=5.0)
         BRIDGE_REGISTRY.unregister(bridge)
 
@@ -954,8 +945,8 @@ def test_close_all_waits_for_worker_thread_not_false_survivor() -> None:
     close_errors: list[BaseException] = []
     close_all_errors: list[BaseException] = []
     close_all_finished = threading.Event()
-    ArrowIpcStreamBridge._test_unregister_barrier = unregister_barrier
-    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event())
+    probe = BridgeTestProbe(unregister_barrier=unregister_barrier)
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event(), test_probe=probe)
     try:
 
         def close_in_thread() -> None:
@@ -997,7 +988,6 @@ def test_close_all_waits_for_worker_thread_not_false_survivor() -> None:
         assert BRIDGE_REGISTRY.snapshot() == ()
     finally:
         unregister_barrier.set()
-        ArrowIpcStreamBridge._test_unregister_barrier = None
         BRIDGE_REGISTRY.unregister(bridge)
 
 
@@ -1005,8 +995,8 @@ def test_close_all_waits_for_worker_thread_not_false_survivor() -> None:
 def test_join_timeout_keeps_alive_worker_registered_until_exit() -> None:
     plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
     worker_finish_release = threading.Event()
-    ArrowIpcStreamBridge._test_worker_finish_barrier = worker_finish_release
-    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event())
+    probe = BridgeTestProbe(worker_finish_barrier=worker_finish_release)
+    bridge = ArrowIpcStreamBridge(plan, iter(batches), threading.Event(), test_probe=probe)
     try:
         with pytest.raises(BridgeJoinTimeoutError):
             bridge.close_sync(join_timeout_seconds=0.05)
@@ -1024,7 +1014,6 @@ def test_join_timeout_keeps_alive_worker_registered_until_exit() -> None:
         assert not bridge.is_worker_alive()
     finally:
         worker_finish_release.set()
-        ArrowIpcStreamBridge._test_worker_finish_barrier = None
         bridge._worker.join(timeout=5.0)
         BRIDGE_REGISTRY.unregister(bridge)
 
@@ -1489,12 +1478,18 @@ def test_close_sync_long_deadline_follower_wakes_on_published_outcome() -> None:
         producer_blocked.set()
         release.wait()
 
-    bridge = ArrowIpcStreamBridge(plan, gated_rows(), threading.Event())
+    bridge = ArrowIpcStreamBridge(
+        plan,
+        gated_rows(),
+        threading.Event(),
+        test_probe=BridgeTestProbe(
+            close_follower_waiting_barrier=follower_waiting,
+            close_outcome_published_barrier=outcome_published,
+            hold_outcome_publish_barrier=hold_outcome_publish,
+        ),
+    )
     escalation_leader_errors: list[BaseException] = []
     waiting_follower_errors: list[BaseException] = []
-    ArrowIpcStreamBridge._test_close_follower_waiting_barrier = follower_waiting
-    ArrowIpcStreamBridge._test_close_outcome_published_barrier = outcome_published
-    ArrowIpcStreamBridge._test_hold_outcome_publish_barrier = hold_outcome_publish
 
     def drain_queue() -> None:
         while bridge.is_worker_alive():

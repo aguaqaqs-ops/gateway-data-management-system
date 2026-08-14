@@ -749,7 +749,7 @@ class CandidateADoltCli:
                 raise DoltCliError("Dolt row stream failed")
         finally:
             if stream is not None and not stream_closed:
-                stream.close()
+                stream.close(cancelled=evaluate_stream_cancellation(cancellation))
             query.unlink(missing_ok=True)
 
     def query_json(

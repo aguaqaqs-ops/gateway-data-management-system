@@ -323,6 +323,7 @@ def test_runtime_shutdown_propagates_bridge_shutdown_error_after_releasing_resou
         BRIDGE_REGISTRY,
         ArrowIpcStreamBridge,
         BridgeShutdownError,
+        BridgeTestProbe,
     )
     from support.lifecycle_harness import lifecycle_settings
 
@@ -351,8 +352,8 @@ def test_runtime_shutdown_propagates_bridge_shutdown_error_after_releasing_resou
         plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
         batch = plan.record_batch([plan.normalize_row((1,))])
 
-        ArrowIpcStreamBridge._test_worker_finish_barrier = worker_finish_release
-        bridge = ArrowIpcStreamBridge(plan, iter([batch]), threading.Event())
+        probe = BridgeTestProbe(worker_finish_barrier=worker_finish_release)
+        bridge = ArrowIpcStreamBridge(plan, iter([batch]), threading.Event(), test_probe=probe)
         assert bridge in BRIDGE_REGISTRY.snapshot()
 
         deadline = time.monotonic() + 2.0
@@ -373,7 +374,6 @@ def test_runtime_shutdown_propagates_bridge_shutdown_error_after_releasing_resou
             pass
     finally:
         worker_finish_release.set()
-        ArrowIpcStreamBridge._test_worker_finish_barrier = None
         if bridge is not None:
             if bridge.is_worker_alive():
                 bridge._worker.join(timeout=5.0)

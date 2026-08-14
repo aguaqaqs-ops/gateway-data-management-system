@@ -1097,28 +1097,28 @@ class TestProviderLifecycle:
 class TestDynamicReadiness:
     @pytest.mark.integration
     @pytest.mark.serial
-    def test_closed_control_db_makes_runtime_not_ready(self, tmp_path: Path) -> None:
+    def test_unavailable_control_db_makes_runtime_not_ready(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         runtime = ServiceRuntime.start(settings)
         try:
             assert runtime.is_ready()
-            runtime.control_store.close()
-            assert not runtime.is_ready()
-            assert "control database is unavailable" in runtime.not_ready_message()
+            with patch.object(runtime.control_store, "is_open", return_value=False):
+                assert not runtime.is_ready()
+                assert "control database is unavailable" in runtime.not_ready_message()
         finally:
             runtime.shutdown()
 
     @pytest.mark.integration
-    def test_readyz_returns_503_when_control_db_closed(self, tmp_path: Path) -> None:
+    def test_readyz_returns_503_when_control_db_unavailable(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
         with TestClient(create_app(settings)) as client:
             assert client.get("/readyz").status_code == 200
             runtime = cast(FastAPI, client.app).state.runtime
-            runtime.control_store.close()
-            response = client.get("/readyz")
-            assert response.status_code == 503
-            assert response.json()["code"] == "SERVICE_NOT_READY"
-            assert "control database is unavailable" in response.json()["message"]
+            with patch.object(runtime.control_store, "is_open", return_value=False):
+                response = client.get("/readyz")
+                assert response.status_code == 503
+                assert response.json()["code"] == "SERVICE_NOT_READY"
+                assert "control database is unavailable" in response.json()["message"]
 
     @pytest.mark.integration
     def test_readyz_returns_503_when_free_disk_admission_fails(self, tmp_path: Path) -> None:

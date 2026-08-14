@@ -28,6 +28,7 @@ from gateway_repository_service.versioned_import.recovery import ImportStartupRe
 from gateway_repository_service.versioned_import.verification import (
     IMPORT_REJECTED_CODE,
     VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+    ImportVerificationError,
     ImportVerificationResult,
     verify_import_candidate,
 )
@@ -347,6 +348,48 @@ def test_automatic_replay_happens_once(tmp_path: Path) -> None:
         assert operation is not None
         assert operation.status == OperationStatus.SUCCEEDED
         assert env.store.get_automatic_replay_count(operation_id) == 1
+    finally:
+        env.close()
+
+
+def test_automatic_replay_verification_timeout_is_not_manual(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _deadline_failure(*_args: object, **_kwargs: object) -> ImportVerificationResult:
+        raise ImportVerificationError(
+            VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+            detail="full scan deadline exceeded",
+        )
+
+    monkeypatch.setattr(
+        "gateway_repository_service.versioned_import.recovery.verify_import_candidate",
+        _deadline_failure,
+    )
+    env = WorkerTestEnvironment(tmp_path)
+    try:
+        operation_id = env.enqueue(
+            REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            operation_id=OPERATION_ID,
+            verification_policy=VerificationPolicy.FULL_SCAN,
+        )
+        _claim_running(env, operation_id)
+        context = env.store.load_execution_context(operation_id)
+        assert context is not None
+
+        result = _reconciler(env).reconcile()
+
+        operation = env.store.get_operation(REPOSITORY_ID, operation_id)
+        assert operation is not None
+        assert operation.status == OperationStatus.FAILED
+        assert operation.error is not None
+        assert operation.error.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+        assert env.store.has_unresolved_manual_barrier(REPOSITORY_ID) is False
+        provider = env.provider_for(REPOSITORY_ID)
+        assert provider.read_ref("main") == context.expected_commit_id
+        assert context.private_ref_name not in provider.refs
+        assert result.running_manual == 0
     finally:
         env.close()
 

@@ -50,6 +50,8 @@ from gateway_repository_service.versioned_import.ports import (
 )
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from gateway_repository_service.versioned_import.verification import (
+    IMPORT_REJECTED_CODE,
+    VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
     ImportVerificationError,
     verify_import_candidate,
 )
@@ -555,6 +557,8 @@ class ImportStartupReconciler:
                 return "recovered"
             if replay_outcome == "manual":
                 return "manual"
+            if replay_outcome == "failed":
+                return "failed"
 
         if replay_count >= 1:
             self._mark_manual(
@@ -894,8 +898,34 @@ class ImportStartupReconciler:
             )
             return "recovered"
         except ImportVerificationError as exc:
-            self._mark_manual(context.operation_id, f"verification failed during automatic replay: {exc.code}")
-            return "manual"
+            if exc.code not in {
+                IMPORT_REJECTED_CODE,
+                VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+            }:
+                self._mark_manual(
+                    context.operation_id,
+                    "verification evidence is ambiguous during automatic replay",
+                )
+                return "manual"
+            cleanup_after_not_published_correction(
+                layout=self._layout,
+                context=context,
+                provider=provider,
+            )
+            self._store.mark_failed(
+                context.operation_id,
+                error=SimpleError(
+                    code=exc.code,
+                    message=(
+                        "import rejected during automatic replay"
+                        if exc.code == IMPORT_REJECTED_CODE
+                        else "verification failed before publication during automatic replay"
+                    ),
+                    details={"reason": "startup_recovery"},
+                    request_id=None,
+                ),
+            )
+            return "failed"
         except ImportPackageRejected:
             self._mark_manual(context.operation_id, "import package rejected during automatic replay")
             return "manual"

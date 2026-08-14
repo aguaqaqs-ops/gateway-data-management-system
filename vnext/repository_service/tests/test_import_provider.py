@@ -47,6 +47,7 @@ from gateway_repository_service.versioned_import.models import (
     validate_manifest_sql_type,
 )
 from gateway_repository_service.versioned_import.ports import (
+    CallTimeoutCallback,
     CancellationCallback,
     MarkerInspectionAmbiguous,
     MarkerInspectionUnique,
@@ -579,6 +580,7 @@ def test_dolt_replay_uses_stdin_without_leaking_sql_path(
         timeout: float,
         stdin_path: Path | None = None,
         capture_stdout: bool = False,
+        cancellation: StreamCancellationCheck | None = None,
     ) -> CommandResult:
         captured.append(list(args))
         return original_run(
@@ -588,6 +590,7 @@ def test_dolt_replay_uses_stdin_without_leaking_sql_path(
             timeout=timeout,
             stdin_path=stdin_path,
             capture_stdout=capture_stdout,
+            cancellation=cancellation,
         )
 
     with patch.object(import_provider._runner, "run", side_effect=recording_run):
@@ -1406,10 +1409,19 @@ def test_concurrent_streams_keep_field_limit(
         policy: UnknownTypePolicy,
         *,
         table_plan: CompiledTablePlan | None = None,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> Iterator[pa.RecordBatch]:
         with lock:
             recorded_limits.append(csv.field_size_limit())
-        return original_stream_table(commit_id, table, policy, table_plan=table_plan)
+        return original_stream_table(
+            commit_id,
+            table,
+            policy,
+            table_plan=table_plan,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     errors: list[BaseException] = []
 
@@ -1674,10 +1686,18 @@ def test_catalog_empty_create_or_count_is_typed(
         sql: str,
         *,
         revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> list[dict[str, object]]:
         if kind == "catalog_create":
             return []
-        return original_query_json(kind, sql, revision=revision)
+        return original_query_json(
+            kind,
+            sql,
+            revision=revision,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     with patch.object(import_provider._cli, "query_json", side_effect=empty_create_rows):
         with pytest.raises(ImportProviderError, match="catalog_create"):
@@ -1780,10 +1800,18 @@ def test_catalog_multiple_or_malformed_rows(
         sql: str,
         *,
         revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> list[dict[str, object]]:
         if kind == "catalog_count":
             return [{"row_count": 1}, {"row_count": 2}]
-        return original_query_json(kind, sql, revision=revision)
+        return original_query_json(
+            kind,
+            sql,
+            revision=revision,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     with patch.object(import_provider._cli, "query_json", side_effect=duplicate_count_rows):
         with pytest.raises(ImportProviderError, match="catalog_count"):
@@ -1934,10 +1962,18 @@ def test_catalog_empty_count_or_null_count_is_typed(
         sql: str,
         *,
         revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> list[dict[str, object]]:
         if kind == "catalog_count":
             return []
-        return original_query_json(kind, sql, revision=revision)
+        return original_query_json(
+            kind,
+            sql,
+            revision=revision,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     with patch.object(import_provider._cli, "query_json", side_effect=empty_count_rows):
         with pytest.raises(ImportProviderError, match="catalog_count"):
@@ -1948,10 +1984,18 @@ def test_catalog_empty_count_or_null_count_is_typed(
         sql: str,
         *,
         revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> list[dict[str, object]]:
         if kind == "catalog_count":
             return [{"row_count": None}]
-        return original_query_json(kind, sql, revision=revision)
+        return original_query_json(
+            kind,
+            sql,
+            revision=revision,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     with patch.object(import_provider._cli, "query_json", side_effect=null_count_rows):
         with pytest.raises(ImportProviderError, match="invalid catalog_count"):
@@ -2057,10 +2101,19 @@ def test_concurrent_streams_with_over_128k_field(
         policy: UnknownTypePolicy,
         *,
         table_plan: CompiledTablePlan | None = None,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> Iterator[pa.RecordBatch]:
         with lock:
             recorded_limits.append(csv.field_size_limit())
-        return original_stream_table(commit_id, table, policy, table_plan=table_plan)
+        return original_stream_table(
+            commit_id,
+            table,
+            policy,
+            table_plan=table_plan,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     errors: list[BaseException] = []
 
@@ -2215,10 +2268,18 @@ def test_read_catalog_duplicate_parent_rows(
         sql: str,
         *,
         revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> list[dict[str, object]]:
         if kind == "candidate_parent":
             return [{"parents": "parent1"}, {"parents": "parent2"}]
-        return original_query_json(kind, sql, revision=revision)
+        return original_query_json(
+            kind,
+            sql,
+            revision=revision,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     with patch.object(import_provider._cli, "query_json", side_effect=duplicate_parent_rows):
         with pytest.raises(ImportProviderError, match="candidate_parent"):
@@ -2238,9 +2299,19 @@ def test_read_catalog_and_type_catalog_share_strict_parent_helper(
     calls: list[str] = []
     original = import_provider._read_candidate_parent
 
-    def recording_parent(self: CandidateAImportProvider, value: str) -> str:
+    def recording_parent(
+        self: CandidateAImportProvider,
+        value: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
+    ) -> str:
         calls.append(value)
-        return original(value)
+        return original(
+            value,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     with patch.object(
         CandidateAImportProvider,
@@ -2312,10 +2383,18 @@ def test_catalog_row_count_rejects_malformed_scalar(
             sql: str,
             *,
             revision: str | None = None,
+            cancellation: StreamCancellationCheck | None = None,
+            call_timeout: CallTimeoutCallback | None = None,
         ) -> list[dict[str, object]]:
             if kind == "catalog_count":
                 return [{"row_count": raw_count}]
-            return original_query_json(kind, sql, revision=revision)
+            return original_query_json(
+                kind,
+                sql,
+                revision=revision,
+                cancellation=cancellation,
+                call_timeout=call_timeout,
+            )
 
         with patch.object(
             import_provider._cli,
@@ -3787,11 +3866,19 @@ def test_read_catalog_reuses_candidate_commit_cache(
         sql: str,
         *,
         revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> list[dict[str, object]]:
         nonlocal catalog_queries
         if kind in catalog_query_kinds:
             catalog_queries += 1
-        return original_query_json(kind, sql, revision=revision)
+        return original_query_json(
+            kind,
+            sql,
+            revision=revision,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     with patch.object(import_provider._cli, "query_json", side_effect=counting_query_json):
         first_catalog = import_provider.read_catalog(candidate)

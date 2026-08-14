@@ -33,7 +33,7 @@ from gateway_repository_service.versioned_import.models import (
     ImportRequestBinding,
     derive_private_ref_name,
 )
-from gateway_repository_service.arrow_mapping import ColumnCatalog, TableCatalog
+from gateway_repository_service.arrow_mapping import CompiledTablePlan, ColumnCatalog, TableCatalog
 from gateway_repository_service.versioned_import.verification import (
     IMPORT_REJECTED_CODE,
     VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
@@ -228,6 +228,51 @@ def test_manual_barrier_skips_queued_operation(worker_env: WorkerTestEnvironment
     pending = worker_env.store.get_operation(REPOSITORY_ID, second_operation)
     assert pending is not None
     assert pending.status == OperationStatus.QUEUED
+
+
+def test_dispatcher_rechecks_manual_barrier_when_claiming(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = WorkerTestEnvironment(tmp_path)
+    try:
+        barrier_operation = env.enqueue(
+            REPOSITORY_ID,
+            artifact_id=ARTIFACT_ID,
+            operation_id=OPERATION_ID,
+            key="barrier-race",
+        )
+        assert env.store.claim_if_queued(barrier_operation) is not None
+
+        queued_artifact = UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c11")
+        queued_operation = env.enqueue(
+            REPOSITORY_ID,
+            artifact_id=queued_artifact,
+            key="stale-dispatch-candidate",
+        )
+        stale_candidates = env.store.list_earliest_queued_per_repository()
+        assert [candidate[1] for candidate in stale_candidates] == [queued_operation]
+
+        env.store.mark_failed(
+            barrier_operation,
+            error=SimpleError(
+                code=MANUAL_RECOVERY_REQUIRED_CODE,
+                message="manual",
+                request_id=None,
+            ),
+        )
+        monkeypatch.setattr(
+            env.store,
+            "list_earliest_queued_per_repository",
+            lambda: stale_candidates,
+        )
+
+        assert env.pool._try_claim_one() is None
+        queued = env.store.get_operation(REPOSITORY_ID, queued_operation)
+        assert queued is not None
+        assert queued.status == OperationStatus.QUEUED
+    finally:
+        env.close()
 
 
 @pytest.mark.serial
@@ -1160,6 +1205,57 @@ def test_full_scan_deadline_is_cumulative(monkeypatch: pytest.MonkeyPatch) -> No
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
     assert recorded_timeouts == [10.0, 10.0]
     assert streamed_tables == ["t1"]
+
+
+@pytest.mark.unit
+def test_full_scan_deadline_covers_plan_compilation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from test_import_verification import manifest_from_tables
+
+    from gateway_repository_service.versioned_import import verification as verification_module
+    from gateway_repository_service.versioned_import.ports import VersionedImportProvider
+
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    catalog = (
+        TableCatalog(
+            "records",
+            (ColumnCatalog("id", "BIGINT", False, 1),),
+            0,
+        ),
+    )
+
+    class _Provider:
+        def read_catalog(self, *_args: object, **_kwargs: object) -> tuple[TableCatalog, ...]:
+            return catalog
+
+        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[object]:
+            raise AssertionError("deadline exhaustion must prevent table streaming")
+
+    original_compile = verification_module._compile_table_plans
+
+    def _compile_after_deadline(
+        actual_catalog: tuple[TableCatalog, ...],
+        policy: UnknownTypePolicy,
+    ) -> dict[str, CompiledTablePlan]:
+        plans = original_compile(actual_catalog, policy)
+        clock[0] = 11.0
+        return plans
+
+    monkeypatch.setattr(verification_module, "_compile_table_plans", _compile_after_deadline)
+
+    with pytest.raises(ImportVerificationError) as exc_info:
+        verify_import_candidate(
+            cast(VersionedImportProvider, _Provider()),
+            candidate="candidate-1",
+            manifest=manifest_from_tables(catalog),
+            verification_policy=VerificationPolicy.FULL_SCAN,
+            unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+            full_scan_timeout_seconds=10,
+        )
+
+    assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
 
 
 def _wait_until_pid_reaped(pid: int, *, timeout_seconds: float = 5.0) -> None:

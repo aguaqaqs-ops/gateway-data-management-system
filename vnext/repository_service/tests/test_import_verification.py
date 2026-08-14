@@ -25,7 +25,7 @@ from gateway_repository_service.fixtures import Workload, generate_fixture
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.candidate_a.sql import _tagged_select_list
-from gateway_repository_service.process import CommandResult, DoltRunner
+from gateway_repository_service.process import CommandResult, DoltRunner, StreamCancellationCheck
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.models import (
@@ -36,7 +36,10 @@ from gateway_repository_service.versioned_import.models import (
     derive_operation_marker,
     derive_private_ref_name,
 )
-from gateway_repository_service.versioned_import.ports import VersionedImportProvider
+from gateway_repository_service.versioned_import.ports import (
+    CallTimeoutCallback,
+    VersionedImportProvider,
+)
 from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
 from gateway_repository_service.versioned_import.verification import (
     IMPORT_REJECTED_CODE,
@@ -355,9 +358,22 @@ def test_none_reject_uses_minimal_type_projection_without_row_counts(
     issued_kinds: list[str] = []
     original_query_json = import_provider._cli.query_json
 
-    def recording_query_json(kind: str, sql: str, *, revision: str | None = None) -> list[dict[str, object]]:
+    def recording_query_json(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
+    ) -> list[dict[str, object]]:
         issued_kinds.append(kind)
-        return original_query_json(kind, sql, revision=revision)
+        return original_query_json(
+            kind,
+            sql,
+            revision=revision,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     with patch.object(import_provider._cli, "query_json", side_effect=recording_query_json):
         verify_import_candidate(

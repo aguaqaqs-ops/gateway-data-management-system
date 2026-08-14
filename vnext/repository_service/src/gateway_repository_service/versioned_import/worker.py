@@ -305,7 +305,7 @@ class ImportWorkerPool:
         for repository_id, operation_id, _enqueue_sequence in ordered:
             if not self._locks.try_reserve(repository_id):
                 continue
-            claimed = self._store.claim_if_queued(operation_id)
+            claimed = self._store.claim_if_dispatchable_queued(operation_id)
             if claimed is None:
                 self._locks.release_reservation(repository_id)
                 continue

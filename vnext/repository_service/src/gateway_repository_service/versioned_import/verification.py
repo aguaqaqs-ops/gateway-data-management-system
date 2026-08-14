@@ -147,6 +147,7 @@ def _verify_full_scan_candidate(
         )
         table_plans = _compile_table_plans(catalog, unknown_type_policy)
         _compare_manifest_structural(manifest, catalog)
+        _raise_if_deadline_exhausted(deadline)
         _full_scan_tables(
             provider,
             candidate,
@@ -156,6 +157,7 @@ def _verify_full_scan_candidate(
             table_plans,
             deadline=deadline,
         )
+        _raise_if_deadline_exhausted(deadline)
     except ImportProviderError as exc:
         _raise_deadline_verification_failure(deadline, exc)
 
@@ -341,6 +343,7 @@ def _full_scan_tables(
             )
         except ImportProviderError as exc:
             _raise_deadline_verification_failure(deadline, exc)
+        _raise_if_deadline_exhausted(deadline)
         if scanned_rows != expected_row_count:
             raise ImportVerificationError(
                 VERIFICATION_FAILED_NOT_PUBLISHED_CODE,

@@ -457,6 +457,21 @@ class ImportOperationStore:
         with self._transaction():
             return self._claim_if_queued_locked(operation_id)
 
+    def claim_if_dispatchable_queued(
+        self,
+        operation_id: UUID,
+    ) -> StoredImportOperation | None:
+        """Claim only while the operation's repository has no manual barrier."""
+
+        with self._transaction():
+            row = self._fetch_by_operation_id(operation_id)
+            if row is None or str(row["status"]) != OperationStatus.QUEUED.value:
+                return None
+            repository_id = UUID(str(row["repository_scope"]))
+            if self._has_unresolved_manual_barrier_locked(repository_id):
+                return None
+            return self._claim_if_queued_locked(operation_id)
+
     def mark_succeeded(self, operation_id: UUID, *, result: VersionedImportResult) -> StoredImportOperation:
         validated = self._validate_terminal_result(operation_id, result=result, error=None)
         with self._transaction():

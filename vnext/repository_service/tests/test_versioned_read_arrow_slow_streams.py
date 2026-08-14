@@ -47,6 +47,7 @@ def _make_gated_rows(
 
 
 @pytest.mark.unit
+@pytest.mark.serial
 def test_bridge_test_probe_is_instance_scoped() -> None:
     plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
     probe_a = BridgeTestProbe(close_entered_barrier=threading.Event())
@@ -106,36 +107,53 @@ def test_slow_streams_do_not_poll_default_executor(stream_count: int) -> None:
             to_thread_calls += 1
         return await original_to_thread(func, *args, **kwargs)
 
-    async def slow_consume(bridge: ArrowIpcStreamBridge, blocked: threading.Event) -> None:
-        async for chunk in bridge.iter_bytes():
-            if chunk:
-                break
+    async def slow_consume(
+        bridge: ArrowIpcStreamBridge,
+        blocked: threading.Event,
+        release: threading.Event,
+    ) -> float:
+        stream = bridge.iter_bytes()
+        first_chunk = await anext(stream)
+        assert first_chunk
         _wait_until(blocked.is_set, timeout_seconds=2.0, message="producer did not block")
         await asyncio.sleep(SLOW_WINDOW_SECONDS)
+        cleanup_started = time.monotonic()
+        release.set()
+        close_stream = getattr(stream, "aclose")
+        await close_stream()
+        return time.monotonic() - cleanup_started
 
-    cleanup_started = time.monotonic()
     try:
         with patch("asyncio.to_thread", counting_to_thread):
             measuring = True
 
-            async def exercise() -> None:
-                await asyncio.gather(
+            async def exercise() -> tuple[float, ...]:
+                durations = await asyncio.gather(
                     *(
-                        slow_consume(bridge, producer_blocked)
-                        for bridge, producer_blocked in zip(bridges, producer_blockeds, strict=True)
+                        slow_consume(bridge, producer_blocked, release)
+                        for bridge, producer_blocked, release in zip(
+                            bridges,
+                            producer_blockeds,
+                            releases,
+                            strict=True,
+                        )
                     )
                 )
+                return tuple(durations)
 
-            asyncio.run(exercise())
+            cleanup_durations = asyncio.run(exercise())
             measuring = False
 
         sample = SlowStreamSample(
             stream_count=stream_count,
             default_executor_to_thread_calls=to_thread_calls,
             bridge_thread_count=sum(1 for bridge in bridges if bridge.is_worker_alive()),
-            cleanup_duration_seconds=time.monotonic() - cleanup_started,
+            cleanup_duration_seconds=max(cleanup_durations, default=0.0),
         )
         assert sample.default_executor_to_thread_calls == 0, sample
+        assert sample.bridge_thread_count == 0, sample
+        assert sample.cleanup_duration_seconds < 5.0, sample
+        assert BRIDGE_REGISTRY.snapshot() == ()
     finally:
         for release in releases:
             release.set()

@@ -489,7 +489,7 @@ def test_full_scan_row_count_mismatch_raises(
 
 def test_structural_unknown_spelling_must_match_exactly() -> None:
     class FakeProvider:
-        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return (
                 TableCatalog(
                     "records",
@@ -501,7 +501,7 @@ def test_structural_unknown_spelling_must_match_exactly() -> None:
                 ),
             )
 
-        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_type_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return self.read_catalog(candidate)
 
         def stream_table(self, *_args: object, **_kwargs: object) -> list[object]:
@@ -542,10 +542,10 @@ def test_provider_fault_escapes_unchanged_from_read_catalog(
     verification_policy: VerificationPolicy,
 ) -> None:
     class FaultingProvider:
-        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             raise ImportProviderError("dolt catalog process died")
 
-        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_type_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             raise ImportProviderError("dolt catalog process died")
 
         def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
@@ -567,11 +567,11 @@ def test_provider_fault_escapes_unchanged_from_read_catalog(
 
 def test_provider_fault_escapes_unchanged_from_stream_table() -> None:
     class FaultingProvider:
-        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             table = TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 1)
             return (table,)
 
-        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_type_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return self.read_catalog(candidate)
 
         def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
@@ -593,10 +593,10 @@ def test_provider_fault_escapes_unchanged_from_stream_table() -> None:
 
 def test_full_scan_batch_contract_mismatch_raises_verification_failed() -> None:
     class ContractMismatchProvider:
-        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return (TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 1),)
 
-        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_type_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return self.read_catalog(candidate)
 
         def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
@@ -633,10 +633,10 @@ def test_out_of_bounds_spelling_stringify_passes_structural_and_full_scan(
     )
 
     class OutOfBoundsProvider:
-        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return (table,)
 
-        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_type_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return self.read_catalog(candidate)
 
         def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
@@ -668,10 +668,10 @@ def test_out_of_bounds_spelling_stringify_passes_structural_and_full_scan(
 
 def test_full_scan_sql_value_conversion_error_maps_to_verification_failed() -> None:
     class ConversionFailureProvider:
-        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return (TableCatalog("records", (ColumnCatalog("id", "INT", False, 1),), 1),)
 
-        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_type_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return self.read_catalog(candidate)
 
         def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
@@ -867,10 +867,10 @@ def test_full_scan_malformed_value_stays_verification_failed() -> None:
     manifest = manifest_from_tables((table,))
 
     class MalformedValueProvider:
-        def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return (table,)
 
-        def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+        def read_type_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
             return self.read_catalog(candidate)
 
         def stream_table(
@@ -880,6 +880,7 @@ def test_full_scan_malformed_value_stays_verification_failed() -> None:
             _policy: UnknownTypePolicy,
             *,
             table_plan: CompiledTablePlan | None = None,
+            **kwargs: object,
         ) -> Iterator[pa.RecordBatch]:
             assert table_plan is not None
             table_plan.normalize_row((SENTINEL_RAW_VALUE,))
@@ -960,7 +961,10 @@ def test_full_scan_catalog_manifest_mismatch_raises_typed_error(
     manifest_tables: tuple[TableCatalog, ...],
     expected_detail: str | None,
 ) -> None:
-    from gateway_repository_service.versioned_import.verification import _full_scan_tables
+    from gateway_repository_service.versioned_import.verification import (
+        MonotonicDeadline,
+        _full_scan_tables,
+    )
 
     class ScanProvider:
         def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
@@ -979,6 +983,7 @@ def test_full_scan_catalog_manifest_mismatch_raises_typed_error(
             manifest=manifest,
             unknown_type_policy=UnknownTypePolicy.STRINGIFY,
             table_plans=table_plans,
+            deadline=MonotonicDeadline.from_timeout_seconds(3600),
         )
     assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
     if expected_detail is not None:

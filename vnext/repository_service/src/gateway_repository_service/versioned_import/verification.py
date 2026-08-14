@@ -5,6 +5,7 @@ NONE + STRINGIFY returns immediately without provider calls (§12 literal).
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import pyarrow as pa  # type: ignore[import-untyped]
@@ -19,11 +20,18 @@ from gateway_repository_service.arrow_mapping import (
     compile_table_plan,
     is_known_sql_type,
 )
+from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.models import ImportManifest, ImportManifestTable
-from gateway_repository_service.versioned_import.ports import VersionedImportProvider
+from gateway_repository_service.versioned_import.ports import (
+    CallTimeoutCallback,
+    CancellationCallback,
+    VersionedImportProvider,
+)
 
 IMPORT_REJECTED_CODE = "IMPORT_REJECTED"
 VERIFICATION_FAILED_NOT_PUBLISHED_CODE = "VERIFICATION_FAILED_NOT_PUBLISHED"
+_FULL_SCAN_DEADLINE_DETAIL = "full scan deadline exceeded"
+_DEFAULT_FULL_SCAN_TIMEOUT_SECONDS = 3600
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +47,30 @@ class ImportVerificationError(Exception):
         super().__init__(detail or code)
 
 
+@dataclass(frozen=True, slots=True)
+class MonotonicDeadline:
+    deadline_at: float
+
+    @classmethod
+    def from_timeout_seconds(cls, timeout_seconds: int) -> MonotonicDeadline:
+        return cls(deadline_at=time.monotonic() + timeout_seconds)
+
+    def remaining(self) -> float:
+        return self.deadline_at - time.monotonic()
+
+    def exhausted(self) -> bool:
+        return self.remaining() <= 0
+
+    def cancellation(self) -> CancellationCallback:
+        return lambda: self.exhausted()
+
+    def effective_timeout(self, per_call_timeout: float) -> float:
+        remaining = self.remaining()
+        if remaining <= 0:
+            return 0.0
+        return min(per_call_timeout, remaining)
+
+
 def verify_import_candidate(
     provider: VersionedImportProvider,
     *,
@@ -46,6 +78,7 @@ def verify_import_candidate(
     manifest: ImportManifest,
     verification_policy: VerificationPolicy,
     unknown_type_policy: UnknownTypePolicy,
+    full_scan_timeout_seconds: int | None = None,
 ) -> ImportVerificationResult:
     if (
         verification_policy == VerificationPolicy.NONE
@@ -67,18 +100,53 @@ def verify_import_candidate(
             unknown_type_policy=unknown_type_policy,
         )
 
+    if verification_policy == VerificationPolicy.FULL_SCAN:
+        timeout_seconds = (
+            full_scan_timeout_seconds
+            if full_scan_timeout_seconds is not None
+            else _DEFAULT_FULL_SCAN_TIMEOUT_SECONDS
+        )
+        return _verify_full_scan_candidate(
+            provider,
+            candidate=candidate,
+            manifest=manifest,
+            unknown_type_policy=unknown_type_policy,
+            full_scan_timeout_seconds=timeout_seconds,
+        )
+
     catalog = provider.read_catalog(candidate)
 
-    table_plans: dict[str, CompiledTablePlan] | None = None
-    if verification_policy in {
-        VerificationPolicy.STRUCTURAL,
-        VerificationPolicy.FULL_SCAN,
-    }:
-        table_plans = _compile_table_plans(catalog, unknown_type_policy)
+    if verification_policy == VerificationPolicy.STRUCTURAL:
+        _compile_table_plans(catalog, unknown_type_policy)
         _compare_manifest_structural(manifest, catalog)
 
-    if verification_policy == VerificationPolicy.FULL_SCAN:
-        assert table_plans is not None
+    return ImportVerificationResult(
+        completed_verification_policy=verification_policy,
+        unknown_type_policy=unknown_type_policy,
+    )
+
+
+def _verify_full_scan_candidate(
+    provider: VersionedImportProvider,
+    *,
+    candidate: str,
+    manifest: ImportManifest,
+    unknown_type_policy: UnknownTypePolicy,
+    full_scan_timeout_seconds: int,
+) -> ImportVerificationResult:
+    deadline = MonotonicDeadline.from_timeout_seconds(full_scan_timeout_seconds)
+    cancellation = deadline.cancellation()
+    call_timeout: CallTimeoutCallback = deadline.effective_timeout
+
+    try:
+        _raise_if_deadline_exhausted(deadline)
+        catalog = provider.read_catalog(
+            candidate,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
+        table_plans = _compile_table_plans(catalog, unknown_type_policy)
+        _compare_manifest_structural(manifest, catalog)
         _full_scan_tables(
             provider,
             candidate,
@@ -86,12 +154,35 @@ def verify_import_candidate(
             manifest,
             unknown_type_policy,
             table_plans,
+            deadline=deadline,
         )
+    except ImportProviderError as exc:
+        _raise_deadline_verification_failure(deadline, exc)
 
     return ImportVerificationResult(
-        completed_verification_policy=verification_policy,
+        completed_verification_policy=VerificationPolicy.FULL_SCAN,
         unknown_type_policy=unknown_type_policy,
     )
+
+
+def _raise_if_deadline_exhausted(deadline: MonotonicDeadline) -> None:
+    if deadline.exhausted():
+        raise ImportVerificationError(
+            VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+            detail=_FULL_SCAN_DEADLINE_DETAIL,
+        )
+
+
+def _raise_deadline_verification_failure(
+    deadline: MonotonicDeadline,
+    exc: ImportProviderError,
+) -> None:
+    if deadline.exhausted():
+        raise ImportVerificationError(
+            VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+            detail=_FULL_SCAN_DEADLINE_DETAIL,
+        ) from exc
+    raise exc
 
 
 def _manifest_tables_as_catalog(manifest: ImportManifest) -> tuple[TableCatalog, ...]:
@@ -207,7 +298,11 @@ def _full_scan_tables(
     manifest: ImportManifest,
     unknown_type_policy: UnknownTypePolicy,
     table_plans: dict[str, CompiledTablePlan],
+    *,
+    deadline: MonotonicDeadline,
 ) -> None:
+    cancellation = deadline.cancellation()
+    call_timeout: CallTimeoutCallback = deadline.effective_timeout
     # FULL_SCAN enforces bidirectional manifest/catalog table-name alignment without
     # assuming _compare_manifest_structural() already ran.
     manifest_names = {table.name for table in manifest.tables}
@@ -224,6 +319,7 @@ def _full_scan_tables(
         )
     manifest_row_counts = {table.name: table.row_count for table in manifest.tables}
     for table in catalog:
+        _raise_if_deadline_exhausted(deadline)
         expected_row_count = manifest_row_counts[table.name]
         scanned_rows = 0
         plan = table_plans[table.name]
@@ -233,6 +329,8 @@ def _full_scan_tables(
                 table,
                 unknown_type_policy,
                 table_plan=plan,
+                cancellation=cancellation,
+                call_timeout=call_timeout,
             ):
                 _assert_batch_contract(batch, plan)
                 scanned_rows += batch.num_rows
@@ -241,6 +339,8 @@ def _full_scan_tables(
                 VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
                 detail=f"value conversion failed for {table.name}.{exc.column}",
             )
+        except ImportProviderError as exc:
+            _raise_deadline_verification_failure(deadline, exc)
         if scanned_rows != expected_row_count:
             raise ImportVerificationError(
                 VERIFICATION_FAILED_NOT_PUBLISHED_CODE,

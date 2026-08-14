@@ -204,6 +204,7 @@ class ImportOperationExecutor:
             manifest=package.manifest,
             verification_policy=context.verification_policy,
             unknown_type_policy=context.unknown_type_policy,
+            full_scan_timeout_seconds=self._settings.full_scan_timeout_seconds,
         )
         self._fault_injector.maybe_raise(
             ImportWorkerFaultPoint.AFTER_VERIFICATION_BEFORE_SECOND_MAIN_CHECK

@@ -6,6 +6,7 @@ import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -32,9 +33,12 @@ from gateway_repository_service.versioned_import.models import (
     ImportRequestBinding,
     derive_private_ref_name,
 )
+from gateway_repository_service.arrow_mapping import ColumnCatalog, TableCatalog
 from gateway_repository_service.versioned_import.verification import (
     IMPORT_REJECTED_CODE,
     VERIFICATION_FAILED_NOT_PUBLISHED_CODE,
+    ImportVerificationError,
+    verify_import_candidate,
 )
 from support.import_worker_harness import (
     DEFAULT_MAIN_COMMIT,
@@ -1086,3 +1090,229 @@ def test_import_worker_pool_partial_start_joins_started_threads(
     assert env.pool._dispatcher is None
     assert env.pool._workers == []
     env.close()
+
+
+@pytest.mark.unit
+def test_full_scan_deadline_is_cumulative(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pyarrow as pa  # type: ignore[import-untyped]
+
+    from test_import_verification import manifest_from_tables
+
+    from gateway_repository_service.versioned_import.ports import (
+        CallTimeoutCallback,
+        CancellationCallback,
+        VersionedImportProvider,
+    )
+
+    times = iter([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 11.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(times, 100.0))
+
+    columns = (ColumnCatalog("id", "BIGINT", False, 1),)
+    catalog = (
+        TableCatalog("t1", columns, 1),
+        TableCatalog("t2", columns, 1),
+    )
+    manifest = manifest_from_tables(catalog)
+    recorded_timeouts: list[float] = []
+    streamed_tables: list[str] = []
+
+    class _Provider:
+        def read_catalog(
+            self,
+            candidate: str,
+            *,
+            cancellation: CancellationCallback | None = None,
+            call_timeout: CallTimeoutCallback | None = None,
+        ) -> tuple[TableCatalog, ...]:
+            del candidate, cancellation
+            if call_timeout is not None:
+                recorded_timeouts.append(call_timeout(30.0))
+            return catalog
+
+        def stream_table(
+            self,
+            candidate: str,
+            table: TableCatalog,
+            policy: UnknownTypePolicy,
+            *,
+            table_plan: object = None,
+            cancellation: CancellationCallback | None = None,
+            call_timeout: CallTimeoutCallback | None = None,
+        ) -> Iterator[pa.RecordBatch]:
+            del candidate, policy, table_plan, cancellation
+            streamed_tables.append(table.name)
+            if call_timeout is not None:
+                recorded_timeouts.append(call_timeout(3600.0))
+            yield pa.record_batch({"id": pa.array([1], type=pa.int64())})
+
+    provider = cast(VersionedImportProvider, _Provider())
+
+    with pytest.raises(ImportVerificationError) as exc_info:
+        verify_import_candidate(
+            provider,
+            candidate="candidate-1",
+            manifest=manifest,
+            verification_policy=VerificationPolicy.FULL_SCAN,
+            unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+            full_scan_timeout_seconds=10,
+        )
+
+    assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+    assert recorded_timeouts == [10.0, 10.0]
+    assert streamed_tables == ["t1"]
+
+
+def _wait_until_pid_reaped(pid: int, *, timeout_seconds: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not Path(f"/proc/{pid}").exists():
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"process {pid} was not reaped")
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_full_scan_timeout_cancels_and_reaps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_repository_service.candidate_a.dolt_cli import write_query
+    from gateway_repository_service.layout import DurableLayout
+    from gateway_repository_service.process import DoltRunner
+    from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
+    from test_import_verification import manifest_from_tables
+    from support.lifecycle_harness import lifecycle_settings
+
+    import subprocess
+    from typing import BinaryIO
+
+    settings = lifecycle_settings(tmp_path)
+    layout = DurableLayout.create_for_probe(settings.data_root)
+    repository = layout.staging_artifacts / "full-scan-deadline-repo"
+    repository.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(DoltRunner, "_validate_version", lambda self: None)
+    runner = DoltRunner(settings, layout.root)
+    runner.run(
+        "init",
+        [
+            "init",
+            f"--name={settings.author_name}",
+            f"--email={settings.author_email}",
+            "--initial-branch=main",
+        ],
+        cwd=repository,
+        timeout=settings.metadata_timeout_seconds,
+    )
+    values = ", ".join(f"({index})" for index in range(8192))
+    setup_sql = write_query(
+        layout.staging_artifacts,
+        (
+            "CREATE TABLE stream_probe (id BIGINT NOT NULL PRIMARY KEY);\n"
+            f"INSERT INTO stream_probe (id) VALUES {values};\n"
+        ),
+    )
+    runner.run(
+        "setup_probe",
+        ["sql", "--result-format=csv"],
+        cwd=repository,
+        timeout=settings.import_timeout_seconds,
+        stdin_path=setup_sql,
+    )
+    setup_sql.unlink(missing_ok=True)
+    runner.run(
+        "commit_probe",
+        ["commit", "-Am", "probe"],
+        cwd=repository,
+        timeout=settings.metadata_timeout_seconds,
+    )
+    provider = CandidateAImportProvider(settings, layout, repository, runner)
+    candidate = provider.read_ref("main")
+
+    columns = (ColumnCatalog("id", "BIGINT", False, 1),)
+    catalog = (TableCatalog("stream_probe", columns, 8192),)
+    manifest = manifest_from_tables(catalog)
+
+    clock = [0.0]
+
+    def fake_monotonic() -> float:
+        return clock[0]
+
+    monkeypatch.setattr(time, "monotonic", fake_monotonic)
+
+    observed_pids: list[int] = []
+    original_start = DoltRunner._start
+
+    def tracking_start(
+        self: DoltRunner,
+        command_kind: str,
+        args: list[str],
+        *,
+        cwd: Path,
+        stdin_path: Path | None = None,
+        stdout_target: BinaryIO | int | None = None,
+        owner: object | None = None,
+    ) -> tuple[subprocess.Popen[bytes], BinaryIO | None]:
+        process, stdin_handle = original_start(
+            self,
+            command_kind,
+            args,
+            cwd=cwd,
+            stdin_path=stdin_path,
+            stdout_target=stdout_target,
+            owner=owner,
+        )
+        if command_kind == "row_stream":
+            clock[0] = 5.0
+            if process.poll() is None:
+                observed_pids.append(process.pid)
+        return process, stdin_handle
+
+    monkeypatch.setattr(DoltRunner, "_start", tracking_start)
+
+    query_files_before = list(layout.staging_artifacts.glob("query-*.sql"))
+
+    with pytest.raises(ImportVerificationError) as exc_info:
+        verify_import_candidate(
+            provider,
+            candidate=candidate,
+            manifest=manifest,
+            verification_policy=VerificationPolicy.FULL_SCAN,
+            unknown_type_policy=UnknownTypePolicy.STRINGIFY,
+            full_scan_timeout_seconds=1,
+        )
+
+    assert exc_info.value.code == VERIFICATION_FAILED_NOT_PUBLISHED_CODE
+    assert observed_pids
+    for pid in observed_pids:
+        _wait_until_pid_reaped(pid)
+    query_files_after = list(layout.staging_artifacts.glob("query-*.sql"))
+    assert query_files_after == query_files_before
+
+
+@pytest.mark.unit
+def test_cancellable_provider_wrapper_merges_catalog_cancellation() -> None:
+    from unittest.mock import MagicMock
+
+    from gateway_repository_service.versioned_import.ports import CancellationCallback
+    from gateway_repository_service.versioned_import.worker import _CancellableProviderWrapper
+
+    inner = MagicMock()
+    received: list[CancellationCallback | None] = []
+
+    def _record_catalog(
+        _candidate: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: object = None,
+    ) -> tuple[object, ...]:
+        del call_timeout
+        received.append(cancellation)
+        return ()
+
+    inner.read_catalog.side_effect = _record_catalog
+    wrapper = _CancellableProviderWrapper(inner, lambda: True)
+    wrapper.read_catalog("candidate-1", cancellation=lambda: False)
+    assert len(received) == 1
+    assert received[0] is not None
+    assert received[0]() is True

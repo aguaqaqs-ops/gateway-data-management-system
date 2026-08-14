@@ -24,6 +24,7 @@ from gateway_repository_service.versioned_import.faults import ImportWorkerFault
 from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
 from gateway_repository_service.versioned_import.models import ImportRequestBinding
 from gateway_repository_service.versioned_import.ports import (
+    CallTimeoutCallback,
     CancellationCallback,
     MarkerInspection,
     MarkerInspectionAmbiguous,
@@ -108,7 +109,14 @@ class FakeImportProvider:
         candidate, parent, refs = self.markers[marker]
         return MarkerInspectionUnique(candidate=candidate, parent=parent, refs=refs)
 
-    def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+    def read_catalog(
+        self,
+        candidate: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
+    ) -> tuple[TableCatalog, ...]:
+        del candidate, cancellation, call_timeout
         return (
             TableCatalog(
                 "records",
@@ -117,8 +125,18 @@ class FakeImportProvider:
             ),
         )
 
-    def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
-        return self.read_catalog(candidate)
+    def read_type_catalog(
+        self,
+        candidate: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
+    ) -> tuple[TableCatalog, ...]:
+        return self.read_catalog(
+            candidate,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
 
     def stream_table(
         self,
@@ -127,7 +145,10 @@ class FakeImportProvider:
         policy: UnknownTypePolicy,
         *,
         table_plan: object = None,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> Iterator[pa.RecordBatch]:
+        del candidate, table, policy, table_plan, cancellation, call_timeout
         yield pa.record_batch({"id": pa.array([], type=pa.int64())})
 
     def publish_main(self, expected_commit: str, candidate: str) -> PublishMainResult:

@@ -6,7 +6,7 @@ import csv
 import json
 import threading
 from collections import OrderedDict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -403,10 +403,19 @@ class CandidateADoltCli:
                 self._catalog_cache.popitem(last=False)
             self._catalog_cache[commit_id] = catalog
 
-    def _load_table_schema(self, table_name: str, target_literal: str) -> TableCatalog:
+    def _load_table_schema(
+        self,
+        table_name: str,
+        target_literal: str,
+        *,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: Callable[[float], float] | None = None,
+    ) -> TableCatalog:
         create_rows = self.query_json(
             "catalog_create",
             f"SHOW CREATE TABLE {quote_identifier(table_name)} AS OF {target_literal};\n",
+            cancellation=cancellation,
+            call_timeout=call_timeout,
         )
         create_row = _require_exactly_one_row(create_rows, "catalog_create")
         ddl = _extract_show_create_fields(create_row, table_name, "catalog_create")
@@ -415,11 +424,25 @@ class CandidateADoltCli:
             raise DoltCliError("Dolt catalog_create DDL table name mismatch")
         return parsed
 
-    def _load_table_catalog(self, table_name: str, target_literal: str) -> TableCatalog:
-        parsed = self._load_table_schema(table_name, target_literal)
+    def _load_table_catalog(
+        self,
+        table_name: str,
+        target_literal: str,
+        *,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: Callable[[float], float] | None = None,
+    ) -> TableCatalog:
+        parsed = self._load_table_schema(
+            table_name,
+            target_literal,
+            cancellation=cancellation,
+            call_timeout=call_timeout,
+        )
         count_rows = self.query_json(
             "catalog_count",
             f"SELECT COUNT(*) AS row_count FROM {quote_identifier(table_name)} AS OF {target_literal};\n",
+            cancellation=cancellation,
+            call_timeout=call_timeout,
         )
         count_row = _require_exactly_one_row(count_rows, "catalog_count")
         raw_count = value(count_row, "row_count", 0)
@@ -434,7 +457,14 @@ class CandidateADoltCli:
             stdin_path=replay_sql,
         )
 
-    def catalog(self, base_commit_id: str, target_commit_id: str) -> tuple[TableCatalog, ...]:
+    def catalog(
+        self,
+        base_commit_id: str,
+        target_commit_id: str,
+        *,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: Callable[[float], float] | None = None,
+    ) -> tuple[TableCatalog, ...]:
         validate_commit_id(base_commit_id)
         safe_target = validate_commit_id(target_commit_id)
         cached = self._get_cached_catalog(safe_target)
@@ -444,6 +474,8 @@ class CandidateADoltCli:
         show_rows = self.query_json(
             "catalog_tables",
             f"SHOW FULL TABLES AS OF {target_literal};\n",
+            cancellation=cancellation,
+            call_timeout=call_timeout,
         )
         table_names: list[str] = []
         for row in show_rows:
@@ -453,12 +485,25 @@ class CandidateADoltCli:
             table_names.append(table_name)
         workers = min(self.settings.catalog_parallel_workers, len(table_names)) or 1
         if workers <= 1:
-            tables = [self._load_table_catalog(name, target_literal) for name in table_names]
+            tables = [
+                self._load_table_catalog(
+                    name,
+                    target_literal,
+                    cancellation=cancellation,
+                    call_timeout=call_timeout,
+                )
+                for name in table_names
+            ]
         else:
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 tables = list(
                     executor.map(
-                        lambda name: self._load_table_catalog(name, target_literal),
+                        lambda name: self._load_table_catalog(
+                            name,
+                            target_literal,
+                            cancellation=cancellation,
+                            call_timeout=call_timeout,
+                        ),
                         table_names,
                     )
                 )
@@ -466,13 +511,22 @@ class CandidateADoltCli:
         self._store_cached_catalog(safe_target, catalog)
         return catalog
 
-    def type_catalog(self, base_commit_id: str, target_commit_id: str) -> tuple[TableCatalog, ...]:
+    def type_catalog(
+        self,
+        base_commit_id: str,
+        target_commit_id: str,
+        *,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: Callable[[float], float] | None = None,
+    ) -> tuple[TableCatalog, ...]:
         validate_commit_id(base_commit_id)
         safe_target = validate_commit_id(target_commit_id)
         target_literal = commit_literal(safe_target)
         show_rows = self.query_json(
             "catalog_tables",
             f"SHOW FULL TABLES AS OF {target_literal};\n",
+            cancellation=cancellation,
+            call_timeout=call_timeout,
         )
         table_names: list[str] = []
         for row in show_rows:
@@ -482,12 +536,25 @@ class CandidateADoltCli:
             table_names.append(table_name)
         workers = min(self.settings.catalog_parallel_workers, len(table_names)) or 1
         if workers <= 1:
-            tables = [self._load_table_schema(name, target_literal) for name in table_names]
+            tables = [
+                self._load_table_schema(
+                    name,
+                    target_literal,
+                    cancellation=cancellation,
+                    call_timeout=call_timeout,
+                )
+                for name in table_names
+            ]
         else:
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 tables = list(
                     executor.map(
-                        lambda name: self._load_table_schema(name, target_literal),
+                        lambda name: self._load_table_schema(
+                            name,
+                            target_literal,
+                            cancellation=cancellation,
+                            call_timeout=call_timeout,
+                        ),
                         table_names,
                     )
                 )
@@ -539,6 +606,7 @@ class CandidateADoltCli:
         *,
         table_plan: CompiledTablePlan | None = None,
         cancellation: StreamCancellationCheck | None = None,
+        call_timeout: Callable[[float], float] | None = None,
     ) -> Iterator[pa.RecordBatch]:
         safe_commit_id = validate_commit_id(commit_id)
         return self._stream_table_impl(
@@ -548,6 +616,7 @@ class CandidateADoltCli:
             policy,
             table_plan=table_plan,
             cancellation=cancellation,
+            call_timeout=call_timeout,
         )
 
     def stream_table_at(
@@ -581,6 +650,7 @@ class CandidateADoltCli:
         table_plan: CompiledTablePlan | None,
         cancellation: StreamCancellationCheck | None,
         stream_owner: object | None = None,
+        call_timeout: Callable[[float], float] | None = None,
     ) -> Iterator[pa.RecordBatch]:
         del commit_id
         plan = table_plan if table_plan is not None else compile_table_plan(table, policy)
@@ -597,14 +667,20 @@ class CandidateADoltCli:
             "encoded_line_bound": self.settings.max_stream_line_bytes,
             "oversized_single_row": False,
         }
+        stream_timeout = self._effective_call_timeout(
+            self.settings.import_timeout_seconds,
+            call_timeout=call_timeout,
+        )
         try:
             if evaluate_stream_cancellation(cancellation):
+                raise DoltCliStreamCancelledError("row stream cancelled before start")
+            if stream_timeout <= 0:
                 raise DoltCliStreamCancelledError("row stream cancelled before start")
             stream = self.runner.stream(
                 "row_stream",
                 ["sql", "--result-format=csv", "--binary-as-hex"],
                 cwd=self.repository,
-                timeout=self.settings.import_timeout_seconds,
+                timeout=stream_timeout,
                 stdin_path=query,
                 cancellation=cancellation,
                 owner=stream_owner,
@@ -682,18 +758,25 @@ class CandidateADoltCli:
         sql: str,
         *,
         revision: str | None = None,
+        cancellation: StreamCancellationCheck | None = None,
+        call_timeout: Callable[[float], float] | None = None,
     ) -> list[dict[str, Any]]:
         query = write_query(self.query_directory, sql)
         args: list[str] = []
         if revision is not None:
             args.append(f"--branch={revision}")
         args.extend(["sql", "--result-format=json"])
+        effective_timeout = self._effective_call_timeout(
+            self.settings.metadata_timeout_seconds,
+            call_timeout=call_timeout,
+        )
         try:
             result = self.run_cli(
                 kind,
                 args,
-                self.settings.metadata_timeout_seconds,
+                effective_timeout,
                 stdin_path=query,
+                cancellation=cancellation,
             )
             if result.stdout_truncated:
                 raise DoltCliError("Dolt metadata output was truncated")
@@ -716,7 +799,12 @@ class CandidateADoltCli:
         timeout: float,
         *,
         stdin_path: Path | None = None,
+        cancellation: StreamCancellationCheck | None = None,
     ) -> CommandResult:
+        if evaluate_stream_cancellation(cancellation):
+            raise DoltCliStreamCancelledError(f"Dolt command cancelled: {kind}")
+        if timeout <= 0:
+            raise DoltCliStreamCancelledError(f"Dolt command cancelled: {kind}")
         result = self.runner.run(
             kind,
             args,
@@ -724,7 +812,18 @@ class CandidateADoltCli:
             timeout=timeout,
             stdin_path=stdin_path,
             capture_stdout=True,
+            cancellation=cancellation,
         )
-        if result.timed_out or result.exit_code != 0:
+        if result.timed_out or result.cancelled or result.exit_code != 0:
             raise DoltCliError(f"Dolt command failed: {kind}")
         return result
+
+    def _effective_call_timeout(
+        self,
+        per_call_timeout: float,
+        *,
+        call_timeout: Callable[[float], float] | None,
+    ) -> float:
+        if call_timeout is None:
+            return per_call_timeout
+        return call_timeout(per_call_timeout)

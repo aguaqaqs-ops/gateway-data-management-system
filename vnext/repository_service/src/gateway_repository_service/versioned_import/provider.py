@@ -28,6 +28,7 @@ from gateway_repository_service.process import CommandResult, DoltRunner, Proces
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.errors import ImportProviderError
 from gateway_repository_service.versioned_import.ports import (
+    CallTimeoutCallback,
     CancellationCallback,
     MarkerInspection,
     MarkerInspectionAmbiguous,
@@ -270,12 +271,20 @@ class CandidateAImportProvider:
         except _MARKER_AMBIGUOUS_FAULTS:
             return MarkerInspectionAmbiguous()
 
-    def _read_candidate_parent(self, candidate: str) -> str:
+    def _read_candidate_parent(
+        self,
+        candidate: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
+    ) -> str:
         safe_candidate = validate_commit_id(candidate)
         rows = self._cli.query_json(
             "candidate_parent",
             "SELECT parents FROM dolt_log AS OF "
             f"{commit_literal(safe_candidate)} WHERE commit_hash = {commit_literal(safe_candidate)};\n",
+            cancellation=cancellation,
+            call_timeout=call_timeout,
         )
         parent_row = _require_exactly_one_row(rows, "candidate_parent")
         raw_parents = value(parent_row, "parents", 0)
@@ -288,19 +297,49 @@ class CandidateAImportProvider:
             raise ImportProviderError("candidate parent is missing or malformed")
         return parent
 
-    def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+    def read_catalog(
+        self,
+        candidate: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
+    ) -> tuple[TableCatalog, ...]:
         safe_candidate = validate_commit_id(candidate)
         try:
-            parent = self._read_candidate_parent(safe_candidate)
-            return self._cli.catalog(parent, safe_candidate)
+            parent = self._read_candidate_parent(
+                safe_candidate,
+                cancellation=cancellation,
+                call_timeout=call_timeout,
+            )
+            return self._cli.catalog(
+                parent,
+                safe_candidate,
+                cancellation=cancellation,
+                call_timeout=call_timeout,
+            )
         except _IMPORT_PROVIDER_FAULTS as exc:
             raise _as_import_provider_error(exc) from exc
 
-    def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]:
+    def read_type_catalog(
+        self,
+        candidate: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
+    ) -> tuple[TableCatalog, ...]:
         safe_candidate = validate_commit_id(candidate)
         try:
-            parent = self._read_candidate_parent(safe_candidate)
-            return self._cli.type_catalog(parent, safe_candidate)
+            parent = self._read_candidate_parent(
+                safe_candidate,
+                cancellation=cancellation,
+                call_timeout=call_timeout,
+            )
+            return self._cli.type_catalog(
+                parent,
+                safe_candidate,
+                cancellation=cancellation,
+                call_timeout=call_timeout,
+            )
         except _IMPORT_PROVIDER_FAULTS as exc:
             raise _as_import_provider_error(exc) from exc
 
@@ -311,6 +350,8 @@ class CandidateAImportProvider:
         policy: UnknownTypePolicy,
         *,
         table_plan: CompiledTablePlan | None = None,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> Iterator[pa.RecordBatch]:
         safe_candidate = validate_commit_id(candidate)
         try:
@@ -319,6 +360,8 @@ class CandidateAImportProvider:
                 table,
                 policy,
                 table_plan=table_plan,
+                cancellation=cancellation,
+                call_timeout=call_timeout,
             )
         except SqlValueConversionError:
             raise

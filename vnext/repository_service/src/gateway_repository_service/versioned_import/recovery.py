@@ -845,6 +845,7 @@ class ImportStartupReconciler:
                 manifest=package.manifest,
                 verification_policy=context.verification_policy,
                 unknown_type_policy=context.unknown_type_policy,
+                full_scan_timeout_seconds=self._settings.full_scan_timeout_seconds,
             )
             main_after = provider.read_ref(context.target_ref)
             if main_after != context.expected_commit_id:

@@ -78,11 +78,45 @@ class _CancellableProviderWrapper:
     def inspect_marker(self, marker: str) -> Any:
         return self._inner.inspect_marker(marker)
 
-    def read_catalog(self, candidate: str) -> Any:
-        return self._inner.read_catalog(candidate)
+    def _combined_cancellation(
+        self,
+        cancellation: CancellationCallback | None,
+    ) -> CancellationCallback:
+        if cancellation is None:
+            return self._cancellation
 
-    def read_type_catalog(self, candidate: str) -> Any:
-        return self._inner.read_type_catalog(candidate)
+        def _combined() -> bool:
+            if self._cancellation():
+                return True
+            return cancellation()
+
+        return _combined
+
+    def read_catalog(
+        self,
+        candidate: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: Any = None,
+    ) -> Any:
+        return self._inner.read_catalog(
+            candidate,
+            cancellation=self._combined_cancellation(cancellation),
+            call_timeout=call_timeout,
+        )
+
+    def read_type_catalog(
+        self,
+        candidate: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: Any = None,
+    ) -> Any:
+        return self._inner.read_type_catalog(
+            candidate,
+            cancellation=self._combined_cancellation(cancellation),
+            call_timeout=call_timeout,
+        )
 
     def stream_table(
         self,
@@ -91,12 +125,16 @@ class _CancellableProviderWrapper:
         policy: Any,
         *,
         table_plan: Any = None,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: Any = None,
     ) -> Any:
         return self._inner.stream_table(
             candidate,
             table,
             policy,
             table_plan=table_plan,
+            cancellation=self._combined_cancellation(cancellation),
+            call_timeout=call_timeout,
         )
 
     def publish_main(self, expected_commit: str, candidate: str) -> Any:

@@ -1202,7 +1202,12 @@ class DoltRunner:
         timeout: float,
         stdin_path: Path | None = None,
         capture_stdout: bool = False,
+        cancellation: StreamCancellationCheck | None = None,
     ) -> CommandResult:
+        if evaluate_stream_cancellation(cancellation):
+            raise ProcessStreamCancelledError("command cancelled before start")
+        if timeout <= 0:
+            raise ProcessStreamCancelledError("command cancelled before start")
         process, stdin_handle = self._start(command_kind, args, cwd=cwd, stdin_path=stdin_path)
         try:
             return self._collect(
@@ -1210,6 +1215,7 @@ class DoltRunner:
                 command_kind=command_kind,
                 timeout=timeout,
                 capture_stdout=capture_stdout,
+                cancellation=cancellation,
             )
         finally:
             if stdin_handle is not None:
@@ -1332,6 +1338,7 @@ class DoltRunner:
         command_kind: str,
         timeout: float,
         capture_stdout: bool,
+        cancellation: StreamCancellationCheck | None = None,
     ) -> CommandResult:
         if process.stdout is None or process.stderr is None:
             raise ProcessBoundaryError("Dolt child pipes were not created")
@@ -1343,8 +1350,13 @@ class DoltRunner:
         stdout_capture = _Capture(self.settings.output_capture_bytes)
         started = time.monotonic()
         timed_out = False
+        cancelled = False
         try:
             while selector.get_map():
+                if evaluate_stream_cancellation(cancellation):
+                    cancelled = True
+                    self.terminate_and_reap(process)
+                    break
                 elapsed = time.monotonic() - started
                 # Once the direct child has exited, stop waiting on inherited
                 # pipe descriptors. Dolt can leave descriptors open briefly
@@ -1406,6 +1418,7 @@ class DoltRunner:
             stdout_tail=stdout_tail.value(),
             stderr_tail=stderr_tail.value(),
             timed_out=timed_out,
+            cancelled=cancelled,
             stdout_truncated=stdout_capture.truncated,
         )
 

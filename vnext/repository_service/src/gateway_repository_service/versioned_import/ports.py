@@ -13,6 +13,7 @@ from gateway_repository_contracts import UnknownTypePolicy
 from gateway_repository_service.arrow_mapping import CompiledTablePlan, TableCatalog
 
 CancellationCallback = Callable[[], bool]
+CallTimeoutCallback = Callable[[float], float]
 
 
 @dataclass(frozen=True)
@@ -73,9 +74,21 @@ class VersionedImportProvider(Protocol):
 
     def inspect_marker(self, marker: str) -> MarkerInspection: ...
 
-    def read_catalog(self, candidate: str) -> tuple[TableCatalog, ...]: ...
+    def read_catalog(
+        self,
+        candidate: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
+    ) -> tuple[TableCatalog, ...]: ...
 
-    def read_type_catalog(self, candidate: str) -> tuple[TableCatalog, ...]: ...
+    def read_type_catalog(
+        self,
+        candidate: str,
+        *,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
+    ) -> tuple[TableCatalog, ...]: ...
 
     def stream_table(
         self,
@@ -84,6 +97,8 @@ class VersionedImportProvider(Protocol):
         policy: UnknownTypePolicy,
         *,
         table_plan: CompiledTablePlan | None = None,
+        cancellation: CancellationCallback | None = None,
+        call_timeout: CallTimeoutCallback | None = None,
     ) -> Iterator[pa.RecordBatch]: ...
 
     def publish_main(self, expected_commit: str, candidate: str) -> PublishMainResult: ...

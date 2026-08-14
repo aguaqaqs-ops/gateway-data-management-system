@@ -686,10 +686,9 @@ def test_marker_conflicting_candidates_are_ambiguous(
         revision: str | None = None,
     ) -> list[dict[str, object]]:
         rows = original_query_json(kind, sql, revision=revision)
-        if kind == "marker_scan" and revision == private_ref:
+        if kind == "marker_commits":
             duplicate = dict(rows[0])
             duplicate["commit_hash"] = "other-candidate-hash"
-            duplicate["parents"] = "other-parent-hash"
             rows.append(duplicate)
         return rows
 
@@ -710,7 +709,19 @@ def test_marker_zero_when_private_ref_branch_not_scanned(
         table_sql="CREATE TABLE missing_ref (id BIGINT NOT NULL PRIMARY KEY);\n",
     )
 
-    with patch.object(import_provider, "_branch_heads", return_value=(("main", "deadbeef"),)):
+    original_query_json = import_provider._cli.query_json
+
+    def empty_marker_commits(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "marker_commits":
+            return []
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=empty_marker_commits):
         inspection = import_provider.inspect_marker(marker)
 
     assert isinstance(inspection, MarkerInspectionZero)
@@ -835,7 +846,7 @@ def test_marker_malformed_parents_is_ambiguous(
         revision: str | None = None,
     ) -> list[dict[str, object]]:
         rows = original_query_json(kind, sql, revision=revision)
-        if kind == "marker_scan" and revision == private_ref:
+        if kind == "marker_direct_refs":
             rows[0]["parents"] = "parent-a, parent-b"
         return rows
 
@@ -918,7 +929,7 @@ def test_marker_scan_timeout_returns_ambiguous(
     with patch.object(
         import_provider._cli,
         "query_json",
-        side_effect=DoltCliError("Dolt command failed: marker_scan"),
+        side_effect=DoltCliError("Dolt command failed: marker_commits"),
     ):
         inspection = import_provider.inspect_marker(marker)
 
@@ -952,26 +963,26 @@ def test_marker_scan_truncated_stdout_returns_ambiguous(
     marker = derive_operation_marker(OPERATION_ID)
     original_run_cli = import_provider._cli.run_cli
 
-    def truncated_marker_scan(
+    def truncated_marker_query(
         kind: str,
         args: list[str],
         timeout: float,
         *,
         stdin_path: Path | None = None,
     ) -> CommandResult:
-        if kind == "marker_scan":
+        if kind == "marker_commits":
             return CommandResult(
                 command_kind=kind,
                 exit_code=0,
                 duration_seconds=0.0,
-                stdout=b'{"rows":[],"columns":[{"name":"commit_hash"},{"name":"message"},{"name":"parents"}]}',
+                stdout=b'{"rows":[],"columns":[{"name":"commit_hash"},{"name":"message"}]}',
                 stdout_tail=b"",
                 stderr_tail=b"",
                 stdout_truncated=True,
             )
         return original_run_cli(kind, args, timeout, stdin_path=stdin_path)
 
-    with patch.object(import_provider._cli, "run_cli", side_effect=truncated_marker_scan):
+    with patch.object(import_provider._cli, "run_cli", side_effect=truncated_marker_query):
         inspection = import_provider.inspect_marker(marker)
 
     assert isinstance(inspection, MarkerInspectionAmbiguous)
@@ -991,7 +1002,7 @@ def test_marker_scan_uses_filtered_query(
         *,
         revision: str | None = None,
     ) -> list[dict[str, object]]:
-        if kind == "marker_scan":
+        if kind == "marker_commits":
             captured.append(sql)
         return original_query_json(kind, sql, revision=revision)
 
@@ -999,8 +1010,8 @@ def test_marker_scan_uses_filtered_query(
         import_provider.inspect_marker(marker)
 
     assert captured
+    assert all("FROM dolt_commits" in sql for sql in captured)
     assert all("WHERE message =" in sql for sql in captured)
-    assert all("LIMIT 2" in sql for sql in captured)
 
 
 @pytest.mark.integration
@@ -1087,7 +1098,7 @@ def test_marker_null_parent_is_ambiguous(
         revision: str | None = None,
     ) -> list[dict[str, object]]:
         rows = original_query_json(kind, sql, revision=revision)
-        if kind == "marker_scan" and revision == private_ref:
+        if kind == "marker_direct_refs":
             rows[0]["parents"] = None
         return rows
 
@@ -1275,7 +1286,7 @@ def test_marker_invalid_parent_is_ambiguous(
         revision: str | None = None,
     ) -> list[dict[str, object]]:
         rows = original_query_json(kind, sql, revision=revision)
-        if kind == "marker_scan" and revision == private_ref:
+        if kind == "marker_direct_refs":
             rows[0]["parents"] = "not-a-valid-commit-id!!!"
         return rows
 
@@ -1287,11 +1298,27 @@ def test_marker_invalid_parent_is_ambiguous(
 
 @pytest.mark.integration
 def test_marker_branch_list_failure_is_ambiguous(
+    import_layout: DurableLayout,
     import_provider: CandidateAImportProvider,
 ) -> None:
-    marker = derive_operation_marker(OPERATION_ID)
+    _, marker, _, _ = _candidate_on_private_ref(
+        import_provider,
+        import_layout,
+        table_sql="CREATE TABLE branch_list_fail (id BIGINT NOT NULL PRIMARY KEY);\n",
+    )
+    original_query_json = import_provider._cli.query_json
 
-    with patch.object(import_provider, "_branch_heads", side_effect=ImportProviderError("Dolt branch list failed")):
+    def failing_direct_refs(
+        kind: str,
+        sql: str,
+        *,
+        revision: str | None = None,
+    ) -> list[dict[str, object]]:
+        if kind == "marker_direct_refs":
+            raise ImportProviderError("Dolt branch list failed")
+        return original_query_json(kind, sql, revision=revision)
+
+    with patch.object(import_provider._cli, "query_json", side_effect=failing_direct_refs):
         inspection = import_provider.inspect_marker(marker)
 
     assert isinstance(inspection, MarkerInspectionAmbiguous)
@@ -1597,8 +1624,8 @@ def test_marker_process_boundary_is_ambiguous(
     marker = derive_operation_marker(OPERATION_ID)
 
     with patch.object(
-        import_provider,
-        "_branch_heads",
+        import_provider._cli,
+        "query_json",
         side_effect=ProcessBoundaryError("process boundary"),
     ):
         inspection = import_provider.inspect_marker(marker)
@@ -2372,7 +2399,7 @@ def test_inspect_marker_malformed_json_metadata_is_ambiguous(
         side_effect=_run_cli_malformed_json_side_effect(
             import_provider,
             stdout,
-            kinds=frozenset({"marker_scan"}),
+            kinds=frozenset({"marker_commits"}),
         ),
     ):
         inspection = import_provider.inspect_marker(marker)
@@ -2671,7 +2698,7 @@ def test_inspect_marker_null_message_is_ambiguous(
         revision: str | None = None,
     ) -> list[dict[str, object]]:
         rows = original_query_json(kind, sql, revision=revision)
-        if kind == "marker_scan" and revision == private_ref:
+        if kind == "marker_commits":
             rows[0]["message"] = None
         return rows
 
@@ -2704,18 +2731,16 @@ def test_inspect_marker_null_ref_name_is_ambiguous(
                         {
                             "commit_hash": None,
                             "message": marker,
-                            "parents": expected,
                         }
                     ],
                     "columns": [
                         {"name": "commit_hash"},
                         {"name": "message"},
-                        {"name": "parents"},
                     ],
                 },
                 separators=(",", ":"),
             ).encode(),
-            kinds=frozenset({"marker_scan"}),
+            kinds=frozenset({"marker_commits"}),
         ),
     ):
         inspection = import_provider.inspect_marker(marker)
@@ -2739,8 +2764,8 @@ def test_inspect_marker_extra_field_is_ambiguous(
         "run_cli",
         side_effect=_run_cli_malformed_json_side_effect(
             import_provider,
-            b'{"rows":[{"commit_hash":"deadbeef","message":"ignored","parents":"parent","extra":1}]}',
-            kinds=frozenset({"marker_scan"}),
+            b'{"rows":[{"commit_hash":"deadbeef","message":"ignored","extra":1}]}',
+            kinds=frozenset({"marker_commits"}),
         ),
     ):
         inspection = import_provider.inspect_marker(marker)
@@ -2824,11 +2849,14 @@ def test_inspect_marker_rejects_whitespace_evidence(
         revision: str | None = None,
     ) -> list[dict[str, object]]:
         rows = original_query_json(kind, sql, revision=revision)
-        if kind == "marker_scan" and revision == private_ref:
+        if field == "commit_hash" and kind == "marker_commits":
             for row in rows:
                 if row.get("message") == marker:
                     row[field] = value
                     break
+        if field == "parents" and kind == "marker_direct_refs":
+            for row in rows:
+                row[field] = value
         return rows
 
     with patch.object(import_provider._cli, "query_json", side_effect=whitespace_log):
@@ -2849,34 +2877,23 @@ def test_inspect_marker_rejects_whitespace_ref_name(
     )
     original_query_json = import_provider._cli.query_json
 
-    def whitespace_branch_scan(
+    def whitespace_direct_refs(
         kind: str,
         sql: str,
         *,
         revision: str | None = None,
     ) -> list[dict[str, object]]:
-        if kind == "marker_scan" and revision == " main ":
+        if kind == "marker_direct_refs":
             return [
                 {
-                    "commit_hash": candidate,
-                    "message": marker,
+                    "name": " main ",
                     "parents": expected,
                 }
             ]
         return original_query_json(kind, sql, revision=revision)
 
-    main_hash = import_provider.read_ref("main")
-    with patch.object(
-        import_provider,
-        "_branch_heads",
-        return_value=(
-            ("main", main_hash),
-            (" main ", candidate),
-            (private_ref, candidate),
-        ),
-    ):
-        with patch.object(import_provider._cli, "query_json", side_effect=whitespace_branch_scan):
-            inspection = import_provider.inspect_marker(marker)
+    with patch.object(import_provider._cli, "query_json", side_effect=whitespace_direct_refs):
+        inspection = import_provider.inspect_marker(marker)
 
     assert isinstance(inspection, MarkerInspectionAmbiguous)
 
@@ -2900,17 +2917,15 @@ def test_inspect_marker_rejects_duplicate_refs(
         *,
         revision: str | None = None,
     ) -> list[dict[str, object]]:
-        if kind == "marker_scan":
+        if kind == "marker_commits":
             return [
                 {
                     "commit_hash": candidate,
                     "message": marker,
-                    "parents": expected,
                 },
                 {
                     "commit_hash": main_hash,
                     "message": marker,
-                    "parents": expected,
                 },
             ]
         return original_query_json(kind, sql, revision=revision)

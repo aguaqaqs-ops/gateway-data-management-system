@@ -234,9 +234,9 @@ _EXACT_METADATA_ROW_SCHEMAS: dict[str, frozenset[str]] = {
     "candidate_parent": frozenset({"parents"}),
     "commit_exists": frozenset({"commit_hash"}),
     "catalog_count": frozenset({"row_count"}),
-    "refs_for_commit": frozenset({"name"}),
     "branch_heads": frozenset({"name", "hash"}),
-    "marker_scan": frozenset({"commit_hash", "message", "parents"}),
+    "marker_commits": frozenset({"commit_hash", "message"}),
+    "marker_direct_refs": frozenset({"name", "parents"}),
 }
 
 

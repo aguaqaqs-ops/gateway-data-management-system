@@ -195,57 +195,78 @@ class CandidateAImportProvider:
     def inspect_marker(self, marker: str) -> MarkerInspection:
         validate_operation_marker(marker)
         try:
-            evidence: dict[tuple[str, str], set[str]] = {}
-            branch_heads = self._branch_heads()
-            for branch_name, _ in branch_heads:
-                rows = self._cli.query_json(
-                    "marker_scan",
-                    "SELECT commit_hash, message, parents FROM dolt_log "
-                    f"WHERE message = {marker_literal(marker)} LIMIT 2;\n",
-                    revision=branch_name,
-                )
-                for row in rows:
-                    raw_message = value(row, "message", 1)
-                    if not isinstance(raw_message, str):
-                        return MarkerInspectionAmbiguous()
-                    if raw_message != marker:
-                        return MarkerInspectionAmbiguous()
-                    raw_candidate = value(row, "commit_hash", 0)
-                    if not isinstance(raw_candidate, str) or not raw_candidate:
-                        return MarkerInspectionAmbiguous()
-                    if raw_candidate != raw_candidate.strip():
-                        return MarkerInspectionAmbiguous()
-                    candidate = validate_commit_id(raw_candidate)
-                    raw_parents = value(row, "parents", 0)
-                    if not isinstance(raw_parents, str) or not raw_parents:
-                        return MarkerInspectionAmbiguous()
-                    if raw_parents != raw_parents.strip():
-                        return MarkerInspectionAmbiguous()
-                    parent = parse_marker_parent_field(raw_parents)
-                    if parent is None:
-                        return MarkerInspectionAmbiguous()
-                    key = (candidate, parent)
-                    evidence.setdefault(key, set()).add(branch_name)
+            commit_rows = self._cli.query_json(
+                "marker_commits",
+                "SELECT commit_hash, message FROM dolt_commits "
+                f"WHERE message = {marker_literal(marker)};\n",
+            )
+            candidates: set[str] = set()
+            for row in commit_rows:
+                raw_message = value(row, "message", 1)
+                if not isinstance(raw_message, str):
+                    return MarkerInspectionAmbiguous()
+                if raw_message != marker:
+                    return MarkerInspectionAmbiguous()
+                raw_candidate = value(row, "commit_hash", 0)
+                if not isinstance(raw_candidate, str) or not raw_candidate:
+                    return MarkerInspectionAmbiguous()
+                if raw_candidate != raw_candidate.strip():
+                    return MarkerInspectionAmbiguous()
+                candidates.add(validate_commit_id(raw_candidate))
 
-            if not evidence:
+            if not candidates:
                 return MarkerInspectionZero()
-            if len(evidence) != 1:
+            if len(candidates) != 1:
+                return MarkerInspectionAmbiguous()
+            candidate = next(iter(candidates))
+
+            ref_rows = self._cli.query_json(
+                "marker_direct_refs",
+                "SELECT b.name, "
+                "(SELECT parents FROM dolt_log AS OF "
+                f"{commit_literal(candidate)} WHERE commit_hash = {commit_literal(candidate)} "
+                "LIMIT 1) AS parents "
+                "FROM dolt_branches b "
+                f"WHERE b.hash = {commit_literal(candidate)};\n",
+            )
+            if not ref_rows:
                 return MarkerInspectionAmbiguous()
 
-            (candidate, parent), _ = next(iter(evidence.items()))
             refs: list[str] = []
             seen_refs: set[str] = set()
-            for branch_name, tip_hash in branch_heads:
-                if tip_hash != candidate:
-                    continue
-                ref = validate_readable_ref_name(branch_name)
+            parent: str | None = None
+            for row in ref_rows:
+                raw_name = value(row, "name", 0)
+                if not isinstance(raw_name, str) or not raw_name:
+                    return MarkerInspectionAmbiguous()
+                if raw_name != raw_name.strip():
+                    return MarkerInspectionAmbiguous()
+                ref = validate_readable_ref_name(raw_name)
                 if ref in seen_refs:
                     return MarkerInspectionAmbiguous()
                 seen_refs.add(ref)
                 refs.append(ref)
-            if not refs:
+
+                raw_parents = value(row, "parents", 0)
+                if not isinstance(raw_parents, str) or not raw_parents:
+                    return MarkerInspectionAmbiguous()
+                if raw_parents != raw_parents.strip():
+                    return MarkerInspectionAmbiguous()
+                row_parent = parse_marker_parent_field(raw_parents)
+                if row_parent is None:
+                    return MarkerInspectionAmbiguous()
+                if parent is None:
+                    parent = row_parent
+                elif parent != row_parent:
+                    return MarkerInspectionAmbiguous()
+
+            if parent is None:
                 return MarkerInspectionAmbiguous()
-            return MarkerInspectionUnique(candidate=candidate, parent=parent, refs=tuple(sorted(refs)))
+            return MarkerInspectionUnique(
+                candidate=candidate,
+                parent=parent,
+                refs=tuple(sorted(refs)),
+            )
         except _MARKER_AMBIGUOUS_FAULTS:
             return MarkerInspectionAmbiguous()
 
@@ -428,27 +449,6 @@ class CandidateAImportProvider:
             )
         except _IMPORT_PROVIDER_FAULTS as exc:
             raise _as_import_provider_error(exc) from exc
-
-    def _refs_for_commit(self, candidate: str) -> tuple[str, ...]:
-        safe_candidate = validate_commit_id(candidate)
-        rows = self._cli.query_json(
-            "refs_for_commit",
-            f"SELECT name FROM dolt_branches WHERE hash = {commit_literal(safe_candidate)};\n",
-        )
-        refs: list[str] = []
-        seen: set[str] = set()
-        for row in rows:
-            raw_name = value(row, "name", 0)
-            if not isinstance(raw_name, str) or not raw_name:
-                raise ValueError("ref name is invalid")
-            if raw_name != raw_name.strip():
-                raise ValueError("ref name is invalid")
-            ref = validate_readable_ref_name(raw_name)
-            if ref in seen:
-                raise ValueError("duplicate ref evidence")
-            seen.add(ref)
-            refs.append(ref)
-        return tuple(sorted(refs))
 
     def _run_cli(
         self,

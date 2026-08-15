@@ -1506,6 +1506,20 @@ class ControlStore:
             checkpointed=int(row[2]),
         )
 
+    def verify_readonly_integrity(self) -> None:
+        try:
+            rows = self.connection.execute("PRAGMA integrity_check").fetchall()
+        except sqlite3.Error as exc:
+            raise ControlDbError("control database integrity check failed") from exc
+        if len(rows) != 1 or str(rows[0][0]) != "ok":
+            raise ControlDbError("control database integrity check failed")
+        try:
+            foreign_key_rows = self.connection.execute("PRAGMA foreign_key_check").fetchall()
+        except sqlite3.Error as exc:
+            raise ControlDbError("control database foreign-key check failed") from exc
+        if foreign_key_rows:
+            raise ControlDbError("control database foreign-key check failed")
+
     def close(self) -> None:
         self.connection.close()
 

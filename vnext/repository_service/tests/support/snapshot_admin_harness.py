@@ -23,7 +23,7 @@ HOLD_BUSY_TIMEOUT_MS = 200
 HOLD_READY_TIMEOUT_SECONDS = 8.0
 HOLD_EXIT_TIMEOUT_SECONDS = 5.0
 
-FORBIDDEN_READY_SUBSTRINGS = (
+FORBIDDEN_SUMMARY_SUBSTRINGS = (
     "token",
     "secret",
     "password",
@@ -154,8 +154,54 @@ def assert_safe_ready_json(payload: dict[str, object], raw: str) -> None:
     assert checkpoint["log"] == checkpoint["checkpointed"]
     assert "/" not in raw
     lowered = raw.lower()
-    for token in FORBIDDEN_READY_SUBSTRINGS:
+    for token in FORBIDDEN_SUMMARY_SUBSTRINGS:
         assert token not in lowered
+
+
+def run_check(
+    data_root: Path,
+    *,
+    env: dict[str, str] | None = None,
+    timeout: float = 30.0,
+) -> subprocess.CompletedProcess[str]:
+    return run_snapshot_admin("check", "--data-root", str(data_root), env=env, timeout=timeout)
+
+
+def assert_safe_passed_json(payload: dict[str, object], raw: str) -> None:
+    assert payload["action"] == "check"
+    assert payload["status"] == "passed"
+    assert payload["schema_version"] == 1
+    assert payload["layout_format_version"] == 1
+    assert payload["control_db_user_version"] == CONTROL_DB_USER_VERSION
+    assert isinstance(payload["repository_count"], int)
+    assert isinstance(payload["artifact_count"], int)
+    assert int(payload["repository_count"]) >= 0
+    assert int(payload["artifact_count"]) >= 0
+    assert "/" not in raw
+    lowered = raw.lower()
+    for token in FORBIDDEN_SUMMARY_SUBSTRINGS:
+        assert token not in lowered
+
+
+def list_dolt_pids() -> set[int]:
+    pids: set[int] = set()
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return pids
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            comm = (entry / "comm").read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if comm == "dolt":
+            pids.add(int(entry.name))
+    return pids
+
+
+def snapshot_check_temp_homes() -> list[Path]:
+    return list(Path("/tmp").glob("snapshot-check-dolt-*"))
 
 
 @dataclass
@@ -220,6 +266,14 @@ class SnapshotHoldEnvironment:
         timeout: float = 15.0,
     ) -> subprocess.CompletedProcess[str]:
         return run_hold(self.data_root, env=env, timeout=timeout)
+
+    def run_check(
+        self,
+        *,
+        env: dict[str, str] | None = None,
+        timeout: float = 30.0,
+    ) -> subprocess.CompletedProcess[str]:
+        return run_check(self.data_root, env=env, timeout=timeout)
 
     def spawn_hold(
         self,

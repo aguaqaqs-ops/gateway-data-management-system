@@ -857,6 +857,14 @@ class ImportOperationStore:
         with self._transaction():
             return self._list_artifact_references_locked(artifact_id)
 
+    def list_artifact_references_readonly(
+        self, artifact_id: UUID
+    ) -> list[ArtifactOperationReference]:
+        """Read artifact operation refs without taking a write lock."""
+
+        with self._lock:
+            return self._list_artifact_references_locked(artifact_id)
+
     def _list_artifact_references_locked(
         self, artifact_id: UUID
     ) -> list[ArtifactOperationReference]:

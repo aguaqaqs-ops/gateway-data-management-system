@@ -1135,11 +1135,20 @@ class ActiveChildRegistry:
 class DoltRunner:
     """Runs exact-version Dolt with bounded output and a private environment."""
 
-    def __init__(self, settings: RepositoryServiceSettings, server_root: Path) -> None:
+    def __init__(
+        self,
+        settings: RepositoryServiceSettings,
+        server_root: Path,
+        *,
+        home: Path | None = None,
+        tmpdir: Path | None = None,
+    ) -> None:
         self.settings = settings
         self.server_root = server_root.resolve()
-        self.home = self.server_root / "provider" / "runner-home"
+        self.home = (home if home is not None else self.server_root / "provider" / "runner-home").resolve()
+        self.tmpdir = (tmpdir if tmpdir is not None else self.server_root / "provider").resolve()
         self.home.mkdir(parents=True, exist_ok=True)
+        self.tmpdir.mkdir(parents=True, exist_ok=True)
         self._active_children = ActiveChildRegistry()
         self._seed_private_dolt_config()
         self._validate_version()
@@ -1303,7 +1312,7 @@ class DoltRunner:
             "HOME": str(self.home),
             "LANG": "C",
             "LC_ALL": "C",
-            "TMPDIR": str(self.server_root / "provider"),
+            "TMPDIR": str(getattr(self, "tmpdir", self.server_root / "provider")),
         }
         try:
             process = subprocess.Popen(

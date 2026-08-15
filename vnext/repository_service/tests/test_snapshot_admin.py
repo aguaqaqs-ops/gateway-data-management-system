@@ -1,28 +1,40 @@
-"""Private snapshot hold CLI: lock, WAL checkpoint, ready JSON, and signal-safe hold."""
+"""Private snapshot hold/check CLI: lock, checkpoint, integrity, and Dolt probe."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import signal
 import sqlite3
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import UUID, uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 
+from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
 from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
+from support.lifecycle_harness import lifecycle_settings
 from support.snapshot_admin_harness import (
     SnapshotHoldEnvironment,
+    assert_safe_passed_json,
     assert_safe_ready_json,
+    list_dolt_pids,
+    run_check,
     run_hold,
     run_snapshot_admin,
     set_control_db_user_version,
+    snapshot_check_temp_homes,
     spawn_hold,
     terminate_hold,
     wait_ready_json,
 )
+from support.upload_harness import create_repository, upload_headers, upload_sha256
 
 CONTROL_DB_FAULTS = (
     "missing",
@@ -43,7 +55,7 @@ def test_missing_command_exits_2() -> None:
 
 
 def test_unknown_command_exits_2() -> None:
-    result = run_snapshot_admin("check")
+    result = run_snapshot_admin("restore")
     assert result.returncode == 2
     assert result.stdout == ""
 
@@ -258,3 +270,391 @@ def test_ready_json_omits_host_paths_and_secrets(tmp_path: Path) -> None:
             assert "service.lock" not in raw
         finally:
             assert terminate_hold(process) == 0
+
+
+@dataclass(frozen=True)
+class CheckFault:
+    name: str
+    exit_code: int
+    needs_dolt: bool = False
+
+
+CHECK_FAULTS = (
+    CheckFault("layout_marker_garbage", 4),
+    CheckFault("component_symlink", 4),
+    CheckFault("component_cross_root", 4),
+    CheckFault("control_db_missing", 4),
+    CheckFault("control_db_garbage", 4),
+    CheckFault("control_db_older", 4),
+    CheckFault("control_db_newer", 4),
+    CheckFault("control_db_schema", 4),
+    CheckFault("control_db_fk", 4),
+    CheckFault("artifact_missing_required", 6),
+    CheckFault("artifact_digest_mismatch", 6),
+    CheckFault("artifact_symlink", 6),
+    CheckFault("dolt_unreadable", 6, needs_dolt=True),
+)
+
+_UNIT_CHECK_FAULTS = tuple(fault for fault in CHECK_FAULTS if not fault.needs_dolt)
+_DOLT_CHECK_FAULTS = tuple(fault for fault in CHECK_FAULTS if fault.needs_dolt)
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def _insert_artifact_lifecycle(
+    env: SnapshotHoldEnvironment,
+    *,
+    repository_id: UUID,
+    artifact_id: UUID,
+    payload: bytes,
+    created_at: str,
+    raw_sha256: str | None = None,
+    bytes_deleted_at: str | None = None,
+    cleanup_seq: int = 1,
+) -> None:
+    digest = raw_sha256 or hashlib.sha256(payload).hexdigest()
+    env.control_store.connection.execute(
+        """
+        INSERT INTO artifact_lifecycle (
+            artifact_id, repository_scope, media_type, size_bytes, raw_sha256,
+            created_at, updated_at, cleanup_seq, bytes_deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(artifact_id),
+            repository_id.hex,
+            "application/vnd.gateway.repository-import.v1+tar+gz",
+            len(payload),
+            digest,
+            created_at,
+            created_at,
+            cleanup_seq,
+            bytes_deleted_at,
+        ),
+    )
+    env.control_store.connection.commit()
+
+
+def _corrupt_published_dolt(data_root: Path, repository_id: UUID) -> None:
+    dolt_dir = data_root / "versioned" / repository_id.hex / ".dolt"
+    files = [path for path in dolt_dir.rglob("*") if path.is_file()]
+    for path in files:
+        path.write_bytes(b"corrupt")
+
+
+def _plant_ready_bytes(
+    env: SnapshotHoldEnvironment,
+    repository_id: UUID,
+    artifact_id: UUID,
+    payload: bytes,
+) -> Path:
+    ready = env.layout.artifacts / repository_id.hex / "ready"
+    ready.mkdir(parents=True, exist_ok=True)
+    path = ready / artifact_id.hex
+    path.write_bytes(payload)
+    return path
+
+
+def _apply_unit_check_fault(env: SnapshotHoldEnvironment, tmp_path: Path, fault: str) -> None:
+    db_path = env.settings.control_db_path
+    if fault == "layout_marker_garbage":
+        env.close()
+        env.layout.layout_marker.write_text("not-json", encoding="utf-8")
+        return
+    if fault == "component_symlink":
+        env.close()
+        other = env.data_root / "other-versioned"
+        other.mkdir()
+        env.layout.versioned.rmdir()
+        env.layout.versioned.symlink_to(other)
+        return
+    if fault == "component_cross_root":
+        env.close()
+        escaped = tmp_path / "escaped-versioned"
+        escaped.mkdir()
+        env.layout.versioned.rmdir()
+        env.layout.versioned.symlink_to(escaped)
+        return
+    if fault == "control_db_missing":
+        env.close()
+        db_path.unlink()
+        Path(str(db_path) + "-wal").unlink(missing_ok=True)
+        Path(str(db_path) + "-shm").unlink(missing_ok=True)
+        return
+    if fault == "control_db_garbage":
+        env.close()
+        db_path.write_bytes(b"not-a-database")
+        return
+    if fault == "control_db_older":
+        env.close()
+        set_control_db_user_version(db_path, 1)
+        return
+    if fault == "control_db_newer":
+        env.close()
+        set_control_db_user_version(db_path, CONTROL_DB_USER_VERSION + 1)
+        return
+    if fault == "control_db_schema":
+        env.close()
+        connection = sqlite3.connect(db_path)
+        try:
+            connection.execute("DROP TABLE artifact_residual")
+            connection.commit()
+        finally:
+            connection.close()
+        return
+    if fault == "control_db_fk":
+        env.close()
+        connection = sqlite3.connect(db_path)
+        try:
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute(
+                """
+                INSERT INTO synchronous_mutation_effects (
+                    idempotency_id, resource_id, status, updated_at
+                ) VALUES (?, ?, 'PENDING', ?)
+                """,
+                (99_999, str(uuid4()), _now_iso()),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        return
+
+    repository_id = uuid4()
+    artifact_id = uuid4()
+    payload = b"snapshot-check-artifact"
+    if fault == "artifact_missing_required":
+        _insert_artifact_lifecycle(
+            env,
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+            payload=payload,
+            created_at=_now_iso(),
+        )
+        env.close()
+        return
+    if fault == "artifact_digest_mismatch":
+        _insert_artifact_lifecycle(
+            env,
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+            payload=payload,
+            created_at=_now_iso(),
+        )
+        _plant_ready_bytes(env, repository_id, artifact_id, b"different-bytes")
+        env.close()
+        return
+    if fault == "artifact_symlink":
+        _insert_artifact_lifecycle(
+            env,
+            repository_id=repository_id,
+            artifact_id=artifact_id,
+            payload=payload,
+            created_at=_now_iso(),
+        )
+        ready = env.layout.artifacts / repository_id.hex / "ready"
+        ready.mkdir(parents=True, exist_ok=True)
+        target = tmp_path / "escaped-artifact"
+        target.write_bytes(payload)
+        (ready / artifact_id.hex).symlink_to(target)
+        env.close()
+        return
+    raise AssertionError(f"unknown unit check fault {fault}")
+
+
+def test_check_passes_empty_initialized_root(tmp_path: Path) -> None:
+    with SnapshotHoldEnvironment.create(tmp_path) as env:
+        staging_residual = env.layout.staging_versioned / "ordinary-residual"
+        staging_residual.mkdir(parents=True, exist_ok=True)
+        (staging_residual / "leftover").write_text("ok", encoding="utf-8")
+        extra = env.layout.versioned / "not-a-registered-repo"
+        extra.mkdir()
+        env.close()
+        result = env.run_check()
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    raw = result.stdout.strip()
+    assert_safe_passed_json(payload, raw)
+    assert payload["repository_count"] == 0
+    assert payload["artifact_count"] == 0
+    assert result.stdout.count("\n") == 1
+    assert not snapshot_check_temp_homes()
+
+
+def test_check_allows_eligible_missing_artifact_bytes(tmp_path: Path) -> None:
+    created_at = (datetime.now(UTC) - timedelta(hours=48)).replace(microsecond=0).isoformat()
+    with SnapshotHoldEnvironment.create(tmp_path) as env:
+        _insert_artifact_lifecycle(
+            env,
+            repository_id=uuid4(),
+            artifact_id=uuid4(),
+            payload=b"expired-orphan",
+            created_at=created_at,
+        )
+        env.close()
+        result = env.run_check()
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert_safe_passed_json(payload, result.stdout.strip())
+    assert payload["artifact_count"] == 1
+
+
+@pytest.mark.parametrize("fault", _UNIT_CHECK_FAULTS, ids=lambda item: item.name)
+def test_check_faults_fail_closed_without_passed_json(
+    tmp_path: Path,
+    fault: CheckFault,
+) -> None:
+    with SnapshotHoldEnvironment.create(tmp_path) as env:
+        _apply_unit_check_fault(env, tmp_path, fault.name)
+        result = env.run_check()
+    assert result.returncode == fault.exit_code
+    assert result.stdout == ""
+    assert "passed" not in result.stdout
+    assert "Traceback" not in result.stderr
+    assert str(tmp_path) not in result.stderr
+    assert "/" not in result.stdout
+
+
+@pytest.mark.integration
+def test_check_passes_valid_whole_root(tmp_path: Path) -> None:
+    settings = lifecycle_settings(tmp_path)
+    payload = b"snapshot-check-ready-bytes"
+    with TestClient(create_app(settings)) as client:
+        first = create_repository(client, idempotency_key="check-root-one")
+        second = create_repository(client, idempotency_key="check-root-two")
+        uploaded = client.post(
+            f"/v1/repositories/{first}/artifacts",
+            headers=upload_headers(idempotency_key="check-upload", payload=payload),
+            content=payload,
+        )
+        assert uploaded.status_code == 201
+        artifact_id = UUID(uploaded.json()["artifact_ref"]["artifact_id"])
+    before_temps = snapshot_check_temp_homes()
+    result = run_check(settings.data_root)
+    assert result.returncode == 0, result.stderr
+    parsed = json.loads(result.stdout)
+    assert_safe_passed_json(parsed, result.stdout.strip())
+    assert parsed["repository_count"] == 2
+    assert parsed["artifact_count"] == 1
+    assert str(first) not in result.stdout
+    assert str(second) not in result.stdout
+    assert str(artifact_id) not in result.stdout
+    assert str(settings.data_root) not in result.stdout
+    assert not list_dolt_pids()
+    assert snapshot_check_temp_homes() == before_temps
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_running_service_makes_check_fail_before_provider(tmp_path: Path) -> None:
+    settings = lifecycle_settings(tmp_path)
+    with TestClient(create_app(settings)) as client:
+        ready = client.get("/readyz")
+        assert ready.status_code == 200
+        before = list_dolt_pids()
+        result = run_check(settings.data_root)
+        after = list_dolt_pids()
+    assert result.returncode == 3
+    assert result.stdout == ""
+    assert "passed" not in result.stdout
+    assert "Traceback" not in result.stderr
+    assert after <= before
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fault", _DOLT_CHECK_FAULTS, ids=lambda item: item.name)
+def test_multi_repository_check_does_not_omit_and_hides_paths(
+    tmp_path: Path,
+    fault: CheckFault,
+) -> None:
+    settings = lifecycle_settings(tmp_path)
+    with TestClient(create_app(settings)) as client:
+        first = create_repository(client, idempotency_key="check-multi-one")
+        second = create_repository(client, idempotency_key="check-multi-two")
+        first_hex = first.hex
+        second_hex = second.hex
+    _corrupt_published_dolt(settings.data_root, second)
+    before_temps = snapshot_check_temp_homes()
+    result = run_check(settings.data_root)
+    assert result.returncode == fault.exit_code
+    assert result.stdout == ""
+    assert "passed" not in result.stdout
+    assert first_hex not in result.stderr
+    assert second_hex not in result.stderr
+    assert str(settings.data_root) not in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not list_dolt_pids()
+    assert snapshot_check_temp_homes() == before_temps
+
+
+@pytest.mark.integration
+def test_check_does_not_mutate_business_files_schema_or_head(tmp_path: Path) -> None:
+    settings = lifecycle_settings(tmp_path)
+    payload = b"immutable-artifact"
+    with TestClient(create_app(settings)) as client:
+        created = client.post(
+            "/v1/repositories",
+            headers={
+                "Authorization": "Bearer test-bearer-token",
+                "Idempotency-Key": "check-immutable",
+            },
+        )
+        assert created.status_code == 201
+        repository_id = UUID(created.json()["repository_id"])
+        head = created.json()["initial_commit_id"]
+        uploaded = client.post(
+            f"/v1/repositories/{repository_id}/artifacts",
+            headers=upload_headers(idempotency_key="check-immutable-upload", payload=payload),
+            content=payload,
+        )
+        assert uploaded.status_code == 201
+        artifact_id = UUID(uploaded.json()["artifact_ref"]["artifact_id"])
+    ready_path = settings.data_root / "artifacts" / repository_id.hex / "ready" / artifact_id.hex
+    before_db = settings.control_db_path.read_bytes()
+    before_artifact = ready_path.read_bytes()
+    connection = sqlite3.connect(settings.control_db_path)
+    try:
+        before_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    finally:
+        connection.close()
+    result = run_check(settings.data_root)
+    assert result.returncode == 0, result.stderr
+    payload_json = json.loads(result.stdout)
+    assert_safe_passed_json(payload_json, result.stdout.strip())
+    connection = sqlite3.connect(settings.control_db_path)
+    try:
+        after_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    finally:
+        connection.close()
+    assert after_version == before_version == CONTROL_DB_USER_VERSION
+    assert ready_path.read_bytes() == before_artifact == payload
+    assert settings.control_db_path.read_bytes() == before_db
+    assert hashlib.sha256(before_artifact).hexdigest() == upload_sha256(payload)
+    with TestClient(create_app(settings)) as client:
+        replay = client.post(
+            "/v1/repositories",
+            headers={
+                "Authorization": "Bearer test-bearer-token",
+                "Idempotency-Key": "check-immutable",
+            },
+        )
+    assert replay.status_code == 201
+    assert replay.json()["initial_commit_id"] == head
+
+
+@pytest.mark.integration
+def test_dolt_probe_failure_reaps_children_and_query_temp(tmp_path: Path) -> None:
+    settings = lifecycle_settings(tmp_path)
+    with TestClient(create_app(settings)) as client:
+        repository_id = create_repository(client, idempotency_key="check-reap")
+    _corrupt_published_dolt(settings.data_root, repository_id)
+    before_temps = snapshot_check_temp_homes()
+    result = run_check(settings.data_root)
+    assert result.returncode == 6
+    assert result.stdout == ""
+    assert not list_dolt_pids()
+    assert snapshot_check_temp_homes() == before_temps
+    staging_artifacts = settings.data_root / "staging" / "artifacts"
+    assert not staging_artifacts.exists() or not list(staging_artifacts.glob("query-*.sql"))

@@ -445,6 +445,67 @@ class MutationStore:
                 )
             return views
 
+    def list_succeeded_create_repository_ids(self) -> list[UUID]:
+        """Return SUCCEEDED create-repository IDs without taking a write lock."""
+
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                SELECT e.resource_id
+                FROM synchronous_mutation_effects AS e
+                JOIN mutation_idempotency AS i ON i.id = e.idempotency_id
+                WHERE i.mutation_kind = ?
+                  AND e.status = ?
+                ORDER BY e.effect_id
+                """,
+                (MutationKind.CREATE_REPOSITORY.value, EffectStatus.SUCCEEDED.value),
+            )
+            repository_ids: list[UUID] = []
+            for row in cursor.fetchall():
+                try:
+                    repository_ids.append(UUID(str(row["resource_id"])))
+                except (TypeError, ValueError) as exc:
+                    raise MutationStoreInvariantError(
+                        "create repository resource id is invalid"
+                    ) from exc
+            return repository_ids
+
+    def list_artifact_lifecycles(self) -> list[ArtifactLifecycleRecord]:
+        """Return every artifact lifecycle row without taking a write lock."""
+
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                SELECT
+                    artifact_id,
+                    repository_scope,
+                    media_type,
+                    size_bytes,
+                    raw_sha256,
+                    consumed_by_operation_id,
+                    consumed_at,
+                    bytes_deleted_at,
+                    created_at,
+                    bytes_delete_intent_at,
+                    bytes_delete_dev,
+                    bytes_delete_ino,
+                    bytes_delete_phase,
+                    bytes_delete_generation,
+                    bytes_deleted_receipt_dev,
+                    bytes_deleted_receipt_ino,
+                    bytes_deleted_receipt_generation
+                FROM artifact_lifecycle
+                ORDER BY artifact_id
+                """
+            )
+            records: list[ArtifactLifecycleRecord] = []
+            for row in cursor.fetchall():
+                try:
+                    records.append(self._artifact_lifecycle_from_row(row))
+                except (TypeError, ValueError) as exc:
+                    raise MutationStoreInvariantError("artifact lifecycle row is invalid") from exc
+            return records
+
     def get_artifact_lifecycle(self, artifact_id: UUID) -> ArtifactLifecycleRecord | None:
         with self._transaction():
             cursor = self._connection.execute(

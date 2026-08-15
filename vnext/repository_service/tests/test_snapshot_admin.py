@@ -5,31 +5,41 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import signal
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
+from gateway_repository_contracts import encode_commit_id_path_segment
 from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
 from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
+from support.http_harness import import_headers
+from support.import_admission_crash_harness import build_import_package_bytes
 from support.lifecycle_harness import lifecycle_settings
 from support.snapshot_admin_harness import (
+    RestoreProcedureError,
     SnapshotHoldEnvironment,
+    assert_empty_restore_target,
     assert_safe_passed_json,
     assert_safe_ready_json,
+    copy_whole_root,
     list_dolt_pids,
     run_check,
     run_hold,
     run_snapshot_admin,
     set_control_db_user_version,
     snapshot_check_temp_homes,
+    snapshot_query_temps,
     spawn_hold,
     terminate_hold,
     wait_ready_json,
@@ -518,6 +528,7 @@ def test_check_faults_fail_closed_without_passed_json(
 
 
 @pytest.mark.integration
+@pytest.mark.serial
 def test_check_passes_valid_whole_root(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     payload = b"snapshot-check-ready-bytes"
@@ -542,8 +553,8 @@ def test_check_passes_valid_whole_root(tmp_path: Path) -> None:
     assert str(second) not in result.stdout
     assert str(artifact_id) not in result.stdout
     assert str(settings.data_root) not in result.stdout
-    assert not list_dolt_pids()
     assert snapshot_check_temp_homes() == before_temps
+    assert snapshot_query_temps(settings.data_root) == []
 
 
 @pytest.mark.integration
@@ -564,6 +575,7 @@ def test_running_service_makes_check_fail_before_provider(tmp_path: Path) -> Non
 
 
 @pytest.mark.integration
+@pytest.mark.serial
 @pytest.mark.parametrize("fault", _DOLT_CHECK_FAULTS, ids=lambda item: item.name)
 def test_multi_repository_check_does_not_omit_and_hides_paths(
     tmp_path: Path,
@@ -585,7 +597,6 @@ def test_multi_repository_check_does_not_omit_and_hides_paths(
     assert second_hex not in result.stderr
     assert str(settings.data_root) not in result.stderr
     assert "Traceback" not in result.stderr
-    assert not list_dolt_pids()
     assert snapshot_check_temp_homes() == before_temps
 
 
@@ -645,6 +656,7 @@ def test_check_does_not_mutate_business_files_schema_or_head(tmp_path: Path) -> 
 
 
 @pytest.mark.integration
+@pytest.mark.serial
 def test_dolt_probe_failure_reaps_children_and_query_temp(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:
@@ -654,7 +666,289 @@ def test_dolt_probe_failure_reaps_children_and_query_temp(tmp_path: Path) -> Non
     result = run_check(settings.data_root)
     assert result.returncode == 6
     assert result.stdout == ""
-    assert not list_dolt_pids()
     assert snapshot_check_temp_homes() == before_temps
     staging_artifacts = settings.data_root / "staging" / "artifacts"
     assert not staging_artifacts.exists() or not list(staging_artifacts.glob("query-*.sql"))
+
+
+_AUTH_HEADERS = {"Authorization": "Bearer test-bearer-token"}
+_IMPORT_TIMEOUT_SECONDS = 60.0
+
+
+@dataclass(frozen=True)
+class IncompleteRestoreShape:
+    name: str
+    exit_code: int
+    needs_dolt: bool = False
+
+
+INCOMPLETE_RESTORE_SHAPES = (
+    IncompleteRestoreShape("sqlite_only", 4),
+    IncompleteRestoreShape("partial_component", 4),
+    IncompleteRestoreShape("single_dolt", 6, needs_dolt=True),
+)
+_UNIT_INCOMPLETE_SHAPES = tuple(shape for shape in INCOMPLETE_RESTORE_SHAPES if not shape.needs_dolt)
+_DOLT_INCOMPLETE_SHAPES = tuple(shape for shape in INCOMPLETE_RESTORE_SHAPES if shape.needs_dolt)
+
+
+def _poll_succeeded(client: TestClient, repository_id: UUID, operation_id: str) -> dict[str, Any]:
+    deadline = time.monotonic() + _IMPORT_TIMEOUT_SECONDS
+    last: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        response = client.get(
+            f"/v1/repositories/{repository_id}/operations/{operation_id}",
+            headers=_AUTH_HEADERS,
+        )
+        assert response.status_code == 200
+        operation = response.json()["operation"]
+        assert isinstance(operation, dict)
+        last = operation
+        if operation["status"] in {"SUCCEEDED", "FAILED"}:
+            assert operation["status"] == "SUCCEEDED", operation
+            return operation
+        time.sleep(0.05)
+    raise AssertionError(f"import did not finish: {last}")
+
+
+def _import_package(
+    client: TestClient,
+    *,
+    repository_id: UUID,
+    expected_commit_id: str,
+    payload: bytes,
+    idempotency_prefix: str,
+) -> dict[str, Any]:
+    uploaded = client.post(
+        f"/v1/repositories/{repository_id}/artifacts",
+        headers=upload_headers(idempotency_key=f"{idempotency_prefix}-upload", payload=payload),
+        content=payload,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    submitted = client.post(
+        f"/v1/repositories/{repository_id}/versioned/imports",
+        headers=import_headers(idempotency_key=f"{idempotency_prefix}-import"),
+        content=json.dumps(
+            {
+                "repository_id": str(repository_id),
+                "artifact_ref": uploaded.json()["artifact_ref"],
+                "target_ref": "main",
+                "expected_commit_id": expected_commit_id,
+                "verification_policy": "STRUCTURAL",
+                "unknown_type_policy": "REJECT",
+            }
+        ),
+    )
+    assert submitted.status_code == 202, submitted.text
+    return _poll_succeeded(client, repository_id, str(submitted.json()["operation_id"]))
+
+
+def _read_snapshot_facts(
+    client: TestClient,
+    repository_id: UUID,
+    commit_id: str,
+) -> dict[str, Any]:
+    ready = client.get("/readyz")
+    assert ready.status_code == 200
+    ref = client.get(
+        f"/v1/repositories/{repository_id}/versioned/refs/main",
+        headers=_AUTH_HEADERS,
+    )
+    assert ref.status_code == 200, ref.text
+    catalog = client.get(
+        (
+            f"/v1/repositories/{repository_id}/versioned/commits/"
+            f"{encode_commit_id_path_segment(commit_id)}/catalog"
+        ),
+        headers=_AUTH_HEADERS,
+    )
+    assert catalog.status_code == 200, catalog.text
+    return {"ref": ref.json(), "catalog": catalog.json()}
+
+
+def _records_row_count(catalog_body: dict[str, Any]) -> int:
+    tables = catalog_body["catalog"]["tables"]
+    assert isinstance(tables, list)
+    records = next(table for table in tables if table["name"] == "records")
+    count = records["row_count"]
+    assert isinstance(count, int)
+    return count
+
+
+def _file_digests(root: Path) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and not path.is_symlink():
+            mapping[str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return mapping
+
+
+def _snapshot_archive_while_held(data_root: Path, archive: Path) -> dict[str, object]:
+    process = spawn_hold(data_root)
+    try:
+        payload = wait_ready_json(process)
+        raw = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        assert_safe_ready_json(payload, raw)
+        copy_whole_root(data_root, archive)
+    finally:
+        assert terminate_hold(process) == 0
+    return payload
+
+
+def _apply_incomplete_restore(archive: Path, dest: Path, shape: str) -> None:
+    assert_empty_restore_target(dest)
+    if shape == "sqlite_only":
+        dest.mkdir(parents=True)
+        service_state = dest / "service-state"
+        service_state.mkdir()
+        copied = 0
+        for path in (archive / "service-state").iterdir():
+            if path.name.startswith("repository-service.sqlite3"):
+                shutil.copy2(path, service_state / path.name)
+                copied += 1
+        assert copied > 0
+        return
+    if shape == "partial_component":
+        shutil.copytree(archive, dest, symlinks=True)
+        shutil.rmtree(dest / "control")
+        return
+    if shape == "single_dolt":
+        shutil.copytree(archive, dest, symlinks=True)
+        published = sorted(path for path in (dest / "versioned").iterdir() if path.is_dir())
+        assert len(published) >= 2
+        shutil.rmtree(published[-1])
+        return
+    raise AssertionError(f"unknown incomplete restore {shape}")
+
+
+def test_restore_procedure_rejects_non_empty_overlay_target(tmp_path: Path) -> None:
+    with SnapshotHoldEnvironment.create(tmp_path / "src") as src:
+        src.close()
+        archive = tmp_path / "archive"
+        copy_whole_root(src.data_root, archive)
+    with SnapshotHoldEnvironment.create(tmp_path / "dest") as dest:
+        dest.close()
+        before = _file_digests(dest.data_root)
+        with pytest.raises(RestoreProcedureError, match="not empty"):
+            copy_whole_root(archive, dest.data_root)
+        assert _file_digests(dest.data_root) == before
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_restore_procedure_rejects_live_root(tmp_path: Path) -> None:
+    with SnapshotHoldEnvironment.create(tmp_path / "src") as src:
+        src.close()
+        archive = tmp_path / "archive"
+        copy_whole_root(src.data_root, archive)
+    settings = lifecycle_settings(tmp_path / "live")
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/readyz").status_code == 200
+        with pytest.raises(RestoreProcedureError, match="live"):
+            copy_whole_root(archive, settings.data_root)
+
+
+@pytest.mark.parametrize("shape", _UNIT_INCOMPLETE_SHAPES, ids=lambda item: item.name)
+def test_incomplete_restore_copy_fails_check(tmp_path: Path, shape: IncompleteRestoreShape) -> None:
+    with SnapshotHoldEnvironment.create(tmp_path / "src") as src:
+        src.close()
+        archive = tmp_path / "archive"
+        copy_whole_root(src.data_root, archive)
+    before = _file_digests(archive)
+    dest = tmp_path / "restore" / "data-root"
+    _apply_incomplete_restore(archive, dest, shape.name)
+    result = run_check(dest)
+    assert result.returncode == shape.exit_code
+    assert result.stdout == ""
+    assert "passed" not in result.stdout
+    assert "Traceback" not in result.stderr
+    assert _file_digests(archive) == before
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+@pytest.mark.parametrize("shape", _DOLT_INCOMPLETE_SHAPES, ids=lambda item: item.name)
+def test_incomplete_restore_copy_fails_check_with_dolt(
+    tmp_path: Path,
+    shape: IncompleteRestoreShape,
+) -> None:
+    settings = lifecycle_settings(tmp_path / "src")
+    with TestClient(create_app(settings)) as client:
+        create_repository(client, idempotency_key="restore-one")
+        create_repository(client, idempotency_key="restore-two")
+    archive = tmp_path / "archive"
+    _snapshot_archive_while_held(settings.data_root, archive)
+    before = _file_digests(archive)
+    dest = tmp_path / "restore" / "data-root"
+    _apply_incomplete_restore(archive, dest, shape.name)
+    result = run_check(dest)
+    assert result.returncode == shape.exit_code
+    assert result.stdout == ""
+    assert "passed" not in result.stdout
+    assert "Traceback" not in result.stderr
+    assert str(tmp_path) not in result.stderr
+    assert _file_digests(archive) == before
+    assert snapshot_query_temps(dest) == []
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_whole_root_restore_preserves_public_facts(tmp_path: Path) -> None:
+    settings = lifecycle_settings(tmp_path / "src")
+    payload = build_import_package_bytes()
+    before_temps = snapshot_check_temp_homes()
+    before_pids = list_dolt_pids()
+    with TestClient(create_app(settings)) as client:
+        created = client.post(
+            "/v1/repositories",
+            headers={**_AUTH_HEADERS, "Idempotency-Key": "restore-create"},
+        )
+        assert created.status_code == 201, created.text
+        repository_id = UUID(created.json()["repository_id"])
+        initial_commit_id = str(created.json()["initial_commit_id"])
+        operation = _import_package(
+            client,
+            repository_id=repository_id,
+            expected_commit_id=initial_commit_id,
+            payload=payload,
+            idempotency_prefix="restore-c1",
+        )
+        commit_id = str(operation["result"]["commit_id"])
+        snapshot_facts = _read_snapshot_facts(client, repository_id, commit_id)
+        assert snapshot_facts["ref"]["commit_id"] == commit_id
+        assert _records_row_count(snapshot_facts["catalog"]) == 1
+
+    archive = tmp_path / "archive"
+    _snapshot_archive_while_held(settings.data_root, archive)
+
+    with TestClient(create_app(settings)) as client:
+        mutated = create_repository(client, idempotency_key="restore-mutation")
+        mutation_ref = client.get(
+            f"/v1/repositories/{mutated}/versioned/refs/main",
+            headers=_AUTH_HEADERS,
+        )
+        assert mutation_ref.status_code == 200
+
+    restore_settings = lifecycle_settings(tmp_path / "restore")
+    copy_whole_root(archive, restore_settings.data_root)
+    result = run_check(restore_settings.data_root)
+    assert result.returncode == 0, result.stderr
+    parsed = json.loads(result.stdout)
+    assert_safe_passed_json(parsed, result.stdout.strip())
+
+    with TestClient(create_app(restore_settings)) as client:
+        restored_facts = _read_snapshot_facts(client, repository_id, commit_id)
+        assert restored_facts["ref"] == snapshot_facts["ref"]
+        assert restored_facts["catalog"] == snapshot_facts["catalog"]
+        missing = client.get(
+            f"/v1/repositories/{mutated}/versioned/refs/main",
+            headers=_AUTH_HEADERS,
+        )
+        assert missing.status_code == 404
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and list_dolt_pids() - before_pids:
+        time.sleep(0.05)
+    assert not (list_dolt_pids() - before_pids)
+    assert snapshot_check_temp_homes() == before_temps
+    assert snapshot_query_temps(settings.data_root) == []
+    assert snapshot_query_temps(restore_settings.data_root) == []

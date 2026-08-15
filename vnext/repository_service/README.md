@@ -147,6 +147,119 @@ docker compose -f vnext/deploy/compose.yaml --profile p2-r2 \
   up -d --no-build --force-recreate repository-service
 ```
 
+## Private whole-root snapshot / restore（operator only）
+
+这不是 public backup/restore API，也不注册 HTTP route。部署方对 **整个** quiescent
+durable root 做一次性 snapshot，并恢复到 **已证明为空** 的目标 root。不承诺 RPO、RTO
+或 CommitId 跨另一场灾难保持稳定。失败时保持 Service stopped，不自动修复、不 overlay
+live root。
+
+禁止：只拷 SQLite、只拷单个 Dolt tree、partial component、non-empty overlay、在
+Service 仍运行时操作。`snapshot check` 不猜测目标曾经是否为空；empty-target 由本
+runbook 在 restore 前证明。
+
+Private CLI：
+
+```bash
+python -m gateway_repository_service.snapshot_admin hold [--data-root PATH]
+python -m gateway_repository_service.snapshot_admin check [--data-root PATH]
+```
+
+stdout 只有一行 machine-readable JSON；看到完整 `status=ready` / `status=passed` 且
+exit 0 才可继续。helper 退出即窗口关闭。SIGINT/SIGTERM 是 hold 的受控结束。
+
+### Host data-root
+
+将 `<DATA_ROOT>` 换成实际 durable root。operator 与 Service 使用同一支持版本。
+
+```bash
+# 1. 停止 Service，确认无本机 gateway 进程再写该 root。
+# 2. hold：checkpoint 成功后打印 ready JSON，并一直持锁。另开终端做 snapshot。
+python -m gateway_repository_service.snapshot_admin hold --data-root "<DATA_ROOT>"
+
+# 3. 仅在 ready JSON 完整且 hold 仍存活时，整根复制。
+mkdir -p ./repository-root-snapshot
+cp -a "<DATA_ROOT>/." ./repository-root-snapshot/
+
+# 4. 结束 hold（对该进程 SIGTERM/SIGINT），确认它已退出。
+# 5. 证明 restore 目标为空（允许不存在，或空目录 / 仅 lost+found）。
+RESTORE_ROOT=/var/lib/gateway/repository-restore
+test ! -e "$RESTORE_ROOT" || \
+  test -z "$(find "$RESTORE_ROOT" -mindepth 1 ! -name lost+found -print -quit)"
+
+# 6. 整根恢复。不要先跑会创建 layout 的普通 Service 入口。
+mkdir -p "$RESTORE_ROOT"
+cp -a ./repository-root-snapshot/. "$RESTORE_ROOT/"
+
+# 7. Service 仍停止时 check。
+python -m gateway_repository_service.snapshot_admin check --data-root "$RESTORE_ROOT"
+
+# 8. 用相同支持版本启动，指向 $RESTORE_ROOT，确认 /readyz 与 snapshot 时的 public facts。
+```
+
+### Compose named volume
+
+使用最终 Repository Service image、gateway euid，并 **覆盖** entrypoint，避免
+`docker-entrypoint.sh` 在 check 前创建或修改 layout。不要新增常驻 snapshot service。
+hold 需保持前台存活；snapshot 在第二个终端进行。
+
+```bash
+COMPOSE=(docker compose -f vnext/deploy/compose.yaml --profile p2-r2)
+IMAGE="$("${COMPOSE[@]}" images -q repository-service)"
+test -n "$IMAGE"
+
+# 解析当前 service 已挂载的 data volume，不要猜测 project 前缀。
+CONTAINER="$("${COMPOSE[@]}" ps -aq repository-service)"
+test -n "$CONTAINER"
+VOLUME="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/gateway/repository"}}{{.Name}}{{end}}{{end}}' "$CONTAINER")"
+test -n "$VOLUME"
+
+# 1. 停止 Service。
+"${COMPOSE[@]}" stop repository-service
+
+# 2. hold（覆盖 entrypoint，gateway euid，同一 named volume）。
+"${COMPOSE[@]}" run --rm --no-deps --entrypoint python --user gateway \
+  repository-service -m gateway_repository_service.snapshot_admin hold
+
+# 3. ready JSON 完整且 hold 容器仍运行时，一次性 tar 整个 volume。
+mkdir -p ./repository-root-snapshot
+docker run --rm \
+  -v "$VOLUME":/from:ro \
+  -v "$PWD/repository-root-snapshot":/to \
+  alpine:3.20 tar -C /from -cf /to/root.tar .
+
+# 4. 结束 hold（对该 compose run 发送 SIGTERM），确认容器已退出。
+
+# 5. 新 volume 必须为空。禁止先用普通 entrypoint 启动 Service。
+RESTORE_VOLUME="repository-service-restore"
+docker volume create "$RESTORE_VOLUME"
+docker run --rm -v "$RESTORE_VOLUME":/data:ro alpine:3.20 \
+  sh -c 'find /data -mindepth 1 ! -name lost+found | grep . && exit 1 || exit 0'
+
+# 6. 整根恢复，再交给 gateway 所有权。
+docker run --rm \
+  -v "$RESTORE_VOLUME":/to \
+  -v "$PWD/repository-root-snapshot":/from:ro \
+  alpine:3.20 tar -C /to -xf /from/root.tar
+docker run --rm --entrypoint chown -v "$RESTORE_VOLUME":/var/lib/gateway/repository \
+  "$IMAGE" -R gateway:gateway /var/lib/gateway/repository
+
+# 7. check：仍覆盖 entrypoint，gateway euid，挂载 restore volume。
+docker run --rm --entrypoint python --user gateway \
+  --env GATEWAY_REPOSITORY_PROFILE=production \
+  --env GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository \
+  -v "$RESTORE_VOLUME":/var/lib/gateway/repository \
+  "$IMAGE" -m gateway_repository_service.snapshot_admin check
+
+# 8. 同一 image 启动 Service，将 repository-service-data 换为 $RESTORE_VOLUME，
+#    确认 /readyz 以及 snapshot 当时的 HTTP public facts；snapshot 之后的 mutation
+#    不得出现。
+```
+
+partial/SQLite-only/single-Dolt/non-empty overlay/live-root 都必须失败并保持
+Service stopped。通过 `check` 只表示该 whole root 可以进入 same-version startup
+验证，并不单独关闭 S7/S10 restored Compose lifecycle gate。
+
 ## 镜像构建（P2-R4 Compose gate / 远端 cache）
 
 本地直接 `docker compose build` 会尝试从公网下载 Dolt/uv，在网络受限环境下耗时很长且

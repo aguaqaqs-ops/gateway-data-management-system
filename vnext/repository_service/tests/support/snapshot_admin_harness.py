@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import select
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -16,6 +17,7 @@ from typing import Self
 
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.locking import DurableRootLock, RootLockBusy
 from gateway_repository_service.settings import RepositoryServiceSettings
 from support.lifecycle_harness import lifecycle_settings
 
@@ -33,6 +35,22 @@ FORBIDDEN_SUMMARY_SUBSTRINGS = (
     "credential",
     "sql",
 )
+
+REQUIRED_LAYOUT_COMPONENTS = frozenset(
+    {
+        "control",
+        "versioned",
+        "staging",
+        "artifacts",
+        "service-state",
+        "provider",
+    }
+)
+EMPTY_RESTORE_ALLOWED_NAMES = frozenset({"lost+found"})
+
+
+class RestoreProcedureError(RuntimeError):
+    """Raised when the test-only whole-root restore procedure refuses to copy."""
 
 
 def snapshot_admin_command(*args: str) -> list[str]:
@@ -202,6 +220,50 @@ def list_dolt_pids() -> set[int]:
 
 def snapshot_check_temp_homes() -> list[Path]:
     return list(Path("/tmp").glob("snapshot-check-dolt-*"))
+
+
+def snapshot_query_temps(data_root: Path) -> list[Path]:
+    staging_artifacts = data_root / "staging" / "artifacts"
+    if not staging_artifacts.is_dir():
+        return []
+    return sorted(staging_artifacts.glob("query-*.sql"))
+
+
+def _service_lock_path(data_root: Path) -> Path:
+    return data_root / "control" / "service.lock"
+
+
+def assert_restore_target_not_live(path: Path) -> None:
+    lock_path = _service_lock_path(path)
+    if not lock_path.exists():
+        return
+    probe = DurableRootLock(lock_path)
+    try:
+        probe.acquire()
+    except RootLockBusy as exc:
+        raise RestoreProcedureError("restore target is live") from exc
+    probe.release()
+
+
+def assert_empty_restore_target(path: Path) -> None:
+    if not path.exists():
+        return
+    if not path.is_dir():
+        raise RestoreProcedureError("restore target is not empty")
+    names = {child.name for child in path.iterdir()} - EMPTY_RESTORE_ALLOWED_NAMES
+    if names & REQUIRED_LAYOUT_COMPONENTS or names:
+        raise RestoreProcedureError("restore target is not empty")
+
+
+def copy_whole_root(src: Path, dest: Path) -> None:
+    if not src.is_dir():
+        raise RestoreProcedureError("snapshot archive is missing")
+    assert_restore_target_not_live(dest)
+    assert_empty_restore_target(dest)
+    if dest.exists():
+        shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
+        return
+    shutil.copytree(src, dest, symlinks=True)
 
 
 @dataclass

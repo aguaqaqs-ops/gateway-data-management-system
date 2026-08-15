@@ -428,6 +428,10 @@ def _run_hold(settings: RepositoryServiceSettings) -> int:
         control_store.close()
         control_store = None
 
+        # Mark ready before writing JSON so SIGTERM/SIGINT after a successful
+        # checkpoint cannot lose the race against the assignment that follows
+        # stdout flush. Emit failure clears the flag before returning.
+        ready_emitted = True
         try:
             _emit_ready_json(
                 checkpoint_busy=checkpoint.busy,
@@ -435,17 +439,18 @@ def _run_hold(settings: RepositoryServiceSettings) -> int:
                 checkpointed=checkpoint.checkpointed,
             )
         except BrokenPipeError:
+            ready_emitted = False
             print("snapshot hold output is unavailable", file=sys.stderr)
             _discard_broken_stdout()
             return EXIT_FAILURE
         except OSError as exc:
             if exc.errno not in {errno.EPIPE, errno.EINVAL}:
                 raise
+            ready_emitted = False
             print("snapshot hold output is unavailable", file=sys.stderr)
             _discard_broken_stdout()
             return EXIT_FAILURE
 
-        ready_emitted = True
         stop.wait()
         return 0
     except KeyboardInterrupt:

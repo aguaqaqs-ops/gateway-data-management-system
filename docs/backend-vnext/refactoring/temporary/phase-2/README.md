@@ -32,6 +32,7 @@ contract语义：
 | [P2-R3 Staged Implementation Task Prompts](p2-r3-implementation-task-prompts.md) | S1-S5独立代码实现任务提示词；必须结合上一阶段handoff使用 |
 | [P2-R6-S3 Staged Execution Guide](p2-r6-s3-staged-execution-guide.md) | 将正式P2-R6-S3拆为A–E五个串行实现对话、独立评审与最终Step E；不拥有Contract语义 |
 | [P2-R6-S4 Staged Execution Guide](p2-r6-s4-staged-execution-guide.md) | 将正式P2-R6-S4拆为A–C三个串行实现对话、独立评审与最终Step E；不拥有Contract语义 |
+| [P2-R6-S5 Staged Execution Guide](p2-r6-s5-staged-execution-guide.md) | 将正式P2-R6-S5拆为A–C三个串行实现对话、独立评审与最终Step E；冻结已确认的three-field provenance协调规则，不拥有release语义 |
 
 ## Document map
 

@@ -1,0 +1,27 @@
+{
+  "schema": "gateway.p2r1.effective-input-manifest",
+  "schema_version": 1,
+  "digest_encoding_version": 1,
+  "source_roots": [
+    "vnext/repository_service",
+    "vnext/repository_contracts"
+  ],
+  "build_definition_paths": [
+    "vnext/.dockerignore",
+    "vnext/deploy/compose.yaml",
+    "vnext/scripts/build-repository-service-image.sh"
+  ],
+  "excluded_dir_names": [
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "htmlcov"
+  ],
+  "excluded_file_suffixes": [
+    ".pyc",
+    ".pyo"
+  ]
+}

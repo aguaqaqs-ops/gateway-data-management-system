@@ -492,8 +492,17 @@ def _rows_url(env: ReadHttpIntegrationEnvironment, commit_id: str) -> str:
     )
 
 
-def _seed_large_items_table(env: ReadHttpIntegrationEnvironment, *, sql_name: str, marker_suffix: str) -> str:
-    inserts = "".join(f"INSERT INTO items (id, label) VALUES ({index}, 'v{index}');\n" for index in range(1, 2501))
+def _seed_large_items_table(
+    env: ReadHttpIntegrationEnvironment,
+    *,
+    sql_name: str,
+    marker_suffix: str,
+    row_count: int = 2_500,
+) -> str:
+    inserts = "".join(
+        f"INSERT INTO items (id, label) VALUES ({index}, 'v{index}');\n"
+        for index in range(1, row_count + 1)
+    )
     env.offline.replay(
         _write_sql(
             env.layout,
@@ -641,7 +650,12 @@ def test_http_disconnect_reports_command_result_cancelled(
     read_http_env: ReadHttpIntegrationEnvironment,
 ) -> None:
     env = read_http_env
-    commit_id = _seed_large_items_table(env, sql_name="cancelled.sql", marker_suffix="18")
+    commit_id = _seed_large_items_table(
+        env,
+        sql_name="cancelled.sql",
+        marker_suffix="18",
+        row_count=20_000,
+    )
     close_results: list[CommandResult] = []
     original_close = ProcessStream.close
 

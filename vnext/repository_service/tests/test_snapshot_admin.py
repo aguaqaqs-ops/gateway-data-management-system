@@ -8,6 +8,7 @@ import os
 import shutil
 import signal
 import sqlite3
+import subprocess
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -22,6 +23,8 @@ from gateway_repository_contracts import encode_commit_id_path_segment
 from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
+from gateway_repository_service.mutation_fingerprints import CREATE_REPOSITORY_FINGERPRINT_V1
+from gateway_repository_service.mutation_store import IdempotencyScope, MutationStore
 from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
 from support.http_harness import import_headers
 from support.import_admission_crash_harness import build_import_package_bytes
@@ -38,6 +41,8 @@ from support.snapshot_admin_harness import (
     run_hold,
     run_snapshot_admin,
     set_control_db_user_version,
+    snapshot_admin_command,
+    snapshot_admin_env,
     snapshot_check_temp_homes,
     snapshot_query_temps,
     spawn_hold,
@@ -144,6 +149,58 @@ def test_symlink_layout_component_exits_4(tmp_path: Path) -> None:
         assert result.returncode == 4
         assert result.stdout == ""
         assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("command", ["hold", "check"])
+@pytest.mark.parametrize("fault", ["missing", "symlink"])
+def test_admin_requires_existing_regular_root_lock(
+    tmp_path: Path,
+    command: str,
+    fault: str,
+) -> None:
+    with SnapshotHoldEnvironment.create(tmp_path) as env:
+        env.close()
+        env.layout.service_lock.unlink()
+        escaped = tmp_path / "escaped-lock"
+        if fault == "symlink":
+            escaped.touch()
+            env.layout.service_lock.symlink_to(escaped)
+        result = run_snapshot_admin(command, "--data-root", str(env.data_root))
+        assert result.returncode == 4
+        assert result.stdout == ""
+        assert "Traceback" not in result.stderr
+        if fault == "missing":
+            assert not env.layout.service_lock.exists()
+        else:
+            assert env.layout.service_lock.is_symlink()
+
+
+@pytest.mark.parametrize("command", ["hold", "check"])
+def test_admin_rejects_symlink_data_root(tmp_path: Path, command: str) -> None:
+    with SnapshotHoldEnvironment.create(tmp_path / "real") as env:
+        env.close()
+        linked_root = tmp_path / "linked-root"
+        linked_root.symlink_to(env.data_root, target_is_directory=True)
+        result = run_snapshot_admin(command, "--data-root", str(linked_root))
+    assert result.returncode == 4
+    assert result.stdout == ""
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("command", ["hold", "check"])
+def test_admin_rejects_control_database_symlink(tmp_path: Path, command: str) -> None:
+    with SnapshotHoldEnvironment.create(tmp_path) as env:
+        db_path = env.settings.control_db_path
+        env.close()
+        escaped = tmp_path / "escaped-control.sqlite3"
+        db_path.rename(escaped)
+        before = escaped.read_bytes()
+        db_path.symlink_to(escaped)
+        result = run_snapshot_admin(command, "--data-root", str(env.data_root))
+    assert result.returncode == 4
+    assert result.stdout == ""
+    assert "Traceback" not in result.stderr
+    assert escaped.read_bytes() == before
 
 
 def test_checkpoint_truncate_is_quiescent_without_helper(tmp_path: Path) -> None:
@@ -293,12 +350,15 @@ CHECK_FAULTS = (
     CheckFault("layout_marker_garbage", 4),
     CheckFault("component_symlink", 4),
     CheckFault("component_cross_root", 4),
+    CheckFault("component_missing", 4),
+    CheckFault("optional_component_symlink", 4),
     CheckFault("control_db_missing", 4),
     CheckFault("control_db_garbage", 4),
     CheckFault("control_db_older", 4),
     CheckFault("control_db_newer", 4),
     CheckFault("control_db_schema", 4),
     CheckFault("control_db_fk", 4),
+    CheckFault("control_db_nonquiescent_wal", 4),
     CheckFault("artifact_missing_required", 6),
     CheckFault("artifact_digest_mismatch", 6),
     CheckFault("artifact_symlink", 6),
@@ -387,6 +447,14 @@ def _apply_unit_check_fault(env: SnapshotHoldEnvironment, tmp_path: Path, fault:
         env.layout.versioned.rmdir()
         env.layout.versioned.symlink_to(escaped)
         return
+    if fault == "component_missing":
+        env.close()
+        env.layout.provider.rmdir()
+        return
+    if fault == "optional_component_symlink":
+        env.close()
+        env.layout.artifacts.symlink_to(tmp_path / "escaped-artifacts", target_is_directory=True)
+        return
     if fault == "control_db_missing":
         env.close()
         db_path.unlink()
@@ -430,6 +498,10 @@ def _apply_unit_check_fault(env: SnapshotHoldEnvironment, tmp_path: Path, fault:
             connection.commit()
         finally:
             connection.close()
+        return
+    if fault == "control_db_nonquiescent_wal":
+        env.close()
+        Path(f"{db_path}-wal").write_bytes(b"not-a-quiescent-wal")
         return
 
     repository_id = uuid4()
@@ -482,6 +554,10 @@ def test_check_passes_empty_initialized_root(tmp_path: Path) -> None:
         extra = env.layout.versioned / "not-a-registered-repo"
         extra.mkdir()
         env.close()
+        wal_path = Path(f"{env.settings.control_db_path}-wal")
+        shm_path = Path(f"{env.settings.control_db_path}-shm")
+        wal_path.unlink(missing_ok=True)
+        shm_path.unlink(missing_ok=True)
         result = env.run_check()
     assert result.returncode == 0
     payload = json.loads(result.stdout)
@@ -490,6 +566,95 @@ def test_check_passes_empty_initialized_root(tmp_path: Path) -> None:
     assert payload["repository_count"] == 0
     assert payload["artifact_count"] == 0
     assert result.stdout.count("\n") == 1
+    assert not wal_path.exists()
+    assert not shm_path.exists()
+    assert not snapshot_check_temp_homes()
+
+
+def test_dolt_initialization_failure_is_redacted_content_error(tmp_path: Path) -> None:
+    with SnapshotHoldEnvironment.create(tmp_path) as env:
+        repository_id = uuid4()
+        mutation_store = MutationStore(
+            env.control_store.connection,
+            transaction_lock=env.control_store.transaction_lock,
+        )
+        effect = mutation_store.allocate_pending(
+            IdempotencyScope.for_create(),
+            key_hash=MutationStore.hash_idempotency_key("snapshot-missing-dolt"),
+            fingerprint=CREATE_REPOSITORY_FINGERPRINT_V1,
+            resource_id=repository_id,
+        )
+        mutation_store.mark_succeeded(effect.effect_id, response_body={})
+        published = env.layout.published_repository(repository_id.hex)
+        (published / ".dolt").mkdir(parents=True)
+        env.close()
+        missing_dolt = tmp_path / "missing-dolt"
+        result = env.run_check(env={"GATEWAY_REPOSITORY_DOLT_BINARY": str(missing_dolt)})
+    assert result.returncode == 6
+    assert result.stdout == ""
+    assert result.stderr.strip() == "registered repository is unreadable"
+    assert "Traceback" not in result.stderr
+    assert str(tmp_path) not in result.stderr
+    assert not snapshot_check_temp_homes()
+
+
+@pytest.mark.serial
+def test_signal_during_dolt_check_reaps_child_and_releases_lock(tmp_path: Path) -> None:
+    with SnapshotHoldEnvironment.create(tmp_path) as env:
+        repository_id = uuid4()
+        mutation_store = MutationStore(
+            env.control_store.connection,
+            transaction_lock=env.control_store.transaction_lock,
+        )
+        effect = mutation_store.allocate_pending(
+            IdempotencyScope.for_create(),
+            key_hash=MutationStore.hash_idempotency_key("snapshot-signal-dolt"),
+            fingerprint=CREATE_REPOSITORY_FINGERPRINT_V1,
+            resource_id=repository_id,
+        )
+        mutation_store.mark_succeeded(effect.effect_id, response_body={})
+        published = env.layout.published_repository(repository_id.hex)
+        (published / ".dolt").mkdir(parents=True)
+        env.close()
+
+        marker = tmp_path / "fake-dolt-running"
+        fake_dolt = tmp_path / "fake-dolt"
+        fake_dolt.write_text(
+            "#!/bin/sh\n"
+            "if [ \"$1\" = version ]; then\n"
+            "  echo 'dolt version 2.1.11'\n"
+            "  exit 0\n"
+            "fi\n"
+            f"echo $$ > '{marker}'\n"
+            "exec sleep 30\n",
+            encoding="utf-8",
+        )
+        fake_dolt.chmod(0o755)
+        process = subprocess.Popen(
+            [
+                *snapshot_admin_command("check", "--data-root", str(env.data_root)),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=snapshot_admin_env(
+                {"GATEWAY_REPOSITORY_DOLT_BINARY": str(fake_dolt)}
+            ),
+        )
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not marker.exists():
+            time.sleep(0.01)
+        assert marker.exists()
+        child_pid = int(marker.read_text(encoding="utf-8"))
+        process.send_signal(signal.SIGTERM)
+        stdout, stderr = process.communicate(timeout=5.0)
+
+    assert process.returncode == 1
+    assert stdout == ""
+    assert stderr.strip() == "snapshot check interrupted"
+    assert not Path(f"/proc/{child_pid}").exists()
+    with DurableRootLock(env.layout.service_lock):
+        pass
     assert not snapshot_check_temp_homes()
 
 

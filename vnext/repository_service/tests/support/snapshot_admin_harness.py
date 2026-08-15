@@ -283,6 +283,7 @@ class SnapshotHoldEnvironment:
             update={"sqlite_busy_timeout_ms": sqlite_busy_timeout_ms}
         )
         layout = DurableLayout.create_service(settings.data_root)
+        layout.service_lock.touch(mode=0o600, exist_ok=False)
         control_store = ControlStore.open(
             settings.control_db_path,
             expected_version=CONTROL_DB_USER_VERSION,

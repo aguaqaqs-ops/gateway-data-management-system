@@ -1418,7 +1418,10 @@ class DoltRunner:
                         capture.append(data)
         finally:
             selector.close()
-            self._unregister_active_child(process)
+            if process.poll() is None:
+                self.terminate_and_reap(process)
+            else:
+                self._unregister_active_child(process)
         return CommandResult(
             command_kind=command_kind,
             exit_code=process.returncode if process.returncode is not None else -1,

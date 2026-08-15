@@ -34,7 +34,6 @@ or provider stderr. stderr is stable and human-readable.
 from __future__ import annotations
 
 import argparse
-import errno
 import json
 import os
 import signal
@@ -83,7 +82,14 @@ EXIT_LAYOUT_OR_CONTROL_DB = 4
 EXIT_CHECKPOINT = 5
 EXIT_CONTENT = 6
 
-_REQUIRED_EXISTING_COMPONENTS = ("control", "versioned", "service_state", "provider")
+_REQUIRED_EXISTING_COMPONENTS = (
+    "control",
+    "versioned",
+    "staging",
+    "service_state",
+    "provider",
+)
+_OPTIONAL_EXISTING_COMPONENTS = ("artifacts",)
 _HEAD_PROBE_SQL = "SELECT HASHOF('main') AS commit_id;\n"
 
 
@@ -91,42 +97,132 @@ class SnapshotContentError(RuntimeError):
     """Raised when restored durable content does not match control bindings."""
 
 
+class SnapshotCheckInterrupted(RuntimeError):
+    """Raised when SIGINT/SIGTERM interrupts a restored-root check."""
+
+
+def _assert_existing_directory(path: Path, *, root: Path, label: str) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise LayoutError(f"{label} is unavailable") from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        raise LayoutError(f"{label} is a symlink")
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise LayoutError(f"{label} is not a directory")
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise LayoutError(f"{label} is unavailable") from exc
+    if not resolved.is_relative_to(root):
+        raise LayoutError(f"{label} escapes the durable root")
+    return metadata
+
+
+def _assert_existing_regular_file(path: Path, *, root: Path, label: str) -> None:
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise LayoutError(f"{label} is unavailable") from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        raise LayoutError(f"{label} is a symlink")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise LayoutError(f"{label} is not a regular file")
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise LayoutError(f"{label} is unavailable") from exc
+    if not resolved.is_relative_to(root):
+        raise LayoutError(f"{label} escapes the durable root")
+
+
 def _assert_root_containment(layout: DurableLayout) -> None:
     root = layout.root
+    try:
+        root_device = root.stat().st_dev
+    except OSError as exc:
+        raise LayoutError("data root is unavailable") from exc
     for attribute in _REQUIRED_EXISTING_COMPONENTS:
         path = getattr(layout, attribute)
+        metadata = _assert_existing_directory(path, root=root, label="layout component")
+        if metadata.st_dev != root_device:
+            raise LayoutError("publication components must share one filesystem")
+
+    for attribute in _OPTIONAL_EXISTING_COMPONENTS:
+        path = getattr(layout, attribute)
         try:
-            resolved = path.resolve()
-        except OSError as exc:
-            raise LayoutError("layout component is unavailable") from exc
-        if not resolved.is_relative_to(root):
-            raise LayoutError("layout component escapes the durable root")
-        if not path.exists():
+            path.lstat()
+        except FileNotFoundError:
             continue
-        try:
-            metadata = path.lstat()
         except OSError as exc:
             raise LayoutError("layout component is unavailable") from exc
-        if stat.S_ISLNK(metadata.st_mode):
-            raise LayoutError("layout component is a symlink")
-        if not stat.S_ISDIR(metadata.st_mode):
-            raise LayoutError("layout component is not a directory")
+        metadata = _assert_existing_directory(path, root=root, label="layout component")
+        if metadata.st_dev != root_device:
+            raise LayoutError("publication components must share one filesystem")
 
     marker = layout.layout_marker
-    try:
-        marker_metadata = marker.lstat()
-    except OSError as exc:
-        raise LayoutError("control layout marker is unreadable") from exc
-    if stat.S_ISLNK(marker_metadata.st_mode):
-        raise LayoutError("control layout marker is a symlink")
-    if not stat.S_ISREG(marker_metadata.st_mode):
-        raise LayoutError("control layout marker is invalid")
+    _assert_existing_regular_file(marker, root=root, label="control layout marker")
+
+
+def _assert_root_lock_file(layout: DurableLayout) -> None:
+    _assert_existing_regular_file(
+        layout.service_lock,
+        root=layout.root,
+        label="durable root lock",
+    )
+
+
+def _assert_control_database_files(
+    layout: DurableLayout,
+    settings: RepositoryServiceSettings,
+    *,
+    require_quiescent_wal: bool,
+) -> None:
+    _assert_existing_regular_file(
+        settings.control_db_path,
+        root=layout.root,
+        label="control database",
+    )
+    for suffix in ("-wal", "-shm"):
+        path = Path(f"{settings.control_db_path}{suffix}")
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise LayoutError("control database sidecar is unavailable") from exc
+        _assert_existing_regular_file(
+            path,
+            root=layout.root,
+            label="control database sidecar",
+        )
+        if suffix == "-wal" and require_quiescent_wal and path.stat().st_size != 0:
+            raise LayoutError("control database WAL is not quiescent")
 
 
 def _bind_snapshot_layout(settings: RepositoryServiceSettings) -> DurableLayout:
-    data_root = settings.data_root.expanduser().resolve()
-    if not data_root.is_dir():
-        raise LayoutError("data root does not exist")
+    configured_root = settings.data_root.expanduser()
+    try:
+        root_metadata = configured_root.lstat()
+    except OSError as exc:
+        raise LayoutError("data root does not exist") from exc
+    if stat.S_ISLNK(root_metadata.st_mode):
+        raise LayoutError("data root is a symlink")
+    if not stat.S_ISDIR(root_metadata.st_mode):
+        raise LayoutError("data root is not a directory")
+    try:
+        data_root = configured_root.resolve(strict=True)
+    except OSError as exc:
+        raise LayoutError("data root does not exist") from exc
+
+    # Reject a redirected control component/marker before bind_existing reads
+    # the marker. The operator may inspect only server-owned paths in this root.
+    _assert_existing_directory(data_root / "control", root=data_root, label="control layout")
+    _assert_existing_regular_file(
+        data_root / "control" / "layout.json",
+        root=data_root,
+        label="control layout marker",
+    )
     layout = DurableLayout.bind_existing(data_root)
     _assert_root_containment(layout)
     try:
@@ -357,7 +453,10 @@ def _probe_registered_repositories(
         query_path.write_text(_HEAD_PROBE_SQL, encoding="utf-8")
         runner: DoltRunner | None = None
         try:
-            runner = DoltRunner(settings, layout.root, home=home, tmpdir=tmpdir)
+            try:
+                runner = DoltRunner(settings, layout.root, home=home, tmpdir=tmpdir)
+            except (ProcessBoundaryError, OSError) as exc:
+                raise SnapshotContentError("registered repository is unreadable") from exc
             for published in published_paths:
                 try:
                     result = runner.run(
@@ -403,12 +502,28 @@ def _run_hold(settings: RepositoryServiceSettings) -> int:
             print(str(exc), file=sys.stderr)
             return EXIT_LAYOUT_OR_CONTROL_DB
 
+        try:
+            _assert_root_lock_file(layout)
+        except LayoutError as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_LAYOUT_OR_CONTROL_DB
+
         root_lock = DurableRootLock(layout.service_lock)
         try:
             root_lock.acquire()
         except RootLockBusy:
             print("durable root lock is held by a running service", file=sys.stderr)
             return EXIT_LOCK_BUSY
+
+        try:
+            _assert_control_database_files(
+                layout,
+                settings,
+                require_quiescent_wal=False,
+            )
+        except LayoutError as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_LAYOUT_OR_CONTROL_DB
 
         try:
             control_store = _open_control_store(settings)
@@ -443,9 +558,7 @@ def _run_hold(settings: RepositoryServiceSettings) -> int:
             print("snapshot hold output is unavailable", file=sys.stderr)
             _discard_broken_stdout()
             return EXIT_FAILURE
-        except OSError as exc:
-            if exc.errno not in {errno.EPIPE, errno.EINVAL}:
-                raise
+        except OSError:
             ready_emitted = False
             print("snapshot hold output is unavailable", file=sys.stderr)
             _discard_broken_stdout()
@@ -467,11 +580,22 @@ def _run_hold(settings: RepositoryServiceSettings) -> int:
 
 
 def _run_check(settings: RepositoryServiceSettings) -> int:
+    def _handle_signal(_signum: int, _frame: object) -> None:
+        raise SnapshotCheckInterrupted
+
+    previous_int = signal.signal(signal.SIGINT, _handle_signal)
+    previous_term = signal.signal(signal.SIGTERM, _handle_signal)
     root_lock: DurableRootLock | None = None
     control_store: ControlStore | None = None
     try:
         try:
             layout = _bind_snapshot_layout(settings)
+        except LayoutError as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_LAYOUT_OR_CONTROL_DB
+
+        try:
+            _assert_root_lock_file(layout)
         except LayoutError as exc:
             print(str(exc), file=sys.stderr)
             return EXIT_LAYOUT_OR_CONTROL_DB
@@ -482,6 +606,16 @@ def _run_check(settings: RepositoryServiceSettings) -> int:
         except RootLockBusy:
             print("durable root lock is held by a running service", file=sys.stderr)
             return EXIT_LOCK_BUSY
+
+        try:
+            _assert_control_database_files(
+                layout,
+                settings,
+                require_quiescent_wal=True,
+            )
+        except LayoutError as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_LAYOUT_OR_CONTROL_DB
 
         try:
             control_store = _open_control_store_readonly(settings)
@@ -512,18 +646,21 @@ def _run_check(settings: RepositoryServiceSettings) -> int:
             print("snapshot check output is unavailable", file=sys.stderr)
             _discard_broken_stdout()
             return EXIT_FAILURE
-        except OSError as exc:
-            if exc.errno not in {errno.EPIPE, errno.EINVAL}:
-                raise
+        except OSError:
             print("snapshot check output is unavailable", file=sys.stderr)
             _discard_broken_stdout()
             return EXIT_FAILURE
         return 0
+    except SnapshotCheckInterrupted:
+        print("snapshot check interrupted", file=sys.stderr)
+        return EXIT_FAILURE
     finally:
         if control_store is not None:
             control_store.close()
         if root_lock is not None and root_lock.is_held():
             root_lock.release()
+        signal.signal(signal.SIGINT, previous_int)
+        signal.signal(signal.SIGTERM, previous_term)
 
 
 def main(argv: list[str] | None = None) -> None:

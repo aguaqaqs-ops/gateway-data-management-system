@@ -1041,11 +1041,31 @@ class ControlStore:
     transaction_lock: threading.Lock = field(default_factory=threading.Lock)
 
     @classmethod
-    def preflight_exact_version(cls, path: Path, *, expected_version: int) -> None:
+    def preflight_exact_version(
+        cls,
+        path: Path,
+        *,
+        expected_version: int,
+        immutable: bool = False,
+    ) -> None:
         if not path.is_file():
             raise ControlDbError("control database does not exist")
+        if immutable:
+            try:
+                with path.open("rb") as handle:
+                    header = handle.read(20)
+            except OSError as exc:
+                raise ControlDbError("control database is unreadable") from exc
+            if len(header) < 20 or header[:16] != b"SQLite format 3\x00":
+                raise ControlDbError("control database is unreadable")
+            if header[18:20] != b"\x02\x02":
+                raise ControlDbError("control database WAL mode is unavailable")
+        immutable_query = "&immutable=1" if immutable else ""
         try:
-            connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            connection = sqlite3.connect(
+                f"file:{path}?mode=ro{immutable_query}",
+                uri=True,
+            )
         except sqlite3.Error as exc:
             raise ControlDbError("control database is unreadable") from exc
         try:
@@ -1064,7 +1084,7 @@ class ControlStore:
                 raise ControlDbError(
                     f"control database user_version {user_version} is unsupported"
                 )
-            cls._verify_admin_schema(connection)
+            cls._verify_admin_schema(connection, require_wal_mode=not immutable)
         except sqlite3.Error as exc:
             raise ControlDbError("control database is unreadable") from exc
         finally:
@@ -1072,9 +1092,13 @@ class ControlStore:
 
     @classmethod
     def open_readonly(cls, path: Path, *, expected_version: int) -> Self:
-        cls.preflight_exact_version(path, expected_version=expected_version)
+        cls.preflight_exact_version(
+            path,
+            expected_version=expected_version,
+            immutable=True,
+        )
         try:
-            connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            connection = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
         except sqlite3.Error as exc:
             raise ControlDbError("control database is unreadable") from exc
         configure_connection(connection)
@@ -1138,7 +1162,11 @@ class ControlStore:
             raise
 
     @staticmethod
-    def _verify_admin_schema(connection: sqlite3.Connection) -> None:
+    def _verify_admin_schema(
+        connection: sqlite3.Connection,
+        *,
+        require_wal_mode: bool = True,
+    ) -> None:
         rows = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         ).fetchall()
@@ -1205,9 +1233,10 @@ class ControlStore:
                     f"control database schema has invalid index DDL on {index_name}"
                 )
 
-        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
-        if journal_mode is None or str(journal_mode[0]).upper() != "WAL":
-            raise ControlDbError("control database WAL mode is unavailable")
+        if require_wal_mode:
+            journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
+            if journal_mode is None or str(journal_mode[0]).upper() != "WAL":
+                raise ControlDbError("control database WAL mode is unavailable")
 
         for trigger_name, expected_sql in reference_triggers.items():
             row = connection.execute(

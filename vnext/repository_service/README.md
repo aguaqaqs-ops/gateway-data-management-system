@@ -165,8 +165,9 @@ python -m gateway_repository_service.snapshot_admin hold [--data-root PATH]
 python -m gateway_repository_service.snapshot_admin check [--data-root PATH]
 ```
 
-stdout 只有一行 machine-readable JSON；看到完整 `status=ready` / `status=passed` 且
-exit 0 才可继续。helper 退出即窗口关闭。SIGINT/SIGTERM 是 hold 的受控结束。
+stdout 只有一行 machine-readable JSON。`hold` 必须看到完整 `status=ready` 且确认 helper
+仍存活后才能复制；`check` 必须看到 `status=passed` 且 exit 0 后才能启动 Service。helper
+退出即表示 snapshot 窗口关闭。SIGINT/SIGTERM 是 hold 的受控结束。
 
 ### Host data-root
 
@@ -177,9 +178,11 @@ exit 0 才可继续。helper 退出即窗口关闭。SIGINT/SIGTERM 是 hold 的
 # 2. hold：checkpoint 成功后打印 ready JSON，并一直持锁。另开终端做 snapshot。
 python -m gateway_repository_service.snapshot_admin hold --data-root "<DATA_ROOT>"
 
-# 3. 仅在 ready JSON 完整且 hold 仍存活时，整根复制。
-mkdir -p ./repository-root-snapshot
-cp -a "<DATA_ROOT>/." ./repository-root-snapshot/
+# 3. 仅在 ready JSON 完整且 hold 仍存活时，复制到新的空 snapshot 目录。
+SNAPSHOT_ROOT="$PWD/repository-root-snapshot"
+test ! -e "$SNAPSHOT_ROOT"
+mkdir -p "$SNAPSHOT_ROOT"
+cp -a "<DATA_ROOT>/." "$SNAPSHOT_ROOT/"
 
 # 4. 结束 hold（对该进程 SIGTERM/SIGINT），确认它已退出。
 # 5. 证明 restore 目标为空（允许不存在，或空目录 / 仅 lost+found）。
@@ -189,7 +192,7 @@ test ! -e "$RESTORE_ROOT" || \
 
 # 6. 整根恢复。不要先跑会创建 layout 的普通 Service 入口。
 mkdir -p "$RESTORE_ROOT"
-cp -a ./repository-root-snapshot/. "$RESTORE_ROOT/"
+cp -a "$SNAPSHOT_ROOT/." "$RESTORE_ROOT/"
 
 # 7. Service 仍停止时 check。
 python -m gateway_repository_service.snapshot_admin check --data-root "$RESTORE_ROOT"
@@ -217,9 +220,26 @@ test -n "$VOLUME"
 # 1. 停止 Service。
 "${COMPOSE[@]}" stop repository-service
 
-# 2. hold（覆盖 entrypoint，gateway euid，同一 named volume）。
-"${COMPOSE[@]}" run --rm --no-deps --entrypoint python --user gateway \
-  repository-service -m gateway_repository_service.snapshot_admin hold
+# 2. hold（覆盖 entrypoint，gateway euid，同一 named volume）。固定名字使 signal、
+#    liveness 与退出状态都可审计；detach 只用于让本 shell 执行 snapshot 命令。
+HOLD_CONTAINER="repository-snapshot-hold"
+docker rm -f "$HOLD_CONTAINER" 2>/dev/null || true
+docker run -d --name "$HOLD_CONTAINER" --entrypoint python --user gateway \
+  --env GATEWAY_REPOSITORY_PROFILE=production \
+  --env GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository \
+  -v "$VOLUME":/var/lib/gateway/repository \
+  "$IMAGE" -m gateway_repository_service.snapshot_admin hold
+
+# 只接受一行完整 ready JSON，并再次确认 helper 仍存活。
+HOLD_JSON=""
+for _attempt in $(seq 1 80); do
+  HOLD_JSON="$(docker logs "$HOLD_CONTAINER" 2>/dev/null || true)"
+  test -n "$HOLD_JSON" && break
+  test "$(docker inspect -f '{{.State.Running}}' "$HOLD_CONTAINER")" = true
+  sleep 0.1
+done
+python -c 'import json,sys; p=json.loads(sys.argv[1]); assert p["action"] == "hold" and p["status"] == "ready"' "$HOLD_JSON"
+test "$(docker inspect -f '{{.State.Running}}' "$HOLD_CONTAINER")" = true
 
 # 3. ready JSON 完整且 hold 容器仍运行时，一次性 tar 整个 volume。
 mkdir -p ./repository-root-snapshot
@@ -228,7 +248,10 @@ docker run --rm \
   -v "$PWD/repository-root-snapshot":/to \
   alpine:3.20 tar -C /from -cf /to/root.tar .
 
-# 4. 结束 hold（对该 compose run 发送 SIGTERM），确认容器已退出。
+# 4. 对 hold 发送 SIGTERM，确认受控 exit 0 后删除容器。
+docker stop --signal SIGTERM --time 5 "$HOLD_CONTAINER"
+test "$(docker inspect -f '{{.State.ExitCode}}' "$HOLD_CONTAINER")" = 0
+docker rm "$HOLD_CONTAINER"
 
 # 5. 新 volume 必须为空。禁止先用普通 entrypoint 启动 Service。
 RESTORE_VOLUME="repository-service-restore"
@@ -241,7 +264,8 @@ docker run --rm \
   -v "$RESTORE_VOLUME":/to \
   -v "$PWD/repository-root-snapshot":/from:ro \
   alpine:3.20 tar -C /to -xf /from/root.tar
-docker run --rm --entrypoint chown -v "$RESTORE_VOLUME":/var/lib/gateway/repository \
+docker run --rm --entrypoint chown --user root \
+  -v "$RESTORE_VOLUME":/var/lib/gateway/repository \
   "$IMAGE" -R gateway:gateway /var/lib/gateway/repository
 
 # 7. check：仍覆盖 entrypoint，gateway euid，挂载 restore volume。
@@ -251,9 +275,30 @@ docker run --rm --entrypoint python --user gateway \
   -v "$RESTORE_VOLUME":/var/lib/gateway/repository \
   "$IMAGE" -m gateway_repository_service.snapshot_admin check
 
-# 8. 同一 image 启动 Service，将 repository-service-data 换为 $RESTORE_VOLUME，
-#    确认 /readyz 以及 snapshot 当时的 HTTP public facts；snapshot 之后的 mutation
-#    不得出现。
+# 8. 用同一 image 和 restore volume 走普通 entrypoint 启动。TOKEN_FILE 是当前部署
+#    使用、且 container 内 gateway 可读的 bearer secret file。
+TOKEN_FILE=/path/to/repository-bearer-token
+RESTORED_CONTAINER="repository-service-restored"
+docker run --rm -d --name "$RESTORED_CONTAINER" \
+  --env GATEWAY_REPOSITORY_PROFILE=production \
+  --env GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository \
+  --env GATEWAY_REPOSITORY_BEARER_TOKEN_FILE=/run/secrets/repository-bearer-token \
+  -v "$TOKEN_FILE":/run/secrets/repository-bearer-token:ro \
+  -v "$RESTORE_VOLUME":/var/lib/gateway/repository \
+  -p 127.0.0.1:8000:8000 \
+  "$IMAGE"
+
+# 9. /readyz 必须通过；随后重放 snapshot 前保存的 RepositoryId、CommitId、ref/catalog
+#    client 请求并逐字段比较 expected public facts。另重放 snapshot 后 mutation 的 ref
+#    请求并确认 404。不要以直接读取 SQLite/Dolt 代替这些 public 检查。
+until docker exec "$RESTORED_CONTAINER" python -c \
+  "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz')"; do
+  sleep 1
+done
+
+# 10. 保存 public 验证结果后停止；exit 和本轮 container inventory 必须收敛。
+docker stop --signal SIGTERM --time 30 "$RESTORED_CONTAINER"
+test -z "$(docker ps -aq --filter name="^/${RESTORED_CONTAINER}$")"
 ```
 
 partial/SQLite-only/single-Dolt/non-empty overlay/live-root 都必须失败并保持

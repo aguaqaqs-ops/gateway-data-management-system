@@ -216,16 +216,44 @@ PY
 }
 
 image_metadata() {
-  IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$IMAGE")
-  IMAGE_CANDIDATE=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")
-  IMAGE_BUILD_INPUT=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.build-input-revision"}}' "$IMAGE")
-  IMAGE_TREE=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.source-tree-sha256"}}' "$IMAGE")
-  IMAGE_LOCK=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.uv-lock-sha256"}}' "$IMAGE")
-  IMAGE_DOLT=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.dolt-version"}}' "$IMAGE")
-  IMAGE_UV=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.uv-version"}}' "$IMAGE")
-  IMAGE_CONNECTOR=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.mysql-connector-version"}}' "$IMAGE")
-  IMAGE_PYARROW=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.pyarrow-version"}}' "$IMAGE")
+  printf '%s\n' "$IMAGE" | grep -Eq '^sha256:[0-9a-f]{64}$' \
+    || fail "formal image reference must be an immutable sha256 ID"
+  IMAGE_METADATA=$(docker image inspect "$IMAGE" | python3 -c '
+import json
+import sys
+
+payload = json.load(sys.stdin)
+if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+    raise SystemExit("image inspect must return exactly one object")
+image = payload[0]
+config = image.get("Config")
+labels = config.get("Labels") if isinstance(config, dict) else None
+if not isinstance(labels, dict):
+    raise SystemExit("image labels are missing")
+keys = (
+    "org.opencontainers.image.revision",
+    "gateway.p2r1.build-input-revision",
+    "gateway.p2r1.source-tree-sha256",
+    "gateway.p2r1.uv-lock-sha256",
+    "gateway.p2r1.dolt-version",
+    "gateway.p2r1.uv-version",
+    "gateway.p2r1.mysql-connector-version",
+    "gateway.p2r1.pyarrow-version",
+)
+values = (image.get("Id"), *(labels.get(key) for key in keys))
+if any(not isinstance(value, str) or "\t" in value or "\n" in value for value in values):
+    raise SystemExit("image identity fields are missing or malformed")
+print("\t".join(values))
+') || fail "cannot inspect target image identity"
+  old_ifs=$IFS
+  IFS='	'
+  read -r IMAGE_ID IMAGE_CANDIDATE IMAGE_BUILD_INPUT IMAGE_TREE IMAGE_LOCK \
+    IMAGE_DOLT IMAGE_UV IMAGE_CONNECTOR IMAGE_PYARROW <<EOF
+$IMAGE_METADATA
+EOF
+  IFS=$old_ifs
   printf '%s\n' "$IMAGE_ID" | grep -Eq '^sha256:[0-9a-f]{64}$' || fail "image ID is not a sha256 digest"
+  test "$IMAGE_ID" = "$IMAGE" || fail "image inspect resolved a different immutable ID"
   printf '%s\n' "$IMAGE_CANDIDATE" | grep -Eq '^[0-9a-f]{40}$' || fail "image candidate label is invalid"
   printf '%s\n' "$IMAGE_BUILD_INPUT" | grep -Eq '^[0-9a-f]{40}$' || fail "image build-input label is invalid"
   printf '%s\n' "$IMAGE_TREE" | grep -Eq '^sha256:[0-9a-f]{64}$' || fail "source tree label is invalid"
@@ -234,6 +262,7 @@ image_metadata() {
   test "$IMAGE_UV" = "0.11.28" || fail "image uv version is not 0.11.28"
   test "$IMAGE_CONNECTOR" = "9.7.0" || fail "image connector version is not 9.7.0"
   test "$IMAGE_PYARROW" = "25.0.0" || fail "image PyArrow version is not 25.0.0"
+  IMAGE=$IMAGE_ID
 }
 
 clean_source_metadata() {
@@ -248,6 +277,12 @@ import re
 import sys
 
 payload = json.load(sys.stdin)
+if (
+    payload.get("schema") != "gateway.p2r1.build-identity"
+    or type(payload.get("schema_version")) is not int
+    or payload.get("schema_version") != 1
+):
+    raise SystemExit("unsupported canonical identity schema")
 checks = (
     ("candidate_sha", r"[0-9a-f]{40}"),
     ("build_input_revision", r"[0-9a-f]{40}"),

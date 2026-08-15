@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from unittest.mock import patch
 
@@ -125,10 +126,10 @@ def test_image_matches_build_context_requires_all_fields() -> None:
     with (
         patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
         patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
-        patch.object(harness, "image_id", return_value=_IMAGE_ID),
-        patch.object(harness, "image_labels", return_value=_valid_labels()),
+        patch.object(harness, "inspect_image", return_value=(_IMAGE_ID, _valid_labels())) as inspect,
     ):
         assert harness.image_matches_build_context("gateway-repository-service:local")
+        inspect.assert_called_once_with("gateway-repository-service:local")
 
 
 @pytest.mark.unit
@@ -144,8 +145,7 @@ def test_image_matches_build_context_rejects_faults(
     with (
         patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
         patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
-        patch.object(harness, "image_id", return_value=image_digest),
-        patch.object(harness, "image_labels", return_value=labels),
+        patch.object(harness, "inspect_image", return_value=(image_digest, labels)),
     ):
         assert not harness.image_matches_build_context("gateway-repository-service:local")
 
@@ -155,7 +155,8 @@ def test_image_id_distinguishes_immutable_digests() -> None:
     def fake_run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         image = args[-1]
         digest = _IMAGE_ID if image.endswith(":current") else _OTHER_IMAGE_ID
-        return subprocess.CompletedProcess(args=args, returncode=0, stdout=f"{digest}\n", stderr="")
+        stdout = json.dumps([{"Id": digest, "Config": {"Labels": {}}}])
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout=stdout, stderr="")
 
     with patch("support.compose_build_harness.subprocess.run", side_effect=fake_run):
         assert harness.image_id("gateway-repository-service:current") == _IMAGE_ID
@@ -192,8 +193,8 @@ def test_dependency_base_matches_lock_requires_matching_label() -> None:
     lock_sha = "9129e908087b7168fec966ea8339fcd3200a3402357fa5eb7ef75f060a9e41fe"
     with patch.object(
         harness,
-        "image_labels",
-        return_value={harness.UV_LOCK_LABEL: lock_sha},
+        "inspect_image",
+        return_value=(_IMAGE_ID, {harness.UV_LOCK_LABEL: lock_sha}),
     ):
         assert harness.dependency_base_matches_lock("gateway-p2r1-repository:lock-9129e908087b", lock_sha)
 
@@ -203,8 +204,11 @@ def test_dependency_base_matches_lock_rejects_stale_label() -> None:
     current = harness.current_uv_lock_sha256()
     with patch.object(
         harness,
-        "image_labels",
-        return_value={harness.UV_LOCK_LABEL: "fce9185b59b654729670c618c352f9f7a458fb2de40bbd2e088158e81a771e65"},
+        "inspect_image",
+        return_value=(
+            _IMAGE_ID,
+            {harness.UV_LOCK_LABEL: "fce9185b59b654729670c618c352f9f7a458fb2de40bbd2e088158e81a771e65"},
+        ),
     ):
         assert not harness.dependency_base_matches_lock("gateway-p2r1-repository:lock-fce9185b59b6", current)
 
@@ -214,8 +218,7 @@ def test_verify_transferred_image_requires_immutable_id_and_labels() -> None:
     with (
         patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
         patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
-        patch.object(harness, "image_id", return_value=_IMAGE_ID),
-        patch.object(harness, "image_labels", return_value=_valid_labels()),
+        patch.object(harness, "inspect_image", return_value=(_IMAGE_ID, _valid_labels())),
     ):
         assert harness.verify_transferred_image(_IMAGE_ID, "gateway-repository-service:local")
 
@@ -225,8 +228,7 @@ def test_verify_transferred_image_rejects_tag_as_expected_id() -> None:
     with (
         patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
         patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
-        patch.object(harness, "image_id", return_value=_IMAGE_ID),
-        patch.object(harness, "image_labels", return_value=_valid_labels()),
+        patch.object(harness, "inspect_image", return_value=(_IMAGE_ID, _valid_labels())),
     ):
         assert not harness.verify_transferred_image(
             "gateway-repository-service:local",
@@ -239,8 +241,7 @@ def test_verify_transferred_image_rejects_id_drift() -> None:
     with (
         patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
         patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
-        patch.object(harness, "image_id", return_value=_OTHER_IMAGE_ID),
-        patch.object(harness, "image_labels", return_value=_valid_labels()),
+        patch.object(harness, "inspect_image", return_value=(_OTHER_IMAGE_ID, _valid_labels())),
     ):
         assert not harness.verify_transferred_image(_IMAGE_ID, "gateway-repository-service:local")
 
@@ -258,7 +259,6 @@ def test_verify_transferred_image_rejects_faults(
     with (
         patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
         patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
-        patch.object(harness, "image_id", return_value=image_digest),
-        patch.object(harness, "image_labels", return_value=labels),
+        patch.object(harness, "inspect_image", return_value=(image_digest, labels)),
     ):
         assert not harness.verify_transferred_image(_IMAGE_ID, "gateway-repository-service:local")

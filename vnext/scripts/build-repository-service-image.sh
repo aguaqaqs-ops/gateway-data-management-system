@@ -34,17 +34,27 @@ if ! IDENTITY_JSON="$(python3 "${DIGEST_HELPER}" identity)"; then
   exit 1
 fi
 
-readarray -t IDENTITY_FIELDS < <(
+if ! IDENTITY_FIELDS_TEXT="$(
   printf '%s' "${IDENTITY_JSON}" | python3 -c '
 import json, sys
 payload = json.load(sys.stdin)
+if (
+    payload.get("schema") != "gateway.p2r1.build-identity"
+    or type(payload.get("schema_version")) is not int
+    or payload.get("schema_version") != 1
+):
+    raise SystemExit("error: unsupported identity schema")
 for key in ("candidate_sha", "build_input_revision", "source_tree_sha256"):
     value = payload.get(key)
     if not isinstance(value, str) or not value:
         raise SystemExit(f"error: identity missing {key}")
     print(value)
 '
-)
+)"; then
+  echo "error: unable to parse canonical repository image identity" >&2
+  exit 1
+fi
+readarray -t IDENTITY_FIELDS <<<"${IDENTITY_FIELDS_TEXT}"
 CANDIDATE_SHA="${IDENTITY_FIELDS[0]:-}"
 BUILD_INPUT_REVISION="${IDENTITY_FIELDS[1]:-}"
 SOURCE_TREE_SHA256="${IDENTITY_FIELDS[2]:-}"

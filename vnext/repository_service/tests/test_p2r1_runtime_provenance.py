@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shlex
 import subprocess
 from pathlib import Path
@@ -73,6 +74,7 @@ def _install_verified_env(
         "GATEWAY_P2R1_SOURCE_TREE_SHA256": _TREE,
         "GATEWAY_P2R1_LOCK_SHA256": LOCK_SHA256,
         "GATEWAY_P2R1_CACHE_CONDITION": "retained-dependency-cache",
+        "GATEWAY_P2R1_PROJECT_NAME": "gateway-p2r1-test",
     }
     if extra:
         values.update(extra)
@@ -115,6 +117,10 @@ SCHEMA_FAULTS: tuple[tuple[str, dict[str, object]], ...] = (
     ("malformed-candidate", {**_valid_manifest(), "candidate_sha": "short"}),
     ("malformed-build-input", {**_valid_manifest(), "build_input_revision": "not-a-sha"}),
     ("malformed-source-tree", {**_valid_manifest(), "source_tree_sha256": "sha256:abcd"}),
+    ("missing-uv-version", {key: value for key, value in _valid_manifest().items() if key != "uv_version"}),
+    ("stale-uv-version", {**_valid_manifest(), "uv_version": "0.11.27"}),
+    ("missing-project", {key: value for key, value in _valid_manifest().items() if key != "project_name"}),
+    ("malformed-project", {**_valid_manifest(), "project_name": "Gateway Project"}),
     ("legacy-only-build-revision", {**_valid_manifest(), "build_revision": _CANDIDATE}),
     (
         "overloaded-build-revision-without-split-fields",
@@ -165,6 +171,94 @@ def test_launcher_calls_helper_before_run_dir_and_systemd() -> None:
     assert "GATEWAY_P2R1_CANDIDATE_SHA=$CANDIDATE_SHA" in source
     assert "GATEWAY_P2R1_BUILD_INPUT_REVISION=$BUILD_INPUT_REVISION" in source
     assert "GATEWAY_P2R1_BUILD_REVISION=$CANDIDATE_SHA" in source
+    assert "formal image reference must be an immutable sha256 ID" in source
+    assert source.count('docker image inspect "$IMAGE"') == 1
+    assert 'payload.get("schema") != "gateway.p2r1.build-identity"' in source
+    assert 'type(payload.get("schema_version")) is not int' in source
+    assert 'payload.get("schema_version") != 1' in source
+
+
+def _run_image_metadata(tmp_path: Path, image: str) -> tuple[subprocess.CompletedProcess[str], Path]:
+    source = LAUNCHER.read_text(encoding="utf-8")
+    start = source.index("image_metadata() {")
+    end = source.index("clean_source_metadata() {")
+    snippet = source[start:end]
+    inspect_json = tmp_path / "inspect.json"
+    inspect_json.write_text(
+        json.dumps(
+            [
+                {
+                    "Id": _IMAGE,
+                    "Config": {
+                        "Labels": {
+                            "org.opencontainers.image.revision": _CANDIDATE,
+                            "gateway.p2r1.build-input-revision": _BUILD_INPUT,
+                            "gateway.p2r1.source-tree-sha256": _TREE,
+                            "gateway.p2r1.uv-lock-sha256": LOCK_SHA256,
+                            "gateway.p2r1.dolt-version": "2.1.11",
+                            "gateway.p2r1.uv-version": "0.11.28",
+                            "gateway.p2r1.mysql-connector-version": "9.7.0",
+                            "gateway.p2r1.pyarrow-version": "25.0.0",
+                        }
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    count = tmp_path / "docker.count"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker = bin_dir / "docker"
+    docker.write_text(
+        "#!/bin/sh\nprintf x >> \"$DOCKER_COUNT\"\ncat \"$DOCKER_INSPECT_JSON\"\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    script = tmp_path / "inspect.sh"
+    script.write_text(
+        "\n".join(
+            [
+                "#!/bin/sh",
+                "set -eu",
+                'fail() { echo "p2-r1 launcher: $*" >&2; exit 2; }',
+                f"IMAGE={shlex.quote(image)}",
+                snippet,
+                "image_metadata",
+                "printf '%s\\n' \"$IMAGE\"",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{bin_dir}:{env['PATH']}",
+            "DOCKER_COUNT": str(count),
+            "DOCKER_INSPECT_JSON": str(inspect_json),
+        }
+    )
+    return (
+        subprocess.run(["sh", str(script)], check=False, capture_output=True, text=True, env=env),
+        count,
+    )
+
+
+@pytest.mark.unit
+def test_launcher_inspects_one_immutable_image_snapshot(tmp_path: Path) -> None:
+    completed, count = _run_image_metadata(tmp_path, _IMAGE)
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == f"{_IMAGE}\n"
+    assert count.read_text(encoding="utf-8") == "x"
+
+
+@pytest.mark.unit
+def test_launcher_rejects_tag_before_image_inspection(tmp_path: Path) -> None:
+    completed, count = _run_image_metadata(tmp_path, "gateway-repository-service:latest")
+    assert completed.returncode == 2
+    assert "must be an immutable sha256 ID" in completed.stderr
+    assert not count.exists()
 
 
 @pytest.mark.unit
@@ -212,6 +306,7 @@ def test_verified_v3_manifest_maps_build_revision_to_candidate(
     _install_verified_env(monkeypatch, manifest_path)
     metadata = _metadata()
     assert metadata["provenance_manifest_valid"] is True
+    assert metadata["provenance_verified"] is True
     assert metadata["metadata_complete"] is True
     assert metadata["build_revision"] == _CANDIDATE
     assert metadata["image_digest"] == _IMAGE
@@ -267,8 +362,10 @@ def test_verified_schema_faults_are_rejected(
     _install_verified_env(monkeypatch, manifest_path)
     metadata = _metadata()
     assert metadata["provenance_manifest_valid"] is False
+    assert metadata["provenance_verified"] is False
     assert metadata["metadata_complete"] is False
     assert metadata["build_revision"] == "unknown"
+    assert metadata["image_digest"] == "unknown"
 
 
 @pytest.mark.unit
@@ -288,7 +385,9 @@ def test_verified_stale_or_contradictory_fields_are_incomplete(
     _install_verified_env(monkeypatch, manifest_path)
     metadata = _metadata()
     assert metadata["metadata_complete"] is False
-    assert metadata["build_revision"] != "unknown"
+    assert metadata["provenance_verified"] is False
+    assert metadata["build_revision"] == "unknown"
+    assert metadata["image_digest"] == "unknown"
 
 
 @pytest.mark.unit
@@ -301,7 +400,8 @@ def test_cli_cannot_override_verified_candidate(
     _install_verified_env(monkeypatch, manifest_path)
     other = "f" * 40
     metadata = _metadata(build_revision=other, image_digest=_IMAGE)
-    assert metadata["build_revision"] == _CANDIDATE
+    assert metadata["build_revision"] == "unknown"
+    assert metadata["provenance_verified"] is False
     assert metadata["metadata_complete"] is False
 
 
@@ -318,7 +418,8 @@ def test_env_cannot_override_verified_candidate(
         extra={"GATEWAY_P2R1_BUILD_REVISION": "f" * 40},
     )
     metadata = _metadata()
-    assert metadata["build_revision"] == _CANDIDATE
+    assert metadata["build_revision"] == "unknown"
+    assert metadata["provenance_verified"] is False
     assert metadata["metadata_complete"] is False
 
 
@@ -345,6 +446,7 @@ def test_v2_manifest_does_not_supply_identity(
     _install_verified_env(monkeypatch, manifest_path)
     metadata = _metadata(build_revision=_CANDIDATE, image_digest=_IMAGE)
     assert metadata["provenance_manifest_valid"] is False
+    assert metadata["provenance_verified"] is False
     assert metadata["metadata_complete"] is False
     assert metadata["build_revision"] == "unknown"
 

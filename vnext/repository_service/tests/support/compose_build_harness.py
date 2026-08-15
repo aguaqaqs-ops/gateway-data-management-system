@@ -8,8 +8,6 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Any
-
 from support.build_context_digest import (
     ImageIdentity,
     compute_image_identity,
@@ -37,7 +35,7 @@ def dependency_base_image_for_lock(lock_sha256: str | None = None) -> str:
 
 
 def dependency_base_matches_lock(image: str, lock_sha256: str | None = None) -> bool:
-    labels = image_labels(image)
+    _image_id, labels = inspect_image(image)
     if not labels:
         return False
     expected = lock_sha256 if lock_sha256 is not None else current_uv_lock_sha256()
@@ -49,23 +47,11 @@ def resolve_service_image() -> str:
 
 
 def image_id(image: str) -> str:
-    completed = subprocess.run(
-        ["docker", "image", "inspect", "--format", "{{.Id}}", image],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    if completed.returncode != 0:
-        return ""
-    return completed.stdout.strip()
+    digest, _labels = inspect_image(image)
+    return digest
 
 
-def expected_build_metadata() -> ImageIdentity:
-    return compute_image_identity(vnext_root=VNEXT_ROOT)
-
-
-def image_labels(image: str) -> dict[str, str]:
+def inspect_image(image: str) -> tuple[str, dict[str, str]]:
     completed = subprocess.run(
         ["docker", "image", "inspect", image],
         check=False,
@@ -74,22 +60,37 @@ def image_labels(image: str) -> dict[str, str]:
         timeout=60,
     )
     if completed.returncode != 0:
-        return {}
-    payload: list[dict[str, Any]] = json.loads(completed.stdout)
-    if not payload:
-        return {}
-    config = payload[0].get("Config", {})
-    labels = config.get("Labels", {})
+        return "", {}
+    try:
+        payload: object = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return "", {}
+    if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+        return "", {}
+    digest = payload[0].get("Id")
+    config = payload[0].get("Config")
+    if not isinstance(digest, str) or not isinstance(config, dict):
+        return "", {}
+    labels = config.get("Labels")
     if not isinstance(labels, dict):
-        return {}
-    return {str(key): str(value) for key, value in labels.items()}
+        return digest, {}
+    if any(not isinstance(key, str) or not isinstance(value, str) for key, value in labels.items()):
+        return digest, {}
+    return digest, dict(labels)
 
 
-def image_matches_build_context(image: str) -> bool:
-    current_id = image_id(image)
-    if not _IMAGE_ID_DIGEST.fullmatch(current_id):
+def expected_build_metadata() -> ImageIdentity:
+    return compute_image_identity(vnext_root=VNEXT_ROOT)
+
+
+def image_labels(image: str) -> dict[str, str]:
+    _digest, labels = inspect_image(image)
+    return labels
+
+
+def _metadata_matches_build_context(digest: str, labels: dict[str, str]) -> bool:
+    if not _IMAGE_ID_DIGEST.fullmatch(digest):
         return False
-    labels = image_labels(image)
     if not labels:
         return False
     expected = expected_build_metadata()
@@ -102,6 +103,11 @@ def image_matches_build_context(image: str) -> bool:
     )
 
 
+def image_matches_build_context(image: str) -> bool:
+    digest, labels = inspect_image(image)
+    return _metadata_matches_build_context(digest, labels)
+
+
 def verify_transferred_image(expected_image_id: str, local_ref: str) -> bool:
     """Accept a loaded image only when immutable ID and labels match.
 
@@ -110,10 +116,10 @@ def verify_transferred_image(expected_image_id: str, local_ref: str) -> bool:
 
     if not _IMAGE_ID_DIGEST.fullmatch(expected_image_id):
         return False
-    current_id = image_id(local_ref)
+    current_id, labels = inspect_image(local_ref)
     if current_id != expected_image_id:
         return False
-    return image_matches_build_context(local_ref)
+    return _metadata_matches_build_context(current_id, labels)
 
 
 def _run_build(image: str) -> None:

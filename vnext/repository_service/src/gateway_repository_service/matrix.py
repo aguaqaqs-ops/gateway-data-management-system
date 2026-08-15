@@ -64,8 +64,10 @@ EXPECTED_SAMPLE_KINDS = ("warmup", *(f"measured-{index}" for index in range(1, 6
 STORAGE_LAYOUT_VERSION = "p2-r1-storage-layout-v1"
 STORAGE_IDENTITY_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 PROVENANCE_MANIFEST_VERSION = "p2-r1-provenance-v3"
+PROVENANCE_UV_VERSION = "0.11.28"
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_PROJECT_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 W3_DELTA_STAGE_PAIRS = {
     "base_restart_delta": (
         "base_post_commit_close",
@@ -1136,14 +1138,16 @@ def _measurement_metadata(
     verified_cache = _optional_env("GATEWAY_P2R1_CACHE_CONDITION")
     verified_lock = _optional_env("GATEWAY_P2R1_LOCK_SHA256")
     verified_tree = _optional_env("GATEWAY_P2R1_SOURCE_TREE_SHA256")
+    verified_project = _optional_env("GATEWAY_P2R1_PROJECT_NAME")
     manifest = _load_provenance_manifest()
     identity = _manifest_identity(manifest)
     target_container = os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") == "1"
     storage_layout = _load_storage_layout() if target_container else None
     storage_manifest_valid = not target_container or storage_layout is not None
-    provenance_flag = os.environ.get("GATEWAY_P2R1_PROVENANCE_VERIFIED") == "1"
-    provenance_verified = provenance_flag and manifest is not None
-    if provenance_verified:
+    provenance_requested = (
+        os.environ.get("GATEWAY_P2R1_PROVENANCE_VERIFIED") == "1" and manifest is not None
+    )
+    if provenance_requested:
         resolved_image = identity["image_digest"] if identity is not None else None
         resolved_candidate = identity["candidate_sha"] if identity is not None else None
         resolved_build_input = (
@@ -1189,22 +1193,30 @@ def _measurement_metadata(
         and manifest.get("build_input_revision") == resolved_build_input
         and manifest.get("lock_sha256") == actual_lock
         and manifest.get("dolt_version") == settings.dolt_version
+        and manifest.get("uv_version") == PROVENANCE_UV_VERSION
         and manifest.get("mysql_connector_version") == settings.mysql_connector_version
         and manifest.get("pyarrow_version") == actual_pyarrow
         and manifest.get("cache_condition") == resolved_cache
         and manifest.get("source_tree_sha256") == resolved_tree
         and isinstance(manifest.get("source_tree_sha256"), str)
         and _DIGEST.fullmatch(str(manifest.get("source_tree_sha256"))) is not None
+        and isinstance(manifest.get("project_name"), str)
+        and _PROJECT_NAME.fullmatch(str(manifest.get("project_name"))) is not None
+        and manifest.get("project_name") == verified_project
     )
+    provenance_verified = provenance_requested and manifest_valid and cli_matches_verified
+    report_verified_values = not provenance_requested or provenance_verified
     return {
         "dolt_actual_version": actual_dolt,
         "dolt_expected_version": settings.dolt_version,
         "mysql_connector_actual_version": actual_driver,
         "mysql_connector_expected_version": settings.mysql_connector_version,
         "pyarrow_actual_version": actual_pyarrow,
-        "image_digest": resolved_image or "unknown",
-        "build_revision": resolved_candidate or "unknown",
-        "cache_condition": resolved_cache or "unknown",
+        "image_digest": resolved_image if report_verified_values and resolved_image else "unknown",
+        "build_revision": (
+            resolved_candidate if report_verified_values and resolved_candidate else "unknown"
+        ),
+        "cache_condition": resolved_cache if report_verified_values and resolved_cache else "unknown",
         "lock_sha256": actual_lock,
         "declared_lock_sha256": verified_lock,
         "provenance_verified": provenance_verified,

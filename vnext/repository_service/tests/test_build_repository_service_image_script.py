@@ -275,6 +275,32 @@ def test_build_script_rejects_dirty_tree_before_docker(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [("schema", "gateway.p2r1.build-identity-v0"), ("schema_version", True)],
+    ids=["schema-name", "boolean-schema-version"],
+)
+def test_build_script_rejects_unsupported_identity_schema_before_docker(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    identity = json.loads(_stub_identity_json())
+    identity[field] = value
+    payload = json.dumps(identity)
+    completed, argv_file = _run_build_script(
+        tmp_path,
+        timeout_script='#!/usr/bin/env bash\nshift\nexec "$@"\n',
+        docker_build_exit_code=0,
+        python3_script=_python3_identity_override(payload),
+    )
+    assert completed.returncode != 0
+    assert not argv_file.is_file()
+    assert "unable to parse canonical repository image identity" in completed.stderr
+    _assert_no_secret_leak(completed)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
     ("env_key", "env_value"),
     [
         ("GATEWAY_P2R1_CANDIDATE_SHA", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"),

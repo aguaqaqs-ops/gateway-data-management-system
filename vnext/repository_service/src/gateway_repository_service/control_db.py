@@ -940,6 +940,18 @@ class ControlDbNewerVersionError(ControlDbError):
     """Raised when on-disk user_version exceeds the supported version."""
 
 
+@dataclass(frozen=True)
+class WalCheckpointResult:
+    """Result of ``PRAGMA wal_checkpoint`` with busy and frame counts."""
+
+    busy: int
+    log: int
+    checkpointed: int
+
+    def is_quiescent(self) -> bool:
+        return self.busy == 0 and self.log == self.checkpointed
+
+
 def _admin_cli_ddl_signature(sql: str) -> str:
     return sql.strip()
 
@@ -1480,6 +1492,19 @@ class ControlStore:
             connection.execute(_MIGRATION_V16_MANUAL_BARRIER_INDEX)
             return
         raise ControlDbError(f"unsupported control database migration target {target_version}")
+
+    def checkpoint_wal_truncate(self) -> WalCheckpointResult:
+        try:
+            row = self.connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        except sqlite3.Error as exc:
+            raise ControlDbError("control database checkpoint failed") from exc
+        if row is None or len(row) < 3:
+            raise ControlDbError("control database checkpoint failed")
+        return WalCheckpointResult(
+            busy=int(row[0]),
+            log=int(row[1]),
+            checkpointed=int(row[2]),
+        )
 
     def close(self) -> None:
         self.connection.close()

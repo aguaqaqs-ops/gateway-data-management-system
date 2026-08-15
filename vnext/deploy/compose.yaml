@@ -23,6 +23,10 @@ services:
     build:
       context: ..
       dockerfile: repository_service/Dockerfile
+      args:
+        CANDIDATE_SHA: ${GATEWAY_P2R1_CANDIDATE_SHA:-unknown}
+        BUILD_INPUT_REVISION: ${GATEWAY_P2R1_BUILD_INPUT_REVISION:-unknown}
+        SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-unknown}
     command: ["python", "-m", "gateway_repository_service.target_gate"]
     environment:
       GATEWAY_REPOSITORY_DATA_ROOT: /var/lib/gateway/repository
@@ -62,7 +66,8 @@ services:
         DOLT_DOWNLOAD_URL: ${GATEWAY_REPOSITORY_DOLT_DOWNLOAD_URL:-}
         UV_BOOTSTRAP_INDEX_URL: ${GATEWAY_REPOSITORY_UV_BOOTSTRAP_INDEX_URL:-https://pypi.org/simple}
         UV_BOOTSTRAP_TRUSTED_HOST: ${GATEWAY_REPOSITORY_UV_BOOTSTRAP_TRUSTED_HOST:-}
-        BUILD_REVISION: ${GATEWAY_P2R1_BUILD_REVISION:-unknown}
+        CANDIDATE_SHA: ${GATEWAY_P2R1_CANDIDATE_SHA:-unknown}
+        BUILD_INPUT_REVISION: ${GATEWAY_P2R1_BUILD_INPUT_REVISION:-unknown}
         SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-unknown}
     environment:
       GATEWAY_REPOSITORY_PROFILE: production

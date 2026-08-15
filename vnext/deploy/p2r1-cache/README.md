@@ -335,7 +335,17 @@ is read-only and has no write access outside that directory.
 From the `vnext` Docker build context, pass the cache URL and preserve the
 Docker service proxy for PyPI/uv dependencies:
 
+Formal image production uses `vnext/scripts/build-repository-service-image.sh`, which
+calls the canonical helper once and passes three independent build args. Diagnostic
+`docker build` must consume the same helper; do not use `git archive HEAD` or a
+single `BUILD_REVISION` for both candidate and build-input:
+
 ```sh
+IDENTITY_JSON="$(python3 repository_service/tests/support/build_context_digest.py identity)"
+CANDIDATE_SHA="$(printf '%s' "$IDENTITY_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["candidate_sha"])')"
+BUILD_INPUT_REVISION="$(printf '%s' "$IDENTITY_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["build_input_revision"])')"
+SOURCE_TREE_SHA256="$(printf '%s' "$IDENTITY_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_tree_sha256"])')"
+
 docker build \
   --network=host \
   --build-arg DOLT_DOWNLOAD_URL=http://172.17.0.1:18080/dolt/2.1.11/dolt-linux-amd64.tar.gz \
@@ -344,8 +354,9 @@ docker build \
   --build-arg HTTP_PROXY \
   --build-arg HTTPS_PROXY \
   --build-arg NO_PROXY=172.17.0.1,localhost,127.0.0.1 \
-  --build-arg BUILD_REVISION="$(git rev-parse HEAD)" \
-  --build-arg SOURCE_TREE_SHA256="sha256:$(git archive HEAD | sha256sum | cut -d' ' -f1)" \
+  --build-arg CANDIDATE_SHA="$CANDIDATE_SHA" \
+  --build-arg BUILD_INPUT_REVISION="$BUILD_INPUT_REVISION" \
+  --build-arg SOURCE_TREE_SHA256="$SOURCE_TREE_SHA256" \
   --build-arg MYSQL_CONNECTOR_VERSION=9.7.0 \
   --build-arg PYARROW_VERSION=25.0.0 \
   --tag gateway-p2r1-repository:dev \
@@ -363,8 +374,9 @@ available, the formal Dockerfile can reuse it without network downloads:
 docker build --network=host \
   --build-arg BASE_IMAGE=gateway-p2r1-repository:dependency-base-python3.14-dolt2.1.11-uv0.11.28 \
   --build-arg USE_PRELOADED_DEPENDENCIES=1 \
-  --build-arg BUILD_REVISION="$(git rev-parse HEAD)" \
-  --build-arg SOURCE_TREE_SHA256="sha256:$(git archive HEAD | sha256sum | cut -d' ' -f1)" \
+  --build-arg CANDIDATE_SHA="$CANDIDATE_SHA" \
+  --build-arg BUILD_INPUT_REVISION="$BUILD_INPUT_REVISION" \
+  --build-arg SOURCE_TREE_SHA256="$SOURCE_TREE_SHA256" \
   --build-arg MYSQL_CONNECTOR_VERSION=9.7.0 \
   --build-arg PYARROW_VERSION=25.0.0 \
   --tag gateway-p2r1-repository:dev \

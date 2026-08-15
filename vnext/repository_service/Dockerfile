@@ -4,7 +4,8 @@ ARG UV_VERSION=0.11.28
 ARG DOLT_VERSION=2.1.11
 ARG DOLT_SHA256=7e5583b7e35ad329fe3f4705cf51db29be583bd50fd801516237d593210524d3
 ARG UV_LOCK_SHA256=6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11
-ARG BUILD_REVISION=unknown
+ARG CANDIDATE_SHA=unknown
+ARG BUILD_INPUT_REVISION=unknown
 ARG SOURCE_TREE_SHA256=unknown
 ARG MYSQL_CONNECTOR_VERSION=9.7.0
 ARG PYARROW_VERSION=25.0.0
@@ -53,7 +54,11 @@ ENV PATH="/app/.venv/bin:${PATH}" PYTHONPATH="/app/.venv/lib/python3.14/site-pac
 # Entrypoint starts as root, prepares server-owned layout, then drops to gateway.
 USER root
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-LABEL org.opencontainers.image.revision="${BUILD_REVISION}" \
+RUN printf '%s' "${CANDIDATE_SHA}" | grep -Eq '^[0-9a-f]{40}$' \
+    && printf '%s' "${BUILD_INPUT_REVISION}" | grep -Eq '^[0-9a-f]{40}$' \
+    && printf '%s' "${SOURCE_TREE_SHA256}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+LABEL org.opencontainers.image.revision="${CANDIDATE_SHA}" \
+      gateway.p2r1.build-input-revision="${BUILD_INPUT_REVISION}" \
       gateway.p2r1.source-tree-sha256="${SOURCE_TREE_SHA256}" \
       gateway.p2r1.mysql-connector-version="${MYSQL_CONNECTOR_VERSION}" \
       gateway.p2r1.pyarrow-version="${PYARROW_VERSION}" \

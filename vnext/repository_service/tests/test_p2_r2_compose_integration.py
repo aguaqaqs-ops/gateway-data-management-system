@@ -52,6 +52,7 @@ def test_dockerfile_runs_as_gateway_user_with_provenance_labels() -> None:
     assert "artifact-broker" not in dockerfile
     for label in (
         "org.opencontainers.image.revision=",
+        "gateway.p2r1.build-input-revision=",
         "gateway.p2r1.source-tree-sha256=",
         "gateway.p2r1.dolt-version=",
         "gateway.p2r1.uv-version=",
@@ -59,6 +60,33 @@ def test_dockerfile_runs_as_gateway_user_with_provenance_labels() -> None:
         "gateway.p2r1.cache-policy=",
     ):
         assert label in dockerfile
+
+
+@pytest.mark.unit
+def test_dockerfile_and_compose_emit_three_independent_provenance_fields() -> None:
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    assert "ARG CANDIDATE_SHA=unknown" in dockerfile
+    assert "ARG BUILD_INPUT_REVISION=unknown" in dockerfile
+    assert "ARG SOURCE_TREE_SHA256=unknown" in dockerfile
+    assert "ARG BUILD_REVISION" not in dockerfile
+    assert "BUILD_REVISION" not in dockerfile
+    assert 'org.opencontainers.image.revision="${CANDIDATE_SHA}"' in dockerfile
+    assert 'gateway.p2r1.build-input-revision="${BUILD_INPUT_REVISION}"' in dockerfile
+    assert 'gateway.p2r1.source-tree-sha256="${SOURCE_TREE_SHA256}"' in dockerfile
+    assert "grep -Eq '^[0-9a-f]{40}$'" in dockerfile
+    assert "grep -Eq '^sha256:[0-9a-f]{64}$'" in dockerfile
+
+    service = _service_block(COMPOSE.read_text(encoding="utf-8"), "repository-service")
+    assert "CANDIDATE_SHA: ${GATEWAY_P2R1_CANDIDATE_SHA:-unknown}" in service
+    assert "BUILD_INPUT_REVISION: ${GATEWAY_P2R1_BUILD_INPUT_REVISION:-unknown}" in service
+    assert "SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-unknown}" in service
+    assert "BUILD_REVISION:" not in service
+
+    probe = _service_block(COMPOSE.read_text(encoding="utf-8"), "repository-probe")
+    assert "CANDIDATE_SHA: ${GATEWAY_P2R1_CANDIDATE_SHA:-unknown}" in probe
+    assert "BUILD_INPUT_REVISION: ${GATEWAY_P2R1_BUILD_INPUT_REVISION:-unknown}" in probe
+    assert "SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-unknown}" in probe
+    assert "GATEWAY_P2R1_BUILD_REVISION: ${GATEWAY_P2R1_BUILD_REVISION:-}" in probe
 
 
 def test_dockerfile_uv_lock_sha256_matches_lockfile() -> None:

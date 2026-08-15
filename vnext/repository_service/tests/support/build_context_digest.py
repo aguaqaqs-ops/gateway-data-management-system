@@ -3,9 +3,6 @@
 Formal identity is the three-field result from ``identity`` / ``compute_image_identity``:
 literal ``candidate_sha``, manifest-derived ``build_input_revision``, and framed
 ``source_tree_sha256``. Path policy lives only in the sibling versioned manifest.
-
-CLI ``build-revision`` is a non-formal deprecated alias of ``build-input-revision``
-and must not be treated as a three-field PASS. S5-B deletes that alias.
 """
 
 from __future__ import annotations
@@ -41,8 +38,7 @@ _REQUIRED_MANIFEST_KEYS = frozenset(
 )
 _USAGE = (
     "usage: build_context_digest.py "
-    "<identity|candidate-sha|source-tree-sha256|build-input-revision|"
-    "head-sha|build-revision>"
+    "<identity|candidate-sha|source-tree-sha256|build-input-revision|head-sha>"
 )
 _COMMANDS = frozenset(
     {
@@ -51,7 +47,6 @@ _COMMANDS = frozenset(
         "source-tree-sha256",
         "build-input-revision",
         "head-sha",
-        "build-revision",
     }
 )
 
@@ -338,21 +333,6 @@ def compute_build_input_revision(
     return _require_resolvable_commit(root, sha, field="build_input_revision")
 
 
-def compute_build_revision(
-    *,
-    vnext_root: Path | None = None,
-    repo_root: Path | None = None,
-    manifest: EffectiveInputManifest | None = None,
-) -> str:
-    """Deprecated non-formal alias of ``compute_build_input_revision``."""
-
-    return compute_build_input_revision(
-        vnext_root=vnext_root,
-        repo_root=repo_root,
-        manifest=manifest,
-    )
-
-
 def _should_hash_relative(relative: str, manifest: EffectiveInputManifest) -> bool:
     parts = relative.split("/")
     if any(part in manifest.excluded_dir_names for part in parts):
@@ -464,7 +444,7 @@ def main(argv: list[str] | None = None) -> int:
             print(compute_candidate_sha())
         elif command == "source-tree-sha256":
             print(compute_source_tree_sha256())
-        else:
+        elif command == "build-input-revision":
             print(compute_build_input_revision())
     except ProvenanceError as exc:
         print(f"error: {exc}", file=sys.stderr)

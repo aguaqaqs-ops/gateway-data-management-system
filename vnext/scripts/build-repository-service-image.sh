@@ -6,10 +6,16 @@ set -euo pipefail
 # not supported here; use a remote builder with retained cache instead.
 #
 # Environment:
-#   GATEWAY_REPOSITORY_SERVICE_IMAGE   output tag (default: gateway-repository-service:local)
-#   GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE dependency-base tag to reuse
-#   GATEWAY_P2R1_CACHE_URL             cache HTTP root (default: http://172.17.0.1:18080)
-#   DOCKER_HOST                        optional remote Docker daemon
+#   GATEWAY_REPOSITORY_SERVICE_IMAGE     output tag (default: gateway-repository-service:local)
+#   GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE   dependency-base tag to reuse
+#   GATEWAY_P2R1_CACHE_URL               cache HTTP root (default: http://172.17.0.1:18080)
+#   GATEWAY_P2R1_CANDIDATE_SHA           optional; must match helper candidate_sha
+#   GATEWAY_P2R1_BUILD_INPUT_REVISION    optional; must match helper build_input_revision
+#   GATEWAY_P2R1_SOURCE_TREE_SHA256      optional; must match helper source_tree_sha256
+#   GATEWAY_P2R1_UV_LOCK_SHA256          optional; must match repository_service/uv.lock
+#   DOCKER_HOST                          optional remote Docker daemon
+#
+# GATEWAY_P2R1_BUILD_REVISION is ignored and is not an identity override.
 
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${VNEXT_ROOT}/.." && pwd)"
@@ -22,8 +28,52 @@ fi
 DEPENDENCY_BASE="${GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE:-gateway-p2r1-repository:lock-${UV_LOCK_SHA256:0:12}}"
 CACHE_URL="${GATEWAY_P2R1_CACHE_URL:-http://172.17.0.1:18080}"
 DIGEST_HELPER="${VNEXT_ROOT}/repository_service/tests/support/build_context_digest.py"
-BUILD_REVISION="${GATEWAY_P2R1_BUILD_REVISION:-$(python3 "${DIGEST_HELPER}" build-revision)}"
-SOURCE_TREE_SHA256="${GATEWAY_P2R1_SOURCE_TREE_SHA256:-$(python3 "${DIGEST_HELPER}" source-tree-sha256)}"
+
+if ! IDENTITY_JSON="$(python3 "${DIGEST_HELPER}" identity)"; then
+  echo "error: unable to compute repository image identity" >&2
+  exit 1
+fi
+
+readarray -t IDENTITY_FIELDS < <(
+  printf '%s' "${IDENTITY_JSON}" | python3 -c '
+import json, sys
+payload = json.load(sys.stdin)
+for key in ("candidate_sha", "build_input_revision", "source_tree_sha256"):
+    value = payload.get(key)
+    if not isinstance(value, str) or not value:
+        raise SystemExit(f"error: identity missing {key}")
+    print(value)
+'
+)
+CANDIDATE_SHA="${IDENTITY_FIELDS[0]:-}"
+BUILD_INPUT_REVISION="${IDENTITY_FIELDS[1]:-}"
+SOURCE_TREE_SHA256="${IDENTITY_FIELDS[2]:-}"
+
+if [[ -n "${GATEWAY_P2R1_CANDIDATE_SHA:-}" && "${GATEWAY_P2R1_CANDIDATE_SHA}" != "${CANDIDATE_SHA}" ]]; then
+  echo "error: GATEWAY_P2R1_CANDIDATE_SHA does not match helper candidate_sha" >&2
+  exit 1
+fi
+if [[ -n "${GATEWAY_P2R1_BUILD_INPUT_REVISION:-}" && "${GATEWAY_P2R1_BUILD_INPUT_REVISION}" != "${BUILD_INPUT_REVISION}" ]]; then
+  echo "error: GATEWAY_P2R1_BUILD_INPUT_REVISION does not match helper build_input_revision" >&2
+  exit 1
+fi
+if [[ -n "${GATEWAY_P2R1_SOURCE_TREE_SHA256:-}" && "${GATEWAY_P2R1_SOURCE_TREE_SHA256}" != "${SOURCE_TREE_SHA256}" ]]; then
+  echo "error: GATEWAY_P2R1_SOURCE_TREE_SHA256 does not match helper source_tree_sha256" >&2
+  exit 1
+fi
+
+if [[ ! "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "error: candidate_sha must be a 40-character lowercase hex digest" >&2
+  exit 1
+fi
+if [[ ! "${BUILD_INPUT_REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "error: build_input_revision must be a 40-character lowercase hex digest" >&2
+  exit 1
+fi
+if [[ ! "${SOURCE_TREE_SHA256}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "error: source_tree_sha256 must be a sha256 digest" >&2
+  exit 1
+fi
 
 cache_reachable() {
   curl -fsS --connect-timeout 2 "${CACHE_URL}/" >/dev/null 2>&1 \
@@ -43,7 +93,8 @@ build_args=(
   --network=host
   --file "${VNEXT_ROOT}/repository_service/Dockerfile"
   --tag "${IMAGE_TAG}"
-  --build-arg "BUILD_REVISION=${BUILD_REVISION}"
+  --build-arg "CANDIDATE_SHA=${CANDIDATE_SHA}"
+  --build-arg "BUILD_INPUT_REVISION=${BUILD_INPUT_REVISION}"
   --build-arg "SOURCE_TREE_SHA256=${SOURCE_TREE_SHA256}"
   --build-arg "UV_LOCK_SHA256=${UV_LOCK_SHA256}"
   --build-arg MYSQL_CONNECTOR_VERSION=9.7.0

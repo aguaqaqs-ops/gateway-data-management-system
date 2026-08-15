@@ -7,54 +7,157 @@ from unittest.mock import patch
 
 import pytest
 
+from support.build_context_digest import ImageIdentity
 from support import compose_build_harness as harness
+
+_SHA_A = "a" * 40
+_SHA_B = "b" * 40
+_TREE = "sha256:" + "c" * 64
+_LOCK = "d" * 64
+_IMAGE_ID = "sha256:" + "e" * 64
+_OTHER_IMAGE_ID = "sha256:" + "f" * 64
+_IDENTITY = ImageIdentity(
+    candidate_sha=_SHA_A,
+    build_input_revision=_SHA_B,
+    source_tree_sha256=_TREE,
+)
+
+
+def _valid_labels() -> dict[str, str]:
+    return {
+        harness.CANDIDATE_LABEL: _SHA_A,
+        harness.BUILD_INPUT_LABEL: _SHA_B,
+        harness.SOURCE_TREE_LABEL: _TREE,
+        harness.UV_LOCK_LABEL: _LOCK,
+    }
+
+
+IMAGE_MATCH_FAULTS: tuple[tuple[str, dict[str, str], str], ...] = (
+    (
+        "missing-candidate",
+        {key: value for key, value in _valid_labels().items() if key != harness.CANDIDATE_LABEL},
+        _IMAGE_ID,
+    ),
+    ("stale-candidate", {**_valid_labels(), harness.CANDIDATE_LABEL: "0" * 40}, _IMAGE_ID),
+    ("malformed-candidate", {**_valid_labels(), harness.CANDIDATE_LABEL: "not-a-sha"}, _IMAGE_ID),
+    (
+        "missing-build-input",
+        {key: value for key, value in _valid_labels().items() if key != harness.BUILD_INPUT_LABEL},
+        _IMAGE_ID,
+    ),
+    ("stale-build-input", {**_valid_labels(), harness.BUILD_INPUT_LABEL: "0" * 40}, _IMAGE_ID),
+    ("malformed-build-input", {**_valid_labels(), harness.BUILD_INPUT_LABEL: "short"}, _IMAGE_ID),
+    (
+        "missing-source-tree",
+        {key: value for key, value in _valid_labels().items() if key != harness.SOURCE_TREE_LABEL},
+        _IMAGE_ID,
+    ),
+    ("stale-source-tree", {**_valid_labels(), harness.SOURCE_TREE_LABEL: "sha256:" + "0" * 64}, _IMAGE_ID),
+    ("malformed-source-tree", {**_valid_labels(), harness.SOURCE_TREE_LABEL: "sha256:abcd"}, _IMAGE_ID),
+    (
+        "missing-lock",
+        {key: value for key, value in _valid_labels().items() if key != harness.UV_LOCK_LABEL},
+        _IMAGE_ID,
+    ),
+    ("stale-lock", {**_valid_labels(), harness.UV_LOCK_LABEL: "0" * 64}, _IMAGE_ID),
+    ("malformed-lock", {**_valid_labels(), harness.UV_LOCK_LABEL: "lock"}, _IMAGE_ID),
+    ("empty-image-id", _valid_labels(), ""),
+    ("tag-image-id", _valid_labels(), "gateway-repository-service:local"),
+    ("short-image-id", _valid_labels(), "sha256:abcd"),
+)
+
+
+def _assert_no_secret_leak(text: str) -> None:
+    lowered = text.lower()
+    assert "token" not in lowered
+    assert "http_proxy" not in lowered
+    assert "https_proxy" not in lowered
+    assert "bearer" not in lowered
+    assert "provenance pass" not in lowered
 
 
 @pytest.mark.unit
 def test_run_build_timeout_raises_runtime_error() -> None:
     with (
         patch.object(harness, "BUILD_SCRIPT", harness.BUILD_SCRIPT),
-        patch.object(harness, "expected_build_metadata", return_value=("sha256:abc", "rev-1")),
-        patch.object(harness, "current_uv_lock_sha256", return_value="lock-sha"),
+        patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
+        patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
         patch(
             "support.compose_build_harness.subprocess.run",
             side_effect=subprocess.TimeoutExpired(cmd=["bash"], timeout=1800),
         ),
     ):
-        with pytest.raises(RuntimeError, match="timed out after 1800s"):
+        with pytest.raises(RuntimeError, match="timed out after 1800s") as exc_info:
             harness._run_build(harness.DEFAULT_IMAGE)
+    _assert_no_secret_leak(str(exc_info.value))
 
 
 @pytest.mark.unit
-def test_image_matches_build_context_requires_matching_labels() -> None:
+def test_run_build_sets_helper_identity_env_not_legacy_revision() -> None:
+    captured: dict[str, str] = {}
+
+    def fake_run(*_args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        env = kwargs["env"]
+        assert isinstance(env, dict)
+        captured.update({str(key): str(value) for key, value in env.items()})
+        return subprocess.CompletedProcess(args=["bash"], returncode=0, stdout="", stderr="")
+
     with (
-        patch.object(harness, "expected_build_metadata", return_value=("sha256:abc", "rev-1")),
-        patch.object(
-            harness,
-            "image_labels",
-            return_value={
-                harness.SOURCE_TREE_LABEL: "sha256:abc",
-                harness.REVISION_LABEL: "rev-1",
-            },
-        ),
+        patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
+        patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
+        patch("support.compose_build_harness.subprocess.run", side_effect=fake_run),
+    ):
+        harness._run_build(harness.DEFAULT_IMAGE)
+
+    assert captured["GATEWAY_P2R1_CANDIDATE_SHA"] == _SHA_A
+    assert captured["GATEWAY_P2R1_BUILD_INPUT_REVISION"] == _SHA_B
+    assert captured["GATEWAY_P2R1_SOURCE_TREE_SHA256"] == _TREE
+    assert captured["GATEWAY_P2R1_UV_LOCK_SHA256"] == _LOCK
+
+
+@pytest.mark.unit
+def test_image_matches_build_context_requires_all_fields() -> None:
+    with (
+        patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
+        patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
+        patch.object(harness, "image_id", return_value=_IMAGE_ID),
+        patch.object(harness, "image_labels", return_value=_valid_labels()),
     ):
         assert harness.image_matches_build_context("gateway-repository-service:local")
 
 
 @pytest.mark.unit
-def test_image_matches_build_context_rejects_stale_labels() -> None:
+@pytest.mark.parametrize(
+    ("labels", "image_digest"),
+    [(labels, image_digest) for _name, labels, image_digest in IMAGE_MATCH_FAULTS],
+    ids=[name for name, _labels, _image_digest in IMAGE_MATCH_FAULTS],
+)
+def test_image_matches_build_context_rejects_faults(
+    labels: dict[str, str],
+    image_digest: str,
+) -> None:
     with (
-        patch.object(harness, "expected_build_metadata", return_value=("sha256:new", "rev-dirty")),
-        patch.object(
-            harness,
-            "image_labels",
-            return_value={
-                harness.SOURCE_TREE_LABEL: "sha256:old",
-                harness.REVISION_LABEL: "rev-old",
-            },
-        ),
+        patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
+        patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
+        patch.object(harness, "image_id", return_value=image_digest),
+        patch.object(harness, "image_labels", return_value=labels),
     ):
         assert not harness.image_matches_build_context("gateway-repository-service:local")
+
+
+@pytest.mark.unit
+def test_image_id_distinguishes_immutable_digests() -> None:
+    def fake_run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        image = args[-1]
+        digest = _IMAGE_ID if image.endswith(":current") else _OTHER_IMAGE_ID
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout=f"{digest}\n", stderr="")
+
+    with patch("support.compose_build_harness.subprocess.run", side_effect=fake_run):
+        assert harness.image_id("gateway-repository-service:current") == _IMAGE_ID
+        assert harness.image_id("gateway-repository-service:stale") == _OTHER_IMAGE_ID
+        assert harness.image_id("gateway-repository-service:current") != harness.image_id(
+            "gateway-repository-service:stale"
+        )
 
 
 @pytest.mark.unit

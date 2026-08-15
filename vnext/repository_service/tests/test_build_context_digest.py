@@ -19,7 +19,6 @@ from support.build_context_digest import (
     ImageIdentity,
     ProvenanceError,
     compute_build_input_revision,
-    compute_build_revision,
     compute_candidate_sha,
     compute_head_sha,
     compute_image_identity,
@@ -607,10 +606,9 @@ def test_source_digest_rejects_symlink_and_special_and_missing(tmp_path: Path) -
 
 
 @pytest.mark.unit
-def test_deprecated_build_revision_delegates_to_build_input(tmp_path: Path) -> None:
+def test_head_sha_matches_candidate_on_clean_seed(tmp_path: Path) -> None:
     repo, manifest = _seed_repo(tmp_path)
     revision = compute_build_input_revision(repo_root=repo, manifest=manifest)
-    assert compute_build_revision(repo_root=repo, manifest=manifest) == revision
     assert compute_head_sha(repo_root=repo) == compute_candidate_sha(repo_root=repo)
     assert revision == compute_candidate_sha(repo_root=repo)
 
@@ -622,6 +620,7 @@ def test_cli_usage_returns_two_and_omits_host_paths(capsys: pytest.CaptureFixtur
     err = capsys.readouterr().err
     assert err.startswith("usage: build_context_digest.py ")
     assert "/" not in err
+    assert "build-revision" not in err
 
 
 @pytest.mark.unit
@@ -648,7 +647,7 @@ def test_cli_identity_json_shape_and_return_code(
 
 
 @pytest.mark.unit
-def test_cli_build_revision_is_non_formal_alias(
+def test_cli_rejects_removed_build_revision_alias(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -656,8 +655,10 @@ def test_cli_build_revision_is_non_formal_alias(
         "support.build_context_digest.compute_build_input_revision",
         lambda **_kwargs: _SHA40,
     )
-    assert main(["build-revision"]) == 0
-    assert capsys.readouterr().out == f"{_SHA40}\n"
+    assert main(["build-revision"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("usage: build_context_digest.py ")
+    assert "build-revision" not in err
     assert main(["build-input-revision"]) == 0
     assert capsys.readouterr().out == f"{_SHA40}\n"
 

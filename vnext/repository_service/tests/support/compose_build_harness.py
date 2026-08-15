@@ -12,7 +12,6 @@ from typing import Any
 
 from support.build_context_digest import (
     ImageIdentity,
-    compute_head_sha,
     compute_image_identity,
 )
 
@@ -66,10 +65,6 @@ def expected_build_metadata() -> ImageIdentity:
     return compute_image_identity(vnext_root=VNEXT_ROOT)
 
 
-def current_head_sha() -> str:
-    return compute_head_sha(vnext_root=VNEXT_ROOT)
-
-
 def image_labels(image: str) -> dict[str, str]:
     completed = subprocess.run(
         ["docker", "image", "inspect", image],
@@ -105,6 +100,20 @@ def image_matches_build_context(image: str) -> bool:
         and labels.get(SOURCE_TREE_LABEL) == expected.source_tree_sha256
         and labels.get(UV_LOCK_LABEL) == expected_lock
     )
+
+
+def verify_transferred_image(expected_image_id: str, local_ref: str) -> bool:
+    """Accept a loaded image only when immutable ID and labels match.
+
+    Tag or name equality is not transfer proof.
+    """
+
+    if not _IMAGE_ID_DIGEST.fullmatch(expected_image_id):
+        return False
+    current_id = image_id(local_ref)
+    if current_id != expected_image_id:
+        return False
+    return image_matches_build_context(local_ref)
 
 
 def _run_build(image: str) -> None:
@@ -157,6 +166,6 @@ def ensure_repository_service_image(*, force_rebuild: bool = False) -> str:
             f"actual source_tree_sha256={labels.get(SOURCE_TREE_LABEL)}\n"
             f"expected uv_lock_sha256={current_uv_lock_sha256()}\n"
             f"actual uv_lock_sha256={labels.get(UV_LOCK_LABEL)}\n"
-            f"head_sha={current_head_sha()}"
+            f"candidate_sha={expected.candidate_sha}"
         )
     return image

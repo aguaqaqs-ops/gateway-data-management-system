@@ -38,7 +38,7 @@ _REQUIRED_MANIFEST_KEYS = frozenset(
 )
 _USAGE = (
     "usage: build_context_digest.py "
-    "<identity|candidate-sha|source-tree-sha256|build-input-revision|head-sha>"
+    "<identity|candidate-sha|source-tree-sha256|build-input-revision>"
 )
 _COMMANDS = frozenset(
     {
@@ -46,7 +46,6 @@ _COMMANDS = frozenset(
         "candidate-sha",
         "source-tree-sha256",
         "build-input-revision",
-        "head-sha",
     }
 )
 
@@ -311,10 +310,6 @@ def compute_candidate_sha(
     return _require_full_sha(sha, field="candidate_sha")
 
 
-def compute_head_sha(*, vnext_root: Path | None = None, repo_root: Path | None = None) -> str:
-    return compute_candidate_sha(vnext_root=vnext_root, repo_root=repo_root)
-
-
 def compute_build_input_revision(
     *,
     vnext_root: Path | None = None,
@@ -440,7 +435,7 @@ def main(argv: list[str] | None = None) -> int:
         if command == "identity":
             payload = compute_image_identity()
             print(json.dumps(payload.to_json_dict(), ensure_ascii=True))
-        elif command in {"candidate-sha", "head-sha"}:
+        elif command == "candidate-sha":
             print(compute_candidate_sha())
         elif command == "source-tree-sha256":
             print(compute_source_tree_sha256())

@@ -64,6 +64,11 @@ IMAGE_MATCH_FAULTS: tuple[tuple[str, dict[str, str], str], ...] = (
     ("empty-image-id", _valid_labels(), ""),
     ("tag-image-id", _valid_labels(), "gateway-repository-service:local"),
     ("short-image-id", _valid_labels(), "sha256:abcd"),
+    (
+        "swapped-candidate-build-input",
+        {**_valid_labels(), harness.CANDIDATE_LABEL: _SHA_B, harness.BUILD_INPUT_LABEL: _SHA_A},
+        _IMAGE_ID,
+    ),
 )
 
 
@@ -202,3 +207,58 @@ def test_dependency_base_matches_lock_rejects_stale_label() -> None:
         return_value={harness.UV_LOCK_LABEL: "fce9185b59b654729670c618c352f9f7a458fb2de40bbd2e088158e81a771e65"},
     ):
         assert not harness.dependency_base_matches_lock("gateway-p2r1-repository:lock-fce9185b59b6", current)
+
+
+@pytest.mark.unit
+def test_verify_transferred_image_requires_immutable_id_and_labels() -> None:
+    with (
+        patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
+        patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
+        patch.object(harness, "image_id", return_value=_IMAGE_ID),
+        patch.object(harness, "image_labels", return_value=_valid_labels()),
+    ):
+        assert harness.verify_transferred_image(_IMAGE_ID, "gateway-repository-service:local")
+
+
+@pytest.mark.unit
+def test_verify_transferred_image_rejects_tag_as_expected_id() -> None:
+    with (
+        patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
+        patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
+        patch.object(harness, "image_id", return_value=_IMAGE_ID),
+        patch.object(harness, "image_labels", return_value=_valid_labels()),
+    ):
+        assert not harness.verify_transferred_image(
+            "gateway-repository-service:local",
+            "gateway-repository-service:local",
+        )
+
+
+@pytest.mark.unit
+def test_verify_transferred_image_rejects_id_drift() -> None:
+    with (
+        patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
+        patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
+        patch.object(harness, "image_id", return_value=_OTHER_IMAGE_ID),
+        patch.object(harness, "image_labels", return_value=_valid_labels()),
+    ):
+        assert not harness.verify_transferred_image(_IMAGE_ID, "gateway-repository-service:local")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("labels", "image_digest"),
+    [(labels, image_digest) for _name, labels, image_digest in IMAGE_MATCH_FAULTS],
+    ids=[name for name, _labels, _image_digest in IMAGE_MATCH_FAULTS],
+)
+def test_verify_transferred_image_rejects_faults(
+    labels: dict[str, str],
+    image_digest: str,
+) -> None:
+    with (
+        patch.object(harness, "expected_build_metadata", return_value=_IDENTITY),
+        patch.object(harness, "current_uv_lock_sha256", return_value=_LOCK),
+        patch.object(harness, "image_id", return_value=image_digest),
+        patch.object(harness, "image_labels", return_value=labels),
+    ):
+        assert not harness.verify_transferred_image(_IMAGE_ID, "gateway-repository-service:local")

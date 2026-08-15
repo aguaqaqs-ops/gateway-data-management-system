@@ -117,17 +117,20 @@ cannot stop `backend`, `worker`, another project, or a concurrent probe:
 
 ```sh
 cd /root/gateway-data-management-system
+GATEWAY_P2R1_IMAGE=sha256:<image-id> \
 vnext/deploy/p2r1-cache/p2r1-target-launcher.sh \
   --output /var/lib/gateway/repository/audit-rerun/p2-r1.jsonl \
-  --image-digest sha256:<image-id> \
-  --build-revision <source-revision> \
   --cache-condition retained-dependency-cache
 ```
 
-The launcher obtains the immutable image ID and labels from Docker, requires a
-clean worktree, creates a read-only provenance manifest, and passes verified
-metadata into the container. It rejects dirty source, stale labels, missing
-source-tree/lock/version labels, missing manifest, and non-systemd Docker.
+The launcher calls the canonical helper once for `candidate_sha`,
+`build_input_revision`, and `source_tree_sha256`, inspects the immutable image
+ID plus the three labels and lock/tool labels, requires a clean worktree, and
+writes a read-only v3 provenance manifest before creating the run directory or
+starting systemd. Caller `--build-revision` is not identity authority; if the
+matrix CLI still receives it, it can only match `candidate_sha`. The launcher
+rejects dirty source, stale or missing labels, v2/legacy manifests, tag-only
+identity, missing manifest, and non-systemd Docker.
 Do not replace a failed preflight with `privileged` or a host-wide cgroup mount.
 
 The matrix writes its output inside the probe container/volume using the
@@ -274,12 +277,11 @@ git clone <origin-url> /home/tmpuser/gateway-data-management-system
 
 **Never include `vnext/rust`** in any sync.
 
-Before running the gate, compare **both** digests on local and remote. Abort if
-either differs:
+Before running the gate, compare the versioned identity JSON on local and remote.
+Abort if any field differs:
 
 ```sh
-uv run python vnext/repository_service/tests/support/build_context_digest.py source-tree-sha256
-uv run python vnext/repository_service/tests/support/build_context_digest.py build-input-revision
+python3 vnext/repository_service/tests/support/build_context_digest.py identity
 ```
 
 Diagnostic-only file sync (non-provenance): `rsync` may help inspect files on the

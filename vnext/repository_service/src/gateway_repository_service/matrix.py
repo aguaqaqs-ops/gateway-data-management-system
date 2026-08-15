@@ -63,6 +63,9 @@ V8_MEMORY_LIMIT_BYTES = 8 * 1024 * 1024 * 1024
 EXPECTED_SAMPLE_KINDS = ("warmup", *(f"measured-{index}" for index in range(1, 6)))
 STORAGE_LAYOUT_VERSION = "p2-r1-storage-layout-v1"
 STORAGE_IDENTITY_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
+PROVENANCE_MANIFEST_VERSION = "p2-r1-provenance-v3"
+_SHA40 = re.compile(r"^[0-9a-f]{40}$")
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 W3_DELTA_STAGE_PAIRS = {
     "base_restart_delta": (
         "base_post_commit_close",
@@ -1082,6 +1085,40 @@ def _distribution_version(name: str) -> str | None:
         return None
 
 
+def _optional_env(name: str) -> str | None:
+    value = os.environ.get(name)
+    return value if value else None
+
+
+def _matches_optional(actual: str | None, expected: str) -> bool:
+    return actual in (None, expected)
+
+
+def _manifest_identity(manifest: dict[str, object] | None) -> dict[str, str] | None:
+    if manifest is None or manifest.get("manifest_version") != PROVENANCE_MANIFEST_VERSION:
+        return None
+    if "build_revision" in manifest:
+        return None
+    candidate = manifest.get("candidate_sha")
+    build_input = manifest.get("build_input_revision")
+    tree = manifest.get("source_tree_sha256")
+    image = manifest.get("image_digest")
+    if not isinstance(candidate, str) or _SHA40.fullmatch(candidate) is None:
+        return None
+    if not isinstance(build_input, str) or _SHA40.fullmatch(build_input) is None:
+        return None
+    if not isinstance(tree, str) or _DIGEST.fullmatch(tree) is None:
+        return None
+    if not isinstance(image, str) or _DIGEST.fullmatch(image) is None:
+        return None
+    return {
+        "candidate_sha": candidate,
+        "build_input_revision": build_input,
+        "source_tree_sha256": tree,
+        "image_digest": image,
+    }
+
+
 def _measurement_metadata(
     settings: RepositoryServiceSettings,
     *,
@@ -1092,54 +1129,72 @@ def _measurement_metadata(
     actual_dolt = _actual_dolt_version(str(settings.dolt_binary))
     actual_driver = _distribution_version("mysql-connector-python")
     actual_pyarrow = _distribution_version("pyarrow")
-    verified_image = os.environ.get("GATEWAY_P2R1_IMAGE_DIGEST")
-    verified_revision = os.environ.get("GATEWAY_P2R1_BUILD_REVISION")
-    verified_cache = os.environ.get("GATEWAY_P2R1_CACHE_CONDITION")
-    verified_lock = os.environ.get("GATEWAY_P2R1_LOCK_SHA256")
-    verified_tree = os.environ.get("GATEWAY_P2R1_SOURCE_TREE_SHA256")
+    verified_image = _optional_env("GATEWAY_P2R1_IMAGE_DIGEST")
+    verified_candidate = _optional_env("GATEWAY_P2R1_CANDIDATE_SHA")
+    verified_build_input = _optional_env("GATEWAY_P2R1_BUILD_INPUT_REVISION")
+    verified_revision = _optional_env("GATEWAY_P2R1_BUILD_REVISION")
+    verified_cache = _optional_env("GATEWAY_P2R1_CACHE_CONDITION")
+    verified_lock = _optional_env("GATEWAY_P2R1_LOCK_SHA256")
+    verified_tree = _optional_env("GATEWAY_P2R1_SOURCE_TREE_SHA256")
     manifest = _load_provenance_manifest()
+    identity = _manifest_identity(manifest)
     target_container = os.environ.get("GATEWAY_P2R1_TARGET_CONTAINER") == "1"
     storage_layout = _load_storage_layout() if target_container else None
     storage_manifest_valid = not target_container or storage_layout is not None
     provenance_flag = os.environ.get("GATEWAY_P2R1_PROVENANCE_VERIFIED") == "1"
     provenance_verified = provenance_flag and manifest is not None
-    cli_matches_verified = (
-        not provenance_verified
-        or (image_digest in (None, verified_image))
-        and (build_revision in (None, verified_revision))
-        and (cache_condition in (None, verified_cache))
-    )
-    resolved_image = verified_image if provenance_verified else image_digest or verified_image
-    resolved_revision = verified_revision if provenance_verified else build_revision or verified_revision
-    resolved_cache = verified_cache if provenance_verified else cache_condition or verified_cache
+    if provenance_verified:
+        resolved_image = identity["image_digest"] if identity is not None else None
+        resolved_candidate = identity["candidate_sha"] if identity is not None else None
+        resolved_build_input = (
+            identity["build_input_revision"] if identity is not None else None
+        )
+        resolved_tree = identity["source_tree_sha256"] if identity is not None else None
+        resolved_cache = verified_cache
+        cli_matches_verified = identity is not None and (
+            _matches_optional(image_digest, identity["image_digest"])
+            and _matches_optional(build_revision, identity["candidate_sha"])
+            and (
+                resolved_cache is None
+                or _matches_optional(cache_condition, resolved_cache)
+            )
+            and _matches_optional(verified_image, identity["image_digest"])
+            and _matches_optional(verified_candidate, identity["candidate_sha"])
+            and _matches_optional(verified_build_input, identity["build_input_revision"])
+            and _matches_optional(verified_revision, identity["candidate_sha"])
+            and _matches_optional(verified_tree, identity["source_tree_sha256"])
+        )
+    else:
+        resolved_image = image_digest or verified_image
+        resolved_candidate = build_revision or verified_candidate or verified_revision
+        resolved_build_input = verified_build_input
+        resolved_tree = verified_tree
+        resolved_cache = cache_condition or verified_cache
+        cli_matches_verified = True
     lock_path = Path(__file__).resolve().parents[2] / "uv.lock"
     actual_lock = hashlib.sha256(lock_path.read_bytes()).hexdigest() if lock_path.is_file() else None
-    valid_image = bool(
-        isinstance(resolved_image, str)
-        and re.fullmatch(r"sha256:[0-9a-f]{64}", resolved_image)
-    )
+    valid_image = bool(isinstance(resolved_image, str) and _DIGEST.fullmatch(resolved_image))
     valid_revision = bool(
-        isinstance(resolved_revision, str)
-        and re.fullmatch(r"[0-9a-f]{40,64}", resolved_revision)
+        isinstance(resolved_candidate, str) and _SHA40.fullmatch(resolved_candidate)
     )
     valid_cache = resolved_cache in {
         "retained-dependency-cache",
         "cold-dependencies",
     }
     manifest_valid = bool(
-        manifest is not None
-        and manifest.get("manifest_version") == "p2-r1-provenance-v2"
+        identity is not None
+        and manifest is not None
         and manifest.get("image_digest") == resolved_image
-        and manifest.get("build_revision") == resolved_revision
+        and manifest.get("candidate_sha") == resolved_candidate
+        and manifest.get("build_input_revision") == resolved_build_input
         and manifest.get("lock_sha256") == actual_lock
         and manifest.get("dolt_version") == settings.dolt_version
         and manifest.get("mysql_connector_version") == settings.mysql_connector_version
         and manifest.get("pyarrow_version") == actual_pyarrow
         and manifest.get("cache_condition") == resolved_cache
-        and manifest.get("source_tree_sha256") == verified_tree
+        and manifest.get("source_tree_sha256") == resolved_tree
         and isinstance(manifest.get("source_tree_sha256"), str)
-        and re.fullmatch(r"sha256:[0-9a-f]{64}", str(manifest.get("source_tree_sha256")))
-        is not None
+        and _DIGEST.fullmatch(str(manifest.get("source_tree_sha256"))) is not None
     )
     return {
         "dolt_actual_version": actual_dolt,
@@ -1148,7 +1203,7 @@ def _measurement_metadata(
         "mysql_connector_expected_version": settings.mysql_connector_version,
         "pyarrow_actual_version": actual_pyarrow,
         "image_digest": resolved_image or "unknown",
-        "build_revision": resolved_revision or "unknown",
+        "build_revision": resolved_candidate or "unknown",
         "cache_condition": resolved_cache or "unknown",
         "lock_sha256": actual_lock,
         "declared_lock_sha256": verified_lock,

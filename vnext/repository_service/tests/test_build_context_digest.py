@@ -20,7 +20,6 @@ from support.build_context_digest import (
     ProvenanceError,
     compute_build_input_revision,
     compute_candidate_sha,
-    compute_head_sha,
     compute_image_identity,
     compute_source_tree_sha256,
     load_manifest,
@@ -606,10 +605,9 @@ def test_source_digest_rejects_symlink_and_special_and_missing(tmp_path: Path) -
 
 
 @pytest.mark.unit
-def test_head_sha_matches_candidate_on_clean_seed(tmp_path: Path) -> None:
+def test_build_input_revision_equals_candidate_on_clean_seed(tmp_path: Path) -> None:
     repo, manifest = _seed_repo(tmp_path)
     revision = compute_build_input_revision(repo_root=repo, manifest=manifest)
-    assert compute_head_sha(repo_root=repo) == compute_candidate_sha(repo_root=repo)
     assert revision == compute_candidate_sha(repo_root=repo)
 
 
@@ -621,6 +619,7 @@ def test_cli_usage_returns_two_and_omits_host_paths(capsys: pytest.CaptureFixtur
     assert err.startswith("usage: build_context_digest.py ")
     assert "/" not in err
     assert "build-revision" not in err
+    assert "head-sha" not in err
 
 
 @pytest.mark.unit
@@ -659,7 +658,25 @@ def test_cli_rejects_removed_build_revision_alias(
     err = capsys.readouterr().err
     assert err.startswith("usage: build_context_digest.py ")
     assert "build-revision" not in err
+    assert "head-sha" not in err
     assert main(["build-input-revision"]) == 0
+    assert capsys.readouterr().out == f"{_SHA40}\n"
+
+
+@pytest.mark.unit
+def test_cli_rejects_removed_head_sha_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "support.build_context_digest.compute_candidate_sha",
+        lambda **_kwargs: _SHA40,
+    )
+    assert main(["head-sha"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("usage: build_context_digest.py ")
+    assert "head-sha" not in err
+    assert main(["candidate-sha"]) == 0
     assert capsys.readouterr().out == f"{_SHA40}\n"
 
 

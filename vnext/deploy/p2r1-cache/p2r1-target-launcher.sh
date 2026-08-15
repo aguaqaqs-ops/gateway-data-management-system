@@ -58,16 +58,17 @@ PY
 write_manifest() {
   target=$1
   image_id=$2
-  revision=$3
-  tree_digest=$4
-  lock_sha=$5
-  dolt_version=$6
-  uv_version=$7
-  connector_version=$8
-  pyarrow_version=$9
-  cache_condition=${10}
-  project_name=${11}
-  python3 - "$target" "$image_id" "$revision" "$tree_digest" "$lock_sha" "$dolt_version" "$uv_version" "$connector_version" "$pyarrow_version" "$cache_condition" "$project_name" <<'PY'
+  candidate_sha=$3
+  build_input_revision=$4
+  tree_digest=$5
+  lock_sha=$6
+  dolt_version=$7
+  uv_version=$8
+  connector_version=$9
+  pyarrow_version=${10}
+  cache_condition=${11}
+  project_name=${12}
+  python3 - "$target" "$image_id" "$candidate_sha" "$build_input_revision" "$tree_digest" "$lock_sha" "$dolt_version" "$uv_version" "$connector_version" "$pyarrow_version" "$cache_condition" "$project_name" <<'PY'
 import json
 import os
 import sys
@@ -76,16 +77,17 @@ from pathlib import Path
 target = Path(sys.argv[1])
 manifest = {
     "image_digest": sys.argv[2],
-    "build_revision": sys.argv[3],
-    "source_tree_sha256": sys.argv[4],
-    "lock_sha256": sys.argv[5],
-    "dolt_version": sys.argv[6],
-    "uv_version": sys.argv[7],
-    "mysql_connector_version": sys.argv[8],
-    "pyarrow_version": sys.argv[9],
-    "cache_condition": sys.argv[10],
-    "project_name": sys.argv[11],
-    "manifest_version": "p2-r1-provenance-v2",
+    "candidate_sha": sys.argv[3],
+    "build_input_revision": sys.argv[4],
+    "source_tree_sha256": sys.argv[5],
+    "lock_sha256": sys.argv[6],
+    "dolt_version": sys.argv[7],
+    "uv_version": sys.argv[8],
+    "mysql_connector_version": sys.argv[9],
+    "pyarrow_version": sys.argv[10],
+    "cache_condition": sys.argv[11],
+    "project_name": sys.argv[12],
+    "manifest_version": "p2-r1-provenance-v3",
 }
 
 temporary = target.with_name(f".{target.name}.tmp")
@@ -215,7 +217,8 @@ PY
 
 image_metadata() {
   IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$IMAGE")
-  IMAGE_REVISION=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")
+  IMAGE_CANDIDATE=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")
+  IMAGE_BUILD_INPUT=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.build-input-revision"}}' "$IMAGE")
   IMAGE_TREE=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.source-tree-sha256"}}' "$IMAGE")
   IMAGE_LOCK=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.uv-lock-sha256"}}' "$IMAGE")
   IMAGE_DOLT=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.dolt-version"}}' "$IMAGE")
@@ -223,7 +226,8 @@ image_metadata() {
   IMAGE_CONNECTOR=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.mysql-connector-version"}}' "$IMAGE")
   IMAGE_PYARROW=$(docker image inspect --format '{{index .Config.Labels "gateway.p2r1.pyarrow-version"}}' "$IMAGE")
   printf '%s\n' "$IMAGE_ID" | grep -Eq '^sha256:[0-9a-f]{64}$' || fail "image ID is not a sha256 digest"
-  printf '%s\n' "$IMAGE_REVISION" | grep -Eq '^[0-9a-f]{40,64}$' || fail "image revision label is invalid"
+  printf '%s\n' "$IMAGE_CANDIDATE" | grep -Eq '^[0-9a-f]{40}$' || fail "image candidate label is invalid"
+  printf '%s\n' "$IMAGE_BUILD_INPUT" | grep -Eq '^[0-9a-f]{40}$' || fail "image build-input label is invalid"
   printf '%s\n' "$IMAGE_TREE" | grep -Eq '^sha256:[0-9a-f]{64}$' || fail "source tree label is invalid"
   printf '%s\n' "$IMAGE_LOCK" | grep -Eq '^[0-9a-f]{64}$' || fail "lock label is invalid"
   test "$IMAGE_DOLT" = "2.1.11" || fail "image Dolt version is not 2.1.11"
@@ -233,13 +237,35 @@ image_metadata() {
 }
 
 clean_source_metadata() {
-  test -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all)" \
-    || fail "formal launcher requires a clean tracked and untracked worktree"
-  SOURCE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
-  SOURCE_TREE_SHA="sha256:$(git -C "$REPO_ROOT" archive HEAD | sha256sum | awk '{print $1}')"
+  DIGEST_HELPER="$REPO_ROOT/vnext/repository_service/tests/support/build_context_digest.py"
+  test -f "$DIGEST_HELPER" || fail "canonical identity helper is missing"
+  if ! IDENTITY_JSON=$(python3 "$DIGEST_HELPER" identity); then
+    fail "unable to compute repository image identity"
+  fi
+  IDENTITY_LINES=$(printf '%s' "$IDENTITY_JSON" | python3 -c '
+import json
+import re
+import sys
+
+payload = json.load(sys.stdin)
+checks = (
+    ("candidate_sha", r"[0-9a-f]{40}"),
+    ("build_input_revision", r"[0-9a-f]{40}"),
+    ("source_tree_sha256", r"sha256:[0-9a-f]{64}"),
+)
+for key, pattern in checks:
+    value = payload.get(key)
+    if not isinstance(value, str) or re.fullmatch(pattern, value) is None:
+        raise SystemExit(f"identity missing or malformed {key}")
+    print(value)
+') || fail "canonical helper identity is malformed"
+  CANDIDATE_SHA=$(printf '%s\n' "$IDENTITY_LINES" | awk 'NR==1 {print; exit}')
+  BUILD_INPUT_REVISION=$(printf '%s\n' "$IDENTITY_LINES" | awk 'NR==2 {print; exit}')
+  SOURCE_TREE_SHA=$(printf '%s\n' "$IDENTITY_LINES" | awk 'NR==3 {print; exit}')
   LOCK_SHA=$(sha256sum "$REPO_ROOT/vnext/repository_service/uv.lock" | awk '{print $1}')
+  test "$CANDIDATE_SHA" = "$IMAGE_CANDIDATE" || fail "image candidate label does not match source"
+  test "$BUILD_INPUT_REVISION" = "$IMAGE_BUILD_INPUT" || fail "image build-input label does not match source"
   test "$SOURCE_TREE_SHA" = "$IMAGE_TREE" || fail "image source tree digest does not match source"
-  test "$SOURCE_REVISION" = "$IMAGE_REVISION" || fail "image revision does not match source"
   test "$LOCK_SHA" = "$IMAGE_LOCK" || fail "image lock label does not match source"
 }
 
@@ -630,10 +656,12 @@ service_run() {
   export GATEWAY_P2R1_RUN_DIR="$run_dir"
   export GATEWAY_P2R1_PROVENANCE_MANIFEST="$run_dir/provenance.json"
   export GATEWAY_P2R1_IMAGE_DIGEST="$IMAGE_ID"
-  export GATEWAY_P2R1_BUILD_REVISION="$IMAGE_REVISION"
+  export GATEWAY_P2R1_CANDIDATE_SHA="$CANDIDATE_SHA"
+  export GATEWAY_P2R1_BUILD_INPUT_REVISION="$BUILD_INPUT_REVISION"
+  export GATEWAY_P2R1_BUILD_REVISION="$CANDIDATE_SHA"
   export GATEWAY_P2R1_CACHE_CONDITION="$CACHE_CONDITION"
   export GATEWAY_P2R1_LOCK_SHA256="$IMAGE_LOCK"
-  export GATEWAY_P2R1_SOURCE_TREE_SHA256="$IMAGE_TREE"
+  export GATEWAY_P2R1_SOURCE_TREE_SHA256="$SOURCE_TREE_SHA"
   export GATEWAY_P2R1_PROVENANCE_VERIFIED=1
   prepare_artifact_destination
 
@@ -749,8 +777,8 @@ umask 077
 mkdir -p "$RUN_DIR"
 chmod 0755 "$RUN_DIR"
 trap 'rm -rf "$RUN_DIR"' EXIT HUP INT TERM
-write_manifest "$RUN_DIR/provenance.json" "$IMAGE_ID" "$SOURCE_REVISION" \
-  "$SOURCE_TREE_SHA" "$LOCK_SHA" "$IMAGE_DOLT" "$IMAGE_UV" "$IMAGE_CONNECTOR" "$IMAGE_PYARROW" "$CACHE_CONDITION" "$PROJECT_NAME"
+write_manifest "$RUN_DIR/provenance.json" "$IMAGE_ID" "$CANDIDATE_SHA" \
+  "$BUILD_INPUT_REVISION" "$SOURCE_TREE_SHA" "$LOCK_SHA" "$IMAGE_DOLT" "$IMAGE_UV" "$IMAGE_CONNECTOR" "$IMAGE_PYARROW" "$CACHE_CONDITION" "$PROJECT_NAME"
 json_write "$RUN_DIR/argv.json" argv "$@"
 chmod 0444 "$RUN_DIR/argv.json"
 cat > "$RUN_DIR/environment" <<EOF
@@ -759,9 +787,11 @@ GATEWAY_P2R1_IMAGE=$IMAGE
 GATEWAY_P2R1_CACHE_CONDITION=$CACHE_CONDITION
 GATEWAY_P2R1_COMPOSE_FILE=${GATEWAY_P2R1_COMPOSE_FILE:-$REPO_ROOT/vnext/deploy/compose.yaml}
 GATEWAY_P2R1_IMAGE_DIGEST=$IMAGE_ID
-GATEWAY_P2R1_BUILD_REVISION=$SOURCE_REVISION
+GATEWAY_P2R1_CANDIDATE_SHA=$CANDIDATE_SHA
+GATEWAY_P2R1_BUILD_INPUT_REVISION=$BUILD_INPUT_REVISION
+GATEWAY_P2R1_BUILD_REVISION=$CANDIDATE_SHA
 GATEWAY_P2R1_LOCK_SHA256=$LOCK_SHA
-GATEWAY_P2R1_SOURCE_TREE_SHA256=$IMAGE_TREE
+GATEWAY_P2R1_SOURCE_TREE_SHA256=$SOURCE_TREE_SHA
 GATEWAY_P2R1_PROJECT_NAME=$PROJECT_NAME
 EOF
 chmod 0600 "$RUN_DIR/environment"

@@ -86,6 +86,9 @@ def test_dockerfile_and_compose_emit_three_independent_provenance_fields() -> No
     assert "CANDIDATE_SHA: ${GATEWAY_P2R1_CANDIDATE_SHA:-unknown}" in probe
     assert "BUILD_INPUT_REVISION: ${GATEWAY_P2R1_BUILD_INPUT_REVISION:-unknown}" in probe
     assert "SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-unknown}" in probe
+    assert "GATEWAY_P2R1_CANDIDATE_SHA: ${GATEWAY_P2R1_CANDIDATE_SHA:-}" in probe
+    assert "GATEWAY_P2R1_BUILD_INPUT_REVISION: ${GATEWAY_P2R1_BUILD_INPUT_REVISION:-}" in probe
+    assert "GATEWAY_P2R1_SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-}" in probe
     assert "GATEWAY_P2R1_BUILD_REVISION: ${GATEWAY_P2R1_BUILD_REVISION:-}" in probe
 
 

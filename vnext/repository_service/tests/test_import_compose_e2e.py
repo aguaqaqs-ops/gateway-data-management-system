@@ -19,6 +19,7 @@ from support.compose_lifecycle_harness import (
     compose_ps_command,
     force_recreate_service_command,
     list_host_client_pids,
+    list_host_thread_idents,
     p2r2_compose_env,
     p2r2_project_session,
     parse_rendered_compose_config,
@@ -65,6 +66,7 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
         dolt_baseline=frozenset(list_dolt_pids()),
         check_temp_baseline=frozenset(str(path) for path in snapshot_check_temp_homes()),
         client_pid_baseline=list_host_client_pids(),
+        thread_baseline=list_host_thread_idents(),
     ):
         rendered = run_command(
             compose_config_command(project=names.project),

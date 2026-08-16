@@ -870,6 +870,21 @@ def _sanitize_error_message(message: str, bearer_token: str) -> str:
     return message.replace(bearer_token, "<redacted>")
 
 
+def client_failure_summary(exc: BaseException) -> dict[str, object]:
+    status_code = getattr(exc, "status_code", None)
+    if status_code == 401:
+        return {"http_status": 401, "status": "unauthorized"}
+    if isinstance(status_code, int):
+        return {"http_status": status_code, "status": "failed"}
+    return {"status": "failed"}
+
+
+def emit_client_failure(exc: BaseException, bearer_token: str) -> None:
+    print(_sanitize_error_message(str(exc), bearer_token), file=sys.stderr)
+    sys.stdout.write(json.dumps(client_failure_summary(exc), sort_keys=True, separators=(",", ":")))
+    sys.stdout.flush()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the Versioned fixture consumer.")
     parser.add_argument("--base-url", default=None)
@@ -903,5 +918,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print(_sanitize_error_message(str(exc), bearer_token), file=sys.stderr)
+        emit_client_failure(exc, bearer_token)
         raise SystemExit(1) from exc

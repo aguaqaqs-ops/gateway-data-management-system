@@ -36,6 +36,7 @@ from support.versioned_fixture_consumer import (
     assert_rows_match,
     assert_upload_artifact_ref,
     canonical_row_set,
+    client_failure_summary,
     decode_arrow_stream,
     expected_arrow_schema,
     load_expected_facts,
@@ -666,3 +667,36 @@ def test_sanitize_error_message_redacts_bearer_token() -> None:
     rendered = _sanitize_error_message(f"unauthorized token={token}", token)
     assert token not in rendered
     assert "<redacted>" in rendered
+
+
+def test_client_failure_summary_for_401_is_typed_unauthorized() -> None:
+    from gateway_repository_client.errors import RepositoryClientError
+    from gateway_repository_contracts import SimpleError
+
+    exc = RepositoryClientError(
+        status_code=401,
+        error=SimpleError(code="UNAUTHENTICATED", message="missing or invalid bearer token"),
+    )
+    assert str(exc) == "missing or invalid bearer token"
+    assert "status_code=401" not in str(exc)
+    assert client_failure_summary(exc) == {"http_status": 401, "status": "unauthorized"}
+    assert client_failure_summary(RuntimeError("connection refused")) == {"status": "failed"}
+
+
+def test_emit_client_failure_writes_typed_stdout_and_message_stderr(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from gateway_repository_client.errors import RepositoryClientError
+    from gateway_repository_contracts import SimpleError
+
+    from support.versioned_fixture_consumer import emit_client_failure
+
+    exc = RepositoryClientError(
+        status_code=401,
+        error=SimpleError(code="UNAUTHENTICATED", message="missing or invalid bearer token"),
+    )
+    emit_client_failure(exc, "")
+    captured = capsys.readouterr()
+    assert captured.err == "missing or invalid bearer token\n"
+    assert "status_code=401" not in captured.err
+    assert captured.out == '{"http_status":401,"status":"unauthorized"}'

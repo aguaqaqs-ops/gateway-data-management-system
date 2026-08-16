@@ -12,6 +12,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -53,6 +54,7 @@ _LOCK_SHA = re.compile(r"^[0-9a-f]{64}$")
 _IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 _IPV4 = re.compile(r"^(?:25[0-5]|2[0-4]\d|1?\d{1,2})(?:\.(?:25[0-5]|2[0-4]\d|1?\d{1,2})){3}$")
 _SUMMARY_ALLOWED_KEYS = frozenset({"status", "repository_id", "c0", "c1", "c2", "main_commit"})
+_FAILURE_SUMMARY_KEYS = frozenset({"status", "http_status"})
 _RESIDENT_CLIENT_NAMES = frozenset(
     {
         "client",
@@ -67,9 +69,7 @@ _HOST_PORT_MARKERS = ("127.0.0.1", "localhost", "0.0.0.0", "[::1]", "::1")
 HOLD_PROJECT_LABEL = "com.docker.compose.project"
 HOLD_ROLE_LABEL = "gateway.p2r6.role"
 HOLD_ROLE_VALUE = "snapshot-hold"
-_HTTP_STATUS = re.compile(
-    r"status_code[=:] ?(\d{3})|unexpected HTTP status (\d{3})|'(\d{3}) Unauthorized'"
-)
+S7_OWNED_HOST_THREAD_PREFIXES: tuple[str, ...] = ()
 _HOST_RUNNER_ENV_ALLOWLIST = frozenset(
     {
         "PATH",
@@ -491,24 +491,47 @@ def classify_client_auth_failure(
     return "failed"
 
 
-def parse_http_status(stderr: str) -> int | None:
-    match = _HTTP_STATUS.search(stderr)
-    if match is None:
+def parse_client_failure_summary(stdout: str) -> dict[str, Any] | None:
+    stripped = stdout.strip()
+    if not stripped or "\n" in stripped:
         return None
-    for group in match.groups():
-        if group is not None:
-            return int(group)
-    return None
+    try:
+        payload: object = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    keys = set(payload)
+    if "status" not in keys or not keys <= _FAILURE_SUMMARY_KEYS:
+        return None
+    status = payload.get("status")
+    if status not in {"unauthorized", "failed"}:
+        return None
+    if "http_status" in payload and not isinstance(payload["http_status"], int):
+        return None
+    return payload
 
 
 def classify_completed_client(
     completed: subprocess.CompletedProcess[str],
 ) -> Literal["ok", "unauthorized", "failed"]:
-    summary = parse_client_summary(completed.stdout) if completed.returncode == 0 else None
+    if completed.returncode == 0:
+        return classify_client_auth_failure(
+            returncode=0,
+            summary=parse_client_summary(completed.stdout),
+        )
+    failure = parse_client_failure_summary(completed.stdout)
+    http_status: int | None = None
+    if failure is not None:
+        raw_status = failure.get("http_status")
+        if isinstance(raw_status, int):
+            http_status = raw_status
+        elif failure.get("status") == "unauthorized":
+            http_status = 401
     return classify_client_auth_failure(
         returncode=completed.returncode,
-        summary=summary,
-        http_status=parse_http_status(completed.stderr),
+        summary=None,
+        http_status=http_status,
     )
 
 
@@ -890,6 +913,14 @@ def wait_healthy(
     raise TimeoutError(f"container {container_id} did not become healthy")
 
 
+def _raise_cleanup_errors(errors: list[Exception]) -> None:
+    if not errors:
+        return
+    if len(errors) == 1:
+        raise errors[0]
+    raise ExceptionGroup("compose project cleanup failures", errors)
+
+
 def cleanup_compose_project(
     names: ComposeResourceNames,
     env: dict[str, str],
@@ -901,68 +932,103 @@ def cleanup_compose_project(
     dolt_baseline: frozenset[int] | None = None,
     check_temp_baseline: frozenset[str] | None = None,
     client_pid_baseline: frozenset[int] | None = None,
+    thread_baseline: frozenset[int] | None = None,
 ) -> None:
-    query_temps = collect_project_query_temps(names, image=service_image)
-    container_dolt = list_project_container_dolt(names.project)
-    if container_dolt:
-        raise AssertionError(
-            f"project {names.project} still has container dolt processes: {container_dolt!r}"
+    errors: list[Exception] = []
+    query_temps: tuple[str, ...] = ()
+    container_dolt: tuple[str, ...] = ()
+    try:
+        query_temps = collect_project_query_temps(names, image=service_image)
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        container_dolt = list_project_container_dolt(names.project)
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        remove_hold_container(names.project)
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        completed = subprocess.run(
+            compose_down_command(project=names.project),
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=VNEXT_ROOT,
+            timeout=180,
         )
-    if query_temps:
-        raise AssertionError(
-            f"project {names.project} still has query temps: {query_temps!r}"
-        )
-    remove_hold_container(names.project)
-    completed = subprocess.run(
-        compose_down_command(project=names.project),
-        check=False,
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=VNEXT_ROOT,
-        timeout=180,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "docker compose down failed "
-            f"({completed.returncode}): "
-            f"{redact_evidence_text(completed.stderr, secrets=secrets, host_paths=host_paths)}"
-        )
-    leftover = project_inventory(names.project)
-    if not leftover.is_empty():
-        raise AssertionError(
-            f"project {names.project} still has Docker objects: "
-            f"containers={leftover.containers!r} networks={leftover.networks!r} "
-            f"volumes={leftover.volumes!r} hold={leftover.hold_containers!r}"
-        )
-    restore_ls = subprocess.run(
-        ["docker", "volume", "inspect", names.restore_volume],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    if restore_ls.returncode == 0:
-        refuse_unscoped_deletion((names.restore_volume,), names.allowed_names)
-        removed = subprocess.run(
-            ["docker", "volume", "rm", names.restore_volume],
+        if completed.returncode != 0:
+            errors.append(
+                RuntimeError(
+                    "docker compose down failed "
+                    f"({completed.returncode}): "
+                    f"{redact_evidence_text(completed.stderr, secrets=secrets, host_paths=host_paths)}"
+                )
+            )
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        leftover = project_inventory(names.project)
+        if not leftover.is_empty():
+            errors.append(
+                AssertionError(
+                    f"project {names.project} still has Docker objects: "
+                    f"containers={leftover.containers!r} networks={leftover.networks!r} "
+                    f"volumes={leftover.volumes!r} hold={leftover.hold_containers!r}"
+                )
+            )
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        restore_ls = subprocess.run(
+            ["docker", "volume", "inspect", names.restore_volume],
             check=False,
             capture_output=True,
             text=True,
             timeout=30,
         )
-        if removed.returncode != 0:
-            raise RuntimeError(
-                "failed to remove restore volume "
-                f"{names.restore_volume}: {removed.stderr.strip()}"
+        if restore_ls.returncode == 0:
+            refuse_unscoped_deletion((names.restore_volume,), names.allowed_names)
+            removed = subprocess.run(
+                ["docker", "volume", "rm", names.restore_volume],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
-    assert_node_residuals_cleared(
-        names,
-        work_root=work_root,
-        dolt_baseline=dolt_baseline,
-        check_temp_baseline=check_temp_baseline,
-        client_pid_baseline=client_pid_baseline,
-    )
+            if removed.returncode != 0:
+                errors.append(
+                    RuntimeError(
+                        "failed to remove restore volume "
+                        f"{names.restore_volume}: {removed.stderr.strip()}"
+                    )
+                )
+    except Exception as exc:
+        errors.append(exc)
+    if container_dolt:
+        errors.append(
+            AssertionError(
+                f"project {names.project} still has container dolt processes: {container_dolt!r}"
+            )
+        )
+    if query_temps:
+        errors.append(
+            AssertionError(f"project {names.project} still has query temps: {query_temps!r}")
+        )
+    try:
+        assert_node_residuals_cleared(
+            names,
+            work_root=work_root,
+            dolt_baseline=dolt_baseline,
+            check_temp_baseline=check_temp_baseline,
+            client_pid_baseline=client_pid_baseline,
+            thread_baseline=thread_baseline,
+        )
+    except Exception as exc:
+        errors.append(exc)
+    _raise_cleanup_errors(errors)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1655,6 +1721,17 @@ def list_work_root_project_dirs(work_root: Path | None, *, project: str) -> tupl
     return tuple(sorted(set(found)))
 
 
+def list_host_thread_idents() -> frozenset[int]:
+    main = threading.main_thread()
+    idents: set[int] = set()
+    for thread in threading.enumerate():
+        ident = thread.ident
+        if ident is None or thread is main:
+            continue
+        idents.add(ident)
+    return frozenset(idents)
+
+
 def assert_node_residuals_cleared(
     names: ComposeResourceNames,
     *,
@@ -1662,6 +1739,7 @@ def assert_node_residuals_cleared(
     dolt_baseline: frozenset[int] | None = None,
     check_temp_baseline: frozenset[str] | None = None,
     client_pid_baseline: frozenset[int] | None = None,
+    thread_baseline: frozenset[int] | None = None,
 ) -> None:
     leftover = project_inventory(names.project)
     if not leftover.is_empty():
@@ -1686,6 +1764,10 @@ def assert_node_residuals_cleared(
         extra_clients = list_host_client_pids() - client_pid_baseline
         if extra_clients:
             raise AssertionError(f"client processes remain: {sorted(extra_clients)}")
+    if thread_baseline is not None:
+        extra_threads = list_host_thread_idents() - thread_baseline
+        if extra_threads:
+            raise AssertionError(f"host threads remain: {sorted(extra_threads)}")
 
 
 @contextmanager
@@ -1700,6 +1782,7 @@ def p2r2_project_session(
     dolt_baseline: frozenset[int] | None = None,
     check_temp_baseline: frozenset[str] | None = None,
     client_pid_baseline: frozenset[int] | None = None,
+    thread_baseline: frozenset[int] | None = None,
 ) -> Iterator[None]:
     try:
         yield
@@ -1714,6 +1797,7 @@ def p2r2_project_session(
             dolt_baseline=dolt_baseline,
             check_temp_baseline=check_temp_baseline,
             client_pid_baseline=client_pid_baseline,
+            thread_baseline=thread_baseline,
         )
 
 

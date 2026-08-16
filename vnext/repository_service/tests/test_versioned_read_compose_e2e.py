@@ -33,6 +33,7 @@ from support.compose_lifecycle_harness import (
     hold_container_name,
     host_runner_identity,
     list_host_client_pids,
+    list_host_thread_idents,
     p2r2_compose_env,
     p2r2_project_session,
     recreate_started_service,
@@ -96,6 +97,7 @@ def _session(
         dolt_baseline=frozenset(list_dolt_pids()),
         check_temp_baseline=frozenset(str(path) for path in snapshot_check_temp_homes()),
         client_pid_baseline=list_host_client_pids(),
+        thread_baseline=list_host_thread_idents(),
     )
 
 

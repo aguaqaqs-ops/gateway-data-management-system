@@ -516,6 +516,31 @@ def test_cleanup_compose_project_skips_missing_restore_volume() -> None:
         harness.cleanup_compose_project(names, env={})
 
 
+def test_cleanup_compose_project_tears_down_before_query_temp_assertion() -> None:
+    names = harness.allocate_compose_resources("import", suffix="ffffffffffff")
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return _empty_project_docker(command, restore_exists=True)
+
+    with (
+        patch("support.compose_lifecycle_harness.subprocess.run", side_effect=fake_run),
+        patch.object(
+            harness,
+            "collect_project_query_temps",
+            return_value=("/data/staging/artifacts/query-1.sql",),
+        ),
+        pytest.raises(AssertionError, match="query temps"),
+    ):
+        harness.cleanup_compose_project(names, env={})
+    assert any(command[:3] == ["docker", "compose", "-p"] and "down" in command for command in calls)
+    assert any(
+        command[:2] == ["docker", "inspect"] and command[-1] == f"{names.project}-hold"
+        for command in calls
+    )
+
+
 @pytest.mark.serial
 def test_wait_healthy_times_out_when_readiness_missing() -> None:
     completed = subprocess.CompletedProcess(
@@ -749,16 +774,29 @@ def test_remove_hold_container_asserts_absent_after_rm() -> None:
         harness.remove_hold_container("gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa")
 
 
-def test_classify_completed_client_uses_http_status_from_stderr() -> None:
+def test_classify_completed_client_uses_typed_failure_summary_not_stderr_regex() -> None:
     failed = subprocess.CompletedProcess(
+        ["uv"],
+        1,
+        stdout='{"http_status":401,"status":"unauthorized"}',
+        stderr="missing or invalid bearer token\n",
+    )
+    assert "status_code=401" not in failed.stderr
+    assert harness.classify_completed_client(failed) == "unauthorized"
+    unreachable = subprocess.CompletedProcess(
+        ["uv"],
+        1,
+        stdout='{"status":"failed"}',
+        stderr="connection refused",
+    )
+    assert harness.classify_completed_client(unreachable) == "failed"
+    synthetic_stderr_only = subprocess.CompletedProcess(
         ["uv"],
         1,
         stdout="",
         stderr="RepositoryClientError(status_code=401, error=...)\n",
     )
-    assert harness.classify_completed_client(failed) == "unauthorized"
-    unreachable = subprocess.CompletedProcess(["uv"], 1, stdout="", stderr="connection refused")
-    assert harness.classify_completed_client(unreachable) == "failed"
+    assert harness.classify_completed_client(synthetic_stderr_only) == "failed"
 
 
 def test_assert_node_residuals_cleared_rejects_dolt_delta() -> None:
@@ -773,6 +811,28 @@ def test_assert_node_residuals_cleared_rejects_dolt_delta() -> None:
         pytest.raises(AssertionError, match="dolt children remain"),
     ):
         harness.assert_node_residuals_cleared(names, dolt_baseline=frozenset())
+
+
+def test_s7_compose_harness_owns_no_host_threads() -> None:
+    assert harness.S7_OWNED_HOST_THREAD_PREFIXES == ()
+    before = harness.list_host_thread_idents()
+    harness.p2r2_compose_env(token_file=Path("/tmp/unused.token"), service_image="img")
+    harness.host_runner_env(base_url="http://172.18.0.6:8000", bearer_token=_TOKEN)
+    assert harness.list_host_thread_idents() == before
+
+
+def test_assert_node_residuals_cleared_rejects_thread_delta() -> None:
+    names = harness.allocate_compose_resources("inside", suffix="111111111111")
+    with (
+        patch.object(
+            harness,
+            "project_inventory",
+            return_value=harness.DockerObjectInventory((), (), (), ()),
+        ),
+        patch.object(harness, "list_host_thread_idents", return_value=frozenset({7})),
+        pytest.raises(AssertionError, match="host threads remain"),
+    ):
+        harness.assert_node_residuals_cleared(names, thread_baseline=frozenset())
 
 
 S7_COMPOSE_NODEIDS: tuple[tuple[str, str], ...] = (

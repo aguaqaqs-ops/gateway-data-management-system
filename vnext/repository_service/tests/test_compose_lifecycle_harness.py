@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -528,3 +529,159 @@ def test_client_dockerfile_is_test_only_and_pins_lock() -> None:
     compose = harness.COMPOSE_FILE.read_text(encoding="utf-8")
     assert "repository_client/tests/Dockerfile" not in compose
     assert "gateway-repository-client-e2e" not in compose
+
+
+def test_inspect_networks_command_and_parser() -> None:
+    command = harness.inspect_networks_command("abc123")
+    assert command[:3] == ["docker", "inspect", "-f"]
+    discovery = harness.parse_inspect_networks(
+        json.dumps(
+            {
+                "gateway-p2r6-s7-inside-aaaaaaaaaaaa_default": {
+                    "NetworkID": "nid-1",
+                    "Gateway": "172.18.0.1",
+                    "IPAddress": "172.18.0.6",
+                }
+            }
+        ),
+        project="gateway-p2r6-s7-inside-aaaaaaaaaaaa",
+    )
+    assert discovery.inside_endpoint != discovery.gate_host_endpoint
+
+
+def test_snapshot_hold_and_volume_commands_use_service_image_not_alpine() -> None:
+    image = "gateway-repository-service:local"
+    hold = harness.snapshot_hold_command(
+        image=image,
+        volume="proj_repository-service-data",
+        project="gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa",
+    )
+    assert "alpine" not in " ".join(hold)
+    assert hold[hold.index("--user") + 1] == "gateway"
+    assert "gateway_repository_service.snapshot_admin" in hold
+    assert hold[-1] == "hold"
+    listing = harness.volume_listing_command(image=image, volume="restore-vol")
+    assert listing[-6] == "/data"
+    copy = harness.copy_volume_command(
+        image=image,
+        source_volume="src-vol",
+        dest_volume="dst-vol",
+    )
+    assert "alpine" not in " ".join(copy)
+    assert image in copy
+    check = harness.snapshot_check_command(image=image, volume="restore-vol")
+    assert check[check.index("--user") + 1] == "gateway"
+    assert "check" in check
+
+
+def test_parse_hold_ready_and_check_json() -> None:
+    ready = harness.parse_hold_ready_json(
+        '{"action":"hold","status":"ready","schema_version":1}\n'
+    )
+    assert ready["status"] == "ready"
+    with pytest.raises(ValueError, match="complete ready"):
+        harness.parse_hold_ready_json('{"action":"hold","status":"busy"}')
+    passed = harness.parse_check_passed_json(
+        '{"action":"check","status":"passed","repository_count":1}'
+    )
+    assert passed["status"] == "passed"
+    with pytest.raises(ValueError, match="one JSON line"):
+        harness.parse_check_passed_json("{}\n{}")
+
+
+def test_parse_volume_listing_strips_data_root_and_lost_and_found() -> None:
+    names = harness.parse_volume_listing("/data\n/data/lost+found\n/data/control\n")
+    assert names == ("control",)
+    with pytest.raises(RestoreProcedureError, match="not empty"):
+        harness.assert_restore_volume_listing_empty(names)
+
+
+def test_assert_pinned_consumer_summary_requires_distinct_commits_and_main_c2() -> None:
+    summary = harness.parse_client_summary(_VALID_SUMMARY)
+    assert summary is not None
+    harness.assert_pinned_consumer_summary(summary)
+    broken = dict(summary)
+    broken["main_commit"] = broken["c1"]
+    with pytest.raises(AssertionError, match="main must resolve to c2"):
+        harness.assert_pinned_consumer_summary(broken)
+
+
+def test_hold_container_name_is_project_scoped() -> None:
+    project = "gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa"
+    assert harness.hold_container_name(project) == f"{project}-hold"
+    with pytest.raises(RuntimeError, match="outside the generated"):
+        harness.stop_hold_container("foreign-hold", project=project)
+
+
+def test_create_scoped_volume_refuses_foreign_names() -> None:
+    names = harness.allocate_compose_resources("restored", suffix="aaaaaaaaaaaa")
+    with pytest.raises(RuntimeError, match="outside the generated"):
+        harness.create_scoped_volume("unrelated", allowed=names.allowed_names)
+
+
+def test_host_runner_env_does_not_keep_venv_overrides() -> None:
+    with patch.dict(
+        os.environ,
+        {"PYTHONPATH": "/tmp/leak", "VIRTUAL_ENV": "/tmp/venv", "PYTHONHOME": "/tmp/home"},
+        clear=False,
+    ):
+        env = harness.host_runner_env(
+            base_url="http://172.18.0.6:8000",
+            bearer_token=_TOKEN,
+        )
+    assert "PYTHONPATH" not in env
+    assert "VIRTUAL_ENV" not in env
+    assert env["GATEWAY_REPOSITORY_BASE_URL"] == "http://172.18.0.6:8000"
+
+
+S7_COMPOSE_NODEIDS: tuple[tuple[str, str], ...] = (
+    (
+        "test_import_compose_e2e.py",
+        "test_compose_repository_service_import_restart_replay",
+    ),
+    (
+        "test_versioned_read_compose_e2e.py",
+        "test_compose_remote_client_commit_pinned_read_inside_network",
+    ),
+    (
+        "test_versioned_read_compose_e2e.py",
+        "test_compose_remote_client_commit_pinned_read_from_gate_host",
+    ),
+    (
+        "test_versioned_read_compose_e2e.py",
+        "test_compose_repository_service_fresh_restart_restored_lifecycle",
+    ),
+)
+
+
+def test_s7_exact_compose_nodeids_collect() -> None:
+    import ast
+
+    tests_root = Path(__file__).resolve().parent
+    required_markers = {
+        "test_compose_remote_client_commit_pinned_read_inside_network",
+        "test_compose_remote_client_commit_pinned_read_from_gate_host",
+        "test_compose_repository_service_fresh_restart_restored_lifecycle",
+    }
+    found: set[str] = set()
+    for filename, nodeid in S7_COMPOSE_NODEIDS:
+        source = ast.parse((tests_root / filename).read_text(encoding="utf-8"))
+        functions = {
+            node.name: node for node in source.body if isinstance(node, ast.FunctionDef)
+        }
+        assert nodeid in functions, f"missing {filename}::{nodeid}"
+        found.add(nodeid)
+        if nodeid in required_markers:
+            decorator_names: list[str] = []
+            for decorator in functions[nodeid].decorator_list:
+                parts: list[str] = []
+                current: ast.AST = decorator
+                while isinstance(current, ast.Attribute):
+                    parts.append(current.attr)
+                    current = current.value
+                if isinstance(current, ast.Name):
+                    parts.append(current.id)
+                    decorator_names.append(".".join(reversed(parts)))
+            assert "pytest.mark.integration" in decorator_names, nodeid
+            assert "pytest.mark.serial" in decorator_names, nodeid
+    assert found == {nodeid for _filename, nodeid in S7_COMPOSE_NODEIDS}

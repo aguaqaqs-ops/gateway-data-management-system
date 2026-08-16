@@ -38,11 +38,19 @@ P2专用执行规则见
 只精确排除实际启动Docker的测试文件：
 
 ```bash
-./vnext/scripts/run-tests.sh --ignore=tests/test_import_compose_e2e.py
+./vnext/scripts/run-tests.sh \
+  --ignore=tests/test_import_compose_e2e.py \
+  --ignore=tests/test_versioned_read_compose_e2e.py
 ```
 
 当前延期inventory为
-`tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay`。
+
+```text
+tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
+tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_inside_network
+tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_from_gate_host
+tests/test_versioned_read_compose_e2e.py::test_compose_repository_service_fresh_restart_restored_lifecycle
+```
 静态Dockerfile/Compose测试、build script/harness单测和真实Dolt integration仍属于功能门禁，
 不得一并跳过。以后新增实际Docker测试时，round handoff必须登记精确path/nodeid并同步更新
 调用参数；不新增宽泛`container` marker来隐式改变现有三类marker语义。

@@ -16,6 +16,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from uuid import UUID, uuid4
 
 from support.compose_build_harness import (
@@ -207,6 +209,21 @@ def compose_down_command(*, project: str, compose_file: Path = COMPOSE_FILE) -> 
 
 def compose_ps_command(*, project: str, compose_file: Path = COMPOSE_FILE) -> list[str]:
     return compose_command("ps", "-q", SERVICE_NAME, project=project, compose_file=compose_file)
+
+
+def compose_stop_command(*, project: str, compose_file: Path = COMPOSE_FILE) -> list[str]:
+    return compose_command("stop", SERVICE_NAME, project=project, compose_file=compose_file)
+
+
+def compose_up_command(*, project: str, compose_file: Path = COMPOSE_FILE) -> list[str]:
+    return compose_command(
+        "up",
+        "-d",
+        "--no-build",
+        SERVICE_NAME,
+        project=project,
+        compose_file=compose_file,
+    )
 
 
 def _require_mapping(value: object, *, field: str) -> dict[str, Any]:
@@ -794,3 +811,531 @@ def cleanup_compose_project(
                 "failed to remove restore volume "
                 f"{names.restore_volume}: {removed.stderr.strip()}"
             )
+
+
+@dataclass(frozen=True, slots=True)
+class StartedP2R2Service:
+    names: ComposeResourceNames
+    env: dict[str, str]
+    token: str
+    token_file: Path
+    service_image: str
+    container_id: str
+    host_paths: tuple[str, ...]
+
+
+def inspect_networks_command(container_id: str) -> list[str]:
+    return ["docker", "inspect", "-f", "{{json .NetworkSettings.Networks}}", container_id]
+
+
+def parse_inspect_networks(stdout: str, *, project: str) -> ServiceNetworkDiscovery:
+    try:
+        payload: object = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError("container network inspect output is not valid JSON") from exc
+    return parse_service_network_discovery(payload, project=project)
+
+
+def hold_container_name(project: str) -> str:
+    return f"{project}-hold"
+
+
+def snapshot_hold_command(*, image: str, volume: str, project: str) -> list[str]:
+    return [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        hold_container_name(project),
+        "--entrypoint",
+        "python",
+        "--user",
+        "gateway",
+        "--env",
+        "GATEWAY_REPOSITORY_PROFILE=production",
+        "--env",
+        "GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository",
+        "-v",
+        f"{volume}:/var/lib/gateway/repository",
+        image,
+        "-m",
+        "gateway_repository_service.snapshot_admin",
+        "hold",
+    ]
+
+
+def docker_logs_command(container: str) -> list[str]:
+    return ["docker", "logs", container]
+
+
+def docker_container_running_command(container: str) -> list[str]:
+    return ["docker", "inspect", "-f", "{{.State.Running}}", container]
+
+
+def docker_stop_signal_command(container: str, *, signal_name: str = "SIGTERM") -> list[str]:
+    return ["docker", "stop", "--signal", signal_name, "--time", "5", container]
+
+
+def docker_inspect_exit_code_command(container: str) -> list[str]:
+    return ["docker", "inspect", "-f", "{{.State.ExitCode}}", container]
+
+
+def parse_hold_ready_json(raw: str) -> dict[str, Any]:
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not lines:
+        raise ValueError("hold produced no JSON")
+    try:
+        payload: object = json.loads(lines[0])
+    except json.JSONDecodeError as exc:
+        raise ValueError("hold stdout is not valid JSON") from exc
+    mapping = _require_mapping(payload, field="hold")
+    if mapping.get("action") != "hold" or mapping.get("status") != "ready":
+        raise ValueError("hold JSON is not a complete ready summary")
+    return mapping
+
+
+def volume_create_command(volume: str) -> list[str]:
+    return ["docker", "volume", "create", volume]
+
+
+def volume_listing_command(*, image: str, volume: str) -> list[str]:
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--entrypoint",
+        "find",
+        "--user",
+        "root",
+        "-v",
+        f"{volume}:/data:ro",
+        image,
+        "/data",
+        "-mindepth",
+        "1",
+        "!",
+        "-name",
+        "lost+found",
+    ]
+
+
+def parse_volume_listing(stdout: str) -> tuple[str, ...]:
+    names: list[str] = []
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped in {"/data", "/data/lost+found"}:
+            continue
+        names.append(Path(stripped).name)
+    return tuple(names)
+
+
+def copy_volume_command(*, image: str, source_volume: str, dest_volume: str) -> list[str]:
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--entrypoint",
+        "sh",
+        "--user",
+        "root",
+        "-v",
+        f"{source_volume}:/from:ro",
+        "-v",
+        f"{dest_volume}:/to",
+        image,
+        "-c",
+        "tar -C /from -cf - . | tar -C /to -xf -",
+    ]
+
+
+def chown_volume_command(*, image: str, volume: str) -> list[str]:
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--entrypoint",
+        "chown",
+        "--user",
+        "root",
+        "-v",
+        f"{volume}:/var/lib/gateway/repository",
+        image,
+        "-R",
+        "gateway:gateway",
+        "/var/lib/gateway/repository",
+    ]
+
+
+def snapshot_check_command(*, image: str, volume: str) -> list[str]:
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--entrypoint",
+        "python",
+        "--user",
+        "gateway",
+        "--env",
+        "GATEWAY_REPOSITORY_PROFILE=production",
+        "--env",
+        "GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository",
+        "-v",
+        f"{volume}:/var/lib/gateway/repository",
+        image,
+        "-m",
+        "gateway_repository_service.snapshot_admin",
+        "check",
+    ]
+
+
+def parse_check_passed_json(raw: str) -> dict[str, Any]:
+    line = raw.strip()
+    if not line or "\n" in line:
+        raise ValueError("check stdout must be one JSON line")
+    try:
+        payload: object = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise ValueError("check stdout is not valid JSON") from exc
+    mapping = _require_mapping(payload, field="check")
+    if mapping.get("action") != "check" or mapping.get("status") != "passed":
+        raise ValueError("check JSON is not a passed summary")
+    return mapping
+
+
+def assert_pinned_consumer_summary(summary: Mapping[str, Any]) -> None:
+    if summary.get("status") != "ok":
+        raise AssertionError("consumer status must be ok")
+    c0 = summary.get("c0")
+    c1 = summary.get("c1")
+    c2 = summary.get("c2")
+    main = summary.get("main_commit")
+    if not isinstance(c0, str) or not isinstance(c1, str) or not isinstance(c2, str):
+        raise AssertionError("consumer commits must be strings")
+    if not c0 or not c1 or not c2:
+        raise AssertionError("consumer commits must be non-empty")
+    if len({c0, c1, c2}) != 3:
+        raise AssertionError("c0, c1 and c2 must be distinct")
+    if main != c2:
+        raise AssertionError("main must resolve to c2")
+
+
+def host_runner_env(
+    *,
+    base_url: str,
+    bearer_token: str,
+    fixture_root: Path = FIXTURE_ROOT,
+) -> dict[str, str]:
+    env = os.environ.copy()
+    for inherited_name in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV"):
+        env.pop(inherited_name, None)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.update(
+        ephemeral_client_env(
+            base_url=base_url,
+            bearer_token=bearer_token,
+            fixture_root=fixture_root,
+        )
+    )
+    return env
+
+
+def start_p2r2_service(
+    names: ComposeResourceNames,
+    *,
+    token_file: Path,
+    token: str,
+    service_image: str,
+    host_paths: Sequence[str],
+) -> StartedP2R2Service:
+    env = os.environ.copy()
+    env["GATEWAY_P2R2_BEARER_TOKEN_FILE"] = str(token_file)
+    env["GATEWAY_REPOSITORY_SERVICE_IMAGE"] = service_image
+    secrets = (token,)
+    paths = tuple(host_paths)
+    rendered = run_command(
+        compose_config_command(project=names.project),
+        env=env,
+        secrets=secrets,
+        host_paths=paths,
+    )
+    assert_p2r2_compose_boundary(parse_rendered_compose_config(rendered.stdout))
+    gateway_uid = int(
+        run_command(
+            ["docker", "run", "--rm", "--entrypoint", "id", service_image, "-u", "gateway"],
+            secrets=secrets,
+            host_paths=paths,
+        ).stdout.strip()
+    )
+    gateway_gid = int(
+        run_command(
+            ["docker", "run", "--rm", "--entrypoint", "id", service_image, "-g", "gateway"],
+            secrets=secrets,
+            host_paths=paths,
+        ).stdout.strip()
+    )
+    os.chown(token_file, gateway_uid, gateway_gid)
+    run_command(
+        compose_up_command(project=names.project),
+        env=env,
+        secrets=secrets,
+        host_paths=paths,
+    )
+    container_id = run_command(
+        compose_ps_command(project=names.project),
+        env=env,
+        secrets=secrets,
+        host_paths=paths,
+    ).stdout.strip()
+    if not container_id:
+        raise RuntimeError("repository-service container id is empty")
+    wait_healthy(container_id)
+    return StartedP2R2Service(
+        names=names,
+        env=env,
+        token=token,
+        token_file=token_file,
+        service_image=service_image,
+        container_id=container_id,
+        host_paths=paths,
+    )
+
+
+def discover_started_service_network(started: StartedP2R2Service) -> ServiceNetworkDiscovery:
+    inspected = run_command(
+        inspect_networks_command(started.container_id),
+        secrets=(started.token,),
+        host_paths=started.host_paths,
+    )
+    return parse_inspect_networks(inspected.stdout, project=started.names.project)
+
+
+def recreate_started_service(started: StartedP2R2Service) -> StartedP2R2Service:
+    run_command(
+        force_recreate_service_command(project=started.names.project),
+        env=started.env,
+        secrets=(started.token,),
+        host_paths=started.host_paths,
+    )
+    container_id = run_command(
+        compose_ps_command(project=started.names.project),
+        env=started.env,
+        secrets=(started.token,),
+        host_paths=started.host_paths,
+    ).stdout.strip()
+    if not container_id:
+        raise RuntimeError("repository-service container id is empty after recreate")
+    wait_healthy(container_id)
+    return StartedP2R2Service(
+        names=started.names,
+        env=started.env,
+        token=started.token,
+        token_file=started.token_file,
+        service_image=started.service_image,
+        container_id=container_id,
+        host_paths=started.host_paths,
+    )
+
+
+def run_inside_network_consumer(
+    *,
+    client_image: str,
+    discovery: ServiceNetworkDiscovery,
+    token: str,
+    env_file: Path,
+    secrets: Sequence[str],
+    host_paths: Sequence[str],
+) -> dict[str, Any]:
+    write_client_env_file(
+        env_file,
+        base_url=discovery.inside_endpoint,
+        bearer_token=token,
+    )
+    completed = run_command(
+        ephemeral_client_docker_command(
+            image=client_image,
+            fixture_root=FIXTURE_ROOT,
+            env_file=env_file,
+            network=discovery.network_name,
+        ),
+        timeout=180.0,
+        secrets=secrets,
+        host_paths=host_paths,
+    )
+    summary = assert_client_stdout_safe(
+        completed.stdout,
+        secrets=secrets,
+        host_paths=host_paths,
+    )
+    assert_pinned_consumer_summary(summary)
+    return summary
+
+
+def run_gate_host_consumer(
+    *,
+    discovery: ServiceNetworkDiscovery,
+    token: str,
+    secrets: Sequence[str],
+    host_paths: Sequence[str],
+) -> dict[str, Any]:
+    completed = run_command(
+        host_runner_command(),
+        env=host_runner_env(base_url=discovery.gate_host_endpoint, bearer_token=token),
+        timeout=180.0,
+        secrets=secrets,
+        host_paths=host_paths,
+    )
+    summary = assert_client_stdout_safe(
+        completed.stdout,
+        secrets=secrets,
+        host_paths=host_paths,
+    )
+    assert_pinned_consumer_summary(summary)
+    return summary
+
+
+def wait_hold_container_ready(
+    container: str,
+    *,
+    timeout: float = 30.0,
+    poll_interval: float = 0.1,
+    secrets: Sequence[str] = (),
+    host_paths: Sequence[str] = (),
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    last_logs = ""
+    while time.monotonic() < deadline:
+        logs = subprocess.run(
+            docker_logs_command(container),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        last_logs = logs.stdout
+        if logs.returncode == 0 and last_logs.strip():
+            try:
+                payload = parse_hold_ready_json(last_logs)
+            except ValueError:
+                payload = None
+            if payload is not None:
+                running = subprocess.run(
+                    docker_container_running_command(container),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if running.returncode == 0 and running.stdout.strip() == "true":
+                    return payload
+        time.sleep(poll_interval)
+    raise TimeoutError(
+        "hold container did not become ready: "
+        f"{redact_evidence_text(last_logs, secrets=secrets, host_paths=host_paths)}"
+    )
+
+
+def stop_hold_container(
+    container: str,
+    *,
+    project: str,
+    secrets: Sequence[str] = (),
+    host_paths: Sequence[str] = (),
+) -> None:
+    expected = hold_container_name(project)
+    if container != expected:
+        raise RuntimeError("refusing to signal a hold helper outside the generated project")
+    run_command(
+        docker_stop_signal_command(container),
+        secrets=secrets,
+        host_paths=host_paths,
+    )
+    exit_code = run_command(
+        docker_inspect_exit_code_command(container),
+        secrets=secrets,
+        host_paths=host_paths,
+    ).stdout.strip()
+    if exit_code != "0":
+        raise RuntimeError(f"hold helper exited {exit_code}, expected 0")
+
+
+def remove_hold_container(project: str) -> None:
+    name = hold_container_name(project)
+    subprocess.run(
+        ["docker", "rm", "-f", name],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def create_scoped_volume(volume: str, *, allowed: frozenset[str]) -> None:
+    refuse_unscoped_deletion((volume,), allowed)
+    run_command(volume_create_command(volume))
+
+
+def assert_named_volume_empty(*, image: str, volume: str, allowed: frozenset[str]) -> None:
+    refuse_unscoped_deletion((volume,), allowed)
+    listing = run_command(volume_listing_command(image=image, volume=volume))
+    assert_restore_volume_listing_empty(parse_volume_listing(listing.stdout))
+
+
+def copy_named_volume(
+    *,
+    image: str,
+    source_volume: str,
+    dest_volume: str,
+    allowed: frozenset[str],
+) -> None:
+    refuse_unscoped_deletion((source_volume, dest_volume), allowed)
+    run_command(
+        copy_volume_command(image=image, source_volume=source_volume, dest_volume=dest_volume)
+    )
+    run_command(chown_volume_command(image=image, volume=dest_volume))
+
+
+def check_named_volume(*, image: str, volume: str, allowed: frozenset[str]) -> dict[str, Any]:
+    refuse_unscoped_deletion((volume,), allowed)
+    completed = run_command(snapshot_check_command(image=image, volume=volume))
+    return parse_check_passed_json(completed.stdout)
+
+
+def create_repository_via_http(*, base_url: str, token: str, idempotency_key: str) -> str:
+    assert_not_host_port_endpoint(base_url)
+    request = Request(
+        f"{base_url.rstrip('/')}/v1/repositories",
+        data=b"",
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Idempotency-Key": idempotency_key,
+            "Content-Length": "0",
+        },
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            payload: object = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError("create repository over HTTP failed") from exc
+    mapping = _require_mapping(payload, field="create_repository")
+    repository_id = mapping.get("repository_id")
+    if not isinstance(repository_id, str) or not repository_id:
+        raise RuntimeError("create repository response is missing repository_id")
+    UUID(repository_id)
+    return repository_id
+
+
+def versioned_ref_status(*, base_url: str, token: str, repository_id: str) -> int:
+    assert_not_host_port_endpoint(base_url)
+    request = Request(
+        f"{base_url.rstrip('/')}/v1/repositories/{repository_id}/versioned/refs/main",
+        method="GET",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            return int(response.status)
+    except HTTPError as exc:
+        return int(exc.code)
+    except (URLError, TimeoutError) as exc:
+        raise RuntimeError("versioned ref request failed") from exc

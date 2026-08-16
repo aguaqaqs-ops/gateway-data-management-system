@@ -65,17 +65,21 @@ source 已有匹配的 production image evidence。
 - `production_retest_required=yes`；不得用旧 image 证明当前 source；
 - R6 须从含 S7 handoff 文档的 source tree 重新 build、传输并验证 image provenance。
 
-当前延期 container nodeid：
+当前延期 container nodeid（已实现，Compose PASS 归 S7-5+；本 README 不宣称当前 HEAD 已过容器门禁）：
 
 ```text
 tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
-```
-
-R6 计划新增（R5 未收集）：
-
-```text
 tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_inside_network
 tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_from_gate_host
+tests/test_versioned_read_compose_e2e.py::test_compose_repository_service_fresh_restart_restored_lifecycle
+```
+
+功能门禁精确排除这两份实际启动 Docker 的文件，不要用宽泛 marker：
+
+```bash
+./vnext/scripts/run-tests.sh \
+  --ignore=tests/test_import_compose_e2e.py \
+  --ignore=tests/test_versioned_read_compose_e2e.py
 ```
 
 ## 容器启动（P2-R2 `p2-r2` profile）

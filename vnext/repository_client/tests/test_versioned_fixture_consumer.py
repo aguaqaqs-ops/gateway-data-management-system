@@ -24,10 +24,12 @@ from gateway_repository_contracts import (
 )
 from support.versioned_fixture_consumer import (
     FIXTURE_PACKAGE_FACTS,
+    ConsumerSummary,
     ExpectedColumn,
     ExpectedFacts,
     ExpectedTableCatalog,
     ExpectedTableRows,
+    _sanitize_error_message,
     assert_arrow_schema_matches,
     assert_catalog_matches,
     assert_import_result_identity,
@@ -643,3 +645,24 @@ def test_versioned_fixture_consumer_client_protocol_rejects_invalid_calls(tmp_pa
     )
     assert exit_status != 0
     assert "no_such_method" in stdout + stderr
+
+
+def test_consumer_summary_json_contains_only_allowed_keys() -> None:
+    summary = ConsumerSummary(
+        status="ok",
+        repository_id=UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11"),
+        c0="commit-c0",
+        c1="commit-c1",
+        c2="commit-c2",
+        main_commit="commit-c2",
+    )
+    payload = json.loads(summary.to_json())
+    assert set(payload) == {"status", "repository_id", "c0", "c1", "c2", "main_commit"}
+    assert "\n" not in summary.to_json()
+
+
+def test_sanitize_error_message_redacts_bearer_token() -> None:
+    token = "compose-e2e-bearer-token"
+    rendered = _sanitize_error_message(f"unauthorized token={token}", token)
+    assert token not in rendered
+    assert "<redacted>" in rendered

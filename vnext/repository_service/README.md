@@ -147,6 +147,23 @@ docker compose -f vnext/deploy/compose.yaml --profile p2-r2 \
   up -d --no-build --force-recreate repository-service
 ```
 
+### S7 test-only Compose harness
+
+S7 测试为每个 nodeid 分配独立 Compose project、token 文件和 named volume，并在
+`finally` 中执行 `down -v --remove-orphans`。不要把 ephemeral client 加进 production
+Compose：inside-network client 是一次性容器，gate-host 路径使用动态发现的 Linux
+bridge/service IPv4，不发布 Service host port。
+
+重启验证使用同一 named volume 上的 `up -d --no-build --force-recreate`，不是
+`docker compose restart`。test-only client image 定义见
+`vnext/repository_client/tests/Dockerfile`；`versioned_v1` fixture 只读挂载，不写入
+client image。client stdout 只接受 typed summary
+（`status/repository_id/c0/c1/c2/main_commit`），evidence 必须 redact bearer 与 host
+path。
+
+本说明不是 S7 Compose PASS，也不把 Stage J image 升级为当前 candidate 的容器证据。
+镜像重建延期到 S7-5 provisional image。
+
 ## Private whole-root snapshot / restore（operator only）
 
 这不是 public backup/restore API，也不注册 HTTP route。部署方对 **整个** quiescent

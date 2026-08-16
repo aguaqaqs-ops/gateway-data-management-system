@@ -170,6 +170,16 @@ def test_compose_repository_service_has_no_host_ports() -> None:
     assert "ports:" not in service
 
 
+def test_compose_has_no_resident_client_or_client_dockerfile() -> None:
+    compose = COMPOSE.read_text(encoding="utf-8")
+    assert re.search(r"^  repository-client:", compose, re.M) is None
+    assert re.search(r"^  snapshot-operator:", compose, re.M) is None
+    assert "repository_client/tests/Dockerfile" not in compose
+    assert "gateway-repository-client-e2e" not in compose
+    service = _service_block(compose, "repository-service")
+    assert "docker.sock" not in service
+
+
 def test_compose_repository_service_healthcheck_uses_python_readyz() -> None:
     service = _service_block(COMPOSE.read_text(encoding="utf-8"), "repository-service")
     assert "healthcheck:" in service

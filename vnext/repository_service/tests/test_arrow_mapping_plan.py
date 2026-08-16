@@ -261,17 +261,17 @@ def test_binary_and_hex_malformed_values_fail() -> None:
 
 
 def test_unknown_type_reject_fails_at_compile() -> None:
-    catalog = _table("records", (ColumnCatalog("value", "ENUM('a')", True, None),))
+    catalog = _table("records", (ColumnCatalog("value", "YEAR", True, None),))
     with pytest.raises(UnknownSqlTypeError):
         compile_table_plan(catalog, UnknownTypePolicy.REJECT)
 
 
 def test_unknown_stringify_metadata_and_null_preservation() -> None:
-    catalog = _table("records", (ColumnCatalog("value", "ENUM('a','b')", True, None),))
+    catalog = _table("records", (ColumnCatalog("value", "YEAR", True, None),))
     plan = compile_table_plan(catalog, UnknownTypePolicy.STRINGIFY)
     field = plan.expected_schema.field("value")
     assert field.type == pa.large_string()
-    assert field.metadata[b"gateway.sql_type"] == b"ENUM('a','b')"
+    assert field.metadata[b"gateway.sql_type"] == b"YEAR"
     assert field.metadata[b"gateway.lossy"] == b"true"
     normalized = plan.normalize_row((None,))
     assert normalized.values[0] is None
@@ -514,8 +514,8 @@ MALFORMED_VALUE_FAULTS = (
     ("event_time", "TIME(6)", "12:34", UnknownTypePolicy.REJECT),
     ("flags", "BIT(7)", "0x80", UnknownTypePolicy.REJECT),
     ("flags", "BIT(4)", "0x1234", UnknownTypePolicy.REJECT),
-    ("value", "ENUM('a','b')", _StrFailure(), UnknownTypePolicy.STRINGIFY),
-    ("value", "ENUM('a','b')", _StrRuntimeFailure(), UnknownTypePolicy.STRINGIFY),
+    ("value", "YEAR", _StrFailure(), UnknownTypePolicy.STRINGIFY),
+    ("value", "YEAR", _StrRuntimeFailure(), UnknownTypePolicy.STRINGIFY),
 )
 
 
@@ -552,7 +552,7 @@ def test_malformed_provider_values_are_typed_and_redacted(
 def test_unknown_stringify_runtime_str_failure_is_typed_and_redacted() -> None:
     catalog = _table(
         "records",
-        (ColumnCatalog("value", "ENUM('a','b')", True, None),),
+        (ColumnCatalog("value", "YEAR", True, None),),
     )
     plan = compile_table_plan(catalog, UnknownTypePolicy.STRINGIFY)
     with pytest.raises(SqlValueConversionError) as exc_info:

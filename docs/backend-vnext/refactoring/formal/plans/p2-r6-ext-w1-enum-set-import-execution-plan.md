@@ -1,6 +1,6 @@
 # P2-R6-EXT-W1 ENUM/SET Import Execution Plan
 
-状态：Stage B contract review pass; next = Stage C
+状态：Stage C complete; next = Stage D
 
 日期：2026-08-16
 
@@ -92,8 +92,8 @@ new_blocker: no
 ```yaml
 stage_b_status: review_pass
 stage_b_exit: pass
-freeze_head_sha: 2fe7b1fed1fd9c1702335071d4f28aa8be01e626
-freeze_committed: no
+freeze_head_sha: d03e8e94ff8ab10658050559a52beb350fdd8dd3
+freeze_committed: yes
 production_code_changed: no
 prior_review_record: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-b-contract-review.md
 prior_review_status: fail
@@ -127,6 +127,24 @@ uv run pytest -m unit tests/test_p2_r1_primitives.py tests/test_arrow_mapping_pl
 退出条件：parser/model unit tests 通过，Contract 字段和错误映射一致。
 
 推进提示词：`实现 ENUM/SET parser、manifest model 和 unit tests，保持 v1 单一语义。`
+
+完成记录：[P2-R6-EXT-W1 Stage C Parser/Model](../../temporary/p2-r6-ext-w1-stage-c-parser-model.md)
+
+```yaml
+stage_c_exit: pass
+stage_c_entry_head_sha: d03e8e94ff8ab10658050559a52beb350fdd8dd3
+freeze_commit_sha: d03e8e94ff8ab10658050559a52beb350fdd8dd3
+focused_unit: 235 passed
+repository_service_unit: 1376 passed, 1 skipped
+ruff_mypy: pass
+image_rebuilt: no
+production_code_changed: yes
+next: Stage D — Arrow/provider/verification implementation
+```
+
+parser/model 与 focused/unit 已通过。ENUM/SET 为已知类型；族内失败不再落入
+unknown/STRINGIFY。verification/read wire、golden 完整 case 与五份 package 属于
+Stage D。
 
 ## 5. Stage D — Arrow/provider/verification implementation
 

@@ -13,6 +13,14 @@ from typing import Any, Iterable, Iterator, NoReturn
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from gateway_repository_contracts import UnknownTypePolicy
+from gateway_repository_service.enum_set_sql import (
+    EnumSetSqlTypeKind,
+    SqlTypeMalformedError,
+    SqlValueIllegalError,
+    classify_enum_set_sql_type,
+    parse_enum_value,
+    parse_set_value,
+)
 
 __all__ = [
     "ColumnCatalog",
@@ -22,10 +30,13 @@ __all__ = [
     "TableCatalog",
     "TemporalSqlTypeKind",
     "TemporalSqlType",
+    "SqlTypeMalformedError",
     "SqlValueConversionError",
+    "SqlValueIllegalError",
     "UnknownSqlTypeError",
     "UnknownTypePolicy",
     "arrow_type",
+    "classify_enum_set_sql_type",
     "classify_temporal_sql_type",
     "compile_table_plan",
     "convert_value",
@@ -286,6 +297,12 @@ def _normalize_unknown_sql_spelling(column_type: str) -> str:
 def normalize_sql_type(data_type: str, column_type: str) -> str:
     """Normalize the Dolt catalog spelling used by the contract."""
 
+    enum_kind, enum_parsed = classify_enum_set_sql_type(column_type)
+    if enum_kind == EnumSetSqlTypeKind.MALFORMED:
+        raise SqlTypeMalformedError(f"invalid ENUM/SET SQL type spelling: {column_type}")
+    if enum_kind == EnumSetSqlTypeKind.VALID and enum_parsed is not None:
+        return enum_parsed.normalized
+
     stripped = _strip_type_modifiers(column_type)
     raw = stripped.upper()
     if raw in {"TINYINT(1)", "TINYINT(1) UNSIGNED"}:
@@ -337,6 +354,17 @@ def normalize_sql_type(data_type: str, column_type: str) -> str:
 
 
 def _known_arrow_type(sql_type: str) -> tuple[pa.DataType, dict[bytes, bytes]] | None:
+    enum_kind, enum_parsed = classify_enum_set_sql_type(sql_type)
+    if enum_kind == EnumSetSqlTypeKind.MALFORMED:
+        raise SqlTypeMalformedError(f"invalid ENUM/SET SQL type spelling: {sql_type}")
+    if enum_kind == EnumSetSqlTypeKind.VALID and enum_parsed is not None:
+        metadata = {
+            b"gateway.logical_type": enum_parsed.kind.lower().encode("ascii"),
+            b"gateway.sql_type": enum_parsed.normalized.encode("utf-8"),
+        }
+        if enum_parsed.kind == "ENUM":
+            return pa.string(), metadata
+        return pa.list_(pa.field("item", pa.string(), nullable=False)), metadata
     upper = sql_type.upper()
     integer_types: dict[str, pa.DataType] = {
         "TINYINT": pa.int8(),
@@ -409,6 +437,8 @@ def is_known_sql_type(sql_type: str) -> bool:
     try:
         arrow_type(sql_type, UnknownTypePolicy.REJECT)
         return True
+    except SqlTypeMalformedError:
+        raise
     except UnknownSqlTypeError:
         return False
 
@@ -416,6 +446,11 @@ def is_known_sql_type(sql_type: str) -> bool:
 def _convert_value_with_arrow(value: Any, sql_type: str, arrow: pa.DataType) -> Any:
     if value is None:
         return None
+    enum_kind, enum_parsed = classify_enum_set_sql_type(sql_type)
+    if enum_kind == EnumSetSqlTypeKind.VALID and enum_parsed is not None:
+        if enum_parsed.kind == "ENUM":
+            return parse_enum_value(enum_parsed, value)
+        return parse_set_value(enum_parsed, value)
     upper = sql_type.upper()
     if pa.types.is_boolean(arrow):
         if isinstance(value, bool):
@@ -495,6 +530,8 @@ def _convert_value_with_arrow(value: Any, sql_type: str, arrow: pa.DataType) -> 
 def convert_value(value: Any, sql_type: str, policy: UnknownTypePolicy) -> Any:
     try:
         arrow, _ = arrow_type(sql_type, policy)
+    except SqlTypeMalformedError:
+        raise
     except UnknownSqlTypeError:
         if policy == UnknownTypePolicy.REJECT:
             raise
@@ -513,6 +550,8 @@ def _value_size_bytes(value: Any) -> int:
         return len(value.encode("utf-8"))
     if isinstance(value, bytes):
         return len(value)
+    if isinstance(value, list):
+        return sum(_value_size_bytes(item) for item in value)
     return len(str(value).encode("utf-8"))
 
 
@@ -901,6 +940,22 @@ def _make_column_converter(
                 )
 
         return stringify_unknown
+
+    enum_kind, enum_parsed = classify_enum_set_sql_type(column.sql_type)
+    if enum_kind == EnumSetSqlTypeKind.VALID and enum_parsed is not None:
+        def convert_enum_set(raw: Any) -> Any:
+            try:
+                if enum_parsed.kind == "ENUM":
+                    return parse_enum_value(enum_parsed, raw)
+                return parse_set_value(enum_parsed, raw)
+            except Exception as exc:
+                _raise_column_conversion_error(
+                    exc,
+                    table_name=table_name,
+                    column=column,
+                )
+
+        return convert_enum_set
 
     def convert(raw: Any) -> Any:
         try:

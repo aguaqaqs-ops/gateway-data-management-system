@@ -154,18 +154,27 @@ def test_known_and_unknown_arrow_mapping() -> None:
     assert normalize_sql_type("ENUM", "enum('a','b')") == "ENUM('a','b')"
     assert normalize_sql_type("ENUM", "enum('A','B')") == "ENUM('A','B')"
     assert normalize_sql_type("SET", "set('x','X')") != normalize_sql_type("SET", "set('X','x')")
-    unknown, metadata = arrow_type("ENUM('a','b')", UnknownTypePolicy.STRINGIFY)
-    assert unknown == pa.large_string()
-    assert metadata[b"gateway.sql_type"] == b"ENUM('a','b')"
-    assert metadata[b"gateway.lossy"] == b"true"
-    try:
-        arrow_type("ENUM('a','b')", UnknownTypePolicy.REJECT)
-    except UnknownSqlTypeError:
-        pass
-    else:
-        raise AssertionError("unknown type did not reject")
-    assert not is_known_sql_type("ENUM('a','b')")
+    enum_type, enum_metadata = arrow_type("ENUM('a','b')", UnknownTypePolicy.STRINGIFY)
+    assert enum_type == pa.string()
+    assert enum_metadata[b"gateway.logical_type"] == b"enum"
+    assert enum_metadata[b"gateway.sql_type"] == b"ENUM('a','b')"
+    assert b"gateway.lossy" not in enum_metadata
+    assert arrow_type("ENUM('a','b')", UnknownTypePolicy.REJECT) == (enum_type, enum_metadata)
+    set_type, set_metadata = arrow_type("SET('x','X')", UnknownTypePolicy.REJECT)
+    assert set_type == pa.list_(pa.field("item", pa.string(), nullable=False))
+    assert set_metadata[b"gateway.logical_type"] == b"set"
+    assert set_metadata[b"gateway.sql_type"] == b"SET('x','X')"
+    assert arrow_type("SET('x','X')", UnknownTypePolicy.STRINGIFY) == (set_type, set_metadata)
+    assert is_known_sql_type("ENUM('a','b')")
+    assert is_known_sql_type("SET('x','X')")
     assert is_known_sql_type("INT")
+    unknown, metadata = arrow_type("YEAR", UnknownTypePolicy.STRINGIFY)
+    assert unknown == pa.large_string()
+    assert metadata[b"gateway.sql_type"] == b"YEAR"
+    assert metadata[b"gateway.lossy"] == b"true"
+    with pytest.raises(UnknownSqlTypeError):
+        arrow_type("YEAR", UnknownTypePolicy.REJECT)
+    assert not is_known_sql_type("YEAR")
 
 
 def test_stringify_does_not_degrade_known_types() -> None:
@@ -177,6 +186,8 @@ def test_stringify_does_not_degrade_known_types() -> None:
         "TIMESTAMP(6)",
         "BINARY(4)",
         "JSON",
+        "ENUM('a','b')",
+        "SET('x','X')",
     )
     for spelling in spellings:
         reject = arrow_type(spelling, UnknownTypePolicy.REJECT)

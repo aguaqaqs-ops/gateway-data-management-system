@@ -56,13 +56,13 @@ UNKNOWN_NULLABLE_ARROW_FIELD = pa.field(
     "unknown_value",
     pa.large_string(),
     nullable=True,
-    metadata={b"gateway.sql_type": b"ENUM('a','b')", b"gateway.lossy": b"true"},
+    metadata={b"gateway.sql_type": b"YEAR", b"gateway.lossy": b"true"},
 )
 UNKNOWN_NOT_NULL_ARROW_FIELD = pa.field(
     "unknown_value",
     pa.large_string(),
     nullable=False,
-    metadata={b"gateway.sql_type": b"ENUM('a','b')", b"gateway.lossy": b"true"},
+    metadata={b"gateway.sql_type": b"YEAR", b"gateway.lossy": b"true"},
 )
 
 
@@ -334,7 +334,7 @@ def _assert_nullable_unknown_stringify_metadata(
     field = batch.schema.field("unknown_value")
     assert field.equals(UNKNOWN_NULLABLE_ARROW_FIELD)
     values = batch.column("unknown_value").to_pylist()
-    assert values == ["a", None]
+    assert values == ["2024", None]
 
 
 @pytest.mark.integration
@@ -428,8 +428,8 @@ def test_full_scan_stringify_not_null_unknown_follows_catalog_nullability(
     import_layout: DurableLayout,
 ) -> None:
     sql = """
-CREATE TABLE required_enum (id INT NOT NULL PRIMARY KEY, unknown_value ENUM('a','b') NOT NULL);
-INSERT INTO required_enum VALUES (1, 'a');
+CREATE TABLE required_year (id INT NOT NULL PRIMARY KEY, unknown_value YEAR NOT NULL);
+INSERT INTO required_year VALUES (1, 2024);
 """
     candidate = _candidate_from_replay(
         import_provider,

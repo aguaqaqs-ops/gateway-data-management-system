@@ -1183,3 +1183,88 @@ def test_manifest_accepts_point_srid_normalized_sql_type(
     artifact_path = tmp_path / "artifact.tar.zst"
     result = validate_package(artifact_path, staging_dir, settings, payload)
     assert result.manifest.tables[0].table_schema.columns[0].sql_type == "POINT SRID 4326"
+
+
+MANIFEST_ENUM_SET_ACCEPT_CASES: tuple[tuple[str, str], ...] = (
+    ("enum_ascii", "ENUM('a','b')"),
+    ("set_ascii", "SET('x','X')"),
+    ("enum_non_ascii", "ENUM('α','β')"),
+)
+
+
+@pytest.mark.parametrize(("table_name", "sql_type"), MANIFEST_ENUM_SET_ACCEPT_CASES)
+def test_manifest_accepts_normalized_enum_set_sql_type(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+    table_name: str,
+    sql_type: str,
+) -> None:
+    manifest = {
+        "package_version": 1,
+        "canonicalization_manifest_digest": "manifest-digest-enum-set",
+        "tables": [
+            {
+                "name": table_name,
+                "schema": {
+                    "columns": [
+                        {"name": "value", "sql_type": sql_type, "nullable": True},
+                        {"name": "id", "sql_type": "BIGINT", "nullable": False},
+                    ],
+                    "primary_key": ["id"],
+                },
+                "row_count": 0,
+            }
+        ],
+    }
+    replay_sql = (
+        f"CREATE TABLE {table_name} (value {sql_type} NULL, "
+        "id BIGINT NOT NULL PRIMARY KEY);\n"
+    ).encode("utf-8")
+    payload = build_package_bytes(manifest=manifest, replay_sql=replay_sql)
+    artifact_path = tmp_path / "artifact.tar.zst"
+    result = validate_package(artifact_path, staging_dir, settings, payload)
+    assert result.manifest.tables[0].table_schema.columns[0].sql_type == sql_type
+
+
+MANIFEST_ENUM_SET_REJECT_CASES: tuple[tuple[str, str], ...] = (
+    ("enum('a','b')", "validation"),
+    ("ENUM('a','b',)", "validation"),
+    ("ENUM('a') CHARSET utf8", "validation"),
+    ("Y" * 1025, "validation"),
+)
+
+
+@pytest.mark.parametrize(("sql_type", "match"), MANIFEST_ENUM_SET_REJECT_CASES)
+def test_manifest_rejects_malformed_or_oversized_non_enum_sql_type(
+    tmp_path: Path,
+    staging_dir: Path,
+    settings: RepositoryServiceSettings,
+    sql_type: str,
+    match: str,
+) -> None:
+    manifest = {
+        "package_version": 1,
+        "canonicalization_manifest_digest": "manifest-digest-enum-set-bad",
+        "tables": [
+            {
+                "name": "records",
+                "schema": {
+                    "columns": [
+                        {"name": "id", "sql_type": "BIGINT", "nullable": False},
+                        {"name": "value", "sql_type": sql_type, "nullable": True},
+                    ],
+                    "primary_key": ["id"],
+                },
+                "row_count": 0,
+            }
+        ],
+    }
+    artifact_path = tmp_path / "artifact.tar.zst"
+    with pytest.raises(ImportPackageRejected, match=match):
+        validate_package(
+            artifact_path,
+            staging_dir,
+            settings,
+            build_package_bytes(manifest=manifest),
+        )

@@ -37,6 +37,11 @@ from gateway_repository_service.arrow_mapping import (
     arrow_type,
     classify_temporal_sql_type,
 )
+from gateway_repository_service.enum_set_sql import (
+    EnumSetSqlTypeKind,
+    SqlTypeMalformedError,
+    classify_enum_set_sql_type,
+)
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
 
 MANIFEST_ENTRY_NAME = "manifest.json"
@@ -46,6 +51,7 @@ STAGED_REPLAY_SQL_FILENAME = "replay.sql"
 
 _MAX_IDENTIFIER_CODE_POINTS = 64
 _MAX_MANIFEST_SQL_TYPE_LENGTH = 1024
+_MAX_ENUM_SET_SQL_TYPE_BYTES = 64 * 1024
 _BOUNDED_UNKNOWN_SQL_TYPE = re.compile(r"^[A-Za-z0-9_(),.' +\\-]+$")
 
 VERSIONED_IMPORT_FINGERPRINT_PREFIX_V1 = b"versioned_import/v1\x00"
@@ -128,17 +134,30 @@ def validate_manifest_table_name(value: str) -> str:
 
 
 def validate_manifest_sql_type(value: str) -> str:
-    if not value or len(value) > _MAX_MANIFEST_SQL_TYPE_LENGTH:
+    if not value:
         raise ValueError("sql_type length is out of bounds")
     if value != value.strip():
         raise ValueError("sql_type must not have leading or trailing whitespace")
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise ValueError("sql_type contains control characters")
+    enum_kind, enum_parsed = classify_enum_set_sql_type(value)
+    if enum_kind == EnumSetSqlTypeKind.MALFORMED:
+        raise ValueError("sql_type is not a bounded normalized physical spelling") from None
+    if enum_kind == EnumSetSqlTypeKind.VALID:
+        if enum_parsed is None or value != enum_parsed.normalized:
+            raise ValueError("sql_type is not a bounded normalized physical spelling") from None
+        if len(value.encode("utf-8")) > _MAX_ENUM_SET_SQL_TYPE_BYTES:
+            raise ValueError("sql_type length is out of bounds")
+        return value
+    if len(value) > _MAX_MANIFEST_SQL_TYPE_LENGTH:
+        raise ValueError("sql_type length is out of bounds")
     classification, _ = classify_temporal_sql_type(value)
     if classification == TemporalSqlTypeKind.MALFORMED:
         raise ValueError("sql_type is not a bounded normalized physical spelling") from None
     try:
         arrow_type(value, UnknownTypePolicy.REJECT)
+    except SqlTypeMalformedError:
+        raise ValueError("sql_type is not a bounded normalized physical spelling") from None
     except UnknownSqlTypeError:
         if classification != TemporalSqlTypeKind.NOT_TEMPORAL:
             raise ValueError("sql_type is not a bounded normalized physical spelling") from None

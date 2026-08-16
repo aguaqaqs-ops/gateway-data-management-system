@@ -113,8 +113,8 @@ def _write_w0(path: Path) -> tuple[TableCatalog, ...]:
 );
 INSERT INTO known_types VALUES (1, TRUE, b'10101010', -3, 250, -300, 60000, -70000, 70000, -800000, 4000000000, -9000000000, 18000000000, 12.34, 12345678901234567890.12, 1.25, 2.5, '2026-01-02', '03:04:05.123456', '2026-01-02 03:04:05.123456', '2026-01-02 03:04:05.123456', 'utf8', 'hello', '世界', X'00FF', X'0102', X'000102', '{"kind": "known"}');
 INSERT INTO known_types VALUES (2, NULL, b'00000001', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0.01, 0.02, 3.5, 4.5, '2026-02-03', '00:00:00', '2026-02-03 00:00:00', '2026-02-03 00:00:00', 'null', 'nullable', 'text', X'0000', X'00', X'', '{}');
-CREATE TABLE unknown_types (id INT NOT NULL PRIMARY KEY, unknown_value ENUM('a','b') NULL);
-INSERT INTO unknown_types VALUES (1, 'a');
+CREATE TABLE unknown_types (id INT NOT NULL PRIMARY KEY, unknown_value YEAR NULL);
+INSERT INTO unknown_types VALUES (1, 2024);
 INSERT INTO unknown_types VALUES (2, NULL);
 CREATE TABLE composite_keys (left_id INT NOT NULL, right_id INT NOT NULL, value_text VARCHAR(16) NULL, PRIMARY KEY (left_id, right_id));
 INSERT INTO composite_keys VALUES (1, 1, 'one');
@@ -136,7 +136,7 @@ INSERT INTO composite_keys VALUES (1, 2, NULL);
             "unknown_types",
             (
                 ColumnCatalog("id", "INT", False, 1),
-                ColumnCatalog("unknown_value", "ENUM('a','b')", True, None),
+                ColumnCatalog("unknown_value", "YEAR", True, None),
             ),
             2,
         ),

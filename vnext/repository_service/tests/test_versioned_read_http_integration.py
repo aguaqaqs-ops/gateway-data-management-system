@@ -388,8 +388,8 @@ def test_http_rows_decode_known_types_and_stringify_metadata(read_http_env: Read
         _write_sql(
             env.layout,
             "types.sql",
-            "CREATE TABLE typed (id BIGINT NOT NULL PRIMARY KEY, payload VARCHAR(16) NOT NULL, odd ENUM('a','b'));\n"
-            "INSERT INTO typed (id, payload, odd) VALUES (1, 'x', 'a');\n",
+            "CREATE TABLE typed (id BIGINT NOT NULL PRIMARY KEY, payload VARCHAR(16) NOT NULL, odd YEAR);\n"
+            "INSERT INTO typed (id, payload, odd) VALUES (1, 'x', 2024);\n",
         )
     )
     commit_id = _commit_changes(

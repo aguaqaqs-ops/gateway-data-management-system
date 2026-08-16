@@ -73,7 +73,8 @@ conformance architecture、formal baseline lifecycle和exact-commit exit不再�
 authority。P2-R1 v8 formal 已通过，默认 provider 为Candidate A offline CLI，
 Candidate B保留但默认禁用；P2-R2至P2-R4已通过。P2-R5 functional exit complete，
 P2-R6-S0 design freeze complete、S1 implementation ready；R6-EXT-W1 Stage A entry
-reconciliation complete，Stage B 独立 Contract review 复审 `pass`，允许进入 Stage C；
+reconciliation complete，Stage B 独立 Contract review 复审 `pass`，Stage C
+parser/model complete，下一步为 Stage D Arrow/provider/verification；
 `R6-EXT-W1=no`，
 `P2-R6-S6_ready=no`；`production_retest_required=yes`，
 `phase_2_complete=no`；

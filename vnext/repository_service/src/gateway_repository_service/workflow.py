@@ -1466,7 +1466,7 @@ def _assert_fixture_values(
                 raise ProviderError("W0 null/empty value oracle mismatch")
         elif table_name == "unknown_types":
             by_id = {_as_int(row["id"]): row for row in rows}
-            if by_id.get(1, {}).get("unknown_value") != "a" or by_id.get(2, {}).get("unknown_value") is not None:
+            if by_id.get(1, {}).get("unknown_value") != "2024" or by_id.get(2, {}).get("unknown_value") is not None:
                 raise ProviderError("W0 unknown stringify oracle mismatch")
         return
     if table_name != "records":

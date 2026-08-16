@@ -1,6 +1,6 @@
 # P2-R6-EXT-W1 ENUM/SET Import Execution Plan
 
-状态：Stage J complete; next = Stage K
+状态：Stage K complete; R6-EXT-W1 handoff pass; phase_2_complete = no
 
 日期：2026-08-16
 
@@ -452,3 +452,32 @@ Phase 2 完成；缺失的 versioned-read compose e2e、restored snapshot 与 v8
 产物：final handoff record、更新后的状态结论和脱敏 external descriptor（如需发布）。
 
 推进提示词：`只读审核最终 candidate、五份数据、validator/capacity/container evidence 并形成 handoff。`
+
+完成记录：[P2-R6-EXT-W1 Stage K Final Handoff](../../temporary/p2-r6-ext-w1-stage-k-final-handoff.md)
+脱敏 descriptor：[P2-R6-EXT-W1 external descriptor](../../temporary/p2-r6-ext-w1-external-descriptor.yaml)
+
+```yaml
+stage_k_exit: pass
+stage_k_reviewed_documentation_head_sha: 352d9097ddf26fb3e68397430f45d2e479473e51
+container_validated_code_sha: 656a66bf04714cce987c85649246c3767b2586e2
+image_id: sha256:57e2ec06eaf2201f8d97fa96b6951429c85670ccfa040bc51275dfd29a281296
+R6-EXT-W1: yes
+P2-R6-S6_ready: yes
+validator_gate: pass
+s6_capacity: pass
+w2: pass
+concurrency_matrix: pass
+container_gate_for_validated_code: pass
+history_s5_unchanged: yes
+new_blocker_count: 0
+phase_2_complete: no
+production_retest_required: yes
+deferred_scope: P2-R6-S7/S10 versioned-read, restored snapshot, v8 formal
+next: P2-R6-S7/S10 operational closure
+```
+
+Stage K 确认五份正向 fixture、v1 package/digest、production validator、S6/W2/concurrency
+与 Stage J image/container evidence 闭合；历史 S5 evidence 未变更。Stage J image 绑定
+`656a66bf` 的 production candidate，Stage K 仅新增文档和脱敏 descriptor，不把文档 SHA
+冒充 image candidate。`phase_2_complete=no` 保持不变，未完成的 S7/S10 gate 继续由
+P2-R6 Operational Closure 负责。

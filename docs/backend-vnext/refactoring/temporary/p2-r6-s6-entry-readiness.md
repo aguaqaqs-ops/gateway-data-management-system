@@ -1,12 +1,13 @@
 # P2-R6-S6 Entry Readiness — R6-EXT-W1
 
-状态：`stage_j_image_lifecycle_pass`
+状态：`stage_k_handoff_pass`
 
 本记录处理 `R6-EXT-W1` 的外部入口准备与 package validator gate。Stage H 已发布
 五份 v1 `canonicalization_manifest_digest`，并将 `P2-R6-S6_ready` 改为 `yes`。
 Stage I 已在同一五份 package 上完成 S6 capacity、synthetic W2 与 1/4/8
 concurrency matrix。Stage J 已按当前 HEAD 重建 image 并收集现有 Compose
 lifecycle 与 small_cut 容器 FULL_SCAN 证据。这仍不是完整 Phase 2 S7/S10 退出。
+Stage K 已完成独立只读 handoff，发布脱敏 descriptor，并确认本轮没有新增 blocker。
 
 权威审核：[P2-R6-EXT-W1 Stage H Validator Gate Review](p2-r6-ext-w1-stage-h-validator-gate-review.md)
 Stage I S6：[P2-R6-EXT-W1 Stage I S6 Capacity](p2-r6-ext-w1-stage-i-s6-capacity.md)
@@ -15,6 +16,8 @@ Stage I concurrency：[P2-R6-EXT-W1 Stage I Concurrency Matrix](p2-r6-ext-w1-sta
 Stage G 证据：[P2-R6-EXT-W1 Stage G Production Validator](p2-r6-ext-w1-stage-g-production-validator.md)
 Stage F 包：[P2-R6-EXT-W1 Stage F Five-fixture Packages](p2-r6-ext-w1-stage-f-five-fixture-packages.md)
 Stage J 镜像：[P2-R6-EXT-W1 Stage J Final Image and Lifecycle](p2-r6-ext-w1-stage-j-final-image-lifecycle.md)
+Stage K handoff：[P2-R6-EXT-W1 Stage K Final Handoff](p2-r6-ext-w1-stage-k-final-handoff.md)
+脱敏 descriptor：[P2-R6-EXT-W1 external descriptor](p2-r6-ext-w1-external-descriptor.yaml)
 
 ## Entry identity
 
@@ -132,23 +135,23 @@ unknown=0、lossy=0，无 stringify、无 SQL-type rewrite、无伪造 digest。
 schema_and_public_facts_preflight: superseded by Stage G FULL_SCAN+REJECT
 production_validator_result: pass
 read_only_access_proof: local dataset.yaml plus retained package.tar.zst under /root/test-data; raw SQL not in git
-external_descriptor_sha256: sha256:4098ccb7d2671874a2abbb66be284e2341f77463701f2f67ea0f6cd8cf175295
-external_descriptor_bytes: 2746
-external_descriptor_status: historical not_ready file not retained on this host; Stage K may republish sanitized summaries
+external_descriptor_sha256: sha256:416eb412d7e9ec389bb0dffae5511b016937ae1e29790cc3e26b549eb772205f
+external_descriptor_bytes: 2682
+external_descriptor_status: republished sanitized summary; no raw SQL, full schema values, rows, secrets, host paths or formal package
 raw_payload_in_git: false
 runtime_cleanup: pass; Stage G work root removed
 ```
 
-The previously published 2746-byte external descriptor remains `not_ready` and is
-not on this host. Stage H does not fabricate it. Stage K may republish sanitized
-summaries only. It must not contain raw SQL, full schema values, rows, secrets,
-host paths or a formal package.
+The previously published 2746-byte descriptor was not retained on this host. Stage K replaced
+that unavailable artifact with the recorded 2682-byte sanitized summary. The replacement contains
+only fixture aliases, package/digest summaries, bounded counts and gate results; it contains no raw
+SQL, full schema values, rows, secrets, host paths or formal package.
 
 ## Handoff
 
 ```yaml
 owner_anonymization_approval: owner-declared fully desensitized
-repository_files_committed: this readiness record plus Stage J evidence
+repository_files_recorded: this readiness record, Stage J evidence, Stage K handoff and sanitized descriptor
 container_rebuild_required: yes
 production_retest_required: yes
 phase_2_complete: no
@@ -158,8 +161,8 @@ s6_capacity: pass
 w2: pass
 concurrency_matrix: pass
 image_rebuilt: yes
-remaining_blockers:
-  - Stage K final handoff
+remaining_blockers: []
+deferred_scope:
   - P2-R6-S7/S10 versioned-read compose e2e, restored snapshot compose, v8 formal
 ```
 
@@ -173,3 +176,14 @@ restart/replay 与 small_cut 容器 FULL_SCAN 通过。历史 S5 Step E evidence
 `e7a6e42d`，不得表述为当前 HEAD。`phase_2_complete` 仍为 `no`：缺失的
 versioned-read compose e2e、restored snapshot 与 v8 formal 归 P2-R6-S7/S10。
 Stage K 只读审核本轮 fixture/package/validator/capacity/container evidence。
+
+```yaml
+stage_k_exit: pass
+stage_k_reviewed_documentation_head_sha: 352d9097ddf26fb3e68397430f45d2e479473e51
+container_validated_code_sha: 656a66bf04714cce987c85649246c3767b2586e2
+history_s5_unchanged: yes
+new_blocker_count: 0
+phase_2_complete: no
+production_retest_required: yes
+next: P2-R6-S7/S10 operational closure
+```

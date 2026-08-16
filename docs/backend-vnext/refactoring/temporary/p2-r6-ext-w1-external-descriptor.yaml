@@ -1,0 +1,78 @@
+schema: gateway.p2r6.ext-w1.external-descriptor
+schema_version: 1
+status: accepted
+dataset_family: p2-r6-ext-w1
+package_version: v1
+canonicalization_version: v1
+canonicalization_algorithm: gateway-vnext:canonicalization-manifest:v1
+
+# This descriptor is intentionally limited to public, non-row-level summaries.
+candidate:
+  validated_code_sha: 656a66bf04714cce987c85649246c3767b2586e2
+  image_revision: 656a66bf04714cce987c85649246c3767b2586e2
+  image_id: sha256:57e2ec06eaf2201f8d97fa96b6951429c85670ccfa040bc51275dfd29a281296
+
+fixtures:
+  - alias: small_cut
+    package_bytes: 83838
+    package_sha256: sha256:54fbe736d486216a44a0bcf9b81a0fc3c1d2afe5a900f3afc5ee2eb7e068de43
+    canonicalization_manifest_digest: sha256:459eb8e3abbaa58ae36aef4febe92131624f206eea9d5e0eef9d13abbd740d5a
+    tables: 132
+    enum_columns: 273
+    set_columns: 1
+  - alias: small
+    package_bytes: 613635
+    package_sha256: sha256:e440af6963d99315ef632fcf34f57741de0791ec9a8942ce284b2900efbf82c3
+    canonicalization_manifest_digest: sha256:5c01406aba92537be95b3ba904e6ff092661c7bce30352f3369bdf3cc6958b49
+    tables: 216
+    enum_columns: 404
+    set_columns: 1
+  - alias: medium
+    package_bytes: 2081228
+    package_sha256: sha256:3e705e3516e9e56a54749b8a22f364ab90ac446f13cb25f7a710feb2af9c055e
+    canonicalization_manifest_digest: sha256:73dd240b234b26ec006aa78a5e73f2ac9a5105eabe9e9f5dd19a82c858d6b26c
+    tables: 199
+    enum_columns: 327
+    set_columns: 1
+  - alias: data2
+    package_bytes: 3173874
+    package_sha256: sha256:72a266b25f2712d8f23f3010937693dc4a5a41dd93e2cb237928f711aa0fc813
+    canonicalization_manifest_digest: sha256:c1cad27c519695ba9701cdf4b5572714dfcab295355bd614f42a0d5fad53e340
+    tables: 319
+    enum_columns: 544
+    set_columns: 1
+  - alias: data1
+    package_bytes: 5724227
+    package_sha256: sha256:bd607ecbca4890d273188f93d1020fa32e2cc0cbd5f6f9ffdbfcffe49feb9bf2
+    canonicalization_manifest_digest: sha256:29a37b49168a04da8e802471f8eaf6221b64abbdef16eb64cc1ba9fa848dd435
+    tables: 260
+    enum_columns: 401
+    set_columns: 1
+
+verification:
+  validator_gate: pass
+  full_scan_reject: pass
+  enum_set_unknown_or_lossy: no
+  s6_capacity: pass
+  synthetic_w2: pass
+  concurrency_matrix_1_4_8: pass
+  compose_restart_replay: pass
+  container_full_scan: pass
+
+capacity:
+  max_upload_bytes: 268435456
+  max_replay_sql_bytes: 209715200
+  synthetic_w2_replay_sql_bytes: 201681690
+
+phase_2_complete: no
+deferred_scope:
+  - P2-R6-S7/S10 versioned-read Compose e2e
+  - restored snapshot Compose lifecycle
+  - Candidate A v8 formal 66-record gate
+
+redaction:
+  raw_sql: false
+  full_schema_values: false
+  row_payloads: false
+  host_paths: false
+  secrets: false

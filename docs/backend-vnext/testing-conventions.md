@@ -44,7 +44,8 @@ P2专用执行规则见
   --ignore=tests/test_compose_lifecycle_negative_probes.py
 ```
 
-当前延期inventory为
+当前延期inventory为（P2-R6-S7 已在 candidate `5f474ce2` 上收集并通过；S10 仍须在最终
+P2 candidate 上重跑，不得从 inventory 删除）：
 
 ```text
 tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay

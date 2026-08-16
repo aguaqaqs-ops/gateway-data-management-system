@@ -646,3 +646,34 @@ s1_ready: yes
 S0 documentation commit完成后成为S1的clean entry SHA；它不在自身内容中写入自引用SHA。
 完整commit SHA和`worktree_clean`由S0最终报告记录。外部W1/builder/launcher状态只阻塞S6/S10
 及最终exit，不阻塞S1 operational implementation。
+
+## 11. S7 handoff
+
+完整 evidence 见
+[P2-R6-S7 final handoff](../../temporary/p2-r6-s7-final-handoff.md)。
+
+```yaml
+stage: P2-R6-S7
+stage_status: pass
+entry_sha: 0b4969fe04ab3d133c297a474bac1ecc27111336
+validated_code_sha: 5f474ce2ccf15f11ea07f263edf3fb04c771d410
+container_validated_code_sha: 5f474ce2ccf15f11ea07f263edf3fb04c771d410
+service_image_id: sha256:ba0ac70a6c63d2f415ff75328a210332ec5948edae6e654a29d5132e85849fa3
+client_image_id: sha256:d4e07d7900d70df49df6f2628cc1cf542a6e02c8772e8cab35cedf82972ee461
+source_tree_sha256: sha256:b1e7576c8444967e4754774368ac34186724787494ff8fae6bb950b433c71ce2
+all_nodeids_current_candidate: yes
+independent_harness_review: pass
+independent_lifecycle_review: pass
+S7_exit: pass
+S8_ready: yes
+production_retest_required: yes
+phase_2_complete: no
+deferred_scope:
+  - S8 full regression/candidate preparation
+  - S9 exact candidate seal
+  - S10 final production/v8/container gate
+```
+
+S7 只关闭当前 candidate 上的四条 Compose/lifecycle nodeid。S10 仍须在最终 P2 candidate
+上重跑这些 nodeid，以及 W1/W2 与 v8 formal `--runs 5`。docs-only handoff 提交不改变
+`container_validated_code_sha`。

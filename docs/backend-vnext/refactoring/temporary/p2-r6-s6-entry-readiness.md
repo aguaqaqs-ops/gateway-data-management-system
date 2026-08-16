@@ -1,13 +1,16 @@
 # P2-R6-S6 Entry Readiness — R6-EXT-W1
 
-状态：`package_gate_ready`
+状态：`s6_capacity_w2_concurrency_pass`
 
 本记录处理 `R6-EXT-W1` 的外部入口准备与 package validator gate。Stage H 已发布
 五份 v1 `canonicalization_manifest_digest`，并将 `P2-R6-S6_ready` 改为 `yes`。
-这仍不是 S6 容量证据、W2、1/4/8 concurrency matrix、S7 Compose lifecycle 或
-S10 final gate。
+Stage I 已在同一五份 package 上完成 S6 capacity、synthetic W2 与 1/4/8
+concurrency matrix。这仍不是 S7 Compose lifecycle 或 S10 final gate。
 
 权威审核：[P2-R6-EXT-W1 Stage H Validator Gate Review](p2-r6-ext-w1-stage-h-validator-gate-review.md)
+Stage I S6：[P2-R6-EXT-W1 Stage I S6 Capacity](p2-r6-ext-w1-stage-i-s6-capacity.md)
+Stage I W2：[P2-R6-EXT-W1 Stage I W2](p2-r6-ext-w1-stage-i-w2.md)
+Stage I concurrency：[P2-R6-EXT-W1 Stage I Concurrency Matrix](p2-r6-ext-w1-stage-i-concurrency-matrix.md)
 Stage G 证据：[P2-R6-EXT-W1 Stage G Production Validator](p2-r6-ext-w1-stage-g-production-validator.md)
 Stage F 包：[P2-R6-EXT-W1 Stage F Five-fixture Packages](p2-r6-ext-w1-stage-f-five-fixture-packages.md)
 
@@ -32,6 +35,19 @@ selected_w1: medium
 selection_reason: default representative W1; package gate now passed on all five positive fixtures
 package_version: v1
 canonicalization_version: v1
+```
+
+Stage I 测量身份：
+
+```yaml
+stage_i_entry_head_sha: 108cb90d75884acfd6c6f9cd388edc9c20a33aaf
+s6_capacity: pass
+w2: pass
+concurrency_matrix: pass
+w2_replay_sql_bytes: 201681690
+w2_package_bytes: 8301271
+w2_package_sha256: sha256:6cac7852d1174c126c182e82010b0ff9d4043e51826b8043103360c8e49f6d10
+w2_canonicalization_manifest_digest: sha256:895732a5bbfcc406b9a5edab24ff742186fb5f268ce68ca5774a798b2bd2b32f
 ```
 
 The selected source descriptor facts remain independently recomputed:
@@ -117,17 +133,25 @@ host paths or a formal package.
 
 ```yaml
 owner_anonymization_approval: owner-declared fully desensitized
-repository_files_committed: this readiness record plus Stage H review
+repository_files_committed: this readiness record plus Stage I evidence
 container_rebuild_required: no
 production_retest_required: yes
 phase_2_complete: no
-R6-EXT-W1: no
+R6-EXT-W1: yes
 P2-R6-S6_ready: yes
-s6_capacity: not_run
+s6_capacity: pass
+w2: pass
+concurrency_matrix: pass
 remaining_blockers:
-  - S6 capacity, W2 and 1/4/8 concurrency matrix are not yet run
+  - Stage J final image rebuild, Compose lifecycle, S7 and S10
 ```
+
+Stage I HTTP 路径（uvicorn + `ServiceRuntime`）五份正向 package 全部 accepted。
+synthetic W2 replay 201681690 bytes（192.3 MiB）FULL_SCAN pass；不是业务代表性。
+concurrency 1/4/8 与第 9 路 `503 SERVICE_NOT_READY` pass。
 
 This record does not modify historical S5 Step E evidence. The S5 image evidence
 remains bound to `e7a6e42d`; no image rebuild was triggered. `P2-R6-S6_ready=yes`
-means the package validator gate passed, not that S6 capacity passed.
+means the package validator gate passed. `R6-EXT-W1=yes` means S6 capacity、W2
+and the concurrency matrix now have independent PASS evidence. Container gates
+remain Stage J.

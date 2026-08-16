@@ -1,6 +1,6 @@
 # P2-R6-EXT-W1 ENUM/SET Import Execution Plan
 
-状态：Stage H complete; next = Stage I
+状态：Stage I complete; next = Stage J
 
 日期：2026-08-16
 
@@ -16,7 +16,7 @@
 branch: phase1/gate-ownership-repair
 current_head_at_planning: 63b83779cbde2d88be132aee4f6d7700741cf54c
 s5_validated_candidate: e7a6e42d961a75c5a35a385bd67d9417779c22b5
-current_status: R6-EXT-W1=no; P2-R6-S6_ready=yes
+current_status: R6-EXT-W1=yes; P2-R6-S6_ready=yes
 published_package_compatibility: none
 package_version: v1
 canonicalization_version: v1
@@ -367,6 +367,32 @@ PASS。新会话须从本收口 commit 复核 SHA 与 worktree，不得假定上
 容量配置或实现 stage，不修改 Contract 以掩盖问题。
 
 推进提示词：`在 validator gate 通过的五份 package 上执行 S6 capacity、W2 和 concurrency matrix。`
+
+完成记录：
+
+- [P2-R6-EXT-W1 Stage I S6 Capacity](../../temporary/p2-r6-ext-w1-stage-i-s6-capacity.md)
+- [P2-R6-EXT-W1 Stage I W2](../../temporary/p2-r6-ext-w1-stage-i-w2.md)
+- [P2-R6-EXT-W1 Stage I Concurrency Matrix](../../temporary/p2-r6-ext-w1-stage-i-concurrency-matrix.md)
+
+```yaml
+stage_i_exit: pass
+stage_i_entry_head_sha: 108cb90d75884acfd6c6f9cd388edc9c20a33aaf
+stage_h_reviewed_commit_sha: 7f068a2454addaded6eecd450e05571d6c939e8c
+s5_validated_candidate: e7a6e42d961a75c5a35a385bd67d9417779c22b5
+s6_capacity: pass
+w2: pass
+concurrency_matrix: pass
+R6-EXT-W1: yes
+P2-R6-S6_ready: yes
+contract_changed: no
+image_rebuilt: no
+next: Stage J — Final image and lifecycle gates
+```
+
+五份正向 package HTTP FULL_SCAN 全部 accepted。synthetic W2 replay 201681690 bytes
+（192.3 MiB，180–199 MiB 带内、低于 200 MiB cap），v1 package HTTP FULL_SCAN pass。
+concurrency 1/4/8 与第 9 路 `503 SERVICE_NOT_READY` pass；8 路 import
+`peak_running=4`。未改 Contract，未重建 image。
 
 ## 11. Stage J — Final image and lifecycle gates
 

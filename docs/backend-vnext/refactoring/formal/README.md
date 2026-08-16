@@ -72,10 +72,9 @@
 conformance architecture、formal baseline lifecycle和exact-commit exit不再是
 authority。P2-R1 v8 formal 已通过，默认 provider 为Candidate A offline CLI，
 Candidate B保留但默认禁用；P2-R2至P2-R4已通过。P2-R5 functional exit complete，
-P2-R6-S0 design freeze complete、S1 implementation ready；R6-EXT-W1 Stage H
-独立 validator gate review `pass`，五份 v1 digest 已发布；下一步为 Stage I
-S6 capacity / W2；`R6-EXT-W1=no`，
-`P2-R6-S6_ready=yes`；`production_retest_required=yes`，
+P2-R6-S0 design freeze complete、S1 implementation ready；R6-EXT-W1 Stage I
+S6 capacity / W2 / concurrency matrix `pass`，`R6-EXT-W1=yes`，
+`P2-R6-S6_ready=yes`；下一步为 Stage J final image / lifecycle；`production_retest_required=yes`，
 `phase_2_complete=no`；
 P3 design尚未开始。完整handoff见
 [P2-R5 Commit-pinned Read Staged Execution Plan — P2-R5-S7 final handoff — 2026-08-12](plans/p2-r5-commit-pinned-read-execution-plan.md#p2-r5-s7-final-handoff--2026-08-12)。

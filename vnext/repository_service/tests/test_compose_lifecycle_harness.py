@@ -964,6 +964,68 @@ def test_assert_node_residuals_cleared_rejects_dolt_delta() -> None:
         harness.assert_node_residuals_cleared(names, dolt_baseline=frozenset())
 
 
+def test_empty_residual_inventory_prints_teardown_scan_and_counts(capsys: pytest.CaptureFixture[str]) -> None:
+    names = harness.allocate_compose_resources("inside", suffix="222222222222")
+    leftover = harness.DockerObjectInventory((), (), (), ())
+    assert (
+        harness.format_teardown_scan(project=names.project, container_dolt=(), query_temps=())
+        == f"teardown_scan project={names.project} container_dolt=0 query_temps=0"
+    )
+    assert harness.format_residual_inventory(
+        project=names.project,
+        leftover=leftover,
+        dolt_delta=0,
+        check_temp_homes=0,
+        client_pids=0,
+        host_threads=0,
+        work_root_dirs=0,
+    ) == (
+        f"residual_inventory project={names.project} "
+        "containers=0 networks=0 volumes=0 hold=0 dolt_delta=0 "
+        "check_temp_homes=0 client_pids=0 host_threads=0 work_root_dirs=0"
+    )
+    with (
+        patch.object(harness, "project_inventory", return_value=leftover),
+        patch.object(harness, "list_dolt_pids", return_value=frozenset()),
+        patch.object(harness, "snapshot_check_temp_homes", return_value=()),
+        patch.object(harness, "list_work_root_project_dirs", return_value=()),
+        patch.object(harness, "list_host_client_pids", return_value=frozenset()),
+        patch.object(harness, "list_host_thread_idents", return_value=frozenset()),
+    ):
+        harness.assert_node_residuals_cleared(
+            names,
+            work_root=Path("/tmp"),
+            dolt_baseline=frozenset(),
+            check_temp_baseline=frozenset(),
+            client_pid_baseline=frozenset(),
+            thread_baseline=frozenset(),
+        )
+    captured = capsys.readouterr()
+    assert (
+        f"residual_inventory project={names.project} "
+        "containers=0 networks=0 volumes=0 hold=0 dolt_delta=0 "
+        "check_temp_homes=0 client_pids=0 host_threads=0 work_root_dirs=0"
+    ) in captured.out
+
+
+def test_cleanup_compose_project_prints_teardown_scan(capsys: pytest.CaptureFixture[str]) -> None:
+    names = harness.allocate_compose_resources("import", suffix="333333333333")
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return _empty_project_docker(command, restore_exists=False)
+
+    with patch("support.compose_lifecycle_harness.subprocess.run", side_effect=fake_run):
+        harness.cleanup_compose_project(names, env={})
+    captured = capsys.readouterr()
+    assert (
+        f"teardown_scan project={names.project} container_dolt=0 query_temps=0"
+    ) in captured.out
+    assert (
+        f"residual_inventory project={names.project} "
+        "containers=0 networks=0 volumes=0 hold=0"
+    ) in captured.out
+
+
 def test_s7_compose_harness_owns_no_host_threads() -> None:
     assert harness.S7_OWNED_HOST_THREAD_PREFIXES == ()
     before = harness.list_host_thread_idents()

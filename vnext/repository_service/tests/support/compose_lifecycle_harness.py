@@ -1013,6 +1013,14 @@ def cleanup_compose_project(
         errors.append(
             AssertionError(f"project {names.project} still has query temps: {query_temps!r}")
         )
+    print(
+        format_teardown_scan(
+            project=names.project,
+            container_dolt=container_dolt,
+            query_temps=query_temps,
+        ),
+        flush=True,
+    )
     try:
         assert_node_residuals_cleared(
             names,
@@ -1741,6 +1749,45 @@ def list_host_thread_idents() -> frozenset[int]:
     return frozenset(idents)
 
 
+def format_teardown_scan(
+    *,
+    project: str,
+    container_dolt: Sequence[str],
+    query_temps: Sequence[str],
+) -> str:
+    return (
+        f"teardown_scan project={project} "
+        f"container_dolt={len(container_dolt)} query_temps={len(query_temps)}"
+    )
+
+
+def format_residual_inventory(
+    *,
+    project: str,
+    leftover: DockerObjectInventory,
+    dolt_delta: int | None,
+    check_temp_homes: int | None,
+    client_pids: int | None,
+    host_threads: int | None,
+    work_root_dirs: int | None,
+) -> str:
+    def _count(value: int | None) -> str:
+        return "unchecked" if value is None else str(value)
+
+    return (
+        f"residual_inventory project={project} "
+        f"containers={len(leftover.containers)} "
+        f"networks={len(leftover.networks)} "
+        f"volumes={len(leftover.volumes)} "
+        f"hold={len(leftover.hold_containers)} "
+        f"dolt_delta={_count(dolt_delta)} "
+        f"check_temp_homes={_count(check_temp_homes)} "
+        f"client_pids={_count(client_pids)} "
+        f"host_threads={_count(host_threads)} "
+        f"work_root_dirs={_count(work_root_dirs)}"
+    )
+
+
 def assert_node_residuals_cleared(
     names: ComposeResourceNames,
     *,
@@ -1757,26 +1804,48 @@ def assert_node_residuals_cleared(
             f"containers={leftover.containers!r} networks={leftover.networks!r} "
             f"volumes={leftover.volumes!r} hold={leftover.hold_containers!r}"
         )
+    dolt_delta: int | None = None
     if dolt_baseline is not None:
         extra_dolt = frozenset(list_dolt_pids()) - dolt_baseline
         if extra_dolt:
             raise AssertionError(f"dolt children remain: {sorted(extra_dolt)}")
+        dolt_delta = 0
+    check_temp_homes: int | None = None
     if check_temp_baseline is not None:
         extra_homes = {str(path) for path in snapshot_check_temp_homes()} - check_temp_baseline
         if extra_homes:
             raise AssertionError(f"snapshot check temp homes remain: {sorted(extra_homes)}")
+        check_temp_homes = 0
+    work_root_dirs: int | None = None
     if work_root is not None:
         project_dirs = list_work_root_project_dirs(work_root, project=names.project)
         if project_dirs:
             raise AssertionError(f"work-root project dirs remain: {project_dirs}")
+        work_root_dirs = 0
+    client_pids: int | None = None
     if client_pid_baseline is not None:
         extra_clients = list_host_client_pids() - client_pid_baseline
         if extra_clients:
             raise AssertionError(f"client processes remain: {sorted(extra_clients)}")
+        client_pids = 0
+    host_threads: int | None = None
     if thread_baseline is not None:
         extra_threads = list_host_thread_idents() - thread_baseline
         if extra_threads:
             raise AssertionError(f"host threads remain: {sorted(extra_threads)}")
+        host_threads = 0
+    print(
+        format_residual_inventory(
+            project=names.project,
+            leftover=leftover,
+            dolt_delta=dolt_delta,
+            check_temp_homes=check_temp_homes,
+            client_pids=client_pids,
+            host_threads=host_threads,
+            work_root_dirs=work_root_dirs,
+        ),
+        flush=True,
+    )
 
 
 @contextmanager

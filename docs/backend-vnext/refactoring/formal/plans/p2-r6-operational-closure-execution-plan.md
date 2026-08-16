@@ -432,12 +432,15 @@ next_stage_ready: P2-R6-S7
 
 ### P2-R6-S7 — Compose harness and lifecycle inventory
 
+详细设计：[P2-R6-S7 Compose Lifecycle Design](p2-r6-s7-compose-lifecycle-design.md)
+分步执行：[P2-R6-S7 Compose Lifecycle Execution Plan](p2-r6-s7-compose-lifecycle-execution-plan.md)
+
 ```yaml
 goal: add and run R4 replay, R5 inside/gate-host client, fresh/restart/restored Compose gates
 allowed_paths: Compose, container harness/tests, deploy and Service README
 explicit_non_goals: publish production host port or make Service depend on Client
 implementation_decisions: one-shot attached client container; gate-host bridge address; exact nodeids
-tests_and_markers: container/integration/serial as required; all three exact inventory nodeids collected
+tests_and_markers: container/integration/serial as required; all four exact inventory nodeids collected
 directed_gate: import restart/replay, pinned read inside network/from gate host, fresh/restart/restored
 container_trigger: yes
 failure_boundary: any skipped/missing nodeid or container/network/volume/process/thread/temp residual fails exit
@@ -546,7 +549,7 @@ next_stage_ready: Phase 3 full design only when phase_2_complete=yes
 | R4 restart/replay | `tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay` | existing deferred, not run S0 | S7/S10 |
 | R5 inside-network Remote Client | `tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_inside_network` | planned, absent S0 | S7/S10 |
 | R5 gate-host Remote Client | `tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_from_gate_host` | planned, absent S0 | S7/S10 |
-| fresh/restart/restored lifecycle | Compose lifecycle harness including S4 snapshot restore | planned | S7/S10 |
+| fresh/restart/restored lifecycle | `tests/test_versioned_read_compose_e2e.py::test_compose_repository_service_fresh_restart_restored_lifecycle` | planned | S7/S10 |
 | Candidate A 66-record v8 | section 8 canonical launcher command, `--v8-formal --runs 5` | external planned | S10 |
 | zero residual | explicit process/thread/temp/container/network/volume inventory in each directed report and final gate | mixed | S2–S10 |
 
@@ -567,6 +570,7 @@ container inventory必须逐项收集：
 tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
 tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_inside_network
 tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_from_gate_host
+tests/test_versioned_read_compose_e2e.py::test_compose_repository_service_fresh_restart_restored_lifecycle
 ```
 
 S10使用clean detached checkout、retained dependency cache和

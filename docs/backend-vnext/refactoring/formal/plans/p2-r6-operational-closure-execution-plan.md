@@ -680,3 +680,36 @@ deferred_scope:
 S7 只关闭当前 candidate 上的四条 Compose/lifecycle nodeid。S10 仍须在最终 P2 candidate
 上重跑这些 nodeid，以及 W1/W2 与 v8 formal `--runs 5`。docs-only handoff 提交不改变
 `container_validated_code_sha`。
+
+## 12. S8 handoff
+
+完整 evidence 见
+[P2-R6-S8 final handoff](../../temporary/p2-r6-s8-final-handoff.md)。
+
+```yaml
+stage: P2-R6-S8
+stage_status: pass
+entry_sha: 1bfa1d7f3eb6311d4895974bcec8238cf7cd6f09
+validated_code_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+container_validated_code_sha: deferred
+parked_dolt_unit: pass
+five_package_static: pass
+worker_convergence: pass
+source_regression_with_exact_docker_ignores: pass
+old_reference_classification: pass
+zero_owned_process_thread_dolt_query_temp_work_root_residual: yes
+independent_review: pass
+S8_exit: pass
+S9_ready: yes
+production_retest_required: yes
+phase_2_complete: no
+deferred_scope:
+  - S9 exact candidate seal and no-ignore source gate
+  - S10 final production image/provenance/container gate
+  - S10 W1/W2 repeat and Candidate A v8 formal --runs 5
+```
+
+S8 关闭源码全量回归、分类、worker 收敛、old-reference 分类和独立审核。当前 HEAD
+容器门禁仍为 deferred；祖先 Compose PASS 属于 `5f474ce2`。S9 必须从字面量
+`validated_code_sha` 起跑无 ignore `./vnext/scripts/run-tests.sh` 并封印精确候选。
+docs-only handoff 提交不改变 `validated_code_sha`。

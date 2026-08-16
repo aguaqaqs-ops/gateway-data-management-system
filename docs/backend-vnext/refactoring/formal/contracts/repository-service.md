@@ -373,15 +373,128 @@ manifest exact compare，并使用固定Arrow mapping：
 | `CHAR(n)` / `VARCHAR(n)` / `TINYTEXT` / `TEXT` / `MEDIUMTEXT` / `LONGTEXT` | `utf8` |
 | `BINARY(n)` / `VARBINARY(n)` / `TINYBLOB` / `BLOB` / `MEDIUMBLOB` / `LONGBLOB` | `binary` |
 | `JSON` | `utf8` + field metadata `gateway.logical_type=json` |
+| `ENUM(label_list)` | `utf8` + `gateway.logical_type=enum` + `gateway.sql_type=<normalized>`；禁止 `large_string`、dictionary 与 `gateway.lossy` |
+| `SET(label_list)` | `list<utf8>`（list 可空性来自 catalog/manifest；item 不可空）+ `gateway.logical_type=set` + `gateway.sql_type=<normalized>`；禁止逗号拼接 scalar、dictionary 与 `gateway.lossy` |
 
 Nullability来自catalog/manifest field，不由Arrow value推断。Integer display width、
-ZEROFILL、character collation/charset modifier不属于normalized grammar。ENUM/SET、
-YEAR、spatial、vector和其他未列type均为unknown：manifest可携带其bounded normalized
-spelling，但只有caller显式STRINGIFY才允许publication/row conversion；STRUCTURAL仍
-要求manifest与catalog spelling exact一致。spatial type带SRID时normalized spelling为
-`TYPE SRID n`（例如`POINT SRID 4326`），catalog从Dolt version comment形态归一化到该
-形式。P2-R1 probe固定实际Dolt catalog spelling与
-driver value shape；adapter不得依据单个row值推断type或改变上述mapping。
+ZEROFILL、character collation/charset modifier不属于normalized grammar。`ENUM`/`SET`
+族判定由 §10.1 唯一拥有：keyword 为 `ENUM`/`SET` 时要么得到唯一 normalized spelling，
+要么 `SQL_TYPE_MALFORMED`；族内拼写永不 unknown，STRINGIFY 也不得写成
+`large_string` + `gateway.lossy`。YEAR、spatial、vector和其他未列type均为unknown：
+manifest可携带其bounded normalized spelling，但只有caller显式STRINGIFY才允许
+publication/row conversion；STRUCTURAL仍要求manifest与catalog spelling exact一致。
+未知 type 的 bounded spelling 仍为 ASCII 字符集门；`ENUM`/`SET` 族不走该门。
+spatial type带SRID时normalized spelling为 `TYPE SRID n`（例如`POINT SRID 4326`），
+catalog从Dolt version comment形态归一化到该形式。P2-R1 probe固定实际Dolt catalog
+spelling与 driver value shape；adapter不得依据单个row值推断type或改变上述mapping。
+
+### 10.1 ENUM/SET v1
+
+规范化 `sql_type` 是 catalog/manifest exact-match 与 schema identity 的唯一 spelling。
+v1 不保留第二套 spelling、不保留 STRINGIFY 替代路径、不引入 package/canonicalization
+`v2` 或兼容字段。决策依据见
+[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)。
+
+族判定（在 catalog/manifest `sql_type` 上执行；先剥离列级 `CHARACTER SET` /
+`COLLATE`，再折叠 label 外空白）：
+
+```text
+若类型 keyword 为 ENUM 或 SET（大小写不敏感的整词）：
+  满足 grammar 与全部约束 → 唯一 normalized spelling，已知类型
+  否则 → SQL_TYPE_MALFORMED
+  永不 unknown，永不 STRINGIFY
+否则 → 沿用既有 known/unknown 规则
+```
+
+keyword 判定看剥离与折叠后的第一个整词。`ENUM(...)` / `SET(...)` 族内失败不得落入
+未知 type 的 ASCII charset 门，也不得变成 `large_string` + `gateway.lossy=true`。
+
+Grammar（整段匹配；label 外空白折叠后无空格逗号分隔）：
+
+```text
+enum_type   = "ENUM" "(" label_list ")"
+set_type    = "SET"  "(" label_list ")"
+label_list  = sql_string ("," sql_string)*
+sql_string  = "'" quoted_body "'"
+quoted_body = (escaped_quote | non_quote)*
+escaped_quote = "''"
+non_quote     = any Unicode scalar except U+0027
+```
+
+规范化：
+
+- keyword 大写为 `ENUM` / `SET`；括号外空白折叠，使 `enum ( 'a' , 'b' )` 成为
+  `ENUM('a','b')`。
+- 只接受单引号 SQL 字符串；只承认 `''` 转义。
+- 声明顺序是 schema identity：`ENUM('a','b') ≠ ENUM('b','a')`，
+  `SET('x','X') ≠ SET('X','x')`。
+- 声明重复成员按 unquote 后 UTF-8 字节全等判定；不按 DB collation。
+- ENUM 成员数 `1..=65535`；SET 成员数 `1..=64`。ENUM 非空 label 与全部 SET label 为
+  `1..=255` Unicode scalar。ENUM 允许声明空 label `''`；SET label 禁止为空。
+- SET label 禁止包含 `,`。
+- `CHARACTER SET` / `COLLATE` 列修饰符从 normalized grammar 剥离，与 CHAR/VARCHAR
+  相同。v1 import identity 不把 charset/collation 纳入 schema digest。label 文本中的
+  `collate` 仍是 label。比较与排序使用 UTF-8 字节全等 / unsigned lexicographic，不
+  使用 provider collation。
+- 非 ASCII UTF-8 label 合法。`ENUM`/`SET` 族不走未知 type 的 ASCII-only charset 门。
+- 规范化后 ENUM/SET `sql_type` 上限 64 KiB。其他 type 的既有长度门不变。若后续真实
+  fixture 超过 64 KiB，只提高该上限并重测 admission，不改变类型语义。
+- JSON `manifest.json` 既有 ASCII control 门仍适用于 `sql_type` 字符串；label 若含
+  ASCII control，package admission 按该门拒绝。五份正向 fixture 不含该形态。这不是
+  第二套类型语义。
+
+下列类型失败一律 `SQL_TYPE_MALFORMED`，不得降为 unknown：双引号、反引号、反斜杠
+转义、未闭合引号、尾随逗号、空成员表、声明重复成员、成员数或 label 长度越界、
+SET 空 label、含逗号的 SET label、整段 grammar 不匹配、括号后残留 token（例如
+`CHARSET` 相对已剥离的 `CHARACTER SET`）、超 64 KiB。
+
+值与转换（catalog/FULL_SCAN/read 共用同一 compiled mapping）：
+
+| 情况 | v1 行为 |
+| --- | --- |
+| SQL NULL | 独立状态；Arrow null |
+| ENUM 空字符串 | 仅当声明含 `''` 时合法；否则 `SQL_VALUE_ILLEGAL` |
+| SET 空集合 | 非 null 的空 `list<utf8>`，与 NULL 必须可区分 |
+| ENUM 值 | 必须是某一声明 label 的 UTF-8 全等字符串 |
+| SET 值 | 声明成员的无重复子集；输出按声明顺序，忽略输入顺序 |
+| SET 成员 | 每个成员非 null utf8，且必须是声明 label |
+
+非法值一律 fail closed，parser/converter/golden 稳定码 `SQL_VALUE_ILLEGAL`：未声明
+label、collation 等价但字节不同、整数 ordinal、dictionary index、SET 未知成员、
+SET 值内重复成员、无法证明的 driver 形态。畸形 type 的 parser/golden 稳定码为
+`SQL_TYPE_MALFORMED`。
+
+`SQL_TYPE_MALFORMED` 与 `SQL_VALUE_ILLEGAL` 只用于 parser、converter 与 golden；
+不是 public import/read wire code，不得加成第五个 import code。Wire 映射：
+
+- 编译或 admission 的畸形 ENUM/SET 类型 → `IMPORT_REJECTED`（即使 verification 为
+  `NONE`）
+- FULL_SCAN 非法值 → `VERIFICATION_FAILED_NOT_PUBLISHED`
+- read 在 response 开始后的转换失败：沿用 §13 body 终止规则，不在 Arrow bytes 后
+  拼接 JSON error
+- read 编译期畸形 ENUM/SET 不得使用 `UNKNOWN_SQL_TYPE`（该码只服务未知 type 的
+  `REJECT` 路径，再次打开 STRINGIFY）
+
+§11 稳定 import code 仍仅为 `IMPORT_REJECTED`、`EXPECTED_COMMIT_MISMATCH`、
+`VERIFICATION_FAILED_NOT_PUBLISHED`、`MANUAL_RECOVERY_REQUIRED`。
+
+Driver 形态闭合，禁止 `str(value)` 作为正式路径：
+
+- ENUM 只接受 Unicode `str`；`int` ordinal 拒绝。
+- SET 接受 `list[str]`，或 Dolt/MySQL 稳定逗号分隔文本。后者按 `,` 拆分后再按声明
+  顺序重排去重检查。空字符串文本表示空集合；文本 `"a,"` 产生空成员，属于非法值。
+- `list<utf8>` 由 converter 产出；不要求 Dolt 原生 nested Arrow。v1 不保留 SET 的
+  正式 scalar 物理退路。
+
+Arrow field metadata 权威且禁止第二套：
+
+```text
+gateway.logical_type = enum | set
+gateway.sql_type     = 完整 normalized spelling（含声明顺序的 label 列表）
+```
+
+禁止 `gateway.lossy`。不另存 labels JSON，避免与 `sql_type` 漂移。单 label 超过
+Arrow `utf8` 实现上限是资源失败，不改用 `large_string`。
 
 SUCCEEDED result还必须原样返回package绑定：
 
@@ -458,6 +571,9 @@ VERIFICATION_FAILED_NOT_PUBLISHED
 MANUAL_RECOVERY_REQUIRED
 ```
 
+该集合闭合。§10.1 的 `SQL_TYPE_MALFORMED` / `SQL_VALUE_ILLEGAL` 映射到上列既有
+code，不得新增 public import code。
+
 前三者在语义适当时允许caller abort或用新key开始新attempt；
 `MANUAL_RECOVERY_REQUIRED`不得释放业务occupancy。Repository不公开generic
 category/recovery/effect taxonomy。
@@ -514,13 +630,16 @@ Read route的稳定失败语义为：
 | caller提供的opaque CommitId不存在或provider不能定位 | `404` | `COMMIT_NOT_FOUND` |
 | exact、case-sensitive table不存在 | `404` | `TABLE_NOT_FOUND` |
 | `REJECT`下catalog含unknown SQL type | `422` | `UNKNOWN_SQL_TYPE` |
+| catalog 含畸形 ENUM/SET（§10.1 族判定失败） | `422` | `REQUEST_VALIDATION_FAILED` |
 | RepositoryId、ref、table name或policy不满足wire validation | `422` | `REQUEST_VALIDATION_FAILED` |
 | response开始前provider、timeout或Dolt output不可用/损坏 | `503` | `SERVICE_NOT_READY` |
 
 CommitId仍是repository-scoped bounded opaque token；`COMMIT_NOT_FOUND`不得反向引入
-Dolt hash、UUID或其他provider grammar。Response headers发送后发生provider、value
-conversion或transport失败时，server终止body且不得在Arrow bytes后拼接JSON error；
-caller通过HTTP/Arrow截断失败和已收到的`X-Request-ID`观察该结果。
+Dolt hash、UUID或其他provider grammar。`UNKNOWN_SQL_TYPE` 只适用于 §10 未知 type
+在 `REJECT` 下的 catalog；畸形 ENUM/SET 走 §10.1 族判定，编译期不得使用该码。
+Response headers发送后发生provider、value conversion或transport失败时，server终止
+body且不得在Arrow bytes后拼接JSON error；caller通过HTTP/Arrow截断失败和已收到的
+`X-Request-ID`观察该结果。
 
 ## 14. Concurrency and capacity
 
@@ -680,7 +799,9 @@ additive sibling加入：
 ## 19. Related authority
 
 - [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
+- [ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Phase 2 Implementation Design and Delivery Plan](../plans/phase-2-implementation-design-and-delivery-plan.md)
 - [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
+- [Shared Canonical Encoding](shared-canonical-encoding.md)
 - [DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)

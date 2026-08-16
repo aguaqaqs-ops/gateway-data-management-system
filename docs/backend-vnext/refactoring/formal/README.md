@@ -52,6 +52,7 @@
 - [ADR 0010: Minimal Golden and Ordinary CI](adr/0010-minimal-golden-and-ordinary-ci.md)
 - [ADR 0011: Artifact Directory-Broker Reclaim](adr/0011-artifact-directory-broker-reclaim.md)（被ADR 0012替代）
 - [ADR 0012: Cooperative Artifact Cleanup and Proportional Assurance](adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)
+- [ADR 0013: ENUM/SET v1 Import Semantics](adr/0013-enum-set-v1-import-semantics.md)
 
 ## 权威关系
 
@@ -72,7 +73,8 @@ conformance architecture、formal baseline lifecycle和exact-commit exit不再�
 authority。P2-R1 v8 formal 已通过，默认 provider 为Candidate A offline CLI，
 Candidate B保留但默认禁用；P2-R2至P2-R4已通过。P2-R5 functional exit complete，
 P2-R6-S0 design freeze complete、S1 implementation ready；R6-EXT-W1 Stage A entry
-reconciliation complete，下一步为 Stage B Contract freeze；`R6-EXT-W1=no`，
+reconciliation complete，Stage B 独立 Contract review 复审 `pass`，允许进入 Stage C；
+`R6-EXT-W1=no`，
 `P2-R6-S6_ready=no`；`production_retest_required=yes`，
 `phase_2_complete=no`；
 P3 design尚未开始。完整handoff见

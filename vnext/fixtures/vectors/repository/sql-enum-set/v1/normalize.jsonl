@@ -1,0 +1,2 @@
+{"case_id":"normalize.enum.ascii-labels","case_schema_version":1,"expected":{"normalized_sql_type":"ENUM('a','b')"},"input":{"column_type":"enum('a','b')","data_type":"ENUM"},"operation":"normalize-sql-type"}
+{"case_id":"normalize.set.declaration-order","case_schema_version":1,"expected":{"normalized_sql_type":"SET('x','X')"},"input":{"column_type":"set('x','X')","data_type":"SET"},"operation":"normalize-sql-type"}

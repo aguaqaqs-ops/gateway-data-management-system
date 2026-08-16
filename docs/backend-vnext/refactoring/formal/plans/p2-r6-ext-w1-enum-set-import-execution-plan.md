@@ -1,6 +1,6 @@
 # P2-R6-EXT-W1 ENUM/SET Import Execution Plan
 
-状态：Stage A complete; next = Stage B Contract design freeze
+状态：Stage B contract review pass; next = Stage C
 
 日期：2026-08-16
 
@@ -86,6 +86,24 @@ new_blocker: no
 退出条件：Contract review 明确通过，或列出必须修复的有限问题；未通过不得进入生产代码。
 
 推进提示词：`冻结 ENUM/SET v1 语义、Arrow 表示、digest 和异常规则，提交 Contract review。`
+
+完成记录：[P2-R6-EXT-W1 Stage B Contract Freeze](../../temporary/p2-r6-ext-w1-stage-b-contract-freeze.md)
+
+```yaml
+stage_b_status: review_pass
+stage_b_exit: pass
+freeze_head_sha: 2fe7b1fed1fd9c1702335071d4f28aa8be01e626
+freeze_committed: no
+production_code_changed: no
+prior_review_record: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-b-contract-review.md
+prior_review_status: fail
+rereview_record: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-b-contract-review-2.md
+rereview_status: pass
+next: Stage C — Parser/model implementation
+```
+
+独立审核只读；`stage_b_exit: pass` 只能由新开审核写入。首次审核为 `fail`，三项缺口
+已补入 owning contract，复审通过。允许进入 Stage C。
 
 ## 4. Stage C — Parser/model implementation
 

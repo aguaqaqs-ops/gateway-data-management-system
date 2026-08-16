@@ -1,0 +1,2 @@
+{"case_id":"values.enum.label-a","case_schema_version":1,"expected":{"payload_base64url":"YQ","scalar_frame_base64url":"IAFh"},"input":{"sql_type":"ENUM('a','b')","value":{"kind":"string","text":"a"}},"operation":"encode-enum-value"}
+{"case_id":"values.set.empty-not-null","case_schema_version":1,"expected":{"sequence_frame_base64url":"AA"},"input":{"sql_type":"SET('a','b')","value":{"kind":"set-members","members":[]}},"operation":"encode-set-value"}

@@ -32,6 +32,12 @@ Canonical Encoding v1。
   Artifacts拥有。
 - Python/Rust provider selection、Operation scheduling、Repository transport 或业务 table rules。
 - Projection、comparison、records、Parquet 或 cache schema。
+- Repository import 的 SQL `ENUM`/`SET` grammar、catalog exact match 或 FULL_SCAN
+  Arrow 物理类型；由 [Repository Service](repository-service.md) §10.1 拥有。
+  Import 将 SET 表示为 `list<utf8>` **不**改变本 capability 的 Arrow mapping v1：
+  本边界仍拒绝 `list`。ENUM/SET 若在后续阶段进入本 capability，必须另修订本文并映射
+  到 Shared Canonical Encoding 已冻结的 string / sequence bytes，不得发明第二套
+  value encoding。
 
 ## 2. Capability semantics
 
@@ -289,3 +295,4 @@ Module public：是。Persisted：Result metadata可进入 artifact manifest；r
 | 2026-07-22 | §4 decimal Arrow mapping：`decimal256` precision 上界由 `76` 修正为 **`65`** | Formal 内部一致性：与 Shared Canonical Encoding owner-declared decimal precision `1..=65` 及现有 `DeclaredType` 校验边界对齐；不改变 WP0–WP2 已验收 canonical scalar bytes |
 | 2026-07-22 | §4 semantic kind `null`：physical type 明确为 Arrow `DataType::Null`（闭合集） | WP3 R1 设计收敛：原“validity bitmap”表述与 `null` kind 混用且未闭合 physical type；non-`null` kind 的 nullable slot 仍由各 physical type 的 validity bitmap 表达（§3 `nullable` 规则） |
 | 2026-08-01 | 首发 Canonical Row Hash v1 重基线 | 当前没有外部 consumer 或 durable compatibility 义务；删除 pre-baseline fallback，canonical scalar/row/content bytes不变 |
+| 2026-08-16 | §1 明确 Repository import ENUM/SET `list<utf8>` 不改变本 capability Arrow mapping v1 | [ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)：import FULL_SCAN 与本边界分属不同 Arrow contract |

@@ -83,6 +83,31 @@ CanonicalizationManifest。Repository package中的`manifest.json`只携带结�
 opaque`canonicalization_manifest_digest`；它不是完整业务manifest，也不取得业务
 语义owner。
 
+`canonicalization_manifest_digest` 算法保持
+`RFC8785-JCS + gateway-vnext:canonicalization-manifest:v1\0 + SHA-256`。本轮是首次
+发布前的 v1 定稿，替换尚未发布的 one-off producer 内容，不增加 `v2` 或兼容字段。
+
+每表 schema digest 的 canonical payload 必须包含：normalized `sql_type`（因此包含
+ENUM label / SET member 的声明顺序）、`nullable`、primary-key order。表按 canonical
+name bytes 排序，列保持 DDL order，与 Repository package manifest 一致。charset /
+collation 列修饰符不属于 v1 schema identity。Arrow 物理类型不进入 schema digest。
+
+每表 content digest 的单元格 bytes 由 [Shared Canonical Encoding](shared-canonical-encoding.md)
+§3.2 唯一拥有：
+
+```text
+ENUM 单元格 = string 或 null 的 scalar_frame
+SET NULL 单元格 = null scalar_frame
+SET 非 null 单元格 = sequence_frame 本身，不再外包 scalar tag
+```
+
+空 SET 是长度为 0 的 `sequence_frame`，不得写成 null。表 content digest 的行/列拼接
+沿用 CanonicalizationManifest 既有 per-cell 规则；不使用 Shared Kernel `encode_row`，
+不改变 Canonical Row Hash Arrow mapping v1，不升 `canonical_encoding_version`。
+ordinal、dictionary index 与未规范化的 SET 输入顺序不得进入 content preimage。行/表
+排序沿用既有 Contract；producer 不得自行排序。Repository 任一 verification level
+都不重算这些业务 digest。
+
 ## 5. Artifact lifecycle
 
 `SnapshotTableArtifact` 是 Preview 产生的 immutable full-row table facts。仅在尚未被接受的 current Preview 或 active SubmitAttempt 需要时持久 pin。AcceptSubmit T1 将 pin responsibility 从 Preview 原子转给 Attempt；历史 Preview 引用本身不继续 pin。Attempt 进入 `FINALIZED/ABORTED` 后释放 pin，artifact 转为可重算 cache material。第一版不长期保存重复 full-row archive。
@@ -218,6 +243,7 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 - [Repository Service](repository-service.md)
 - [ADR 0004](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)
 - [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)
+- [ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)
 - [DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)

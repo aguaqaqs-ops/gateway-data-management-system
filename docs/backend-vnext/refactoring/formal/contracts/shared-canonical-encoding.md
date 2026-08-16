@@ -111,6 +111,28 @@ Float 解析后按声明宽度 round-to-nearest ties-to-even。若舍入/packing
 
 Typed encoder 入口必须校验底层宿主值的精确运行时类型（例如 boolean 必须是语言布尔，不得接受整数 `1`）；失败映射 `CANONICAL_TYPE_MISMATCH`。
 
+### 3.2 ENUM/SET content encoding（不新增 tag）
+
+SQL `ENUM`/`SET` 的 grammar、Arrow 物理类型与 fail-closed 转换由
+[Repository Service](repository-service.md) §10.1 拥有。本文只固定其 **content
+bytes**：不占用新 scalar tag，不发布 `canonical_encoding_version` v2。既有 128 个
+v1 case 的 bytes 与 success/error 分类不变。
+
+- ENUM 非 null 值使用 string tag `0x20`，payload 为声明 label 的精确 UTF-8 bytes
+  （不 trim、不 case-fold）。与 VARCHAR 同 tag；类型差在 schema digest，不在
+  value tag。
+- ENUM NULL 与 SET NULL 使用 null tag `0x00` 的 `scalar_frame`。
+- SET 非 null 的 **content 单元格就是 `sequence_frame` 本身**：每个 item 是该成员
+  的 string scalar frame；item 顺序为 **声明顺序**，不是输入顺序。空 SET 是
+  长度为 0 的 `sequence_frame`，不得编码为 null。**不再外包另一层 scalar tag**。
+- CanonicalizationManifest 表 content digest 的行/列拼接沿用既有 per-cell 规则；
+  单元格 bytes 按上列定义放入该槽位。不使用 Shared Kernel `encode_row`，不改变
+  Canonical Row Hash Arrow mapping v1，不升 `canonical_encoding_version`。
+- 禁止 ordinal、dictionary index、未规范化的 SET 输入顺序或逗号拼接文本作为
+  content preimage。
+- owner 在调用 Shared Kernel 之前完成 label 合法性与声明顺序 canonicalization；
+  Shared Kernel 不解释 ENUM/SET SQL grammar。
+
 ## 4. CanonicalIdentifier
 
 Parser 先负责 identifier unquote。Shared Kernel 只把 ASCII `A-Z` 映射到 `a-z`；不 trim，不 Unicode case-fold/normalize。空值、非法 Unicode 和 canonical collision 失败。Row field 按 canonical identifier UTF-8 bytes 的 unsigned lexicographic order 排序；不得与 JCS UTF-16 property ordering 混用。
@@ -212,6 +234,10 @@ vnext/fixtures/vectors/shared-kernel/canonical-encoding/v1/
 canonical bytes/digest，invalid case固定stable error code。Python与Rust使用各自
 薄loader直接消费同一corpus并比较完整bytes；只比较最终digest不算通过。
 
+ENUM/SET 的 SQL grammar 与 Arrow 转换 golden 不进入本 corpus；见
+[Correctness Golden and Fixture](fixture-oracle-and-conformance.md) §2.1。
+本层只通过既有 string / sequence 规则为那些 case 提供 content bytes。
+
 Test-only scalar representation不得成为production FFI contract。Canonical Row Hash capability如何把Arrow physical value映射到本文logical scalar，由其owning compute-boundary contract版本化；Arrow metadata不得反向改写本文语义。
 
 普通CI不生成或bless golden。v1已有case的bytes、digest或success/error
@@ -240,7 +266,9 @@ Module public：是。Persisted：作为 version/digest marker 被持久化。Wi
 - [Correctness Golden and Fixture](fixture-oracle-and-conformance.md)
 - [Canonical Row Hash Compute Boundary](canonical-row-hash-compute-boundary.md)
 - [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
+- [Repository Service](repository-service.md)
 - [ADR 0005](../adr/0005-shared-canonical-encoding.md)
 - [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)
+- [ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)

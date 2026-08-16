@@ -63,6 +63,39 @@ CI必须断言Python/Rust实际case ID集合与expected corpus一致、无duplic
 skip。现有case的success/error classification或expected bytes改变时必须发布
 canonical encoding v2；由v1规则唯一推导的新增case可以加入v1。
 
+## 2.1 Repository ENUM/SET corpus
+
+SQL `ENUM`/`SET` 的跨实现 golden 位于：
+
+```text
+vnext/fixtures/vectors/repository/sql-enum-set/v1/
+  normalize.jsonl
+  values.jsonl
+  invalid.jsonl
+```
+
+Owner：Repository Service（SQL grammar、Arrow 与 fail-closed 转换）。content bytes
+形状遵循 Shared Canonical Encoding v1 既有 string / sequence 规则，不新增 tag。
+本 corpus 不是 Shared Kernel 的第三 consumer，也不进入 Canonical Row Hash
+mixed-scalar golden。
+
+每个 case 必须有稳定 `case_id`、`case_schema_version: 1`、`operation`、`input` 以及
+`expected` 或 `expected_error.code`。Python 与后续 producer 使用薄只读 loader 消费
+同一 corpus 并比较完整结果；只比较最终 digest 不算通过。普通 CI 不 bless。由既有
+v1 规则唯一推导的新增 case 可加入该 v1 目录。
+
+`operation` 闭合集：
+
+```text
+normalize-sql-type
+encode-enum-value
+encode-set-value
+reject-malformed-type    # expected_error.code = SQL_TYPE_MALFORMED
+reject-illegal-value     # expected_error.code = SQL_VALUE_ILLEGAL
+```
+
+Loader 实现与完整 case 填充属于后续实现 stage。
+
 ## 3. Business golden
 
 Phase 1保留一条canonical row-hash mixed-scalar golden，最小材料为：
@@ -108,8 +141,10 @@ fault legality registry或test-only service。
 Python reference只用于小规模golden、property test和诊断。Rust是正式批量production
 provider。二者共享semantic contract和golden，不共享implementation source。
 
-Repository Service不计算canonical bytes、不消费canonical corpus。它只消费受信
-Backend生成的Repository import package，并按自己的contract做结构检查。
+Repository Service不计算 Shared Kernel canonical bytes、不消费 canonical-encoding
+corpus。它只消费受信 Backend 生成的 Repository import package，并按自己的 contract
+做结构检查。ENUM/SET 语义 golden 使用 §2.1 的独立 corpus，不把 Repository 变成
+Shared Kernel 第三 consumer。
 
 ## 6. Ordinary CI
 
@@ -150,7 +185,7 @@ Breaking changes：
 
 ## 8. Acceptance
 
-- Python/Rust对保留corpus逐case一致，Repository没有vector依赖。
+- Python/Rust对保留 Shared Kernel corpus 逐case一致；Repository 不消费该 corpus。
 - mixed-scalar业务golden在reference/native路径结果一致。
 - repository中不存在current-authority scenario runner、profile matrix、
   RunEvidence或fixture self-digest。
@@ -160,6 +195,8 @@ Breaking changes：
 ## 9. Related authority
 
 - [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)
+- [ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)
 - [Shared Canonical Encoding](shared-canonical-encoding.md)
 - [Canonical Row Hash Compute Boundary](canonical-row-hash-compute-boundary.md)
+- [Repository Service](repository-service.md)
 - [Implementation Stages](../plans/implementation-stages.md)

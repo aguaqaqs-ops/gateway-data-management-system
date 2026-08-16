@@ -18,6 +18,7 @@ from support.compose_lifecycle_harness import (
     CLIENT_UV_LOCK_LABEL,
     FIXTURE_ROOT,
     ComposeResourceNames,
+    StartedP2R2Service,
     allocate_compose_resources,
     assert_named_volume_empty,
     assert_not_host_port_endpoint,
@@ -58,6 +59,16 @@ def _require_docker() -> None:
         pytest.fail("docker is required for compose e2e gate")
 
 
+def _print_consumer_summary(label: str, summary: dict[str, object]) -> None:
+    print(
+        f"{label}="
+        f"status={summary.get('status')} repository_id={summary.get('repository_id')} "
+        f"c0={summary.get('c0')} c1={summary.get('c1')} c2={summary.get('c2')} "
+        f"main={summary.get('main_commit')}",
+        flush=True,
+    )
+
+
 def _print_evidence(
     *,
     project: str,
@@ -70,12 +81,19 @@ def _print_evidence(
     print(f"service_image_id={image_id(service_image)}", flush=True)
     print(f"client_identity={client_identity}", flush=True)
     print(f"service_endpoint={endpoint}", flush=True)
-    print(
-        "consumer_summary="
-        f"status={summary.get('status')} repository_id={summary.get('repository_id')} "
-        f"c0={summary.get('c0')} c1={summary.get('c1')} c2={summary.get('c2')} "
-        f"main={summary.get('main_commit')}",
-        flush=True,
+    _print_consumer_summary("consumer_summary", summary)
+
+
+def _stop_started_service(
+    started: StartedP2R2Service,
+    *,
+    host_paths: tuple[str, ...],
+) -> None:
+    run_command(
+        compose_stop_command(project=started.names.project),
+        env=started.env,
+        secrets=(_TOKEN,),
+        host_paths=host_paths,
     )
 
 
@@ -207,6 +225,9 @@ def test_compose_repository_service_fresh_restart_restored_lifecycle(tmp_path: P
     _require_docker()
     source = allocate_compose_resources("lifecycle")
     restored = allocate_compose_resources("restored")
+    archive_volume = source.restore_volume
+    assert source.data_volume != restored.data_volume
+    assert archive_volume != restored.data_volume
     token_file = write_token_file(tmp_path / source.token_filename, _TOKEN)
     restore_token_file = write_token_file(tmp_path / restored.token_filename, _TOKEN)
     host_paths = (
@@ -263,12 +284,7 @@ def test_compose_repository_service_fresh_restart_restored_lifecycle(tmp_path: P
         )
         assert restarted == fresh
 
-        run_command(
-            compose_stop_command(project=source.project),
-            env=started.env,
-            secrets=(_TOKEN,),
-            host_paths=host_paths,
-        )
+        _stop_started_service(started, host_paths=host_paths)
         hold_name = hold_container_name(source.project)
         remove_hold_container(source.project)
         run_command(
@@ -280,18 +296,22 @@ def test_compose_repository_service_fresh_restart_restored_lifecycle(tmp_path: P
             secrets=(_TOKEN,),
             host_paths=host_paths,
         )
-        wait_hold_container_ready(hold_name, secrets=(_TOKEN,), host_paths=host_paths)
-        create_scoped_volume(restored.data_volume, allowed=restored.allowed_names)
+        hold_ready = wait_hold_container_ready(
+            hold_name,
+            secrets=(_TOKEN,),
+            host_paths=host_paths,
+        )
+        create_scoped_volume(archive_volume, allowed=source.allowed_names)
         assert_named_volume_empty(
             image=service_image,
-            volume=restored.data_volume,
-            allowed=restored.allowed_names,
+            volume=archive_volume,
+            allowed=source.allowed_names,
         )
         copy_named_volume(
             image=service_image,
             source_volume=source.data_volume,
-            dest_volume=restored.data_volume,
-            allowed=source.allowed_names | restored.allowed_names,
+            dest_volume=archive_volume,
+            allowed=source.allowed_names,
         )
         stop_hold_container(
             hold_name,
@@ -300,11 +320,6 @@ def test_compose_repository_service_fresh_restart_restored_lifecycle(tmp_path: P
             host_paths=host_paths,
         )
         remove_hold_container(source.project)
-        check_named_volume(
-            image=service_image,
-            volume=restored.data_volume,
-            allowed=restored.allowed_names,
-        )
 
         started = start_p2r2_service(
             source,
@@ -321,6 +336,25 @@ def test_compose_repository_service_fresh_restart_restored_lifecycle(tmp_path: P
             idempotency_key="s7-post-snapshot-mutation",
         )
         assert mutation_id != fresh["repository_id"]
+        _stop_started_service(started, host_paths=host_paths)
+
+        create_scoped_volume(restored.data_volume, allowed=restored.allowed_names)
+        assert_named_volume_empty(
+            image=service_image,
+            volume=restored.data_volume,
+            allowed=restored.allowed_names,
+        )
+        copy_named_volume(
+            image=service_image,
+            source_volume=archive_volume,
+            dest_volume=restored.data_volume,
+            allowed=source.allowed_names | restored.allowed_names,
+        )
+        check_payload = check_named_volume(
+            image=service_image,
+            volume=restored.data_volume,
+            allowed=restored.allowed_names,
+        )
 
         restored_started = start_p2r2_service(
             restored,
@@ -353,3 +387,21 @@ def test_compose_repository_service_fresh_restart_restored_lifecycle(tmp_path: P
             endpoint=restore_discovery.gate_host_endpoint,
             summary=restored_facts,
         )
+        _print_consumer_summary("fresh_summary", fresh)
+        _print_consumer_summary("restart_summary", restarted)
+        print(
+            "hold_ready="
+            f"action={hold_ready.get('action')} status={hold_ready.get('status')} "
+            f"schema_version={hold_ready.get('schema_version')}",
+            flush=True,
+        )
+        print(
+            "check_passed="
+            f"action={check_payload.get('action')} status={check_payload.get('status')} "
+            f"repository_count={check_payload.get('repository_count')} "
+            f"artifact_count={check_payload.get('artifact_count')}",
+            flush=True,
+        )
+        print(f"mutation_id={mutation_id}", flush=True)
+        print("archive_volume_role=source.restore_volume", flush=True)
+        print("restore_volume_role=restored.data_volume", flush=True)

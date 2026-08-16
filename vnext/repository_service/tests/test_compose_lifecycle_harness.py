@@ -558,6 +558,43 @@ def test_wait_healthy_times_out_when_readiness_missing() -> None:
         harness.wait_healthy("abc", timeout=5.0, poll_interval=0.0)
 
 
+def test_wait_hold_container_ready_requires_running_and_ready_json() -> None:
+    ready = '{"action":"hold","status":"ready","schema_version":1}\n'
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if command[:2] == ["docker", "logs"]:
+            return subprocess.CompletedProcess(command, 0, stdout=ready, stderr="")
+        if command[:2] == ["docker", "inspect"]:
+            return subprocess.CompletedProcess(command, 0, stdout="true\n", stderr="")
+        raise AssertionError(f"unexpected command: {command}")
+
+    with patch("support.compose_lifecycle_harness.subprocess.run", side_effect=fake_run):
+        payload = harness.wait_hold_container_ready(
+            "gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa-hold",
+            timeout=1.0,
+            poll_interval=0.0,
+        )
+    assert payload["action"] == "hold"
+    assert payload["status"] == "ready"
+
+
+@pytest.mark.serial
+def test_wait_hold_container_ready_times_out_without_ready_json() -> None:
+    completed = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout="not-json\n",
+        stderr="",
+    )
+    with (
+        patch("support.compose_lifecycle_harness.subprocess.run", return_value=completed),
+        patch("support.compose_lifecycle_harness.time.sleep"),
+        patch("support.compose_lifecycle_harness.time.monotonic", side_effect=[0.0, 0.0, 10.0]),
+        pytest.raises(TimeoutError, match="did not become ready"),
+    ):
+        harness.wait_hold_container_ready("proj-hold", timeout=5.0, poll_interval=0.0)
+
+
 def test_client_dockerfile_is_test_only_and_pins_lock() -> None:
     dockerfile = harness.CLIENT_DOCKERFILE.read_text(encoding="utf-8")
     assert f"ARG UV_LOCK_SHA256={harness.current_client_uv_lock_sha256()}" in dockerfile
@@ -625,8 +662,15 @@ def test_parse_hold_ready_and_check_json() -> None:
         '{"action":"hold","status":"ready","schema_version":1}\n'
     )
     assert ready["status"] == "ready"
+    mixed = harness.parse_hold_ready_json(
+        "time=\"2026-08-16T00:00:00Z\" level=warning msg=detaching\n"
+        '{"action":"hold","status":"ready","schema_version":1}\n'
+    )
+    assert mixed["action"] == "hold"
     with pytest.raises(ValueError, match="complete ready"):
         harness.parse_hold_ready_json('{"action":"hold","status":"busy"}')
+    with pytest.raises(ValueError, match="not valid JSON"):
+        harness.parse_hold_ready_json("not-json\nstill-not-json\n")
     passed = harness.parse_check_passed_json(
         '{"action":"check","status":"passed","repository_count":1}'
     )
@@ -659,10 +703,95 @@ def test_hold_container_name_is_project_scoped() -> None:
         harness.stop_hold_container("foreign-hold", project=project)
 
 
+def test_stop_hold_container_requires_exit_zero() -> None:
+    project = "gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa"
+    name = f"{project}-hold"
+    calls: list[list[str]] = []
+
+    def fake_run_command(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if command[:2] == ["docker", "inspect"]:
+            return subprocess.CompletedProcess(command, 0, stdout="1\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    with (
+        patch.object(harness, "run_command", side_effect=fake_run_command),
+        pytest.raises(RuntimeError, match="exited 1"),
+    ):
+        harness.stop_hold_container(name, project=project)
+    assert any("--signal" in command and "SIGTERM" in command for command in calls)
+
+
+def test_stop_hold_container_accepts_controlled_exit_zero() -> None:
+    project = "gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa"
+    name = f"{project}-hold"
+
+    def fake_run_command(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if command[:2] == ["docker", "inspect"]:
+            return subprocess.CompletedProcess(command, 0, stdout="0\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    with patch.object(harness, "run_command", side_effect=fake_run_command):
+        harness.stop_hold_container(name, project=project)
+
+
 def test_create_scoped_volume_refuses_foreign_names() -> None:
     names = harness.allocate_compose_resources("restored", suffix="aaaaaaaaaaaa")
     with pytest.raises(RuntimeError, match="outside the generated"):
         harness.create_scoped_volume("unrelated", allowed=names.allowed_names)
+
+
+def test_copy_named_volume_copies_then_chowns_scoped_volumes() -> None:
+    source = harness.allocate_compose_resources("lifecycle", suffix="aaaaaaaaaaaa")
+    restored = harness.allocate_compose_resources("restored", suffix="bbbbbbbbbbbb")
+    calls: list[list[str]] = []
+
+    def fake_run_command(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    with patch.object(harness, "run_command", side_effect=fake_run_command):
+        harness.copy_named_volume(
+            image="gateway-repository-service:local",
+            source_volume=source.restore_volume,
+            dest_volume=restored.data_volume,
+            allowed=source.allowed_names | restored.allowed_names,
+        )
+    assert calls == [
+        harness.copy_volume_command(
+            image="gateway-repository-service:local",
+            source_volume=source.restore_volume,
+            dest_volume=restored.data_volume,
+        ),
+        harness.chown_volume_command(
+            image="gateway-repository-service:local",
+            volume=restored.data_volume,
+        ),
+    ]
+    with pytest.raises(RuntimeError, match="outside the generated"):
+        harness.copy_named_volume(
+            image="gateway-repository-service:local",
+            source_volume=source.restore_volume,
+            dest_volume="foreign-volume",
+            allowed=source.allowed_names,
+        )
+
+
+def test_lifecycle_archive_volume_is_source_restore_not_restored_data() -> None:
+    source = harness.allocate_compose_resources("lifecycle", suffix="aaaaaaaaaaaa")
+    restored = harness.allocate_compose_resources("restored", suffix="bbbbbbbbbbbb")
+    assert source.data_volume != restored.data_volume
+    assert source.restore_volume != restored.data_volume
+    assert source.restore_volume == f"{source.project}_restore"
+    assert restored.data_volume == f"{restored.project}_repository-service-data"
+    assert source.restore_volume in source.allowed_names
+    assert restored.data_volume in restored.allowed_names
 
 
 def test_host_runner_env_does_not_keep_venv_overrides() -> None:
@@ -700,6 +829,28 @@ def test_host_runner_env_drops_docker_control_variables() -> None:
         assert key not in env
     assert "DOCKER_HOST" not in env
     assert env["PATH"] == "/usr/bin"
+    assert env["GATEWAY_REPOSITORY_BASE_URL"] == "http://172.18.0.6:8000"
+
+
+def test_host_runner_env_drops_proxy_variables() -> None:
+    leaked = {
+        "HTTP_PROXY": "http://127.0.0.1:50808",
+        "HTTPS_PROXY": "http://127.0.0.1:50808",
+        "http_proxy": "http://127.0.0.1:50808",
+        "https_proxy": "http://127.0.0.1:50808",
+        "NO_PROXY": "172.19.*",
+        "no_proxy": "172.19.*",
+        "PATH": "/usr/bin",
+    }
+    with patch.dict(os.environ, leaked, clear=False):
+        env = harness.host_runner_env(
+            base_url="http://172.18.0.6:8000",
+            bearer_token=_TOKEN,
+        )
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        assert key not in env
+    assert env["NO_PROXY"] == "172.19.*"
+    assert env["no_proxy"] == "172.19.*"
     assert env["GATEWAY_REPOSITORY_BASE_URL"] == "http://172.18.0.6:8000"
 
 

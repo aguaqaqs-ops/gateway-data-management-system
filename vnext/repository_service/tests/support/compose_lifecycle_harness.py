@@ -96,11 +96,7 @@ _HOST_RUNNER_ENV_ALLOWLIST = frozenset(
         "XDG_CACHE_HOME",
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
         "NO_PROXY",
-        "http_proxy",
-        "https_proxy",
         "no_proxy",
     }
 )
@@ -1106,14 +1102,27 @@ def parse_hold_ready_json(raw: str) -> dict[str, Any]:
     lines = [line.strip() for line in raw.splitlines() if line.strip()]
     if not lines:
         raise ValueError("hold produced no JSON")
-    try:
-        payload: object = json.loads(lines[0])
-    except json.JSONDecodeError as exc:
-        raise ValueError("hold stdout is not valid JSON") from exc
-    mapping = _require_mapping(payload, field="hold")
-    if mapping.get("action") != "hold" or mapping.get("status") != "ready":
-        raise ValueError("hold JSON is not a complete ready summary")
-    return mapping
+    seen_json = False
+    last_error: ValueError | None = None
+    for line in lines:
+        try:
+            payload: object = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        seen_json = True
+        try:
+            mapping = _require_mapping(payload, field="hold")
+        except ValueError as exc:
+            last_error = exc
+            continue
+        if mapping.get("action") == "hold" and mapping.get("status") == "ready":
+            return mapping
+        last_error = ValueError("hold JSON is not a complete ready summary")
+    if not seen_json:
+        raise ValueError("hold stdout is not valid JSON")
+    if last_error is not None:
+        raise last_error
+    raise ValueError("hold JSON is not a complete ready summary")
 
 
 def volume_create_command(volume: str) -> list[str]:

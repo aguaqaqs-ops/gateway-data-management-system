@@ -1,6 +1,6 @@
 # P2-R6-EXT-W1 ENUM/SET Import Execution Plan
 
-状态：Stage F complete; next = Stage G
+状态：Stage G complete; next = Stage H
 
 日期：2026-08-16
 
@@ -283,6 +283,28 @@ validator，未宣称 S6 PASS。新会话须从本收口 worktree/commit 复核 
 通过结论。
 
 推进提示词：`运行五份正式 package 的 production validator，生成待审核的 validator evidence。`
+
+完成记录：[P2-R6-EXT-W1 Stage G Production Validator](../../temporary/p2-r6-ext-w1-stage-g-production-validator.md)
+
+```yaml
+stage_g_exit: pass
+stage_g_entry_head_sha: b11922135b30c70af668218fd558d0c77138a3c2
+stage_f_commit_sha: b11922135b30c70af668218fd558d0c77138a3c2
+five_packages_validated: yes
+full_scan_reject: pass
+enum_set_unknown_or_lossy: no
+negative_probes: pass
+production_validator_result: pending_review
+gate_published: no
+image_rebuilt: no
+temp_resources_cleared: yes
+next: Stage H — Validator gate review
+```
+
+五份 package 均通过 production extract 与 FULL_SCAN+REJECT。ENUM/SET 无 unknown /
+lossy。失败探针证明截断/digest/metadata 拒绝且无 main/private-ref 效果。未发布
+gate 通过结论，未宣称 S6 PASS。新会话须从本收口 worktree/commit 复核 SHA，不得
+假定上次会话状态。
 
 ## 9. Stage H — Validator gate review
 

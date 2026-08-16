@@ -1,6 +1,6 @@
 # P2-R6-EXT-W1 ENUM/SET Import Execution Plan
 
-状态：Stage G complete; next = Stage H
+状态：Stage H complete; next = Stage I
 
 日期：2026-08-16
 
@@ -16,7 +16,7 @@
 branch: phase1/gate-ownership-repair
 current_head_at_planning: 63b83779cbde2d88be132aee4f6d7700741cf54c
 s5_validated_candidate: e7a6e42d961a75c5a35a385bd67d9417779c22b5
-current_status: R6-EXT-W1=no; P2-R6-S6_ready=no
+current_status: R6-EXT-W1=no; P2-R6-S6_ready=yes
 published_package_compatibility: none
 package_version: v1
 canonicalization_version: v1
@@ -325,6 +325,31 @@ gate 通过结论，未宣称 S6 PASS。新会话须从本收口 worktree/commit
 或 G，修复后重新执行受影响阶段。
 
 推进提示词：`只读审核五份 validator evidence，确认 package gate 通过并发布 v1 digest。`
+
+完成记录：[P2-R6-EXT-W1 Stage H Validator Gate Review](../../temporary/p2-r6-ext-w1-stage-h-validator-gate-review.md)
+
+```yaml
+stage_h_exit: pass
+reviewed_commit_sha: 7f068a2454addaded6eecd450e05571d6c939e8c
+stage_g_commit_sha: 7f068a2454addaded6eecd450e05571d6c939e8c
+five_packages_validated: yes
+full_scan_reject: pass
+enum_set_unknown_or_lossy: no
+negative_probes: pass
+gate_published: yes
+production_validator_result: pass
+P2-R6-S6_ready: yes
+R6-EXT-W1: no
+s6_capacity: not_run
+blocker_count: 0
+production_code_changed_by_review: no
+image_rebuilt: no
+next: Stage I — S6 capacity and W2 handoff
+```
+
+独立审核只读；`stage_h_exit: pass` 只能由新开审核写入。无 blocker finding。五份
+v1 digest 已发布到本轮 evidence，`P2-R6-S6_ready=yes`。仍不代表 S6 capacity
+PASS。新会话须从本收口 commit 复核 SHA 与 worktree，不得假定上次会话状态。
 
 ## 10. Stage I — S6 capacity and W2 handoff
 

@@ -1,6 +1,6 @@
 # P2-R6-EXT-W1 ENUM/SET Import Execution Plan
 
-状态：Stage E complete; next = Stage F
+状态：Stage F complete; next = Stage G
 
 日期：2026-08-16
 
@@ -247,6 +247,24 @@ Stage F。新会话须从本收口 commit 复核 SHA 与 worktree，不得假定
 退出条件：五份 package 均生成，摘要和 digest 可复现，临时资源清零。
 
 推进提示词：`用正式 producer 为五份 fixture 生成 v1 package 和可复现 digest。`
+
+完成记录：[P2-R6-EXT-W1 Stage F Five-fixture Packages](../../temporary/p2-r6-ext-w1-stage-f-five-fixture-packages.md)
+
+```yaml
+stage_f_exit: pass
+stage_f_entry_head_sha: 02502f9aaf69d1c7573b9e0b4212b8b3a18e286d
+stage_e_reviewed_commit_sha: 8425c41b85bfee3ade8c5b4320ada003e19beabb
+five_packages_generated: yes
+small_cut_reproduced: yes
+production_validator_result: not_run
+image_rebuilt: no
+temp_resources_cleared: yes
+next: Stage G — Production validator execution
+```
+
+五份 v1 package 已生成，digest 可复现，临时 Dolt HOME 已清零。未运行 production
+validator，未宣称 S6 PASS。新会话须从本收口 worktree/commit 复核 SHA，不得假定
+上次会话状态。
 
 ## 8. Stage G — Production validator execution
 

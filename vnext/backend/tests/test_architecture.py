@@ -85,3 +85,12 @@ def test_r2_production_modules_have_no_deferred_stub() -> None:
     for source in source_root.rglob("*.py"):
         text = source.read_text()
         assert "NotImplementedError" not in text, source
+
+
+def test_canonicalization_cells_do_not_call_encode_row() -> None:
+    source = Path(__file__).parents[1] / "src" / "gateway_backend" / "canonicalization_cells.py"
+    text = source.read_text()
+    assert text.count("encode_row") == text.count("encode_row_cells")
+    assert "from gateway_shared_kernel import" in text
+    assert "encode_typed_scalar" in text
+    assert "encode_collection" in text

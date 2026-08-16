@@ -51,6 +51,8 @@ from support.snapshot_admin_harness import (
 )
 from support.upload_harness import create_repository, upload_headers, upload_sha256
 
+pytestmark = pytest.mark.serial
+
 CONTROL_DB_FAULTS = (
     "missing",
     "garbage",

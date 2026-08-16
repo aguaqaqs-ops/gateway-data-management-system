@@ -1,11 +1,12 @@
 # P2-R6-S6 Entry Readiness — R6-EXT-W1
 
-状态：`s6_capacity_w2_concurrency_pass`
+状态：`stage_j_image_lifecycle_pass`
 
 本记录处理 `R6-EXT-W1` 的外部入口准备与 package validator gate。Stage H 已发布
 五份 v1 `canonicalization_manifest_digest`，并将 `P2-R6-S6_ready` 改为 `yes`。
 Stage I 已在同一五份 package 上完成 S6 capacity、synthetic W2 与 1/4/8
-concurrency matrix。这仍不是 S7 Compose lifecycle 或 S10 final gate。
+concurrency matrix。Stage J 已按当前 HEAD 重建 image 并收集现有 Compose
+lifecycle 与 small_cut 容器 FULL_SCAN 证据。这仍不是完整 Phase 2 S7/S10 退出。
 
 权威审核：[P2-R6-EXT-W1 Stage H Validator Gate Review](p2-r6-ext-w1-stage-h-validator-gate-review.md)
 Stage I S6：[P2-R6-EXT-W1 Stage I S6 Capacity](p2-r6-ext-w1-stage-i-s6-capacity.md)
@@ -13,6 +14,7 @@ Stage I W2：[P2-R6-EXT-W1 Stage I W2](p2-r6-ext-w1-stage-i-w2.md)
 Stage I concurrency：[P2-R6-EXT-W1 Stage I Concurrency Matrix](p2-r6-ext-w1-stage-i-concurrency-matrix.md)
 Stage G 证据：[P2-R6-EXT-W1 Stage G Production Validator](p2-r6-ext-w1-stage-g-production-validator.md)
 Stage F 包：[P2-R6-EXT-W1 Stage F Five-fixture Packages](p2-r6-ext-w1-stage-f-five-fixture-packages.md)
+Stage J 镜像：[P2-R6-EXT-W1 Stage J Final Image and Lifecycle](p2-r6-ext-w1-stage-j-final-image-lifecycle.md)
 
 ## Entry identity
 
@@ -48,6 +50,19 @@ w2_replay_sql_bytes: 201681690
 w2_package_bytes: 8301271
 w2_package_sha256: sha256:6cac7852d1174c126c182e82010b0ff9d4043e51826b8043103360c8e49f6d10
 w2_canonicalization_manifest_digest: sha256:895732a5bbfcc406b9a5edab24ff742186fb5f268ce68ca5774a798b2bd2b32f
+```
+
+Stage J 镜像身份：
+
+```yaml
+stage_j_entry_head_sha: 656a66bf04714cce987c85649246c3767b2586e2
+container_validated_code_sha: 656a66bf04714cce987c85649246c3767b2586e2
+image: gateway-repository-service:656a66bf0471
+image_id: sha256:57e2ec06eaf2201f8d97fa96b6951429c85670ccfa040bc51275dfd29a281296
+source_tree_sha256: sha256:f6dc57cb635482b5c5287746ba5da956db7d56fcd9bc461ff942e04d514a785e
+image_matches_build_context: true
+compose_restart_replay: pass
+small_cut_container_full_scan: pass
 ```
 
 The selected source descriptor facts remain independently recomputed:
@@ -133,8 +148,8 @@ host paths or a formal package.
 
 ```yaml
 owner_anonymization_approval: owner-declared fully desensitized
-repository_files_committed: this readiness record plus Stage I evidence
-container_rebuild_required: no
+repository_files_committed: this readiness record plus Stage J evidence
+container_rebuild_required: yes
 production_retest_required: yes
 phase_2_complete: no
 R6-EXT-W1: yes
@@ -142,16 +157,19 @@ P2-R6-S6_ready: yes
 s6_capacity: pass
 w2: pass
 concurrency_matrix: pass
+image_rebuilt: yes
 remaining_blockers:
-  - Stage J final image rebuild, Compose lifecycle, S7 and S10
+  - Stage K final handoff
+  - P2-R6-S7/S10 versioned-read compose e2e, restored snapshot compose, v8 formal
 ```
 
 Stage I HTTP 路径（uvicorn + `ServiceRuntime`）五份正向 package 全部 accepted。
 synthetic W2 replay 201681690 bytes（192.3 MiB）FULL_SCAN pass；不是业务代表性。
 concurrency 1/4/8 与第 9 路 `503 SERVICE_NOT_READY` pass。
 
-This record does not modify historical S5 Step E evidence. The S5 image evidence
-remains bound to `e7a6e42d`; no image rebuild was triggered. `P2-R6-S6_ready=yes`
-means the package validator gate passed. `R6-EXT-W1=yes` means S6 capacity、W2
-and the concurrency matrix now have independent PASS evidence. Container gates
-remain Stage J.
+Stage J 按 `656a66bf` 重建 production image
+`sha256:57e2ec06eaf2201f8d97fa96b6951429c85670ccfa040bc51275dfd29a281296`，Compose
+restart/replay 与 small_cut 容器 FULL_SCAN 通过。历史 S5 Step E evidence 仍绑定
+`e7a6e42d`，不得表述为当前 HEAD。`phase_2_complete` 仍为 `no`：缺失的
+versioned-read compose e2e、restored snapshot 与 v8 formal 归 P2-R6-S7/S10。
+Stage K 只读审核本轮 fixture/package/validator/capacity/container evidence。

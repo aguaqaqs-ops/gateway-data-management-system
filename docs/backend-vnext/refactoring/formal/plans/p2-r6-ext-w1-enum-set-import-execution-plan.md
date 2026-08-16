@@ -1,6 +1,6 @@
 # P2-R6-EXT-W1 ENUM/SET Import Execution Plan
 
-状态：Stage I complete; next = Stage J
+状态：Stage J complete; next = Stage K
 
 日期：2026-08-16
 
@@ -409,6 +409,33 @@ concurrency 1/4/8 与第 9 路 `503 SERVICE_NOT_READY` pass；8 路 import
 退出条件：当前 HEAD 的 image/container evidence 完整，不能引用旧 image 作为最终证明。
 
 推进提示词：`重建当前 HEAD image，执行全量质量检查、Compose lifecycle、S7 和 S10 final gates。`
+
+完成记录：[P2-R6-EXT-W1 Stage J Final Image and Lifecycle](../../temporary/p2-r6-ext-w1-stage-j-final-image-lifecycle.md)
+
+```yaml
+stage_j_exit: pass
+stage_j_entry_head_sha: 656a66bf04714cce987c85649246c3767b2586e2
+stage_i_close_sha: 656a66bf04714cce987c85649246c3767b2586e2
+s5_validated_candidate: e7a6e42d961a75c5a35a385bd67d9417779c22b5
+image_rebuilt: yes
+image_id: sha256:57e2ec06eaf2201f8d97fa96b6951429c85670ccfa040bc51275dfd29a281296
+image_matches_build_context: true
+five_package_ruff_mypy: pass
+source_run_tests: pass
+compose_restart_replay: pass
+small_cut_container_full_scan: pass
+enum_set_unknown_or_lossy: no
+phase_2_complete: no
+production_code_changed: no
+next: Stage K — Final handoff
+```
+
+当前 HEAD image 已重建并拉回本机。五包 ruff/mypy 与
+`run-tests.sh --ignore=tests/test_import_compose_e2e.py` 通过。Compose restart/replay
+与 small_cut 容器 FULL_SCAN+REJECT 通过，ENUM/SET unknown/lossy=0。未宣称
+Phase 2 完成；缺失的 versioned-read compose e2e、restored snapshot 与 v8 formal
+仍归 P2-R6-S7/S10。新会话须从本收口 commit 复核 SHA 与 worktree，不得假定
+上次会话状态。
 
 ## 12. Stage K — Final handoff
 

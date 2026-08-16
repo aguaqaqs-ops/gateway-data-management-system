@@ -25,7 +25,15 @@ class SqlTypeMalformedError(ValueError):
 
     code: str = SQL_TYPE_MALFORMED_CODE
 
-    def __init__(self, message: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        table: str | None = None,
+        column: str | None = None,
+    ) -> None:
+        self.table = table
+        self.column = column
         super().__init__(message)
 
 

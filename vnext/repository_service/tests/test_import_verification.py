@@ -871,6 +871,109 @@ def test_structural_malformed_type_reports_table_and_column() -> None:
     assert exc_info.value.detail == "unmappable SQL type in catalog: records.bad_time"
 
 
+def test_compile_malformed_enum_set_is_import_rejected_even_under_stringify() -> None:
+    from gateway_repository_service.versioned_import.verification import _compile_table_plans
+
+    table = TableCatalog(
+        "records",
+        (
+            ColumnCatalog("id", "INT", False, 1),
+            ColumnCatalog("flag", "ENUM('a','b',)", True, None),
+        ),
+        0,
+    )
+
+    with pytest.raises(ImportVerificationError) as exc_info:
+        _compile_table_plans((table,), UnknownTypePolicy.STRINGIFY)
+    assert exc_info.value.code == IMPORT_REJECTED_CODE
+    assert exc_info.value.detail == "malformed ENUM/SET SQL type in catalog: records.flag"
+
+
+def test_none_reject_malformed_enum_set_is_import_rejected() -> None:
+    table = TableCatalog(
+        "records",
+        (
+            ColumnCatalog("id", "INT", False, 1),
+            ColumnCatalog("tags", "SET('a','')", True, None),
+        ),
+        0,
+    )
+    valid_manifest_table = TableCatalog(
+        "records",
+        (
+            ColumnCatalog("id", "INT", False, 1),
+            ColumnCatalog("tags", "SET('a','b')", True, None),
+        ),
+        0,
+    )
+
+    class TypeCatalogProvider:
+        def read_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
+            return (table,)
+
+        def read_type_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
+            return (table,)
+
+        def stream_table(self, *_args: object, **_kwargs: object) -> list[object]:
+            return []
+
+    with pytest.raises(ImportVerificationError) as exc_info:
+        verify_import_candidate(
+            cast(VersionedImportProvider, TypeCatalogProvider()),
+            candidate="candidate",
+            manifest=manifest_from_tables((valid_manifest_table,)),
+            verification_policy=VerificationPolicy.NONE,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        )
+    assert exc_info.value.code == IMPORT_REJECTED_CODE
+    assert exc_info.value.detail == "malformed ENUM/SET SQL type in catalog: records.tags"
+
+
+def test_full_scan_enum_set_batch_contract_matches_compiled_plan() -> None:
+    table = TableCatalog(
+        "records",
+        (
+            ColumnCatalog("flag", "ENUM('a','b')", True, None),
+            ColumnCatalog("tags", "SET('a','b')", True, None),
+        ),
+        2,
+    )
+    plan = compile_table_plan(table, UnknownTypePolicy.REJECT)
+    batch = plan.record_batch(
+        [
+            plan.normalize_row(("a", [])),
+            plan.normalize_row((None, ["b", "a"])),
+        ]
+    )
+
+    class ScanProvider:
+        def read_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
+            return (table,)
+
+        def read_type_catalog(self, candidate: str, **kwargs: object) -> tuple[TableCatalog, ...]:
+            return (table,)
+
+        def stream_table(self, *_args: object, **_kwargs: object) -> Iterator[pa.RecordBatch]:
+            yield batch
+
+    result = verify_import_candidate(
+        cast(VersionedImportProvider, ScanProvider()),
+        candidate="candidate",
+        manifest=manifest_from_tables((table,)),
+        verification_policy=VerificationPolicy.FULL_SCAN,
+        unknown_type_policy=UnknownTypePolicy.REJECT,
+    )
+    assert result.completed_verification_policy == VerificationPolicy.FULL_SCAN
+    flag_field = batch.schema.field("flag")
+    tags_field = batch.schema.field("tags")
+    assert flag_field.metadata[b"gateway.logical_type"] == b"enum"
+    assert b"gateway.lossy" not in (flag_field.metadata or {})
+    assert tags_field.type == pa.list_(pa.field("item", pa.string(), nullable=False))
+    assert tags_field.metadata[b"gateway.logical_type"] == b"set"
+    assert batch.column("flag").to_pylist() == ["a", None]
+    assert batch.column("tags").to_pylist() == [[], ["a", "b"]]
+
+
 SENTINEL_RAW_VALUE = "SECRET_RAW_SENTINEL_42"
 
 

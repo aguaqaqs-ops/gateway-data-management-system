@@ -1,6 +1,6 @@
 # P2-R6-EXT-W1 ENUM/SET Import Execution Plan
 
-状态：Stage C complete; next = Stage D
+状态：Stage E complete; next = Stage F
 
 日期：2026-08-16
 
@@ -170,6 +170,28 @@ uv run pytest -m unit
 
 推进提示词：`完成 Arrow、provider、verification 和跨语言 golden vectors，运行 repository_service unit。`
 
+完成记录：[P2-R6-EXT-W1 Stage D Arrow/Provider/Verification](../../temporary/p2-r6-ext-w1-stage-d-arrow-provider-verification.md)
+
+```yaml
+stage_d_exit: pass
+stage_d_entry_head_sha: 8425c41b85bfee3ade8c5b4320ada003e19beabb
+stage_c_commit: 8425c41b85bfee3ade8c5b4320ada003e19beabb
+focused_unit: not_separately_gated
+repository_service_unit: 1408 passed, 1 skipped
+shared_kernel_values_golden: 10 passed
+rust_values_golden: pass
+canonical_128_case_corpus: unchanged
+ruff_mypy: pass
+image_rebuilt: no
+production_code_changed: yes
+golden_corpus_filled: yes
+verification_wire_updated: yes
+next: Stage E — Implementation review
+```
+
+verification/read wire 已把 `SQL_TYPE_MALFORMED` 映到既有 public code。golden 25 case
+稳定；Shared Kernel 只消费 `values.jsonl` encode bytes。五份 package 属于 Stage F。
+
 ## 6. Stage E — Implementation review
 
 会话：必须新开独立审核会话；只读检查，不直接修改代码。
@@ -187,6 +209,25 @@ uv run pytest -m unit
 退出条件：无 blocker finding；否则回到 Stage C/D 修复后重新审核。
 
 推进提示词：`只读审核 ENUM/SET 实现、digest、测试 owner 和 v1 架构边界。`
+
+完成记录：[P2-R6-EXT-W1 Stage E Implementation Review](../../temporary/p2-r6-ext-w1-stage-e-implementation-review.md)
+
+```yaml
+stage_e_exit: pass
+reviewed_commit_sha: 8425c41b85bfee3ade8c5b4320ada003e19beabb
+stage_c_commit: 8425c41b85bfee3ade8c5b4320ada003e19beabb
+stage_d_committed: yes
+reviewed_worktree: Stage D included in closing commit
+s5_is_ancestor: yes
+blocker_count: 0
+allow_stage_f: yes
+production_code_changed_by_review: no
+image_rebuilt: no
+next: Stage F — Five-fixture package generation
+```
+
+独立审核只读；`stage_e_exit: pass` 只能由新开审核写入。无 blocker finding。允许进入
+Stage F。新会话须从本收口 commit 复核 SHA 与 worktree，不得假定上次会话状态。
 
 ## 7. Stage F — Five-fixture package generation
 

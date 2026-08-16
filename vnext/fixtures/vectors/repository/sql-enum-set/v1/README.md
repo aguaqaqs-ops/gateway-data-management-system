@@ -34,7 +34,8 @@ expected | expected_error
 `case_id` 使用稳定 kebab 分段，例如 `normalize.enum.ascii-labels`。
 valid case 固定完整结果；invalid case 固定 `expected_error.code`。
 bytes 字段使用无 padding base64url。只比较最终 digest 不算通过。
-普通 CI 不 bless。本目录当前只含格式样例；完整 case 由 Stage D 填充。
+普通 CI 不 bless。本目录含 Stage D 填入的完整 v1 case：Repository 消费全部
+operation；Shared Kernel Python/Rust 只消费 `values.jsonl` 的 encode 操作。
 
 ## Operations
 

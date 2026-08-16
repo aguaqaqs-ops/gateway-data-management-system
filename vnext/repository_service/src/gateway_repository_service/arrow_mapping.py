@@ -978,6 +978,12 @@ def compile_table_plan(
     for column in catalog.columns:
         try:
             data_type, metadata = arrow_type(column.sql_type, policy)
+        except SqlTypeMalformedError:
+            raise SqlTypeMalformedError(
+                f"malformed ENUM/SET SQL type in catalog: {catalog.name}.{column.name}",
+                table=catalog.name,
+                column=column.name,
+            ) from None
         except UnknownSqlTypeError:
             raise UnknownSqlTypeError(
                 f"unmappable SQL type in catalog: {catalog.name}.{column.name}",

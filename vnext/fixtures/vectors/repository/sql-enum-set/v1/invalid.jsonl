@@ -1,2 +1,7 @@
 {"case_id":"invalid.type.trailing-comma","case_schema_version":1,"expected_error":{"code":"SQL_TYPE_MALFORMED"},"input":{"column_type":"enum('a','b',)","data_type":"ENUM"},"operation":"reject-malformed-type"}
+{"case_id":"invalid.type.double-quote","case_schema_version":1,"expected_error":{"code":"SQL_TYPE_MALFORMED"},"input":{"column_type":"ENUM(\"a\")","data_type":"ENUM"},"operation":"reject-malformed-type"}
+{"case_id":"invalid.type.set-empty-label","case_schema_version":1,"expected_error":{"code":"SQL_TYPE_MALFORMED"},"input":{"column_type":"SET('')","data_type":"SET"},"operation":"reject-malformed-type"}
+{"case_id":"invalid.type.set-comma-label","case_schema_version":1,"expected_error":{"code":"SQL_TYPE_MALFORMED"},"input":{"column_type":"SET('a,b')","data_type":"SET"},"operation":"reject-malformed-type"}
 {"case_id":"invalid.value.enum-ordinal","case_schema_version":1,"expected_error":{"code":"SQL_VALUE_ILLEGAL"},"input":{"sql_type":"ENUM('a','b')","value":{"kind":"integer","value":1}},"operation":"reject-illegal-value"}
+{"case_id":"invalid.value.enum-undeclared","case_schema_version":1,"expected_error":{"code":"SQL_VALUE_ILLEGAL"},"input":{"sql_type":"ENUM('a','b')","value":{"kind":"string","text":"c"}},"operation":"reject-illegal-value"}
+{"case_id":"invalid.value.set-duplicate","case_schema_version":1,"expected_error":{"code":"SQL_VALUE_ILLEGAL"},"input":{"sql_type":"SET('a','b')","value":{"kind":"set-members","members":["a","a"]}},"operation":"reject-illegal-value"}

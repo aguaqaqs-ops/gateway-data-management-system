@@ -18,6 +18,7 @@ from gateway_repository_contracts import (
     MAX_COMMIT_ID_PATH_SEGMENT_LENGTH,
     REF_NOT_FOUND_CODE,
     REPOSITORY_NOT_FOUND_CODE,
+    REQUEST_VALIDATION_FAILED_CODE,
     TABLE_NOT_FOUND_CODE,
     UNKNOWN_SQL_TYPE_CODE,
     VERSIONED_READ_ARROW_MEDIA_TYPE,
@@ -26,6 +27,7 @@ from gateway_repository_contracts import (
 )
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
+    SqlTypeMalformedError,
     TableCatalog,
     UnknownSqlTypeError,
     compile_table_plan,
@@ -334,6 +336,15 @@ def test_rows_empty_table_returns_schema_and_eos(env: ImportHttpTestEnvironment)
         (CommitNotFoundError("missing"), 404, COMMIT_NOT_FOUND_CODE),
         (TableNotFoundError("missing"), 404, TABLE_NOT_FOUND_CODE),
         (UnknownSqlTypeError("unknown", table="items", column="payload"), 422, UNKNOWN_SQL_TYPE_CODE),
+        (
+            SqlTypeMalformedError(
+                "malformed ENUM/SET SQL type in catalog: items.flag",
+                table="items",
+                column="flag",
+            ),
+            422,
+            REQUEST_VALIDATION_FAILED_CODE,
+        ),
         (ProviderUnavailableError("down"), 503, "SERVICE_NOT_READY"),
     ],
 )

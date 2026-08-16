@@ -17,6 +17,7 @@ from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
     CompiledTablePlan,
     NormalizedRow,
+    SqlTypeMalformedError,
     SqlValueConversionError,
     TableCatalog,
     UnknownSqlTypeError,
@@ -264,6 +265,50 @@ def test_unknown_type_reject_fails_at_compile() -> None:
     catalog = _table("records", (ColumnCatalog("value", "YEAR", True, None),))
     with pytest.raises(UnknownSqlTypeError):
         compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+
+
+def test_malformed_enum_set_compile_attaches_table_and_column() -> None:
+    catalog = _table("records", (ColumnCatalog("flag", "ENUM('a','b',)", True, None),))
+    with pytest.raises(SqlTypeMalformedError) as reject:
+        compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+    assert reject.value.table == "records"
+    assert reject.value.column == "flag"
+    with pytest.raises(SqlTypeMalformedError) as stringify:
+        compile_table_plan(catalog, UnknownTypePolicy.STRINGIFY)
+    assert stringify.value.table == "records"
+    assert stringify.value.column == "flag"
+
+
+def test_enum_set_record_batch_null_empty_and_metadata() -> None:
+    catalog = _table(
+        "records",
+        (
+            ColumnCatalog("flag", "ENUM('a','b')", True, None),
+            ColumnCatalog("tags", "SET('x','X')", True, None),
+        ),
+    )
+    reject_plan = compile_table_plan(catalog, UnknownTypePolicy.REJECT)
+    stringify_plan = compile_table_plan(catalog, UnknownTypePolicy.STRINGIFY)
+    assert reject_plan.expected_schema.equals(stringify_plan.expected_schema)
+    batch = record_batch(
+        catalog,
+        [(None, None), ("a", []), ("b", ["X", "x"])],
+        UnknownTypePolicy.STRINGIFY,
+    )
+    flag_field = batch.schema.field("flag")
+    tags_field = batch.schema.field("tags")
+    assert flag_field.type == pa.string()
+    assert not pa.types.is_large_string(flag_field.type)
+    assert not pa.types.is_dictionary(flag_field.type)
+    assert flag_field.metadata[b"gateway.logical_type"] == b"enum"
+    assert flag_field.metadata[b"gateway.sql_type"] == b"ENUM('a','b')"
+    assert b"gateway.lossy" not in (flag_field.metadata or {})
+    assert tags_field.type == pa.list_(pa.field("item", pa.string(), nullable=False))
+    assert tags_field.metadata[b"gateway.logical_type"] == b"set"
+    assert tags_field.metadata[b"gateway.sql_type"] == b"SET('x','X')"
+    assert b"gateway.lossy" not in (tags_field.metadata or {})
+    assert batch.column("flag").to_pylist() == [None, "a", "b"]
+    assert batch.column("tags").to_pylist() == [None, [], ["x", "X"]]
 
 
 def test_unknown_stringify_metadata_and_null_preservation() -> None:

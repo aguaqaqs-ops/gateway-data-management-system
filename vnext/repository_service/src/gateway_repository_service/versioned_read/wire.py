@@ -23,7 +23,11 @@ from gateway_repository_contracts import (
     VersionedColumn,
     VersionedTable,
 )
-from gateway_repository_service.arrow_mapping import TableCatalog, UnknownSqlTypeError
+from gateway_repository_service.arrow_mapping import (
+    SqlTypeMalformedError,
+    TableCatalog,
+    UnknownSqlTypeError,
+)
 from gateway_repository_service.http.errors import (
     INTERNAL_ERROR_CODE,
     INTERNAL_ERROR_MESSAGE,
@@ -118,6 +122,12 @@ def map_read_error(exc: BaseException) -> ServiceError:
             code=TABLE_NOT_FOUND_CODE,
             message=_TABLE_NOT_FOUND_MESSAGE,
             status_code=404,
+        )
+    if isinstance(exc, SqlTypeMalformedError):
+        return ServiceError(
+            code=REQUEST_VALIDATION_FAILED_CODE,
+            message=_REQUEST_VALIDATION_MESSAGE,
+            status_code=422,
         )
     if isinstance(exc, UnknownSqlTypeError):
         return ServiceError(

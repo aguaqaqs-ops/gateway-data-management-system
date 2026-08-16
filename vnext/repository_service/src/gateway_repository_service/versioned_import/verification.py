@@ -14,6 +14,7 @@ from gateway_repository_contracts import UnknownTypePolicy, VerificationPolicy
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
     CompiledTablePlan,
+    SqlTypeMalformedError,
     SqlValueConversionError,
     TableCatalog,
     UnknownSqlTypeError,
@@ -213,7 +214,16 @@ def _manifest_table_as_catalog(table: ImportManifestTable) -> TableCatalog:
 def _reject_unknown_catalog_types(catalog: tuple[TableCatalog, ...]) -> None:
     for table in catalog:
         for column in table.columns:
-            if not is_known_sql_type(column.sql_type):
+            try:
+                known = is_known_sql_type(column.sql_type)
+            except SqlTypeMalformedError:
+                raise ImportVerificationError(
+                    IMPORT_REJECTED_CODE,
+                    detail=(
+                        f"malformed ENUM/SET SQL type in catalog: {table.name}.{column.name}"
+                    ),
+                ) from None
+            if not known:
                 raise ImportVerificationError(
                     IMPORT_REJECTED_CODE,
                     detail=f"unknown SQL type in catalog: {table.name}.{column.name}",
@@ -228,6 +238,13 @@ def _compile_table_plans(
     for table in catalog:
         try:
             plans[table.name] = compile_table_plan(table, unknown_type_policy)
+        except SqlTypeMalformedError as exc:
+            table_name = exc.table or table.name
+            column_name = exc.column or "unknown"
+            raise ImportVerificationError(
+                IMPORT_REJECTED_CODE,
+                detail=f"malformed ENUM/SET SQL type in catalog: {table_name}.{column_name}",
+            ) from None
         except UnknownSqlTypeError as exc:
             table_name = exc.table or table.name
             column_name = exc.column or "unknown"

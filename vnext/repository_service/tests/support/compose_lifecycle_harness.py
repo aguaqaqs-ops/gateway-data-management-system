@@ -13,6 +13,8 @@ import os
 import re
 import subprocess
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
@@ -24,7 +26,11 @@ from support.compose_build_harness import (
     CANDIDATE_LABEL,
     inspect_image,
 )
-from support.snapshot_admin_harness import RestoreProcedureError
+from support.snapshot_admin_harness import (
+    RestoreProcedureError,
+    list_dolt_pids,
+    snapshot_check_temp_homes,
+)
 from support.versioned_fixture_consumer_harness import parse_consumer_summary
 
 VNEXT_ROOT = Path(__file__).resolve().parents[3]
@@ -58,6 +64,60 @@ _RESIDENT_CLIENT_NAMES = frozenset(
     }
 )
 _HOST_PORT_MARKERS = ("127.0.0.1", "localhost", "0.0.0.0", "[::1]", "::1")
+HOLD_PROJECT_LABEL = "com.docker.compose.project"
+HOLD_ROLE_LABEL = "gateway.p2r6.role"
+HOLD_ROLE_VALUE = "snapshot-hold"
+_HTTP_STATUS = re.compile(
+    r"status_code[=:] ?(\d{3})|unexpected HTTP status (\d{3})|'(\d{3}) Unauthorized'"
+)
+_HOST_RUNNER_ENV_ALLOWLIST = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LC_MESSAGES",
+        "TZ",
+        "TERM",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "UV_CACHE_DIR",
+        "UV_PYTHON",
+        "UV_PYTHON_INSTALL_DIR",
+        "UV_TOOL_DIR",
+        "UV_PROJECT_ENVIRONMENT",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+    }
+)
+_DOCKER_CONTROL_ENV = frozenset(
+    {
+        "DOCKER_HOST",
+        "DOCKER_CONTEXT",
+        "DOCKER_CERT_PATH",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CONFIG",
+        "DOCKER_API_VERSION",
+        "DOCKER_TLS_CERTDIR",
+        "BUILDX_CONFIG",
+        "BUILDKIT_HOST",
+        "COMPOSE_DOCKER_CLI_BUILD",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,9 +195,15 @@ class DockerObjectInventory:
     containers: tuple[str, ...]
     networks: tuple[str, ...]
     volumes: tuple[str, ...]
+    hold_containers: tuple[str, ...] = ()
 
     def is_empty(self) -> bool:
-        return not self.containers and not self.networks and not self.volumes
+        return (
+            not self.containers
+            and not self.networks
+            and not self.volumes
+            and not self.hold_containers
+        )
 
 
 def current_client_uv_lock_sha256() -> str:
@@ -425,6 +491,27 @@ def classify_client_auth_failure(
     return "failed"
 
 
+def parse_http_status(stderr: str) -> int | None:
+    match = _HTTP_STATUS.search(stderr)
+    if match is None:
+        return None
+    for group in match.groups():
+        if group is not None:
+            return int(group)
+    return None
+
+
+def classify_completed_client(
+    completed: subprocess.CompletedProcess[str],
+) -> Literal["ok", "unauthorized", "failed"]:
+    summary = parse_client_summary(completed.stdout) if completed.returncode == 0 else None
+    return classify_client_auth_failure(
+        returncode=completed.returncode,
+        summary=summary,
+        http_status=parse_http_status(completed.stderr),
+    )
+
+
 def assert_restore_volume_listing_empty(names: Sequence[str]) -> None:
     leftover = {name for name in names if name and name != "lost+found"}
     if leftover:
@@ -702,11 +789,35 @@ def docker_objects(project: str, kind: str) -> list[str]:
     return [line for line in completed.stdout.splitlines() if line.strip()]
 
 
+def inspect_hold_container_command(project: str) -> list[str]:
+    return ["docker", "inspect", "-f", "{{.Id}}", hold_container_name(project)]
+
+
+def parse_hold_inspect(completed: subprocess.CompletedProcess[str]) -> str | None:
+    if completed.returncode != 0:
+        return None
+    identity = completed.stdout.strip()
+    return identity or None
+
+
+def inspect_hold_container(project: str) -> str | None:
+    completed = subprocess.run(
+        inspect_hold_container_command(project),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return parse_hold_inspect(completed)
+
+
 def project_inventory(project: str) -> DockerObjectInventory:
+    hold_id = inspect_hold_container(project)
     return DockerObjectInventory(
         containers=tuple(docker_objects(project, "container")),
         networks=tuple(docker_objects(project, "network")),
         volumes=tuple(docker_objects(project, "volume")),
+        hold_containers=() if hold_id is None else (hold_id,),
     )
 
 
@@ -718,8 +829,34 @@ def run_command(
     secrets: Sequence[str] = (),
     host_paths: Sequence[str] = (),
 ) -> subprocess.CompletedProcess[str]:
+    completed = run_command_unchecked(
+        command,
+        env=env,
+        timeout=timeout,
+        secrets=secrets,
+        host_paths=host_paths,
+    )
+    if completed.returncode != 0:
+        stdout = redact_evidence_text(completed.stdout, secrets=secrets, host_paths=host_paths)
+        stderr = redact_evidence_text(completed.stderr, secrets=secrets, host_paths=host_paths)
+        raise RuntimeError(
+            f"command failed ({completed.returncode}): {' '.join(command[:8])}\n"
+            f"stdout:\n{stdout}\nstderr:\n{stderr}"
+        )
+    return completed
+
+
+def run_command_unchecked(
+    command: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    timeout: float = 180.0,
+    secrets: Sequence[str] = (),
+    host_paths: Sequence[str] = (),
+) -> subprocess.CompletedProcess[str]:
+    del secrets, host_paths
     try:
-        completed = subprocess.run(
+        return subprocess.run(
             command,
             check=False,
             capture_output=True,
@@ -730,14 +867,6 @@ def run_command(
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"command timed out after {timeout}s: {' '.join(command[:6])}") from exc
-    if completed.returncode != 0:
-        stdout = redact_evidence_text(completed.stdout, secrets=secrets, host_paths=host_paths)
-        stderr = redact_evidence_text(completed.stderr, secrets=secrets, host_paths=host_paths)
-        raise RuntimeError(
-            f"command failed ({completed.returncode}): {' '.join(command[:8])}\n"
-            f"stdout:\n{stdout}\nstderr:\n{stderr}"
-        )
-    return completed
 
 
 def wait_healthy(
@@ -767,7 +896,23 @@ def cleanup_compose_project(
     *,
     secrets: Sequence[str] = (),
     host_paths: Sequence[str] = (),
+    service_image: str | None = None,
+    work_root: Path | None = None,
+    dolt_baseline: frozenset[int] | None = None,
+    check_temp_baseline: frozenset[str] | None = None,
+    client_pid_baseline: frozenset[int] | None = None,
 ) -> None:
+    query_temps = collect_project_query_temps(names, image=service_image)
+    container_dolt = list_project_container_dolt(names.project)
+    if container_dolt:
+        raise AssertionError(
+            f"project {names.project} still has container dolt processes: {container_dolt!r}"
+        )
+    if query_temps:
+        raise AssertionError(
+            f"project {names.project} still has query temps: {query_temps!r}"
+        )
+    remove_hold_container(names.project)
     completed = subprocess.run(
         compose_down_command(project=names.project),
         check=False,
@@ -788,7 +933,7 @@ def cleanup_compose_project(
         raise AssertionError(
             f"project {names.project} still has Docker objects: "
             f"containers={leftover.containers!r} networks={leftover.networks!r} "
-            f"volumes={leftover.volumes!r}"
+            f"volumes={leftover.volumes!r} hold={leftover.hold_containers!r}"
         )
     restore_ls = subprocess.run(
         ["docker", "volume", "inspect", names.restore_volume],
@@ -811,6 +956,13 @@ def cleanup_compose_project(
                 "failed to remove restore volume "
                 f"{names.restore_volume}: {removed.stderr.strip()}"
             )
+    assert_node_residuals_cleared(
+        names,
+        work_root=work_root,
+        dolt_baseline=dolt_baseline,
+        check_temp_baseline=check_temp_baseline,
+        client_pid_baseline=client_pid_baseline,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -847,6 +999,10 @@ def snapshot_hold_command(*, image: str, volume: str, project: str) -> list[str]
         "-d",
         "--name",
         hold_container_name(project),
+        "--label",
+        f"{HOLD_PROJECT_LABEL}={project}",
+        "--label",
+        f"{HOLD_ROLE_LABEL}={HOLD_ROLE_VALUE}",
         "--entrypoint",
         "python",
         "--user",
@@ -896,6 +1052,45 @@ def parse_hold_ready_json(raw: str) -> dict[str, Any]:
 
 def volume_create_command(volume: str) -> list[str]:
     return ["docker", "volume", "create", volume]
+
+
+def query_temp_listing_command(*, image: str, volume: str) -> list[str]:
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--entrypoint",
+        "find",
+        "--user",
+        "root",
+        "-v",
+        f"{volume}:/data:ro",
+        image,
+        "/data",
+        "-name",
+        "query-*.sql",
+    ]
+
+
+def seed_volume_marker_command(*, image: str, volume: str) -> list[str]:
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--entrypoint",
+        "sh",
+        "--user",
+        "root",
+        "-v",
+        f"{volume}:/data",
+        image,
+        "-c",
+        "mkdir -p /data && echo seed > /data/overlay.marker",
+    ]
+
+
+def inspect_health_command(container_id: str) -> list[str]:
+    return ["docker", "inspect", "-f", "{{.State.Health.Status}}", container_id]
 
 
 def volume_listing_command(*, image: str, volume: str) -> list[str]:
@@ -1019,15 +1214,25 @@ def assert_pinned_consumer_summary(summary: Mapping[str, Any]) -> None:
         raise AssertionError("main must resolve to c2")
 
 
+def p2r2_compose_env(*, token_file: Path, service_image: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env["GATEWAY_P2R2_BEARER_TOKEN_FILE"] = str(token_file)
+    env["GATEWAY_REPOSITORY_SERVICE_IMAGE"] = service_image
+    return env
+
+
 def host_runner_env(
     *,
     base_url: str,
     bearer_token: str,
     fixture_root: Path = FIXTURE_ROOT,
 ) -> dict[str, str]:
-    env = os.environ.copy()
-    for inherited_name in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV"):
-        env.pop(inherited_name, None)
+    env: dict[str, str] = {}
+    for key, value in os.environ.items():
+        if key in _DOCKER_CONTROL_ENV or key.startswith("DOCKER_"):
+            continue
+        if key in _HOST_RUNNER_ENV_ALLOWLIST or key.startswith("UV_"):
+            env[key] = value
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env.update(
         ephemeral_client_env(
@@ -1046,15 +1251,19 @@ def start_p2r2_service(
     token: str,
     service_image: str,
     host_paths: Sequence[str],
+    env: dict[str, str] | None = None,
+    wait: bool = True,
 ) -> StartedP2R2Service:
-    env = os.environ.copy()
-    env["GATEWAY_P2R2_BEARER_TOKEN_FILE"] = str(token_file)
-    env["GATEWAY_REPOSITORY_SERVICE_IMAGE"] = service_image
+    resolved_env = (
+        env
+        if env is not None
+        else p2r2_compose_env(token_file=token_file, service_image=service_image)
+    )
     secrets = (token,)
     paths = tuple(host_paths)
     rendered = run_command(
         compose_config_command(project=names.project),
-        env=env,
+        env=resolved_env,
         secrets=secrets,
         host_paths=paths,
     )
@@ -1076,22 +1285,23 @@ def start_p2r2_service(
     os.chown(token_file, gateway_uid, gateway_gid)
     run_command(
         compose_up_command(project=names.project),
-        env=env,
+        env=resolved_env,
         secrets=secrets,
         host_paths=paths,
     )
     container_id = run_command(
         compose_ps_command(project=names.project),
-        env=env,
+        env=resolved_env,
         secrets=secrets,
         host_paths=paths,
     ).stdout.strip()
     if not container_id:
         raise RuntimeError("repository-service container id is empty")
-    wait_healthy(container_id)
+    if wait:
+        wait_healthy(container_id)
     return StartedP2R2Service(
         names=names,
-        env=env,
+        env=resolved_env,
         token=token,
         token_file=token_file,
         service_image=service_image,
@@ -1145,22 +1355,22 @@ def run_inside_network_consumer(
     secrets: Sequence[str],
     host_paths: Sequence[str],
 ) -> dict[str, Any]:
-    write_client_env_file(
-        env_file,
+    completed = run_inside_network_consumer_unchecked(
+        client_image=client_image,
+        network=discovery.network_name,
         base_url=discovery.inside_endpoint,
-        bearer_token=token,
-    )
-    completed = run_command(
-        ephemeral_client_docker_command(
-            image=client_image,
-            fixture_root=FIXTURE_ROOT,
-            env_file=env_file,
-            network=discovery.network_name,
-        ),
-        timeout=180.0,
+        token=token,
+        env_file=env_file,
         secrets=secrets,
         host_paths=host_paths,
     )
+    if completed.returncode != 0:
+        stdout = redact_evidence_text(completed.stdout, secrets=secrets, host_paths=host_paths)
+        stderr = redact_evidence_text(completed.stderr, secrets=secrets, host_paths=host_paths)
+        raise RuntimeError(
+            f"inside-network consumer failed ({completed.returncode})\n"
+            f"stdout:\n{stdout}\nstderr:\n{stderr}"
+        )
     summary = assert_client_stdout_safe(
         completed.stdout,
         secrets=secrets,
@@ -1168,6 +1378,34 @@ def run_inside_network_consumer(
     )
     assert_pinned_consumer_summary(summary)
     return summary
+
+
+def run_inside_network_consumer_unchecked(
+    *,
+    client_image: str,
+    network: str | None,
+    base_url: str,
+    token: str,
+    env_file: Path,
+    secrets: Sequence[str],
+    host_paths: Sequence[str],
+) -> subprocess.CompletedProcess[str]:
+    write_client_env_file(
+        env_file,
+        base_url=base_url,
+        bearer_token=token,
+    )
+    return run_command_unchecked(
+        ephemeral_client_docker_command(
+            image=client_image,
+            fixture_root=FIXTURE_ROOT,
+            env_file=env_file,
+            network=network,
+        ),
+        timeout=180.0,
+        secrets=secrets,
+        host_paths=host_paths,
+    )
 
 
 def run_gate_host_consumer(
@@ -1177,13 +1415,19 @@ def run_gate_host_consumer(
     secrets: Sequence[str],
     host_paths: Sequence[str],
 ) -> dict[str, Any]:
-    completed = run_command(
-        host_runner_command(),
-        env=host_runner_env(base_url=discovery.gate_host_endpoint, bearer_token=token),
-        timeout=180.0,
+    completed = run_gate_host_consumer_unchecked(
+        base_url=discovery.gate_host_endpoint,
+        token=token,
         secrets=secrets,
         host_paths=host_paths,
     )
+    if completed.returncode != 0:
+        stdout = redact_evidence_text(completed.stdout, secrets=secrets, host_paths=host_paths)
+        stderr = redact_evidence_text(completed.stderr, secrets=secrets, host_paths=host_paths)
+        raise RuntimeError(
+            f"gate-host consumer failed ({completed.returncode})\n"
+            f"stdout:\n{stdout}\nstderr:\n{stderr}"
+        )
     summary = assert_client_stdout_safe(
         completed.stdout,
         secrets=secrets,
@@ -1191,6 +1435,22 @@ def run_gate_host_consumer(
     )
     assert_pinned_consumer_summary(summary)
     return summary
+
+
+def run_gate_host_consumer_unchecked(
+    *,
+    base_url: str,
+    token: str,
+    secrets: Sequence[str],
+    host_paths: Sequence[str],
+) -> subprocess.CompletedProcess[str]:
+    return run_command_unchecked(
+        host_runner_command(),
+        env=host_runner_env(base_url=base_url, bearer_token=token),
+        timeout=180.0,
+        secrets=secrets,
+        host_paths=host_paths,
+    )
 
 
 def wait_hold_container_ready(
@@ -1260,13 +1520,201 @@ def stop_hold_container(
 
 def remove_hold_container(project: str) -> None:
     name = hold_container_name(project)
-    subprocess.run(
+    existing = inspect_hold_container(project)
+    if existing is None:
+        return
+    completed = subprocess.run(
         ["docker", "rm", "-f", name],
         check=False,
         capture_output=True,
         text=True,
         timeout=30,
     )
+    if completed.returncode != 0:
+        raise RuntimeError(f"failed to remove hold container {name}: {completed.stderr.strip()}")
+    if inspect_hold_container(project) is not None:
+        raise AssertionError(f"hold container {name} still exists after removal")
+
+
+def collect_volume_query_temps(*, image: str, volume: str) -> tuple[str, ...]:
+    inspect = subprocess.run(
+        ["docker", "volume", "inspect", volume],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if inspect.returncode != 0:
+        return ()
+    completed = subprocess.run(
+        query_temp_listing_command(image=image, volume=volume),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.lower()
+        if "no such file" in stderr:
+            return ()
+        raise RuntimeError(
+            f"query-temp listing failed ({completed.returncode}): {completed.stderr.strip()}"
+        )
+    found: list[str] = []
+    for line in completed.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.endswith(".sql") and Path(stripped).name.startswith("query-"):
+            found.append(stripped)
+    return tuple(found)
+
+
+def collect_project_query_temps(
+    names: ComposeResourceNames,
+    *,
+    image: str | None,
+) -> tuple[str, ...]:
+    if image is None:
+        return ()
+    found: list[str] = []
+    for volume in (names.data_volume, names.restore_volume):
+        found.extend(collect_volume_query_temps(image=image, volume=volume))
+    return tuple(found)
+
+
+def container_has_dolt(container: str) -> bool:
+    running = subprocess.run(
+        docker_container_running_command(container),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if running.returncode != 0 or running.stdout.strip() != "true":
+        return False
+    for extra in (["-eo", "comm"], []):
+        completed = subprocess.run(
+            ["docker", "top", container, *extra],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if completed.returncode != 0:
+            continue
+        for line in completed.stdout.splitlines():
+            if re.search(r"(^|\s)dolt(\s|$)", line):
+                return True
+        return False
+    return False
+
+
+def list_project_container_dolt(project: str) -> tuple[str, ...]:
+    return tuple(
+        container
+        for container in docker_objects(project, "container")
+        if container_has_dolt(container)
+    )
+
+
+def list_host_client_pids() -> frozenset[int]:
+    marker = str(CONSUMER_SCRIPT)
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return frozenset()
+    pids: set[int] = set()
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            cmdline = (entry / "cmdline").read_bytes().replace(b"\x00", b" ").decode(
+                "utf-8",
+                "replace",
+            )
+        except OSError:
+            continue
+        if marker in cmdline:
+            pids.add(int(entry.name))
+    return frozenset(pids)
+
+
+def list_work_root_project_dirs(work_root: Path | None, *, project: str) -> tuple[str, ...]:
+    found: list[str] = []
+    roots = [Path("/tmp")]
+    if work_root is not None:
+        roots.append(work_root)
+    for root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if child.is_dir() and child.name.startswith(project):
+                found.append(str(child))
+    return tuple(sorted(set(found)))
+
+
+def assert_node_residuals_cleared(
+    names: ComposeResourceNames,
+    *,
+    work_root: Path | None = None,
+    dolt_baseline: frozenset[int] | None = None,
+    check_temp_baseline: frozenset[str] | None = None,
+    client_pid_baseline: frozenset[int] | None = None,
+) -> None:
+    leftover = project_inventory(names.project)
+    if not leftover.is_empty():
+        raise AssertionError(
+            f"project {names.project} still has Docker objects: "
+            f"containers={leftover.containers!r} networks={leftover.networks!r} "
+            f"volumes={leftover.volumes!r} hold={leftover.hold_containers!r}"
+        )
+    if dolt_baseline is not None:
+        extra_dolt = frozenset(list_dolt_pids()) - dolt_baseline
+        if extra_dolt:
+            raise AssertionError(f"dolt children remain: {sorted(extra_dolt)}")
+    if check_temp_baseline is not None:
+        extra_homes = {str(path) for path in snapshot_check_temp_homes()} - check_temp_baseline
+        if extra_homes:
+            raise AssertionError(f"snapshot check temp homes remain: {sorted(extra_homes)}")
+    if work_root is not None:
+        project_dirs = list_work_root_project_dirs(work_root, project=names.project)
+        if project_dirs:
+            raise AssertionError(f"work-root project dirs remain: {project_dirs}")
+    if client_pid_baseline is not None:
+        extra_clients = list_host_client_pids() - client_pid_baseline
+        if extra_clients:
+            raise AssertionError(f"client processes remain: {sorted(extra_clients)}")
+
+
+@contextmanager
+def p2r2_project_session(
+    names: ComposeResourceNames,
+    env: dict[str, str],
+    *,
+    secrets: Sequence[str] = (),
+    host_paths: Sequence[str] = (),
+    service_image: str | None = None,
+    work_root: Path | None = None,
+    dolt_baseline: frozenset[int] | None = None,
+    check_temp_baseline: frozenset[str] | None = None,
+    client_pid_baseline: frozenset[int] | None = None,
+) -> Iterator[None]:
+    try:
+        yield
+    finally:
+        cleanup_compose_project(
+            names,
+            env,
+            secrets=secrets,
+            host_paths=host_paths,
+            service_image=service_image,
+            work_root=work_root,
+            dolt_baseline=dolt_baseline,
+            check_temp_baseline=check_temp_baseline,
+            client_pid_baseline=client_pid_baseline,
+        )
 
 
 def create_scoped_volume(volume: str, *, allowed: frozenset[str]) -> None:

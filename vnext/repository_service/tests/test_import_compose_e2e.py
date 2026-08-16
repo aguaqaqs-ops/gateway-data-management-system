@@ -14,16 +14,19 @@ from support.compose_build_harness import ensure_repository_service_image
 from support.compose_lifecycle_harness import (
     allocate_compose_resources,
     assert_p2r2_compose_boundary,
-    cleanup_compose_project,
     compose_command,
     compose_config_command,
     compose_ps_command,
     force_recreate_service_command,
+    list_host_client_pids,
+    p2r2_compose_env,
+    p2r2_project_session,
     parse_rendered_compose_config,
     run_command,
     wait_healthy,
     write_token_file,
 )
+from support.snapshot_admin_harness import list_dolt_pids, snapshot_check_temp_homes
 from support.import_admission_crash_harness import build_import_package_bytes
 from test_import_package import write_artifact
 
@@ -49,12 +52,20 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
     state_in_container = "/tmp/compose-state.json"
     host_paths = (str(tmp_path), str(token_file))
 
-    env = os.environ.copy()
-    env["GATEWAY_P2R2_BEARER_TOKEN_FILE"] = str(token_file)
     service_image = ensure_repository_service_image()
-    env["GATEWAY_REPOSITORY_SERVICE_IMAGE"] = service_image
+    env = p2r2_compose_env(token_file=token_file, service_image=service_image)
 
-    try:
+    with p2r2_project_session(
+        names,
+        env,
+        secrets=(token,),
+        host_paths=host_paths,
+        service_image=service_image,
+        work_root=tmp_path,
+        dolt_baseline=frozenset(list_dolt_pids()),
+        check_temp_baseline=frozenset(str(path) for path in snapshot_check_temp_homes()),
+        client_pid_baseline=list_host_client_pids(),
+    ):
         rendered = run_command(
             compose_config_command(project=names.project),
             env=env,
@@ -225,5 +236,3 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
         )
         assert tombs.stdout.strip() == "0"
         print(f"compose_project={names.project}", flush=True)
-    finally:
-        cleanup_compose_project(names, env, secrets=(token,), host_paths=host_paths)

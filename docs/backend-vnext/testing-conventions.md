@@ -40,7 +40,8 @@ P2专用执行规则见
 ```bash
 ./vnext/scripts/run-tests.sh \
   --ignore=tests/test_import_compose_e2e.py \
-  --ignore=tests/test_versioned_read_compose_e2e.py
+  --ignore=tests/test_versioned_read_compose_e2e.py \
+  --ignore=tests/test_compose_lifecycle_negative_probes.py
 ```
 
 当前延期inventory为
@@ -51,6 +52,10 @@ tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinn
 tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_from_gate_host
 tests/test_versioned_read_compose_e2e.py::test_compose_repository_service_fresh_restart_restored_lifecycle
 ```
+
+`tests/test_compose_lifecycle_negative_probes.py` 是 expected-failure cleanup 的独立
+probe（missing readiness / wrong token / wrong network / non-empty restore），不是第五个
+S7 PASS nodeid，同样按精确 path ignore，不用宽泛 marker。
 静态Dockerfile/Compose测试、build script/harness单测和真实Dolt integration仍属于功能门禁，
 不得一并跳过。以后新增实际Docker测试时，round handoff必须登记精确path/nodeid并同步更新
 调用参数；不新增宽泛`container` marker来隐式改变现有三类marker语义。

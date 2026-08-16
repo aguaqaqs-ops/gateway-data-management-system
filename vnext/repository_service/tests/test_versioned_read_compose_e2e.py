@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import shutil
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 import pytest
@@ -17,11 +17,11 @@ from support.compose_build_harness import (
 from support.compose_lifecycle_harness import (
     CLIENT_UV_LOCK_LABEL,
     FIXTURE_ROOT,
+    ComposeResourceNames,
     allocate_compose_resources,
     assert_named_volume_empty,
     assert_not_host_port_endpoint,
     check_named_volume,
-    cleanup_compose_project,
     client_image_identity,
     compose_stop_command,
     copy_named_volume,
@@ -32,6 +32,9 @@ from support.compose_lifecycle_harness import (
     ensure_client_image,
     hold_container_name,
     host_runner_identity,
+    list_host_client_pids,
+    p2r2_compose_env,
+    p2r2_project_session,
     recreate_started_service,
     remove_hold_container,
     run_command,
@@ -44,6 +47,7 @@ from support.compose_lifecycle_harness import (
     wait_hold_container_ready,
     write_token_file,
 )
+from support.snapshot_admin_harness import list_dolt_pids, snapshot_check_temp_homes
 
 _TOKEN = "compose-e2e-bearer-token"
 
@@ -74,6 +78,27 @@ def _print_evidence(
     )
 
 
+def _session(
+    names: ComposeResourceNames,
+    env: dict[str, str],
+    *,
+    host_paths: tuple[str, ...],
+    service_image: str,
+    work_root: Path,
+) -> AbstractContextManager[None]:
+    return p2r2_project_session(
+        names,
+        env,
+        secrets=(_TOKEN,),
+        host_paths=host_paths,
+        service_image=service_image,
+        work_root=work_root,
+        dolt_baseline=frozenset(list_dolt_pids()),
+        check_temp_baseline=frozenset(str(path) for path in snapshot_check_temp_homes()),
+        client_pid_baseline=list_host_client_pids(),
+    )
+
+
 @pytest.mark.integration
 @pytest.mark.serial
 def test_compose_remote_client_commit_pinned_read_inside_network(tmp_path: Path) -> None:
@@ -91,14 +116,16 @@ def test_compose_remote_client_commit_pinned_read_inside_network(tmp_path: Path)
         client_uv_lock_sha256=lock_sha,
         image_id=client_digest,
     )
-    started = start_p2r2_service(
-        names,
-        token_file=token_file,
-        token=_TOKEN,
-        service_image=service_image,
-        host_paths=host_paths,
-    )
-    try:
+    env = p2r2_compose_env(token_file=token_file, service_image=service_image)
+    with _session(names, env, host_paths=host_paths, service_image=service_image, work_root=tmp_path):
+        started = start_p2r2_service(
+            names,
+            token_file=token_file,
+            token=_TOKEN,
+            service_image=service_image,
+            host_paths=host_paths,
+            env=env,
+        )
         discovery = discover_started_service_network(started)
         assert_not_host_port_endpoint(discovery.inside_endpoint)
         summary = run_inside_network_consumer(
@@ -130,13 +157,6 @@ def test_compose_remote_client_commit_pinned_read_inside_network(tmp_path: Path)
             endpoint=discovery.inside_endpoint,
             summary=summary,
         )
-    finally:
-        cleanup_compose_project(
-            names,
-            started.env,
-            secrets=(_TOKEN,),
-            host_paths=host_paths,
-        )
 
 
 @pytest.mark.integration
@@ -151,14 +171,16 @@ def test_compose_remote_client_commit_pinned_read_from_gate_host(tmp_path: Path)
         candidate_sha=expected_build_metadata().candidate_sha,
         client_uv_lock_sha256=current_client_uv_lock_sha256(),
     )
-    started = start_p2r2_service(
-        names,
-        token_file=token_file,
-        token=_TOKEN,
-        service_image=service_image,
-        host_paths=host_paths,
-    )
-    try:
+    env = p2r2_compose_env(token_file=token_file, service_image=service_image)
+    with _session(names, env, host_paths=host_paths, service_image=service_image, work_root=tmp_path):
+        started = start_p2r2_service(
+            names,
+            token_file=token_file,
+            token=_TOKEN,
+            service_image=service_image,
+            host_paths=host_paths,
+            env=env,
+        )
         discovery = discover_started_service_network(started)
         assert discovery.gate_host_endpoint != discovery.inside_endpoint
         assert_not_host_port_endpoint(discovery.gate_host_endpoint)
@@ -174,13 +196,6 @@ def test_compose_remote_client_commit_pinned_read_from_gate_host(tmp_path: Path)
             client_identity=identity.evidence_id(),
             endpoint=discovery.gate_host_endpoint,
             summary=summary,
-        )
-    finally:
-        cleanup_compose_project(
-            names,
-            started.env,
-            secrets=(_TOKEN,),
-            host_paths=host_paths,
         )
 
 
@@ -203,19 +218,32 @@ def test_compose_repository_service_fresh_restart_restored_lifecycle(tmp_path: P
         candidate_sha=expected_build_metadata().candidate_sha,
         client_uv_lock_sha256=current_client_uv_lock_sha256(),
     )
-    source_env = os.environ.copy()
-    restore_env = os.environ.copy()
-    started = None
-    restored_started = None
-    try:
+    source_env = p2r2_compose_env(token_file=token_file, service_image=service_image)
+    restore_env = p2r2_compose_env(token_file=restore_token_file, service_image=service_image)
+    with (
+        _session(
+            source,
+            source_env,
+            host_paths=host_paths,
+            service_image=service_image,
+            work_root=tmp_path,
+        ),
+        _session(
+            restored,
+            restore_env,
+            host_paths=host_paths,
+            service_image=service_image,
+            work_root=tmp_path,
+        ),
+    ):
         started = start_p2r2_service(
             source,
             token_file=token_file,
             token=_TOKEN,
             service_image=service_image,
             host_paths=host_paths,
+            env=source_env,
         )
-        source_env = started.env
         discovery = discover_started_service_network(started)
         fresh = run_gate_host_consumer(
             discovery=discovery,
@@ -282,8 +310,8 @@ def test_compose_repository_service_fresh_restart_restored_lifecycle(tmp_path: P
             token=_TOKEN,
             service_image=service_image,
             host_paths=host_paths,
+            env=source_env,
         )
-        source_env = started.env
         discovery = discover_started_service_network(started)
         mutation_id = create_repository_via_http(
             base_url=discovery.gate_host_endpoint,
@@ -298,8 +326,8 @@ def test_compose_repository_service_fresh_restart_restored_lifecycle(tmp_path: P
             token=_TOKEN,
             service_image=service_image,
             host_paths=host_paths,
+            env=restore_env,
         )
-        restore_env = restored_started.env
         restore_discovery = discover_started_service_network(restored_started)
         restored_facts = run_gate_host_consumer(
             discovery=restore_discovery,
@@ -322,18 +350,4 @@ def test_compose_repository_service_fresh_restart_restored_lifecycle(tmp_path: P
             client_identity=identity.evidence_id(),
             endpoint=restore_discovery.gate_host_endpoint,
             summary=restored_facts,
-        )
-    finally:
-        remove_hold_container(source.project)
-        cleanup_compose_project(
-            source,
-            source_env,
-            secrets=(_TOKEN,),
-            host_paths=host_paths,
-        )
-        cleanup_compose_project(
-            restored,
-            restore_env,
-            secrets=(_TOKEN,),
-            host_paths=host_paths,
         )

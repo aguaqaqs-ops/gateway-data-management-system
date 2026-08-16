@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -459,46 +460,63 @@ def test_refuse_unscoped_deletion_never_deletes_foreign_objects() -> None:
         harness.refuse_unscoped_deletion(("unrelated-volume",), names.allowed_names)
 
 
+def _empty_project_docker(
+    command: list[str],
+    *,
+    restore_exists: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    if command[:3] == ["docker", "compose", "-p"]:
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+    if command[:2] == ["docker", "inspect"]:
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="No such container")
+    if command[:3] in (
+        ["docker", "container", "ls"],
+        ["docker", "network", "ls"],
+        ["docker", "volume", "ls"],
+    ):
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+    if command[:3] == ["docker", "volume", "inspect"]:
+        if restore_exists:
+            return subprocess.CompletedProcess(command, 0, stdout="{}", stderr="")
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="not found")
+    if command[:3] == ["docker", "volume", "rm"]:
+        if restore_exists:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        raise AssertionError("must not remove a volume that is not in the generated set")
+    raise AssertionError(f"unexpected command: {command}")
+
+
 def test_cleanup_compose_project_asserts_zero_inventory_and_scoped_restore_remove() -> None:
     names = harness.allocate_compose_resources("import", suffix="bbbbbbbbbbbb")
     calls: list[list[str]] = []
 
     def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(command)
-        if command[:3] == ["docker", "compose", "-p"]:
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-        if command[:3] == ["docker", "container", "ls"] or command[:3] == [
-            "docker",
-            "network",
-            "ls",
-        ] or command[:3] == ["docker", "volume", "ls"]:
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-        if command[:3] == ["docker", "volume", "inspect"]:
-            return subprocess.CompletedProcess(command, 0, stdout="{}", stderr="")
-        if command[:3] == ["docker", "volume", "rm"]:
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-        raise AssertionError(f"unexpected command: {command}")
+        return _empty_project_docker(command, restore_exists=True)
 
     with patch("support.compose_lifecycle_harness.subprocess.run", side_effect=fake_run):
         harness.cleanup_compose_project(names, env={})
     volume_rm = [command for command in calls if command[:3] == ["docker", "volume", "rm"]]
     assert volume_rm == [["docker", "volume", "rm", names.restore_volume]]
+    hold_inspect = [
+        command
+        for command in calls
+        if command[:2] == ["docker", "inspect"] and command[-1] == f"{names.project}-hold"
+    ]
+    assert hold_inspect
 
 
 def test_cleanup_compose_project_skips_missing_restore_volume() -> None:
     names = harness.allocate_compose_resources("import", suffix="cccccccccccc")
 
     def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        if command[:3] == ["docker", "volume", "inspect"]:
-            return subprocess.CompletedProcess(command, 1, stdout="", stderr="not found")
-        if command[:3] == ["docker", "volume", "rm"]:
-            raise AssertionError("must not remove a volume that is not in the generated set")
-        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        return _empty_project_docker(command, restore_exists=False)
 
     with patch("support.compose_lifecycle_harness.subprocess.run", side_effect=fake_run):
         harness.cleanup_compose_project(names, env={})
 
 
+@pytest.mark.serial
 def test_wait_healthy_times_out_when_readiness_missing() -> None:
     completed = subprocess.CompletedProcess(
         args=["docker"],
@@ -551,13 +569,16 @@ def test_inspect_networks_command_and_parser() -> None:
 
 def test_snapshot_hold_and_volume_commands_use_service_image_not_alpine() -> None:
     image = "gateway-repository-service:local"
+    project = "gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa"
     hold = harness.snapshot_hold_command(
         image=image,
         volume="proj_repository-service-data",
-        project="gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa",
+        project=project,
     )
     assert "alpine" not in " ".join(hold)
     assert hold[hold.index("--user") + 1] == "gateway"
+    assert f"{harness.HOLD_PROJECT_LABEL}={project}" in hold
+    assert f"{harness.HOLD_ROLE_LABEL}={harness.HOLD_ROLE_VALUE}" in hold
     assert "gateway_repository_service.snapshot_admin" in hold
     assert hold[-1] == "hold"
     listing = harness.volume_listing_command(image=image, volume="restore-vol")
@@ -634,6 +655,126 @@ def test_host_runner_env_does_not_keep_venv_overrides() -> None:
     assert env["GATEWAY_REPOSITORY_BASE_URL"] == "http://172.18.0.6:8000"
 
 
+def test_host_runner_env_drops_docker_control_variables() -> None:
+    leaked = {
+        "DOCKER_HOST": "unix:///var/run/docker.sock",
+        "DOCKER_CONTEXT": "desktop-linux",
+        "DOCKER_CERT_PATH": "/tmp/certs",
+        "DOCKER_TLS_VERIFY": "1",
+        "DOCKER_CONFIG": "/tmp/docker",
+        "DOCKER_API_VERSION": "1.45",
+        "PATH": "/usr/bin",
+        "HOME": "/home/user",
+    }
+    with patch.dict(os.environ, leaked, clear=False):
+        env = harness.host_runner_env(
+            base_url="http://172.18.0.6:8000",
+            bearer_token=_TOKEN,
+        )
+    for key in harness._DOCKER_CONTROL_ENV:
+        assert key not in env
+    assert "DOCKER_HOST" not in env
+    assert env["PATH"] == "/usr/bin"
+    assert env["GATEWAY_REPOSITORY_BASE_URL"] == "http://172.18.0.6:8000"
+
+
+def test_p2r2_project_session_cleans_up_when_start_raises() -> None:
+    names = harness.allocate_compose_resources("inside", suffix="dddddddddddd")
+    env = {"GATEWAY_REPOSITORY_SERVICE_IMAGE": "img"}
+    with patch.object(harness, "cleanup_compose_project") as cleanup:
+        with pytest.raises(TimeoutError, match="did not become healthy"):
+            with harness.p2r2_project_session(names, env):
+                raise TimeoutError("container abc did not become healthy")
+    cleanup.assert_called_once()
+    assert cleanup.call_args.args[0] is names
+    assert cleanup.call_args.args[1] == env
+
+
+def test_project_inventory_includes_hold_container() -> None:
+    with (
+        patch.object(harness, "inspect_hold_container", return_value="holdid"),
+        patch.object(harness, "docker_objects", return_value=[]),
+    ):
+        inventory = harness.project_inventory("gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa")
+    assert inventory.hold_containers == ("holdid",)
+    assert not inventory.is_empty()
+
+
+def test_remove_hold_container_absent_is_success() -> None:
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if command[:2] == ["docker", "inspect"]:
+            return subprocess.CompletedProcess(command, 1, stdout="", stderr="No such container")
+        if command[:3] == ["docker", "rm", "-f"]:
+            raise AssertionError("must not rm a missing hold")
+        raise AssertionError(f"unexpected command: {command}")
+
+    with patch("support.compose_lifecycle_harness.subprocess.run", side_effect=fake_run):
+        harness.remove_hold_container("gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa")
+
+
+def test_remove_hold_container_propagates_rm_failure() -> None:
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if command[:2] == ["docker", "inspect"]:
+            return subprocess.CompletedProcess(command, 0, stdout="abc123\n", stderr="")
+        if command[:3] == ["docker", "rm", "-f"]:
+            return subprocess.CompletedProcess(command, 1, stdout="", stderr="busy")
+        raise AssertionError(f"unexpected command: {command}")
+
+    with (
+        patch("support.compose_lifecycle_harness.subprocess.run", side_effect=fake_run),
+        pytest.raises(RuntimeError, match="failed to remove hold"),
+    ):
+        harness.remove_hold_container("gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa")
+
+
+def test_remove_hold_container_asserts_absent_after_rm() -> None:
+    inspects = iter(
+        [
+            subprocess.CompletedProcess(["docker"], 0, stdout="abc123\n", stderr=""),
+            subprocess.CompletedProcess(["docker"], 0, stdout="abc123\n", stderr=""),
+        ]
+    )
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if command[:2] == ["docker", "inspect"]:
+            return next(inspects)
+        if command[:3] == ["docker", "rm", "-f"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        raise AssertionError(f"unexpected command: {command}")
+
+    with (
+        patch("support.compose_lifecycle_harness.subprocess.run", side_effect=fake_run),
+        pytest.raises(AssertionError, match="still exists"),
+    ):
+        harness.remove_hold_container("gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa")
+
+
+def test_classify_completed_client_uses_http_status_from_stderr() -> None:
+    failed = subprocess.CompletedProcess(
+        ["uv"],
+        1,
+        stdout="",
+        stderr="RepositoryClientError(status_code=401, error=...)\n",
+    )
+    assert harness.classify_completed_client(failed) == "unauthorized"
+    unreachable = subprocess.CompletedProcess(["uv"], 1, stdout="", stderr="connection refused")
+    assert harness.classify_completed_client(unreachable) == "failed"
+
+
+def test_assert_node_residuals_cleared_rejects_dolt_delta() -> None:
+    names = harness.allocate_compose_resources("inside", suffix="eeeeeeeeeeee")
+    with (
+        patch.object(
+            harness,
+            "project_inventory",
+            return_value=harness.DockerObjectInventory((), (), (), ()),
+        ),
+        patch.object(harness, "list_dolt_pids", return_value={99}),
+        pytest.raises(AssertionError, match="dolt children remain"),
+    ):
+        harness.assert_node_residuals_cleared(names, dolt_baseline=frozenset())
+
+
 S7_COMPOSE_NODEIDS: tuple[tuple[str, str], ...] = (
     (
         "test_import_compose_e2e.py",
@@ -654,9 +795,41 @@ S7_COMPOSE_NODEIDS: tuple[tuple[str, str], ...] = (
 )
 
 
-def test_s7_exact_compose_nodeids_collect() -> None:
-    import ast
+S7_NEGATIVE_PROBES: tuple[tuple[str, str], ...] = (
+    (
+        "test_compose_lifecycle_negative_probes.py",
+        "test_compose_missing_readiness_cleans_up",
+    ),
+    (
+        "test_compose_lifecycle_negative_probes.py",
+        "test_compose_wrong_token_cleans_up",
+    ),
+    (
+        "test_compose_lifecycle_negative_probes.py",
+        "test_compose_wrong_network_cleans_up",
+    ),
+    (
+        "test_compose_lifecycle_negative_probes.py",
+        "test_compose_non_empty_restore_target_cleans_up",
+    ),
+)
 
+
+def _function_decorator_names(function: ast.FunctionDef) -> list[str]:
+    decorator_names: list[str] = []
+    for decorator in function.decorator_list:
+        parts: list[str] = []
+        current: ast.AST = decorator
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+            decorator_names.append(".".join(reversed(parts)))
+    return decorator_names
+
+
+def test_s7_exact_compose_nodeids_collect() -> None:
     tests_root = Path(__file__).resolve().parent
     required_markers = {
         "test_compose_remote_client_commit_pinned_read_inside_network",
@@ -672,16 +845,23 @@ def test_s7_exact_compose_nodeids_collect() -> None:
         assert nodeid in functions, f"missing {filename}::{nodeid}"
         found.add(nodeid)
         if nodeid in required_markers:
-            decorator_names: list[str] = []
-            for decorator in functions[nodeid].decorator_list:
-                parts: list[str] = []
-                current: ast.AST = decorator
-                while isinstance(current, ast.Attribute):
-                    parts.append(current.attr)
-                    current = current.value
-                if isinstance(current, ast.Name):
-                    parts.append(current.id)
-                    decorator_names.append(".".join(reversed(parts)))
+            decorator_names = _function_decorator_names(functions[nodeid])
             assert "pytest.mark.integration" in decorator_names, nodeid
             assert "pytest.mark.serial" in decorator_names, nodeid
     assert found == {nodeid for _filename, nodeid in S7_COMPOSE_NODEIDS}
+
+
+def test_s7_negative_probes_collect() -> None:
+    tests_root = Path(__file__).resolve().parent
+    found: set[str] = set()
+    for filename, nodeid in S7_NEGATIVE_PROBES:
+        source = ast.parse((tests_root / filename).read_text(encoding="utf-8"))
+        functions = {
+            node.name: node for node in source.body if isinstance(node, ast.FunctionDef)
+        }
+        assert nodeid in functions, f"missing {filename}::{nodeid}"
+        found.add(nodeid)
+        decorator_names = _function_decorator_names(functions[nodeid])
+        assert "pytest.mark.integration" in decorator_names, nodeid
+        assert "pytest.mark.serial" in decorator_names, nodeid
+    assert found == {nodeid for _filename, nodeid in S7_NEGATIVE_PROBES}

@@ -74,13 +74,18 @@ tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinn
 tests/test_versioned_read_compose_e2e.py::test_compose_repository_service_fresh_restart_restored_lifecycle
 ```
 
-功能门禁精确排除这两份实际启动 Docker 的文件，不要用宽泛 marker：
+功能门禁精确排除实际启动 Docker 的文件，不要用宽泛 marker：
 
 ```bash
 ./vnext/scripts/run-tests.sh \
   --ignore=tests/test_import_compose_e2e.py \
-  --ignore=tests/test_versioned_read_compose_e2e.py
+  --ignore=tests/test_versioned_read_compose_e2e.py \
+  --ignore=tests/test_compose_lifecycle_negative_probes.py
 ```
+
+负向 probe（missing readiness / wrong token / wrong network / non-empty restore）在
+`tests/test_compose_lifecycle_negative_probes.py`，用于 expected-failure cleanup，**不是**
+第五个 S7 PASS nodeid。Compose PASS 仍归 S7-5+。
 
 ## 容器启动（P2-R2 `p2-r2` profile）
 

@@ -51,8 +51,6 @@ from support.snapshot_admin_harness import (
 )
 from support.upload_harness import create_repository, upload_headers, upload_sha256
 
-pytestmark = pytest.mark.serial
-
 CONTROL_DB_FAULTS = (
     "missing",
     "garbage",
@@ -65,18 +63,24 @@ def _digest(path: Path) -> bytes:
     return path.read_bytes()
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 def test_missing_command_exits_2() -> None:
     result = run_snapshot_admin()
     assert result.returncode == 2
     assert result.stdout == ""
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 def test_unknown_command_exits_2() -> None:
     result = run_snapshot_admin("restore")
     assert result.returncode == 2
     assert result.stdout == ""
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 def test_missing_data_root_exits_4(tmp_path: Path) -> None:
     result = run_hold(tmp_path / "missing-root")
     assert result.returncode == 4
@@ -85,6 +89,8 @@ def test_missing_data_root_exits_4(tmp_path: Path) -> None:
     assert "Traceback" not in result.stderr
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 def test_uninitialized_layout_exits_4(tmp_path: Path) -> None:
     data_root = tmp_path / "empty-root"
     data_root.mkdir()
@@ -94,6 +100,8 @@ def test_uninitialized_layout_exits_4(tmp_path: Path) -> None:
     assert "Traceback" not in result.stderr
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 @pytest.mark.parametrize("fault", CONTROL_DB_FAULTS)
 def test_malformed_control_db_exits_4_without_create_or_migrate(
     tmp_path: Path,
@@ -140,6 +148,8 @@ def test_malformed_control_db_exits_4_without_create_or_migrate(
                 connection.close()
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 def test_symlink_layout_component_exits_4(tmp_path: Path) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
         env.close()
@@ -153,6 +163,8 @@ def test_symlink_layout_component_exits_4(tmp_path: Path) -> None:
         assert "Traceback" not in result.stderr
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 @pytest.mark.parametrize("command", ["hold", "check"])
 @pytest.mark.parametrize("fault", ["missing", "symlink"])
 def test_admin_requires_existing_regular_root_lock(
@@ -177,6 +189,8 @@ def test_admin_requires_existing_regular_root_lock(
             assert env.layout.service_lock.is_symlink()
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 @pytest.mark.parametrize("command", ["hold", "check"])
 def test_admin_rejects_symlink_data_root(tmp_path: Path, command: str) -> None:
     with SnapshotHoldEnvironment.create(tmp_path / "real") as env:
@@ -189,6 +203,8 @@ def test_admin_rejects_symlink_data_root(tmp_path: Path, command: str) -> None:
     assert "Traceback" not in result.stderr
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 @pytest.mark.parametrize("command", ["hold", "check"])
 def test_admin_rejects_control_database_symlink(tmp_path: Path, command: str) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
@@ -215,6 +231,7 @@ def test_checkpoint_truncate_is_quiescent_without_helper(tmp_path: Path) -> None
         assert not env.wal_path.exists() or env.wal_path.stat().st_size == 0
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_hold_checkpoints_and_holds_root_lock(tmp_path: Path) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
@@ -242,6 +259,7 @@ def test_hold_checkpoints_and_holds_root_lock(tmp_path: Path) -> None:
             pass
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_running_holder_makes_hold_fail_closed(tmp_path: Path) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
@@ -258,6 +276,7 @@ def test_running_holder_makes_hold_fail_closed(tmp_path: Path) -> None:
             holder.release()
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_active_sqlite_writer_makes_checkpoint_fail_closed(tmp_path: Path) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
@@ -270,6 +289,7 @@ def test_active_sqlite_writer_makes_checkpoint_fail_closed(tmp_path: Path) -> No
         env.control_store.connection.rollback()
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 @pytest.mark.parametrize("sig", [signal.SIGINT, signal.SIGTERM])
 def test_ready_signal_releases_lock(tmp_path: Path, sig: int) -> None:
@@ -288,6 +308,7 @@ def test_ready_signal_releases_lock(tmp_path: Path, sig: int) -> None:
             pass
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_signal_before_ready_fails_closed_and_releases_lock(tmp_path: Path) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
@@ -305,6 +326,7 @@ def test_signal_before_ready_fails_closed_and_releases_lock(tmp_path: Path) -> N
             pass
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_broken_stdout_fails_closed_and_releases_lock(tmp_path: Path) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
@@ -326,6 +348,7 @@ def test_broken_stdout_fails_closed_and_releases_lock(tmp_path: Path) -> None:
             pass
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_ready_json_omits_host_paths_and_secrets(tmp_path: Path) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
@@ -367,7 +390,7 @@ CHECK_FAULTS = (
     CheckFault("dolt_unreadable", 6, needs_dolt=True),
 )
 
-_UNIT_CHECK_FAULTS = tuple(fault for fault in CHECK_FAULTS if not fault.needs_dolt)
+_NON_DOLT_CHECK_FAULTS = tuple(fault for fault in CHECK_FAULTS if not fault.needs_dolt)
 _DOLT_CHECK_FAULTS = tuple(fault for fault in CHECK_FAULTS if fault.needs_dolt)
 
 
@@ -429,7 +452,7 @@ def _plant_ready_bytes(
     return path
 
 
-def _apply_unit_check_fault(env: SnapshotHoldEnvironment, tmp_path: Path, fault: str) -> None:
+def _apply_non_dolt_check_fault(env: SnapshotHoldEnvironment, tmp_path: Path, fault: str) -> None:
     db_path = env.settings.control_db_path
     if fault == "layout_marker_garbage":
         env.close()
@@ -548,6 +571,8 @@ def _apply_unit_check_fault(env: SnapshotHoldEnvironment, tmp_path: Path, fault:
     raise AssertionError(f"unknown unit check fault {fault}")
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 def test_check_passes_empty_initialized_root(tmp_path: Path) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
         staging_residual = env.layout.staging_versioned / "ordinary-residual"
@@ -573,6 +598,8 @@ def test_check_passes_empty_initialized_root(tmp_path: Path) -> None:
     assert not snapshot_check_temp_homes()
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 def test_dolt_initialization_failure_is_redacted_content_error(tmp_path: Path) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
         repository_id = uuid4()
@@ -600,6 +627,7 @@ def test_dolt_initialization_failure_is_redacted_content_error(tmp_path: Path) -
     assert not snapshot_check_temp_homes()
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_signal_during_dolt_check_reaps_child_and_releases_lock(tmp_path: Path) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
@@ -660,6 +688,8 @@ def test_signal_during_dolt_check_reaps_child_and_releases_lock(tmp_path: Path) 
     assert not snapshot_check_temp_homes()
 
 
+@pytest.mark.integration
+@pytest.mark.serial
 def test_check_allows_eligible_missing_artifact_bytes(tmp_path: Path) -> None:
     created_at = (datetime.now(UTC) - timedelta(hours=48)).replace(microsecond=0).isoformat()
     with SnapshotHoldEnvironment.create(tmp_path) as env:
@@ -678,13 +708,15 @@ def test_check_allows_eligible_missing_artifact_bytes(tmp_path: Path) -> None:
     assert payload["artifact_count"] == 1
 
 
-@pytest.mark.parametrize("fault", _UNIT_CHECK_FAULTS, ids=lambda item: item.name)
+@pytest.mark.integration
+@pytest.mark.serial
+@pytest.mark.parametrize("fault", _NON_DOLT_CHECK_FAULTS, ids=lambda item: item.name)
 def test_check_faults_fail_closed_without_passed_json(
     tmp_path: Path,
     fault: CheckFault,
 ) -> None:
     with SnapshotHoldEnvironment.create(tmp_path) as env:
-        _apply_unit_check_fault(env, tmp_path, fault.name)
+        _apply_non_dolt_check_fault(env, tmp_path, fault.name)
         result = env.run_check()
     assert result.returncode == fault.exit_code
     assert result.stdout == ""
@@ -854,7 +886,7 @@ INCOMPLETE_RESTORE_SHAPES = (
     IncompleteRestoreShape("partial_component", 4),
     IncompleteRestoreShape("single_dolt", 6, needs_dolt=True),
 )
-_UNIT_INCOMPLETE_SHAPES = tuple(shape for shape in INCOMPLETE_RESTORE_SHAPES if not shape.needs_dolt)
+_NON_DOLT_INCOMPLETE_SHAPES = tuple(shape for shape in INCOMPLETE_RESTORE_SHAPES if not shape.needs_dolt)
 _DOLT_INCOMPLETE_SHAPES = tuple(shape for shape in INCOMPLETE_RESTORE_SHAPES if shape.needs_dolt)
 
 
@@ -1014,7 +1046,9 @@ def test_restore_procedure_rejects_live_root(tmp_path: Path) -> None:
             copy_whole_root(archive, settings.data_root)
 
 
-@pytest.mark.parametrize("shape", _UNIT_INCOMPLETE_SHAPES, ids=lambda item: item.name)
+@pytest.mark.integration
+@pytest.mark.serial
+@pytest.mark.parametrize("shape", _NON_DOLT_INCOMPLETE_SHAPES, ids=lambda item: item.name)
 def test_incomplete_restore_copy_fails_check(tmp_path: Path, shape: IncompleteRestoreShape) -> None:
     with SnapshotHoldEnvironment.create(tmp_path / "src") as src:
         src.close()

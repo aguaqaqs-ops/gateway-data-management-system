@@ -1,0 +1,5 @@
+./docs/backend-vnext/refactoring/temporary/phase-0/baseline-and-oracle-notes.md:1401:before_readback_verified
+./docs/backend-vnext/refactoring/temporary/phase-0/baseline-and-oracle-notes.md:1402:after_readback_verified
+./docs/backend-vnext/refactoring/temporary/phase-0/baseline-and-oracle-notes.md:2332:before_readback_verified
+./docs/backend-vnext/refactoring/temporary/phase-0/baseline-and-oracle-notes.md:2333:after_readback_verified
+./docs/backend-vnext/refactoring/formal/plans/p2-versioned-repository-execution-checklist.md:349:rg -n "Repository wire JSON/gRPC|before_readback_verified|after_readback_verified" .

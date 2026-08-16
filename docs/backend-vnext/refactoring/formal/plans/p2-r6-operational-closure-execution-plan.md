@@ -451,6 +451,9 @@ next_stage_ready: P2-R6-S8
 
 ### P2-R6-S8 — Full regression and candidate preparation
 
+详细设计：[P2-R6-S8 Full Regression and Candidate Preparation Design](p2-r6-s8-full-regression-design.md)
+分步执行：[P2-R6-S8 Full Regression and Candidate Preparation Execution Plan](p2-r6-s8-full-regression-execution-plan.md)
+
 ```yaml
 goal: close affected package gates, classifications, static checks and all review findings
 allowed_paths: owning production/test/docs scope needed to fix observed failures

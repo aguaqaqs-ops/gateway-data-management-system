@@ -30,6 +30,8 @@
 - [P2-R6-S8 Full Regression and Candidate Preparation Execution Plan](plans/p2-r6-s8-full-regression-execution-plan.md)
 - [P2-R6-S9 Final Candidate Seal Design](plans/p2-r6-s9-final-candidate-seal-design.md)
 - [P2-R6-S9 Final Candidate Seal Execution Plan](plans/p2-r6-s9-final-candidate-seal-execution-plan.md)
+- [P2-R6-S10 Exact-Candidate Production Gate Design](plans/p2-r6-s10-exact-candidate-production-gate-design.md)
+- [P2-R6-S10 Exact-Candidate Production Gate Execution Plan](plans/p2-r6-s10-exact-candidate-production-gate-execution-plan.md)
 - [P2-R6-EXT-W1 ENUM/SET Import Design](plans/p2-r6-ext-w1-enum-set-import-design.md)
 - [P2-R6-EXT-W1 ENUM/SET Import Execution Plan](plans/p2-r6-ext-w1-enum-set-import-execution-plan.md)
 - [Proportional Assurance and Risk-Based Verification Policy](policies/proportional-assurance-and-risk-based-verification-policy.md)

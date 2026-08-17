@@ -490,6 +490,10 @@ next_stage_ready: P2-R6-S10 when builder/cache/gate-host prerequisites are ready
 
 ### P2-R6-S10 — Exact-candidate production gate
 
+详细设计：[P2-R6-S10 Exact-Candidate Production Gate Design](p2-r6-s10-exact-candidate-production-gate-design.md)
+
+分步执行：[P2-R6-S10 Exact-Candidate Production Gate Execution Plan](p2-r6-s10-exact-candidate-production-gate-execution-plan.md)
+
 ```yaml
 goal: build, transfer and validate the exact candidate through full, Compose, W1/W2 and v8 gates
 allowed_paths: no candidate writes; audit output and ephemeral remote/gate-host resources only

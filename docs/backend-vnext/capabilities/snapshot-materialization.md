@@ -63,7 +63,8 @@ materialize_business_source_package_preview(source_package) -> SnapshotMateriali
 resolve_snapshot_table_set(snapshot_ref | materialization_result, policy) -> SnapshotTableSet
 ```
 
-当前代码形状、兼容入口和实现边界见 `../notes/snapshot-materialization-implementation-notes.md`。本文档仍以 contract 为准。
+当前代码形状、兼容入口和实现边界的历史笔记见 tag `docs/p2-p3-cleanup-pre-20260817` 中的
+`docs/backend-vnext/notes/snapshot-materialization-implementation-notes.md`。本文档仍以 contract 为准。
 
 规则：
 

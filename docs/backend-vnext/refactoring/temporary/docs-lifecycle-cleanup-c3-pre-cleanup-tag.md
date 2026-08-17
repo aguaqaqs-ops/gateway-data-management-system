@@ -24,7 +24,7 @@ final_cleanup_tag_created: no
 cleanup_commit: null
 retain_owner: Backend vNext Architecture
 archive_medium: git_annotated_tag_and_history
-archive_paths_in_tag: 224
+archive_paths_in_tag: 240
 archive_paths_missing_in_tag: 0
 public_semantics_changed: no
 vnext_changed: no
@@ -41,3 +41,5 @@ git checkout docs/p2-p3-cleanup-pre-20260817 -- \
 ```
 
 C4 才删除默认检索树中的 archive 路径。本记录随后的 docs-only 提交不是 image input。
+C5 复核将 C0 未纳入初始分类的 16 个 raw `.jsonl`/`.log` 证据补入 manifest；它们在本
+不可变 tag 中均可恢复，故当前 manifest 的 archive 总数为 240。tag 对象和提交未改变。

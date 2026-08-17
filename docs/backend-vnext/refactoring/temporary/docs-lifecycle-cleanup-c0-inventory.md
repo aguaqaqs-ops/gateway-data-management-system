@@ -8,7 +8,7 @@
 
 权威计划：[Documentation Lifecycle and Active-Context Cleanup Execution Plan](all-documentation-lifecycle-cleanup-execution-plan.md) §5 C0
 机器可读清单：[docs-lifecycle-cleanup-c0-inventory.json](docs-lifecycle-cleanup-c0-inventory.json)
-上游 P2 身份：[p2-r6-s11-final-handoff.md](p2-r6-s11-final-handoff.md)
+上游 P2 身份：[p2-external-interface-handoff.md](../formal/plans/p2-external-interface-handoff.md)
 
 ## Freeze identity
 
@@ -338,7 +338,7 @@ C0 已看到、必须由 C1 确认的事项：
 | `docs/backend-vnext/refactoring/formal/adr/0006-language-neutral-fixture-oracle.md` | 2736 | `fc6a0c9c` | Superseded by ADR 0010 | 5 | 2 | 0 |
 | `docs/backend-vnext/refactoring/formal/adr/0007-vnext-performance-baseline-authority.md` | 2888 | `fc6a0c9c` | Superseded by ADR 0010 | 3 | 2 | 0 |
 | `docs/backend-vnext/refactoring/formal/adr/0008-generic-dual-store-and-caller-selected-rigor.md` | 3225 | `f7c3678a` | Superseded after WP1-R1 checkpoint by | 3 | 2 | 0 |
-| `docs/backend-vnext/refactoring/formal/adr/0011-artifact-directory-broker-reclaim.md` | 4740 | `c6369a3b` | Superseded by [ADR 0012](0012-cooperative-artifact-cleanup-and-proportional-assurance.md) | 2 | 4 | 0 |
+| `docs/backend-vnext/refactoring/formal/adr/0011-artifact-directory-broker-reclaim.md` | 4740 | `c6369a3b` | Superseded by [ADR 0012](../formal/adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md) | 2 | 4 | 0 |
 | `docs/backend-vnext/refactoring/formal/contracts/canonical-encoding-normative-vector-schema.md` | 1310 | `fc6a0c9c` | Superseded by | 6 | 3 | 0 |
 | `docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md` | 147814 | `f346ef94` | Accepted — Ready for staged implementation | 5 | 2 | 0 |
 | `docs/backend-vnext/refactoring/formal/plans/p2-r5-commit-pinned-read-execution-plan.md` | 51098 | `1fc69258` | Accepted — P2-R5 functional exit complete, P2-R6 ready | 8 | 4 | 0 |
@@ -544,4 +544,3 @@ pre_cleanup_tag_created: no
 inventory_rows: 300
 next: C1
 ```
-

@@ -11,11 +11,13 @@ Owner：Backend vNext Architecture（provider选择、feasibility probe、P2-R1�
 Measurement methodology version：`p2-r1-audit-corrective-v8`
 
 v7 historical artifacts remain frozen under `p2-r1-audit-corrective-v7`. The v8
-implementation contract is defined by the approved
-[v8 Authority and Implementation Brief](p2-r1-v8-authority-and-implementation-brief.md)
-and the superseding rules in this document.
+implementation contract is defined by the approved v8 Authority and Implementation
+Brief and the superseding rules in this document. 过程原文见 tag
+`docs/p2-p3-cleanup-pre-20260817` 的
+`docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-authority-and-implementation-brief.md`。
 
-当前有效决定见 [P2-R1 v8 Formal Go Decision](p2-r1-v8-go-decision-2026-08-05.md)：
+P3 封印状态以 [P2 External Interface Handoff](p2-external-interface-handoff.md) 为准。
+下列为 v8 go 决定原文（过程文件已归档，不作为 Phase 2 完成 authority）：
 
 ```text
 formal_status = go
@@ -470,7 +472,7 @@ approved decision is recorded in the v8 go decision record above.
 ## 10. Related authority
 
 - [Repository Service Contract](../contracts/repository-service.md)
-- [Phase 2 Implementation Design and Delivery Plan](phase-2-implementation-design-and-delivery-plan.md)
+- [P2 External Interface Handoff](p2-external-interface-handoff.md)
 - [Performance Measurement Guidance](../contracts/performance-measurement-and-baseline.md)
 - [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 - [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)

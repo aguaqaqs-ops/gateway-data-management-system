@@ -11,8 +11,10 @@ Owner：Backend vNext Architecture
 也不重新验证 pytest / Dolt / Compose / W1/W2 / v8。
 
 P3 默认入口：[P3 Active Context Index](p3-active-context-index.md)
-完整过程证据（归档前）：[S11 provenance handoff](../../temporary/p2-r6-s11-final-handoff.md)
-Lineage：[S11 lineage inventory](../../temporary/p2-r6-s11-lineage-inventory.json)
+完整过程证据：Git tag `docs/p2-p3-cleanup-pre-20260817` 中的
+`docs/backend-vnext/refactoring/temporary/p2-r6-s11-final-handoff.md` 与
+`docs/backend-vnext/refactoring/temporary/p2-r6-s11-lineage-inventory.json`
+（已离开默认树；恢复：`git checkout docs/p2-p3-cleanup-pre-20260817 -- <path>`）。
 清理：[P2–P3 Cleanup Manifest](p2-p3-cleanup-manifest.yaml)
 
 ```yaml
@@ -148,7 +150,7 @@ scale-ratio 不是 SLO。100,000–1,000,000 rows 仅为 controlled preview。
 | --- | --- |
 | `vnext/repository_service/README.md` | 描述 route 可用，但状态冻结在 P2-R5；S11 禁止把它当作 Phase 2 完成 authority。本计划不改 `vnext/`。 |
 | `vnext/deploy/p2r1-cache/README.md` | 仍指向历史 `e78b564` / p2-r9-s2-step-e；不是当前 image。 |
-| `temporary/phase-2/decision-ledger-*.md` | 过期访谈记录。 |
+| `temporary/phase-2/decision-ledger-*.md`（tag 内） | 过期访谈记录。 |
 | S11 之前的阶段 execution/design 正文 | 过程；本 handoff + contract/ADR 取代其默认检索角色。 |
 
 因 pytest 或 vnext 唯一引用而**不能删除**的路径（C4 必须保留）：
@@ -159,9 +161,9 @@ scale-ratio 不是 SLO。100,000–1,000,000 rows 仅为 controlled preview。
 
 ## 7. Archive
 
-不可变 pre-cleanup tag 名：`docs/p2-p3-cleanup-pre-20260817`（C3；字面量 SHA 在
-tag 之后的外部记录中登记，不写进被 tag 的提交自身）。C4 删除提交后再打
-`docs/p2-p3-cleanup-final-20260817`。路径集合、hash、外部 audit root 与保留责任人
-（Backend vNext Architecture）以
+不可变 pre-cleanup tag：`docs/p2-p3-cleanup-pre-20260817`
+（tag object `93e7a492d81ae9272aaf5835277cf1a30cc3c2bd`，commit `7f2e2ddfd5567775bcc39c3a2e15801897feb845`）。
+C4 已从默认树删除 archive 路径；最终 tag `docs/p2-p3-cleanup-final-20260817` 在 cleanup commit 之后创建。
+路径集合、hash、外部 audit root 与保留责任人（Backend vNext Architecture）以
 [cleanup manifest](p2-p3-cleanup-manifest.yaml) 为准。失败 attempt 与 R1 no-go 不删除，
 只离开默认检索树。

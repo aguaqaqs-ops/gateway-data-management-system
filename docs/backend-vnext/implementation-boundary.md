@@ -194,7 +194,8 @@ benchmarks -> capabilities -> artifacts -> core
 
 ## Implementation Sequence
 
-第一版实现建议按“基础模型 -> 独立 capability -> flow 串联”的顺序推进。详细模块级计划、每阶段完成标准和参考文档见 `implementation-plan.md`；本节只保留长期边界摘要。
+第一版实现建议按“基础模型 -> 独立 capability -> flow 串联”的顺序推进。详细模块级计划、每阶段完成标准和参考文档见本节下列阶段与
+[Implementation Stages](refactoring/formal/plans/implementation-stages.md)；本节只保留长期边界摘要。
 
 阶段：
 

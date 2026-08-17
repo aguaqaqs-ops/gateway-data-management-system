@@ -801,7 +801,7 @@ additive sibling加入：
 - [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 - [ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
-- [Phase 2 Implementation Design and Delivery Plan](../plans/phase-2-implementation-design-and-delivery-plan.md)
+- [P2 External Interface Handoff](../plans/p2-external-interface-handoff.md)
 - [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
 - [Shared Canonical Encoding](shared-canonical-encoding.md)
 - [DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)

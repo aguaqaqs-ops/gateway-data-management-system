@@ -133,5 +133,5 @@ metadata只需要一条有界兼容路径：在root lock下，eligible且可解�
 
 - [ADR 0009 Proportional Assurance](0009-proportional-assurance-and-trusted-internal-repository.md)
 - [Repository Service Contract](../contracts/repository-service.md) §3 / §12 / §17
-- [P2-R6 Operational Closure Execution Plan](../plans/p2-r6-operational-closure-execution-plan.md) §4.1
+- [P2 External Interface Handoff](../plans/p2-external-interface-handoff.md)
 - [Testing Conventions](../../../testing-conventions.md)

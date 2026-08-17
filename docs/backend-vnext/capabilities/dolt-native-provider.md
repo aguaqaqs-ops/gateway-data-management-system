@@ -8,9 +8,8 @@ Contract 见：
 - `comparison-compute.md`
 - `repository-ref-materialization.md`
 
-验证记录见：
-
-- `../dolt-test/dolt-native-diff-functional-test-result-2026-06-21.md`
+验证记录已归档到 tag `docs/p2-p3-cleanup-pre-20260817` 的
+`docs/backend-vnext/dolt-test/dolt-native-diff-functional-test-result-2026-06-21.md`。
 
 ## 设计结论
 

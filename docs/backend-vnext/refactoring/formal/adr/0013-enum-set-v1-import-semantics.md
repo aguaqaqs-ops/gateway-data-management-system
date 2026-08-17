@@ -20,9 +20,9 @@
 - schema/content digest 输入：[Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md) §4
 - golden 目录：[Correctness Golden and Fixture](../contracts/fixture-oracle-and-conformance.md)
 
-首次独立审核为 fail，有限清单见
-[P2-R6-EXT-W1 Stage B Contract Review](../../temporary/p2-r6-ext-w1-stage-b-contract-review.md)。
-下列第 7–9 条是对该清单的收口，不扩大范围。
+首次独立审核为 fail，有限清单见 tag `docs/p2-p3-cleanup-pre-20260817` 中的
+`docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-b-contract-review.md`
+（已离开默认树）。下列第 7–9 条是对该清单的收口，不扩大范围。
 
 ## Context
 

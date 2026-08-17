@@ -407,7 +407,7 @@ Runner 的边界原则：
 
 ```text
 dolt_version: 2.1.8
-test_result: docs/backend-vnext/dolt-test/dolt-import-provider-functional-test-result-2026-06-20.md
+test_result: git tag docs/p2-p3-cleanup-pre-20260817 path docs/backend-vnext/dolt-test/dolt-import-provider-functional-test-result-2026-06-20.md
 ```
 
 已通过 correctness smoke test 的 provider：

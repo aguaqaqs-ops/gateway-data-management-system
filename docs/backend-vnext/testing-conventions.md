@@ -31,8 +31,8 @@ uv run pytest -m serial -n 0   # 时序敏感组，必须串行
 
 ### P2后半段的功能门禁与最终container门禁
 
-P2专用执行规则见
-[P2 Versioned Repository Execution Checklist §1.1](refactoring/formal/plans/p2-versioned-repository-execution-checklist.md)。
+P2后半段的功能门禁与最终container门禁规则见本节与 [AGENTS.md](../../AGENTS.md)。
+历史 P2 execution checklist 见 tag `docs/p2-p3-cleanup-pre-20260817`。
 从P2-R4 post-audit后续修复到R5，在未触碰build/deployment boundary时，允许把镜像构建、
 跨主机传输和实际Compose测试合并到R6最终候选一次执行。期间整仓功能门禁仍使用权威脚本，
 只精确排除实际启动Docker的测试文件：
@@ -257,4 +257,5 @@ SCM_RIGHTS、pidfd或sidecar收敛重新设为S2/S3硬门。
 
 整仓五个 Python 包合计 1031 项测试，`run-tests.sh` 全程约 1m07s。
 
-详见 [Test Suite Runtime Investigation](notes/test-suite-runtime-investigation.md)。
+测量过程原文见 tag `docs/p2-p3-cleanup-pre-20260817` 中的
+`docs/backend-vnext/notes/test-suite-runtime-investigation.md`。

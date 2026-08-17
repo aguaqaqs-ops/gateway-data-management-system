@@ -9,7 +9,7 @@
 权威计划：[Documentation Lifecycle Cleanup Execution Plan](all-documentation-lifecycle-cleanup-execution-plan.md) §5 C1
 上游 C0：[docs-lifecycle-cleanup-c0-inventory.md](docs-lifecycle-cleanup-c0-inventory.md)
 机器可读表：[docs-lifecycle-cleanup-c1-classification.json](docs-lifecycle-cleanup-c1-classification.json)
-P2 完成权威：[p2-r6-s11-final-handoff.md](p2-r6-s11-final-handoff.md)
+P2 接口交付权威：[p2-external-interface-handoff.md](../formal/plans/p2-external-interface-handoff.md)
 
 ## Continue / stop
 
@@ -504,4 +504,3 @@ confirmed_escalate: 0
 unresolved_escalations: 0
 next: C2
 ```
-

@@ -167,8 +167,8 @@ Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-s
 阶段状态：**Completed**（2026-07-27）。Phase 1 exit source commit
 `7702d2127712193a8a88e66ba614dc073922ac15` 已在干净 exact commit 上通过
 `PR-CORRECTNESS`、`PR-NATIVE` 与 `PHASE-EXIT-CONTAINER`；最终签署、immutable
-identity 与九项退出条件核对见
-[Phase 1 Closure Sign-off](../../temporary/phase-1/phase-1-closure-signoff.md)。
+identity 与九项退出条件核对见 tag `docs/p2-p3-cleanup-pre-20260817` 中的
+`docs/backend-vnext/refactoring/temporary/phase-1/phase-1-closure-signoff.md`。
 
 ### 目标
 
@@ -181,7 +181,10 @@ Normative owner文档：
 - [Canonical Row Hash Compute Boundary](../contracts/canonical-row-hash-compute-boundary.md)。
 - [Rust Safety and Performance Policy](../policies/rust-safety-and-performance-policy.md)。
 
-WP0–WP2的package/crate拓扑、依赖接入时点、candidate-to-normative发布流程和可执行gate见[Phase 1 Implementation Design and Delivery Plan](phase-1-implementation-design-and-delivery-plan.md)。该计划只拥有实施顺序与工程边界；canonical byte/schema语义仍以本节列出的owner contract为准。
+WP0–WP2的package/crate拓扑、依赖接入时点、candidate-to-normative发布流程和可执行gate
+以本节与 [DX Cross-Phase Interface Reconciliation](dx-cross-phase-interface-reconciliation.md)
+为准；历史 Phase 1 实施计划见 tag `docs/p2-p3-cleanup-pre-20260817`。canonical byte/schema
+语义仍以本节列出的owner contract为准。
 
 ### 主要工作
 
@@ -285,9 +288,9 @@ Phase exit不接受semantic waiver、`xfail`、advisory-only required lane、临
 依赖Dolt CLI、SQLite文件或repository本地路径，并提供可做普通容量测量的真实
 production environment。
 
-完整实施顺序、revision、gate、evidence和rollback由
-[Phase 2 Implementation Design and Delivery Plan](phase-2-implementation-design-and-delivery-plan.md)
-拥有；public/persisted语义由
+完整实施顺序、revision、gate、evidence和rollback的现行摘要由
+[P2 External Interface Handoff](p2-external-interface-handoff.md)
+拥有；历史 Phase 2 实施计划见 tag `docs/p2-p3-cleanup-pre-20260817`。public/persisted语义由
 [Repository Service Contract](../contracts/repository-service.md)拥有。Journal/
 recovery与canonical import分别遵守
 [External Effect and Recovery](../contracts/external-effect-and-recovery.md)和

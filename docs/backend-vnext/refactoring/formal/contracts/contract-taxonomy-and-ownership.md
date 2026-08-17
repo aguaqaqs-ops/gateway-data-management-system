@@ -4,7 +4,7 @@
 
 阶段：Phase 0–2收口；后续持续治理
 
-本文定义 backend vNext 重构后的 contract 分类、语义所有权、存放位置、依赖方向和变更治理。本文只固定长期规则，不记录讨论过程；讨论记录保留在对应的 `refactoring/temporary/phase-*/` 目录。
+本文定义 backend vNext 重构后的 contract 分类、语义所有权、存放位置、依赖方向和变更治理。本文只固定长期规则，不记录讨论过程；历史讨论记录见 tag `docs/p2-p3-cleanup-pre-20260817` 中对应的 `refactoring/temporary/phase-*/` 路径。
 
 是否需要把内部约定提升为正式contract、增加版本/digest/evidence或扩大验证矩阵，还必须遵守
 [Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)；

@@ -9,11 +9,12 @@ Owner：Backend vNext Architecture（stage boundary与handoff）；Repository Se
 
 适用范围：`P2-R5 — Commit-pinned Read, Remote Client and Fixture Consumer`
 
-本文件是P2-R5的权威逐阶段执行计划。公开wire语义仍由
-[Repository Service Contract](../contracts/repository-service.md)拥有；总体组件与跨round
-边界由[P2 Versioned Repository Implementation Design](p2-versioned-repository-implementation-design.md)
-和[P2 Execution Checklist](p2-versioned-repository-execution-checklist.md)拥有。发生冲突时
-按上述authority顺序暂停实现并修正文档，不用兼容代码维持两套语义。
+本文件因 `vnext/repository_service/README.md` 唯一指针而保留路径，不是 Phase 2
+完成 authority。公开 wire 语义仍由
+[Repository Service Contract](../contracts/repository-service.md)拥有；P2 封印状态由
+[P2 External Interface Handoff](p2-external-interface-handoff.md)拥有。历史跨round
+设计/checklist 见 tag `docs/p2-p3-cleanup-pre-20260817`。发生冲突时按 contract、
+handoff、本文的顺序暂停实现并修正文档，不用兼容代码维持两套语义。
 
 ## 1. S0 baseline and entry decision
 
@@ -830,8 +831,8 @@ container_provenance:
   production_retest_required: yes
 ```
 
-`container_validated_code_sha`来自[P2-R4 Async Versioned Import Staged Execution
-Plan](p2-r4-async-versioned-import-execution-plan.md) handoff，对当前R5 source为
+`container_validated_code_sha`来自已归档的 P2-R4 execution plan handoff（tag
+`docs/p2-p3-cleanup-pre-20260817`），对当前R5 source为
 historical/superseded evidence。S7不写`image_matches_build_context: true`，不把R4历史
 image ID称为R5/current evidence。
 

@@ -45,6 +45,6 @@ Capability 和数据契约参考：
 - `formal/contracts/` 决定重构后的稳定 contract 分类与语义；后续正式 capability contract 也必须位于 `refactoring/formal/` 体系或由其明确引用。
 - 旧 `contracts/` 和 capability 专项文档只作为业务语义、fixture 和实现 oracle，直到对应正式重构 contract 完成替代。
 - ADR 决定已经收口的关键技术选择。
-- `notes/` 只记录阶段性分析、迁移台账和实现事实，不自动提升为长期架构约束。
+- 历史 `notes/` 与已完成 execution/review 已归档到 tag `docs/p2-p3-cleanup-pre-20260817`，不自动提升为长期架构约束。
 
 发现冲突时，不通过代码兼容层同时保留两套含义；先记录冲突，明确 owner，再更新总纲、专项 contract 或新增 ADR。

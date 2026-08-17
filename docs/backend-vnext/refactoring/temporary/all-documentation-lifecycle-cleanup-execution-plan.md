@@ -1,6 +1,6 @@
 # Documentation Lifecycle and Active-Context Cleanup Execution Plan
 
-状态：C3 complete / Ready for C4 removal
+状态：C5 pass / C6 authorized
 
 日期：2026-08-17
 
@@ -179,7 +179,7 @@ pre_cleanup_tag: docs/p2-p3-cleanup-pre-20260817
 pre_cleanup_tag_object: 93e7a492d81ae9272aaf5835277cf1a30cc3c2bd
 pre_cleanup_commit: 7f2e2ddfd5567775bcc39c3a2e15801897feb845
 final_cleanup_tag_created: no
-archive_paths_in_tag: 224
+archive_paths_in_tag: 240
 archive_paths_missing_in_tag: 0
 amend_or_rebase: no
 ```
@@ -195,7 +195,27 @@ amend_or_rebase: no
 若某个 formal plan 仍需链接历史证据，改为链接 cleanup manifest、tag/commit 和最终 handoff，
 不要保留一串阶段性 step 文档作为 active dependency。
 
+C4 产物（2026-08-17）：
+
+- [C4 removal record](docs-lifecycle-cleanup-c4-removal.md)
+
+```yaml
+c4_status: complete
+c4_continue_plan: yes
+deleted_from_default_tree: 236
+c1_archive_deleted: 220
+c1_archive_kept_until_c6: 4
+c0_unclassified_evidence_deleted: 16
+copied_into_docs_archive_dir: no
+vnext_changed: no
+public_semantics_changed: no
+final_cleanup_tag_created: no
+```
+
 ### C5 - Verification and independent review
+
+当前审核记录：[C5 Verification and Independent Review](docs-lifecycle-cleanup-c5-verification-review.md)
+（`review_status: pass`；C6 已获授权）。
 
 只做与文档风险相称的验证：
 

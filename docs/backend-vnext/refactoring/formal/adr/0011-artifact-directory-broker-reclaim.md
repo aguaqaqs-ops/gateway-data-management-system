@@ -90,5 +90,5 @@ upload/admission/delete、或本 ADR 威胁模型无法测试证明：保持 `S3
 ## Related authority
 
 - [Repository Service Contract](../contracts/repository-service.md) §12 / §17
-- [P2-R6 Operational Closure Execution Plan](../plans/p2-r6-operational-closure-execution-plan.md) §4.1
+- [P2 External Interface Handoff](../plans/p2-external-interface-handoff.md)
 - [ADR 0009 Proportional Assurance](0009-proportional-assurance-and-trusted-internal-repository.md)

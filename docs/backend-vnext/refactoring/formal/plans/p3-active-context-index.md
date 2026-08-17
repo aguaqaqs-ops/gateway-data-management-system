@@ -101,7 +101,7 @@ GET  /readyz
 | 材料 | 原因 |
 | --- | --- |
 | `vnext/repository_service/README.md` 状态行 | 冻结在 P2-R5；不是 `phase_2_complete` authority |
-| `temporary/` 执行记录、review、attempt | 过程证据；C4 归档 |
+| `temporary/` 执行记录、review、attempt | 过程证据；已归档到 pre-cleanup tag |
 | decision ledger Round 0–11 | 过期 ACCEPTED 与现行 RS contract 冲突 |
 | 各轮 execution/design plan 正文 | 完成后过程文档；reopen/限制已抽到 P2 handoff |
 | 旧 `docs/backend-vnext/contracts/` 当作 RS wire | Architecture 已降为 oracle |
@@ -136,7 +136,11 @@ P3 默认 allowlist（设计检索，不是源码扫描）：
 
 默认排除：
 
-- `docs/backend-vnext/refactoring/temporary/`（除 C4 完成前仍需的 cleanup 过程文件）
+- `docs/backend-vnext/refactoring/temporary/`（除 C6 前仍需的 cleanup 过程文件，以及
+  因 `vnext/deploy/p2r1-cache/README.md` 唯一指针而保留的
+  `p2-r9-s2-step-e-container-gate.md`）
+- 已完成的 formal execution/design plan、v8 archive、decision ledger、`notes/`、
+  `dolt-test/`（走 pre-cleanup tag 与 manifest）
 - 源码树、fixture payload、lockfile、OpenAPI 生成物的手写副本
 - 已完成 gate 的 raw logs / JSON summary（走 manifest 与外部 audit root）
 

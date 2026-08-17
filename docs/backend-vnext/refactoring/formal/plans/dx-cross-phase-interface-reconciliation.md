@@ -245,8 +245,9 @@ Kernel canonical corpus获得通过。
 
 每个revision独立提交并在其owner范围内保持green：
 
-五轮跨对话执行、定向验证和handoff格式见
-[S02 Code Cleanup Execution Checklist](s02-code-cleanup-execution-checklist.md)。
+五轮跨对话执行已完成。历史 checklist 见 tag `docs/p2-p3-cleanup-pre-20260817` 中的
+`docs/backend-vnext/refactoring/formal/plans/s02-code-cleanup-execution-checklist.md`。
+下列为已落地的 commit sequence 摘要：
 
 1. `S02-C1 delivery-control removal`
    - 删除Phase 2 gate/router/closure/traceability运行时引用、命令和CI；

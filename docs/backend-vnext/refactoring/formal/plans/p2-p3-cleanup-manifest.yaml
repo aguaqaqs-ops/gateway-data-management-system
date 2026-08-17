@@ -1,17 +1,19 @@
 schema: gateway.docs-lifecycle-cleanup.manifest
 schema_version: 1
 stage: docs-lifecycle-cleanup
-step: C3
+step: C5
 c2_status: complete
 c3_status: complete
-generated_at: 2026-08-17T12:05:05Z
+c4_status: complete
+c5_status: pass
+generated_at: 2026-08-17T12:16:00Z
 note: >
-  C3 post-tag identity. Literal pre_cleanup_tag_sha / pre_cleanup_commit
-  are recorded here after the annotated tag exists. The tagged commit
-  itself used this_pre_cleanup_commit and is not amended.
-  Final tag and cleanup_commit remain null until C4. File hashes are
-  content SHA-256. The manifest path uses not_self_hashed.
-  This file is not image input. public_semantics_changed: no
+  C4 removed archive paths from the default tree. Git tag
+  docs/p2-p3-cleanup-pre-20260817 remains the archive medium.
+  Final tag and cleanup_commit remain null until C6. File hashes in
+  the path tables are C2/C3 content SHA-256 of the pre-cleanup tree.
+  The manifest path uses not_self_hashed. This file is not image input.
+  public_semantics_changed: no
 retain_owner: Backend vNext Architecture
 archive_medium: git_annotated_tag_and_history
 identity:
@@ -34,13 +36,16 @@ tags:
   proposed_final_tag: docs/p2-p3-cleanup-final-20260817
   final_tag_sha: null
   cleanup_commit: null
-  create_gate: C3-complete-C4-pending
+  create_gate: C5-pass-C6-authorized
 artifacts:
   p3_active_context_index: docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
   p2_interface_handoff: docs/backend-vnext/refactoring/formal/plans/p2-external-interface-handoff.md
   manifest: docs/backend-vnext/refactoring/formal/plans/p2-p3-cleanup-manifest.yaml
   c0_inventory: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c0-inventory.md
   c1_classification: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c1-classification.md
+  c3_pre_cleanup_tag: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c3-pre-cleanup-tag.md
+  c4_removal: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c4-removal.md
+  c5_verification_review: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c5-verification-review.md
 external_audit_root:
   - /root/gateway-s10-audit/p2-r6-s10-20260817T015148Z
   - /var/lib/gateway/repository/audit-rerun/p2-r6-s10-20260817T015148Z
@@ -52,7 +57,13 @@ counts:
   retain_in_place: 5
   must_retain_source_pointer: 3
   leave_in_vnext: 6
-  archive: 224
+  archive: 240
+  deleted_from_default_tree: 236
+  c1_archive_deleted: 220
+  c1_archive_kept_until_c6: 4
+  c0_unclassified_evidence_deleted: 16
+  remaining_cleanup_process_in_tree: 8
+  must_retain_source_pointer_in_tree: 3
 paths:
   retain_active:
     - path: AGENTS.md
@@ -188,8 +199,8 @@ paths:
     - path: docs/backend-vnext/refactoring/formal/plans/p2-external-interface-handoff.md
       class: ACTIVE_INTERFACE
       role: c2_active_context_artifact
-      sha256: ba08791eee390ad3e314fd024a361ae24db9ec645ab194da997cd2f92d5435d3
-      bytes: 7406
+      sha256: 6cfbd2c2c62b6a341d428db657b3670d374923c86882cf42fbb99b2b968cc313
+      bytes: 7555
     - path: docs/backend-vnext/refactoring/formal/plans/p2-p3-cleanup-manifest.yaml
       class: EVIDENCE
       role: c2_active_context_artifact
@@ -575,6 +586,11 @@ paths:
       role: completed_gate_archive
       sha256: 3c74995fd99135ba880a5ef07dcbb17f23727bb947ca0c755aae4034d48acb0d
       bytes: 734
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-diagnostics-50f05cf-2026-08-04/a-paired/a-devnull.jsonl
+      class: EVIDENCE
+      role: raw_diagnostic_evidence
+      sha256: 656ab331467a0c7e4f0902fc453afc0b9de0aa3730237a176d38dd6d1c23e22a
+      bytes: 486083
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-diagnostics-50f05cf-2026-08-04/a-paired/a-devnull.summary.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -590,6 +606,11 @@ paths:
       role: completed_gate_archive
       sha256: 3c74995fd99135ba880a5ef07dcbb17f23727bb947ca0c755aae4034d48acb0d
       bytes: 734
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-diagnostics-50f05cf-2026-08-04/b-restart/b-restart.jsonl
+      class: EVIDENCE
+      role: raw_diagnostic_evidence
+      sha256: 8b9ee331e2e88dd45d5edae424c6f91a0a8ee26a3bb207db1e84998a68f18f65
+      bytes: 260456
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-diagnostics-50f05cf-2026-08-04/b-restart/b-restart.summary.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -605,6 +626,11 @@ paths:
       role: completed_gate_archive
       sha256: be07861bff56ce9039bb454ac51c13278c18dc0c862418498f0f7cc16a160611
       bytes: 471380
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-formal-rerun-19fb10f-raw-2026-08-04.jsonl
+      class: EVIDENCE
+      role: raw_diagnostic_evidence
+      sha256: 421ec4ff0de60e0e13782a98be04c3539de76ee46eee3d54b94703ae6fee7a1d
+      bytes: 1419580
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-formal-rerun-19fb10f-run-report-2026-08-04.md
       class: EVIDENCE
       role: completed_gate_archive
@@ -620,6 +646,11 @@ paths:
       role: completed_gate_archive
       sha256: a144d5f708a0bd8659f621176e5c74843bed343cde8f76844bdf539e1f357db4
       bytes: 758
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-formal-rerun-80858ca-2026-08-04/p2-r1.jsonl
+      class: EVIDENCE
+      role: raw_diagnostic_evidence
+      sha256: 130a477bf0edbf0f5cfe0c417dc02b0b85d8be0d9b0f3b233c9c05043b1cc5e2
+      bytes: 1446754
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-formal-rerun-80858ca-2026-08-04/p2-r1.summary.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -640,6 +671,11 @@ paths:
       role: completed_gate_archive
       sha256: 5354f41dc4b323deb56692ca16869c5a37fcadc4f79e0ecc3378c7daa5e0b446
       bytes: 10468
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-provider-measurements-2026-08-02.jsonl
+      class: EVIDENCE
+      role: raw_provider_measurements
+      sha256: f5f5c7aa8d7a0b2dd5b952cc6be9e6d5aa7282442602e11fbab89b6721cff516
+      bytes: 69550
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-provider-summary-2026-08-02.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -650,6 +686,11 @@ paths:
       role: completed_gate_archive
       sha256: ad543bfb19f000ccad09f28db3a5a1d07c6090240f20731bdc048af8f3e3c624
       bytes: 1514
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-target-image-measurements-2026-08-02.jsonl
+      class: EVIDENCE
+      role: raw_provider_measurements
+      sha256: 9253579edd524600988dadc70f88afb578aaf67b037d01338b61f20f3e7d2eef
+      bytes: 69355
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-authority-and-implementation-brief.md
       class: EVIDENCE
       role: completed_gate_archive
@@ -665,6 +706,11 @@ paths:
       role: completed_gate_archive
       sha256: 0e2054c762073cfef093b75ea8159ffb72012c1bd28c5d05591c7e0bebf1ec57
       bytes: 656
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-formal-80aff3e-2026-08-05/p2-r1-v8.jsonl
+      class: EVIDENCE
+      role: raw_formal_evidence
+      sha256: d9d31ca7ad4fc90d21f7b4ca0dc1d03493773c89ae18683fb76fd99b8d9dbf3d
+      bytes: 690097
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-formal-80aff3e-2026-08-05/p2-r1-v8.summary.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -685,6 +731,11 @@ paths:
       role: completed_gate_archive
       sha256: 6abe9bd0707a9cf59f47f9b933047f375b38c0592911639f089f85c407d66d33
       bytes: 730
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-00232da-2026-08-05/v8-smoke-00232da-a2/a-w0.jsonl
+      class: EVIDENCE
+      role: raw_smoke_evidence
+      sha256: 5f83fc0c43415cdaae5421732e5520f51a2e055caef7c2bf6fce68a688808ed9
+      bytes: 91252
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-00232da-2026-08-05/v8-smoke-00232da-a2/a-w0.summary.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -695,6 +746,11 @@ paths:
       role: completed_gate_archive
       sha256: db8b6a6577ce9cc5b80d7c0534e01f5a143a9b9b17570759c84afe651dc2d628
       bytes: 631
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-00232da-2026-08-05/v8-smoke-00232da-b/b-w0.jsonl
+      class: EVIDENCE
+      role: raw_smoke_evidence
+      sha256: 7163721756cadfe5cca9b4f27ac9ae93ee45731cdad4033f1c0dfd53bef2c4eb
+      bytes: 7669
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-00232da-2026-08-05/v8-smoke-00232da-b/b-w0.summary.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -710,6 +766,11 @@ paths:
       role: completed_gate_archive
       sha256: 2ba4d49c51de63b6ac4da596f5682e196fe649afd360d929211be75cf46aab1b
       bytes: 640
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-36f8c2f-2026-08-05/v8-smoke-36f8c2f-a/a-w0.jsonl
+      class: EVIDENCE
+      role: raw_smoke_evidence
+      sha256: ea58f0e6dbc4510369b935eb843d84b93e75a40a58ec3a8b3dd10b08fe634c26
+      bytes: 7666
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-36f8c2f-2026-08-05/v8-smoke-36f8c2f-a/a-w0.summary.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -720,6 +781,11 @@ paths:
       role: completed_gate_archive
       sha256: db8b6a6577ce9cc5b80d7c0534e01f5a143a9b9b17570759c84afe651dc2d628
       bytes: 631
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-36f8c2f-2026-08-05/v8-smoke-36f8c2f-b/b-w0.jsonl
+      class: EVIDENCE
+      role: raw_smoke_evidence
+      sha256: a48b9d31bdaddc3b1573ededcf6c7315283a63358dfa854c1698f065feb71d88
+      bytes: 7792
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-36f8c2f-2026-08-05/v8-smoke-36f8c2f-b/b-w0.summary.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -735,6 +801,11 @@ paths:
       role: completed_gate_archive
       sha256: cd3beb8eb265a287c5f390c0a921d35ada3cbbc87285831213ac5c9812abe6bb
       bytes: 478
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-80aff3e-2026-08-05/v8-smoke-80aff3e-a/a-w0.jsonl
+      class: EVIDENCE
+      role: raw_smoke_evidence
+      sha256: 2ac59b9738547408479d644d2190aa619fe66b359f97116c17825fd37c71ebeb
+      bytes: 7722
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-80aff3e-2026-08-05/v8-smoke-80aff3e-a/a-w0.summary.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -745,6 +816,11 @@ paths:
       role: completed_gate_archive
       sha256: 767841de79288d938c162e00da057776c74f26e0e13d31486359411dc23adadc
       bytes: 409
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-80aff3e-2026-08-05/v8-smoke-80aff3e-b/b-w0.jsonl
+      class: EVIDENCE
+      role: raw_smoke_evidence
+      sha256: 9774003a040a6604d73e544aeadd74c7613e522fcab66d46dd010bb17d732bb3
+      bytes: 7840
     - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-80aff3e-2026-08-05/v8-smoke-80aff3e-b/b-w0.summary.json
       class: EVIDENCE
       role: completed_gate_archive
@@ -848,13 +924,13 @@ paths:
     - path: docs/backend-vnext/refactoring/temporary/README.md
       class: HISTORICAL
       role: temporary_index
-      sha256: f977f2349d265e53e65812db02cbc1308170e614d01f12e8f8acdd0596ca0b17
-      bytes: 2371
+      sha256: 9a5549fa1c9bde4e53eb58c755a37f5704a42c03a4f797492b28c802540ba735
+      bytes: 2440
     - path: docs/backend-vnext/refactoring/temporary/all-documentation-lifecycle-cleanup-execution-plan.md
       class: HISTORICAL
       role: cleanup_process
-      sha256: 0ee7c0947249aaec39398dd2dfe565c2acf2adaa646b7cfbab2f374ed3683989
-      bytes: 10497
+      sha256: 7bce009c1b0bceb1f22e7090968974b4f6ddf7521424e89a3f58d51d782a75dd
+      bytes: 10496
     - path: docs/backend-vnext/refactoring/temporary/architecture-simplification-execution-plan.md
       class: HISTORICAL
       role: stale_active_process_plan
@@ -1310,6 +1386,21 @@ paths:
       role: temporary_execution_record
       sha256: 269839e7cd5186016900e98735e87d700212153fa7c706a0525b1b52ca6fe4fc
       bytes: 14775
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-3-run-tests.fail-1.log
+      class: EVIDENCE
+      role: raw_test_log
+      sha256: 80d7691e777f9b5ebe6b02da6026edf6cdae895017106f9f8e5cc7938c7aba7d
+      bytes: 9006
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-3-run-tests.log
+      class: EVIDENCE
+      role: raw_test_log
+      sha256: 65fa698473e997ec1a97a9f3fbc342465542c1e7cd47fcd881be0607e5506a7f
+      bytes: 456521
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-3-run-tests.quiet.log
+      class: EVIDENCE
+      role: raw_test_log
+      sha256: 93e5224df5de211ff8e81cef665ee39072759dac52689c35602539bf93bd5ede
+      bytes: 4154
     - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-4-candidate-seal-packet.md
       class: HISTORICAL
       role: temporary_execution_record

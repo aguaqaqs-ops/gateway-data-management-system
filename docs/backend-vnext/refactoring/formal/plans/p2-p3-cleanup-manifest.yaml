@@ -3,11 +3,12 @@ schema_version: 1
 stage: docs-lifecycle-cleanup
 step: C3
 c2_status: complete
-c3_status: tagging
+c3_status: complete
 generated_at: 2026-08-17T12:05:05Z
 note: >
-  C3 pre-cleanup snapshot. pre_cleanup_tag_sha is this docs-only commit
-  and is not written as a self-referential git SHA in this file.
+  C3 post-tag identity. Literal pre_cleanup_tag_sha / pre_cleanup_commit
+  are recorded here after the annotated tag exists. The tagged commit
+  itself used this_pre_cleanup_commit and is not amended.
   Final tag and cleanup_commit remain null until C4. File hashes are
   content SHA-256. The manifest path uses not_self_hashed.
   This file is not image input. public_semantics_changed: no
@@ -27,11 +28,13 @@ identity:
   phase_2_complete: true
 tags:
   proposed_pre_cleanup_tag: docs/p2-p3-cleanup-pre-20260817
-  pre_cleanup_tag_sha: this_pre_cleanup_commit
+  pre_cleanup_tag: docs/p2-p3-cleanup-pre-20260817
+  pre_cleanup_tag_object: 93e7a492d81ae9272aaf5835277cf1a30cc3c2bd
+  pre_cleanup_commit: 7f2e2ddfd5567775bcc39c3a2e15801897feb845
   proposed_final_tag: docs/p2-p3-cleanup-final-20260817
   final_tag_sha: null
   cleanup_commit: null
-  create_gate: C3
+  create_gate: C3-complete-C4-pending
 artifacts:
   p3_active_context_index: docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
   p2_interface_handoff: docs/backend-vnext/refactoring/formal/plans/p2-external-interface-handoff.md

@@ -1,6 +1,6 @@
 # Documentation Lifecycle and Active-Context Cleanup Execution Plan
 
-状态：C3 tagging / pre-cleanup snapshot
+状态：C3 complete / Ready for C4 removal
 
 日期：2026-08-17
 
@@ -167,6 +167,22 @@ docs/p2-p3-cleanup-final-20260817
 
 manifest 必须记录两个 tag、cleanup commit、被归档路径集合、每个归档文件的 hash、
 外部 audit root 和保留责任人。不得 amend、rebase 或复用已存在 tag。
+
+C3 产物（2026-08-17）：
+
+- 不可变 annotated tag：`docs/p2-p3-cleanup-pre-20260817`
+- [C3 pre-cleanup tag record](docs-lifecycle-cleanup-c3-pre-cleanup-tag.md)
+
+```yaml
+c3_status: complete
+pre_cleanup_tag: docs/p2-p3-cleanup-pre-20260817
+pre_cleanup_tag_object: 93e7a492d81ae9272aaf5835277cf1a30cc3c2bd
+pre_cleanup_commit: 7f2e2ddfd5567775bcc39c3a2e15801897feb845
+final_cleanup_tag_created: no
+archive_paths_in_tag: 224
+archive_paths_missing_in_tag: 0
+amend_or_rebase: no
+```
 
 ### C4 - Remove default retrieval noise
 

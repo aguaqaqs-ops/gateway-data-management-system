@@ -1,0 +1,330 @@
+{
+  "schema": "gateway.p2r6.s11.lineage-inventory",
+  "schema_version": 1,
+  "stage": "P2-R6-S11",
+  "step": "S11-4",
+  "s11_documentation_attempt": "attempt-1",
+  "s11_attempt_prefix": "p2-r6-s11-attempt-1",
+  "generated_date": "2026-08-17",
+  "note": "This inventory does not include its own SHA-256. provenance_documentation_sha is this docs-only commit and is not written as a self-referential git SHA in this file.",
+  "identity": {
+    "branch": "phase1/gate-ownership-repair",
+    "documentation_head_sha": "a72227ae8132042924d90d602ea07772844f60e5",
+    "documentation_head_role": "s10_11_docs_only_commit_not_image_input",
+    "candidate_sha": "2ef884278b4998dde1e5fe224532c89b7a0cd73a",
+    "validated_code_sha": "2ef884278b4998dde1e5fe224532c89b7a0cd73a",
+    "container_validated_code_sha": "2ef884278b4998dde1e5fe224532c89b7a0cd73a",
+    "build_input_revision": "3e4bd1fca0e52a0497bbc5a7bf69071a744fd952",
+    "source_tree_sha256": "sha256:c35db6ace55c20b52b8a920b6c5b264b83ba6c7d67d2916282fb11cffcf76686",
+    "service_uv_lock_sha256": "6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11",
+    "client_uv_lock_sha256": "6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954",
+    "provenance_documentation_sha": "this_docs_only_commit",
+    "phase_2_complete": true
+  },
+  "final_image": {
+    "service_image": "gateway-repository-service:p2-r6-final",
+    "service_image_local_tag": "gateway-repository-service:local",
+    "service_image_id": "sha256:4b8f88edf798b2d67b46effa2a9f7f10029bdd657b508b5e342fd26a2e4a2be6",
+    "historical_s9_tag_retained": "gateway-repository-service:2ef884278b49",
+    "client_image": "gateway-repository-client-e2e:local",
+    "client_image_id": "sha256:4a6cacec7b4e5e24b45a7f569822e8e0e0a930904a6d13b6145e1c18c384ef1b",
+    "host_runner_identity": "host-runner:candidate=2ef884278b4998dde1e5fe224532c89b7a0cd73a;client_uv_lock_sha256=6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954",
+    "adapter_sha256": "af672fa091a7388fb587ae2eef86e767990cf7b7990fd34a0b98b84f26b41150",
+    "installed_launcher_sha256": "2782a83f4465f1d9505a5347e1cc418ebd64f8fe73e2e9964d5235945da54a88",
+    "image_matches_build_context": true,
+    "dual_tag_identical": true,
+    "same_daemon_build_and_gate": true
+  },
+  "lineage": [
+    {
+      "round": "P2-R1",
+      "role": "ancestor_exit",
+      "status": "go",
+      "validated_code_sha": "80aff3e6ff92e6d21aaa7fe73c9a2feafdc1efce",
+      "provenance_documentation_sha": "969b36912702cfe8a1a6f9031b00c8c190713710",
+      "container_validated_code_sha": "80aff3e6ff92e6d21aaa7fe73c9a2feafdc1efce",
+      "historical_image_id": "sha256:ddc7a41226ea50997ebaa8ec2c3227aa9b83adc7ee3bc1f226d661bf051cea98",
+      "historical_source_tree_sha256": "sha256:ab97a6d628f24ede8ff4ed0adb24a0749d186e990b51073bffed0a0bc4ceeab1",
+      "historical_lock_sha256": "fce9185b59b654729670c618c352f9f7a458fb2de40bbd2e088158e81a771e65",
+      "current_image_input": false,
+      "authority": "docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-go-decision-2026-08-05.md",
+      "notes": "Candidate A 66/66 v8 formal go. Candidate B reserved_not_evaluated. Historical image/digest superseded by later candidates."
+    },
+    {
+      "round": "P2-R2",
+      "role": "ancestor_exit",
+      "status": "pass",
+      "validated_code_sha": "c94e3e8ef90d42c10f7714383412082bd7e8e846",
+      "provenance_documentation_sha": null,
+      "container_validated_code_sha": null,
+      "current_image_input": false,
+      "authority": "docs/backend-vnext/refactoring/formal/plans/p2-versioned-repository-execution-checklist.md#4-p2-r2--service-shell-auth-and-control-lifecycle",
+      "notes": "No separate final-handoff file. Validated SHA is the checklist §4 exit commit test(repository): close service shell integration."
+    },
+    {
+      "round": "P2-R3",
+      "role": "ancestor_exit",
+      "status": "pass",
+      "validated_code_sha": "a0ef723e0a8043beee09a0b0cb4f1408db5ffc5e",
+      "provenance_documentation_sha": null,
+      "container_validated_code_sha": null,
+      "current_image_input": false,
+      "authority": "docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md",
+      "notes": "R4 plan required this SHA as the P2-R3 handoff ancestor."
+    },
+    {
+      "round": "P2-R4",
+      "role": "ancestor_exit",
+      "status": "pass",
+      "validated_code_sha": "bf8c3562018d264aed22987f00d14f2dbe233697",
+      "provenance_documentation_sha": "52d66bf9030dbe9ac7ac933c36e460ba76f4c3ba",
+      "container_validated_code_sha": "901a13b92a0a92130d9afa001d8eb4273d544566",
+      "container_validation_status": "historical_not_current_source",
+      "current_image_input": false,
+      "authority": "docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md",
+      "notes": "Post-audit round-2 final R4 exit. Container SHA 901a13b9 is historical and must not prove later source."
+    },
+    {
+      "round": "P2-R5",
+      "role": "ancestor_exit",
+      "status": "pass",
+      "validated_code_sha": "7091c2c4836eebdc4cbee4424f20297b2d2f88bb",
+      "provenance_documentation_sha": "cbc894ffda006130a53e57e8004895b93e8da74a",
+      "handoff_review_fix_sha": "1fc69258047e416aff73e77e085fed3a76e37686",
+      "container_validated_code_sha": "901a13b92a0a92130d9afa001d8eb4273d544566",
+      "current_source_container_validated": false,
+      "container_validation_deferred_to": "P2-R6",
+      "current_image_input": false,
+      "authority": "docs/backend-vnext/refactoring/formal/plans/p2-r5-commit-pinned-read-execution-plan.md",
+      "notes": "Functional exit complete. Historical container SHA does not validate 7091c2c4 source."
+    },
+    {
+      "round": "P2-R6",
+      "role": "current_production_identity_owner",
+      "status": "phase_2_complete",
+      "stages": [
+        {
+          "stage": "P2-R6-S0",
+          "role": "ancestor_exit",
+          "start_sha": "1fc69258047e416aff73e77e085fed3a76e37686",
+          "validated_code_sha": "7091c2c4836eebdc4cbee4424f20297b2d2f88bb",
+          "authority": "docs/backend-vnext/refactoring/formal/plans/p2-r6-operational-closure-execution-plan.md"
+        },
+        {
+          "stage": "P2-R6-EXT-W1-S6",
+          "role": "ancestor_exit",
+          "s5_validated_candidate": "e7a6e42d961a75c5a35a385bd67d9417779c22b5",
+          "container_validated_code_sha": "656a66bf04714cce987c85649246c3767b2586e2",
+          "documentation_head_sha": "0b4969fe04ab3d133c297a474bac1ecc27111336",
+          "current_image_input": false,
+          "authority": "docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-k-final-handoff.md"
+        },
+        {
+          "stage": "P2-R6-S7",
+          "role": "ancestor_exit",
+          "validated_code_sha": "5f474ce2ccf15f11ea07f263edf3fb04c771d410",
+          "container_validated_code_sha": "5f474ce2ccf15f11ea07f263edf3fb04c771d410",
+          "service_image_id": "sha256:ba0ac70a6c63d2f415ff75328a210332ec5948edae6e654a29d5132e85849fa3",
+          "client_image_id": "sha256:d4e07d7900d70df49df6f2628cc1cf542a6e02c8772e8cab35cedf82972ee461",
+          "source_tree_sha256": "sha256:b1e7576c8444967e4754774368ac34186724787494ff8fae6bb950b433c71ce2",
+          "documentation_head_sha": "1bfa1d7f3eb6311d4895974bcec8238cf7cd6f09",
+          "current_image_input": false,
+          "authority": "docs/backend-vnext/refactoring/temporary/p2-r6-s7-final-handoff.md"
+        },
+        {
+          "stage": "P2-R6-S8",
+          "role": "sealed_current_source_candidate",
+          "validated_code_sha": "2ef884278b4998dde1e5fe224532c89b7a0cd73a",
+          "container_validated_code_sha": "deferred_at_s8",
+          "documentation_head_sha": "71da506171d01bbccdf2c54137949cdd0bff234e",
+          "authority": "docs/backend-vnext/refactoring/temporary/p2-r6-s8-final-handoff.md"
+        },
+        {
+          "stage": "P2-R6-S9",
+          "role": "external_candidate_seal",
+          "validated_code_sha": "2ef884278b4998dde1e5fe224532c89b7a0cd73a",
+          "container_validated_code_sha": "deferred_at_s9",
+          "provisional_service_image_id": "sha256:4b8f88edf798b2d67b46effa2a9f7f10029bdd657b508b5e342fd26a2e4a2be6",
+          "documentation_head_sha": "21c99ef3202f3cfd63a24d4e08cd869e36ff0af0",
+          "authority": "docs/backend-vnext/refactoring/temporary/p2-r6-s9-final-handoff.md",
+          "notes": "S9 provisional image ID matches the later S10 final ID; S9 still recorded container_validated_code_sha as deferred."
+        },
+        {
+          "stage": "P2-R6-S10",
+          "role": "current_container_validated_and_production_seal",
+          "validated_code_sha": "2ef884278b4998dde1e5fe224532c89b7a0cd73a",
+          "container_validated_code_sha": "2ef884278b4998dde1e5fe224532c89b7a0cd73a",
+          "documentation_head_sha": "a72227ae8132042924d90d602ea07772844f60e5",
+          "S10_exit": "pass",
+          "S11_ready": true,
+          "production_retest_required": false,
+          "authority": "docs/backend-vnext/refactoring/temporary/p2-r6-s10-final-handoff.md"
+        },
+        {
+          "stage": "P2-R6-S11",
+          "role": "documentation_provenance_and_phase_2_exit",
+          "validated_code_sha": "2ef884278b4998dde1e5fe224532c89b7a0cd73a",
+          "container_validated_code_sha": "2ef884278b4998dde1e5fe224532c89b7a0cd73a",
+          "documentation_head_sha": "a72227ae8132042924d90d602ea07772844f60e5",
+          "provenance_documentation_sha": "this_docs_only_commit",
+          "S11_exit": "pass",
+          "phase_2_complete": true,
+          "current_image_input": false,
+          "authority": "docs/backend-vnext/refactoring/temporary/p2-r6-s11-final-handoff.md"
+        }
+      ]
+    }
+  ],
+  "hard_gates": {
+    "source": "docs/backend-vnext/refactoring/temporary/p2-r6-s10-final-handoff.md",
+    "no_ignore_full_gate": "pass",
+    "repository_service_total_collected": 1844,
+    "four_compose_nodeids": "pass",
+    "eight_docker_nodeids": "pass",
+    "w1_medium_production_repeat": "pass",
+    "w2_production_repeat": "pass",
+    "w1_w2_classification": "hard_gate",
+    "w1_w2_timing_rss_classification": "advisory_not_slo",
+    "candidate_a_w0_smoke": "pass",
+    "w0_classification": "diagnostic_only_not_formal",
+    "candidate_a_v8_formal": "pass",
+    "v8_records": "66/66",
+    "v8_formal_status": "go",
+    "v8_selected_provider": "candidate_a_offline_cli",
+    "candidate_b_status": "reserved_not_evaluated",
+    "v8_scale_ratio_resource_classification": "advisory_not_slo",
+    "zero_owned_residual": true,
+    "independent_final_review": "pass",
+    "production_retest_required": false,
+    "S10_exit": "pass"
+  },
+  "capacity_limits": {
+    "max_upload_bytes": 268435456,
+    "max_replay_sql_bytes": 209715200,
+    "w2_replay_band": "180-199 MiB",
+    "w2_replay_bytes_s10": 201681690,
+    "max_import_workers": 4,
+    "max_queued_imports": 64,
+    "max_concurrent_row_streams": 8,
+    "max_concurrent_uploads": 8,
+    "import_headroom_bytes": 1073741824,
+    "min_free_disk_bytes": 5368709120,
+    "min_free_disk_fraction": 0.1,
+    "max_catalog_json_bytes": 262144,
+    "v8_supported_rows_max": 100000,
+    "v8_replay_sql_max": "200 MiB",
+    "v8_rows_100k_to_1m": "controlled_preview_not_production_support",
+    "recommended_concurrency": {
+      "value": 2,
+      "classification": "advisory_not_slo"
+    }
+  },
+  "limitations_and_non_goals": [
+    "Candidate B remains reserved_not_evaluated and must not be default-enabled.",
+    "W1/W2 timing and RSS comparisons are advisory and are not SLOs.",
+    "v8 scale-ratio warning and resource advisory do not change the hard gate.",
+    "100,000-1,000,000 rows remain controlled preview only.",
+    "Public GC, backup, repair, metrics platform, and RPO/RTO guarantees are non-goals.",
+    "Phase 3 implementation is a non-goal; next authorized work after successful S11 is Phase 3 full design only.",
+    "Documentation HEAD a72227ae and this S11 docs-only commit are not validated_code_sha, CANDIDATE_SHA, or image revision.",
+    "Historical container SHAs 901a13b9, 656a66bf, 5f474ce2, and R1 image ddc7a412 do not prove the current candidate.",
+    "v8 artifact field production_retest_required=true is historical P2-R1 content and does not override the S10 seal."
+  ],
+  "attempt_ledger": [
+    {"round": "P2-R1", "attempt": "no-go-2026-08-04", "status": "fail", "commit": "f28783e46513376e7afb9a7861b6f53f9fabc74c", "note": "Preserved historical no-go; not rewritten as go."},
+    {"round": "P2-R1", "attempt": "v8-formal-80aff3e", "status": "pass", "note": "Authoritative R1 go."},
+    {"round": "P2-R6-S10", "step": "S10-0", "attempt": 1, "status": "fail", "note": "S10_entry_ready: no"},
+    {"round": "P2-R6-S10", "step": "S10-0", "attempt": 2, "status": "pass", "note": "operator repair after S10-1 fail"},
+    {"round": "P2-R6-S10", "step": "S10-1", "attempt": 1, "status": "fail", "note": "review_status: fail"},
+    {"round": "P2-R6-S10", "step": "S10-1", "attempt": "rerun", "status": "pass", "note": "allow_s10_implementation: yes"},
+    {"round": "P2-R6-S10", "step": "S10-2", "attempt": 1, "status": "superseded", "note": "adapter b758febd"},
+    {"round": "P2-R6-S10", "step": "S10-2", "attempt": 2, "status": "superseded", "note": "adapter 6282df80"},
+    {"round": "P2-R6-S10", "step": "S10-2", "attempt": 3, "status": "pass", "note": "adapter af672fa0"},
+    {"round": "P2-R6-S10", "step": "S10-3", "attempt": 1, "status": "fail", "note": "adapter review fail"},
+    {"round": "P2-R6-S10", "step": "S10-3", "attempt": "rerun", "status": "superseded", "note": "pass on attempt-2 adapter"},
+    {"round": "P2-R6-S10", "step": "S10-3", "attempt": "rerun-2", "status": "pass", "note": "allow_w1_w2_execution: yes"},
+    {"round": "P2-R6-S10", "step": "S10-4", "attempt": 1, "status": "pass"},
+    {"round": "P2-R6-S10", "step": "S10-5", "attempt": 1, "status": "pass"},
+    {"round": "P2-R6-S10", "step": "S10-6", "attempt": 1, "status": "fail", "note": "leftover named volume; adapter defect"},
+    {"round": "P2-R6-S10", "step": "S10-6", "attempt": 2, "status": "pass"},
+    {"round": "P2-R6-S10", "step": "S10-7", "attempt": "1-4", "status": "fail", "note": "tag-only / git identity / cgroup EROFS"},
+    {"round": "P2-R6-S10", "step": "S10-7", "attempt": 5, "status": "pass", "note": "W0 diagnostic only; not formal"},
+    {"round": "P2-R6-S10", "step": "S10-8", "attempt": 1, "status": "pass"},
+    {"round": "P2-R6-S10", "step": "S10-9", "attempt": 1, "status": "pass"},
+    {"round": "P2-R6-S10", "step": "S10-10", "attempt": 1, "status": "pass"},
+    {"round": "P2-R6-S11", "step": "S11-0", "attempt": 1, "status": "pass", "note": "S11_entry_ready: yes"},
+    {"round": "P2-R6-S11", "step": "S11-1", "attempt": 1, "status": "pass", "note": "packet assembled; phase_2_complete still no"},
+    {"round": "P2-R6-S11", "step": "S11-2", "attempt": 1, "status": "pass", "note": "documentation_boundary: pass"},
+    {"round": "P2-R6-S11", "step": "S11-3", "attempt": 1, "status": "pass", "note": "allow_phase_2_complete: yes; finding_count: 0"},
+    {"round": "P2-R6-S11", "step": "S11-4", "attempt": 1, "status": "pass", "note": "docs-only commit; SHA recorded after commit without self-reference"}
+  ],
+  "authoritative_handoffs": [
+    {"path": "docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-go-decision-2026-08-05.md", "round": "P2-R1"},
+    {"path": "docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md", "round": "P2-R4", "section": "post-audit round-2"},
+    {"path": "docs/backend-vnext/refactoring/formal/plans/p2-r5-commit-pinned-read-execution-plan.md", "round": "P2-R5", "section": "P2-R5-S7 final handoff"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-k-final-handoff.md", "round": "P2-R6-S6"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s7-final-handoff.md", "round": "P2-R6-S7"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s8-final-handoff.md", "round": "P2-R6-S8"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s9-final-handoff.md", "round": "P2-R6-S9"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s10-final-handoff.md", "round": "P2-R6-S10", "sha256": "ed4c700f70072a31fb8a7da5a49d83b1ace1ff646deb3f2b2737ab66f2d7bbe8"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s10-final-gate-review.md", "round": "P2-R6-S10", "sha256": "50a8175bbf73add8d9f34105ad3fcf7c1d90c37542e22eb89ea98752500ca8f2"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-9-final-packet.md", "round": "P2-R6-S10", "sha256": "43b80f2fa71e7f23014e5145de3da3679f3cdd07a98e59a5e2ce236bc82d876a"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s11-step-0-entry-reconciliation.md", "round": "P2-R6-S11"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s11-step-1-provenance-packet.md", "round": "P2-R6-S11"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s11-step-2-documentation-boundary.md", "round": "P2-R6-S11"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s11-handoff-review.md", "round": "P2-R6-S11", "sha256": "2db552c27aefa61e012f14af134f77d3535d26f86639bca1c1c6beccf6e3fc71"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s11-step-4-precommit-checks.md", "round": "P2-R6-S11"},
+    {"path": "docs/backend-vnext/refactoring/temporary/p2-r6-s11-final-handoff.md", "round": "P2-R6-S11"}
+  ],
+  "retained_external_evidence": [
+    {
+      "kind": "s10_9_inventory",
+      "path": "/root/gateway-s10-audit/p2-r6-s10-20260817T015148Z/artifacts/s10-9/inventory.json",
+      "sha256": "2a3f355a24207beff87090e16474ec9550e79237a352399baa73d734302a90ad",
+      "copied_into_docs_worktree": false
+    },
+    {
+      "kind": "s10_audit_root",
+      "local_path": "/root/gateway-s10-audit/p2-r6-s10-20260817T015148Z",
+      "remote_path": "/var/lib/gateway/repository/audit-rerun/p2-r6-s10-20260817T015148Z",
+      "copied_into_docs_worktree": false,
+      "contains": "adapter, sanitized W1/W2 JSON, W0/v8 artifacts; raw packages and tokens not copied"
+    },
+    {
+      "kind": "s10_5_no_ignore_log",
+      "sha256": "59ae8de26c5a8e1b68d1af0a0308c5c721cc825b9d236dc4b98cd0c92983f2c7",
+      "copied_into_docs_worktree": false
+    },
+    {
+      "kind": "s10_6_attempt2_w1_json",
+      "sha256": "365712104a784579be1d439c438a23eaf610fbb06bdba818a1dab42a2944a573",
+      "copied_into_docs_worktree": false
+    },
+    {
+      "kind": "s10_6_attempt2_w2_json",
+      "sha256": "0f18233493b397d1da49eb923591ab47c2873ca23c0a4d1516eaa34882c7a017",
+      "copied_into_docs_worktree": false
+    },
+    {
+      "kind": "s10_7_attempt5_w0_jsonl",
+      "sha256": "0720b5a1eec0fe5d9670d7757120490655436a125b2ebf1962b89b07796bdeab",
+      "copied_into_docs_worktree": false
+    },
+    {
+      "kind": "s10_8_attempt1_v8_jsonl",
+      "sha256": "9dcdd1b458ec96a7391dc5cb96619155c02edaa6e17d5cd763abf42bf1d0a256",
+      "copied_into_docs_worktree": false
+    },
+    {
+      "kind": "s10_9_residual_after",
+      "sha256": "bd5c2962736c3acd3e4945dd9a85ffa1eb3e4a8657f73a8a9eb8333cf3a3e504",
+      "copied_into_docs_worktree": false
+    }
+  ],
+  "final_status": {
+    "S11_exit": "pass",
+    "phase_2_complete": true,
+    "next_stage_ready": "Phase 3 full design",
+    "provenance_documentation_sha": "this_docs_only_commit"
+  }
+}

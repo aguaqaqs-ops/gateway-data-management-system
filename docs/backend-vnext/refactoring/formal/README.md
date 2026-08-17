@@ -32,6 +32,7 @@
 - [P2-R6-S9 Final Candidate Seal Execution Plan](plans/p2-r6-s9-final-candidate-seal-execution-plan.md)
 - [P2-R6-S10 Exact-Candidate Production Gate Design](plans/p2-r6-s10-exact-candidate-production-gate-design.md)
 - [P2-R6-S10 Exact-Candidate Production Gate Execution Plan](plans/p2-r6-s10-exact-candidate-production-gate-execution-plan.md)
+- [P2-R6-S11 Build-Context-External Provenance and Phase 2 Handoff Execution Plan](plans/p2-r6-s11-build-context-external-provenance-handoff-execution-plan.md)
 - [P2-R6-EXT-W1 ENUM/SET Import Design](plans/p2-r6-ext-w1-enum-set-import-design.md)
 - [P2-R6-EXT-W1 ENUM/SET Import Execution Plan](plans/p2-r6-ext-w1-enum-set-import-execution-plan.md)
 - [Proportional Assurance and Risk-Based Verification Policy](policies/proportional-assurance-and-risk-based-verification-policy.md)
@@ -83,10 +84,9 @@ S6 capacity / W2 / concurrency matrix `pass`，`R6-EXT-W1=yes`，
 `P2-R6-S6_ready=yes`；S7 final handoff `S7_exit: pass`、`S8_ready: yes`；S8 final
 handoff `S8_exit: pass`、`S9_ready: yes`；S9 final handoff `S9_exit: pass`、
 `candidate_seal: pass`、`S10_ready: yes`；S10 final handoff `S10_exit: pass`、
-`S11_ready: yes`；当前下一步为 `P2-R6-S11` build-context-external provenance and
-Phase 2 handoff；`production_retest_required=no`，
-`phase_2_complete=no`；
-P3 design尚未开始。完整handoff见
+`S11_ready: yes`；S11 final handoff `S11_exit: pass`、`phase_2_complete: yes`；
+当前下一步为 Phase 3 full design；`production_retest_required=no`。
+P3 design尚未开始，不得直接开始 Phase 3 实现。完整handoff见
 [P2-R5 Commit-pinned Read Staged Execution Plan — P2-R5-S7 final handoff — 2026-08-12](plans/p2-r5-commit-pinned-read-execution-plan.md#p2-r5-s7-final-handoff--2026-08-12)。
 R6执行边界见
 [P2-R6 Operational Closure Staged Execution Plan](plans/p2-r6-operational-closure-execution-plan.md)。

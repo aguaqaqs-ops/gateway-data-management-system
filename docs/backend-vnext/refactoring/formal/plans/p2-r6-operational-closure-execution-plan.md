@@ -510,6 +510,8 @@ next_stage_ready: P2-R6-S11
 
 ### P2-R6-S11 — Build-context-external provenance and Phase 2 handoff
 
+分步执行：[P2-R6-S11 Build-Context-External Provenance and Phase 2 Handoff Execution Plan](p2-r6-s11-build-context-external-provenance-handoff-execution-plan.md)
+
 ```yaml
 goal: record immutable evidence, SHA lineage, limitations and Phase 2 exit decision
 allowed_paths: formal provenance/handoff docs outside the verified effective source digest
@@ -754,3 +756,61 @@ provisional image 和独立 seal review。`container_validated_code_sha` 仍为 
 S9 provisional image 不是 S10 production image。S10 必须从字面量 `CANDIDATE_SHA`
 `2ef88427` 重建 final production image，并重跑四条 Compose nodeid、W1/W2 与 v8
 formal `--runs 5`。docs-only handoff 提交不改变 `validated_code_sha`。
+
+## 14. S10 handoff
+
+完整 evidence 见
+[P2-R6-S10 final handoff](../../temporary/p2-r6-s10-final-handoff.md)。
+
+```yaml
+stage: P2-R6-S10
+stage_status: pass
+candidate_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+validated_code_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+container_validated_code_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+service_image_id: sha256:4b8f88edf798b2d67b46effa2a9f7f10029bdd657b508b5e342fd26a2e4a2be6
+client_image_id: sha256:4a6cacec7b4e5e24b45a7f569822e8e0e0a930904a6d13b6145e1c18c384ef1b
+source_tree_sha256: sha256:c35db6ace55c20b52b8a920b6c5b264b83ba6c7d67d2916282fb11cffcf76686
+no_ignore_full_gate: pass
+four_compose_nodeids: pass
+w1_medium_production_repeat: pass
+w2_production_repeat: pass
+candidate_a_w0_smoke: pass
+candidate_a_v8_formal: pass
+v8_records: 66
+v8_formal_status: go
+zero_owned_residual: yes
+independent_final_review: pass
+production_retest_required: no
+S10_exit: pass
+S11_ready: yes
+phase_2_complete: no
+```
+
+S10 关闭 exact-candidate production image、四条 Compose nodeid、W1/W2 production
+repeat、Candidate A W0 diagnostic smoke 与 66/66 v8 formal。docs-only handoff
+提交不改变 `validated_code_sha` 或 `container_validated_code_sha`。S11 独占
+documentation/provenance 与最终 `phase_2_complete` 决策。
+
+## 15. S11 handoff
+
+完整 evidence 见
+[P2-R6-S11 final handoff](../../temporary/p2-r6-s11-final-handoff.md)。
+
+```yaml
+stage: P2-R6-S11
+stage_status: pass
+candidate_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+validated_code_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+container_validated_code_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+provenance_documentation_sha: this_docs_only_commit
+S10_exit: pass
+S11_exit: pass
+phase_2_complete: yes
+next_stage_ready: Phase 3 full design
+```
+
+S11 关闭 P2-R1 至 R6 SHA lineage、final image provenance、capacity limitations
+与 Phase 2 完成决策。本 docs-only 提交不回填自己的 SHA，也不是
+`validated_code_sha`、`CANDIDATE_SHA` 或 image revision。下一步授权工作是
+Phase 3 完整设计，不是直接实现。

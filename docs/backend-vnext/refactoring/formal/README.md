@@ -82,8 +82,9 @@ P2-R6-S0 design freeze complete、S1-S7 implementation/evidence gates complete�
 S6 capacity / W2 / concurrency matrix `pass`，`R6-EXT-W1=yes`，
 `P2-R6-S6_ready=yes`；S7 final handoff `S7_exit: pass`、`S8_ready: yes`；S8 final
 handoff `S8_exit: pass`、`S9_ready: yes`；S9 final handoff `S9_exit: pass`、
-`candidate_seal: pass`、`S10_ready: yes`；当前下一步为 `P2-R6-S10` exact-candidate
-production gate；`production_retest_required=yes`，
+`candidate_seal: pass`、`S10_ready: yes`；S10 final handoff `S10_exit: pass`、
+`S11_ready: yes`；当前下一步为 `P2-R6-S11` build-context-external provenance and
+Phase 2 handoff；`production_retest_required=no`，
 `phase_2_complete=no`；
 P3 design尚未开始。完整handoff见
 [P2-R5 Commit-pinned Read Staged Execution Plan — P2-R5-S7 final handoff — 2026-08-12](plans/p2-r5-commit-pinned-read-execution-plan.md#p2-r5-s7-final-handoff--2026-08-12)。

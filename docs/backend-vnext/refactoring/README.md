@@ -5,7 +5,9 @@
 文档分为两类：
 
 - [Formal](formal/README.md)：已经讨论收口、作为设计和实现依据的正式文档。
-- [Temporary](temporary/README.md)：讨论提案、开放问题、实验和阶段性结论，不作为正式 contract。
+- [Temporary](temporary/README.md)：不拥有正式语义。已完成 execution/review 走
+  cleanup manifest 与 Git tag；目录内仅保留 vnext 唯一指针
+  `p2-r9-s2-step-e-container-gate.md`。
 
 ## 阅读顺序
 

@@ -53,8 +53,10 @@
   威胁、损失或consumer依据时提高保障，不能在实现评审中静默扩大威胁模型。
 - Contract 是字段语义、状态、byte contract、artifact、fixture 和 measurement 的 normative owner；ADR 只记录为何选择该方案，并链接 contract，不复制精确状态表或字段表。
 - 同一规则只在 owning contract 中定义。Architecture、计划和其他 contract 只引用，不建立第二份规范。
-- `temporary/` 只保存活动中的讨论或执行协调，不拥有正式语义。结论formalized且执行
-  完成后应删除过期材料，Git历史作为归档；不得为保留历史再复制一套authority。
+- `temporary/` 不拥有正式语义。P3 清理入口是本目录的 P3 Active Context Index、
+  P2 External Interface Handoff、cleanup manifest，以及 annotated tag
+  `docs/p2-p3-cleanup-pre-20260817` 与 `docs/p2-p3-cleanup-final-20260817`。
+  不得为保留历史再复制一套 authority。
 - Legacy 只作为行为与 fixture 发现 oracle，不拥有 vNext 内部结构或性能目标。
 
 正式文档之间发生冲突时，应先暂停实现，明确语义 owner，并通过修改正式文档或新增 ADR 收口；不能依靠兼容代码长期维持两套含义。

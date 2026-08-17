@@ -1,18 +1,23 @@
 schema: gateway.docs-lifecycle-cleanup.manifest
 schema_version: 1
 stage: docs-lifecycle-cleanup
-step: C5
+step: C6
 c2_status: complete
 c3_status: complete
 c4_status: complete
 c5_status: pass
-generated_at: 2026-08-17T12:16:00Z
+c6_status: pass
+generated_at: 2026-08-17T15:10:00Z
 note: >
-  C4 removed archive paths from the default tree. Git tag
-  docs/p2-p3-cleanup-pre-20260817 remains the archive medium.
-  Final tag and cleanup_commit remain null until C6. File hashes in
-  the path tables are C2/C3 content SHA-256 of the pre-cleanup tree.
-  The manifest path uses not_self_hashed. This file is not image input.
+  C6 removed remaining cleanup process files from the default tree.
+  Git tag docs/p2-p3-cleanup-pre-20260817 remains the archive medium
+  for the 240 archived paths. C4/C5 process records are in persist
+  commit aa0c0889196a0907eb9ba454d46f792db3850233. File hashes in the
+  path tables are C2/C3 content SHA-256 of the pre-cleanup tree.
+  The tagged commit does not self-reference: cleanup_commit is
+  this_cleanup_commit and final_tag_sha is this_final_tag. Literal
+  SHAs are in the annotated final tag. The manifest path uses
+  not_self_hashed. This file is not image input.
   public_semantics_changed: no
 retain_owner: Backend vNext Architecture
 archive_medium: git_annotated_tag_and_history
@@ -34,18 +39,41 @@ tags:
   pre_cleanup_tag_object: 93e7a492d81ae9272aaf5835277cf1a30cc3c2bd
   pre_cleanup_commit: 7f2e2ddfd5567775bcc39c3a2e15801897feb845
   proposed_final_tag: docs/p2-p3-cleanup-final-20260817
-  final_tag_sha: null
-  cleanup_commit: null
+  final_tag: docs/p2-p3-cleanup-final-20260817
+  final_tag_sha: this_final_tag
+  cleanup_commit: this_cleanup_commit
+  persist_commit: aa0c0889196a0907eb9ba454d46f792db3850233
   create_gate: C5-pass-C6-authorized
 artifacts:
   p3_active_context_index: docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
   p2_interface_handoff: docs/backend-vnext/refactoring/formal/plans/p2-external-interface-handoff.md
   manifest: docs/backend-vnext/refactoring/formal/plans/p2-p3-cleanup-manifest.yaml
-  c0_inventory: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c0-inventory.md
-  c1_classification: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c1-classification.md
-  c3_pre_cleanup_tag: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c3-pre-cleanup-tag.md
-  c4_removal: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c4-removal.md
-  c5_verification_review: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c5-verification-review.md
+  process_record_recovery:
+    medium: git_annotated_tag_and_history
+    pre_cleanup_tag: docs/p2-p3-cleanup-pre-20260817
+    persist_commit: aa0c0889196a0907eb9ba454d46f792db3850233
+    execution_plan: docs/backend-vnext/refactoring/temporary/all-documentation-lifecycle-cleanup-execution-plan.md
+    c0_inventory: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c0-inventory.md
+    c1_classification: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c1-classification.md
+    c3_pre_cleanup_tag: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c3-pre-cleanup-tag.md
+    c4_removal: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c4-removal.md
+    c5_verification_review: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c5-verification-review.md
+exit:
+  cleanup_status: pass
+  pre_cleanup_tag: docs/p2-p3-cleanup-pre-20260817
+  final_cleanup_tag: docs/p2-p3-cleanup-final-20260817
+  cleanup_commit: this_cleanup_commit
+  active_context_index: docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
+  p2_interface_handoff: docs/backend-vnext/refactoring/formal/plans/p2-external-interface-handoff.md
+  manifest: docs/backend-vnext/refactoring/formal/plans/p2-p3-cleanup-manifest.yaml
+  active_authority_count: 33
+  archived_path_count: 240
+  deleted_path_count: 236
+  c6_process_records_removed: 8
+  unresolved_escalations: 0
+  broken_links: 0
+  active_docs_reference_archive: false
+  p3_context_ready: true
 external_audit_root:
   - /root/gateway-s10-audit/p2-r6-s10-20260817T015148Z
   - /var/lib/gateway/repository/audit-rerun/p2-r6-s10-20260817T015148Z
@@ -60,10 +88,12 @@ counts:
   archive: 240
   deleted_from_default_tree: 236
   c1_archive_deleted: 220
-  c1_archive_kept_until_c6: 4
+  c1_archive_kept_until_c6: 0
   c0_unclassified_evidence_deleted: 16
-  remaining_cleanup_process_in_tree: 8
+  c6_process_records_removed: 8
+  remaining_cleanup_process_in_tree: 0
   must_retain_source_pointer_in_tree: 3
+  temporary_readme: stub
 paths:
   retain_active:
     - path: AGENTS.md

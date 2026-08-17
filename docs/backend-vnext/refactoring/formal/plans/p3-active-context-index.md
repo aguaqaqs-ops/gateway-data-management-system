@@ -20,6 +20,10 @@ p3_design_started: no
 p3_implementation_authorized: no
 default_retrieval: this_index
 public_semantics_changed_in_c2: no
+cleanup_status: pass
+p3_context_ready: yes
+final_cleanup_tag: docs/p2-p3-cleanup-final-20260817
+cleanup_commit: this_cleanup_commit
 ```
 
 ## 1. 默认从这里开始
@@ -118,8 +122,8 @@ Architecture Plan 与未来 P3 owning contract 为准：
 - [docs/backend-vnext/capabilities/](../../../capabilities/)
 - [docs/backend-vnext/adr/](../../../adr/)
 
-完整路径表见 [C1 classification](../../temporary/docs-lifecycle-cleanup-c1-classification.md)
-的 `retain_oracle`。C4 不得删除这些路径。
+完整路径表见 [cleanup manifest](p2-p3-cleanup-manifest.yaml) 的
+`paths.retain_oracle`。
 
 ## 5. Allowlist / 排除
 
@@ -136,8 +140,8 @@ P3 默认 allowlist（设计检索，不是源码扫描）：
 
 默认排除：
 
-- `docs/backend-vnext/refactoring/temporary/`（除 C6 前仍需的 cleanup 过程文件，以及
-  因 `vnext/deploy/p2r1-cache/README.md` 唯一指针而保留的
+- `docs/backend-vnext/refactoring/temporary/`（除因
+  `vnext/deploy/p2r1-cache/README.md` 唯一指针而保留的
   `p2-r9-s2-step-e-container-gate.md`）
 - 已完成的 formal execution/design plan、v8 archive、decision ledger、`notes/`、
   `dolt-test/`（走 pre-cleanup tag 与 manifest）

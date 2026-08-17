@@ -153,7 +153,7 @@ scale-ratio 不是 SLO。100,000–1,000,000 rows 仅为 controlled preview。
 | `temporary/phase-2/decision-ledger-*.md`（tag 内） | 过期访谈记录。 |
 | S11 之前的阶段 execution/design 正文 | 过程；本 handoff + contract/ADR 取代其默认检索角色。 |
 
-因 pytest 或 vnext 唯一引用而**不能删除**的路径（C4 必须保留）：
+因 pytest 或 vnext 唯一引用而**保留在默认树**的路径：
 
 - `docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md`
 - `docs/backend-vnext/refactoring/formal/plans/p2-r5-commit-pinned-read-execution-plan.md`
@@ -163,7 +163,18 @@ scale-ratio 不是 SLO。100,000–1,000,000 rows 仅为 controlled preview。
 
 不可变 pre-cleanup tag：`docs/p2-p3-cleanup-pre-20260817`
 （tag object `93e7a492d81ae9272aaf5835277cf1a30cc3c2bd`，commit `7f2e2ddfd5567775bcc39c3a2e15801897feb845`）。
-C4 已从默认树删除 archive 路径；最终 tag `docs/p2-p3-cleanup-final-20260817` 在 cleanup commit 之后创建。
-路径集合、hash、外部 audit root 与保留责任人（Backend vNext Architecture）以
+不可变 final tag：`docs/p2-p3-cleanup-final-20260817`（打在本 cleanup commit 上；
+提交自身使用 `this_cleanup_commit`，literal SHA 见 annotated tag 说明）。
+
+C4 已从默认树删除 236 条 archive 路径；C6 再移除 cleanup 过程记录。路径集合、hash、
+外部 audit root 与保留责任人（Backend vNext Architecture）以
 [cleanup manifest](p2-p3-cleanup-manifest.yaml) 为准。失败 attempt 与 R1 no-go 不删除，
 只离开默认检索树。
+
+过程记录恢复：
+
+```bash
+git checkout docs/p2-p3-cleanup-pre-20260817 -- \
+  docs/backend-vnext/refactoring/temporary/p2-r6-s11-final-handoff.md
+git show aa0c0889196a0907eb9ba454d46f792db3850233:docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c5-verification-review.md
+```

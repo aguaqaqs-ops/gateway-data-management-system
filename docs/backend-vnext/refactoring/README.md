@@ -9,11 +9,11 @@
 
 ## 阅读顺序
 
-1. [Architecture and Refactoring Plan](formal/architecture/architecture-and-refactoring-plan.md)：目标架构、模块职责、依赖规则、Python/Rust 分工和独立 Repository Service 边界。
-2. [Implementation Stages](formal/plans/implementation-stages.md)：从现状基线到生产切换的阶段顺序、交付物、门禁和纵向业务切片。
-3. [Operations](../operations.md)：Operation Runtime、step、lease、retry 和 READY closure 专项设计。
-4. [Flows](../flows.md)：现有业务旅程和状态机语义来源。
-5. [Implementation Boundary](../implementation-boundary.md)：当前 vNext 实现边界；重构期间逐步按总纲更新。
+1. [P3 Active Context Index](formal/plans/p3-active-context-index.md)：P3 设计默认入口与 allowlist。
+2. [P2 External Interface Handoff](formal/plans/p2-external-interface-handoff.md)：封印 candidate/image、支持面、限制与 reopen。
+3. [Architecture and Refactoring Plan](formal/architecture/architecture-and-refactoring-plan.md)：目标架构、模块职责、依赖规则、Python/Rust 分工和独立 Repository Service 边界。
+4. [Implementation Stages](formal/plans/implementation-stages.md)：从现状基线到生产切换的阶段顺序、交付物、门禁和纵向业务切片。
+5. [Operations](../operations.md)、[Flows](../flows.md)：P3 capability 设计 oracle，不是 Repository Service wire。
 
 Phase 1 正式设计：
 

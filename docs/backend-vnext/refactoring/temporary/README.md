@@ -21,6 +21,14 @@ temporary/phase-1/
 
 当前讨论记录：
 
+- [Documentation Lifecycle and Active-Context Cleanup Execution Plan](all-documentation-lifecycle-cleanup-execution-plan.md)
+  （C2 complete；P3开始前的全仓库文档分类、归档、删除和检索边界清理）
+- [C0 Freeze and Inventory](docs-lifecycle-cleanup-c0-inventory.md)
+- [C3 Pre-cleanup Tag](docs-lifecycle-cleanup-c3-pre-cleanup-tag.md)
+  （不可变 tag `docs/p2-p3-cleanup-pre-20260817`；字面量 SHA 在 tag 后登记）
+- P3 默认入口已迁到 formal：
+  [P3 Active Context Index](../formal/plans/p3-active-context-index.md)、
+  [P2 External Interface Handoff](../formal/plans/p2-external-interface-handoff.md)
 - [Architecture Simplification Execution Plan](architecture-simplification-execution-plan.md)
   （Active；先闭合Phase 0–2设计，再协调联合代码清理）
 - [Phase 0 Baseline and Oracle](phase-0/baseline-and-oracle-notes.md)

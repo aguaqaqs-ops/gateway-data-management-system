@@ -1,0 +1,1584 @@
+schema: gateway.docs-lifecycle-cleanup.manifest
+schema_version: 1
+stage: docs-lifecycle-cleanup
+step: C3
+c2_status: complete
+c3_status: tagging
+generated_at: 2026-08-17T12:05:05Z
+note: >
+  C3 pre-cleanup snapshot. pre_cleanup_tag_sha is this docs-only commit
+  and is not written as a self-referential git SHA in this file.
+  Final tag and cleanup_commit remain null until C4. File hashes are
+  content SHA-256. The manifest path uses not_self_hashed.
+  This file is not image input. public_semantics_changed: no
+retain_owner: Backend vNext Architecture
+archive_medium: git_annotated_tag_and_history
+identity:
+  freeze_head: 1420eaddaffb506d6c209862b9daeb510b7fc230
+  candidate_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+  validated_code_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+  container_validated_code_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+  service_image: gateway-repository-service:p2-r6-final
+  service_image_id: sha256:4b8f88edf798b2d67b46effa2a9f7f10029bdd657b508b5e342fd26a2e4a2be6
+  client_image: gateway-repository-client-e2e:local
+  client_image_id: sha256:4a6cacec7b4e5e24b45a7f569822e8e0e0a930904a6d13b6145e1c18c384ef1b
+  source_tree_sha256: sha256:c35db6ace55c20b52b8a920b6c5b264b83ba6c7d67d2916282fb11cffcf76686
+  build_input_revision: 3e4bd1fca0e52a0497bbc5a7bf69071a744fd952
+  phase_2_complete: true
+tags:
+  proposed_pre_cleanup_tag: docs/p2-p3-cleanup-pre-20260817
+  pre_cleanup_tag_sha: this_pre_cleanup_commit
+  proposed_final_tag: docs/p2-p3-cleanup-final-20260817
+  final_tag_sha: null
+  cleanup_commit: null
+  create_gate: C3
+artifacts:
+  p3_active_context_index: docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
+  p2_interface_handoff: docs/backend-vnext/refactoring/formal/plans/p2-external-interface-handoff.md
+  manifest: docs/backend-vnext/refactoring/formal/plans/p2-p3-cleanup-manifest.yaml
+  c0_inventory: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c0-inventory.md
+  c1_classification: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c1-classification.md
+external_audit_root:
+  - /root/gateway-s10-audit/p2-r6-s10-20260817T015148Z
+  - /var/lib/gateway/repository/audit-rerun/p2-r6-s10-20260817T015148Z
+unresolved_escalations: 0
+public_semantics_changed: false
+counts:
+  retain_active: 33
+  retain_oracle: 34
+  retain_in_place: 5
+  must_retain_source_pointer: 3
+  leave_in_vnext: 6
+  archive: 224
+paths:
+  retain_active:
+    - path: AGENTS.md
+      class: ACTIVE_INTERFACE
+      role: contributor_constraint
+      sha256: 1b0fc394206615a1a19ba3bc7c542a948c52a26a56ba46c0ac721f6a9a86d600
+      bytes: 6708
+    - path: docs/backend-vnext/README.md
+      class: ACTIVE_INTERFACE
+      role: documentation_index
+      sha256: e3e5d6dad103f6f397ae2c7df5e46345bac4f6c1410ba15dcf26b8e92b1260b2
+      bytes: 9642
+    - path: docs/backend-vnext/glossary.md
+      class: ACTIVE_INTERFACE
+      role: glossary
+      sha256: 1284605618cf2494b8daf67b2b1c17949e547eefa02cf68f667d69bad57937c2
+      bytes: 30870
+    - path: docs/backend-vnext/refactoring/README.md
+      class: ACTIVE_INTERFACE
+      role: documentation_index
+      sha256: 10b31b5e18eb1142dc2ace172832b5c0ef6fea5ffdd65880f2b0e826eb78c203
+      bytes: 3182
+    - path: docs/backend-vnext/refactoring/formal/README.md
+      class: ACTIVE_INTERFACE
+      role: documentation_index
+      sha256: 12d019630f245afcc3043993aaacf65b5b8b684146ebdb87ee9c489f76989e3c
+      bytes: 8440
+    - path: docs/backend-vnext/refactoring/formal/adr/0001-python-rust-hybrid-compute-strategy.md
+      class: NORMATIVE
+      role: active_adr
+      sha256: 02b41f9cffda7d473f798f02e039c4bd0d00ce9af106078ecca1f2e5b5e106c5
+      bytes: 12004
+    - path: docs/backend-vnext/refactoring/formal/adr/0002-minimal-persisted-business-state.md
+      class: NORMATIVE
+      role: active_adr
+      sha256: 90869da1e0c868f57d54131b290ab9a08104da17fc0129da32eb8d2784fb3138
+      bytes: 2374
+    - path: docs/backend-vnext/refactoring/formal/adr/0003-external-effect-reconciliation.md
+      class: NORMATIVE
+      role: active_adr
+      sha256: 5c668ddb9ccbc590d1e7a841839b61480d8d2fdeb0553e78d80220607b783acf
+      bytes: 2915
+    - path: docs/backend-vnext/refactoring/formal/adr/0004-raw-source-artifact-and-canonical-dolt-storage.md
+      class: NORMATIVE
+      role: active_adr
+      sha256: cc4f663ac0506867e631f783fb7619259888850878109785be1102692c71b416
+      bytes: 3517
+    - path: docs/backend-vnext/refactoring/formal/adr/0005-shared-canonical-encoding.md
+      class: NORMATIVE
+      role: active_adr
+      sha256: 4c9de0e8e0d1dae39a8e8fa104337e97c0b75e3da9029862c7be782de1e31d41
+      bytes: 2683
+    - path: docs/backend-vnext/refactoring/formal/adr/0009-proportional-assurance-and-trusted-internal-repository.md
+      class: NORMATIVE
+      role: active_adr
+      sha256: 89969bb72b8de68406aaecc96cc549483605f5ea705984c8142a838bec736d3d
+      bytes: 12158
+    - path: docs/backend-vnext/refactoring/formal/adr/0010-minimal-golden-and-ordinary-ci.md
+      class: NORMATIVE
+      role: active_adr
+      sha256: 6ba08dcbbf038e2b0e9713e855622dc834ab3d04617baf23ff130d88065e0fd8
+      bytes: 8560
+    - path: docs/backend-vnext/refactoring/formal/adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md
+      class: NORMATIVE
+      role: active_adr
+      sha256: 5ef9db2c0197ee0913794a34747f6274da3efea7a754fa3dab100052eef04a79
+      bytes: 8131
+    - path: docs/backend-vnext/refactoring/formal/adr/0013-enum-set-v1-import-semantics.md
+      class: NORMATIVE
+      role: active_adr
+      sha256: 5bbc557ed2d1a75e9df616e943f2982bf67d3913ff86cf894f51e7d520d307e3
+      bytes: 5676
+    - path: docs/backend-vnext/refactoring/formal/architecture/architecture-and-refactoring-plan.md
+      class: NORMATIVE
+      role: architecture_boundary
+      sha256: c69cada8ee072ae78854a6e72d232c2a4325406024b6d09a240cf5e44bdb51f6
+      bytes: 33577
+    - path: docs/backend-vnext/refactoring/formal/contracts/business-lifecycle-and-state.md
+      class: NORMATIVE
+      role: formal_contract
+      sha256: 9587531f7d43245041ce67e445eefb29ef821232c01031f6b9461386068cb2eb
+      bytes: 8347
+    - path: docs/backend-vnext/refactoring/formal/contracts/canonical-row-hash-compute-boundary.md
+      class: NORMATIVE
+      role: formal_contract
+      sha256: 44c9347629ab2af4cdc4bda54e169ef89df5165ebd74ecfbf3d378a78e8b61c0
+      bytes: 12977
+    - path: docs/backend-vnext/refactoring/formal/contracts/canonical-storage-and-repository-boundary.md
+      class: NORMATIVE
+      role: formal_contract
+      sha256: 47d46b1dd8f126c84785852939bb344ffa8cb2909d6176dd9e7ffe8fec0eee4f
+      bytes: 14048
+    - path: docs/backend-vnext/refactoring/formal/contracts/contract-taxonomy-and-ownership.md
+      class: NORMATIVE
+      role: formal_contract
+      sha256: 510fc1e34aeb090b426e5f72e944c12aa48f8c1b2908d15e38ba66de8e2bf68e
+      bytes: 26303
+    - path: docs/backend-vnext/refactoring/formal/contracts/external-effect-and-recovery.md
+      class: NORMATIVE
+      role: formal_contract
+      sha256: e9370c06823f8cf167c2e4a977dd7e6ce19c3e911b3ed164c1e480ae96379c6f
+      bytes: 7775
+    - path: docs/backend-vnext/refactoring/formal/contracts/fixture-oracle-and-conformance.md
+      class: NORMATIVE
+      role: formal_contract
+      sha256: 39ce0b22209cc5acb04f170ff5a81e4ad0add4cb227f4276fdc9169dbed4fa97
+      bytes: 7223
+    - path: docs/backend-vnext/refactoring/formal/contracts/performance-measurement-and-baseline.md
+      class: NORMATIVE
+      role: formal_contract
+      sha256: 3a71be45fb14a7fe8bb3dca3738854cc2aa52d4bfdf5a3dd8fc317c4c923679f
+      bytes: 4575
+    - path: docs/backend-vnext/refactoring/formal/contracts/repository-service.md
+      class: NORMATIVE
+      role: formal_contract
+      sha256: 03c92206e393aba4ed1adce836e1142ff460c8ddcbd5a28b6172d1c7a47d2418
+      bytes: 39618
+    - path: docs/backend-vnext/refactoring/formal/contracts/shared-canonical-encoding.md
+      class: NORMATIVE
+      role: formal_contract
+      sha256: 13fd6a8b47b4a230f13ed7b45512f05cc249aac2c364e474231b1c9403e65bb5
+      bytes: 16579
+    - path: docs/backend-vnext/refactoring/formal/plans/dx-cross-phase-interface-reconciliation.md
+      class: NORMATIVE
+      role: shared_interface_baseline
+      sha256: 86932cb76c4d228726ba9e53d66d1b95706c45838f124ad9ca746a664368dcb3
+      bytes: 12110
+    - path: docs/backend-vnext/refactoring/formal/plans/implementation-stages.md
+      class: NORMATIVE
+      role: stage_sequence_and_p3_entry
+      sha256: 77937cad3ea1ba1db3dc447cff9b9ad852dbe6a4280fffd1304e164367048fb3
+      bytes: 45408
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-external-interface-handoff.md
+      class: ACTIVE_INTERFACE
+      role: c2_active_context_artifact
+      sha256: ba08791eee390ad3e314fd024a361ae24db9ec645ab194da997cd2f92d5435d3
+      bytes: 7406
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-p3-cleanup-manifest.yaml
+      class: EVIDENCE
+      role: c2_active_context_artifact
+      sha256: not_self_hashed
+      bytes: 77857
+    - path: docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
+      class: ACTIVE_INTERFACE
+      role: c2_active_context_artifact
+      sha256: 6795befbc6438badc038051293fc672272668e13911ad75cb58f70c72d42f8c4
+      bytes: 6910
+    - path: docs/backend-vnext/refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md
+      class: NORMATIVE
+      role: cross_stage_policy
+      sha256: bbf7936e27942f5d9858d4ee176fb8364c7a855381c2528fb418396c8a9463fb
+      bytes: 11273
+    - path: docs/backend-vnext/refactoring/formal/policies/rust-safety-and-performance-policy.md
+      class: NORMATIVE
+      role: cross_stage_policy
+      sha256: 6790c9345d42925ab3513f7c1ceecbaa7d6f6397f5348055c8f251fef0642ab3
+      bytes: 5337
+    - path: docs/backend-vnext/testing-conventions.md
+      class: NORMATIVE
+      role: test_and_container_gate
+      sha256: 3ccff56cf6c30f30ebe41b07850f52524ff2a887a1444ef355d8c90a04ec6e9a
+      bytes: 14281
+    - path: docs/backend-vnext/testing-fixtures.md
+      class: NORMATIVE
+      role: fixture_material_owner
+      sha256: a22a06d3d6bbdc2b40d69c9aa4f1461e6451fda9e64a618e3ebe7cf5aba36177
+      bytes: 2063
+  retain_oracle:
+    - path: docs/backend-vnext/adr/0001-snapshot-table-and-dolt-import-boundary.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: f55ceb026c8280a3d9492d5e1a3d4b0215fa6e31cb146c8c4b4189b2aaccf4bd
+      bytes: 2202
+    - path: docs/backend-vnext/adr/0002-comparison-hash-sqlite-mode-selection.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: b5ec751448c3e98f00e2617b20c350f91c15ce8f4499903dde5de482489885b7
+      bytes: 3489
+    - path: docs/backend-vnext/adr/0003-dolt-native-provider-selection.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 88f46c813391b6b4214bd5ceffc61f132aee189f0d98d9f3de9930ecb7185ac5
+      bytes: 3494
+    - path: docs/backend-vnext/artifacts.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 74c1cc9ad23a539e71f7de61d930a1e9cb6a72f3e3d5f6fcfee9ad6516ead88d
+      bytes: 21395
+    - path: docs/backend-vnext/capabilities/bundle-assembly.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: fad30cfbacf21d53b51ad3d3f218bb2a231274877e301acd9737a69afad74427
+      bytes: 6169
+    - path: docs/backend-vnext/capabilities/business-projection.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 659871255f3b8be74729ecf59cfe53ac4fbbff4c5d493edc8fb0c136e15e5264
+      bytes: 5073
+    - path: docs/backend-vnext/capabilities/comparison-compute.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 3406e3e98e7f4d443590b6f58aa9a2e9de6dab088aabecab6122d70e0bf65027
+      bytes: 38625
+    - path: docs/backend-vnext/capabilities/composite-signal-device.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 9200fcc50e01d8fd25defd52e166a2b7842004e7a1a4d3e931b578f6e83f9d9d
+      bytes: 6599
+    - path: docs/backend-vnext/capabilities/dolt-native-provider.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 971d920e6bdf5bb9dc1bfa47f70f102244678d888dca3e53eafb668490d3ec7f
+      bytes: 11438
+    - path: docs/backend-vnext/capabilities/ordered-diff-compute.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: ac172de8c28d4b8693132e8c8c511d5af26f7400e0fb1f58d43afe87dd25cd3e
+      bytes: 16615
+    - path: docs/backend-vnext/capabilities/project-identity-and-dataset-replacement.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 5e1138bba8bf9fd1df30bb6bdc213d3f995cdd2117cfb4eb53d4aecbb09da465
+      bytes: 12495
+    - path: docs/backend-vnext/capabilities/repository-import.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 8d4ea3c2384c581d1f86d647d20695525ab9645e947efb1dfa5e42656fd011ee
+      bytes: 31179
+    - path: docs/backend-vnext/capabilities/repository-ref-materialization.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 6b980600eb16646f753df1a7a72a8ffa7017d919e198ceed2e2e6fb54bd00ca7
+      bytes: 21398
+    - path: docs/backend-vnext/capabilities/risk-evaluation.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 0bb2e8ba355198fe5ff2c678dd5671ac8c25ee675f0d5dbe0e58a9096d115784
+      bytes: 12810
+    - path: docs/backend-vnext/capabilities/snapshot-materialization.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 6319718aafaab8e380ba99b3626cb9b20eca8aa74cef86fed2bc428e5e2fbc0d
+      bytes: 26980
+    - path: docs/backend-vnext/capabilities/surface-assembly.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 3476b30cd266eecd73706769d8c2f26dee43eabe37044d0b746b6fe004b17b82
+      bytes: 7151
+    - path: docs/backend-vnext/capabilities/table-presentation-large-data-report.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: b854a849c0e6fcb80ba15fb5b93545de052b6f8ba4679eed86ede90549222918
+      bytes: 100094
+    - path: docs/backend-vnext/capabilities/table-presentation.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 75306842e0ee556831fdf8d5da806bbd114288f5fdbd3ae566ea59a09b9aba83
+      bytes: 2330
+    - path: docs/backend-vnext/contracts/comparison-bundle.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 69afbcf4a7c1dcc5dd99ec0072952ae12559ee1d59f5446e1a13f6c4ab31bc6e
+      bytes: 14753
+    - path: docs/backend-vnext/contracts/comparison-surface.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: c4c65de0c0bcd5bc707d68e5dcd187c814067b0a598b6eb7a98f530a790d3f4c
+      bytes: 12768
+    - path: docs/backend-vnext/contracts/comparison.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: db41ff26839c76bc42b30b19c7206351bb73bb7322bb3a5105db4d2d1cd87327
+      bytes: 22542
+    - path: docs/backend-vnext/contracts/ordered-diff.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 02fcdb81af644b9877fd108eea30a27e83534593afb3475bb2b5185d0823adc0
+      bytes: 11761
+    - path: docs/backend-vnext/contracts/risk.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: dcf3122ffb8447e6aa06269a815f828a66024df5eb5622280ae54f8a09faab44
+      bytes: 14704
+    - path: docs/backend-vnext/contracts/snapshot-table-access.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 9633998285ce2723016957d89b4c39c0e33b7671ca7841120e0366876fd6f854
+      bytes: 7956
+    - path: docs/backend-vnext/contracts/snapshot.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 8a984b2eaac827aa7d23331661d080b896cbf8618ccc55881c5a2bd40482f87a
+      bytes: 12849
+    - path: docs/backend-vnext/contracts/source-package-and-snapshot.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: ced9d1d649b14755f409fef5944243d56f6485424099939c278f01e62d66e4fa
+      bytes: 3750
+    - path: docs/backend-vnext/contracts/source-package.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 69eee3fe8d3aba907500638544ad1f94fb6c31dfcbe8e593307c5dd00e2f41eb
+      bytes: 8907
+    - path: docs/backend-vnext/contracts/table-presentation.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 09ac347d80159d03b936a9426b3d9acbfcde3d3e589b3a197bfe60ec69ad0b10
+      bytes: 1902
+    - path: docs/backend-vnext/flows.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: f8630ad5087b4426f55b0f0a616d49f32ff7e776785b70277a1aeef07335a9d6
+      bytes: 10623
+    - path: docs/backend-vnext/frontend-surface-simplification.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 262eae13d8853eeaccfc3d5c37af13dcd1579a5e8da6dfdffb90d9090c7b775b
+      bytes: 9381
+    - path: docs/backend-vnext/identity-and-digests.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 7aa96244b4a0b01cb21ad3f7a8d47c011d543ef74e6fb8874a55cb73435aa706
+      bytes: 9455
+    - path: docs/backend-vnext/implementation-boundary.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: a8a296f0754b2e730d77d38058139cdf8bc8a1b99f88b738c1fd4acb37a66393
+      bytes: 12896
+    - path: docs/backend-vnext/modules.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 717675929ed9f97250bcd3493684ae6693042c5b581ecba95055da3674ea0ae8
+      bytes: 19774
+    - path: docs/backend-vnext/operations.md
+      class: ACTIVE_INTERFACE
+      role: p3_capability_oracle
+      sha256: 0d81240fe30329d81cff4d6e54fa43f07cb7612a2ca9d697962a0d3529e63169
+      bytes: 14135
+  retain_in_place:
+    - path: docs/backend-vnext/refactoring/formal/adr/0006-language-neutral-fixture-oracle.md
+      class: HISTORICAL
+      role: superseded_adr
+      sha256: e08761d9a61240e110ec105266ad367f853cf3cd3ec974c162a673f03c0ddc71
+      bytes: 2736
+    - path: docs/backend-vnext/refactoring/formal/adr/0007-vnext-performance-baseline-authority.md
+      class: HISTORICAL
+      role: superseded_adr
+      sha256: 64fe068e8a06b6efb76b8e107c7f09f9f404cce76dc3a63e3ffbbd797fd2e05c
+      bytes: 2888
+    - path: docs/backend-vnext/refactoring/formal/adr/0008-generic-dual-store-and-caller-selected-rigor.md
+      class: HISTORICAL
+      role: superseded_adr
+      sha256: f60699a463aa9467f756f631052f6159796918507d262d5d344f1aaf08e8d40a
+      bytes: 3225
+    - path: docs/backend-vnext/refactoring/formal/adr/0011-artifact-directory-broker-reclaim.md
+      class: HISTORICAL
+      role: superseded_adr
+      sha256: 32b6b50b7edf17aef3052d1e0bbb672b424e28c525509eda0bec62d7cb0d9d76
+      bytes: 4740
+    - path: docs/backend-vnext/refactoring/formal/contracts/canonical-encoding-normative-vector-schema.md
+      class: HISTORICAL
+      role: superseded_contract
+      sha256: 3d2ed4ac1b6488cc399a1bb894f73d7d43eeedd52d41bfc460839d159c7b3a31
+      bytes: 1310
+  must_retain_source_pointer:
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md
+      class: NORMATIVE
+      role: pytest_bound_methodology_version
+      sha256: e5890606649e5d13b5ebbfd1b3832ad7711753a68e69e3597b198a6f2904b35e
+      bytes: 27150
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r5-commit-pinned-read-execution-plan.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: dac8b0a7760ffe4bfea61cc5dcb899fc8cdcb09ea4d46fd06ef449483677048b
+      bytes: 51098
+    - path: docs/backend-vnext/refactoring/temporary/p2-r9-s2-step-e-container-gate.md
+      class: EVIDENCE
+      role: historical_container_gate
+      sha256: 2d979f8272b30082c9b1f4d159eb882d40c0167923efe2834be1466b1e75d7e2
+      bytes: 4456
+  leave_in_vnext:
+    - path: vnext/backend/README.md
+      class: REDUNDANT
+      role: empty_package_readme
+      sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+      bytes: 0
+    - path: vnext/deploy/p2r1-cache/README.md
+      class: HISTORICAL
+      role: stale_deploy_runbook
+      sha256: 843a005294ccc9f8753fb8980d7f6acf9fc8d534057df3728d2ba75b3b48c5e4
+      bytes: 18908
+    - path: vnext/fixtures/vectors/compute/canonical-row-hash/v1/README.md
+      class: ACTIVE_INTERFACE
+      role: fixture_vector_readme
+      sha256: 824d4aed12f4f02f28d35e3e2d3b721c2179045d432111be2fa3a12ebff462eb
+      bytes: 1904
+    - path: vnext/fixtures/vectors/repository/sql-enum-set/v1/README.md
+      class: ACTIVE_INTERFACE
+      role: fixture_vector_readme
+      sha256: f95483c117adbdec805c741c11f75b63379accb0e81bb99d0cf9f61fbbc41820
+      bytes: 2455
+    - path: vnext/repository_service/README.md
+      class: ACTIVE_INTERFACE
+      role: package_surface_stale_status
+      sha256: c855d88b84bd7437c226aed8804f2e6963062927778132983ef2c629309fc524
+      bytes: 18778
+    - path: vnext/shared_kernel/README.md
+      class: ACTIVE_INTERFACE
+      role: package_readme
+      sha256: 9002bbd8815f4c9ae95a9ccccb607e78550a7a4eb71a7713d441248d413f6284
+      bytes: 363
+  archive:
+    - path: docs/backend-vnext/dolt-test/dolt-import-provider-functional-test-result-2026-06-20.md
+      class: EVIDENCE
+      role: historical_functional_test
+      sha256: e79091afe595f7cae8c963a49c54648cdbbeda2b0612ee36f2529c21d1b19023
+      bytes: 6690
+    - path: docs/backend-vnext/dolt-test/dolt-native-diff-functional-test-result-2026-06-21.md
+      class: EVIDENCE
+      role: historical_functional_test
+      sha256: ca0912ed00e315cda2aa1c5b5ffcf4707210101cf5070cd48930bd28a6874f4a
+      bytes: 45293
+    - path: docs/backend-vnext/implementation-plan.md
+      class: HISTORICAL
+      role: pre_p2_module_plan
+      sha256: 09f9a26a61f0f9f3f65d999180bbdfb6dd034c367d2b9c89a2be62328b5946bc
+      bytes: 26265
+    - path: docs/backend-vnext/notes/archive-parity-audit.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 03a08e8f4be6da9281812fae0904204842ae11ee2a2d69baaafb3b73c421bd5d
+      bytes: 29936
+    - path: docs/backend-vnext/notes/cache-contract-cleanup-execution-plan.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: ab6399bc4628d5d3580f17498e1b3ce3259d31b6da608d2bf75ccf00e8f0ad28
+      bytes: 7937
+    - path: docs/backend-vnext/notes/comparison-bundle-formal-contract-scheme.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 30528acc4afad70577f8f6c3ea3a5236389b528de7b9ebe3c3d33ca02e3fdd1c
+      bytes: 9807
+    - path: docs/backend-vnext/notes/comparison-bundle-migration-execution-plan.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 32f55662a747521c706bf772e4c7f9ab49714de8f9ffacaf8c071b2f5656dfd3
+      bytes: 21410
+    - path: docs/backend-vnext/notes/comparison-bundle-oracle-audit.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 365431912b8d9c802e4ccc2c7c91f55bbfa3ab658c015f0f985e189a5d6391de
+      bytes: 21874
+    - path: docs/backend-vnext/notes/composite-signal-device-execution-plan.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 94d94d2dae9ea2ccbb53754162673a67edcb64f0df410af6004d49c9d994a96c
+      bytes: 6858
+    - path: docs/backend-vnext/notes/formal-contract-migration-execution-plan.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 2940a63e9bef2e8cfb066827d3b5ccd9b68134feafb30b2d38ad11da0c72ccf6
+      bytes: 191196
+    - path: docs/backend-vnext/notes/preview-bundle-parquet-reuse-note.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 75b2eeb4bae48d25f59d5bfbe6218de1beea232076d1e854ffceb4f80ce58067
+      bytes: 1371
+    - path: docs/backend-vnext/notes/registry-v1-schema-memo.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 61bb9aa68c42fc79898d3334ac8f91e189d21979efc030656d7e2f0141df6df2
+      bytes: 3972
+    - path: docs/backend-vnext/notes/snapshot-materialization-benchmark-readiness.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 4497ebeb3235ca540da98d4408082d07da34cfbd7d3bda68be8b12387b63f67f
+      bytes: 17227
+    - path: docs/backend-vnext/notes/snapshot-materialization-decision-memo.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: e3d862b69e6d05804cebc17d71aa77d1ba4f5147ca9f79e017e0e812afd25770
+      bytes: 19028
+    - path: docs/backend-vnext/notes/snapshot-materialization-implementation-notes.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 2da9e1f2a269c85738ca577659d0a9658ccb1db6a7d5770815f293f9090193e6
+      bytes: 10493
+    - path: docs/backend-vnext/notes/test-suite-runtime-investigation.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 2ecef67bcb3e163d96e9da6da795cb510339d20998dc8ea83b0e0d33b063d6b0
+      bytes: 10784
+    - path: docs/backend-vnext/notes/upload-benchmark-console-capture.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 17a0c46d7a71680ff40b2e51c6b45174fb92b2919316d2c00add7dd77e4cdf0e
+      bytes: 3627
+    - path: docs/backend-vnext/notes/upload-benchmark-gateway2-large-pairs-runbook.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 7a8fa4de2efad932bb435b9324458fb168e867255dd3c5ca727586003bc3b478
+      bytes: 3298
+    - path: docs/backend-vnext/notes/upload-benchmark-gateway2-runbook.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 28d7fe8b79dc95a90f6c2c9878d7d1ef4a34beaa38b81137f3fe0c0fd1b1f9cb
+      bytes: 8270
+    - path: docs/backend-vnext/notes/upload-performance-optimization-roadmap.md
+      class: HISTORICAL
+      role: implementation_note
+      sha256: 309fe3785b87f66078b4e69f3563bdf7fb34a59147ab584bef4423f685b6fcef
+      bytes: 25807
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-audit-correction-2026-08-02.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 8cc5fa453deeadb5dc1a7a4a3a111733ee8b372c86dc79c085e7cc8d14293517
+      bytes: 12281
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-diagnostics-50f05cf-2026-08-04/a-paired/a-devnull.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 3c74995fd99135ba880a5ef07dcbb17f23727bb947ca0c755aae4034d48acb0d
+      bytes: 734
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-diagnostics-50f05cf-2026-08-04/a-paired/a-devnull.summary.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 08305285e3ae30ade3d5ef313a7683645b818420b050a93d73c9e729f06b481c
+      bytes: 5160
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-diagnostics-50f05cf-2026-08-04/a-paired/a-paired-review-summary.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 665fe613bd8ccbd3a778d395ecc45f18907252e40804f87fd7db9188bb3ff7f7
+      bytes: 16415
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-diagnostics-50f05cf-2026-08-04/b-restart/b-restart.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 3c74995fd99135ba880a5ef07dcbb17f23727bb947ca0c755aae4034d48acb0d
+      bytes: 734
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-diagnostics-50f05cf-2026-08-04/b-restart/b-restart.summary.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: a61ba41c62107e2df5c38748e186468212e7b6370acc424d946c1edd8dfa4595
+      bytes: 4938
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-diagnostics-50f05cf-2026-08-04/paired-analysis.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 0bedbb02518ae1a30faf6285cd3e2aaa5fb657c7e043c93647a51e1afcd5d7d3
+      bytes: 18931
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-formal-rerun-19fb10f-failure-analysis-2026-08-04.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: be07861bff56ce9039bb454ac51c13278c18dc0c862418498f0f7cc16a160611
+      bytes: 471380
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-formal-rerun-19fb10f-run-report-2026-08-04.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: e0e8f0971fdb321b8116cae07e8514a9de18eb5eed4f5396d6580ee3165e6678
+      bytes: 759
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-formal-rerun-19fb10f-summary-2026-08-04.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 9fc7020b463299bc861ea2a0082f2f6851d0e91569d3c7fdcfdd107e9aac202a
+      bytes: 5985
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-formal-rerun-80858ca-2026-08-04/p2-r1.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: a144d5f708a0bd8659f621176e5c74843bed343cde8f76844bdf539e1f357db4
+      bytes: 758
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-formal-rerun-80858ca-2026-08-04/p2-r1.summary.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 4fc2761e95145634f4c6b240a604bfab9165ce153625c3cc1b8bfde3e097dc74
+      bytes: 5956
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-formal-rerun-80858ca-2026-08-04/review-summary.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 24d482472955a015c24dc921aa1f013360888cbee0a9030cdec376b14ab163e1
+      bytes: 7129
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-no-go-decision-2026-08-04.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: be489256362a1adc5487cf402c4e3d1a981043f663cfbb43f7d566cd05920b81
+      bytes: 6548
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-provider-decision-2026-08-02.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 5354f41dc4b323deb56692ca16869c5a37fcadc4f79e0ecc3378c7daa5e0b446
+      bytes: 10468
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-provider-summary-2026-08-02.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: da068a7203d25da259bf35cbb46ab96fbb4240ca90a02d74aba3332b19631199
+      bytes: 1514
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-target-image-summary-2026-08-02.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: ad543bfb19f000ccad09f28db3a5a1d07c6090240f20731bdc048af8f3e3c624
+      bytes: 1514
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-authority-and-implementation-brief.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 765c6de3803ef3c5ab8ab55d40246e8b6a68e079f81d5b62b9ba9cec1fb721f3
+      bytes: 18801
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-formal-80aff3e-2026-08-05/README.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 077a5b6a8545ad236ad0f4c73bfee42cc4b6dc022d0ab57c85adba69813b58de
+      bytes: 3796
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-formal-80aff3e-2026-08-05/p2-r1-v8.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 0e2054c762073cfef093b75ea8159ffb72012c1bd28c5d05591c7e0bebf1ec57
+      bytes: 656
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-formal-80aff3e-2026-08-05/p2-r1-v8.summary.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 0d0b72844e0ad9f01d16c57a006dc68882d0700c13a1b91a24caafb62f30fe73
+      bytes: 10334
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-go-decision-2026-08-05.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 8be0a1db8e31fe7ba8b6dd5d158af7205743c6b908be08e89835ce1688865631
+      bytes: 3169
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-00232da-2026-08-05/README.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 48e247744be0134eda482b13285f205002526ea3b612120446d0fa068c72a1f7
+      bytes: 1211
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-00232da-2026-08-05/v8-smoke-00232da-a2/a-w0.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 6abe9bd0707a9cf59f47f9b933047f375b38c0592911639f089f85c407d66d33
+      bytes: 730
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-00232da-2026-08-05/v8-smoke-00232da-a2/a-w0.summary.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: c64ab6bc6d0a0be825219e59b4b894959c382530639c796b31d77622b2c34d45
+      bytes: 4606
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-00232da-2026-08-05/v8-smoke-00232da-b/b-w0.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: db8b6a6577ce9cc5b80d7c0534e01f5a143a9b9b17570759c84afe651dc2d628
+      bytes: 631
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-00232da-2026-08-05/v8-smoke-00232da-b/b-w0.summary.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 63ff27e684fd97e6a80ef5058cd4b5d9c395b1138ea455199244caaf7b4c73c6
+      bytes: 478
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-36f8c2f-2026-08-05/README.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 197cf9dfa39c9a2377bf58d21eca771807fef0123e4684a84adaa7b4e7f4ca4d
+      bytes: 1354
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-36f8c2f-2026-08-05/v8-smoke-36f8c2f-a/a-w0.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 2ba4d49c51de63b6ac4da596f5682e196fe649afd360d929211be75cf46aab1b
+      bytes: 640
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-36f8c2f-2026-08-05/v8-smoke-36f8c2f-a/a-w0.summary.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 3b549cbad2131deac9ae53baf5c9054b5d566a0a50b8e529856c63dc55d5f522
+      bytes: 3788
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-36f8c2f-2026-08-05/v8-smoke-36f8c2f-b/b-w0.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: db8b6a6577ce9cc5b80d7c0534e01f5a143a9b9b17570759c84afe651dc2d628
+      bytes: 631
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-36f8c2f-2026-08-05/v8-smoke-36f8c2f-b/b-w0.summary.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 63ff27e684fd97e6a80ef5058cd4b5d9c395b1138ea455199244caaf7b4c73c6
+      bytes: 478
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-80aff3e-2026-08-05/README.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 34d4973e0bc9f68b9a558da3d599fbacb2bdc46023afa005746f49f6da6ed773
+      bytes: 3433
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-80aff3e-2026-08-05/v8-smoke-80aff3e-a/a-w0.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: cd3beb8eb265a287c5f390c0a921d35ada3cbbc87285831213ac5c9812abe6bb
+      bytes: 478
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-80aff3e-2026-08-05/v8-smoke-80aff3e-a/a-w0.summary.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 336beefaadc179e38f901d29de3f355787a85fadd47f4dbfbf5358f9733ac00e
+      bytes: 2976
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-80aff3e-2026-08-05/v8-smoke-80aff3e-b/b-w0.md
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 767841de79288d938c162e00da057776c74f26e0e13d31486359411dc23adadc
+      bytes: 409
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r1-v8-smokes-80aff3e-2026-08-05/v8-smoke-80aff3e-b/b-w0.summary.json
+      class: EVIDENCE
+      role: completed_gate_archive
+      sha256: 3f40261414d4f1026df52ae67ef553585c46a2f3bb09bbcc10fb5733a50a2605
+      bytes: 504
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-execution-plan.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: 85d6ba30ababf73f207c26ab3b9d28259e38dff970a4df606993c7e5e12ce97e
+      bytes: 147814
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r4-async-versioned-import-implementation-design.md
+      class: HISTORICAL
+      role: completed_p2_design
+      sha256: 05b0397c11c438a2eac1e4244e047e66bfb2b20863e06c2d24c1b6c9d9498229
+      bytes: 58814
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-ext-w1-enum-set-import-design.md
+      class: HISTORICAL
+      role: completed_p2_design
+      sha256: a807ddda0bcd4a699a09272840f1883f6a9254f34f237f1bbc8aa63f52af5066
+      bytes: 5712
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-ext-w1-enum-set-import-execution-plan.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: e7390de931a152b01b91a75934fee794dfa4874995b3a0ebd234128508cdd967
+      bytes: 19990
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-operational-closure-execution-plan.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: 88c86253225584bfdd8fe41aebea1748f6620b1b9bbc33d00620c402c563828e
+      bytes: 49088
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-s10-exact-candidate-production-gate-design.md
+      class: HISTORICAL
+      role: completed_p2_design
+      sha256: af48dc8a3b14bf3d0c7328cbd49593b0cdfff36e783a189e14128800e3d370e2
+      bytes: 16203
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-s10-exact-candidate-production-gate-execution-plan.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: eb6a31701b45a1a481afc80eb7920c8f3e2b8ee2fcbc078964f6524635acc06a
+      bytes: 26474
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-s11-build-context-external-provenance-handoff-execution-plan.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: 1186601fca2b054403a2fa6b7687a16131c8ea4547765dbd32274b84887d7344
+      bytes: 12882
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-s7-compose-lifecycle-design.md
+      class: HISTORICAL
+      role: completed_p2_design
+      sha256: b58f7e479d953f9d89b1338b0949cd7b998db17cc3ca25a473663263ab61a707
+      bytes: 12691
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-s7-compose-lifecycle-execution-plan.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: cc3549cb652f1e130c3f8f1c9c7693520c2e0490d96905b6c5a661457a28c514
+      bytes: 22586
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-s8-full-regression-design.md
+      class: HISTORICAL
+      role: completed_p2_design
+      sha256: 12db9afe8000ca7d0bd7da42136076a8139ab656d9a6e6de35256d1ea90f5738
+      bytes: 11286
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-s8-full-regression-execution-plan.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: 7797f9524ceaf610167e25cafe45ca45ff4f5fc3b9188bdf09aed92187b9e5d4
+      bytes: 18708
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-s9-final-candidate-seal-design.md
+      class: HISTORICAL
+      role: completed_p2_design
+      sha256: 4c7eba093ee147c83c1c44bdc19739823fc30a82adbcbbc760232825c20c2e07
+      bytes: 9128
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-r6-s9-final-candidate-seal-execution-plan.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: bda7ae424222b327533769a989ad142767de813dfa2d479f8938e8fcaf67faa6
+      bytes: 17872
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-versioned-repository-execution-checklist.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: 38fd4acd5069b4013c9d16b4c4d83fe83c1134b7717292c7f9c6c7ce02e912a8
+      bytes: 23302
+    - path: docs/backend-vnext/refactoring/formal/plans/p2-versioned-repository-implementation-design.md
+      class: HISTORICAL
+      role: completed_p2_design
+      sha256: 355aa0ab8f88770e0163eb6fbcb5ea9cc5f06aac3d967198f7a5991e12fd9aa1
+      bytes: 16124
+    - path: docs/backend-vnext/refactoring/formal/plans/phase-1-implementation-design-and-delivery-plan.md
+      class: HISTORICAL
+      role: historical_phase1_design
+      sha256: 997c0f69f7260a717f9be9af26ed2822d8b0a82d24cbeefdb65bcfb14cce8923
+      bytes: 19831
+    - path: docs/backend-vnext/refactoring/formal/plans/phase-2-implementation-design-and-delivery-plan.md
+      class: HISTORICAL
+      role: completed_p2_design
+      sha256: 708ed2020bb64b19ffb9c17f7b8e750b06a1c3ce43d2c0f1acb531c3050c616b
+      bytes: 14179
+    - path: docs/backend-vnext/refactoring/formal/plans/s02-code-cleanup-execution-checklist.md
+      class: HISTORICAL
+      role: completed_execution_plan
+      sha256: 778d6023a907218bc2c71bea676dccbb483d3a6c36f33cf795151d6289055144
+      bytes: 6990
+    - path: docs/backend-vnext/refactoring/temporary/README.md
+      class: HISTORICAL
+      role: temporary_index
+      sha256: f977f2349d265e53e65812db02cbc1308170e614d01f12e8f8acdd0596ca0b17
+      bytes: 2371
+    - path: docs/backend-vnext/refactoring/temporary/all-documentation-lifecycle-cleanup-execution-plan.md
+      class: HISTORICAL
+      role: cleanup_process
+      sha256: 0ee7c0947249aaec39398dd2dfe565c2acf2adaa646b7cfbab2f374ed3683989
+      bytes: 10497
+    - path: docs/backend-vnext/refactoring/temporary/architecture-simplification-execution-plan.md
+      class: HISTORICAL
+      role: stale_active_process_plan
+      sha256: 0320dff16d2f57859f65dca68b516c5426ee555748c6c5f59c60396c919bc130
+      bytes: 7280
+    - path: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c0-inventory.json
+      class: HISTORICAL
+      role: cleanup_process
+      sha256: c6fc8d3636bea03839145040c4f704647174b856b1c73a7edc8fef2056f0d3fb
+      bytes: 462943
+    - path: docs/backend-vnext/refactoring/temporary/docs-lifecycle-cleanup-c0-inventory.md
+      class: HISTORICAL
+      role: cleanup_process
+      sha256: 34ab1afd264f1bf87ed310020125fc97f33340b27975a6cb505fbeba22141674
+      bytes: 60326
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-external-descriptor.yaml
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: 416eb412d7e9ec389bb0dffae5511b016937ae1e29790cc3e26b549eb772205f
+      bytes: 2682
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-a-entry-reconciliation.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 892e7b008e14d715f48918aeea6f94c63e05b5810283f037b735b7bcc565fc77
+      bytes: 10938
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-b-contract-freeze.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 561c2e07481dcc39d6c1ce79c46c093c1a26db00d1901c395d9e68c4c83db867
+      bytes: 6121
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-b-contract-review-2.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: bd0ea4ca3aa402eac01e86035b92897b3bb0d2c84cdd2e9f08f9096dc5331fc1
+      bytes: 7758
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-b-contract-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: e0ff51cefa4c3930c90a48bf1beb334fa9c887c10d2977bc7636742755cb4b9e
+      bytes: 9167
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-c-parser-model.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: ca5da32662f2d8352c2b2c762ac4a1021c0648ca71acc3775c9660a69a390eba
+      bytes: 3483
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-d-arrow-provider-verification.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 045da3beebe9f3ce1daa33c29a48d0277fe43aaa478ea35ff7bbd930fbc7666c
+      bytes: 3518
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-e-implementation-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 1fe0e7f578ab2b42096d87420ef7261e674d05983af5e9606602a4a1f6b87022
+      bytes: 9128
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-f-five-fixture-packages.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 83a9ff23cfa9efd1866a020a6e337eb49be5ecab0f176aad3422bf1138548be1
+      bytes: 6540
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-g-production-validator.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 70445cd65fe28d9f48a8371644cbb6814aa621904d63267395c061fcb861fe01
+      bytes: 6619
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-h-validator-gate-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 79afeec5f049ba2aa6cf941d4a6eeaf1032ecff08005283823dcaf6bdff80e0c
+      bytes: 8771
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-i-concurrency-matrix.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 72c1f4d22e8c5752c8bf7f78a80bb5648015e64272318d9a2b5bfec5ecf98dbb
+      bytes: 3955
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-i-s6-capacity.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 47755df24754896d76b8957fd922ea930bd72a075cca0caa249a3d0efe00be37
+      bytes: 5739
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-i-w2.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: a4adbb9b8348bc97861e69c74eed0d4031ef467c54185f57d5c3d0e545217668
+      bytes: 4138
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-j-final-image-lifecycle.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: a8b014af74be1d8b3b7b0eb642114551113ed1cd2a106da7bc499adc19ab3fc1
+      bytes: 8285
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-k-final-handoff.md
+      class: EVIDENCE
+      role: stage_handoff_evidence
+      sha256: 6bc6dba4d9d18e0d0702fc638a12acddded27bd2d1b8037df2375ea18a5f6e40
+      bytes: 5305
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-audit-adapter-review-rerun-2.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 59fe64b3910991a120f2d5a57326517f4da0a4b1ebb0a20d49c1d1600f12de51
+      bytes: 7810
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-audit-adapter-review-rerun.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 8a7cf107f24f53309bb4d3331e929e4d534f7cd17823466ce505ddd0117b7c78
+      bytes: 9155
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-audit-adapter-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 7d6695b135b574eb4ef05317f0e37f02f884eb47bd9299ffcf600850f5f26976
+      bytes: 11356
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-design-review-rerun.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 96aeea0c0baaf5cbef8bc8dee22cd6c17f22a89f8b0d90780cb4dec3022ce3ec
+      bytes: 10570
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-design-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: b22bd24d3629850b12d38f2298e10369a783c16fa6a95a4a49d23758ae80bc65
+      bytes: 12144
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-final-gate-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 50a8175bbf73add8d9f34105ad3fcf7c1d90c37542e22eb89ea98752500ca8f2
+      bytes: 8490
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-final-handoff.md
+      class: EVIDENCE
+      role: stage_handoff_evidence
+      sha256: ed4c700f70072a31fb8a7da5a49d83b1ace1ff646deb3f2b2737ab66f2d7bbe8
+      bytes: 18846
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-0-entry-preflight-attempt-1.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 5eaf2a0f004d846ee00d814b3b068531bb476621100bc8fae77bf105aae70f3e
+      bytes: 24240
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-0-entry-preflight.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: b76dae82091b043f028fe1f792b8f3582e9cb2c47bdca560edcd12a72fe5ce5b
+      bytes: 9757
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-2-audit-adapter-attempt-1.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 0db5b82623995edd4373d271dd8f536c490d855e6e711285b5a4cf437726d3d3
+      bytes: 8519
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-2-audit-adapter-attempt-2.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 919ddb1c782b12272fd10153cb488bb426218cc8727b3bd75daf1aebe2350771
+      bytes: 7982
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-2-audit-adapter.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: a49121f6194f4a749d47c375e62293e47eb6d00b33a4b387813ecbde4ca71732
+      bytes: 6068
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-4-final-artifacts.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: f1ff4145f505e67037f50cfa49664ad93d8f9e991ae3fa466093ee0d07c79ead
+      bytes: 14540
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-5-no-ignore-compose.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 66319100b650d67744e5275eb2f0e2084d5563a6448cc4af1800d1fe51c6341d
+      bytes: 15433
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-6-w1-w2-production-repeat-attempt-1.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 6acc1f584d06939f93ba4b7f6c7cc53c2306c0b42fb9c8ea8645046b6993b1f2
+      bytes: 11581
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-6-w1-w2-production-repeat.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: c3434223ea941a0793588467aa6cae85a6fe96c750273bd531a6f199feb8c9a1
+      bytes: 11724
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-7-w0-smoke.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: ddfd96952965d8aed4cd1264127cce626f66c6cb852a16c336fe599920f25259
+      bytes: 10911
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-8-v8-formal.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 25af2ddfdaa10a7e1aa5279bf58b1e3ad49c18cc1a71dcd14e6fdec28fa43716
+      bytes: 8298
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s10-step-9-final-packet.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 43b80f2fa71e7f23014e5145de3da3679f3cdd07a98e59a5e2ce236bc82d876a
+      bytes: 10358
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s11-final-handoff.md
+      class: EVIDENCE
+      role: stage_handoff_evidence
+      sha256: 66aee3674aa3384165c4233d3a0e78180dd51a54cfbb1ca63ce13965254012a7
+      bytes: 8603
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s11-handoff-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 2db552c27aefa61e012f14af134f77d3535d26f86639bca1c1c6beccf6e3fc71
+      bytes: 7550
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s11-lineage-inventory.json
+      class: EVIDENCE
+      role: stage_handoff_evidence
+      sha256: 429b6e1e5567d75e25354acb49000c490ecb502ee8a56be7f544b3e52d5d3792
+      bytes: 19379
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s11-step-0-entry-reconciliation.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: fe6bbafcf7db23d3b964a5167d099413d5b003410e27eab9ab961410906883d9
+      bytes: 11415
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s11-step-1-provenance-packet.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 1f7cdc0d9be9813899edb1377ec7b76ccc9ca7a22c633e745f8d34c1f35a00fb
+      bytes: 9029
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s11-step-2-documentation-boundary.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 76ca4ae0c733e08b81252869a8e86dceea25c93c90fbe72494617573033d3e88
+      bytes: 7218
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s11-step-4-post-commit.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 6bc8bc5cb8aeba59bb16146b9515c38e67445c3df513f7de08df6d39acc04854
+      bytes: 3573
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s11-step-4-precommit-checks.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 1ae2c93fd48f487d58b0747a4c4c161b0b6f79711159669bd8337a9f7026ce6f
+      bytes: 3417
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s3-step-e-container-gate.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 0d74984e4cfd0434774aff0953fdcde8017c5ab5d7d30acdcb54272f1bd01493
+      bytes: 5024
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s4-step-e-container-gate.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 54f303423d59965f3171ea3959d6c25a446d03c797dedaaee0b9222fe27d6533
+      bytes: 5447
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s5-step-e-container-gate.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 096afdbc43b164c863fe59a25c91a4bc35c188250a01cc625062f5ccad5ae439
+      bytes: 10054
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s6-entry-readiness.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: f9a6f7d335c92a9d3baa8cc9ce8a22045240f4ce0af5061c611fa81be2afc1d6
+      bytes: 8531
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-final-handoff.md
+      class: EVIDENCE
+      role: stage_handoff_evidence
+      sha256: 4ea72839e40f3781f38be47f3d668f75e52f254d3687c7dda5b995c19af28a93
+      bytes: 13961
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-1-design-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: a7977a898febf796a93aee0f2a7e63e349970b1042ca2f1905c81de0adaf8227
+      bytes: 8766
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-10-blocker-repair.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 3cc1c049000d46ac6073b8ff9cd58dfbda8a9027897a781dcbc4c362604bc870
+      bytes: 13149
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-10-lifecycle-rereview.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: bf1b8ccc5606e2d7716bb514a998c5f0e26cb9402483eaf271de5503a35b6b91
+      bytes: 6282
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-10-lifecycle-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: ec67cde5e5bcaee92fc745559c3a39a5ec0227f6076c342c895f8441d8a77be5
+      bytes: 8018
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-4-harness-final-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 81699f5fbcd99436810f43ed082f2d9e38e2308817e6b38b5dd18fec145a511e
+      bytes: 4445
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-4-harness-rereview.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: e7ff3238237c722dce3fd3e34a34570aa4a9bfc75ccb430c533e395387078d5e
+      bytes: 5202
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-4-harness-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: fd2d820ebeff10842002408be80b7d15993d12eb5fa5fbd58863d9f5bd673dd6
+      bytes: 8089
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-5-provisional-image.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 81e20371e7e2e05ad2959d9567dfd96e8f4d54b15d5b682031c165ade9c44e28
+      bytes: 8285
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-6-import-restart-replay.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 39e8543bff81063920c260e46a91105c28e0defacbbc7fbdc0ef2c8745b86dd7
+      bytes: 2560
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-7-pinned-read.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 2a5cf824567eb66a96b5f82b4fe3ea2435290b3a008de2fb6152e3caaf5c4365
+      bytes: 5296
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s7-step-9-restored-lifecycle.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 33fcd309b9fa0ff565db91ecd65d91ed1bdb4f061a42acf5bd66f4cf0e8d51fb
+      bytes: 7793
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-design-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 90b5c6b08ebd08243c7407d757eb7ec84210c08a89b459864fae250756a997d9
+      bytes: 8564
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-final-handoff.md
+      class: EVIDENCE
+      role: stage_handoff_evidence
+      sha256: 9b2554f4b2081a6cbfe4f40b5a4a57cea0b3fb20ee82559508e3c5915a03c863
+      bytes: 13099
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-implementation-rereview.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 79b60d4d129e67872055459e6a41f61f2b257d80493c7b979675532c14b31acb
+      bytes: 7569
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-implementation-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: da7f6642692120aa154cf65812fa7dc291f79a2e9eda7b2164d26381a499ca79
+      bytes: 8731
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-0-entry-reconciliation.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: f0df6d60ad7bc42c0606c7ed06b7a11c2e131557297d08e916734cf02878822e
+      bytes: 12581
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-2-classification-and-static.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: aedfb066bef8884c341acb93c3c8a5f2875b73954997a4f34d0b867e4e7d50b4
+      bytes: 9332
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-2-classification-repair.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 54a994a68becceaf89f649e03a60ccea40732193c6c9741ab8db48b92da6e65e
+      bytes: 4327
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-3-worker-convergence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 6cf1059f62e64853d3eab0e8ec20d5aa3768fd41bd774b95e8a3ef95728ccf0c
+      bytes: 8009
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-4-source-full-regression-rerun.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 0020ebde66081cfd329fb575f7a2e01529f86e942341ca74b5ef55a9a8a91f23
+      bytes: 3765
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-4-source-full-regression.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 7b80db6a86dd7cb3e9cbd82e69b2408b41515facfe4a55c386f65ca585874436
+      bytes: 7916
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-hygiene-and-candidate-preparation.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 90356fab2f5231d93dd45abe32663e281830bf789b159be82debd60fdb8c34a9
+      bytes: 11534
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-hygiene-rerun.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: e5ed1f9aab2315fe73c519e39620a75f771c0752273197ab9d1f2199a002ff6a
+      bytes: 4514
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-old-reference-raw-rerun/g1-verification-level.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: 87219759a95c2ad7da2af73a4709472b4d26cdf6abda76ec12c9ffd6e15329bf
+      bytes: 22459
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-old-reference-raw-rerun/g2-effect-state.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: 0191b461c7f612246e0662ff9f69cbe0c9e352eb01f1916ab638745200d4a6c0
+      bytes: 37500
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-old-reference-raw-rerun/g3-cas-store.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: ed825f53308208e88e24eae27fd30c1fdc7cc568fc45ab58ee98a9f57ea34d39
+      bytes: 93224
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-old-reference-raw-rerun/g4-path-version.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: f019f40a76258dea9f8c30727127c1640e7ef6f24f4062f27b4f232845d7916b
+      bytes: 73385
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-old-reference-raw-rerun/g5-wire-readback.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: b4f9a8860ce456b729c114314601ed06f6b434b18be7356a4d2e935712aff57c
+      bytes: 2104
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-old-reference-raw/g1-verification-level.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: 57457ac8cdfc9dcf36f55f1a086fe0c53aff5149161d6d84f72c695dba956ed8
+      bytes: 8810
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-old-reference-raw/g2-effect-state.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: ef2e03db4f6232c5b162acbf8eb4d0710fd4acd88eabc76d14f6124e9d94418d
+      bytes: 15511
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-old-reference-raw/g3-cas-store.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: 06c0e88b328aa9e6e0be19ea8f2b8886354df68de64b149327500671fd488d99
+      bytes: 38370
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-old-reference-raw/g4-path-version.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: efd513854ac85d7c1e360cb9a1d6b932403c845da5586d740470e74545af932c
+      bytes: 27602
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s8-step-5-old-reference-raw/g5-wire-readback.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: 906ff96dc01c9c2aa16643b9a9507d10381935be79fc09367d25fc6959c88e2e
+      bytes: 620
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-candidate-seal-review-rerun.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 7c4e9aa9ce74bae38098cbe00e3ef4cde0e5864b9afb741e6804a42ac0b4beac
+      bytes: 6822
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-candidate-seal-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 14421a8c3a38624559207dc0b9c64b9ed43288efa0af6dc6aed3b576c33a8fe2
+      bytes: 8825
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-design-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: e8042894c25a4c8790d6695e7f0ee2bca444ca3e97b77d23c43bcad4939d394d
+      bytes: 8041
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-final-handoff.md
+      class: EVIDENCE
+      role: stage_handoff_evidence
+      sha256: 0e371cc5f7516ee569bc731d6cfbaf6269cbfa2d6e5ddbfd5ad494766e193e31
+      bytes: 15035
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-0-entry-preflight.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: fb4c5985926d2f3121bd29b49de6ae4522f1f4a7f06ede7f1a9cedb7acb68572
+      bytes: 16095
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-2-provisional-image.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: d2b769ef90c7f4ec5a2739bff6ff32694d7e5faf40fa4f8948a51af346e91b39
+      bytes: 12162
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-3-no-ignore-regression.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 269839e7cd5186016900e98735e87d700212153fa7c706a0525b1b52ca6fe4fc
+      bytes: 14775
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-4-candidate-seal-packet.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: ea2151a713afa5aeea47885cae38cfe996b4628242f3eff0773283eb6199dabb
+      bytes: 14219
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-4-old-reference-raw/g1-verification-level.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: 8280f2633a1d966d76cffb51e12c2ac9f8102208e61f2b021bebc8268f10b8b1
+      bytes: 192356
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-4-old-reference-raw/g2-effect-state.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: 6c1861ca101d14ed57a28aed812d0589a1bde18c1f5816f24e535bb819832655
+      bytes: 257452
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-4-old-reference-raw/g3-cas-store.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: abf33e1bab7583a2ab1f5ab4ca6cfc1bf32c195fedb02f15163f6666b922ed00
+      bytes: 673842
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-4-old-reference-raw/g4-path-version.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: 875c2b6ea052f4691ef1ae86c03c3595e1c7bd6d7b7b27d5d19a5bce8e8aa7f3
+      bytes: 315690
+    - path: docs/backend-vnext/refactoring/temporary/p2-r6-s9-step-4-old-reference-raw/g5-wire-readback.txt
+      class: EVIDENCE
+      role: raw_or_generated_evidence
+      sha256: b8f69da9636bcfd29f847e50eed727619b3471b4672f06032b9637014faa08c5
+      bytes: 5830
+    - path: docs/backend-vnext/refactoring/temporary/p2-r9-s2-cooperative-cleanup-simplification-plan.md
+      class: HISTORICAL
+      role: stale_pending_implementation_guide
+      sha256: 50c2b0bacd9bbb84f44d0fdcaee9652704e7358059f88dc24fee7e71ef047fd6
+      bytes: 20682
+    - path: docs/backend-vnext/refactoring/temporary/phase-0/baseline-and-oracle-notes.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: dd42d3fe7fb20e48fde492541d7753c9c36ca4570bfc6fed93ddfbe8bcaf5f8f
+      bytes: 168554
+    - path: docs/backend-vnext/refactoring/temporary/phase-1-environment-execution-ledger.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 7322299c3e4153f17d0ff4c6806cbe69a509f34294014eed7989853b23ff6796
+      bytes: 6092
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/executable-contracts-and-walking-skeleton-notes.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: b6ec139de73fb29299c7a5c20d3c3ccfe91be14283ebf2375aade854ae947437
+      bytes: 61686
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/implementation-design-and-delivery-plan-notes.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 2498885d5050ce55ea17c300f053ff1e981fce89b75a5167a4ccc0d4effc50d1
+      bytes: 7941
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/phase-1-closure-signoff.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 59aa6a6b208d18fb860462feb300640b09d9b9210edb07116ae0fb2fce47374e
+      bytes: 5147
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp0-dependency-inventory.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 19ebf5012fd842206b5912536a3fbf941d0f0e81e7795bc4c2f91c0ee5169141
+      bytes: 3659
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp2-r1-dependency-inventory.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: e3b04aac4ef2362e2673b02b704ccddedf863459488303cdb2d7fd62985ece1e
+      bytes: 2682
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp2-r2-dependency-inventory.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 088005b8c6761ccf65cc181950912208c20bfe91c70794e97cb69005951bef78
+      bytes: 4544
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp2-r3-3a-dependency-inventory.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: f792382358600fc29fb9552e30e8fd67cdcbff5cf8b5a33262bdd40ed7987a72
+      bytes: 1565
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp2-r3-3b-dependency-inventory.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 979754a3b839c4bb82e848aad887ae2fa3fae1dd75addb591507fc5dabc98fc0
+      bytes: 1564
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp2-r4-dependency-inventory.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 3dd9161d14fec1923990fdace1e4ba2cc5351e3d78a1e72676bf10fa53969922
+      bytes: 5879
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp2-r5-dependency-inventory.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 3709f0706e5cb14d47c4dc2fd866f76398caab721bcdc8fa56d6d39521532cdc
+      bytes: 9620
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp2-r6-normative-publication.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 51e783f01e1dcc28b113c637eb4658b532a5b29677ab778adbaab3096bb246f4
+      bytes: 15893
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp2-r7-repository-consumer.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 6af37b0f9f7974a7cc7e2bdbf836d9133772e697470b3cee61138b153c7437b1
+      bytes: 6845
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp3-r1-arrow-pyo3-design.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 0ac52ff061324ac169b2d90a6d15cbcc287f61a29dca5959f86e3b9b469962e4
+      bytes: 33449
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp3-r2-rust-core-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: ba7ef00d1be6f006d4ffbbb6b767f86bb1d2ec62afc0664d4bf6e3e37551820a
+      bytes: 6137
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp3-r3-pyo3-adapter-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: b348420f14398a16b8497572087ccb2799396172802c377a742fda5ea923abce
+      bytes: 12675
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp3-r4-kernel-component-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 01d6c8886a2deb884ccad1a0aecda23583fbc86cb2e707e540c68013b70df753
+      bytes: 10853
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp3-r5-dependency-inventory.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 0543841cf1b2714d3f2877f4c4931df36cc6a50a2a459ca94ef43edf16461f82
+      bytes: 28496
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp3-r5-kernel-native-signoff.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 21a46284a44591531caf79dcb04d9fece79b09cb7ab6362d599ca7460aacc6c8
+      bytes: 17509
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp3-wp5-checkout-plan.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: e0f82829a890c3b3de91b8178d6b2c0af8719d7e2e405b35c151145603caacc5
+      bytes: 9462
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp4-r1-artifact-api-design.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 035be3498577f03cf92493af390821978e46583313ca9938b06978f9c6eb40e1
+      bytes: 7398
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp4-r1-artifact-api-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: da788313c87de51f935398434a04069cb4dabbae02829e0ba43a02b5bdcb7156
+      bytes: 14983
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp4-r2-artifact-round-trip-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 7ecfdeab1d334d387cdb9f0694ccd144be51d7efcd3e998f4029016b8494a834
+      bytes: 15001
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp4-r3-ipc-negative-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 799164fa151d7ef3b8fd7bd7634e4729e89f01a5f43ed49f6f632af5cd54c663
+      bytes: 20237
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp4-r4-artifact-path-closure.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 4549d6e2096f14f0441833c6396d2e97c4dd6e4d3f1849c7bf4b22b6dd98ff0e
+      bytes: 19339
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp5-r1-scenario-schema-closure-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 6ddc9ca0bc378f448bf2809ef9fa7abbe35815c77278558b8c07814b4d91b849
+      bytes: 23105
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp5-r2-runner-lifecycle-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 4da66ab35049b22c898ddb0a7a9d41858a442aaf58d7f94f75382c7fe9ce2272
+      bytes: 12361
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp5-r3-canonical-row-hash-scenario-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 205b6be914703060ed97da632ff343cbc46babbbeb3a22359e4230f756028c71
+      bytes: 4878
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp5-r4-profile-matrix-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 11043acc4fd3d270020ec9227a9a6f2f1fd2019e95274808683414632569a05b
+      bytes: 7499
+    - path: docs/backend-vnext/refactoring/temporary/phase-1/wp5-r5-phase1-exit-evidence.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 9134b7f83aad0b889b21e2a2793d87942cad96325d605c62e27becf229cfee80
+      bytes: 8851
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/README.md
+      class: HISTORICAL
+      role: temporary_index
+      sha256: 2a70ac1de0f36bef24755c287d87eb60fdced92f7863685e3cd89e756ef617f0
+      bytes: 9902
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/bounded-phase-3-consumer-adequacy-check.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 5f5aa510faa6c98042457d75a168bdffc2d9c6f6a3859846922c094164962f3e
+      bytes: 9992
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/caller-responsibility-scan-round-0-to-6.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 7545633e1fc3390a68a05f1a0db59bf84bae87244ed56684ce05247a09bc49bb
+      bytes: 6384
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/consolidated-design-review.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 93a10e51a4ab697419a39d07b772b84950421b9413ad19f3d4bd92526031eb87
+      bytes: 23886
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/decision-ledger-round-0-to-3.md
+      class: HISTORICAL
+      role: superseded_interview_record
+      sha256: f1c9091cc203ca9bb5858f1b318fae05358d81ba9dfac56b4e0c39ca36a21dcc
+      bytes: 97250
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/decision-ledger-round-4-to-7.md
+      class: HISTORICAL
+      role: superseded_interview_record
+      sha256: b5eda8d96ac47a6b52dfd4cf682c0e08cd255b5e74d139042314cdaa4d30d4ab
+      bytes: 82294
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/decision-ledger-round-8-to-11.md
+      class: HISTORICAL
+      role: superseded_interview_record
+      sha256: 959b36e493e3dd44b95f8670d2378606a0011ed2250f2e4b7b5d493adec425ed
+      bytes: 140283
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/interactive-design-session-guide.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 369888d8492f56c842d5dd0e499558f1e3f986c1f7a8f001f8769b72e1897fe7
+      bytes: 21072
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/p2-r3-implementation-task-prompts.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: a3a803b2d9bfee3bcfde02b4ffa252b8e8edaaa61ed3a2fa708883dcefcb792e
+      bytes: 14126
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/p2-r3-synchronous-create-upload-execution-plan.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 0721e55f4175f4639a9c683309dcec67d4b718d2c74d55bede7fdfc2bdb4f13a
+      bytes: 17524
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/p2-r6-s3-staged-execution-guide.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: e471f897863b4e7e6dbea25bbc0af0110d82e6409f36f75a9cbc498bb77ff4da
+      bytes: 34864
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/p2-r6-s4-staged-execution-guide.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: a1d180b3e46d460b9e873650f0e73244f9ec061644508ce52eb6c98aa1e9f7f7
+      bytes: 27862
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/p2-r6-s5-staged-execution-guide.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: f390b64e33136d28f4c8330d683134dd177e32533d9b48bfd49ccc5780745c85
+      bytes: 34700
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/round-11-convergence-readiness-scan.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 71411331e58e92266ee9ccbf63912857dc10ea3db434e1d835da8a0125b307d7
+      bytes: 7597
+    - path: docs/backend-vnext/refactoring/temporary/phase-2/t2-simplification-implementation-checklist.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: 9a7b17625b3e7dde05b717e721938a4d65a35b0a92d661994feabb996cef11e6
+      bytes: 7029
+    - path: docs/backend-vnext/refactoring/temporary/project-environment-preparation.md
+      class: HISTORICAL
+      role: temporary_execution_record
+      sha256: bd2060b183a8d5a4afb2bf68e5d3cac22b477a8b1c3c77a3255eecae14f986bf
+      bytes: 22009
+    - path: docs/backend-vnext/repository-import-benchmark-runbook.md
+      class: HISTORICAL
+      role: benchmark_runbook
+      sha256: 54fe4485176f4f333ef5dd07579cabb083d927059d7ad2f633ebeadf6674dd2a
+      bytes: 18387

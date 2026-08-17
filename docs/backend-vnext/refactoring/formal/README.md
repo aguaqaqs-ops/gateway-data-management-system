@@ -28,6 +28,8 @@
 - [P2-R6 Operational Closure Staged Execution Plan](plans/p2-r6-operational-closure-execution-plan.md)
 - [P2-R6-S8 Full Regression and Candidate Preparation Design](plans/p2-r6-s8-full-regression-design.md)
 - [P2-R6-S8 Full Regression and Candidate Preparation Execution Plan](plans/p2-r6-s8-full-regression-execution-plan.md)
+- [P2-R6-S9 Final Candidate Seal Design](plans/p2-r6-s9-final-candidate-seal-design.md)
+- [P2-R6-S9 Final Candidate Seal Execution Plan](plans/p2-r6-s9-final-candidate-seal-execution-plan.md)
 - [P2-R6-EXT-W1 ENUM/SET Import Design](plans/p2-r6-ext-w1-enum-set-import-design.md)
 - [P2-R6-EXT-W1 ENUM/SET Import Execution Plan](plans/p2-r6-ext-w1-enum-set-import-execution-plan.md)
 - [Proportional Assurance and Risk-Based Verification Policy](policies/proportional-assurance-and-risk-based-verification-policy.md)
@@ -77,8 +79,9 @@ Candidate B保留但默认禁用；P2-R2至P2-R4已通过。P2-R5 functional exi
 P2-R6-S0 design freeze complete、S1-S7 implementation/evidence gates complete；R6-EXT-W1 Stage I
 S6 capacity / W2 / concurrency matrix `pass`，`R6-EXT-W1=yes`，
 `P2-R6-S6_ready=yes`；S7 final handoff `S7_exit: pass`、`S8_ready: yes`；S8 final
-handoff `S8_exit: pass`、`S9_ready: yes`；当前下一步为 `P2-R6-S9` exact candidate
-seal；`production_retest_required=yes`，
+handoff `S8_exit: pass`、`S9_ready: yes`；S9 final handoff `S9_exit: pass`、
+`candidate_seal: pass`、`S10_ready: yes`；当前下一步为 `P2-R6-S10` exact-candidate
+production gate；`production_retest_required=yes`，
 `phase_2_complete=no`；
 P3 design尚未开始。完整handoff见
 [P2-R5 Commit-pinned Read Staged Execution Plan — P2-R5-S7 final handoff — 2026-08-12](plans/p2-r5-commit-pinned-read-execution-plan.md#p2-r5-s7-final-handoff--2026-08-12)。

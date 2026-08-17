@@ -470,17 +470,21 @@ next_stage_ready: P2-R6-S9
 
 ### P2-R6-S9 — Final candidate seal
 
+详细设计：[P2-R6-S9 Final Candidate Seal Design](p2-r6-s9-final-candidate-seal-design.md)
+
+分步执行：[P2-R6-S9 Final Candidate Seal Execution Plan](p2-r6-s9-final-candidate-seal-execution-plan.md)
+
 ```yaml
 goal: freeze the exact source candidate and literal CANDIDATE_SHA without self-reference
 allowed_paths: none after clean candidate selection; external gate record only
 explicit_non_goals: amend, rebase, squash, provenance doc edit or image reuse after build-input change
 implementation_decisions: detached remote worktree; immutable candidate; separate validated SHA fields
-tests_and_markers: run ./vnext/scripts/run-tests.sh with no --ignore before remote build
-directed_gate: git status clean, five old-reference searches, full command/count report
-container_trigger: yes; this exact SHA owns the final image
+tests_and_markers: run ./vnext/scripts/run-tests.sh with no --ignore; all eight Docker nodeids pass
+directed_gate: entry/preflight, candidate-bound provisional image, exact full command/count report, five old-reference searches, independent seal review
+container_trigger: yes; candidate-bound provisional image in S9, final production image in S10
 failure_boundary: any source/test/build-input change invalidates seal and returns to the owning stage
 expected_commit: none; S8 clean HEAD becomes literal CANDIDATE_SHA
-exit: exact clean SHA and effective build inputs recorded outside candidate
+exit: exact clean SHA, effective build inputs, no-ignore counts and external seal recorded outside candidate
 next_stage_ready: P2-R6-S10 when builder/cache/gate-host prerequisites are ready
 ```
 
@@ -491,7 +495,7 @@ goal: build, transfer and validate the exact candidate through full, Compose, W1
 allowed_paths: no candidate writes; audit output and ephemeral remote/gate-host resources only
 explicit_non_goals: substitute earlier image/evidence, change canonical v8 parameters or defer a final gate
 implementation_decisions: retained cache build, auditable save/load, identity check, fresh/restart/restored
-tests_and_markers: no-ignore run-tests, three Compose nodeids, W1/W2, Candidate A 66-record v8 runs=5
+tests_and_markers: no-ignore run-tests, four Compose nodeids, W1/W2, Candidate A 66-record v8 runs=5
 directed_gate: section 8 protocol and canonical commands
 container_trigger: final mandatory
 failure_boundary: any mismatch/failure keeps production_retest_required=yes and phase_2_complete=no
@@ -713,3 +717,36 @@ S8 关闭源码全量回归、分类、worker 收敛、old-reference 分类和�
 容器门禁仍为 deferred；祖先 Compose PASS 属于 `5f474ce2`。S9 必须从字面量
 `validated_code_sha` 起跑无 ignore `./vnext/scripts/run-tests.sh` 并封印精确候选。
 docs-only handoff 提交不改变 `validated_code_sha`。
+
+## 13. S9 handoff
+
+完整 evidence 见
+[P2-R6-S9 final handoff](../../temporary/p2-r6-s9-final-handoff.md)。
+
+```yaml
+stage: P2-R6-S9
+stage_status: pass
+candidate_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+validated_code_sha: 2ef884278b4998dde1e5fe224532c89b7a0cd73a
+no_ignore_source_regression: pass
+all_eight_docker_nodeids: pass
+candidate_bound_provisional_images: pass
+old_reference_classification: pass
+zero_owned_process_thread_dolt_query_temp_work_root_residual: yes
+independent_seal_review: pass
+candidate_seal: pass
+S9_exit: pass
+S10_ready: yes
+production_retest_required: yes
+phase_2_complete: no
+deferred_scope:
+  - S10 final production image/provenance/container gate
+  - S10 four Compose nodeids on the sealed candidate
+  - S10 W1/W2 repeat and Candidate A v8 formal --runs 5
+```
+
+S9 关闭 exact candidate seal、无 ignore 源码全量、八个 Docker nodeid、candidate-bound
+provisional image 和独立 seal review。`container_validated_code_sha` 仍为 deferred；
+S9 provisional image 不是 S10 production image。S10 必须从字面量 `CANDIDATE_SHA`
+`2ef88427` 重建 final production image，并重跑四条 Compose nodeid、W1/W2 与 v8
+formal `--runs 5`。docs-only handoff 提交不改变 `validated_code_sha`。

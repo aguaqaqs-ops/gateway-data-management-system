@@ -1,4 +1,4 @@
-"""Minimal BackendArtifactRef and ordinary reopen tests."""
+"""Local/in-memory artifact store ordinary reopen tests."""
 
 from __future__ import annotations
 
@@ -7,14 +7,10 @@ from pathlib import Path
 
 import pyarrow as pa
 import pytest
-from gateway_shared_kernel import DigestRef
 
 from gateway_backend.artifacts import (
-    ArtifactRef,
     InMemoryArtifactStore,
-    artifact_ref_from_json,
     artifact_ref_to_dict,
-    artifact_ref_to_json,
     build_artifact_id,
     put_with_built_ref,
 )
@@ -29,37 +25,6 @@ from gateway_backend.canonical_row_hash_ipc import (
 )
 from gateway_backend.compute import canonical_row_hashes_v1
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-
-
-def test_backend_ref_is_exactly_minimal_and_round_trips() -> None:
-    ref = ArtifactRef(
-        artifact_id="canonical-row-hash-example-0001",
-        media_type="application/vnd.apache.arrow.stream",
-        size_bytes=3,
-        raw_sha256=DigestRef("sha256:" + "a" * 64),
-    )
-    assert set(artifact_ref_to_dict(ref)) == {
-        "artifact_id",
-        "media_type",
-        "size_bytes",
-        "raw_sha256",
-    }
-    assert artifact_ref_from_json(artifact_ref_to_json(ref)) == ref
-
-    payload = json.loads(artifact_ref_to_json(ref))
-    payload["content_digest"] = "sha256:" + "b" * 64
-    with pytest.raises(ValueError, match="unknown fields"):
-        artifact_ref_from_json(json.dumps(payload))
-
-
-def test_backend_ref_rejects_host_path() -> None:
-    with pytest.raises(ValueError, match="bounded opaque"):
-        ArtifactRef(
-            artifact_id="/tmp/secret.arrow",
-            media_type="application/vnd.apache.arrow.stream",
-            size_bytes=0,
-            raw_sha256=DigestRef("sha256:" + "0" * 64),
-        )
 
 
 def _empty_content() -> tuple[

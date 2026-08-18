@@ -227,10 +227,11 @@ R 之间默认串行。R 内只有不共享未稳定 contract、不会改变对�
 p3_design: accepted
 p3_execution_plan: accepted_for_staged_planning
 current_module: P3-R1
-current_module_detail: R1-S1 ownership/public-boundary skeleton complete; S2 entry next
+current_module_detail: R1-S2 shared-primitive gap decision complete; S3 entry next
 p3_r1_s0: completed
 p3_r1_s0_inventory: p3-r1-s0-asset-inventory.md
 p3_r1_s1: completed
+p3_r1_s2: completed
 p3_implementation_authorized: no
 ```
 

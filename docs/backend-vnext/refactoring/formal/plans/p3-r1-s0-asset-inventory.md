@@ -1,6 +1,6 @@
 # P3-R1-S0 Existing Asset Inventory and Applicability Review
 
-状态：S0 complete；S1 ownership skeleton complete（R1 implementation authorization remains pending）
+状态：S0 complete；S1 ownership skeleton complete；S2 shared-primitive gap decision complete（R1 implementation authorization remains pending）
 
 日期：2026-08-18
 
@@ -228,3 +228,44 @@ gateway_backend.repository_import_artifact
 
 Architecture/import checks live in `vnext/backend/tests/test_architecture.py`. `F-001`
 remains the S3/R1 evidence gate.
+
+## 9. S2 gap decision and conformance record
+
+S2 执行基线：`908d5ea2140154c7efb162c020acbca9809651a7`（S1 HEAD）。本步不新增
+shared primitive、不扩 128-case corpus、不修订 owning contract/ADR。
+
+### 9.1 Gap decision
+
+| ID | S2 disposition | Rationale |
+| --- | --- | --- |
+| `D-001` | KEEP | Python/Rust 仍共用同一 canonical encoding corpus；无语义 mismatch。 |
+| `D-002` | KEEP | `ArtifactRef` 仍是四字段 nominal envelope；S2 只补 envelope conformance。 |
+| `D-007` | Confirmed | 没有两个独立 consumer 所要求、且现有 primitive 无法表达的缺口。 |
+
+未扩 corpus：`unordered_row_hashes_content_digest` 与
+`CANONICAL_COLLECTION_SEMANTICS_UNKNOWN` 已有语言本地单测；把它们写入 v1 JSONL
+会改合同硬编码的 128 验收计数，且不是新 primitive。`F-001` 仍属 S3。
+
+Changed paths：
+
+```text
+vnext/shared_kernel/tests/conftest.py
+vnext/backend/tests/test_artifact_ref_conformance.py
+vnext/backend/tests/test_artifact_boundary.py
+docs/backend-vnext/refactoring/formal/plans/p3-r1-s0-asset-inventory.md
+docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-execution-plan.md
+```
+
+### 9.2 Verification
+
+| Command | Result |
+| --- | --- |
+| `cd vnext/shared_kernel && uv run pytest -m unit` | **242 passed**（1.06s）；S0 的空选择已关闭 |
+| `cd vnext/shared_kernel && uv run ruff check . && uv run mypy` | **passed**；mypy 34 source files |
+| `cd vnext/backend && uv run pytest -m unit tests/test_architecture.py tests/test_artifact_boundary.py tests/test_artifact_ref_conformance.py` | **53 passed**（0.60s） |
+| `cd vnext/backend && uv run ruff check . && uv run mypy` | **passed**；mypy 51 source files |
+| `cd vnext/rust && cargo test -p gateway-shared-kernel --locked` | **passed**（lib 82、`vector_conformance` 含 `rust_canonical_cases_match_shared_kernel`、sql-enum-set 3） |
+| `git diff --check` | **passed** |
+
+S2 complete，允许进入 S3 artifact/staging conformance。R1 尚未整体授权；本记录不宣称
+R1 gate、parser 实现或 `F-001` 已关闭。

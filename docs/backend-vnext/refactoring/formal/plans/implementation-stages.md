@@ -6,8 +6,10 @@
 
 当前状态：Phase 2简化设计、D01 Phase 0–1同原则简化设计、DX cross-phase
 interface reconciliation与S02联合代码清理均已闭合；P2-R1 v8 formal 已通过。
-P2-R6-S11 `phase_2_complete: yes`。Phase 3 capability design 已完成，implementation
-authorization 仍未发出，见 [P3 Capability Foundation Design](p3-capability-foundation-design.md)、
+P2-R6-S11 `phase_2_complete: yes`。Phase 3 capability design 已完成；P3-R1 module gate
+`p3_r1_exit: pass`，R2 entry 见
+[P3-R1 Capability Foundation Handoff](p3-r1-capability-foundation-handoff.md)。
+implementation authorization 仍未发出，见 [P3 Capability Foundation Design](p3-capability-foundation-design.md)、
 [P3 Active Context Index](p3-active-context-index.md) 与
 [P2 External Interface Handoff](p2-external-interface-handoff.md)。
 P2-R1 默认 provider 为Candidate A offline CLI，Candidate B保留但默认禁用。该顺序由

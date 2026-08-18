@@ -1,6 +1,6 @@
 # P3-R1-S0 Existing Asset Inventory and Applicability Review
 
-状态：S0 complete；S1 ownership skeleton complete；S2 shared-primitive gap decision complete；S3 artifact/staging conformance complete；S4 focused review complete（R1 implementation authorization remains pending）
+状态：S0–S7 complete；R1 gate pass（`p3_implementation_authorized` remains pending；R2 detail plan pending）
 
 日期：2026-08-18
 
@@ -329,3 +329,34 @@ artifact adapter boundary；S3 以 fresh-store reopen 证明 durable sidecar/byt
 
 S4 完成，允许进入 S6 independent review；R1 尚未整体授权，且本记录不宣称 R1 gate、S7
 handoff 或 parser 实现。
+
+## 12. S6 independent review record
+
+S6 reviewed source tip：`fc51595`。独立审核记录见
+[p3-r1-s6-independent-review.md](p3-r1-s6-independent-review.md)。审核重新检查了
+`d432073..fc51595` 最终累计 diff、S4 findings/S5 closure、owner/dependency graph、shared
+primitive reuse、minimal ArtifactRef 与 staging/cleanup 边界，并重新运行 backend、shared
+kernel、Rust conformance、ruff、mypy 和 diff hygiene checks。
+
+S6 result：**PASS；无未处理 P1/P2 finding、contract ambiguity、import cycle、artifact
+identity violation 或 test-classification blocker**。S4-005 process-local cache limitation、
+F-002 R4 manifest policy 和 F-004 production retention/cleanup 仍按既有记录 deferred/accepted，
+未扩大 R1 威胁模型或 scope。
+
+S6 允许进入 S7 module gate/handoff，但不等同 R1 gate，不授权 R2 parser 或其他 P3 capability
+实现；`p3_implementation_authorized` 继续为 `no`。
+
+## 13. S7 module gate and handoff record
+
+S7 confirmatory rerun used validated code SHA `fc51595`（S6 reviewed tip；S7 开始时
+工作树仅有未提交 S6 文档，无 `vnext/` 代码变更）。Gate 记录见
+[p3-r1-capability-foundation-handoff.md](p3-r1-capability-foundation-handoff.md)。
+
+S7 result：**PASS**。复跑命令：backend unit **81 passed**；focused architecture/artifact
+**62 passed**；shared_kernel unit **242 passed**；backend/shared_kernel ruff+mypy
+**passed**；`cargo test -p gateway-shared-kernel --locked` **passed**；
+`git diff --check d432073..HEAD` **passed**。无 Dolt、container rebuild 或 benchmark。
+
+`p3_r1_exit: pass`；`p3_r2_ready: yes`；`p3_implementation_authorized: no`。
+Deferred/accepted 仍仅为 `F-002`、`F-004`、`S4-005`。R2 详细计划可以创建，但 parser
+问题必须重读 P3 contracts，不得从 R1 skeleton 推断。

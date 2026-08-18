@@ -1,10 +1,10 @@
 # P3-R1 Capability Foundation Execution Plan
 
-状态：正式执行计划（Accepted）
+状态：正式执行计划（Accepted）；S7 module gate complete，R1 gate pass；handoff: [p3-r1-capability-foundation-handoff.md](p3-r1-capability-foundation-handoff.md)
 
 日期：2026-08-18
 
-阶段：P3-R1 detail plan；implementation authorization pending
+阶段：P3-R1 complete；R2 detail plan pending；implementation authorization pending
 
 Owner：Backend vNext Capability Architecture
 
@@ -222,6 +222,9 @@ round-trip evidence。
 
 R1 gate 通过不代表 Phase 3 implementation 全部授权；只表示 R1 foundation 可以作为后续
 R2 entry 使用。
+
+S7 记录：[P3-R1 Capability Foundation Handoff](p3-r1-capability-foundation-handoff.md)
+（`p3_r1_exit: pass`；`p3_r2_ready: yes`；`p3_implementation_authorized: no`）。
 
 ## 6. Test and command policy
 

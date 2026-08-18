@@ -1,6 +1,6 @@
 # P3 Active Context Index
 
-状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；implementation pending）
+状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；implementation pending）
 
 日期：2026-08-18
 
@@ -19,6 +19,8 @@ P3 实现，除非另有 implementation authorization。
 phase_2_complete: yes
 p3_design_started: yes
 p3_design_status: accepted
+p3_r1_exit: pass
+p3_r2_ready: yes
 p3_implementation_authorized: no
 default_retrieval: this_index
 public_semantics_changed_in_c2: no
@@ -50,7 +52,9 @@ cleanup_commit: this_cleanup_commit
    [Ruleset Activation and Migration](../contracts/ruleset-activation-and-migration.md)。
 6. [P3 Capability Foundation Execution Plan](p3-capability-foundation-execution-plan.md)：
    R1-R7、滚动 S 级步骤、审核/门禁、独立测试、staging artifact 和 benchmark 规则。
-7. 运行约束：[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
+7. [P3-R1 Capability Foundation Handoff](p3-r1-capability-foundation-handoff.md)：R1 gate /
+   R2 entry。稳定 owner/import 边界、staging helper、no-open-blocker。不授权 parser 实现。
+8. 运行约束：[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
    [ADR 0012](../adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)、
    [Proportional Assurance Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)、
    [Testing Conventions](../../../testing-conventions.md)、
@@ -138,7 +142,7 @@ Phase 3 是 Capability Foundation。Snapshot / Comparison / Risk / Flow 的既�
 
 P3 默认 allowlist（设计检索，不是源码扫描）：
 
-- 本 index、P2 handoff、cleanup manifest
+- 本 index、P2 handoff、P3-R1 capability foundation handoff、cleanup manifest
 - `docs/backend-vnext/refactoring/formal/contracts/` 中现行 contract（不含已
   superseded 的 vector-schema）
 - `docs/backend-vnext/refactoring/formal/adr/0001-0005`、`0009`、`0010`、`0012`、`0013`、

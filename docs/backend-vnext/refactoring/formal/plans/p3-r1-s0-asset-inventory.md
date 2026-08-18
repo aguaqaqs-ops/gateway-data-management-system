@@ -1,6 +1,6 @@
 # P3-R1-S0 Existing Asset Inventory and Applicability Review
 
-状态：S0 complete；S1 ownership skeleton complete；S2 shared-primitive gap decision complete；S3 artifact/staging conformance complete（R1 implementation authorization remains pending）
+状态：S0 complete；S1 ownership skeleton complete；S2 shared-primitive gap decision complete；S3 artifact/staging conformance complete；S4 focused review complete（R1 implementation authorization remains pending）
 
 日期：2026-08-18
 
@@ -309,3 +309,23 @@ docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-execution-p
 
 S3 complete，允许进入 S4 focused review。R1 尚未整体授权；本记录不宣称 R1 gate 或
 parser 实现。
+
+## 11. S4 focused architecture/import and contract review record
+
+S4 reviewed source tip：`e3542ecac3076ae25a51d65f029fb6b852e88665`。独立 review
+记录见 [p3-r1-s4-focused-review.md](p3-r1-s4-focused-review.md)。审核范围覆盖 formal
+contracts/ADR、S0 inventory、S1/S2/S3 cumulative diff，以及 architecture/import、artifact
+ref 和 staging conformance tests。
+
+S4 result：**PASS；无未处理 P1/P2 finding；S5 remediation not required**。重点检查均无
+blocking finding：Shared Kernel duplication、generic-common drift、Backend/Repository
+nominal ArtifactRef 混用、capability cycle/private import、Dolt dependency、error mapping
+越权和 R1 scope expansion。
+
+`LocalArtifactStore` 的 process-local ref cache 作为已知、非协调状态保留，属于 accepted
+artifact adapter boundary；S3 以 fresh-store reopen 证明 durable sidecar/bytes 故障在恢复
+路径上 fail closed。该观察不触发 ADR reopen，也不授权新增 broker、sidecar state machine
+或 production cleanup。
+
+S4 完成，允许进入 S6 independent review；R1 尚未整体授权，且本记录不宣称 R1 gate、S7
+handoff 或 parser 实现。

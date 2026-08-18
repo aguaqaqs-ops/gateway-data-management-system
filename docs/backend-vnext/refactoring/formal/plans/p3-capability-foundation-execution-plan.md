@@ -227,12 +227,14 @@ R 之间默认串行。R 内只有不共享未稳定 contract、不会改变对�
 p3_design: accepted
 p3_execution_plan: accepted_for_staged_planning
 current_module: P3-R1
-current_module_detail: R1-S3 artifact/staging conformance complete; S4 entry next
+current_module_detail: R1-S4 focused architecture/import and contract review complete; S6 entry next
 p3_r1_s0: completed
 p3_r1_s0_inventory: p3-r1-s0-asset-inventory.md
 p3_r1_s1: completed
 p3_r1_s2: completed
 p3_r1_s3: completed
+p3_r1_s4: completed
+p3_r1_s4_review: p3-r1-s4-focused-review.md
 p3_implementation_authorized: no
 ```
 

@@ -27,6 +27,11 @@ SourcePackageArtifact 保存原始 bytes、provenance 和 replay authority。Dol
 Source artifact digest、storage projection digest、canonical business digest、
 CanonicalizationManifest digest和Dolt commit hash是不同语义域，不能互换。
 
+canonical storage snapshot 之间的 `REBUILD_TABLE | PATCH_DML | NOOP` 计划、target-neutral
+`ChangeSetArtifact` 和 renderer boundary 由 [Storage Mutation and Change Set](storage-mutation-and-change-set.md)
+唯一拥有；本 contract 只拥有 canonical storage、projection、manifest 和 Repository
+generic effect 的边界。
+
 ## 2. Storage 与 comparison projection
 
 Storage projection 在 import 前决定 Dolt 长期保存的 canonical schema、physical key 与 structural fact。Comparison projection 在比较时负责跨版本 alignment、selected value columns、ordered semantics 和 records。二者来自相同 table-rules source，但具有不同 contract、DTO、version 和 cache identity。
@@ -207,6 +212,10 @@ package semantic/self digest。
 不回写/迁移整个历史。Key set 改变不得假设 native diff 正确；新规则所需而旧 commit 未保存的列不得从 Dolt 猜测，可从 durable SourcePackageArtifact 显式重算。Schema change source 标记为 `SOURCE_SCHEMA | STORAGE_PROJECTION_POLICY | BOTH`。
 
 旧 Dolt repository 的迁移/兼容策略不由本文决定，必须作为独立 cutover gate。
+
+Ruleset 改变 canonical key、字段集合、类型、null 语义或 storage projection 时，按
+[Ruleset Activation and Migration](ruleset-activation-and-migration.md) 标记为
+`STORAGE_BREAKING`，不得由普通 Submit 或 `ADAPTIVE_PATCH` 隐式处理。
 
 ## 8. Classification 与版本
 

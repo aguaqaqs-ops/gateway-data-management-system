@@ -168,6 +168,9 @@ ComparisonInput/Facts/Result
 RiskEvaluationInput/Report
 SurfaceAssemblyInput/Result
 BundleAssemblyInput/Result
+StorageMutationPlan/ChangeSetArtifact
+ExternalTargetApply/ReadbackResult
+RepositoryIntegrityIncident
 ```
 
 规则：

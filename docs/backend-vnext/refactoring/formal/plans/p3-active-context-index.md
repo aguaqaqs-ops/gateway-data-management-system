@@ -1,14 +1,15 @@
 # P3 Active Context Index
 
-状态：Accepted for P3 design entry（`phase_2_complete: yes`；P3 design plan 尚未开始）
+状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；implementation pending）
 
-日期：2026-08-17
+日期：2026-08-18
 
 Owner：Backend vNext Architecture
 
 本文是 Phase 3 设计的**默认入口**。它只组织检索边界，不拥有 wire、字段、状态机或
-错误矩阵。精确语义仍由下列 normative owner 拥有。尚未存在单独的 P3 design plan；
-不得把本文当作 capability contract，也不得直接开始 P3-R1 实现。
+错误矩阵。精确语义由 [P3 Capability Foundation Design](p3-capability-foundation-design.md)
+及其列出的 normative owner 拥有。不得把本文当作 capability contract，也不得直接开始
+P3 实现，除非另有 implementation authorization。
 
 上游身份：[P2 External Interface Handoff](p2-external-interface-handoff.md)
 清理动作：[P2–P3 Cleanup Manifest](p2-p3-cleanup-manifest.yaml)
@@ -16,7 +17,8 @@ Owner：Backend vNext Architecture
 
 ```yaml
 phase_2_complete: yes
-p3_design_started: no
+p3_design_started: yes
+p3_design_status: accepted
 p3_implementation_authorized: no
 default_retrieval: this_index
 public_semantics_changed_in_c2: no
@@ -41,7 +43,14 @@ cleanup_commit: this_cleanup_commit
 4. [Architecture Plan](../architecture/architecture-and-refactoring-plan.md) 与
    [Implementation Stages](implementation-stages.md)（阶段语义；状态散文以本 index
    和 P2 handoff 为准）。
-5. 运行约束：[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
+5. [P3 Capability Foundation Design](p3-capability-foundation-design.md) 及其
+   [Storage Mutation and Change Set](../contracts/storage-mutation-and-change-set.md)、
+   [External Target Sync and Recovery](../contracts/external-target-sync-and-recovery.md)、
+   [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)、
+   [Ruleset Activation and Migration](../contracts/ruleset-activation-and-migration.md)。
+6. [P3 Capability Foundation Execution Plan](p3-capability-foundation-execution-plan.md)：
+   R1-R7、滚动 S 级步骤、审核/门禁、独立测试、staging artifact 和 benchmark 规则。
+7. 运行约束：[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
    [ADR 0012](../adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)、
    [Proportional Assurance Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)、
    [Testing Conventions](../../../testing-conventions.md)、
@@ -112,9 +121,9 @@ GET  /readyz
 
 ## 4. P3 capability 设计 oracle（非 RS 默认入口）
 
-Phase 3 是 Capability Foundation。Snapshot / Comparison / Risk / Flow 等业务语义
-尚未进入 `refactoring/formal/contracts`。需要时从这些 oracle 发现行为，冲突以
-Architecture Plan 与未来 P3 owning contract 为准：
+Phase 3 是 Capability Foundation。Snapshot / Comparison / Risk / Flow 的既有语义仍可
+从这些 oracle 发现行为；新 mutation、external target、lifecycle/integrity 和 ruleset
+语义已经由 P3 formal contracts 拥有，冲突以 owning contract 和 Architecture Plan 为准：
 
 - [flows](../../../flows.md)、[operations](../../../operations.md)、
   [artifacts](../../../artifacts.md)、[modules](../../../modules.md)
@@ -132,7 +141,8 @@ P3 默认 allowlist（设计检索，不是源码扫描）：
 - 本 index、P2 handoff、cleanup manifest
 - `docs/backend-vnext/refactoring/formal/contracts/` 中现行 contract（不含已
   superseded 的 vector-schema）
-- `docs/backend-vnext/refactoring/formal/adr/0001-0005`、`0009`、`0010`、`0012`、`0013`
+- `docs/backend-vnext/refactoring/formal/adr/0001-0005`、`0009`、`0010`、`0012`、`0013`、
+  `0014`、`0015`、`0016`
 - `formal/architecture/`、`formal/policies/`、`formal/plans/implementation-stages.md`、
   `formal/plans/dx-cross-phase-interface-reconciliation.md`
 - `docs/backend-vnext/testing-conventions.md`、`testing-fixtures.md`、`glossary.md`

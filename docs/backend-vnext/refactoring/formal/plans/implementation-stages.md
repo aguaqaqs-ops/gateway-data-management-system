@@ -6,7 +6,8 @@
 
 当前状态：Phase 2简化设计、D01 Phase 0–1同原则简化设计、DX cross-phase
 interface reconciliation与S02联合代码清理均已闭合；P2-R1 v8 formal 已通过。
-P2-R6-S11 `phase_2_complete: yes`。当前下一入口为 Phase 3 full design，见
+P2-R6-S11 `phase_2_complete: yes`。Phase 3 capability design 已完成，implementation
+authorization 仍未发出，见 [P3 Capability Foundation Design](p3-capability-foundation-design.md)、
 [P3 Active Context Index](p3-active-context-index.md) 与
 [P2 External Interface Handoff](p2-external-interface-handoff.md)。
 P2-R1 默认 provider 为Candidate A offline CLI，Candidate B保留但默认禁用。该顺序由
@@ -379,7 +380,15 @@ projection/cache/artifact、外部输入边界和实际失败成本。默认不�
 Storage/comparison projection、artifact retention、ordered identity和business
 verification policy以
 [Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md)
-及[Repository Service Contract](../contracts/repository-service.md)为准。
+及[Repository Service Contract](../contracts/repository-service.md)为准；P3 新增的
+mutation、external target、lifecycle/integrity 和 ruleset 语义分别由
+[Storage Mutation and Change Set](../contracts/storage-mutation-and-change-set.md)、
+[External Target Sync and Recovery](../contracts/external-target-sync-and-recovery.md)、
+[Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md) 和
+[Ruleset Activation and Migration](../contracts/ruleset-activation-and-migration.md)拥有。
+
+Phase 3 的完整设计、交付物、跨 Phase 标记和退出条件见
+[P3 Capability Foundation Design](p3-capability-foundation-design.md)。
 
 ### 实现顺序
 
@@ -407,8 +416,9 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 4. 对满足 ADR 0001 门禁的稳定热点，直接实现 Rust production provider；其他能力使用 Python/Polars 验证语义。
 5. 仅在consumer需要时实现artifact输入输出、retention/完整性和失败映射；不为每个
    capability复制通用closure、digest、journal或provider fallback。
-6. 增加与风险和容量目标相称的kernel/end-to-end measurement与diagnostics；没有已接受
-   性能目标时不把benchmark矩阵设为退出门。
+6. 增加与风险和容量目标相称的kernel/end-to-end measurement与diagnostics；Phase 3
+   benchmark 记录资源和并发行为，但没有已接受的 numeric performance target 时不把
+   benchmark 结果作为性能通过/失败门槛。
 
 ### 重点调整
 
@@ -427,6 +437,10 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 - Capability contract、Python reference oracle 和按门禁选择的 production implementations。
 - 首批 Rust core/PyO3 providers 及跨语言 differential tests。
 - Capability-level unit、contract 和 benchmark tests。
+- `StorageMutationPlan`、`ChangeSetArtifact`、deterministic Dolt renderer 和
+  fault-injectable external executor reference contract/tests。
+- ruleset activation/migration、graceful lifecycle 和 repository integrity incident 的
+  capability/error boundary；具体 durable runtime 和 deployment wiring 延后到 Phase 4/5。
 - 当前consumer实际使用的Artifact schema和普通round-trip validation；没有artifact边界的
   capability不为形式统一创建artifact。
 - 无环 capability dependency report。
@@ -439,12 +453,17 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
 - Python/Rust直接消费既有canonical cases并逐字节一致；Repository不依赖该corpus。
 - Capability 不包含 Workspace、Submission、Archive、History request 等 flow identity。
 - 依赖图无环且无内部实现越界。
+- mutation planner、renderer capability、target drift/readback 和 mixed patch/rebuild/no-op
+  语义通过 deterministic/fault matrix；不把 external executor reference 误报为
+  PostgreSQL production validation。
 
 ### 本阶段不做
 
 - 不为每个 capability 同时维护 Python、Rust、Dolt native 多个同等权威的正式 provider。
 - 不要求尚未满足 Rust 进入条件的 capability 为语言统一而使用 Rust。
 - 不引入无 benchmark 依据的表级并行和 cache。
+- 不接 HTTP、Workspace、Submit application、durable Operation Runtime、在线 ruleset
+  watcher、production PostgreSQL adapter 或完整 storage migration executor。
 
 ## 7. Phase 4：Durable Operation Runtime
 

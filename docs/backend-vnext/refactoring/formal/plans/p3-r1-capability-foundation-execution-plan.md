@@ -115,9 +115,9 @@ required decision or follow-up
 handoff、实际 capability cycle、digest/sort/scalar 不一致、关键失败/恢复没有可执行证明，
 或复用会违反已接受安全/容量边界。
 
-**输出**：inventory、dependency/owner graph、compatibility matrix、issue register、
-R1-S0 recommendation。S0 不修改业务代码；如需修订正式 contract/ADR，先记录并等待
-decision。
+**输出**：[S0 inventory and applicability review](p3-r1-s0-asset-inventory.md)、
+dependency/owner graph、compatibility matrix、issue register、R1-S0 recommendation。
+S0 不修改业务代码；如需修订正式 contract/ADR，先记录并等待 decision。
 
 **退出条件**：每个盘点资产有结论；blocking finding 已关闭或正式 reopen；S1 的 owner 和
 允许路径明确。

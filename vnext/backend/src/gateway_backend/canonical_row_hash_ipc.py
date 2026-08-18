@@ -18,7 +18,7 @@ from gateway_shared_kernel import (
 )
 
 from gateway_backend.artifacts import ArtifactRef, ArtifactStorePort, put_with_built_ref
-from gateway_backend.canonical_row_hash_artifact import (
+from gateway_backend.capabilities.canonical_row_hash import (
     CANONICAL_ROW_HASHES_MEDIA_TYPE,
     CANONICAL_ROW_HASH_BOUNDARY_VERSION,
     CanonicalRowHashesArtifactMetadata,

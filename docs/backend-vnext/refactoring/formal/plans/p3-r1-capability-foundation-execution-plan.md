@@ -139,7 +139,7 @@ checks、必要的 formal plan/contract cross-reference。不得实现 capabilit
   business semantics。
 
 **输出**：可导入的 package skeleton、architecture/import tests、更新后的 owner/decision
-register。
+register（见 [S0 inventory §8](p3-r1-s0-asset-inventory.md)）。
 
 ### S2 — Proven shared primitive gap decision
 

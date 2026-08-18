@@ -1,6 +1,6 @@
 # P3-R1-S0 Existing Asset Inventory and Applicability Review
 
-状态：S0 complete；S1 entry recommended（R1 implementation authorization remains pending）
+状态：S0 complete；S1 ownership skeleton complete（R1 implementation authorization remains pending）
 
 日期：2026-08-18
 
@@ -38,7 +38,7 @@ Phase 1 源码和测试作为行为 evidence；legacy 与过程文档不作为�
 | `vnext/backend/src/gateway_backend/artifacts/{digest.py,serialize.py,validate.py}` | Artifacts owner；minimal ref serialization/validation；local/in-memory store | **KEEP**。JCS ref round-trip 和 fail-closed unknown fields 可作为 foundation | 只依赖 Shared Kernel digest/JCS 与 artifacts types；不依赖 compute/provider | `test_artifact_boundary.py` round-trip/unknown-field；架构测试禁止 compute import | serialization 是小型 metadata，不进入 bulk row path | 不携带 `content_digest`、`content_schema_id`、retention 或 access metadata | malformed ref、raw identity mismatch 映射 `ManifestVerificationError`/`ValueError`；partial write 见 F-001 | S3 增加 corruption/missing/partial-write conformance，不改变四字段 contract |
 | `vnext/backend/src/gateway_backend/artifacts/store.py` | Artifacts owner；`ArtifactStorePort`、`InMemoryArtifactStore`；capability tests and local adapter | **KEEP**，仅作 port + hermetic test store；不承担 retention/cleanup policy | capability -> `ArtifactStorePort`；store -> Shared Kernel/artifacts validation | `test_artifact_boundary.py` in-memory publish/reopen and raw integrity | in-memory bounded to test data；不作为 production bulk storage或并发调度器 | exact ref and raw bytes verified on put/locate；semantic recompute intentionally absent on ordinary reopen | unknown/mismatched/malformed bytes fail closed；no durable crash simulation yet | S3 定义 missing/corrupt behavior and cleanup interaction；禁止 generic content schema |
 | `vnext/backend/src/gateway_backend/infrastructure/artifact_store/local_store.py` | Infrastructure adapter；ADR 0010/0012 local artifact storage boundary；`tmp_path` tests and future staging tests | **KEEP with bounded use**。适合 R1 test staging/round-trip；不拥有 capability content schema、retention 或 production cleanup | `LocalArtifactStore -> artifacts port/serialization -> Shared Kernel`；capability 不直接使用 filesystem path | `test_artifact_boundary.py` tmp_path round-trip and ordinary reopen | atomic temp file + fsync + replace；每-artifact cache is process-local and not a cross-worker coordination mechanism | path is internal only; ref remains location-independent; sidecar stores minimal ref | root/path/symlink checks and read integrity exist；bytes/sidecar failure window and cleanup proof are open (F-001) | S3 only: partial/corrupt/missing artifact and cleanup tests; use pytest `tmp_path`, no durable workspace dependency |
-| `vnext/backend/src/gateway_backend/canonical_row_hash_artifact.py` | Canonical Row Hash capability；Canonical Row Hash Compute Boundary §8；row-hash IPC/publish tests | **KEEP as capability-specific reference; EXTEND only in its owner package**。metadata is not generic ArtifactRef and correctly carries semantic/schema digests | row-hash capability -> Shared Kernel `DigestRef` + artifacts envelope; artifacts must not import this module | `test_artifact_boundary.py`, `test_canonical_row_hash.py`, fixture schema | row_count is canonical decimal string; IPC/chunking/provider identity excluded from semantic identity | semantic `raw_content_digest`/`table_schema_digest` stays separate from raw IPC SHA | content manifest validation and ordinary Arrow reopen are covered; native crash/takeover belongs later Operation | S1 must place future public contract near concrete owner; no root-level generic metadata extraction |
+| `vnext/backend/src/gateway_backend/capabilities/canonical_row_hash/contracts.py` | Canonical Row Hash capability；Canonical Row Hash Compute Boundary §8；row-hash IPC/publish tests | **KEEP as capability-specific reference; EXTEND only in its owner package**。S1 moved metadata from the backend root; it is not generic ArtifactRef and correctly carries semantic/schema digests | row-hash capability -> Shared Kernel `DigestRef` + artifacts envelope; artifacts must not import this module | `test_artifact_boundary.py`, `test_canonical_row_hash.py`, fixture schema | row_count is canonical decimal string; IPC/chunking/provider identity excluded from semantic identity | semantic `raw_content_digest`/`table_schema_digest` stays separate from raw IPC SHA | content manifest validation and ordinary Arrow reopen are covered; native crash/takeover belongs later Operation | Public contract is in the owner package; no root compatibility alias. Algorithm modules remain at backend root until a later capability R |
 | `vnext/backend/src/gateway_backend/canonical_row_hash_ipc.py` and `compute.py` | Canonical Row Hash capability facade/adapter；Compute Boundary；Rust production provider | **KEEP as evidence/reference boundary; DEFER algorithm expansion to capability R**。coarse Arrow boundary matches P3 and no artifact locator crosses FFI | backend facade -> `gateway_compute` -> Shared Kernel semantics; IPC publisher -> ArtifactStore port | architecture import checks; mixed-scalar golden; artifact boundary tests | no `to_pylist`/row-wise FFI; batch/thread policy remains outside digest | validates Arrow schema/raw SHA/semantic content at publish; ordinary reopen does not rehash semantics per ADR 0010 | stable deterministic failure mapping; uncaught process termination explicitly deferred to Operation | S1 only adds public import checks/contracts; do not add automatic Python fallback or generic provider base |
 | `vnext/backend/src/gateway_backend/canonicalization_cells.py` | Storage Projection/Table Rules owner；Canonical Storage §4；manifest producer/tests | **DEFER to P3-R4**。Reuses Shared Kernel scalar/collection bytes and correctly keeps ENUM/SET semantics out of shared kernel, but is outside R1 foundation | storage projection -> Shared Kernel; not a dependency of generic artifacts or row-hash owner | `test_canonicalization_manifest.py` ENUM/SET/null/order tests | row materialization is data-plane work; no Dolt in unit tests | per-cell/schema/content digest is business/storage semantic, not ArtifactRef raw SHA | malformed scalar/type errors are owner-level; full key/row-loss/recovery evidence belongs R4 | R1 must not copy or generalize these helpers; R4 owns further validation |
 | `vnext/backend/src/gateway_backend/canonicalization_manifest.py` | Storage Projection owner；Canonical Storage §4 manifest/digest; manifest and package tests | **DEFER to P3-R4**。Outer domain-separated manifest digest and child raw digests fit current contract; not a shared primitive | storage projection -> Shared Kernel JCS/cell encoding; Repository consumes only structural package fields | manifest digest ordering, row count, keyless order, schema/content tests | table iteration/materialization scale and concurrency are R4 concerns | source/ruleset/schema/content/manifest digests remain distinct; package digest is transport-only | duplicate table/row-count checks exist; complete schema/key policy and recovery handoff remain R4 | R4 must validate full manifest invariants before package publication; no R1 changes |
@@ -108,7 +108,7 @@ must not turn it into a shared artifact type.
 | --- | --- | --- | --- | --- |
 | `F-001` | Gate-blocking for S3/R1 gate; S0 non-blocking | `LocalArtifactStore` has no executable test for bytes/sidecar failure between atomic replacements, missing bytes/sidecar after reopen, or cleanup interaction. Existing tests prove raw/Arrow rejection but not the complete partial/missing matrix. | Artifacts + Backend test owner | Add focused `tmp_path` conformance tests in S3. If contract requires atomic durable publication beyond current single-trust-domain scope, reopen the artifact contract/ADR before changing implementation. |
 | `F-002` | Deferred to R4 | Manifest producer tests do not constitute the complete Storage Projection key/row-loss/structural policy matrix. | Table Rules/Storage Projection | R4 owns full manifest/key/ordering validation; R1 must not generalize these helpers. |
-| `F-003` | Deferred to S1/S3 | Capability-specific row-hash metadata is currently a root-level module rather than a concrete capability package. Moving it prematurely could create a nominal shared type. | Canonical Row Hash capability | S1 defines the concrete owner package/public imports; move/extend only with import tests and no compatibility alias. |
+| `F-003` | Closed in S1 | Capability-specific row-hash metadata lived at the backend root rather than a concrete capability package. | Canonical Row Hash capability | S1 moved the public contract to `capabilities/canonical_row_hash/contracts.py` with architecture/import tests and no compatibility alias. Do not reintroduce a root-level shared metadata type. |
 | `F-004` | Deferred to later lifecycle owner | `LocalArtifactStore` has no production retention/cleanup API by design; pytest `tmp_path` supplies test cleanup only. | ArtifactStore/business lifecycle owner | S3 records test cleanup helper contract; production retention/cleanup remains outside R1 and follows ADR 0012. |
 
 No S0 blocking finding requires contract/ADR reopen. `F-001` is an evidence gate for S3/R1
@@ -174,3 +174,57 @@ uv run ruff check .
 uv run mypy
 git diff --check
 ```
+
+## 8. S1 ownership skeleton record
+
+S1 将 §3 owner graph 落成可导入、可静态检查的 package 边界。R1 仍未整体授权；本记录
+不宣称 S2/S3 conformance、parser 实现或 R1 gate。
+
+Owner packages under `vnext/backend/src/gateway_backend/capabilities/`：
+
+```text
+canonical_row_hash
+table_access
+table_rules
+snapshot_materialization
+storage_projection
+comparison_projection
+comparison
+risk_evaluation
+business_projection
+surface_assembly
+bundle_assembly
+mutation_planning
+```
+
+Each owner has public `contracts.py`. There is no `capabilities/common`,
+`capabilities/utils`, `_internal`, or generic provider base. Field-level Input/Result
+types for R2–R7 are not pre-declared.
+
+Allowed capability-to-capability imports (downstream → upstream `contracts` only):
+
+```text
+snapshot_materialization -> table_access, table_rules
+storage_projection -> table_rules, snapshot_materialization
+comparison_projection -> table_rules, snapshot_materialization
+comparison -> comparison_projection
+risk_evaluation -> comparison
+business_projection -> comparison
+surface_assembly -> comparison, risk_evaluation, business_projection
+bundle_assembly -> surface_assembly
+mutation_planning -> storage_projection
+canonical_row_hash -> (none; Shared Kernel + artifacts envelope only)
+```
+
+Not moved in S1 (remain Phase 1 evidence / later-R owners):
+
+```text
+gateway_backend.compute
+gateway_backend.canonical_row_hash_ipc
+gateway_backend.canonicalization_cells
+gateway_backend.canonicalization_manifest
+gateway_backend.repository_import_artifact
+```
+
+Architecture/import checks live in `vnext/backend/tests/test_architecture.py`. `F-001`
+remains the S3/R1 evidence gate.

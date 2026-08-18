@@ -18,7 +18,7 @@ from gateway_backend.artifacts import (
     build_artifact_id,
     put_with_built_ref,
 )
-from gateway_backend.canonical_row_hash_artifact import CanonicalRowHashesArtifactMetadata
+from gateway_backend.capabilities.canonical_row_hash import CanonicalRowHashesArtifactMetadata
 from gateway_backend.canonical_row_hash_ipc import (
     CANONICAL_ROW_HASH_OUTPUT_SCHEMA,
     CanonicalRowHashIpcError,

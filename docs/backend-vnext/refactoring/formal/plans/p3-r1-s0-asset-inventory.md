@@ -1,6 +1,6 @@
 # P3-R1-S0 Existing Asset Inventory and Applicability Review
 
-状态：S0 complete；S1 ownership skeleton complete；S2 shared-primitive gap decision complete（R1 implementation authorization remains pending）
+状态：S0 complete；S1 ownership skeleton complete；S2 shared-primitive gap decision complete；S3 artifact/staging conformance complete（R1 implementation authorization remains pending）
 
 日期：2026-08-18
 
@@ -89,16 +89,16 @@ must not turn it into a shared artifact type.
 | --- | --- | --- | --- |
 | Shared canonical primitive has one owner and cross-language bytes | Shared Kernel contract, Python tests, Rust/static vectors | **PASS / KEEP** | S2 conformance only; reopen on semantic mismatch |
 | Capability contract does not own or duplicate canonical bytes | Row-hash boundary explicitly delegates bytes to Shared Kernel; architecture checks reject leakage | **PASS / KEEP** | S1 import checks must preserve direction |
-| Immutable handoff can be represented without host path | Minimal ref + capability content metadata are separate; LocalStore stores path internally | **PASS / CONDITIONAL** | S3 must prove read/reopen and missing/corrupt behavior |
+| Immutable handoff can be represented without host path | Minimal ref + capability content metadata are separate; LocalStore stores path internally | **PASS** | S3 helper asserts published ref has no host path or workspace root |
 | Raw transport digest differs from semantic/content digest | `ArtifactRef.raw_sha256` vs row-hash/manifest digests; tests assert minimal fields | **PASS** | No new combined digest or ref field |
 | Provider identity/thread count/input ordering absent from semantic identity | row-hash contract and metadata identity key; canonical vectors | **PASS** | Keep execution policy outside contracts |
-| Artifact store can support tmp_path/local staging | `LocalArtifactStore` atomic write, sidecar, root checks; tmp_path test | **PASS / CONDITIONAL** | F-001 S3 failure/recovery tests before R1 gate |
-| Partial/corrupt/missing artifact has executable proof | corrupt/truncated/schema reopen tests exist; missing/partial write matrix absent | **OPEN EVIDENCE GAP** | Blocks S3/R1 gate, not S1 skeleton; no workaround mechanism |
-| Cleanup does not change durable business state | ADR 0012 owns policy; current local test cleanup is pytest tmp_path only | **DEFER** | S3 test cleanup boundary; production retention/cleanup remains later owner |
+| Artifact store can support tmp_path/local staging | `LocalArtifactStore` atomic write, sidecar, root checks; tmp_path test | **PASS** | S3 helper uses pytest `tmp_path` only |
+| Partial/corrupt/missing artifact has executable proof | S3 `STAGING_OBJECT_FAULTS` plus sidecar-replace crash barrier; Arrow corrupt/truncate/schema remain owner tests | **PASS** | Closed with F-001; no broker |
+| Cleanup does not change durable business state | ADR 0012 owns production policy; S3 proves staging `rmtree` does not mutate sibling durable incident | **PASS / DEFER production** | Test cleanup helper recorded; production retention remains F-004 |
 | Fixtures are language-neutral and owner-scoped | repository-level vectors/golden and ADR 0010 rules | **PASS / KEEP** | No generic runner/self-digest/evidence wrapper |
 | R1 has no Dolt dependency | reviewed unit tests and plan boundary | **PASS** | Any Dolt fixture is integration and outside R1 pure contract tests |
 | No capability cycle/generic common package | current architecture checks and plan invariants | **PASS / CONDITIONAL** | S1 must add import checks and reject `capabilities/common`/`utils` |
-| Failure/recovery semantics are fully proven for R1 artifact foundation | deterministic validation is tested; crash/sidecar/cleanup recovery is not | **OPEN FOLLOW-UP** | S3/R1 gate owner: Artifacts + test owner; do not claim full conformance yet |
+| Failure/recovery semantics are fully proven for R1 artifact foundation | S3 proves missing/corrupt/sidecar-replace fail-closed and test cleanup isolation | **PASS for R1 test staging** | Production crash/takeover remains later Operation/lifecycle owner |
 
 ## 5. Issue and decision register
 
@@ -106,14 +106,14 @@ must not turn it into a shared artifact type.
 
 | ID | Severity/status | Finding | Owner | Required action / reopen condition |
 | --- | --- | --- | --- | --- |
-| `F-001` | Gate-blocking for S3/R1 gate; S0 non-blocking | `LocalArtifactStore` has no executable test for bytes/sidecar failure between atomic replacements, missing bytes/sidecar after reopen, or cleanup interaction. Existing tests prove raw/Arrow rejection but not the complete partial/missing matrix. | Artifacts + Backend test owner | Add focused `tmp_path` conformance tests in S3. If contract requires atomic durable publication beyond current single-trust-domain scope, reopen the artifact contract/ADR before changing implementation. |
+| `F-001` | Closed in S3 | `LocalArtifactStore` has no executable test for bytes/sidecar failure between atomic replacements, missing bytes/sidecar after reopen, or cleanup interaction. Existing tests prove raw/Arrow rejection but not the complete partial/missing matrix. | Artifacts + Backend test owner | S3 added `tmp_path` staging conformance: missing/corrupt object and sidecar after reopen, sidecar-replace crash barrier, and staging cleanup that does not mutate a sibling durable integrity incident. No broker or atomic-publication ADR reopen. |
 | `F-002` | Deferred to R4 | Manifest producer tests do not constitute the complete Storage Projection key/row-loss/structural policy matrix. | Table Rules/Storage Projection | R4 owns full manifest/key/ordering validation; R1 must not generalize these helpers. |
 | `F-003` | Closed in S1 | Capability-specific row-hash metadata lived at the backend root rather than a concrete capability package. | Canonical Row Hash capability | S1 moved the public contract to `capabilities/canonical_row_hash/contracts.py` with architecture/import tests and no compatibility alias. Do not reintroduce a root-level shared metadata type. |
-| `F-004` | Deferred to later lifecycle owner | `LocalArtifactStore` has no production retention/cleanup API by design; pytest `tmp_path` supplies test cleanup only. | ArtifactStore/business lifecycle owner | S3 records test cleanup helper contract; production retention/cleanup remains outside R1 and follows ADR 0012. |
+| `F-004` | Deferred to later lifecycle owner | `LocalArtifactStore` has no production retention/cleanup API by design; pytest `tmp_path` supplies test cleanup only. | ArtifactStore/business lifecycle owner | S3 recorded the test cleanup helper in `tests/support/artifact_staging.py`; production retention/cleanup remains outside R1 and follows ADR 0012. |
 
-No S0 blocking finding requires contract/ADR reopen. `F-001` is an evidence gate for S3/R1
-closure, not permission to invent a broker, sidecar state machine, generic artifact schema, or
-automatic recovery mechanism.
+No S0 blocking finding required contract/ADR reopen. `F-001` was an evidence gate for S3
+and is closed by the §10 staging conformance tests; that closure is not permission to invent
+a broker, sidecar state machine, generic artifact schema, or automatic recovery mechanism.
 
 ### 5.2 Decisions
 
@@ -269,3 +269,43 @@ docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-execution-p
 
 S2 complete，允许进入 S3 artifact/staging conformance。R1 尚未整体授权；本记录不宣称
 R1 gate、parser 实现或 `F-001` 已关闭。
+
+## 10. S3 artifact and staging conformance record
+
+S3 执行基线：`91c8e81dc78a3316e7888fa20008b18b794650b2`（S2 HEAD）。本步关闭
+`F-001`；不新增 production retention/cleanup、generic content schema 或 ArtifactRef 字段。
+
+Test helper contract（R2–R7 import，不拥有 capability content schema）：
+
+```text
+vnext/backend/tests/support/artifact_staging.py
+```
+
+`F-001` closed。`F-004` remains deferred：helper 只证明 pytest `tmp_path` staging cleanup
+不改 sibling durable integrity incident；production cleanup 仍由 ADR 0012 后续 owner 拥有。
+
+`locate`/`put` 将 sidecar JCS `CanonicalEncodingError` 映射为既有
+`ManifestVerificationError`；发布语义与四字段 envelope 未改。
+
+Changed paths：
+
+```text
+vnext/backend/tests/support/__init__.py
+vnext/backend/tests/support/artifact_staging.py
+vnext/backend/tests/test_artifact_staging_conformance.py
+vnext/backend/tests/__init__.py
+vnext/backend/src/gateway_backend/infrastructure/artifact_store/local_store.py
+docs/backend-vnext/refactoring/formal/plans/p3-r1-s0-asset-inventory.md
+docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-execution-plan.md
+```
+
+### 10.1 Verification
+
+| Command | Result |
+| --- | --- |
+| `cd vnext/backend && uv run pytest -m unit tests/test_architecture.py tests/test_artifact_boundary.py tests/test_artifact_ref_conformance.py tests/test_artifact_staging_conformance.py` | **62 passed**（0.43s） |
+| `cd vnext/backend && uv run ruff check . && uv run mypy` | **passed**；mypy 55 source files |
+| `git diff --check` | **passed** |
+
+S3 complete，允许进入 S4 focused review。R1 尚未整体授权；本记录不宣称 R1 gate 或
+parser 实现。

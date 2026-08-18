@@ -7,7 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from gateway_shared_kernel import raw_blob_digest
+from gateway_shared_kernel import CanonicalEncodingError, raw_blob_digest
 
 from gateway_backend.artifacts.serialize import artifact_ref_from_json, artifact_ref_to_json
 from gateway_backend.artifacts.store import ManifestVerificationError
@@ -40,7 +40,7 @@ class LocalArtifactStore:
             return self._put(raw_bytes, ref)
         except ManifestVerificationError:
             raise
-        except (OSError, ValueError):
+        except (OSError, ValueError, CanonicalEncodingError):
             raise ManifestVerificationError("artifact write failed") from None
 
     def _put(self, raw_bytes: bytes, ref: ArtifactRef) -> ArtifactRef:
@@ -83,7 +83,7 @@ class LocalArtifactStore:
             return self._locate(ref)
         except ManifestVerificationError:
             raise
-        except (OSError, ValueError):
+        except (OSError, ValueError, CanonicalEncodingError):
             raise ManifestVerificationError("artifact read failed") from None
 
     def _locate(self, ref: ArtifactRef) -> bytes:

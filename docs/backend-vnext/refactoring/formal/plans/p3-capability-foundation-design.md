@@ -4,7 +4,7 @@
 
 日期：2026-08-18
 
-阶段：Phase 3 design complete；implementation authorization pending
+阶段：Phase 3 design complete；P3-R2 gate pass；R3 entry
 
 Owner：Backend vNext Capability Architecture
 
@@ -78,7 +78,7 @@ risk, mutation and transaction contracts as ordinary tables.
 
 ## 4.1 P3-R2 Table Access and Parser Design Baseline
 
-状态：Accepted；R2-S0 complete；S2 SQL parser complete；S3 XML parser complete；S4 focused review complete；S6 independent review complete
+状态：Accepted；R2 gate pass；S7 handoff recorded
 
 R2 的目标是建立可独立调用、bounded、可诊断的 source table-access foundation。R2
 只产出 parser facts、descriptor、deferred reader 和 diagnostics；不产出 Snapshot、

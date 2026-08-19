@@ -1,6 +1,6 @@
 # P3-R2-S0 Entry, Applicability and Budget Freeze
 
-状态：S0 complete；S1 skeleton complete；S2 SQL parser complete；S3 XML parser complete；`p3_implementation_authorized: s2_s3`
+状态：S0–S7 complete；R2 gate pass（`p3_r2_exit: pass`；R3 detail plan pending）
 
 日期：2026-08-19
 

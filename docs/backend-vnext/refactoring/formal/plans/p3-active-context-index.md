@@ -1,6 +1,6 @@
 # P3 Active Context Index
 
-状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2-S6 independent review complete；S7 pending）
+状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；R3 entry）
 
 日期：2026-08-18
 
@@ -32,7 +32,11 @@ p3_r2_s4: completed
 p3_r2_s4_review: p3-r2-table-access-parser-execution-plan.md#8-s4-focused-review-record
 p3_r2_s6: completed
 p3_r2_s6_review: p3-r2-table-access-parser-execution-plan.md#9-s6-independent-review-record
-p3_implementation_authorized: s2_s3
+p3_r2_s7: completed
+p3_r2_s7_handoff: p3-r2-table-access-parser-handoff.md
+p3_r2_exit: pass
+p3_r3_ready: yes
+p3_implementation_authorized: no
 default_retrieval: this_index
 public_semantics_changed_in_c2: no
 cleanup_status: pass
@@ -64,13 +68,16 @@ cleanup_commit: this_cleanup_commit
 6. [P3 Capability Foundation Execution Plan](p3-capability-foundation-execution-plan.md)：
    R1-R7、滚动 S 级步骤、审核/门禁、独立测试、staging artifact 和 benchmark 规则。
 7. [P3-R1 Capability Foundation Handoff](p3-r1-capability-foundation-handoff.md)：R1 gate /
-   R2 entry。稳定 owner/import 边界、staging helper、no-open-blocker。不授权 parser 实现。
-8. [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)：
-   R2 的 SQL/XML parser、bounded reader、diagnostics、对话上下文和 deferred register。
-9. [P3-R2-S0 Entry, Applicability and Budget Freeze](p3-r2-s0-entry-and-budget-freeze.md)：
-   R2 入口适用性、ADR 0013 双边界、SQL allowlist、known types、XML security、
-   numeric budgets 与 fixture roots。
-10. 运行约束：[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
+   历史 R2 entry。稳定 owner/import 边界、staging helper、no-open-blocker。
+8. [P3-R2 Table Access and Parser Handoff](p3-r2-table-access-parser-handoff.md)：R2 gate /
+   R3 entry。稳定 descriptor/reader/diagnostic 边界、budgets、deferred register。
+   不授权 source materialization。
+9. [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)：
+   R2 的 SQL/XML parser、bounded reader、diagnostics、对话上下文和 S4/S6/S7 记录。
+10. [P3-R2-S0 Entry, Applicability and Budget Freeze](p3-r2-s0-entry-and-budget-freeze.md)：
+    R2 入口适用性、ADR 0013 双边界、SQL allowlist、known types、XML security、
+    numeric budgets 与 fixture roots。
+11. 运行约束：[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
    [ADR 0012](../adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)、
    [Proportional Assurance Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)、
    [Testing Conventions](../../../testing-conventions.md)、
@@ -159,7 +166,8 @@ Phase 3 是 Capability Foundation。Snapshot / Comparison / Risk / Flow 的既�
 
 P3 默认 allowlist（设计检索，不是源码扫描）：
 
-- 本 index、P2 handoff、P3-R1 capability foundation handoff、cleanup manifest
+- 本 index、P2 handoff、P3-R1 capability foundation handoff、P3-R2 table access
+  parser handoff、cleanup manifest
 - `docs/backend-vnext/refactoring/formal/contracts/` 中现行 contract（不含已
   superseded 的 vector-schema）
 - `docs/backend-vnext/refactoring/formal/adr/0001-0005`、`0009`、`0010`、`0012`、`0013`、

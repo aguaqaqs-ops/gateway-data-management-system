@@ -4,7 +4,7 @@
 
 日期：2026-08-18
 
-阶段：P3-R1 complete；P3-R2 detail plan accepted；implementation authorization pending
+阶段：P3-R2 complete；R3 detail plan pending；implementation authorization pending
 
 Owner：Backend vNext Capability Architecture
 
@@ -226,8 +226,8 @@ R 之间默认串行。R 内只有不共享未稳定 contract、不会改变对�
 ```yaml
 p3_design: accepted
 p3_execution_plan: accepted_for_staged_planning
-current_module: P3-R2
-current_module_detail: R1 gate pass; R2-S6 independent review complete; S7 module gate pending
+current_module: P3-R3
+current_module_detail: R2 gate pass; R3 detail plan pending
 p3_r1_s0: completed
 p3_r1_s0_inventory: p3-r1-s0-asset-inventory.md
 p3_r1_s1: completed
@@ -245,7 +245,11 @@ p3_r1_exit: pass
 p3_r2_ready: yes
 p3_r2_detail_plan: p3-r2-table-access-parser-execution-plan.md
 p3_r2_detail_plan_status: accepted_for_execution
-p3_implementation_authorized: s2_s3
+p3_r2_s7: completed
+p3_r2_s7_handoff: p3-r2-table-access-parser-handoff.md
+p3_r2_exit: pass
+p3_r3_ready: yes
+p3_implementation_authorized: no
 ```
 
 ## 10. Normative references
@@ -254,6 +258,7 @@ p3_implementation_authorized: s2_s3
 - [P3 Active Context Index](p3-active-context-index.md)
 - [P3-R1 Capability Foundation Handoff](p3-r1-capability-foundation-handoff.md)
 - [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)
+- [P3-R2 Table Access and Parser Handoff](p3-r2-table-access-parser-handoff.md)
 - [Implementation Stages](implementation-stages.md)
 - [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)
 - [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md)

@@ -4,7 +4,7 @@
 
 日期：2026-08-18
 
-阶段：P3-R1 complete；R2 detail plan pending；implementation authorization pending
+阶段：P3-R1 complete；P3-R2 detail plan accepted；implementation authorization pending
 
 Owner：Backend vNext Capability Architecture
 
@@ -34,7 +34,7 @@ P2 可复用的是 staged execution、review、remediation、handoff 和 phase g
 | Module | Scope | Required handoff |
 | --- | --- | --- |
 | P3-R1 Capability Foundation | contract/test foundation、错误分类、已证明必要的 shared primitive、artifact/staging conformance、provider/import boundary checks | 可独立调用的 capability boundary |
-| P3-R2 Table Access and Parser | table access protocol、SQL parser、XML parser、bounded rows/descriptors、parser diagnostics | descriptor/diagnostics/deferred row stream |
+| P3-R2 Table Access and Parser | table access protocol、SQL parser、XML parser、bounded rows/descriptors、parser diagnostics | [P3-R2 detailed execution plan](p3-r2-table-access-parser-execution-plan.md)：descriptor/diagnostics/deferred row stream |
 | P3-R3 Source Materialization and Snapshot | ruleset snapshot、canonical materialization、derived tables、`SnapshotTableArtifact`、reuse/fallback profile | immutable snapshot artifact closure |
 | P3-R4 Storage Projection | canonical key/schema、storage digest、CanonicalizationManifest、RepositoryImportArtifact input | canonical storage projection |
 | P3-R5 Comparison | comparison projection、standard diff、row records、`FULL`/`MODIFIED_ONLY`、dataset replacement | `ComparisonFacts`/records |
@@ -227,7 +227,7 @@ R 之间默认串行。R 内只有不共享未稳定 contract、不会改变对�
 p3_design: accepted
 p3_execution_plan: accepted_for_staged_planning
 current_module: P3-R2
-current_module_detail: R1 gate pass; R2 detail plan pending
+current_module_detail: R1 gate pass; R2-S6 independent review complete; S7 module gate pending
 p3_r1_s0: completed
 p3_r1_s0_inventory: p3-r1-s0-asset-inventory.md
 p3_r1_s1: completed
@@ -243,7 +243,9 @@ p3_r1_s7: completed
 p3_r1_s7_handoff: p3-r1-capability-foundation-handoff.md
 p3_r1_exit: pass
 p3_r2_ready: yes
-p3_implementation_authorized: no
+p3_r2_detail_plan: p3-r2-table-access-parser-execution-plan.md
+p3_r2_detail_plan_status: accepted_for_execution
+p3_implementation_authorized: s2_s3
 ```
 
 ## 10. Normative references
@@ -251,6 +253,7 @@ p3_implementation_authorized: no
 - [P3 Capability Foundation Design](p3-capability-foundation-design.md)
 - [P3 Active Context Index](p3-active-context-index.md)
 - [P3-R1 Capability Foundation Handoff](p3-r1-capability-foundation-handoff.md)
+- [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)
 - [Implementation Stages](implementation-stages.md)
 - [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)
 - [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md)

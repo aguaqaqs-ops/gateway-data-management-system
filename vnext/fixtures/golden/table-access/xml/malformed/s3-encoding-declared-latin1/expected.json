@@ -1,0 +1,14 @@
+{
+  "case_id": "s3-encoding-declared-latin1",
+  "status": "FAILED",
+  "events": [],
+  "diagnostics": [
+    {
+      "code": "XML_ENCODING_FORBIDDEN",
+      "severity": "ERROR",
+      "source": "xml",
+      "byte_offset": 0,
+      "message": "XML encoding declaration must be UTF-8"
+    }
+  ]
+}

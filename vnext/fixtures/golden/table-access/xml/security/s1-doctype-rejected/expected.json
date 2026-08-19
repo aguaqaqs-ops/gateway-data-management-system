@@ -1,0 +1,14 @@
+{
+  "case_id": "s1-doctype-rejected",
+  "status": "FAILED",
+  "events": [],
+  "diagnostics": [
+    {
+      "code": "XML_DTD_FORBIDDEN",
+      "severity": "ERROR",
+      "source": "xml",
+      "byte_offset": 52,
+      "message": "DOCTYPE/DTD is forbidden"
+    }
+  ]
+}

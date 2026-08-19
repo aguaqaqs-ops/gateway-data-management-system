@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "cases": [
+    "doctype",
+    "internal-entity",
+    "external-entity",
+    "file-uri",
+    "http-uri",
+    "ftp-uri",
+    "xinclude",
+    "xinclude-child"
+  ]
+}

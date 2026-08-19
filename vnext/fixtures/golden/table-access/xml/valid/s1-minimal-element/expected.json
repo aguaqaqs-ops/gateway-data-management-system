@@ -1,0 +1,29 @@
+{
+  "case_id": "s1-minimal-element",
+  "status": "COMPLETE",
+  "events": [
+    {
+      "kind": "START_ELEMENT",
+      "expanded_name": "{urn:example}root",
+      "attributes": []
+    },
+    {
+      "kind": "START_ELEMENT",
+      "expanded_name": "{urn:example}child",
+      "attributes": []
+    },
+    {
+      "kind": "TEXT",
+      "text": "x"
+    },
+    {
+      "kind": "END_ELEMENT",
+      "expanded_name": "{urn:example}child"
+    },
+    {
+      "kind": "END_ELEMENT",
+      "expanded_name": "{urn:example}root"
+    }
+  ],
+  "diagnostics": []
+}

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "cases": [
+    {"display": "Foo", "canonical": "foo"},
+    {"display": "id", "canonical": "id"},
+    {"display": "A_b$1", "canonical": "a_b$1"},
+    {"display": "t", "canonical": "t"}
+  ]
+}

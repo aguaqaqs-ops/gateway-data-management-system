@@ -1,0 +1,29 @@
+{
+  "case_id": "s3-prefixed-namespace",
+  "status": "COMPLETE",
+  "events": [
+    {
+      "kind": "START_ELEMENT",
+      "expanded_name": "{urn:example}root",
+      "attributes": [["a", "1"]]
+    },
+    {
+      "kind": "START_ELEMENT",
+      "expanded_name": "{urn:example}child",
+      "attributes": [["b", "2"]]
+    },
+    {
+      "kind": "TEXT",
+      "text": "x"
+    },
+    {
+      "kind": "END_ELEMENT",
+      "expanded_name": "{urn:example}child"
+    },
+    {
+      "kind": "END_ELEMENT",
+      "expanded_name": "{urn:example}root"
+    }
+  ],
+  "diagnostics": []
+}

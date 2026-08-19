@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "cases": [
+    "BOOLEAN",
+    "BOOL",
+    "TINYINT(1)",
+    "INT(11)",
+    "INTEGER",
+    "INT UNSIGNED",
+    "MEDIUMINT",
+    "BIGINT ZEROFILL",
+    "DECIMAL(10,2)",
+    "FLOAT",
+    "DOUBLE",
+    "BIT(8)",
+    "DATE",
+    "TIME",
+    "DATETIME(6)",
+    "TIMESTAMP",
+    "VARCHAR(16)",
+    "TEXT CHARACTER SET utf8mb4",
+    "BLOB",
+    "JSON",
+    "ENUM('a','b')",
+    "SET('x','y')",
+    "YEAR",
+    "ENUM()",
+    "TIME(7)"
+  ]
+}

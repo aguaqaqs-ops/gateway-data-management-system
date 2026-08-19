@@ -15,10 +15,15 @@
 
 精确规则位于 owning contract，本文不复制 grammar 或字段表：
 
-- SQL grammar、族判定、Arrow、fail-closed 转换、wire 映射：[Repository Service](../contracts/repository-service.md) §10.1
+- source dump SQL grammar、statement allowlist、identifier unquote 和 dump 侧
+  typed-scalar 识别：`table_access`（[P3-R2-S0](../plans/p3-r2-s0-entry-and-budget-freeze.md)）
+- catalog/manifest `sql_type` 族判定、Arrow、fail-closed 转换、import/read wire
+  映射：[Repository Service](../contracts/repository-service.md) §10.1
 - content 单元格 bytes：[Shared Canonical Encoding](../contracts/shared-canonical-encoding.md) §3.2
 - schema/content digest 输入：[Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md) §4
 - golden 目录：[Correctness Golden and Fixture](../contracts/fixture-oracle-and-conformance.md)
+  （Repository ENUM/SET corpus 仍由 Repository 拥有；dump parser fixtures 由
+  `table_access` 拥有）
 
 首次独立审核为 fail，有限清单见 tag `docs/p2-p3-cleanup-pre-20260817` 中的
 `docs/backend-vnext/refactoring/temporary/p2-r6-ext-w1-stage-b-contract-review.md`
@@ -60,6 +65,13 @@ Shared Canonical Encoding v1 的 tag 表已闭合；Canonical Row Hash Arrow map
    畸形类型 → `IMPORT_REJECTED`；FULL_SCAN 非法值 →
    `VERIFICATION_FAILED_NOT_PUBLISHED`；read 编译期不得使用 `UNKNOWN_SQL_TYPE`。
    不新增第五个 public import code。
+10. SQL grammar 双边界（P3-R2-S0，2026-08-19）：`table_access` 拥有 source dump
+    parser grammar；Repository Service 拥有 catalog/manifest validation。二者共享
+    known type 闭合集和 ENUM/SET fail-closed codes，**不得**共享 parser
+    implementation，也不得创建 `sql_utils`、`capabilities/common` 或
+    `capabilities/utils`。dump parser 映射 Shared Kernel typed scalar，不产出
+    Arrow；Arrow 与 import wire 仍只属于 Repository §10 / §10.1。本条不改变第
+    1–9 条的 ENUM/SET 值、content encoding 或 public import code。
 
 ## Alternatives
 
@@ -78,6 +90,9 @@ Shared Canonical Encoding v1 的 tag 表已闭合；Canonical Row Hash Arrow map
   provider-independent UTF-8 binary 比较不一致；label 已是精确 UTF-8。
 - 同步扩展 Canonical Row Hash 以接受 `list`：拒绝。本轮 consumer 是 import
   validator，不是该 capability；扩大其 Arrow 闭合集会超出比例化范围。
+- 让 Repository 与 `table_access` 共享 SQL parser implementation 或建立
+  `sql_utils`：拒绝。dump grammar 与 catalog/manifest validation 是不同边界；
+  共享实现会把 Repository DTO/Arrow 泄漏进 capability leaf。
 
 ## Consequences
 
@@ -86,9 +101,17 @@ Shared Canonical Encoding v1 的 tag 表已闭合；Canonical Row Hash Arrow map
 - producer 按 v1 digest 输入计算 `canonicalization_manifest_digest`；SET 单元格放入
   裸 `sequence_frame`。Repository 仍不重算业务 digest。
 - 独立 corpus `vnext/fixtures/vectors/repository/sql-enum-set/v1/` 由 Repository
-  语义拥有；Shared Kernel corpus 保持 128 case。
+  语义拥有；Shared Kernel corpus 保持 128 case。dump parser 的 ENUM/SET 用例由
+  `table_access` 自有 fixture 证明 `SQL_TYPE_MALFORMED` / `SQL_VALUE_ILLEGAL`
+  对齐，不得把 Repository corpus 提升为通用 loader。
+- Backend `table_access` 不得 import `gateway_repository_service` 或复用
+  Repository DDL helpers。known type 闭合集仍以 Repository §10 为权威；实现各自
+  维护。
 
 ## Required Verification
 
 独立 Contract review 已通过。首次审核 fail 记录保持不变。后续 unit、golden、五份
 fixture validator 与 capacity 按执行计划 Stage C–I 证明，不由本 ADR 替代。
+P3-R2-S0 双边界修订不重新打开 ENUM/SET 值语义；dump parser 实现与 boundary tests
+按 [P3-R2 execution plan](../plans/p3-r2-table-access-parser-execution-plan.md)
+S1–S3 证明。

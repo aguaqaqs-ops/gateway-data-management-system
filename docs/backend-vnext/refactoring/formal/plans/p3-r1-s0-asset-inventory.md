@@ -1,6 +1,6 @@
 # P3-R1-S0 Existing Asset Inventory and Applicability Review
 
-状态：S0–S7 complete；R1 gate pass（`p3_implementation_authorized` remains pending；R2 detail plan pending）
+状态：S0–S7 complete；R1 gate pass（`p3_implementation_authorized` remains pending；R2 detail plan accepted）
 
 日期：2026-08-18
 

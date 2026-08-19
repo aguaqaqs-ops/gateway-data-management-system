@@ -1,0 +1,14 @@
+{
+  "case_id": "s1-unsupported-replace",
+  "status": "FAILED",
+  "tables": [],
+  "diagnostics": [
+    {
+      "code": "UNSUPPORTED_STATEMENT",
+      "severity": "ERROR",
+      "source": "sql",
+      "byte_offset": 0,
+      "message": "REPLACE is not in the source dump allowlist"
+    }
+  ]
+}

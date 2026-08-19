@@ -1,0 +1,41 @@
+{
+  "case_id": "s2-incomplete-insert",
+  "status": "FAILED",
+  "tables": [
+    {
+      "display_name": "t",
+      "canonical_name": "t",
+      "reader_ready": false,
+      "primary_key_canonical_names": ["id"],
+      "columns": [
+        {
+          "display_name": "id",
+          "canonical_name": "id",
+          "sql_type": "INT",
+          "logical_type": "standard",
+          "declared_type": {"kind": "signed-integer", "bits": 32},
+          "nullable": false
+        },
+        {
+          "display_name": "name",
+          "canonical_name": "name",
+          "sql_type": "VARCHAR(16)",
+          "logical_type": "standard",
+          "declared_type": {"kind": "string"},
+          "nullable": true
+        }
+      ],
+      "rows": []
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "INCOMPLETE_INSERT",
+      "severity": "ERROR",
+      "source": "sql",
+      "byte_offset": 97,
+      "message": "INSERT column list must include every column",
+      "table": "t"
+    }
+  ]
+}

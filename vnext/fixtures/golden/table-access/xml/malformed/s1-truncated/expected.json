@@ -1,0 +1,14 @@
+{
+  "case_id": "s1-truncated",
+  "status": "FAILED",
+  "events": [],
+  "diagnostics": [
+    {
+      "code": "MALFORMED_XML",
+      "severity": "ERROR",
+      "source": "xml",
+      "byte_offset": 7,
+      "message": "XML document is truncated"
+    }
+  ]
+}

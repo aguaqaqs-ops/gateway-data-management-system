@@ -1,6 +1,6 @@
 # P3 Active Context Index
 
-状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；implementation pending）
+状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2-S6 independent review complete；S7 pending）
 
 日期：2026-08-18
 
@@ -21,7 +21,18 @@ p3_design_started: yes
 p3_design_status: accepted
 p3_r1_exit: pass
 p3_r2_ready: yes
-p3_implementation_authorized: no
+p3_r2_detail_plan: p3-r2-table-access-parser-execution-plan.md
+p3_r2_detail_plan_status: accepted_for_execution
+p3_r2_s0: completed
+p3_r2_s0_record: p3-r2-s0-entry-and-budget-freeze.md
+p3_r2_s1: completed
+p3_r2_s2: completed
+p3_r2_s3: completed
+p3_r2_s4: completed
+p3_r2_s4_review: p3-r2-table-access-parser-execution-plan.md#8-s4-focused-review-record
+p3_r2_s6: completed
+p3_r2_s6_review: p3-r2-table-access-parser-execution-plan.md#9-s6-independent-review-record
+p3_implementation_authorized: s2_s3
 default_retrieval: this_index
 public_semantics_changed_in_c2: no
 cleanup_status: pass
@@ -54,13 +65,19 @@ cleanup_commit: this_cleanup_commit
    R1-R7、滚动 S 级步骤、审核/门禁、独立测试、staging artifact 和 benchmark 规则。
 7. [P3-R1 Capability Foundation Handoff](p3-r1-capability-foundation-handoff.md)：R1 gate /
    R2 entry。稳定 owner/import 边界、staging helper、no-open-blocker。不授权 parser 实现。
-8. 运行约束：[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
+8. [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)：
+   R2 的 SQL/XML parser、bounded reader、diagnostics、对话上下文和 deferred register。
+9. [P3-R2-S0 Entry, Applicability and Budget Freeze](p3-r2-s0-entry-and-budget-freeze.md)：
+   R2 入口适用性、ADR 0013 双边界、SQL allowlist、known types、XML security、
+   numeric budgets 与 fixture roots。
+10. 运行约束：[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
    [ADR 0012](../adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)、
    [Proportional Assurance Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)、
    [Testing Conventions](../../../testing-conventions.md)、
    [AGENTS.md](../../../../../AGENTS.md)。
 
-ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)。
+ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)（P3-R2-S0 已修订
+source dump / repository import 双边界）。
 Fixture 材料：[Fixture Oracle](../contracts/fixture-oracle-and-conformance.md)、
 [Testing Fixtures](../../../testing-fixtures.md)。
 术语：[glossary](../../../glossary.md)。

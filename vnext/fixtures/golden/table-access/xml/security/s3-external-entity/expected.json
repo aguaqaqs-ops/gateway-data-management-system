@@ -1,0 +1,14 @@
+{
+  "case_id": "s3-external-entity",
+  "status": "FAILED",
+  "events": [],
+  "diagnostics": [
+    {
+      "code": "XML_EXTERNAL_ENTITY_FORBIDDEN",
+      "severity": "ERROR",
+      "source": "xml",
+      "byte_offset": 86,
+      "message": "XML entities are forbidden"
+    }
+  ]
+}

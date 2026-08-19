@@ -216,6 +216,24 @@ def test_capability_contracts_are_importable() -> None:
         importlib.import_module(f"gateway_backend.capabilities.{owner}.contracts")
 
 
+_TABLE_ACCESS_FORBIDDEN_TOKENS = (
+    "Snapshot",
+    "gateway_repository",
+    "host_path",
+    "NotImplementedError",
+    "lxml",
+    "defusedxml",
+)
+
+
+def test_table_access_source_stays_on_capability_leaf() -> None:
+    owner = CAPABILITIES_ROOT / "table_access"
+    for source in sorted(owner.rglob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        for token in _TABLE_ACCESS_FORBIDDEN_TOKENS:
+            assert token not in text, f"{source} contains forbidden token {token}"
+
+
 def _capability_owner_dirs() -> set[str]:
     owners: set[str] = set()
     for path in CAPABILITIES_ROOT.iterdir():

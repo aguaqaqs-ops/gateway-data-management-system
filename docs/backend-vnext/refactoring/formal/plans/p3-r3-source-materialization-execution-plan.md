@@ -431,8 +431,8 @@ p3_r4_ready: yes
 
 状态：**PASS**；handoff: [P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)。
 
-S8 confirmatory rerun against HEAD `3c142f8e7616fb4cc2594a61128b2ccce494dd46` plus
-the dirty R3 worktree（2026-08-19）：
+S8 confirmatory rerun against `validated_code_sha`
+`7989e47d08c48fda46e7d8b6b3550ef9ee266d92`（2026-08-19）：
 
 | Command | Result |
 | --- | --- |

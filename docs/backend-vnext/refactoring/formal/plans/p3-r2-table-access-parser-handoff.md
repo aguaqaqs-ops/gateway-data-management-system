@@ -227,7 +227,7 @@ forbidden tokens（`dolt`、`gateway_repository`、`host_path`、`lxml`、`defus
 
 ## 9. R3 entry prerequisites
 
-R3 详细计划可以创建。R3 entry 必须拿到并保持：
+R3 详细计划已创建：[P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)。R3 entry 必须拿到并保持：
 
 - stable descriptor/reader/diagnostic public boundary（§7）；
 - accepted SQL/XML input and resource budgets（S0 §8；S7 未修订）；

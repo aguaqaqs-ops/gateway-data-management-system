@@ -1,0 +1,7 @@
+{
+  "case_id": "s1-missing-xml-empty",
+  "status": "COMPLETE",
+  "empty_composite_logic": true,
+  "required_sql_path": "/sql/dbcfg.sql",
+  "optional_xml_path": null
+}

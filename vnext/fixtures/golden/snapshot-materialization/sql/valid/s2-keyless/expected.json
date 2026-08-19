@@ -1,0 +1,22 @@
+{
+  "status": "COMPLETE",
+  "materialization_stage": "FINAL",
+  "cache_trust_level": "CONTENT_VERIFIED",
+  "table_count": 1,
+  "row_count_total": 2,
+  "snapshot_digest": "sha256:752cc47f6bc3b72504687a05b62fcfb2af1a549ab066ac857be50365b521d7ba",
+  "raw_state_digest": "sha256:b471bcae4f0b015455a05e874a63c23f0d7f8fe358c1ca563756f38168e1b7f8",
+  "tables": [
+    {
+      "table_name": "t",
+      "display_table_name": "t",
+      "row_count": 2,
+      "primary_key_columns": [],
+      "compare_key_columns": [],
+      "degraded_reason": "KEYLESS",
+      "compare_schema_digest": "sha256:24f0bfd0e66e603fcb3d914fcc588f1921301a4c32142e78e3c59d504d79ace3",
+      "raw_content_digest": "sha256:9f1e73abbd95cd379c16940057e3b5a0f8787fbcd0fbdcd869452284cf544826",
+      "fast_row_digest": "sha256:fae89a3fa8e7ac51ced453d00a49a0df68c476724fe42bc756a50338952c315b"
+    }
+  ]
+}

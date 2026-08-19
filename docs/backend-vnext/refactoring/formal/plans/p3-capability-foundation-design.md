@@ -4,7 +4,7 @@
 
 日期：2026-08-18
 
-阶段：Phase 3 design complete；P3-R2 gate pass；R3 entry
+阶段：Phase 3 design complete；P3-R2 gate pass；P3-R3 gate pass；P3-R4 implementation authorization pending
 
 Owner：Backend vNext Capability Architecture
 
@@ -75,6 +75,85 @@ risk, mutation and transaction contracts as ordinary tables.
   provenance only and do not create a mismatch branch.
 - The repository/Dolt commit is authoritative. External targets are asynchronous consumers;
   no two-phase commit is introduced.
+
+## 4.2 P3-R3 Source Materialization and Snapshot Design Baseline
+
+状态：Accepted；R3 gate pass；S8 handoff recorded
+
+S0 冻结记录见 [P3-R3-S0](p3-r3-s0-entry-and-budget-freeze.md)。
+S8 handoff 见 [P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)。
+
+R3 建立从 SourcePackage、SQL dump、business XML 和 pinned RepositoryRef 到 Snapshot、
+SnapshotSummary、SnapshotTableSet 与 immutable `SnapshotTableArtifact` 的 capability
+边界。R3 不接 HTTP、Workspace、Submit、Operation Runtime 或 storage/comparison
+projection。
+
+### Input and admission boundary
+
+- 生产 HTTP 业务 SourcePackage 首版正式接收格式只有 `TAR_GZ`；`ZIP`、`DIRECTORY`、
+  `SQL_FILE`、`SQL_GZ` 是 capability/local fixture/benchmark 输入，其中 `SQL_FILE` /
+  `SQL_GZ` 不代表正式多文件业务包。
+- zstd 可用于内部 fixture/staging transport，也继续用于独立的 Repository import
+  `tar+zstd` contract；R3 不新增正式 `TAR_ZST` package kind，不把 zstd 伪装成
+  `TAR_GZ`。只有出现真实 consumer、部署要求或测量证据时才 reopen SourcePackage
+  contract/ADR，增加正式输入格式。
+- SourcePackage staging 负责 bounded streaming extraction、normalized path、entry
+  manifest/digest、required `/sql/dbcfg.sql` 和 optional `/comps/logic/logics.xml`
+  resolution；不解析 SQL/XML，不创建 Snapshot。
+- 现有 `256 MiB` compressed ingress、`1 GiB` expanded package、`512 MiB` decoded SQL
+  与 R2 parser/XML budgets 共同构成 R3 输入上限。解压、解包和 artifact 写入必须
+  在 streaming/staging 中执行上限检查，不先完整展开再校验。
+
+### Materialization result and failure atomicity
+
+- 正式入口要求显式、不可变的 `TableRulesetSnapshot` 与 matching
+  `table_ruleset_version`；版本不一致或规则真源无法校验时 fail closed。
+- package/source resolution、business XML structural/semantic violation、global digest
+  mismatch、materializer contract violation 和无法建立完整 Snapshot identity 是
+  materialization-level `FAILED`；不得发布 Snapshot、SnapshotTableSet 或 artifact。
+- 单表 schema/type/key/reader 问题可形成 `PARTIAL`；成功表可以继续提供 descriptor/
+  reader/artifact，问题表仅保留 bounded diagnostics/degraded fact，不发布 partial
+  reader/artifact。所有表均失败时升级为 `FAILED`。
+- reader/artifact 使用 staging write -> manifest/descriptor/digest validation -> atomic
+  publish。cancel、timeout、I/O 或进程错误只能留下可清理 transient，不能发布半成品。
+- R3 只提供 in-process cancellation/deadline；durable checkpoint、takeover、retry
+  ownership 属于 P4 Operation Runtime。
+
+### Canonical facts and digest
+
+- R3 负责 materialization facts、`fast_row_digest`、`raw_content_digest`、
+  `business_content_digest`（可为 `NOT_COMPUTED`）和 `snapshot_digest`；R4 负责
+  storage projection、canonical storage key/schema、`CanonicalizationManifest` 与
+  RepositoryImportArtifact semantics，R3 不复制这些规则。
+- Reader 保留 source INSERT order；raw/business digest 以 canonical scalar row 的
+  deterministic order-insensitive multiset 计算，保留重复行计数。字段使用 descriptor
+  canonical order；row order 或 package compression metadata 不改变 digest。
+- 不为 keyless 表补 surrogate key。duplicate effective key 不做 dedup、覆盖或
+  last-write-wins；按 table rules/comparison contract 形成表级 degraded/failure fact。
+- `PROVISIONAL` 只表示 upload/local fast facts；`CONTENT_VERIFIED` 表示 source
+  binding、descriptor、rows、manifest 和 digest 在 capability 内闭合；
+  `COMMIT_VALIDATED` 只能由 Repository commit/readback 或等价权威校验产生。
+
+### Business XML and RepositoryRef
+
+- `logics.xml` 由独立 `composite_signal` provider 消费；缺失等价稳定 EMPTY source，
+  XML digest/EMPTY marker、parser/materializer versions 和 ruleset version进入业务
+  Snapshot identity。原始 SQL 表不被改写。
+- composite 业务不变量失败（重复顶层公式、孤儿公式、特殊装置身份不满足等）使整个
+  business materialization `FAILED`；不发布 `composite_signal_point` 派生表。
+- RepositoryRef provider 只接受 pinned immutable commit/ref；Repository hidden FINAL
+  SnapshotSummary 缺失、版本不匹配或 digest 不一致直接失败，不从 catalog/rows 重建
+  summary。R3 module gate 使用 protocol-conformant fake provider；真实 Repository
+  Service/Dolt readback 属于独立 integration gate。
+
+### Artifact and cache boundary
+
+- `SnapshotTableArtifact` 第一版固定为 `manifest + Parquet rows`；public consumer 只依赖
+  `SnapshotTableReader` 与 opaque `ArtifactRef`，不依赖 Parquet API。
+- Cache 只加速，不替代 source/ref 校验。`PROVISIONAL` candidate 需要重新验证并有
+  fallback recompute；`COMMIT_VALIDATED` 仅可被 repository/readback authority promotion。
+- R3 不实现 retention/eviction/quota、durable lifecycle、projection cache 或 export
+  format matrix；删除 L3 cache 后必须能从 L1 source 或 L2 repository ref 重建。
 
 ## 4.1 P3-R2 Table Access and Parser Design Baseline
 

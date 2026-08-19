@@ -1,0 +1,5 @@
+CREATE TABLE `t` (
+  `id` INT NOT NULL PRIMARY KEY,
+  `name` VARCHAR(16) NULL
+);
+INSERT INTO `t` VALUES (1, 'a');

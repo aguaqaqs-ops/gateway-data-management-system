@@ -1,0 +1,2 @@
+CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(8) NULL);
+INSERT INTO t VALUES (1, 'a'), (1, 'a'), (2, 'b');

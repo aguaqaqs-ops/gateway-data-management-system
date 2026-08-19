@@ -1,0 +1,6 @@
+<Logic_Set Time="ignored">
+  <Express Name="top" Operator_Type="+">
+    <Point Name="top"/>
+    <Digital Value="1"/>
+  </Express>
+</Logic_Set>

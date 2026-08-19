@@ -1,0 +1,7 @@
+{
+  "case_id": "s1-minimal-tar-gz",
+  "status": "COMPLETE",
+  "empty_composite_logic": false,
+  "required_sql_path": "/sql/dbcfg.sql",
+  "optional_xml_path": "/comps/logic/logics.xml"
+}

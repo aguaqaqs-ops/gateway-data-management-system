@@ -1,0 +1,2 @@
+CREATE TABLE t (name VARCHAR(8) NULL);
+INSERT INTO t VALUES ('a'), ('b');

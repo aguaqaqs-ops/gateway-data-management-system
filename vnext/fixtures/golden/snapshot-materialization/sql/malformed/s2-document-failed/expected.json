@@ -1,0 +1,6 @@
+{
+  "status": "FAILED",
+  "diagnostics": [
+    "TABLE_READER_UNAVAILABLE"
+  ]
+}

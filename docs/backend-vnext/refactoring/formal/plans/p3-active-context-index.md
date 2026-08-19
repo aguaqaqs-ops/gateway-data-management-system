@@ -1,8 +1,8 @@
 # P3 Active Context Index
 
-状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；R3 entry）
+状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；P3-R3 gate pass）
 
-日期：2026-08-18
+日期：2026-08-19
 
 Owner：Backend vNext Architecture
 
@@ -36,6 +36,23 @@ p3_r2_s7: completed
 p3_r2_s7_handoff: p3-r2-table-access-parser-handoff.md
 p3_r2_exit: pass
 p3_r3_ready: yes
+p3_r3_detail_plan: p3-r3-source-materialization-execution-plan.md
+p3_r3_detail_plan_status: accepted_for_execution
+p3_r3_s0: completed
+p3_r3_s0_record: p3-r3-s0-entry-and-budget-freeze.md
+p3_r3_s1: completed
+p3_r3_s2: completed
+p3_r3_s3: completed
+p3_r3_s4: completed
+p3_r3_s5: completed
+p3_r3_s6: completed
+p3_r3_s6_review: p3-r3-s6-focused-review.md
+p3_r3_s7: completed
+p3_r3_s7_review: p3-r3-s7-independent-review.md
+p3_r3_s8: completed
+p3_r3_s8_handoff: p3-r3-source-materialization-handoff.md
+p3_r3_exit: pass
+p3_r4_ready: yes
 p3_implementation_authorized: no
 default_retrieval: this_index
 public_semantics_changed_in_c2: no
@@ -77,7 +94,19 @@ cleanup_commit: this_cleanup_commit
 10. [P3-R2-S0 Entry, Applicability and Budget Freeze](p3-r2-s0-entry-and-budget-freeze.md)：
     R2 入口适用性、ADR 0013 双边界、SQL allowlist、known types、XML security、
     numeric budgets 与 fixture roots。
-11. 运行约束：[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
+11. [P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)：
+    R3 gate / R4 entry。稳定 Snapshot/Artifact public boundary、digest ownership、
+    deferred register。不授权 storage projection。
+12. [P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)：
+    R3 detail plan；SourcePackage、SQL/XML business materialization、RepositoryRef、artifact/cache、
+    review conversation 和 S8 gate 记录。
+13. [P3-R3-S0 Entry, Applicability and Budget Freeze](p3-r3-s0-entry-and-budget-freeze.md)：
+    R3 入口适用性、package/zstd 范围、owner DAG、budgets、result/trust、allowlist 与 reopen。
+14. [P3-R3-S6 Focused Contract, Resource and Security Review](p3-r3-s6-focused-review.md)：
+    SourcePackage/archive/resource/security findings closure、exact reruns 与 S7 carry-forward。
+15. [P3-R3 S7 Independent Owner, Import, Digest and Recovery Review](p3-r3-s7-independent-review.md)：
+    独立 owner/import/digest/recovery 复核与 S8 carry-forward。
+16. 运行约束：[ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)、
    [ADR 0012](../adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)、
    [Proportional Assurance Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)、
    [Testing Conventions](../../../testing-conventions.md)、
@@ -167,7 +196,8 @@ Phase 3 是 Capability Foundation。Snapshot / Comparison / Risk / Flow 的既�
 P3 默认 allowlist（设计检索，不是源码扫描）：
 
 - 本 index、P2 handoff、P3-R1 capability foundation handoff、P3-R2 table access
-  parser handoff、cleanup manifest
+  parser handoff、P3-R3 source materialization handoff、P3-R3 source materialization
+  execution plan、P3-R3-S0 freeze、cleanup manifest
 - `docs/backend-vnext/refactoring/formal/contracts/` 中现行 contract（不含已
   superseded 的 vector-schema）
 - `docs/backend-vnext/refactoring/formal/adr/0001-0005`、`0009`、`0010`、`0012`、`0013`、

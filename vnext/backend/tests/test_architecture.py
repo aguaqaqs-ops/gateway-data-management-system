@@ -15,6 +15,8 @@ CAPABILITY_OWNERS = frozenset(
         "canonical_row_hash",
         "table_access",
         "table_rules",
+        "source_package_staging",
+        "composite_signal",
         "snapshot_materialization",
         "storage_projection",
         "comparison_projection",
@@ -31,7 +33,11 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
     "canonical_row_hash": frozenset(),
     "table_access": frozenset(),
     "table_rules": frozenset(),
-    "snapshot_materialization": frozenset({"table_access", "table_rules"}),
+    "source_package_staging": frozenset(),
+    "composite_signal": frozenset({"table_access"}),
+    "snapshot_materialization": frozenset(
+        {"table_access", "table_rules", "source_package_staging", "composite_signal"}
+    ),
     "storage_projection": frozenset({"table_rules", "snapshot_materialization"}),
     "comparison_projection": frozenset({"table_rules", "snapshot_materialization"}),
     "comparison": frozenset({"comparison_projection"}),
@@ -231,6 +237,43 @@ def test_table_access_source_stays_on_capability_leaf() -> None:
     for source in sorted(owner.rglob("*.py")):
         text = source.read_text(encoding="utf-8")
         for token in _TABLE_ACCESS_FORBIDDEN_TOKENS:
+            assert token not in text, f"{source} contains forbidden token {token}"
+
+
+_SOURCE_PACKAGE_FORBIDDEN_TOKENS = (
+    "Snapshot",
+    "host_path",
+    "NotImplementedError",
+    "parse_sql",
+    "lxml",
+    "dolt",
+)
+
+
+def test_source_package_staging_stays_on_capability_leaf() -> None:
+    owner = CAPABILITIES_ROOT / "source_package_staging"
+    for source in sorted(owner.rglob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        for token in _SOURCE_PACKAGE_FORBIDDEN_TOKENS:
+            assert token not in text, f"{source} contains forbidden token {token}"
+
+
+_COMPOSITE_SIGNAL_FORBIDDEN_TOKENS = (
+    "Snapshot",
+    "parse_xml",
+    "parse_sql",
+    "host_path",
+    "NotImplementedError",
+    "lxml",
+    "dolt",
+)
+
+
+def test_composite_signal_stays_on_capability_leaf() -> None:
+    owner = CAPABILITIES_ROOT / "composite_signal"
+    for source in sorted(owner.rglob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        for token in _COMPOSITE_SIGNAL_FORBIDDEN_TOKENS:
             assert token not in text, f"{source} contains forbidden token {token}"
 
 

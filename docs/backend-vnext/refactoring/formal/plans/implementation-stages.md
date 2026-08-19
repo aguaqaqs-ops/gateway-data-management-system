@@ -7,10 +7,15 @@
 当前状态：Phase 2简化设计、D01 Phase 0–1同原则简化设计、DX cross-phase
 interface reconciliation与S02联合代码清理均已闭合；P2-R1 v8 formal 已通过。
 P2-R6-S11 `phase_2_complete: yes`。Phase 3 capability design 已完成；P3-R1 module gate
-`p3_r1_exit: pass`，P3-R2 module gate `p3_r2_exit: pass`，R3 entry 见
-[P3-R2 Table Access and Parser Handoff](p3-r2-table-access-parser-handoff.md)。
+`p3_r1_exit: pass`，P3-R2 module gate `p3_r2_exit: pass`，P3-R3 module gate
+`p3_r3_exit: pass`，R4 entry 见
+[P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)。
 R2 详细执行见 [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)。
-R3 详细计划尚未创建；本文件不授权 source materialization 实现，见 [P3 Capability Foundation Design](p3-capability-foundation-design.md)、
+R3 详细执行见 [P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)。
+R3 S0 冻结见 [P3-R3-S0 Entry, Applicability and Budget Freeze](p3-r3-s0-entry-and-budget-freeze.md)。
+R3 SourcePackage staging、SQL Snapshot、composite XML、RepositoryRef provider、
+SnapshotTableArtifact 与 S6/S7 review 均已完成；S8 module gate 已通过。
+本文件不自动授权 R4 storage projection 实现，见 [P3 Capability Foundation Design](p3-capability-foundation-design.md)、
 [P3 Active Context Index](p3-active-context-index.md) 与
 [P2 External Interface Handoff](p2-external-interface-handoff.md)。
 P2-R1 默认 provider 为Candidate A offline CLI，Candidate B保留但默认禁用。该顺序由

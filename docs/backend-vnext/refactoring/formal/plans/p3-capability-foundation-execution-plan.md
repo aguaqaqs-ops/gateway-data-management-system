@@ -4,7 +4,7 @@
 
 日期：2026-08-18
 
-阶段：P3-R2 complete；R3 detail plan pending；implementation authorization pending
+阶段：P3-R2 complete；P3-R3 complete；P3-R4 entry ready；implementation authorization pending
 
 Owner：Backend vNext Capability Architecture
 
@@ -35,7 +35,7 @@ P2 可复用的是 staged execution、review、remediation、handoff 和 phase g
 | --- | --- | --- |
 | P3-R1 Capability Foundation | contract/test foundation、错误分类、已证明必要的 shared primitive、artifact/staging conformance、provider/import boundary checks | 可独立调用的 capability boundary |
 | P3-R2 Table Access and Parser | table access protocol、SQL parser、XML parser、bounded rows/descriptors、parser diagnostics | [P3-R2 detailed execution plan](p3-r2-table-access-parser-execution-plan.md)：descriptor/diagnostics/deferred row stream |
-| P3-R3 Source Materialization and Snapshot | ruleset snapshot、canonical materialization、derived tables、`SnapshotTableArtifact`、reuse/fallback profile | immutable snapshot artifact closure |
+| P3-R3 Source Materialization and Snapshot | [detailed execution plan](p3-r3-source-materialization-execution-plan.md)：SourcePackage staging、ruleset snapshot、canonical materialization、derived tables、`SnapshotTableArtifact`、reuse/fallback profile | immutable snapshot artifact closure |
 | P3-R4 Storage Projection | canonical key/schema、storage digest、CanonicalizationManifest、RepositoryImportArtifact input | canonical storage projection |
 | P3-R5 Comparison | comparison projection、standard diff、row records、`FULL`/`MODIFIED_ONLY`、dataset replacement | `ComparisonFacts`/records |
 | P3-R6 Risk, Surface and Bundle | RiskEngine、risk facts、annotations、surface assembly、bundle closure | Preview-facing result closure |
@@ -226,8 +226,8 @@ R 之间默认串行。R 内只有不共享未稳定 contract、不会改变对�
 ```yaml
 p3_design: accepted
 p3_execution_plan: accepted_for_staged_planning
-current_module: P3-R3
-current_module_detail: R2 gate pass; R3 detail plan pending
+current_module: P3-R4
+current_module_detail: R3 gate pass; R4 entry ready; R4 detail plan unauthorized
 p3_r1_s0: completed
 p3_r1_s0_inventory: p3-r1-s0-asset-inventory.md
 p3_r1_s1: completed
@@ -249,6 +249,23 @@ p3_r2_s7: completed
 p3_r2_s7_handoff: p3-r2-table-access-parser-handoff.md
 p3_r2_exit: pass
 p3_r3_ready: yes
+p3_r3_detail_plan: p3-r3-source-materialization-execution-plan.md
+p3_r3_detail_plan_status: accepted_for_execution
+p3_r3_s0: completed
+p3_r3_s0_record: p3-r3-s0-entry-and-budget-freeze.md
+p3_r3_s1: completed
+p3_r3_s2: completed
+p3_r3_s3: completed
+p3_r3_s4: completed
+p3_r3_s5: completed
+p3_r3_s6: completed
+p3_r3_s6_review: p3-r3-s6-focused-review.md
+p3_r3_s7: completed
+p3_r3_s7_review: p3-r3-s7-independent-review.md
+p3_r3_s8: completed
+p3_r3_s8_handoff: p3-r3-source-materialization-handoff.md
+p3_r3_exit: pass
+p3_r4_ready: yes
 p3_implementation_authorized: no
 ```
 
@@ -259,6 +276,11 @@ p3_implementation_authorized: no
 - [P3-R1 Capability Foundation Handoff](p3-r1-capability-foundation-handoff.md)
 - [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)
 - [P3-R2 Table Access and Parser Handoff](p3-r2-table-access-parser-handoff.md)
+- [P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)
+- [P3-R3-S0 Entry, Applicability and Budget Freeze](p3-r3-s0-entry-and-budget-freeze.md)
+- [P3-R3-S6 Focused Contract, Resource and Security Review](p3-r3-s6-focused-review.md)
+- [P3-R3 S7 Independent Owner, Import, Digest and Recovery Review](p3-r3-s7-independent-review.md)
+- [P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)
 - [Implementation Stages](implementation-stages.md)
 - [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)
 - [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md)

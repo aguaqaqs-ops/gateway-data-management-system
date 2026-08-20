@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from gateway_shared_kernel import DigestRef
 
@@ -30,11 +30,19 @@ from gateway_backend.capabilities.table_access.contracts import (
 )
 from gateway_backend.capabilities.table_rules.contracts import TableRulesetSnapshot
 
+if TYPE_CHECKING:
+    import pyarrow as pa
+
 SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION = 1
 DIGEST_CONTRACT_VERSION = 1
 SCALAR_ENCODING_VERSION = 1
 SUMMARY_CONTRACT_VERSION = 1
 SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION = 1
+BATCH_READER_CONTRACT_VERSION = 1
+BATCH_SCHEMA_METADATA_VERSION = 1
+COMPARISON_PROJECTION_CONTRACT_VERSION = "backend-vnext/comparison-projection/v1"
+ORDERED_COMPARISON_CONTRACT_VERSION = "backend-vnext/ordered-diff/v2"
+BLANK_COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison-blank/v1"
 ROW_MATERIALIZATION_PROFILE = "sql-canonical-v1"
 ROW_FORMAT_PARQUET = "parquet"
 EXPORT_FORMAT_PARQUET = "PARQUET"
@@ -418,6 +426,69 @@ class SnapshotTableReader(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class SnapshotTableBatchMetadata:
+    """Language-neutral versions carried in an Arrow schema."""
+
+    batch_schema_metadata_version: int = BATCH_SCHEMA_METADATA_VERSION
+    batch_reader_contract_version: int = BATCH_READER_CONTRACT_VERSION
+    scalar_encoding_version: int = SCALAR_ENCODING_VERSION
+    projection_contract_version: str = COMPARISON_PROJECTION_CONTRACT_VERSION
+    ordered_contract_version: str = ORDERED_COMPARISON_CONTRACT_VERSION
+    blank_contract_version: str = BLANK_COMPARISON_CONTRACT_VERSION
+    artifact_contract_version: int = SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        for name in (
+            "batch_schema_metadata_version",
+            "batch_reader_contract_version",
+            "scalar_encoding_version",
+            "artifact_contract_version",
+        ):
+            value = getattr(self, name)
+            if type(value) is not int or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        for name in (
+            "projection_contract_version",
+            "ordered_contract_version",
+            "blank_contract_version",
+        ):
+            value = getattr(self, name)
+            if type(value) is not str or value == "":
+                raise ValueError(f"{name} must be a non-empty string")
+        if self.batch_schema_metadata_version != BATCH_SCHEMA_METADATA_VERSION:
+            raise ValueError("batch_schema_metadata_version must be 1")
+        if self.batch_reader_contract_version != BATCH_READER_CONTRACT_VERSION:
+            raise ValueError("batch_reader_contract_version must be 1")
+        if self.scalar_encoding_version != SCALAR_ENCODING_VERSION:
+            raise ValueError("scalar_encoding_version must be 1")
+        if self.artifact_contract_version != SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION:
+            raise ValueError("artifact_contract_version must be 1")
+
+
+@runtime_checkable
+class SnapshotTableBatchReader(Protocol):
+    """Public bulk boundary; implementations must not materialize rows as Python objects."""
+
+    def descriptor(self) -> SnapshotTableDescriptor:
+        """Return the immutable table descriptor."""
+
+    def schema(self) -> "pa.Schema":
+        """Return the Arrow schema for every batch in this reader."""
+
+    def metadata(self) -> SnapshotTableBatchMetadata:
+        """Return version metadata carried by the Arrow schema."""
+
+    def iter_record_batches(self) -> Iterator["pa.RecordBatch"]:
+        """Yield Arrow RecordBatch values without row-wise conversion."""
+
+    def close(self) -> None:
+        """Idempotently close the reader."""
+
+    def reopen(self) -> "SnapshotTableBatchReader":
+        """Open an independent reader over the same immutable table."""
+
+
+@dataclass(frozen=True, slots=True)
 class SnapshotTableArtifactManifest:
     artifact_contract_version: int
     snapshot_digest: DigestRef
@@ -565,6 +636,7 @@ class SnapshotTable:
     reader: SnapshotTableReader | None
     diagnostics: tuple[MaterializationDiagnostic, ...] = ()
     artifact: SnapshotTableArtifact | None = None
+    batch_reader: SnapshotTableBatchReader | None = None
 
     def __post_init__(self) -> None:
         if type(self.descriptor) is not SnapshotTableDescriptor:
@@ -572,11 +644,15 @@ class SnapshotTable:
         _require_diagnostics(self.diagnostics)
         if self.artifact is not None and type(self.artifact) is not SnapshotTableArtifact:
             raise ValueError("artifact must be SnapshotTableArtifact or None")
+        if self.batch_reader is not None and not isinstance(self.batch_reader, SnapshotTableBatchReader):
+            raise ValueError("batch_reader must implement SnapshotTableBatchReader or be None")
         if self.descriptor.degraded_reason is DegradedReason.TABLE_FAILED:
             if self.reader is not None:
                 raise ValueError("failed table must not publish a reader")
             if self.artifact is not None:
                 raise ValueError("failed table must not publish an artifact")
+            if self.batch_reader is not None:
+                raise ValueError("failed table must not publish a batch reader")
             return
         if self.reader is None:
             return

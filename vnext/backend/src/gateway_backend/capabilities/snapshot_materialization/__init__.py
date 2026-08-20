@@ -6,11 +6,23 @@ from gateway_backend.capabilities.snapshot_materialization.artifact import (
     validate_snapshot_table_artifact,
 )
 from gateway_backend.capabilities.snapshot_materialization.cache import SnapshotTableArtifactCache
+from gateway_backend.capabilities.snapshot_materialization.batch import (
+    BatchBoundaryError,
+    InMemorySnapshotTableBatchReader,
+    ParquetSnapshotTableBatchReader,
+    assert_public_batch_reader,
+    batch_metadata_from_schema,
+    schema_with_batch_metadata,
+)
 from gateway_backend.capabilities.snapshot_materialization.compose import (
     materialize_business_snapshot,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ARTIFACT_COMPRESSION_ZSTD,
+    BATCH_READER_CONTRACT_VERSION,
+    BATCH_SCHEMA_METADATA_VERSION,
+    BLANK_COMPARISON_CONTRACT_VERSION,
+    COMPARISON_PROJECTION_CONTRACT_VERSION,
     DIGEST_CONTRACT_VERSION,
     EXPORT_FORMAT_PARQUET,
     MANIFEST_MEDIA_TYPE,
@@ -50,6 +62,8 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotSourceContext,
     SnapshotSummary,
     SnapshotTable,
+    SnapshotTableBatchMetadata,
+    SnapshotTableBatchReader,
     SnapshotTableArtifact,
     SnapshotTableArtifactCacheKey,
     SnapshotTableArtifactCacheResult,
@@ -70,6 +84,10 @@ from gateway_backend.capabilities.snapshot_materialization.repository_ref import
 
 __all__ = [
     "ARTIFACT_COMPRESSION_ZSTD",
+    "BATCH_READER_CONTRACT_VERSION",
+    "BATCH_SCHEMA_METADATA_VERSION",
+    "BLANK_COMPARISON_CONTRACT_VERSION",
+    "COMPARISON_PROJECTION_CONTRACT_VERSION",
     "DIGEST_CONTRACT_VERSION",
     "EXPORT_FORMAT_PARQUET",
     "MANIFEST_MEDIA_TYPE",
@@ -109,6 +127,8 @@ __all__ = [
     "SnapshotSourceContext",
     "SnapshotSummary",
     "SnapshotTable",
+    "SnapshotTableBatchMetadata",
+    "SnapshotTableBatchReader",
     "SnapshotTableArtifact",
     "SnapshotTableArtifactCache",
     "SnapshotTableArtifactCacheKey",
@@ -126,4 +146,10 @@ __all__ = [
     "open_snapshot_table_artifact",
     "publish_snapshot_table_artifact",
     "validate_snapshot_table_artifact",
+    "BatchBoundaryError",
+    "InMemorySnapshotTableBatchReader",
+    "ParquetSnapshotTableBatchReader",
+    "assert_public_batch_reader",
+    "batch_metadata_from_schema",
+    "schema_with_batch_metadata",
 ]

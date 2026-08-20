@@ -34,6 +34,9 @@ from gateway_backend.capabilities.snapshot_materialization._parquet import (
     write_parquet_rows,
 )
 from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
+from gateway_backend.capabilities.snapshot_materialization.batch import (
+    ParquetSnapshotTableBatchReader,
+)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ARTIFACT_COMPRESSION_ZSTD,
     MANIFEST_MEDIA_TYPE,
@@ -296,6 +299,10 @@ def open_snapshot_table_artifact(
         reader=reader,
         diagnostics=manifest.descriptor.diagnostics,
         artifact=artifact,
+        batch_reader=ParquetSnapshotTableBatchReader(
+            manifest.descriptor,
+            parquet_bytes,
+        ),
     )
 
 
@@ -351,6 +358,7 @@ def publish_ready_tables(
                 reader=opened.reader,
                 diagnostics=table.diagnostics,
                 artifact=artifact,
+                batch_reader=opened.batch_reader,
             )
         )
     return tuple(published)

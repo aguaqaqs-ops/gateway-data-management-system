@@ -30,6 +30,13 @@ from gateway_shared_kernel import (
 )
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.capabilities.snapshot_materialization.batch import (
+    schema_with_batch_metadata,
+)
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    SnapshotTableBatchMetadata,
+)
+
 from gateway_backend.capabilities.table_access.contracts import (
     SourceCell,
     SourceColumnDescriptor,
@@ -103,7 +110,10 @@ def write_parquet_rows(
 ) -> bytes:
     fields = [_arrow_field(column) for column in columns]
     metadata = {_ENCODING_METADATA_KEY: encode_source_columns(columns)}
-    schema = pa.schema(fields, metadata=metadata)
+    schema = schema_with_batch_metadata(
+        pa.schema(fields, metadata=metadata),
+        SnapshotTableBatchMetadata(),
+    )
     arrays = [_column_array(column, rows, index) for index, column in enumerate(columns)]
     table = pa.Table.from_arrays(arrays, schema=schema)
     sink = io.BytesIO()

@@ -40,7 +40,7 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
     ),
     "storage_projection": frozenset({"table_rules", "snapshot_materialization"}),
     "comparison_projection": frozenset({"table_rules", "snapshot_materialization"}),
-    "comparison": frozenset({"comparison_projection"}),
+    "comparison": frozenset({"comparison_projection", "snapshot_materialization"}),
     "risk_evaluation": frozenset({"comparison"}),
     "business_projection": frozenset({"comparison"}),
     "surface_assembly": frozenset({"comparison", "risk_evaluation", "business_projection"}),

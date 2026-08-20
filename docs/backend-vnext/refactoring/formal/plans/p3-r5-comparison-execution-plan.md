@@ -354,6 +354,7 @@ required.
 | `cd vnext/rust && cargo test -p gateway-compute-core` | **78 passed** |
 | `cd vnext/rust && cargo test -p gateway-compute-python` | **3 passed** |
 | `cd vnext/rust/gateway-compute-python && /root/gateway-data-management-system/vnext/backend/.venv/bin/python -m pytest -q` | **4 passed** |
+| sealed S1 code SHA (2026-08-20 confirmatory rerun) | **2963963c9cb707c9584aac8778eb07e8d6d40782** |
 
 S1 is pure Python/public-boundary and test work plus reuse of the already-built native boundary. No
 Dockerfile, dependency lock, image, entrypoint, Compose or container-only runtime boundary changed;

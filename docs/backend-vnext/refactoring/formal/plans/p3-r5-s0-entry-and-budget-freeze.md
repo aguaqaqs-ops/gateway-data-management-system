@@ -28,9 +28,10 @@ p3_r5_s1_authorized: yes
 p3_r5_s1_exit: pass
 p3_implementation_authorized: no
 validated_r4_code_sha: 4effb6eefa16d246e75213212f884b2546e6d6ef
+validated_s1_code_sha: 2963963c9cb707c9584aac8778eb07e8d6d40782
 r4_focused_suite: 268 passed
 r4_full_unit_current_head: timeout at existing healthz test; no assertion failure
-s0_worktree: dirty_docs_only
+s0_worktree: clean
 container_rebuild_for_entry: no
 container_reason: R5 entry is docs/design only; no image or deployment boundary changed
 benchmark: measurement_only_no_gate

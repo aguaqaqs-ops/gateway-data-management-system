@@ -79,6 +79,7 @@ p3_r5_s0_record: p3-r5-s0-entry-and-budget-freeze.md
 p3_r5_s0_exit: pass
 p3_r5_s1: completed
 p3_r5_s1_exit: pass
+p3_r5_s1_code_sha: 2963963c9cb707c9584aac8778eb07e8d6d40782
 p3_r5_ready: yes
 p3_implementation_authorized: no
 default_retrieval: this_index

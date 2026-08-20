@@ -596,17 +596,21 @@ R4 does not authorize R5 implementation or any application integration.
 
 状态：**PASS**；handoff: [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)。
 
-S8 confirmatory rerun against `f07c387f513ee735fe69e65c94804d7c63115f0d` plus the
-dirty R4 worktree（2026-08-20）：
+原 S8 confirmatory rerun 针对 `f07c387f513ee735fe69e65c94804d7c63115f0d` 加 dirty R4
+worktree（2026-08-20），实现随后封存为 `4effb6eefa16d246e75213212f884b2546e6d6ef`；
+当前 sealed HEAD 的复核结果见 handoff：
 
 | Command | Result |
 | --- | --- |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -m unit` | **609 passed**（2.36s）；1 pre-existing Starlette deprecation warning |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -m unit tests/test_architecture.py tests/test_table_rules_*.py tests/test_storage_projection_*.py tests/test_repository_import_artifact_*.py tests/test_canonicalization_manifest.py` | **268 passed**（1.18s） |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check . && uv run --offline mypy` | **passed**；mypy 139 source files |
-| `git diff --check` | **passed** |
+| 原 S8：`cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -m unit`（`f07c387` + dirty R4 worktree） | **609 passed**（2.36s）；1 pre-existing Starlette deprecation warning；历史 gate 证据 |
+| 当前 sealed HEAD：`cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit tests/test_architecture.py tests/test_table_rules_*.py tests/test_storage_projection_*.py tests/test_repository_import_artifact_*.py tests/test_canonicalization_manifest.py` | **268 passed**（1.47s） |
+| 当前 sealed HEAD：`cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check . && uv run --offline mypy` | **passed**；mypy 139 source files |
+| 当前 sealed HEAD：`cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache timeout 60s uv run --offline pytest -q -m unit` | **未完成（exit 124）**；停在既有 `tests/test_app.py::test_healthz_uses_injected_settings`，无断言失败输出 |
+| 当前文档修正工作树：`git diff --check` | **passed** |
 
 No serial nodeid, Dolt, or container rebuild. S6-001–003 remain closed. `S6-004`
 and `R4-D01`–`R4-D08` are carried forward. `R3-D04` is closed by R4.
 `p3_r4_exit: pass`；`p3_r5_ready: yes`；`p3_implementation_authorized: no`。
-R5 必须先写详细计划再实现。`validated_code_sha` 在本轮仍为 `not_committed`。
+R5 必须先写详细计划再实现。当前 sealed HEAD 的全量 unit 独立复跑在既有
+`tests/test_app.py::test_healthz_uses_injected_settings` 处 60 秒超时；历史 S8 的
+609-pass 仍保留为 gate 证据，但不冒充本次 sealed HEAD 的新全量复跑结果。

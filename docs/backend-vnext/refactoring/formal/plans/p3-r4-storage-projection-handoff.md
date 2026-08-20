@@ -28,28 +28,30 @@ s7_review: pass
 p3_r4_exit: pass
 p3_r5_ready: yes
 p3_implementation_authorized: no
-worktree_at_validated_tip: dirty_uncommitted_on_f07c387
-validated_code_sha: not_committed
+worktree_at_validated_tip: clean_committed_on_4effb6e
+validated_code_sha: 4effb6eefa16d246e75213212f884b2546e6d6ef
 r3_handoff_documentation_sha: f07c387f513ee735fe69e65c94804d7c63115f0d
-s8_source_tip: f07c387f513ee735fe69e65c94804d7c63115f0d plus dirty R4 worktree
+s8_source_tip: 4effb6eefa16d246e75213212f884b2546e6d6ef
 container_rebuild: no
 benchmark: not_applicable
+r5_entry_sha: pending_handoff_documentation_commit
+handoff_documentation_sha: pending_handoff_documentation_commit
 ```
 
-`validated_code_sha` 在本 S8 仍为 `not_committed`：S6/S7 已审且本 S8 复跑通过的是
-`f07c387` 之上的 dirty R4 实现，尚未收成独立 implementation commit。后续若提交
-S1–S7 代码与审查记录，该 commit 成为 `validated_code_sha`；本 handoff 文档提交
-完成后成为 `r5_entry_sha` / `handoff_documentation_sha`，不在本文件中自引用。
+`validated_code_sha` 现已封存为 `4effb6e`：该提交包含此前 S6/S7 审查过的 R4 实现、
+测试、审查记录和原始 handoff。当前文件的证据修正尚未提交，因此
+`r5_entry_sha` / `handoff_documentation_sha` 在本次文档修正提交完成后再回填；
+`validated_code_sha` 只有在 R4 代码改变时才需要变化。
 
 ## 1. Gate identity
 
 ```yaml
 branch: phase1/gate-ownership-repair
-s6_reviewed_tip: f07c387f513ee735fe69e65c94804d7c63115f0d plus dirty R4 worktree
+s6_reviewed_tip: 4effb6eefa16d246e75213212f884b2546e6d6ef (sealed reviewed implementation)
 s6_review_record: p3-r4-s6-focused-review.md
 s7_review_record: p3-r4-s7-independent-review.md
 s0_record: p3-r4-s0-entry-and-budget-freeze.md
-s8_tests_rerun: yes
+s8_tests_rerun: historical_yes_current_focused_yes_full_unit_incomplete
 container_rebuild_reason: R4 candidate is pure Python capability/test/docs and does not touch image, deployment, or container-only runtime boundaries
 last_validated_image_revision: none; source-tree validation is the authoritative evidence
 container_validation_deferred_to: a later R if an image/deployment/container boundary is introduced, or the P3 final candidate
@@ -57,7 +59,7 @@ benchmark_reason: S0/S1 did not add an independent benchmark runner; no numeric 
 ```
 
 ```text
-Current HEAD at S8 rerun: f07c387f513ee735fe69e65c94804d7c63115f0d plus dirty R4 worktree
+Current sealed implementation HEAD: 4effb6eefa16d246e75213212f884b2546e6d6ef
 Container rebuild required: no
 Reason: no Dockerfile, lock, entrypoint, Compose, UID/GID, volume, or container-only runtime change
 Last verified image revision: none
@@ -77,28 +79,28 @@ git status --short
 ```
 
 ```yaml
-commit_lineage_count: 0
-head_at_s8: f07c387f513ee735fe69e65c94804d7c63115f0d
-head_subject: "docs(backend): complete P3-R3-S8 module gate and R4 handoff"
+commit_lineage_count: 2
+head_at_s8: 4effb6eefa16d246e75213212f884b2546e6d6ef
+head_subject: "feat(backend): add P3-R4 storage projection and module gate"
 commit_lineage:
   r3_s8:
     stage_final_reviewed_tip: f07c387f513ee735fe69e65c94804d7c63115f0d
     subject: "docs(backend): complete P3-R3-S8 module gate and R4 handoff"
     note: R3 handoff documentation SHA; R4 S0 started from this tip
   s0_s7:
-    stage_final_reviewed_tip: dirty_uncommitted_on_f07c387
+    stage_final_reviewed_tip: 4effb6eefa16d246e75213212f884b2546e6d6ef
     stage_exit: pass
-    note: S0–S7 were executed and reviewed in-tree; no R4 implementation commit exists at S8 rerun
+    note: S0–S7 were executed and reviewed in-tree; sealed by the R4 implementation commit
   s8:
-    reviewed_tip: dirty_uncommitted_on_f07c387
+    reviewed_tip: 4effb6eefa16d246e75213212f884b2546e6d6ef
     stage_exit: pass
-    note: S8 independently retested this dirty tree; an implementation commit and this handoff documentation commit may follow and are not this SHA
+    note: S8 evidence was recorded before sealing; current handoff correction is a subsequent documentation change
 ```
 
 ## 3. Changed paths
 
-Cumulative implementation/test/docs surface on `f07c387` plus this S8 handoff
-documentation:
+Cumulative implementation/test/docs surface sealed in `4effb6e` plus this subsequent
+handoff evidence correction:
 
 ```text
 vnext/backend/src/gateway_backend/capabilities/table_rules/
@@ -140,16 +142,18 @@ production Repository Service/Dolt adapter, production retention, formal
 
 ## 4. Commands and results
 
-S8 confirmatory rerun against `f07c387` plus the dirty R4 worktree（2026-08-20）。
+原 S8 confirmatory rerun 针对 `f07c387` 加 dirty R4 worktree（2026-08-20）；该实现
+随后封存为 `4effb6e`。本次证据修正又针对 sealed HEAD 做了 focused/静态复核。
 pytest/ruff/mypy 使用 `UV_CACHE_DIR=/tmp/gateway-data-uv-cache` 与 `uv run --offline`，
 因为默认 `/root/.cache/uv` 在本环境只读。
 
 | Command | Result |
 | --- | --- |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -m unit` | **609 passed**（2.36s）；1 pre-existing Starlette deprecation warning |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -m unit tests/test_architecture.py tests/test_table_rules_*.py tests/test_storage_projection_*.py tests/test_repository_import_artifact_*.py tests/test_canonicalization_manifest.py` | **268 passed**（1.18s） |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check . && uv run --offline mypy` | **passed**；mypy 139 source files |
-| `git diff --check` | **passed** |
+| 原 S8：`cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -m unit`（`f07c387` + dirty R4 worktree） | **609 passed**（2.36s）；1 pre-existing Starlette deprecation warning；历史 gate 证据 |
+| 当前 sealed HEAD：`cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit tests/test_architecture.py tests/test_table_rules_*.py tests/test_storage_projection_*.py tests/test_repository_import_artifact_*.py tests/test_canonicalization_manifest.py` | **268 passed**（1.47s） |
+| 当前 sealed HEAD：`cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check . && uv run --offline mypy` | **passed**；mypy 139 source files |
+| 当前 sealed HEAD：`cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache timeout 60s uv run --offline pytest -q -m unit` | **未完成（exit 124）**；停在既有 `tests/test_app.py::test_healthz_uses_injected_settings`，无断言失败输出 |
+| 当前文档修正工作树：`git diff --check` | **passed** |
 
 Focused suite covers migrated legacy parity and selector collisions, explicit
 key/keyless/row-integrity, ordered gid/no, schema/content/ordering/manifest

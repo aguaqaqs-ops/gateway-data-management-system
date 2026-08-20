@@ -70,6 +70,15 @@ p3_r4_s7_review: p3-r4-s7-independent-review.md
 p3_r4_s8: completed
 p3_r4_s8_handoff: p3-r4-storage-projection-handoff.md
 p3_r4_exit: pass
+p3_r5_design: p3-r5-comparison-design.md
+p3_r5_design_status: accepted
+p3_r5_detail_plan: p3-r5-comparison-execution-plan.md
+p3_r5_detail_plan_status: accepted_for_staged_planning
+p3_r5_s0: completed
+p3_r5_s0_record: p3-r5-s0-entry-and-budget-freeze.md
+p3_r5_s0_exit: pass
+p3_r5_s1: completed
+p3_r5_s1_exit: pass
 p3_r5_ready: yes
 p3_implementation_authorized: no
 default_retrieval: this_index
@@ -146,6 +155,18 @@ cleanup_commit: this_cleanup_commit
 22. [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)：
     R4 gate / R5 entry。稳定 public projection/artifact boundary、digest ownership、
     deferred register。不授权 comparison projection。
+
+23. [P3-R5 Comparison Design Baseline](p3-r5-comparison-design.md)：R5 的 comparison boundary、
+    identity continuation、initial/full pair、records、ordered/blank、bounded publication、
+    cache layering 和 static-risk extension seam。本文是 formal design，不授权 R5 implementation；
+    S0 已完成，下一入口是独立 implementation authorization review。
+
+24. [P3-R5 Comparison Execution Plan](p3-r5-comparison-execution-plan.md)：S0-S8 staged execution、
+    owner graph、allowlist、verification gates 和每阶段对话上下文策略；implementation authorization
+    仍为 `no`。
+
+25. [P3-R5-S0 Entry and Budget Freeze](p3-r5-s0-entry-and-budget-freeze.md)：R5 entry applicability、
+    Arrow/Parquet/IPC batch boundary、budget、fixture、benchmark、allowlist 和 reopen checklist。
 
 ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)（P3-R2-S0 已修订
 source dump / repository import 双边界）。

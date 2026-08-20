@@ -15,9 +15,14 @@ interface reconciliation也已由
 完成。P2-R1 v8 formal 已通过，默认 provider 为
 Candidate A offline CLI，Candidate B保留但默认禁用。
 2026-08-20：P2-R6-S11 `phase_2_complete: yes`；P3 design 已完成，P3-R4 module gate
-`p3_r4_exit: pass`，R5 entry pending detail plan，但实现仍须由 `p3_implementation_authorized`
-明确授权。当前下一入口为 P3-R5 detail plan，见
+`p3_r4_exit: pass`，P3-R5 comparison design baseline 和 staged execution plan 已接受，S0 freeze
+已完成，S1 batch boundary 已落成，但后续实现仍须由 `p3_implementation_authorized` 明确授权。
+当前下一入口为独立的 R5 implementation authorization review，授权后进入 S2；设计
+基线和执行计划见
 [P3 Active Context Index](../plans/p3-active-context-index.md) 与
+[P3-R5 Comparison Design Baseline](../plans/p3-r5-comparison-design.md)，以及
+[P3-R5 Comparison Execution Plan](../plans/p3-r5-comparison-execution-plan.md)、
+[P3-R5-S0 Entry and Budget Freeze](../plans/p3-r5-s0-entry-and-budget-freeze.md)，以及
 [P3-R4 Storage Projection and Canonicalization Handoff](../plans/p3-r4-storage-projection-handoff.md)。
 不得把文档 HEAD 当作 `CANDIDATE_SHA`。
 

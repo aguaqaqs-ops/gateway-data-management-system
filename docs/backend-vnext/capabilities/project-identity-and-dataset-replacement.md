@@ -25,15 +25,16 @@
 source staging / SQL or archive materialization
   -> per-pair project identity assessment
        SAME_PROJECT      -> DETAILED
-       UNVERIFIABLE      -> DETAILED + informational diagnostic
+       UNVERIFIABLE      -> confirmation gate -> DETAILED + degraded diagnostic
        NOT_APPLICABLE    -> DETAILED
        DIFFERENT_PROJECT -> DATASET_REPLACEMENT
+  -> [confirmation gate when UNVERIFIABLE]
   -> risk + surface + business projection
   -> complete preview bundle
-  -> READY result and workspace latest preview
+  -> READY or DEGRADED result and workspace latest preview
 ```
 
-FULL 上传的 `baseline_to_initial` 与 `initial_to_modified` 独立判定并可选择不同 mode。例如归档基线属于 small-cut、FULL 两份新数据都属于 large 时，前一个 pair 是 replacement，后一个 pair 仍是 detailed。任一 pair 为 replacement，整个 preview 都要求提交确认。
+FULL 上传的 `baseline_to_initial` 与 `initial_to_modified` 独立判定并可选择不同 mode。例如归档基线属于 small-cut、FULL 两份新数据都属于 large 时，前一个 pair 是 replacement，后一个 pair 仍是 detailed。任一 pair 为 replacement，整个 preview 都要求 replacement submit confirmation；`UNVERIFIABLE` 先要求独立 continuation confirmation，不能用 submit confirmation 代替。
 
 身份判定失败不能把已识别为 `DIFFERENT_PROJECT` 的 pair 降级回 detailed；replacement projection 局部失败时仍发布表级双侧快照和诊断。
 
@@ -67,6 +68,7 @@ matched_entry_count
 before_entry_set_digest / current_entry_set_digest
 assessment_digest
 diagnostics
+requires_continuation_confirmation
 requires_submit_confirmation
 ```
 
@@ -74,14 +76,14 @@ entry-set digest 根据规范化条目计算；payload、日志和 API 只包含
 
 状态语义：
 
-| status | comparison mode | 提交确认 |
+| status | comparison mode | 确认/授权 |
 | --- | --- | --- |
 | `SAME_PROJECT` | `DETAILED` | 否 |
 | `DIFFERENT_PROJECT` | `DATASET_REPLACEMENT` | 是 |
-| `UNVERIFIABLE` | `DETAILED` | 否，显示信息诊断 |
+| `UNVERIFIABLE` | confirmation gate；确认后 `DETAILED` | 是，使用独立 continuation action；submit 另行校验 |
 | `NOT_APPLICABLE` | `DETAILED` | 否 |
 
-`UNVERIFIABLE` 继续 detailed 是明确的宽松策略；调用方必须展示 `PROJECT_IDENTITY_UNVERIFIABLE` 类诊断，不能把它显示成“已确认同项目”。
+`UNVERIFIABLE` 在确认前 fail-closed：只发布 assessment/diagnostic gate，不执行 comparison、risk、surface 或 business projection，也不发布 READY 或 `ComparisonFacts`。前端确认 `ALLOW_DETAILED_ON_UNVERIFIABLE` 后，受信 orchestrator 必须重新校验 workspace、upload generation、snapshot digests、assessment-set digest、actor policy 和 policy version，才能以显式 policy 继续 DETAILED。确认后的结果保留 `UNVERIFIABLE`，overall 为 `DEGRADED`，并展示 `PROJECT_IDENTITY_UNVERIFIABLE` 诊断。普通用户获得的是可撤销的 server-side policy allowance，不获得 trusted caller 身份。
 
 ## DATASET_REPLACEMENT comparison
 
@@ -145,12 +147,13 @@ Business projection 分别以 before-only 和 current-only 输入运行 assemble
 pairs/<view_id>/identity/project-identity-assessment.json
 ```
 
-preview index view、surface 和 strategy pair 以显式类型字段发布 `comparison_mode`、identity status、assessment ref/digest 和 `requires_submit_confirmation`；这些字段不得塞入通用 options 或 extensions。READY result、workspace `latest_preview` 和 preview bundle record 保存：
+preview index view、surface 和 strategy pair 以显式类型字段发布 `comparison_mode`、identity status、assessment ref/digest、`requires_continuation_confirmation` 和 `requires_submit_confirmation`；这些字段不得塞入通用 options 或 extensions。READY/DEGRADED result、workspace `latest_preview` 和 preview bundle record 保存：
 
 ```text
 project_identity:
   schema_version: project-identity-assessment-set/v1
   assessment_set_digest
+  requires_continuation_confirmation
   requires_submit_confirmation
   pairs[]
 ```
@@ -180,6 +183,11 @@ project_identity_assessment_set_digest
 project_identity_confirmation_action = ACCEPT_DATASET_REPLACEMENT
 project_identity_confirmation_reason
 ```
+
+`UNVERIFIABLE` 继续 detailed 使用独立的
+`ACCEPT_UNVERIFIABLE_DETAILED_RESULT` action，绑定最新 preview/bundle/assessment digests；
+它不复用 `ACCEPT_DATASET_REPLACEMENT`，也不把普通用户提升为 trusted caller。replacement
+submit confirmation 与 unverifiable continuation 是两个独立的 server-side policy check。
 
 普通 preview 不需要这些字段。replacement preview 必须满足：
 
@@ -217,7 +225,7 @@ requires_explicit_confirmation = true
 - large-1 与 small-cut-1/2/3/4：`DIFFERENT_PROJECT`。
 - small-cut-1 与 small-cut-2/3/4：排除 `NO` 后 `SAME_PROJECT`。
 - SQL reader 与 snapshot archive reader 对相同数据生成相同 assessment。
-- 缺表、空表、字段不兼容：`UNVERIFIABLE` 并继续 detailed。
+- 缺表、空表、字段不兼容：`UNVERIFIABLE` 并先进入 confirmation gate；确认后才可继续 detailed。
 
 replacement：
 

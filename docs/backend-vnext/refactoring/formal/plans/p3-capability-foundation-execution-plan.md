@@ -4,7 +4,7 @@
 
 日期：2026-08-18
 
-阶段：P3-R2 complete；P3-R3 complete；P3-R4 entry ready；implementation authorization pending
+阶段：P3-R2 complete；P3-R3 complete；P3-R4 complete；R5 entry pending detail plan；implementation authorization pending
 
 Owner：Backend vNext Capability Architecture
 
@@ -226,8 +226,8 @@ R 之间默认串行。R 内只有不共享未稳定 contract、不会改变对�
 ```yaml
 p3_design: accepted
 p3_execution_plan: accepted_for_staged_planning
-current_module: P3-R4
-current_module_detail: R3 gate pass; R4 entry ready; R4 detail plan unauthorized
+current_module: P3-R5
+current_module_detail: R4 module gate pass; R5 entry pending detail plan; implementation authorization pending
 p3_r1_s0: completed
 p3_r1_s0_inventory: p3-r1-s0-asset-inventory.md
 p3_r1_s1: completed
@@ -266,6 +266,24 @@ p3_r3_s8: completed
 p3_r3_s8_handoff: p3-r3-source-materialization-handoff.md
 p3_r3_exit: pass
 p3_r4_ready: yes
+p3_r4_design: p3-r4-storage-projection-design.md
+p3_r4_detail_plan: p3-r4-storage-projection-execution-plan.md
+p3_r4_detail_plan_status: accepted_for_staged_planning
+p3_r4_s0: completed
+p3_r4_s0_record: p3-r4-s0-entry-and-budget-freeze.md
+p3_r4_s1: completed
+p3_r4_s2: completed
+p3_r4_s3: completed
+p3_r4_s4: completed
+p3_r4_s5: completed
+p3_r4_s6: completed
+p3_r4_s6_review: p3-r4-s6-focused-review.md
+p3_r4_s7: completed
+p3_r4_s7_review: p3-r4-s7-independent-review.md
+p3_r4_s8: completed
+p3_r4_s8_handoff: p3-r4-storage-projection-handoff.md
+p3_r4_exit: pass
+p3_r5_ready: yes
 p3_implementation_authorized: no
 ```
 
@@ -281,6 +299,12 @@ p3_implementation_authorized: no
 - [P3-R3-S6 Focused Contract, Resource and Security Review](p3-r3-s6-focused-review.md)
 - [P3-R3 S7 Independent Owner, Import, Digest and Recovery Review](p3-r3-s7-independent-review.md)
 - [P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)
+- [P3-R4 Storage Projection Design Baseline](p3-r4-storage-projection-design.md)
+- [P3-R4 Storage Projection Execution Plan](p3-r4-storage-projection-execution-plan.md)
+- [P3-R4-S0 Entry, Applicability, Legacy Matrix and Budget Freeze](p3-r4-s0-entry-and-budget-freeze.md)
+- [P3-R4 S6 Focused Contract, Resource and Security Review](p3-r4-s6-focused-review.md)
+- [P3-R4 S7 Independent Owner, Import, Digest and Recovery Review](p3-r4-s7-independent-review.md)
+- [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)
 - [Implementation Stages](implementation-stages.md)
 - [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)
 - [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md)

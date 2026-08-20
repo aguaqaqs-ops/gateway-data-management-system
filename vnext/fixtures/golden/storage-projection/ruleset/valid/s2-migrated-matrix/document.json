@@ -1,0 +1,1158 @@
+{
+  "contract_version": "gateway-vnext.table-ruleset:v1",
+  "rules": [
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "NONE",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "SKIP",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_model_table"
+      },
+      "stable_key_candidates": [],
+      "static_role": "SKIP",
+      "structural_columns": [],
+      "table_storage": "OMIT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "NONE",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "SKIP",
+      "selector": {
+        "kind": "EXACT",
+        "value": "scdmod_dataset"
+      },
+      "stable_key_candidates": [],
+      "static_role": "SKIP",
+      "structural_columns": [],
+      "table_storage": "OMIT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "NONE",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "SKIP",
+      "selector": {
+        "kind": "EXACT",
+        "value": "scdmod_fcda"
+      },
+      "stable_key_candidates": [],
+      "static_role": "SKIP",
+      "structural_columns": [],
+      "table_storage": "OMIT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "NONE",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "SKIP",
+      "selector": {
+        "kind": "EXACT",
+        "value": "scdmod_ld"
+      },
+      "stable_key_candidates": [],
+      "static_role": "SKIP",
+      "structural_columns": [],
+      "table_storage": "OMIT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "NONE",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "SKIP",
+      "selector": {
+        "kind": "EXACT",
+        "value": "scdmod_log"
+      },
+      "stable_key_candidates": [],
+      "static_role": "SKIP",
+      "structural_columns": [],
+      "table_storage": "OMIT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "NONE",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "SKIP",
+      "selector": {
+        "kind": "EXACT",
+        "value": "scdmod_rpt"
+      },
+      "stable_key_candidates": [],
+      "static_role": "SKIP",
+      "structural_columns": [],
+      "table_storage": "OMIT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "NONE",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "SKIP",
+      "selector": {
+        "kind": "EXACT",
+        "value": "scdmod_sgcb"
+      },
+      "stable_key_candidates": [],
+      "static_role": "SKIP",
+      "structural_columns": [],
+      "table_storage": "OMIT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "NONE",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "SKIP",
+      "selector": {
+        "kind": "EXACT",
+        "value": "scdmod_yk"
+      },
+      "stable_key_candidates": [],
+      "static_role": "SKIP",
+      "structural_columns": [],
+      "table_storage": "OMIT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "SNAPSHOT_ONLY",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^forwardtable_.*$"
+      },
+      "stable_key_candidates": [],
+      "static_role": "SNAPSHOT_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "board_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "dev_grp"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "dev_list"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_model_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "model_grp"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "primary_equipment_object_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "project"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "prot_list"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "prot_right"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "rule_61850dev_praser_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "rule_61850dev_praser_default_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "rule_61850point_praser_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": null,
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": null,
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "BROWSE_ONLY",
+      "selector": {
+        "kind": "EXACT",
+        "value": "version_manager"
+      },
+      "stable_key_candidates": [],
+      "static_role": "BROWSE_ONLY",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ORDERED_SEMANTIC",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "ORDERED_STABLE_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "GID_NO_V1",
+      "position_column": "no",
+      "precedence_class": "ORDERED_DIFF",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_iec104_dyk_list$"
+      },
+      "stable_key_candidates": [
+        "gid"
+      ],
+      "static_role": "ORDERED_DIFF",
+      "structural_columns": [
+        "no"
+      ],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ORDERED_SEMANTIC",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "ORDERED_STABLE_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "GID_NO_V1",
+      "position_column": "no",
+      "precedence_class": "ORDERED_DIFF",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_iec104_dyx_list$"
+      },
+      "stable_key_candidates": [
+        "gid"
+      ],
+      "static_role": "ORDERED_DIFF",
+      "structural_columns": [
+        "no"
+      ],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ORDERED_SEMANTIC",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "ORDERED_STABLE_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "GID_NO_V1",
+      "position_column": "no",
+      "precedence_class": "ORDERED_DIFF",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_iec104_sc_list$"
+      },
+      "stable_key_candidates": [
+        "gid"
+      ],
+      "static_role": "ORDERED_DIFF",
+      "structural_columns": [
+        "no"
+      ],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ORDERED_SEMANTIC",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "ORDERED_STABLE_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "GID_NO_V1",
+      "position_column": "no",
+      "precedence_class": "ORDERED_DIFF",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_iec104_syk_list$"
+      },
+      "stable_key_candidates": [
+        "gid"
+      ],
+      "static_role": "ORDERED_DIFF",
+      "structural_columns": [
+        "no"
+      ],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ORDERED_SEMANTIC",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "ORDERED_STABLE_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "GID_NO_V1",
+      "position_column": "no",
+      "precedence_class": "ORDERED_DIFF",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_iec104_syx_list$"
+      },
+      "stable_key_candidates": [
+        "gid"
+      ],
+      "static_role": "ORDERED_DIFF",
+      "structural_columns": [
+        "no"
+      ],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ORDERED_SEMANTIC",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "ORDERED_STABLE_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "GID_NO_V1",
+      "position_column": "no",
+      "precedence_class": "ORDERED_DIFF",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_iec104_yc_list$"
+      },
+      "stable_key_candidates": [
+        "gid"
+      ],
+      "static_role": "ORDERED_DIFF",
+      "structural_columns": [
+        "no"
+      ],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ORDERED_SEMANTIC",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "ORDERED_STABLE_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "GID_NO_V1",
+      "position_column": "no",
+      "precedence_class": "ORDERED_DIFF",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_iec104_ym_list$"
+      },
+      "stable_key_candidates": [
+        "gid"
+      ],
+      "static_role": "ORDERED_DIFF",
+      "structural_columns": [
+        "no"
+      ],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ORDERED_SEMANTIC",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "ORDERED_STABLE_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "GID_NO_V1",
+      "position_column": "no",
+      "precedence_class": "ORDERED_DIFF",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_iec104_yp_list$"
+      },
+      "stable_key_candidates": [
+        "gid"
+      ],
+      "static_role": "ORDERED_DIFF",
+      "structural_columns": [
+        "no"
+      ],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ORDERED_SEMANTIC",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "ORDERED_STABLE_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "GID_NO_V1",
+      "position_column": "no",
+      "precedence_class": "ORDERED_DIFF",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_iec104_yt_list$"
+      },
+      "stable_key_candidates": [
+        "gid"
+      ],
+      "static_role": "ORDERED_DIFF",
+      "structural_columns": [
+        "no"
+      ],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "app_name"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "app_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "index"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [
+        {
+          "name": "no",
+          "reason": "legacy_ignored_column:com_cfg"
+        }
+      ],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "com_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "source_table",
+        "point_gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [
+        {
+          "name": "dev_addr",
+          "reason": "legacy_ignored_column:composite_signal_point"
+        },
+        {
+          "name": "device_gid",
+          "reason": "legacy_ignored_column:composite_signal_point"
+        },
+        {
+          "name": "point_name",
+          "reason": "legacy_ignored_column:composite_signal_point"
+        },
+        {
+          "name": "point_payload_json",
+          "reason": "legacy_ignored_column:composite_signal_point"
+        },
+        {
+          "name": "formula_ast_json",
+          "reason": "legacy_ignored_column:composite_signal_point"
+        }
+      ],
+      "ignored_columns": [
+        "dev_addr",
+        "device_gid",
+        "point_name",
+        "point_payload_json",
+        "formula_ast_json"
+      ],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "composite_signal_point"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_cnt"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_co"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_disturb"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_mx"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_other"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_sg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_sn"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_sp"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_st"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_tap"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "board",
+        "link_no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [
+        {
+          "name": "no",
+          "reason": "legacy_ignored_column:net_cfg"
+        }
+      ],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "net_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "refname"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "pointref_forwardtbl"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "rdb_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "ied_model"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [
+        {
+          "name": "no",
+          "reason": "legacy_ignored_column:scdmod_para"
+        }
+      ],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "scdmod_para"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "UPDATE_ONLY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": "RAW_PRIMARY_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_DEVICE_CFG",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_PROTOCOL_OPTION",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_(?:iec104|iec61850c|nr103d|dev103|dev104|nbridge)_cfg$"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "gid"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_PROTOCOL_DEVICE",
+      "selector": {
+        "kind": "REGEX",
+        "value": "^b\\d+_n\\d+_(?:iec104|iec61850c|nr103d|dev103|dev104|nbridge)_dev_cfg$"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [],
+      "compare_key_mode": "RAW_PRIMARY_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_RAW_PK_FALLBACK",
+      "selector": {
+        "kind": "FALLBACK",
+        "value": "*"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    }
+  ],
+  "ruleset_id": "backend-vnext/table-ruleset",
+  "ruleset_version": "v2",
+  "storage_projection_version": "1",
+  "table_ruleset_version": 1
+}

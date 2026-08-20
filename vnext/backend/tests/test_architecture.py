@@ -277,6 +277,43 @@ def test_composite_signal_stays_on_capability_leaf() -> None:
             assert token not in text, f"{source} contains forbidden token {token}"
 
 
+_TABLE_RULES_FORBIDDEN_TOKENS = (
+    "backend_vnext",
+    "host_path",
+    "fastapi",
+    "dolt",
+    "NotImplementedError",
+    "gateway_repository",
+)
+
+
+def test_table_rules_source_stays_on_capability_leaf() -> None:
+    owner = CAPABILITIES_ROOT / "table_rules"
+    for source in sorted(owner.rglob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        for token in _TABLE_RULES_FORBIDDEN_TOKENS:
+            assert token not in text, f"{source} contains forbidden token {token}"
+
+
+_STORAGE_PROJECTION_FORBIDDEN_TOKENS = (
+    "dolt",
+    "host_path",
+    "fastapi",
+    "legacy",
+    "backend_vnext",
+    "NotImplementedError",
+    "gateway_repository",
+)
+
+
+def test_storage_projection_source_stays_on_capability_leaf() -> None:
+    owner = CAPABILITIES_ROOT / "storage_projection"
+    for source in sorted(owner.rglob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        for token in _STORAGE_PROJECTION_FORBIDDEN_TOKENS:
+            assert token not in text, f"{source} contains forbidden token {token}"
+
+
 def _capability_owner_dirs() -> set[str]:
     owners: set[str] = set()
     for path in CAPABILITIES_ROOT.iterdir():

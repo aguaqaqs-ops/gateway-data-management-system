@@ -29,6 +29,9 @@
 - [Canonical Row Hash Compute Boundary Contract](contracts/canonical-row-hash-compute-boundary.md)
 - [Correctness Golden and Fixture Contract](contracts/fixture-oracle-and-conformance.md)
 - [Canonical Storage and Repository Boundary Contract](contracts/canonical-storage-and-repository-boundary.md)
+- [P3-R4 Storage Projection Design Baseline](plans/p3-r4-storage-projection-design.md)
+- [P3-R4 Storage Projection Execution Plan](plans/p3-r4-storage-projection-execution-plan.md)
+- [P3-R4 Storage Projection and Canonicalization Handoff](plans/p3-r4-storage-projection-handoff.md)
 - [Repository Service Contract](contracts/repository-service.md)
 - [Performance Measurement Guidance](contracts/performance-measurement-and-baseline.md)
 - [ADR 0001: Python/Rust Hybrid Compute Strategy](adr/0001-python-rust-hybrid-compute-strategy.md)
@@ -71,10 +74,11 @@ S6 capacity / W2 / concurrency matrix `pass`，`R6-EXT-W1=yes`，
 handoff `S8_exit: pass`、`S9_ready: yes`；S9 final handoff `S9_exit: pass`、
 `candidate_seal: pass`、`S10_ready: yes`；S10 final handoff `S10_exit: pass`、
 `S11_ready: yes`；S11 final handoff `S11_exit: pass`、`phase_2_complete: yes`；
-当前下一步为 Phase 3 full design；`production_retest_required=no`。
-P3 design尚未开始，不得直接开始 Phase 3 实现。默认入口见
+`production_retest_required=no`。P3 design 已完成；P3-R4 module gate `p3_r4_exit: pass`，
+R5 entry pending detail plan，但 `p3_implementation_authorized: no`，不得直接开始 R5
+实现。默认入口见
 [P3 Active Context Index](plans/p3-active-context-index.md)。完整对外接口见
 [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)。
 P2-R5 execution plan 仍被 package README 引用，但不是 Phase 2 完成 authority。
-P3完整设计只在P2-R6通过后开始，并从全局比例化保障policy的轻量风险登记开始；不得把
-Repository专项历史安全机制复制为P3默认边界。
+R5 implementation 从 R5 详细计划开始，并从全局比例化保障 policy 的轻量风险
+登记开始；不得把 Repository 专项历史安全机制复制为 P3 默认边界。

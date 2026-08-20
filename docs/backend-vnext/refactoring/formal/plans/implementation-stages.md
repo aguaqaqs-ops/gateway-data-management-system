@@ -8,14 +8,31 @@
 interface reconciliation与S02联合代码清理均已闭合；P2-R1 v8 formal 已通过。
 P2-R6-S11 `phase_2_complete: yes`。Phase 3 capability design 已完成；P3-R1 module gate
 `p3_r1_exit: pass`，P3-R2 module gate `p3_r2_exit: pass`，P3-R3 module gate
-`p3_r3_exit: pass`，R4 entry 见
-[P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)。
+`p3_r3_exit: pass`，P3-R4 module gate
+`p3_r4_exit: pass`，R5 entry 见
+[P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)。
 R2 详细执行见 [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)。
 R3 详细执行见 [P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)。
 R3 S0 冻结见 [P3-R3-S0 Entry, Applicability and Budget Freeze](p3-r3-s0-entry-and-budget-freeze.md)。
+R4 详细执行见 [P3-R4 Storage Projection Execution Plan](p3-r4-storage-projection-execution-plan.md)。
+R4 S0 冻结见 [P3-R4-S0 Entry, Applicability, Legacy Matrix and Budget Freeze](p3-r4-s0-entry-and-budget-freeze.md)。
 R3 SourcePackage staging、SQL Snapshot、composite XML、RepositoryRef provider、
 SnapshotTableArtifact 与 S6/S7 review 均已完成；S8 module gate 已通过。
-本文件不自动授权 R4 storage projection 实现，见 [P3 Capability Foundation Design](p3-capability-foundation-design.md)、
+R4 S2 legacy rule-resolution parity 已完成，见
+[P3-R4-S0 §18](p3-r4-s0-entry-and-budget-freeze.md#18-s2-legacy-rule-resolution-parity-provider-record)。
+S3 canonical storage projection 已完成，见
+[P3-R4-S0 §19](p3-r4-s0-entry-and-budget-freeze.md#19-s3-canonical-storage-projection-core-record)。
+S4 ordered/keyless 已完成，见
+[P3-R4-S0 §20](p3-r4-s0-entry-and-budget-freeze.md#20-s4-ordered-keyless-and-digest-integrity-record)。
+S5 manifest/import publication 已完成，见
+[P3-R4-S0 §21](p3-r4-s0-entry-and-budget-freeze.md#21-s5-manifest-import-input-and-atomic-publication-record)。
+S6 focused review 已完成，见 [P3-R4-S6 Focused Review](p3-r4-s6-focused-review.md)。
+S7 independent review 已完成，见 [P3-R4-S7 Independent Review](p3-r4-s7-independent-review.md)。
+S8 module gate 已通过，见 [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)。
+`p3_r4_exit: pass`；`p3_r5_ready: yes`。`p3_implementation_authorized` 仍为 `no`。S1 public contract 见
+[P3-R4-S0 §17](p3-r4-s0-entry-and-budget-freeze.md#17-s1-public-ruleset-contract-and-skeleton-record)。
+S1–S3 仅在 S0 freeze allowlist 内落地，见
+[P3 Capability Foundation Design](p3-capability-foundation-design.md)、
 [P3 Active Context Index](p3-active-context-index.md) 与
 [P2 External Interface Handoff](p2-external-interface-handoff.md)。
 P2-R1 默认 provider 为Candidate A offline CLI，Candidate B保留但默认禁用。该顺序由

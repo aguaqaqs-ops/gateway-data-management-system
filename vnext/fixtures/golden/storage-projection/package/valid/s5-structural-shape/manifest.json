@@ -1,0 +1,28 @@
+{
+  "package_version": 1,
+  "canonicalization_manifest_digest": "sha256:829f994be7687d1839f7fb095540773da8e00b2e9ce99df26bcc58f206974f7e",
+  "tables": [
+    {
+      "name": "net_cfg",
+      "schema": {
+        "columns": [
+          {
+            "name": "board",
+            "sql_type": "VARCHAR",
+            "nullable": false
+          },
+          {
+            "name": "link_no",
+            "sql_type": "INT",
+            "nullable": false
+          }
+        ],
+        "primary_key": [
+          "board",
+          "link_no"
+        ]
+      },
+      "row_count": 2
+    }
+  ]
+}

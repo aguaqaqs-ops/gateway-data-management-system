@@ -1,8 +1,8 @@
 # P3 Active Context Index
 
-状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；P3-R3 gate pass）
+状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；P3-R3 gate pass；P3-R4 gate pass）
 
-日期：2026-08-19
+日期：2026-08-20
 
 Owner：Backend vNext Architecture
 
@@ -53,6 +53,24 @@ p3_r3_s8: completed
 p3_r3_s8_handoff: p3-r3-source-materialization-handoff.md
 p3_r3_exit: pass
 p3_r4_ready: yes
+p3_r4_design: p3-r4-storage-projection-design.md
+p3_r4_detail_plan: p3-r4-storage-projection-execution-plan.md
+p3_r4_detail_plan_status: accepted_for_staged_planning
+p3_r4_s0: completed
+p3_r4_s0_record: p3-r4-s0-entry-and-budget-freeze.md
+p3_r4_s1: completed
+p3_r4_s2: completed
+p3_r4_s3: completed
+p3_r4_s4: completed
+p3_r4_s5: completed
+p3_r4_s6: completed
+p3_r4_s6_review: p3-r4-s6-focused-review.md
+p3_r4_s7: completed
+p3_r4_s7_review: p3-r4-s7-independent-review.md
+p3_r4_s8: completed
+p3_r4_s8_handoff: p3-r4-storage-projection-handoff.md
+p3_r4_exit: pass
+p3_r5_ready: yes
 p3_implementation_authorized: no
 default_retrieval: this_index
 public_semantics_changed_in_c2: no
@@ -111,6 +129,23 @@ cleanup_commit: this_cleanup_commit
    [Proportional Assurance Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)、
    [Testing Conventions](../../../testing-conventions.md)、
    [AGENTS.md](../../../../../AGENTS.md)。
+
+17. [P3-R4 Storage Projection Design Baseline](p3-r4-storage-projection-design.md)：legacy
+    rule-resolution parity、ignored-column canonical drops、StorageRuleView、canonical key/schema、
+    ordered identity 和 manifest/package boundary。
+18. [P3-R4 Storage Projection Execution Plan](p3-r4-storage-projection-execution-plan.md)：
+    R4 S0-S8 steps、legacy matrix、tests/reviews、对话上下文策略和 R5 handoff。
+19. [P3-R4-S0 Entry, Applicability, Legacy Matrix and Budget Freeze](p3-r4-s0-entry-and-budget-freeze.md)：
+    R4 入口适用性、完整 legacy 矩阵、ignored→storage 派生、ruleset identity、
+    budgets、allowlist 与 reopen。S5 manifest/import publication complete；S6 focused review
+    complete；S7 independent review complete；S8 module gate complete。
+20. [P3-R4-S6 Focused Contract, Resource and Security Review](p3-r4-s6-focused-review.md)：
+    R4 focused findings closure and exact reruns。
+21. [P3-R4 S7 Independent Owner, Import, Digest and Recovery Review](p3-r4-s7-independent-review.md)：
+    R4 independent owner/import/digest/recovery pass and S8 carry-forward。
+22. [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)：
+    R4 gate / R5 entry。稳定 public projection/artifact boundary、digest ownership、
+    deferred register。不授权 comparison projection。
 
 ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)（P3-R2-S0 已修订
 source dump / repository import 双边界）。
@@ -197,7 +232,8 @@ P3 默认 allowlist（设计检索，不是源码扫描）：
 
 - 本 index、P2 handoff、P3-R1 capability foundation handoff、P3-R2 table access
   parser handoff、P3-R3 source materialization handoff、P3-R3 source materialization
-  execution plan、P3-R3-S0 freeze、cleanup manifest
+  execution plan、P3-R3-S0 freeze、P3-R4 storage projection design、P3-R4 storage
+  projection execution plan、P3-R4-S0 freeze、P3-R4 storage projection handoff、cleanup manifest
 - `docs/backend-vnext/refactoring/formal/contracts/` 中现行 contract（不含已
   superseded 的 vector-schema）
 - `docs/backend-vnext/refactoring/formal/adr/0001-0005`、`0009`、`0010`、`0012`、`0013`、

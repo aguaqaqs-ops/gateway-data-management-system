@@ -1,0 +1,67 @@
+{
+  "contract_version": "gateway-vnext.table-ruleset:v1",
+  "rules": [
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "board",
+        "link_no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [
+        {
+          "name": "no",
+          "reason": "legacy_ignored_column:net_cfg"
+        }
+      ],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "net_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "EXPLICIT",
+      "compare_key_columns": [
+        "board",
+        "link_no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [
+        {
+          "name": "no",
+          "reason": "legacy_ignored_column:net_cfg"
+        }
+      ],
+      "ignored_columns": [
+        "no"
+      ],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "net_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    }
+  ],
+  "ruleset_id": "backend-vnext/table-ruleset",
+  "ruleset_version": "v2",
+  "storage_projection_version": "1",
+  "table_ruleset_version": 1
+}

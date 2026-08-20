@@ -34,7 +34,7 @@ generic effect 的边界。
 
 ## 2. Storage 与 comparison projection
 
-Storage projection 在 import 前决定 Dolt 长期保存的 canonical schema、physical key 与 structural fact。Comparison projection 在比较时负责跨版本 alignment、selected value columns、ordered semantics 和 records。二者来自相同 table-rules source，但具有不同 contract、DTO、version 和 cache identity。
+Storage projection 在 import 前决定 Dolt 长期保存的 canonical schema、physical key 与 structural fact。Comparison projection 在比较时负责跨版本 alignment、selected value columns、ordered semantics 和 records。二者来自相同 table-rules source，但具有不同 contract、DTO、version 和 cache identity。R4 已确认：legacy `ignored_columns` 是 canonical storage policy，不再只是 comparison-time filter；这些列从 canonical schema/Dolt business state 中删除，但仍保留在 SourcePackageArtifact、Snapshot facts 和 LegacyRuleDecision 中供 parity、provenance 与原始数据读取使用。
 
 列策略只允许：
 
@@ -42,9 +42,19 @@ Storage projection 在 import 前决定 Dolt 长期保存的 canonical schema、
 | --- | --- |
 | `PERSIST_BUSINESS` | canonical business identity/value |
 | `RETAIN_FOR_STRUCTURE` | 恢复顺序/结构所需，不一定参与普通 modified 判断 |
-| `DROP_FROM_STORAGE` | 已证明不影响 identity、value、order、审计解释或恢复的波动列 |
+| `DROP_FROM_STORAGE` | ruleset 明确声明不属于 canonical identity/value/order 的列；R4 legacy `ignored_columns` 使用此策略 |
 
 只有 `DROP_FROM_STORAGE` 在写 Dolt 前删除；manifest 必须记录列、理由、规则版本和 source/canonical schema digest。
+
+R4 对每个 legacy `ignored_columns` 生成 `DROP_FROM_STORAGE`，manifest reason 至少包含
+`legacy_ignored_column` 和 owning selector。被标记为 ignored 的列不得同时作为 effective key、
+ordered identity 或其他 required structural column；出现冲突时 ruleset validation 失败，不能
+通过保留该列或退回 comparison-only 语义来继续。
+
+Canonical effective key、canonical column set 和 dropped-column set 是持久 structural facts：
+R4 将它们写入 `CanonicalizationManifest` 与 `RepositoryImportArtifactInput`，Repository
+随后据此形成 Dolt 的 canonical schema/physical key。它们不是只供 comparison 的临时选择，
+source DDL 仅作为 provenance；当前 canonical commit 的 schema/key 才是权威存储解释。
 
 ## 3. Key、行完整性与 ordered table
 
@@ -213,7 +223,7 @@ package semantic/self digest。
 
 旧 Dolt repository 的迁移/兼容策略不由本文决定，必须作为独立 cutover gate。
 
-Ruleset 改变 canonical key、字段集合、类型、null 语义或 storage projection 时，按
+Ruleset 改变 canonical key、字段集合（包括 ignored-column drop/restore）、类型、null 语义或 storage projection 时，按
 [Ruleset Activation and Migration](ruleset-activation-and-migration.md) 标记为
 `STORAGE_BREAKING`，不得由普通 Submit 或 `ADAPTIVE_PATCH` 隐式处理。
 
@@ -226,7 +236,8 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 ## 9. 验收标准
 
 - Raw source 可从 SourcePackageArtifact 完整读取；Dolt export 明确是 canonical schema。
-- Dropped-column-only change 得到相同 canonical business digest，且 no-change Submit 无 effect。
+- source 仅改变已 `DROP_FROM_STORAGE` 列的值时，R4 canonical schema/content/storage-business digest 保持不变，且 `NO_CANONICAL_CHANGE` 无 Repository effect；R3 `business_content_digest` 若反映原始快照差异仍作为 provenance 保留，不能与 R4 canonical digest 混用。
+- 新增/移除 ignored-column drop policy 改变 canonical 字段集合时进入 `STORAGE_BREAKING`/`MIGRATION_REQUIRED`，不得伪装成 comparison-only change。
 - Missing/duplicate key、row loss、reserved gid、非法 no 全部 fail closed。
 - Pseudo gid 在重算、retry、Rust/Python 和 readback 后确定一致。
 - 每次write成功都匹配operation commit、mandatory target CAS与requested/completed

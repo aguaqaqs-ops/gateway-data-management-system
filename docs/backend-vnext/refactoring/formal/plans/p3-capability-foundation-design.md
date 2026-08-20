@@ -4,7 +4,7 @@
 
 日期：2026-08-18
 
-阶段：Phase 3 design complete；P3-R2 gate pass；P3-R3 gate pass；P3-R4 implementation authorization pending
+阶段：Phase 3 design complete；P3-R2 gate pass；P3-R3 gate pass；P3-R4 gate pass；R5 entry pending detail plan；implementation authorization pending
 
 Owner：Backend vNext Capability Architecture
 
@@ -246,6 +246,23 @@ S0 关闭项的权威记录见 [P3-R2-S0](p3-r2-s0-entry-and-budget-freeze.md)�
 | R2-D07 | artifact retention, pinning and durable lifecycle | P4/P5 | lifecycle/retention owner decision |
 | R2-D08 | Rust parser/provider or parser optimization | P6 or later | accepted profile and Python differential oracle |
 | R2-D09 | durable cancellation/checkpoint/takeover | P4 | Operation Runtime contract |
+
+## 4.3 P3-R4 Storage Projection Design Baseline
+
+状态：Accepted；R4 detail plan accepted；S0 freeze complete；S8 module gate complete，R4 gate pass；R5 entry pending detail plan；implementation authorization pending
+
+设计与执行基线见 [P3-R4 Storage Projection Design Baseline](p3-r4-storage-projection-design.md)
+和 [P3-R4 Storage Projection Execution Plan](p3-r4-storage-projection-execution-plan.md)。
+S0 冻结见 [P3-R4-S0 Entry, Applicability, Legacy Matrix and Budget Freeze](p3-r4-s0-entry-and-budget-freeze.md)。
+R4 gate / R5 entry 见 [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)。
+
+R4 迁移 legacy `TableRuleRegistry` 的有效 rule-resolution semantics，建立
+`LegacyRuleDecision` 与 `StorageRuleView` 两层边界，并产出 canonical storage projection、
+`CanonicalizationManifest` 和 `RepositoryImportArtifactInput`。legacy selector precedence、
+special cases、ignored columns 和 artifact scopes 必须 parity；每个 legacy
+`ignored_columns` 必须在 StorageRuleView 中形成 `DROP_FROM_STORAGE`，而 `UPDATE_ONLY` 等其余
+comparison/artifact 语义不得自动变成 storage drop。R4 不实现 Repository effect、comparison、
+mutation/replay、HTTP、Operation Runtime 或 ruleset migration executor。
 
 ## 5. Phase 3 deliverables
 

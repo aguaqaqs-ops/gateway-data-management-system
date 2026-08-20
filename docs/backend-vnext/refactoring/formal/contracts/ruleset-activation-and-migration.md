@@ -46,7 +46,7 @@ activation validator 至少区分：
 - `ADDITIVE`：新增此前不存在的表或规则，不改变已有 storage projection；
 - `COMPARISON_BEHAVIORAL`：改变 comparison/surface，不改变 storage；
 - `RISK_ONLY`：改变 risk 计算，不改变 repository state；
-- `STORAGE_BREAKING`：改变 canonical key、字段集合、类型、null 语义或 storage projection。
+- `STORAGE_BREAKING`：改变 canonical key、字段集合（包括 ignored-column 的 drop/restore）、类型、null 语义或 storage projection。
 
 `STORAGE_BREAKING` candidate 只能进入 `MIGRATION_REQUIRED`，不能直接进入 `ACTIVE`，
 也不能让不同表混用新旧 projection。
@@ -58,7 +58,9 @@ state 读取数据，按新 ruleset 对受影响表完整 rebuild，创建新的
 不自动创建空 commit。受影响 external target 另行 full resync，不使用 `ADAPTIVE_PATCH`。
 
 此前不存在的新异常表可以按 `ADDITIVE` 规则面向未来 source 生效。已有表从无有效 key/不
-支持变为新 canonical storage 语义时属于 `STORAGE_BREAKING`。
+支持变为新 canonical storage 语义时属于 `STORAGE_BREAKING`。R4 中 legacy
+`ignored_columns` 的 `DROP_FROM_STORAGE` 映射属于该 canonical storage 语义；只改变被删列
+的 source value 不改变 canonical state，但改变规则中的 drop/restore 集合必须 migration。
 
 ## 5. History and rollback
 

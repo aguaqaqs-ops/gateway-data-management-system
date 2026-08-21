@@ -28,7 +28,8 @@ Risk evaluation 是 flow-neutral capability。它不判断自己服务 upload、
 
 本轮收尾说明：
 
-- `risk_evaluation` 已收敛为只产出 risk evaluation / report / annotation artifact。
+- `risk_evaluation` 已实现 bounded Python reference evaluation、risk report、canonical annotation
+  artifact 和 immutable annotation closure。
 - `operation artifact closure`、surface assembly 和 bundle assembly 统一留到后续步骤实现，不再在本轮扩展。
 
 ## 旧实现参考边界
@@ -114,34 +115,22 @@ gateway-data-management-system/backend/backend_vnext/capabilities/risk_evaluatio
 内部拆分：
 
 ```text
-models.py
-ruleset_contract.py
-facts_extractor.py
-engine.py
-rule_registry.py
-aggregation.py
-artifacts.py
-versions.py
-rules/
-  structural.py
-  standard_basic.py
-  degraded.py
-  ordered_placeholder.py
-  ordered.py
+contracts.py
+_facts.py
+_rules.py
+_engine.py
+_artifacts.py
 ```
 
 职责：
 
 | Module | 职责 |
 | --- | --- |
-| `models` | RiskEvaluationInput、RiskFacts、RiskAnnotation、RiskReport 等模型。 |
-| `ruleset_contract` | RiskRulesetSnapshot 和 ruleset digest。 |
-| `facts_extractor` | 从 ComparisonFacts 派生 RiskFacts。 |
-| `engine` | 执行 rules、聚合结果、输出 RiskEvaluation。 |
-| `rule_registry` | rule 注册、选择、导出 model。 |
-| `aggregation` | highest risk、reason code 合并、annotation summary。 |
-| `artifacts` | annotation artifact 写入、manifest 以及落盘/恢复 helper。 |
-| `rules` | structural、standard、degraded、ordered basic 和 ordered placeholder 规则集。 |
+| `contracts` | Risk public models、ruleset identity、execution policy 和 closure types。 |
+| `_facts` | 从 ComparisonFacts 派生 RiskFacts。 |
+| `_rules` | 校验调用方注入的 frozen v1 snapshot 并选择 rule；无 mutable registry。 |
+| `_engine` | bounded facts evaluation、highest risk、reason code 合并和 result status。 |
+| `_artifacts` | canonical annotation content/manifest、closure 写入与 replay validation。 |
 
 规则：
 
@@ -180,9 +169,11 @@ RiskEvaluationInput:
 
 ```text
 RiskEvaluationResult:
+  status: READY | DEGRADED | FAILED | CANCELLED
   risk_evaluation
   risk_report
   annotation_artifacts optional
+  risk_closure optional
   cache_diagnostics optional
   diagnostics
 ```
@@ -193,6 +184,17 @@ RiskEvaluationResult:
 - 如果边界拿到的是 `ComparisonRecordsClosureArtifact`，先归一化为逻辑 `ComparisonRecordsClosure` 再进入 core。
 - 第一版默认不读取 full records；只有规则需要 changed columns/evidence 时才读取。
 - artifact refs 不进入 digest。
+
+S2 固定行为：
+
+- `COUNTS_ONLY` 不物化 row annotation；`TARGETS_ONLY` / `TARGETS_WITH_EVIDENCE` 在有 annotation
+  时要求调用方提供 `ArtifactStorePort`。
+- ordered provider missing/degraded 只生成 table-level `UNKNOWN` review-required annotation，
+  不调用 `get_ordered_records()`，不生成 move/position/interval annotation。
+- table-level budget/resource failure 生成 DEGRADED no-record closure entry；pair-level failure
+  或 cancellation 不返回任何 risk output。
+- annotation content、manifest 和 closure 均为 canonical JCS JSON；closure validation 会重新定位
+  并校验 raw/content/manifest digests。
 
 ## Risk Facts Extraction
 

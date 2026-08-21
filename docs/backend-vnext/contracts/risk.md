@@ -2,6 +2,10 @@
 
 本文定义 backend vNext 第一版 risk engine contract。Risk 只消费 `ComparisonFacts` 和可选 records artifacts，输出 flow-neutral `RiskEvaluation`、`RiskReport` 和可选 annotation artifacts。
 
+S2 已实现 bounded Python reference evaluator、canonical annotation artifacts 和 immutable
+risk annotation closure。执行入口为调用方注入 frozen `RiskRulesetSnapshot` 的
+`evaluate_risk(...)`；不使用 mutable registry 或 implicit ruleset fallback。
+
 旧实现中的 `RiskLevel`、`RiskTarget`、`RiskReason`、`RiskAnnotation`、`RiskRuleRegistry`、standard/structural/ordered basic rule 思路可以作为业务语义参考；vNext contract 不依赖旧 `risk`、`compare`、`comparison_surface` 或 `workbench` 模块。
 
 Ordered risk 的旧功能映射见 `../contracts/ordered-diff.md`。vNext 模块边界可以简化，但 IEC104 ordered tail/middle/move 风险分级需要恢复。
@@ -36,12 +40,30 @@ ComparisonFacts + optional ComparisonRecords access
   -> Surface / Bundle
 ```
 
+S2 result envelope：
+
+```text
+RiskEvaluationResult:
+  status: READY | DEGRADED | FAILED | CANCELLED
+  risk_evaluation optional
+  risk_report optional
+  annotation_artifacts optional
+  risk_closure optional
+  cache_diagnostics
+  diagnostics
+```
+
+`FAILED` 和 `CANCELLED` 不得暴露 risk evaluation、report、annotation ref 或 closure。
+普通 table `DEGRADED` 继续输出其他表的 risk，并在 closure 中保留显式 no-record entry。
+
 规则：
 
 - Risk 是 directed comparison 的下游能力，方向由 `ComparisonFacts.direction` 决定。
 - Risk 不改变 `ComparisonFacts`。
 - Risk 输出必须保持 flow-neutral；upload、submit、history compare 等 flow 只能作为调用上下文 metadata，不进入 risk digest。
 - Flow 负责选择 risk ruleset；risk capability 只应用传入的 ruleset。
+- `RiskExecutionPolicy` 固定 S0 的 table、annotation、JSON、artifact、diagnostic 和 wall-time
+  budgets；execution context 的 cancellation/deadline 不进入 semantic digest。
 
 ## RiskEvaluationInput
 
@@ -103,10 +125,8 @@ RiskRulesetSnapshot:
 - Capability 不根据 flow name 自动切换 ruleset。
 - `risk_ruleset_digest` 由 ruleset 内容和 ruleset contract version 计算。
 - `risk_ruleset_digest` 进入 `risk_evaluation_digest` 和 future risk cache key。
-- 第一版 ruleset 来源使用 hardcoded `RiskRulesetRegistry`。
-- Registry 输出 frozen `RiskRulesetSnapshot`，而不是让 risk engine 在运行时直接读取 mutable registry。
-- Registry 内容、rule id、rule version、severity policy 和 params 必须可序列化并参与 `risk_ruleset_digest`。
-- 未来切换为配置文件时，只替换 registry loader；`RiskRulesetSnapshot` contract、digest 和 risk capability 输入保持不变。
+- ruleset 必须由调用方注入 frozen `RiskRulesetSnapshot`；S2 不创建 registry，也不使用 implicit fallback。
+- v1 额外固定 `UNKNOWN_CHANGE_TARGET`（`UNKNOWN`）规则，用于任何未被显式规则覆盖的 change target；未知目标不得静默丢弃。
 
 ## RiskFacts
 

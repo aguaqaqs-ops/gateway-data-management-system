@@ -1,6 +1,6 @@
 # P3-R6 Risk, Surface and Bundle Execution Plan
 
-状态：S0 complete；S1-S7 staged planning；implementation authorization pending
+状态：S0 complete；S1 complete；S2 complete/pass；S3-S7 staged planning；global implementation authorization remains disabled
 
 日期：2026-08-22
 
@@ -108,6 +108,43 @@ Tests: ruleset digest stability, risk contract serialization, forbidden imports,
 
 Exit: public risk contracts committed; no engine or surface/bundle implementation assumptions leak into the contract.
 
+S1 status: **complete/pass** in the current worktree. This was an S1-only Risk contract
+authorization; the global `p3_implementation_authorized` value remains `no`. The v1 snapshot was
+amended during S2 to add the explicitly required `UNKNOWN_CHANGE_TARGET` rule/reason, and the
+combined S1/S2 focused gate revalidated the amended snapshot.
+
+S1 changed paths:
+
+```text
+vnext/backend/src/gateway_backend/capabilities/risk_evaluation/contracts.py
+vnext/backend/src/gateway_backend/capabilities/risk_evaluation/__init__.py
+vnext/backend/tests/test_risk_contracts.py
+```
+
+The implementation freezes Risk v1 levels, target/scope enums, rule IDs, reason codes and the
+eleven default rule specifications. `RiskRulesetSnapshot` uses strict canonical document parsing and
+JCS/raw SHA-256 digest verification. `RiskEvaluationInput` consumes only public R5
+`ComparisonFacts` plus the read-only `RiskRecordsAccess` protocol; artifact refs and diagnostics are
+excluded from table/evaluation semantic digests. No provider, mutable registry, artifact writer,
+surface/bundle import or flow state was added.
+
+#### S1 verification record
+
+Executed on 2026-08-22 against base source HEAD
+`6b9525e0e8acd40d50dad540c0129b842abec746`; S1 source/test changes remain uncommitted in the
+current worktree. The focused gate is pure Python and does not create Dolt repositories.
+
+| Check | Result |
+| --- | --- |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit tests/test_risk_contracts.py tests/test_architecture.py` | **28 passed** |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check .` | **passed** |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline mypy` | **passed** |
+| `git diff --check` | **passed** |
+| Docker/container rebuild | **DEFERRED / NOT APPLICABLE**; Python contracts/tests/docs only; inherited R5 image gate remains a final-candidate prerequisite |
+
+S1 decision: **PASS / complete**. S2 may consume the committed public contract once this worktree
+is sealed; no Risk engine or annotation publication behavior is claimed by this record.
+
 ### S2 — Risk evaluation, annotations and immutable closure
 
 Objective: implement bounded Python reference facts extraction, rule evaluation, aggregation, annotation artifacts, degraded no-record entries and risk closure validation.
@@ -117,6 +154,45 @@ Conversation: `same conversation as S1`.
 Tests: structural/row/schema/degraded/ordered-unsupported/composite cases, unknown target behavior, resource caps, cancellation, manifest/content digest and no partial publication.
 
 Exit: stable `RiskEvaluation`/`RiskReport` digests and complete risk closure for valid results.
+
+S2 status: **complete/pass**. S2 implementation authorization is limited to the Risk capability;
+the global `p3_r6_implementation_authorized` and `p3_implementation_authorized` values remain
+`no`. S3 review, S4 surface and S5 bundle remain unauthorized.
+
+S2 changed paths:
+
+```text
+vnext/backend/src/gateway_backend/capabilities/risk_evaluation/contracts.py
+vnext/backend/src/gateway_backend/capabilities/risk_evaluation/__init__.py
+vnext/backend/src/gateway_backend/capabilities/risk_evaluation/_facts.py
+vnext/backend/src/gateway_backend/capabilities/risk_evaluation/_rules.py
+vnext/backend/src/gateway_backend/capabilities/risk_evaluation/_engine.py
+vnext/backend/src/gateway_backend/capabilities/risk_evaluation/_artifacts.py
+vnext/backend/tests/test_risk_contracts.py
+vnext/backend/tests/test_risk_evaluation.py
+docs/backend-vnext/contracts/risk.md
+docs/backend-vnext/capabilities/risk-evaluation.md
+docs/backend-vnext/refactoring/formal/plans/p3-r6-risk-surface-bundle-execution-plan.md
+```
+
+S2 implements the injected frozen v1 ruleset evaluator, S0 execution budgets, cancellation and
+deadline handling, stable aggregation, canonical annotation content/manifest artifacts and
+replay-validated risk annotation closure. It does not add a registry, provider fallback, static-risk,
+flow, surface or bundle integration.
+
+#### S2 verification record
+
+Executed on 2026-08-22 against source HEAD
+`6b9525e0e8acd40d50dad540c0129b842abec746`; S1/S2 source, tests and docs remain uncommitted in the
+current worktree. No Dolt repository or external runtime was used.
+
+| Check | Result |
+| --- | --- |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit tests/test_risk_contracts.py tests/test_risk_evaluation.py tests/test_architecture.py` | **41 passed** |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check .` | **passed** |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline mypy` | **passed** |
+| `git diff --check` | **passed** |
+| Docker/container rebuild | **DEFERRED / NOT APPLICABLE**; Python contracts/engine/tests/docs only; inherited R5 image gate remains a final-candidate prerequisite |
 
 ### S3 — Risk focused contract/resource/security review
 
@@ -186,6 +262,16 @@ p3_r6_design: accepted
 p3_r6_detail_plan: accepted_for_staged_planning
 p3_r6_s0: completed
 p3_r6_s0_exit: pass
+p3_r6_s1: completed
+p3_r6_s1_exit: pass
+p3_r6_s1_implementation_authorized: yes
+p3_r6_s1_tested_source_sha: 6b9525e0e8acd40d50dad540c0129b842abec746
+p3_r6_s1_worktree: dirty_uncommitted_contract_implementation
+p3_r6_s2: completed
+p3_r6_s2_exit: pass
+p3_r6_s2_implementation_authorized: yes
+p3_r6_s2_tested_source_sha: 6b9525e0e8acd40d50dad540c0129b842abec746
+p3_r6_s2_worktree: dirty_uncommitted_s1_s2_contract_engine_tests_docs
 p3_r6_implementation_authorized: no
 p3_implementation_authorized: no
 p3_r5_exit: pass

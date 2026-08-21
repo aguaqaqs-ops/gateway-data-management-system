@@ -4,7 +4,7 @@
 
 日期：2026-08-18
 
-阶段：P3-R2 complete；P3-R3 complete；P3-R4 complete；R5 entry pending detail plan；implementation authorization pending
+阶段：P3-R1 至 P3-R5 complete；P3-R6 detail plan and S0 complete；implementation authorization pending
 
 Owner：Backend vNext Capability Architecture
 
@@ -226,8 +226,8 @@ R 之间默认串行。R 内只有不共享未稳定 contract、不会改变对�
 ```yaml
 p3_design: accepted
 p3_execution_plan: accepted_for_staged_planning
-current_module: P3-R5
-current_module_detail: R4 module gate pass; R5 entry pending detail plan; implementation authorization pending
+current_module: P3-R6
+current_module_detail: R5 module gate pass; R6 design/detail plan/S0 complete; implementation authorization pending
 p3_r1_s0: completed
 p3_r1_s0_inventory: p3-r1-s0-asset-inventory.md
 p3_r1_s1: completed
@@ -284,6 +284,13 @@ p3_r4_s8: completed
 p3_r4_s8_handoff: p3-r4-storage-projection-handoff.md
 p3_r4_exit: pass
 p3_r5_ready: yes
+p3_r6_ready: yes
+p3_r6_design: p3-r6-risk-surface-bundle-design.md
+p3_r6_detail_plan: p3-r6-risk-surface-bundle-execution-plan.md
+p3_r6_detail_plan_status: accepted_for_staged_planning
+p3_r6_s0: completed
+p3_r6_s0_exit: pass
+p3_r6_implementation_authorized: no
 p3_implementation_authorized: no
 ```
 
@@ -305,6 +312,9 @@ p3_implementation_authorized: no
 - [P3-R4 S6 Focused Contract, Resource and Security Review](p3-r4-s6-focused-review.md)
 - [P3-R4 S7 Independent Owner, Import, Digest and Recovery Review](p3-r4-s7-independent-review.md)
 - [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)
+- [P3-R6 Risk, Surface and Bundle Design Baseline](p3-r6-risk-surface-bundle-design.md)
+- [P3-R6 Risk, Surface and Bundle Execution Plan](p3-r6-risk-surface-bundle-execution-plan.md)
+- [P3-R6-S0 Entry and Budget Freeze](p3-r6-s0-entry-and-budget-freeze.md)
 - [Implementation Stages](implementation-stages.md)
 - [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)
 - [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md)

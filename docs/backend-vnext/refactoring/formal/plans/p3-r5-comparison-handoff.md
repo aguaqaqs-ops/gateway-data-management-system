@@ -34,13 +34,13 @@ s7_reviewed_tip: 7cb90e6f3e3707de856da0aabb43f7d519b9f1f3
 s8_tests_rerun: yes
 container_rebuild: required_deferred
 benchmark: measurement_only_no_gate
-r6_entry_sha: pending_handoff_documentation_commit
-handoff_documentation_sha: pending_handoff_documentation_commit
+r6_entry_sha: 500ca11
+handoff_documentation_sha: 500ca11
 ```
 
 `validated_code_sha` 是 S7 findings remediation 封存后、S8 复跑通过的 source SHA，不是本
-handoff 文档的 commit SHA。本文完成后的 documentation commit 才成为
-`r6_entry_sha` / `handoff_documentation_sha`，不在本文件中自引用。`p3_r5_exit: pass` 表示
+handoff 文档的 commit SHA。`r6_entry_sha` / `handoff_documentation_sha` 已封存为本 handoff
+documentation commit `500ca11`，不在本文件中自引用。`p3_r5_exit: pass` 表示
 R5 source/module gate 的 staged implementation surface 通过；Rust/Cargo 触发的 backend
 image/container gate 仍是必须执行的 deferred gate，不被该 pass 隐式关闭。
 

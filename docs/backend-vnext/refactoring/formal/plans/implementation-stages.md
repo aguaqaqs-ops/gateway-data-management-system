@@ -9,8 +9,8 @@ interface reconciliation与S02联合代码清理均已闭合；P2-R1 v8 formal �
 P2-R6-S11 `phase_2_complete: yes`。Phase 3 capability design 已完成；P3-R1 module gate
 `p3_r1_exit: pass`，P3-R2 module gate `p3_r2_exit: pass`，P3-R3 module gate
 `p3_r3_exit: pass`，P3-R4 module gate
-`p3_r4_exit: pass`，R5 entry 见
-[P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)。
+`p3_r4_exit: pass`，P3-R5 module gate `p3_r5_exit: pass`，R6 entry 见
+[P3-R5 Comparison Handoff](p3-r5-comparison-handoff.md)。
 R2 详细执行见 [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)。
 R3 详细执行见 [P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)。
 R3 S0 冻结见 [P3-R3-S0 Entry, Applicability and Budget Freeze](p3-r3-s0-entry-and-budget-freeze.md)。
@@ -35,6 +35,10 @@ S1–S3 仅在 S0 freeze allowlist 内落地，见
 [P3 Capability Foundation Design](p3-capability-foundation-design.md)、
 [P3 Active Context Index](p3-active-context-index.md) 与
 [P2 External Interface Handoff](p2-external-interface-handoff.md)。
+
+P3-R5 comparison 的 S0-S8、R5 handoff、P3-R6 risk/surface/bundle design、R6 S0 freeze 和
+R6 staged execution plan 分别见对应 formal plan；R6 S0 已完成，下一入口为 S1；R6 implementation
+仍须 scoped authorization。
 P2-R1 默认 provider 为Candidate A offline CLI，Candidate B保留但默认禁用。该顺序由
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 和[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)共同约束；Phase 0–9的安全、

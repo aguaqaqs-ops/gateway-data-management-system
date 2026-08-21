@@ -2,9 +2,9 @@
 
 状态：正式设计基线（Accepted）
 
-日期：2026-08-18
+日期：2026-08-22
 
-阶段：Phase 3 design complete；P3-R2 gate pass；P3-R3 gate pass；P3-R4 gate pass；R5 entry pending detail plan；implementation authorization pending
+阶段：Phase 3 design complete；P3-R1 至 P3-R5 gate pass；P3-R6 design/detail plan accepted；S0 complete；implementation authorization pending
 
 Owner：Backend vNext Capability Architecture
 
@@ -249,7 +249,7 @@ S0 关闭项的权威记录见 [P3-R2-S0](p3-r2-s0-entry-and-budget-freeze.md)�
 
 ## 4.3 P3-R4 Storage Projection Design Baseline
 
-状态：Accepted；R4 detail plan accepted；S0 freeze complete；S8 module gate complete，R4 gate pass；R5 entry pending detail plan；implementation authorization pending
+状态：Accepted；R4 detail plan accepted；S0 freeze complete；S8 module gate complete，R4 gate pass；R5 module gate complete；R6 detail plan accepted；S0 complete；implementation authorization pending
 
 设计与执行基线见 [P3-R4 Storage Projection Design Baseline](p3-r4-storage-projection-design.md)
 和 [P3-R4 Storage Projection Execution Plan](p3-r4-storage-projection-execution-plan.md)。

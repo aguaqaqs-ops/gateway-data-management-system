@@ -36,6 +36,9 @@
 - [P3-R5 Comparison Execution Plan](plans/p3-r5-comparison-execution-plan.md)（S8 module gate complete；R5 gate pass；implementation authorization pending）
 - [P3-R5 Comparison Handoff](plans/p3-r5-comparison-handoff.md)（R5 gate / R6 entry；source SHA、验证证据、deferred register）
 - [P3-R5-S0 Entry and Budget Freeze](plans/p3-r5-s0-entry-and-budget-freeze.md)（S0 complete；不授权实现）
+- [P3-R6 Risk, Surface and Bundle Design Baseline](plans/p3-r6-risk-surface-bundle-design.md)（R6 accepted design；不授权实现）
+- [P3-R6 Risk, Surface and Bundle Execution Plan](plans/p3-r6-risk-surface-bundle-execution-plan.md)（S0 complete；S1-S7 staged plan；implementation authorization pending）
+- [P3-R6-S0 Entry and Budget Freeze](plans/p3-r6-s0-entry-and-budget-freeze.md)（S0 complete；不授权实现）
 - [Repository Service Contract](contracts/repository-service.md)
 - [Performance Measurement Guidance](contracts/performance-measurement-and-baseline.md)
 - [ADR 0001: Python/Rust Hybrid Compute Strategy](adr/0001-python-rust-hybrid-compute-strategy.md)
@@ -79,7 +82,8 @@ handoff `S8_exit: pass`、`S9_ready: yes`；S9 final handoff `S9_exit: pass`、
 `candidate_seal: pass`、`S10_ready: yes`；S10 final handoff `S10_exit: pass`、
 `S11_ready: yes`；S11 final handoff `S11_exit: pass`、`phase_2_complete: yes`；
 `production_retest_required=no`。P3 design 已完成；P3-R4 module gate `p3_r4_exit: pass`；
-P3-R5 module gate `p3_r5_exit: pass`、`p3_r6_ready: yes`；全局
+P3-R5 module gate `p3_r5_exit: pass`、`p3_r6_ready: yes`；P3-R6 design/detail plan accepted、
+S0 complete；全局
 `p3_implementation_authorized: no`，不得把 R5 handoff 当作 Phase 3 production integration
 authorization。默认入口见
 [P3 Active Context Index](plans/p3-active-context-index.md)。完整对外接口见

@@ -1,8 +1,8 @@
 # P3 Active Context Index
 
-状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；P3-R3 gate pass；P3-R4 gate pass；P3-R5 gate pass）
+状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；P3-R3 gate pass；P3-R4 gate pass；P3-R5 gate pass；P3-R6 design accepted）
 
-日期：2026-08-21
+日期：2026-08-22
 
 Owner：Backend vNext Architecture
 
@@ -92,6 +92,14 @@ p3_r5_s8_handoff: p3-r5-comparison-handoff.md
 p3_r5_exit: pass
 p3_r5_validated_code_sha: 7cb90e6f3e3707de856da0aabb43f7d519b9f1f3
 p3_r6_ready: yes
+p3_r6_design: p3-r6-risk-surface-bundle-design.md
+p3_r6_design_status: accepted
+p3_r6_detail_plan: p3-r6-risk-surface-bundle-execution-plan.md
+p3_r6_detail_plan_status: accepted_for_staged_planning
+p3_r6_s0: completed
+p3_r6_s0_record: p3-r6-s0-entry-and-budget-freeze.md
+p3_r6_s0_exit: pass
+p3_r6_implementation_authorized: no
 p3_r5_ready: yes
 p3_implementation_authorized: no
 default_retrieval: this_index
@@ -185,6 +193,17 @@ cleanup_commit: this_cleanup_commit
     source SHA、verification evidence、stable facts/records/cache boundary、deferred register 和
     implementation authorization。
 
+27. [P3-R6 Risk, Surface and Bundle Design Baseline](p3-r6-risk-surface-bundle-design.md)：R6 的
+    comparison risk、surface、bundle 边界、failure lattice、closure atomicity、ruleset authority
+    和 static-risk/P5 非目标。
+
+28. [P3-R6 Risk, Surface and Bundle Execution Plan](p3-r6-risk-surface-bundle-execution-plan.md)：
+    R6 S0-S7 staged steps、精确的同会话/新对话策略、focused/independent review、verification
+    gates 和 handoff prerequisites。
+
+29. [P3-R6-S0 Entry and Budget Freeze](p3-r6-s0-entry-and-budget-freeze.md)：R6 owner DAG、
+    numeric caps、failure matrix、fixture groups、benchmark disposition 和 S1 prerequisites。
+
 ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)（P3-R2-S0 已修订
 source dump / repository import 双边界）。
 Fixture 材料：[Fixture Oracle](../contracts/fixture-oracle-and-conformance.md)、
@@ -272,7 +291,8 @@ P3 默认 allowlist（设计检索，不是源码扫描）：
   parser handoff、P3-R3 source materialization handoff、P3-R3 source materialization
   execution plan、P3-R3-S0 freeze、P3-R4 storage projection design、P3-R4 storage
   projection execution plan、P3-R4-S0 freeze、P3-R4 storage projection handoff、P3-R5 comparison
-  design、P3-R5 comparison execution plan、P3-R5-S0 freeze、P3-R5 comparison handoff、cleanup manifest
+  design、P3-R5 comparison execution plan、P3-R5-S0 freeze、P3-R5 comparison handoff、P3-R6 risk/surface/bundle
+  design、P3-R6 execution plan、P3-R6-S0 freeze、cleanup manifest
 - `docs/backend-vnext/refactoring/formal/contracts/` 中现行 contract（不含已
   superseded 的 vector-schema）
 - `docs/backend-vnext/refactoring/formal/adr/0001-0005`、`0009`、`0010`、`0012`、`0013`、

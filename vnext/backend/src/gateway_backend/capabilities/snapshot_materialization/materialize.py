@@ -7,7 +7,15 @@ import secrets
 import time
 from datetime import UTC, datetime
 
-from gateway_shared_kernel import CanonicalEncodingError, DigestRef, canonicalize_identifier
+from gateway_shared_kernel import (
+    CanonicalEncodingError,
+    DigestRef,
+    NullScalar,
+    SignedIntegerScalar,
+    StringScalar,
+    UnsignedIntegerScalar,
+    canonicalize_identifier,
+)
 
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
@@ -40,6 +48,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
     SUMMARY_CONTRACT_VERSION,
     CacheTrustLevel,
+    BlankRowProvenance,
     DegradedReason,
     DiagnosticSeverity,
     MaterializationDiagnostic,
@@ -55,6 +64,9 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTable,
     SnapshotTableDescriptor,
     SnapshotTableSet,
+    SnapshotTableOrderedMetadata,
+    GID_PSEUDO_MAX,
+    GID_PSEUDO_MIN,
     SourceKind,
     SqlSnapshotMaterializationRequest,
 )
@@ -204,6 +216,9 @@ def _materialize_selected(
                     descriptor=item.descriptor,
                     reader=item.reader,
                     diagnostics=item.diagnostics,
+                    ordered_metadata=SnapshotTableOrderedMetadata(
+                        blank_provenance=BlankRowProvenance.SOURCE_MISSING_STABLE_KEY
+                    ),
                 )
             )
         table_set = SnapshotTableSet(
@@ -303,7 +318,7 @@ def _materialize_table(
         return descriptor, None, (diagnostic,)
     try:
         row_hashes, fast_hashes, duplicate = _consume_rows(
-            parsed.reader, request.context, compare_keys
+            parsed.reader, request.context, compare_keys, source.canonical_name
         )
     except _Halt as halt:
         parsed.reader.close()
@@ -399,6 +414,9 @@ def _materialize_table(
             descriptor=descriptor,
             reader=BoundSnapshotTableReader(descriptor, published_source),
             diagnostics=tuple(diagnostics),
+            ordered_metadata=SnapshotTableOrderedMetadata(
+                blank_provenance=BlankRowProvenance.SOURCE_MISSING_STABLE_KEY
+            ),
         )
     return descriptor, published, tuple(diagnostics)
 
@@ -407,16 +425,26 @@ def _consume_rows(
     reader: TableReader,
     context: ParserInvocationContext,
     compare_keys: tuple[str, ...],
+    table_name: str,
 ) -> tuple[tuple[bytes, ...], tuple[bytes, ...], bool]:
     descriptor = reader.descriptor()
     columns = descriptor.columns
     key_indexes = _key_indexes(descriptor, compare_keys)
+    gid_index = next(
+        (column.ordinal for column in columns if column.canonical_name == "gid"),
+        None,
+    )
     row_hashes: list[bytes] = []
     fast_hashes: list[bytes] = []
     seen: set[tuple[bytes, ...]] = set()
     duplicate = False
     for row in reader.iter_rows():
         _checkpoint(context)
+        if gid_index is not None and _is_reserved_pseudo_gid(row[gid_index]):
+            raise _Halt(
+                MaterializationDiagnosticCode.RESERVED_PSEUDO_GID,
+                f"SQL source table {table_name!r} gid is in the reserved pseudo range",
+            )
         row_hashes.append(row_content_hash(columns, row))
         fast_hashes.append(fast_row_hash(columns, row))
         if key_indexes:
@@ -427,6 +455,25 @@ def _consume_rows(
                 seen.add(key)
     _checkpoint(context)
     return tuple(row_hashes), tuple(fast_hashes), duplicate
+
+
+def _is_reserved_pseudo_gid(cell: object) -> bool:
+    if isinstance(cell, NullScalar):
+        return False
+    value: int | None = None
+    if isinstance(cell, (SignedIntegerScalar, UnsignedIntegerScalar)):
+        try:
+            value = int(cell.decimal, 10)
+        except ValueError:
+            return False
+    elif isinstance(cell, StringScalar):
+        if cell.text == "":
+            return False
+        try:
+            value = int(cell.text, 10)
+        except ValueError:
+            return False
+    return value is not None and GID_PSEUDO_MIN <= value <= GID_PSEUDO_MAX
 
 
 def _key_indexes(

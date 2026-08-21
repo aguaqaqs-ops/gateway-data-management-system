@@ -1,6 +1,6 @@
 # P3-R5-S0 Entry, Applicability and Budget Freeze
 
-状态：S0 complete；implementation authorization pending
+状态：S0 complete；S2/S3/S4/S5 scoped evidence recorded；implementation authorization pending
 
 日期：2026-08-20
 
@@ -26,6 +26,14 @@ p3_r5_execution_plan: p3-r5-comparison-execution-plan.md
 p3_r5_s0_exit: pass
 p3_r5_s1_authorized: yes
 p3_r5_s1_exit: pass
+p3_r5_s2_authorized: yes
+p3_r5_s2_exit: pass
+p3_r5_s3_authorized: yes
+p3_r5_s3_exit: pass
+p3_r5_s4_authorized: yes
+p3_r5_s4_exit: pass
+p3_r5_s5_authorized: yes
+p3_r5_s5_exit: "pass (container gate deferred)"
 p3_implementation_authorized: no
 validated_r4_code_sha: 4effb6eefa16d246e75213212f884b2546e6d6ef
 validated_s1_code_sha: 2963963c9cb707c9584aac8778eb07e8d6d40782
@@ -35,6 +43,21 @@ s0_worktree: clean
 container_rebuild_for_entry: no
 container_reason: R5 entry is docs/design only; no image or deployment boundary changed
 benchmark: measurement_only_no_gate
+current_s3_code_sha: d61199f3b4a3425272b7b152da3dd16142542770
+container_rebuild_for_s3: no
+container_reason_s3: pure Python contracts/core/tests/docs; no Rust, dependency, image or runtime-boundary change
+current_s5_base_head: d61199f3b4a3425272b7b152da3dd16142542770
+s5_worktree: dirty
+container_rebuild_for_s5: yes
+container_reason_s5: Rust Parquet reader and exact Cargo dependency/lock changes are copied and built by vnext/backend/Dockerfile
+container_gate_s5: deferred; docker daemon unavailable at /var/run/docker.sock
+s5_image_revision: none
+s5_image_source_tree: d61199f3b4a3425272b7b152da3dd16142542770 plus dirty S5 worktree
+s4_evidence: p3-r5-comparison-execution-plan.md#63-s4-verification-record
+s5_evidence: p3-r5-comparison-execution-plan.md#64-s5-verification-record
+s5_focused_pytest: 97 passed
+s5_rust_core: 82 passed
+s5_worktree_sha_is_sealed: no
 ```
 
 R4 SHA/test facts are entry evidence only; they do not authorize R5 implementation. R4 handoff
@@ -127,14 +150,15 @@ consumers reference the owning immutable value or digest.
 
 ### 2.3 Result union
 
-S2 must implement this frozen discriminated result shape; S0 does not implement it:
+S2 must implement this frozen discriminated result shape; S0 defines the envelope and S2 supplies the
+first implementation:
 
 ```text
 PairExecutionResult:
   kind: INITIAL_SNAPSHOT | DETAILED_FACTS | DATASET_REPLACEMENT
         | IDENTITY_GATE_BLOCKED | CANCELLED | FAILED
   pair_id
-  status: UNCHANGED | BUSINESS_EQUIVALENT | CHANGED | DEGRADED | FAILED | CANCELLED
+  status: UNCHANGED | BUSINESS_EQUIVALENT | CHANGED | DEGRADED | FAILED | CANCELLED | NOT_APPLICABLE
   facts: ComparisonFacts | none
   records_closure: ComparisonRecordsClosure | none
   diagnostics
@@ -320,10 +344,28 @@ Reopen S0 if public batch access requires private R3/R4 imports, public DTOs exp
 host paths, Rust/Python outputs cannot share canonical schema/digest, numeric budgets are copied from
 parser owners, cache can bypass policy, or any forbidden production dependency appears.
 
+## 6.1 S3 verification record
+
+The following commands were run against the current S3 worktree. The focused comparison gate is
+green. The full backend unit command has 584 passed and 58 failures in the pre-existing
+`tests/test_table_rules_resolver.py` legacy-oracle cases, which reference absent `legacy/backend_vnext`
+paths/symbols; no S3 test failed.
+
+| Command | Result |
+| --- | --- |
+| `cd vnext/backend && uv run pytest -m unit tests/test_comparison_standard.py tests/test_comparison_planning.py tests/test_comparison_batch_boundary.py tests/test_architecture.py` | **51 passed** |
+| `cd vnext/backend && uv run pytest -m unit` | **584 passed, 58 pre-existing legacy-oracle failures, 1 warning** |
+| `cd vnext/backend && uv run ruff check .` | **passed** |
+| `cd vnext/backend && uv run mypy` | **passed** |
+
+No Rust/native, dependency, Dockerfile, Compose, entrypoint or runtime-boundary path changed in S3;
+Docker rebuild is therefore deferred.
+
 ## 7. S0 exit evidence and checklist
 
-The S0 deliverables are complete in this record and the execution plan §5. No implementation code was
-authorized or changed.
+The S0 deliverables are complete in this record and the execution plan §5. S0 itself authorized no
+implementation; later S2/S3/S4/S5 scoped authorization and evidence are recorded above and in the
+execution plan. The global `p3_implementation_authorized` value remains `no`.
 
 - [x] accepted design baseline and execution phase list;
 - [x] public/private type ownership and discriminated result union;
@@ -332,6 +374,7 @@ authorized or changed.
 - [x] exact bounded budget values and inherited-owner references;
 - [x] fixture roots, markers, benchmark workload and evidence format;
 - [x] allowlist, forbidden imports and reopen conditions;
+- [x] S4/S5 scoped authorization, exit and dirty-worktree/image evidence fields;
 - [x] implementation authorization remains separately `no`.
 
 S0 must be reopened before S1 if any public batch method requires a private R3/R4 import, a public DTO

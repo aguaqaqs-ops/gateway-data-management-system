@@ -49,10 +49,13 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationDiagnostic,
     MaterializationDiagnosticCode,
     SnapshotColumnDescriptor,
+    BlankRowProvenance,
+    SnapshotTableBatchMetadata,
     SnapshotTable,
     SnapshotTableArtifact,
     SnapshotTableArtifactManifest,
     SnapshotTableDescriptor,
+    SnapshotTableOrderedMetadata,
 )
 from gateway_backend.capabilities.table_access.contracts import (
     ParserDiagnosticCode,
@@ -141,7 +144,17 @@ def publish_snapshot_table_artifact(
     source_columns = _source_columns(table)
     rows = _consume_rows(table.reader, context, table.descriptor.table_name)
     try:
-        parquet_bytes = write_parquet_rows(source_columns, rows)
+        parquet_bytes = write_parquet_rows(
+            source_columns,
+            rows,
+            SnapshotTableBatchMetadata(
+                blank_provenance=(
+                    BlankRowProvenance.NONE
+                    if table.ordered_metadata is None
+                    else table.ordered_metadata.blank_provenance
+                )
+            ),
+        )
     except ValueError as exc:
         raise ArtifactPublishError(
             MaterializationDiagnosticCode.ARTIFACT_PUBLISH_FAILED,
@@ -196,6 +209,7 @@ def publish_snapshot_table_artifact(
         artifact_content_digest=artifact_digest,
         created_at=created_at,
         diagnostics=table.descriptor.diagnostics,
+        ordered_metadata=table.ordered_metadata,
     )
     manifest_bytes = canonicalize_json_value(manifest_to_payload(manifest))
     try:
@@ -299,10 +313,18 @@ def open_snapshot_table_artifact(
         reader=reader,
         diagnostics=manifest.descriptor.diagnostics,
         artifact=artifact,
-        batch_reader=ParquetSnapshotTableBatchReader(
-            manifest.descriptor,
-            parquet_bytes,
-        ),
+            batch_reader=ParquetSnapshotTableBatchReader(
+                manifest.descriptor,
+                parquet_bytes,
+                metadata=SnapshotTableBatchMetadata(
+                    blank_provenance=(
+                        BlankRowProvenance.NONE
+                        if manifest.ordered_metadata is None
+                        else manifest.ordered_metadata.blank_provenance
+                    )
+                ),
+            ),
+            ordered_metadata=manifest.ordered_metadata,
     )
 
 
@@ -359,6 +381,7 @@ def publish_ready_tables(
                 diagnostics=table.diagnostics,
                 artifact=artifact,
                 batch_reader=opened.batch_reader,
+                ordered_metadata=table.ordered_metadata,
             )
         )
     return tuple(published)
@@ -448,6 +471,7 @@ def manifest_to_payload(manifest: SnapshotTableArtifactManifest) -> dict[str, An
         "artifact_content_digest": manifest.artifact_content_digest.value,
         "created_at": manifest.created_at,
         "diagnostics": [_diagnostic_payload(item) for item in manifest.diagnostics],
+        "ordered_metadata": _ordered_metadata_payload(manifest.ordered_metadata),
     }
 
 
@@ -471,7 +495,25 @@ def manifest_from_bytes(raw: bytes) -> SnapshotTableArtifactManifest:
         artifact_content_digest=DigestRef(str(payload["artifact_content_digest"])),
         created_at=str(payload["created_at"]),
         diagnostics=_diagnostics_from_payload(payload.get("diagnostics")),
+        ordered_metadata=_ordered_metadata_from_payload(payload.get("ordered_metadata")),
     )
+
+
+def _ordered_metadata_payload(metadata: SnapshotTableOrderedMetadata | None) -> dict[str, str] | None:
+    if metadata is None:
+        return None
+    return {"blank_provenance": metadata.blank_provenance.value}
+
+
+def _ordered_metadata_from_payload(payload: object) -> SnapshotTableOrderedMetadata | None:
+    if payload is None:
+        return None
+    if type(payload) is not dict:
+        raise ValueError("ordered_metadata must be an object or null")
+    value = payload.get("blank_provenance")
+    if type(value) is not str:
+        raise ValueError("ordered_metadata.blank_provenance must be a string")
+    return SnapshotTableOrderedMetadata(blank_provenance=BlankRowProvenance(value))
 
 
 def _source_columns(table: SnapshotTable) -> tuple[SourceColumnDescriptor, ...]:

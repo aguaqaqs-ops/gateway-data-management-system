@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
@@ -11,11 +12,14 @@ from gateway_backend.capabilities.snapshot_materialization.artifact import (
     validate_snapshot_table_artifact,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    BlankRowProvenance,
     CacheTrustLevel,
     DegradedReason,
     MaterializationPolicy,
+    SnapshotTableOrderedMetadata,
     SnapshotMaterializationStatus,
 )
+from gateway_backend.capabilities.snapshot_materialization.batch import batch_metadata_from_schema
 from gateway_backend.capabilities.table_access.contracts import (
     NeverCancel,
     ParserInvocationContext,
@@ -62,6 +66,33 @@ def test_two_publishes_of_the_same_table_share_artifact_digest() -> None:
     second, _again = publish_first_table(InMemoryArtifactStore(), "sql/valid/s2-duplicate-rows/input.sql")
     assert first.manifest.artifact_content_digest == second.manifest.artifact_content_digest
     assert first.row_layout_digest == second.row_layout_digest
+
+
+def test_ordered_blank_provenance_round_trips_through_artifact_and_batch() -> None:
+    store = InMemoryArtifactStore()
+    source = first_ready_table("sql/valid/s2-null-and-types/input.sql")
+    metadata = SnapshotTableOrderedMetadata(BlankRowProvenance.SOURCE_MISSING_STABLE_KEY)
+    source = replace(source, ordered_metadata=metadata)
+    result = materialize_sql(
+        parse_fixture("sql/valid/s2-null-and-types/input.sql"),
+        policy=MaterializationPolicy.READERS_REQUIRED,
+    )
+    assert result.snapshot is not None
+    artifact = publish_snapshot_table_artifact(
+        source,
+        snapshot_digest=result.snapshot.snapshot_digest,
+        store=store,
+        context=ParserInvocationContext(NeverCancel()),
+    )
+
+    opened = open_snapshot_table_artifact(store, artifact.manifest_ref)
+    assert opened.ordered_metadata == metadata
+    assert opened.batch_reader is not None
+    assert opened.batch_reader.metadata().blank_provenance is BlankRowProvenance.SOURCE_MISSING_STABLE_KEY
+    assert (
+        batch_metadata_from_schema(opened.batch_reader.schema())
+        == opened.batch_reader.metadata()
+    )
 
 
 def test_artifacts_required_publishes_ready_tables_only() -> None:

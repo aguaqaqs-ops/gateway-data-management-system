@@ -1,6 +1,6 @@
 # P3-R5 Comparison Execution Plan
 
-状态：Accepted for staged planning；S0/S1 complete；implementation authorization pending
+状态：Accepted for staged planning；S0/S1/S2/S3/S4/S5/S6 scoped complete；implementation authorization pending
 
 日期：2026-08-20
 
@@ -225,6 +225,22 @@ Deliverables:
 Exit: invalid combinations fail before reader open; replacement never enters detailed planner;
 unverifiable confirmation is required before any comparison execution.
 
+S2 status: **complete**. This is an S2-only implementation authorization; the global
+`p3_implementation_authorized` value remains `no`, and S3-S8 remain unauthorized.
+
+S2 changed paths:
+
+```text
+vnext/backend/src/gateway_backend/capabilities/comparison/contracts.py
+vnext/backend/src/gateway_backend/capabilities/comparison/pair_planning.py
+vnext/backend/src/gateway_backend/capabilities/comparison/__init__.py
+vnext/backend/tests/test_comparison_planning.py
+```
+
+The implementation consumes immutable snapshot metadata, baseline reconstruction output and the
+read-only identity assessment port. It does not implement identity production, actor/session policy,
+reader lifecycle, row materialization or detailed comparison kernels.
+
 ### S3 — Standard comparison core and semantic digest
 
 Conversation: same as S2 implementation conversation.
@@ -244,6 +260,31 @@ Deliverables:
 Exit: standard canonical facts and counts are deterministic; key changes never become fake updates;
 HASH/SQLite/reference/provider paths agree on semantic outputs.
 
+S3 status: **complete**. This is an S3-only implementation authorization; the global
+`p3_implementation_authorized` value remains `no`, and S4-S8 remain unauthorized.
+
+S3 changed paths:
+
+```text
+vnext/backend/src/gateway_backend/capabilities/comparison/contracts.py
+vnext/backend/src/gateway_backend/capabilities/comparison/pair_planning.py
+vnext/backend/src/gateway_backend/capabilities/comparison/standard.py
+vnext/backend/src/gateway_backend/capabilities/comparison/__init__.py
+vnext/backend/tests/test_comparison_standard.py
+```
+
+The implementation consumes immutable `ComparisonTablePolicy` bindings and public snapshot readers;
+it does not import table-rules or snapshot-materialization private modules. S5 remains responsible for
+records Parquet, manifests and closure publication; S6 remains responsible for neutral cache behavior.
+The current source SHA is `d61199f3b4a3425272b7b152da3dd16142542770`. Focused verification passed with
+51 tests; full unit verification reported 584 passed and 58 pre-existing legacy-oracle failures in
+`tests/test_table_rules_resolver.py` because the repository lacks the referenced `legacy/backend_vnext`
+paths/symbols. `ruff check .` and `mypy` passed. No Rust, dependency, Dockerfile, Compose, entrypoint or
+runtime-boundary path changed, so Docker rebuild is deferred.
+The current Rust/provider seam is still the S1 coarse Arrow pass-through and no semantic native
+provider is enabled in this checkout; S3 therefore validates the Python reference semantic contract
+and leaves native differential execution for the stage where that provider is enabled.
+
 ### S4 — Ordered and blank extensions
 
 Conversation: new integrity conversation.
@@ -261,6 +302,42 @@ Deliverables:
 
 Exit: ordered/blank fixtures prove no positional fallback, no blank payload diff, no pseudo gid business
 identity and deterministic digest behavior.
+
+S4 status: **complete**. This is an S4-only implementation authorization; the global
+`p3_implementation_authorized` value remains `no`, and S5-S8 remain unauthorized.
+
+S4 changed paths:
+
+```text
+vnext/backend/src/gateway_backend/capabilities/comparison/contracts.py
+vnext/backend/src/gateway_backend/capabilities/comparison/ordered.py
+vnext/backend/src/gateway_backend/capabilities/comparison/standard.py
+vnext/backend/src/gateway_backend/capabilities/comparison/__init__.py
+vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/contracts.py
+vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/batch.py
+vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/_parquet.py
+vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/artifact.py
+vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/materialize.py
+vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/repository_ref.py
+vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/compose.py
+vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/__init__.py
+vnext/backend/tests/test_comparison_ordered.py
+vnext/backend/tests/test_comparison_blank.py
+vnext/backend/tests/test_snapshot_artifact_roundtrip.py
+```
+
+The ordered reference kernel keeps stable-key row identity separate from content, relative move and
+absolute position changes; it rejects positional fallback, duplicate/missing order facts and
+reserved SQL pseudo gids. The blank kernel uses real-row backbone intervals, ignores blank payload,
+does not create ordinary identity/move records, and preserves suppressed interval counts under
+`UPDATE_ONLY`. Ordered/blank canonical payload is included in table and facts-core digests while
+diagnostics and physical references are excluded. SQL, canonical repository and derived snapshot
+tables now carry explicit blank provenance through `SnapshotTable`, Arrow metadata and artifact
+manifests; `PSEUDO_BLANK` interpretation is accepted only for canonical provenance.
+
+The tested source/base SHA is `d61199f3b4a3425272b7b152da3dd16142542770`; S4 remains uncommitted in
+the shared worktree, so this is not a post-change sealed commit SHA. No Rust semantic provider,
+Parquet records publication, cache, Docker or repository execution was added.
 
 ### S5 — Records artifacts, closure and publication
 
@@ -280,6 +357,37 @@ Deliverables:
 Exit: incomplete or corrupt closure cannot publish facts/READY; complete closure reopens identically
 from Python and Rust readers.
 
+S5 status: **scoped complete**. This is an S5-only implementation authorization; the global
+`p3_implementation_authorized` value remains `no`, and S6-S8 remain unauthorized.
+
+S5 changed-path inventory:
+
+```text
+vnext/backend/src/gateway_backend/capabilities/comparison/contracts.py       # records public contracts
+vnext/backend/src/gateway_backend/capabilities/comparison/__init__.py        # public exports
+vnext/backend/src/gateway_backend/capabilities/comparison/artifacts.py       # Parquet/manifest/closure gate
+vnext/backend/tests/test_comparison_records.py                                # logical records/typed values
+vnext/backend/tests/test_comparison_artifacts.py                              # round-trip/tamper/budget tests
+vnext/fixtures/vectors/comparison/records/standard-v1.parquet.b64              # Python/Rust golden vector
+vnext/rust/Cargo.toml
+vnext/rust/Cargo.lock
+vnext/rust/gateway-compute-core/Cargo.toml
+vnext/rust/gateway-compute-core/src/lib.rs
+vnext/rust/gateway-compute-core/src/records.rs                                # language-neutral reader
+```
+
+The publication gate validates the facts and each table/family record stream, canonical-sorts rows,
+writes bounded Parquet, computes logical content digests, reopens every stored Parquet and manifest,
+then writes and reopens the canonical closure JSON before attaching its operation-local ref to
+`ComparisonFacts.records_ref`. `INITIAL_SNAPSHOT`, `DATASET_REPLACEMENT`, `CANCELLED` and `FAILED`
+remain without a records ref/closure. Manifest bytes deliberately do not contain `comparison_digest`;
+closure metadata layers comparison/facts-core digests without a cycle. Ref rewriting only changes
+operation-local refs and the derived closure digest.
+
+S5 implementation evidence is recorded in §6.4. The S5 worktree is dirty and the current base HEAD
+`d61199f3b4a3425272b7b152da3dd16142542770` is not a sealed S5 SHA. Rust/Cargo changes require the
+backend image gate; Docker daemon availability is recorded as deferred rather than claimed passed.
+
 ### S6 — Neutral comparison core cache
 
 Conversation: new cache/recovery conversation.
@@ -296,6 +404,17 @@ Deliverables:
 
 Exit: cache hit and cold run produce identical canonical facts, records manifests and counts; cache hit
 cannot bypass confirmation or policy recheck.
+
+S6 status: **scoped complete**. This is an S6-only implementation authorization; the global
+`p3_implementation_authorized` value remains `no`, and S7-S8 remain unauthorized.
+
+S6 implementation adds the in-process `gateway_backend.cache.comparison_core` pair cache. Its key is
+JCS-digested over directed snapshot, contract, ruleset, projection, scalar, ordered/blank, requested
+table, option, scope and algorithm inputs. Its value contains only detailed canonical facts and a
+validated cache-local records closure with `CacheTrustLevel`; no pair, operation, workspace,
+authorization, submit or host-path identity is retained. Cache restore reopens and validates every
+manifest/Parquet artifact, copies them into an operation-local artifact scope, rewrites only refs,
+and rebinds the fresh detailed identity/continuation context. Replacement mode is rejected.
 
 ### S7 — Focused and independent review
 
@@ -359,6 +478,113 @@ required.
 S1 is pure Python/public-boundary and test work plus reuse of the already-built native boundary. No
 Dockerfile, dependency lock, image, entrypoint, Compose or container-only runtime boundary changed;
 container rebuild is therefore deferred to a later Rust/dependency/image change or the final candidate.
+
+### 6.2 S2 verification record
+
+The following commands were run against the S2 worktree. They cover the pure pair-binding/planning
+contracts, the S1 batch boundary and architecture import DAG; no Dolt, HTTP or flow runtime is used.
+
+| Command | Result |
+| --- | --- |
+| `cd vnext/backend && .venv/bin/pytest -q -m unit tests/test_comparison_planning.py tests/test_comparison_batch_boundary.py tests/test_architecture.py` | **35 passed** |
+| `cd vnext/backend && .venv/bin/pytest -q -m unit tests/test_comparison_planning.py` | **13 passed** |
+| `cd vnext/backend && .venv/bin/pytest -q -m unit` | **568 passed, 58 failed**; all failures are the pre-existing legacy oracle loading `legacy/backend_vnext/...` paths absent from this checkout |
+| `cd vnext/backend && .venv/bin/ruff check src/gateway_backend/capabilities/comparison tests/test_comparison_planning.py` | **passed** |
+| `cd vnext/backend && .venv/bin/mypy src tests/test_comparison_planning.py` | **passed** |
+| current base HEAD | `d61199f3b4a3425272b7b152da3dd16142542770` (S2 changes remain uncommitted in the worktree) |
+| S2 container rebuild | **deferred**; pure Python/contracts/tests/docs only, no image or deployment boundary changed |
+
+S2 result status correction: `INITIAL_SNAPSHOT` uses `NOT_APPLICABLE`; `DIFFERENT_PROJECT` returns
+`DATASET_REPLACEMENT` without detailed tasks or records closure; `UNVERIFIABLE` without a valid
+continuation returns `IDENTITY_GATE_BLOCKED` before reader access. The source SHA above identifies the
+current base revision; a sealed S2 SHA requires the later documentation/implementation commit.
+
+### 6.3 S4 verification record
+
+The following checks cover ordered/blank semantics, SQL and canonical blank provenance, digest
+stability, Arrow/artifact round-trip, existing standard comparison behavior and architecture imports.
+They are pure Python unit checks; no Dolt, Rust semantic provider or container boundary is involved.
+
+| Command | Result |
+| --- | --- |
+| `cd vnext/backend && uv run pytest -m unit -q tests/test_comparison_ordered.py tests/test_comparison_blank.py tests/test_comparison_standard.py tests/test_comparison_batch_boundary.py tests/test_snapshot_artifact_roundtrip.py tests/test_architecture.py` | **63 passed** |
+| `cd vnext/backend && uv run ruff check .` | **passed** |
+| `cd vnext/backend && uv run mypy` | **passed** |
+| tested source/base SHA | `d61199f3b4a3425272b7b152da3dd16142542770` (S4 changes remain uncommitted in the worktree) |
+| S4 container rebuild | **deferred**; Python contracts/kernel/tests/docs and public snapshot metadata only, with no image or deployment boundary change |
+
+The focused suite covers ordered content-only, move-only, content-plus-move and absolute renumber;
+no positional fallback, stable-key/order ambiguity degradation, ignored columns, SQL reserved-gid
+rejection, canonical pseudo-blank provenance, blank payload/occupancy semantics, `UPDATE_ONLY`
+suppression, deterministic digests and artifact/batch metadata preservation. S5-S8 deliverables
+remain out of scope.
+
+### 6.4 S5 verification record
+
+The S5 focused gate covers standard/ordered/blank family schemas, canonical ordering, `UPDATE_ONLY`,
+empty detailed closure, typed null/binary/float-bits/decimal/temporal values, detail policies,
+manifest/closure digest layering, duplicate/tampered/truncated artifacts, store and budget failures,
+cancellation fail-closed behavior, replacement/initial-snapshot ref absence and operation-local ref
+rewriting. The Rust fixture reads the Python-produced Parquet with Arrow/Parquet 59.1.0 and recomputes
+the same logical content digest.
+
+| Command | Result |
+| --- | --- |
+| `cd vnext/backend && uv run pytest -m unit -q tests/test_comparison_records.py tests/test_comparison_artifacts.py tests/test_comparison_standard.py tests/test_comparison_ordered.py tests/test_comparison_blank.py tests/test_comparison_planning.py tests/test_comparison_batch_boundary.py tests/test_snapshot_artifact_roundtrip.py tests/test_architecture.py` | **97 passed** |
+| `cd vnext/backend && uv run pytest -m unit` | **625 passed, 58 pre-existing legacy-oracle failures, 1 warning**; failures are absent `legacy/backend_vnext` paths/symbols in `tests/test_table_rules_resolver.py` |
+| `cd vnext/backend && uv run ruff check .` | **passed** |
+| `cd vnext/backend && uv run mypy` | **passed** |
+| `cd vnext/rust && cargo fmt --all -- --check` | **passed** |
+| `cd vnext/rust && cargo clippy -p gateway-compute-core --all-targets -- -D warnings` | **passed** |
+| `cd vnext/rust && cargo test -p gateway-compute-core` | **82 passed** across unit/integration suites; **0 failed** |
+| `cd vnext/rust && cargo test -p gateway-compute-python` | **3 passed** |
+| Python/Rust golden vectors | **STANDARD 1 row `sha256:22bfb26abb0aaeb3d279cdae0614d2733bebbd8cdf8021cfa6751c690db561d4`; ORDERED 1 row `sha256:887e686f96583a28c31f82788608ebd10491b80eb98dc9ab2ada7389ec50468b`; BLANK 2 rows `sha256:5f7d095129a4fdbeba84392206fa857740ecdca6b466f9cc8177d2264bf9c17a` — all equal** |
+| tested base HEAD | `d61199f3b4a3425272b7b152da3dd16142542770`; worktree **dirty**, therefore not a sealed S5 SHA |
+| S5 backend image rebuild | **required but deferred**: `vnext/backend/Dockerfile` copies/builds `vnext/rust` and Cargo/Parquet changed; `docker info` cannot connect to `/var/run/docker.sock`; image revision **none**, source tree is the dirty candidate above |
+
+Failure/deferred register:
+
+- The full unit failures are the known legacy-oracle fixture gap and are not an S5 regression.
+- The backend image rebuild and container gate remain pending until a Docker daemon is available; the
+  candidate must rebuild `vnext/backend/Dockerfile` from the dirty-worktree candidate and rerun the
+  relevant container gates before any sealed handoff.
+- S6 cache, S7 review and S8 final handoff remain intentionally unimplemented and unauthorized.
+- Store objects written before a later publication failure are unreferenced orphans by contract; no
+  orphan is returned to a consumer, and lifecycle reclamation is outside S5.
+
+### 6.5 S6 verification record
+
+The S6 focused gate covers cache key canonicalization and semantic invalidation, cache trust bounds,
+disabled/miss behavior, standard/ordered/blank/empty closure restore, manifest/content/closure
+tamper rejection, operation-local ref rewriting, `SAME_PROJECT` and `NOT_APPLICABLE` rebinding,
+fail-closed `UNVERIFIABLE` continuation policy revalidation, and `DATASET_REPLACEMENT` rejection.
+The facts context fields (`comparison_mode`, `project_identity_status`, `assessment_digest`) are
+rebound without changing semantic facts or records digests.
+
+| Command | Result |
+| --- | --- |
+| `cd vnext/backend && uv run pytest -m unit -q tests/test_comparison_cache.py tests/test_comparison_artifacts.py tests/test_comparison_records.py tests/test_comparison_standard.py tests/test_comparison_ordered.py tests/test_comparison_blank.py tests/test_comparison_planning.py tests/test_comparison_batch_boundary.py tests/test_snapshot_artifact_roundtrip.py tests/test_architecture.py` | **109 passed** |
+| `cd vnext/backend && uv run pytest -m unit` | **637 passed, 58 pre-existing legacy-oracle failures, 1 warning**; failures remain confined to missing/incompatible `legacy/backend_vnext` fixtures in `tests/test_table_rules_resolver.py` |
+| `cd vnext/backend && uv run ruff check .` | **passed** |
+| `cd vnext/backend && uv run mypy` | **passed** |
+| tested source/base SHA | `d61199f3b4a3425272b7b152da3dd16142542770`; worktree **dirty**, therefore not a sealed S6 SHA |
+| S6 container rebuild | **deferred**; S6 changed Python cache/contracts/tests/docs only and did not add a new image/native boundary; the inherited S5 Rust/Cargo image gate remains pending |
+
+S6 changed-path inventory:
+
+```text
+vnext/backend/src/gateway_backend/cache/__init__.py
+vnext/backend/src/gateway_backend/cache/comparison_core.py
+vnext/backend/src/gateway_backend/capabilities/comparison/__init__.py
+vnext/backend/src/gateway_backend/capabilities/comparison/artifacts.py
+vnext/backend/src/gateway_backend/capabilities/comparison/contracts.py
+vnext/backend/src/gateway_backend/capabilities/comparison/standard.py
+vnext/backend/tests/test_comparison_cache.py
+```
+
+The S6 candidate is not a sealed handoff: the worktree includes prior S1-S5 changes, the inherited
+backend image rebuild is still unavailable because Docker is not connected, and S7 focused/
+independent review plus S8 module gate remain pending.
 
 ## 7. Deferred and reopen conditions
 

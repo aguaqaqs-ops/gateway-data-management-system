@@ -30,6 +30,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
     SUMMARY_CONTRACT_VERSION,
     CacheTrustLevel,
+    BlankRowProvenance,
     DiagnosticSeverity,
     HiddenFinalSummary,
     MaterializationDiagnostic,
@@ -47,6 +48,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotSourceContext,
     SnapshotSummary,
     SnapshotTable,
+    SnapshotTableOrderedMetadata,
     SnapshotTableDescriptor,
     SnapshotTableSet,
     SourceKind,
@@ -218,6 +220,9 @@ def _materialize_open_session(
                     descriptor=table,
                     reader=BoundSnapshotTableReader(table, source_reader),
                     diagnostics=tuple(table_diagnostics),
+                    ordered_metadata=SnapshotTableOrderedMetadata(
+                        blank_provenance=BlankRowProvenance.CANONICAL_PSEUDO_GID
+                    ),
                 )
             )
     source_context = SnapshotSourceContext(

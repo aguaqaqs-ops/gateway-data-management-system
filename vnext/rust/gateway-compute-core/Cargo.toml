@@ -12,8 +12,11 @@ gateway-shared-kernel = { path = "../gateway-shared-kernel" }
 arrow-array.workspace = true
 arrow-buffer.workspace = true
 arrow-schema.workspace = true
+bytes.workspace = true
+parquet.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
 serde_json.workspace = true

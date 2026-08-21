@@ -64,9 +64,11 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotSourceContext,
     SnapshotSummary,
     SnapshotTable,
+    SnapshotTableOrderedMetadata,
     SnapshotTableDescriptor,
     SnapshotTableSet,
     SourceKind,
+    BlankRowProvenance,
     SqlSnapshotMaterializationRequest,
 )
 from gateway_backend.capabilities.snapshot_materialization.materialize import materialize_sql_snapshot
@@ -344,7 +346,13 @@ def _derived_table(
     }:
         source = MaterializedTableReader(source_descriptor, encoded_rows)
         reader = BoundSnapshotTableReader(descriptor, source)
-    return descriptor, SnapshotTable(descriptor=descriptor, reader=reader)
+    return descriptor, SnapshotTable(
+        descriptor=descriptor,
+        reader=reader,
+        ordered_metadata=SnapshotTableOrderedMetadata(
+            blank_provenance=BlankRowProvenance.SOURCE_MISSING_STABLE_KEY
+        ),
+    )
 
 
 def _encode_row(row: CompositeSignalPointRow) -> SourceRow:

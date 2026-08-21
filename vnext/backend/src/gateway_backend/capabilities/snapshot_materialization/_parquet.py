@@ -107,12 +107,13 @@ def decode_source_columns(raw: bytes) -> tuple[SourceColumnDescriptor, ...]:
 def write_parquet_rows(
     columns: tuple[SourceColumnDescriptor, ...],
     rows: tuple[SourceRow, ...],
+    batch_metadata: SnapshotTableBatchMetadata | None = None,
 ) -> bytes:
     fields = [_arrow_field(column) for column in columns]
     metadata = {_ENCODING_METADATA_KEY: encode_source_columns(columns)}
     schema = schema_with_batch_metadata(
         pa.schema(fields, metadata=metadata),
-        SnapshotTableBatchMetadata(),
+        batch_metadata or SnapshotTableBatchMetadata(),
     )
     arrays = [_column_array(column, rows, index) for index, column in enumerate(columns)]
     table = pa.Table.from_arrays(arrays, schema=schema)

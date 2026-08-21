@@ -10,6 +10,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BATCH_READER_CONTRACT_VERSION,
     BATCH_SCHEMA_METADATA_VERSION,
+    BlankRowProvenance,
     SnapshotTableBatchMetadata,
     SnapshotTableBatchReader,
     SnapshotTableDescriptor,
@@ -28,6 +29,7 @@ _METADATA_KEYS = {
     "ordered_contract_version": _METADATA_PREFIX + b"ordered_contract_version",
     "blank_contract_version": _METADATA_PREFIX + b"blank_contract_version",
     "artifact_contract_version": _METADATA_PREFIX + b"artifact_contract_version",
+    "blank_provenance": _METADATA_PREFIX + b"blank_provenance",
 }
 
 
@@ -50,6 +52,7 @@ def schema_with_batch_metadata(
         "ordered_contract_version": metadata.ordered_contract_version,
         "blank_contract_version": metadata.blank_contract_version,
         "artifact_contract_version": str(metadata.artifact_contract_version),
+        "blank_provenance": metadata.blank_provenance.value,
     }
     existing.update(
         {_METADATA_KEYS[name]: value.encode("utf-8") for name, value in values.items()}
@@ -86,6 +89,10 @@ def batch_metadata_from_schema(schema: pa.Schema) -> SnapshotTableBatchMetadata:
             raise BatchBoundaryError(f"Arrow batch metadata {name} must be non-empty")
         return value
 
+    try:
+        blank_provenance = BlankRowProvenance(text("blank_provenance"))
+    except ValueError as exc:
+        raise BatchBoundaryError("Arrow batch metadata blank_provenance is invalid") from exc
     return SnapshotTableBatchMetadata(
         batch_schema_metadata_version=integer("batch_schema_metadata_version"),
         batch_reader_contract_version=integer("batch_reader_contract_version"),
@@ -94,6 +101,7 @@ def batch_metadata_from_schema(schema: pa.Schema) -> SnapshotTableBatchMetadata:
         ordered_contract_version=text("ordered_contract_version"),
         blank_contract_version=text("blank_contract_version"),
         artifact_contract_version=integer("artifact_contract_version"),
+        blank_provenance=blank_provenance,
     )
 
 

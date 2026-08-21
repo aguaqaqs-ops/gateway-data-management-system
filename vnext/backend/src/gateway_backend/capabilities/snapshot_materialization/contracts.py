@@ -50,6 +50,10 @@ ARTIFACT_COMPRESSION_ZSTD = "zstd"
 ROW_ORDER_CONTRACT_INSERT = "INSERT_ORDER"
 PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
 MANIFEST_MEDIA_TYPE = "application/json"
+GID_REAL_MIN = 1
+GID_REAL_MAX = 3_999_999_999
+GID_PSEUDO_MIN = 4_000_000_000
+GID_PSEUDO_MAX = 4_294_967_295
 _MAX_DIAGNOSTICS = 1024
 _MAX_DIAGNOSTIC_MESSAGE_BYTES = 4096
 _UTF8 = "utf-8"
@@ -81,6 +85,18 @@ class MaterializationPolicy(StrEnum):
 class SourceKind(StrEnum):
     SQL_DUMP_SOURCE = "SQL_DUMP_SOURCE"
     IMMUTABLE_REPOSITORY_REF = "IMMUTABLE_REPOSITORY_REF"
+
+
+class BlankRowProvenance(StrEnum):
+    """Trusted provenance used by the ordered comparison consumer.
+
+    ``NONE`` is the default for ordinary tables.  The two non-empty values are supplied by the
+    materialization owner; comparison must not infer blank semantics from a gid value alone.
+    """
+
+    NONE = "NONE"
+    SOURCE_MISSING_STABLE_KEY = "SOURCE_MISSING_STABLE_KEY"
+    CANONICAL_PSEUDO_GID = "CANONICAL_PSEUDO_GID"
 
 
 class DiagnosticSeverity(StrEnum):
@@ -142,6 +158,7 @@ class MaterializationDiagnosticCode(StrEnum):
     HIDDEN_SUMMARY_CORRUPT = "HIDDEN_SUMMARY_CORRUPT"
     HIDDEN_SUMMARY_VERSION_MISMATCH = "HIDDEN_SUMMARY_VERSION_MISMATCH"
     HIDDEN_SUMMARY_DIGEST_MISMATCH = "HIDDEN_SUMMARY_DIGEST_MISMATCH"
+    RESERVED_PSEUDO_GID = "RESERVED_PSEUDO_GID"
 
 
 class DegradedReason(StrEnum):
@@ -436,6 +453,7 @@ class SnapshotTableBatchMetadata:
     ordered_contract_version: str = ORDERED_COMPARISON_CONTRACT_VERSION
     blank_contract_version: str = BLANK_COMPARISON_CONTRACT_VERSION
     artifact_contract_version: int = SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION
+    blank_provenance: BlankRowProvenance = BlankRowProvenance.NONE
 
     def __post_init__(self) -> None:
         for name in (
@@ -463,6 +481,21 @@ class SnapshotTableBatchMetadata:
             raise ValueError("scalar_encoding_version must be 1")
         if self.artifact_contract_version != SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION:
             raise ValueError("artifact_contract_version must be 1")
+        if type(self.blank_provenance) is not BlankRowProvenance:
+            raise ValueError("blank_provenance must be BlankRowProvenance")
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotTableOrderedMetadata:
+    """Materialization-owned blank marker carried with an ordered table."""
+
+    blank_provenance: BlankRowProvenance
+
+    def __post_init__(self) -> None:
+        if self.blank_provenance is BlankRowProvenance.NONE:
+            raise ValueError("ordered metadata requires non-empty blank provenance")
+        if type(self.blank_provenance) is not BlankRowProvenance:
+            raise ValueError("blank_provenance must be BlankRowProvenance")
 
 
 @runtime_checkable
@@ -501,6 +534,7 @@ class SnapshotTableArtifactManifest:
     artifact_content_digest: DigestRef
     created_at: str
     diagnostics: tuple[MaterializationDiagnostic, ...] = ()
+    ordered_metadata: SnapshotTableOrderedMetadata | None = None
 
     def __post_init__(self) -> None:
         if self.artifact_contract_version != SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION:
@@ -527,6 +561,8 @@ class SnapshotTableArtifactManifest:
             raise ValueError("artifact_content_digest must be DigestRef")
         _require_non_empty(self.created_at, "created_at")
         _require_diagnostics(self.diagnostics)
+        if self.ordered_metadata is not None and type(self.ordered_metadata) is not SnapshotTableOrderedMetadata:
+            raise ValueError("ordered_metadata must be SnapshotTableOrderedMetadata or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -637,6 +673,7 @@ class SnapshotTable:
     diagnostics: tuple[MaterializationDiagnostic, ...] = ()
     artifact: SnapshotTableArtifact | None = None
     batch_reader: SnapshotTableBatchReader | None = None
+    ordered_metadata: SnapshotTableOrderedMetadata | None = None
 
     def __post_init__(self) -> None:
         if type(self.descriptor) is not SnapshotTableDescriptor:
@@ -646,6 +683,8 @@ class SnapshotTable:
             raise ValueError("artifact must be SnapshotTableArtifact or None")
         if self.batch_reader is not None and not isinstance(self.batch_reader, SnapshotTableBatchReader):
             raise ValueError("batch_reader must implement SnapshotTableBatchReader or be None")
+        if self.ordered_metadata is not None and type(self.ordered_metadata) is not SnapshotTableOrderedMetadata:
+            raise ValueError("ordered_metadata must be SnapshotTableOrderedMetadata or None")
         if self.descriptor.degraded_reason is DegradedReason.TABLE_FAILED:
             if self.reader is not None:
                 raise ValueError("failed table must not publish a reader")
@@ -653,6 +692,8 @@ class SnapshotTable:
                 raise ValueError("failed table must not publish an artifact")
             if self.batch_reader is not None:
                 raise ValueError("failed table must not publish a batch reader")
+            if self.ordered_metadata is not None:
+                raise ValueError("failed table must not publish ordered metadata")
             return
         if self.reader is None:
             return

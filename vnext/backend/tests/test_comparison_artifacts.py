@@ -42,6 +42,25 @@ def _standard_result(*, same: bool = False) -> DetailedFactsResult:
     return result
 
 
+def _ordered_result_with_standard_and_moves() -> DetailedFactsResult:
+    before = """
+        CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
+        INSERT INTO t VALUES (1, 1, 'a'), (2, 2, 'b'), (3, 3, 'c');
+    """
+    current = """
+        CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
+        INSERT INTO t VALUES (2, 1, 'b'), (3, 2, 'z'), (1, 3, 'a');
+    """
+    result = compare_plan(ordered_plan(before, current))
+    assert isinstance(result, DetailedFactsResult)
+    assert result.facts is not None
+    table = result.facts.tables[0]
+    assert len(table.records) == 1
+    assert table.ordered_extension is not None
+    assert len(table.ordered_extension.records) == 4
+    return result
+
+
 def test_publish_and_reopen_standard_records_preserves_typed_null() -> None:
     store = InMemoryArtifactStore()
     published = publish_records_closure(_standard_result(), store)
@@ -224,6 +243,56 @@ def test_records_and_spool_limits_fail_closed() -> None:
     assert type(result).__name__ == "FailedResult"
     assert result.facts is None
     assert result.records_closure is None
+
+
+def test_reopen_rejects_records_over_per_table_limit_before_materialization() -> None:
+    before = """
+        CREATE TABLE t (id INT NOT NULL PRIMARY KEY, note VARCHAR(8) NULL);
+        INSERT INTO t VALUES (1, 'before'), (2, 'before');
+    """
+    current = """
+        CREATE TABLE t (id INT NOT NULL PRIMARY KEY, note VARCHAR(8) NULL);
+        INSERT INTO t VALUES (1, 'current'), (2, 'current');
+    """
+    result = compare_plan(standard_plan(before, current))
+    assert isinstance(result, DetailedFactsResult)
+    store = InMemoryArtifactStore()
+    published = publish_records_closure(result, store)
+    assert isinstance(published, DetailedFactsResult)
+    assert published.facts is not None and published.facts.records_ref is not None
+
+    with pytest.raises(ValueError, match="per-table limit"):
+        open_records_closure(
+            store,
+            published.facts.records_ref,
+            policy=RecordsPublicationPolicy(max_records_per_table=1),
+        )
+
+
+def test_publish_rejects_combined_record_families_over_table_limit() -> None:
+    result = publish_records_closure(
+        _ordered_result_with_standard_and_moves(),
+        InMemoryArtifactStore(),
+        policy=RecordsPublicationPolicy(max_records_per_table=4),
+    )
+
+    assert type(result).__name__ == "FailedResult"
+    assert result.facts is None
+    assert result.records_closure is None
+
+
+def test_reopen_rejects_combined_record_families_over_table_limit() -> None:
+    store = InMemoryArtifactStore()
+    published = publish_records_closure(_ordered_result_with_standard_and_moves(), store)
+    assert isinstance(published, DetailedFactsResult)
+    assert published.facts is not None and published.facts.records_ref is not None
+
+    with pytest.raises(ValueError, match="per-table limit"):
+        open_records_closure(
+            store,
+            published.facts.records_ref,
+            policy=RecordsPublicationPolicy(max_records_per_table=4),
+        )
 
 
 @pytest.mark.parametrize(

@@ -1,8 +1,8 @@
 # P3-R5 Comparison Execution Plan
 
-状态：Accepted for staged planning；S0/S1/S2/S3/S4/S5/S6 scoped complete；implementation authorization pending
+状态：Accepted for staged planning；S0/S1/S2/S3/S4/S5/S6/S7 scoped complete；implementation authorization pending
 
-日期：2026-08-20
+日期：2026-08-21
 
 阶段：P3-R5 Comparison
 
@@ -432,6 +432,11 @@ Review focus:
 
 Exit: no unclosed P1/P2, contract ambiguity, digest mismatch, hidden dependency or unbounded path.
 
+S7 status: **scoped complete; focused and independent review PASS**. Two P2 artifact-read budget
+findings were remediated in the owning artifact boundary and re-run below. The review does not grant
+the global `p3_implementation_authorized` flag, production flow integration or the deferred native
+semantic provider.
+
 ### S8 — R5 module gate and handoff
 
 Conversation: new acceptance/documentation conversation.
@@ -582,16 +587,92 @@ vnext/backend/src/gateway_backend/capabilities/comparison/standard.py
 vnext/backend/tests/test_comparison_cache.py
 ```
 
-The S6 candidate is not a sealed handoff: the worktree includes prior S1-S5 changes, the inherited
-backend image rebuild is still unavailable because Docker is not connected, and S7 focused/
-independent review plus S8 module gate remain pending.
+The S6 candidate is not a sealed handoff: the worktree includes prior S1-S5 changes, and the inherited
+backend image rebuild is still unavailable because Docker is not connected. S7 review is recorded in
+§6.6; the S8 module gate remains pending.
+
+### 6.6 S7 focused and independent review record
+
+本轮 review 独立重读 R5 design baseline、S0 contract/budget freeze、S1-S6 implementation surface、
+comparison/artifact/cache contracts、累计 diff、Arrow/Parquet fixtures 和 capability import
+graph。不依赖实现者口头解释；finding 修复返回 artifact owner 后只做 focused rerun，再重新审查
+当前 source tree。
+
+#### Review boundary
+
+- public-only R4 snapshot input、comparison capability import DAG 和 forbidden HTTP/Workspace/
+  Submit/Repository/Dolt/Operation Runtime/legacy dependencies；
+- Arrow batch metadata/provider port、Parquet records schemas、Python/Rust golden vectors 和
+  no per-row FFI or JSON bulk boundary；
+- standard/schema/keyed/keyless/ordered/blank semantics, typed nulls, `UPDATE_ONLY`, canonical
+  ordering and digest/facts-core/closure layering without a cycle；
+- artifact manifest/closure readback, record-count/byte/spool budgets, cancellation/failure mapping,
+  operation-local ref rewriting and partial publication behavior；
+- neutral cache key/value validation, closure restore, identity/continuation/policy rebinding,
+  replacement rejection, host-path/flow/authorization exclusion；
+- test markers, fixed-timeout policy, architecture scan, full unit/static checks and the inherited
+  Rust/container gate boundary.
+
+#### Evidence
+
+| Check | Result |
+| --- | --- |
+| focused comparison/artifact/cache/architecture suite | **112 passed** |
+| `cd vnext/backend && uv run pytest -m unit -q` | **698 passed, 1 existing Starlette deprecation warning** |
+| `cd vnext/backend && uv run ruff check .` | **passed** |
+| `cd vnext/backend && uv run mypy` | **passed**; 155 source files |
+| `git diff --check` | **passed** |
+| reviewed comparison test marker/timeout scan | **passed**; no `integration`/`serial` marker or fixed process/stream timeout |
+| `cd vnext/rust && cargo fmt --all -- --check` | **passed** |
+| `cd vnext/rust && cargo clippy -p gateway-compute-core --all-targets -- -D warnings` | **passed** |
+| `cd vnext/rust && cargo test -p gateway-compute-core` | **82 passed, 0 failed** |
+| `cd vnext/rust && cargo test -p gateway-compute-python` | **3 passed, 0 failed** |
+| reviewed source tip | `b39ebe3126e935cf027d4f7256dc4fafb74d1035` plus the dirty S7 remediation below; not a sealed SHA |
+
+The Python/Rust evidence covers Arrow/Parquet records vectors and the existing coarse Arrow provider
+port. No semantic Rust comparison provider is enabled in this checkout; the Python kernels remain the
+small/reference path and production-scale native differential execution stays deferred under S0/S3.
+This is recorded as a scope boundary, not as evidence of an enabled production provider.
+
+#### Findings register
+
+| ID | Severity | Finding | Disposition |
+| --- | --- | --- | --- |
+| `S7-001` | **P2** | `open_records_closure()` and `read_records_artifact()` validated artifact bytes and then materialized all Parquet rows without enforcing the frozen `max_records_per_table` budget. A valid artifact over the per-table cap was accepted, and cache restore could repeat the unbounded row-object materialization. | Closed in the artifact owner: Parquet footer row count is checked against the policy before `read()`/`to_pylist()`, closure/manifest entry counts are checked at the same boundary, and `test_reopen_rejects_records_over_per_table_limit_before_materialization` passes. |
+| `S7-002` | **P2** | The frozen `max_records_per_table` budget was applied independently to standard/ordered/blank closure entries. A table containing multiple record families could exceed the table cap while every individual artifact remained below it. | Closed in the artifact owner: publication and closure reopen aggregate `record_count` by table before writing or reading any Parquet; `test_publish_rejects_combined_record_families_over_table_limit` and `test_reopen_rejects_combined_record_families_over_table_limit` pass. |
+
+No other P1/P2, contract ambiguity, digest mismatch, hidden dependency, forbidden import, partial
+publication or marker violation was found. The existing S5 Docker/image gate remains deferred because
+Docker is unavailable and the current candidate includes inherited Rust/Cargo changes; no container
+pass is claimed here. The known missing `legacy/backend_vnext` oracle is not present in the current
+unit result (the focused/full unit commands above are green), but remains outside R5 ownership if it
+reappears in a different checkout.
+
+#### Boundary disposition and decision
+
+| Area | Result | Independent evidence |
+| --- | --- | --- |
+| public input/import boundary | **Pass** | architecture tests and source scan; comparison imports only public contracts and no forbidden runtime/repository modules |
+| comparison semantics/digests | **Pass for staged Python reference surface** | standard/ordered/blank/key/schema/typed-null/update-only fixtures and deterministic facts/closure digest checks |
+| Arrow/Parquet language-neutral boundary | **Pass for enabled boundary** | batch metadata/round-trip tests, Python/Rust records golden vectors and Rust reader tests; semantic Rust provider remains deferred |
+| artifact publication/recovery | **Pass** | tamper, duplicate, truncation, store failure, cancellation, closure reopen and per-table/byte/spool budget tests |
+| cache trust/identity boundary | **Pass** | semantic key invalidation, content/manifest validation, operation-local ref rewrite, replacement rejection and continuation-policy rebind tests |
+| markers/static/container | **Pass with deferred image gate** | full unit, ruff, mypy, Rust gates and marker scan pass; inherited Docker rebuild remains required before S8 sealed candidate |
+
+**S7 decision: PASS for the reviewed staged R5 implementation surface.** `S7-001` and `S7-002` are
+closed with regression evidence; no unclosed P1/P2 or contract ambiguity remains. S8 is the next
+conversation and must carry this record, the dirty-path/source-tip context, the deferred native-provider
+and Docker gates, and the unchanged global `p3_implementation_authorized: no` decision.
 
 ## 7. Deferred and reopen conditions
 
 Deferred: static risk rules/aggregation, surface/bundle production integration, table-level cache,
-projection cache promotion/eviction, independent compute worker/service, and provider-specific raw cache.
+projection cache promotion/eviction, independent compute worker/service, semantic Rust comparison
+provider/differential production execution, provider-specific raw cache, and the inherited backend
+image/container gate.
 
 Reopen R5 if batch boundary requires R4 private imports, Python row objects become required bulk input,
 Rust changes semantic facts without version/digest update, replacement enters row alignment, blank
-payload affects comparison, cache bypasses policy, partial closure publishes, or a forbidden business/
-repository dependency is introduced.
+payload affects comparison, cache bypasses policy, partial closure publishes, the deferred provider or
+container gate is claimed without its evidence, or a forbidden business/repository dependency is
+introduced.

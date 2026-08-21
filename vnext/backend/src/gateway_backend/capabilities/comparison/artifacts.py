@@ -148,13 +148,12 @@ def publish_records_closure(
         entries: list[RecordsClosureEntry] = []
         for table in facts.tables:
             control.checkpoint()
-            for family, records in _records_by_family(table):
+            family_records = _records_by_family(table)
+            total_records = sum(len(records) for _, records in family_records)
+            _enforce_record_count_budget(total_records, limits)
+            for family, records in family_records:
                 if not records:
                     continue
-                if len(records) > limits.max_records_per_table:
-                    raise RecordsPublicationError(
-                        f"records limit exceeded for {table.table_name}/{family.value}"
-                    )
                 entries.append(
                     _publish_family(
                         table,
@@ -252,6 +251,13 @@ def open_records_closure(
         records=entries,
         closure_manifest_digest=expected_digest,
     )
+    table_record_counts: dict[str, int] = {}
+    for entry in entries:
+        table_record_counts[entry.table_name] = (
+            table_record_counts.get(entry.table_name, 0) + entry.record_count
+        )
+    for record_count in table_record_counts.values():
+        _enforce_record_count_budget(record_count, limits)
     for entry in entries:
         if entry.records_ref.media_type != PARQUET_MEDIA_TYPE:
             raise RecordsPublicationError("records ref must identify Parquet")
@@ -268,6 +274,7 @@ def open_records_closure(
             or manifest.record_count != entry.record_count
         ):
             raise RecordsPublicationError("records manifest does not match closure entry")
+        _enforce_record_count_budget(entry.record_count, limits)
         artifact_raw = _locate(store, entry.records_ref)
         actual_count, actual_content = _validate_parquet_bytes(
             artifact_raw,
@@ -305,6 +312,7 @@ def read_records_artifact(
         or manifest.record_count != entry.record_count
     ):
         raise RecordsPublicationError("records manifest does not match closure entry")
+    _enforce_record_count_budget(entry.record_count, limits)
     return _read_parquet_rows(_locate(store, entry.records_ref), manifest, limits)
 
 
@@ -553,6 +561,7 @@ def _validate_parquet_bytes(
         actual_schema = file.schema_arrow
         if not _schema_matches(actual_schema, expected_schema):
             raise RecordsPublicationError("records Parquet schema mismatch")
+        _enforce_record_count_budget(file.metadata.num_rows if file.metadata is not None else None, limits)
         rows = _read_parquet_rows_from_file(file)
     except (OSError, pa.ArrowException, ValueError) as exc:
         if isinstance(exc, RecordsPublicationError):
@@ -589,6 +598,7 @@ def _read_parquet_rows(
             ),
         ):
             raise RecordsPublicationError("records Parquet schema mismatch")
+        _enforce_record_count_budget(file.metadata.num_rows if file.metadata is not None else None, limits)
         rows = _read_parquet_rows_from_file(file)
     except (OSError, pa.ArrowException, ValueError) as exc:
         if isinstance(exc, RecordsPublicationError):
@@ -608,6 +618,13 @@ def _read_parquet_rows(
 def _read_parquet_rows_from_file(file: pq.ParquetFile) -> tuple[dict[str, object], ...]:
     table = file.read()
     return tuple(cast(tuple[dict[str, object], ...], tuple(table.to_pylist())))
+
+
+def _enforce_record_count_budget(record_count: int | None, limits: RecordsPublicationPolicy) -> None:
+    if record_count is None or record_count < 0:
+        raise RecordsPublicationError("records Parquet row count is unavailable")
+    if record_count > limits.max_records_per_table:
+        raise RecordsPublicationError("records per-table limit exceeded")
 
 
 def _schema_matches(actual: pa.Schema, expected: pa.Schema) -> bool:

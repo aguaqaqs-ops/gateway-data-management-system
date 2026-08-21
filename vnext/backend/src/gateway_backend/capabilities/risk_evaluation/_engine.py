@@ -89,6 +89,10 @@ class _TableBudgetExceeded(Exception):
     pass
 
 
+class _PairAnnotationBudgetExceeded(Exception):
+    pass
+
+
 _RiskEmitter = Callable[..., None]
 
 
@@ -124,28 +128,28 @@ def evaluate_risk(
             evaluation_input.requested_tables,
         )
         outcomes: list[_TableOutcome] = []
+        total_annotations = 0
         for item in extracted:
             _check_pair(context, pair_started, execution_policy)
             try:
-                outcomes.append(
-                    _evaluate_table(
-                        item,
-                        rules,
-                        evaluation_input,
-                        execution_policy,
-                        context,
-                        pair_started,
-                    )
+                outcome = _evaluate_table(
+                    item,
+                    rules,
+                    evaluation_input,
+                    execution_policy,
+                    context,
+                    pair_started,
+                    annotation_limit=execution_policy.max_annotations_per_pair - total_annotations,
                 )
+                outcomes.append(outcome)
+                total_annotations += len(outcome.annotations)
             except _TableBudgetExceeded:
                 outcomes.append(_degraded_table(item, "risk table budget exceeded", rules))
-        total_annotations = sum(len(item.annotations) for item in outcomes)
-        if total_annotations > execution_policy.max_annotations_per_pair:
-            return _build_pair_degraded_without_annotations(
-                evaluation_input,
-                outcomes,
-                execution_policy,
-            )
+            except _PairAnnotationBudgetExceeded:
+                return _build_pair_degraded_without_annotations(evaluation_input, outcomes, execution_policy)
+        # Publication is the terminal commit boundary; cancellation is observed before it,
+        # and a result that has crossed the boundary is never converted back to CANCELLED.
+        _check_pair(context, pair_started, execution_policy)
         result = _publish_result(
             evaluation_input,
             outcomes,
@@ -153,7 +157,6 @@ def evaluate_risk(
             execution_policy,
             any(item.degraded for item in outcomes),
         )
-        _check_pair(context, pair_started, execution_policy)
         return result
     except _PairCancelled as exc:
         return RiskEvaluationResult(
@@ -174,6 +177,8 @@ def _evaluate_table(
     policy: RiskExecutionPolicy,
     context: RiskExecutionContext,
     pair_started: float,
+    *,
+    annotation_limit: int,
 ) -> _TableOutcome:
     table_started = context.clock()
     annotations: list[RiskAnnotation] = []
@@ -190,7 +195,9 @@ def _evaluate_table(
         target: RiskTarget,
         evidence: tuple[tuple[str, str | int | bool | None], ...] = (),
     ) -> None:
-        if len(annotations) >= policy.max_annotations_per_table:
+        if len(annotations) >= min(policy.max_annotations_per_table, annotation_limit):
+            if len(annotations) >= annotation_limit:
+                raise _PairAnnotationBudgetExceeded
             raise _TableBudgetExceeded
         rule = rules[rule_id]
         reason_code = reason_for(rule)
@@ -292,15 +299,14 @@ def _emit_row_risks(
             ComparisonRecordKind.ROW_DELETED: RiskRuleId.ROW_DELETED,
             ComparisonRecordKind.ROW_MODIFIED: RiskRuleId.ROW_MODIFIED,
         }[record_kind]
-        matching = tuple(record for record in item.records if record.record_kind is record_kind)
         if evaluation_input.risk_options.annotation_detail_policy is AnnotationDetailPolicy.COUNTS_ONLY:
             emit(rule_id, RiskTarget(target_type=RiskTargetType.TABLE, table_name=table.table_name, coverage="ROW_COUNTS"), (("count", count),))
             continue
-        if not matching:
-            _require_records_closure(item, evaluation_input)
-            emit(rule_id, RiskTarget(target_type=RiskTargetType.TABLE, table_name=table.table_name, coverage="ROW_RECORDS_UNAVAILABLE"), (("count", count),))
-            continue
-        for record in matching:
+        matching_count = 0
+        for record in item.records:
+            if record.record_kind is not record_kind:
+                continue
+            matching_count += 1
             target = RiskTarget(
                 target_type=RiskTargetType.ROW,
                 table_name=table.table_name,
@@ -308,11 +314,14 @@ def _emit_row_risks(
                 changed_columns=record.changed_columns,
             )
             emit(rule_id, target)
-        if len(matching) < count:
+        if not matching_count:
+            _require_records_closure(item, evaluation_input)
+            emit(rule_id, RiskTarget(target_type=RiskTargetType.TABLE, table_name=table.table_name, coverage="ROW_RECORDS_UNAVAILABLE"), (("count", count),))
+        if matching_count < count:
             emit(
                 rule_id,
                 RiskTarget(target_type=RiskTargetType.TABLE, table_name=table.table_name, coverage="ROW_RECORDS_SUPPRESSED"),
-                (("count", count - len(matching)),),
+                (("count", count - matching_count),),
             )
     if counts and not item.records and any(counts.values()) and evaluation_input.risk_options.annotation_detail_policy is not AnnotationDetailPolicy.COUNTS_ONLY:
         _require_records_closure(item, evaluation_input)
@@ -376,6 +385,7 @@ def _publish_result(
             if artifact is not None:
                 artifacts.append(artifact)
                 manifest_digests.append(artifact.manifest_digest)
+        artifact_requested = evaluation_input.risk_options.annotation_detail_policy is not AnnotationDetailPolicy.COUNTS_ONLY
         table_risks.append(
             RiskTableRisk(
                 table_name=outcome.table_name,
@@ -384,17 +394,19 @@ def _publish_result(
                 annotation_count=len(outcome.annotations),
                 source_table_status=outcome.source_table_status,
                 annotation_ref=None if artifact is None else artifact.content_ref,
-                diagnostics=outcome.diagnostics + (("annotation artifact budget exceeded",) if artifact is None and outcome.allow_artifact else ()),
+                diagnostics=outcome.diagnostics
+                + (("annotation artifact budget exceeded",) if artifact is None and outcome.allow_artifact and artifact_requested else ()),
             )
         )
-        closure_entries.append(
-            RiskAnnotationClosureEntry(
-                table_name=outcome.table_name,
-                annotation_count=len(outcome.annotations),
-                artifact=artifact,
-                no_record_reason_codes=() if artifact is not None else reason_codes,
+        if artifact_requested:
+            closure_entries.append(
+                RiskAnnotationClosureEntry(
+                    table_name=outcome.table_name,
+                    annotation_count=len(outcome.annotations),
+                    artifact=artifact,
+                    no_record_reason_codes=() if artifact is not None else reason_codes,
+                )
             )
-        )
     return _finish_result(
         evaluation_input,
         tuple(table_risks),

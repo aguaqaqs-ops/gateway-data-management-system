@@ -1,6 +1,6 @@
 # P3-R6 Risk, Surface and Bundle Execution Plan
 
-状态：S0 complete；S1 complete；S2 complete/pass；S3-S7 staged planning；global implementation authorization remains disabled
+状态：S0 complete；S1 complete；S2 complete/pass；S3 complete/pass；S4-S7 staged planning；global implementation authorization remains disabled
 
 日期：2026-08-22
 
@@ -204,6 +204,64 @@ Outputs: findings register, exact rerun list, remediation authorization and S4 e
 
 Exit: no unclosed P1/P2 or contract ambiguity; any accepted deferred item is explicit.
 
+#### S3 verification record
+
+Executed on 2026-08-22 as an independent focused review against source tip
+`fd2d2f99f19039abd4262990ccf013ff43f55979` (S1/S2 risk contracts, engine, artifacts and tests).
+The review did not rely on implementer explanations or private mutable state. Three P2 and one P1
+findings were returned to the Risk owner in the same implementation boundary; the remediation and
+confirmatory rerun are included below.
+
+Review boundary:
+
+- public owner/import DAG and forbidden flow, repository, source-materialization, legacy and test
+  dependencies;
+- frozen ruleset identity and complete-v1 validation, canonical semantic digest inputs and ref/
+  diagnostic exclusion;
+- READY/DEGRADED/FAILED/CANCELLED precedence, cancellation/deadline checkpoints and pair/table
+  resource caps;
+- annotation content/manifest/closure digest binding, no-record entries, tamper/readback checks and
+  no public output on pair failure;
+- host-path identity rejection, bounded diagnostics/evidence and absence of full records in reports;
+- test marker classification and whether the focused gate introduces Dolt, process, network or
+  container dependencies.
+
+| Finding | Area / disposition | Evidence |
+| --- | --- | --- |
+| `S3-F001` | Pair annotation cap / **P1 closed** | Initial review found all table annotations were materialized before the pair cap was checked. Admission now receives the remaining pair budget and stops before exceeding it; the pair-cap regression remains in the focused suite. |
+| `S3-F002` | Publication cancellation boundary / **P2 closed** | Initial review found cancellation was checked after publication. The evaluator now checks immediately before the publication commit boundary and never converts a committed result back to `CANCELLED`; no public ref is returned on pre-commit cancellation. |
+| `S3-F003` | `COUNTS_ONLY` closure semantics / **P2 closed** | Count-only mode no longer emits an artifact-budget diagnostic or no-record closure entry; a regression test covers the intentional suppression path. |
+| `S3-F004` | Annotation artifact schema / **P2 closed** | Closure replay now parses every annotation, target and reason shape in addition to digest/manifest checks; malformed canonical records fail closed. |
+| `S3-001` | Multi-artifact orphan lifecycle / **accepted defer** | A later artifact-store failure can leave opaque content/manifest/closure objects unreachable in the store. The result returns no public ref; `ArtifactStorePort` has no delete/transaction primitive. Reclamation remains ADR 0012 lifecycle work and inherited R5-D05, so this is not a partial public closure or a new security boundary. |
+| `S3-002` | Ruleset drift / **pass** | `validate_risk_ruleset()` rejects non-v1 id/version/model, incomplete rule sets and frozen rule identity changes; canonical ruleset document and digest round-trip tests pass. |
+| `S3-003` | Failure lattice / **pass after remediation** | Contract construction rejects outputs for `FAILED`/`CANCELLED`; cancellation is checked before the publication commit boundary, and pair/table cap, missing-closure and cancellation tests pass. Degraded tables retain explicit no-record closure entries. |
+| `S3-004` | Resource enforcement / **pass after remediation** | Pair annotation admission is incremental and stops before materializing beyond the remaining pair cap; row matching no longer copies the full record tuple. Table/pair counts, artifact/JSON/diagnostic byte limits and wall-time checkpoints are covered by the focused gate. |
+| `S3-005` | Closure and diagnostic leakage / **pass after remediation** | Closure replay rechecks raw/content/manifest digests, canonical payloads and every annotation record shape; refs and diagnostics are excluded from semantic digests. Artifact identities and risk evidence reject host-path-shaped values, and reports do not inline records. |
+| `S3-006` | Owner/import and runtime boundary / **pass** | Architecture DAG allows Risk only the public Comparison contracts and artifact/shared-kernel ports; no HTTP, flow, Workspace, Submit, Repository/Dolt, legacy, private provider or test-support import is present. |
+
+Exact rerun evidence:
+
+| Check | Result |
+| --- | --- |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit tests/test_risk_contracts.py tests/test_risk_evaluation.py tests/test_architecture.py` | **42 passed** |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit` | **722 passed**, 1 existing Starlette deprecation warning |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check .` | **passed** |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline mypy` | **passed**; 161 source files |
+| `git diff --check` | **passed** |
+| Docker/container rebuild | **DEFERRED / NOT APPLICABLE**; S3 changed only this documentation record; Risk is pure Python and no image, lockfile, deployment or runtime boundary changed. Inherited R5 image gate remains a final-candidate prerequisite. |
+
+No fixed-timeout, Dolt, process, network or integration fixture was introduced, so no
+`integration` or `serial -n 0` rerun is required. Benchmark evidence remains measurement-only and
+was not used as an S3 gate.
+
+Remediation authorization: **scoped Risk remediation completed** for the pair-cap admission,
+publication commit boundary, count-only closure semantics and annotation record validation. `S3-001`
+is explicitly accepted deferred lifecycle work; no P1/P2 finding or contract ambiguity remains open.
+S4 entry decision: **APPROVED AFTER SEAL** to begin surface contracts/assembly in a new conversation
+once the tested Risk remediation is sealed as the S3 handoff. The next conversation may consume only
+that committed public R5/R6 Risk boundary. `p3_r6_implementation_authorized` and global
+`p3_implementation_authorized` remain `no`.
+
 ### S4 — Surface contracts and deterministic assembly
 
 Objective: implement thin `ComparisonSurface`, table projection, risk refs, ordered unsupported presentation, diagnostic refs, logical ref validation and surface digest.
@@ -272,6 +330,12 @@ p3_r6_s2_exit: pass
 p3_r6_s2_implementation_authorized: yes
 p3_r6_s2_tested_source_sha: 6b9525e0e8acd40d50dad540c0129b842abec746
 p3_r6_s2_worktree: dirty_uncommitted_s1_s2_contract_engine_tests_docs
+p3_r6_s3: completed
+p3_r6_s3_exit: pass
+p3_r6_s3_initial_reviewed_source_sha: fd2d2f99f19039abd4262990ccf013ff43f55979
+p3_r6_s3_tested_source: fd2d2f99f19039abd4262990ccf013ff43f55979_plus_uncommitted_risk_remediation
+p3_r6_s3_worktree: dirty_risk_remediation_and_review_record
+p3_r6_s3_remediation: pair_cap_commit_boundary_count_only_and_annotation_schema_closed; orphan_reclamation_deferred_under_adr_0012
 p3_r6_implementation_authorized: no
 p3_implementation_authorized: no
 p3_r5_exit: pass

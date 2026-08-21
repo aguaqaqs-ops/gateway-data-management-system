@@ -228,6 +228,19 @@ def test_low_risk_filter_and_counts_only_do_not_require_artifact_store() -> None
     assert result.risk_report.overall.risk_level is None
 
 
+def test_counts_only_does_not_report_artifact_budget_or_no_record_closure() -> None:
+    result = _evaluate(
+        ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.ADDED_TABLE),
+        options=RiskOptions(annotation_detail_policy=AnnotationDetailPolicy.COUNTS_ONLY),
+        store=InMemoryArtifactStore(),
+    )
+
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].diagnostics == ()
+    assert result.risk_closure is None
+
+
 @dataclass
 class _SetProbe:
     value: bool = True

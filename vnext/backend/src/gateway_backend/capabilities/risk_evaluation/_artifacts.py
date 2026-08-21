@@ -16,6 +16,12 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskAnnotationArtifact,
     RiskAnnotationClosure,
     RiskAnnotationClosureEntry,
+    RiskLevel,
+    RiskReason,
+    RiskReasonCode,
+    RiskRuleId,
+    RiskTarget,
+    RiskTargetType,
 )
 
 
@@ -191,6 +197,11 @@ def _verify_annotation_artifact(store: ArtifactStorePort, artifact: RiskAnnotati
         or len(annotations) != artifact.annotation_count
     ):
         raise RiskArtifactError("risk annotation content payload mismatch")
+    try:
+        for payload in annotations:
+            _annotation_from_document(payload)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise RiskArtifactError("risk annotation record payload mismatch") from exc
     expected_manifest = annotation_manifest_payload(
         table_name=artifact.table_name,
         annotation_count=artifact.annotation_count,
@@ -198,6 +209,62 @@ def _verify_annotation_artifact(store: ArtifactStorePort, artifact: RiskAnnotati
     )
     if manifest != expected_manifest:
         raise RiskArtifactError("risk annotation manifest payload mismatch")
+
+
+def _annotation_from_document(payload: object) -> RiskAnnotation:
+    if type(payload) is not dict:
+        raise ValueError("annotation must be an object")
+    if set(payload) != {"annotation_id", "diagnostics", "reasons", "risk_level", "target"}:
+        raise ValueError("annotation fields mismatch")
+    target_payload = payload["target"]
+    if type(target_payload) is not dict:
+        raise ValueError("annotation target must be an object")
+    target_keys = {
+        "before_row_identity", "changed_columns", "coverage", "current_row_identity",
+        "position", "position_range", "row_identity", "table_name", "target_type",
+    }
+    if set(target_payload) != target_keys:
+        raise ValueError("annotation target fields mismatch")
+    reasons_payload = payload["reasons"]
+    if type(reasons_payload) is not list:
+        raise ValueError("annotation reasons must be a list")
+    reasons: list[RiskReason] = []
+    for reason_payload in reasons_payload:
+        if type(reason_payload) is not dict or set(reason_payload) != {"evidence", "message", "reason_code", "rule_id"}:
+            raise ValueError("annotation reason fields mismatch")
+        evidence_payload = reason_payload["evidence"]
+        if type(evidence_payload) is not list:
+            raise ValueError("annotation evidence must be a list")
+        evidence: list[tuple[str, object]] = []
+        for pair in evidence_payload:
+            if type(pair) is not list or len(pair) != 2 or type(pair[0]) is not str:
+                raise ValueError("annotation evidence pair mismatch")
+            evidence.append((pair[0], pair[1]))
+        reasons.append(
+            RiskReason(
+                reason_code=RiskReasonCode(reason_payload["reason_code"]),
+                message=reason_payload["message"],
+                rule_id=RiskRuleId(reason_payload["rule_id"]),
+                evidence=tuple(sorted(evidence, key=lambda item: item[0])),  # type: ignore[arg-type]
+            )
+        )
+    return RiskAnnotation(
+        annotation_id=payload["annotation_id"],
+        risk_level=RiskLevel(payload["risk_level"]),
+        target=RiskTarget(
+            target_type=RiskTargetType(str(target_payload["target_type"])),
+            table_name=target_payload["table_name"],
+            row_identity=None if target_payload["row_identity"] is None else DigestRef(target_payload["row_identity"]),
+            before_row_identity=None if target_payload["before_row_identity"] is None else DigestRef(target_payload["before_row_identity"]),
+            current_row_identity=None if target_payload["current_row_identity"] is None else DigestRef(target_payload["current_row_identity"]),
+            changed_columns=tuple(target_payload["changed_columns"]),
+            position=target_payload["position"],
+            position_range=None if target_payload["position_range"] is None else tuple(target_payload["position_range"]),
+            coverage=target_payload["coverage"],
+        ),
+        reasons=tuple(reasons),
+        diagnostics=tuple(payload["diagnostics"]),
+    )
 
 
 def _closure_entry_payload(entry: RiskAnnotationClosureEntry) -> dict[str, object]:

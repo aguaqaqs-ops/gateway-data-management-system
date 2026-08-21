@@ -1,8 +1,8 @@
 # P3 Active Context Index
 
-状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；P3-R3 gate pass；P3-R4 gate pass）
+状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；P3-R3 gate pass；P3-R4 gate pass；P3-R5 gate pass）
 
-日期：2026-08-20
+日期：2026-08-21
 
 Owner：Backend vNext Architecture
 
@@ -80,6 +80,18 @@ p3_r5_s0_exit: pass
 p3_r5_s1: completed
 p3_r5_s1_exit: pass
 p3_r5_s1_code_sha: 2963963c9cb707c9584aac8778eb07e8d6d40782
+p3_r5_s2: completed
+p3_r5_s3: completed
+p3_r5_s4: completed
+p3_r5_s5: completed
+p3_r5_s6: completed
+p3_r5_s7: completed
+p3_r5_s7_review: p3-r5-comparison-execution-plan.md#66-s7-focused-and-independent-review-record
+p3_r5_s8: completed
+p3_r5_s8_handoff: p3-r5-comparison-handoff.md
+p3_r5_exit: pass
+p3_r5_validated_code_sha: 7cb90e6f3e3707de856da0aabb43f7d519b9f1f3
+p3_r6_ready: yes
 p3_r5_ready: yes
 p3_implementation_authorized: no
 default_retrieval: this_index
@@ -159,8 +171,8 @@ cleanup_commit: this_cleanup_commit
 
 23. [P3-R5 Comparison Design Baseline](p3-r5-comparison-design.md)：R5 的 comparison boundary、
     identity continuation、initial/full pair、records、ordered/blank、bounded publication、
-    cache layering 和 static-risk extension seam。本文是 formal design，不授权 R5 implementation；
-    S0 已完成，下一入口是独立 implementation authorization review。
+    cache layering 和 static-risk extension seam。本文是 formal design；R5 S0-S8 的执行证据
+    与 module gate 由 execution plan / handoff 记录，仍不授权后续 production integration。
 
 24. [P3-R5 Comparison Execution Plan](p3-r5-comparison-execution-plan.md)：S0-S8 staged execution、
     owner graph、allowlist、verification gates 和每阶段对话上下文策略；implementation authorization
@@ -168,6 +180,10 @@ cleanup_commit: this_cleanup_commit
 
 25. [P3-R5-S0 Entry and Budget Freeze](p3-r5-s0-entry-and-budget-freeze.md)：R5 entry applicability、
     Arrow/Parquet/IPC batch boundary、budget、fixture、benchmark、allowlist 和 reopen checklist。
+
+26. [P3-R5 Comparison Handoff](p3-r5-comparison-handoff.md)：R5 module gate / R6 entry。sealed
+    source SHA、verification evidence、stable facts/records/cache boundary、deferred register 和
+    implementation authorization。
 
 ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)（P3-R2-S0 已修订
 source dump / repository import 双边界）。
@@ -255,7 +271,8 @@ P3 默认 allowlist（设计检索，不是源码扫描）：
 - 本 index、P2 handoff、P3-R1 capability foundation handoff、P3-R2 table access
   parser handoff、P3-R3 source materialization handoff、P3-R3 source materialization
   execution plan、P3-R3-S0 freeze、P3-R4 storage projection design、P3-R4 storage
-  projection execution plan、P3-R4-S0 freeze、P3-R4 storage projection handoff、cleanup manifest
+  projection execution plan、P3-R4-S0 freeze、P3-R4 storage projection handoff、P3-R5 comparison
+  design、P3-R5 comparison execution plan、P3-R5-S0 freeze、P3-R5 comparison handoff、cleanup manifest
 - `docs/backend-vnext/refactoring/formal/contracts/` 中现行 contract（不含已
   superseded 的 vector-schema）
 - `docs/backend-vnext/refactoring/formal/adr/0001-0005`、`0009`、`0010`、`0012`、`0013`、

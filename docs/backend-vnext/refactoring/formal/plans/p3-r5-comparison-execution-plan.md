@@ -1,6 +1,6 @@
 # P3-R5 Comparison Execution Plan
 
-状态：Accepted for staged planning；S0/S1/S2/S3/S4/S5/S6/S7 scoped complete；implementation authorization pending
+状态：S8 module gate complete；R5 gate pass；R6 entry handoff recorded；implementation authorization pending
 
 日期：2026-08-21
 
@@ -13,6 +13,8 @@ Owner：Backend vNext Comparison Capability
 入口：[P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)
 
 S0：[P3-R5-S0 Entry and Budget Freeze](p3-r5-s0-entry-and-budget-freeze.md)
+
+S8 handoff：[P3-R5 Comparison Handoff](p3-r5-comparison-handoff.md)
 
 本文定义 R5 的 staged execution、conversation boundaries、allowlist、review gates 和 handoff
 evidence。S1 的 public batch boundary/provider-port 实现由本次明确任务授权并已完成；本文不因
@@ -453,6 +455,12 @@ Required evidence:
 Exit: `p3_r5_exit: pass` and next-stage readiness may be recorded only after closure validation;
 `p3_implementation_authorized` is not changed by this plan.
 
+S8 status: **complete; R5 module gate PASS**. The tested source candidate is sealed at
+`7cb90e6f3e3707de856da0aabb43f7d519b9f1f3`; the handoff is recorded in
+[p3-r5-comparison-handoff.md](p3-r5-comparison-handoff.md). This is a source/module gate only:
+the Rust/Cargo-triggered backend image/container gate remains required and deferred because the
+Docker daemon is unavailable. The global `p3_implementation_authorized` value remains `no`.
+
 ## 6. Verification policy
 
 - Pure comparison, digest, records, cache validation and Arrow schema tests are unit tests.
@@ -553,7 +561,8 @@ Failure/deferred register:
 - The backend image rebuild and container gate remain pending until a Docker daemon is available; the
   candidate must rebuild `vnext/backend/Dockerfile` from the dirty-worktree candidate and rerun the
   relevant container gates before any sealed handoff.
-- S6 cache, S7 review and S8 final handoff remain intentionally unimplemented and unauthorized.
+- At the S5 evidence point, S6 cache, S7 review and S8 final handoff were intentionally out of scope;
+  their completed records are captured in §§6.5–6.6 and the S8 handoff.
 - Store objects written before a later publication failure are unreferenced orphans by contract; no
   orphan is returned to a consumer, and lifecycle reclamation is outside S5.
 
@@ -587,9 +596,10 @@ vnext/backend/src/gateway_backend/capabilities/comparison/standard.py
 vnext/backend/tests/test_comparison_cache.py
 ```
 
-The S6 candidate is not a sealed handoff: the worktree includes prior S1-S5 changes, and the inherited
-backend image rebuild is still unavailable because Docker is not connected. S7 review is recorded in
-§6.6; the S8 module gate remains pending.
+The S6 candidate was not a sealed handoff: the worktree included prior S1-S5 changes, and the inherited
+backend image rebuild was unavailable because Docker was not connected. S7 review is recorded in §6.6;
+the later S8 module gate and handoff close the staged R5 source gate while carrying the image gate as
+deferred.
 
 ### 6.6 S7 focused and independent review record
 
@@ -618,7 +628,7 @@ graph。不依赖实现者口头解释；finding 修复返回 artifact owner 后
 | Check | Result |
 | --- | --- |
 | focused comparison/artifact/cache/architecture suite | **112 passed** |
-| `cd vnext/backend && uv run pytest -m unit -q` | **698 passed, 1 existing Starlette deprecation warning** |
+| `cd vnext/backend && uv run pytest -m unit -q` | **698 passed, 1 existing Starlette deprecation warning** in the historical S7 review environment; the current S8 candidate rerun and its known legacy-oracle gap are recorded in [the S8 handoff](p3-r5-comparison-handoff.md#4-commands-and-results) |
 | `cd vnext/backend && uv run ruff check .` | **passed** |
 | `cd vnext/backend && uv run mypy` | **passed**; 155 source files |
 | `git diff --check` | **passed** |
@@ -644,9 +654,8 @@ This is recorded as a scope boundary, not as evidence of an enabled production p
 No other P1/P2, contract ambiguity, digest mismatch, hidden dependency, forbidden import, partial
 publication or marker violation was found. The existing S5 Docker/image gate remains deferred because
 Docker is unavailable and the current candidate includes inherited Rust/Cargo changes; no container
-pass is claimed here. The known missing `legacy/backend_vnext` oracle is not present in the current
-unit result (the focused/full unit commands above are green), but remains outside R5 ownership if it
-reappears in a different checkout.
+pass is claimed here. The current S8 candidate's full-unit rerun confirms the known missing/incompatible
+`legacy/backend_vnext` oracle; it remains outside R5 ownership and is tracked in the S8 handoff.
 
 #### Boundary disposition and decision
 

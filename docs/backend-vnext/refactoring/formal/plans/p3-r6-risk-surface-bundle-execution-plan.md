@@ -1,6 +1,6 @@
 # P3-R6 Risk, Surface and Bundle Execution Plan
 
-状态：S0 complete；S1 complete/pass；S2 complete/pass；S3 complete/pass；S4 complete/pass；S5 complete/pass；S6 complete/pass；S7 staged planning；global implementation authorization remains disabled
+状态：S0 complete；S1 complete/pass；S2 complete/pass；S3 complete/pass；S4 complete/pass；S5 complete/pass；S6 complete/pass；S7 complete/pass；R6 module gate pass；handoff: [p3-r6-risk-surface-bundle-handoff.md](p3-r6-risk-surface-bundle-handoff.md)；global implementation authorization remains disabled
 
 日期：2026-08-22
 
@@ -418,11 +418,46 @@ Conversation: `new conversation`; acceptance/documentation only.
 
 Exit: `p3_r6_exit = pass`, `p3_r7_ready = yes` only if all gate evidence is present. This does not authorize P3 production integration or change global implementation authorization.
 
+#### S7 verification and handoff record
+
+S7 is **complete/pass**. The tested source candidate is the clean committed source tip
+`9739bf03443df37c826e2a73934513524e7e2674`, immediately before adding this acceptance record and
+the handoff document. The detailed handoff is [P3-R6 Risk, Surface and Bundle Handoff](p3-r6-risk-surface-bundle-handoff.md).
+This is a source/module gate only: it does not authorize P3 production integration, flow wiring,
+cache/GC, a Rust risk provider or the global implementation flag.
+
+| Check | Result |
+| --- | --- |
+| focused R6 Risk/Surface/Bundle/architecture unit gate | **PASS**; 86 passed |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit --ignore tests/test_table_rules_resolver.py` | **PASS**; 632 passed, 1 existing Starlette deprecation warning |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit` | **KNOWN EXTERNAL FIXTURE GAP**; 708 passed, 58 failed, 1 warning; all failures are confined to `tests/test_table_rules_resolver.py` loading the absent/incompatible `legacy/backend_vnext` oracle |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check .` | **PASS** |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline mypy` | **PASS**; 171 source files |
+| `git diff --check` | **PASS** |
+| benchmark runner discovery | **NOT APPLICABLE**; exact command and empty result are recorded in the handoff; no numeric result is used as a gate |
+| `docker info` | **DEFERRED**; Docker client is present but the daemon is unavailable at `/var/run/docker.sock`, so no image revision or container pass is claimed |
+
+The focused gate covers Risk contract/evaluation/closure, Surface contract/assembly, Bundle
+contract/assembly/recovery, and the architecture owner/import graph. The independent S6 review is
+closed with no P1/P2 finding; the S3 Risk review is also closed with only ADR 0012 orphan
+reclamation accepted as deferred lifecycle work. The known full-unit failures are inherited from
+the missing/incompatible legacy oracle and are outside R6 ownership.
+
+The inherited R5 Rust/Cargo backend image gate remains mandatory and deferred. Because this is a
+stage exit, the repository container rule also requires rebuilding the current HEAD when Docker is
+available; the failed `docker info` check is the evidence for the deferral. No R6 Dockerfile,
+dependency, deployment or runtime-boundary change was introduced.
+
+S7 decision: **PASS**; `p3_r6_exit = pass`, `p3_r7_ready = yes`, and
+`p3_r6_implementation_authorized = no` / `p3_implementation_authorized = no` remain unchanged.
+
 ## 5. Verification policy
 
 R6 pure Python contracts, risk, surface, bundle, digest and artifact tests are `unit`. R6 does not create Dolt repositories. Any fixed timeout/cancellation timing test is `serial` and runs with `-n 0`. Each package runs its mandated ruff and mypy commands. Benchmark runs are measurement-only and must identify dataset/ruleset/provider/revision and raw resource metrics.
 
-Container rebuild is not required for Python-only R6 changes. It becomes mandatory if R6 changes Rust/Cargo, lockfiles, Dockerfile, entrypoint, Compose, environment wiring or runtime boundaries. The inherited R5 image gate remains a final-candidate prerequisite.
+Pure Python R6 changes introduce no additional image boundary. However, the repository stage-exit
+rule still requires a current-HEAD container rebuild at S7; this gate is deferred when Docker is
+unavailable. The inherited R5 image gate remains a final-candidate prerequisite.
 
 ## 6. Deferred register and reopen conditions
 
@@ -469,6 +504,14 @@ p3_r6_s6_reviewed_source_sha: 931f9c3ba76b3dcb8847a84f12b79f9073bed287
 p3_r6_s6_worktree: dirty_s6_bundle_recovery_remediation_tests_and_review_doc
 p3_r6_s6_remediation: bundle_manifest_semantic_binding_and_closure_manifest_digest_closed
 p3_r6_s6_deferred: orphan_reclamation_under_adr_0012;legacy_table_rules_oracle_gap;inherited_image_gate
+p3_r6_s7: completed
+p3_r6_s7_exit: pass
+p3_r6_s7_tested_source_sha: 9739bf03443df37c826e2a73934513524e7e2674
+p3_r6_s7_worktree: clean_source_at_gate_then_acceptance_docs_added
+p3_r6_s7_deferred: orphan_reclamation_under_adr_0012;legacy_table_rules_oracle_gap;inherited_image_gate
+p3_r6_exit: pass
+p3_r7_ready: yes
+p3_r6_handoff: p3-r6-risk-surface-bundle-handoff.md
 p3_r6_implementation_authorized: no
 p3_implementation_authorized: no
 p3_r5_exit: pass
@@ -488,4 +531,5 @@ benchmark: measurement_only_no_gate
 - [Comparison Surface Contract](../../../contracts/comparison-surface.md)
 - [Comparison Bundle Contract](../../../contracts/comparison-bundle.md)
 - [P3-R6-S6 Independent Owner, Import, Digest and Recovery Review](p3-r6-s6-independent-review.md)
+- [P3-R6 Risk, Surface and Bundle Handoff](p3-r6-risk-surface-bundle-handoff.md)
 - [Proportional Assurance Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)

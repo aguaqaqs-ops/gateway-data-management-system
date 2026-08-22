@@ -308,14 +308,14 @@ Repository/Dolt effect or the global implementation flag.
 | Check | Result |
 | --- | --- |
 | focused R7 mutation/renderer/executor/architecture unit gate | **PASS**; 98 passed |
-| `cd vnext/backend && uv run pytest -q -m unit` | **PASS**; 848 passed, 1 existing Starlette deprecation warning |
+| `cd vnext/backend && uv run pytest -q -m unit` | **HISTORICAL ENVIRONMENT-BOUND PASS**; 848 passed, 1 warning was recorded at S7, but the required legacy source was not sealed in this repository and the result is not portable final-candidate evidence |
 | `cd vnext/backend && uv run ruff check .` | **PASS** |
 | `cd vnext/backend && uv run mypy` | **PASS**; 188 source files |
 | other four Python packages `uv run ruff check .` / `uv run mypy` | **PASS**; mypy 26 / 15 / 195 / 34 source files |
 | `git diff --check` | **PASS** |
 | benchmark runner discovery | **NOT APPLICABLE**; exact command and empty result are recorded in the handoff; no numeric result is used as a gate |
-| `docker info` | **AVAILABLE**; R7 introduced no image boundary change, so no current-HEAD image rebuild is claimed for this candidate |
-| legacy oracle disposition | **CLOSED**; full backend unit passes including `tests/test_table_rules_resolver.py` |
+| `docker info` | **CLIENT ONLY / DAEMON UNAVAILABLE**; no `/var/run/docker.sock`, so no current-HEAD image rebuild is claimed for this candidate |
+| legacy oracle disposition | **CARRIED**; the historical environment loaded it, but `legacy/backend_vnext` is absent/incompatible in the sealed repository; P3 final closure owns the exact-nodeid exclusion and reopen rule |
 
 The inherited R5 Rust/Cargo backend image gate remains mandatory and deferred. No R7 Dockerfile,
 dependency, deployment or runtime-boundary change was introduced.
@@ -376,6 +376,6 @@ p3_r7_validated_code_sha: b0261cb669fedc07173a31cd55ce83ef19b0c6ad
 p3_r7_exit: pass
 p3_r7_implementation_authorized: no
 p3_implementation_authorized: no
-inherited_r5_legacy_oracle_gap: closed
+inherited_r5_legacy_oracle_gap: carried_to_p3_final_closure_exact_nodeid_disposition
 inherited_image_gate: required_deferred_to_final_candidate
 ```

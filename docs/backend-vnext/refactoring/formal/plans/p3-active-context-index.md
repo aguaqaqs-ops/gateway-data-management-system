@@ -1,6 +1,6 @@
 # P3 Active Context Index
 
-状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；P3-R3 gate pass；P3-R4 gate pass；P3-R5 gate pass；P3-R6 gate pass；P3-R7 gate pass）
+状态：P3-R1 至 P3-R7 module gates pass；P3 final closure in progress；`p3_exit: pending`
 
 日期：2026-08-22
 
@@ -123,8 +123,16 @@ p3_r7_validated_code_sha: b0261cb669fedc07173a31cd55ce83ef19b0c6ad
 p3_r7_upstream_applicability_re_attested_sha: f2d48d876c40dd918878a6e5215c57daf7920766
 p3_r7_rework_required: no
 p3_r7_implementation_authorized: no
-p3_container_gate: inherited_required_deferred_docker_daemon_unavailable
-p3_legacy_oracle_gap: inherited_known_external_fixture_gap
+p3_final_closure: in_progress
+p3_final_closure_plan: p3-final-closure-execution-plan.md
+p3_final_closure_entry: pass
+p3_exit: pending
+p4_design_conversation_ready: yes
+p4_ready: no_until_p3_final_handoff
+p3_capability_modules_complete: yes
+p3_production_integration_authorized: no
+p3_container_gate: pending_clean_sha_rebuild_and_smoke
+p3_legacy_oracle_gap: known_external_fixture_exact_nodeid_exclusion
 p3_r5_ready: yes
 p3_implementation_authorized: no
 default_retrieval: this_index
@@ -240,6 +248,9 @@ cleanup_commit: this_cleanup_commit
     R7 independent owner/import/digest/recovery pass and S7 carry-forward。
 35. [P3-R7 Mutation and Target Closure Handoff](p3-r7-mutation-target-closure-handoff.md)：
     R7 module gate、validated source SHA、deferred register 和 P4/P5 entry prerequisites。
+36. [P3 Final Closure and P4/P5 Handoff Execution Plan](p3-final-closure-execution-plan.md)：
+    Phase-level evidence reconciliation、diagnostic benchmark、final candidate/container gates、
+    durable/reconciliation ownership freeze 和最终 P3→P4/P5 handoff；不是新的 capability R。
 
 ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)（P3-R2-S0 已修订
 source dump / repository import 双边界）。

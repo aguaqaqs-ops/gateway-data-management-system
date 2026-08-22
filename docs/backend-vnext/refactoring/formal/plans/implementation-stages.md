@@ -6,11 +6,11 @@
 
 当前状态：Phase 2简化设计、D01 Phase 0–1同原则简化设计、DX cross-phase
 interface reconciliation与S02联合代码清理均已闭合；P2-R1 v8 formal 已通过。
-P2-R6-S11 `phase_2_complete: yes`。Phase 3 capability design 已完成；P3-R1 module gate
-`p3_r1_exit: pass`，P3-R2 module gate `p3_r2_exit: pass`，P3-R3 module gate
-`p3_r3_exit: pass`，P3-R4 module gate
-`p3_r4_exit: pass`，P3-R5 module gate `p3_r5_exit: pass`，R6 entry 见
-[P3-R5 Comparison Handoff](p3-r5-comparison-handoff.md)。
+P2-R6-S11 `phase_2_complete: yes`。Phase 3 capability design 已完成；P3-R1 至 P3-R7
+module gates 均为 `pass`。当前进入
+[P3 Final Closure](p3-final-closure-execution-plan.md)，闭合 phase-level evidence、diagnostic
+benchmark、最终 candidate/container gate 与 P4/P5 handoff；`p3_exit: pending`、
+`p4_ready: no`，未进入 P4 implementation。
 R2 详细执行见 [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)。
 R3 详细执行见 [P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)。
 R3 S0 冻结见 [P3-R3-S0 Entry, Applicability and Budget Freeze](p3-r3-s0-entry-and-budget-freeze.md)。
@@ -36,9 +36,10 @@ S1–S3 仅在 S0 freeze allowlist 内落地，见
 [P3 Active Context Index](p3-active-context-index.md) 与
 [P2 External Interface Handoff](p2-external-interface-handoff.md)。
 
-P3-R5 comparison 的 S0-S8、R5 handoff、P3-R6 risk/surface/bundle design、R6 S0 freeze 和
-R6 staged execution plan 分别见对应 formal plan；R6 S0 已完成，下一入口为 S1；R6 implementation
-仍须 scoped authorization。
+P3-R5 comparison、P3-R6 risk/surface/bundle 与 P3-R7 mutation/target closure 的 staged
+execution 和 handoff 分别见对应 formal plans。R1-R7 capability modules 已按 scoped step
+authorization 完成；历史 `p3_implementation_authorized: no` 只保留为“未授权 production
+application/HTTP integration”的兼容状态，不得解释为回滚已通过的 module gates。
 P2-R1 默认 provider 为Candidate A offline CLI，Candidate B保留但默认禁用。该顺序由
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 和[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)共同约束；Phase 0–9的安全、

@@ -4,7 +4,7 @@
 
 日期：2026-08-18
 
-阶段：P3-R1 至 P3-R7 complete；implementation authorization pending
+阶段：P3-R1 至 P3-R7 complete；P3 final closure in progress；P4 implementation未授权
 
 Owner：Backend vNext Capability Architecture
 
@@ -226,8 +226,8 @@ R 之间默认串行。R 内只有不共享未稳定 contract、不会改变对�
 ```yaml
 p3_design: accepted
 p3_execution_plan: accepted_for_staged_planning
-current_module: P3-R7
-current_module_detail: R6 current candidate revalidated; R7 upstream applicability re-attested with no rework; P4 not entered; implementation authorization pending
+current_module: P3-FINAL
+current_module_detail: R1-R7 module gates complete; phase-level evidence/container/handoff closure in progress; P4 not entered
 p3_r1_s0: completed
 p3_r1_s0_inventory: p3-r1-s0-asset-inventory.md
 p3_r1_s1: completed
@@ -311,8 +311,15 @@ p3_r7_upstream_applicability_re_attested_sha: f2d48d876c40dd918878a6e5215c57daf7
 p3_r7_rework_required: no
 p3_r7_exit: pass
 p3_r7_implementation_authorized: no
-p3_container_gate: inherited_required_deferred_docker_daemon_unavailable
-p3_legacy_oracle_gap: inherited_known_external_fixture_gap
+p3_final_closure: in_progress
+p3_final_closure_plan: p3-final-closure-execution-plan.md
+p3_final_closure_entry: pass
+p3_exit: pending
+p4_ready: no_until_p3_final_handoff
+p3_capability_modules_complete: yes
+p3_production_integration_authorized: no
+p3_container_gate: pending_clean_sha_rebuild_and_smoke
+p3_legacy_oracle_gap: known_external_fixture_exact_nodeid_exclusion
 p3_implementation_authorized: no
 ```
 
@@ -342,6 +349,7 @@ p3_implementation_authorized: no
 - [P3-R7-S0 Entry and Budget Freeze](p3-r7-s0-entry-and-budget-freeze.md)
 - [P3-R7-S6 Independent Owner, Import, Digest and Recovery Review](p3-r7-s6-independent-review.md)
 - [P3-R7 Mutation and Target Closure Handoff](p3-r7-mutation-target-closure-handoff.md)
+- [P3 Final Closure and P4/P5 Handoff Execution Plan](p3-final-closure-execution-plan.md)
 - [P3-R6-S0 Entry and Budget Freeze](p3-r6-s0-entry-and-budget-freeze.md)
 - [Implementation Stages](implementation-stages.md)
 - [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)

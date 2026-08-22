@@ -45,6 +45,7 @@
 - [P3-R7-S0 Entry and Budget Freeze](plans/p3-r7-s0-entry-and-budget-freeze.md)（S0 complete；R6 upstream applicability re-attested；不授权实现）
 - [P3-R7-S6 Independent Owner, Import, Digest and Recovery Review](plans/p3-r7-s6-independent-review.md)（S6 complete/pass；不授权实现）
 - [P3-R7 Mutation and Target Closure Handoff](plans/p3-r7-mutation-target-closure-handoff.md)（R7 gate pass；upstream evidence refreshed；no R7 rework；不授权进入 P4）
+- [P3 Final Closure and P4/P5 Handoff Execution Plan](plans/p3-final-closure-execution-plan.md)（F0 entry pass；phase evidence、benchmark、container与handoff闭合进行中；`p3_exit: pending`）
 - [Repository Service Contract](contracts/repository-service.md)
 - [Performance Measurement Guidance](contracts/performance-measurement-and-baseline.md)
 - [ADR 0001: Python/Rust Hybrid Compute Strategy](adr/0001-python-rust-hybrid-compute-strategy.md)
@@ -90,8 +91,9 @@ handoff `S8_exit: pass`、`S9_ready: yes`；S9 final handoff `S9_exit: pass`、
 `production_retest_required=no`。P3 design 已完成；P3-R4 module gate `p3_r4_exit: pass`；
 P3-R5 module gate `p3_r5_exit: pass`、`p3_r6_ready: yes`；P3-R6 S0-S7 complete/pass，
 current candidate `f2d48d876c40dd918878a6e5215c57daf7920766` 已重新验收；P3-R7 upstream
-applicability 已在同一候选重新确认，R7 无需返工且未进入 P4。legacy table-rules oracle gap
-和 inherited backend image/container gate 继续 deferred；Docker daemon 当前不可用。全局
+applicability 已在同一候选重新确认，R7 无需返工且未进入 P4。P3 final closure 已进入 F0-F4，
+当前以 exact nodeid exclusion 管理 legacy table-rules external oracle，并补齐 measurement-only
+benchmark 和 inherited backend image/container gate；`p3_exit: pending`、`p4_ready: no`。全局
 `p3_implementation_authorized: no`，不得把任何 P3 module handoff 当作 Phase 3 production
 integration authorization。默认入口见
 [P3 Active Context Index](plans/p3-active-context-index.md)。完整对外接口见

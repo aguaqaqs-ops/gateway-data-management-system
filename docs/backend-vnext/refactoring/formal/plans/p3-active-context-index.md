@@ -1,6 +1,6 @@
 # P3 Active Context Index
 
-状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；P3-R3 gate pass；P3-R4 gate pass；P3-R5 gate pass；P3-R6 design accepted）
+状态：Accepted P3 design entry（`phase_2_complete: yes`；P3 design complete；P3-R1 gate pass；P3-R2 gate pass；P3-R3 gate pass；P3-R4 gate pass；P3-R5 gate pass；P3-R6 gate pass；P3-R7 gate pass）
 
 日期：2026-08-22
 
@@ -100,6 +100,22 @@ p3_r6_s0: completed
 p3_r6_s0_record: p3-r6-s0-entry-and-budget-freeze.md
 p3_r6_s0_exit: pass
 p3_r6_implementation_authorized: no
+p3_r6_exit: pass
+p3_r7_ready: yes
+p3_r7_design: p3-r7-mutation-target-closure-design.md
+p3_r7_design_status: accepted
+p3_r7_detail_plan: p3-r7-mutation-target-closure-execution-plan.md
+p3_r7_detail_plan_status: accepted_for_staged_planning
+p3_r7_s0: completed
+p3_r7_s0_record: p3-r7-s0-entry-and-budget-freeze.md
+p3_r7_s0_exit: pass
+p3_r7_s6: completed
+p3_r7_s6_review: p3-r7-s6-independent-review.md
+p3_r7_s7: completed
+p3_r7_s7_handoff: p3-r7-mutation-target-closure-handoff.md
+p3_r7_exit: pass
+p3_r7_validated_code_sha: b0261cb669fedc07173a31cd55ce83ef19b0c6ad
+p3_r7_implementation_authorized: no
 p3_r5_ready: yes
 p3_implementation_authorized: no
 default_retrieval: this_index
@@ -208,9 +224,13 @@ cleanup_commit: this_cleanup_commit
 31. [P3-R7 Mutation and Target Closure Design Baseline](p3-r7-mutation-target-closure-design.md)：
     R7 mutation/change-set、renderer、reference executor 和 P4/P5 boundary。
 32. [P3-R7 Mutation and Target Closure Execution Plan](p3-r7-mutation-target-closure-execution-plan.md)：
-    R7 S0-S3 complete、S4-S7 staged execution、review isolation、verification gates 和 handoff。
+    R7 S0-S7 complete、review isolation、verification gates 和 handoff。
 33. [P3-R7-S0 Entry and Budget Freeze](p3-r7-s0-entry-and-budget-freeze.md)：R7 immutable input、
     policy、failure matrix、caps、fixtures 和 implementation prerequisites。
+34. [P3-R7-S6 Independent Owner, Import, Digest and Recovery Review](p3-r7-s6-independent-review.md)：
+    R7 independent owner/import/digest/recovery pass and S7 carry-forward。
+35. [P3-R7 Mutation and Target Closure Handoff](p3-r7-mutation-target-closure-handoff.md)：
+    R7 module gate、validated source SHA、deferred register 和 P4/P5 entry prerequisites。
 
 ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)（P3-R2-S0 已修订
 source dump / repository import 双边界）。

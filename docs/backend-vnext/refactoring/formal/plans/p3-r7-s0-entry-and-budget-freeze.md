@@ -30,7 +30,7 @@ p3_r7_implementation_authorized: no
 p3_implementation_authorized: no
 container_gate: inherited_required_deferred
 benchmark: measurement_only_no_gate
-legacy_oracle_gap: required_close_before_r7_exit
+legacy_oracle_gap: closed_at_r7_s7
 ```
 
 R7 只接受 R4 immutable `CanonicalizationManifest`、`RepositoryImportArtifactInput` 及其 digest/ref。

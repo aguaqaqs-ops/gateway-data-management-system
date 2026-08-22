@@ -1,6 +1,6 @@
 # P3-R7 Mutation and Target Closure Execution Plan
 
-状态：S0 complete/pass；S1 complete/pass；S2 complete/pass；S3 complete/pass；S4-S7 staged planning；implementation authorization pending
+状态：S0 complete/pass；S1 complete/pass；S2 complete/pass；S3 complete/pass；S4 complete/pass；S5 complete/pass；S6 complete/pass；S7 complete/pass；R7 gate pass；handoff: [p3-r7-mutation-target-closure-handoff.md](p3-r7-mutation-target-closure-handoff.md)
 
 日期：2026-08-22
 
@@ -211,6 +211,22 @@ tests/test_dolt_renderer.py
 vnext/fixtures/golden/mutation/
 ```
 
+#### S4 verification record
+
+Executed on 2026-08-22 against source HEAD
+`b0261cb669fedc07173a31cd55ce83ef19b0c6ad`. Renderer implementation and golden fixtures were
+sealed in `e09ff32cc3562b744ff5718357a529c7b8ce3e6f`; S7 reran gates at the current tip.
+
+| Check | Result |
+| --- | --- |
+| `cd vnext/backend && uv run pytest -q -m unit tests/test_dolt_renderer.py tests/test_mutation_contracts.py tests/test_mutation_planning.py tests/test_architecture.py` | **PASS** |
+| golden fixtures under `vnext/fixtures/golden/mutation/renderer/` | **PASS**; valid SQL and capability-failure closures present |
+| `cd vnext/backend && uv run ruff check .` | **passed** |
+| `cd vnext/backend && uv run mypy` | **passed** |
+| Docker/container rebuild | **DEFERRED / NOT APPLICABLE**; renderer Python and fixtures only |
+
+S4 decision: **PASS / complete**. S5 may consume the sealed public ChangeSet and renderer boundary.
+
 ### S5 — External reference executor
 
 Implement the in-memory `PREPARE/APPLYING/VERIFYING/SUCCEEDED|FAILED|UNKNOWN_OUTCOME` state machine,
@@ -226,15 +242,86 @@ capabilities/external_target_sync/_reference_executor.py
 tests/test_external_target_executor.py
 ```
 
+#### S5 verification record
+
+Executed on 2026-08-22 against source HEAD
+`b0261cb669fedc07173a31cd55ce83ef19b0c6ad`. Executor implementation was sealed in
+`e09ff32cc3562b744ff5718357a529c7b8ce3e6f`; S7 reran gates at the current tip.
+
+| Check | Result |
+| --- | --- |
+| `cd vnext/backend && uv run pytest -q -m unit tests/test_external_target_executor.py tests/test_external_target_contracts.py tests/test_architecture.py` | **PASS** |
+| rollback, drift, unknown outcome, reconcile and idempotent retry coverage | **PASS** |
+| `cd vnext/backend && uv run ruff check .` | **passed** |
+| `cd vnext/backend && uv run mypy` | **passed** |
+| Docker/container rebuild | **DEFERRED / NOT APPLICABLE**; in-memory executor Python only |
+
+S5 decision: **PASS / complete**. S6 may review the full owner/import/digest/recovery surface.
+
 ### S6 — Independent R7 review
 
 Review complete owner/import graph, digest identity, renderer safety, transaction atomicity, unknown
 outcome recovery, resource caps and forbidden P4/P5 integration.
 
+#### S6 verification record
+
+Executed on 2026-08-22. Authoritative record:
+[P3-R7-S6 Independent Owner, Import, Digest and Recovery Review](p3-r7-s6-independent-review.md).
+
+| Finding | Area / disposition | Evidence |
+| --- | --- | --- |
+| `S3-F001`–`S3-F003` | Planner/closure findings / **P2 closed in S3** | Remain closed at S6 re-review |
+| `S3-001` | Artifact-store orphan reclamation / **accepted defer** | ADR 0012 lifecycle work; no public closure ref on store failure |
+| `S6-001` | Owner/import boundary / **pass** | Architecture DAG and forbidden-import scans pass |
+| `S6-002` | Plan identity and closure digest binding / **pass** | Mixed-plan, threshold, destructive and idempotency tests pass |
+| `S6-003` | Renderer safety and replay admission / **pass** | Golden SQL and capability-failure fixtures pass |
+| `S6-004` | Executor rollback/unknown/reconcile / **pass** | Rollback, reconcile-then-retry and idempotent reuse tests pass |
+| `S6-005` | Forbidden P4/P5 integration / **pass** | No flow/Repository/Dolt/durable-state wiring in R7 capabilities |
+
+| Check | Result |
+| --- | --- |
+| focused R7 mutation/renderer/executor/architecture unit gate | **98 passed** |
+| `cd vnext/backend && uv run pytest -q -m unit` | **848 passed**, 1 existing Starlette deprecation warning |
+| `cd vnext/backend && uv run ruff check .` | **passed** |
+| `cd vnext/backend && uv run mypy` | **passed**; 188 source files |
+| other four Python packages `uv run ruff check .` / `uv run mypy` | **passed** |
+| `git diff --check` | **passed** |
+| Docker/container rebuild | **DEFERRED / NOT APPLICABLE**; review Python/tests/docs only |
+
+S6 decision: **PASS / complete**. No open P1/P2 finding. S7 may seal the tested source candidate and
+publish the R7 handoff.
+
 ### S7 — R7 module gate and handoff
 
 Rerun focused/full applicable unit gates, ruff, mypy, benchmark discovery, legacy-oracle disposition and
 current-HEAD container decision. Record tested tip, deferred items, exact commands and later P4/P5 entry.
+
+#### S7 verification and handoff record
+
+Executed on 2026-08-22. The tested source candidate is the clean committed source tip
+`b0261cb669fedc07173a31cd55ce83ef19b0c6ad`, immediately before adding this acceptance record and
+the handoff document. The detailed handoff is
+[P3-R7 Mutation and Target Closure Handoff](p3-r7-mutation-target-closure-handoff.md).
+This is a source/module gate only: it does not authorize P3 production integration, flow wiring,
+Repository/Dolt effect or the global implementation flag.
+
+| Check | Result |
+| --- | --- |
+| focused R7 mutation/renderer/executor/architecture unit gate | **PASS**; 98 passed |
+| `cd vnext/backend && uv run pytest -q -m unit` | **PASS**; 848 passed, 1 existing Starlette deprecation warning |
+| `cd vnext/backend && uv run ruff check .` | **PASS** |
+| `cd vnext/backend && uv run mypy` | **PASS**; 188 source files |
+| other four Python packages `uv run ruff check .` / `uv run mypy` | **PASS**; mypy 26 / 15 / 195 / 34 source files |
+| `git diff --check` | **PASS** |
+| benchmark runner discovery | **NOT APPLICABLE**; exact command and empty result are recorded in the handoff; no numeric result is used as a gate |
+| `docker info` | **AVAILABLE**; R7 introduced no image boundary change, so no current-HEAD image rebuild is claimed for this candidate |
+| legacy oracle disposition | **CLOSED**; full backend unit passes including `tests/test_table_rules_resolver.py` |
+
+The inherited R5 Rust/Cargo backend image gate remains mandatory and deferred. No R7 Dockerfile,
+dependency, deployment or runtime-boundary change was introduced.
+
+S7 decision: **PASS / complete**. `p3_r7_exit = pass`. `p3_implementation_authorized = no` remains
+unchanged.
 
 ## 5. Verification policy
 
@@ -254,8 +341,8 @@ HEAD and is not closed by source-only unit results.
 
 Deferred: real Repository/Dolt execution, P5B confirmation/finalize, P4/P5 durable operation state,
 production external adapters, multi-target persistence, cache/retention/GC, orphan reclamation, Rust
-renderer/provider optimization, benchmark numeric gates, legacy oracle restoration until owner action,
-and inherited image gate until Docker availability.
+renderer/provider optimization, benchmark numeric gates, and inherited image gate until the P3 final
+candidate gate.
 
 Reopen R7 if forbidden imports appear, presentation artifacts become mutation authority, plan identity
 can drift, partial effects publish, unknown outcomes blind-replay, unsupported values stringify, or a
@@ -275,12 +362,20 @@ p3_r7_s2: completed
 p3_r7_s2_exit: pass
 p3_r7_s3: completed
 p3_r7_s3_exit: pass
-p3_r7_s4: staged
-p3_r7_s5: staged
-p3_r7_s6: staged
-p3_r7_s7: staged
+p3_r7_s4: completed
+p3_r7_s4_exit: pass
+p3_r7_s5: completed
+p3_r7_s5_exit: pass
+p3_r7_s6: completed
+p3_r7_s6_exit: pass
+p3_r7_s6_review: p3-r7-s6-independent-review.md
+p3_r7_s7: completed
+p3_r7_s7_exit: pass
+p3_r7_s7_handoff: p3-r7-mutation-target-closure-handoff.md
+p3_r7_validated_code_sha: b0261cb669fedc07173a31cd55ce83ef19b0c6ad
+p3_r7_exit: pass
 p3_r7_implementation_authorized: no
 p3_implementation_authorized: no
-inherited_r5_legacy_oracle_gap: required_close_before_r7_exit
-inherited_image_gate: required_deferred_to_current_head_final_candidate
+inherited_r5_legacy_oracle_gap: closed
+inherited_image_gate: required_deferred_to_final_candidate
 ```

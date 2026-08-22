@@ -359,3 +359,16 @@ ordered_extension:
 - 所有 refs 都可被 operation/bundle closure 重写。
 - Degraded/unsupported 表有可展示诊断入口。
 - Ordered unsupported 不被展示成普通 semantic diff。
+
+## S4 reference contract realization
+
+当前 Python contract realization 使用 `backend-vnext/comparison-surface/v2`，公共类型位于
+`gateway_backend.capabilities.surface_assembly.contracts`。`SurfaceAssemblyInput` 只接受
+`ComparisonFacts`、可选 `ComparisonRecordsClosure`、可选 `RiskReport`/annotation closure
+以及显式 artifact index；`SurfaceAssemblyResult` 在 `READY` 以外的 terminal status 不携带
+Surface。
+
+`surface_digest` 不包含 `surface_id`、raw ref identity、diagnostics、operation/flow metadata
+或时间字段；ref 的 `size_bytes`/`raw_sha256` integrity identity、closure digests 和表级
+semantic payload 会参与 digest。`rewrite_surface_refs` 只能替换已验证的 opaque
+`ArtifactRef`，并保持 digest 不变。

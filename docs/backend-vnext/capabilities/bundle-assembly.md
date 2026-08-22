@@ -1,6 +1,6 @@
 # Bundle Assembly Capability
 
-本文定义 comparison bundle 的第一版实现设计。Contract 见 `../contracts/comparison-bundle.md`。
+本文定义并记录 comparison bundle v2 的实现。Contract 见 `../contracts/comparison-bundle.md`。
 
 Bundle assembly 是 flow-neutral capability。它把一个或多个 `ComparisonSurface` 及其 artifacts 闭合为可交付 bundle root 或 bundle artifact；flow 可以在外层加 preview/history/archive envelope，但 bundle core 不理解业务状态机。
 
@@ -12,7 +12,7 @@ Bundle assembly 是 flow-neutral capability。它把一个或多个 `ComparisonS
 
 - Flow 负责决定是否需要下载包、TTL、权限和 envelope。
 - Operation 负责调用 capability 并在 READY 前完成 artifact closure。
-- Bundle assembly 负责重写 refs、复制/硬链接 artifacts、写 manifest、计算 bundle digest。
+- Bundle assembly 负责校验并重写 refs、复制 artifacts、写 manifest/closure、计算 bundle digest。
 - Bundle assembly 不计算 comparison、risk 或 surface。
 - Bundle assembly 不读取 SourcePackage、RepositoryRef 或 repository server。
 - Bundle assembly 不依赖旧 preview/workbench/history modules。
@@ -21,7 +21,7 @@ Bundle assembly 是 flow-neutral capability。它把一个或多个 `ComparisonS
 
 本 capability 的第一步先把 `ComparisonBundle` core 从旧实现里独立出来，当前轮只做 vNext core，不把 preview/workbench 兼容形状当成通用 bundle 事实：
 
-- 新实现落点优先放在 `backend_vnext/capabilities/bundle_assembly/`。
+- 新实现落点为 `vnext/backend/src/gateway_backend/capabilities/bundle_assembly/`。
 - 旧 preview / workbench 兼容层不在 core 内默认实现，也不作为 bundle truth。
 - 当前轮优先实现 manifest、artifact closure、bundle-relative ref rewrite、bundle digest 和 pair 组织。
 - 在 core 稳定前，不把旧 preview 入口转发到新实现，也不反过来依赖旧 preview 形状。
@@ -77,11 +77,9 @@ versions.py
 
 ```text
 bundle_assembly
-  -> contracts.comparison_surface
-  -> contracts.comparison_bundle
-  -> artifacts.closure
-  -> artifacts.store
-  -> core
+  -> surface_assembly public API/contracts
+  -> artifacts
+  -> shared kernel
 ```
 
 禁止依赖 comparison compute、risk evaluation、repository_server、flow、operation runtime 或旧业务模块。
@@ -94,8 +92,9 @@ bundle_assembly
 BundleAssemblyInput:
   bundle_profile
   inputs
-  pair_surfaces
-  pair_artifact_closures
+  pairs:
+    - surface_result: SurfaceAssemblyResult
+      surface_artifact_closure: BundleArtifactClosure
   shared_artifacts optional
   artifact_policy
   bundle_contract_version
@@ -114,8 +113,9 @@ BundleAssemblyResult:
 
 规则：
 
-- `pair_surfaces` 必须已经通过 surface validation。
-- `pair_artifact_closures` 必须能校验 records/risk/diagnostics artifacts。
+- 每个 `surface_result` 必须为 `READY` 且通过 Surface validation；`CANCELLED` 直接使 bundle `CANCELLED`。
+- required pair 失败使 bundle `FAILED`；optional pair 失败不带入 partial artifacts，整体为 closure-valid `DEGRADED`。
+- 每个 surface ref 必须在 pair/shared closure binding 中出现；closure 中嵌入的 JSON ArtifactRef 也必须声明并可回放。
 - business projection 声明的 supplemental artifacts 必须按 pair-relative ref 写入，并在 closure 中记录 ref、kind 与 content digest。
 - `bundle_artifact_ref` 是内部 artifact ref，不是 host path 或 download URL。
 
@@ -125,10 +125,12 @@ Bundle assembly 把 operation-local 或 cache-restored refs 重写为 bundle-rel
 
 规则：
 
-- refs 重写不改变 comparison/risk/surface digest。
+- 仅复制同一 artifact bytes 时，surface digest 不变；若 JSON closure 因嵌套 ref rewrite 产生新的 content/manifest integrity，Bundle 重新封存最终 surface digest。
 - 所有 bundle-relative refs 必须被 closure manifest 覆盖。
 - 如果 artifact policy 使用 hardlink，manifest 仍按 bundle-relative layout 表达。
 - 如果目标 storage 不支持目录语义，layout 可以由 manifest 映射实现。
+- `ArtifactRef` 不编码 filesystem path；bundle-relative logical path 只存在于 manifest/closure。
+- manifest/closure 各自受 16 MiB cap 约束；所有 bytes 写入并回读验证后才越过 publication boundary。
 
 第一版建议 layout 见 `../contracts/comparison-bundle.md`。
 
@@ -211,3 +213,10 @@ Integration：
 - `SurfaceAssemblyResult -> BundleAssemblyResult`。
 - cache-restored records/risk artifacts -> bundle-relative closure。
 - ordered unsupported surface -> bundle READY。
+
+## v2 实现状态
+
+- public contract version：`backend-vnext/comparison-bundle/v2`。
+- public entrypoints：`assemble_bundle`、`validate_bundle`、bundle digest/ref helpers。
+- Bundle 只允许使用 Surface public API/contracts、artifact port 和 shared kernel；不导入 comparison、risk、Repository、flow 或 runtime。
+- Bundle cache、GC/retention、flow envelope、Docker/Compose、Rust 和 runtime integration 仍 deferred。

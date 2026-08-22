@@ -53,12 +53,20 @@ BundleAssemblyInput:
     - pair_id
       before_input_index
       current_input_index
-      comparison_surface
+      surface_result
       surface_artifact_closure
   shared_artifacts optional
   artifact_policy
   ref_scope: BUNDLE_RELATIVE
 ```
+
+`surface_result` 是已完成的 `SurfaceAssemblyResult`。Bundle 只接受 `READY` Surface；取消是
+bundle `CANCELLED`，required pair 失败是 `FAILED`，optional pair 失败可生成不含 partial
+artifact 的 closure-valid `DEGRADED` bundle。
+
+`BundleArtifactBinding` 只在输入 closure 中保存 source `ArtifactRef`、kind、pair/shared scope
+和 normalized logical path。最终 manifest/closure 只保存 bundle final ref；source ref 不进入
+bundle semantic digest。
 
 `inputs` 是展示输入，不是 source truth：
 
@@ -84,13 +92,17 @@ BundleInput:
 ComparisonBundle:
   bundle_contract_version
   bundle_digest
+  bundle_id
   bundle_profile
+  status: READY | DEGRADED
   inputs
   pairs:
     - BundlePair
   table_aliases optional
   summary
+  manifest_ref
   artifact_closure_ref
+  failed_pairs
   diagnostics
 ```
 
@@ -110,9 +122,9 @@ BundlePair:
 
 `bundle_digest` 输入：
 
-- bundle manifest canonical payload。
+- bundle manifest canonical semantic payload。
 - pair surface digests。
-- artifact closure manifest digest。
+- artifact closure semantic manifest digest。
 - bundle contract version。
 
 不进入 digest：
@@ -123,6 +135,9 @@ BundlePair:
 - download URL。
 - host path。
 - generated_at。
+
+Manifest/closure 的 serialized `ArtifactRef.artifact_id`、source ref、host path 和 runtime metadata
+不进入 semantic digest；artifact media type、size 和 raw content digest 进入 closure integrity。
 
 ## Table Alias Mapping
 
@@ -271,6 +286,11 @@ ComparisonBundleArtifactClosure:
   diagnostics
   shared_snapshot_artifacts optional
 ```
+
+Bundle v2 的 closure entry 至少包含 `logical_path`、final `artifact_ref`、kind、size/raw digest
+和 pair/shared scope。Bundle assembler 会对 JSON closure 中嵌套的 ArtifactRef 做确定性 rewrite，
+拒绝未声明 ref、重复 entry、环依赖、非法 path 或 integrity mismatch。写入 manifest、closure
+和所有 referenced artifacts 并完成回读校验前，不返回 READY/DEGRADED public result。
 
 规则：
 

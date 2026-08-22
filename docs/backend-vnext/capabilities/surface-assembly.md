@@ -260,3 +260,32 @@ Integration：
 - `ComparisonFacts -> RiskReport -> ComparisonSurface`。
 - `ComparisonCoreCache restore -> SurfaceAssembly`。
 - `SurfaceAssembly -> BundleAssembly`。
+
+## S4 Python reference implementation
+
+S4 的 Python reference implementation 位于：
+
+```text
+vnext/backend/src/gateway_backend/capabilities/surface_assembly/
+  contracts.py
+  _assembly.py
+  _digest.py
+  _refs.py
+```
+
+公共入口为 `assemble_surface`、`validate_surface` 和 `rewrite_surface_refs`。Surface v2
+使用不可变 dataclass contracts；表按 canonical table name 排序，table id 等于 normalized
+table name，display name 按 current descriptor、before descriptor、table name 的顺序确定。
+组装过程只消费 descriptor、counts、schema changes、ordered metadata 和 closure entries，
+不会读取 `ComparisonRecord` 的 row values 或任何 Snapshot reader。
+
+S4 当前只支持 `STANDARD_TABLE_BROWSER`。普通表按 `ComparisonTableStatus` 投影为 summary、
+browse、records-only 或 degraded notice；ordered unsupported 保持 `DEGRADED`，不伪装成普通
+semantic diff。`DATASET_REPLACEMENT` 在 Surface 层表达为独立 before/current side refs、
+`REPLACED`/side-only table change kind 和 `REPLACEMENT_SIDE_BY_SIDE`，不发布 records 或
+row-risk refs。
+
+Surface digest 使用 canonical semantic payload，排除 runtime id、raw ref、diagnostic ref 和
+flow metadata，但包含 comparison/risk/identity semantic digests、table payload 及 artifact
+integrity identities。ref rewrite 只重写 opaque `ArtifactRef`，不会改变 surface digest。
+S4 的 JSON cap 固定为 16 MiB；校验失败、取消或超限均不发布部分 Surface。

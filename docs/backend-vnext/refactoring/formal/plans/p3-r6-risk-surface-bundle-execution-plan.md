@@ -1,6 +1,6 @@
 # P3-R6 Risk, Surface and Bundle Execution Plan
 
-状态：S0 complete；S1 complete；S2 complete/pass；S3 complete/pass；S4-S7 staged planning；global implementation authorization remains disabled
+状态：S0 complete；S1 complete；S2 complete/pass；S3 complete/pass；S4 complete/pass；S5 complete/pass；S6-S7 staged planning；global implementation authorization remains disabled
 
 日期：2026-08-22
 
@@ -272,6 +272,48 @@ Tests: table mapping, summary-only/degraded/replacement modes, missing required 
 
 Exit: surface can consume R5 facts and optional risk result without reading full rows or flow state.
 
+S4 status: **complete/pass**. S4 implementation is scoped to the Surface Assembly capability and
+does not authorize Bundle Assembly, flow integration or global P3 implementation.
+
+S4 changed paths:
+
+```text
+vnext/backend/src/gateway_backend/capabilities/surface_assembly/contracts.py
+vnext/backend/src/gateway_backend/capabilities/surface_assembly/__init__.py
+vnext/backend/src/gateway_backend/capabilities/surface_assembly/_assembly.py
+vnext/backend/src/gateway_backend/capabilities/surface_assembly/_digest.py
+vnext/backend/src/gateway_backend/capabilities/surface_assembly/_refs.py
+vnext/backend/tests/test_surface_contracts.py
+vnext/backend/tests/test_surface_assembly.py
+docs/backend-vnext/contracts/comparison-surface.md
+docs/backend-vnext/capabilities/surface-assembly.md
+```
+
+The reference implementation fixes `backend-vnext/comparison-surface/v2`, immutable public
+contracts, canonical table ordering, descriptor-only projection, records/risk closure binding,
+replacement side-by-side presentation, ordered-unsupported degradation, opaque ref validation and
+ref rewriting, semantic digest exclusion of runtime refs/diagnostics, and the 16 MiB surface JSON
+cap. Failed, cancelled, over-budget or closure-invalid inputs never return a partial Surface.
+
+#### S4 verification record
+
+Executed on 2026-08-22 against committed source HEAD
+`250f1d0d751590ed9c370986a92838309da30f14` plus the uncommitted S4 worktree. No dependency,
+Dockerfile, deployment, Rust or runtime-boundary files changed.
+
+| Check | Result |
+| --- | --- |
+| focused Surface/architecture unit gate | **PASS**; 38 passed |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check .` | **PASS** |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline mypy` | **PASS**; 166 source files |
+| full backend `pytest -q -m unit` | **PASS for S4 scope / pre-existing external-oracle gap remains**; 684 passed, 58 failures in `tests/test_table_rules_resolver.py` because the absent/incompatible `legacy/backend_vnext` oracle cannot load |
+| full unit excluding known legacy oracle | **PASS**; 608 passed, 1 existing Starlette deprecation warning; executed with `--ignore tests/test_table_rules_resolver.py` |
+| `git diff --check` | **PASS** |
+| Docker/container rebuild | **DEFERRED / NOT APPLICABLE**; Python-only Surface contracts, assembly, tests and docs; inherited R5 image gate remains a final-candidate prerequisite |
+
+No Dolt, process, network, integration or fixed-timeout serial fixture was introduced. S5 remains
+the next implementation step and is not included in this authorization or verification record.
+
 ### S5 — Bundle assembly and final closure
 
 Objective: implement single/multi-pair bundle assembly, bundle-relative ref rewrite, shared snapshot artifact handling, manifest/closure validation and atomic final publication.
@@ -281,6 +323,54 @@ Conversation: `same conversation as S4`.
 Tests: single/multi-pair, shared artifacts, missing/tampered/duplicate refs, closure size caps, digest stability, degraded no-record entries and failure cleanup.
 
 Exit: valid bundle is replayable from its final closure; invalid or partial bundle cannot be READY.
+
+S5 status: **complete/pass**. S5 implementation is scoped to Bundle Assembly and does not authorize
+flow integration, bundle cache/GC or global P3 implementation.
+
+S5 changed paths:
+
+```text
+vnext/backend/src/gateway_backend/capabilities/bundle_assembly/contracts.py
+vnext/backend/src/gateway_backend/capabilities/bundle_assembly/__init__.py
+vnext/backend/src/gateway_backend/capabilities/bundle_assembly/_assembly.py
+vnext/backend/src/gateway_backend/capabilities/bundle_assembly/_digest.py
+vnext/backend/src/gateway_backend/capabilities/bundle_assembly/_refs.py
+vnext/backend/tests/test_bundle_contracts.py
+vnext/backend/tests/test_bundle_assembly.py
+vnext/backend/tests/test_architecture.py
+docs/backend-vnext/contracts/comparison-bundle.md
+docs/backend-vnext/capabilities/bundle-assembly.md
+```
+
+The implementation fixes `backend-vnext/comparison-bundle/v2`, immutable Bundle contracts,
+single/multi-pair organization, optional-pair degradation, bundle-relative logical paths,
+content/integrity based final refs, nested JSON ref rewriting, shared snapshot deduplication,
+manifest/closure validation, 16 MiB manifest/closure caps, cancellation/deadline boundaries and
+publication only after final artifact readback. Bundle imports only Surface public API/contracts,
+artifact ports and shared kernel; it does not import comparison, risk, Repository, flow or runtime.
+Artifact-store orphan reclamation remains deferred under ADR 0012 because the existing port has no
+delete/transaction primitive.
+
+#### S5 verification record
+
+Executed on 2026-08-22 against committed source HEAD
+`250f1d0d751590ed9c370986a92838309da30f14` plus the uncommitted S4/S5 worktree. No dependency,
+Dockerfile, deployment, Rust or runtime-boundary files changed.
+
+| Check | Result |
+| --- | --- |
+| focused Bundle/Surface/architecture unit gate | **PASS**; 61 passed |
+| full backend unit excluding known legacy oracle | **PASS**; 631 passed, 1 existing Starlette deprecation warning; `--ignore tests/test_table_rules_resolver.py` |
+| full backend `pytest -q -m unit` | **PASS for S5 scope / pre-existing external-oracle gap remains**; 707 passed, 58 failures in `tests/test_table_rules_resolver.py` |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check .` | **PASS** |
+| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline mypy` | **PASS**; 171 source files |
+| `git diff --check` | **PASS** |
+| Docker/container rebuild | **DEFERRED / NOT APPLICABLE**; Python-only Bundle contracts/assembly/tests/docs; inherited R5 image gate remains a final-candidate prerequisite |
+
+The 58 full-unit failures are the inherited `table_rules_legacy_oracle` gap: missing or incompatible
+`legacy/backend_vnext` files and registry API. No Dolt, process, network, integration or fixed-timeout
+serial fixture was introduced. S6 is the next prerequisite and must independently review the complete
+R6 owner/import/digest/recovery boundary.
 
 ### S6 — Independent R6 owner/import/digest/recovery review
 
@@ -336,6 +426,15 @@ p3_r6_s3_initial_reviewed_source_sha: fd2d2f99f19039abd4262990ccf013ff43f55979
 p3_r6_s3_tested_source: fd2d2f99f19039abd4262990ccf013ff43f55979_plus_uncommitted_risk_remediation
 p3_r6_s3_worktree: dirty_risk_remediation_and_review_record
 p3_r6_s3_remediation: pair_cap_commit_boundary_count_only_and_annotation_schema_closed; orphan_reclamation_deferred_under_adr_0012
+p3_r6_s4: completed
+p3_r6_s4_exit: pass
+p3_r6_s4_tested_source_sha: 250f1d0d751590ed9c370986a92838309da30f14_plus_uncommitted_surface_changes
+p3_r6_s4_worktree: dirty_surface_contract_assembly_tests_and_docs
+p3_r6_s5: completed
+p3_r6_s5_exit: pass
+p3_r6_s5_tested_source_sha: 250f1d0d751590ed9c370986a92838309da30f14_plus_uncommitted_surface_bundle_changes
+p3_r6_s5_worktree: dirty_surface_bundle_contract_assembly_tests_and_docs
+p3_r6_s5_deferred: orphan_reclamation_under_adr_0012;legacy_table_rules_oracle_gap;inherited_image_gate
 p3_r6_implementation_authorized: no
 p3_implementation_authorized: no
 p3_r5_exit: pass

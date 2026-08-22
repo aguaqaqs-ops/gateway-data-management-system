@@ -386,6 +386,14 @@ def _assert_capability_import_allowed(
     for part in imported.split("."):
         assert part not in FORBIDDEN_IMPORT_PARTS, f"{source} imports {imported}"
     if imported == "gateway_backend.capabilities" or imported.startswith(CAPABILITIES_PREFIX):
+        if (
+            current_owner == "bundle_assembly"
+            and imported == "gateway_backend.capabilities.surface_assembly"
+        ):
+            # Bundle may consume the Surface owner’s public entrypoints for ref rewrite and
+            # digest re-sealing; it must still avoid Surface private modules and all other
+            # capability owners.
+            return
         _assert_capability_edge_allowed(source, current_owner, imported)
         return
     if imported == "gateway_backend.artifacts" or imported.startswith("gateway_backend.artifacts."):

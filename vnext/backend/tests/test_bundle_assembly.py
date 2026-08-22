@@ -396,3 +396,57 @@ def test_surface_ref_rewrite_preserves_digest_when_artifact_bytes_are_unchanged(
     assert result.bundle is not None
     assert surface_result.surface is not None
     assert result.bundle.pairs[0].surface_digest == surface_result.surface.surface_digest
+
+
+def test_recovery_rejects_manifest_and_closure_semantic_metadata_tampering() -> None:
+    source = InMemoryArtifactStore()
+    result = assemble_bundle(
+        _request((BundlePairInput("pair", 0, 1, _surface_result()),)),
+        source_store=source,
+    )
+    assert result.status is BundleAssemblyStatus.READY
+    assert result.bundle is not None
+
+    manifest_ref = result.bundle.manifest_ref
+    closure_ref = result.bundle.artifact_closure_ref
+    assert manifest_ref is not None
+    assert closure_ref is not None
+    manifest = json.loads(source.locate(manifest_ref))
+    manifest["inputs"][0]["display_name"] = "tampered"
+    tampered_manifest = canonicalize_json_value(manifest)
+    tampered_manifest_ref = _raw_ref("tampered-manifest", tampered_manifest, manifest_ref.media_type)
+    source.put(tampered_manifest, tampered_manifest_ref)
+    with pytest.raises(ValueError, match="MANIFEST_SEMANTIC_PAYLOAD_MISMATCH"):
+        validate_bundle(replace(result.bundle, manifest_ref=tampered_manifest_ref), source)
+
+    manifest["unexpected"] = True
+    unknown_manifest = canonicalize_json_value(manifest)
+    unknown_manifest_ref = _raw_ref("unknown-manifest", unknown_manifest, manifest_ref.media_type)
+    source.put(unknown_manifest, unknown_manifest_ref)
+    with pytest.raises(ValueError, match="MANIFEST_FIELDS_INVALID"):
+        validate_bundle(replace(result.bundle, manifest_ref=unknown_manifest_ref), source)
+
+    closure = json.loads(source.locate(closure_ref))
+    closure["bundle_manifest_digest"] = "sha256:" + "00" * 32
+    tampered_closure = canonicalize_json_value(closure)
+    tampered_closure_ref = _raw_ref("tampered-closure", tampered_closure, closure_ref.media_type)
+    source.put(tampered_closure, tampered_closure_ref)
+    with pytest.raises(ValueError, match="CLOSURE_MANIFEST_DIGEST_MISMATCH"):
+        validate_bundle(replace(result.bundle, artifact_closure_ref=tampered_closure_ref), source)
+
+    closure["unexpected"] = True
+    unknown_closure = canonicalize_json_value(closure)
+    unknown_closure_ref = _raw_ref("unknown-closure", unknown_closure, closure_ref.media_type)
+    source.put(unknown_closure, unknown_closure_ref)
+    with pytest.raises(ValueError, match="CLOSURE_FIELDS_INVALID"):
+        validate_bundle(replace(result.bundle, artifact_closure_ref=unknown_closure_ref), source)
+
+    closure = json.loads(source.locate(closure_ref))
+    closure["closure_entries"][0]["unexpected"] = True
+    unknown_entry_closure = canonicalize_json_value(closure)
+    unknown_entry_closure_ref = _raw_ref(
+        "unknown-closure-entry", unknown_entry_closure, closure_ref.media_type
+    )
+    source.put(unknown_entry_closure, unknown_entry_closure_ref)
+    with pytest.raises(ValueError, match="CLOSURE_ENTRY_INVALID"):
+        validate_bundle(replace(result.bundle, artifact_closure_ref=unknown_entry_closure_ref), source)

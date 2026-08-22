@@ -1,6 +1,6 @@
 # P3-R6 Risk, Surface and Bundle Execution Plan
 
-状态：S0 complete；S1 complete；S2 complete/pass；S3 complete/pass；S4 complete/pass；S5 complete/pass；S6-S7 staged planning；global implementation authorization remains disabled
+状态：S0 complete；S1 complete/pass；S2 complete/pass；S3 complete/pass；S4 complete/pass；S5 complete/pass；S6 complete/pass；S7 staged planning；global implementation authorization remains disabled
 
 日期：2026-08-22
 
@@ -382,6 +382,34 @@ Review focus: public owner graph, forbidden imports, ruleset/comparison separati
 
 Exit: no open P1/P2; remediation rerun records identify tested tip and exact nodeids.
 
+#### S6 independent review record
+
+S6 is **complete/pass**. The independent record is [P3-R6-S6 Independent Owner, Import, Digest
+and Recovery Review](p3-r6-s6-independent-review.md). It reviewed the cumulative Risk, Surface
+and Bundle boundary without relying on implementer explanations.
+
+The review found one P2 recovery gap: Bundle validation did not bind manifest semantic fields or
+the closure's `bundle_manifest_digest` to the in-memory bundle, and recovery JSON accepted unknown
+manifest/closure/entry fields. Bundle recovery now recomputes both bindings and enforces exact
+schemas; `test_recovery_rejects_manifest_and_closure_semantic_metadata_tampering` is the
+regression owner. Artifact orphan reclamation remains an explicit ADR 0012 defer because
+`ArtifactStorePort` has no delete/transaction primitive.
+
+S6 evidence:
+
+| Check | Result |
+| --- | --- |
+| focused Risk/Surface/Bundle/architecture unit gate | **PASS**; 73 passed |
+| backend unit excluding inherited legacy oracle | **PASS**; 632 passed, 1 existing Starlette deprecation warning |
+| backend `ruff check .` | **PASS** |
+| backend `mypy` | **PASS**; 171 source files |
+| `git diff --check` | **PASS** |
+
+Reviewed source tip: `931f9c3ba76b3dcb8847a84f12b79f9073bed287` plus uncommitted S6 Bundle
+remediation/tests and review documentation. No Docker/container rebuild is triggered; only Python
+capability logic/tests/docs changed, and the inherited R5 image gate remains a final-candidate
+prerequisite. S7 may now perform the module gate and handoff in a new conversation.
+
 ### S7 — R6 module gate and handoff
 
 Objective: seal the tested source SHA, summarize focused/independent review, record exact unit/lint/type/benchmark commands, carry deferred items and establish R7 entry prerequisites.
@@ -435,6 +463,12 @@ p3_r6_s5_exit: pass
 p3_r6_s5_tested_source_sha: 250f1d0d751590ed9c370986a92838309da30f14_plus_uncommitted_surface_bundle_changes
 p3_r6_s5_worktree: dirty_surface_bundle_contract_assembly_tests_and_docs
 p3_r6_s5_deferred: orphan_reclamation_under_adr_0012;legacy_table_rules_oracle_gap;inherited_image_gate
+p3_r6_s6: completed
+p3_r6_s6_exit: pass
+p3_r6_s6_reviewed_source_sha: 931f9c3ba76b3dcb8847a84f12b79f9073bed287
+p3_r6_s6_worktree: dirty_s6_bundle_recovery_remediation_tests_and_review_doc
+p3_r6_s6_remediation: bundle_manifest_semantic_binding_and_closure_manifest_digest_closed
+p3_r6_s6_deferred: orphan_reclamation_under_adr_0012;legacy_table_rules_oracle_gap;inherited_image_gate
 p3_r6_implementation_authorized: no
 p3_implementation_authorized: no
 p3_r5_exit: pass
@@ -453,4 +487,5 @@ benchmark: measurement_only_no_gate
 - [Risk Contract](../../../contracts/risk.md)
 - [Comparison Surface Contract](../../../contracts/comparison-surface.md)
 - [Comparison Bundle Contract](../../../contracts/comparison-bundle.md)
+- [P3-R6-S6 Independent Owner, Import, Digest and Recovery Review](p3-r6-s6-independent-review.md)
 - [Proportional Assurance Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)

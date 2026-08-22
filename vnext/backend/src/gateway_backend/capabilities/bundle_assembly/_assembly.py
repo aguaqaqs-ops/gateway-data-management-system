@@ -294,6 +294,34 @@ def validate_bundle(bundle: ComparisonBundle, store: ArtifactStorePort) -> None:
         raise BundleAssemblyError("BUNDLE_CLOSURE_REF_DIGEST_MISMATCH")
     manifest = _json_object(manifest_raw, "bundle manifest")
     closure_document = _json_object(closure_raw, "bundle closure")
+    _require_exact_keys(
+        manifest,
+        {
+            "bundle_contract_version",
+            "bundle_digest",
+            "bundle_profile",
+            "closure",
+            "closure_entries",
+            "closure_manifest_digest",
+            "diagnostics",
+            "failed_pairs",
+            "inputs",
+            "pairs",
+            "status",
+        },
+        "BUNDLE_MANIFEST_FIELDS_INVALID",
+    )
+    _require_exact_keys(
+        closure_document,
+        {
+            "bundle_contract_version",
+            "bundle_digest",
+            "bundle_manifest_digest",
+            "closure_entries",
+            "entries",
+        },
+        "BUNDLE_CLOSURE_FIELDS_INVALID",
+    )
     if canonicalize_json_value(manifest) != manifest_raw:
         raise BundleAssemblyError("BUNDLE_MANIFEST_NOT_CANONICAL")
     if canonicalize_json_value(closure_document) != closure_raw:
@@ -333,6 +361,22 @@ def validate_bundle(bundle: ComparisonBundle, store: ArtifactStorePort) -> None:
         raise BundleAssemblyError("BUNDLE_DIGEST_MISMATCH")
     if manifest.get("bundle_digest") != bundle.bundle_digest.value:
         raise BundleAssemblyError("BUNDLE_MANIFEST_BUNDLE_DIGEST_MISMATCH")
+    expected_manifest_payload = manifest_semantic_payload(
+        profile=bundle.bundle_profile,
+        status=bundle.status,
+        inputs=bundle.inputs,
+        pairs=bundle.pairs,
+        failed_pairs=bundle.failed_pairs,
+        closure=closure,
+        diagnostics=bundle.diagnostics,
+    )
+    if any(manifest.get(key) != value for key, value in expected_manifest_payload.items()):
+        raise BundleAssemblyError("BUNDLE_MANIFEST_SEMANTIC_PAYLOAD_MISMATCH")
+    expected_manifest_digest = raw_blob_digest(
+        canonicalize_json_value(expected_manifest_payload)
+    )
+    if closure_document.get("bundle_manifest_digest") != expected_manifest_digest.value:
+        raise BundleAssemblyError("BUNDLE_CLOSURE_MANIFEST_DIGEST_MISMATCH")
     entry_refs = {entry.artifact_ref for entry in entries}
     for pair in bundle.pairs:
         if pair.surface_ref not in entry_refs:
@@ -598,6 +642,13 @@ def _json_object_or_value(raw: bytes) -> object:
         raise BundleAssemblyError("JSON_ARTIFACT_NOT_JSON") from exc
 
 
+def _require_exact_keys(
+    document: dict[str, object], expected: set[str], error: str
+) -> None:
+    if set(document) != expected:
+        raise BundleAssemblyError(error)
+
+
 def _embedded_refs(value: object) -> tuple[ArtifactRef, ...]:
     found: list[ArtifactRef] = []
     if isinstance(value, dict):
@@ -673,6 +724,17 @@ def _entries_from_document(document: dict[str, object]) -> tuple[BundleClosureEn
     result: list[BundleClosureEntry] = []
     for raw_entry in raw_entries:
         if type(raw_entry) is not dict:
+            raise BundleAssemblyError("BUNDLE_CLOSURE_ENTRY_INVALID")
+        if set(raw_entry) != {
+            "artifact_ref",
+            "kind",
+            "logical_path",
+            "pair_id",
+            "raw_sha256",
+            "shared",
+            "size_bytes",
+            "table_name",
+        }:
             raise BundleAssemblyError("BUNDLE_CLOSURE_ENTRY_INVALID")
         ref_payload = raw_entry.get("artifact_ref")
         if type(ref_payload) is not dict:

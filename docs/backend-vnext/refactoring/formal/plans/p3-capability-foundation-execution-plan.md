@@ -227,7 +227,7 @@ R 之间默认串行。R 内只有不共享未稳定 contract、不会改变对�
 p3_design: accepted
 p3_execution_plan: accepted_for_staged_planning
 current_module: P3-R7
-current_module_detail: R7 module gate pass; P4/P5 entry boundary recorded; implementation authorization pending
+current_module_detail: R6 current candidate revalidated; R7 upstream applicability re-attested with no rework; P4 not entered; implementation authorization pending
 p3_r1_s0: completed
 p3_r1_s0_inventory: p3-r1-s0-asset-inventory.md
 p3_r1_s1: completed
@@ -290,6 +290,11 @@ p3_r6_detail_plan: p3-r6-risk-surface-bundle-execution-plan.md
 p3_r6_detail_plan_status: accepted_for_staged_planning
 p3_r6_s0: completed
 p3_r6_s0_exit: pass
+p3_r6_s6: completed
+p3_r6_s6_review: p3-r6-s6-independent-review.md
+p3_r6_s7: completed
+p3_r6_s7_handoff: p3-r6-risk-surface-bundle-handoff.md
+p3_r6_validated_code_sha: f2d48d876c40dd918878a6e5215c57daf7920766
 p3_r6_implementation_authorized: no
 p3_r6_exit: pass
 p3_r7_ready: yes
@@ -302,8 +307,12 @@ p3_r7_s6_review: p3-r7-s6-independent-review.md
 p3_r7_s7: completed
 p3_r7_s7_handoff: p3-r7-mutation-target-closure-handoff.md
 p3_r7_validated_code_sha: b0261cb669fedc07173a31cd55ce83ef19b0c6ad
+p3_r7_upstream_applicability_re_attested_sha: f2d48d876c40dd918878a6e5215c57daf7920766
+p3_r7_rework_required: no
 p3_r7_exit: pass
 p3_r7_implementation_authorized: no
+p3_container_gate: inherited_required_deferred_docker_daemon_unavailable
+p3_legacy_oracle_gap: inherited_known_external_fixture_gap
 p3_implementation_authorized: no
 ```
 

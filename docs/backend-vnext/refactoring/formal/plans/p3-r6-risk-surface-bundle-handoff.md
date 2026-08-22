@@ -29,17 +29,17 @@ p3_r6_exit: pass
 p3_r7_ready: yes
 p3_r6_s6_review: pass
 p3_r6_s7_gate: pass
-validated_code_sha: 9739bf03443df37c826e2a73934513524e7e2674
-source_worktree_at_gate: clean_committed_source_before_acceptance_docs
-container_gate: required_deferred_docker_daemon_unavailable
+validated_code_sha: f2d48d876c40dd918878a6e5215c57daf7920766
+source_worktree_at_gate: clean_committed_current_candidate_before_acceptance_docs
+container_gate: inherited_required_deferred_docker_daemon_unavailable
 benchmark: measurement_only_no_gate_runner_absent
 p3_r6_implementation_authorized: no
 p3_implementation_authorized: no
 ```
 
-`validated_code_sha` 是 S7 运行 gates 的 source tip。S7 acceptance record 和本 handoff 是随后
-新增的文档变化，未改变该 source candidate；本文件不伪造尚未产生的 documentation commit
-SHA。
+`validated_code_sha` 是独立 S7 acceptance owner 运行 current-candidate gates 的干净 committed
+HEAD。随后仅修复本 execution/handoff/index 状态链，未修改生产代码；本文件不伪造尚未产生的
+documentation commit SHA，也不授权进入 P4。
 
 ## 2. Changed-path inventory
 
@@ -109,10 +109,10 @@ projection and the R7-owned target-neutral ChangeSet contract.
 
 ## 4. Module gate evidence
 
-All Python commands used the offline shared cache in the backend package. The focused command was:
+The focused command was:
 
 ```text
-cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit \
+cd vnext/backend && uv run pytest -q -m unit \
   tests/test_bundle_assembly.py tests/test_bundle_contracts.py \
   tests/test_surface_assembly.py tests/test_surface_contracts.py \
   tests/test_risk_evaluation.py tests/test_risk_contracts.py tests/test_architecture.py
@@ -122,11 +122,11 @@ Results:
 
 | Check | Result |
 | --- | --- |
-| focused Risk/Surface/Bundle/architecture gate | **PASS**; 86 passed in 1.31s |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit --ignore tests/test_table_rules_resolver.py` | **PASS**; 632 passed, 1 existing Starlette deprecation warning |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit` | **KNOWN EXTERNAL FIXTURE GAP**; 708 passed, 58 failed, 1 warning |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check .` | **PASS**; all checks passed |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline mypy` | **PASS**; 171 source files |
+| focused Risk/Surface/Bundle/architecture gate | **PASS**; 90 passed in 1.29s |
+| `cd vnext/backend && uv run pytest -q -m unit` | **KNOWN EXTERNAL FIXTURE GAP**; 790 passed, 58 failed, 1 warning in 46.89s |
+| `cd vnext/backend && uv run pytest -q -m unit --ignore tests/test_table_rules_resolver.py` | **PASS**; 714 passed, 1 existing Starlette deprecation warning in 50.49s |
+| `cd vnext/backend && uv run ruff check .` / `uv run mypy` | **PASS**; 188 source files |
+| `repository_client` / `repository_contracts` / `repository_service` / `shared_kernel` `uv run ruff check .` / `uv run mypy` | **PASS**; mypy checked 26 / 15 / 195 / 34 source files |
 | `git diff --check` | **PASS** |
 
 The 58 full-unit failures are confined to `tests/test_table_rules_resolver.py`: its test support
@@ -149,6 +149,10 @@ finding or contract ambiguity.
 | S3 count-only closure semantics | **Closed**; no spurious artifact-budget/no-record entry is emitted |
 | S3 annotation record schema | **Closed**; closure replay validates every canonical record shape |
 | S6 bundle manifest/closure semantic binding | **Closed**; recovery recomputes manifest binding and exact schemas reject unknown fields |
+| S6 redundant closure semantic entries | **Closed**; Bundle recovery binds the redundant semantic entries |
+| S6 surface role digest binding | **Closed**; before/current/records/risk semantic roles are bound while raw refs remain excluded |
+| S6 pair-cap degraded risk | **Closed**; degraded pairs retain explicit `UNKNOWN` table risk state |
+| S6 typed risk artifact conformance | **Closed**; Bundle publication validates canonical annotation content/manifest shape through the public Surface seam |
 | artifact orphan reclamation | **Accepted deferred** under ADR 0012; the current artifact port has no delete/transaction primitive and no public orphan ref is returned |
 
 The S6 regression owner is
@@ -190,11 +194,12 @@ The exact container check was:
 docker info
 ```
 
-The Docker client reported that it could not connect to `unix:///var/run/docker.sock`. The current
-HEAD image was not built, no image revision is claimed, and the mandatory inherited R5 image gate
-is carried forward. When Docker is available, the image owner must rebuild from
-`9739bf03443df37c826e2a73934513524e7e2674` and run the relevant container gates before any final
-image/release/production-candidate claim.
+The Docker 29.7.2 client reported that `/var/run/docker.sock` does not exist and it could not connect
+to the daemon. The current HEAD image was not built, no image revision is claimed, and the mandatory
+inherited R5 image gate is carried forward. When Docker is available, the image owner must rebuild
+from the then-current final candidate (the revalidated source tip here is
+`f2d48d876c40dd918878a6e5215c57daf7920766`) and run the relevant container gates before any
+final image/release/production-candidate claim.
 
 ## 8. R7 entry prerequisites
 
@@ -218,8 +223,8 @@ production cutover.
 ```yaml
 p3_r6_exit: pass
 p3_r7_ready: yes
-p3_r6_validated_code_sha: 9739bf03443df37c826e2a73934513524e7e2674
-p3_r6_container_gate: inherited_required_deferred
+p3_r6_validated_code_sha: f2d48d876c40dd918878a6e5215c57daf7920766
+p3_r6_container_gate: inherited_required_deferred_docker_daemon_unavailable
 p3_r6_benchmark: measurement_only_no_gate
 p3_r6_implementation_authorized: no
 p3_implementation_authorized: no

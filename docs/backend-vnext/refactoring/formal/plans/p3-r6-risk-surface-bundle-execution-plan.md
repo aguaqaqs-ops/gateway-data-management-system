@@ -1,6 +1,6 @@
 # P3-R6 Risk, Surface and Bundle Execution Plan
 
-状态：S0-S5 complete/pass；S6 independent re-review complete/pass；S7 current-candidate revalidation required；R6 current module gate pending S7 rerun；historical handoff: [p3-r6-risk-surface-bundle-handoff.md](p3-r6-risk-surface-bundle-handoff.md)；global implementation authorization remains disabled
+状态：S0-S7 complete/pass；S6 independent re-review complete/pass；S7 current-candidate revalidation complete/pass；R6 current module gate pass；handoff: [p3-r6-risk-surface-bundle-handoff.md](p3-r6-risk-surface-bundle-handoff.md)；global implementation authorization remains disabled
 
 日期：2026-08-22
 
@@ -427,22 +427,22 @@ Exit: `p3_r6_exit = pass`, `p3_r7_ready = yes` only if all gate evidence is pres
 
 #### S7 verification and handoff record
 
-The following is a **historical S7 pass**, not a current-candidate gate. The tested source candidate was the clean committed source tip
-`9739bf03443df37c826e2a73934513524e7e2674`, immediately before adding this acceptance record and
-the handoff document. The detailed handoff is [P3-R6 Risk, Surface and Bundle Handoff](p3-r6-risk-surface-bundle-handoff.md).
-This is a source/module gate only: it does not authorize P3 production integration, flow wiring,
-cache/GC, a Rust risk provider or the global implementation flag.
+Independent S7 acceptance revalidation completed on 2026-08-22 against the clean committed current
+candidate `f2d48d876c40dd918878a6e5215c57daf7920766`. This acceptance turn changes formal
+documentation only; it does not change production code or enter P4. The detailed current handoff is
+[P3-R6 Risk, Surface and Bundle Handoff](p3-r6-risk-surface-bundle-handoff.md). This is a
+source/module gate only: it does not authorize P3 production integration, flow wiring, cache/GC, a
+Rust risk provider or the global implementation flag.
 
 | Check | Result |
 | --- | --- |
-| focused R6 Risk/Surface/Bundle/architecture unit gate | **PASS**; 86 passed |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit --ignore tests/test_table_rules_resolver.py` | **PASS**; 632 passed, 1 existing Starlette deprecation warning |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline pytest -q -m unit` | **KNOWN EXTERNAL FIXTURE GAP**; 708 passed, 58 failed, 1 warning; all failures are confined to `tests/test_table_rules_resolver.py` loading the absent/incompatible `legacy/backend_vnext` oracle |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline ruff check .` | **PASS** |
-| `cd vnext/backend && UV_CACHE_DIR=/tmp/gateway-data-uv-cache uv run --offline mypy` | **PASS**; 171 source files |
+| focused R6 Risk/Surface/Bundle/architecture unit gate | **PASS**; 90 passed in 1.29s |
+| `cd vnext/backend && uv run pytest -q -m unit` | **KNOWN EXTERNAL FIXTURE GAP**; 790 passed, 58 failed, 1 warning in 46.89s; all failures are confined to `tests/test_table_rules_resolver.py` loading the absent/incompatible `legacy/backend_vnext` oracle |
+| `cd vnext/backend && uv run pytest -q -m unit --ignore tests/test_table_rules_resolver.py` | **PASS**; 714 passed, 1 existing Starlette deprecation warning in 50.49s |
+| five Python packages `uv run ruff check .` / `uv run mypy` | **PASS**; backend/repository_client/repository_contracts/repository_service/shared_kernel mypy checked 188 / 26 / 15 / 195 / 34 source files |
 | `git diff --check` | **PASS** |
-| benchmark runner discovery | **NOT APPLICABLE**; exact command and empty result are recorded in the handoff; no numeric result is used as a gate |
-| `docker info` | **DEFERRED**; Docker client is present but the daemon is unavailable at `/var/run/docker.sock`, so no image revision or container pass is claimed |
+| benchmark runner discovery | **NOT APPLICABLE**; `rg --files vnext \| rg -i '(^\|/)(bench\|benchmark)([^/]*\|/)'` returned no match; no numeric result is used as a gate |
+| `docker info` | **DEFERRED**; Docker client 29.7.2 is present but `/var/run/docker.sock` does not exist, so the daemon is unavailable and no image revision or container pass is claimed |
 
 The focused gate covers Risk contract/evaluation/closure, Surface contract/assembly, Bundle
 contract/assembly/recovery, and the architecture owner/import graph. The independent S6 review is
@@ -455,9 +455,10 @@ stage exit, the repository container rule also requires rebuilding the current H
 available; the failed `docker info` check is the evidence for the deferral. No R6 Dockerfile,
 dependency, deployment or runtime-boundary change was introduced.
 
-Historical S7 decision: **PASS for `9739bf0` only**. Current decision:
-`p3_r6_s7 = revalidation_required`, `p3_r6_exit = pending_s7_current_candidate_revalidation`.
-`p3_r6_implementation_authorized = no` / `p3_implementation_authorized = no` remain unchanged.
+Current S7 decision: **PASS for `f2d48d876c40dd918878a6e5215c57daf7920766`**.
+The legacy oracle failures remain an explicit inherited fixture gap rather than an R6 failure, and
+the image gate remains required/deferred. `p3_r6_implementation_authorized = no` /
+`p3_implementation_authorized = no` remain unchanged.
 
 ## 5. Verification policy
 
@@ -513,21 +514,23 @@ p3_r6_s6_source_test_patch_sha256: b7bd5f98c344c9ac61ddb8c4960fba581d35b53d54f61
 p3_r6_s6_worktree: dirty_s6_independent_review_remediation_and_record
 p3_r6_s6_remediation: closure_semantic_entries;surface_role_digest;pair_cap_degraded_risk;typed_risk_artifact_conformance
 p3_r6_s6_deferred: orphan_reclamation_under_adr_0012;legacy_table_rules_oracle_gap;inherited_image_gate
-p3_r6_s7: revalidation_required
-p3_r6_s7_exit: pending_current_candidate
+p3_r6_s7: completed
+p3_r6_s7_exit: pass
+p3_r6_s7_revalidated_candidate_sha: f2d48d876c40dd918878a6e5215c57daf7920766
+p3_r6_s7_worktree_at_gate: clean_committed_before_acceptance_documentation
 p3_r6_s7_historical_exit: pass
 p3_r6_s7_historical_tested_source_sha: 9739bf03443df37c826e2a73934513524e7e2674
 p3_r6_s7_historical_worktree: clean_source_at_gate_then_acceptance_docs_added
 p3_r6_s7_deferred: orphan_reclamation_under_adr_0012;legacy_table_rules_oracle_gap;inherited_image_gate
-p3_r6_exit: pending_s7_current_candidate_revalidation
+p3_r6_exit: pass
 p3_r7_historical_ready: yes
-p3_r7_ready: no_pending_current_candidate_s7
-p3_r6_handoff: historical_stale_p3-r6-risk-surface-bundle-handoff.md
+p3_r7_ready: yes
+p3_r6_handoff: p3-r6-risk-surface-bundle-handoff.md
 p3_r6_implementation_authorized: no
 p3_implementation_authorized: no
 p3_r5_exit: pass
 p3_r5_validated_code_sha: 7cb90e6f3e3707de856da0aabb43f7d519b9f1f3
-container_gate: inherited_required_deferred
+container_gate: inherited_required_deferred_docker_daemon_unavailable
 benchmark: measurement_only_no_gate
 ```
 

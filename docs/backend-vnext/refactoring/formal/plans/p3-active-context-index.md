@@ -99,6 +99,11 @@ p3_r6_detail_plan_status: accepted_for_staged_planning
 p3_r6_s0: completed
 p3_r6_s0_record: p3-r6-s0-entry-and-budget-freeze.md
 p3_r6_s0_exit: pass
+p3_r6_s6: completed
+p3_r6_s6_review: p3-r6-s6-independent-review.md
+p3_r6_s7: completed
+p3_r6_s7_handoff: p3-r6-risk-surface-bundle-handoff.md
+p3_r6_validated_code_sha: f2d48d876c40dd918878a6e5215c57daf7920766
 p3_r6_implementation_authorized: no
 p3_r6_exit: pass
 p3_r7_ready: yes
@@ -115,7 +120,11 @@ p3_r7_s7: completed
 p3_r7_s7_handoff: p3-r7-mutation-target-closure-handoff.md
 p3_r7_exit: pass
 p3_r7_validated_code_sha: b0261cb669fedc07173a31cd55ce83ef19b0c6ad
+p3_r7_upstream_applicability_re_attested_sha: f2d48d876c40dd918878a6e5215c57daf7920766
+p3_r7_rework_required: no
 p3_r7_implementation_authorized: no
+p3_container_gate: inherited_required_deferred_docker_daemon_unavailable
+p3_legacy_oracle_gap: inherited_known_external_fixture_gap
 p3_r5_ready: yes
 p3_implementation_authorized: no
 default_retrieval: this_index

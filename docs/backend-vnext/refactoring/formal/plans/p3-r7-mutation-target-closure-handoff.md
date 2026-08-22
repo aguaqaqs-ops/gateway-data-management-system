@@ -32,9 +32,11 @@ validated_code_sha: b0261cb669fedc07173a31cd55ce83ef19b0c6ad
 s0_entry_sha: e09ff32cc3562b744ff5718357a529c7b8ce3e6f
 s6_reviewed_tip: b0261cb669fedc07173a31cd55ce83ef19b0c6ad
 s7_tests_rerun: yes
-container_gate: inherited_required_deferred
+container_gate: inherited_required_deferred_docker_daemon_unavailable
 benchmark: measurement_only_no_gate
-legacy_oracle_gap: closed
+legacy_oracle_gap: inherited_known_external_fixture_gap
+upstream_applicability_re_attested_sha: f2d48d876c40dd918878a6e5215c57daf7920766
+r7_rework_required: no
 handoff_documentation_sha: pending_handoff_documentation_commit
 ```
 
@@ -93,6 +95,22 @@ commit_lineage:
     stage_exit: pass
     note: this handoff documentation follows the sealed source candidate and is not this SHA
 ```
+
+### 2.1 Upstream applicability re-attestation
+
+After R6 independent S7 revalidated the clean current candidate
+`f2d48d876c40dd918878a6e5215c57daf7920766`, R7 re-attested the R4/R6 input boundary. The diff
+from sealed R7 source tip `b0261cb669fedc07173a31cd55ce83ef19b0c6ad` to that candidate contains
+formal R7 documentation/review records only and no production, test, contract, dependency or
+runtime-boundary change. The sealed R7 source tip already includes the R6 S6 remediation, and the
+public authority split remains unchanged: R4 canonical projection is mutation authority; R6
+Surface/Bundle is provenance only.
+
+No R7 implementation or contract rework is required. The current acceptance refreshes the upstream
+evidence chain and this handoff only; it does not enter or authorize P4. Current backend evidence is
+also consistent with that disposition: the R6 focused gate passed 90 tests, and the backend unit
+gate excluding the inherited legacy oracle passed 714 tests. The unfiltered unit run's 58 failures
+remain confined to `tests/test_table_rules_resolver.py` and do not identify an R7 regression.
 
 ## 3. Changed-path inventory
 
@@ -156,7 +174,7 @@ The R7 capabilities do not import HTTP/application/Workspace/Submit/Archive/Oper
 Repository/Dolt execution adapters, R6 private modules, legacy business modules, host-path
 helpers, test support or new helper/service/security principals.
 
-## 5. Module gate evidence
+## 5. Sealed R7 module gate evidence
 
 All Python commands used the backend package virtualenv. The focused command was:
 
@@ -208,7 +226,7 @@ finding or contract ambiguity.
 | cache/retention/GC and orphan reclamation | **Deferred**; ADR 0012 lifecycle owner |
 | Rust renderer/provider optimization | **Deferred**; native provider owner |
 | benchmark numeric gates | **Deferred**; no R7 benchmark runner exists |
-| R5 legacy table-rules oracle gap | **Closed**; full backend unit now passes including `tests/test_table_rules_resolver.py` |
+| R5 legacy table-rules oracle gap | **Known external fixture gap**; current unfiltered backend unit has 58 failures confined to `tests/test_table_rules_resolver.py`; restore a compatible `legacy/backend_vnext` oracle or retain the explicit exclusion |
 | inherited R5 Rust/Cargo backend image gate | **Required/deferred**; rebuild current `vnext/backend/Dockerfile` and run container gates before any final image/release claim |
 
 Reopen R7 or its owning contract if a capability imports a forbidden owner, presentation artifacts
@@ -234,9 +252,10 @@ The exact container check was:
 docker info
 ```
 
-The Docker client is available, but R7 itself introduced no image boundary change. No current-HEAD
-backend image was built for this R7 candidate, no image revision is claimed, and the mandatory
-inherited R5 image gate is carried forward to the P3 final candidate gate.
+The Docker 29.7.2 client is available, but `/var/run/docker.sock` does not exist and the daemon is
+unavailable. R7 itself introduced no image boundary change. No current-HEAD backend image was built,
+no image revision is claimed, and the mandatory inherited R5 image gate is carried forward to the
+P3 final candidate gate.
 
 ## 9. P4/P5 entry prerequisites
 
@@ -258,7 +277,9 @@ global Phase 3 implementation.
 ```yaml
 p3_r7_exit: pass
 p3_r7_validated_code_sha: b0261cb669fedc07173a31cd55ce83ef19b0c6ad
-p3_r7_container_gate: inherited_required_deferred
+p3_r7_upstream_applicability_re_attested_sha: f2d48d876c40dd918878a6e5215c57daf7920766
+p3_r7_rework_required: no
+p3_r7_container_gate: inherited_required_deferred_docker_daemon_unavailable
 p3_r7_benchmark: measurement_only_no_gate
 p3_r7_implementation_authorized: no
 p3_implementation_authorized: no

@@ -28,9 +28,11 @@ p3_r7_detail_plan: p3-r7-mutation-target-closure-execution-plan.md
 p3_r7_s0_exit: pass
 p3_r7_implementation_authorized: no
 p3_implementation_authorized: no
-container_gate: inherited_required_deferred
+container_gate: inherited_required_deferred_docker_daemon_unavailable
 benchmark: measurement_only_no_gate
-legacy_oracle_gap: closed_at_r7_s7
+legacy_oracle_gap: inherited_known_external_fixture_gap
+upstream_applicability_re_attested_sha: f2d48d876c40dd918878a6e5215c57daf7920766
+r7_rework_required: no
 ```
 
 R7 只接受 R4 immutable `CanonicalizationManifest`、`RepositoryImportArtifactInput` 及其 digest/ref。
@@ -139,3 +141,17 @@ deployment or runtime boundary changed.
 | container/image gate | **DEFERRED / NOT APPLICABLE**; docs-only S0; inherited gate remains final-candidate work |
 
 S0 decision: **PASS / complete**.
+
+## 8. Upstream applicability re-attestation
+
+On 2026-08-22 the R7 entry was re-attested after the independent R6 S7 acceptance owner validated
+the clean current candidate `f2d48d876c40dd918878a6e5215c57daf7920766`. The accepted R6
+public boundary remains flow-neutral and immutable: R7 still consumes R4 canonical projection as
+mutation authority and may use R6 Surface/Bundle only as provenance.
+
+`git diff --name-status b0261cb669fedc07173a31cd55ce83ef19b0c6ad..f2d48d876c40dd918878a6e5215c57daf7920766`
+contains formal R7 documentation/review records only; it contains no R7 production, test, contract,
+dependency or runtime-boundary change. The R7 sealed source was already validated at `b0261cb`,
+which includes the R6 S6 remediation. Therefore no R7 implementation or contract rework is required;
+this is an evidence-chain and handoff refresh only. The inherited legacy oracle and image/container
+gates remain deferred, and this re-attestation does not enter or authorize P4.

@@ -35,9 +35,16 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonTableFact,
     ComparisonTableStatus,
 )
+from gateway_backend.capabilities.risk_evaluation import (
+    ANNOTATION_MANIFEST_MEDIA_TYPE,
+    ANNOTATION_MEDIA_TYPE,
+    RiskLevel,
+    RiskReasonCode,
+)
 from gateway_backend.capabilities.surface_assembly import (
     SurfaceAssemblyResult,
     SurfaceAssemblyStatus,
+    SurfaceRiskRefs,
     assemble_surface,
     compute_surface_digest,
     validate_surface,
@@ -230,7 +237,7 @@ def test_nested_json_refs_are_rewritten_and_closure_remains_replayable() -> None
     assert result.status is BundleAssemblyStatus.READY
     assert result.bundle is not None
     assert surface_result.surface is not None
-    assert result.bundle.pairs[0].surface_digest != surface_result.surface.surface_digest
+    assert result.bundle.pairs[0].surface_digest == surface_result.surface.surface_digest
     closure_document = json.loads(source.locate(result.bundle.artifact_closure_ref))
     rewritten_closure = next(
         item
@@ -287,6 +294,78 @@ def test_tampered_source_artifact_fails_closed() -> None:
 
     assert result.status is BundleAssemblyStatus.FAILED
     assert result.bundle is None
+
+
+def test_placeholder_risk_annotation_artifacts_fail_before_bundle_publication() -> None:
+    source = InMemoryArtifactStore()
+    placeholder = canonicalize_json_value({})
+    annotation_ref = _raw_ref("risk-annotation", placeholder, ANNOTATION_MEDIA_TYPE)
+    manifest_ref = _raw_ref(
+        "risk-annotation-manifest",
+        placeholder,
+        ANNOTATION_MANIFEST_MEDIA_TYPE,
+    )
+    source.put(placeholder, annotation_ref)
+    source.put(placeholder, manifest_ref)
+    surface_result = _surface_result()
+    assert surface_result.surface is not None
+    table = surface_result.surface.tables[0]
+    surface = replace(
+        surface_result.surface,
+        tables=(
+            replace(
+                table,
+                risk_refs=SurfaceRiskRefs(
+                    risk_level=RiskLevel.UNKNOWN,
+                    reason_codes=(RiskReasonCode.KEY_DEGRADED,),
+                    annotation_count=1,
+                    annotation_ref=annotation_ref,
+                    annotation_manifest_ref=manifest_ref,
+                ),
+            ),
+        ),
+    )
+    surface = replace(surface, surface_digest=compute_surface_digest(surface))
+    pair_closure = BundleArtifactClosure(
+        (
+            BundleArtifactBinding(
+                annotation_ref,
+                "pairs/pair/risk/annotations/orders.json",
+                BundleArtifactKind.RISK_ANNOTATION,
+                pair_id="pair",
+                table_name="orders",
+            ),
+            BundleArtifactBinding(
+                manifest_ref,
+                "pairs/pair/risk/annotations/orders.manifest.json",
+                BundleArtifactKind.RISK_ANNOTATION_MANIFEST,
+                pair_id="pair",
+                table_name="orders",
+            ),
+        )
+    )
+
+    result = assemble_bundle(
+        _request(
+            (
+                BundlePairInput(
+                    "pair",
+                    0,
+                    1,
+                    SurfaceAssemblyResult(
+                        status=SurfaceAssemblyStatus.READY,
+                        surface=surface,
+                    ),
+                    pair_closure,
+                ),
+            )
+        ),
+        source_store=source,
+    )
+
+    assert result.status is BundleAssemblyStatus.FAILED
+    assert result.bundle is None
+    assert result.manifest_ref is None
 
 
 def test_destination_failure_never_returns_public_bundle() -> None:
@@ -450,3 +529,18 @@ def test_recovery_rejects_manifest_and_closure_semantic_metadata_tampering() -> 
     source.put(unknown_entry_closure, unknown_entry_closure_ref)
     with pytest.raises(ValueError, match="CLOSURE_ENTRY_INVALID"):
         validate_bundle(replace(result.bundle, artifact_closure_ref=unknown_entry_closure_ref), source)
+
+    closure = json.loads(source.locate(closure_ref))
+    closure["entries"][0]["logical_path"] = "pairs/pair/tampered.json"
+    tampered_semantic_closure = canonicalize_json_value(closure)
+    tampered_semantic_closure_ref = _raw_ref(
+        "tampered-semantic-closure",
+        tampered_semantic_closure,
+        closure_ref.media_type,
+    )
+    source.put(tampered_semantic_closure, tampered_semantic_closure_ref)
+    with pytest.raises(ValueError, match="CLOSURE_SEMANTIC_PAYLOAD_MISMATCH"):
+        validate_bundle(
+            replace(result.bundle, artifact_closure_ref=tampered_semantic_closure_ref),
+            source,
+        )

@@ -362,6 +362,17 @@ def test_replacement_uses_independent_side_browse_and_no_records() -> None:
     assert table_result.replacement_summary.before is not None
     assert table_result.replacement_summary.current is not None
 
+    swapped_refs = replace(
+        table_result.table_refs,
+        before_table_ref=table_result.table_refs.current_table_ref,
+        current_table_ref=table_result.table_refs.before_table_ref,
+    )
+    swapped_surface = replace(
+        result.surface,
+        tables=(replace(table_result, table_refs=swapped_refs),),
+    )
+    assert compute_surface_digest(swapped_surface) != result.surface.surface_digest
+
 
 def test_input_order_and_ref_rewrite_do_not_change_surface_digest() -> None:
     table = ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.UNCHANGED)
@@ -373,7 +384,7 @@ def test_input_order_and_ref_rewrite_do_not_change_surface_digest() -> None:
     assert compute_surface_digest(first.surface) == first.surface.surface_digest
 
     old_ref = _ref("current-orders", "application/vnd.apache.parquet")
-    new_ref = _ref("bundle-orders", "application/vnd.apache.parquet")
+    new_ref = replace(old_ref, artifact_id="bundle-orders")
     with_ref = assemble_surface(
         _request(
             facts,
@@ -384,6 +395,7 @@ def test_input_order_and_ref_rewrite_do_not_change_surface_digest() -> None:
     rewritten = rewrite_surface_refs(with_ref.surface, {old_ref: new_ref})
     assert rewritten.surface_digest == with_ref.surface.surface_digest
     assert rewritten.tables[0].table_refs.current_table_ref == new_ref
+    validate_surface(rewritten)
 
 
 def test_forbidden_cache_ref_fails_before_ready() -> None:

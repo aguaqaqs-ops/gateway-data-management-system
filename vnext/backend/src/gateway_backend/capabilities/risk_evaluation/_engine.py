@@ -146,7 +146,12 @@ def evaluate_risk(
             except _TableBudgetExceeded:
                 outcomes.append(_degraded_table(item, "risk table budget exceeded", rules))
             except _PairAnnotationBudgetExceeded:
-                return _build_pair_degraded_without_annotations(evaluation_input, outcomes, execution_policy)
+                return _build_pair_degraded_without_annotations(
+                    evaluation_input,
+                    extracted,
+                    rules,
+                    execution_policy,
+                )
         # Publication is the terminal commit boundary; cancellation is observed before it,
         # and a result that has crossed the boundary is never converted back to CANCELLED.
         _check_pair(context, pair_started, execution_policy)
@@ -493,36 +498,29 @@ def _finish_result(
 
 def _build_pair_degraded_without_annotations(
     evaluation_input: RiskEvaluationInput,
-    outcomes: list[_TableOutcome],
+    extracted: tuple[ExtractedRiskFacts, ...],
+    rules: Mapping[RiskRuleId, RiskRuleSpec],
     policy: RiskExecutionPolicy,
 ) -> RiskEvaluationResult:
-    stripped = tuple(
-        _TableOutcome(
-            table_name=item.table_name,
-            source_table_status=item.source_table_status,
-            annotations=item.annotations,
-            degraded=True,
-            allow_artifact=False,
-            diagnostics=item.diagnostics + ("max_annotations_per_pair exceeded",),
+    degraded_rule = rules[RiskRuleId.KEY_DEGRADED]
+    table_risks = tuple(
+        RiskTableRisk(
+            table_name=item.table_fact.table_name,
+            risk_level=level_for(degraded_rule),
+            reason_codes=(reason_for(degraded_rule),),
+            annotation_count=0,
+            source_table_status=item.table_fact.status,
+            diagnostics=("max_annotations_per_pair exceeded",),
         )
-        for item in outcomes
+        for item in extracted
+        if has_visible_change(item)
     )
-    # Reuse the normal semantic output builder without an artifact store. Counts remain visible,
-    # but no partial annotation closure is created.
+    # Discard every partial annotation and preserve an explicit degraded table-level risk for
+    # each visible change. This keeps the pair-level failure observable downstream without
+    # publishing a partial annotation closure.
     return _finish_result(
         evaluation_input,
-        tuple(
-            RiskTableRisk(
-                table_name=item.table_name,
-                risk_level=max((annotation.risk_level for annotation in item.annotations), key=lambda value: _LEVEL_RANK[value]),
-                reason_codes=tuple(sorted({reason.reason_code for annotation in item.annotations for reason in annotation.reasons}, key=lambda value: value.value)),
-                annotation_count=len(item.annotations),
-                source_table_status=item.source_table_status,
-                diagnostics=item.diagnostics,
-            )
-            for item in stripped
-            if item.annotations
-        ),
+        table_risks,
         (),
         (),
         (),

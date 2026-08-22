@@ -50,8 +50,12 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     risk_ruleset_document,
     risk_ruleset_from_document,
     risk_table_digest_payload,
+    validate_risk_annotation_documents,
 )
 from gateway_backend.capabilities.risk_evaluation._artifacts import (
+    ANNOTATION_CLOSURE_MEDIA_TYPE,
+    ANNOTATION_MANIFEST_MEDIA_TYPE,
+    ANNOTATION_MEDIA_TYPE,
     annotation_content_payload,
     annotation_manifest_payload,
     closure_manifest_payload,
@@ -60,6 +64,9 @@ from gateway_backend.capabilities.risk_evaluation._artifacts import (
 from gateway_backend.capabilities.risk_evaluation._engine import evaluate_risk
 
 __all__ = [
+    "ANNOTATION_CLOSURE_MEDIA_TYPE",
+    "ANNOTATION_MANIFEST_MEDIA_TYPE",
+    "ANNOTATION_MEDIA_TYPE",
     "RISK_ANNOTATION_CONTRACT_VERSION",
     "RISK_CACHE_POLICY_VERSION",
     "RISK_CONTRACT_VERSION",
@@ -114,4 +121,5 @@ __all__ = [
     "closure_manifest_payload",
     "evaluate_risk",
     "validate_risk_annotation_closure",
+    "validate_risk_annotation_documents",
 ]

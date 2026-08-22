@@ -1,6 +1,6 @@
 # P3-R6 Risk, Surface and Bundle Execution Plan
 
-状态：S0 complete；S1 complete/pass；S2 complete/pass；S3 complete/pass；S4 complete/pass；S5 complete/pass；S6 complete/pass；S7 complete/pass；R6 module gate pass；handoff: [p3-r6-risk-surface-bundle-handoff.md](p3-r6-risk-surface-bundle-handoff.md)；global implementation authorization remains disabled
+状态：S0-S5 complete/pass；S6 independent re-review complete/pass；S7 current-candidate revalidation required；R6 current module gate pending S7 rerun；historical handoff: [p3-r6-risk-surface-bundle-handoff.md](p3-r6-risk-surface-bundle-handoff.md)；global implementation authorization remains disabled
 
 日期：2026-08-22
 
@@ -369,8 +369,8 @@ Dockerfile, deployment, Rust or runtime-boundary files changed.
 
 The 58 full-unit failures are the inherited `table_rules_legacy_oracle` gap: missing or incompatible
 `legacy/backend_vnext` files and registry API. No Dolt, process, network, integration or fixed-timeout
-serial fixture was introduced. S6 is the next prerequisite and must independently review the complete
-R6 owner/import/digest/recovery boundary.
+serial fixture was introduced. At S5 close, S6 was the next prerequisite for independently reviewing
+the complete R6 owner/import/digest/recovery boundary.
 
 ### S6 — Independent R6 owner/import/digest/recovery review
 
@@ -384,31 +384,38 @@ Exit: no open P1/P2; remediation rerun records identify tested tip and exact nod
 
 #### S6 independent review record
 
-S6 is **complete/pass**. The independent record is [P3-R6-S6 Independent Owner, Import, Digest
-and Recovery Review](p3-r6-s6-independent-review.md). It reviewed the cumulative Risk, Surface
-and Bundle boundary without relying on implementer explanations.
+S6 independent re-review is **complete/pass**. The authoritative record is
+[P3-R6-S6 Independent Owner, Import, Digest and Recovery Review](p3-r6-s6-independent-review.md).
+It reviewed the cumulative Risk, Surface and Bundle boundary from public contracts, source and
+tests without relying on implementer explanations. The current dirty candidate is identified by
+base SHA `e09ff32cc3562b744ff5718357a529c7b8ce3e6f` plus source/test patch SHA-256
+`b7bd5f98c344c9ac61ddb8c4960fba581d35b53d54f6162221f9fef08a4cecbe`.
 
-The review found one P2 recovery gap: Bundle validation did not bind manifest semantic fields or
-the closure's `bundle_manifest_digest` to the in-memory bundle, and recovery JSON accepted unknown
-manifest/closure/entry fields. Bundle recovery now recomputes both bindings and enforces exact
-schemas; `test_recovery_rejects_manifest_and_closure_semantic_metadata_tampering` is the
-regression owner. Artifact orphan reclamation remains an explicit ADR 0012 defer because
-`ArtifactStorePort` has no delete/transaction primitive.
+The re-review closed four additional findings: Bundle recovery now binds redundant semantic
+closure entries (`S6-004`); Surface digest integrity is bound to before/current/records/risk
+semantic roles while raw refs remain excluded (`S6-005`); pair-cap degradation emits explicit
+`UNKNOWN` table risks instead of losing review-required state (`S6-006`); and Bundle publication
+validates canonical Risk annotation content/manifest shape through the Surface public seam
+(`S6-007`). The earlier manifest/closure binding finding remains closed. Artifact orphan
+reclamation remains an explicit ADR 0012 defer because `ArtifactStorePort` has no
+delete/transaction primitive.
 
 S6 evidence:
 
 | Check | Result |
 | --- | --- |
-| focused Risk/Surface/Bundle/architecture unit gate | **PASS**; 73 passed |
-| backend unit excluding inherited legacy oracle | **PASS**; 632 passed, 1 existing Starlette deprecation warning |
+| exact remediation/architecture nodeids | **PASS**; 8 passed |
+| focused Risk/Surface/Bundle/architecture unit gate | **PASS**; 90 passed |
+| backend unit excluding inherited legacy oracle | **PASS**; 714 passed, 1 existing Starlette deprecation warning |
 | backend `ruff check .` | **PASS** |
-| backend `mypy` | **PASS**; 171 source files |
+| backend `mypy` | **PASS**; 188 source files |
+| other four Python packages `ruff check .` / `mypy` | **PASS**; mypy 26 / 15 / 195 / 34 source files |
 | `git diff --check` | **PASS** |
 
-Reviewed source tip: `931f9c3ba76b3dcb8847a84f12b79f9073bed287` plus uncommitted S6 Bundle
-remediation/tests and review documentation. No Docker/container rebuild is triggered; only Python
-capability logic/tests/docs changed, and the inherited R5 image gate remains a final-candidate
-prerequisite. S7 may now perform the module gate and handoff in a new conversation.
+No Docker/container rebuild is triggered at S6: only Python capability logic/tests/docs changed.
+Because remediation postdates the historical S7 gate, its pass and handoff are historical evidence
+only. S7 must seal this exact candidate and rerun the module/container disposition gate in a new
+conversation before R6 can again claim a current module-gate pass.
 
 ### S7 — R6 module gate and handoff
 
@@ -420,7 +427,7 @@ Exit: `p3_r6_exit = pass`, `p3_r7_ready = yes` only if all gate evidence is pres
 
 #### S7 verification and handoff record
 
-S7 is **complete/pass**. The tested source candidate is the clean committed source tip
+The following is a **historical S7 pass**, not a current-candidate gate. The tested source candidate was the clean committed source tip
 `9739bf03443df37c826e2a73934513524e7e2674`, immediately before adding this acceptance record and
 the handoff document. The detailed handoff is [P3-R6 Risk, Surface and Bundle Handoff](p3-r6-risk-surface-bundle-handoff.md).
 This is a source/module gate only: it does not authorize P3 production integration, flow wiring,
@@ -448,7 +455,8 @@ stage exit, the repository container rule also requires rebuilding the current H
 available; the failed `docker info` check is the evidence for the deferral. No R6 Dockerfile,
 dependency, deployment or runtime-boundary change was introduced.
 
-S7 decision: **PASS**; `p3_r6_exit = pass`, `p3_r7_ready = yes`, and
+Historical S7 decision: **PASS for `9739bf0` only**. Current decision:
+`p3_r6_s7 = revalidation_required`, `p3_r6_exit = pending_s7_current_candidate_revalidation`.
 `p3_r6_implementation_authorized = no` / `p3_implementation_authorized = no` remain unchanged.
 
 ## 5. Verification policy
@@ -500,18 +508,21 @@ p3_r6_s5_worktree: dirty_surface_bundle_contract_assembly_tests_and_docs
 p3_r6_s5_deferred: orphan_reclamation_under_adr_0012;legacy_table_rules_oracle_gap;inherited_image_gate
 p3_r6_s6: completed
 p3_r6_s6_exit: pass
-p3_r6_s6_reviewed_source_sha: 931f9c3ba76b3dcb8847a84f12b79f9073bed287
-p3_r6_s6_worktree: dirty_s6_bundle_recovery_remediation_tests_and_review_doc
-p3_r6_s6_remediation: bundle_manifest_semantic_binding_and_closure_manifest_digest_closed
+p3_r6_s6_review_base_sha: e09ff32cc3562b744ff5718357a529c7b8ce3e6f
+p3_r6_s6_source_test_patch_sha256: b7bd5f98c344c9ac61ddb8c4960fba581d35b53d54f6162221f9fef08a4cecbe
+p3_r6_s6_worktree: dirty_s6_independent_review_remediation_and_record
+p3_r6_s6_remediation: closure_semantic_entries;surface_role_digest;pair_cap_degraded_risk;typed_risk_artifact_conformance
 p3_r6_s6_deferred: orphan_reclamation_under_adr_0012;legacy_table_rules_oracle_gap;inherited_image_gate
-p3_r6_s7: completed
-p3_r6_s7_exit: pass
-p3_r6_s7_tested_source_sha: 9739bf03443df37c826e2a73934513524e7e2674
-p3_r6_s7_worktree: clean_source_at_gate_then_acceptance_docs_added
+p3_r6_s7: revalidation_required
+p3_r6_s7_exit: pending_current_candidate
+p3_r6_s7_historical_exit: pass
+p3_r6_s7_historical_tested_source_sha: 9739bf03443df37c826e2a73934513524e7e2674
+p3_r6_s7_historical_worktree: clean_source_at_gate_then_acceptance_docs_added
 p3_r6_s7_deferred: orphan_reclamation_under_adr_0012;legacy_table_rules_oracle_gap;inherited_image_gate
-p3_r6_exit: pass
-p3_r7_ready: yes
-p3_r6_handoff: p3-r6-risk-surface-bundle-handoff.md
+p3_r6_exit: pending_s7_current_candidate_revalidation
+p3_r7_historical_ready: yes
+p3_r7_ready: no_pending_current_candidate_s7
+p3_r6_handoff: historical_stale_p3-r6-risk-surface-bundle-handoff.md
 p3_r6_implementation_authorized: no
 p3_implementation_authorized: no
 p3_r5_exit: pass

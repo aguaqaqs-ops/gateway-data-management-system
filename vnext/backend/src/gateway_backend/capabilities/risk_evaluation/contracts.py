@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -25,6 +26,13 @@ RISK_CONTRACT_VERSION = "backend-vnext/risk/v1"
 RISK_RULESET_CONTRACT_VERSION = "backend-vnext/risk-ruleset/v1"
 RISK_MODEL_VERSION = "backend-vnext/risk-model/v1"
 RISK_ANNOTATION_CONTRACT_VERSION = "backend-vnext/risk-annotations/v1"
+RISK_ANNOTATION_MEDIA_TYPE = "application/vnd.gateway.risk-annotations+json"
+RISK_ANNOTATION_MANIFEST_MEDIA_TYPE = (
+    "application/vnd.gateway.risk-annotations.manifest+json"
+)
+RISK_ANNOTATION_CLOSURE_MEDIA_TYPE = (
+    "application/vnd.gateway.risk-annotations.closure+json"
+)
 RISK_CACHE_POLICY_VERSION = "backend-vnext/risk-cache/v1"
 RISK_EXECUTION_POLICY_VERSION = "backend-vnext/risk-execution/v1"
 RISK_RULESET_ID = "backend-vnext/comparison-risk"
@@ -764,6 +772,149 @@ class RiskAnnotationClosure:
             "entries": [item.to_document() for item in self.entries],
             "risk_evaluation_digest": self.risk_evaluation_digest.value,
         }
+
+
+def validate_risk_annotation_documents(
+    content_bytes: bytes,
+    manifest_bytes: bytes,
+    *,
+    table_name: str,
+    annotation_count: int,
+    content_digest: DigestRef,
+) -> None:
+    """Validate canonical Risk annotation content and manifest documents."""
+
+    try:
+        content = json.loads(content_bytes)
+        manifest = json.loads(manifest_bytes)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("risk annotation artifact is not JSON") from exc
+    if type(content) is not dict or type(manifest) is not dict:
+        raise ValueError("risk annotation artifact must contain JSON objects")
+    if canonicalize_json_value(content) != content_bytes:
+        raise ValueError("risk annotation content is not canonical JSON")
+    if canonicalize_json_value(manifest) != manifest_bytes:
+        raise ValueError("risk annotation manifest is not canonical JSON")
+    annotations = content.get("annotations")
+    if (
+        set(content) != {"annotations", "contract_version", "table_name"}
+        or content.get("contract_version") != RISK_ANNOTATION_CONTRACT_VERSION
+        or content.get("table_name") != table_name
+        or type(annotations) is not list
+        or len(annotations) != annotation_count
+    ):
+        raise ValueError("risk annotation content payload mismatch")
+    try:
+        parsed = tuple(_risk_annotation_from_document(payload) for payload in annotations)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ValueError("risk annotation record payload mismatch") from exc
+    annotation_ids = tuple(item.annotation_id for item in parsed)
+    if annotation_ids != tuple(sorted(annotation_ids)) or len(set(annotation_ids)) != len(
+        annotation_ids
+    ):
+        raise ValueError("risk annotation records must use canonical unique order")
+    expected_manifest = {
+        "annotation_count": annotation_count,
+        "content_digest": content_digest.value,
+        "contract_version": RISK_ANNOTATION_CONTRACT_VERSION,
+        "record_format": "CANONICAL_JSON",
+        "table_name": table_name,
+    }
+    if manifest != expected_manifest:
+        raise ValueError("risk annotation manifest payload mismatch")
+
+
+def _risk_annotation_from_document(payload: object) -> RiskAnnotation:
+    if type(payload) is not dict:
+        raise ValueError("annotation must be an object")
+    if set(payload) != {"annotation_id", "diagnostics", "reasons", "risk_level", "target"}:
+        raise ValueError("annotation fields mismatch")
+    target_payload = payload["target"]
+    if type(target_payload) is not dict:
+        raise ValueError("annotation target must be an object")
+    target_keys = {
+        "before_row_identity",
+        "changed_columns",
+        "coverage",
+        "current_row_identity",
+        "position",
+        "position_range",
+        "row_identity",
+        "table_name",
+        "target_type",
+    }
+    if set(target_payload) != target_keys:
+        raise ValueError("annotation target fields mismatch")
+    changed_columns_payload = target_payload["changed_columns"]
+    if type(changed_columns_payload) is not list:
+        raise ValueError("annotation changed_columns must be a list")
+    position_range_payload = target_payload["position_range"]
+    if position_range_payload is not None and type(position_range_payload) is not list:
+        raise ValueError("annotation position_range must be a list or null")
+    reasons_payload = payload["reasons"]
+    if type(reasons_payload) is not list:
+        raise ValueError("annotation reasons must be a list")
+    diagnostics_payload = payload["diagnostics"]
+    if type(diagnostics_payload) is not list:
+        raise ValueError("annotation diagnostics must be a list")
+    reasons: list[RiskReason] = []
+    for reason_payload in reasons_payload:
+        if type(reason_payload) is not dict or set(reason_payload) != {
+            "evidence",
+            "message",
+            "reason_code",
+            "rule_id",
+        }:
+            raise ValueError("annotation reason fields mismatch")
+        evidence_payload = reason_payload["evidence"]
+        if type(evidence_payload) is not list:
+            raise ValueError("annotation evidence must be a list")
+        evidence: list[tuple[str, object]] = []
+        for pair in evidence_payload:
+            if type(pair) is not list or len(pair) != 2 or type(pair[0]) is not str:
+                raise ValueError("annotation evidence pair mismatch")
+            evidence.append((pair[0], pair[1]))
+        reasons.append(
+            RiskReason(
+                reason_code=RiskReasonCode(reason_payload["reason_code"]),
+                message=reason_payload["message"],
+                rule_id=RiskRuleId(reason_payload["rule_id"]),
+                evidence=tuple(evidence),  # type: ignore[arg-type]
+            )
+        )
+    return RiskAnnotation(
+        annotation_id=payload["annotation_id"],
+        risk_level=RiskLevel(payload["risk_level"]),
+        target=RiskTarget(
+            target_type=RiskTargetType(str(target_payload["target_type"])),
+            table_name=target_payload["table_name"],
+            row_identity=(
+                None
+                if target_payload["row_identity"] is None
+                else DigestRef(target_payload["row_identity"])
+            ),
+            before_row_identity=(
+                None
+                if target_payload["before_row_identity"] is None
+                else DigestRef(target_payload["before_row_identity"])
+            ),
+            current_row_identity=(
+                None
+                if target_payload["current_row_identity"] is None
+                else DigestRef(target_payload["current_row_identity"])
+            ),
+            changed_columns=tuple(changed_columns_payload),
+            position=target_payload["position"],
+            position_range=(
+                None
+                if position_range_payload is None
+                else tuple(position_range_payload)
+            ),
+            coverage=target_payload["coverage"],
+        ),
+        reasons=tuple(reasons),
+        diagnostics=tuple(diagnostics_payload),
+    )
 
 
 @dataclass(frozen=True, slots=True)

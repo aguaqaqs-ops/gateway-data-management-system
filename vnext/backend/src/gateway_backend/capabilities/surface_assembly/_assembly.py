@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from time import monotonic
 
-from gateway_shared_kernel import DigestRef
+from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts import ArtifactRef, ArtifactStorePort
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonFacts,
     ComparisonMode,
@@ -18,10 +18,13 @@ from gateway_backend.capabilities.comparison.contracts import (
     RecordsArtifactFamily,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import (
+    RISK_ANNOTATION_MANIFEST_MEDIA_TYPE,
+    RISK_ANNOTATION_MEDIA_TYPE,
     RiskAnnotationClosure,
     RiskAnnotationClosureEntry,
     RiskReport,
     RiskTableRisk,
+    validate_risk_annotation_documents,
 )
 from gateway_backend.capabilities.surface_assembly._digest import compute_surface_digest
 from gateway_backend.capabilities.surface_assembly._refs import validate_surface_refs
@@ -201,6 +204,43 @@ def validate_surface(surface: ComparisonSurface) -> None:
     expected = compute_surface_digest(surface)
     if expected != surface.surface_digest:
         raise ValueError("surface digest mismatch")
+
+
+def validate_surface_artifacts(
+    surface: ComparisonSurface,
+    store: ArtifactStorePort,
+) -> None:
+    """Validate Surface-owned typed artifacts before Bundle publication."""
+
+    validate_surface(surface)
+    for table in surface.tables:
+        content_ref = table.risk_refs.annotation_ref
+        manifest_ref = table.risk_refs.annotation_manifest_ref
+        if content_ref is None or manifest_ref is None:
+            continue
+        if content_ref.media_type != RISK_ANNOTATION_MEDIA_TYPE:
+            raise ValueError("risk annotation content media type mismatch")
+        if manifest_ref.media_type != RISK_ANNOTATION_MANIFEST_MEDIA_TYPE:
+            raise ValueError("risk annotation manifest media type mismatch")
+        content_bytes = store.locate(content_ref)
+        manifest_bytes = store.locate(manifest_ref)
+        if (
+            len(content_bytes) != content_ref.size_bytes
+            or raw_blob_digest(content_bytes) != content_ref.raw_sha256
+        ):
+            raise ValueError("risk annotation content integrity mismatch")
+        if (
+            len(manifest_bytes) != manifest_ref.size_bytes
+            or raw_blob_digest(manifest_bytes) != manifest_ref.raw_sha256
+        ):
+            raise ValueError("risk annotation manifest integrity mismatch")
+        validate_risk_annotation_documents(
+            content_bytes,
+            manifest_bytes,
+            table_name=table.table_name,
+            annotation_count=table.risk_refs.annotation_count,
+            content_digest=content_ref.raw_sha256,
+        )
 
 
 class _AssemblyError(ValueError):

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison.contracts import (
@@ -23,6 +25,7 @@ from gateway_backend.capabilities.comparison.contracts import (
 )
 from gateway_backend.capabilities.risk_evaluation import (
     AnnotationDetailPolicy,
+    RISK_ANNOTATION_CONTRACT_VERSION,
     RiskAnnotationClosure,
     RiskEvaluationInput,
     RiskEvaluationStatus,
@@ -37,6 +40,7 @@ from gateway_backend.capabilities.risk_evaluation import (
     RiskRulesetSnapshot,
     evaluate_risk,
     validate_risk_annotation_closure,
+    validate_risk_annotation_documents,
 )
 
 
@@ -284,6 +288,14 @@ def test_pair_annotation_cap_discards_partial_annotation_closure() -> None:
 
     assert result.status is RiskEvaluationStatus.DEGRADED
     assert result.risk_evaluation is not None
+    assert result.risk_report is not None
+    assert len(result.risk_report.tables) == 1
+    assert result.risk_report.tables[0].table_name == "orders"
+    assert result.risk_report.tables[0].risk_level is RiskLevel.UNKNOWN
+    assert result.risk_report.tables[0].annotation_count == 0
+    assert result.risk_report.tables[0].diagnostics == (
+        "max_annotations_per_pair exceeded",
+    )
     assert result.annotation_artifacts == ()
     assert result.risk_closure is None
 
@@ -384,3 +396,84 @@ def test_tampered_closure_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="closure"):
         validate_risk_annotation_closure(closure, store)
+
+
+def test_annotation_document_validator_rejects_malformed_record_fields() -> None:
+    content = canonicalize_json_value(
+        {
+            "annotations": [
+                {
+                    "annotation_id": "orders:00000000",
+                    "diagnostics": "",
+                    "reasons": [
+                        {
+                            "evidence": [],
+                            "message": "review required",
+                            "reason_code": "KEY_DEGRADED",
+                            "rule_id": "KEY_DEGRADED",
+                        }
+                    ],
+                    "risk_level": "UNKNOWN",
+                    "target": {
+                        "before_row_identity": None,
+                        "changed_columns": "",
+                        "coverage": None,
+                        "current_row_identity": None,
+                        "position": None,
+                        "position_range": None,
+                        "row_identity": None,
+                        "table_name": "orders",
+                        "target_type": "TABLE",
+                    },
+                }
+            ],
+            "contract_version": RISK_ANNOTATION_CONTRACT_VERSION,
+            "table_name": "orders",
+        }
+    )
+    content_digest = raw_blob_digest(content)
+    manifest = canonicalize_json_value(
+        {
+            "annotation_count": 1,
+            "content_digest": content_digest.value,
+            "contract_version": RISK_ANNOTATION_CONTRACT_VERSION,
+            "record_format": "CANONICAL_JSON",
+            "table_name": "orders",
+        }
+    )
+
+    with pytest.raises(ValueError, match="record payload mismatch"):
+        validate_risk_annotation_documents(
+            content,
+            manifest,
+            table_name="orders",
+            annotation_count=1,
+            content_digest=content_digest,
+        )
+
+    noncanonical_evidence = json.loads(content)
+    noncanonical_evidence["annotations"][0]["changed_columns"] = []
+    noncanonical_evidence["annotations"][0]["diagnostics"] = []
+    noncanonical_evidence["annotations"][0]["reasons"][0]["evidence"] = [
+        ["z", 1],
+        ["a", 2],
+    ]
+    content = canonicalize_json_value(noncanonical_evidence)
+    content_digest = raw_blob_digest(content)
+    manifest = canonicalize_json_value(
+        {
+            "annotation_count": 1,
+            "content_digest": content_digest.value,
+            "contract_version": RISK_ANNOTATION_CONTRACT_VERSION,
+            "record_format": "CANONICAL_JSON",
+            "table_name": "orders",
+        }
+    )
+    with pytest.raises(ValueError, match="record payload mismatch"):
+        validate_risk_annotation_documents(
+            content,
+            manifest,
+            table_name="orders",
+            annotation_count=1,
+            content_digest=content_digest,
+        )

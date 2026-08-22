@@ -21,6 +21,7 @@ from gateway_backend.artifacts import (
 from gateway_backend.capabilities.bundle_assembly._digest import (
     closure_bytes,
     closure_digest,
+    closure_semantic_payload,
     compute_bundle_digest,
     manifest_bytes,
     manifest_semantic_payload,
@@ -54,6 +55,7 @@ from gateway_backend.capabilities.surface_assembly import (
     compute_surface_digest,
     rewrite_surface_refs,
     validate_surface,
+    validate_surface_artifacts,
 )
 from gateway_backend.capabilities.surface_assembly.contracts import (
     ComparisonSurface,
@@ -121,6 +123,7 @@ def assemble_bundle(
         source_by_ref = {item.source_ref: item for item in bindings}
         for pair_input, surface in active_pairs:
             checkpoint()
+            validate_surface_artifacts(surface, source_store)
             surface_refs = collect_surface_refs(surface)
             missing = [ref for ref in surface_refs if ref not in source_by_ref]
             if missing:
@@ -328,6 +331,12 @@ def validate_bundle(bundle: ComparisonBundle, store: ArtifactStorePort) -> None:
         raise BundleAssemblyError("BUNDLE_CLOSURE_NOT_CANONICAL")
     entries = _entries_from_document(closure_document)
     closure = BundleArtifactManifest(entries=entries)
+    expected_closure_payload = closure_semantic_payload(closure)
+    if any(
+        closure_document.get(key) != value
+        for key, value in expected_closure_payload.items()
+    ):
+        raise BundleAssemblyError("BUNDLE_CLOSURE_SEMANTIC_PAYLOAD_MISMATCH")
     manifest_entries = _entries_from_document(manifest)
     if manifest_entries != entries:
         raise BundleAssemblyError("BUNDLE_MANIFEST_CLOSURE_ENTRIES_MISMATCH")

@@ -1,6 +1,10 @@
 """Public surface of the deterministic Surface Assembly capability."""
 
-from gateway_backend.capabilities.surface_assembly._assembly import assemble_surface, validate_surface
+from gateway_backend.capabilities.surface_assembly._assembly import (
+    assemble_surface,
+    validate_surface,
+    validate_surface_artifacts,
+)
 from gateway_backend.capabilities.surface_assembly._digest import (
     compute_surface_digest,
     surface_digest_payload,
@@ -85,6 +89,7 @@ __all__ = [
     "rewrite_surface_refs",
     "surface_digest_payload",
     "validate_surface",
+    "validate_surface_artifacts",
     "validate_surface_ref",
     "validate_surface_refs",
 ]

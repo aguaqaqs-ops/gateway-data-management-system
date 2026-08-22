@@ -493,3 +493,18 @@ def _name_tuple(values: tuple[str, ...], label: str) -> tuple[str, ...]:
             raise ValueError(f"{label} must not contain duplicates")
         seen.add(item)
     return canonical
+
+
+__all__ = [
+    "CANONICALIZATION_MANIFEST_CONTRACT",
+    "CanonicalKeyPolicy",
+    "CanonicalizationManifest",
+    "CanonicalizationManifestTable",
+    "DroppedColumn",
+    "OrderedPolicy",
+    "RULESET_ID",
+    "RULESET_VERSION",
+    "STORAGE_PROJECTION_VERSION",
+    "StorageRuleView",
+    "TableRulesetSnapshot",
+]

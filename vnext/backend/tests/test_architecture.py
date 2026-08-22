@@ -26,6 +26,7 @@ CAPABILITY_OWNERS = frozenset(
         "surface_assembly",
         "bundle_assembly",
         "mutation_planning",
+        "external_target_sync",
     }
 )
 
@@ -46,6 +47,7 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
     "surface_assembly": frozenset({"comparison", "risk_evaluation", "business_projection"}),
     "bundle_assembly": frozenset({"surface_assembly"}),
     "mutation_planning": frozenset({"storage_projection"}),
+    "external_target_sync": frozenset({"mutation_planning"}),
 }
 
 FORBIDDEN_IMPORT_PREFIXES = (
@@ -311,6 +313,38 @@ def test_storage_projection_source_stays_on_capability_leaf() -> None:
     for source in sorted(owner.rglob("*.py")):
         text = source.read_text(encoding="utf-8")
         for token in _STORAGE_PROJECTION_FORBIDDEN_TOKENS:
+            assert token not in text, f"{source} contains forbidden token {token}"
+
+
+_MUTATION_PLANNING_FORBIDDEN_TOKENS = (
+    "dolt",
+    "host_path",
+    "fastapi",
+    "legacy",
+    "backend_vnext",
+    "NotImplementedError",
+    "gateway_repository",
+    "sql_text",
+    "replay_sql",
+)
+
+
+def test_mutation_planning_source_stays_on_capability_leaf() -> None:
+    owner = CAPABILITIES_ROOT / "mutation_planning"
+    for source in sorted(owner.rglob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        for token in _MUTATION_PLANNING_FORBIDDEN_TOKENS:
+            assert token not in text, f"{source} contains forbidden token {token}"
+
+
+_EXTERNAL_TARGET_SYNC_FORBIDDEN_TOKENS = _MUTATION_PLANNING_FORBIDDEN_TOKENS
+
+
+def test_external_target_sync_source_stays_on_capability_leaf() -> None:
+    owner = CAPABILITIES_ROOT / "external_target_sync"
+    for source in sorted(owner.rglob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        for token in _EXTERNAL_TARGET_SYNC_FORBIDDEN_TOKENS:
             assert token not in text, f"{source} contains forbidden token {token}"
 
 

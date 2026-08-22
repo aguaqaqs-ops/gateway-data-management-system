@@ -203,6 +203,14 @@ cleanup_commit: this_cleanup_commit
 
 29. [P3-R6-S0 Entry and Budget Freeze](p3-r6-s0-entry-and-budget-freeze.md)：R6 owner DAG、
     numeric caps、failure matrix、fixture groups、benchmark disposition 和 S1 prerequisites。
+30. [P3-R6 Risk, Surface and Bundle Handoff](p3-r6-risk-surface-bundle-handoff.md)：R6 module gate、
+    validated source SHA、deferred register 和 R7 entry prerequisites。
+31. [P3-R7 Mutation and Target Closure Design Baseline](p3-r7-mutation-target-closure-design.md)：
+    R7 mutation/change-set、renderer、reference executor 和 P4/P5 boundary。
+32. [P3-R7 Mutation and Target Closure Execution Plan](p3-r7-mutation-target-closure-execution-plan.md)：
+    R7 S0-S3 complete、S4-S7 staged execution、review isolation、verification gates 和 handoff。
+33. [P3-R7-S0 Entry and Budget Freeze](p3-r7-s0-entry-and-budget-freeze.md)：R7 immutable input、
+    policy、failure matrix、caps、fixtures 和 implementation prerequisites。
 
 ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)（P3-R2-S0 已修订
 source dump / repository import 双边界）。

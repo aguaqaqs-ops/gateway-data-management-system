@@ -226,8 +226,8 @@ R 之间默认串行。R 内只有不共享未稳定 contract、不会改变对�
 ```yaml
 p3_design: accepted
 p3_execution_plan: accepted_for_staged_planning
-current_module: P3-R6
-current_module_detail: R5 module gate pass; R6 design/detail plan/S0 complete; implementation authorization pending
+current_module: P3-R7
+current_module_detail: R6 module gate pass; R7 design accepted; R7 S0 complete; implementation authorization pending
 p3_r1_s0: completed
 p3_r1_s0_inventory: p3-r1-s0-asset-inventory.md
 p3_r1_s1: completed
@@ -291,6 +291,13 @@ p3_r6_detail_plan_status: accepted_for_staged_planning
 p3_r6_s0: completed
 p3_r6_s0_exit: pass
 p3_r6_implementation_authorized: no
+p3_r6_exit: pass
+p3_r7_ready: yes
+p3_r7_design: p3-r7-mutation-target-closure-design.md
+p3_r7_detail_plan: p3-r7-mutation-target-closure-execution-plan.md
+p3_r7_s0: completed
+p3_r7_s0_exit: pass
+p3_r7_implementation_authorized: no
 p3_implementation_authorized: no
 ```
 
@@ -314,6 +321,10 @@ p3_implementation_authorized: no
 - [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)
 - [P3-R6 Risk, Surface and Bundle Design Baseline](p3-r6-risk-surface-bundle-design.md)
 - [P3-R6 Risk, Surface and Bundle Execution Plan](p3-r6-risk-surface-bundle-execution-plan.md)
+- [P3-R6 Risk, Surface and Bundle Handoff](p3-r6-risk-surface-bundle-handoff.md)
+- [P3-R7 Mutation and Target Closure Design Baseline](p3-r7-mutation-target-closure-design.md)
+- [P3-R7 Mutation and Target Closure Execution Plan](p3-r7-mutation-target-closure-execution-plan.md)
+- [P3-R7-S0 Entry and Budget Freeze](p3-r7-s0-entry-and-budget-freeze.md)
 - [P3-R6-S0 Entry and Budget Freeze](p3-r6-s0-entry-and-budget-freeze.md)
 - [Implementation Stages](implementation-stages.md)
 - [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)

@@ -39,6 +39,10 @@
 - [P3-R6 Risk, Surface and Bundle Design Baseline](plans/p3-r6-risk-surface-bundle-design.md)（R6 accepted design；不授权实现）
 - [P3-R6 Risk, Surface and Bundle Execution Plan](plans/p3-r6-risk-surface-bundle-execution-plan.md)（S0 complete；S1-S7 staged plan；implementation authorization pending）
 - [P3-R6-S0 Entry and Budget Freeze](plans/p3-r6-s0-entry-and-budget-freeze.md)（S0 complete；不授权实现）
+- [P3-R6 Risk, Surface and Bundle Handoff](plans/p3-r6-risk-surface-bundle-handoff.md)（R6 gate pass；R7 entry；不授权全局实现）
+- [P3-R7 Mutation and Target Closure Design Baseline](plans/p3-r7-mutation-target-closure-design.md)（R7 accepted design；S0 complete；不授权实现）
+- [P3-R7 Mutation and Target Closure Execution Plan](plans/p3-r7-mutation-target-closure-execution-plan.md)（S0-S3 complete/pass；S4-S7 staged plan；implementation authorization pending）
+- [P3-R7-S0 Entry and Budget Freeze](plans/p3-r7-s0-entry-and-budget-freeze.md)（S0 complete；不授权实现）
 - [Repository Service Contract](contracts/repository-service.md)
 - [Performance Measurement Guidance](contracts/performance-measurement-and-baseline.md)
 - [ADR 0001: Python/Rust Hybrid Compute Strategy](adr/0001-python-rust-hybrid-compute-strategy.md)

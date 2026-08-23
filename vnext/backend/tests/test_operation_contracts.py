@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import dataclasses
 import importlib
+import json
 from datetime import UTC, datetime
 
 import pytest
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
+from hypothesis import given, settings, strategies as st
 
 import gateway_backend.operations as operations
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.operations.contracts import (
+    _BUSINESS_REFERENCE_KEYS,
+    _DIAGNOSTIC_KEYS,
+    _OPERATION_DOCUMENT_KEYS,
+    _STEP_DOCUMENT_KEYS,
+)
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     BusinessReference,
@@ -34,6 +42,58 @@ TIMESTAMP = "2024-01-02T03:04:05Z"
 LATER_TIMESTAMP = "2024-01-02T03:05:00Z"
 LEASE_EXPIRES = "2024-01-02T03:10:00Z"
 DIAGNOSTIC = {"code": "FAILED", "message": "owner reason"}
+
+EXPECTED_OPERATION_DOCUMENT_KEYS = frozenset(
+    {
+        "artifact_refs",
+        "business_refs",
+        "cancel_requested",
+        "checkpoint_ref",
+        "completed_at",
+        "contract_version",
+        "created_at",
+        "diagnostic",
+        "document_type",
+        "job_contract_version",
+        "job_kind",
+        "job_payload",
+        "job_payload_ref",
+        "operation_id",
+        "optimistic_version",
+        "ready_closure_ref",
+        "repository_operation_id",
+        "status",
+        "updated_at",
+    }
+)
+EXPECTED_STEP_DOCUMENT_KEYS = frozenset(
+    {
+        "attempt_count",
+        "cancel_requested",
+        "checkpoint_ref",
+        "completed_at",
+        "contract_version",
+        "created_at",
+        "diagnostic",
+        "document_type",
+        "lease_expires_at",
+        "lease_token",
+        "operation_id",
+        "optimistic_version",
+        "prior_output_refs",
+        "retry_not_before",
+        "started_at",
+        "status",
+        "step_id",
+        "step_name",
+        "updated_at",
+        "worker_id",
+    }
+)
+EXPECTED_BUSINESS_REFERENCE_KEYS = frozenset({"kind", "value"})
+EXPECTED_DIAGNOSTIC_KEYS = frozenset({"code", "message"})
+
+_PROP = settings(max_examples=40, deadline=None, derandomize=True)
 
 EXPECTED_OPERATION_STATUSES = (
     "QUEUED",
@@ -225,6 +285,226 @@ def _step_record(**changes: object) -> StepRecord:
     return StepRecord(**defaults)  # type: ignore[arg-type]
 
 
+def _nested_json_object(depth: int) -> dict[str, object]:
+    if depth <= 1:
+        return {"leaf": 1}
+    return {"nested": _nested_json_object(depth - 1)}
+
+
+def _opaque_id_value_faults() -> tuple[tuple[str, str, str], ...]:
+    return (
+        ("empty", "", "1..255"),
+        ("too-long", "a" * 256, "1..255"),
+        ("nul-control", "id\x00", "control"),
+        ("host-path-slash", "/tmp/id", "host path"),
+        ("host-path-backslash", "C:\\id", "host path"),
+    )
+
+
+def _registry_name_value_faults() -> tuple[tuple[str, str, str], ...]:
+    return (
+        ("empty", "", "registry name pattern"),
+        ("too-long", "a" * 129, "registry name pattern"),
+        ("illegal-char", "bad/kind", "registry name pattern"),
+    )
+
+
+def _timestamp_value_faults() -> tuple[tuple[str, str, str], ...]:
+    return (
+        ("offset-plus-zero", "2024-01-02T03:04:05+00:00", "canonical UTC timestamp"),
+        ("offset-east-eight", "2024-01-02T03:04:05+08:00", "canonical UTC timestamp"),
+        ("leap-second", "2024-01-02T03:04:60Z", "canonical UTC timestamp"),
+        ("invalid-civil-date", "2024-02-30T03:04:05Z", "civil date"),
+        ("non-canonical-fraction", "2024-01-02T03:04:05.000000Z", "canonical UTC timestamp"),
+    )
+
+
+def _operation_opaque_id_faults() -> tuple[tuple[str, dict[str, object], str], ...]:
+    rows: list[tuple[str, dict[str, object], str]] = []
+    for field in ("operation_id", "repository_operation_id"):
+        for name, value, match in _opaque_id_value_faults():
+            rows.append(
+                (
+                    f"operation-{field}-{name}",
+                    _minimal_operation_document(**{field: value}),
+                    match,
+                )
+            )
+    return tuple(rows)
+
+
+def _step_opaque_id_faults() -> tuple[tuple[str, dict[str, object], str], ...]:
+    rows: list[tuple[str, dict[str, object], str]] = []
+    for field in ("step_id", "operation_id", "worker_id", "lease_token"):
+        for name, value, match in _opaque_id_value_faults():
+            if field in {"worker_id", "lease_token"}:
+                changes: dict[str, object] = {
+                    "status": StepStatus.RUNNING.value,
+                    "attempt_count": 1,
+                    "started_at": TIMESTAMP,
+                    "worker_id": "worker-1",
+                    "lease_token": "lease-1",
+                    "lease_expires_at": LEASE_EXPIRES,
+                }
+                changes[field] = value
+                document = _minimal_step_document(**changes)
+            else:
+                document = _minimal_step_document(**{field: value})
+            rows.append((f"step-{field}-{name}", document, match))
+    return tuple(rows)
+
+
+def _operation_registry_name_faults() -> tuple[tuple[str, dict[str, object], str], ...]:
+    rows: list[tuple[str, dict[str, object], str]] = []
+    for field in ("job_kind",):
+        for name, value, match in _registry_name_value_faults():
+            rows.append(
+                (
+                    f"operation-{field}-{name}",
+                    _minimal_operation_document(**{field: value}),
+                    match,
+                )
+            )
+    for name, value, match in _registry_name_value_faults():
+        rows.append(
+            (
+                f"operation-business-kind-{name}",
+                _minimal_operation_document(
+                    business_refs=[{"kind": value, "value": "ws-1"}],
+                ),
+                match,
+            )
+        )
+    return tuple(rows)
+
+
+def _step_registry_name_faults() -> tuple[tuple[str, dict[str, object], str], ...]:
+    return tuple(
+        (
+            f"step-step_name-{name}",
+            _minimal_step_document(step_name=value),
+            match,
+        )
+        for name, value, match in _registry_name_value_faults()
+    )
+
+
+def _operation_timestamp_faults() -> tuple[tuple[str, dict[str, object], str], ...]:
+    return tuple(
+        (
+            f"operation-created_at-{name}",
+            _minimal_operation_document(created_at=value),
+            match,
+        )
+        for name, value, match in _timestamp_value_faults()
+    )
+
+
+def _step_timestamp_faults() -> tuple[tuple[str, dict[str, object], str], ...]:
+    return tuple(
+        (
+            f"step-updated_at-{name}",
+            _minimal_step_document(updated_at=value),
+            match,
+        )
+        for name, value, match in _timestamp_value_faults()
+    )
+
+
+def _failed_operation_document(**changes: object) -> dict[str, object]:
+    defaults: dict[str, object] = {
+        "status": OperationStatus.FAILED.value,
+        "diagnostic": DIAGNOSTIC,
+        "completed_at": TIMESTAMP,
+    }
+    defaults.update(changes)
+    return _minimal_operation_document(**defaults)
+
+
+def _failed_step_document(**changes: object) -> dict[str, object]:
+    defaults: dict[str, object] = {
+        "status": StepStatus.FAILED.value,
+        "attempt_count": 1,
+        "started_at": TIMESTAMP,
+        "diagnostic": DIAGNOSTIC,
+        "completed_at": LATER_TIMESTAMP,
+        "updated_at": LATER_TIMESTAMP,
+    }
+    defaults.update(changes)
+    return _minimal_step_document(**defaults)
+
+
+ARTIFACT_REF_FAULTS: tuple[tuple[str, dict[str, object], str], ...] = (
+    (
+        "missing-artifact-id",
+        {
+            "media_type": EXAMPLE_MEDIA_TYPE,
+            "size_bytes": 3,
+            "raw_sha256": EXAMPLE_RAW_SHA256,
+        },
+        "missing fields",
+    ),
+    (
+        "unknown-content-digest",
+        _example_artifact_ref_dict(content_digest="sha256:" + "b" * 64),
+        "unknown fields",
+    ),
+    (
+        "host-path-artifact-id",
+        _example_artifact_ref_dict(artifact_id="/tmp/secret.arrow"),
+        "host path",
+    ),
+    (
+        "size-bytes-negative",
+        _example_artifact_ref_dict(size_bytes=-1),
+        "size_bytes must be a non-negative integer",
+    ),
+)
+
+
+def _operation_nested_artifact_ref_faults() -> tuple[tuple[str, dict[str, object], str], ...]:
+    rows: list[tuple[str, dict[str, object], str]] = []
+    injectors: tuple[tuple[str, str], ...] = (
+        ("job_payload_ref", "job_payload_ref"),
+        ("checkpoint_ref", "checkpoint_ref"),
+        ("ready_closure_ref", "ready_closure_ref"),
+        ("artifact_refs-item", "artifact_refs"),
+    )
+    for injector_name, field in injectors:
+        for fault_name, fault_payload, match in ARTIFACT_REF_FAULTS:
+            if field == "artifact_refs":
+                document = _minimal_operation_document(artifact_refs=[fault_payload])
+            elif field == "job_payload_ref":
+                document = _minimal_operation_document(
+                    job_payload=None,
+                    job_payload_ref=fault_payload,
+                )
+            else:
+                document = _minimal_operation_document(**{field: fault_payload})
+            rows.append((f"operation-{injector_name}-{fault_name}", document, match))
+    return tuple(rows)
+
+
+def _step_nested_artifact_ref_faults() -> tuple[tuple[str, dict[str, object], str], ...]:
+    rows: list[tuple[str, dict[str, object], str]] = []
+    for fault_name, fault_payload, match in ARTIFACT_REF_FAULTS:
+        rows.append(
+            (
+                f"step-checkpoint_ref-{fault_name}",
+                _failed_step_document(checkpoint_ref=fault_payload),
+                match,
+            )
+        )
+        rows.append(
+            (
+                f"step-prior_output_refs-{fault_name}",
+                _failed_step_document(prior_output_refs=[fault_payload]),
+                match,
+            )
+        )
+    return tuple(rows)
+
+
 MALFORMED_OPERATION_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object, str], ...] = (
     ("non-object-root", [], "must be an object"),
     (
@@ -298,6 +578,172 @@ MALFORMED_OPERATION_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object
         _minimal_operation_document(diagnostic={"code": "bad", "message": "reason"}),
         "diagnostic.code",
     ),
+    (
+        "unknown-future-contract-version",
+        _minimal_operation_document(contract_version="backend-vnext/operation-runtime/v2"),
+        "contract_version mismatch",
+    ),
+    (
+        "unknown-operation-status",
+        _minimal_operation_document(status="NOT_A_STATUS"),
+        "known OperationStatus",
+    ),
+    (
+        "status-not-string",
+        _minimal_operation_document(status=1),
+        "status must be a string",
+    ),
+    (
+        "cancel-requested-not-bool",
+        _minimal_operation_document(cancel_requested="yes"),
+        "cancel_requested must be a bool",
+    ),
+    (
+        "created-at-not-string",
+        _minimal_operation_document(created_at=1),
+        "created_at must be a string",
+    ),
+    (
+        "business-refs-not-list",
+        _minimal_operation_document(business_refs={"kind": "workspace", "value": "ws-1"}),
+        "business_refs must be a list",
+    ),
+    (
+        "artifact-refs-not-list",
+        _minimal_operation_document(artifact_refs=_example_artifact_ref_dict()),
+        "artifact_refs must be a list",
+    ),
+    (
+        "business-ref-item-not-object",
+        _minimal_operation_document(business_refs=["workspace"]),
+        "business_refs items must be objects",
+    ),
+    (
+        "business-ref-unknown-field",
+        _minimal_operation_document(
+            business_refs=[{"kind": "workspace", "value": "ws-1", "extra": True}],
+        ),
+        "unknown fields",
+    ),
+    (
+        "business-ref-missing-kind",
+        _minimal_operation_document(business_refs=[{"value": "ws-1"}]),
+        "missing fields",
+    ),
+    (
+        "business-ref-host-path-value",
+        _minimal_operation_document(
+            business_refs=[{"kind": "workspace", "value": "/tmp/ws"}],
+        ),
+        "host path",
+    ),
+    (
+        "diagnostic-unknown-field",
+        _failed_operation_document(diagnostic={**DIAGNOSTIC, "extra": True}),
+        "unknown fields",
+    ),
+    (
+        "diagnostic-missing-code",
+        _failed_operation_document(diagnostic={"message": "reason"}),
+        "missing fields",
+    ),
+    (
+        "diagnostic-empty-message",
+        _failed_operation_document(diagnostic={"code": "FAILED", "message": ""}),
+        "diagnostic.message",
+    ),
+    (
+        "diagnostic-message-too-long",
+        _failed_operation_document(
+            diagnostic={"code": "FAILED", "message": "x" * (4 * 1024 + 1)},
+        ),
+        "diagnostic.message",
+    ),
+    (
+        "diagnostic-code-not-string",
+        _failed_operation_document(diagnostic={"code": 1, "message": "reason"}),
+        "diagnostic.code must be a string",
+    ),
+    (
+        "job-payload-array-root",
+        _minimal_operation_document(job_payload=[]),
+        "job_payload must be a JSON object",
+    ),
+    (
+        "job-payload-string-root",
+        _minimal_operation_document(job_payload="payload"),
+        "job_payload must be a JSON object",
+    ),
+    (
+        "job-payload-float-value",
+        _minimal_operation_document(job_payload={"value": 1.5}),
+        "non-I-JSON numbers",
+    ),
+    (
+        "job-payload-ijson-int-overflow",
+        _minimal_operation_document(job_payload={"value": 2**53}),
+        "I-JSON safe range",
+    ),
+    (
+        "job-payload-depth-overflow",
+        _minimal_operation_document(job_payload=_nested_json_object(33)),
+        "maximum JSON depth",
+    ),
+    (
+        "job-payload-aggregate-overflow",
+        _minimal_operation_document(job_payload={"items": [{} for _ in range(4096)]}),
+        "maximum JSON aggregate size",
+    ),
+    (
+        "job-payload-key-too-long",
+        _minimal_operation_document(job_payload={"k" * 129: 1}),
+        "object key exceeds maximum size",
+    ),
+    (
+        "job-payload-string-too-long",
+        _minimal_operation_document(job_payload={"s": "x" * (16 * 1024 + 1)}),
+        "string exceeds maximum size",
+    ),
+    (
+        "job-payload-size-overflow",
+        _minimal_operation_document(
+            job_payload={f"key-{index}": "y" * 1000 for index in range(70)},
+        ),
+        "maximum inline payload size",
+    ),
+    (
+        "business-refs-size-overflow",
+        _minimal_operation_document(
+            business_refs=[{"kind": "workspace", "value": f"ws-{index}"} for index in range(65)],
+        ),
+        "business_refs exceeds maximum tuple size",
+    ),
+    (
+        "artifact-refs-size-overflow",
+        _minimal_operation_document(
+            artifact_refs=[
+                _example_artifact_ref_dict(artifact_id=f"artifact-overflow-{index}")
+                for index in range(65)
+            ],
+        ),
+        "artifact_refs exceeds maximum tuple size",
+    ),
+    (
+        "combined-artifact-refs-overflow",
+        _minimal_operation_document(
+            job_payload=None,
+            job_payload_ref=_example_artifact_ref_dict(artifact_id="artifact-payload-ref"),
+            artifact_refs=[
+                _example_artifact_ref_dict(artifact_id=f"artifact-overflow-{index}")
+                for index in range(64)
+            ],
+        ),
+        "artifact refs exceed maximum per record",
+    ),
+    * _operation_opaque_id_faults(),
+    * _operation_registry_name_faults(),
+    * _operation_timestamp_faults(),
+    * _operation_nested_artifact_ref_faults(),
 )
 
 MALFORMED_STEP_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object, str], ...] = (
@@ -322,6 +768,89 @@ MALFORMED_STEP_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object, str
         _minimal_step_document(attempt_count=True),
         "must be an integer",
     ),
+    (
+        "unknown-future-contract-version",
+        _minimal_step_document(contract_version="backend-vnext/operation-runtime/v2"),
+        "contract_version mismatch",
+    ),
+    (
+        "unknown-step-status",
+        _minimal_step_document(status="NOT_A_STATUS"),
+        "known StepStatus",
+    ),
+    (
+        "status-not-string",
+        _minimal_step_document(status=1),
+        "status must be a string",
+    ),
+    (
+        "cancel-requested-not-bool",
+        _minimal_step_document(cancel_requested="yes"),
+        "cancel_requested must be a bool",
+    ),
+    (
+        "attempt-count-negative",
+        _minimal_step_document(attempt_count=-1),
+        "non-negative I-JSON safe integer",
+    ),
+    (
+        "attempt-count-ijson-overflow",
+        _minimal_step_document(attempt_count=2**53),
+        "I-JSON safe integer",
+    ),
+    (
+        "prior-output-refs-not-list",
+        _minimal_step_document(prior_output_refs=_example_artifact_ref_dict()),
+        "prior_output_refs must be a list",
+    ),
+    (
+        "duplicate-prior-output-artifact-id",
+        _failed_step_document(
+            prior_output_refs=[
+                _example_artifact_ref_dict(artifact_id="artifact-dup-1"),
+                _example_artifact_ref_dict(artifact_id="artifact-dup-1"),
+            ],
+        ),
+        "duplicate artifact_id",
+    ),
+    (
+        "prior-output-refs-size-overflow",
+        _minimal_step_document(
+            prior_output_refs=[
+                _example_artifact_ref_dict(artifact_id=f"artifact-overflow-{index}")
+                for index in range(65)
+            ],
+        ),
+        "prior_output_refs exceeds maximum tuple size",
+    ),
+    (
+        "running-worker-host-path",
+        _minimal_step_document(
+            status=StepStatus.RUNNING.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            worker_id="/tmp/worker",
+            lease_token="lease-1",
+            lease_expires_at=LEASE_EXPIRES,
+        ),
+        "host path",
+    ),
+    (
+        "running-lease-token-host-path",
+        _minimal_step_document(
+            status=StepStatus.RUNNING.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            worker_id="worker-1",
+            lease_token="C:\\lease",
+            lease_expires_at=LEASE_EXPIRES,
+        ),
+        "host path",
+    ),
+    * _step_opaque_id_faults(),
+    * _step_registry_name_faults(),
+    * _step_timestamp_faults(),
+    * _step_nested_artifact_ref_faults(),
 )
 
 MINIMAL_OPERATION_STATUS_DOCUMENTS: tuple[tuple[str, dict[str, object]], ...] = (
@@ -657,15 +1186,86 @@ def test_operation_record_with_payload_ref_round_trips() -> None:
     assert round_tripped == record
 
 
+def test_operation_document_key_inventory_matches_contract_module() -> None:
+    assert EXPECTED_OPERATION_DOCUMENT_KEYS == _OPERATION_DOCUMENT_KEYS
+    assert EXPECTED_STEP_DOCUMENT_KEYS == _STEP_DOCUMENT_KEYS
+    assert EXPECTED_BUSINESS_REFERENCE_KEYS == _BUSINESS_REFERENCE_KEYS
+    assert EXPECTED_DIAGNOSTIC_KEYS == _DIAGNOSTIC_KEYS
+
+
+def test_operation_full_document_emits_exact_closed_key_set() -> None:
+    record = operation_record_from_document(_full_operation_document())
+    assert set(record.to_document()) == EXPECTED_OPERATION_DOCUMENT_KEYS
+
+
+def test_step_full_document_emits_exact_closed_key_set() -> None:
+    record = step_record_from_document(_full_step_document())
+    assert set(record.to_document()) == EXPECTED_STEP_DOCUMENT_KEYS
+
+
+def test_business_reference_and_diagnostic_emit_closed_nested_keys() -> None:
+    business_ref = BusinessReference(kind="workspace", value="ws-1")
+    diagnostic = OperationDiagnostic(code="FAILED", message="owner reason")
+    assert set(business_ref.to_document()) == EXPECTED_BUSINESS_REFERENCE_KEYS
+    assert set(diagnostic.to_document()) == EXPECTED_DIAGNOSTIC_KEYS
+
+
 def test_operation_document_emits_closed_key_set() -> None:
     record = operation_record_from_document(_minimal_operation_document())
-    assert set(record.to_document()) == set(_minimal_operation_document())
+    assert set(record.to_document()) == EXPECTED_OPERATION_DOCUMENT_KEYS
 
 
 def test_operation_payload_key_reorder_preserves_canonical_bytes() -> None:
     first = operation_record_from_document(_minimal_operation_document(job_payload={"b": 1, "a": 2}))
     second = operation_record_from_document(_minimal_operation_document(job_payload={"a": 2, "b": 1}))
     assert first.job_payload == second.job_payload
+
+
+def test_operation_payload_allows_opaque_path_string() -> None:
+    record = operation_record_from_document(
+        _minimal_operation_document(job_payload={"path": "/tmp/secret"})
+    )
+    assert record.job_payload is not None
+    round_tripped = operation_record_from_document(record.to_document())
+    assert round_tripped == record
+
+
+def test_operation_document_jcs_round_trip() -> None:
+    record = operation_record_from_document(_full_operation_document())
+    canonical = canonicalize_json_value(record.to_document())
+    parsed = json.loads(canonical)
+    assert operation_record_from_document(parsed) == record
+
+
+def test_step_document_jcs_round_trip() -> None:
+    record = step_record_from_document(_full_step_document())
+    canonical = canonicalize_json_value(record.to_document())
+    parsed = json.loads(canonical)
+    assert step_record_from_document(parsed) == record
+
+
+def test_job_payload_bytes_are_canonical_jcs() -> None:
+    payload = {"nested": {"values": [1, 2], "name": "payload"}}
+    record = operation_record_from_document(_minimal_operation_document(job_payload=payload))
+    assert record.job_payload == canonicalize_json_value(payload)
+
+
+def test_operation_payload_key_reorder_yields_identical_document_jcs() -> None:
+    first = operation_record_from_document(
+        _minimal_operation_document(
+            job_payload={"b": 1, "a": 2},
+            business_refs=[{"kind": "workspace", "value": "ws-1"}],
+        )
+    )
+    second = operation_record_from_document(
+        _minimal_operation_document(
+            job_payload={"a": 2, "b": 1},
+            business_refs=[{"kind": "workspace", "value": "ws-1"}],
+        )
+    )
+    assert canonicalize_json_value(first.to_document()) == canonicalize_json_value(
+        second.to_document()
+    )
 
 
 def test_minimal_step_document_round_trips() -> None:
@@ -682,7 +1282,7 @@ def test_full_step_document_round_trips() -> None:
 
 def test_step_document_emits_closed_key_set() -> None:
     record = step_record_from_document(_minimal_step_document())
-    assert set(record.to_document()) == set(_minimal_step_document())
+    assert set(record.to_document()) == EXPECTED_STEP_DOCUMENT_KEYS
 
 
 def test_operation_record_constructor_uses_shared_validators() -> None:
@@ -831,3 +1431,36 @@ def test_step_record_is_frozen_and_owns_tuple_refs() -> None:
 def test_operation_record_constructor_rejects_invalid_status_fields() -> None:
     with pytest.raises(ValueError, match="diagnostic is forbidden"):
         _operation_record(diagnostic=OperationDiagnostic(code="FAILED", message="reason"))
+
+
+@st.composite
+def bounded_json_object(draw: st.DrawFn) -> dict[str, object]:
+    return draw(
+        st.dictionaries(
+            st.text(
+                min_size=1,
+                max_size=16,
+                alphabet=st.characters(min_codepoint=97, max_codepoint=122),
+            ),
+            st.one_of(
+                st.none(),
+                st.booleans(),
+                st.integers(min_value=0, max_value=1000),
+                st.text(max_size=64),
+                st.lists(st.integers(min_value=0, max_value=100), max_size=4),
+            ),
+            max_size=8,
+        )
+    )
+
+
+@_PROP
+@given(bounded_json_object())
+def test_inline_job_payload_property_round_trip(payload: dict[str, object]) -> None:
+    try:
+        record = operation_record_from_document(_minimal_operation_document(job_payload=payload))
+    except ValueError:
+        return
+    round_tripped = operation_record_from_document(record.to_document())
+    assert round_tripped == record
+    assert record.job_payload == canonicalize_json_value(payload)

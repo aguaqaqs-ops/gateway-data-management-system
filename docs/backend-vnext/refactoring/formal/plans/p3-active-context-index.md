@@ -125,6 +125,7 @@ p3_r7_rework_required: no
 p3_r7_implementation_authorized: no
 p3_final_closure: in_progress
 p3_final_closure_plan: p3-final-closure-execution-plan.md
+p3_final_closure_handoff: p3-final-closure-handoff.md
 p3_final_closure_entry: pass
 p3_exit: pending
 p4_design_conversation_ready: yes
@@ -132,7 +133,9 @@ p4_ready: no_until_p3_final_handoff
 p3_capability_modules_complete: yes
 p3_production_integration_authorized: no
 p3_container_gate: passed_backend_image_a28d88a
-p3_tested_candidate_sha: a28d88a85793017716029638155687ca17e4b5ed
+p3_tested_candidate_sha: 13ce18b8b2d689bc7a4087e0072d485891740c0c
+p3_f3_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
+p3_benchmark_applicability: reconciled_cross_capability_and_provider_deferred
 p3_legacy_oracle_gap: known_external_fixture_exact_nodeid_exclusion
 p3_r5_ready: yes
 p3_implementation_authorized: no
@@ -252,6 +255,8 @@ cleanup_commit: this_cleanup_commit
 36. [P3 Final Closure and P4/P5 Handoff Execution Plan](p3-final-closure-execution-plan.md)：
     Phase-level evidence reconciliation、diagnostic benchmark、final candidate/container gates、
     durable/reconciliation ownership freeze 和最终 P3→P4/P5 handoff；不是新的 capability R。
+37. [P3 Final Closure and P4/P5 Entry Handoff](p3-final-closure-handoff.md)：
+    F5 acceptance checklist、sealed candidate identity、deferred register 和 P4/P5 entry boundary。
 
 ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)（P3-R2-S0 已修订
 source dump / repository import 双边界）。

@@ -1,8 +1,9 @@
 # Phase 3 Final Closure and P4/P5 Handoff Execution Plan
 
 状态：F0 entry complete/pass；F1 evidence reconciliation complete/pass；F2 diagnostic benchmark
-complete/pass on sealed candidate；F3 applicable source gate complete/pass on sealed candidate；F4 backend
-container gate complete/pass on sealed candidate；F5 independent acceptance and handoff pending；`p3_exit: pending`
+complete/pass on sealed candidate `13ce18b` with applicability reconciliation；F3 applicable source
+gate complete/pass on sealed candidate `a28d88a`；F4 backend container gate complete/pass on sealed
+candidate `a28d88a`；F5 independent acceptance pending；`p3_exit: pending`
 
 日期：2026-08-22
 
@@ -138,10 +139,10 @@ defer；本轮不为它建立 multi-target durable schema。
 | --- | --- | --- |
 | F0 | entry/applicability/non-goal freeze | **complete/pass** |
 | F1 | reconcile R6/R7/index evidence and legacy-oracle disposition | **complete/pass**; current authority uses exact external-fixture disposition |
-| F2 | diagnostic runner + raw measurement evidence | runner smoke/ruff pass；final candidate rerun recorded |
-| F3 | authoritative tests, exact external-fixture exclusion, five-package ruff/mypy | **complete/pass for current dirty candidate**; sealed-candidate rerun remains F5 |
-| F4 | backend image rebuild, native/wheel/health/Compose smoke | current final candidate image identity and commands recorded |
-| F5 | independent phase acceptance and P3→P4/P5 handoff | clean committed SHA；`p3_exit: pass` / `p4_ready: yes` |
+| F2 | diagnostic runner + raw measurement evidence | **complete/pass** on `13ce18b`; applicability reconciled |
+| F3 | authoritative tests, exact external-fixture exclusion, five-package ruff/mypy | **complete/pass** on `a28d88a`; runner-only reconciliation did not require rerun |
+| F4 | backend image rebuild, native/wheel/health/Compose smoke | **complete/pass** on `a28d88a` image identity |
+| F5 | independent phase acceptance and P3→P4/P5 handoff | pending；见 [p3-final-closure-handoff.md](p3-final-closure-handoff.md) |
 
 F5 必须在新 acceptance context 中执行，不依赖本轮 implementer 对未提交工作树的解释。
 
@@ -163,7 +164,10 @@ acceptance 同时核对两个 SHA 和允许的 diff；不得把 handoff record S
 
 ### 6.1 Source gate
 
-`tested_candidate_sha`：`a28d88a85793017716029638155687ca17e4b5ed`。
+`tested_candidate_sha`（F3 authority）：`a28d88a85793017716029638155687ca17e4b5ed`。
+
+F3 在 `a28d88a` 上执行；后续 `13ce18b` 仅修正 benchmark runner 与 applicability docs，未改变
+production source/tests/build input，因此 F3 不重跑。
 
 权威命令：
 
@@ -221,9 +225,20 @@ owner。P3 final closure 采用 **known external fixture / exact exclusion**，�
 
 Runner：`vnext/backend/benchmarks/p3_capability_diagnostics.py`。
 
-Raw evidence：[p3-final-closure-benchmark.json](p3-final-closure-benchmark.json)。sealed candidate
-重跑结果 `revision` = `a28d88a85793017716029638155687ca17e4b5ed`，`provider` =
-`python-reference-batch-v1`，`measurement_only: true`。
+Raw evidence：[p3-final-closure-benchmark.json](p3-final-closure-benchmark.json)。当前 authority
+为 `tested_candidate_sha` **`13ce18b8b2d689bc7a4087e0072d485891740c0c`**，`schema_version` =
+`gateway-vnext/p3-capability-diagnostics/v2`。
+
+适用性裁定（消除 F5 P2 ambiguity）：
+
+- layer = `component_multi_pair` only；
+- cross-capability → deferred to P5/P6/P7；
+- provider comparison → deferred to P6/P7；
+- `staging_high_water.status = not_applicable`（无 artifact-store staging path）。
+
+`measurement_record` 含 question、dataset revision、component versions、topology、workload、
+warm/cold setup、summary method、correctness result，符合
+[performance-measurement-and-baseline.md](../contracts/performance-measurement-and-baseline.md#3-minimum-run-record)。
 
 参数与观测：
 
@@ -231,7 +246,6 @@ Raw evidence：[p3-final-closure-benchmark.json](p3-final-closure-benchmark.json
 - 每条 sample 含 wall、CPU、`ru_maxrss`、queue wait、execution、rows processed；
 - cancellation：`status=FAILED`、`diagnostic=PARSER_CANCELLED`、`latency_ms≈0.21`、
   `statement_count=200000`；
-- `staging_high_water_bytes: 0`；
 - limitations 保持 measurement-only，不选择 production provider。
 
 原始 JSON 路径：`/tmp/p3-final-closure-benchmark.json`（handoff record 已同步入 formal evidence）。
@@ -271,8 +285,10 @@ Smoke（全部 **pass**）：
 3. healthz：HTTP 200，`{"status":"ok",...}`；
 4. `docker compose -f vnext/deploy/compose.yaml config --quiet` exit 0。
 
-原始日志：`/tmp/p3-final-docker-build.log`、`/tmp/p3-final-container-smoke.log`（远端），
-`/tmp/p3-final-container-remote.log`、`/tmp/p3-final-container-smoke-local.log`（本地副本）。
+原始日志：`/tmp/p3-final-docker-build.log`（远端）、
+`/tmp/p3-final-container-smoke.log`（远端，SHA-256
+`62175b878acf49f4d2bf8eef682c125f684da9817701fe1b66ae7e23773e66dc`）、
+`/tmp/p3-final-container-remote.log`（本地构建 transcript）。不声明存在有效的本地 smoke 副本。
 
 F4 对 sealed candidate 的 backend container gate 为 **PASS**。
 
@@ -284,18 +300,23 @@ p3_final_closure_entry: pass
 p3_final_closure_authorized: yes
 p3_final_closure_f0: completed
 p3_final_closure_f1: completed_pass
-p3_final_closure_f2: completed_pass_sealed_candidate
-p3_final_closure_f3: completed_pass_sealed_candidate
-p3_final_closure_f4: completed_pass_sealed_candidate
+p3_final_closure_f2: completed_pass_sealed_candidate_13ce18b
+p3_final_closure_f3: completed_pass_sealed_candidate_a28d88a
+p3_final_closure_f4: completed_pass_sealed_candidate_a28d88a
 p3_final_closure_f5: pending_independent_acceptance
 p3_final_closure_base_sha: 3ad7afa3d938011d01685de3fd732af68e891e66
-tested_candidate_sha: a28d88a85793017716029638155687ca17e4b5ed
+tested_candidate_sha: 13ce18b8b2d689bc7a4087e0072d485891740c0c
+f3_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
+f4_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
+prior_handoff_record_sha: c58498d7a517b7f954a7ee24284a58829bd81a40
 handoff_record_sha: pending_handoff_documentation_commit
+p3_final_closure_handoff: p3-final-closure-handoff.md
 p3_capability_modules_complete: yes
 p3_production_integration_authorized: no
 p3_implementation_authorized: no
 p3_legacy_oracle_disposition: known_external_fixture_exact_nodeid_exclusion
-p3_benchmark: measurement_only_evidence_recorded
+p3_benchmark: measurement_only_component_multi_pair_recorded
+p3_benchmark_applicability: reconciled_cross_capability_and_provider_deferred
 p3_container_gate: passed_backend_image_a28d88a
 p3_exit: pending
 p4_design_conversation_ready: yes

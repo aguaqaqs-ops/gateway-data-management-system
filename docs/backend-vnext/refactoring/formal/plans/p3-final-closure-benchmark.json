@@ -1,7 +1,24 @@
 {
+  "applicability_scope": {
+    "cross_capability": {
+      "owner_phase": "P5/P6/P7",
+      "reason": "no confirmed P5 end-to-end consumer, capacity target, or production comparison provider candidate at P3 exit",
+      "status": "deferred"
+    },
+    "layer": "component_multi_pair",
+    "provider_comparison": {
+      "owner_phase": "P6/P7",
+      "reason": "only PythonReferenceBatchProvider exists; no production provider selection gate or differential baseline is authorized in P3",
+      "status": "deferred"
+    },
+    "staging_high_water": {
+      "reason": "runner uses pre-built in-memory Arrow batches; artifact-store staging is not exercised",
+      "status": "not_applicable"
+    }
+  },
   "cancellation": {
     "diagnostic": "PARSER_CANCELLED",
-    "latency_ms": 0.2074209987767972,
+    "latency_ms": 0.16730000061215833,
     "source_bytes": 6088939,
     "statement_count": 200000,
     "status": "FAILED"
@@ -19,66 +36,85 @@
     "python": "3.14.6"
   },
   "limitations": [
-    "diagnostic component measurement; not an end-to-end P5 workload",
+    "component/multi-pair diagnostic only; not cross-capability or end-to-end P5 workload",
     "in-memory Arrow boundary does not exercise artifact-store or Repository I/O",
     "Python reference provider result does not select a production provider",
-    "ru_maxrss is the process lifetime high-water mark reported by Linux"
+    "ru_maxrss is the process lifetime high-water mark reported by Linux",
+    "staging high-water is not applicable because no staging path is exercised"
   ],
   "measurement_only": true,
+  "measurement_record": {
+    "capacity_target": "not_applicable",
+    "component_versions": {
+      "comparison_provider": "python-reference-batch-v1",
+      "gateway_backend_revision": "13ce18b8b2d689bc7a4087e0072d485891740c0c",
+      "parser_contract": 1,
+      "python": "3.14.6"
+    },
+    "correctness_result": "pass; provider row counts match descriptor; cancellation returned FAILED/PARSER_CANCELLED",
+    "dataset_id": "synthetic-arrow-int64-pairs/v1",
+    "dataset_revision": "13ce18b8b2d689bc7a4087e0072d485891740c0c",
+    "deployment_topology": "local developer host; in-process component diagnostic; no Repository Service or artifact-store staging path",
+    "question": "Does the public comparison batch provider seam scale under independent in-memory pairs, and does the SQL parser observe cooperative cancellation?",
+    "resource_limits": "host default; no explicit CPU/memory cgroup",
+    "summary_method": "per sample: min/mean/max over pair observations for queue wait and execution; wall/cpu/rss from enclosing repetition",
+    "warm_cold_setup": "immutable Arrow batches built once; one untimed warm-up per pair count; setup excluded from measured samples",
+    "workload": "synthetic Arrow int64 pairs at 100000 rows/pair, 4096 rows/batch, pair counts 1,2,4,8, 3 repetitions; plus 200000 SQL statements for cancellation latency"
+  },
   "pair_runs": [
     {
       "pair_count": 1,
       "samples": [
         {
-          "cpu_seconds": 0.0012057080000000275,
+          "cpu_seconds": 0.00077686499999996,
           "execution_ms": {
-            "max": 0.2157990020350553,
-            "mean": 0.2157990020350553,
-            "min": 0.2157990020350553
+            "max": 0.20924499403918162,
+            "mean": 0.20924499403918162,
+            "min": 0.20924499403918162
           },
           "peak_rss_delta_kib": 128,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.7471009957953356,
-            "mean": 0.7471009957953356,
-            "min": 0.7471009957953356
+            "max": 0.25535000168019906,
+            "mean": 0.25535000168019906,
+            "min": 0.25535000168019906
           },
           "rows_processed": 100000,
-          "wall_seconds": 0.001319895003689453
+          "wall_seconds": 0.0008228899969253689
         },
         {
-          "cpu_seconds": 0.0005776230000000271,
+          "cpu_seconds": 0.0005520339999999235,
           "execution_ms": {
-            "max": 0.2254290011478588,
-            "mean": 0.2254290011478588,
-            "min": 0.2254290011478588
+            "max": 0.17413400200894102,
+            "mean": 0.17413400200894102,
+            "min": 0.17413400200894102
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.19818700093310326,
-            "mean": 0.19818700093310326,
-            "min": 0.19818700093310326
+            "max": 0.21974300034344196,
+            "mean": 0.21974300034344196,
+            "min": 0.21974300034344196
           },
           "rows_processed": 100000,
-          "wall_seconds": 0.0006126980006229132
+          "wall_seconds": 0.0005975299936835654
         },
         {
-          "cpu_seconds": 0.000646894000000009,
+          "cpu_seconds": 0.0004955540000000092,
           "execution_ms": {
-            "max": 0.19032700220122933,
-            "mean": 0.19032700220122933,
-            "min": 0.19032700220122933
+            "max": 0.1721279986668378,
+            "mean": 0.1721279986668378,
+            "min": 0.1721279986668378
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.17845499678514898,
-            "mean": 0.17845499678514898,
-            "min": 0.17845499678514898
+            "max": 0.21002499852329493,
+            "mean": 0.21002499852329493,
+            "min": 0.21002499852329493
           },
           "rows_processed": 100000,
-          "wall_seconds": 0.0007832980045350268
+          "wall_seconds": 0.0005235899952822365
         }
       ],
       "worker_count": 1
@@ -87,55 +123,55 @@
       "pair_count": 2,
       "samples": [
         {
-          "cpu_seconds": 0.0012859990000000376,
+          "cpu_seconds": 0.0005763950000000628,
           "execution_ms": {
-            "max": 0.44319600419839844,
-            "mean": 0.3068980004172772,
-            "min": 0.170599996636156
+            "max": 0.14263800403568894,
+            "mean": 0.11899650417035446,
+            "min": 0.09535500430501997
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.32913199538597837,
-            "mean": 0.2707859966903925,
-            "min": 0.21243999799480662
+            "max": 0.1716599945211783,
+            "mean": 0.10422099512652494,
+            "min": 0.036781995731871575
           },
           "rows_processed": 200000,
-          "wall_seconds": 0.001272973997402005
+          "wall_seconds": 0.000584380999498535
         },
         {
-          "cpu_seconds": 0.001318159000000041,
+          "cpu_seconds": 0.0007523079999999238,
           "execution_ms": {
-            "max": 0.6537250010296702,
-            "mean": 0.5031439977756236,
-            "min": 0.3525629945215769
+            "max": 0.23784999939380214,
+            "mean": 0.21984799968777224,
+            "min": 0.20184599998174235
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.1871920030680485,
-            "mean": 0.1805180036171805,
-            "min": 0.17384400416631252
+            "max": 0.15001800056779757,
+            "mean": 0.1278905001527164,
+            "min": 0.10576299973763525
           },
           "rows_processed": 200000,
-          "wall_seconds": 0.0012061539964633994
+          "wall_seconds": 0.000761444003728684
         },
         {
-          "cpu_seconds": 0.0006420269999999895,
+          "cpu_seconds": 0.0007944200000000734,
           "execution_ms": {
-            "max": 0.17690200184006244,
-            "mean": 0.12652700024773367,
-            "min": 0.0761519986554049
+            "max": 0.19065500237047672,
+            "mean": 0.16285499805235304,
+            "min": 0.13505499373422936
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.1747069982229732,
-            "mean": 0.11036999785574153,
-            "min": 0.046032997488509864
+            "max": 0.19987700216006488,
+            "mean": 0.16998649880406447,
+            "min": 0.14009599544806406
           },
           "rows_processed": 200000,
-          "wall_seconds": 0.0006645710018347017
+          "wall_seconds": 0.0008828339996398427
         }
       ],
       "worker_count": 2
@@ -144,55 +180,55 @@
       "pair_count": 4,
       "samples": [
         {
-          "cpu_seconds": 0.0019157619999999875,
+          "cpu_seconds": 0.0026291880000000045,
           "execution_ms": {
-            "max": 0.7717420012340881,
-            "mean": 0.3535699979693163,
-            "min": 0.1440419946447946
+            "max": 1.51520600047661,
+            "mean": 1.1328797500027576,
+            "min": 0.4418239986989647
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.4349859955254942,
-            "mean": 0.2775097491394263,
-            "min": 0.1685699971858412
+            "max": 0.2407970023341477,
+            "mean": 0.18647274737304542,
+            "min": 0.14089599426370114
           },
           "rows_processed": 400000,
-          "wall_seconds": 0.001902561001770664
+          "wall_seconds": 0.0024227999965660274
         },
         {
-          "cpu_seconds": 0.0022921330000000295,
+          "cpu_seconds": 0.0019171820000000173,
           "execution_ms": {
-            "max": 1.3142250027158298,
-            "mean": 0.7994092484295834,
-            "min": 0.14883499534334987
+            "max": 0.8422640021308325,
+            "mean": 0.6051279979146784,
+            "min": 0.14158099656924605
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.5805629989481531,
-            "mean": 0.2560635002737399,
-            "min": 0.14561499847332016
+            "max": 0.2538399930926971,
+            "mean": 0.16771250011515804,
+            "min": 0.11704600183293223
           },
           "rows_processed": 400000,
-          "wall_seconds": 0.002171651001845021
+          "wall_seconds": 0.0018062089948216453
         },
         {
-          "cpu_seconds": 0.0015879449999999795,
+          "cpu_seconds": 0.0021177099999999394,
           "execution_ms": {
-            "max": 0.2669120003702119,
-            "mean": 0.16470824994030409,
-            "min": 0.0703269979567267
+            "max": 1.0242850039503537,
+            "mean": 0.5764472498412943,
+            "min": 0.18728400027612224
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.21264099632389843,
-            "mean": 0.14115924932411872,
-            "min": 0.07809999806340784
+            "max": 0.35711200325749815,
+            "mean": 0.20572225002979394,
+            "min": 0.1401879999320954
           },
           "rows_processed": 400000,
-          "wall_seconds": 0.0014282539996202104
+          "wall_seconds": 0.002174088003812358
         }
       ],
       "worker_count": 4
@@ -201,63 +237,62 @@
       "pair_count": 8,
       "samples": [
         {
-          "cpu_seconds": 0.01031584000000002,
+          "cpu_seconds": 0.016698690000000016,
           "execution_ms": {
-            "max": 7.010476001596544,
-            "mean": 3.237256376451114,
-            "min": 0.1222809951286763
+            "max": 10.995477001415566,
+            "mean": 8.41701787430793,
+            "min": 6.461930999648757
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 1.055675995303318,
-            "mean": 0.5594016238319455,
-            "min": 0.20315499568823725
+            "max": 0.8731850030017085,
+            "mean": 0.3304550009488594,
+            "min": 0.1539090008009225
           },
           "rows_processed": 800000,
-          "wall_seconds": 0.009690516999398824
+          "wall_seconds": 0.012422619998687878
         },
         {
-          "cpu_seconds": 0.01335566999999993,
+          "cpu_seconds": 0.009235427000000018,
           "execution_ms": {
-            "max": 8.66684400534723,
-            "mean": 6.198708626470761,
-            "min": 4.128633001528215
+            "max": 5.966112999885809,
+            "mean": 3.703255873915623,
+            "min": 0.12265899567864835
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.4580289969453588,
-            "mean": 0.2520242478567525,
-            "min": 0.17408400162821636
+            "max": 0.8348219998879358,
+            "mean": 0.30423437510762597,
+            "min": 0.0980969998636283
           },
           "rows_processed": 800000,
-          "wall_seconds": 0.010407126996142324
+          "wall_seconds": 0.007654410001123324
         },
         {
-          "cpu_seconds": 0.004541090999999997,
+          "cpu_seconds": 0.0033921910000001,
           "execution_ms": {
-            "max": 1.9109849963570014,
-            "mean": 0.8629431249573827,
-            "min": 0.17537299572722986
+            "max": 1.6995040059555322,
+            "mean": 0.5445212500490015,
+            "min": 0.09254500037059188
           },
           "peak_rss_delta_kib": 0,
-          "peak_rss_kib": 90992,
+          "peak_rss_kib": 89460,
           "queue_wait_ms": {
-            "max": 0.4236919994582422,
-            "mean": 0.2118875008818577,
-            "min": 0.09363399294670671
+            "max": 0.4765600024256855,
+            "mean": 0.2348346251892508,
+            "min": 0.040476996218785644
           },
           "rows_processed": 800000,
-          "wall_seconds": 0.004133251997700427
+          "wall_seconds": 0.003248403998441063
         }
       ],
       "worker_count": 8
     }
   ],
   "provider": "python-reference-batch-v1",
-  "revision": "a28d88a85793017716029638155687ca17e4b5ed",
-  "schema_version": "gateway-vnext/p3-capability-diagnostics/v1",
-  "setup": "immutable Arrow batches built once; one warm-up per pair count; setup excluded",
-  "staging_high_water_bytes": 0
+  "revision": "13ce18b8b2d689bc7a4087e0072d485891740c0c",
+  "schema_version": "gateway-vnext/p3-capability-diagnostics/v2",
+  "setup": "immutable Arrow batches built once; one warm-up per pair count; setup excluded"
 }

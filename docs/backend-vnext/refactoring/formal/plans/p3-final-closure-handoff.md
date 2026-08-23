@@ -1,0 +1,118 @@
+# P3 Final Closure and P4/P5 Entry Handoff
+
+状态：`pending`（F0–F4 complete/pass on sealed candidate；F5 independent acceptance pending；
+不是 Phase 3 全部 production integration 授权）
+
+日期：2026-08-23
+
+Owner：Backend vNext Architecture Acceptance
+
+本文封存 P3-FINAL 的 sealed candidate、evidence record、deferred register 与 P4/P5 entry
+boundary。它不是 P3 exit pass，也不授权 P4/P5 implementation。
+
+上游计划：[P3 Final Closure and P4/P5 Handoff Execution Plan](p3-final-closure-execution-plan.md)
+
+R7 上游：[P3-R7 Mutation and Target Closure Handoff](p3-r7-mutation-target-closure-handoff.md)
+
+```yaml
+handoff_kind: p3_final_closure
+round: P3-FINAL-F5
+tested_candidate_sha: 13ce18b8b2d689bc7a4087e0072d485891740c0c
+prior_tested_candidate_sha: a28d88a85793017716029638155687ca17e4b5ed
+prior_handoff_record_sha: c58498d7a517b7f954a7ee24284a58829bd81a40
+handoff_record_sha: pending_handoff_documentation_commit
+p3_exit: pending
+p4_ready: no_until_p3_final_handoff
+p3_production_integration_authorized: no
+p3_implementation_authorized: no
+```
+
+`tested_candidate_sha` 是 F2–F4 的 source authority。`13ce18b` 相对 `a28d88a` 仅修正
+benchmark runner 适用性/测量记录与 owning P3 design/execution applicability 裁定；F3/F4 未
+重跑，仍继承 `a28d88a` 上已通过的 source/container evidence。F5 独立验收须同时核对两个
+tested candidate 的 diff 是否仅限该 reconciliation scope。
+
+## 1. Gate identity
+
+| Gate | Result | Authority |
+| --- | --- | --- |
+| F0 entry/applicability | **pass** | [p3-final-closure-execution-plan.md](p3-final-closure-execution-plan.md) |
+| F1 evidence reconciliation | **pass** | same |
+| F2 diagnostic benchmark | **pass** on `13ce18b` | [p3-final-closure-benchmark.json](p3-final-closure-benchmark.json) |
+| F3 source/static | **pass** on `a28d88a`（未因 runner-only reconciliation 重跑） | `/tmp/p3-final-run-tests.log` |
+| F4 backend container | **pass** on `a28d88a` image | remote `gateway-backend:p3-final-a28d88a85793` |
+| F5 independent acceptance | **pending** | separate acceptance context |
+
+## 2. Benchmark applicability reconciliation
+
+F5 初审阻塞项为 benchmark 覆盖与上位 P3 三层 measurement 策略的 applicability 歧义。修复后
+正式裁定：
+
+- P3 exit 当前证据范围 = **component/multi-pair diagnostic only**；
+- cross-capability artifact chain → deferred to **P5/P6/P7**；
+- production/reference provider comparison → deferred to **P6/P7**；
+- `staging_high_water` → **`not_applicable`**（in-memory Arrow workload，无 staging path）。
+
+权威记录：
+
+- [p3-capability-foundation-execution-plan.md §6](p3-capability-foundation-execution-plan.md#6-benchmark-policy)
+- [p3-capability-foundation-design.md §5–6](p3-capability-foundation-design.md#5-phase-3-deliverables)
+- runner `applicability_scope` / `measurement_record` in
+  `vnext/backend/benchmarks/p3_capability_diagnostics.py`
+
+## 3. Revision identity
+
+```text
+tested_candidate_sha: 13ce18b8b2d689bc7a4087e0072d485891740c0c
+prior_handoff_record_sha: c58498d7a517b7f954a7ee24284a58829bd81a40
+evidence commit: pending
+```
+
+`a28d88a..13ce18b` diff：runner + owning P3 design/execution applicability docs only。
+
+`13ce18b..<handoff_record_sha>` 预期仅含 formal records/raw measurement evidence。
+
+## 4. Container provenance
+
+```text
+execution_host: 10.10.60.4 (tmpuser)
+gate_worktree: /home/tmpuser/gateway-gate-a28d88a85793
+validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
+image_tag: gateway-backend:p3-final-a28d88a85793
+image_id: sha256:1e04d4e3e9603fd3c62ac857a77c0fb6fefeb8eb29b31dcf1ecc0da9b997d550
+remote_smoke_log: /tmp/p3-final-container-smoke.log
+remote_smoke_log_sha256: 62175b878acf49f4d2bf8eef682c125f684da9817701fe1b66ae7e23773e66dc
+```
+
+## 5. Deferred/reopen register
+
+| Item | Disposition | Owner | Reopen condition |
+| --- | --- | --- | --- |
+| legacy oracle fixture | known external fixture / exact exclusion | R4 | parity matrix or migration/cutover change |
+| cross-capability benchmark | deferred | P5/P6/P7 | confirmed consumer + production path |
+| provider comparison | deferred | P6/P7 | production provider candidate exists |
+| P4 durable runtime | not implemented | P4 | P4 entry handoff |
+| P5 business jobs | not implemented | P5 application | P5 entry |
+| external target adapter | in-memory reference only | future adapter | first consumer confirmed |
+
+## 6. P4/P5 entry boundary
+
+P3 不交付、不授权：
+
+- durable Operation Store、worker、lease、heartbeat、takeover；
+- Workspace/HTTP/PreviewResult、Submit/finalize、confirmation、occupancy、T1/T3；
+- production external-target adapter 或 multi-target durable schema；
+- Repository Service reconciliation 仍由其 control DB/marker/ref/CAS 拥有；P4 lease 不改变
+  Repository operation authority。
+
+P4 可开始 design conversation；`p4_implementation_authorized: no` 直到 `p3_exit: pass`。
+
+## 7. F5 acceptance checklist
+
+独立验收者应核对：
+
+1. `13ce18b` tested candidate 与 evidence-only handoff diff；
+2. benchmark applicability 裁定是否消除 P2 ambiguity；
+3. F3/F4 继承 `a28d88a` 是否被 reconciliation scope 正当支持；
+4. legacy oracle exact exclusion 未写成 gap closed；
+5. P4/P5 owner seam 与 formal contracts 一致。

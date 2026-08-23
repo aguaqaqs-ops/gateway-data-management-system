@@ -12,8 +12,8 @@ Repository Service wire 或 P2 完成状态：
 - [P4 Active Context Index](refactoring/formal/plans/p4-active-context-index.md)
 - [P2 External Interface Handoff](refactoring/formal/plans/p2-external-interface-handoff.md)
 
-历史 P3 默认入口 [P3 Active Context Index](refactoring/formal/plans/p3-active-context-index.md)
-将在 P3→P4 cleanup C3 归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823`。
+历史 P3 默认入口 `p3-active-context-index.md` 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823`
+与 [P3→P4 Cleanup Manifest](refactoring/formal/plans/p3-p4-cleanup-manifest.yaml)。
 
 旧 `contracts/`、`capabilities/`、`flows.md` 等是 P3 capability 设计 oracle；冲突以
 `refactoring/formal/` 为准。

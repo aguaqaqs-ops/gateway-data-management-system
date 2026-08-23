@@ -122,7 +122,7 @@ Operation 与 business execution/effect evidence 的分界以
 
 | 材料 | 原因 |
 | --- | --- |
-| [P3 Active Context Index](p3-active-context-index.md) | 历史 P3 默认入口；C3 归档后由 tag 恢复 |
+| `p3-active-context-index.md` | 历史 P3 默认入口；已归档，恢复见 tag `docs/p3-p4-cleanup-pre-20260823` 与 manifest `archive_from_default` |
 | P3 S0/review/execution plan 过程文档 | 已完成过程记录；见 manifest `archive_from_default` |
 | `temporary/` cleanup C0/C1 记录与执行计划 | cleanup 过程材料；C6 前暂留 |
 | `vnext/repository_service/README.md` 状态行 | 冻结在 P2-R5；不是 phase authority |

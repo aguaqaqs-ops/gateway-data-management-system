@@ -1,9 +1,11 @@
 schema: gateway.docs-code-lifecycle-cleanup.manifest
 schema_version: 1
 stage: p3-p4-context-code-consolidation
-step: C2
+step: C3
 c1_status: complete
 c2_status: complete
+c3_status: complete
+c3_docs_deleted: 26
 generated_at: "2026-08-23T01:59:27Z"
 public_semantics_changed: false
 archive_medium: git_annotated_tag_and_history
@@ -152,11 +154,11 @@ code_bundles:
       - docs/backend-vnext/testing-conventions.md
     c4_default: DEFER
 counts:
-  active: 24
+  active: 23
   normative: 33
   evidence_pointer: 2
   retain_in_place: 10
-  archive_from_default: 25
+  archive_from_default: 26
   move_test_support: 0
   remove_dead: 0
   deferred: 7
@@ -197,14 +199,8 @@ paths:
       path: docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
       class: ACTIVE_INTERFACE
       role: default_entry_or_stage_authority
-      sha256: bf51d90aef06a2b6f3c5d2e22662b6c32741be1f1a175e76230714244e4f249d
-      bytes: 7153
-    -
-      path: docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
-      class: ACTIVE_INTERFACE
-      role: default_entry_or_stage_authority
-      sha256: 9eed8ce4dbd4af4545bf4c1deb0a057c6919b051d2bf0339c8f5df15b2e70594
-      bytes: 20015
+      sha256: 9bc9bfa70fec03f388a7866db1cc99cb37dcc6725d0851c71265524f33f5c670
+      bytes: 7197
     -
       path: docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-design.md
       class: ACTIVE_INTERFACE
@@ -758,6 +754,13 @@ paths:
       role: completed_process_record
       sha256: faaf31de36c0cf7c6b127b6ad18adc4e1234c85e7b47a1e0282667e675e62839
       bytes: 23197
+      recovery_tag: docs/p3-p4-cleanup-pre-20260823
+    -
+      path: docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
+      class: ARCHIVE_FROM_DEFAULT
+      role: completed_process_record
+      sha256: 9eed8ce4dbd4af4545bf4c1deb0a057c6919b051d2bf0339c8f5df15b2e70594
+      bytes: 20015
       recovery_tag: docs/p3-p4-cleanup-pre-20260823
   move_test_support:
   remove_dead:

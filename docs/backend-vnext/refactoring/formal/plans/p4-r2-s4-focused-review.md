@@ -1,6 +1,6 @@
 # P4/R2-S4 Focused Owner Review
 
-状态：**REWORK REQUIRED**
+状态：**REWORK REQUIRED AFTER S5 RE-REVIEW**
 
 日期：2026-08-24
 
@@ -19,7 +19,28 @@ input_validated_code_sha: f77dd43d8f0e2e10b5c40048093161c3a70f4ffe
 reviewed_candidate_sha: f77dd43d8f0e2e10b5c40048093161c3a70f4ffe
 reviewed_handoff_sha: 7f1d25a473e113bb75f1cb6c91230509a42b03f1
 candidate_worktree_at_entry: clean
-result: rework_required
+result: rework_required_after_s5_rereview
+s5_handoff_sha: 942a0c467ccfa07547e6f8f41c4b9283122e475c
+s5_validated_code_sha: 8e5fcce890d5bcb920c7c469a6546fbd15903df8
+s5_claimed_result: pass
+s5_rereview_result: rework_required
+s5_rereview_worktree_at_entry: clean
+open_findings:
+  - P4-R2-S4-F1: P2 rollback-only participant still accepts later mutations whose APPLY result is silently rolled back
+closed_findings:
+  - P4-R2-S4-F2
+  - P4-R2-S4-F3
+  - P4-R2-S4-F4
+  - P4-R2-S4-F5
+rereview_commands_and_results:
+  - "S5 candidate and handoff ancestry/path checks -> pass; 8e5fcce is the unchanged code/test ancestor of 942a0c4"
+  - "cd vnext/backend && uv run pytest -q -m unit tests/test_operation_store.py tests/test_operation_contracts.py tests/test_control_db_migrations.py tests/test_sqlite_operation_store.py tests/test_architecture.py -> 326 passed"
+  - "cd vnext/backend && uv run pytest -q -m integration tests/test_sqlite_operation_store_integration.py -> 18 passed"
+  - "cd vnext/backend && uv run pytest -q -m serial tests/test_sqlite_operation_store_integration.py -> 2 passed, 16 deselected"
+  - "concurrent fresh-file bootstrap nodeid repeated 30 times -> 30 passed"
+  - "cd vnext/backend && uv run pytest -q -m unit -> 1312 passed, 18 deselected, 1 pre-existing Starlette deprecation warning"
+  - "five Python packages: uv run ruff check . && uv run mypy -> pass"
+  - "rollback-only follow-up probe -> later insert returned APPLY and was visible in-transaction, but was absent after clean UoW exit"
 changed_paths:
   - docs/backend-vnext/refactoring/formal/plans/p4-r2-s4-focused-review.md
 commands_and_results:
@@ -54,9 +75,9 @@ reopen_conditions:
   - F2 requires a schema-v1 change, new persisted field, JobDefinition interpretation or a new public query/mutation surface.
   - F3 cannot bind action time without changing the accepted transaction-clock ownership or public port.
   - F4 requires a public timeout/retry policy or changes the accepted SQLite connection profile.
-next_step: P4-R2-S5 remediation appendix and finding-scoped remediation
+next_step: P4-R2-S5 follow-up remediation for F1
 next_step_authorized: no
-s6: required_after_s5
+s6: blocked_pending_s5_followup
 s7: blocked
 ```
 
@@ -232,3 +253,75 @@ record. Its first change must be a remediation appendix listing each finding's o
 regression proof, focused/integration rerun, closure criterion and reopen trigger. All P2 findings
 must be closed or explicitly reopened before the mandatory S6 independent review. P4-R2-S7 and R3
 entry remain unauthorized.
+
+## 7. S5 focused re-review disposition
+
+S5 was subsequently implemented at code candidate
+`8e5fcce890d5bcb920c7c469a6546fbd15903df8` and sealed by docs-only handoff
+`942a0c467ccfa07547e6f8f41c4b9283122e475c`. This re-review independently inspected the diff and
+reran the applicable gates rather than accepting the handoff's `PASS` assertion as closure
+evidence. F2-F5 are closed, but F1 remains a P2 blocker.
+
+### 7.1 Finding disposition after S5
+
+| Finding | Re-review disposition | Evidence |
+| --- | --- | --- |
+| F1 | **open — rework required** | The caught second-leg failure no longer commits a prefix, but the rollback-only participant remains usable. A later mutation can return `APPLY` and be read inside the transaction even though clean UoW exit silently rolls it back. |
+| F2 | **closed** | Final Operation publication checks for active Steps, successor insertion rejects final owners, both branch orders reject, and persisted state remains integrity-valid. |
+| F3 | **closed with explicit minimal port reopen** | The read-only `OperationStore.transaction_now` property exposes the existing sample; action construction and claim scan reject mismatches. No persisted or second clock was added. |
+| F4 | **closed** | The WAL-mode busy retry is bounded by the existing timeout. Full integration passed and the concurrent fresh-file bootstrap owner passed 30/30 additional repetitions. |
+| F5 | **closed** | S2b now points to `P4-R2-S3a`; the shared public-export assertion has one explicit test-owner exception and was not duplicated. |
+
+### 7.2 P4-R2-S4-F1 remains open: rollback-only state admits false successful outcomes
+
+Owner：concrete control DB UoW and `SQLiteOperationStore` failed-transaction state
+
+S5 sets `SQLiteOperationStore._rollback_only = True` whenever a mutating store method raises, and
+`ControlDbUnitOfWork.__exit__` rolls back when that private flag is set. This closes the original
+durability symptom when the caught failure is the last action in the UoW. It does not make the
+failed transaction unusable or make later outcomes truthful.
+
+The re-review probe reproduced the remaining gap using only the public surface:
+
+1. claim an Operation/Step;
+2. call `cancel_intent` with a stale second-leg precondition and catch `StaleWrite`;
+3. in the same UoW, insert a different valid Operation plus initial Step;
+4. observe `TransitionDisposition.APPLY` and successful readback for the new Operation inside the
+   transaction;
+5. exit the UoW without an escaping exception and reopen the DB.
+
+The later Operation was absent after reopen. Thus `APPLY` no longer means the accepted durable
+mutation will commit, and callers can continue evaluating a partially mutated transaction before
+its silent rollback. This contradicts the successful outcome contract and leaves the transaction
+failure rule incomplete; passing regression tests cover only the case where no operation follows
+the caught error.
+
+Required follow-up proof：once an Operations mutation marks the participant rollback-only, every
+later mutation must fail before returning `APPLY | IDEMPOTENT`, and no caller may mistake a poisoned
+transaction for a usable write scope. Cover at least a caught second-leg failure followed by a
+valid create and by a valid CAS. Preserve the already-proved whole-UoW rollback and original typed
+error. If closure requires a new public transaction-aborted outcome, savepoint API or neutral UoW
+method, reopen the frozen boundary first; otherwise keep the mechanism concrete and minimal.
+
+### 7.3 Re-review verification and gate decision
+
+Focused unit passed 326 tests, file-backed integration passed 18, both serial owners passed, backend
+unit passed 1312 with the pre-existing Starlette warning, and all five packages passed full
+ruff/mypy. The bootstrap race passed 30/30 bounded repetitions. These gates establish regression
+health and close F2-F5; they do not override the independently reproduced F1 outcome gap.
+
+```text
+Current re-review input HEAD: 942a0c467ccfa07547e6f8f41c4b9283122e475c
+Reviewed S5 code/test candidate: 8e5fcce890d5bcb920c7c469a6546fbd15903df8
+Container rebuild required: no
+Reason: S5 changes pure Python transaction/SQLite logic, tests and formal docs only; no image, dependency, deployment, mount, UID/GID or container-only boundary changed
+Last verified image revision: none found for this Phase 4 candidate
+Last verified source-tree/image id: none
+Container gate for current candidate: not-applicable
+Required execution point: Phase 4 final production candidate
+```
+
+**Re-review result：`rework_required`.** The S5 handoff's historical `PASS` claim is not accepted as
+the current focused-review disposition. The only next step is a finding-scoped F1 follow-up; it is
+not authorized by this review. Mandatory S6 and S7 remain blocked until the poisoned-transaction
+outcome is closed or its owning boundary is explicitly reopened.

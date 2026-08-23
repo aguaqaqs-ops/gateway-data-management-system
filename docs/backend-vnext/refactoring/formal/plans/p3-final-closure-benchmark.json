@@ -1,0 +1,263 @@
+{
+  "cancellation": {
+    "diagnostic": "PARSER_CANCELLED",
+    "latency_ms": 0.2074209987767972,
+    "source_bytes": 6088939,
+    "statement_count": 200000,
+    "status": "FAILED"
+  },
+  "dataset": {
+    "batch_count": 25,
+    "batch_rows": 4096,
+    "bytes_per_pair": 1600000,
+    "id": "synthetic-arrow-int64-pairs/v1",
+    "rows_per_pair": 100000
+  },
+  "environment": {
+    "cpu_count": 16,
+    "platform": "Linux-6.6.114.1-microsoft-standard-WSL2-x86_64-with-glibc2.44",
+    "python": "3.14.6"
+  },
+  "limitations": [
+    "diagnostic component measurement; not an end-to-end P5 workload",
+    "in-memory Arrow boundary does not exercise artifact-store or Repository I/O",
+    "Python reference provider result does not select a production provider",
+    "ru_maxrss is the process lifetime high-water mark reported by Linux"
+  ],
+  "measurement_only": true,
+  "pair_runs": [
+    {
+      "pair_count": 1,
+      "samples": [
+        {
+          "cpu_seconds": 0.0012057080000000275,
+          "execution_ms": {
+            "max": 0.2157990020350553,
+            "mean": 0.2157990020350553,
+            "min": 0.2157990020350553
+          },
+          "peak_rss_delta_kib": 128,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.7471009957953356,
+            "mean": 0.7471009957953356,
+            "min": 0.7471009957953356
+          },
+          "rows_processed": 100000,
+          "wall_seconds": 0.001319895003689453
+        },
+        {
+          "cpu_seconds": 0.0005776230000000271,
+          "execution_ms": {
+            "max": 0.2254290011478588,
+            "mean": 0.2254290011478588,
+            "min": 0.2254290011478588
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.19818700093310326,
+            "mean": 0.19818700093310326,
+            "min": 0.19818700093310326
+          },
+          "rows_processed": 100000,
+          "wall_seconds": 0.0006126980006229132
+        },
+        {
+          "cpu_seconds": 0.000646894000000009,
+          "execution_ms": {
+            "max": 0.19032700220122933,
+            "mean": 0.19032700220122933,
+            "min": 0.19032700220122933
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.17845499678514898,
+            "mean": 0.17845499678514898,
+            "min": 0.17845499678514898
+          },
+          "rows_processed": 100000,
+          "wall_seconds": 0.0007832980045350268
+        }
+      ],
+      "worker_count": 1
+    },
+    {
+      "pair_count": 2,
+      "samples": [
+        {
+          "cpu_seconds": 0.0012859990000000376,
+          "execution_ms": {
+            "max": 0.44319600419839844,
+            "mean": 0.3068980004172772,
+            "min": 0.170599996636156
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.32913199538597837,
+            "mean": 0.2707859966903925,
+            "min": 0.21243999799480662
+          },
+          "rows_processed": 200000,
+          "wall_seconds": 0.001272973997402005
+        },
+        {
+          "cpu_seconds": 0.001318159000000041,
+          "execution_ms": {
+            "max": 0.6537250010296702,
+            "mean": 0.5031439977756236,
+            "min": 0.3525629945215769
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.1871920030680485,
+            "mean": 0.1805180036171805,
+            "min": 0.17384400416631252
+          },
+          "rows_processed": 200000,
+          "wall_seconds": 0.0012061539964633994
+        },
+        {
+          "cpu_seconds": 0.0006420269999999895,
+          "execution_ms": {
+            "max": 0.17690200184006244,
+            "mean": 0.12652700024773367,
+            "min": 0.0761519986554049
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.1747069982229732,
+            "mean": 0.11036999785574153,
+            "min": 0.046032997488509864
+          },
+          "rows_processed": 200000,
+          "wall_seconds": 0.0006645710018347017
+        }
+      ],
+      "worker_count": 2
+    },
+    {
+      "pair_count": 4,
+      "samples": [
+        {
+          "cpu_seconds": 0.0019157619999999875,
+          "execution_ms": {
+            "max": 0.7717420012340881,
+            "mean": 0.3535699979693163,
+            "min": 0.1440419946447946
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.4349859955254942,
+            "mean": 0.2775097491394263,
+            "min": 0.1685699971858412
+          },
+          "rows_processed": 400000,
+          "wall_seconds": 0.001902561001770664
+        },
+        {
+          "cpu_seconds": 0.0022921330000000295,
+          "execution_ms": {
+            "max": 1.3142250027158298,
+            "mean": 0.7994092484295834,
+            "min": 0.14883499534334987
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.5805629989481531,
+            "mean": 0.2560635002737399,
+            "min": 0.14561499847332016
+          },
+          "rows_processed": 400000,
+          "wall_seconds": 0.002171651001845021
+        },
+        {
+          "cpu_seconds": 0.0015879449999999795,
+          "execution_ms": {
+            "max": 0.2669120003702119,
+            "mean": 0.16470824994030409,
+            "min": 0.0703269979567267
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.21264099632389843,
+            "mean": 0.14115924932411872,
+            "min": 0.07809999806340784
+          },
+          "rows_processed": 400000,
+          "wall_seconds": 0.0014282539996202104
+        }
+      ],
+      "worker_count": 4
+    },
+    {
+      "pair_count": 8,
+      "samples": [
+        {
+          "cpu_seconds": 0.01031584000000002,
+          "execution_ms": {
+            "max": 7.010476001596544,
+            "mean": 3.237256376451114,
+            "min": 0.1222809951286763
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 1.055675995303318,
+            "mean": 0.5594016238319455,
+            "min": 0.20315499568823725
+          },
+          "rows_processed": 800000,
+          "wall_seconds": 0.009690516999398824
+        },
+        {
+          "cpu_seconds": 0.01335566999999993,
+          "execution_ms": {
+            "max": 8.66684400534723,
+            "mean": 6.198708626470761,
+            "min": 4.128633001528215
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.4580289969453588,
+            "mean": 0.2520242478567525,
+            "min": 0.17408400162821636
+          },
+          "rows_processed": 800000,
+          "wall_seconds": 0.010407126996142324
+        },
+        {
+          "cpu_seconds": 0.004541090999999997,
+          "execution_ms": {
+            "max": 1.9109849963570014,
+            "mean": 0.8629431249573827,
+            "min": 0.17537299572722986
+          },
+          "peak_rss_delta_kib": 0,
+          "peak_rss_kib": 90992,
+          "queue_wait_ms": {
+            "max": 0.4236919994582422,
+            "mean": 0.2118875008818577,
+            "min": 0.09363399294670671
+          },
+          "rows_processed": 800000,
+          "wall_seconds": 0.004133251997700427
+        }
+      ],
+      "worker_count": 8
+    }
+  ],
+  "provider": "python-reference-batch-v1",
+  "revision": "a28d88a85793017716029638155687ca17e4b5ed",
+  "schema_version": "gateway-vnext/p3-capability-diagnostics/v1",
+  "setup": "immutable Arrow batches built once; one warm-up per pair count; setup excluded",
+  "staging_high_water_bytes": 0
+}

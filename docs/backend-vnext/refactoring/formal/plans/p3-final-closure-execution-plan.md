@@ -1,8 +1,8 @@
 # Phase 3 Final Closure and P4/P5 Handoff Execution Plan
 
 状态：F0 entry complete/pass；F1 evidence reconciliation complete/pass；F2 diagnostic benchmark
-runner/evidence provisional pass；F3 applicable source gate complete/pass；F4 current-candidate container gate
-deferred to the sealed-candidate implementer；F5 independent acceptance and handoff pending；`p3_exit: pending`
+complete/pass on sealed candidate；F3 applicable source gate complete/pass on sealed candidate；F4 backend
+container gate complete/pass on sealed candidate；F5 independent acceptance and handoff pending；`p3_exit: pending`
 
 日期：2026-08-22
 
@@ -163,32 +163,46 @@ acceptance 同时核对两个 SHA 和允许的 diff；不得把 handoff record S
 
 ### 6.1 Source gate
 
-`./vnext/scripts/run-tests.sh` 在 base HEAD `3ad7afa3d938011d01685de3fd732af68e891e66`
-执行。shared-kernel、repository-contracts、repository-client 分别 **242 / 152 / 154 passed**；
-backend 为 **790 passed、58 failed、1 warning**。58 项全部属于：
+`tested_candidate_sha`：`a28d88a85793017716029638155687ca17e4b5ed`。
+
+权威命令：
+
+```text
+./vnext/scripts/run-tests.sh \
+  --deselect 'tests/test_table_rules_resolver.py::test_legacy_oracle_matches_parity_cases'
+```
+
+在 sealed candidate 上执行结果（exit code **0**，wall **138.7s**）：
+
+| Package / pass | passed | failed | skipped | deselected | warnings |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| shared_kernel | 242 | 0 | 0 | 0 | 0 |
+| repository_contracts | 152 | 0 | 0 | 0 | 0 |
+| repository_client | 154 | 0 | 0 | 0 | 0 |
+| backend | 790 | 0 | 0 | 58 | 1 |
+| repository_service (parallel) | 1356 | 0 | 283 | 0 | 0 |
+| repository_service (serial) | 92 | 0 | 113 | 1639 | 0 |
+
+backend 唯一 warning 为 Starlette `httpx` deprecation（既有）。58 项 deselected 全部属于：
 
 ```text
 tests/test_table_rules_resolver.py::test_legacy_oracle_matches_parity_cases
 ```
 
-失败原因是 `legacy/backend_vnext` 文件缺失或 registry API 不兼容。该失败发生后权威脚本按
-fail-fast 停止，不能把本次运行描述成五包全量 pass。
+五个 Python packages 的 `ruff check .` 与 `mypy` 在 sealed candidate 上全部通过：
 
-本轮随后执行精确排除，不忽略 `test_table_rules_resolver.py` 中其余 tests：
+| Package | ruff | mypy files |
+| --- | --- | ---: |
+| backend | pass (0.04s) | 188 |
+| repository_client | pass (0.04s) | 26 |
+| repository_contracts | pass (0.04s) | 15 |
+| repository_service | pass (0.05s) | 195 |
+| shared_kernel | pass (0.04s) | 34 |
 
-```text
-cd vnext/backend && uv run pytest -q -m unit \
-  --deselect 'tests/test_table_rules_resolver.py::test_legacy_oracle_matches_parity_cases'
-```
+原始日志：`/tmp/p3-final-run-tests.log`、`/tmp/p3-final-static-gates.log`。
 
-结果为 **790 passed、58 deselected、1 warning**。Repository Service 的 `not serial` 与
-`serial -n 0` gates 分别为 **1356 passed / 283 skipped** 和
-**92 passed / 113 skipped / 1639 deselected**。五个 Python packages 的 `ruff check .` 与
-`mypy` 全部通过，mypy 分别检查 backend/repository-client/repository-contracts/
-repository-service/shared-kernel **188 / 26 / 15 / 195 / 34** 个 source files。
-
-F3 对当前 dirty candidate 的 applicable source gate 为 **PASS**。F5 仍须在 sealed candidate
-重跑；原 `run-tests.sh` 的 unfiltered external-oracle failure 不得改写为全量 pass。
+F3 对 sealed candidate 的 applicable source gate 为 **PASS**。F5 仍须由独立 acceptance context
+复核；不得把 exact exclusion 写成 legacy gap closed。
 
 ### 6.2 Legacy oracle disposition
 
@@ -207,23 +221,60 @@ owner。P3 final closure 采用 **known external fixture / exact exclusion**，�
 
 Runner：`vnext/backend/benchmarks/p3_capability_diagnostics.py`。
 
-Raw evidence：[p3-final-closure-benchmark.json](p3-final-closure-benchmark.json)。当前记录基于
-base revision `3ad7afa3d938011d01685de3fd732af68e891e66` 加本轮未提交 runner，属于 provisional
-evidence；F5 前必须在 sealed final candidate 重跑并更新 revision。
+Raw evidence：[p3-final-closure-benchmark.json](p3-final-closure-benchmark.json)。sealed candidate
+重跑结果 `revision` = `a28d88a85793017716029638155687ca17e4b5ed`，`provider` =
+`python-reference-batch-v1`，`measurement_only: true`。
 
-该 runner 使用 100,000 rows/pair、4,096 rows/batch、`1/2/4/8` pair、每组 3 次观测，记录
-wall、CPU、Linux `ru_maxrss`、queue wait、execution time 和 Arrow bytes；另以 200,000 SQL
-statements 测量真实 parser cooperative cancellation。结果只证明 runner/metrics 可用，不
-建立性能阈值、不选择 production provider，也不声称是 P5 end-to-end workload。
+参数与观测：
+
+- dataset：`100,000` rows/pair，`4,096` rows/batch，`1/2/4/8` pair，每组 `3` 次；
+- 每条 sample 含 wall、CPU、`ru_maxrss`、queue wait、execution、rows processed；
+- cancellation：`status=FAILED`、`diagnostic=PARSER_CANCELLED`、`latency_ms≈0.21`、
+  `statement_count=200000`；
+- `staging_high_water_bytes: 0`；
+- limitations 保持 measurement-only，不选择 production provider。
+
+原始 JSON 路径：`/tmp/p3-final-closure-benchmark.json`（handoff record 已同步入 formal evidence）。
 
 ### 6.4 Container gate
 
-默认 `/var/run/docker.sock` 不存在。本轮曾使用 isolated temporary root/socket 启动本地
-Docker daemon，并从当前 worktree 开始 rebuild `vnext/backend/Dockerfile`；构建在 dependency
-sync 阶段按任务 owner 的安排主动停止，临时 daemon/root 已清理，未形成可接受的 image
-identity 或 smoke 结论。F4 现明确 deferred 给 sealed-candidate implementer；其必须在 clean
-committed SHA 上重新完整 build，并完成 native import、health 和 Compose smoke。此前未完成的
-临时构建不能作为通过证据。
+Execution host：`10.10.60.4`（`tmpuser`，Linux `arch 7.1.6-arch1-1`）。Docker **29.7.2**，
+Compose **5.5.0**。远端 detached gate worktree：
+`/home/tmpuser/gateway-gate-a28d88a85793`，`HEAD=a28d88a85793017716029638155687ca17e4b5ed`，
+worktree clean。
+
+构建命令：
+
+```text
+docker build \
+  --file vnext/backend/Dockerfile \
+  --tag gateway-backend:p3-final-a28d88a85793 \
+  vnext
+```
+
+网络/cache：backend 镜像从公网拉取 `rust:1.97.0-bookworm`、`python:3.14.6-slim-bookworm`、uv
+与 PyPI 依赖；未使用 P2-R1 repository-service artifact cache（与本 backend gate 无关）。构建
+wall **203.8s**，exit code **0**。
+
+Image identity：
+
+```text
+tag: gateway-backend:p3-final-a28d88a85793
+image_id: sha256:1e04d4e3e9603fd3c62ac857a77c0fb6fefeb8eb29b31dcf1ecc0da9b997d550
+repo_digest: gateway-backend@sha256:1e04d4e3e9603fd3c62ac857a77c0fb6fefeb8eb29b31dcf1ecc0da9b997d550
+```
+
+Smoke（全部 **pass**）：
+
+1. release wheel/native import：`import gateway_compute` 成功；
+2. `canonical_row_hashes_v1`：一行 boolean Arrow table，`row_count=1`，输出 1 行 hash；
+3. healthz：HTTP 200，`{"status":"ok",...}`；
+4. `docker compose -f vnext/deploy/compose.yaml config --quiet` exit 0。
+
+原始日志：`/tmp/p3-final-docker-build.log`、`/tmp/p3-final-container-smoke.log`（远端），
+`/tmp/p3-final-container-remote.log`、`/tmp/p3-final-container-smoke-local.log`（本地副本）。
+
+F4 对 sealed candidate 的 backend container gate 为 **PASS**。
 
 ## 7. Current status
 
@@ -233,17 +284,19 @@ p3_final_closure_entry: pass
 p3_final_closure_authorized: yes
 p3_final_closure_f0: completed
 p3_final_closure_f1: completed_pass
-p3_final_closure_f2: provisional_pass_requires_sealed_candidate_rerun
-p3_final_closure_f3: completed_pass_dirty_candidate_requires_f5_rerun
-p3_final_closure_f4: deferred_to_sealed_candidate_implementer
-p3_final_closure_f5: pending
+p3_final_closure_f2: completed_pass_sealed_candidate
+p3_final_closure_f3: completed_pass_sealed_candidate
+p3_final_closure_f4: completed_pass_sealed_candidate
+p3_final_closure_f5: pending_independent_acceptance
 p3_final_closure_base_sha: 3ad7afa3d938011d01685de3fd732af68e891e66
+tested_candidate_sha: a28d88a85793017716029638155687ca17e4b5ed
+handoff_record_sha: pending_handoff_documentation_commit
 p3_capability_modules_complete: yes
 p3_production_integration_authorized: no
 p3_implementation_authorized: no
 p3_legacy_oracle_disposition: known_external_fixture_exact_nodeid_exclusion
-p3_benchmark: provisional_measurement_only_evidence_recorded
-p3_container_gate: pending_clean_sha_rebuild_and_smoke
+p3_benchmark: measurement_only_evidence_recorded
+p3_container_gate: passed_backend_image_a28d88a
 p3_exit: pending
 p4_design_conversation_ready: yes
 p4_ready: no_until_p3_final_handoff

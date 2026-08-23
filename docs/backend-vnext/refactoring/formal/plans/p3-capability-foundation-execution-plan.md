@@ -318,7 +318,8 @@ p3_exit: pending
 p4_ready: no_until_p3_final_handoff
 p3_capability_modules_complete: yes
 p3_production_integration_authorized: no
-p3_container_gate: pending_clean_sha_rebuild_and_smoke
+p3_container_gate: passed_backend_image_a28d88a
+p3_tested_candidate_sha: a28d88a85793017716029638155687ca17e4b5ed
 p3_legacy_oracle_gap: known_external_fixture_exact_nodeid_exclusion
 p3_implementation_authorized: no
 ```

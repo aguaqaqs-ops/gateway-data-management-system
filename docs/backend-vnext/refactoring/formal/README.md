@@ -45,7 +45,7 @@
 - [P3-R7-S0 Entry and Budget Freeze](plans/p3-r7-s0-entry-and-budget-freeze.md)（S0 complete；R6 upstream applicability re-attested；不授权实现）
 - [P3-R7-S6 Independent Owner, Import, Digest and Recovery Review](plans/p3-r7-s6-independent-review.md)（S6 complete/pass；不授权实现）
 - [P3-R7 Mutation and Target Closure Handoff](plans/p3-r7-mutation-target-closure-handoff.md)（R7 gate pass；upstream evidence refreshed；no R7 rework；不授权进入 P4）
-- [P3 Final Closure and P4/P5 Handoff Execution Plan](plans/p3-final-closure-execution-plan.md)（F0 entry pass；phase evidence、benchmark、container与handoff闭合进行中；`p3_exit: pending`）
+- [P3 Final Closure and P4/P5 Handoff Execution Plan](plans/p3-final-closure-execution-plan.md)（F0-F4 complete/pass on sealed candidate `a28d88a`；F5 independent acceptance pending；`p3_exit: pending`）
 - [Repository Service Contract](contracts/repository-service.md)
 - [Performance Measurement Guidance](contracts/performance-measurement-and-baseline.md)
 - [ADR 0001: Python/Rust Hybrid Compute Strategy](adr/0001-python-rust-hybrid-compute-strategy.md)

@@ -25,11 +25,13 @@ p4_r1_s0: accepted
 p4_r1_s1a: pass
 p4_r1_s1b: pass
 p4_r1_s2a: pass
-p4_implementation_authorized: r1_s2b_only
+p4_r1_s2b: pass
+p4_implementation_authorized: r1_s3a_only
 r1_s1a_authorized: yes
 r1_s1b_authorized: yes
 r1_s2a_authorized: yes
 r1_s2b_authorized: yes
+r1_s3a_authorized: yes
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
 default_retrieval: this_index

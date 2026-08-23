@@ -10,6 +10,7 @@ BACKEND_SRC = Path(__file__).parents[1] / "src"
 CAPABILITIES_ROOT = BACKEND_SRC / "gateway_backend" / "capabilities"
 CAPABILITIES_PREFIX = "gateway_backend.capabilities."
 OPERATIONS_ROOT = BACKEND_SRC / "gateway_backend" / "operations"
+CONTROL_DB_ROOT = BACKEND_SRC / "gateway_backend" / "infrastructure" / "control_db"
 
 OPERATIONS_FORBIDDEN_IMPORT_PREFIXES = (
     "sqlite3",
@@ -394,6 +395,39 @@ def test_operations_source_has_no_operation_kind() -> None:
 def test_operations_source_has_no_deferred_stub() -> None:
     for source in sorted(OPERATIONS_ROOT.rglob("*.py")):
         assert "NotImplementedError" not in source.read_text(encoding="utf-8"), source
+
+
+def test_control_db_boundary_exists_and_has_no_application_wiring() -> None:
+    assert CONTROL_DB_ROOT.is_dir()
+    assert (CONTROL_DB_ROOT / "__init__.py").is_file()
+    assert (CONTROL_DB_ROOT / "database.py").is_file()
+    assert (CONTROL_DB_ROOT / "migrations.py").is_file()
+    assert (CONTROL_DB_ROOT / "sqlite_operations.py").is_file()
+    forbidden = (
+        "gateway_backend.app",
+        "gateway_backend.settings",
+        "gateway_backend.capabilities",
+        "gateway_backend.compute",
+        "gateway_backend.repository_import_artifact",
+        "gateway_repository",
+        "uvicorn",
+        "fastapi",
+        "sqlalchemy",
+        "alembic",
+    )
+    for source in sorted(CONTROL_DB_ROOT.rglob("*.py")):
+        current_module, is_init = _python_module_name(source)
+        for imported in _imported_modules(source, current_module, is_init):
+            assert not any(
+                imported == prefix or imported.startswith(f"{prefix}.")
+                for prefix in forbidden
+            ), f"{source} imports forbidden module {imported}"
+            if imported.startswith("gateway_backend."):
+                assert (
+                    imported.startswith("gateway_backend.operations")
+                    or imported.startswith("gateway_backend.artifacts")
+                    or imported.startswith("gateway_backend.infrastructure.control_db")
+                ), f"{source} imports disallowed backend module {imported}"
 
 
 def _capability_owner_dirs() -> set[str]:

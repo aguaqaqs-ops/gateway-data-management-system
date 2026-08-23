@@ -115,7 +115,7 @@ EXPECTED_STEP_STATUSES = (
     "MANUAL_RECOVERY_REQUIRED",
 )
 
-R1_PUBLIC_EXPORTS = frozenset(
+EXPECTED_PUBLIC_EXPORTS = frozenset(
     {
         "OPERATION_RUNTIME_CONTRACT_VERSION",
         "BusinessReference",
@@ -132,6 +132,20 @@ R1_PUBLIC_EXPORTS = frozenset(
         "validate_operation_transition",
         "validate_step_transition",
         "validate_write_precondition",
+        "DEFAULT_CLAIM_LIMIT",
+        "DEFAULT_PAGE_LIMIT",
+        "MAX_CLAIM_LIMIT",
+        "MAX_PAGE_LIMIT",
+        "ClaimCandidate",
+        "CorruptPersistedRecord",
+        "ConflictingDuplicate",
+        "LeaseExpired",
+        "OperationStore",
+        "OperationUnitOfWork",
+        "RecordNotFound",
+        "StaleWrite",
+        "StoreBusy",
+        "UnsupportedSchemaVersion",
     }
 )
 
@@ -1234,9 +1248,9 @@ def test_job_step_key_registry_identity() -> None:
     assert {first: "handler"}[second] == "handler"
 
 
-def test_public_exports_match_r1_surface() -> None:
-    assert frozenset(operations.__all__) == R1_PUBLIC_EXPORTS
-    for symbol in R1_PUBLIC_EXPORTS:
+def test_public_exports_match_operations_surface() -> None:
+    assert frozenset(operations.__all__) == EXPECTED_PUBLIC_EXPORTS
+    for symbol in EXPECTED_PUBLIC_EXPORTS:
         assert hasattr(operations, symbol)
 
 

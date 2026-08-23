@@ -12,6 +12,7 @@ CAPABILITIES_PREFIX = "gateway_backend.capabilities."
 OPERATIONS_ROOT = BACKEND_SRC / "gateway_backend" / "operations"
 
 OPERATIONS_FORBIDDEN_IMPORT_PREFIXES = (
+    "sqlite3",
     "fastapi",
     "uvicorn",
     "httpx",

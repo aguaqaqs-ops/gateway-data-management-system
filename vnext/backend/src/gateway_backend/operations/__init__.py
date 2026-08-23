@@ -19,6 +19,22 @@ from gateway_backend.operations.state import (
     validate_step_transition,
     validate_write_precondition,
 )
+from gateway_backend.operations.store import (
+    DEFAULT_CLAIM_LIMIT,
+    DEFAULT_PAGE_LIMIT,
+    MAX_CLAIM_LIMIT,
+    MAX_PAGE_LIMIT,
+    ClaimCandidate,
+    CorruptPersistedRecord,
+    ConflictingDuplicate,
+    LeaseExpired,
+    OperationStore,
+    OperationUnitOfWork,
+    RecordNotFound,
+    StaleWrite,
+    StoreBusy,
+    UnsupportedSchemaVersion,
+)
 
 __all__ = [
     "OPERATION_RUNTIME_CONTRACT_VERSION",
@@ -36,4 +52,18 @@ __all__ = [
     "validate_operation_transition",
     "validate_step_transition",
     "validate_write_precondition",
+    "DEFAULT_CLAIM_LIMIT",
+    "DEFAULT_PAGE_LIMIT",
+    "MAX_CLAIM_LIMIT",
+    "MAX_PAGE_LIMIT",
+    "ClaimCandidate",
+    "CorruptPersistedRecord",
+    "ConflictingDuplicate",
+    "LeaseExpired",
+    "OperationStore",
+    "OperationUnitOfWork",
+    "RecordNotFound",
+    "StaleWrite",
+    "StoreBusy",
+    "UnsupportedSchemaVersion",
 ]

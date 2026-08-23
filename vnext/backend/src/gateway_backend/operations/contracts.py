@@ -100,6 +100,12 @@ class OperationStatus(StrEnum):
     SUPERSEDED = "SUPERSEDED"
     MANUAL_RECOVERY_REQUIRED = "MANUAL_RECOVERY_REQUIRED"
 
+    def is_final_terminal(self) -> bool:
+        return self in _OPERATION_FINAL_TERMINAL
+
+    def requires_manual_recovery(self) -> bool:
+        return self is OperationStatus.MANUAL_RECOVERY_REQUIRED
+
 
 class StepStatus(StrEnum):
     PENDING = "PENDING"
@@ -109,6 +115,29 @@ class StepStatus(StrEnum):
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
     MANUAL_RECOVERY_REQUIRED = "MANUAL_RECOVERY_REQUIRED"
+
+    def is_final_terminal(self) -> bool:
+        return self in _STEP_FINAL_TERMINAL
+
+    def requires_manual_recovery(self) -> bool:
+        return self is StepStatus.MANUAL_RECOVERY_REQUIRED
+
+
+_OPERATION_FINAL_TERMINAL = frozenset(
+    {
+        OperationStatus.SUCCEEDED,
+        OperationStatus.FAILED,
+        OperationStatus.CANCELLED,
+        OperationStatus.SUPERSEDED,
+    }
+)
+_STEP_FINAL_TERMINAL = frozenset(
+    {
+        StepStatus.SUCCEEDED,
+        StepStatus.FAILED,
+        StepStatus.CANCELLED,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,6 +436,7 @@ def _validate_operation_record_fields(record: OperationRecord) -> None:
             record.ready_closure_ref,
         )
     )
+    _validate_operation_status_fields(record)
 
 
 def _validate_step_record_fields(record: StepRecord) -> None:
@@ -444,6 +474,117 @@ def _validate_step_record_fields(record: StepRecord) -> None:
     _reject_duplicate_artifact_ids(
         _collect_artifact_refs(None, record.prior_output_refs, record.checkpoint_ref)
     )
+    _validate_step_status_fields(record)
+
+
+def _validate_operation_status_fields(record: OperationRecord) -> None:
+    status = record.status
+    if status in {OperationStatus.FAILED, OperationStatus.MANUAL_RECOVERY_REQUIRED}:
+        if record.diagnostic is None:
+            raise ValueError("diagnostic is required for this operation status")
+    elif status not in {OperationStatus.CANCELLED, OperationStatus.SUPERSEDED}:
+        if record.diagnostic is not None:
+            raise ValueError("diagnostic is forbidden for this operation status")
+    if status.is_final_terminal():
+        if record.completed_at is None:
+            raise ValueError("completed_at is required for final terminal operation status")
+    elif record.completed_at is not None:
+        raise ValueError("completed_at is forbidden for non-final operation status")
+    _require_timestamp_order(record.created_at, record.updated_at, "created_at", "updated_at")
+    if record.completed_at is not None:
+        _require_timestamp_order(
+            record.created_at,
+            record.completed_at,
+            "created_at",
+            "completed_at",
+        )
+        _require_timestamp_order(
+            record.completed_at,
+            record.updated_at,
+            "completed_at",
+            "updated_at",
+        )
+
+
+def _validate_step_status_fields(record: StepRecord) -> None:
+    status = record.status
+    lease_fields = (record.worker_id, record.lease_token, record.lease_expires_at)
+    if status is StepStatus.RUNNING:
+        if any(field is None for field in lease_fields):
+            raise ValueError("RUNNING step requires worker_id, lease_token, and lease_expires_at")
+        assert record.lease_expires_at is not None
+        if record.lease_expires_at <= record.updated_at:
+            raise ValueError("lease_expires_at must be later than updated_at for RUNNING step")
+    elif any(field is not None for field in lease_fields):
+        raise ValueError("lease identity fields are forbidden outside RUNNING step status")
+    if status in {StepStatus.RETRY_WAIT, StepStatus.FAILED, StepStatus.MANUAL_RECOVERY_REQUIRED}:
+        if record.diagnostic is None:
+            raise ValueError("diagnostic is required for this step status")
+    elif status is not StepStatus.CANCELLED:
+        if record.diagnostic is not None:
+            raise ValueError("diagnostic is forbidden for this step status")
+    if status.is_final_terminal():
+        if record.completed_at is None:
+            raise ValueError("completed_at is required for final terminal step status")
+    elif record.completed_at is not None:
+        raise ValueError("completed_at is forbidden for non-final step status")
+    if status is StepStatus.PENDING:
+        if record.attempt_count != 0:
+            raise ValueError("PENDING step requires attempt_count=0")
+        if record.started_at is not None:
+            raise ValueError("PENDING step requires started_at=null")
+    elif status is StepStatus.CANCELLED:
+        if record.attempt_count == 0:
+            if record.started_at is not None:
+                raise ValueError("CANCELLED step with attempt_count=0 requires started_at=null")
+        elif record.started_at is None:
+            raise ValueError("CANCELLED step with attempt_count>=1 requires started_at")
+    else:
+        if record.attempt_count < 1:
+            raise ValueError("step status requires attempt_count>=1")
+        if record.started_at is None:
+            raise ValueError("step status requires started_at")
+    if status is StepStatus.RETRY_WAIT:
+        if record.retry_not_before is None:
+            raise ValueError("RETRY_WAIT step requires retry_not_before")
+        if record.retry_not_before < record.updated_at:
+            raise ValueError("retry_not_before must be >= updated_at for RETRY_WAIT step")
+    elif record.retry_not_before is not None:
+        raise ValueError("retry_not_before is forbidden outside RETRY_WAIT step status")
+    _require_timestamp_order(record.created_at, record.updated_at, "created_at", "updated_at")
+    if record.started_at is not None:
+        _require_timestamp_order(record.created_at, record.started_at, "created_at", "started_at")
+        _require_timestamp_order(record.started_at, record.updated_at, "started_at", "updated_at")
+    if record.completed_at is not None:
+        _require_timestamp_order(
+            record.created_at,
+            record.completed_at,
+            "created_at",
+            "completed_at",
+        )
+        _require_timestamp_order(
+            record.completed_at,
+            record.updated_at,
+            "completed_at",
+            "updated_at",
+        )
+        if record.started_at is not None:
+            _require_timestamp_order(
+                record.started_at,
+                record.completed_at,
+                "started_at",
+                "completed_at",
+            )
+
+
+def _require_timestamp_order(
+    before: datetime,
+    after: datetime,
+    before_label: str,
+    after_label: str,
+) -> None:
+    if before > after:
+        raise ValueError(f"{before_label} must be <= {after_label}")
 
 
 def _require_closed_document(

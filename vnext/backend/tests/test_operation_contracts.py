@@ -31,6 +31,9 @@ EXAMPLE_ARTIFACT_ID = "operation-artifact-0001"
 EXAMPLE_MEDIA_TYPE = "application/octet-stream"
 EXAMPLE_RAW_SHA256 = "sha256:" + "a" * 64
 TIMESTAMP = "2024-01-02T03:04:05Z"
+LATER_TIMESTAMP = "2024-01-02T03:05:00Z"
+LEASE_EXPIRES = "2024-01-02T03:10:00Z"
+DIAGNOSTIC = {"code": "FAILED", "message": "owner reason"}
 
 EXPECTED_OPERATION_STATUSES = (
     "QUEUED",
@@ -148,17 +151,21 @@ def _full_operation_document() -> dict[str, object]:
         checkpoint_ref=_example_artifact_ref_dict(artifact_id="artifact-checkpoint-1"),
         ready_closure_ref=_example_artifact_ref_dict(artifact_id="artifact-closure-1"),
         repository_operation_id="repo-op-1",
-        diagnostic={"code": "FAILED", "message": "owner reason"},
+        status=OperationStatus.FAILED.value,
+        diagnostic=DIAGNOSTIC,
+        completed_at=TIMESTAMP,
     )
 
 
 def _full_step_document() -> dict[str, object]:
     return _minimal_step_document(
+        status=StepStatus.FAILED.value,
         attempt_count=1,
-        diagnostic={"code": "FAILED", "message": "step failed"},
+        diagnostic=DIAGNOSTIC,
         prior_output_refs=[_example_artifact_ref_dict(artifact_id="artifact-output-1")],
         checkpoint_ref=_example_artifact_ref_dict(artifact_id="artifact-step-checkpoint-1"),
         started_at=TIMESTAMP,
+        completed_at=TIMESTAMP,
     )
 
 
@@ -312,6 +319,272 @@ MALFORMED_STEP_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object, str
     ),
 )
 
+MINIMAL_OPERATION_STATUS_DOCUMENTS: tuple[tuple[str, dict[str, object]], ...] = (
+    ("queued", _minimal_operation_document()),
+    ("running", _minimal_operation_document(status=OperationStatus.RUNNING.value)),
+    (
+        "succeeded",
+        _minimal_operation_document(
+            status=OperationStatus.SUCCEEDED.value,
+            completed_at=TIMESTAMP,
+        ),
+    ),
+    (
+        "failed",
+        _minimal_operation_document(
+            status=OperationStatus.FAILED.value,
+            diagnostic=DIAGNOSTIC,
+            completed_at=TIMESTAMP,
+        ),
+    ),
+    (
+        "cancelled",
+        _minimal_operation_document(
+            status=OperationStatus.CANCELLED.value,
+            completed_at=TIMESTAMP,
+        ),
+    ),
+    (
+        "superseded",
+        _minimal_operation_document(
+            status=OperationStatus.SUPERSEDED.value,
+            completed_at=TIMESTAMP,
+        ),
+    ),
+    (
+        "manual-recovery",
+        _minimal_operation_document(
+            status=OperationStatus.MANUAL_RECOVERY_REQUIRED.value,
+            diagnostic=DIAGNOSTIC,
+        ),
+    ),
+)
+
+MINIMAL_STEP_STATUS_DOCUMENTS: tuple[tuple[str, dict[str, object]], ...] = (
+    ("pending", _minimal_step_document()),
+    (
+        "running",
+        _minimal_step_document(
+            status=StepStatus.RUNNING.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            worker_id="worker-1",
+            lease_token="lease-1",
+            lease_expires_at=LEASE_EXPIRES,
+        ),
+    ),
+    (
+        "retry-wait",
+        _minimal_step_document(
+            status=StepStatus.RETRY_WAIT.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            diagnostic=DIAGNOSTIC,
+            retry_not_before=LATER_TIMESTAMP,
+        ),
+    ),
+    (
+        "succeeded",
+        _minimal_step_document(
+            status=StepStatus.SUCCEEDED.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            completed_at=LATER_TIMESTAMP,
+            updated_at=LATER_TIMESTAMP,
+        ),
+    ),
+    (
+        "failed",
+        _minimal_step_document(
+            status=StepStatus.FAILED.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            diagnostic=DIAGNOSTIC,
+            completed_at=LATER_TIMESTAMP,
+            updated_at=LATER_TIMESTAMP,
+        ),
+    ),
+    (
+        "cancelled-pre-claim",
+        _minimal_step_document(
+            status=StepStatus.CANCELLED.value,
+            completed_at=TIMESTAMP,
+        ),
+    ),
+    (
+        "cancelled-post-start",
+        _minimal_step_document(
+            status=StepStatus.CANCELLED.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            completed_at=LATER_TIMESTAMP,
+            updated_at=LATER_TIMESTAMP,
+        ),
+    ),
+    (
+        "manual-recovery",
+        _minimal_step_document(
+            status=StepStatus.MANUAL_RECOVERY_REQUIRED.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            diagnostic=DIAGNOSTIC,
+        ),
+    ),
+)
+
+INVALID_OPERATION_STATUS_FIELD_COMBINATIONS: tuple[tuple[str, dict[str, object], str], ...] = (
+    (
+        "queued-with-diagnostic",
+        _minimal_operation_document(diagnostic=DIAGNOSTIC),
+        "diagnostic is forbidden",
+    ),
+    (
+        "failed-without-diagnostic",
+        _minimal_operation_document(
+            status=OperationStatus.FAILED.value,
+            completed_at=TIMESTAMP,
+        ),
+        "diagnostic is required",
+    ),
+    (
+        "succeeded-without-completed-at",
+        _minimal_operation_document(status=OperationStatus.SUCCEEDED.value),
+        "completed_at is required",
+    ),
+    (
+        "running-with-completed-at",
+        _minimal_operation_document(
+            status=OperationStatus.RUNNING.value,
+            completed_at=TIMESTAMP,
+        ),
+        "completed_at is forbidden",
+    ),
+    (
+        "manual-with-completed-at",
+        _minimal_operation_document(
+            status=OperationStatus.MANUAL_RECOVERY_REQUIRED.value,
+            diagnostic=DIAGNOSTIC,
+            completed_at=TIMESTAMP,
+        ),
+        "completed_at is forbidden",
+    ),
+    (
+        "updated-before-created",
+        _minimal_operation_document(
+            created_at=LATER_TIMESTAMP,
+            updated_at=TIMESTAMP,
+        ),
+        "created_at must be <=",
+    ),
+)
+
+INVALID_STEP_STATUS_FIELD_COMBINATIONS: tuple[tuple[str, dict[str, object], str], ...] = (
+    (
+        "pending-with-started-at",
+        _minimal_step_document(started_at=TIMESTAMP),
+        "PENDING step requires started_at=null",
+    ),
+    (
+        "running-without-lease",
+        _minimal_step_document(
+            status=StepStatus.RUNNING.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+        ),
+        "RUNNING step requires worker_id",
+    ),
+    (
+        "running-lease-expired",
+        _minimal_step_document(
+            status=StepStatus.RUNNING.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            worker_id="worker-1",
+            lease_token="lease-1",
+            lease_expires_at=TIMESTAMP,
+        ),
+        "lease_expires_at must be later",
+    ),
+    (
+        "pending-with-lease",
+        _minimal_step_document(
+            worker_id="worker-1",
+            lease_token="lease-1",
+            lease_expires_at=LEASE_EXPIRES,
+        ),
+        "lease identity fields are forbidden",
+    ),
+    (
+        "retry-wait-without-diagnostic",
+        _minimal_step_document(
+            status=StepStatus.RETRY_WAIT.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            retry_not_before=LATER_TIMESTAMP,
+        ),
+        "diagnostic is required",
+    ),
+    (
+        "retry-wait-retry-before-updated",
+        _minimal_step_document(
+            status=StepStatus.RETRY_WAIT.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            diagnostic=DIAGNOSTIC,
+            retry_not_before=TIMESTAMP,
+            updated_at=LATER_TIMESTAMP,
+        ),
+        "retry_not_before must be >=",
+    ),
+    (
+        "pending-with-retry-not-before",
+        _minimal_step_document(retry_not_before=LATER_TIMESTAMP),
+        "retry_not_before is forbidden",
+    ),
+    (
+        "succeeded-without-completed-at",
+        _minimal_step_document(
+            status=StepStatus.SUCCEEDED.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+        ),
+        "completed_at is required",
+    ),
+    (
+        "running-with-completed-at",
+        _minimal_step_document(
+            status=StepStatus.RUNNING.value,
+            attempt_count=1,
+            started_at=TIMESTAMP,
+            worker_id="worker-1",
+            lease_token="lease-1",
+            lease_expires_at=LEASE_EXPIRES,
+            completed_at=LATER_TIMESTAMP,
+        ),
+        "completed_at is forbidden",
+    ),
+    (
+        "cancelled-mixed-attempt-started",
+        _minimal_step_document(
+            status=StepStatus.CANCELLED.value,
+            attempt_count=1,
+            completed_at=TIMESTAMP,
+        ),
+        "attempt_count>=1 requires started_at",
+    ),
+    (
+        "completed-before-started",
+        _minimal_step_document(
+            status=StepStatus.SUCCEEDED.value,
+            attempt_count=1,
+            started_at=LATER_TIMESTAMP,
+            completed_at=TIMESTAMP,
+            updated_at=LATER_TIMESTAMP,
+        ),
+        "started_at must be <=",
+    ),
+)
+
 
 def test_operations_package_importable() -> None:
     importlib.import_module("gateway_backend.operations")
@@ -448,3 +721,108 @@ def test_step_record_from_document_rejects_malformed_shapes(
     del name
     with pytest.raises(ValueError, match=match):
         step_record_from_document(document)
+
+
+@pytest.mark.parametrize(("name", "document"), MINIMAL_OPERATION_STATUS_DOCUMENTS)
+def test_minimal_operation_status_documents_are_valid(name: str, document: dict[str, object]) -> None:
+    del name
+    record = operation_record_from_document(document)
+    round_tripped = operation_record_from_document(record.to_document())
+    assert round_tripped == record
+
+
+@pytest.mark.parametrize(("name", "document"), MINIMAL_STEP_STATUS_DOCUMENTS)
+def test_minimal_step_status_documents_are_valid(name: str, document: dict[str, object]) -> None:
+    del name
+    record = step_record_from_document(document)
+    round_tripped = step_record_from_document(record.to_document())
+    assert round_tripped == record
+
+
+@pytest.mark.parametrize(
+    ("name", "document", "match"),
+    INVALID_OPERATION_STATUS_FIELD_COMBINATIONS,
+)
+def test_operation_record_rejects_invalid_status_field_combinations(
+    name: str,
+    document: dict[str, object],
+    match: str,
+) -> None:
+    del name
+    with pytest.raises(ValueError, match=match):
+        operation_record_from_document(document)
+
+
+@pytest.mark.parametrize(
+    ("name", "document", "match"),
+    INVALID_STEP_STATUS_FIELD_COMBINATIONS,
+)
+def test_step_record_rejects_invalid_status_field_combinations(
+    name: str,
+    document: dict[str, object],
+    match: str,
+) -> None:
+    del name
+    with pytest.raises(ValueError, match=match):
+        step_record_from_document(document)
+
+
+def test_operation_status_predicates() -> None:
+    final_terminal = {
+        OperationStatus.SUCCEEDED,
+        OperationStatus.FAILED,
+        OperationStatus.CANCELLED,
+        OperationStatus.SUPERSEDED,
+    }
+    for status in OperationStatus:
+        assert status.is_final_terminal() is (status in final_terminal)
+        assert status.requires_manual_recovery() is (
+            status is OperationStatus.MANUAL_RECOVERY_REQUIRED
+        )
+    assert not OperationStatus.MANUAL_RECOVERY_REQUIRED.is_final_terminal()
+
+
+def test_step_status_predicates() -> None:
+    final_terminal = {StepStatus.SUCCEEDED, StepStatus.FAILED, StepStatus.CANCELLED}
+    for status in StepStatus:
+        assert status.is_final_terminal() is (status in final_terminal)
+        assert status.requires_manual_recovery() is (
+            status is StepStatus.MANUAL_RECOVERY_REQUIRED
+        )
+    assert not StepStatus.MANUAL_RECOVERY_REQUIRED.is_final_terminal()
+
+
+def test_operation_record_is_frozen_and_owns_tuple_refs() -> None:
+    business_refs = [{"kind": "workspace", "value": "ws-1"}]
+    artifact_refs = [_example_artifact_ref_dict(artifact_id="artifact-owned-1")]
+    document = _minimal_operation_document(
+        business_refs=business_refs,
+        artifact_refs=artifact_refs,
+    )
+    record = operation_record_from_document(document)
+    assert dataclasses.is_dataclass(record)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        record.status = OperationStatus.RUNNING  # type: ignore[misc]
+    assert isinstance(record.business_refs, tuple)
+    assert isinstance(record.artifact_refs, tuple)
+    business_refs.append({"kind": "other", "value": "x"})
+    artifact_refs.append(_example_artifact_ref_dict(artifact_id="artifact-owned-2"))
+    assert len(record.business_refs) == 1
+    assert len(record.artifact_refs) == 1
+
+
+def test_step_record_is_frozen_and_owns_tuple_refs() -> None:
+    prior_output_refs = [_example_artifact_ref_dict(artifact_id="artifact-output-owned-1")]
+    document = _minimal_step_document(prior_output_refs=prior_output_refs)
+    record = step_record_from_document(document)
+    assert dataclasses.is_dataclass(record)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        record.status = StepStatus.RUNNING  # type: ignore[misc]
+    assert isinstance(record.prior_output_refs, tuple)
+    prior_output_refs.append(_example_artifact_ref_dict(artifact_id="artifact-output-owned-2"))
+    assert len(record.prior_output_refs) == 1
+
+
+def test_operation_record_constructor_rejects_invalid_status_fields() -> None:
+    with pytest.raises(ValueError, match="diagnostic is forbidden"):
+        _operation_record(diagnostic=OperationDiagnostic(code="FAILED", message="reason"))

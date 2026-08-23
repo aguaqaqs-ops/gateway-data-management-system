@@ -1,6 +1,6 @@
 # P4 Active Context Index
 
-状态：P3 final closure complete；`p3_exit: pass`；`p4_ready: yes`；P3→P4 context cleanup C2 complete
+状态：P3 final closure complete；`p3_exit: pass`；`p4_ready: yes`；P3→P4 context cleanup C6 complete
 
 日期：2026-08-23
 
@@ -11,20 +11,21 @@ operation runtime 或错误矩阵。精确语义由列出的 normative owner 拥
 contract，也不得直接开始 P4 implementation，除非另有 implementation authorization。
 
 上游身份：[P3 Final Closure and P4/P5 Entry Handoff](p3-final-closure-handoff.md)
-清理动作：[P3→P4 Cleanup Manifest](p3-p4-cleanup-manifest.yaml)
+清理动作：[P3→P4 Cleanup Handoff](p3-p4-cleanup-handoff.md) · [Manifest](p3-p4-cleanup-manifest.yaml)
 阶段顺序：[Implementation Stages §7 Phase 4](implementation-stages.md#7-phase-4durable-operation-runtime)
 
 ```yaml
 p3_exit: pass
 p4_ready: yes
-p3_p4_cleanup: in_progress
-p4_entry_context_ready: pending_c3_c6
+p3_p4_cleanup: complete
+p4_entry_context_ready: pending_independent_acceptance
 p4_implementation_authorized: no_until_p4_entry_acceptance
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
 default_retrieval: this_index
 public_semantics_changed_in_c2: no
 pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
+final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
 ```
 
 ## 1. 默认从这里开始
@@ -124,7 +125,7 @@ Operation 与 business execution/effect evidence 的分界以
 | --- | --- |
 | `p3-active-context-index.md` | 历史 P3 默认入口；已归档，恢复见 tag `docs/p3-p4-cleanup-pre-20260823` 与 manifest `archive_from_default` |
 | P3 S0/review/execution plan 过程文档 | 已完成过程记录；见 manifest `archive_from_default` |
-| `temporary/` cleanup C0/C1 记录与执行计划 | cleanup 过程材料；C6 前暂留 |
+| P3→P4 cleanup 过程材料（C0–C5 记录与执行计划） | 已离开默认树；恢复见 [cleanup handoff](p3-p4-cleanup-handoff.md) §4 与 manifest `archive_from_default` |
 | `vnext/repository_service/README.md` 状态行 | 冻结在 P2-R5；不是 phase authority |
 | decision ledger、旧 `docs/backend-vnext/contracts/` 作 RS wire | 过期或降为 oracle |
 
@@ -132,7 +133,9 @@ Operation 与 business execution/effect evidence 的分界以
 
 ```text
 pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
+final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
 manifest: p3-p4-cleanup-manifest.yaml paths.archive_from_default
+handoff: p3-p4-cleanup-handoff.md
 ```
 
 示例：`git show docs/p3-p4-cleanup-pre-20260823:docs/backend-vnext/refactoring/formal/plans/p3-r2-s0-entry-and-budget-freeze.md`

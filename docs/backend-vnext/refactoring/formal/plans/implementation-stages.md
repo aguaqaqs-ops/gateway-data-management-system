@@ -11,7 +11,9 @@ P4 设计对话从 [P4 Active Context Index](p4-active-context-index.md) 开始�
 P3 capability 模块边界与 sealed evidence 见各 module handoff 与
 [P3 Capability Foundation Design](p3-capability-foundation-design.md)。
 历史 P3 S-step/review/execution plan 过程记录已离开默认树；恢复见
-[P3→P4 Cleanup Manifest](p3-p4-cleanup-manifest.yaml) 与 tag `docs/p3-p4-cleanup-pre-20260823`。
+[P3→P4 Cleanup Handoff](p3-p4-cleanup-handoff.md)、
+[P3→P4 Cleanup Manifest](p3-p4-cleanup-manifest.yaml) 与 tags
+`docs/p3-p4-cleanup-pre-20260823`、`docs/p3-p4-cleanup-final-20260823`。
 P2-R1 默认 provider 为Candidate A offline CLI，Candidate B保留但默认禁用。该顺序由
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 和[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)共同约束；Phase 0–9的安全、

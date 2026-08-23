@@ -15,6 +15,8 @@
 - [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)（封印 candidate/image、支持面、限制、reopen）
 - [P2–P3 Cleanup Manifest](plans/p2-p3-cleanup-manifest.yaml)
 - [P3→P4 Cleanup Manifest](plans/p3-p4-cleanup-manifest.yaml)
+- [P3→P4 Cleanup Handoff](plans/p3-p4-cleanup-handoff.md)（P4 entry cleanup boundary）
+- [P3→P4 Cleanup Implementer Evidence Report](plans/p3-p4-cleanup-implementer-evidence-report.md)
 - [Architecture and Refactoring Plan](architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](plans/implementation-stages.md)
 - [DX Cross-Phase Interface Reconciliation](plans/dx-cross-phase-interface-reconciliation.md)
@@ -46,7 +48,7 @@
 
 历史 P3 过程文档（S0、review、round execution plan）已离开默认树；恢复见
 [P3→P4 Cleanup Manifest](plans/p3-p4-cleanup-manifest.yaml) `paths.archive_from_default` 与
-tag `docs/p3-p4-cleanup-pre-20260823`。
+tags `docs/p3-p4-cleanup-pre-20260823`、`docs/p3-p4-cleanup-final-20260823`。
 
 ## 权威关系
 
@@ -59,7 +61,7 @@ tag `docs/p3-p4-cleanup-pre-20260823`。
 - `temporary/` 不拥有正式语义。P4 默认入口是本目录的
   [P4 Active Context Index](plans/p4-active-context-index.md)、P2 handoff、cleanup manifest，
   以及 annotated tags `docs/p2-p3-cleanup-pre-20260817`、`docs/p2-p3-cleanup-final-20260817`、
-  `docs/p3-p4-cleanup-pre-20260823`。不得为保留历史再复制一套 authority。
+  `docs/p3-p4-cleanup-pre-20260823`、`docs/p3-p4-cleanup-final-20260823`。不得为保留历史再复制一套 authority。
 - Legacy 只作为行为与 fixture 发现 oracle，不拥有 vNext 内部结构或性能目标。
 
 正式文档之间发生冲突时，应先暂停实现，明确语义 owner，并通过修改正式文档或新增 ADR 收口；不能依靠兼容代码长期维持两套含义。

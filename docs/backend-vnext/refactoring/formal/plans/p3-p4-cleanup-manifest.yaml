@@ -1,14 +1,23 @@
 schema: gateway.docs-code-lifecycle-cleanup.manifest
 schema_version: 1
 stage: p3-p4-context-code-consolidation
-step: C5
+step: C6
 c1_status: complete
 c2_status: complete
 c3_status: complete
 c4_status: complete
 c5_status: complete
+c6_status: complete
 c3_docs_deleted: 26
-generated_at: "2026-08-23T05:22:00Z"
+c6_docs_process_deleted: 9
+generated_at: "2026-08-23T05:30:00Z"
+note: >
+  C6 removed cleanup process files from the default tree. Git tag
+  docs/p3-p4-cleanup-pre-20260823 remains the archive medium for C0/C1
+  and the execution plan. C4/C5 process records recover via persist
+  commits documented in p3-p4-cleanup-handoff.md. The tagged final commit
+  does not self-reference: cleanup_commit is this_cleanup_commit and
+  final_tag_sha is this_final_tag.
 public_semantics_changed: false
 archive_medium: git_annotated_tag_and_history
 retain_owner: Backend vNext Architecture
@@ -25,14 +34,14 @@ tags:
   pre_cleanup_commit: this_c1_head
   pre_cleanup_tag_object: this_pre_cleanup_tag
   proposed_final_tag: docs/p3-p4-cleanup-final-20260823
+  final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
+  final_tag_sha: this_final_tag
+  cleanup_commit: this_cleanup_commit
 artifacts:
-  c0_inventory: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c0-inventory.md
-  c1_classification: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c1-classification.md
   manifest: docs/backend-vnext/refactoring/formal/plans/p3-p4-cleanup-manifest.yaml
-  execution_plan: docs/backend-vnext/refactoring/temporary/p3-p4-context-and-code-consolidation-execution-plan.md
   p4_active_context_index: docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
-  c4_consumer_audit: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c4-consumer-audit.md
-  c5_implementation: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c5-implementation.md
+  handoff: docs/backend-vnext/refactoring/formal/plans/p3-p4-cleanup-handoff.md
+  implementer_evidence_report: docs/backend-vnext/refactoring/formal/plans/p3-p4-cleanup-implementer-evidence-report.md
 c4:
   audited_candidate_sha: 80eb14e6dd38bcc99a0597e62b459686fb740a4c
   audited_paths: 13
@@ -43,7 +52,7 @@ c4:
   consumer_graphs_closed_for_remove_or_move: false
   c5_status: not_applicable
 c5:
-  candidate_sha: a495e075da3b6aba5c896d203c35df92cb763ab8
+  candidate_sha: 2d56c62b1710e85eacb12d3c6eec309acdee35e9
   code_candidate_sha: 1a519a29530d7906227a66bbe731babf32bd412f
   c5_exit: pass
   c5_status: not_applicable
@@ -54,6 +63,14 @@ c5:
   vnext_changes: none
   container_rebuild: not_applicable
   public_semantics_changed: false
+c6:
+  c6_exit: pass
+  docs_process_deleted: 9
+  code_bundles_changed: 0
+  container_rebuild: not_applicable
+  public_semantics_changed: false
+  handoff: docs/backend-vnext/refactoring/formal/plans/p3-p4-cleanup-handoff.md
+  implementer_evidence_report: docs/backend-vnext/refactoring/formal/plans/p3-p4-cleanup-implementer-evidence-report.md
 p4_default_reads:
   -
     path: docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
@@ -190,8 +207,8 @@ counts:
   active: 23
   normative: 33
   evidence_pointer: 2
-  retain_in_place: 10
-  archive_from_default: 26
+  retain_in_place: 3
+  archive_from_default: 35
   move_test_support: 0
   remove_dead: 0
   deferred: 7
@@ -564,54 +581,12 @@ paths:
       bytes: 51110
       blocks_c4_delete: true
     -
-      path: docs/backend-vnext/refactoring/temporary/generate_p3_p4_c0_inventory.py
-      class: RETAIN_IN_PLACE
-      role: cleanup_process_record
-      sha256: d674899bd8970251311f8b74e432c7b3233fd44d71a4add6a35514c017164fb8
-      bytes: 24429
-    -
-      path: docs/backend-vnext/refactoring/temporary/generate_p3_p4_c1_classification.py
-      class: RETAIN_IN_PLACE
-      role: cleanup_process_record
-      sha256: e23eaee94bb7e828bb91d0f18b30f592d4849f1fff9b23781b16baa0807adc2e
-      bytes: 35603
-    -
       path: docs/backend-vnext/refactoring/temporary/p2-r9-s2-step-e-container-gate.md
       class: RETAIN_IN_PLACE
       role: must_retain_source_pointer
       sha256: 2d979f8272b30082c9b1f4d159eb882d40c0167923efe2834be1466b1e75d7e2
       bytes: 4456
       blocks_c4_delete: true
-    -
-      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-and-code-consolidation-execution-plan.md
-      class: RETAIN_IN_PLACE
-      role: cleanup_process_record
-      sha256: 3cbd6dd0156f623cfd2462a3f2c8f991228fd77d8d242575b78e9c90ce70d31a
-      bytes: 25807
-    -
-      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c0-inventory.json
-      class: RETAIN_IN_PLACE
-      role: cleanup_process_record
-      sha256: c98806d5633155a3f97c51ceb2b59aecc3b345bd428a4380f21f36bb1fc5312c
-      bytes: 713902
-    -
-      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c0-inventory.md
-      class: RETAIN_IN_PLACE
-      role: cleanup_process_record
-      sha256: 6ce8d1491a78c0e0a1b73810e5c0dd0cf01458f01ea30b28b0b90225c10186c2
-      bytes: 3196
-    -
-      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c1-classification.json
-      class: RETAIN_IN_PLACE
-      role: cleanup_process_record
-      sha256: ""
-      bytes: 0
-    -
-      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c1-classification.md
-      class: RETAIN_IN_PLACE
-      role: cleanup_process_record
-      sha256: ""
-      bytes: 0
   archive_from_default:
     -
       path: docs/backend-vnext/refactoring/formal/plans/p3-final-closure-execution-plan.md
@@ -795,6 +770,69 @@ paths:
       sha256: 9eed8ce4dbd4af4545bf4c1deb0a057c6919b051d2bf0339c8f5df15b2e70594
       bytes: 20015
       recovery_tag: docs/p3-p4-cleanup-pre-20260823
+    -
+      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-and-code-consolidation-execution-plan.md
+      class: ARCHIVE_FROM_DEFAULT
+      role: cleanup_process_record
+      sha256: 9c70b2cbe54741a66c4ea8683963fa77e9611c59c346fdb72ae8008cb95b15ec
+      bytes: 26757
+      recovery_tag: docs/p3-p4-cleanup-pre-20260823
+    -
+      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c0-inventory.md
+      class: ARCHIVE_FROM_DEFAULT
+      role: cleanup_process_record
+      sha256: 49f3ca08865f0e9ed9af930716323a0fea608fdf4fd20fa771cc78df47e4cb5f
+      bytes: 3626
+      recovery_tag: docs/p3-p4-cleanup-pre-20260823
+    -
+      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c0-inventory.json
+      class: ARCHIVE_FROM_DEFAULT
+      role: cleanup_process_record
+      sha256: 2f9bebff0f3b11029bdf7bc16c3e0a5427f4e1a165e32fe1f14ab535a5cca43c
+      bytes: 714164
+      recovery_tag: docs/p3-p4-cleanup-pre-20260823
+    -
+      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c1-classification.md
+      class: ARCHIVE_FROM_DEFAULT
+      role: cleanup_process_record
+      sha256: c72ecd8f78146d02ebc04521684fe322426244743835b2344bab4571ed045031
+      bytes: 5165
+      recovery_tag: docs/p3-p4-cleanup-pre-20260823
+    -
+      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c1-classification.json
+      class: ARCHIVE_FROM_DEFAULT
+      role: cleanup_process_record
+      sha256: 7b256228f85936bfb9dad1ad09639badf6fb5f108856d8c80f742d237ed07beb
+      bytes: 224337
+      recovery_tag: docs/p3-p4-cleanup-pre-20260823
+    -
+      path: docs/backend-vnext/refactoring/temporary/generate_p3_p4_c0_inventory.py
+      class: ARCHIVE_FROM_DEFAULT
+      role: cleanup_process_record
+      sha256: d674899bd8970251311f8b74e432c7b3233fd44d71a4add6a35514c017164fb8
+      bytes: 24429
+      recovery_tag: docs/p3-p4-cleanup-pre-20260823
+    -
+      path: docs/backend-vnext/refactoring/temporary/generate_p3_p4_c1_classification.py
+      class: ARCHIVE_FROM_DEFAULT
+      role: cleanup_process_record
+      sha256: a32288059a76d8fdb0b5b121b1b3fef9b2fb23492603c8befed49c48636b0637
+      bytes: 36311
+      recovery_tag: docs/p3-p4-cleanup-pre-20260823
+    -
+      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c4-consumer-audit.md
+      class: ARCHIVE_FROM_DEFAULT
+      role: cleanup_process_record
+      sha256: 7d0b3792639f036ae6a723ba01981904982246b129b89f86645fdf870c58e19f
+      bytes: 10512
+      recovery_commit: 1a519a29530d7906227a66bbe731babf32bd412f
+    -
+      path: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c5-implementation.md
+      class: ARCHIVE_FROM_DEFAULT
+      role: cleanup_process_record
+      sha256: 4fb7a1a8c14fe784bdad9f7ed50c048eec369d863b87b9e167b04a48ae7cde99
+      bytes: 5143
+      recovery_commit: 2d56c62b1710e85eacb12d3c6eec309acdee35e9
   move_test_support:
   remove_dead:
   deferred:

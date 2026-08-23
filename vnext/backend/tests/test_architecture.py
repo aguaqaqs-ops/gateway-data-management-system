@@ -430,6 +430,22 @@ def test_control_db_boundary_exists_and_has_no_application_wiring() -> None:
                 ), f"{source} imports disallowed backend module {imported}"
 
 
+def test_control_db_uow_binds_operations_without_expanding_operations_owner() -> None:
+    database_source = (CONTROL_DB_ROOT / "database.py").read_text(encoding="utf-8")
+    adapter_source = (CONTROL_DB_ROOT / "sqlite_operations.py").read_text(encoding="utf-8")
+    operations_root = Path(__file__).parents[1] / "src" / "gateway_backend" / "operations"
+
+    assert "def operations(" in database_source
+    assert "SQLiteOperationStore" in database_source
+    assert "class SQLiteOperationStore" in adapter_source
+    assert "commit(" not in adapter_source
+    assert "rollback(" not in adapter_source
+    for source in sorted(operations_root.rglob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        assert "sqlite3" not in text
+        assert "gateway_backend.infrastructure" not in text
+
+
 def _capability_owner_dirs() -> set[str]:
     owners: set[str] = set()
     for path in CAPABILITIES_ROOT.iterdir():

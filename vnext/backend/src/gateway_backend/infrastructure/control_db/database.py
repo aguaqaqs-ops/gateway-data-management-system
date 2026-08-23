@@ -9,7 +9,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self
 
-from gateway_backend.operations import StoreBusy
+from gateway_backend.operations import OperationStore, StoreBusy
 
 BUSY_TIMEOUT_MS = 5_000
 
@@ -60,13 +60,22 @@ def initialize_control_db(
 class ControlDbUnitOfWork:
     """Own one connection and one explicit transaction scope."""
 
-    def __init__(self, db_path: Path, *, read_only: bool = False) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        *,
+        read_only: bool = False,
+        now: Callable[[], datetime] = _utc_now,
+    ) -> None:
         if type(read_only) is not bool:
             raise ValueError("read_only must be a bool")
         _validate_db_path(db_path)
         self._db_path = db_path
         self._read_only = read_only
+        self._now = now
         self._connection: sqlite3.Connection | None = None
+        self._transaction_now: datetime | None = None
+        self._operations: OperationStore | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -76,15 +85,42 @@ class ControlDbUnitOfWork:
             raise RuntimeError("control DB unit of work is not active")
         return self._connection
 
+    @property
+    def operations(self) -> OperationStore:
+        """Return the operation participant bound to this transaction."""
+
+        if self._operations is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._operations
+
     def __enter__(self) -> Self:
         if self._connection is not None:
             raise RuntimeError("control DB unit of work cannot be entered twice")
         connection = connect_control_db(self._db_path)
         try:
             connection.execute("BEGIN" if self._read_only else "BEGIN IMMEDIATE")
+            transaction_now = self._now()
+            _validate_utc_datetime(transaction_now, "transaction clock")
+            from gateway_backend.infrastructure.control_db.sqlite_operations import (
+                SQLiteOperationStore,
+            )
+
+            self._transaction_now = transaction_now
+            self._operations = SQLiteOperationStore(
+                connection,
+                transaction_now=transaction_now,
+                read_only=self._read_only,
+            )
         except sqlite3.OperationalError as exc:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
             connection.close()
             _raise_if_busy(exc)
+            raise
+        except BaseException:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            connection.close()
             raise
         self._connection = connection
         return self
@@ -97,6 +133,8 @@ class ControlDbUnitOfWork:
     ) -> None:
         connection = self._connection
         self._connection = None
+        self._operations = None
+        self._transaction_now = None
         if connection is None:
             return
         try:
@@ -137,3 +175,8 @@ def _raise_if_busy(exc: sqlite3.OperationalError) -> None:
     message = str(exc).lower()
     if "busy" in message or "locked" in message:
         raise StoreBusy("control DB is busy") from None
+
+
+def _validate_utc_datetime(value: object, label: str) -> None:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+        raise ValueError(f"{label} must be an aware UTC datetime")

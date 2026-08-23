@@ -2,18 +2,34 @@
 
 from __future__ import annotations
 
+import dataclasses
+import sqlite3
+from datetime import datetime
+
 import pytest
 
 from gateway_backend.infrastructure.control_db.sqlite_operations import (
+    SQLiteOperationStore,
     operation_record_from_row,
     operation_record_to_row,
     step_record_from_row,
     step_record_to_row,
 )
+from gateway_backend.infrastructure.control_db.migrations import bootstrap_control_schema
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
+    ConflictingDuplicate,
+    LeaseExpired,
+    OperationDiagnostic,
     OperationRecord,
+    OperationStore,
+    OperationStatus,
+    RecordNotFound,
     StepRecord,
+    StepStatus,
+    StaleWrite,
+    TransitionDisposition,
+    WritePrecondition,
     operation_record_from_document,
     step_record_from_document,
 )
@@ -24,6 +40,7 @@ pytestmark = pytest.mark.unit
 TIMESTAMP = "2024-01-02T03:04:05.678901Z"
 LATER_TIMESTAMP = "2024-01-02T03:05:05.678901Z"
 RETRY_TIMESTAMP = "2024-01-02T03:06:05.678901Z"
+AFTER_RETRY_TIMESTAMP = "2024-01-02T03:07:05.678901Z"
 RAW_SHA = "sha256:" + "a" * 64
 
 
@@ -98,6 +115,44 @@ def _operation_record() -> OperationRecord:
 
 def _step_record() -> StepRecord:
     return step_record_from_document(_step_document())
+
+
+def _initial_step_record(**changes: object) -> StepRecord:
+    document = _step_document()
+    document.update(
+        {
+            "attempt_count": 0,
+            "diagnostic": None,
+            "optimistic_version": 0,
+            "retry_not_before": None,
+            "started_at": None,
+            "status": "PENDING",
+            "updated_at": TIMESTAMP,
+            "worker_id": None,
+            "lease_token": None,
+            "lease_expires_at": None,
+            **changes,
+        }
+    )
+    return step_record_from_document(document)
+
+
+def _memory_store(
+    *,
+    transaction_now: str = TIMESTAMP,
+) -> tuple[sqlite3.Connection, SQLiteOperationStore]:
+    connection = sqlite3.connect(":memory:", isolation_level=None)
+    connection.row_factory = sqlite3.Row
+    bootstrap_control_schema(connection, now=lambda: datetime_from_text(TIMESTAMP))
+    connection.execute("BEGIN IMMEDIATE")
+    return connection, SQLiteOperationStore(
+        connection,
+        transaction_now=datetime_from_text(transaction_now),
+    )
+
+
+def datetime_from_text(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def test_operation_mapping_round_trips_all_composite_fields() -> None:
@@ -193,3 +248,213 @@ def test_pending_step_uses_created_time_and_terminal_step_has_no_eligibility() -
         )
     )
     assert step_record_to_row(terminal)["eligible_at_us"] is None
+
+
+def test_store_create_readback_and_claim_candidate_round_trip() -> None:
+    connection, store = _memory_store()
+    try:
+        assert isinstance(store, OperationStore)
+        operation = _operation_record()
+        step = _initial_step_record()
+
+        assert (
+            store.insert_operation_with_initial_step(operation, step)
+            is TransitionDisposition.APPLY
+        )
+        assert store.get_operation(operation.operation_id) == operation
+        assert store.get_step(step.step_id) == step
+
+        candidates, next_cursor = store.list_claim_candidates(
+            datetime_from_text(LATER_TIMESTAMP),
+        )
+        assert len(candidates) == 1
+        assert candidates[0].operation_id == operation.operation_id
+        assert candidates[0].step_id == step.step_id
+        assert candidates[0].job_step_key.job_kind == operation.job_kind
+        assert next_cursor is None
+    finally:
+        connection.close()
+
+
+def test_create_is_exactly_idempotent_and_rejects_conflicting_duplicates() -> None:
+    connection, store = _memory_store()
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        assert store.insert_operation_with_initial_step(operation, step) is TransitionDisposition.APPLY
+        assert (
+            store.insert_operation_with_initial_step(operation, step)
+            is TransitionDisposition.IDEMPOTENT
+        )
+
+        conflicting_operation = dataclasses.replace(operation, job_kind="import.other")
+        with pytest.raises(ConflictingDuplicate):
+            store.insert_operation_with_initial_step(conflicting_operation, step)
+
+        conflicting_step = dataclasses.replace(step, step_name="other")
+        with pytest.raises(ConflictingDuplicate):
+            store.insert_operation_with_initial_step(operation, conflicting_step)
+    finally:
+        connection.close()
+
+
+def test_reads_report_missing_records_and_keyset_pages_are_bounded() -> None:
+    connection, store = _memory_store()
+    try:
+        with pytest.raises(RecordNotFound):
+            store.get_operation("missing-operation")
+        with pytest.raises(RecordNotFound):
+            store.get_step("missing-step")
+
+        for index in range(3):
+            operation = dataclasses.replace(
+                _operation_record(),
+                operation_id=f"op-{index:04d}",
+            )
+            step = dataclasses.replace(
+                _initial_step_record(),
+                operation_id=operation.operation_id,
+                step_id=f"step-{index:04d}",
+                step_name=f"validate-{index}",
+            )
+            store.insert_operation_with_initial_step(operation, step)
+
+        first, cursor = store.list_operations_by_status(OperationStatus.QUEUED, limit=1)
+        assert [record.operation_id for record in first] == ["op-0000"]
+        assert cursor is not None
+        second, cursor = store.list_operations_by_status(
+            OperationStatus.QUEUED,
+            cursor=cursor,
+            limit=1,
+        )
+        assert [record.operation_id for record in second] == ["op-0001"]
+        assert cursor is not None
+
+        with pytest.raises(ValueError, match="cursor"):
+            store.list_operations_by_status(OperationStatus.QUEUED, cursor="not-a-cursor")
+        with pytest.raises(ValueError, match="cursor status"):
+            store.list_operations_by_status(OperationStatus.RUNNING, cursor=cursor)
+    finally:
+        connection.close()
+
+
+def test_step_keyset_page_and_successor_idempotency() -> None:
+    connection, store = _memory_store()
+    try:
+        operation = _operation_record()
+        first_step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, first_step)
+
+        cancelled = dataclasses.replace(
+            first_step,
+            status=StepStatus.CANCELLED,
+            updated_at=datetime_from_text(LATER_TIMESTAMP),
+            completed_at=datetime_from_text(LATER_TIMESTAMP),
+            optimistic_version=1,
+        )
+        assert (
+            store.compare_and_set_step(
+                cancelled,
+                WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+            )
+            is TransitionDisposition.APPLY
+        )
+        successor = _initial_step_record(
+            operation_id=operation.operation_id,
+            step_id="step-0002",
+            step_name="successor",
+            created_at=LATER_TIMESTAMP,
+            updated_at=LATER_TIMESTAMP,
+        )
+        assert store.insert_successor_step(successor) is TransitionDisposition.APPLY
+        assert store.insert_successor_step(successor) is TransitionDisposition.IDEMPOTENT
+
+        first, cursor = store.list_steps(operation.operation_id, limit=1)
+        assert [record.step_id for record in first] == [first_step.step_id]
+        assert cursor is not None
+        second, next_cursor = store.list_steps(operation.operation_id, cursor=cursor, limit=1)
+        assert [record.step_id for record in second] == [successor.step_id]
+        assert next_cursor is None
+    finally:
+        connection.close()
+
+
+def test_guarded_cas_applies_stale_writes_and_terminal_duplicates_correctly() -> None:
+    connection, store = _memory_store()
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+
+        running_operation = dataclasses.replace(
+            operation,
+            status=OperationStatus.RUNNING,
+            optimistic_version=1,
+            updated_at=datetime_from_text(LATER_TIMESTAMP),
+        )
+        assert (
+            store.compare_and_set_operation(
+                running_operation,
+                WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+            )
+            is TransitionDisposition.APPLY
+        )
+
+        failed_operation = dataclasses.replace(
+            running_operation,
+            status=OperationStatus.FAILED,
+            optimistic_version=2,
+            diagnostic=OperationDiagnostic(code="FAILED", message="failed"),
+            completed_at=datetime_from_text(LATER_TIMESTAMP),
+        )
+        with pytest.raises(StaleWrite):
+            store.compare_and_set_operation(
+                failed_operation,
+                WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+            )
+        assert store.get_operation(operation.operation_id) == running_operation
+
+        assert (
+            store.compare_and_set_operation(
+                failed_operation,
+                WritePrecondition(expected_optimistic_version=1, worker_id=None, lease_token=None),
+            )
+            is TransitionDisposition.APPLY
+        )
+        assert (
+            store.compare_and_set_operation(
+                failed_operation,
+                WritePrecondition(expected_optimistic_version=2, worker_id=None, lease_token=None),
+            )
+            is TransitionDisposition.IDEMPOTENT
+        )
+    finally:
+        connection.close()
+
+
+def test_live_lease_guard_rejects_expired_step_without_mutating_it() -> None:
+    connection, store = _memory_store(transaction_now=AFTER_RETRY_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        running = dataclasses.replace(
+            step,
+            status=StepStatus.RUNNING,
+            attempt_count=1,
+            optimistic_version=1,
+            started_at=datetime_from_text(LATER_TIMESTAMP),
+            updated_at=datetime_from_text(LATER_TIMESTAMP),
+            worker_id="worker-1",
+            lease_token="lease-1",
+            lease_expires_at=datetime_from_text(RETRY_TIMESTAMP),
+        )
+        with pytest.raises(LeaseExpired):
+            store.compare_and_set_step(
+                running,
+                WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+                require_live_lease=True,
+            )
+        assert store.get_step(step.step_id) == step
+    finally:
+        connection.close()

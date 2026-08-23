@@ -1,30 +1,662 @@
-"""SQLite row mapping skeleton for R1 operation and step records.
-
-The complete transaction-scoped OperationStore behavior is intentionally added in S2a.
-"""
+"""SQLite row mapping and transaction-scoped OperationStore adapter."""
 
 from __future__ import annotations
 
+import base64
 import json
+import sqlite3
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from gateway_shared_kernel import CanonicalEncodingError
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
 from gateway_backend.operations import (
+    ClaimCandidate,
     CorruptPersistedRecord,
+    ConflictingDuplicate,
+    DEFAULT_CLAIM_LIMIT,
+    DEFAULT_PAGE_LIMIT,
+    MAX_CLAIM_LIMIT,
+    MAX_PAGE_LIMIT,
+    JobStepKey,
+    LeaseExpired,
     OperationRecord,
+    OperationStatus,
+    RecordNotFound,
+    StaleWrite,
     StepRecord,
     StepStatus,
+    StoreBusy,
+    TransitionDisposition,
+    WritePrecondition,
     operation_record_from_document,
     step_record_from_document,
+    validate_operation_transition,
+    validate_step_transition,
+    validate_write_precondition,
 )
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SQLITE_INT_MIN = -(2**63)
 _SQLITE_INT_MAX = 2**63 - 1
+_MAX_CURSOR_BYTES = 1024
+_CURSOR_VERSION = 1
+
+_OPERATION_COLUMNS = (
+    "operation_id, contract_version, optimistic_version, job_kind, job_contract_version, "
+    "job_payload, job_payload_ref, business_refs, artifact_refs, repository_operation_id, "
+    "checkpoint_ref, ready_closure_ref, status, diagnostic, cancel_requested, created_at_us, "
+    "updated_at_us, completed_at_us"
+)
+_STEP_COLUMNS = (
+    "step_id, operation_id, contract_version, optimistic_version, step_name, attempt_count, "
+    "status, diagnostic, cancel_requested, retry_not_before_us, worker_id, lease_token, "
+    "lease_expires_at_us, checkpoint_ref, prior_output_refs, created_at_us, updated_at_us, "
+    "started_at_us, completed_at_us, eligible_at_us"
+)
+_OPERATION_INSERT_COLUMNS = (
+    "operation_id, contract_version, optimistic_version, job_kind, job_contract_version, "
+    "job_payload, job_payload_ref, business_refs, artifact_refs, repository_operation_id, "
+    "checkpoint_ref, ready_closure_ref, status, diagnostic, cancel_requested, created_at_us, "
+    "updated_at_us, completed_at_us"
+)
+_OPERATION_UPDATE_COLUMNS = (
+    "contract_version, optimistic_version, job_kind, job_contract_version, job_payload, "
+    "job_payload_ref, business_refs, artifact_refs, repository_operation_id, checkpoint_ref, "
+    "ready_closure_ref, status, diagnostic, cancel_requested, created_at_us, updated_at_us, "
+    "completed_at_us"
+)
+_STEP_INSERT_COLUMNS = (
+    "step_id, operation_id, contract_version, optimistic_version, step_name, attempt_count, "
+    "status, diagnostic, cancel_requested, retry_not_before_us, worker_id, lease_token, "
+    "lease_expires_at_us, checkpoint_ref, prior_output_refs, created_at_us, updated_at_us, "
+    "started_at_us, completed_at_us, eligible_at_us"
+)
+_STEP_UPDATE_COLUMNS = (
+    "operation_id, contract_version, optimistic_version, step_name, attempt_count, status, "
+    "diagnostic, cancel_requested, retry_not_before_us, worker_id, lease_token, "
+    "lease_expires_at_us, checkpoint_ref, prior_output_refs, created_at_us, updated_at_us, "
+    "started_at_us, completed_at_us, eligible_at_us"
+)
+
+
+class SQLiteOperationStore:
+    """Concrete OperationStore participant bound to one already-open transaction."""
+
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        transaction_now: datetime,
+        read_only: bool = False,
+    ) -> None:
+        if not connection.in_transaction:
+            raise RuntimeError("SQLiteOperationStore requires an active transaction")
+        if type(read_only) is not bool:
+            raise ValueError("read_only must be a bool")
+        _validate_utc_datetime(transaction_now, "transaction_now")
+        self._connection = connection
+        self._transaction_now = transaction_now
+        self._read_only = read_only
+
+    def get_operation(self, operation_id: str) -> OperationRecord:
+        self._require_transaction()
+        _validate_identity(operation_id, "operation_id")
+        row = self._select_operation_row(operation_id)
+        if row is None:
+            raise RecordNotFound(f"operation {operation_id!r} was not found")
+        return operation_record_from_row(_as_mapping(row))
+
+    def get_step(self, step_id: str) -> StepRecord:
+        self._require_transaction()
+        _validate_identity(step_id, "step_id")
+        row = self._select_step_row(step_id)
+        if row is None:
+            raise RecordNotFound(f"step {step_id!r} was not found")
+        return step_record_from_row(_as_mapping(row))
+
+    def list_steps(
+        self,
+        operation_id: str,
+        *,
+        cursor: str | None = None,
+        limit: int = DEFAULT_PAGE_LIMIT,
+    ) -> tuple[tuple[StepRecord, ...], str | None]:
+        self._require_transaction()
+        _validate_identity(operation_id, "operation_id")
+        _validate_page_request(limit, cursor, maximum=MAX_PAGE_LIMIT)
+        self.get_operation(operation_id)
+        cursor_values = _decode_cursor(
+            cursor,
+            scope="steps",
+            fields=("created_at_us", "step_id"),
+        )
+        query = f"SELECT {_STEP_COLUMNS} FROM step_records WHERE operation_id = ?"
+        parameters: list[object] = [operation_id]
+        if cursor_values is not None:
+            query += " AND (created_at_us > ? OR (created_at_us = ? AND step_id > ?))"
+            parameters.extend(
+                [
+                    cursor_values["created_at_us"],
+                    cursor_values["created_at_us"],
+                    cursor_values["step_id"],
+                ]
+            )
+        query += " ORDER BY created_at_us, step_id LIMIT ?"
+        rows = self._execute(query, (*parameters, limit + 1)).fetchall()
+        visible_rows, has_more = _page_rows(rows, limit)
+        records = tuple(step_record_from_row(_as_mapping(row)) for row in visible_rows)
+        next_cursor = None
+        if has_more and visible_rows:
+            last = _as_mapping(visible_rows[-1])
+            next_cursor = _encode_cursor(
+                "steps",
+                created_at_us=_required_row_int(last, "created_at_us"),
+                step_id=_required_row_text(last, "step_id"),
+            )
+        return records, next_cursor
+
+    def list_operations_by_status(
+        self,
+        status: OperationStatus,
+        *,
+        cursor: str | None = None,
+        limit: int = DEFAULT_PAGE_LIMIT,
+    ) -> tuple[tuple[OperationRecord, ...], str | None]:
+        self._require_transaction()
+        if type(status) is not OperationStatus:
+            raise ValueError("status must be OperationStatus")
+        _validate_page_request(limit, cursor, maximum=MAX_PAGE_LIMIT)
+        cursor_values = _decode_cursor(
+            cursor,
+            scope="operation_status",
+            fields=("status", "updated_at_us", "operation_id"),
+        )
+        if cursor_values is not None and cursor_values["status"] != status.value:
+            raise ValueError("cursor status does not match requested status")
+        query = f"SELECT {_OPERATION_COLUMNS} FROM operation_records WHERE status = ?"
+        parameters: list[object] = [status.value]
+        if cursor_values is not None:
+            query += " AND (updated_at_us > ? OR (updated_at_us = ? AND operation_id > ?))"
+            parameters.extend(
+                [
+                    cursor_values["updated_at_us"],
+                    cursor_values["updated_at_us"],
+                    cursor_values["operation_id"],
+                ]
+            )
+        query += " ORDER BY updated_at_us, operation_id LIMIT ?"
+        rows = self._execute(query, (*parameters, limit + 1)).fetchall()
+        visible_rows, has_more = _page_rows(rows, limit)
+        records = tuple(operation_record_from_row(_as_mapping(row)) for row in visible_rows)
+        next_cursor = None
+        if has_more and visible_rows:
+            last = _as_mapping(visible_rows[-1])
+            next_cursor = _encode_cursor(
+                "operation_status",
+                status=status.value,
+                updated_at_us=_required_row_int(last, "updated_at_us"),
+                operation_id=_required_row_text(last, "operation_id"),
+            )
+        return records, next_cursor
+
+    def list_claim_candidates(
+        self,
+        now: datetime,
+        *,
+        cursor: str | None = None,
+        limit: int = DEFAULT_CLAIM_LIMIT,
+    ) -> tuple[tuple[ClaimCandidate, ...], str | None]:
+        self._require_transaction()
+        _validate_utc_datetime(now, "now")
+        _validate_page_request(limit, cursor, maximum=MAX_CLAIM_LIMIT)
+        cursor_values = _decode_cursor(
+            cursor,
+            scope="claim",
+            fields=("eligible_at_us", "created_at_us", "step_id"),
+        )
+        query = (
+            f"SELECT {_STEP_COLUMNS} FROM step_records "
+            "WHERE status IN ('PENDING', 'RETRY_WAIT') AND eligible_at_us <= ?"
+        )
+        parameters: list[object] = [_datetime_to_epoch_us(now)]
+        if cursor_values is not None:
+            query += (
+                " AND (eligible_at_us > ? OR "
+                "(eligible_at_us = ? AND (created_at_us > ? OR "
+                "(created_at_us = ? AND step_id > ?))))"
+            )
+            parameters.extend(
+                [
+                    cursor_values["eligible_at_us"],
+                    cursor_values["eligible_at_us"],
+                    cursor_values["created_at_us"],
+                    cursor_values["created_at_us"],
+                    cursor_values["step_id"],
+                ]
+            )
+        query += " ORDER BY eligible_at_us, created_at_us, step_id LIMIT ?"
+        rows = self._execute(query, (*parameters, limit + 1)).fetchall()
+        visible_rows, has_more = _page_rows(rows, limit)
+        candidates: list[ClaimCandidate] = []
+        for row in visible_rows:
+            step = step_record_from_row(_as_mapping(row))
+            operation = self.get_operation(step.operation_id)
+            if step.status not in {StepStatus.PENDING, StepStatus.RETRY_WAIT}:
+                raise CorruptPersistedRecord("claim query returned a non-claimable step")
+            if step.retry_not_before is not None and step.status is StepStatus.PENDING:
+                raise CorruptPersistedRecord("PENDING step has retry metadata")
+            eligible_at = step.created_at if step.status is StepStatus.PENDING else step.retry_not_before
+            if eligible_at is None:
+                raise CorruptPersistedRecord("claimable step has no eligibility time")
+            candidates.append(
+                ClaimCandidate(
+                    operation_id=operation.operation_id,
+                    step_id=step.step_id,
+                    job_step_key=JobStepKey(
+                        job_kind=operation.job_kind,
+                        step_name=step.step_name,
+                    ),
+                    status=step.status,
+                    eligible_at=eligible_at,
+                    created_at=step.created_at,
+                )
+            )
+        next_cursor = None
+        if has_more and visible_rows:
+            last = _as_mapping(visible_rows[-1])
+            next_cursor = _encode_cursor(
+                "claim",
+                eligible_at_us=_required_row_int(last, "eligible_at_us"),
+                created_at_us=_required_row_int(last, "created_at_us"),
+                step_id=_required_row_text(last, "step_id"),
+            )
+        return tuple(candidates), next_cursor
+
+    def insert_operation_with_initial_step(
+        self,
+        operation: OperationRecord,
+        step: StepRecord,
+    ) -> TransitionDisposition:
+        self._require_writable()
+        if type(operation) is not OperationRecord or type(step) is not StepRecord:
+            raise ValueError("operation and step must be their R1 record types")
+        if operation.status is not OperationStatus.QUEUED:
+            raise ValueError("initial operation must be QUEUED")
+        if step.status is not StepStatus.PENDING:
+            raise ValueError("initial step must be PENDING")
+        if step.operation_id != operation.operation_id:
+            raise ValueError("initial step must belong to operation")
+
+        existing_operation_row = self._select_operation_row(operation.operation_id)
+        existing_step_row = self._select_step_row(step.step_id)
+        existing_named_step_row = self._select_step_by_name(step.operation_id, step.step_name)
+        if existing_operation_row is not None or existing_step_row is not None or existing_named_step_row is not None:
+            existing_operation = (
+                operation_record_from_row(_as_mapping(existing_operation_row))
+                if existing_operation_row is not None
+                else None
+            )
+            existing_step = (
+                step_record_from_row(_as_mapping(existing_step_row))
+                if existing_step_row is not None
+                else None
+            )
+            named_step = (
+                step_record_from_row(_as_mapping(existing_named_step_row))
+                if existing_named_step_row is not None
+                else None
+            )
+            if existing_operation == operation and existing_step == step and named_step == step:
+                return TransitionDisposition.IDEMPOTENT
+            raise ConflictingDuplicate("create identity already has a different record")
+
+        try:
+            self._insert_operation(operation_record_to_row(operation))
+            self._insert_step(step_record_to_row(step))
+        except sqlite3.IntegrityError as exc:
+            raise ConflictingDuplicate("create conflicted with an existing identity") from exc
+        return TransitionDisposition.APPLY
+
+    def insert_successor_step(self, step: StepRecord) -> TransitionDisposition:
+        self._require_writable()
+        if type(step) is not StepRecord:
+            raise ValueError("step must be an R1 StepRecord")
+        if step.status is not StepStatus.PENDING:
+            raise ValueError("successor step must be PENDING")
+        self.get_operation(step.operation_id)
+        existing_step_row = self._select_step_row(step.step_id)
+        existing_named_step_row = self._select_step_by_name(step.operation_id, step.step_name)
+        if existing_step_row is not None or existing_named_step_row is not None:
+            existing_step = (
+                step_record_from_row(_as_mapping(existing_step_row))
+                if existing_step_row is not None
+                else None
+            )
+            named_step = (
+                step_record_from_row(_as_mapping(existing_named_step_row))
+                if existing_named_step_row is not None
+                else None
+            )
+            if existing_step == step and named_step == step:
+                return TransitionDisposition.IDEMPOTENT
+            raise ConflictingDuplicate("successor identity already has a different record")
+        try:
+            self._insert_step(step_record_to_row(step))
+        except sqlite3.IntegrityError as exc:
+            raise ConflictingDuplicate("successor identity conflicted") from exc
+        return TransitionDisposition.APPLY
+
+    def compare_and_set_operation(
+        self,
+        candidate: OperationRecord,
+        precondition: WritePrecondition,
+        *,
+        recovery_authorized: bool = False,
+    ) -> TransitionDisposition:
+        self._require_writable()
+        if type(candidate) is not OperationRecord:
+            raise ValueError("candidate must be an OperationRecord")
+        current = self.get_operation(candidate.operation_id)
+        if current.status.is_final_terminal() and current != candidate:
+            raise ConflictingDuplicate("terminal operation has a different candidate")
+        disposition = validate_operation_transition(
+            current,
+            candidate,
+            recovery_authorized=recovery_authorized,
+        )
+        if disposition is TransitionDisposition.IDEMPOTENT:
+            return disposition
+        self._validate_precondition(current, precondition)
+        row = operation_record_to_row(candidate)
+        assignments = ", ".join(f"{column} = :{column}" for column in _OPERATION_UPDATE_COLUMNS.split(", "))
+        parameters = dict(row)
+        parameters["where_operation_id"] = candidate.operation_id
+        parameters["expected_version"] = precondition.expected_optimistic_version
+        result = self._execute(
+            f"UPDATE operation_records SET {assignments} "
+            "WHERE operation_id = :where_operation_id AND optimistic_version = :expected_version",
+            parameters,
+        )
+        if result.rowcount != 1:
+            self._raise_cas_failure_operation(candidate, precondition)
+        return TransitionDisposition.APPLY
+
+    def compare_and_set_step(
+        self,
+        candidate: StepRecord,
+        precondition: WritePrecondition,
+        *,
+        recovery_authorized: bool = False,
+        require_live_lease: bool = False,
+    ) -> TransitionDisposition:
+        self._require_writable()
+        if type(candidate) is not StepRecord:
+            raise ValueError("candidate must be a StepRecord")
+        if type(require_live_lease) is not bool:
+            raise ValueError("require_live_lease must be a bool")
+        current = self.get_step(candidate.step_id)
+        if current.status.is_final_terminal() and current != candidate:
+            raise ConflictingDuplicate("terminal step has a different candidate")
+        disposition = validate_step_transition(
+            current,
+            candidate,
+            recovery_authorized=recovery_authorized,
+        )
+        if disposition is TransitionDisposition.IDEMPOTENT:
+            return disposition
+        self._validate_precondition(current, precondition)
+        if require_live_lease:
+            if current.lease_expires_at is None or current.lease_expires_at <= self._transaction_now:
+                raise LeaseExpired("step lease is no longer live")
+        row = step_record_to_row(candidate)
+        assignments = ", ".join(f"{column} = :{column}" for column in _STEP_UPDATE_COLUMNS.split(", "))
+        parameters = dict(row)
+        parameters["where_step_id"] = candidate.step_id
+        parameters["expected_version"] = precondition.expected_optimistic_version
+        if precondition.worker_id is None:
+            lease_where = "worker_id IS NULL AND lease_token IS NULL"
+        else:
+            lease_where = "worker_id = :expected_worker_id AND lease_token = :expected_lease_token"
+            parameters["expected_worker_id"] = precondition.worker_id
+            parameters["expected_lease_token"] = precondition.lease_token
+        live_where = ""
+        if require_live_lease:
+            live_where = " AND lease_expires_at_us > :transaction_now_us"
+            parameters["transaction_now_us"] = _datetime_to_epoch_us(self._transaction_now)
+        result = self._execute(
+            f"UPDATE step_records SET {assignments} "
+            "WHERE step_id = :where_step_id AND optimistic_version = :expected_version "
+            f"AND {lease_where}{live_where}",
+            parameters,
+        )
+        if result.rowcount != 1:
+            self._raise_cas_failure_step(candidate, precondition, require_live_lease)
+        return TransitionDisposition.APPLY
+
+    def _validate_precondition(
+        self,
+        current: OperationRecord | StepRecord,
+        precondition: WritePrecondition,
+    ) -> None:
+        if type(precondition) is not WritePrecondition:
+            raise ValueError("precondition must be WritePrecondition")
+        try:
+            if isinstance(current, OperationRecord):
+                validate_write_precondition(
+                    current_optimistic_version=current.optimistic_version,
+                    current_worker_id=None,
+                    current_lease_token=None,
+                    precondition=precondition,
+                )
+            else:
+                validate_write_precondition(
+                    current_optimistic_version=current.optimistic_version,
+                    current_worker_id=current.worker_id,
+                    current_lease_token=current.lease_token,
+                    precondition=precondition,
+                )
+        except ValueError as exc:
+            raise StaleWrite("write precondition no longer matches") from exc
+
+    def _raise_cas_failure_operation(
+        self,
+        candidate: OperationRecord,
+        precondition: WritePrecondition,
+    ) -> None:
+        row = self._select_operation_row(candidate.operation_id)
+        if row is None:
+            raise RecordNotFound(f"operation {candidate.operation_id!r} was not found")
+        current = operation_record_from_row(_as_mapping(row))
+        try:
+            validate_write_precondition(
+                current_optimistic_version=current.optimistic_version,
+                current_worker_id=None,
+                current_lease_token=None,
+                precondition=precondition,
+            )
+        except ValueError as exc:
+            raise StaleWrite("operation CAS lost its precondition") from exc
+        raise ConflictingDuplicate("operation CAS affected an unexpected row count")
+
+    def _raise_cas_failure_step(
+        self,
+        candidate: StepRecord,
+        precondition: WritePrecondition,
+        require_live_lease: bool,
+    ) -> None:
+        row = self._select_step_row(candidate.step_id)
+        if row is None:
+            raise RecordNotFound(f"step {candidate.step_id!r} was not found")
+        current = step_record_from_row(_as_mapping(row))
+        if require_live_lease and (
+            current.lease_expires_at is None or current.lease_expires_at <= self._transaction_now
+        ):
+            raise LeaseExpired("step lease is no longer live")
+        try:
+            validate_write_precondition(
+                current_optimistic_version=current.optimistic_version,
+                current_worker_id=current.worker_id,
+                current_lease_token=current.lease_token,
+                precondition=precondition,
+            )
+        except ValueError as exc:
+            raise StaleWrite("step CAS lost its precondition") from exc
+        raise ConflictingDuplicate("step CAS affected an unexpected row count")
+
+    def _select_operation_row(self, operation_id: str) -> sqlite3.Row | None:
+        return cast(sqlite3.Row | None, self._execute(
+            f"SELECT {_OPERATION_COLUMNS} FROM operation_records WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone())
+
+    def _select_step_row(self, step_id: str) -> sqlite3.Row | None:
+        return cast(sqlite3.Row | None, self._execute(
+            f"SELECT {_STEP_COLUMNS} FROM step_records WHERE step_id = ?",
+            (step_id,),
+        ).fetchone())
+
+    def _select_step_by_name(self, operation_id: str, step_name: str) -> sqlite3.Row | None:
+        return cast(sqlite3.Row | None, self._execute(
+            f"SELECT {_STEP_COLUMNS} FROM step_records WHERE operation_id = ? AND step_name = ?",
+            (operation_id, step_name),
+        ).fetchone())
+
+    def _insert_operation(self, row: Mapping[str, object]) -> None:
+        columns = _OPERATION_INSERT_COLUMNS
+        names = [column.strip() for column in columns.split(",")]
+        placeholders = ", ".join(f":{name}" for name in names)
+        self._execute(
+            f"INSERT INTO operation_records ({columns}) VALUES ({placeholders})",
+            dict(row),
+        )
+
+    def _insert_step(self, row: Mapping[str, object]) -> None:
+        columns = _STEP_INSERT_COLUMNS
+        names = [column.strip() for column in columns.split(",")]
+        placeholders = ", ".join(f":{name}" for name in names)
+        self._execute(
+            f"INSERT INTO step_records ({columns}) VALUES ({placeholders})",
+            dict(row),
+        )
+
+    def _execute(self, query: str, parameters: object = ()) -> sqlite3.Cursor:
+        try:
+            return self._connection.execute(query, cast(Any, parameters))
+        except sqlite3.OperationalError as exc:
+            _raise_if_busy(exc)
+            raise
+
+    def _require_transaction(self) -> None:
+        if not self._connection.in_transaction:
+            raise RuntimeError("SQLiteOperationStore transaction is no longer active")
+
+    def _require_writable(self) -> None:
+        self._require_transaction()
+        if self._read_only:
+            raise RuntimeError("operation store is bound to a read-only transaction")
+
+
+def _as_mapping(row: object) -> Mapping[str, object]:
+    if not isinstance(row, sqlite3.Row):
+        raise CorruptPersistedRecord("SQLite query did not return a row")
+    return cast(Mapping[str, object], row)
+
+
+def _page_rows(rows: list[sqlite3.Row], limit: int) -> tuple[list[sqlite3.Row], bool]:
+    if len(rows) > limit:
+        return rows[:limit], True
+    return rows, False
+
+
+def _validate_page_request(limit: object, cursor: object, *, maximum: int) -> None:
+    if type(limit) is not int or limit < 1 or limit > maximum:
+        raise ValueError(f"limit must be an integer in the range 1..{maximum}")
+    if cursor is None:
+        return
+    if type(cursor) is not str or not cursor:
+        raise ValueError("cursor must be a non-empty string or None")
+    if len(cursor.encode("utf-8")) > _MAX_CURSOR_BYTES:
+        raise ValueError(f"cursor must be at most {_MAX_CURSOR_BYTES} UTF-8 bytes")
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in cursor):
+        raise ValueError("cursor must not contain control characters")
+
+
+def _encode_cursor(scope: str, **values: object) -> str:
+    payload = {"scope": scope, "version": _CURSOR_VERSION, **values}
+    raw = canonicalize_json_value(payload)
+    encoded = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    if len(encoded.encode("utf-8")) > _MAX_CURSOR_BYTES:
+        raise ValueError("generated cursor exceeds its maximum size")
+    return encoded
+
+
+def _decode_cursor(
+    cursor: str | None,
+    *,
+    scope: str,
+    fields: tuple[str, ...],
+) -> dict[str, object] | None:
+    if cursor is None:
+        return None
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+        if canonicalize_jcs(raw) != raw:
+            raise ValueError("cursor JSON is not canonical")
+        payload = json.loads(raw)
+    except (UnicodeEncodeError, ValueError, json.JSONDecodeError, CanonicalEncodingError) as exc:
+        raise ValueError("cursor is malformed") from exc
+    if type(payload) is not dict:
+        raise ValueError("cursor payload must be an object")
+    expected_keys = {"scope", "version", *fields}
+    if set(payload) != expected_keys:
+        raise ValueError("cursor fields do not match the requested query")
+    if payload.get("scope") != scope or payload.get("version") != _CURSOR_VERSION:
+        raise ValueError("cursor scope or version is unsupported")
+    for field in fields:
+        value = payload[field]
+        if field.endswith("_us") and (type(value) is not int):
+            raise ValueError(f"cursor field {field} must be an integer")
+        if field in {"step_id", "operation_id", "status"} and type(value) is not str:
+            raise ValueError(f"cursor field {field} must be text")
+    return cast(dict[str, object], payload)
+
+
+def _validate_identity(value: object, label: str) -> None:
+    if type(value) is not str or not value:
+        raise ValueError(f"{label} must be a non-empty string")
+    if len(value.encode("utf-8")) > 255:
+        raise ValueError(f"{label} is too long")
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+        raise ValueError(f"{label} must not contain control characters")
+
+
+def _validate_utc_datetime(value: object, label: str) -> None:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != timedelta(0):
+        raise ValueError(f"{label} must be an aware UTC datetime")
+
+
+def _required_row_int(row: Mapping[str, object], key: str) -> int:
+    value = row[key]
+    if type(value) is not int:
+        raise CorruptPersistedRecord(f"{key} is not an integer")
+    return value
+
+
+def _required_row_text(row: Mapping[str, object], key: str) -> str:
+    value = row[key]
+    if type(value) is not str:
+        raise CorruptPersistedRecord(f"{key} is not text")
+    return value
+
+
+def _raise_if_busy(exc: sqlite3.OperationalError) -> None:
+    message = str(exc).lower()
+    if "busy" in message or "locked" in message:
+        raise StoreBusy("control DB is busy") from None
 
 
 def operation_record_to_row(record: OperationRecord) -> dict[str, object]:

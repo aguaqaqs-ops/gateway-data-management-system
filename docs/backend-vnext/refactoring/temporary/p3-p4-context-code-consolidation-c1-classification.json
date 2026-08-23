@@ -14,8 +14,8 @@
     "tested_candidate_sha": "13ce18b8b2d689bc7a4087e0072d485891740c0c",
     "p3_exit": "pass",
     "p4_ready": "yes",
-    "pre_cleanup_tag_object": "10ac2294d16c1bc0c89d2da4f915ffb9561e8d4f",
-    "pre_cleanup_commit": "7ff4514ff4746fd51ae4f62b45aee5e032455c72"
+    "pre_cleanup_tag_object": "f789b1a49db65d88a024fbe6ad962460f24e067c",
+    "pre_cleanup_commit": "30ff0f92c013d8b5164206377fe6362b353cca97"
   },
   "classification_counts": {
     "active": 23,

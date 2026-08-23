@@ -857,7 +857,12 @@ def build_manifest(payload: dict[str, Any]) -> dict[str, Any]:
 
 def annotate_tag_in_manifest(tag_object: str, tag_commit: str) -> None:
     text = OUTPUT_MANIFEST.read_text(encoding="utf-8")
-    text = text.replace("pre_cleanup_tag_object: this_pre_cleanup_tag", f"pre_cleanup_tag_object: {tag_object}")
+    text = re.sub(
+        r"pre_cleanup_tag_object: \S+",
+        f"pre_cleanup_tag_object: {tag_object}",
+        text,
+        count=1,
+    )
     # commit stays this_c1_head placeholder; verified in C1 MD
     OUTPUT_MANIFEST.write_text(text, encoding="utf-8")
     payload = json.loads(OUTPUT_JSON.read_text(encoding="utf-8"))

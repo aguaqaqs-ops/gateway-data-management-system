@@ -17,7 +17,7 @@ tags:
   proposed_pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
   pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
   pre_cleanup_commit: this_c1_head
-  pre_cleanup_tag_object: 1027ef5e6f766ebc5a064f761cc5e48a22d8646b
+  pre_cleanup_tag_object: this_pre_cleanup_tag
   proposed_final_tag: docs/p3-p4-cleanup-final-20260823
 artifacts:
   c0_inventory: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c0-inventory.md

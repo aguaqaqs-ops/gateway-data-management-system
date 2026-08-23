@@ -100,8 +100,8 @@ pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
 
 ```text
 pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
-pre_cleanup_commit: 4faf10fd905c3cc582ff5a11626b940cc609289e
-pre_cleanup_tag_object: 1027ef5e6f766ebc5a064f761cc5e48a22d8646b
+pre_cleanup_commit: 30ff0f92c013d8b5164206377fe6362b353cca97
+pre_cleanup_tag_object: f789b1a49db65d88a024fbe6ad962460f24e067c
 ```
 
 ## C1 exit

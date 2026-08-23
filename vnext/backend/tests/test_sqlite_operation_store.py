@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -34,6 +34,7 @@ from gateway_backend.operations import (
     step_record_from_document,
 )
 from gateway_backend.operations import CorruptPersistedRecord
+from gateway_backend.operations.persistence import OperationLifecycleActions
 
 pytestmark = pytest.mark.unit
 
@@ -456,5 +457,388 @@ def test_live_lease_guard_rejects_expired_step_without_mutating_it() -> None:
                 require_live_lease=True,
             )
         assert store.get_step(step.step_id) == step
+    finally:
+        connection.close()
+
+
+def test_lifecycle_claim_is_bounded_deterministic_and_promotes_queued_operation() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(LATER_TIMESTAMP),
+        )
+
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        claimed_operation, claimed_step = claimed
+        assert claimed_operation.status is OperationStatus.RUNNING
+        assert claimed_operation.optimistic_version == 1
+        assert claimed_step.status is StepStatus.RUNNING
+        assert claimed_step.attempt_count == 1
+        assert claimed_step.started_at == datetime_from_text(LATER_TIMESTAMP)
+        assert claimed_step.lease_expires_at == datetime_from_text(LATER_TIMESTAMP) + timedelta(
+            seconds=30
+        )
+        assert actions.claim_one("worker-2", "lease-2") is None
+    finally:
+        connection.close()
+
+
+def test_lifecycle_claim_reclaims_due_retry_step_with_incremented_attempt() -> None:
+    connection, store = _memory_store(transaction_now=AFTER_RETRY_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(AFTER_RETRY_TIMESTAMP),
+        )
+        first_claim = actions.claim_one("worker-1", "lease-1")
+        assert first_claim is not None
+        _, claimed_step = first_claim
+        retry_wait = dataclasses.replace(
+            claimed_step,
+            status=StepStatus.RETRY_WAIT,
+            diagnostic=OperationDiagnostic(code="RETRY", message="retry later"),
+            retry_not_before=datetime_from_text(AFTER_RETRY_TIMESTAMP),
+            updated_at=datetime_from_text(AFTER_RETRY_TIMESTAMP),
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            optimistic_version=2,
+        )
+        assert (
+            store.compare_and_set_step(
+                retry_wait,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+                require_live_lease=True,
+            )
+            is TransitionDisposition.APPLY
+        )
+        reclaimed = actions.claim_one("worker-2", "lease-2")
+        assert reclaimed is not None
+        _, reclaimed_step = reclaimed
+        assert reclaimed_step.attempt_count == 2
+        assert reclaimed_step.started_at == claimed_step.started_at
+        assert reclaimed_step.status is StepStatus.RUNNING
+    finally:
+        connection.close()
+
+
+def test_claim_candidate_query_excludes_manual_operation() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        running = dataclasses.replace(
+            operation,
+            status=OperationStatus.RUNNING,
+            optimistic_version=1,
+            updated_at=datetime_from_text(LATER_TIMESTAMP),
+        )
+        store.compare_and_set_operation(
+            running,
+            WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+        )
+        manual = dataclasses.replace(
+            running,
+            status=OperationStatus.MANUAL_RECOVERY_REQUIRED,
+            optimistic_version=2,
+            diagnostic=OperationDiagnostic(code="MANUAL", message="operator required"),
+        )
+        store.compare_and_set_operation(
+            manual,
+            WritePrecondition(expected_optimistic_version=1, worker_id=None, lease_token=None),
+        )
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(LATER_TIMESTAMP),
+        )
+        assert actions.claim_one("worker-1", "lease-1") is None
+    finally:
+        connection.close()
+
+
+def test_live_step_actions_extend_lease_reject_swap_and_publish_terminal_idempotently() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(LATER_TIMESTAMP),
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        claimed_operation, claimed_step = claimed
+        assert claimed_operation.status is OperationStatus.RUNNING
+
+        heartbeat = dataclasses.replace(
+            claimed_step,
+            updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=5),
+            lease_expires_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=60),
+            optimistic_version=2,
+        )
+        assert (
+            actions.mutate_live_step(
+                heartbeat,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+            is TransitionDisposition.APPLY
+        )
+
+        late_worker_candidate = dataclasses.replace(
+            heartbeat,
+            updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=6),
+            optimistic_version=3,
+        )
+        with pytest.raises(StaleWrite):
+            actions.mutate_live_step(
+                late_worker_candidate,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+
+        swapped = dataclasses.replace(
+            heartbeat,
+            worker_id="worker-2",
+            optimistic_version=3,
+        )
+        with pytest.raises(ValueError, match="worker_id and lease_token"):
+            actions.mutate_live_step(
+                swapped,
+                WritePrecondition(
+                    expected_optimistic_version=2,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+
+        terminal = dataclasses.replace(
+            heartbeat,
+            status=StepStatus.SUCCEEDED,
+            updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=10),
+            completed_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=10),
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            optimistic_version=3,
+        )
+        assert (
+            actions.mutate_live_step(
+                terminal,
+                WritePrecondition(
+                    expected_optimistic_version=2,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+            is TransitionDisposition.APPLY
+        )
+        assert (
+            actions.mutate_live_step(
+                terminal,
+                WritePrecondition(expected_optimistic_version=3, worker_id=None, lease_token=None),
+            )
+            is TransitionDisposition.IDEMPOTENT
+        )
+    finally:
+        connection.close()
+
+
+def test_live_step_and_operation_terminal_action_is_atomic() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(LATER_TIMESTAMP),
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        claimed_operation, claimed_step = claimed
+        at = datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=1)
+        terminal_step = dataclasses.replace(
+            claimed_step,
+            status=StepStatus.SUCCEEDED,
+            updated_at=at,
+            completed_at=at,
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            optimistic_version=2,
+        )
+        terminal_operation = dataclasses.replace(
+            claimed_operation,
+            status=OperationStatus.SUCCEEDED,
+            updated_at=at,
+            completed_at=at,
+            optimistic_version=2,
+        )
+        assert actions.complete_operation(
+            terminal_step,
+            WritePrecondition(
+                expected_optimistic_version=1,
+                worker_id="worker-1",
+                lease_token="lease-1",
+            ),
+            terminal_operation,
+            WritePrecondition(expected_optimistic_version=1, worker_id=None, lease_token=None),
+        ) == (TransitionDisposition.APPLY, TransitionDisposition.APPLY)
+        assert actions.complete_operation(
+            terminal_step,
+            WritePrecondition(expected_optimistic_version=2, worker_id=None, lease_token=None),
+            terminal_operation,
+            WritePrecondition(expected_optimistic_version=2, worker_id=None, lease_token=None),
+        ) == (TransitionDisposition.IDEMPOTENT, TransitionDisposition.IDEMPOTENT)
+        assert store.get_operation(operation.operation_id).status is OperationStatus.SUCCEEDED
+        assert store.get_step(step.step_id).status is StepStatus.SUCCEEDED
+    finally:
+        connection.close()
+
+
+def test_live_step_action_rejects_expired_lease_without_mutation() -> None:
+    connection, store = _memory_store(transaction_now=AFTER_RETRY_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        running = dataclasses.replace(
+            step,
+            status=StepStatus.RUNNING,
+            attempt_count=1,
+            optimistic_version=1,
+            started_at=datetime_from_text(LATER_TIMESTAMP),
+            updated_at=datetime_from_text(LATER_TIMESTAMP),
+            worker_id="worker-1",
+            lease_token="lease-1",
+            lease_expires_at=datetime_from_text(RETRY_TIMESTAMP),
+        )
+        store.compare_and_set_step(
+            running,
+            WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+        )
+        candidate = dataclasses.replace(running, optimistic_version=2)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(AFTER_RETRY_TIMESTAMP),
+        )
+        with pytest.raises(LeaseExpired):
+            actions.mutate_live_step(
+                candidate,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+        assert store.get_step(step.step_id) == running
+    finally:
+        connection.close()
+
+
+def test_cancel_intent_is_atomic_and_requires_live_running_lease() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(LATER_TIMESTAMP),
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        claimed_operation, claimed_step = claimed
+        operation_cancel = dataclasses.replace(
+            claimed_operation,
+            cancel_requested=True,
+            updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=1),
+            optimistic_version=2,
+        )
+        step_cancel = dataclasses.replace(
+            claimed_step,
+            cancel_requested=True,
+            updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=1),
+            optimistic_version=2,
+        )
+        assert actions.cancel_intent(
+            operation_cancel,
+            WritePrecondition(expected_optimistic_version=1, worker_id=None, lease_token=None),
+            step_cancel,
+            WritePrecondition(
+                expected_optimistic_version=1,
+                worker_id="worker-1",
+                lease_token="lease-1",
+            ),
+        ) == (TransitionDisposition.APPLY, TransitionDisposition.APPLY)
+        assert store.get_operation(operation.operation_id).cancel_requested is True
+        assert store.get_step(step.step_id).cancel_requested is True
+    finally:
+        connection.close()
+
+
+def test_completion_compositions_use_caller_candidates_and_keep_successor_pending() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(LATER_TIMESTAMP),
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        claimed_operation, claimed_step = claimed
+        terminal = dataclasses.replace(
+            claimed_step,
+            status=StepStatus.SUCCEEDED,
+            updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=1),
+            completed_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=1),
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            optimistic_version=2,
+        )
+        successor = _initial_step_record(
+            operation_id=operation.operation_id,
+            step_id="step-0002",
+            step_name="successor",
+            created_at=LATER_TIMESTAMP,
+            updated_at=LATER_TIMESTAMP,
+        )
+        assert actions.complete_with_successor(
+            terminal,
+            WritePrecondition(
+                expected_optimistic_version=1,
+                worker_id="worker-1",
+                lease_token="lease-1",
+            ),
+            successor,
+        ) == (TransitionDisposition.APPLY, TransitionDisposition.APPLY)
+        assert store.get_step(step.step_id).status is StepStatus.SUCCEEDED
+        assert store.get_step(successor.step_id) == successor
+        assert store.get_operation(operation.operation_id) == claimed_operation
     finally:
         connection.close()

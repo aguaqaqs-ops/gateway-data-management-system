@@ -93,6 +93,14 @@ class ControlDbUnitOfWork:
             raise RuntimeError("control DB unit of work is not active")
         return self._operations
 
+    @property
+    def transaction_now(self) -> datetime:
+        """Return the single UTC clock sample captured for this transaction."""
+
+        if self._transaction_now is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._transaction_now
+
     def __enter__(self) -> Self:
         if self._connection is not None:
             raise RuntimeError("control DB unit of work cannot be entered twice")

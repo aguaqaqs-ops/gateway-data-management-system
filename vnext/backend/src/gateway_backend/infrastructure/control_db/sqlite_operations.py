@@ -218,15 +218,17 @@ class SQLiteOperationStore:
             fields=("eligible_at_us", "created_at_us", "step_id"),
         )
         query = (
-            f"SELECT {_STEP_COLUMNS} FROM step_records "
-            "WHERE status IN ('PENDING', 'RETRY_WAIT') AND eligible_at_us <= ?"
+            f"SELECT s.{_STEP_COLUMNS.replace(', ', ', s.')} FROM step_records AS s "
+            "JOIN operation_records AS o ON o.operation_id = s.operation_id "
+            "WHERE s.status IN ('PENDING', 'RETRY_WAIT') AND s.eligible_at_us <= ? "
+            "AND o.status IN ('QUEUED', 'RUNNING')"
         )
         parameters: list[object] = [_datetime_to_epoch_us(now)]
         if cursor_values is not None:
             query += (
-                " AND (eligible_at_us > ? OR "
-                "(eligible_at_us = ? AND (created_at_us > ? OR "
-                "(created_at_us = ? AND step_id > ?))))"
+                " AND (s.eligible_at_us > ? OR "
+                "(s.eligible_at_us = ? AND (s.created_at_us > ? OR "
+                "(s.created_at_us = ? AND s.step_id > ?))))"
             )
             parameters.extend(
                 [
@@ -237,7 +239,7 @@ class SQLiteOperationStore:
                     cursor_values["step_id"],
                 ]
             )
-        query += " ORDER BY eligible_at_us, created_at_us, step_id LIMIT ?"
+        query += " ORDER BY s.eligible_at_us, s.created_at_us, s.step_id LIMIT ?"
         rows = self._execute(query, (*parameters, limit + 1)).fetchall()
         visible_rows, has_more = _page_rows(rows, limit)
         candidates: list[ClaimCandidate] = []

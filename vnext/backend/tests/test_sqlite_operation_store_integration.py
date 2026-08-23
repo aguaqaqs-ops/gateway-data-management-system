@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
 
@@ -18,12 +19,16 @@ from gateway_backend.infrastructure.control_db import (
 from gateway_backend.infrastructure.control_db.migrations import bootstrap_control_schema
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
+    ConflictingDuplicate,
     OperationStatus,
     RecordNotFound,
+    StepStatus,
     TransitionDisposition,
+    WritePrecondition,
     operation_record_from_document,
     step_record_from_document,
 )
+from gateway_backend.operations.persistence import OperationLifecycleActions
 
 pytestmark = pytest.mark.integration
 
@@ -55,7 +60,12 @@ def _operation_document(operation_id: str) -> dict[str, object]:
     }
 
 
-def _step_document(operation_id: str, step_id: str) -> dict[str, object]:
+def _step_document(
+    operation_id: str,
+    step_id: str,
+    *,
+    step_name: str = "validate",
+) -> dict[str, object]:
     return {
         "attempt_count": 0,
         "cancel_requested": False,
@@ -74,7 +84,7 @@ def _step_document(operation_id: str, step_id: str) -> dict[str, object]:
         "started_at": None,
         "status": "PENDING",
         "step_id": step_id,
-        "step_name": "validate",
+        "step_name": step_name,
         "updated_at": "2024-01-02T03:04:05Z",
         "worker_id": None,
     }
@@ -172,6 +182,132 @@ def test_operation_store_commits_and_reads_back_after_reopen(tmp_path: Path) -> 
         assert unit_of_work.operations.get_step(step.step_id) == step
         with pytest.raises(RuntimeError, match="read-only"):
             unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+
+
+def test_lifecycle_claim_commits_and_reads_back_after_reopen(tmp_path: Path) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-claim-0001"))
+    step = step_record_from_document(_step_document("op-claim-0001", "step-claim-0001"))
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        assert (
+            unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+            is TransitionDisposition.APPLY
+        )
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        assert actions.claim_one("worker-1", "lease-1") is not None
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(operation.operation_id)
+        persisted_step = unit_of_work.operations.get_step(step.step_id)
+        assert persisted_operation.status is OperationStatus.RUNNING
+        assert persisted_step.status is StepStatus.RUNNING
+        assert persisted_step.worker_id == "worker-1"
+        assert persisted_step.lease_token == "lease-1"
+        assert persisted_step.lease_expires_at == LATER_TIME + timedelta(seconds=30)
+
+
+def test_lifecycle_and_owner_share_commit_and_rollback_boundary(tmp_path: Path) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-action-0001"))
+    step = step_record_from_document(_step_document("op-action-0001", "step-action-0001"))
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        unit_of_work.connection.execute("CREATE TABLE synthetic_owner(value TEXT NOT NULL)")
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        assert actions.claim_one("worker-1", "lease-1") is not None
+        unit_of_work.connection.execute("INSERT INTO synthetic_owner VALUES (?)", ("committed",))
+
+    rollback_operation = operation_record_from_document(_operation_document("op-action-0002"))
+    rollback_step = step_record_from_document(
+        _step_document("op-action-0002", "step-action-0002")
+    )
+    with pytest.raises(RuntimeError, match="synthetic rollback"):
+        with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+            unit_of_work.operations.insert_operation_with_initial_step(
+                rollback_operation,
+                rollback_step,
+            )
+            actions = OperationLifecycleActions(
+                unit_of_work.operations,
+                transaction_now=unit_of_work.transaction_now,
+            )
+            assert actions.claim_one("worker-1", "lease-1") is not None
+            unit_of_work.connection.execute(
+                "INSERT INTO synthetic_owner VALUES (?)", ("rolled-back",)
+            )
+            raise RuntimeError("synthetic rollback")
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as unit_of_work:
+        assert unit_of_work.operations.get_operation(operation.operation_id).status is OperationStatus.RUNNING
+        with pytest.raises(RecordNotFound):
+            unit_of_work.operations.get_operation(rollback_operation.operation_id)
+        assert [
+            row[0]
+            for row in unit_of_work.connection.execute(
+                "SELECT value FROM synthetic_owner ORDER BY value"
+            ).fetchall()
+        ] == ["committed"]
+
+
+def test_successor_conflict_rolls_back_prior_step_completion(tmp_path: Path) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-action-0003"))
+    step = step_record_from_document(_step_document("op-action-0003", "step-action-0003"))
+    successor = step_record_from_document(
+        _step_document("op-action-0003", "step-successor-0003", step_name="successor")
+    )
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+
+    with pytest.raises(ConflictingDuplicate):
+        with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+            actions = OperationLifecycleActions(
+                unit_of_work.operations,
+                transaction_now=unit_of_work.transaction_now,
+            )
+            claimed = actions.claim_one("worker-1", "lease-1")
+            assert claimed is not None
+            _, claimed_step = claimed
+            terminal = dataclasses.replace(
+                claimed_step,
+                status=StepStatus.SUCCEEDED,
+                updated_at=LATER_TIME + timedelta(seconds=1),
+                completed_at=LATER_TIME + timedelta(seconds=1),
+                worker_id=None,
+                lease_token=None,
+                lease_expires_at=None,
+                optimistic_version=2,
+            )
+            conflicting_successor = dataclasses.replace(
+                successor,
+                step_id=step.step_id,
+                step_name="conflict",
+            )
+            actions.complete_with_successor(
+                terminal,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+                conflicting_successor,
+            )
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as unit_of_work:
+        assert unit_of_work.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        assert unit_of_work.operations.get_step(step.step_id).status is StepStatus.PENDING
 
 
 def test_uow_samples_transaction_clock_once(tmp_path: Path) -> None:

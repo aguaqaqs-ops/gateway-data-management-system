@@ -96,6 +96,11 @@ R1–R5 默认串行。R 内只有不共享未稳定 contract、不会改变 own
 
 目标：在同一 SQLite/WAL control DB 中提供 operation/step/outbox 所需的最小持久化能力。
 
+S0 accepted context、schema/transaction决策和逐step authority见
+[P4-R2-S0 Entry Brief](p4-r2-s0-entry-brief.md)与
+[P4-R2 Durable Store and Atomic Transition Detailed Execution Plan](p4-r2-durable-store-atomic-transition-execution-plan.md)。
+S0 design acceptance不授权S1a implementation。
+
 - S0：冻结表 owner、migration、事务边界和并发/锁预算。
 - S1：定义 schema、indexes、optimistic version、claim/lease CAS 和 transaction port。
 - S2：实现创建、claim、heartbeat、checkpoint、terminal publish、cancel request 和 readback。
@@ -190,4 +195,5 @@ P4 只有同时满足以下条件才可关闭：
 | global fan-out、cache、并发优化 | P7 |
 | formal end-to-end performance baseline | 首个 P5 production journey 后 |
 
-当前状态：设计基线已接受；本计划仍不授予 P4 implementation，必须先完成 R6 entry acceptance。
+当前状态：设计基线与R2-S0 design已接受；本计划仍不授予R2-S1a或P4其余implementation，
+每个step必须由前序handoff与单独授权推进。

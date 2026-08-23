@@ -5,9 +5,10 @@
 本文把 [整体架构总纲](../architecture/architecture-and-refactoring-plan.md) 转换为可执行的重构阶段。阶段编号表示主要依赖顺序，不表示必须完成整个水平层后才能继续；每一阶段只建设下一条业务纵切所需的最小能力，并保持可运行、可验证和可回退。
 
 当前状态：Phase 2 `phase_2_complete: yes`；P3-R1 至 P3-R7 module gates `pass`；
-[P3 Final Closure Handoff](p3-final-closure-handoff.md) 已完成；
-`p3_exit: pass`、`p4_ready: yes`；`p4_implementation_authorized: no_until_p4_entry_acceptance`。
-P4 设计对话从 [P4 Active Context Index](p4-active-context-index.md) 开始。
+[P3 Final Closure Handoff](p3-final-closure-handoff.md) 已完成；`p3_exit: pass`、
+`p4_ready: yes`；P4-R1 module gate `pass`；P4-R2-S0 design `accepted`，R2-S1a
+implementation仍待单独授权。P4默认上下文从
+[P4 Active Context Index](p4-active-context-index.md) 开始。
 P3 capability 模块边界与 sealed evidence 见各 module handoff 与
 [P3 Capability Foundation Design](p3-capability-foundation-design.md)。
 历史 P3 S-step/review/execution plan 过程记录已离开默认树；恢复见
@@ -483,7 +484,8 @@ Operation 与业务 execution/effect evidence 的分界以 [External Effect and 
 
 - 持久化 operation/step store 和 optimistic version。
 - 原子 claim、lease、heartbeat、timeout takeover。
-- 稳定 `operation_kind + step_name -> JobDefinition handler` 注册。
+- 稳定 `(job_kind, step_name) -> JobDefinition handler` 注册；不得重新引入
+  `operation_kind`。
 - Step output 只保存稳定 DTO、business ID、artifact ref、repository operation ID 和 checkpoint。
 - 大型 Comparison/Risk/Surface 结果必须通过 artifact/checkpoint 重载，不能依赖 Python 闭包。
 - 实现retry、cancel、supersede、final failure和owner定义的READY条件，不引入通用

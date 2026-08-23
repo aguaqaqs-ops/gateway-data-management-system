@@ -15,8 +15,9 @@ interface reconciliation也已由
 完成。P2-R1 v8 formal 已通过，默认 provider 为
 Candidate A offline CLI，Candidate B保留但默认禁用。
 2026-08-23：P2-R6-S11 `phase_2_complete: yes`；P3-R1 至 P3-R7 module gates `pass`；P3 final
-closure `p3_exit: pass`、`p4_ready: yes`；`p4_implementation_authorized: no_until_p4_entry_acceptance`。
-当前下一入口为 Phase 4 Durable Operation Runtime；默认检索见
+closure `p3_exit: pass`、`p4_ready: yes`；P4-R1 module gate `pass`；P4-R2-S0 design
+`accepted`，R2-S1a implementation仍待单独授权。当前下一入口为P4-R2-S1a authorization；
+默认检索见
 [P4 Active Context Index](../plans/p4-active-context-index.md) 与
 [P3 Final Closure Handoff](../plans/p3-final-closure-handoff.md)。
 不得把文档 HEAD 当作 `CANDIDATE_SHA`。
@@ -145,7 +146,8 @@ Rust data plane
 
 - `core` 已包含 digest、identifier、scalar encoding、row digest 和 diagnostics 等基础原语。
 - Snapshot、Comparison、Risk、Surface、Bundle 已形成相对清晰的 capability 轮廓。
-- `operations` 已有 operation/step 状态、lease、retry 和 SQLite store 的基础实现。
+- `operations` 已有R1冻结的Operation/Step record、状态、lease字段与纯transition/precondition
+  guards；durable SQLite store仍是R2待实现内容。
 - `workspaces`、`submissions`、`archive` 已开始承载真实业务状态和状态转换。
 - `repository_server` 已形成 repository ref、resolved commit、catalog、table reader/export、native diff、cache 和 registry 等读侧抽象。
 - 文档已明确 RepositoryServer 不应产出 Snapshot、Comparison 或业务状态。
@@ -282,7 +284,8 @@ checkpoint and diagnostics
 READY artifact closure
 ```
 
-JobDefinition 由 application 层注册，runtime 通过稳定的 `operation_kind + step_name` 找到 handler。不得依赖请求进程中动态创建的闭包才能继续执行。
+JobDefinition 由 application 层注册，runtime 通过稳定的 `(job_kind, step_name)` 找到handler；
+不得重新引入`operation_kind`，也不得依赖请求进程中动态创建的闭包才能继续执行。
 
 Step 间只传递可持久化数据：
 

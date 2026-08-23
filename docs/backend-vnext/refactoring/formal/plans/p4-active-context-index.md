@@ -1,6 +1,6 @@
 # P4 Active Context Index
 
-状态：P4-R2-S1b module gate pass；下一入口为 R2-S2a authorization
+状态：P4-R2-S2a module gate pass；下一入口为 R2-S2b authorization
 
 日期：2026-08-23
 
@@ -46,8 +46,10 @@ p4_r2_s1a: pass
 p4_r2_s1a_authorized: yes
 p4_r2_s1b: pass
 p4_r2_s1b_authorized: yes
-p4_r2_s2a: pending_authorization
-p4_r2_s2a_authorized: no
+p4_r2_s2a: pass
+p4_r2_s2a_authorized: yes
+p4_r2_s2b: pending_authorization
+p4_r2_s2b_authorized: no
 p4_r2_authorized: no
 p5_implementation_authorized: no
 p3_production_integration_authorized: no

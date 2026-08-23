@@ -1,21 +1,21 @@
 schema: gateway.docs-code-lifecycle-cleanup.manifest
 schema_version: 1
 stage: p3-p4-context-code-consolidation
-step: C4
+step: C5
 c1_status: complete
 c2_status: complete
 c3_status: complete
 c4_status: complete
-c5_status: not_applicable
+c5_status: complete
 c3_docs_deleted: 26
-generated_at: "2026-08-23T01:59:27Z"
+generated_at: "2026-08-23T05:22:00Z"
 public_semantics_changed: false
 archive_medium: git_annotated_tag_and_history
 retain_owner: Backend vNext Architecture
 identity:
   baseline_sha: 31409c8e0c37d8c12a323269ddeefebdb9927955
   c1_head_sha: this_c1_head
-  tested_candidate_sha: 13ce18b8b2d689bc7a4087e0072d485891740c0c
+  tested_candidate_sha: a495e075da3b6aba5c896d203c35df92cb763ab8
   c4_audited_candidate_sha: 80eb14e6dd38bcc99a0597e62b459686fb740a4c
   p3_exit: pass
   p4_ready: yes
@@ -32,6 +32,7 @@ artifacts:
   execution_plan: docs/backend-vnext/refactoring/temporary/p3-p4-context-and-code-consolidation-execution-plan.md
   p4_active_context_index: docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
   c4_consumer_audit: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c4-consumer-audit.md
+  c5_implementation: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c5-implementation.md
 c4:
   audited_candidate_sha: 80eb14e6dd38bcc99a0597e62b459686fb740a4c
   audited_paths: 13
@@ -41,6 +42,17 @@ c4:
   deferred_bundles: 4
   consumer_graphs_closed_for_remove_or_move: false
   c5_status: not_applicable
+c5:
+  candidate_sha: ec358e985732e65f83f2ad8e1686d951c0bce078
+  c5_exit: pass
+  c5_status: not_applicable
+  input_approved_bundles: 0
+  bundles_implemented: 0
+  bundles_deferred_unchanged: 4
+  bundles_kept_unchanged: 3
+  vnext_changes: none
+  container_rebuild: not_applicable
+  public_semantics_changed: false
 p4_default_reads:
   -
     path: docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md

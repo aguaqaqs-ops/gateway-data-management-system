@@ -1,6 +1,6 @@
 # P3→P4 Context and Code Consolidation Temporary Execution Plan
 
-状态：C4 complete；`approved_code_change_bundles: 0`、`c5_status: not_applicable`；C6/C7 pending；
+状态：C5 complete（not_applicable）；C6/C7 pending；
 Phase 3 已完成，`p3_exit: pass`、`p4_ready: yes`；本计划不授权 P4 implementation
 
 日期：2026-08-23
@@ -387,6 +387,10 @@ failure/recovery evidence value
 test/oracle、owner/recovery 检查；结论是 `approved_code_change_bundles: 0`，3 个 bundle
 `KEEP`、4 个 bundle `DEFER`，因此 C5 为 `not_applicable`。C4 的 `pass` 只表示审计和授权
 裁定完成，不表示批准删除，也不改变 P3/P2 authority。
+
+本轮 C5 记录：[C5 Implementation](p3-p4-context-code-consolidation-c5-implementation.md)。
+C4 零批准 bundle，C5 未修改 `vnext/**` 或任何 deferred/kept bundle；`c5_exit: pass`、
+`c5_status: not_applicable`、`bundles_implemented: 0`。
 
 ### Exit / stop
 

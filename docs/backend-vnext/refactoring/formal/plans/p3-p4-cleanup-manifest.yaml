@@ -15,7 +15,7 @@ retain_owner: Backend vNext Architecture
 identity:
   baseline_sha: 31409c8e0c37d8c12a323269ddeefebdb9927955
   c1_head_sha: this_c1_head
-  tested_candidate_sha: a495e075da3b6aba5c896d203c35df92cb763ab8
+  tested_candidate_sha: 2d56c62b1710e85eacb12d3c6eec309acdee35e9
   c4_audited_candidate_sha: 80eb14e6dd38bcc99a0597e62b459686fb740a4c
   p3_exit: pass
   p4_ready: yes
@@ -43,7 +43,8 @@ c4:
   consumer_graphs_closed_for_remove_or_move: false
   c5_status: not_applicable
 c5:
-  candidate_sha: ec358e985732e65f83f2ad8e1686d951c0bce078
+  candidate_sha: a495e075da3b6aba5c896d203c35df92cb763ab8
+  code_candidate_sha: 1a519a29530d7906227a66bbe731babf32bd412f
   c5_exit: pass
   c5_status: not_applicable
   input_approved_bundles: 0

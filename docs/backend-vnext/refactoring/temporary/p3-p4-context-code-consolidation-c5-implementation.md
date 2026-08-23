@@ -18,7 +18,7 @@ baseline_sha: 31409c8e0c37d8c12a323269ddeefebdb9927955
 pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
 c4_audited_candidate_sha: 80eb14e6dd38bcc99a0597e62b459686fb740a4c
 c4_record_sha: 1a519a29530d7906227a66bbe731babf32bd412f
-c5_seal_sha: a495e075da3b6aba5c896d203c35df92cb763ab8
+c5_seal_sha: 2d56c62b1710e85eacb12d3c6eec309acdee35e9
 candidate_sha: 1a519a29530d7906227a66bbe731babf32bd412f
 worktree_at_c5: clean
 input_approved_bundles: []

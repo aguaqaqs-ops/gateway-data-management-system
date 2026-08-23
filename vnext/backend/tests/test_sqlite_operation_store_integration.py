@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import dataclasses
-import sqlite3
+import os
+import selectors
+import signal
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 
 import pytest
 
@@ -16,14 +20,19 @@ from gateway_backend.infrastructure.control_db import (
     connect_control_db,
     initialize_control_db,
 )
+from gateway_backend.infrastructure.control_db import database as control_db_database
 from gateway_backend.infrastructure.control_db.migrations import bootstrap_control_schema
+from gateway_backend.infrastructure.control_db.sqlite_operations import SQLiteOperationStore
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     CorruptPersistedRecord,
     ConflictingDuplicate,
+    OperationDiagnostic,
     OperationStatus,
     RecordNotFound,
     StepStatus,
+    StaleWrite,
+    StoreBusy,
     TransitionDisposition,
     WritePrecondition,
     operation_record_from_document,
@@ -104,6 +113,10 @@ def test_file_backed_profile_and_schema_survive_reopen(tmp_path: Path) -> None:
 
     reopened = connect_control_db(db_path)
     try:
+        assert reopened.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert reopened.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert reopened.execute("PRAGMA synchronous").fetchone()[0] == 2
+        assert reopened.execute("PRAGMA busy_timeout").fetchone()[0] == 5_000
         assert reopened.execute(
             "SELECT version FROM control_schema_migrations WHERE component = 'operations'"
         ).fetchone()[0] == 1
@@ -112,6 +125,143 @@ def test_file_backed_profile_and_schema_survive_reopen(tmp_path: Path) -> None:
         ).fetchone()[0] == "step_records"
     finally:
         reopened.close()
+
+
+def test_file_backed_transaction_visibility_is_atomic_across_connections(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-wal-0001"))
+    step = step_record_from_document(_step_document("op-wal-0001", "step-wal-0001"))
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as writer:
+        assert (
+            writer.operations.insert_operation_with_initial_step(operation, step)
+            is TransitionDisposition.APPLY
+        )
+        with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+            with pytest.raises(RecordNotFound):
+                reader.operations.get_operation(operation.operation_id)
+            with pytest.raises(RecordNotFound):
+                reader.operations.get_step(step.step_id)
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        assert reader.operations.get_operation(operation.operation_id) == operation
+        assert reader.operations.get_step(step.step_id) == step
+
+    rollback_operation = operation_record_from_document(_operation_document("op-wal-0002"))
+    rollback_step = step_record_from_document(
+        _step_document("op-wal-0002", "step-wal-0002")
+    )
+    with pytest.raises(RuntimeError, match="synthetic rollback"):
+        with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as writer:
+            writer.operations.insert_operation_with_initial_step(
+                rollback_operation,
+                rollback_step,
+            )
+            raise RuntimeError("synthetic rollback")
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        with pytest.raises(RecordNotFound):
+            reader.operations.get_operation(rollback_operation.operation_id)
+        with pytest.raises(RecordNotFound):
+            reader.operations.get_step(rollback_step.step_id)
+
+
+def test_file_backed_stale_cas_preserves_the_newer_connection_result(tmp_path: Path) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-wal-cas-0001"))
+    step = step_record_from_document(_step_document("op-wal-cas-0001", "step-wal-cas-0001"))
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as writer:
+        writer.operations.insert_operation_with_initial_step(operation, step)
+
+    # Connection A reads version 0 before connection B advances the row.
+    connection_a = connect_control_db(db_path)
+    connection_a.execute("BEGIN")
+    store_a = SQLiteOperationStore(
+        connection_a,
+        transaction_now=LATER_TIME,
+        read_only=True,
+    )
+    stale_operation = store_a.get_operation(operation.operation_id)
+    connection_a.execute("COMMIT")
+    running_operation = dataclasses.replace(
+        stale_operation,
+        status=OperationStatus.RUNNING,
+        optimistic_version=1,
+        updated_at=LATER_TIME,
+    )
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as writer:
+        assert (
+            writer.operations.compare_and_set_operation(
+                running_operation,
+                WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+            )
+            is TransitionDisposition.APPLY
+        )
+
+    failed_operation = dataclasses.replace(
+        stale_operation,
+        status=OperationStatus.FAILED,
+        diagnostic=OperationDiagnostic(code="FAILED", message="stale candidate"),
+        completed_at=LATER_TIME,
+        updated_at=LATER_TIME,
+        optimistic_version=2,
+    )
+    try:
+        connection_a.execute("BEGIN IMMEDIATE")
+        store_a = SQLiteOperationStore(
+            connection_a,
+            transaction_now=LATER_TIME,
+        )
+        with pytest.raises(StaleWrite):
+            store_a.compare_and_set_operation(
+                failed_operation,
+                WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+            )
+    finally:
+        if connection_a.in_transaction:
+            connection_a.execute("ROLLBACK")
+        connection_a.close()
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        assert reader.operations.get_operation(operation.operation_id) == running_operation
+
+
+@pytest.mark.serial
+def test_file_backed_writer_contention_maps_to_store_busy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    monkeypatch.setattr(control_db_database, "BUSY_TIMEOUT_MS", 0)
+    holder = connect_control_db(db_path)
+    holder.execute("BEGIN IMMEDIATE")
+    started = Event()
+
+    def attempt_second_writer() -> bool:
+        started.set()
+        try:
+            with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME):
+                pass
+        except StoreBusy:
+            return True
+        return False
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(attempt_second_writer)
+    try:
+        assert started.wait(timeout=5)
+        assert future.result(timeout=5) is True
+    finally:
+        if holder.in_transaction:
+            holder.execute("ROLLBACK")
+        holder.close()
+        executor.shutdown(wait=True)
 
 
 def test_unit_of_work_commits_and_rolls_back_on_same_connection(tmp_path: Path) -> None:
@@ -155,15 +305,107 @@ def test_two_connections_can_bootstrap_the_same_file_once(tmp_path: Path) -> Non
             connection.close()
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        list(executor.map(lambda _item: bootstrap_from_independent_connection(), (1, 2)))
+        results = list(executor.map(lambda _item: bootstrap_from_independent_connection(), (1, 2)))
+    assert results == [None, None]
 
-    connection = sqlite3.connect(db_path)
+    connection = connect_control_db(db_path)
     try:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert connection.execute("PRAGMA synchronous").fetchone()[0] == 2
         assert connection.execute(
             "SELECT COUNT(*) FROM control_schema_migrations WHERE component = 'operations'"
         ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT version FROM control_schema_migrations WHERE component = 'operations'"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'index' AND name = 'step_records_one_active_per_operation'"
+        ).fetchone()[0] == "step_records_one_active_per_operation"
     finally:
         connection.close()
+
+
+@pytest.mark.serial
+def test_file_backed_process_termination_rolls_back_uncommitted_probe(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    with ControlDbUnitOfWork(db_path, now=lambda: MIGRATION_TIME) as unit_of_work:
+        unit_of_work.connection.execute(
+            "CREATE TABLE crash_probe(value TEXT NOT NULL UNIQUE)"
+        )
+
+    child_code = """
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path.cwd() / "src"))
+from gateway_backend.infrastructure.control_db import connect_control_db
+
+connection = connect_control_db(Path(sys.argv[1]))
+connection.execute("BEGIN IMMEDIATE")
+connection.execute("INSERT INTO crash_probe(value) VALUES (?)", ("child",))
+print("READY", flush=True)
+sys.stdin.buffer.read(1)
+"""
+    child = subprocess.Popen(
+        [sys.executable, "-c", child_code, str(db_path)],
+        cwd=Path(__file__).parents[1],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    selector = selectors.DefaultSelector()
+    assert child.stdout is not None
+    selector.register(child.stdout, selectors.EVENT_READ)
+    try:
+        assert selector.select(timeout=5)
+        assert child.stdout.readline().strip() == "READY"
+
+        with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+            assert reader.connection.execute(
+                "SELECT value FROM crash_probe ORDER BY value"
+            ).fetchall() == []
+
+        os.kill(child.pid, signal.SIGKILL)
+        assert child.wait(timeout=5) == -signal.SIGKILL
+    finally:
+        selector.close()
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=5)
+        if child.stdin is not None:
+            child.stdin.close()
+        if child.stdout is not None:
+            child.stdout.close()
+        if child.stderr is not None:
+            child.stderr.close()
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        assert reader.connection.execute(
+            "SELECT value FROM crash_probe ORDER BY value"
+        ).fetchall() == []
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as writer:
+        writer.connection.execute(
+            "INSERT INTO crash_probe(value) VALUES (?)", ("parent",)
+        )
+
+    reopened = connect_control_db(db_path)
+    try:
+        assert reopened.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert [
+            row[0]
+            for row in reopened.execute(
+                "SELECT value FROM crash_probe ORDER BY value"
+            ).fetchall()
+        ] == ["parent"]
+    finally:
+        reopened.close()
 
 
 def test_operation_store_commits_and_reads_back_after_reopen(tmp_path: Path) -> None:

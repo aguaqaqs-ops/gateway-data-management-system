@@ -1,7 +1,7 @@
 """Public contracts owned by the Storage Projection capability.
 
 Owner: Storage Projection capability
-Authority: docs/backend-vnext/refactoring/formal/plans/p3-r4-s0-entry-and-budget-freeze.md
+Authority: docs/backend-vnext/refactoring/formal/plans/p3-r4-storage-projection-handoff.md
 
 Field-level CanonicalizationManifest, RepositoryImportArtifactInput, and
 canonical publication ports are owned here. Downstream consumers may import

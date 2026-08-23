@@ -1,7 +1,7 @@
 """Public contracts owned by the Table Access capability.
 
 Owner: Table Access capability
-Authority: docs/backend-vnext/refactoring/formal/plans/p3-r2-s0-entry-and-budget-freeze.md
+Authority: docs/backend-vnext/refactoring/formal/plans/p3-r2-table-access-parser-handoff.md
 
 R3 materialization types, Repository DTO, cache/retention schema, and parser
 algorithms are outside this module. Downstream consumers may import this

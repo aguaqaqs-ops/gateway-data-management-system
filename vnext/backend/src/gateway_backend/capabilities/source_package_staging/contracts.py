@@ -1,7 +1,7 @@
 """Public contracts owned by the Source Package Staging capability.
 
 Owner: Source Package Staging capability
-Authority: docs/backend-vnext/refactoring/formal/plans/p3-r3-s0-entry-and-budget-freeze.md
+Authority: docs/backend-vnext/refactoring/formal/plans/p3-r3-source-materialization-handoff.md
 
 This module owns bounded package admission, path/archive refusal, and public
 document refs. SQL/XML interpretation and materialization types are outside this

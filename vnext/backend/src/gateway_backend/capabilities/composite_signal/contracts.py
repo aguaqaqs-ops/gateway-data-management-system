@@ -1,7 +1,7 @@
 """Public contracts owned by the Composite Signal capability.
 
 Owner: Composite Signal capability
-Authority: docs/backend-vnext/refactoring/formal/plans/p3-r3-s0-entry-and-budget-freeze.md
+Authority: docs/backend-vnext/refactoring/formal/plans/p3-r3-source-materialization-handoff.md
 
 S3 owns the EMPTY source identity marker, business AST, special-device
 catalog DTO, and composite_signal_point derived rows. Downstream consumers

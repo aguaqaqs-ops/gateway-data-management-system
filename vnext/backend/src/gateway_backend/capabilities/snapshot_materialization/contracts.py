@@ -1,7 +1,7 @@
 """Public contracts owned by the Snapshot Materialization capability.
 
 Owner: Snapshot Materialization capability
-Authority: docs/backend-vnext/refactoring/formal/plans/p3-r3-s0-entry-and-budget-freeze.md
+Authority: docs/backend-vnext/refactoring/formal/plans/p3-r3-source-materialization-handoff.md
 
 S2 owns SQL Snapshot field tables, result/status pairing, and the
 materialize_sql_snapshot entrypoint. S3 owns business composition with

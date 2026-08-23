@@ -1,7 +1,7 @@
 """Public contracts owned by the Table Rules capability.
 
 Owner: Table Rules capability
-Authority: docs/backend-vnext/refactoring/formal/plans/p3-r4-s0-entry-and-budget-freeze.md
+Authority: docs/backend-vnext/refactoring/formal/plans/p3-r4-storage-projection-handoff.md
 
 This module owns the immutable TableRulesetSnapshot injection surface used by
 source materialization and the R4 two-layer rule document. Projection and

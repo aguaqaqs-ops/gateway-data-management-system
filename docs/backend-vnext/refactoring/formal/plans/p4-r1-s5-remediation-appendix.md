@@ -1,6 +1,6 @@
 # P4/R1-S5 Remediation Appendix
 
-状态：**IN PROGRESS**
+状态：**PASS**
 
 日期：2026-08-23
 
@@ -12,7 +12,8 @@ Owner：Operation Runtime (`gateway_backend.operations`)
 step_id: P4-R1-S5
 input_handoff_sha: 520d6ca9190831b6549261c237593c200bd10e56
 input_reviewed_candidate_sha: 0159e15868c7f1510756126e1e6fd2df482659fe
-result: in_progress
+validated_code_sha: 1243b1cdf736a1c8f3b10446d33753fce9cb9d40
+result: pass
 scope_decision: close_findings_without_public_surface_expansion
 allowed_paths:
   - vnext/backend/src/gateway_backend/operations/contracts.py
@@ -25,8 +26,13 @@ forbidden_paths:
   - dependency and deployment files
   - SQLite, worker, HTTP, Repository and P5 implementation
 focused_rerun: backend R1 contract/state/architecture unit tests plus focused ruff/mypy
+focused_tests: "381 passed"
+five_package_static: pass
 container_gate: not_applicable_r1_no_runtime_boundary_change
 benchmark: not_applicable_contract_state_only
+findings: []
+next_step: P4-R1-S6
+next_step_authorized: yes
 ```
 
 ## Finding remediation matrix
@@ -52,3 +58,7 @@ external-effect authorization mechanism, or crosses the R1 dependency/deployment
 
 S6 remains required after S5 because the findings cover persisted validation, lifecycle mutation
 rules and the stale-write seam consumed by R2. R1-S7 and R2 remain unauthorized until S6 closes.
+
+The remediation candidate `1243b1cdf736a1c8f3b10446d33753fce9cb9d40` passed the focused unit gate
+with 381 tests, backend operations ruff/mypy, all four other package ruff/mypy gates, and
+`git diff --check`. No persisted key, status matrix, public symbol or deployment boundary changed.

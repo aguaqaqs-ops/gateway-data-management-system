@@ -1,6 +1,6 @@
 # P4/R1-S4 Focused Owner Review
 
-状态：**REWORK REQUIRED**
+状态：**PASS AFTER S5 REMEDIATION**
 
 日期：2026-08-23
 
@@ -14,7 +14,11 @@ input_handoff_sha: 0159e15868c7f1510756126e1e6fd2df482659fe
 reviewed_candidate_sha: 0159e15868c7f1510756126e1e6fd2df482659fe
 validated_code_sha: 23c62a80ba22b990231e90d66e13e710e19bce34
 candidate_worktree_at_entry: clean
-result: rework_required
+result: pass_after_s5
+s5_validated_code_sha: 1243b1cdf736a1c8f3b10446d33753fce9cb9d40
+s5_result: pass
+open_findings: []
+finding_disposition: all_closed_in_s5
 changed_paths:
   - docs/backend-vnext/refactoring/formal/plans/p4-r1-s4-focused-review.md
 commands_and_results:
@@ -24,17 +28,18 @@ commands_and_results:
   - "other four Python packages: uv run ruff check . && uv run mypy -> pass"
   - "targeted constructor/parser/state/precondition probes -> reproduced F1-F5"
   - "git diff --name-status a2da77f..0159e15; git diff --check -> allowed R1 paths only; pass"
-focused_tests: pass_but_incomplete_against_findings
+focused_tests: pass_after_s5
 five_package_static: pass
 container_gate: not_applicable_r1_no_image_or_deployment_boundary_change
 benchmark: not_applicable_contract_state_only
-findings:
+findings: []
+historical_findings:
   - P4-R1-S4-F1: P2 trusted-constructor validation bypass
   - P4-R1-S4-F2: P2 inline JSON aggregate budget mismatch
   - P4-R1-S4-F3: P2 same-status mutation-scope guard gap
   - P4-R1-S4-F4: P2 first-started-at mutation accepted
   - P4-R1-S4-F5: P3 guard scalar type strictness
-s5: required
+s5: pass
 s6: required_after_s5
 deferred_items:
   - SQLite/WAL atomic CAS remains R2-owned and is not implemented in R1.
@@ -42,20 +47,21 @@ deferred_items:
 reopen_conditions:
   - F3 requires a new public guard or changes an accepted public signature instead of closing through the existing R1 surface.
   - Remediation changes persisted keys, status matrices, MANUAL attention semantics, or external-effect ownership.
-next_step: P4-R1-S5
+next_step: P4-R1-S6
 next_step_authorized: yes
 ```
 
 ## 1. Review disposition
 
-The candidate preserves the intended package, owner and dependency boundaries, and its current
-focused/static gates pass. It does not yet pass the owner review because four P2 findings admit
-states or mutations outside the accepted R1 contract. The passing focused suite is therefore
-regression evidence for the implemented paths, not closure evidence for S4.
+The pre-remediation candidate preserved the intended package, owner and dependency boundaries, and
+its current focused/static gates passed. It did not pass the owner review because the five findings
+listed below admitted states or mutations outside the accepted R1 contract. The original focused
+suite was therefore regression evidence for the implemented paths, not closure evidence for S4.
 
-S5 is required and must begin with the remediation appendix required by the execution plan. S6 is
-also required after S5 because the findings touch persisted schema validation, lifecycle mutation
-rules and the stale-write seam used by R2. S4 does not authorize production or test remediation.
+At the time of this original review, S5 was required and had to begin with the remediation appendix
+required by the execution plan. S5 has now closed the findings. S6 remains required because the
+findings touched persisted schema validation, lifecycle mutation rules and the stale-write seam
+used by R2. S4 did not itself authorize production or test remediation.
 
 ## 2. Findings
 
@@ -186,9 +192,28 @@ external process, queue or storage implementation.
 
 ## 6. S5/S6 and next-step authorization
 
-- `S5: required`. Its first change must be a finding-scoped remediation appendix naming owner,
-  allowed paths, regression tests, focused rerun and exit for F1-F5.
+- `S5: pass`. Its first change was the finding-scoped remediation appendix naming owner, allowed
+  paths, regression tests, focused rerun and exit for F1-F5.
 - `S6: required_after_s5`. F1/F2 affect persisted schema validation and F3/F4 affect lifecycle and
   stale-write semantics, which directly meet the plan's independent-review trigger.
-- The only authorized next step is `P4-R1-S5`. R1-S7 and R2 entry remain unauthorized until S5 and
-  S6 dispositions are closed and S4 is updated to pass.
+- The only authorized next step is `P4-R1-S6`. R1-S7 and R2 entry remain unauthorized until S6
+  disposition is closed.
+
+## 7. S5 remediation disposition
+
+S5 was executed from this review on clean candidate `520d6ca9190831b6549261c237593c200bd10e56`.
+The first change was the finding-scoped [S5 remediation appendix](p4-r1-s5-remediation-appendix.md).
+The validated remediation candidate is `1243b1cdf736a1c8f3b10446d33753fce9cb9d40`.
+
+| Finding | S5 disposition | Evidence |
+| --- | --- | --- |
+| F1 | closed | Direct constructors now enforce exact runtime version, canonical payload bytes, tuple ownership, strict timestamp/type checks and `ValueError`; shared constructor fault cases pass. |
+| F2 | closed | JSON aggregate validation counts object members and list elements; 4096 aggregate cases pass and 4097 cases fail through parser and direct construction. |
+| F3 | closed | Existing transition guards now validate non-final same-status mutation scope; heartbeat/checkpoint/cancel cases and immutable/reset/MANUAL rejection cases pass without public-surface expansion. |
+| F4 | closed | `started_at` is established only on the initial claim and is immutable across retry and authorized recovery. |
+| F5 | closed | `WritePrecondition` and public guards reject bool/non-integer versions and non-bool recovery authorization with `ValueError`. |
+
+S5 focused tests passed (`381 passed`); backend focused ruff/mypy, all five-package static gates and
+`git diff --check` passed. The original findings above remain as the S4 evidence record; they are
+closed here, with no open P1/P2 finding. S6 remains required independently, and its only authorized
+next step is `P4-R1-S6`.

@@ -43,6 +43,12 @@ P4 需要 durable lifecycle/operation state 和 takeover；P5 需要 readiness�
 container wiring。用户可以得到明确的 `REUPLOAD_REQUIRED`、`FULL_RESYNC_REQUIRED` 或
 `OPERATOR_REVIEW_REQUIRED` 提示，运维也能持续发现未解决 repository 问题。
 
+P4-R3 具体拥有 operation-worker 进程内的 signal handling、worker-local
+readiness/lifecycle 和 drain 机制；P5 拥有 deployment/container signal 接线、backend
+HTTP readiness/admission 与全局 quiescence 汇总。R3 的 `READY_TO_CLAIM` 或
+worker-local `QUIESCED` 不证明全局活动为零。这是 owner-reference clarification，
+不改变本 ADR 的 `180s`、`DRAINING_TIMEOUT` 或不自动强杀决策。
+
 ## Required Verification
 
 - drain、quiescence、180s timeout、restart takeover 和 readiness；

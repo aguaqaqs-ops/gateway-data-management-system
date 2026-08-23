@@ -89,6 +89,13 @@ Phase 3 只定义 cancellation/checkpoint/error boundary；durable operation、d
 signal handling 和 container wiring 属于 Phase 4/5。不得为了该 contract 新增 broker、
 sidecar 或独立 evidence 服务。
 
+P4-R3 拥有 operation-worker 进程内的 signal installation、worker-local lifecycle、
+`READY_TO_CLAIM` 和 drain/checkpoint handoff 机制。这些进程内事实不等于本
+Contract 的全局 `SERVING` / `DRAINING` / `QUIESCED`。P5 拥有 deployment/container
+signal 接线、backend HTTP readiness/admission，以及对 Preview、Submit/finalize、
+Repository effect 和 external sync 的全局 quiescence 汇总。该 owner 拆分不改变
+`180s` timeout、`DRAINING_TIMEOUT` 或管理员显式强制终止语义。
+
 ## 6. Phase 4 operation runtime contract snapshot
 
 自 P4-R1-S1b 起，durable Operation/Step persisted semantics 由

@@ -524,6 +524,13 @@ def _assert_operations_import_allowed(source: Path, imported: str) -> None:
         )
     for part in imported.split("."):
         assert part != "_internal", f"{source} imports {imported}"
+    if imported == "gateway_backend.artifacts" or imported.startswith("gateway_backend.artifacts."):
+        return
+    if imported == "gateway_shared_kernel" or imported.startswith("gateway_shared_kernel."):
+        assert not imported.startswith("gateway_shared_kernel.testing"), (
+            f"{source} imports forbidden module {imported}"
+        )
+        return
     if imported.startswith("gateway_backend."):
         assert imported.startswith("gateway_backend.operations"), (
             f"{source} imports disallowed backend module {imported}"

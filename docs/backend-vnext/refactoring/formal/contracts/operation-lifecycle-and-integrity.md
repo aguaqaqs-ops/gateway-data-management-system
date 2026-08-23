@@ -88,3 +88,56 @@ HEALTHY | DEGRADED | REUPLOAD_REQUIRED | FULL_RESYNC_REQUIRED | BLOCKED
 Phase 3 只定义 cancellation/checkpoint/error boundary；durable operation、drain、takeover、
 signal handling 和 container wiring 属于 Phase 4/5。不得为了该 contract 新增 broker、
 sidecar 或独立 evidence 服务。
+
+## 6. Phase 4 operation runtime contract snapshot
+
+自 P4-R1-S1b 起，durable Operation/Step persisted semantics 由
+`gateway_backend.operations` 实现，并由本 section 与
+[P4-R1 Runtime Contract and State Detailed Execution Plan](../plans/p4-r1-runtime-contract-state-execution-plan.md)
+的 step/handoff 编排共同约束。实现不得与本文冲突；冲突必须 reopen owning contract。
+
+### 6.1 Package and publication
+
+- 唯一物理 package：`gateway_backend.operations`；registry identity 使用
+  `(job_kind, step_name)`；禁止 `operation_kind` 字段、alias 或兼容 shim。
+- Public surface 分阶段发布：S1a 导出 contract version、status enums、`JobStepKey`；
+  S1b 增加 `BusinessReference`、`OperationRecord`、`StepRecord`、`OperationDiagnostic` 与
+  `operation_record_from_document` / `step_record_from_document`；S2b 增加
+  `WritePrecondition`、`TransitionDisposition` 与 transition/write guards。
+- Runtime contract version：`backend-vnext/operation-runtime/v1`；与 job payload contract
+  version 分开版本化。Operations 不重新导出 `ArtifactRef`。
+
+### 6.2 Closed persisted documents
+
+Operation 与 Step persisted document 均为 closed object；`to_document()` 发出全部 keys
+（不适用值为 `null`）；parser 要求 exact key set 并拒绝 unknown field/version/type。
+
+- `document_type` 分别为 `operation` / `step`，作为 serializer/parser discriminator，不作为
+  record field。
+- `business_refs` item 为 `{"kind","value"}`；`diagnostic` 为 `{"code","message"}`；
+  artifact/checkpoint/ref item 复用 artifact owner 的 `ArtifactRef` document shape。
+- `job_payload` 与 `job_payload_ref` 恰有一个非 null；inline payload root 必须是 JSON object，
+  空 payload 使用 `{}`；record 内 inline payload 保存 canonical JCS `bytes`。
+- Timestamp 仅接受 canonical UTC `YYYY-MM-DDTHH:MM:SS[.ffffff]Z`；tuple 输出保持 semantic
+  order；要求 identity 唯一的 artifact refs 拒绝重复。
+
+### 6.3 Status semantics
+
+- Operation：`QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED`, `SUPERSEDED`,
+  `MANUAL_RECOVERY_REQUIRED`。
+- Step：`PENDING`, `RUNNING`, `RETRY_WAIT`, `SUCCEEDED`, `FAILED`, `CANCELLED`,
+  `MANUAL_RECOVERY_REQUIRED`。
+- `SUCCEEDED | FAILED | CANCELLED | SUPERSEDED` 为 final terminal。
+  `MANUAL_RECOVERY_REQUIRED` 为 attention state：不可自动 claim，不释放业务占用；仅
+  authorized recovery 可产生允许的 `RUNNING` 或终局。
+- 结构状态矩阵、lease identity、diagnostic/completion/timestamp 交叉字段规则与 stale-write
+  precondition 由 `gateway_backend.operations` 在 R1-S2a/S2b 证明；R2 负责数据库原子 CAS，
+  不得把先读后验当作持久化实现。
+
+### 6.4 Bounded validation
+
+保守默认预算包括：opaque ID 1..255 UTF-8 bytes；`job_kind` / `step_name` 1..128 ASCII；
+inline payload 最大 64 KiB；JSON depth 32、aggregate 4096、key 128 UTF-8 bytes、string 16 KiB；
+business/artifact refs 每 tuple 最多 64、单 record 内 ArtifactRef 合计最多 64；optimistic
+version / attempt count 为非负 I-JSON safe integer。Runtime 只验证 JSON/I-JSON shape 与资源
+预算，不解释 job payload 业务字段。

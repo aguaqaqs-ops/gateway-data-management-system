@@ -6,8 +6,10 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
+from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.artifacts import ArtifactRef
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationDiagnostic,
@@ -21,6 +23,10 @@ from gateway_backend.operations import (
     validate_step_transition,
     validate_write_precondition,
 )
+from gateway_backend.operations.state import (
+    _OPERATION_ALLOWED_TRANSITIONS,
+    _STEP_ALLOWED_TRANSITIONS,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -29,6 +35,62 @@ TS1 = datetime(2024, 1, 2, 3, 5, 0, tzinfo=UTC)
 TS2 = datetime(2024, 1, 2, 3, 6, 0, tzinfo=UTC)
 TS_LEASE = datetime(2024, 1, 2, 3, 10, 0, tzinfo=UTC)
 DIAGNOSTIC = OperationDiagnostic(code="FAILED", message="owner reason")
+
+EXPECTED_OPERATION_ALLOWED_TRANSITIONS = {
+    OperationStatus.QUEUED: frozenset(
+        {
+            OperationStatus.RUNNING,
+            OperationStatus.CANCELLED,
+            OperationStatus.SUPERSEDED,
+        }
+    ),
+    OperationStatus.RUNNING: frozenset(
+        {
+            OperationStatus.SUCCEEDED,
+            OperationStatus.FAILED,
+            OperationStatus.CANCELLED,
+            OperationStatus.SUPERSEDED,
+            OperationStatus.MANUAL_RECOVERY_REQUIRED,
+        }
+    ),
+    OperationStatus.MANUAL_RECOVERY_REQUIRED: frozenset(
+        {
+            OperationStatus.RUNNING,
+            OperationStatus.SUCCEEDED,
+            OperationStatus.FAILED,
+        }
+    ),
+}
+
+EXPECTED_STEP_ALLOWED_TRANSITIONS = {
+    StepStatus.PENDING: frozenset({StepStatus.RUNNING, StepStatus.CANCELLED}),
+    StepStatus.RUNNING: frozenset(
+        {
+            StepStatus.RETRY_WAIT,
+            StepStatus.SUCCEEDED,
+            StepStatus.FAILED,
+            StepStatus.CANCELLED,
+            StepStatus.MANUAL_RECOVERY_REQUIRED,
+        }
+    ),
+    StepStatus.RETRY_WAIT: frozenset({StepStatus.RUNNING, StepStatus.CANCELLED}),
+    StepStatus.MANUAL_RECOVERY_REQUIRED: frozenset(
+        {
+            StepStatus.RUNNING,
+            StepStatus.SUCCEEDED,
+            StepStatus.FAILED,
+        }
+    ),
+}
+
+
+def _artifact_ref(artifact_id: str) -> ArtifactRef:
+    return ArtifactRef(
+        artifact_id=artifact_id,
+        media_type="application/octet-stream",
+        size_bytes=3,
+        raw_sha256=DigestRef("sha256:" + "a" * 64),
+    )
 
 
 def _operation_record(**changes: object) -> OperationRecord:
@@ -82,99 +144,402 @@ def _step_record(**changes: object) -> StepRecord:
     return StepRecord(**defaults)  # type: ignore[arg-type]
 
 
-def _running_step(*, version: int = 1) -> StepRecord:
-    return _step_record(
-        status=StepStatus.RUNNING,
-        attempt_count=1,
-        started_at=TS0,
-        worker_id="worker-1",
-        lease_token="lease-1",
-        lease_expires_at=TS_LEASE,
-        updated_at=TS1,
-        optimistic_version=version,
-    )
+def _operation_for_status(
+    status: OperationStatus,
+    *,
+    version: int,
+    updated_at: datetime,
+) -> OperationRecord:
+    changes: dict[str, object] = {
+        "status": status,
+        "optimistic_version": version,
+        "updated_at": updated_at,
+        "completed_at": None,
+        "diagnostic": None,
+    }
+    if status.is_final_terminal():
+        changes["completed_at"] = updated_at
+    if status in {OperationStatus.FAILED, OperationStatus.MANUAL_RECOVERY_REQUIRED}:
+        changes["diagnostic"] = DIAGNOSTIC
+    return _operation_record(**changes)
 
 
-def _retry_wait_step(*, version: int = 2) -> StepRecord:
-    return _step_record(
-        status=StepStatus.RETRY_WAIT,
-        attempt_count=1,
-        started_at=TS0,
-        diagnostic=DIAGNOSTIC,
-        retry_not_before=TS1,
-        updated_at=TS1,
-        optimistic_version=version,
-    )
+def _step_for_status(
+    status: StepStatus,
+    *,
+    version: int,
+    updated_at: datetime,
+) -> StepRecord:
+    changes: dict[str, object] = {
+        "status": status,
+        "optimistic_version": version,
+        "updated_at": updated_at,
+        "attempt_count": 0,
+        "started_at": None,
+        "completed_at": None,
+        "diagnostic": None,
+        "retry_not_before": None,
+        "worker_id": None,
+        "lease_token": None,
+        "lease_expires_at": None,
+    }
+    if status is StepStatus.RUNNING:
+        changes.update(
+            {
+                "attempt_count": 1,
+                "started_at": TS0,
+                "worker_id": "worker-1",
+                "lease_token": "lease-1",
+                "lease_expires_at": TS_LEASE,
+            }
+        )
+    elif status is StepStatus.RETRY_WAIT:
+        changes.update(
+            {
+                "attempt_count": 1,
+                "started_at": TS0,
+                "diagnostic": DIAGNOSTIC,
+                "retry_not_before": updated_at,
+            }
+        )
+    elif status is StepStatus.MANUAL_RECOVERY_REQUIRED:
+        changes.update(
+            {
+                "attempt_count": 1,
+                "started_at": TS0,
+                "diagnostic": DIAGNOSTIC,
+            }
+        )
+    elif status.is_final_terminal():
+        changes["completed_at"] = updated_at
+        if status is StepStatus.FAILED:
+            changes.update(
+                {
+                    "attempt_count": 1,
+                    "started_at": TS0,
+                    "diagnostic": DIAGNOSTIC,
+                }
+            )
+        elif status is StepStatus.SUCCEEDED:
+            changes.update({"attempt_count": 1, "started_at": TS0})
+        elif status is StepStatus.CANCELLED and version > 0:
+            changes.update({"attempt_count": 1, "started_at": TS0})
+    return _step_record(**changes)
 
 
-def _manual_operation(*, version: int = 2) -> OperationRecord:
-    return _operation_record(
-        status=OperationStatus.MANUAL_RECOVERY_REQUIRED,
-        diagnostic=DIAGNOSTIC,
-        updated_at=TS1,
-        optimistic_version=version,
-    )
+def _operation_candidate(
+    current: OperationRecord,
+    target: OperationStatus,
+    **changes: object,
+) -> OperationRecord:
+    next_version = current.optimistic_version + 1
+    next_updated = TS1 if next_version == 1 else TS2
+    payload: dict[str, object] = {
+        "status": target,
+        "optimistic_version": next_version,
+        "updated_at": next_updated,
+        "cancel_requested": current.cancel_requested,
+        "completed_at": None,
+        "diagnostic": None,
+    }
+    if target.is_final_terminal():
+        payload["completed_at"] = next_updated
+    if target in {OperationStatus.FAILED, OperationStatus.MANUAL_RECOVERY_REQUIRED}:
+        payload["diagnostic"] = DIAGNOSTIC
+    payload.update(changes)
+    return _operation_record(**payload)
 
 
-def _manual_step(*, version: int = 3) -> StepRecord:
-    return _step_record(
-        status=StepStatus.MANUAL_RECOVERY_REQUIRED,
-        attempt_count=1,
-        started_at=TS0,
-        diagnostic=DIAGNOSTIC,
-        updated_at=TS2,
-        optimistic_version=version,
-    )
+def _step_candidate(
+    current: StepRecord,
+    target: StepStatus,
+    **changes: object,
+) -> StepRecord:
+    next_version = current.optimistic_version + 1
+    next_updated = TS2
+    payload: dict[str, object] = {
+        "status": target,
+        "optimistic_version": next_version,
+        "updated_at": next_updated,
+        "cancel_requested": current.cancel_requested,
+        "attempt_count": current.attempt_count,
+        "started_at": current.started_at,
+        "completed_at": None,
+        "diagnostic": None,
+        "retry_not_before": None,
+        "worker_id": None,
+        "lease_token": None,
+        "lease_expires_at": None,
+    }
+    if target is StepStatus.PENDING:
+        payload.update(
+            {
+                "attempt_count": 0,
+                "started_at": None,
+                "completed_at": None,
+                "diagnostic": None,
+                "retry_not_before": None,
+                "worker_id": None,
+                "lease_token": None,
+                "lease_expires_at": None,
+            }
+        )
+    elif target is StepStatus.RUNNING:
+        if current.status in {StepStatus.PENDING, StepStatus.RETRY_WAIT}:
+            payload["attempt_count"] = current.attempt_count + 1
+        payload["started_at"] = current.started_at or TS0
+        payload["worker_id"] = changes.pop("worker_id", f"worker-{next_version}")
+        payload["lease_token"] = changes.pop("lease_token", f"lease-{next_version}")
+        payload["lease_expires_at"] = changes.pop("lease_expires_at", TS_LEASE)
+    elif target is StepStatus.RETRY_WAIT:
+        payload.update(
+            {
+                "attempt_count": max(current.attempt_count, 1),
+                "started_at": current.started_at or TS0,
+                "diagnostic": DIAGNOSTIC,
+                "retry_not_before": next_updated,
+            }
+        )
+    elif target is StepStatus.MANUAL_RECOVERY_REQUIRED:
+        payload.update(
+            {
+                "attempt_count": max(current.attempt_count, 1),
+                "started_at": current.started_at or TS0,
+                "diagnostic": DIAGNOSTIC,
+            }
+        )
+    elif target.is_final_terminal():
+        payload["completed_at"] = next_updated
+        if target is StepStatus.FAILED:
+            payload.update(
+                {
+                    "attempt_count": max(current.attempt_count, 1),
+                    "started_at": current.started_at or TS0,
+                    "diagnostic": DIAGNOSTIC,
+                }
+            )
+        elif target is StepStatus.SUCCEEDED:
+            payload.update(
+                {
+                    "attempt_count": max(current.attempt_count, 1),
+                    "started_at": current.started_at or TS0,
+                }
+            )
+        elif target is StepStatus.CANCELLED:
+            if current.status is StepStatus.PENDING:
+                payload.update({"attempt_count": 0, "started_at": None})
+            else:
+                payload.update(
+                    {
+                        "attempt_count": max(current.attempt_count, 1),
+                        "started_at": current.started_at or TS0,
+                    }
+                )
+    payload.update(changes)
+    return _step_record(**payload)
 
 
-def _terminal_operation(status: OperationStatus, *, version: int = 3) -> OperationRecord:
-    return _operation_record(
-        status=status,
-        diagnostic=DIAGNOSTIC if status is OperationStatus.FAILED else None,
-        completed_at=TS2,
-        updated_at=TS2,
-        optimistic_version=version,
-    )
+def _operation_current_for_status(status: OperationStatus) -> OperationRecord:
+    if status is OperationStatus.QUEUED:
+        return _operation_for_status(status, version=0, updated_at=TS0)
+    if status is OperationStatus.RUNNING:
+        return _operation_for_status(status, version=1, updated_at=TS1)
+    if status is OperationStatus.MANUAL_RECOVERY_REQUIRED:
+        return _operation_for_status(status, version=2, updated_at=TS1)
+    return _operation_for_status(status, version=3, updated_at=TS2)
 
 
-OPERATION_ALLOWED_TRANSITION_CASES: tuple[tuple[str, OperationRecord, OperationRecord], ...] = (
+def _step_current_for_status(status: StepStatus) -> StepRecord:
+    if status is StepStatus.PENDING:
+        return _step_for_status(status, version=0, updated_at=TS0)
+    if status is StepStatus.RUNNING:
+        return _step_for_status(status, version=1, updated_at=TS1)
+    if status is StepStatus.RETRY_WAIT:
+        return _step_for_status(status, version=2, updated_at=TS1)
+    if status is StepStatus.MANUAL_RECOVERY_REQUIRED:
+        return _step_for_status(status, version=3, updated_at=TS2)
+    return _step_for_status(status, version=3, updated_at=TS2)
+
+
+def _build_operation_allowed_cases() -> tuple[tuple[str, OperationRecord, OperationRecord], ...]:
+    cases: list[tuple[str, OperationRecord, OperationRecord]] = []
+    for from_status, targets in EXPECTED_OPERATION_ALLOWED_TRANSITIONS.items():
+        current = _operation_current_for_status(from_status)
+        for target in sorted(targets, key=lambda item: item.value):
+            name = f"{from_status.value}-to-{target.value}"
+            candidate = _operation_candidate(current, target)
+            cases.append((name, current, candidate))
+    return tuple(cases)
+
+
+def _build_step_allowed_cases() -> tuple[tuple[str, StepRecord, StepRecord], ...]:
+    cases: list[tuple[str, StepRecord, StepRecord]] = []
+    for from_status, targets in EXPECTED_STEP_ALLOWED_TRANSITIONS.items():
+        current = _step_current_for_status(from_status)
+        for target in sorted(targets, key=lambda item: item.value):
+            name = f"{from_status.value}-to-{target.value}"
+            candidate = _step_candidate(current, target)
+            cases.append((name, current, candidate))
+    return tuple(cases)
+
+
+def _build_operation_denied_cases() -> tuple[tuple[str, OperationRecord, OperationRecord, str], ...]:
+    cases: list[tuple[str, OperationRecord, OperationRecord, str]] = []
+    for from_status in OperationStatus:
+        if from_status.is_final_terminal():
+            current = _operation_current_for_status(from_status)
+            for target in OperationStatus:
+                if target == from_status:
+                    continue
+                candidate = _operation_candidate(current, target)
+                name = f"{from_status.value}-to-{target.value}"
+                cases.append(
+                    (name, current, candidate, "operation status transition is not allowed")
+                )
+            continue
+        allowed = EXPECTED_OPERATION_ALLOWED_TRANSITIONS.get(from_status, frozenset())
+        current = _operation_current_for_status(from_status)
+        for target in OperationStatus:
+            if target == from_status or target in allowed:
+                continue
+            candidate = _operation_candidate(current, target)
+            name = f"{from_status.value}-to-{target.value}"
+            cases.append(
+                (name, current, candidate, "operation status transition is not allowed")
+            )
+    return tuple(cases)
+
+
+def _build_step_denied_cases() -> tuple[tuple[str, StepRecord, StepRecord, str], ...]:
+    cases: list[tuple[str, StepRecord, StepRecord, str]] = []
+    for from_status in StepStatus:
+        if from_status.is_final_terminal():
+            current = _step_current_for_status(from_status)
+            for target in StepStatus:
+                if target == from_status:
+                    continue
+                candidate = _step_candidate(current, target)
+                name = f"{from_status.value}-to-{target.value}"
+                cases.append((name, current, candidate, "step status transition is not allowed"))
+            continue
+        allowed = EXPECTED_STEP_ALLOWED_TRANSITIONS.get(from_status, frozenset())
+        current = _step_current_for_status(from_status)
+        for target in StepStatus:
+            if target == from_status or target in allowed:
+                continue
+            candidate = _step_candidate(current, target)
+            name = f"{from_status.value}-to-{target.value}"
+            cases.append((name, current, candidate, "step status transition is not allowed"))
+    return tuple(cases)
+
+
+OPERATION_ALLOWED_TRANSITION_CASES = _build_operation_allowed_cases()
+STEP_ALLOWED_TRANSITION_CASES = _build_step_allowed_cases()
+OPERATION_DENIED_TRANSITION_CASES = _build_operation_denied_cases()
+STEP_DENIED_TRANSITION_CASES = _build_step_denied_cases()
+
+MANUAL_OPERATION_RECOVERY_DENIED_CASES: tuple[
+    tuple[str, OperationStatus, str],
+    ...,
+] = (
+    ("manual-to-running", OperationStatus.RUNNING, "recovery authorization is required"),
+    ("manual-to-succeeded", OperationStatus.SUCCEEDED, "recovery authorization is required"),
+    ("manual-to-failed", OperationStatus.FAILED, "recovery authorization is required"),
+)
+
+MANUAL_STEP_RECOVERY_DENIED_CASES: tuple[tuple[str, StepStatus, str], ...] = (
+    ("manual-to-running", StepStatus.RUNNING, "recovery authorization is required"),
+    ("manual-to-succeeded", StepStatus.SUCCEEDED, "recovery authorization is required"),
+    ("manual-to-failed", StepStatus.FAILED, "recovery authorization is required"),
+)
+
+OPERATION_MUTATION_DENIED_CASES: tuple[tuple[str, OperationRecord, OperationRecord, str], ...] = (
     (
-        "queued-to-running",
-        _operation_record(),
-        _operation_record(status=OperationStatus.RUNNING, updated_at=TS1, optimistic_version=1),
+        "repository-operation-id-rewrite",
+        _operation_record(repository_operation_id="repo-op-1", updated_at=TS1, optimistic_version=1),
+        _operation_record(
+            repository_operation_id="repo-op-2",
+            updated_at=TS2,
+            optimistic_version=2,
+            status=OperationStatus.RUNNING,
+        ),
+        "repository_operation_id can only be set once",
     ),
     (
-        "queued-to-cancelled",
-        _operation_record(),
+        "ready-closure-ref-rewrite",
         _operation_record(
-            status=OperationStatus.CANCELLED,
-            completed_at=TS1,
+            ready_closure_ref=_artifact_ref("artifact-closure-1"),
             updated_at=TS1,
             optimistic_version=1,
         ),
+        _operation_record(
+            ready_closure_ref=_artifact_ref("artifact-closure-2"),
+            updated_at=TS2,
+            optimistic_version=2,
+            status=OperationStatus.RUNNING,
+        ),
+        "ready_closure_ref can only be set once",
     ),
     (
-        "running-to-succeeded",
-        _operation_record(status=OperationStatus.RUNNING, updated_at=TS1, optimistic_version=1),
+        "artifact-refs-not-append",
+        _operation_record(
+            artifact_refs=(_artifact_ref("artifact-a"),),
+            updated_at=TS1,
+            optimistic_version=1,
+        ),
+        _operation_record(
+            artifact_refs=(_artifact_ref("artifact-b"),),
+            updated_at=TS2,
+            optimistic_version=2,
+            status=OperationStatus.RUNNING,
+        ),
+        "artifact_refs can only append unique refs",
+    ),
+    (
+        "updated-at-regression",
+        _operation_record(
+            status=OperationStatus.RUNNING,
+            updated_at=TS1,
+            optimistic_version=1,
+        ),
         _operation_record(
             status=OperationStatus.SUCCEEDED,
-            completed_at=TS2,
+            completed_at=TS0,
+            updated_at=TS0,
+            optimistic_version=2,
+        ),
+        "updated_at must be >=",
+    ),
+    (
+        "job-payload-change",
+        _operation_record(),
+        _operation_record(
+            job_payload=canonicalize_json_value({"changed": True}),
+            status=OperationStatus.RUNNING,
+            updated_at=TS1,
+            optimistic_version=1,
+        ),
+        "job_payload is immutable",
+    ),
+    (
+        "cancel-requested-reset",
+        _operation_record(cancel_requested=True, updated_at=TS1, optimistic_version=1),
+        _operation_record(
+            cancel_requested=False,
+            status=OperationStatus.RUNNING,
             updated_at=TS2,
             optimistic_version=2,
         ),
-    ),
-    (
-        "manual-to-running",
-        _manual_operation(version=2),
-        _operation_record(status=OperationStatus.RUNNING, updated_at=TS2, optimistic_version=3),
+        "cancel_requested cannot be reset",
     ),
 )
 
-STEP_ALLOWED_TRANSITION_CASES: tuple[tuple[str, StepRecord, StepRecord], ...] = (
+STEP_MUTATION_DENIED_CASES: tuple[tuple[str, StepRecord, StepRecord, str], ...] = (
     (
-        "pending-to-running",
-        _step_record(),
+        "prior-output-refs-change",
+        _step_record(prior_output_refs=(_artifact_ref("artifact-out-1"),)),
         _step_record(
+            prior_output_refs=(_artifact_ref("artifact-out-2"),),
             status=StepStatus.RUNNING,
             attempt_count=1,
             started_at=TS1,
@@ -184,172 +549,28 @@ STEP_ALLOWED_TRANSITION_CASES: tuple[tuple[str, StepRecord, StepRecord], ...] = 
             updated_at=TS1,
             optimistic_version=1,
         ),
-    ),
-    (
-        "running-to-succeeded",
-        _running_step(),
-        _step_record(
-            status=StepStatus.SUCCEEDED,
-            attempt_count=1,
-            started_at=TS0,
-            completed_at=TS2,
-            updated_at=TS2,
-            optimistic_version=2,
-        ),
-    ),
-    (
-        "retry-wait-to-running",
-        _retry_wait_step(version=2),
-        _step_record(
-            status=StepStatus.RUNNING,
-            attempt_count=2,
-            started_at=TS0,
-            worker_id="worker-2",
-            lease_token="lease-2",
-            lease_expires_at=TS_LEASE,
-            updated_at=TS2,
-            optimistic_version=3,
-        ),
-    ),
-    (
-        "manual-to-running",
-        _manual_step(version=3),
-        _step_record(
-            status=StepStatus.RUNNING,
-            attempt_count=1,
-            started_at=TS0,
-            worker_id="worker-3",
-            lease_token="lease-3",
-            lease_expires_at=TS_LEASE,
-            updated_at=TS2,
-            optimistic_version=4,
-        ),
-    ),
-)
-
-OPERATION_DENIED_TRANSITION_CASES: tuple[tuple[str, OperationRecord, OperationRecord, str], ...] = (
-    (
-        "queued-to-succeeded",
-        _operation_record(),
-        _operation_record(
-            status=OperationStatus.SUCCEEDED,
-            completed_at=TS1,
-            updated_at=TS1,
-            optimistic_version=1,
-        ),
-        "operation status transition is not allowed",
-    ),
-    (
-        "manual-to-cancelled",
-        _manual_operation(),
-        _operation_record(
-            status=OperationStatus.CANCELLED,
-            completed_at=TS2,
-            updated_at=TS2,
-            optimistic_version=3,
-        ),
-        "operation status transition is not allowed",
-    ),
-    (
-        "manual-without-recovery",
-        _manual_operation(),
-        _operation_record(
-            status=OperationStatus.RUNNING,
-            updated_at=TS2,
-            optimistic_version=3,
-        ),
-        "recovery authorization is required",
-    ),
-    (
-        "identity-change",
-        _operation_record(),
-        _operation_record(
-            operation_id="op-0002",
-            status=OperationStatus.RUNNING,
-            updated_at=TS1,
-            optimistic_version=1,
-        ),
-        "operation_id is immutable",
-    ),
-    (
-        "version-not-incremented",
-        _operation_record(),
-        _operation_record(status=OperationStatus.RUNNING, updated_at=TS1, optimistic_version=0),
-        "optimistic_version must be current",
-    ),
-)
-
-STEP_DENIED_TRANSITION_CASES: tuple[tuple[str, StepRecord, StepRecord, str], ...] = (
-    (
-        "pending-to-succeeded",
-        _step_record(),
-        _step_record(
-            status=StepStatus.SUCCEEDED,
-            attempt_count=1,
-            started_at=TS1,
-            completed_at=TS1,
-            updated_at=TS1,
-            optimistic_version=1,
-        ),
-        "step status transition is not allowed",
-    ),
-    (
-        "pending-to-running-with-wrong-attempt",
-        _step_record(),
-        _step_record(
-            status=StepStatus.RUNNING,
-            attempt_count=2,
-            started_at=TS1,
-            worker_id="worker-1",
-            lease_token="lease-1",
-            lease_expires_at=TS_LEASE,
-            updated_at=TS1,
-            optimistic_version=1,
-        ),
-        "attempt_count must increment",
-    ),
-    (
-        "manual-without-recovery",
-        _manual_step(),
-        _step_record(
-            status=StepStatus.RUNNING,
-            attempt_count=1,
-            started_at=TS0,
-            worker_id="worker-3",
-            lease_token="lease-3",
-            lease_expires_at=TS_LEASE,
-            updated_at=TS2,
-            optimistic_version=4,
-        ),
-        "recovery authorization is required",
-    ),
-    (
-        "identity-change",
-        _step_record(),
-        _step_record(
-            step_id="step-0002",
-            status=StepStatus.RUNNING,
-            attempt_count=1,
-            started_at=TS1,
-            worker_id="worker-1",
-            lease_token="lease-1",
-            lease_expires_at=TS_LEASE,
-            updated_at=TS1,
-            optimistic_version=1,
-        ),
-        "step_id is immutable",
+        "prior_output_refs are immutable",
     ),
 )
 
 WRITE_PRECONDITION_ACCEPT_CASES: tuple[tuple[str, int, str | None, str | None, WritePrecondition], ...] = (
-    ("operation-level", 3, None, None, WritePrecondition(3, None, None)),
+    ("operation-heartbeat", 5, None, None, WritePrecondition(5, None, None)),
+    ("operation-checkpoint", 5, None, None, WritePrecondition(5, None, None)),
     (
-        "leased-step",
+        "leased-step-heartbeat",
         2,
         "worker-1",
         "lease-1",
         WritePrecondition(2, "worker-1", "lease-1"),
     ),
+    (
+        "leased-step-checkpoint",
+        2,
+        "worker-1",
+        "lease-1",
+        WritePrecondition(2, "worker-1", "lease-1"),
+    ),
+    ("claim-unleased-step", 0, None, None, WritePrecondition(0, None, None)),
 )
 
 WRITE_PRECONDITION_DENIED_CASES: tuple[
@@ -357,11 +578,19 @@ WRITE_PRECONDITION_DENIED_CASES: tuple[
     ...,
 ] = (
     (
-        "version-mismatch",
+        "operation-terminal-stale-version",
+        5,
+        None,
+        None,
+        WritePrecondition(4, None, None),
+        "optimistic version mismatch",
+    ),
+    (
+        "leased-step-checkpoint-stale-version",
         2,
-        None,
-        None,
-        WritePrecondition(3, None, None),
+        "worker-1",
+        "lease-1",
+        WritePrecondition(1, "worker-1", "lease-1"),
         "optimistic version mismatch",
     ),
     (
@@ -389,6 +618,42 @@ WRITE_PRECONDITION_DENIED_CASES: tuple[
         "lease identity must be null",
     ),
 )
+
+OPERATION_TERMINAL_STATUSES = tuple(
+    status for status in OperationStatus if status.is_final_terminal()
+)
+STEP_TERMINAL_STATUSES = tuple(status for status in StepStatus if status.is_final_terminal())
+
+
+def test_operation_transition_matrix_inventory_matches_state_module() -> None:
+    assert EXPECTED_OPERATION_ALLOWED_TRANSITIONS == _OPERATION_ALLOWED_TRANSITIONS
+    assert EXPECTED_STEP_ALLOWED_TRANSITIONS == _STEP_ALLOWED_TRANSITIONS
+
+
+def test_operation_allowed_cases_cover_complete_matrix() -> None:
+    covered = {
+        (current.status, candidate.status)
+        for _, current, candidate in OPERATION_ALLOWED_TRANSITION_CASES
+    }
+    expected = {
+        (from_status, target)
+        for from_status, targets in EXPECTED_OPERATION_ALLOWED_TRANSITIONS.items()
+        for target in targets
+    }
+    assert covered == expected
+
+
+def test_step_allowed_cases_cover_complete_matrix() -> None:
+    covered = {
+        (current.status, candidate.status)
+        for _, current, candidate in STEP_ALLOWED_TRANSITION_CASES
+    }
+    expected = {
+        (from_status, target)
+        for from_status, targets in EXPECTED_STEP_ALLOWED_TRANSITIONS.items()
+        for target in targets
+    }
+    assert covered == expected
 
 
 @pytest.mark.parametrize(("name", "current", "candidate"), OPERATION_ALLOWED_TRANSITION_CASES)
@@ -441,35 +706,146 @@ def test_step_denied_transitions_raise(
         validate_step_transition(current, candidate)
 
 
-def test_operation_terminal_duplicate_idempotent() -> None:
-    current = _terminal_operation(OperationStatus.SUCCEEDED)
-    assert (
-        validate_operation_transition(current, current) is TransitionDisposition.IDEMPOTENT
+@pytest.mark.parametrize(("name", "target", "match"), MANUAL_OPERATION_RECOVERY_DENIED_CASES)
+def test_manual_operation_recovery_edges_require_authorization(
+    name: str,
+    target: OperationStatus,
+    match: str,
+) -> None:
+    del name
+    current = _operation_current_for_status(OperationStatus.MANUAL_RECOVERY_REQUIRED)
+    candidate = _operation_candidate(current, target)
+    with pytest.raises(ValueError, match=match):
+        validate_operation_transition(current, candidate)
+
+
+@pytest.mark.parametrize(("name", "target", "match"), MANUAL_STEP_RECOVERY_DENIED_CASES)
+def test_manual_step_recovery_edges_require_authorization(
+    name: str,
+    target: StepStatus,
+    match: str,
+) -> None:
+    del name
+    current = _step_current_for_status(StepStatus.MANUAL_RECOVERY_REQUIRED)
+    candidate = _step_candidate(current, target)
+    with pytest.raises(ValueError, match=match):
+        validate_step_transition(current, candidate)
+
+
+@pytest.mark.parametrize(("name", "current", "candidate", "match"), OPERATION_MUTATION_DENIED_CASES)
+def test_operation_mutation_rules_rejected_on_transition(
+    name: str,
+    current: OperationRecord,
+    candidate: OperationRecord,
+    match: str,
+) -> None:
+    del name
+    with pytest.raises(ValueError, match=match):
+        validate_operation_transition(current, candidate)
+
+
+@pytest.mark.parametrize(("name", "current", "candidate", "match"), STEP_MUTATION_DENIED_CASES)
+def test_step_mutation_rules_rejected_on_transition(
+    name: str,
+    current: StepRecord,
+    candidate: StepRecord,
+    match: str,
+) -> None:
+    del name
+    with pytest.raises(ValueError, match=match):
+        validate_step_transition(current, candidate)
+
+
+def test_operation_checkpoint_ref_can_change_on_allowed_transition() -> None:
+    current = _operation_current_for_status(OperationStatus.RUNNING)
+    candidate = _operation_candidate(
+        current,
+        OperationStatus.SUCCEEDED,
+        checkpoint_ref=_artifact_ref("artifact-checkpoint-new"),
     )
+    assert validate_operation_transition(current, candidate) is TransitionDisposition.APPLY
 
 
-def test_operation_terminal_conflicting_duplicate_rejected() -> None:
-    current = _terminal_operation(OperationStatus.SUCCEEDED, version=3)
+def test_cancel_requested_can_set_during_allowed_transition() -> None:
+    current = _operation_current_for_status(OperationStatus.QUEUED)
+    candidate = _operation_candidate(
+        current,
+        OperationStatus.RUNNING,
+        cancel_requested=True,
+    )
+    assert validate_operation_transition(current, candidate) is TransitionDisposition.APPLY
+    assert candidate.cancel_requested is True
+
+
+def test_cancel_requested_cannot_reset() -> None:
+    current = _operation_record(
+        status=OperationStatus.RUNNING,
+        cancel_requested=True,
+        updated_at=TS1,
+        optimistic_version=1,
+    )
+    candidate = _operation_candidate(current, OperationStatus.SUCCEEDED, cancel_requested=False)
+    with pytest.raises(ValueError, match="cancel_requested cannot be reset"):
+        validate_operation_transition(current, candidate)
+
+
+def test_cancel_intent_requires_status_change_not_same_state_loop() -> None:
+    current = _operation_current_for_status(OperationStatus.RUNNING)
+    candidate = replace(current, optimistic_version=2, updated_at=TS2)
+    with pytest.raises(ValueError, match="same-state publication only allowed for final terminal"):
+        validate_operation_transition(current, candidate)
+
+
+def test_cancelled_publication_is_explicit_status_edge() -> None:
+    current = _operation_current_for_status(OperationStatus.RUNNING)
+    candidate = _operation_candidate(current, OperationStatus.CANCELLED)
+    assert validate_operation_transition(current, candidate) is TransitionDisposition.APPLY
+
+
+def test_running_operation_may_supersede_structurally() -> None:
+    current = _operation_current_for_status(OperationStatus.RUNNING)
+    candidate = _operation_candidate(current, OperationStatus.SUPERSEDED)
+    assert validate_operation_transition(current, candidate) is TransitionDisposition.APPLY
+
+
+def test_manual_attention_status_not_final_terminal() -> None:
+    assert not OperationStatus.MANUAL_RECOVERY_REQUIRED.is_final_terminal()
+    assert not StepStatus.MANUAL_RECOVERY_REQUIRED.is_final_terminal()
+    assert OperationStatus.MANUAL_RECOVERY_REQUIRED.requires_manual_recovery()
+    assert StepStatus.MANUAL_RECOVERY_REQUIRED.requires_manual_recovery()
+
+
+def test_superseded_is_final_terminal_without_attention_semantics() -> None:
+    assert OperationStatus.SUPERSEDED.is_final_terminal()
+    assert not OperationStatus.SUPERSEDED.requires_manual_recovery()
+
+
+@pytest.mark.parametrize("status", OPERATION_TERMINAL_STATUSES)
+def test_operation_terminal_duplicate_idempotent(status: OperationStatus) -> None:
+    current = _operation_for_status(status, version=3, updated_at=TS2)
+    assert validate_operation_transition(current, current) is TransitionDisposition.IDEMPOTENT
+
+
+@pytest.mark.parametrize("status", OPERATION_TERMINAL_STATUSES)
+def test_operation_terminal_conflicting_duplicate_rejected(status: OperationStatus) -> None:
+    current = _operation_for_status(status, version=3, updated_at=TS2)
     candidate = replace(current, optimistic_version=4, updated_at=TS2)
     with pytest.raises(ValueError, match="conflicting terminal duplicate"):
         validate_operation_transition(current, candidate)
 
 
-def test_step_terminal_duplicate_idempotent() -> None:
-    current = _step_record(
-        status=StepStatus.CANCELLED,
-        completed_at=TS2,
-        updated_at=TS2,
-        optimistic_version=3,
-    )
+@pytest.mark.parametrize("status", STEP_TERMINAL_STATUSES)
+def test_step_terminal_duplicate_idempotent(status: StepStatus) -> None:
+    current = _step_for_status(status, version=3, updated_at=TS2)
     assert validate_step_transition(current, current) is TransitionDisposition.IDEMPOTENT
 
 
-def test_non_terminal_same_status_publication_rejected() -> None:
-    current = _operation_record(status=OperationStatus.RUNNING, updated_at=TS1, optimistic_version=1)
-    candidate = replace(current, optimistic_version=2, updated_at=TS2)
-    with pytest.raises(ValueError, match="same-state publication only allowed for final terminal"):
-        validate_operation_transition(current, candidate)
+@pytest.mark.parametrize("status", STEP_TERMINAL_STATUSES)
+def test_step_terminal_conflicting_duplicate_rejected(status: StepStatus) -> None:
+    current = _step_for_status(status, version=3, updated_at=TS2)
+    candidate = replace(current, optimistic_version=4, updated_at=TS2)
+    with pytest.raises(ValueError, match="conflicting terminal duplicate"):
+        validate_step_transition(current, candidate)
 
 
 @pytest.mark.parametrize(
@@ -515,24 +891,35 @@ def test_write_precondition_rejects_invalid_cases(
 
 
 def test_transition_guards_are_deterministic() -> None:
-    current = _operation_record()
-    candidate = _operation_record(
-        status=OperationStatus.RUNNING,
-        updated_at=TS1,
-        optimistic_version=1,
-    )
+    current = _operation_current_for_status(OperationStatus.QUEUED)
+    candidate = _operation_candidate(current, OperationStatus.RUNNING)
     first = validate_operation_transition(current, candidate)
     second = validate_operation_transition(current, candidate)
     assert first is second is TransitionDisposition.APPLY
 
+    step_current = _step_current_for_status(StepStatus.PENDING)
+    step_candidate = _step_candidate(step_current, StepStatus.RUNNING)
+    assert validate_step_transition(step_current, step_candidate) is validate_step_transition(
+        step_current, step_candidate
+    )
+
+    validate_write_precondition(
+        current_optimistic_version=5,
+        current_worker_id=None,
+        current_lease_token=None,
+        precondition=WritePrecondition(5, None, None),
+    )
+    validate_write_precondition(
+        current_optimistic_version=5,
+        current_worker_id=None,
+        current_lease_token=None,
+        precondition=WritePrecondition(5, None, None),
+    )
+
 
 def test_manual_recovery_allowed_with_authorization() -> None:
-    current = _manual_operation()
-    candidate = _operation_record(
-        status=OperationStatus.RUNNING,
-        updated_at=TS2,
-        optimistic_version=3,
-    )
+    current = _operation_current_for_status(OperationStatus.MANUAL_RECOVERY_REQUIRED)
+    candidate = _operation_candidate(current, OperationStatus.RUNNING)
     assert (
         validate_operation_transition(current, candidate, recovery_authorized=True)
         is TransitionDisposition.APPLY

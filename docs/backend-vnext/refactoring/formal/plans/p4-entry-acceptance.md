@@ -16,8 +16,8 @@ Owner：Backend vNext Architecture Acceptance
 acceptance_kind: p4_entry
 candidate_base_sha: 51ee61647451be63665e8d2754270ca996771ba9
 candidate_worktree_state: clean_after_document_seal
-candidate_document_set_sha256: 7362546aed23e0427cf6cd44749ea7dd45b31985df7efad0aabfe26f607c9c30
-candidate_document_set: backend-vnext README + formal README + formal architecture + P4 index/design/plan + R1-S0 brief
+candidate_document_set_sha256: efd7ae90840a3653858261667c7056302b84b48a671b7b19629c2e7bb802b264
+candidate_document_set: backend-vnext README + formal README + formal architecture + P4 index/design/plan + R1-S0 brief + R1 detailed plan
 candidate_acceptance_record_excluded_from_hash: true
 source_code_changed: false
 runtime_implementation_authorized: no
@@ -28,6 +28,21 @@ independent_acceptance: pending
 已封存候选文档路径集合的内容摘要，明确排除本 acceptance record 本身以避免自引用。最终
 提交 SHA 由 Git history 记录，不在自身文件中重复嵌入。提交或重新生成候选后必须更新本节，
 不能继续沿用旧 provenance。
+
+摘要按下列固定顺序计算；验收者必须在 reviewed Git tree 中复算：
+
+```bash
+sha256sum \
+  docs/backend-vnext/README.md \
+  docs/backend-vnext/refactoring/formal/README.md \
+  docs/backend-vnext/refactoring/formal/architecture/architecture-and-refactoring-plan.md \
+  docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md \
+  docs/backend-vnext/refactoring/formal/plans/p4-durable-operation-runtime-design.md \
+  docs/backend-vnext/refactoring/formal/plans/p4-durable-operation-runtime-execution-plan.md \
+  docs/backend-vnext/refactoring/formal/plans/p4-r1-s0-entry-brief.md \
+  docs/backend-vnext/refactoring/formal/plans/p4-r1-runtime-contract-state-execution-plan.md \
+  | sha256sum
+```
 
 ## 2. Acceptance checklist
 
@@ -45,9 +60,10 @@ independent_acceptance: pending
 | Registry key/version naming | PASS | `(job_kind, step_name)`；`backend-vnext/operation-runtime/v1` |
 | Retry/cancel/takeover boundary | PASS | design §4–6；unknown 不盲重放，协作取消 |
 | Initial module plan | PASS | execution plan R1–R6；S-step 可裁剪而非机械固定 |
+| R1 detailed execution context | PASS | R1 S0、S1a–S3b、S4、conditional S5/S6、S7 均有独立 gate/handoff |
 | Test and gate strategy | PASS | execution plan §9–10；serial/integration/container applicability |
 | Deferred/reopen register | PASS | design §7、execution plan §11 |
-| Current HEAD provenance | READY | 文档候选尚未提交；独立 acceptance 前必须重新核对 |
+| Current HEAD provenance | READY | document set 已封存并可复算；独立 acceptance 必须记录 reviewed Git SHA |
 | Independent acceptance | PENDING | 需独立审查本清单及关联文档 |
 | Implementation authorization | NO | 保持 `p4_implementation_authorized: no`，直到独立 acceptance 和明确授权 |
 

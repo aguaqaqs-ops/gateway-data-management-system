@@ -63,20 +63,23 @@ R1–R5 默认串行。R 内只有不共享未稳定 contract、不会改变 own
 目标：冻结 Operations owner 的最小通用语义，不解释业务 payload。物理落点为
 `vnext/backend/src/gateway_backend/operations/`；逻辑架构名称仍为 `backend_vnext`。
 
+逐 step 的权威 context package、命令、review 和 handoff 见
+[P4-R1 Runtime Contract and State Detailed Execution Plan](p4-r1-runtime-contract-state-execution-plan.md)。
+
 - S0：核对 Operation Lifecycle、External Effect、Contract Taxonomy 和 P4 design 的 owner seam；
   盘点当前 `gateway_backend` 落点，并冻结不迁移旧顶层 package 的裁定。
 - S1a：创建 `gateway_backend/operations/__init__.py` 与 `contracts.py` 的 public skeleton，
   冻结 `OPERATION_RUNTIME_CONTRACT_VERSION = "backend-vnext/operation-runtime/v1"`、
   `(job_kind, step_name)` registry key 和受控 exports。
-- S1b：定义 closed envelope document、Operation/Step status enum、diagnostic code、
+- S1b：定义 closed envelope document、status enum 的 document encoding、diagnostic code、
   `to_document/from_document` 规则；采用 JCS canonical JSON，不允许任意 context dict。
-- S2a：实现 frozen Operation/Step record、opaque IDs、version/lease fields、payload/ref
+- S2a：实现 frozen Operation/Step record、opaque IDs、version 和 Step lease fields、payload/ref
   validation；不接 SQLite、worker、Repository 或业务 entity。
 - S2b：实现纯逻辑 state transition guard、terminal idempotency、cancel/supersede guard、
   stale-write precondition guard；CAS 的数据库实现留给 R2。
-- S3a：新增 `tests/test_operation_contracts.py`，覆盖 canonical round-trip、unknown field/
+- S3a：完成并强化 `tests/test_operation_contracts.py`，覆盖 canonical round-trip、unknown field/
   version、malformed shape、payload size/type 和 public export boundary。
-- S3b：新增 `tests/test_operation_state.py`，覆盖合法/非法转移、terminal duplicate、
+- S3b：完成并强化 `tests/test_operation_state.py`，覆盖合法/非法转移、terminal duplicate、
   cancel safety boundary、unknown outcome、`MANUAL_RECOVERY_REQUIRED` 和 stale-write guard。
 - S4：审查业务语义泄漏、generic evidence 扩张、未版本化 context dict、`operation_kind`
   别名回流和 Repository authority 越界。

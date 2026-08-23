@@ -8,6 +8,8 @@ Owner：Operation Runtime (`operations`)
 
 上游：[P4 Entry Acceptance Candidate](p4-entry-acceptance.md)、[P4 Durable Operation Runtime Design Baseline](p4-durable-operation-runtime-design.md)、[Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)、[External Effect and Recovery](../contracts/external-effect-and-recovery.md)、[Contract Taxonomy and Ownership](../contracts/contract-taxonomy-and-ownership.md)
 
+逐 step 执行 authority：[P4-R1 Runtime Contract and State Detailed Execution Plan](p4-r1-runtime-contract-state-execution-plan.md)
+
 ## 1. Physical placement decision
 
 逻辑架构名为 `backend_vnext`，当前 distribution 的物理 package root 为
@@ -32,8 +34,8 @@ S0 asset inventory：
 | Capability owners | `gateway_backend/capabilities/*` 已有 public `contracts.py` 和 architecture DAG | R1 不改 capability owner 或依赖 |
 | Artifact boundary | `gateway_backend/artifacts/` 与 infrastructure adapter 已存在 | R1 只引用 ref/contract，不接 artifact store implementation |
 | Operations package | 当前不存在 `gateway_backend/operations/` | S1a 创建唯一 package skeleton |
-| Operations tests | 当前没有 `test_operation_*` contract/state owner tests | S3a/S3b 新增 focused unit tests |
-| Architecture gate | capability import checker 禁止 capability 反向 import `operations` | 保持单向 `operations -> shared_kernel` |
+| Operations tests | 当前没有 `test_operation_*` contract/state owner tests | S1a 起增量创建，S3a/S3b 完成 conformance hardening |
+| Architecture gate | capability import checker 禁止 capability 反向 import `operations` | `operations -> shared_kernel + artifacts public contract`；禁止 capability/infrastructure/Repository import |
 | App/bootstrap | `gateway_backend/app.py`、settings 在 root | R3/P5 按 owner 迁入 interfaces/bootstrap，R1 不触碰 |
 
 ## 2. Objective

@@ -14,6 +14,7 @@ Repository Service wire 或 P2 完成状态：
 - [P4 Durable Operation Runtime Execution Plan](refactoring/formal/plans/p4-durable-operation-runtime-execution-plan.md)
 - [P4 Entry Acceptance Candidate](refactoring/formal/plans/p4-entry-acceptance.md)
 - [P4-R1-S0 Entry Brief](refactoring/formal/plans/p4-r1-s0-entry-brief.md)
+- [P4-R1 Runtime Contract and State Detailed Execution Plan](refactoring/formal/plans/p4-r1-runtime-contract-state-execution-plan.md)
 - [P2 External Interface Handoff](refactoring/formal/plans/p2-external-interface-handoff.md)
 
 历史 P3 默认入口 `p3-active-context-index.md` 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823`

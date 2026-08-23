@@ -9,6 +9,22 @@ from pathlib import Path
 BACKEND_SRC = Path(__file__).parents[1] / "src"
 CAPABILITIES_ROOT = BACKEND_SRC / "gateway_backend" / "capabilities"
 CAPABILITIES_PREFIX = "gateway_backend.capabilities."
+OPERATIONS_ROOT = BACKEND_SRC / "gateway_backend" / "operations"
+
+OPERATIONS_FORBIDDEN_IMPORT_PREFIXES = (
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "gateway_backend.app",
+    "gateway_backend.settings",
+    "gateway_backend.infrastructure",
+    "gateway_backend.capabilities",
+    "gateway_repository",
+    "gateway_repository_client",
+    "gateway_repository_contracts",
+    "gateway_repository_service",
+    "gateway_shared_kernel.testing",
+)
 
 CAPABILITY_OWNERS = frozenset(
     {
@@ -348,6 +364,37 @@ def test_external_target_sync_source_stays_on_capability_leaf() -> None:
             assert token not in text, f"{source} contains forbidden token {token}"
 
 
+def test_operations_package_is_sole_runtime_owner() -> None:
+    backend_root = BACKEND_SRC / "gateway_backend"
+    assert OPERATIONS_ROOT.is_dir()
+    assert (OPERATIONS_ROOT / "__init__.py").is_file()
+    assert (OPERATIONS_ROOT / "contracts.py").is_file()
+    assert not (BACKEND_SRC / "backend_vnext").exists()
+    operations_packages = [
+        path
+        for path in backend_root.rglob("operations")
+        if path.is_dir() and (path / "__init__.py").is_file()
+    ]
+    assert operations_packages == [OPERATIONS_ROOT]
+
+
+def test_operations_module_respects_import_boundary() -> None:
+    for source in sorted(OPERATIONS_ROOT.rglob("*.py")):
+        current_module, is_init = _python_module_name(source)
+        for imported in _imported_modules(source, current_module, is_init):
+            _assert_operations_import_allowed(source, imported)
+
+
+def test_operations_source_has_no_operation_kind() -> None:
+    for source in sorted(OPERATIONS_ROOT.rglob("*.py")):
+        assert "operation_kind" not in source.read_text(encoding="utf-8"), source
+
+
+def test_operations_source_has_no_deferred_stub() -> None:
+    for source in sorted(OPERATIONS_ROOT.rglob("*.py")):
+        assert "NotImplementedError" not in source.read_text(encoding="utf-8"), source
+
+
 def _capability_owner_dirs() -> set[str]:
     owners: set[str] = set()
     for path in CAPABILITIES_ROOT.iterdir():
@@ -466,3 +513,18 @@ def _split_capability_import(imported: str) -> tuple[str, str]:
     if not separator:
         return owner, ""
     return owner, remainder
+
+
+def _assert_operations_import_allowed(source: Path, imported: str) -> None:
+    if imported == "__future__":
+        return
+    for prefix in OPERATIONS_FORBIDDEN_IMPORT_PREFIXES:
+        assert imported != prefix and not imported.startswith(f"{prefix}."), (
+            f"{source} imports forbidden module {imported}"
+        )
+    for part in imported.split("."):
+        assert part != "_internal", f"{source} imports {imported}"
+    if imported.startswith("gateway_backend."):
+        assert imported.startswith("gateway_backend.operations"), (
+            f"{source} imports disallowed backend module {imported}"
+        )

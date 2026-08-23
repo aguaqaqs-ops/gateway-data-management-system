@@ -340,6 +340,8 @@ Docker build/smoke、sealed-candidate tests、`tested_candidate_sha` / `handoff_
 - [P3 Capability Foundation Execution Plan](p3-capability-foundation-execution-plan.md)
 - [P3 Active Context Index](p3-active-context-index.md)
 - [P3-R7 Mutation and Target Closure Handoff](p3-r7-mutation-target-closure-handoff.md)
+- [P3 Final Closure and P4/P5 Entry Handoff](p3-final-closure-handoff.md)
+- [P3-FINAL F5 Independent Acceptance Record](p3-final-closure-f5-independent-acceptance.md)
 - [Implementation Stages](implementation-stages.md)
 - [Operation Lifecycle and Repository Integrity](../contracts/operation-lifecycle-and-integrity.md)
 - [External Effect and Recovery](../contracts/external-effect-and-recovery.md)

@@ -9,6 +9,11 @@ P3 默认入口：[P3 Active Context Index](../formal/plans/p3-active-context-in
 与 Git annotated tag `docs/p2-p3-cleanup-pre-20260817`、
 `docs/p2-p3-cleanup-final-20260817`。
 
+当前待执行临时计划：
+
+- [P3→P4 Context and Code Consolidation](p3-p4-context-and-code-consolidation-execution-plan.md)
+  （P3 exit 后、P4 entry acceptance 前；不授权 P4 implementation）
+
 因 `vnext/deploy/p2r1-cache/README.md` 唯一指针而保留、不得移动或删除：
 
 - [P2-R9-S2 Step E container gate](p2-r9-s2-step-e-container-gate.md)

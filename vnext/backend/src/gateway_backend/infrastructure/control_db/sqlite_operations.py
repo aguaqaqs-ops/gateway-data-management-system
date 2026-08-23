@@ -48,13 +48,14 @@ _INTEGRITY_CURSOR_VERSION = 1
 _INTEGRITY_OPERATION_PHASE = "operations"
 _INTEGRITY_STEP_PHASE = "steps"
 _T = TypeVar("_T")
-_ACTIVE_OPERATION_STATUSES = ("QUEUED", "RUNNING", "MANUAL_RECOVERY_REQUIRED")
 _ACTIVE_STEP_STATUSES = (
     "PENDING",
     "RUNNING",
     "RETRY_WAIT",
     "MANUAL_RECOVERY_REQUIRED",
 )
+_TERMINAL_OPERATION_STATUSES = ("SUCCEEDED", "FAILED", "CANCELLED", "SUPERSEDED")
+_TERMINAL_STEP_STATUSES = ("SUCCEEDED", "FAILED", "CANCELLED")
 
 _OPERATION_COLUMNS = (
     "operation_id, contract_version, optimistic_version, job_kind, job_contract_version, "
@@ -695,12 +696,12 @@ class SQLiteOperationStore:
         last_identity: str | None,
         limit: int,
     ) -> list[sqlite3.Row]:
-        placeholders = ", ".join("?" for _ in _ACTIVE_OPERATION_STATUSES)
+        placeholders = ", ".join("?" for _ in _TERMINAL_OPERATION_STATUSES)
         query = (
             f"SELECT {_OPERATION_COLUMNS} FROM operation_records "
-            f"WHERE status IN ({placeholders})"
+            f"WHERE status IS NULL OR status NOT IN ({placeholders})"
         )
-        parameters: list[object] = list(_ACTIVE_OPERATION_STATUSES)
+        parameters: list[object] = list(_TERMINAL_OPERATION_STATUSES)
         if last_updated_at_us is not None and last_identity is not None:
             query += " AND (updated_at_us > ? OR (updated_at_us = ? AND operation_id > ?))"
             parameters.extend([last_updated_at_us, last_updated_at_us, last_identity])
@@ -715,9 +716,12 @@ class SQLiteOperationStore:
         last_identity: str | None,
         limit: int,
     ) -> list[sqlite3.Row]:
-        placeholders = ", ".join("?" for _ in _ACTIVE_STEP_STATUSES)
-        query = f"SELECT {_STEP_COLUMNS} FROM step_records WHERE status IN ({placeholders})"
-        parameters: list[object] = list(_ACTIVE_STEP_STATUSES)
+        placeholders = ", ".join("?" for _ in _TERMINAL_STEP_STATUSES)
+        query = (
+            f"SELECT {_STEP_COLUMNS} FROM step_records "
+            f"WHERE status IS NULL OR status NOT IN ({placeholders})"
+        )
+        parameters: list[object] = list(_TERMINAL_STEP_STATUSES)
         if last_updated_at_us is not None and last_identity is not None:
             query += " AND (updated_at_us > ? OR (updated_at_us = ? AND step_id > ?))"
             parameters.extend([last_updated_at_us, last_updated_at_us, last_identity])

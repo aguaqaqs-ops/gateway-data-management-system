@@ -45,6 +45,16 @@ pytestmark = pytest.mark.integration
 MIGRATION_TIME = datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)
 LATER_TIME = datetime(2024, 1, 2, 3, 5, 5, tzinfo=UTC)
 
+CLAIM_LOCAL_VALIDATION_FAILURES = (
+    ("R1 worker identity", "worker\n1", "lease-1", 0, "control characters"),
+    ("Step version increment", "worker-1", "lease-1", (2**53) - 1, "I-JSON safe integer"),
+)
+
+UNKNOWN_ACTIVE_STATUS_ROWS = (
+    ("operation", "operation_records", "operation_id", "op-unknown-status-0001"),
+    ("step", "step_records", "step_id", "step-unknown-status-0001"),
+)
+
 
 def _operation_document(operation_id: str) -> dict[str, object]:
     return {
@@ -479,6 +489,85 @@ def test_lifecycle_claim_commits_and_reads_back_after_reopen(tmp_path: Path) -> 
         assert persisted_step.worker_id == "worker-1"
         assert persisted_step.lease_token == "lease-1"
         assert persisted_step.lease_expires_at == LATER_TIME + timedelta(seconds=30)
+
+
+@pytest.mark.parametrize(
+    ("case_name", "worker_id", "lease_token", "step_version", "message"),
+    CLAIM_LOCAL_VALIDATION_FAILURES,
+)
+def test_caught_claim_local_validation_rolls_back_without_a_prefix(
+    tmp_path: Path,
+    case_name: str,
+    worker_id: str,
+    lease_token: str,
+    step_version: int,
+    message: str,
+) -> None:
+    del case_name
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-claim-validation-0001"))
+    step = step_record_from_document(
+        _step_document("op-claim-validation-0001", "step-claim-validation-0001")
+        | {"optimistic_version": step_version}
+    )
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        with pytest.raises(ValueError, match=message):
+            actions.claim_one(worker_id, lease_token)
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        assert reader.operations.get_operation(operation.operation_id) == operation
+        assert reader.operations.get_step(step.step_id) == step
+
+
+@pytest.mark.parametrize(
+    ("owner", "table", "identity_column", "identity"),
+    UNKNOWN_ACTIVE_STATUS_ROWS,
+)
+def test_file_backed_active_integrity_scan_fails_closed_on_unknown_status(
+    tmp_path: Path,
+    owner: str,
+    table: str,
+    identity_column: str,
+    identity: str,
+) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-unknown-status-0001"))
+    step = step_record_from_document(
+        _step_document("op-unknown-status-0001", "step-unknown-status-0001")
+    )
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+
+    connection = connect_control_db(db_path)
+    try:
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        connection.execute(
+            f"UPDATE {table} SET status = ? WHERE {identity_column} = ?",
+            ("UNKNOWN", identity),
+        )
+    finally:
+        connection.close()
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        with pytest.raises(CorruptPersistedRecord, match=f"{owner} row"):
+            reader.operations.scan_active_integrity()
+        if owner == "operation":
+            with pytest.raises(CorruptPersistedRecord, match="operation row"):
+                reader.operations.get_operation(operation.operation_id)
+        else:
+            with pytest.raises(CorruptPersistedRecord, match="step row"):
+                reader.operations.get_step(step.step_id)
 
 
 def test_lifecycle_and_owner_share_commit_and_rollback_boundary(tmp_path: Path) -> None:

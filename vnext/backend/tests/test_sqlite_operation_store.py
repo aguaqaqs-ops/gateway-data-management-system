@@ -221,6 +221,16 @@ CORRUPT_STEP_ROWS = (
     ("contract version is unknown", {"contract_version": "backend-vnext/operation-runtime/v2"}),
 )
 
+CLAIM_LOCAL_VALIDATION_FAILURES = (
+    ("R1 worker identity", "worker\n1", "lease-1", 0, "control characters"),
+    ("Step version increment", "worker-1", "lease-1", (2**53) - 1, "I-JSON safe integer"),
+)
+
+UNKNOWN_ACTIVE_STATUS_ROWS = (
+    ("operation", "operation_records", "operation_id", "op-0001"),
+    ("step", "step_records", "step_id", "step-0001"),
+)
+
 
 @pytest.mark.parametrize(("name", "changes"), CORRUPT_STEP_ROWS)
 def test_step_row_corruption_is_owner_specific(
@@ -318,6 +328,33 @@ def test_active_integrity_scan_rejects_corruption_without_repairing_the_row() ->
         connection.close()
 
 
+@pytest.mark.parametrize(
+    ("owner", "table", "identity_column", "identity"),
+    UNKNOWN_ACTIVE_STATUS_ROWS,
+)
+def test_active_integrity_scan_fails_closed_on_unknown_status(
+    owner: str,
+    table: str,
+    identity_column: str,
+    identity: str,
+) -> None:
+    connection, store = _memory_store()
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        connection.execute(
+            f"UPDATE {table} SET status = ? WHERE {identity_column} = ?",
+            ("UNKNOWN", identity),
+        )
+
+        with pytest.raises(CorruptPersistedRecord, match=f"{owner} row"):
+            store.scan_active_integrity()
+    finally:
+        connection.close()
+
+
 def test_active_integrity_scan_rejects_step_owned_by_terminal_operation() -> None:
     connection, store = _memory_store()
     try:
@@ -391,6 +428,37 @@ def test_active_integrity_scan_rejects_malformed_cursor() -> None:
     try:
         with pytest.raises(ValueError, match="integrity cursor"):
             store.scan_active_integrity(cursor="not-a-cursor")
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    ("case_name", "worker_id", "lease_token", "step_version", "message"),
+    CLAIM_LOCAL_VALIDATION_FAILURES,
+)
+def test_claim_local_validation_does_not_commit_a_cross_table_prefix(
+    case_name: str,
+    worker_id: str,
+    lease_token: str,
+    step_version: int,
+    message: str,
+) -> None:
+    del case_name
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record(optimistic_version=step_version)
+        store.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(LATER_TIMESTAMP),
+        )
+
+        with pytest.raises(ValueError, match=message):
+            actions.claim_one(worker_id, lease_token)
+
+        assert store.get_operation(operation.operation_id) == operation
+        assert store.get_step(step.step_id) == step
     finally:
         connection.close()
 

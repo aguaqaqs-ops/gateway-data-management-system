@@ -10,6 +10,7 @@ from gateway_backend.operations.contracts import (
     OperationStatus,
     StepRecord,
     StepStatus,
+    _validate_opaque_id,
 )
 from gateway_backend.operations.state import TransitionDisposition, WritePrecondition
 from gateway_backend.operations.store import OperationStore
@@ -65,19 +66,6 @@ class OperationLifecycleActions:
         if step.operation_id != operation.operation_id:
             raise ValueError("claim candidate step belongs to a different operation")
 
-        operation_after = operation
-        if operation.status is OperationStatus.QUEUED:
-            operation_after = dataclasses.replace(
-                operation,
-                status=OperationStatus.RUNNING,
-                updated_at=self._transaction_now,
-                optimistic_version=operation.optimistic_version + 1,
-            )
-            self._store.compare_and_set_operation(
-                operation_after,
-                _null_precondition(operation),
-            )
-
         step_after = dataclasses.replace(
             step,
             status=StepStatus.RUNNING,
@@ -93,6 +81,20 @@ class OperationLifecycleActions:
             lease_expires_at=self._transaction_now + LEASE_DURATION,
             optimistic_version=step.optimistic_version + 1,
         )
+
+        operation_after = operation
+        if operation.status is OperationStatus.QUEUED:
+            operation_after = dataclasses.replace(
+                operation,
+                status=OperationStatus.RUNNING,
+                updated_at=self._transaction_now,
+                optimistic_version=operation.optimistic_version + 1,
+            )
+            self._store.compare_and_set_operation(
+                operation_after,
+                _null_precondition(operation),
+            )
+
         self._store.compare_and_set_step(
             step_after,
             _null_precondition(step),
@@ -220,10 +222,7 @@ def _null_precondition(record: OperationRecord | StepRecord) -> WritePreconditio
 
 
 def _validate_identity(value: object, label: str) -> None:
-    if type(value) is not str or not value:
-        raise ValueError(f"{label} must be a non-empty string")
-    if len(value.encode("utf-8")) > 255:
-        raise ValueError(f"{label} exceeds maximum length")
+    _validate_opaque_id(value, label)
 
 
 def _validate_utc_datetime(value: object, label: str) -> None:

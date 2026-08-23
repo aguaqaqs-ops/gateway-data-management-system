@@ -18,7 +18,7 @@ P4 默认入口：[P4 Active Context Index](p4-active-context-index.md)
 ```yaml
 handoff_kind: p3_p4_context_code_consolidation
 baseline_sha: 31409c8e0c37d8c12a323269ddeefebdb9927955
-candidate_sha: this_cleanup_commit
+candidate_sha: 58b9b1bb5505b683575242db7cd6ec504cd7b98d
 pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
 pre_cleanup_commit: 8682b1c6873e056386b007b3b8eb9e3d14c624a4
 final_cleanup_tag: docs/p3-p4-cleanup-final-20260823

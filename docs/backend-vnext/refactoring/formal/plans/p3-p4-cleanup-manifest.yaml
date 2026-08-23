@@ -24,7 +24,7 @@ retain_owner: Backend vNext Architecture
 identity:
   baseline_sha: 31409c8e0c37d8c12a323269ddeefebdb9927955
   c1_head_sha: this_c1_head
-  tested_candidate_sha: 2d56c62b1710e85eacb12d3c6eec309acdee35e9
+  tested_candidate_sha: 58b9b1bb5505b683575242db7cd6ec504cd7b98d
   c4_audited_candidate_sha: 80eb14e6dd38bcc99a0597e62b459686fb740a4c
   p3_exit: pass
   p4_ready: yes

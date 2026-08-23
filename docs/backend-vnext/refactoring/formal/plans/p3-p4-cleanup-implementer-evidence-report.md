@@ -10,7 +10,7 @@ Owner：Cleanup Implementer (Conversation D)
 
 - recommendation: **PASS** (pending independent acceptance)
 - baseline_sha: `31409c8e0c37d8c12a323269ddeefebdb9927955`
-- candidate_sha: `this_cleanup_commit`
+- candidate_sha: `58b9b1bb5505b683575242db7cd6ec504cd7b98d`
 - pre_cleanup_tag: `docs/p3-p4-cleanup-pre-20260823`
 - final_cleanup_tag: `docs/p3-p4-cleanup-final-20260823`
 - worktree: clean (at seal)

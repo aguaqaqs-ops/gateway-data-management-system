@@ -42,7 +42,7 @@ so no runtime, release, deployment, contract, or test-support consumer was remov
 | Candidate, parent, pre-tag and final-tag identity | pass |
 | C3/C6 archive inventory and recovery path/hash audit | pass; 26 + 9 process paths |
 | Active Markdown relative links | pass; 0 broken |
-| Active references to deleted cleanup paths | pass; 0 (manifest/tag pointers are intentional) |
+| Active references to deleted cleanup paths | pass; 0 unapproved (manifest/tag pointers are intentional) |
 | Code, tests, deployment and dependency diff | pass; no `vnext/**`, Dockerfile, Compose or dependency changes |
 | C4 KEEP/DEFER disposition and public invariant ownership | pass; 0 approved removal/move bundles |
 | P3 exit, P4 readiness and authorization boundary | pass; P4 implementation remains unauthorized |

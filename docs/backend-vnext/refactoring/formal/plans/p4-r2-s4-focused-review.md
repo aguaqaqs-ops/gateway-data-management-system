@@ -1,6 +1,6 @@
 # P4/R2-S4 Focused Owner Review
 
-状态：**REWORK REQUIRED AFTER S5 RE-REVIEW**
+状态：**PASS AFTER S5 F1 FOLLOW-UP**
 
 日期：2026-08-24
 
@@ -19,19 +19,31 @@ input_validated_code_sha: f77dd43d8f0e2e10b5c40048093161c3a70f4ffe
 reviewed_candidate_sha: f77dd43d8f0e2e10b5c40048093161c3a70f4ffe
 reviewed_handoff_sha: 7f1d25a473e113bb75f1cb6c91230509a42b03f1
 candidate_worktree_at_entry: clean
-result: rework_required_after_s5_rereview
+result: pass_after_s5_f1_follow_up
 s5_handoff_sha: 942a0c467ccfa07547e6f8f41c4b9283122e475c
 s5_validated_code_sha: 8e5fcce890d5bcb920c7c469a6546fbd15903df8
 s5_claimed_result: pass
 s5_rereview_result: rework_required
 s5_rereview_worktree_at_entry: clean
-open_findings:
-  - P4-R2-S4-F1: P2 rollback-only participant still accepts later mutations whose APPLY result is silently rolled back
+f1_follow_up_handoff_sha: d057ab3f229ebd513eba56748c7e528ba3efc48b
+f1_follow_up_validated_code_sha: 15fc3e80031cb503292c880afc9b77b245b3a23c
+f1_follow_up_rereview_result: pass
+f1_follow_up_rereview_worktree_at_entry: clean
+open_findings: []
 closed_findings:
+  - P4-R2-S4-F1
   - P4-R2-S4-F2
   - P4-R2-S4-F3
   - P4-R2-S4-F4
   - P4-R2-S4-F5
+f1_follow_up_rereview_commands_and_results:
+  - "follow-up candidate and handoff ancestry/path checks -> pass; 15fc3e8 is the unchanged code/test ancestor of d057ab3"
+  - "cd vnext/backend && uv run pytest -q -m unit tests/test_operation_store.py tests/test_operation_contracts.py tests/test_control_db_migrations.py tests/test_sqlite_operation_store.py tests/test_architecture.py -> 329 passed"
+  - "cd vnext/backend && uv run pytest -q -m integration tests/test_sqlite_operation_store_integration.py -> 20 passed"
+  - "cd vnext/backend && uv run pytest -q -m serial tests/test_sqlite_operation_store_integration.py -> 2 passed, 18 deselected"
+  - "cd vnext/backend && uv run pytest -q -m unit -> 1315 passed, 20 deselected, 1 pre-existing Starlette deprecation warning"
+  - "five Python packages: uv run ruff check . && uv run mypy -> pass"
+  - "independent poison/create/reopen probe -> original StaleWrite preserved; later create rejected before disposition; whole UoW rolled back; fresh UoW APPLY persisted"
 rereview_commands_and_results:
   - "S5 candidate and handoff ancestry/path checks -> pass; 8e5fcce is the unchanged code/test ancestor of 942a0c4"
   - "cd vnext/backend && uv run pytest -q -m unit tests/test_operation_store.py tests/test_operation_contracts.py tests/test_control_db_migrations.py tests/test_sqlite_operation_store.py tests/test_architecture.py -> 326 passed"
@@ -75,9 +87,9 @@ reopen_conditions:
   - F2 requires a schema-v1 change, new persisted field, JobDefinition interpretation or a new public query/mutation surface.
   - F3 cannot bind action time without changing the accepted transaction-clock ownership or public port.
   - F4 requires a public timeout/retry policy or changes the accepted SQLite connection profile.
-next_step: P4-R2-S5 follow-up remediation for F1
+next_step: P4-R2-S6
 next_step_authorized: no
-s6: blocked_pending_s5_followup
+s6: required_not_authorized
 s7: blocked
 ```
 
@@ -325,3 +337,63 @@ Required execution point: Phase 4 final production candidate
 the current focused-review disposition. The only next step is a finding-scoped F1 follow-up; it is
 not authorized by this review. Mandatory S6 and S7 remain blocked until the poisoned-transaction
 outcome is closed or its owning boundary is explicitly reopened.
+
+## 8. F1 follow-up focused re-review disposition
+
+The F1 follow-up was implemented at code candidate
+`15fc3e80031cb503292c880afc9b77b245b3a23c` and sealed by handoff
+`d057ab3f229ebd513eba56748c7e528ba3efc48b`. The follow-up changes only the existing concrete
+mutation wrapper and finding-owned tests. It adds no public outcome, mutation/savepoint API,
+schema, persisted state, dependency or deployment wiring.
+
+### 8.1 F1 closure
+
+`SQLiteOperationStore._run_mutation(...)` now checks the existing rollback-only flag before
+invoking any mutation callback. All four public mutation entry points already route through this
+wrapper, so a poisoned transaction cannot evaluate another candidate or return
+`APPLY | IDEMPOTENT`.
+
+The independent probe repeated the original failure and follow-up sequence:
+
+1. claim an Operation/Step;
+2. catch the original typed `StaleWrite` from the second cancel leg;
+3. attempt a different valid create in the same UoW;
+4. receive `RuntimeError: control DB transaction is rollback-only` before a disposition;
+5. reopen and confirm the claim/cancel prefix and later create were both absent;
+6. perform the same create in a fresh UoW, receive `APPLY`, and confirm it persisted after reopen.
+
+The focused regressions additionally cover a later valid Operation CAS and live-Step mutation.
+The rollback-only state is instance/transaction-scoped and a new UoW remains usable. This closes
+the remaining F1 outcome gap without changing the frozen public store error taxonomy.
+
+### 8.2 Final S4 finding disposition
+
+| Finding | Final disposition |
+| --- | --- |
+| F1 | **closed** — original typed failure, no later disposition from a poisoned participant, complete rollback and fresh-UoW recovery proved. |
+| F2 | **closed** — terminal/successor branch consistency remains enforced. |
+| F3 | **closed** — one transaction clock remains bound through the accepted read-only port seam. |
+| F4 | **closed** — bounded WAL bootstrap convergence remains green in file-backed integration. |
+| F5 | **closed** — R2 step/test-owner provenance remains corrected. |
+
+### 8.3 Verification and next gate
+
+Focused unit passed 329 tests, file-backed integration passed 20, both serial owners passed,
+backend unit passed 1315 with the pre-existing Starlette warning, all five packages passed full
+ruff/mypy, and `git diff --check` passed. The reviewed source candidate is an ancestor of the clean
+follow-up handoff HEAD.
+
+```text
+Current follow-up review input HEAD: d057ab3f229ebd513eba56748c7e528ba3efc48b
+Reviewed follow-up code/test candidate: 15fc3e80031cb503292c880afc9b77b245b3a23c
+Container rebuild required: no
+Reason: the follow-up changes pure Python SQLite transaction behavior and tests only; no image, dependency, deployment, mount, UID/GID or container-only boundary changed
+Last verified image revision: none found for this Phase 4 candidate
+Last verified source-tree/image id: none
+Container gate for current candidate: not-applicable
+Required execution point: Phase 4 final production candidate
+```
+
+**Final focused-review result：`pass_after_s5_f1_follow_up`.** There are no open S4 findings. The
+mandatory next step is P4-R2-S6 independent review; it is not authorized or executed by this
+record. P4-R2-S7 and R3 entry remain blocked pending S6 and the final module gate.

@@ -1,42 +1,46 @@
 schema: gateway.docs-code-lifecycle-cleanup.manifest
 schema_version: 1
 stage: p3-p4-context-code-consolidation
-step: C6
+step: C7
 c1_status: complete
 c2_status: complete
 c3_status: complete
 c4_status: complete
 c5_status: complete
 c6_status: complete
+c7_status: complete
 c3_docs_deleted: 26
 c6_docs_process_deleted: 9
 generated_at: "2026-08-23T05:30:00Z"
+accepted_at: "2026-08-23T05:40:00Z"
 note: >
   C6 removed cleanup process files from the default tree. Git tag
   docs/p3-p4-cleanup-pre-20260823 remains the archive medium for C0/C1
   and the execution plan. C4/C5 process records recover via persist
-  commits documented in p3-p4-cleanup-handoff.md. The tagged final commit
-  does not self-reference: cleanup_commit is this_cleanup_commit and
-  final_tag_sha is this_final_tag.
+  commits documented in p3-p4-cleanup-handoff.md. Path hashes are the
+  pre-cleanup content hashes unless a recovery commit is explicitly listed.
+  C7 independently accepted the clean candidate and verified both annotated
+  tags; the final tag points at the reviewed candidate commit.
 public_semantics_changed: false
 archive_medium: git_annotated_tag_and_history
 retain_owner: Backend vNext Architecture
 identity:
   baseline_sha: 31409c8e0c37d8c12a323269ddeefebdb9927955
-  c1_head_sha: this_c1_head
-  tested_candidate_sha: 58b9b1bb5505b683575242db7cd6ec504cd7b98d
+  c1_head_sha: 8682b1c6873e056386b007b3b8eb9e3d14c624a4
+  tested_candidate_sha: 5687e275be8f3cb54ed9bdbe429ea6380c8577b7
   c4_audited_candidate_sha: 80eb14e6dd38bcc99a0597e62b459686fb740a4c
   p3_exit: pass
   p4_ready: yes
 tags:
   proposed_pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
   pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
-  pre_cleanup_commit: this_c1_head
-  pre_cleanup_tag_object: this_pre_cleanup_tag
+  pre_cleanup_commit: 8682b1c6873e056386b007b3b8eb9e3d14c624a4
+  pre_cleanup_tag_object: c1396ef9416c1566b619d3213babfc1259ffec8a
   proposed_final_tag: docs/p3-p4-cleanup-final-20260823
   final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
-  final_tag_sha: this_final_tag
-  cleanup_commit: this_cleanup_commit
+  final_tag_sha: 7c751ba86237cacf5fdc223d479d063112d9fe0b
+  final_tag_commit: 5687e275be8f3cb54ed9bdbe429ea6380c8577b7
+  cleanup_commit: 5687e275be8f3cb54ed9bdbe429ea6380c8577b7
 artifacts:
   manifest: docs/backend-vnext/refactoring/formal/plans/p3-p4-cleanup-manifest.yaml
   p4_active_context_index: docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
@@ -71,6 +75,20 @@ c6:
   public_semantics_changed: false
   handoff: docs/backend-vnext/refactoring/formal/plans/p3-p4-cleanup-handoff.md
   implementer_evidence_report: docs/backend-vnext/refactoring/formal/plans/p3-p4-cleanup-implementer-evidence-report.md
+c7:
+  c7_exit: pass
+  p3_p4_cleanup_exit: pass
+  p4_entry_context_ready: yes
+  acceptance_record: docs/backend-vnext/refactoring/formal/plans/p3-p4-cleanup-c7-independent-acceptance.md
+  reviewed_candidate_sha: 5687e275be8f3cb54ed9bdbe429ea6380c8577b7
+  pre_cleanup_tag_object: c1396ef9416c1566b619d3213babfc1259ffec8a
+  final_tag_object: 7c751ba86237cacf5fdc223d479d063112d9fe0b
+  broken_links: 0
+  active_archive_references: 0
+  unclassified_paths: 0
+  open_p1: 0
+  open_p2: 0
+  container_rebuild: not_applicable
 p4_default_reads:
   -
     path: docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
@@ -832,7 +850,7 @@ paths:
       role: cleanup_process_record
       sha256: 4fb7a1a8c14fe784bdad9f7ed50c048eec369d863b87b9e167b04a48ae7cde99
       bytes: 5143
-      recovery_commit: 2d56c62b1710e85eacb12d3c6eec309acdee35e9
+      recovery_commit: 274a72ca9d05dfcc1fb6a184407bf9ab673c9b65
   move_test_support:
   remove_dead:
   deferred:

@@ -1,6 +1,6 @@
 # P4 Active Context Index
 
-状态：P3 final closure complete；`p3_exit: pass`；`p4_ready: yes`；P3→P4 context cleanup C6 complete
+状态：P3 final closure complete；`p3_exit: pass`；`p4_ready: yes`；P3→P4 context cleanup C7 pass
 
 日期：2026-08-23
 
@@ -18,7 +18,8 @@ contract，也不得直接开始 P4 implementation，除非另有 implementation
 p3_exit: pass
 p4_ready: yes
 p3_p4_cleanup: complete
-p4_entry_context_ready: pending_independent_acceptance
+p3_p4_cleanup_exit: pass
+p4_entry_context_ready: yes
 p4_implementation_authorized: no_until_p4_entry_acceptance
 p5_implementation_authorized: no
 p3_production_integration_authorized: no

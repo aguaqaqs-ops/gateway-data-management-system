@@ -17,6 +17,7 @@
 - [P3→P4 Cleanup Manifest](plans/p3-p4-cleanup-manifest.yaml)
 - [P3→P4 Cleanup Handoff](plans/p3-p4-cleanup-handoff.md)（P4 entry cleanup boundary）
 - [P3→P4 Cleanup Implementer Evidence Report](plans/p3-p4-cleanup-implementer-evidence-report.md)
+- [P3→P4 Cleanup C7 Independent Acceptance](plans/p3-p4-cleanup-c7-independent-acceptance.md)
 - [Architecture and Refactoring Plan](architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](plans/implementation-stages.md)
 - [DX Cross-Phase Interface Reconciliation](plans/dx-cross-phase-interface-reconciliation.md)

@@ -1,6 +1,6 @@
 # P3→P4 Context and Code Consolidation Handoff
 
-状态：C6 complete；`p3_p4_cleanup_exit: pending_independent_acceptance`；不是 P4 implementation authorization
+状态：C7 **PASS**；`p3_p4_cleanup_exit: pass`；不是 P4 implementation authorization
 
 日期：2026-08-23
 
@@ -9,6 +9,7 @@ Owner：Backend vNext Architecture / Cleanup Implementer
 本文封存 P3→P4 context and code consolidation 的 final candidate、scope、recovery 与
 P4 entry boundary。它不拥有 contract、wire、state machine 或 operation runtime 语义。
 独立验收见
+[p3-p4-cleanup-c7-independent-acceptance.md](p3-p4-cleanup-c7-independent-acceptance.md)、
 [p3-p4-cleanup-implementer-evidence-report.md](p3-p4-cleanup-implementer-evidence-report.md)
 与 manifest
 [p3-p4-cleanup-manifest.yaml](p3-p4-cleanup-manifest.yaml)。
@@ -18,15 +19,15 @@ P4 默认入口：[P4 Active Context Index](p4-active-context-index.md)
 ```yaml
 handoff_kind: p3_p4_context_code_consolidation
 baseline_sha: 31409c8e0c37d8c12a323269ddeefebdb9927955
-candidate_sha: 58b9b1bb5505b683575242db7cd6ec504cd7b98d
+candidate_sha: 5687e275be8f3cb54ed9bdbe429ea6380c8577b7
 pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
 pre_cleanup_commit: 8682b1c6873e056386b007b3b8eb9e3d14c624a4
 final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
-final_tag_sha: this_final_tag
+final_tag_sha: 7c751ba86237cacf5fdc223d479d063112d9fe0b
 p3_exit: pass
 p4_ready: yes
-p3_p4_cleanup_exit: pending_independent_acceptance
-p4_entry_context_ready: pending_independent_acceptance
+p3_p4_cleanup_exit: pass
+p4_entry_context_ready: yes
 p4_implementation_authorized: no_until_p4_entry_acceptance
 public_semantics_changed: false
 ```
@@ -89,7 +90,7 @@ manifest：`paths.archive_from_default`（26 paths，`recovery_tag: docs/p3-p4-c
 | `temporary/generate_p3_p4_c0_inventory.py` | pre-tag |
 | `temporary/generate_p3_p4_c1_classification.py` | pre-tag |
 | `temporary/p3-p4-context-code-consolidation-c4-consumer-audit.md` | commit `1a519a29530d7906227a66bbe731babf32bd412f` |
-| `temporary/p3-p4-context-code-consolidation-c5-implementation.md` | commit `2d56c62b1710e85eacb12d3c6eec309acdee35e9` |
+| `temporary/p3-p4-context-code-consolidation-c5-implementation.md` | commit `274a72ca9d05dfcc1fb6a184407bf9ab673c9b65` |
 
 示例：
 
@@ -98,7 +99,14 @@ git show docs/p3-p4-cleanup-pre-20260823:docs/backend-vnext/refactoring/temporar
 git show 1a519a29530d7906227a66bbe731babf32bd412f:docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c4-consumer-audit.md
 ```
 
-## 5. C7 independent acceptance inputs
+## 5. C7 independent acceptance
+
+独立验收记录：[C7 Independent Acceptance](p3-p4-cleanup-c7-independent-acceptance.md)。
+该记录确认 candidate、pre/final tag、path/hash、link closure、deferred code disposition
+和 P4 boundary 均一致；`p4_implementation_authorized` 仍为
+`no_until_p4_entry_acceptance`。
+
+## 6. C7 independent acceptance inputs
 
 - final candidate SHA 与 `docs/p3-p4-cleanup-final-20260823`
 - pre-tag `docs/p3-p4-cleanup-pre-20260823`

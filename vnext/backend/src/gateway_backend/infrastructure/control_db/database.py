@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -140,13 +141,14 @@ class ControlDbUnitOfWork:
         traceback: TracebackType | None,
     ) -> None:
         connection = self._connection
+        rollback_only = bool(getattr(self._operations, "_rollback_only", False))
         self._connection = None
         self._operations = None
         self._transaction_now = None
         if connection is None:
             return
         try:
-            connection.execute("ROLLBACK" if exc_type is not None else "COMMIT")
+            connection.execute("ROLLBACK" if exc_type is not None or rollback_only else "COMMIT")
         except sqlite3.OperationalError as exc:
             _raise_if_busy(exc)
             raise
@@ -166,9 +168,7 @@ def _validate_db_path(db_path: object) -> None:
 def _configure_connection(connection: sqlite3.Connection) -> None:
     try:
         connection.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
-        journal_mode = connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]
-        if journal_mode != "wal":
-            raise RuntimeError("SQLite WAL mode was not enabled")
+        _enable_wal(connection)
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA synchronous=FULL")
         busy_timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
@@ -179,10 +179,32 @@ def _configure_connection(connection: sqlite3.Connection) -> None:
         raise RuntimeError("SQLite busy timeout profile was not applied")
 
 
+def _enable_wal(connection: sqlite3.Connection) -> None:
+    deadline = time.monotonic() + BUSY_TIMEOUT_MS / 1_000
+    while True:
+        try:
+            journal_mode = connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+            if journal_mode != "wal":
+                raise RuntimeError("SQLite WAL mode was not enabled")
+            return
+        except sqlite3.OperationalError as exc:
+            if not _is_busy_error(exc):
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _raise_if_busy(exc)
+                raise
+            time.sleep(min(0.005, remaining))
+
+
 def _raise_if_busy(exc: sqlite3.OperationalError) -> None:
-    message = str(exc).lower()
-    if "busy" in message or "locked" in message:
+    if _is_busy_error(exc):
         raise StoreBusy("control DB is busy") from None
+
+
+def _is_busy_error(exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).lower()
+    return "busy" in message or "locked" in message
 
 
 def _validate_utc_datetime(value: object, label: str) -> None:

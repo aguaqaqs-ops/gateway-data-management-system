@@ -5,9 +5,9 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from gateway_shared_kernel import CanonicalEncodingError
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
@@ -47,6 +47,7 @@ _CURSOR_VERSION = 1
 _INTEGRITY_CURSOR_VERSION = 1
 _INTEGRITY_OPERATION_PHASE = "operations"
 _INTEGRITY_STEP_PHASE = "steps"
+_T = TypeVar("_T")
 _ACTIVE_OPERATION_STATUSES = ("QUEUED", "RUNNING", "MANUAL_RECOVERY_REQUIRED")
 _ACTIVE_STEP_STATUSES = (
     "PENDING",
@@ -111,6 +112,13 @@ class SQLiteOperationStore:
         self._connection = connection
         self._transaction_now = transaction_now
         self._read_only = read_only
+        self._rollback_only = False
+
+    @property
+    def transaction_now(self) -> datetime:
+        """Return the clock sample captured for this transaction."""
+
+        return self._transaction_now
 
     def get_operation(self, operation_id: str) -> OperationRecord:
         self._require_transaction()
@@ -222,6 +230,8 @@ class SQLiteOperationStore:
     ) -> tuple[tuple[ClaimCandidate, ...], str | None]:
         self._require_transaction()
         _validate_utc_datetime(now, "now")
+        if now != self._transaction_now:
+            raise ValueError("now must match the store transaction clock")
         _validate_page_request(limit, cursor, maximum=MAX_CLAIM_LIMIT)
         cursor_values = _decode_cursor(
             cursor,
@@ -384,6 +394,15 @@ class SQLiteOperationStore:
         operation: OperationRecord,
         step: StepRecord,
     ) -> TransitionDisposition:
+        return self._run_mutation(
+            lambda: self._insert_operation_with_initial_step(operation, step)
+        )
+
+    def _insert_operation_with_initial_step(
+        self,
+        operation: OperationRecord,
+        step: StepRecord,
+    ) -> TransitionDisposition:
         self._require_writable()
         if type(operation) is not OperationRecord or type(step) is not StepRecord:
             raise ValueError("operation and step must be their R1 record types")
@@ -425,12 +444,17 @@ class SQLiteOperationStore:
         return TransitionDisposition.APPLY
 
     def insert_successor_step(self, step: StepRecord) -> TransitionDisposition:
+        return self._run_mutation(lambda: self._insert_successor_step(step))
+
+    def _insert_successor_step(self, step: StepRecord) -> TransitionDisposition:
         self._require_writable()
         if type(step) is not StepRecord:
             raise ValueError("step must be an R1 StepRecord")
         if step.status is not StepStatus.PENDING:
             raise ValueError("successor step must be PENDING")
-        self.get_operation(step.operation_id)
+        operation = self.get_operation(step.operation_id)
+        if operation.status.is_final_terminal():
+            raise ConflictingDuplicate("terminal operation cannot own a successor step")
         existing_step_row = self._select_step_row(step.step_id)
         existing_named_step_row = self._select_step_by_name(step.operation_id, step.step_name)
         if existing_step_row is not None or existing_named_step_row is not None:
@@ -460,6 +484,21 @@ class SQLiteOperationStore:
         *,
         recovery_authorized: bool = False,
     ) -> TransitionDisposition:
+        return self._run_mutation(
+            lambda: self._compare_and_set_operation(
+                candidate,
+                precondition,
+                recovery_authorized=recovery_authorized,
+            )
+        )
+
+    def _compare_and_set_operation(
+        self,
+        candidate: OperationRecord,
+        precondition: WritePrecondition,
+        *,
+        recovery_authorized: bool = False,
+    ) -> TransitionDisposition:
         self._require_writable()
         if type(candidate) is not OperationRecord:
             raise ValueError("candidate must be an OperationRecord")
@@ -472,8 +511,12 @@ class SQLiteOperationStore:
             recovery_authorized=recovery_authorized,
         )
         if disposition is TransitionDisposition.IDEMPOTENT:
+            if candidate.status.is_final_terminal() and self._has_active_step(candidate.operation_id):
+                raise ConflictingDuplicate("terminal operation cannot own an active step")
             return disposition
         self._validate_precondition(current, precondition)
+        if candidate.status.is_final_terminal() and self._has_active_step(candidate.operation_id):
+            raise ConflictingDuplicate("terminal operation cannot own an active step")
         row = operation_record_to_row(candidate)
         assignments = ", ".join(f"{column} = :{column}" for column in _OPERATION_UPDATE_COLUMNS.split(", "))
         parameters = dict(row)
@@ -489,6 +532,23 @@ class SQLiteOperationStore:
         return TransitionDisposition.APPLY
 
     def compare_and_set_step(
+        self,
+        candidate: StepRecord,
+        precondition: WritePrecondition,
+        *,
+        recovery_authorized: bool = False,
+        require_live_lease: bool = False,
+    ) -> TransitionDisposition:
+        return self._run_mutation(
+            lambda: self._compare_and_set_step(
+                candidate,
+                precondition,
+                recovery_authorized=recovery_authorized,
+                require_live_lease=require_live_lease,
+            )
+        )
+
+    def _compare_and_set_step(
         self,
         candidate: StepRecord,
         precondition: WritePrecondition,
@@ -673,6 +733,15 @@ class SQLiteOperationStore:
         if operation.status.is_final_terminal():
             raise CorruptPersistedRecord("active step belongs to a terminal operation")
 
+    def _has_active_step(self, operation_id: str) -> bool:
+        placeholders = ", ".join("?" for _ in _ACTIVE_STEP_STATUSES)
+        row = self._execute(
+            f"SELECT 1 FROM step_records WHERE operation_id = ? "
+            f"AND status IN ({placeholders}) LIMIT 1",
+            (operation_id, *_ACTIVE_STEP_STATUSES),
+        ).fetchone()
+        return row is not None
+
     def _insert_operation(self, row: Mapping[str, object]) -> None:
         columns = _OPERATION_INSERT_COLUMNS
         names = [column.strip() for column in columns.split(",")]
@@ -696,6 +765,13 @@ class SQLiteOperationStore:
             return self._connection.execute(query, cast(Any, parameters))
         except sqlite3.OperationalError as exc:
             _raise_if_busy(exc)
+            raise
+
+    def _run_mutation(self, operation: Callable[[], _T]) -> _T:
+        try:
+            return operation()
+        except BaseException:
+            self._rollback_only = True
             raise
 
     def _require_transaction(self) -> None:

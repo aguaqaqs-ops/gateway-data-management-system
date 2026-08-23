@@ -109,6 +109,14 @@ def test_store_port_methods_have_frozen_signatures() -> None:
     assert step_signature.parameters["require_live_lease"].default is False
 
 
+def test_store_exposes_the_transaction_clock_as_read_only_port_state() -> None:
+    transaction_now = OperationStore.__dict__["transaction_now"]
+    assert isinstance(transaction_now, property)
+    getter = transaction_now.fget
+    assert getter is not None
+    assert tuple(inspect.signature(getter).parameters) == ("self",)
+
+
 def test_claim_candidate_is_bounded_and_immutable() -> None:
     candidate = ClaimCandidate(
         operation_id="op-0001",

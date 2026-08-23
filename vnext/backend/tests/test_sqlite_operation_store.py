@@ -410,13 +410,15 @@ def test_store_create_readback_and_claim_candidate_round_trip() -> None:
         assert store.get_step(step.step_id) == step
 
         candidates, next_cursor = store.list_claim_candidates(
-            datetime_from_text(LATER_TIMESTAMP),
+            store.transaction_now,
         )
         assert len(candidates) == 1
         assert candidates[0].operation_id == operation.operation_id
         assert candidates[0].step_id == step.step_id
         assert candidates[0].job_step_key.job_kind == operation.job_kind
         assert next_cursor is None
+        with pytest.raises(ValueError, match="transaction clock"):
+            store.list_claim_candidates(datetime_from_text(LATER_TIMESTAMP))
     finally:
         connection.close()
 
@@ -544,6 +546,45 @@ def test_guarded_cas_applies_stale_writes_and_terminal_duplicates_correctly() ->
             )
             is TransitionDisposition.APPLY
         )
+        running_step = dataclasses.replace(
+            step,
+            status=StepStatus.RUNNING,
+            attempt_count=1,
+            started_at=datetime_from_text(LATER_TIMESTAMP),
+            worker_id="worker-1",
+            lease_token="lease-1",
+            lease_expires_at=datetime_from_text(RETRY_TIMESTAMP),
+            updated_at=datetime_from_text(LATER_TIMESTAMP),
+            optimistic_version=1,
+        )
+        assert (
+            store.compare_and_set_step(
+                running_step,
+                WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+            )
+            is TransitionDisposition.APPLY
+        )
+        terminal_step = dataclasses.replace(
+            running_step,
+            status=StepStatus.SUCCEEDED,
+            updated_at=datetime_from_text(RETRY_TIMESTAMP),
+            completed_at=datetime_from_text(RETRY_TIMESTAMP),
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            optimistic_version=2,
+        )
+        assert (
+            store.compare_and_set_step(
+                terminal_step,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+            is TransitionDisposition.APPLY
+        )
 
         failed_operation = dataclasses.replace(
             running_operation,
@@ -573,6 +614,191 @@ def test_guarded_cas_applies_stale_writes_and_terminal_duplicates_correctly() ->
             )
             is TransitionDisposition.IDEMPOTENT
         )
+    finally:
+        connection.close()
+
+
+def test_lifecycle_actions_reject_a_mismatched_transaction_clock() -> None:
+    connection, store = _memory_store(transaction_now=TIMESTAMP)
+    try:
+        with pytest.raises(ValueError, match="transaction clock"):
+            OperationLifecycleActions(
+                store,
+                transaction_now=datetime_from_text(LATER_TIMESTAMP),
+            )
+    finally:
+        connection.close()
+
+
+def test_terminal_operation_publication_rejects_an_active_step() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        running_operation = dataclasses.replace(
+            operation,
+            status=OperationStatus.RUNNING,
+            optimistic_version=1,
+            updated_at=datetime_from_text(LATER_TIMESTAMP),
+        )
+        store.compare_and_set_operation(
+            running_operation,
+            WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+        )
+        terminal_operation = dataclasses.replace(
+            running_operation,
+            status=OperationStatus.SUCCEEDED,
+            optimistic_version=2,
+            updated_at=datetime_from_text(RETRY_TIMESTAMP),
+            completed_at=datetime_from_text(RETRY_TIMESTAMP),
+        )
+        with pytest.raises(ConflictingDuplicate, match="active step"):
+            store.compare_and_set_operation(
+                terminal_operation,
+                WritePrecondition(expected_optimistic_version=1, worker_id=None, lease_token=None),
+            )
+        assert store.get_operation(operation.operation_id) == running_operation
+        assert store.get_step(step.step_id) == step
+    finally:
+        connection.close()
+
+
+def test_terminal_operation_rejects_direct_successor_insertion() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        running_step = dataclasses.replace(
+            step,
+            status=StepStatus.RUNNING,
+            attempt_count=1,
+            started_at=datetime_from_text(LATER_TIMESTAMP),
+            worker_id="worker-1",
+            lease_token="lease-1",
+            lease_expires_at=datetime_from_text(RETRY_TIMESTAMP),
+            updated_at=datetime_from_text(LATER_TIMESTAMP),
+            optimistic_version=1,
+        )
+        store.compare_and_set_step(
+            running_step,
+            WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+        )
+        terminal_step = dataclasses.replace(
+            running_step,
+            status=StepStatus.SUCCEEDED,
+            optimistic_version=2,
+            updated_at=datetime_from_text(RETRY_TIMESTAMP),
+            completed_at=datetime_from_text(RETRY_TIMESTAMP),
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+        )
+        store.compare_and_set_step(
+            terminal_step,
+            WritePrecondition(
+                expected_optimistic_version=1,
+                worker_id="worker-1",
+                lease_token="lease-1",
+            ),
+        )
+        running_operation = dataclasses.replace(
+            operation,
+            status=OperationStatus.RUNNING,
+            optimistic_version=1,
+            updated_at=datetime_from_text(LATER_TIMESTAMP),
+        )
+        store.compare_and_set_operation(
+            running_operation,
+            WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+        )
+        terminal_operation = dataclasses.replace(
+            running_operation,
+            status=OperationStatus.SUCCEEDED,
+            optimistic_version=2,
+            updated_at=datetime_from_text(RETRY_TIMESTAMP),
+            completed_at=datetime_from_text(RETRY_TIMESTAMP),
+        )
+        store.compare_and_set_operation(
+            terminal_operation,
+            WritePrecondition(expected_optimistic_version=1, worker_id=None, lease_token=None),
+        )
+        successor = _initial_step_record(
+            step_id="step-successor-terminal",
+            step_name="successor",
+        )
+        with pytest.raises(ConflictingDuplicate, match="terminal operation"):
+            store.insert_successor_step(successor)
+        assert store.get_operation(operation.operation_id) == terminal_operation
+        with pytest.raises(RecordNotFound):
+            store.get_step(successor.step_id)
+    finally:
+        connection.close()
+
+
+def test_terminal_operation_retry_rejects_an_existing_active_successor() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(LATER_TIMESTAMP),
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        claimed_operation, claimed_step = claimed
+        at = datetime_from_text(RETRY_TIMESTAMP)
+        terminal_step = dataclasses.replace(
+            claimed_step,
+            status=StepStatus.SUCCEEDED,
+            optimistic_version=2,
+            updated_at=at,
+            completed_at=at,
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+        )
+        successor = _initial_step_record(
+            step_id="step-successor-retry",
+            step_name="successor",
+        )
+        assert actions.complete_with_successor(
+            terminal_step,
+            WritePrecondition(
+                expected_optimistic_version=1,
+                worker_id="worker-1",
+                lease_token="lease-1",
+            ),
+            successor,
+        ) == (TransitionDisposition.APPLY, TransitionDisposition.APPLY)
+        terminal_operation = dataclasses.replace(
+            claimed_operation,
+            status=OperationStatus.SUCCEEDED,
+            optimistic_version=2,
+            updated_at=at,
+            completed_at=at,
+        )
+        with pytest.raises(ConflictingDuplicate, match="active step"):
+            actions.complete_operation(
+                terminal_step,
+                WritePrecondition(
+                    expected_optimistic_version=2,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+                terminal_operation,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+        assert store.get_operation(operation.operation_id) == claimed_operation
+        assert store.get_step(step.step_id) == terminal_step
+        assert store.get_step(successor.step_id) == successor
     finally:
         connection.close()
 

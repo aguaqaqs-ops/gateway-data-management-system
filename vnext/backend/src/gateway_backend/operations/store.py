@@ -106,6 +106,10 @@ class IntegrityScanPage:
 class OperationStore(Protocol):
     """Transaction-scoped operation participant; it never commits or rolls back."""
 
+    @property
+    def transaction_now(self) -> datetime:
+        """Return the single UTC clock sample owned by the active transaction."""
+
     def get_operation(self, operation_id: str) -> OperationRecord:
         """Return an operation or raise RecordNotFound."""
 

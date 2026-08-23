@@ -529,6 +529,187 @@ def test_lifecycle_and_owner_share_commit_and_rollback_boundary(tmp_path: Path) 
         ] == ["committed"]
 
 
+def test_caught_cancel_second_leg_failure_rolls_back_the_whole_uow(tmp_path: Path) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-caught-cancel-0001"))
+    step = step_record_from_document(_step_document("op-caught-cancel-0001", "step-caught-cancel-0001"))
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        claimed_operation, claimed_step = claimed
+        operation_cancel = dataclasses.replace(
+            claimed_operation,
+            cancel_requested=True,
+            optimistic_version=2,
+            updated_at=LATER_TIME + timedelta(seconds=1),
+        )
+        step_cancel = dataclasses.replace(
+            claimed_step,
+            cancel_requested=True,
+            optimistic_version=2,
+            updated_at=LATER_TIME + timedelta(seconds=1),
+        )
+        with pytest.raises(StaleWrite):
+            actions.cancel_intent(
+                operation_cancel,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+                step_cancel,
+                WritePrecondition(
+                    expected_optimistic_version=0,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        persisted_operation = reader.operations.get_operation(operation.operation_id)
+        persisted_step = reader.operations.get_step(step.step_id)
+        assert persisted_operation.status is OperationStatus.QUEUED
+        assert persisted_operation.cancel_requested is False
+        assert persisted_step.status is StepStatus.PENDING
+        assert persisted_step.cancel_requested is False
+
+
+def test_caught_successor_second_leg_failure_rolls_back_the_whole_uow(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-caught-successor-0001"))
+    step = step_record_from_document(
+        _step_document("op-caught-successor-0001", "step-caught-successor-0001")
+    )
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        _, claimed_step = claimed
+        terminal_step = dataclasses.replace(
+            claimed_step,
+            status=StepStatus.SUCCEEDED,
+            optimistic_version=2,
+            updated_at=LATER_TIME + timedelta(seconds=1),
+            completed_at=LATER_TIME + timedelta(seconds=1),
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+        )
+        conflicting_successor = dataclasses.replace(
+            step,
+            step_name="conflicting-successor",
+        )
+        with pytest.raises(ConflictingDuplicate):
+            actions.complete_with_successor(
+                terminal_step,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+                conflicting_successor,
+            )
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        assert reader.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        assert reader.operations.get_step(step.step_id).status is StepStatus.PENDING
+        assert reader.operations.get_step(step.step_id).step_name == "validate"
+
+
+def test_terminal_successor_branches_cannot_create_active_step_under_terminal_operation(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-terminal-branch-0001"))
+    step = step_record_from_document(_step_document("op-terminal-branch-0001", "step-terminal-branch-0001"))
+    successor = step_record_from_document(
+        _step_document("op-terminal-branch-0001", "step-terminal-successor-0001", step_name="successor")
+    )
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        claimed_operation, claimed_step = claimed
+        terminal_step = dataclasses.replace(
+            claimed_step,
+            status=StepStatus.SUCCEEDED,
+            optimistic_version=2,
+            updated_at=LATER_TIME + timedelta(seconds=1),
+            completed_at=LATER_TIME + timedelta(seconds=1),
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+        )
+        assert actions.complete_with_successor(
+            terminal_step,
+            WritePrecondition(
+                expected_optimistic_version=1,
+                worker_id="worker-1",
+                lease_token="lease-1",
+            ),
+            successor,
+        ) == (TransitionDisposition.APPLY, TransitionDisposition.APPLY)
+
+    terminal_operation = dataclasses.replace(
+        claimed_operation,
+        status=OperationStatus.SUCCEEDED,
+        optimistic_version=2,
+        updated_at=LATER_TIME + timedelta(seconds=1),
+        completed_at=LATER_TIME + timedelta(seconds=1),
+    )
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        with pytest.raises(ConflictingDuplicate):
+            actions.complete_operation(
+                terminal_step,
+                WritePrecondition(
+                    expected_optimistic_version=2,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+                terminal_operation,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        assert reader.operations.get_operation(operation.operation_id).status is OperationStatus.RUNNING
+        assert reader.operations.get_step(step.step_id).status is StepStatus.SUCCEEDED
+        assert reader.operations.get_step(successor.step_id) == successor
+        assert reader.operations.scan_active_integrity().steps_scanned == 1
+
+
 def test_successor_conflict_rolls_back_prior_step_completion(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
     initialize_control_db(db_path, now=lambda: MIGRATION_TIME)

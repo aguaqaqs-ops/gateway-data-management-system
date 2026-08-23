@@ -34,7 +34,7 @@ serial: not_applicable_no_fixed_time_or_process_boundary
 container_gate: not_applicable_no_image_or_deployment_boundary
 benchmark: not_applicable_no_performance_claim
 schema_or_dependency_change: none
-next_step: P4-R3-S3a
+next_step: P4-R2-S3a
 next_step_authorized: no
 ```
 
@@ -95,8 +95,8 @@ applies to S2b.
 
 ```yaml
 deferred_items:
-  - P4-R3-S3a integrity and corruption hardening
-  - P4-R3-S3b contention and crash visibility evidence
+  - P4-R2-S3a integrity and corruption hardening
+  - P4-R2-S3b contention and crash visibility evidence
   - R3 worker/bootstrap/settings/volume/readiness boundary
   - R4 successor and final outcome policy
   - R5 retry/backoff/effect-aware recovery and lease takeover
@@ -108,5 +108,5 @@ reopen_conditions:
   - accepted SQLite lock/capacity boundary no longer holds
 ```
 
-S2b passes its module gate and hands off only to `P4-R3-S3a`; this record does not authorize that
+S2b passes its module gate and hands off only to `P4-R2-S3a`; this record does not authorize that
 step or the broader P4-R2 implementation gate.

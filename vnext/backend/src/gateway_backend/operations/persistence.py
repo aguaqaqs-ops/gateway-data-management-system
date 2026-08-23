@@ -34,6 +34,8 @@ class OperationLifecycleActions:
         if not isinstance(store, OperationStore):
             raise ValueError("store must satisfy OperationStore")
         _validate_utc_datetime(transaction_now, "transaction_now")
+        if transaction_now != store.transaction_now:
+            raise ValueError("transaction_now must match the store transaction clock")
         self._store = store
         self._transaction_now = transaction_now
 

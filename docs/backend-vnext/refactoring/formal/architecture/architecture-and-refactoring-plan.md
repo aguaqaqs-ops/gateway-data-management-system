@@ -540,6 +540,11 @@ JSON payload：
 
 ## 10. 建议目标目录
 
+下列 `backend_vnext/` 是逻辑架构目录，不要求在当前 distribution 中创建同名顶层 Python
+package。当前可运行 vNext backend 的物理 package root 是 `gateway_backend`；两者采用一对一
+映射，P4 Operation Runtime 的实际落点为 `gateway_backend/operations/`。除非后续出现明确
+部署或生态 consumer，不为目录名称兼容创建第二套 package。
+
 业务系统：
 
 ```text

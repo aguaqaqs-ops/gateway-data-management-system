@@ -1,0 +1,201 @@
+# P4 Durable Operation Runtime Design Baseline
+
+状态：**Accepted for P4 entry acceptance and staged implementation planning**
+
+日期：2026-08-23
+
+Owner：Backend vNext Operation Runtime
+
+上游：[P4 Active Context Index](p4-active-context-index.md)、[P3 Final Closure and P4/P5 Entry Handoff](p3-final-closure-handoff.md)
+
+本文将已收敛的 P4 entry/design decisions 固化为总体设计基线。它组合已有
+normative contracts，不取代 [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)、
+[External Effect and Recovery](../contracts/external-effect-and-recovery.md) 或
+[Contract Taxonomy and Ownership](../contracts/contract-taxonomy-and-ownership.md)。精确 wire、字段和错误矩阵由对应 owner 在 P4-R1 冻结。
+
+逻辑架构名称为 `backend_vnext`；当前 distribution 的物理 Python package root 为
+`gateway_backend`。两者不是两个并行实现。P4 允许整理已提交代码的目录结构，但不为
+兼容旧内部 import 保留第二套 Runtime。
+
+## 1. 目标与边界
+
+P4 建立供 Phase 5 业务纵切使用的最小 Durable Operation Runtime：
+
+- operation/step 状态可持久化、可查询、可恢复；
+- worker crash、lease expiry 和重复投递不会产生重复业务 effect；
+- checkpoint、artifact ref 和 repository operation identity 足以支持接管；
+- JobDefinition 通过稳定注册继续执行，不依赖请求进程内 closure；
+- drain、startup recovery 和 readiness 遵守既有 lifecycle contract。
+
+P4 不实现：
+
+- Workspace、HTTP、PreviewResult、Submit/Finalize、Review 或 Archive 业务流程；
+- production external-target adapter、multi-target durable schema 或 PostgreSQL adapter；
+- Repository marker/ref/CAS/reconciliation authority；
+- 任意 DAG、动态脚本工作流、跨服务分布式事务或新的 broker/sidecar/security principal；
+- capability 内部按表并行；只有需要独立恢复和业务可见进度的工作才可成为 operation step。
+
+## 2. 已确认架构决策
+
+| 主题 | 决策 |
+|---|---|
+| 物理包落点 | `vnext/backend/src/gateway_backend/operations/`；`backend_vnext` 只作逻辑架构名称 |
+| 部署形态 | 模块化单体部署单元；独立 worker entrypoint；同一受控信任域 |
+| Durable Store | backend application control DB 的 SQLite/WAL；operation、step、outbox 与业务表共享事务数据库 |
+| 并发 | 首版顺序 step、有界并发，默认 `max_in_flight=1`；固定 fan-out/fan-in 只预留 |
+| claim/takeover | optimistic version + worker identity + lease token；过期 worker 的写入被 CAS 拒绝 |
+| 注册 key | `(job_kind, step_name) -> JobDefinition handler`；不再并存 `operation_kind` |
+| contract version | `backend-vnext/operation-runtime/v1`；job-specific payload 另有 `job_contract_version` |
+| payload | `job_kind`、`job_contract_version`、版本化 payload 或 payload ref；runtime 不解释业务语义 |
+| 大型结果 | 只保存 immutable artifact/checkpoint ref、digest 和 closure ref，不保存 Python object graph |
+| 外部 effect | request 前后均复用原 idempotency/operation identity；unknown outcome 只查询和 reconcile |
+| 取消 | cooperative cancellation；外部请求已发送后不伪造远程取消、不生成新 key |
+| cleanup | P4 不自动删除 terminal operation；保留/GC 等待真实 consumer 和容量数据 |
+
+## 3. 逻辑架构
+
+```text
+application use case / JobDefinition owner
+        |  create operation + outbox in one DB transaction
+        v
+Operation Runtime port
+        |
+        +--> SQLite/WAL Operation Store
+        |      operation / step / lease / checkpoint metadata
+        |
+        +--> JobDefinition Registry
+        |      stable job_kind + step_name -> handler
+        |
+        +--> Worker entrypoint
+               claim -> load checkpoint -> execute -> CAS publish
+                         |                         |
+                         v                         v
+                    ArtifactStore             Repository Client port
+                         |                         |
+                         +--> immutable refs       +--> Repository Service
+                                                      (operation/ref/CAS owner)
+```
+
+允许的依赖方向：`application -> operation port -> runtime/store`；JobDefinition 由
+application 注册，runtime 只负责执行机制；Repository adapter 只暴露网络 contract，
+不泄漏 Dolt path、CLI、PID 或 server session。
+
+P4/P5 的物理目录演进为：
+
+```text
+gateway_backend/
+  capabilities/       # P3 capability owners
+  operations/         # P4 runtime owner
+  artifacts/          # artifact contracts/ports
+  infrastructure/     # adapters
+  application/        # P5 use cases and JobDefinitions
+  domain/             # P5 domain modules
+  interfaces/         # HTTP/worker interfaces
+  bootstrap/           # startup and composition root
+```
+
+现有 `app.py`、settings 和接口代码可在 R3/P5 按 owner 迁入 `bootstrap/`、`interfaces/`
+和 `application/`；迁移保持功能语义不变，不在 R1 提前引入业务路由或 worker wiring。
+
+## 4. 状态与事务语义
+
+### 4.1 Operation 与 Step
+
+首版建议的通用状态集合为：
+
+```text
+Operation: QUEUED -> RUNNING -> SUCCEEDED | FAILED | CANCELLED | SUPERSEDED | MANUAL_RECOVERY_REQUIRED
+Step:      PENDING -> RUNNING -> RETRY_WAIT | SUCCEEDED | FAILED | CANCELLED | MANUAL_RECOVERY_REQUIRED
+```
+
+`READY` 是 step output 的 closure/readability 条件，不是通用 Operation terminal status。
+Operation terminal status 不等于业务终局；Submit/Archive 的 T3 finalize 仍由业务 owner 负责。
+
+通用 Operation envelope 至少绑定：
+
+```text
+operation_id, job_kind, job_contract_version,
+job_payload or job_payload_ref,
+business IDs, artifact refs/digests,
+repository_operation_id (when present), checkpoint_ref,
+ready_closure_ref, optimistic_version, created/updated timestamps
+```
+
+Step record 额外保存 step name、attempt count、lease token/expiry、last error code、
+checkpoint ref 和 prior output refs。具体业务 payload/schema 不进入 Operations owner 的通用语义。
+
+### 4.2 T1/T2/T3
+
+P4 提供执行机制，未来 P5 application 定义业务事务：
+
+```text
+T1 business DB transaction:
+   validate -> persist business binding + Operation + outbox atomically
+
+T2 durable worker:
+   checkpoint immutable request/artifact -> submit/poll Repository operation
+
+T3 business DB transaction:
+   require matching SUCCEEDED or allowed stable failure -> finalize business facts
+```
+
+请求已发送而结果未知时，worker 不创建新 idempotency key；接管 worker 先以原
+`repository_operation_id` 查询，再按 Repository contract 处理 evidence。
+
+### 4.3 Lease 与 stale worker
+
+claim、heartbeat、checkpoint 和 terminal publish 都必须带 `optimistic_version` 与
+`lease_token`。lease 过期只允许新 worker 通过 CAS 接管；旧 worker 的迟到写入必须失败并
+记录诊断。P4 不建设独立 fencing 服务。
+
+## 5. Lifecycle、drain 与恢复
+
+遵守既有生命周期：
+
+```text
+SERVING -> DRAINING -> QUIESCED -> CHECKPOINTED -> STOPPING -> EXITED
+```
+
+进入 `DRAINING` 后拒绝新的会创建 operation/artifact/effect 的请求，已有 operation 可
+继续执行或 checkpoint 后接管。startup readiness 前执行：
+
+```text
+load durable state -> reconcile unknown outcomes/artifacts
+  -> validate registry/ruleset -> restore workers -> health check
+  -> readiness=true
+```
+
+默认 graceful drain timeout 仍为 deployment contract 的 `180s`；数值型 lease、heartbeat、
+retry/backoff 和 poll interval 在详细设计中冻结，并必须满足测试时间预算。
+
+取消只在安全 checkpoint 边界生效。外部 effect 已发送时，取消不能释放业务占用，必须先
+完成原 operation 的 reconcile 或转入 `MANUAL_RECOVERY_REQUIRED`。
+
+## 6. 故障与验收不变量
+
+- 纯 compute step 可从 checkpoint 幂等重算；外部 effect step 不得 blind replay。
+- 同一 operation/step 的 duplicate delivery 最终只产生一个 terminal publication。
+- repository operation 已接受但 worker crash 时，接管 worker 复用原 identity 查询。
+- `MANUAL_RECOVERY_REQUIRED`、integrity incident 和未解决外部事实不进入普通 cleanup。
+- READY 前所需 artifact 必须存在且可读；READY 后的后台优化不得改变正式结果。
+- Runtime 不依赖具体 Workspace、Submission、Archive 或 capability 内部模型。
+
+P4 必须覆盖纯计算 synthetic job、external-effect stub job、process crash、lease takeover、
+duplicate delivery、cancel、drain/restart、checkpoint corruption 和 unknown outcome。
+真实 Repository/Dolt effect 与 P5B 一起做 integration；worker entrypoint/lifecycle 触碰
+container boundary 后，P4 final candidate 必须重建当前 HEAD 镜像并运行容器门禁。
+
+## 7. 风险与延后事项
+
+| 项目 | 当前处理 |
+|---|---|
+| SQLite lock contention / 容量 | P4 使用有界并发和诊断；真实容量 baseline 延后到 P5 journey |
+| lease/retry 数值 | 详细设计阶段按故障测试预算冻结 |
+| terminal operation retention/GC | P4 不自动删除；由后续运维 policy 和真实 consumer 决定 |
+| 多实例 HA / 外部 DB | 非 P4 V1 目标；出现真实部署需求后重开架构决策 |
+| production Repository/Dolt integration | P5B owner；P4 使用 contract stub |
+| 任意 DAG / 动态 fan-out | 保留接口，不进入首版实现 |
+
+## 8. Entry acceptance
+
+实现授权前必须接受：[P4 Durable Operation Runtime Execution Plan](p4-durable-operation-runtime-execution-plan.md) 中的六个 module charter、schema/migration plan、fault matrix、测试命令、review owner、deferred register 和当前 HEAD provenance。通过 entry acceptance 后，才可将 `p4_implementation_authorized` 改为 `yes`。

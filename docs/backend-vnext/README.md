@@ -10,6 +10,10 @@ Phase 3 已 exit。P4 设计从这里开始，不要把下文旧 contract/capabi
 Repository Service wire 或 P2 完成状态：
 
 - [P4 Active Context Index](refactoring/formal/plans/p4-active-context-index.md)
+- [P4 Durable Operation Runtime Design Baseline](refactoring/formal/plans/p4-durable-operation-runtime-design.md)
+- [P4 Durable Operation Runtime Execution Plan](refactoring/formal/plans/p4-durable-operation-runtime-execution-plan.md)
+- [P4 Entry Acceptance Candidate](refactoring/formal/plans/p4-entry-acceptance.md)
+- [P4-R1-S0 Entry Brief](refactoring/formal/plans/p4-r1-s0-entry-brief.md)
 - [P2 External Interface Handoff](refactoring/formal/plans/p2-external-interface-handoff.md)
 
 历史 P3 默认入口 `p3-active-context-index.md` 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823`

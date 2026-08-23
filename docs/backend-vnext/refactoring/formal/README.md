@@ -12,6 +12,10 @@
 当前内容：
 
 - [P4 Active Context Index](plans/p4-active-context-index.md)（P4 设计默认入口）
+- [P4 Durable Operation Runtime Design Baseline](plans/p4-durable-operation-runtime-design.md)
+- [P4 Durable Operation Runtime Execution Plan](plans/p4-durable-operation-runtime-execution-plan.md)
+- [P4 Entry Acceptance Candidate](plans/p4-entry-acceptance.md)
+- [P4-R1-S0 Entry Brief](plans/p4-r1-s0-entry-brief.md)
 - [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)（封印 candidate/image、支持面、限制、reopen）
 - [P2–P3 Cleanup Manifest](plans/p2-p3-cleanup-manifest.yaml)
 - [P3→P4 Cleanup Manifest](plans/p3-p4-cleanup-manifest.yaml)

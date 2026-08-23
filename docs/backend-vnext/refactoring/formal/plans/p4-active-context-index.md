@@ -20,6 +20,8 @@ p4_ready: yes
 p3_p4_cleanup: complete
 p3_p4_cleanup_exit: pass
 p4_entry_context_ready: yes
+p4_entry_acceptance: ready_for_independent_acceptance
+p4_r1_s0: ready_for_acceptance
 p4_implementation_authorized: no_until_p4_entry_acceptance
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
@@ -41,17 +43,25 @@ final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
    Phase 3 exit pass；`p4_ready: yes`；P4 implementation 未授权。
 4. [Implementation Stages §7 Phase 4](implementation-stages.md#7-phase-4durable-operation-runtime)：
    Durable Operation Runtime 目标、交付物与退出条件。
-5. [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)：
+5. [P4 Durable Operation Runtime Design Baseline](p4-durable-operation-runtime-design.md)：
+   已确认的 P4 总体设计、边界、状态和恢复不变量。
+6. [P4 Durable Operation Runtime Execution Plan](p4-durable-operation-runtime-execution-plan.md)：
+   六个初始模块、S-step 模板、测试策略和 entry/exit gate。
+7. [P4 Entry Acceptance Candidate](p4-entry-acceptance.md)：
+   当前候选的 gate 检查、provenance、独立 acceptance 和实现授权边界。
+8. [P4-R1-S0 Entry Brief](p4-r1-s0-entry-brief.md)：
+   R1 的范围、owner、适用 steps、测试和 handoff 前置条件。
+9. [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)：
    operation/step 状态、integrity 与 recovery owner。
-6. [External Effect and Recovery](../contracts/external-effect-and-recovery.md)：
+10. [External Effect and Recovery](../contracts/external-effect-and-recovery.md)：
    external effect evidence、reconciliation 与 recovery owner。
-7. [Business Lifecycle and State](../contracts/business-lifecycle-and-state.md)：
+11. [Business Lifecycle and State](../contracts/business-lifecycle-and-state.md)：
    business object、occupancy、freeze point 与 T1/T3 owner。
-8. [Repository Service Contract](../contracts/repository-service.md)：Repository
+12. [Repository Service Contract](../contracts/repository-service.md)：Repository
    operation、marker/ref/CAS、reconciliation authority；P4 lease 不改变其语义。
-9. [P3 Capability Foundation Design](p3-capability-foundation-design.md)：P3 capability
+13. [P3 Capability Foundation Design](p3-capability-foundation-design.md)：P3 capability
    设计 authority 与 P4 直接依赖的 capability contracts 索引。
-10. [Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)：
+14. [Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)：
     跨阶段保障与测试取舍。
 
 可选（贡献者/实现约束）：

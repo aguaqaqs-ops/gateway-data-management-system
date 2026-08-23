@@ -1,9 +1,6 @@
 # Phase 3 Final Closure and P4/P5 Handoff Execution Plan
 
-状态：F0 entry complete/pass；F1 evidence reconciliation complete/pass；F2 diagnostic benchmark
-complete/pass on sealed candidate `13ce18b` with applicability reconciliation；F3 applicable source
-gate complete/pass on sealed candidate `a28d88a`；F4 backend container gate complete/pass on sealed
-candidate `a28d88a`；F5 independent acceptance pending；`p3_exit: pending`
+状态：F0–F5 complete/pass；`p3_exit: pass`；`p4_ready: yes`；P4 implementation 未授权
 
 日期：2026-08-22
 
@@ -142,7 +139,7 @@ defer；本轮不为它建立 multi-target durable schema。
 | F2 | diagnostic runner + raw measurement evidence | **complete/pass** on `13ce18b`; applicability reconciled |
 | F3 | authoritative tests, exact external-fixture exclusion, five-package ruff/mypy | **complete/pass** on `a28d88a`; runner-only reconciliation did not require rerun |
 | F4 | backend image rebuild, native/wheel/health/Compose smoke | **complete/pass** on `a28d88a` image identity |
-| F5 | independent phase acceptance and P3→P4/P5 handoff | pending；见 [p3-final-closure-handoff.md](p3-final-closure-handoff.md) |
+| F5 | independent phase acceptance and P3→P4/P5 handoff | **complete/pass**；见 [p3-final-closure-f5-independent-acceptance.md](p3-final-closure-f5-independent-acceptance.md) |
 
 F5 必须在新 acceptance context 中执行，不依赖本轮 implementer 对未提交工作树的解释。
 
@@ -296,6 +293,7 @@ F4 对 sealed candidate 的 backend container gate 为 **PASS**。
 
 ```yaml
 current_module: P3-FINAL
+p3_final_closure: complete
 p3_final_closure_entry: pass
 p3_final_closure_authorized: yes
 p3_final_closure_f0: completed
@@ -303,13 +301,14 @@ p3_final_closure_f1: completed_pass
 p3_final_closure_f2: completed_pass_sealed_candidate_13ce18b
 p3_final_closure_f3: completed_pass_sealed_candidate_a28d88a
 p3_final_closure_f4: completed_pass_sealed_candidate_a28d88a
-p3_final_closure_f5: pending_independent_acceptance
+p3_final_closure_f5: completed_pass
+p3_final_closure_f5_acceptance: p3-final-closure-f5-independent-acceptance.md
 p3_final_closure_base_sha: 3ad7afa3d938011d01685de3fd732af68e891e66
 tested_candidate_sha: 13ce18b8b2d689bc7a4087e0072d485891740c0c
 f3_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
 f4_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
 prior_handoff_record_sha: c58498d7a517b7f954a7ee24284a58829bd81a40
-handoff_record_sha: pending_handoff_documentation_commit
+handoff_record_sha: b0ac984507056fb10c17c07243330b20a315c2c8
 p3_final_closure_handoff: p3-final-closure-handoff.md
 p3_capability_modules_complete: yes
 p3_production_integration_authorized: no
@@ -318,10 +317,10 @@ p3_legacy_oracle_disposition: known_external_fixture_exact_nodeid_exclusion
 p3_benchmark: measurement_only_component_multi_pair_recorded
 p3_benchmark_applicability: reconciled_cross_capability_and_provider_deferred
 p3_container_gate: passed_backend_image_a28d88a
-p3_exit: pending
+p3_exit: pass
 p4_design_conversation_ready: yes
-p4_ready: no_until_p3_final_handoff
-p4_implementation_authorized: no
+p4_ready: yes
+p4_implementation_authorized: no_until_p4_entry_acceptance
 p5_implementation_authorized: no
 ```
 

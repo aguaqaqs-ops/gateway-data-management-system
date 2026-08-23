@@ -7,10 +7,8 @@
 当前状态：Phase 2简化设计、D01 Phase 0–1同原则简化设计、DX cross-phase
 interface reconciliation与S02联合代码清理均已闭合；P2-R1 v8 formal 已通过。
 P2-R6-S11 `phase_2_complete: yes`。Phase 3 capability design 已完成；P3-R1 至 P3-R7
-module gates 均为 `pass`。当前进入
-[P3 Final Closure](p3-final-closure-execution-plan.md)，闭合 phase-level evidence、diagnostic
-benchmark、最终 candidate/container gate 与 P4/P5 handoff；`p3_exit: pending`、
-`p4_ready: no`，未进入 P4 implementation。
+module gates 均为 `pass`。[P3 Final Closure](p3-final-closure-execution-plan.md) 已完成；
+`p3_exit: pass`、`p4_ready: yes`；`p4_implementation_authorized: no_until_p4_entry_acceptance`。
 R2 详细执行见 [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)。
 R3 详细执行见 [P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)。
 R3 S0 冻结见 [P3-R3-S0 Entry, Applicability and Budget Freeze](p3-r3-s0-entry-and-budget-freeze.md)。

@@ -1,14 +1,14 @@
 # P3 Final Closure and P4/P5 Entry Handoff
 
-状态：`pending`（F0–F4 complete/pass on sealed candidate；F5 independent acceptance pending；
-不是 Phase 3 全部 production integration 授权）
+状态：**pass**（F0–F5 complete/pass；`p3_exit: pass`；不是 P4/P5 implementation authorization）
 
 日期：2026-08-23
 
 Owner：Backend vNext Architecture Acceptance
 
 本文封存 P3-FINAL 的 sealed candidate、evidence record、deferred register 与 P4/P5 entry
-boundary。它不是 P3 exit pass，也不授权 P4/P5 implementation。
+boundary。F5 独立验收见
+[p3-final-closure-f5-independent-acceptance.md](p3-final-closure-f5-independent-acceptance.md)。
 
 上游计划：[P3 Final Closure and P4/P5 Handoff Execution Plan](p3-final-closure-execution-plan.md)
 
@@ -20,17 +20,21 @@ round: P3-FINAL-F5
 tested_candidate_sha: 13ce18b8b2d689bc7a4087e0072d485891740c0c
 prior_tested_candidate_sha: a28d88a85793017716029638155687ca17e4b5ed
 prior_handoff_record_sha: c58498d7a517b7f954a7ee24284a58829bd81a40
-handoff_record_sha: pending_handoff_documentation_commit
-p3_exit: pending
-p4_ready: no_until_p3_final_handoff
+handoff_record_sha: b0ac984507056fb10c17c07243330b20a315c2c8
+f3_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
+f4_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
+p3_exit: pass
+p4_ready: yes
+p4_implementation_authorized: no_until_p4_entry_acceptance
 p3_production_integration_authorized: no
 p3_implementation_authorized: no
 ```
 
-`tested_candidate_sha` 是 F2–F4 的 source authority。`13ce18b` 相对 `a28d88a` 仅修正
-benchmark runner 适用性/测量记录与 owning P3 design/execution applicability 裁定；F3/F4 未
-重跑，仍继承 `a28d88a` 上已通过的 source/container evidence。F5 独立验收须同时核对两个
-tested candidate 的 diff 是否仅限该 reconciliation scope。
+`13ce18b` 是 **F2/benchmark authority**；`a28d88a` 是 **F3 source/test** 与 **F4 container
+authority**。二者之间只有 runner/applicability formal changes，production/test/build inputs
+不变。`13ce18b` 相对 `a28d88a` 修正 benchmark runner 适用性/测量记录与 owning P3
+design/execution applicability 裁定；F3/F4 未重跑，仍继承 `a28d88a` 上已通过的
+source/container evidence。
 
 ## 1. Gate identity
 
@@ -41,7 +45,7 @@ tested candidate 的 diff 是否仅限该 reconciliation scope。
 | F2 diagnostic benchmark | **pass** on `13ce18b` | [p3-final-closure-benchmark.json](p3-final-closure-benchmark.json) |
 | F3 source/static | **pass** on `a28d88a`（未因 runner-only reconciliation 重跑） | `/tmp/p3-final-run-tests.log` |
 | F4 backend container | **pass** on `a28d88a` image | remote `gateway-backend:p3-final-a28d88a85793` |
-| F5 independent acceptance | **pending** | separate acceptance context |
+| F5 independent acceptance | **pass** | [p3-final-closure-f5-independent-acceptance.md](p3-final-closure-f5-independent-acceptance.md) |
 
 ## 2. Benchmark applicability reconciliation
 
@@ -64,13 +68,11 @@ F5 初审阻塞项为 benchmark 覆盖与上位 P3 三层 measurement 策略的 
 
 ```text
 tested_candidate_sha: 13ce18b8b2d689bc7a4087e0072d485891740c0c
-prior_handoff_record_sha: c58498d7a517b7f954a7ee24284a58829bd81a40
-evidence commit: pending
+f3_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
+f4_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
+handoff_record_sha: b0ac984507056fb10c17c07243330b20a315c2c8
+f5_acceptance_record: p3-final-closure-f5-independent-acceptance.md
 ```
-
-`a28d88a..13ce18b` diff：runner + owning P3 design/execution applicability docs only。
-
-`13ce18b..<handoff_record_sha>` 预期仅含 formal records/raw measurement evidence。
 
 ## 4. Container provenance
 
@@ -105,7 +107,7 @@ P3 不交付、不授权：
 - Repository Service reconciliation 仍由其 control DB/marker/ref/CAS 拥有；P4 lease 不改变
   Repository operation authority。
 
-P4 可开始 design conversation；`p4_implementation_authorized: no` 直到 `p3_exit: pass`。
+P4 可进入 entry/design conversation；`p4_implementation_authorized: no_until_p4_entry_acceptance`。
 
 ## 7. F5 acceptance checklist
 

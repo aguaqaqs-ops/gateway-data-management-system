@@ -1,6 +1,6 @@
 # P3 Active Context Index
 
-状态：P3-R1 至 P3-R7 module gates pass；P3 final closure in progress；`p3_exit: pending`
+状态：P3-R1 至 P3-R7 module gates pass；P3 final closure complete；`p3_exit: pass`；`p4_ready: yes`
 
 日期：2026-08-22
 
@@ -123,18 +123,22 @@ p3_r7_validated_code_sha: b0261cb669fedc07173a31cd55ce83ef19b0c6ad
 p3_r7_upstream_applicability_re_attested_sha: f2d48d876c40dd918878a6e5215c57daf7920766
 p3_r7_rework_required: no
 p3_r7_implementation_authorized: no
-p3_final_closure: in_progress
+p3_final_closure: complete
 p3_final_closure_plan: p3-final-closure-execution-plan.md
 p3_final_closure_handoff: p3-final-closure-handoff.md
+p3_final_closure_f5_acceptance: p3-final-closure-f5-independent-acceptance.md
 p3_final_closure_entry: pass
-p3_exit: pending
+p3_exit: pass
 p4_design_conversation_ready: yes
-p4_ready: no_until_p3_final_handoff
+p4_ready: yes
+p4_implementation_authorized: no_until_p4_entry_acceptance
 p3_capability_modules_complete: yes
 p3_production_integration_authorized: no
 p3_container_gate: passed_backend_image_a28d88a
 p3_tested_candidate_sha: 13ce18b8b2d689bc7a4087e0072d485891740c0c
 p3_f3_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
+p3_f4_validated_source_sha: a28d88a85793017716029638155687ca17e4b5ed
+p3_handoff_record_sha: b0ac984507056fb10c17c07243330b20a315c2c8
 p3_benchmark_applicability: reconciled_cross_capability_and_provider_deferred
 p3_legacy_oracle_gap: known_external_fixture_exact_nodeid_exclusion
 p3_r5_ready: yes
@@ -256,7 +260,9 @@ cleanup_commit: this_cleanup_commit
     Phase-level evidence reconciliation、diagnostic benchmark、final candidate/container gates、
     durable/reconciliation ownership freeze 和最终 P3→P4/P5 handoff；不是新的 capability R。
 37. [P3 Final Closure and P4/P5 Entry Handoff](p3-final-closure-handoff.md)：
-    F5 acceptance checklist、sealed candidate identity、deferred register 和 P4/P5 entry boundary。
+    sealed candidate identity、deferred register 和 P4/P5 entry boundary。
+38. [P3-FINAL F5 Independent Acceptance Record](p3-final-closure-f5-independent-acceptance.md)：
+    Phase 3 exit pass；`p4_ready: yes`；P4 implementation 未授权。
 
 ENUM/SET 语义：[ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)（P3-R2-S0 已修订
 source dump / repository import 双边界）。

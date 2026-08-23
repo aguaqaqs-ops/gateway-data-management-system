@@ -10,7 +10,9 @@ Owner：Backend vNext Architecture Acceptance
 boundary。F5 独立验收见
 [p3-final-closure-f5-independent-acceptance.md](p3-final-closure-f5-independent-acceptance.md)。
 
-上游计划：[P3 Final Closure and P4/P5 Handoff Execution Plan](p3-final-closure-execution-plan.md)
+上游身份：[P3-FINAL F5 Independent Acceptance Record](p3-final-closure-f5-independent-acceptance.md)
+（F0–F1 process evidence archived；recover via tag `docs/p3-p4-cleanup-pre-20260823`，见
+[p3-p4-cleanup-manifest.yaml](p3-p4-cleanup-manifest.yaml) `paths.archive_from_default`）
 
 R7 上游：[P3-R7 Mutation and Target Closure Handoff](p3-r7-mutation-target-closure-handoff.md)
 
@@ -40,7 +42,7 @@ source/container evidence。
 
 | Gate | Result | Authority |
 | --- | --- | --- |
-| F0 entry/applicability | **pass** | [p3-final-closure-execution-plan.md](p3-final-closure-execution-plan.md) |
+| F0 entry/applicability | **pass** | F5 acceptance record；process plan archived（tag `docs/p3-p4-cleanup-pre-20260823`） |
 | F1 evidence reconciliation | **pass** | same |
 | F2 diagnostic benchmark | **pass** on `13ce18b` | [p3-final-closure-benchmark.json](p3-final-closure-benchmark.json) |
 | F3 source/static | **pass** on `a28d88a`（未因 runner-only reconciliation 重跑） | `/tmp/p3-final-run-tests.log` |

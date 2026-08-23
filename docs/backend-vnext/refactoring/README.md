@@ -11,7 +11,7 @@
 
 ## 阅读顺序
 
-1. [P3 Active Context Index](formal/plans/p3-active-context-index.md)：P3 设计默认入口与 allowlist。
+1. [P4 Active Context Index](formal/plans/p4-active-context-index.md)：P4 设计默认入口与 allowlist。
 2. [P2 External Interface Handoff](formal/plans/p2-external-interface-handoff.md)：封印 candidate/image、支持面、限制与 reopen。
 3. [Architecture and Refactoring Plan](formal/architecture/architecture-and-refactoring-plan.md)：目标架构、模块职责、依赖规则、Python/Rust 分工和独立 Repository Service 边界。
 4. [Implementation Stages](formal/plans/implementation-stages.md)：从现状基线到生产切换的阶段顺序、交付物、门禁和纵向业务切片。

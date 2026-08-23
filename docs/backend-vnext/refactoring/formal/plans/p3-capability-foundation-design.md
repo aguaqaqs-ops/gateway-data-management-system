@@ -80,7 +80,7 @@ risk, mutation and transaction contracts as ordinary tables.
 
 状态：Accepted；R3 gate pass；S8 handoff recorded
 
-S0 冻结记录见 [P3-R3-S0](p3-r3-s0-entry-and-budget-freeze.md)。
+S0 冻结事实已封存于 [P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)。
 S8 handoff 见 [P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)。
 
 R3 建立从 SourcePackage、SQL dump、business XML 和 pinned RepositoryRef 到 Snapshot、
@@ -172,7 +172,8 @@ canonical storage projection 或业务派生表。
 - ADR 0013 已在 R2-S0 修订为 source parser 与 repository import validation 的
   明确双边界；不得共享 parser implementation 或创建 `sql_utils`、
   `capabilities/common`、`capabilities/utils`。权威记录见
-  [P3-R2-S0](p3-r2-s0-entry-and-budget-freeze.md)。
+  [P3-R2 Table Access and Parser Handoff](p3-r2-table-access-parser-handoff.md) 与
+  [ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)。
 - R2 不实现 SourcePackage staging、business-source wrapper、Snapshot materialization、
   `composite_signal` business materializer、storage/comparison projection、HTTP、Workspace、
   Submit、Operation Runtime 或 artifact retention。
@@ -183,7 +184,8 @@ canonical storage projection 或业务派生表。
   SourcePackage 容器，不执行 SQL，也不连接 Repository。
 - 首版只接受显式 allowlist 中的 `CREATE TABLE`、`INSERT INTO` 和 bounded、无语义的
   dump boilerplate。完整 allowlist、known type closure 与 numeric budgets 已在
-  [P3-R2-S0](p3-r2-s0-entry-and-budget-freeze.md) 冻结；未列 statement、`REPLACE`、
+  [P3-R2 Table Access and Parser Handoff](p3-r2-table-access-parser-handoff.md) 与
+  本节封存；未列 statement、`REPLACE`、
   upsert、需推导的 DDL mutation、trigger/procedure/event、隐式执行语义均 fail
   closed。既有 256 MiB compressed ingress、1 GiB expanded SourcePackage 是外层边界，
   不是 R2-specific budget 的替代品。
@@ -233,12 +235,12 @@ canonical storage projection 或业务派生表。
   不创建 Dolt。
 
 R2 延后项必须在后续设计中显式引用本表，不得从 parser skeleton 推断为已实现。
-S0 关闭项的权威记录见 [P3-R2-S0](p3-r2-s0-entry-and-budget-freeze.md)。
+S0 关闭项的权威记录见 [P3-R2 Table Access and Parser Handoff](p3-r2-table-access-parser-handoff.md)。
 
 | ID | Deferred item | Owner / earliest phase | Required guard before use |
 | --- | --- | --- | --- |
-| R2-D01 | exact parser/XML/batch/diagnostic numeric budgets | **Closed in R2-S0** | [S0 budget table](p3-r2-s0-entry-and-budget-freeze.md)；S2/S3 boundary tests |
-| R2-D02 | complete SQL boilerplate allowlist and type grammar closure | **Closed in R2-S0 / ADR 0013** | [S0 allowlist](p3-r2-s0-entry-and-budget-freeze.md)；ADR 0013 dual-boundary |
+| R2-D01 | exact parser/XML/batch/diagnostic numeric budgets | **Closed in R2-S0** | R2 handoff sealed budgets；S2/S3 boundary tests |
+| R2-D02 | complete SQL boilerplate allowlist and type grammar closure | **Closed in R2-S0 / ADR 0013** | R2 handoff + ADR 0013 dual-boundary |
 | R2-D03 | concrete Python parser library/provider feasibility | **Closed in R2-S0** | stdlib custom SQL scanner + `xml.parsers.expat`；无第三方 parser |
 | R2-D04 | `logics.xml` business schema and derived-table materializer | R3 | owning materialization contract |
 | R2-D05 | Repository/Dolt-backed reader and hidden summary readback | R3 / P2 integration boundary | repository provider contract and integration tests |
@@ -252,8 +254,7 @@ S0 关闭项的权威记录见 [P3-R2-S0](p3-r2-s0-entry-and-budget-freeze.md)�
 状态：Accepted；R4 detail plan accepted；S0 freeze complete；S8 module gate complete，R4 gate pass；R5 module gate complete；R6 detail plan accepted；S0 complete；implementation authorization pending
 
 设计与执行基线见 [P3-R4 Storage Projection Design Baseline](p3-r4-storage-projection-design.md)
-和 [P3-R4 Storage Projection Execution Plan](p3-r4-storage-projection-execution-plan.md)。
-S0 冻结见 [P3-R4-S0 Entry, Applicability, Legacy Matrix and Budget Freeze](p3-r4-s0-entry-and-budget-freeze.md)。
+和 [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)。
 R4 gate / R5 entry 见 [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)。
 
 R4 迁移 legacy `TableRuleRegistry` 的有效 rule-resolution semantics，建立
@@ -279,7 +280,7 @@ Deliverable #8 是 Phase 3 的长期 harness 目标，不等于 P3 exit 必须�
 measurement。P3-FINAL 当前只要求 component/multi-pair diagnostic evidence；cross-capability
 artifact chain 与 production/reference provider comparison 分别延后到 P5/P6/P7，见
 [P3 Capability Foundation Execution Plan](p3-capability-foundation-execution-plan.md#6-benchmark-policy)
-与 [P3 Final Closure Execution Plan](p3-final-closure-execution-plan.md)。
+与 [P3 Final Closure and P4/P5 Entry Handoff](p3-final-closure-handoff.md)。
 
 ## 6. Explicit phase boundaries
 

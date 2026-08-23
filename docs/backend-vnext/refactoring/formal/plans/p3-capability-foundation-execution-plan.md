@@ -34,8 +34,8 @@ P2 可复用的是 staged execution、review、remediation、handoff 和 phase g
 | Module | Scope | Required handoff |
 | --- | --- | --- |
 | P3-R1 Capability Foundation | contract/test foundation、错误分类、已证明必要的 shared primitive、artifact/staging conformance、provider/import boundary checks | 可独立调用的 capability boundary |
-| P3-R2 Table Access and Parser | table access protocol、SQL parser、XML parser、bounded rows/descriptors、parser diagnostics | [P3-R2 detailed execution plan](p3-r2-table-access-parser-execution-plan.md)：descriptor/diagnostics/deferred row stream |
-| P3-R3 Source Materialization and Snapshot | [detailed execution plan](p3-r3-source-materialization-execution-plan.md)：SourcePackage staging、ruleset snapshot、canonical materialization、derived tables、`SnapshotTableArtifact`、reuse/fallback profile | immutable snapshot artifact closure |
+| P3-R2 Table Access and Parser | table access protocol、SQL parser、XML parser、bounded rows/descriptors、parser diagnostics | [P3-R2 Table Access and Parser Handoff](p3-r2-table-access-parser-handoff.md)：descriptor/diagnostics/deferred row stream |
+| P3-R3 Source Materialization and Snapshot | SourcePackage staging、ruleset snapshot、canonical materialization、derived tables、`SnapshotTableArtifact`、reuse/fallback profile | [P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)：immutable snapshot artifact closure |
 | P3-R4 Storage Projection | canonical key/schema、storage digest、CanonicalizationManifest、RepositoryImportArtifact input | canonical storage projection |
 | P3-R5 Comparison | comparison projection、standard diff、row records、`FULL`/`MODIFIED_ONLY`、dataset replacement | `ComparisonFacts`/records |
 | P3-R6 Risk, Surface and Bundle | RiskEngine、risk facts、annotations、surface assembly、bundle closure | Preview-facing result closure |
@@ -328,7 +328,7 @@ p3_r7_rework_required: no
 p3_r7_exit: pass
 p3_r7_implementation_authorized: no
 p3_final_closure: complete
-p3_final_closure_plan: p3-final-closure-execution-plan.md
+p3_final_closure_plan: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-final-closure-execution-plan.md
 p3_final_closure_handoff: p3-final-closure-handoff.md
 p3_final_closure_f5_acceptance: p3-final-closure-f5-independent-acceptance.md
 p3_final_closure_entry: pass
@@ -349,32 +349,24 @@ p3_implementation_authorized: no
 
 ## 10. Normative references
 
+Active module handoffs and design baselines（过程 execution plan / S0 / review 记录已归档；
+恢复见 [P3→P4 Cleanup Manifest](p3-p4-cleanup-manifest.yaml) 与 tag `docs/p3-p4-cleanup-pre-20260823`）：
+
+- [P4 Active Context Index](p4-active-context-index.md)
 - [P3 Capability Foundation Design](p3-capability-foundation-design.md)
-- [P3 Active Context Index](p3-active-context-index.md)
+- [P3 Final Closure and P4/P5 Entry Handoff](p3-final-closure-handoff.md)
+- [P3-FINAL F5 Independent Acceptance Record](p3-final-closure-f5-independent-acceptance.md)
 - [P3-R1 Capability Foundation Handoff](p3-r1-capability-foundation-handoff.md)
-- [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)
 - [P3-R2 Table Access and Parser Handoff](p3-r2-table-access-parser-handoff.md)
-- [P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)
-- [P3-R3-S0 Entry, Applicability and Budget Freeze](p3-r3-s0-entry-and-budget-freeze.md)
-- [P3-R3-S6 Focused Contract, Resource and Security Review](p3-r3-s6-focused-review.md)
-- [P3-R3 S7 Independent Owner, Import, Digest and Recovery Review](p3-r3-s7-independent-review.md)
 - [P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)
 - [P3-R4 Storage Projection Design Baseline](p3-r4-storage-projection-design.md)
-- [P3-R4 Storage Projection Execution Plan](p3-r4-storage-projection-execution-plan.md)
-- [P3-R4-S0 Entry, Applicability, Legacy Matrix and Budget Freeze](p3-r4-s0-entry-and-budget-freeze.md)
-- [P3-R4 S6 Focused Contract, Resource and Security Review](p3-r4-s6-focused-review.md)
-- [P3-R4 S7 Independent Owner, Import, Digest and Recovery Review](p3-r4-s7-independent-review.md)
 - [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)
+- [P3-R5 Comparison Design Baseline](p3-r5-comparison-design.md)
+- [P3-R5 Comparison Handoff](p3-r5-comparison-handoff.md)
 - [P3-R6 Risk, Surface and Bundle Design Baseline](p3-r6-risk-surface-bundle-design.md)
-- [P3-R6 Risk, Surface and Bundle Execution Plan](p3-r6-risk-surface-bundle-execution-plan.md)
 - [P3-R6 Risk, Surface and Bundle Handoff](p3-r6-risk-surface-bundle-handoff.md)
 - [P3-R7 Mutation and Target Closure Design Baseline](p3-r7-mutation-target-closure-design.md)
-- [P3-R7 Mutation and Target Closure Execution Plan](p3-r7-mutation-target-closure-execution-plan.md)
-- [P3-R7-S0 Entry and Budget Freeze](p3-r7-s0-entry-and-budget-freeze.md)
-- [P3-R7-S6 Independent Owner, Import, Digest and Recovery Review](p3-r7-s6-independent-review.md)
 - [P3-R7 Mutation and Target Closure Handoff](p3-r7-mutation-target-closure-handoff.md)
-- [P3 Final Closure and P4/P5 Handoff Execution Plan](p3-final-closure-execution-plan.md)
-- [P3-R6-S0 Entry and Budget Freeze](p3-r6-s0-entry-and-budget-freeze.md)
 - [Implementation Stages](implementation-stages.md)
 - [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)
 - [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md)

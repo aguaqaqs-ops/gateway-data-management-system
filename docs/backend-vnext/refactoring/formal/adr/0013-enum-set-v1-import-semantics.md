@@ -16,7 +16,7 @@
 精确规则位于 owning contract，本文不复制 grammar 或字段表：
 
 - source dump SQL grammar、statement allowlist、identifier unquote 和 dump 侧
-  typed-scalar 识别：`table_access`（[P3-R2-S0](../plans/p3-r2-s0-entry-and-budget-freeze.md)）
+  typed-scalar 识别：`table_access`（[P3-R2 Table Access and Parser Handoff](../plans/p3-r2-table-access-parser-handoff.md)）
 - catalog/manifest `sql_type` 族判定、Arrow、fail-closed 转换、import/read wire
   映射：[Repository Service](../contracts/repository-service.md) §10.1
 - content 单元格 bytes：[Shared Canonical Encoding](../contracts/shared-canonical-encoding.md) §3.2
@@ -113,5 +113,5 @@ Shared Canonical Encoding v1 的 tag 表已闭合；Canonical Row Hash Arrow map
 独立 Contract review 已通过。首次审核 fail 记录保持不变。后续 unit、golden、五份
 fixture validator 与 capacity 按执行计划 Stage C–I 证明，不由本 ADR 替代。
 P3-R2-S0 双边界修订不重新打开 ENUM/SET 值语义；dump parser 实现与 boundary tests
-按 [P3-R2 execution plan](../plans/p3-r2-table-access-parser-execution-plan.md)
-S1–S3 证明。
+由 [P3-R2 Table Access and Parser Handoff](../plans/p3-r2-table-access-parser-handoff.md)
+封存。

@@ -13,10 +13,8 @@ boundary、测试证据、限制和 R5 prerequisites。comparison records、`FUL
 和 R4 执行计划。
 
 上级计划：[P3 Capability Foundation Execution Plan](p3-capability-foundation-execution-plan.md)
-R4 执行计划：[P3-R4 Storage Projection Execution Plan](p3-r4-storage-projection-execution-plan.md)
-S0 冻结：[P3-R4-S0 Entry, Applicability, Legacy Matrix and Budget Freeze](p3-r4-s0-entry-and-budget-freeze.md)
-S6 审查：[P3-R4 S6 Focused Contract, Resource and Security Review](p3-r4-s6-focused-review.md)
-S7 审查：[P3-R4 S7 Independent Owner, Import, Digest and Recovery Review](p3-r4-s7-independent-review.md)
+过程证据：R4 执行计划、S0 freeze 与 S6/S7 review 已归档；恢复见 tag
+`docs/p3-p4-cleanup-pre-20260823` 与 [p3-p4-cleanup-manifest.yaml](p3-p4-cleanup-manifest.yaml)。
 设计基线：[P3-R4 Storage Projection Design Baseline](p3-r4-storage-projection-design.md)
 R3 入口：[P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)
 
@@ -48,9 +46,9 @@ handoff_documentation_sha: pending_handoff_documentation_commit
 ```yaml
 branch: phase1/gate-ownership-repair
 s6_reviewed_tip: 4effb6eefa16d246e75213212f884b2546e6d6ef (sealed reviewed implementation)
-s6_review_record: p3-r4-s6-focused-review.md
-s7_review_record: p3-r4-s7-independent-review.md
-s0_record: p3-r4-s0-entry-and-budget-freeze.md
+s6_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r4-s6-focused-review.md
+s7_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r4-s7-independent-review.md
+s0_record: sealed_in_this_handoff; archived_basename p3-r4-s0-entry-and-budget-freeze.md
 s8_tests_rerun: historical_yes_current_focused_yes_full_unit_incomplete
 container_rebuild_reason: R4 candidate is pure Python capability/test/docs and does not touch image, deployment, or container-only runtime boundaries
 last_validated_image_revision: none; source-tree validation is the authoritative evidence
@@ -116,14 +114,12 @@ vnext/backend/tests/support/table_rules.py
 vnext/backend/tests/support/table_rules_legacy_oracle.py
 vnext/fixtures/golden/storage-projection/
 docs/backend-vnext/refactoring/formal/plans/p3-r4-storage-projection-design.md
-docs/backend-vnext/refactoring/formal/plans/p3-r4-storage-projection-execution-plan.md
-docs/backend-vnext/refactoring/formal/plans/p3-r4-s0-entry-and-budget-freeze.md
-docs/backend-vnext/refactoring/formal/plans/p3-r4-s6-focused-review.md
-docs/backend-vnext/refactoring/formal/plans/p3-r4-s7-independent-review.md
+# archived: p3-r4-storage-projection-execution-plan.md, p3-r4-s0-entry-and-budget-freeze.md,
+#   p3-r4-s6-focused-review.md, p3-r4-s7-independent-review.md (tag docs/p3-p4-cleanup-pre-20260823)
 docs/backend-vnext/refactoring/formal/plans/p3-r4-storage-projection-handoff.md
 docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-design.md
 docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-execution-plan.md
-docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
+docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
 docs/backend-vnext/refactoring/formal/plans/implementation-stages.md
 docs/backend-vnext/refactoring/formal/contracts/canonical-storage-and-repository-boundary.md
 docs/backend-vnext/refactoring/formal/contracts/ruleset-activation-and-migration.md
@@ -198,13 +194,13 @@ unbounded path 或 hidden Repository/application dependency。S8 未 reopen ADR 
 owning contract；S0 numeric budgets 未修订。完整 migrated matrix 52 条规则；
 legacy oracle parity 与 ignored-column → `DROP_FROM_STORAGE` 映射保持。
 
-权威延后表：[P3-R4 execution plan §7](p3-r4-storage-projection-execution-plan.md#7-deferred-register-and-reopen-conditions)
-与 [S0 freeze](p3-r4-s0-entry-and-budget-freeze.md)。
+权威延后表：本 handoff §5 deferred register 与
+[P3-R4 Storage Projection Design Baseline](p3-r4-storage-projection-design.md)。
 
 ## 6. Contract, ADR and fixture references
 
 ```text
-docs/backend-vnext/refactoring/formal/plans/p3-r4-s0-entry-and-budget-freeze.md
+# archived: p3-r4-s0-entry-and-budget-freeze.md (tag docs/p3-p4-cleanup-pre-20260823)
 docs/backend-vnext/refactoring/formal/plans/p3-r4-storage-projection-design.md
 docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-design.md
 docs/backend-vnext/refactoring/formal/contracts/shared-canonical-encoding.md

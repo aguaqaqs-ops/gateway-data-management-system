@@ -10,7 +10,7 @@ Owner：Backend vNext Architecture
 来自已通过的 S11 记录与现行 contract/ADR。本文不复制字段表、状态机或错误矩阵，
 也不重新验证 pytest / Dolt / Compose / W1/W2 / v8。
 
-P3 默认入口：[P3 Active Context Index](p3-active-context-index.md)
+P4 默认入口：[P4 Active Context Index](p4-active-context-index.md)
 完整过程证据：Git tag `docs/p2-p3-cleanup-pre-20260817` 中的
 `docs/backend-vnext/refactoring/temporary/p2-r6-s11-final-handoff.md` 与
 `docs/backend-vnext/refactoring/temporary/p2-r6-s11-lineage-inventory.json`

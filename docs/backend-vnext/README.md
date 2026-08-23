@@ -4,13 +4,16 @@
 
 vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约为前提。旧系统只作为问题样本和业务语义来源，不作为模块、状态机、ID/hash 或 artifact 结构的强制约束。
 
-## P3 默认入口
+## P4 默认入口
 
-Phase 2 已 complete。P3 设计从这里开始，不要把下文旧 contract/capability 清单当作
+Phase 3 已 exit。P4 设计从这里开始，不要把下文旧 contract/capability 清单当作
 Repository Service wire 或 P2 完成状态：
 
-- [P3 Active Context Index](refactoring/formal/plans/p3-active-context-index.md)
+- [P4 Active Context Index](refactoring/formal/plans/p4-active-context-index.md)
 - [P2 External Interface Handoff](refactoring/formal/plans/p2-external-interface-handoff.md)
+
+历史 P3 默认入口 [P3 Active Context Index](refactoring/formal/plans/p3-active-context-index.md)
+将在 P3→P4 cleanup C3 归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823`。
 
 旧 `contracts/`、`capabilities/`、`flows.md` 等是 P3 capability 设计 oracle；冲突以
 `refactoring/formal/` 为准。

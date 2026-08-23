@@ -13,9 +13,9 @@ bundle、HTTP、Workspace、Submit、Repository/Dolt 和 Operation Runtime produ
 仍不属于 R5；不得从本 handoff 推断已获授权。过程证据见 R5 execution plan 的 S0、S5、S6
 和 S7 记录。
 
-上级计划：[P3-R5 Comparison Execution Plan](p3-r5-comparison-execution-plan.md)
 设计基线：[P3-R5 Comparison Design Baseline](p3-r5-comparison-design.md)
-S0 冻结：[P3-R5-S0 Entry, Applicability and Budget Freeze](p3-r5-s0-entry-and-budget-freeze.md)
+过程证据：R5 执行计划与 S0 freeze 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823` 与
+[p3-p4-cleanup-manifest.yaml](p3-p4-cleanup-manifest.yaml)。
 上游 handoff：[P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)
 
 ```yaml
@@ -48,9 +48,9 @@ image/container gate 仍是必须执行的 deferred gate，不被该 pass 隐式
 
 ```yaml
 branch: phase1/gate-ownership-repair
-s0_record: p3-r5-s0-entry-and-budget-freeze.md
-s6_review_record: p3-r5-comparison-execution-plan.md#65-s6-verification-record
-s7_review_record: p3-r5-comparison-execution-plan.md#66-s7-focused-and-independent-review-record
+s0_record: sealed_in_this_handoff; archived_basename p3-r5-s0-entry-and-budget-freeze.md
+s6_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r5-comparison-execution-plan.md
+s7_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r5-comparison-execution-plan.md
 s8_record: p3-r5-comparison-handoff.md
 container_rebuild_reason: R5 adds Rust Parquet records reader and Cargo lock/dependency changes copied and built by vnext/backend/Dockerfile
 last_validated_image_revision: none

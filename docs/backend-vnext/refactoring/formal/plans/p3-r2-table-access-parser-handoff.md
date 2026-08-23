@@ -12,8 +12,8 @@ Owner：Backend vNext Table Access
 和 R2 执行计划。
 
 上级计划：[P3 Capability Foundation Execution Plan](p3-capability-foundation-execution-plan.md)
-R2 执行计划：[P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)
-S0 冻结：[P3-R2-S0 Entry, Applicability and Budget Freeze](p3-r2-s0-entry-and-budget-freeze.md)
+过程证据：R2 执行计划与 S0 freeze 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823` 与
+[p3-p4-cleanup-manifest.yaml](p3-p4-cleanup-manifest.yaml) `paths.archive_from_default`。
 设计基线：[P3 Capability Foundation Design §4.1](p3-capability-foundation-design.md#41-p3-r2-table-access-and-parser-design-baseline)
 
 ```yaml
@@ -40,9 +40,9 @@ SHA。S7 开始时工作树含未提交的 R2 实现与 S0–S6 记录；它们�
 ```yaml
 branch: phase1/gate-ownership-repair
 s6_reviewed_tip: 2a799cf30508ab6a380718eeacd6f721fc247b20
-s6_review_record: p3-r2-table-access-parser-execution-plan.md#9-s6-independent-review-record
-s4_review_record: p3-r2-table-access-parser-execution-plan.md#8-s4-focused-review-record
-s0_record: p3-r2-s0-entry-and-budget-freeze.md
+s6_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r2-table-access-parser-execution-plan.md
+s4_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r2-table-access-parser-execution-plan.md
+s0_record: sealed_in_this_handoff; archived_basename p3-r2-s0-entry-and-budget-freeze.md
 s5: embedded_in_s2_s3_loop
 s7_tests_rerun: yes
 container_rebuild_reason: R2 candidate is pure Python parser/test/docs and does not touch image, deployment, or container-only runtime boundaries
@@ -100,16 +100,18 @@ vnext/fixtures/vectors/table-access/
 docs/backend-vnext/refactoring/formal/adr/0013-enum-set-v1-import-semantics.md
 docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-design.md
 docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-execution-plan.md
-docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
-docs/backend-vnext/refactoring/formal/plans/p3-r2-s0-entry-and-budget-freeze.md
-docs/backend-vnext/refactoring/formal/plans/p3-r2-table-access-parser-execution-plan.md
+docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
+docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-design.md
+docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-execution-plan.md
+# archived process records: p3-r2-s0-entry-and-budget-freeze.md, p3-r2-table-access-parser-execution-plan.md
+# recover via tag docs/p3-p4-cleanup-pre-20260823 (p3-p4-cleanup-manifest.yaml)
 docs/backend-vnext/refactoring/formal/plans/p3-r2-table-access-parser-handoff.md
 docs/backend-vnext/refactoring/formal/plans/implementation-stages.md
 ```
 
 S1 已登记 `tests/test_architecture.py`。S7 新增登记 handoff 与上级状态索引路径。
-`p3-r1-capability-foundation-execution-plan.md` 与 `p3-r1-s0-asset-inventory.md`
-仅同步「R2 detail plan accepted」状态行，不改变 R1 合同。
+`p3-r1-capability-foundation-execution-plan.md` 与 `p3-r1-s0-asset-inventory.md`（已归档；
+恢复见 tag `docs/p3-p4-cleanup-pre-20260823`）仅同步「R2 detail plan accepted」状态行，不改变 R1 合同。
 
 No SourcePackage staging, Snapshot materialization, storage/comparison projection,
 HTTP, Workspace, Submit, Operation Runtime, Repository/Dolt reader, production
@@ -159,8 +161,8 @@ owning contract；S0 numeric budgets 未修订。
 ## 6. Contract, ADR and fixture references
 
 ```text
-docs/backend-vnext/refactoring/formal/plans/p3-r2-s0-entry-and-budget-freeze.md
 docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-design.md
+# archived: p3-r2-s0-entry-and-budget-freeze.md (tag docs/p3-p4-cleanup-pre-20260823)
 docs/backend-vnext/refactoring/formal/adr/0013-enum-set-v1-import-semantics.md
 docs/backend-vnext/refactoring/formal/contracts/repository-service.md
 docs/backend-vnext/refactoring/formal/contracts/shared-canonical-encoding.md
@@ -227,7 +229,7 @@ forbidden tokens（`dolt`、`gateway_repository`、`host_path`、`lxml`、`defus
 
 ## 9. R3 entry prerequisites
 
-R3 详细计划已创建：[P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)。R3 entry 必须拿到并保持：
+R3 module gate 已通过：[P3-R3 Source Materialization and Snapshot Handoff](p3-r3-source-materialization-handoff.md)。R3 entry 必须拿到并保持：
 
 - stable descriptor/reader/diagnostic public boundary（§7）；
 - accepted SQL/XML input and resource budgets（S0 §8；S7 未修订）；

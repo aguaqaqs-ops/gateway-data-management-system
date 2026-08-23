@@ -7,8 +7,8 @@
 Owner：Backend vNext Architecture Acceptance（independent acceptance context）
 
 上游 handoff：[P3 Final Closure and P4/P5 Entry Handoff](p3-final-closure-handoff.md)
-
-执行计划：[P3 Final Closure and P4/P5 Handoff Execution Plan](p3-final-closure-execution-plan.md)
+（F0–F1 过程计划已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823` 与
+[p3-p4-cleanup-manifest.yaml](p3-p4-cleanup-manifest.yaml)）
 
 ```yaml
 acceptance_kind: p3_final_closure_f5

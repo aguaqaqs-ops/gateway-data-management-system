@@ -12,10 +12,8 @@ boundary、测试证据、限制和 R4 prerequisites。canonical storage key/sch
 R3 私有 digest/Parquet 模块猜测。过程证据见 S0 freeze、S6/S7 reviews 和 R3 执行计划。
 
 上级计划：[P3 Capability Foundation Execution Plan](p3-capability-foundation-execution-plan.md)
-R3 执行计划：[P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)
-S0 冻结：[P3-R3-S0 Entry, Applicability and Budget Freeze](p3-r3-s0-entry-and-budget-freeze.md)
-S6 审查：[P3-R3 S6 Focused Contract, Resource and Security Review](p3-r3-s6-focused-review.md)
-S7 审查：[P3-R3 S7 Independent Owner, Import, Digest and Recovery Review](p3-r3-s7-independent-review.md)
+过程证据：R3 执行计划、S0 freeze 与 S6/S7 review 已归档；恢复见 tag
+`docs/p3-p4-cleanup-pre-20260823` 与 [p3-p4-cleanup-manifest.yaml](p3-p4-cleanup-manifest.yaml)。
 设计基线：[P3 Capability Foundation Design §4.2](p3-capability-foundation-design.md#42-p3-r3-source-materialization-and-snapshot-design-baseline)
 
 ```yaml
@@ -43,9 +41,9 @@ benchmark: not_applicable
 ```yaml
 branch: phase1/gate-ownership-repair
 s6_reviewed_tip: 7989e47d08c48fda46e7d8b6b3550ef9ee266d92
-s6_review_record: p3-r3-s6-focused-review.md
-s7_review_record: p3-r3-s7-independent-review.md
-s0_record: p3-r3-s0-entry-and-budget-freeze.md
+s6_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r3-s6-focused-review.md
+s7_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r3-s7-independent-review.md
+s0_record: sealed_in_this_handoff; archived_basename p3-r3-s0-entry-and-budget-freeze.md
 s8_tests_rerun: yes
 container_rebuild_reason: R3 candidate is pure Python capability/test/docs and does not touch image, deployment, or container-only runtime boundaries
 last_validated_image_revision: none; source-tree validation is the authoritative evidence
@@ -111,14 +109,9 @@ vnext/backend/tests/support/repository_ref_materialization.py
 vnext/backend/tests/support/composite_signal.py
 vnext/fixtures/golden/snapshot-materialization/
 vnext/fixtures/golden/composite-signal/
-docs/backend-vnext/refactoring/formal/plans/p3-r3-source-materialization-execution-plan.md
-docs/backend-vnext/refactoring/formal/plans/p3-r3-s0-entry-and-budget-freeze.md
-docs/backend-vnext/refactoring/formal/plans/p3-r3-s6-focused-review.md
-docs/backend-vnext/refactoring/formal/plans/p3-r3-s7-independent-review.md
-docs/backend-vnext/refactoring/formal/plans/p3-r3-source-materialization-handoff.md
-docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-design.md
-docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-execution-plan.md
-docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
+docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
+# archived process records: p3-r3-source-materialization-execution-plan.md, p3-r3-s0-entry-and-budget-freeze.md,
+#   p3-r3-s6-focused-review.md, p3-r3-s7-independent-review.md (tag docs/p3-p4-cleanup-pre-20260823)
 docs/backend-vnext/refactoring/formal/plans/implementation-stages.md
 ```
 
@@ -182,13 +175,13 @@ probes, not a sleep/join budget.
 unbounded path 或 hidden Repository/application dependency。S8 未 reopen ADR 或
 owning contract；S0 numeric budgets 未修订。
 
-权威延后表：[P3-R3 execution plan §6](p3-r3-source-materialization-execution-plan.md#6-deferred-register-and-reopen-conditions)
-与 [S0 freeze](p3-r3-s0-entry-and-budget-freeze.md)。
+权威延后表：本 handoff §5 deferred register 与
+[P3 design §4.2](p3-capability-foundation-design.md#42-p3-r3-source-materialization-and-snapshot-design-baseline)。
 
 ## 6. Contract, ADR and fixture references
 
 ```text
-docs/backend-vnext/refactoring/formal/plans/p3-r3-s0-entry-and-budget-freeze.md
+# archived: p3-r3-s0-entry-and-budget-freeze.md (tag docs/p3-p4-cleanup-pre-20260823)
 docs/backend-vnext/refactoring/formal/plans/p3-capability-foundation-design.md
 docs/backend-vnext/refactoring/formal/contracts/shared-canonical-encoding.md
 docs/backend-vnext/refactoring/formal/contracts/canonical-storage-and-repository-boundary.md

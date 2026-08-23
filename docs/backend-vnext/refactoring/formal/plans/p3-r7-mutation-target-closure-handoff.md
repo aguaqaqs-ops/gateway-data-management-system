@@ -12,13 +12,10 @@ closure、已知 deferred items 和 P4/P5 prerequisites。R7 只交付 target-ne
 `StorageMutationPlan`、`ChangeSetArtifact`、deterministic replay SQL 和 in-memory reference
 executor；`p3_implementation_authorized` 仍为 `no`。
 
-上级计划：[P3-R7 Mutation and Target Closure Execution Plan](p3-r7-mutation-target-closure-execution-plan.md)
-
 设计基线：[P3-R7 Mutation and Target Closure Design Baseline](p3-r7-mutation-target-closure-design.md)
 
-入口冻结：[P3-R7-S0 Entry, Applicability and Budget Freeze](p3-r7-s0-entry-and-budget-freeze.md)
-
-独立 review：[P3-R7-S6 Independent Owner, Import, Digest and Recovery Review](p3-r7-s6-independent-review.md)
+过程证据：R7 执行计划、S0 freeze 与 S6 review 已归档；恢复见 tag
+`docs/p3-p4-cleanup-pre-20260823` 与 [p3-p4-cleanup-manifest.yaml](p3-p4-cleanup-manifest.yaml)。
 
 上游 handoff：[P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)、[P3-R6 Risk, Surface and Bundle Handoff](p3-r6-risk-surface-bundle-handoff.md)
 
@@ -50,9 +47,9 @@ inherited R5 Rust/Cargo backend image/container gate 仍是必须执行的 defer
 
 ```yaml
 branch: phase1/gate-ownership-repair
-s0_record: p3-r7-s0-entry-and-budget-freeze.md
-s3_review_record: p3-r7-mutation-target-closure-execution-plan.md#s3--planner-focused-review
-s6_review_record: p3-r7-s6-independent-review.md
+s0_record: sealed_in_this_handoff; archived_basename p3-r7-s0-entry-and-budget-freeze.md
+s3_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r7-mutation-target-closure-execution-plan.md
+s6_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r7-s6-independent-review.md
 s7_record: p3-r7-mutation-target-closure-handoff.md
 container_rebuild_reason: R7 is pure Python capability logic; no Dockerfile, lockfile or runtime-boundary change in the R7 lineage
 last_validated_image_revision: none
@@ -135,9 +132,8 @@ R7 contract/formal records：
 
 ```text
 docs/backend-vnext/refactoring/formal/plans/p3-r7-mutation-target-closure-design.md
-docs/backend-vnext/refactoring/formal/plans/p3-r7-s0-entry-and-budget-freeze.md
-docs/backend-vnext/refactoring/formal/plans/p3-r7-mutation-target-closure-execution-plan.md
-docs/backend-vnext/refactoring/formal/plans/p3-r7-s6-independent-review.md
+# archived: p3-r7-s0-entry-and-budget-freeze.md, p3-r7-mutation-target-closure-execution-plan.md,
+#   p3-r7-s6-independent-review.md (tag docs/p3-p4-cleanup-pre-20260823)
 docs/backend-vnext/refactoring/formal/plans/p3-r7-mutation-target-closure-handoff.md
 ```
 

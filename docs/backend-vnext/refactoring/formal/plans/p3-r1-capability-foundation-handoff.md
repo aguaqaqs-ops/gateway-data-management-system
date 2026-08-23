@@ -11,7 +11,8 @@ R2 prerequisites。字段级 parser/table-access 语义仍由 P3 owning contract
 从 R1 skeleton 猜测。过程证据见 S0 inventory、S4/S6 reviews 和 R1 执行计划。
 
 上级计划：[P3 Capability Foundation Execution Plan](p3-capability-foundation-execution-plan.md)
-R1 执行计划：[P3-R1 Capability Foundation Execution Plan](p3-r1-capability-foundation-execution-plan.md)
+过程证据：R1 执行计划与 S0 inventory 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823` 与
+[p3-p4-cleanup-manifest.yaml](p3-p4-cleanup-manifest.yaml) `paths.archive_from_default`。
 
 ```yaml
 handoff_kind: p3_r1_capability_foundation
@@ -36,9 +37,9 @@ SHA。S7 开始时工作树仅有未提交的 S6 文档（无 `vnext/` 代码变
 ```yaml
 branch: phase1/gate-ownership-repair
 s6_reviewed_tip: fc5159576b30de5bd8c1428446537aa92a23642b
-s6_review_record: p3-r1-s6-independent-review.md
-s4_review_record: p3-r1-s4-focused-review.md
-s0_inventory: p3-r1-s0-asset-inventory.md
+s6_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r1-s6-independent-review.md
+s4_review_record: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r1-s4-focused-review.md
+s0_inventory: archived; recovery_tag docs/p3-p4-cleanup-pre-20260823; basename p3-r1-s0-asset-inventory.md
 s5: not_required
 s7_tests_rerun: yes
 container_rebuild_reason: R1 candidate does not touch image, deployment, or container-only runtime boundaries
@@ -128,7 +129,7 @@ in-memory/local stores and `tmp_path`.
 
 ## 5. Inventory and decision register
 
-权威盘点：[P3-R1-S0 asset inventory](p3-r1-s0-asset-inventory.md)。
+权威盘点：R1 S0 asset inventory 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823`。
 
 KEEP/EXTEND 的 foundation：`gateway_shared_kernel` canonical primitives；Backend
 四字段 `ArtifactRef` / `ArtifactStorePort`；`LocalArtifactStore` 仅作 bounded

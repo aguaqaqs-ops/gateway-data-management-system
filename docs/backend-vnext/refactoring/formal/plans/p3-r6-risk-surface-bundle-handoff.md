@@ -11,13 +11,10 @@ Owner：Backend vNext Capability Architecture
 review closure、已知 deferred items 和 R7 prerequisites。R6 只交付 flow-neutral Risk、Surface
 和 Bundle capability；`p3_implementation_authorized` 仍为 `no`。
 
-上级计划：[P3-R6 Risk, Surface and Bundle Execution Plan](p3-r6-risk-surface-bundle-execution-plan.md)
-
 设计基线：[P3-R6 Risk, Surface and Bundle Design Baseline](p3-r6-risk-surface-bundle-design.md)
 
-入口冻结：[P3-R6-S0 Entry, Applicability and Budget Freeze](p3-r6-s0-entry-and-budget-freeze.md)
-
-独立 review：[P3-R6-S6 Independent Owner, Import, Digest and Recovery Review](p3-r6-s6-independent-review.md)
+过程证据：R6 执行计划、S0 freeze 与 S6 review 已归档；恢复见 tag
+`docs/p3-p4-cleanup-pre-20260823` 与 [p3-p4-cleanup-manifest.yaml](p3-p4-cleanup-manifest.yaml)。
 
 ## 1. Gate identity
 
@@ -68,9 +65,8 @@ docs/backend-vnext/capabilities/risk-evaluation.md
 docs/backend-vnext/capabilities/surface-assembly.md
 docs/backend-vnext/capabilities/bundle-assembly.md
 docs/backend-vnext/refactoring/formal/plans/p3-r6-risk-surface-bundle-design.md
-docs/backend-vnext/refactoring/formal/plans/p3-r6-s0-entry-and-budget-freeze.md
-docs/backend-vnext/refactoring/formal/plans/p3-r6-s6-independent-review.md
-docs/backend-vnext/refactoring/formal/plans/p3-r6-risk-surface-bundle-execution-plan.md
+# archived: p3-r6-s0-entry-and-budget-freeze.md, p3-r6-s6-independent-review.md,
+#   p3-r6-risk-surface-bundle-execution-plan.md (tag docs/p3-p4-cleanup-pre-20260823)
 ```
 
 No R6 change touched dependencies, lockfiles, Dockerfile, Compose, entrypoint, deployment wiring,

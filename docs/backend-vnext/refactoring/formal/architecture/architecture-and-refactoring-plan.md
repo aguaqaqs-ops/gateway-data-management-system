@@ -14,20 +14,11 @@ interface reconciliation也已由
 [DX plan](../plans/dx-cross-phase-interface-reconciliation.md)闭合，S02联合代码清理已
 完成。P2-R1 v8 formal 已通过，默认 provider 为
 Candidate A offline CLI，Candidate B保留但默认禁用。
-2026-08-22：P2-R6-S11 `phase_2_complete: yes`；P3 design 已完成，P3-R4 module gate
-`p3_r4_exit: pass`，P3-R5 module gate `p3_r5_exit: pass`、`p3_r6_ready: yes`；P3-R6
-comparison risk/surface/bundle design、detail plan 和 S0 freeze 已完成，但实现仍须由
-R6-specific scoped authorization 明确授权；全局 `p3_implementation_authorized` 保持 `no`。
-当前下一入口为 P3-R6-S1 risk contracts；设计
-基线和执行计划见
-[P3 Active Context Index](../plans/p3-active-context-index.md) 与
-[P3-R5 Comparison Design Baseline](../plans/p3-r5-comparison-design.md)，以及
-[P3-R5 Comparison Execution Plan](../plans/p3-r5-comparison-execution-plan.md)、
-[P3-R5-S0 Entry and Budget Freeze](../plans/p3-r5-s0-entry-and-budget-freeze.md)、
-[P3-R6 Risk, Surface and Bundle Design Baseline](../plans/p3-r6-risk-surface-bundle-design.md)、
-[P3-R6 Risk, Surface and Bundle Execution Plan](../plans/p3-r6-risk-surface-bundle-execution-plan.md)、
-[P3-R6-S0 Entry and Budget Freeze](../plans/p3-r6-s0-entry-and-budget-freeze.md)，以及
-[P3-R4 Storage Projection and Canonicalization Handoff](../plans/p3-r4-storage-projection-handoff.md)。
+2026-08-23：P2-R6-S11 `phase_2_complete: yes`；P3-R1 至 P3-R7 module gates `pass`；P3 final
+closure `p3_exit: pass`、`p4_ready: yes`；`p4_implementation_authorized: no_until_p4_entry_acceptance`。
+当前下一入口为 Phase 4 Durable Operation Runtime；默认检索见
+[P4 Active Context Index](../plans/p4-active-context-index.md) 与
+[P3 Final Closure Handoff](../plans/p3-final-closure-handoff.md)。
 不得把文档 HEAD 当作 `CANDIDATE_SHA`。
 
 ## 1. 目标与范围

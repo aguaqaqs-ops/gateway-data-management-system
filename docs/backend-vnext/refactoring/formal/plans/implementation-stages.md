@@ -4,40 +4,14 @@
 
 本文把 [整体架构总纲](../architecture/architecture-and-refactoring-plan.md) 转换为可执行的重构阶段。阶段编号表示主要依赖顺序，不表示必须完成整个水平层后才能继续；每一阶段只建设下一条业务纵切所需的最小能力，并保持可运行、可验证和可回退。
 
-当前状态：Phase 2简化设计、D01 Phase 0–1同原则简化设计、DX cross-phase
-interface reconciliation与S02联合代码清理均已闭合；P2-R1 v8 formal 已通过。
-P2-R6-S11 `phase_2_complete: yes`。Phase 3 capability design 已完成；P3-R1 至 P3-R7
-module gates 均为 `pass`。[P3 Final Closure](p3-final-closure-execution-plan.md) 已完成；
+当前状态：Phase 2 `phase_2_complete: yes`；P3-R1 至 P3-R7 module gates `pass`；
+[P3 Final Closure Handoff](p3-final-closure-handoff.md) 已完成；
 `p3_exit: pass`、`p4_ready: yes`；`p4_implementation_authorized: no_until_p4_entry_acceptance`。
-R2 详细执行见 [P3-R2 Table Access and Parser Execution Plan](p3-r2-table-access-parser-execution-plan.md)。
-R3 详细执行见 [P3-R3 Source Materialization and Snapshot Execution Plan](p3-r3-source-materialization-execution-plan.md)。
-R3 S0 冻结见 [P3-R3-S0 Entry, Applicability and Budget Freeze](p3-r3-s0-entry-and-budget-freeze.md)。
-R4 详细执行见 [P3-R4 Storage Projection Execution Plan](p3-r4-storage-projection-execution-plan.md)。
-R4 S0 冻结见 [P3-R4-S0 Entry, Applicability, Legacy Matrix and Budget Freeze](p3-r4-s0-entry-and-budget-freeze.md)。
-R3 SourcePackage staging、SQL Snapshot、composite XML、RepositoryRef provider、
-SnapshotTableArtifact 与 S6/S7 review 均已完成；S8 module gate 已通过。
-R4 S2 legacy rule-resolution parity 已完成，见
-[P3-R4-S0 §18](p3-r4-s0-entry-and-budget-freeze.md#18-s2-legacy-rule-resolution-parity-provider-record)。
-S3 canonical storage projection 已完成，见
-[P3-R4-S0 §19](p3-r4-s0-entry-and-budget-freeze.md#19-s3-canonical-storage-projection-core-record)。
-S4 ordered/keyless 已完成，见
-[P3-R4-S0 §20](p3-r4-s0-entry-and-budget-freeze.md#20-s4-ordered-keyless-and-digest-integrity-record)。
-S5 manifest/import publication 已完成，见
-[P3-R4-S0 §21](p3-r4-s0-entry-and-budget-freeze.md#21-s5-manifest-import-input-and-atomic-publication-record)。
-S6 focused review 已完成，见 [P3-R4-S6 Focused Review](p3-r4-s6-focused-review.md)。
-S7 independent review 已完成，见 [P3-R4-S7 Independent Review](p3-r4-s7-independent-review.md)。
-S8 module gate 已通过，见 [P3-R4 Storage Projection and Canonicalization Handoff](p3-r4-storage-projection-handoff.md)。
-`p3_r4_exit: pass`；`p3_r5_ready: yes`。`p3_implementation_authorized` 仍为 `no`。S1 public contract 见
-[P3-R4-S0 §17](p3-r4-s0-entry-and-budget-freeze.md#17-s1-public-ruleset-contract-and-skeleton-record)。
-S1–S3 仅在 S0 freeze allowlist 内落地，见
-[P3 Capability Foundation Design](p3-capability-foundation-design.md)、
-[P3 Active Context Index](p3-active-context-index.md) 与
-[P2 External Interface Handoff](p2-external-interface-handoff.md)。
-
-P3-R5 comparison、P3-R6 risk/surface/bundle 与 P3-R7 mutation/target closure 的 staged
-execution 和 handoff 分别见对应 formal plans。R1-R7 capability modules 已按 scoped step
-authorization 完成；历史 `p3_implementation_authorized: no` 只保留为“未授权 production
-application/HTTP integration”的兼容状态，不得解释为回滚已通过的 module gates。
+P4 设计对话从 [P4 Active Context Index](p4-active-context-index.md) 开始。
+P3 capability 模块边界与 sealed evidence 见各 module handoff 与
+[P3 Capability Foundation Design](p3-capability-foundation-design.md)。
+历史 P3 S-step/review/execution plan 过程记录已离开默认树；恢复见
+[P3→P4 Cleanup Manifest](p3-p4-cleanup-manifest.yaml) 与 tag `docs/p3-p4-cleanup-pre-20260823`。
 P2-R1 默认 provider 为Candidate A offline CLI，Candidate B保留但默认禁用。该顺序由
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 和[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)共同约束；Phase 0–9的安全、
@@ -494,6 +468,8 @@ Repository import 在业务系统侧收敛为 Repository Client 调用和业务 
   watcher、production PostgreSQL adapter 或完整 storage migration executor。
 
 ## 7. Phase 4：Durable Operation Runtime
+
+P4 设计默认入口：[P4 Active Context Index](p4-active-context-index.md)。
 
 ### 目标
 

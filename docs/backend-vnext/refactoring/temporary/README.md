@@ -3,7 +3,7 @@
 `temporary/` 不拥有正式语义，也不是 P3 默认检索入口。已完成阶段的
 execution/review/attempt 已离开默认树。
 
-P3 默认入口：[P3 Active Context Index](../formal/plans/p3-active-context-index.md)
+P4 默认入口：[P4 Active Context Index](../formal/plans/p4-active-context-index.md)
 
 清理入口：[P2–P3 Cleanup Manifest](../formal/plans/p2-p3-cleanup-manifest.yaml)
 与 Git annotated tag `docs/p2-p3-cleanup-pre-20260817`、

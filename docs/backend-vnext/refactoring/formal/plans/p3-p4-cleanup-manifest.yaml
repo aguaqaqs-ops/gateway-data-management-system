@@ -1,8 +1,9 @@
 schema: gateway.docs-code-lifecycle-cleanup.manifest
 schema_version: 1
 stage: p3-p4-context-code-consolidation
-step: C1
+step: C2
 c1_status: complete
+c2_status: complete
 generated_at: "2026-08-23T01:59:27Z"
 public_semantics_changed: false
 archive_medium: git_annotated_tag_and_history
@@ -24,10 +25,11 @@ artifacts:
   c1_classification: docs/backend-vnext/refactoring/temporary/p3-p4-context-code-consolidation-c1-classification.md
   manifest: docs/backend-vnext/refactoring/formal/plans/p3-p4-cleanup-manifest.yaml
   execution_plan: docs/backend-vnext/refactoring/temporary/p3-p4-context-and-code-consolidation-execution-plan.md
+  p4_active_context_index: docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
 p4_default_reads:
   -
     path: docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
-    status: c2_create
+    status: active
     role: P4 default entry
   -
     path: docs/backend-vnext/refactoring/formal/plans/p3-final-closure-handoff.md
@@ -150,7 +152,7 @@ code_bundles:
       - docs/backend-vnext/testing-conventions.md
     c4_default: DEFER
 counts:
-  active: 23
+  active: 24
   normative: 33
   evidence_pointer: 2
   retain_in_place: 10
@@ -191,6 +193,12 @@ paths:
       role: default_entry_or_stage_authority
       sha256: 75007735d0cb9aee4416c938ea9135494dc5cafc8b1ead34e337f90e6c988a2b
       bytes: 8189
+    -
+      path: docs/backend-vnext/refactoring/formal/plans/p4-active-context-index.md
+      class: ACTIVE_INTERFACE
+      role: default_entry_or_stage_authority
+      sha256: bf51d90aef06a2b6f3c5d2e22662b6c32741be1f1a175e76230714244e4f249d
+      bytes: 7153
     -
       path: docs/backend-vnext/refactoring/formal/plans/p3-active-context-index.md
       class: ACTIVE_INTERFACE

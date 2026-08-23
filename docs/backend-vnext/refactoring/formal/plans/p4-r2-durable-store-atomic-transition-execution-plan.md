@@ -1,10 +1,12 @@
 # P4-R2 Durable Store and Atomic Transition Detailed Execution Plan
 
-状态：**S0 DESIGN ACCEPTED — IMPLEMENTATION NOT AUTHORIZED**
+状态：**R2 MODULE GATE PASS — R3-S0 ENTRY DISCUSSION AUTHORIZED**
 
-日期：2026-08-23
+日期：2026-08-24
 
 Owner：Operation Runtime persistence + Backend Control DB infrastructure
+
+当前封存：[P4/R2 Durable Store and Atomic Transition Handoff](p4-r2-durable-store-atomic-transition-handoff.md)
 
 默认入口：[P4 Active Context Index](p4-active-context-index.md)
 
@@ -17,8 +19,8 @@ Owner：Operation Runtime persistence + Backend Control DB infrastructure
 ## 1. Purpose and execution protocol
 
 本文把 R2 从 S0 design acceptance到module handoff拆成可独立执行、验证和提交的context
-packages。当前用户授权仅覆盖本文、S0 brief和S0 acceptance record的创建；没有授权任何
-Python/SQL/test/deployment实现。收到单独S1a实施授权前，本文所有code steps保持blocked。
+packages。S0 的设计授权、各 code step 的单独授权和 S7 的最终 module gate 均保留在对应
+handoff 中；当前 R2 已在 S7 封存，后续只允许 P4-R3-S0 entry discussion。
 
 实施时每次只执行一个命名step：
 

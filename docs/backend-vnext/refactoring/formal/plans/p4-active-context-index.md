@@ -1,6 +1,6 @@
 # P4 Active Context Index
 
-状态：P4-R2-S2b module gate pass；下一入口为 R3-S3a authorization
+状态：P4-R2-S7 module gate pass；下一入口为 P4-R3-S0 entry discussion
 
 日期：2026-08-23
 
@@ -32,7 +32,7 @@ p4_r1_s4: pass_after_s5
 p4_r1_s5: pass
 p4_r1_s6: pass_after_f2_f3_remediation
 p4_r1_s7: pass
-p4_implementation_authorized: r2_s0_design_only
+p4_implementation_authorized: r3_entry_discussion_only
 r1_s1a_authorized: yes
 r1_s1b_authorized: yes
 r1_s2a_authorized: yes
@@ -50,7 +50,20 @@ p4_r2_s2a: pass
 p4_r2_s2a_authorized: yes
 p4_r2_s2b: pass
 p4_r2_s2b_authorized: yes
+p4_r2_s3a: pass
+p4_r2_s3a_authorized: yes
+p4_r2_s3b: pass
+p4_r2_s3b_authorized: yes
+p4_r2_s4: pass_after_s5_f1_follow_up
+p4_r2_s4_authorized: yes
+p4_r2_s5: pass
+p4_r2_s5_authorized: yes
+p4_r2_s6: pass_after_finding_scoped_remediation
+p4_r2_s6_authorized: yes
+p4_r2_s7: pass
 p4_r2_authorized: no
+p4_r3_entry_discussion_authorized: yes
+p4_r3_implementation_authorized: no
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
 default_retrieval: this_index
@@ -87,19 +100,21 @@ final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
     budgets、applicable steps与implementation boundary。
 12. [P4-R2 Durable Store and Atomic Transition Detailed Execution Plan](p4-r2-durable-store-atomic-transition-execution-plan.md)：
     R2逐step paths、gates、review、handoff与reopen authority。
-13. [P4/R2-S0 Independent Entry Acceptance](p4-r2-s0-entry-acceptance.md)：
+13. [P4/R2 Durable Store and Atomic Transition Handoff](p4-r2-durable-store-atomic-transition-handoff.md)：
+    R2 S7 tested tip、module gate、known limits与R3-S0 entry boundary。
+14. [P4/R2-S0 Independent Entry Acceptance](p4-r2-s0-entry-acceptance.md)：
     R2 design acceptance与S1a未授权边界。
-14. [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)：
+15. [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)：
    operation/step 状态、integrity 与 recovery owner。
-15. [External Effect and Recovery](../contracts/external-effect-and-recovery.md)：
+16. [External Effect and Recovery](../contracts/external-effect-and-recovery.md)：
    external effect evidence、reconciliation 与 recovery owner。
-16. [Business Lifecycle and State](../contracts/business-lifecycle-and-state.md)：
+17. [Business Lifecycle and State](../contracts/business-lifecycle-and-state.md)：
    business object、occupancy、freeze point 与 T1/T3 owner。
-17. [Repository Service Contract](../contracts/repository-service.md)：Repository
+18. [Repository Service Contract](../contracts/repository-service.md)：Repository
    operation、marker/ref/CAS、reconciliation authority；P4 lease 不改变其语义。
-18. [P3 Capability Foundation Design](p3-capability-foundation-design.md)：P3 capability
+19. [P3 Capability Foundation Design](p3-capability-foundation-design.md)：P3 capability
    设计 authority 与 P4 直接依赖的 capability contracts 索引。
-19. [Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)：
+20. [Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)：
     跨阶段保障与测试取舍。
 
 可选（贡献者/实现约束）：
@@ -121,8 +136,9 @@ P3 **不交付、不授权**（P4 也不得静默改变其 owner）：
 - Repository Service reconciliation（control DB/marker/ref/CAS）——仍由 Repository
   contract 拥有；P4 lease 不改变 Repository operation authority。
 
-P4-R1已exit；P4-R2-S0 design已接受。当前只允许请求R2-S1a implementation authorization；
-`p4_r2_s1a_authorized: no`，不得从S0 design acceptance推断code authorization。
+P4-R1已exit；P4-R2已完成S7 module gate。当前只允许进行P4-R3-S0 entry discussion；
+`p4_r2_authorized: no` 且 `p4_r3_implementation_authorized: no`，不得从R2 handoff推断
+worker、settings/Compose、R4/R5或P5 implementation authorization。
 
 ## 3. P3 handoff 指针
 

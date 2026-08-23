@@ -20,6 +20,7 @@
 - [P4/R1 Runtime Contract and State Handoff](plans/p4-r1-runtime-contract-state-handoff.md)
 - [P4-R2-S0 Entry Brief](plans/p4-r2-s0-entry-brief.md)
 - [P4-R2 Durable Store and Atomic Transition Detailed Execution Plan](plans/p4-r2-durable-store-atomic-transition-execution-plan.md)
+- [P4/R2 Durable Store and Atomic Transition Handoff](plans/p4-r2-durable-store-atomic-transition-handoff.md)
 - [P4/R2-S0 Independent Entry Acceptance](plans/p4-r2-s0-entry-acceptance.md)
 - [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)（封印 candidate/image、支持面、限制、reopen）
 - [P2–P3 Cleanup Manifest](plans/p2-p3-cleanup-manifest.yaml)
@@ -77,7 +78,7 @@ tags `docs/p3-p4-cleanup-pre-20260823`、`docs/p3-p4-cleanup-final-20260823`。
 正式文档之间发生冲突时，应先暂停实现，明确语义 owner，并通过修改正式文档或新增 ADR 收口；不能依靠兼容代码长期维持两套含义。
 
 当前阶段：`phase_2_complete: yes`；P3 final closure `p3_exit: pass`、`p4_ready: yes`；
-P4-R1 module gate `pass`；P4-R2-S0 design `accepted`，R2-S1a implementation未授权。
+P4-R1 module gate `pass`；P4-R2 module gate `pass`，当前仅开放 R3-S0 entry discussion。
 全局`p3_implementation_authorized: no`。默认入口见
 [P4 Active Context Index](plans/p4-active-context-index.md)。完整对外接口见
 [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)。

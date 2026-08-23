@@ -1,6 +1,6 @@
 # P4/R2-S5 Remediation Appendix
 
-状态：**IN PROGRESS**
+状态：**PASS**
 
 日期：2026-08-24
 
@@ -14,8 +14,8 @@ Owner：Durable operation runtime (`gateway_backend.operations` 与
 step_id: P4-R2-S5
 input_review_sha: 4cc76f9aff8489f6b593dac7012ceddf5ae0fd37
 input_reviewed_candidate_sha: f77dd43d8f0e2e10b5c40048093161c3a70f4ffe
-validated_code_sha: pending
-result: in_progress
+validated_code_sha: 8e5fcce890d5bcb920c7c469a6546fbd15903df8
+result: pass
 scope_decision: finding_scoped_remediation_with_explicit_clock_port_reopen
 allowed_paths:
   - vnext/backend/src/gateway_backend/operations/store.py
@@ -64,3 +64,7 @@ change a persisted key, or transfer transaction ownership from the concrete UoW.
 
 S6 remains required as an independent review of cross-table atomicity, CAS, clock binding and
 migration startup. S5 does not authorize S6 execution, S7, container gates or benchmark claims.
+
+The remediation candidate `8e5fcce890d5bcb920c7c469a6546fbd15903df8` closed F1-F5 under the
+matrix above. Exact command results and the independent-review boundary are recorded in the
+[P4/R2-S5 Handoff](p4-r2-s5-handoff.md).

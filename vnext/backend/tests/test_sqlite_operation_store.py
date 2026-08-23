@@ -437,7 +437,14 @@ def test_create_is_exactly_idempotent_and_rejects_conflicting_duplicates() -> No
         conflicting_operation = dataclasses.replace(operation, job_kind="import.other")
         with pytest.raises(ConflictingDuplicate):
             store.insert_operation_with_initial_step(conflicting_operation, step)
+    finally:
+        connection.close()
 
+    connection, store = _memory_store()
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        assert store.insert_operation_with_initial_step(operation, step) is TransitionDisposition.APPLY
         conflicting_step = dataclasses.replace(step, step_name="other")
         with pytest.raises(ConflictingDuplicate):
             store.insert_operation_with_initial_step(operation, conflicting_step)
@@ -593,13 +600,6 @@ def test_guarded_cas_applies_stale_writes_and_terminal_duplicates_correctly() ->
             diagnostic=OperationDiagnostic(code="FAILED", message="failed"),
             completed_at=datetime_from_text(LATER_TIMESTAMP),
         )
-        with pytest.raises(StaleWrite):
-            store.compare_and_set_operation(
-                failed_operation,
-                WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
-            )
-        assert store.get_operation(operation.operation_id) == running_operation
-
         assert (
             store.compare_and_set_operation(
                 failed_operation,
@@ -614,6 +614,46 @@ def test_guarded_cas_applies_stale_writes_and_terminal_duplicates_correctly() ->
             )
             is TransitionDisposition.IDEMPOTENT
         )
+    finally:
+        connection.close()
+
+
+def test_stale_operation_write_poisoning_rejects_a_later_valid_cas() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        running_operation = dataclasses.replace(
+            operation,
+            status=OperationStatus.RUNNING,
+            optimistic_version=1,
+            updated_at=datetime_from_text(LATER_TIMESTAMP),
+        )
+        store.compare_and_set_operation(
+            running_operation,
+            WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+        )
+        stale_candidate = dataclasses.replace(
+            running_operation,
+            updated_at=datetime_from_text(RETRY_TIMESTAMP),
+            optimistic_version=2,
+        )
+        with pytest.raises(StaleWrite):
+            store.compare_and_set_operation(
+                stale_candidate,
+                WritePrecondition(expected_optimistic_version=0, worker_id=None, lease_token=None),
+            )
+        valid_follow_up = dataclasses.replace(
+            running_operation,
+            updated_at=datetime_from_text(RETRY_TIMESTAMP),
+            optimistic_version=2,
+        )
+        with pytest.raises(RuntimeError, match="rollback-only"):
+            store.compare_and_set_operation(
+                valid_follow_up,
+                WritePrecondition(expected_optimistic_version=1, worker_id=None, lease_token=None),
+            )
     finally:
         connection.close()
 
@@ -972,36 +1012,6 @@ def test_live_step_actions_extend_lease_reject_swap_and_publish_terminal_idempot
             is TransitionDisposition.APPLY
         )
 
-        late_worker_candidate = dataclasses.replace(
-            heartbeat,
-            updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=6),
-            optimistic_version=3,
-        )
-        with pytest.raises(StaleWrite):
-            actions.mutate_live_step(
-                late_worker_candidate,
-                WritePrecondition(
-                    expected_optimistic_version=1,
-                    worker_id="worker-1",
-                    lease_token="lease-1",
-                ),
-            )
-
-        swapped = dataclasses.replace(
-            heartbeat,
-            worker_id="worker-2",
-            optimistic_version=3,
-        )
-        with pytest.raises(ValueError, match="worker_id and lease_token"):
-            actions.mutate_live_step(
-                swapped,
-                WritePrecondition(
-                    expected_optimistic_version=2,
-                    worker_id="worker-1",
-                    lease_token="lease-1",
-                ),
-            )
-
         terminal = dataclasses.replace(
             heartbeat,
             status=StepStatus.SUCCEEDED,
@@ -1030,6 +1040,115 @@ def test_live_step_actions_extend_lease_reject_swap_and_publish_terminal_idempot
             )
             is TransitionDisposition.IDEMPOTENT
         )
+    finally:
+        connection.close()
+
+
+def test_live_step_actions_reject_worker_lease_swap() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(LATER_TIMESTAMP),
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        _, claimed_step = claimed
+        heartbeat = dataclasses.replace(
+            claimed_step,
+            updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=5),
+            lease_expires_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=60),
+            optimistic_version=2,
+        )
+        assert (
+            actions.mutate_live_step(
+                heartbeat,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+            is TransitionDisposition.APPLY
+        )
+        swapped = dataclasses.replace(
+            heartbeat,
+            worker_id="worker-2",
+            optimistic_version=3,
+        )
+        with pytest.raises(ValueError, match="worker_id and lease_token"):
+            actions.mutate_live_step(
+                swapped,
+                WritePrecondition(
+                    expected_optimistic_version=2,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+    finally:
+        connection.close()
+
+
+def test_live_step_stale_write_poisoning_rejects_follow_up_mutation() -> None:
+    connection, store = _memory_store(transaction_now=LATER_TIMESTAMP)
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        actions = OperationLifecycleActions(
+            store,
+            transaction_now=datetime_from_text(LATER_TIMESTAMP),
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        _, claimed_step = claimed
+        heartbeat = dataclasses.replace(
+            claimed_step,
+            updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=5),
+            lease_expires_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=60),
+            optimistic_version=2,
+        )
+        assert (
+            actions.mutate_live_step(
+                heartbeat,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+            is TransitionDisposition.APPLY
+        )
+        stale_candidate = dataclasses.replace(
+            heartbeat,
+            updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=6),
+            optimistic_version=3,
+        )
+        with pytest.raises(StaleWrite):
+            actions.mutate_live_step(
+                stale_candidate,
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+        with pytest.raises(RuntimeError, match="rollback-only"):
+            actions.mutate_live_step(
+                dataclasses.replace(
+                    heartbeat,
+                    updated_at=datetime_from_text(LATER_TIMESTAMP) + timedelta(seconds=6),
+                    optimistic_version=3,
+                ),
+                WritePrecondition(
+                    expected_optimistic_version=2,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
     finally:
         connection.close()
 

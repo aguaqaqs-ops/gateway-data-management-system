@@ -768,6 +768,8 @@ class SQLiteOperationStore:
             raise
 
     def _run_mutation(self, operation: Callable[[], _T]) -> _T:
+        if self._rollback_only:
+            raise RuntimeError("control DB transaction is rollback-only")
         try:
             return operation()
         except BaseException:

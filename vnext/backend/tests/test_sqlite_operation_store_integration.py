@@ -635,6 +635,130 @@ def test_caught_successor_second_leg_failure_rolls_back_the_whole_uow(
         assert reader.operations.get_step(step.step_id).step_name == "validate"
 
 
+def test_rollback_only_rejects_a_later_valid_create(tmp_path: Path) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-poison-create-0001"))
+    step = step_record_from_document(_step_document("op-poison-create-0001", "step-poison-create-0001"))
+    later_operation = operation_record_from_document(
+        _operation_document("op-poison-create-0002")
+    )
+    later_step = step_record_from_document(
+        _step_document("op-poison-create-0002", "step-poison-create-0002")
+    )
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        claimed_operation, claimed_step = claimed
+        with pytest.raises(StaleWrite):
+            actions.cancel_intent(
+                dataclasses.replace(
+                    claimed_operation,
+                    cancel_requested=True,
+                    optimistic_version=2,
+                    updated_at=LATER_TIME + timedelta(seconds=1),
+                ),
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+                dataclasses.replace(
+                    claimed_step,
+                    cancel_requested=True,
+                    optimistic_version=2,
+                    updated_at=LATER_TIME + timedelta(seconds=1),
+                ),
+                WritePrecondition(
+                    expected_optimistic_version=0,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+        with pytest.raises(RuntimeError, match="rollback-only"):
+            unit_of_work.operations.insert_operation_with_initial_step(
+                later_operation,
+                later_step,
+            )
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        assert reader.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        assert reader.operations.get_step(step.step_id).status is StepStatus.PENDING
+        with pytest.raises(RecordNotFound):
+            reader.operations.get_operation(later_operation.operation_id)
+
+
+def test_rollback_only_rejects_a_later_valid_cas(tmp_path: Path) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-poison-cas-0001"))
+    step = step_record_from_document(_step_document("op-poison-cas-0001", "step-poison-cas-0001"))
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        claimed = actions.claim_one("worker-1", "lease-1")
+        assert claimed is not None
+        claimed_operation, claimed_step = claimed
+        with pytest.raises(StaleWrite):
+            actions.cancel_intent(
+                dataclasses.replace(
+                    claimed_operation,
+                    cancel_requested=True,
+                    optimistic_version=2,
+                    updated_at=LATER_TIME + timedelta(seconds=1),
+                ),
+                WritePrecondition(
+                    expected_optimistic_version=1,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+                dataclasses.replace(
+                    claimed_step,
+                    cancel_requested=True,
+                    optimistic_version=2,
+                    updated_at=LATER_TIME + timedelta(seconds=1),
+                ),
+                WritePrecondition(
+                    expected_optimistic_version=0,
+                    worker_id="worker-1",
+                    lease_token="lease-1",
+                ),
+            )
+        current_operation = unit_of_work.operations.get_operation(operation.operation_id)
+        valid_follow_up = dataclasses.replace(
+            current_operation,
+            updated_at=LATER_TIME + timedelta(seconds=2),
+            optimistic_version=current_operation.optimistic_version + 1,
+        )
+        with pytest.raises(RuntimeError, match="rollback-only"):
+            unit_of_work.operations.compare_and_set_operation(
+                valid_follow_up,
+                WritePrecondition(
+                    expected_optimistic_version=current_operation.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
+        assert reader.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        assert reader.operations.get_step(step.step_id).status is StepStatus.PENDING
+
+
 def test_terminal_successor_branches_cannot_create_active_step_under_terminal_operation(
     tmp_path: Path,
 ) -> None:

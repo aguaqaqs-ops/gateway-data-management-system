@@ -1,7 +1,7 @@
 # P3→P4 Context and Code Consolidation Temporary Execution Plan
 
-状态：Proposed for execution；Phase 3 已完成，`p3_exit: pass`、`p4_ready: yes`；
-本计划不授权 P4 implementation
+状态：C4 complete；`approved_code_change_bundles: 0`、`c5_status: not_applicable`；C6/C7 pending；
+Phase 3 已完成，`p3_exit: pass`、`p4_ready: yes`；本计划不授权 P4 implementation
 
 日期：2026-08-23
 
@@ -382,10 +382,18 @@ failure/recovery evidence value
 - 每 bundle 的 owner、risk、tests、container applicability 和 reopen 判定；
 - 如果没有安全删除项，明确 `C5: not_applicable`，这也是有效结果。
 
+本轮 C4 记录：[C4 Consumer Audit](p3-p4-context-code-consolidation-c4-consumer-audit.md)。
+该记录对 C1 的 13 个候选 path 完成 import/export、script/entrypoint、deployment/profile、
+test/oracle、owner/recovery 检查；结论是 `approved_code_change_bundles: 0`，3 个 bundle
+`KEEP`、4 个 bundle `DEFER`，因此 C5 为 `not_applicable`。C4 的 `pass` 只表示审计和授权
+裁定完成，不表示批准删除，也不改变 P3/P2 authority。
+
 ### Exit / stop
 
-只有 `REMOVE/MOVE` 项 consumer graph 闭合、owner 同意且 gate 明确时 C4 pass。Repository
-profile、public export、fixture oracle 或 P3 deliverable 有歧义时标为 DEFER，不得猜测。
+只有被批准的 `REMOVE/MOVE` 项 consumer graph 闭合、owner 同意且 gate 明确时才可授权该项；
+候选项若证据不足必须标为 `DEFER`，不得猜测。没有任何安全 `REMOVE/MOVE` 项时，C4 仍可在
+审计完成后 pass，并明确 `C5: not_applicable`。Repository profile、public export、fixture
+oracle 或 P3 deliverable 有歧义时标为 `DEFER`，不得猜测。
 
 ### Conversation
 

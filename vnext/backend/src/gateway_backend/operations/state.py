@@ -11,6 +11,7 @@ from gateway_backend.operations.contracts import (
     OperationStatus,
     StepRecord,
     StepStatus,
+    _validate_opaque_id,
 )
 
 _IJSON_MAX_SAFE_INTEGER = (2**53) - 1
@@ -307,8 +308,11 @@ def _validate_ijson_version(value: object, label: str) -> None:
 
 
 def _validate_optional_identity(value: object, label: str) -> None:
-    if value is not None and type(value) is not str:
+    if value is None:
+        return
+    if type(value) is not str:
         raise ValueError(f"{label} must be a string or None")
+    _validate_opaque_id(value, label)
 
 
 def _validate_operation_status_edge(

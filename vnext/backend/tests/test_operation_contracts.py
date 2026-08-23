@@ -675,11 +675,6 @@ MALFORMED_OPERATION_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object
         "job_payload must be a JSON object",
     ),
     (
-        "job-payload-float-value",
-        _minimal_operation_document(job_payload={"value": 1.5}),
-        "non-I-JSON numbers",
-    ),
-    (
         "job-payload-ijson-int-overflow",
         _minimal_operation_document(job_payload={"value": 2**53}),
         "I-JSON safe range",
@@ -1195,6 +1190,18 @@ INLINE_JSON_AGGREGATE_INVALID_CASES: tuple[tuple[str, dict[str, object]], ...] =
     ("object-members-over-aggregate-limit", {f"key-{index}": 0 for index in range(4097)}),
 )
 
+FINITE_INLINE_JSON_NUMBER_CASES: tuple[tuple[str, dict[str, object]], ...] = (
+    ("binary64-fraction", {"value": 1.5}),
+    ("binary64-negative-zero", {"value": -0.0}),
+    ("binary64-small-finite", {"value": 1e-300}),
+)
+
+NONFINITE_INLINE_JSON_NUMBER_CASES: tuple[tuple[str, dict[str, object], bytes], ...] = (
+    ("nan", {"value": float("nan")}, b'{"value":NaN}'),
+    ("positive-infinity", {"value": float("inf")}, b'{"value":Infinity}'),
+    ("negative-infinity", {"value": float("-inf")}, b'{"value":-Infinity}'),
+)
+
 
 def test_operations_package_importable() -> None:
     importlib.import_module("gateway_backend.operations")
@@ -1324,6 +1331,31 @@ def test_job_payload_bytes_are_canonical_jcs() -> None:
     payload = {"nested": {"values": [1, 2], "name": "payload"}}
     record = operation_record_from_document(_minimal_operation_document(job_payload=payload))
     assert record.job_payload == canonicalize_json_value(payload)
+
+
+@pytest.mark.parametrize(("name", "payload"), FINITE_INLINE_JSON_NUMBER_CASES)
+def test_finite_binary64_job_payloads_round_trip(
+    name: str,
+    payload: dict[str, object],
+) -> None:
+    del name
+    document_record = operation_record_from_document(_minimal_operation_document(job_payload=payload))
+    direct_record = _operation_record(job_payload=canonicalize_json_value(payload))
+    assert document_record == direct_record
+    assert operation_record_from_document(direct_record.to_document()) == direct_record
+
+
+@pytest.mark.parametrize(("name", "payload", "canonical_bytes"), NONFINITE_INLINE_JSON_NUMBER_CASES)
+def test_nonfinite_binary64_job_payloads_are_rejected(
+    name: str,
+    payload: dict[str, object],
+    canonical_bytes: bytes,
+) -> None:
+    del name
+    with pytest.raises(ValueError, match="non-I-JSON numbers"):
+        operation_record_from_document(_minimal_operation_document(job_payload=payload))
+    with pytest.raises(ValueError, match="JSON number must be finite"):
+        _operation_record(job_payload=canonical_bytes)
 
 
 def test_operation_payload_key_reorder_yields_identical_document_jcs() -> None:

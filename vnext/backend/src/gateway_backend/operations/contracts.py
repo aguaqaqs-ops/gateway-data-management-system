@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from math import isfinite
 
 from gateway_shared_kernel.errors import CanonicalEncodingError
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
@@ -904,7 +905,9 @@ def _validate_json_structure(value: object, *, depth: int = 1, aggregate: int = 
             raise ValueError("job_payload integer outside I-JSON safe range")
         return aggregate
     if type(value) is float:
-        raise ValueError("job_payload must not contain non-I-JSON numbers")
+        if not isfinite(value):
+            raise ValueError("job_payload must not contain non-I-JSON numbers")
+        return aggregate
     raise ValueError("job_payload must contain only JSON values")
 
 

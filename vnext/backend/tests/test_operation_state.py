@@ -643,6 +643,24 @@ WRITE_PRECONDITION_CONSTRUCTOR_FAULTS: tuple[tuple[str, dict[str, object], str],
     ),
 )
 
+WRITE_PRECONDITION_IDENTITY_ACCEPT_CASES: tuple[tuple[str, str, str], ...] = (
+    ("one-byte-identities", "w", "l"),
+    ("maximum-byte-identities", "w" * 255, "l" * 255),
+)
+
+WRITE_PRECONDITION_IDENTITY_FAULTS: tuple[tuple[str, str, str, str], ...] = (
+    ("worker-empty", "", "lease-1", "1..255"),
+    ("worker-too-long", "w" * 256, "lease-1", "1..255"),
+    ("worker-control", "worker\x00", "lease-1", "control"),
+    ("worker-unix-path", "/tmp/worker", "lease-1", "host path"),
+    ("worker-windows-path", "C:\\worker", "lease-1", "host path"),
+    ("lease-empty", "worker-1", "", "1..255"),
+    ("lease-too-long", "worker-1", "l" * 256, "1..255"),
+    ("lease-control", "worker-1", "lease\x00", "control"),
+    ("lease-unix-path", "worker-1", "/tmp/lease", "host path"),
+    ("lease-windows-path", "worker-1", "C:\\lease", "host path"),
+)
+
 OPERATION_TERMINAL_STATUSES = tuple(
     status for status in OperationStatus if status.is_final_terminal()
 )
@@ -1009,6 +1027,45 @@ def test_write_precondition_constructor_rejects_invalid_scalar_types(
     del name
     with pytest.raises(ValueError, match=match):
         WritePrecondition(**changes)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(("name", "worker_id", "lease_token"), WRITE_PRECONDITION_IDENTITY_ACCEPT_CASES)
+def test_write_precondition_accepts_opaque_identity_boundaries(
+    name: str,
+    worker_id: str,
+    lease_token: str,
+) -> None:
+    del name
+    precondition = WritePrecondition(1, worker_id, lease_token)
+    validate_write_precondition(
+        current_optimistic_version=1,
+        current_worker_id=worker_id,
+        current_lease_token=lease_token,
+        precondition=precondition,
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "worker_id", "lease_token", "match"),
+    WRITE_PRECONDITION_IDENTITY_FAULTS,
+)
+def test_write_precondition_rejects_opaque_identity_boundary_faults(
+    name: str,
+    worker_id: str,
+    lease_token: str,
+    match: str,
+) -> None:
+    del name
+    with pytest.raises(ValueError, match=match):
+        WritePrecondition(1, worker_id, lease_token)
+
+    with pytest.raises(ValueError, match=match):
+        validate_write_precondition(
+            current_optimistic_version=1,
+            current_worker_id=worker_id,
+            current_lease_token=lease_token,
+            precondition=WritePrecondition(1, "worker-1", "lease-1"),
+        )
 
 
 def test_write_precondition_guard_rejects_bool_current_version() -> None:

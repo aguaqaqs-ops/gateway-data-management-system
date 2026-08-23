@@ -11,7 +11,7 @@ Owner：Operation Runtime (`gateway_backend.operations`)
 ```yaml
 step_id: P4-R1-S3b
 input_handoff_sha: e5787ee130cfe3bd509804c8655e6d7d28e5112a
-validated_code_sha: pending_commit
+validated_code_sha: 23c62a80ba22b990231e90d66e13e710e19bce34
 result: pass
 changed_paths:
   - vnext/backend/tests/test_operation_state.py

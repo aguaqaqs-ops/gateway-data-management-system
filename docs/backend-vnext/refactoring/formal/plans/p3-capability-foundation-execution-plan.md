@@ -187,6 +187,22 @@ P3 必须有诊断性 benchmark，但不设置“超过旧实现多少”的 num
 3. multi-pair：`1/2/4/8` pair，观察 wall time、CPU、RSS、queue wait、staging high-water
    和 cancellation latency。
 
+**P3-FINAL applicability 裁定（2026-08-23）**：Phase 3 exit 不要求在本轮同时完成三层
+measurement。当前没有已确认的 P5 end-to-end consumer、容量目标或 production comparison
+provider candidate，因此：
+
+- **component/multi-pair** 由 `vnext/backend/benchmarks/p3_capability_diagnostics.py` 负责，
+  记录 wall/CPU/RSS/queue wait/cancellation latency；
+- **cross-capability artifact chain** 延后到 P5/P6/P7，在存在真实 consumer 与
+  correctness-passed production path 后再执行；
+- **provider comparison** 延后到 P6/P7，在 production provider candidate 与 differential
+  baseline 明确后再执行；
+- **staging high-water** 在本 runner 中记为 `not_applicable`，因为 workload 使用预构建
+  in-memory Arrow batch，不经过 artifact-store staging path。
+
+该裁定不删除 design deliverable #8 的长期目标，只明确 P3 exit 当前证据范围是
+component/multi-pair diagnostic，不得把其误报为 cross-capability 或 provider-selection gate。
+
 benchmark 只统计 correctness-passed runs，并记录 dataset ID/revision、provider、环境、
 warm/cold setup、raw samples、统计方法和限制。组件 benchmark 用于 provider/优化决策；
 正式 end-to-end performance claim 延后到真实 P5 production path/P7 optimization phase。

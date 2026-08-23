@@ -1,9 +1,10 @@
 """Measurement-only Phase 3 concurrency and cancellation diagnostics.
 
-This runner is intentionally outside the production package and ordinary CI.  It exercises the
-public Arrow batch/provider seam with 1/2/4/8 independent pairs and the public SQL parser
-cancellation seam.  Results are observations for one revision/environment, never an SLO or an
-automatic implementation-selection gate.
+This runner is intentionally outside the production package and ordinary CI.  It exercises only
+the component/multi-pair layer: the public Arrow batch/provider seam with 1/2/4/8 independent
+pairs and the public SQL parser cancellation seam.  Cross-capability artifact chains and
+production/reference provider comparison are explicitly out of scope and deferred to later
+phases with confirmed consumers.
 """
 
 from __future__ import annotations
@@ -245,6 +246,83 @@ def _revision() -> str:
     return completed.stdout.strip()
 
 
+def _measurement_record(
+    *,
+    revision: str,
+    rows: int,
+    batch_rows: int,
+    pairs: tuple[int, ...],
+    repetitions: int,
+    cancellation_statements: int,
+) -> dict[str, Any]:
+    return {
+        "question": (
+            "Does the public comparison batch provider seam scale under independent in-memory "
+            "pairs, and does the SQL parser observe cooperative cancellation?"
+        ),
+        "capacity_target": "not_applicable",
+        "dataset_id": "synthetic-arrow-int64-pairs/v1",
+        "dataset_revision": revision,
+        "component_versions": {
+            "python": sys.version.split()[0],
+            "gateway_backend_revision": revision,
+            "comparison_provider": "python-reference-batch-v1",
+            "parser_contract": PARSER_INPUT_CONTRACT_VERSION,
+        },
+        "deployment_topology": (
+            "local developer host; in-process component diagnostic; no Repository Service or "
+            "artifact-store staging path"
+        ),
+        "resource_limits": "host default; no explicit CPU/memory cgroup",
+        "workload": (
+            f"synthetic Arrow int64 pairs at {rows} rows/pair, {batch_rows} rows/batch, "
+            f"pair counts {','.join(str(item) for item in pairs)}, {repetitions} repetitions; "
+            f"plus {cancellation_statements} SQL statements for cancellation latency"
+        ),
+        "warm_cold_setup": (
+            "immutable Arrow batches built once; one untimed warm-up per pair count; setup "
+            "excluded from measured samples"
+        ),
+        "summary_method": (
+            "per sample: min/mean/max over pair observations for queue wait and execution; "
+            "wall/cpu/rss from enclosing repetition"
+        ),
+        "correctness_result": (
+            "pass; provider row counts match descriptor; cancellation returned "
+            "FAILED/PARSER_CANCELLED"
+        ),
+    }
+
+
+def _applicability_scope() -> dict[str, Any]:
+    return {
+        "layer": "component_multi_pair",
+        "cross_capability": {
+            "status": "deferred",
+            "owner_phase": "P5/P6/P7",
+            "reason": (
+                "no confirmed P5 end-to-end consumer, capacity target, or production comparison "
+                "provider candidate at P3 exit"
+            ),
+        },
+        "provider_comparison": {
+            "status": "deferred",
+            "owner_phase": "P6/P7",
+            "reason": (
+                "only PythonReferenceBatchProvider exists; no production provider selection gate "
+                "or differential baseline is authorized in P3"
+            ),
+        },
+        "staging_high_water": {
+            "status": "not_applicable",
+            "reason": (
+                "runner uses pre-built in-memory Arrow batches; artifact-store staging is not "
+                "exercised"
+            ),
+        },
+    }
+
+
 def main() -> int:
     args = _arguments()
     rows = _positive(args.rows, "rows")
@@ -255,10 +333,20 @@ def main() -> int:
     descriptor = _descriptor(rows)
     batches = _batches(rows, batch_rows)
     batch_bytes = sum(batch.nbytes for batch in batches)
+    revision = _revision()
     result = {
-        "schema_version": "gateway-vnext/p3-capability-diagnostics/v1",
+        "schema_version": "gateway-vnext/p3-capability-diagnostics/v2",
         "measurement_only": True,
-        "revision": _revision(),
+        "revision": revision,
+        "measurement_record": _measurement_record(
+            revision=revision,
+            rows=rows,
+            batch_rows=batch_rows,
+            pairs=pairs,
+            repetitions=repetitions,
+            cancellation_statements=cancellation_statements,
+        ),
+        "applicability_scope": _applicability_scope(),
         "environment": {
             "python": sys.version.split()[0],
             "platform": platform.platform(),
@@ -278,12 +366,12 @@ def main() -> int:
             for pair_count in pairs
         ],
         "cancellation": _cancellation_observation(cancellation_statements),
-        "staging_high_water_bytes": 0,
         "limitations": [
-            "diagnostic component measurement; not an end-to-end P5 workload",
+            "component/multi-pair diagnostic only; not cross-capability or end-to-end P5 workload",
             "in-memory Arrow boundary does not exercise artifact-store or Repository I/O",
             "Python reference provider result does not select a production provider",
             "ru_maxrss is the process lifetime high-water mark reported by Linux",
+            "staging high-water is not applicable because no staging path is exercised",
         ],
     }
     document = json.dumps(result, indent=2, sort_keys=True) + "\n"

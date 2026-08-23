@@ -275,6 +275,12 @@ mutation/replay、HTTP、Operation Runtime 或 ruleset migration executor。
 7. Golden, differential, malformed-input, capacity, cancellation and fault-injection tests.
 8. Benchmark harness for pair concurrency, memory bounds and provider comparison.
 
+Deliverable #8 是 Phase 3 的长期 harness 目标，不等于 P3 exit 必须一次性完成三层
+measurement。P3-FINAL 当前只要求 component/multi-pair diagnostic evidence；cross-capability
+artifact chain 与 production/reference provider comparison 分别延后到 P5/P6/P7，见
+[P3 Capability Foundation Execution Plan](p3-capability-foundation-execution-plan.md#6-benchmark-policy)
+与 [P3 Final Closure Execution Plan](p3-final-closure-execution-plan.md)。
+
 ## 6. Explicit phase boundaries
 
 | Item | Owning phase | P3 treatment |
@@ -284,6 +290,8 @@ mutation/replay、HTTP、Operation Runtime 或 ruleset migration executor。
 | Submit/finalize, Dolt effect and external ChangeSet wiring | P5B | renderer/reference executor only |
 | Rust coverage expansion and risk kernels | P6 | profile and provider boundary only |
 | global concurrency/cache tuning | P7 | benchmark inputs and resource contract only |
+| cross-capability benchmark chains | P5/P6/P7 | deferred until production consumer exists |
+| production/reference provider comparison | P6/P7 | deferred until provider candidate exists |
 | shadow traffic/cutover | P8 | deferred |
 | cleanup/production hardening | P9 | deferred |
 | production PostgreSQL adapter/e2e | future target-specific work | contract and reference executor only |

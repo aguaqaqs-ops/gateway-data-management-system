@@ -13,6 +13,8 @@ from gateway_backend.operations.contracts import (
     StepStatus,
 )
 
+_IJSON_MAX_SAFE_INTEGER = (2**53) - 1
+
 _OPERATION_ALLOWED_TRANSITIONS: dict[OperationStatus, frozenset[OperationStatus]] = {
     OperationStatus.QUEUED: frozenset(
         {
@@ -72,6 +74,11 @@ class WritePrecondition:
     worker_id: str | None
     lease_token: str | None
 
+    def __post_init__(self) -> None:
+        _validate_ijson_version(self.expected_optimistic_version, "expected_optimistic_version")
+        _validate_optional_identity(self.worker_id, "worker_id")
+        _validate_optional_identity(self.lease_token, "lease_token")
+
 
 def validate_write_precondition(
     *,
@@ -80,6 +87,12 @@ def validate_write_precondition(
     current_lease_token: str | None,
     precondition: WritePrecondition,
 ) -> None:
+    _validate_ijson_version(current_optimistic_version, "current_optimistic_version")
+    _validate_optional_identity(current_worker_id, "current_worker_id")
+    _validate_optional_identity(current_lease_token, "current_lease_token")
+    if type(precondition) is not WritePrecondition:
+        raise ValueError("precondition must be WritePrecondition")
+    precondition.__post_init__()
     if current_optimistic_version != precondition.expected_optimistic_version:
         raise ValueError("optimistic version mismatch")
     pre_worker = precondition.worker_id
@@ -99,12 +112,20 @@ def validate_operation_transition(
     *,
     recovery_authorized: bool = False,
 ) -> TransitionDisposition:
+    _validate_recovery_authorized(recovery_authorized)
     if current.status == candidate.status:
-        if not current.status.is_final_terminal():
-            raise ValueError("same-state publication only allowed for final terminal")
-        if current == candidate:
-            return TransitionDisposition.IDEMPOTENT
-        raise ValueError("conflicting terminal duplicate")
+        if current.status.is_final_terminal():
+            if current == candidate:
+                return TransitionDisposition.IDEMPOTENT
+            raise ValueError("conflicting terminal duplicate")
+        if current.status.requires_manual_recovery():
+            raise ValueError("same-status mutation is forbidden for manual recovery state")
+        _validate_operation_identity_unchanged(current, candidate)
+        _validate_cancel_requested_monotonic(current.cancel_requested, candidate.cancel_requested)
+        _validate_operation_mutable_fields(current, candidate)
+        _require_updated_at_monotonic(current.updated_at, candidate.updated_at)
+        _require_optimistic_version_increment(current.optimistic_version, candidate.optimistic_version)
+        return TransitionDisposition.APPLY
     _validate_operation_identity_unchanged(current, candidate)
     _validate_cancel_requested_monotonic(current.cancel_requested, candidate.cancel_requested)
     _validate_operation_mutable_fields(current, candidate)
@@ -124,12 +145,21 @@ def validate_step_transition(
     *,
     recovery_authorized: bool = False,
 ) -> TransitionDisposition:
+    _validate_recovery_authorized(recovery_authorized)
     if current.status == candidate.status:
-        if not current.status.is_final_terminal():
-            raise ValueError("same-state publication only allowed for final terminal")
-        if current == candidate:
-            return TransitionDisposition.IDEMPOTENT
-        raise ValueError("conflicting terminal duplicate")
+        if current.status.is_final_terminal():
+            if current == candidate:
+                return TransitionDisposition.IDEMPOTENT
+            raise ValueError("conflicting terminal duplicate")
+        if current.status.requires_manual_recovery():
+            raise ValueError("same-status mutation is forbidden for manual recovery state")
+        _validate_step_identity_unchanged(current, candidate)
+        _validate_cancel_requested_monotonic(current.cancel_requested, candidate.cancel_requested)
+        _validate_step_started_at(current, candidate)
+        _require_updated_at_monotonic(current.updated_at, candidate.updated_at)
+        _validate_step_attempt_and_lease(current, candidate)
+        _require_optimistic_version_increment(current.optimistic_version, candidate.optimistic_version)
+        return TransitionDisposition.APPLY
     _validate_step_identity_unchanged(current, candidate)
     _validate_cancel_requested_monotonic(current.cancel_requested, candidate.cancel_requested)
     _require_updated_at_monotonic(current.updated_at, candidate.updated_at)
@@ -138,6 +168,7 @@ def validate_step_transition(
         candidate.status,
         recovery_authorized=recovery_authorized,
     )
+    _validate_step_started_at(current, candidate)
     _validate_step_attempt_and_lease(current, candidate)
     _require_optimistic_version_increment(current.optimistic_version, candidate.optimistic_version)
     return TransitionDisposition.APPLY
@@ -224,6 +255,9 @@ def _validate_step_attempt_and_lease(current: StepRecord, candidate: StepRecord)
             or candidate.lease_expires_at is None
         ):
             raise ValueError("RUNNING step requires lease identity")
+        if current.status is StepStatus.RUNNING:
+            if candidate.worker_id != current.worker_id or candidate.lease_token != current.lease_token:
+                raise ValueError("worker_id and lease_token are immutable during RUNNING heartbeat")
     elif leaving_running:
         if (
             candidate.worker_id is not None
@@ -247,6 +281,34 @@ def _require_updated_at_monotonic(current_updated_at: datetime, candidate_update
 def _require_optimistic_version_increment(current_version: int, candidate_version: int) -> None:
     if candidate_version != current_version + 1:
         raise ValueError("optimistic_version must be current + 1")
+
+
+def _validate_step_started_at(current: StepRecord, candidate: StepRecord) -> None:
+    if current.started_at is None:
+        if candidate.started_at is not None and not (
+            current.status is StepStatus.PENDING and candidate.status is StepStatus.RUNNING
+        ):
+            raise ValueError("started_at can only be established on initial RUNNING claim")
+        return
+    if candidate.started_at != current.started_at:
+        raise ValueError("started_at is immutable after initial RUNNING claim")
+
+
+def _validate_recovery_authorized(value: object) -> None:
+    if type(value) is not bool:
+        raise ValueError("recovery_authorized must be a bool")
+
+
+def _validate_ijson_version(value: object, label: str) -> None:
+    if type(value) is not int or isinstance(value, bool):
+        raise ValueError(f"{label} must be a non-negative I-JSON safe integer")
+    if value < 0 or value > _IJSON_MAX_SAFE_INTEGER:
+        raise ValueError(f"{label} must be a non-negative I-JSON safe integer")
+
+
+def _validate_optional_identity(value: object, label: str) -> None:
+    if value is not None and type(value) is not str:
+        raise ValueError(f"{label} must be a string or None")
 
 
 def _validate_operation_status_edge(

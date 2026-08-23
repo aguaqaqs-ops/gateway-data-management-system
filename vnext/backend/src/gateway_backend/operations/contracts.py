@@ -398,16 +398,23 @@ def step_record_from_document(document: object) -> StepRecord:
 
 
 def _validate_operation_record_fields(record: OperationRecord) -> None:
+    _require_contract_version(record.contract_version)
     _validate_contract_version_string(record.contract_version)
     _validate_opaque_id(record.operation_id, "operation_id")
     _validate_registry_name(record.job_kind, "job_kind")
-    _validate_contract_version_string(record.job_contract_version)
+    _validate_contract_version_string(record.job_contract_version, "job_contract_version")
     _validate_job_payload_binding(record.job_payload, record.job_payload_ref)
+    if type(record.business_refs) is not tuple:
+        raise ValueError("business_refs must be a tuple")
     if len(record.business_refs) > _MAX_BUSINESS_REFS:
         raise ValueError("business_refs exceeds maximum tuple size")
     for business_ref in record.business_refs:
         if type(business_ref) is not BusinessReference:
             raise ValueError("business_refs must contain BusinessReference")
+    if type(record.artifact_refs) is not tuple:
+        raise ValueError("artifact_refs must be a tuple")
+    if len(record.artifact_refs) > _MAX_REFS_PER_RECORD:
+        raise ValueError("artifact_refs exceeds maximum tuple size")
     for artifact_ref in record.artifact_refs:
         if type(artifact_ref) is not ArtifactRef:
             raise ValueError("artifact_refs must contain ArtifactRef")
@@ -440,6 +447,7 @@ def _validate_operation_record_fields(record: OperationRecord) -> None:
 
 
 def _validate_step_record_fields(record: StepRecord) -> None:
+    _require_contract_version(record.contract_version)
     _validate_contract_version_string(record.contract_version)
     _validate_opaque_id(record.step_id, "step_id")
     _validate_opaque_id(record.operation_id, "operation_id")
@@ -461,6 +469,10 @@ def _validate_step_record_fields(record: StepRecord) -> None:
         _validate_datetime_field(record.lease_expires_at, "lease_expires_at")
     if record.checkpoint_ref is not None and type(record.checkpoint_ref) is not ArtifactRef:
         raise ValueError("checkpoint_ref must be ArtifactRef or None")
+    if type(record.prior_output_refs) is not tuple:
+        raise ValueError("prior_output_refs must be a tuple")
+    if len(record.prior_output_refs) > _MAX_REFS_PER_RECORD:
+        raise ValueError("prior_output_refs exceeds maximum tuple size")
     for item in record.prior_output_refs:
         if type(item) is not ArtifactRef:
             raise ValueError("prior_output_refs must contain ArtifactRef")
@@ -617,10 +629,10 @@ def _require_document_type(value: object, expected: str) -> None:
         raise ValueError("document_type mismatch")
 
 
-def _require_contract_version_string(value: object) -> str:
+def _require_contract_version_string(value: object, label: str = "contract_version") -> str:
     if type(value) is not str:
-        raise ValueError("contract_version must be a string")
-    _validate_contract_version_string(value)
+        raise ValueError(f"{label} must be a string")
+    _validate_contract_version_string(value, label)
     return value
 
 
@@ -633,13 +645,15 @@ def _parse_runtime_contract_version(value: object) -> str:
 def _parse_job_contract_version(value: object) -> str:
     if type(value) is not str:
         raise ValueError("job_contract_version must be a string")
-    _validate_contract_version_string(value)
+    _validate_contract_version_string(value, "job_contract_version")
     return value
 
 
-def _validate_contract_version_string(value: str) -> None:
+def _validate_contract_version_string(value: object, label: str = "contract_version") -> None:
+    if type(value) is not str:
+        raise ValueError(f"{label} must be a string")
     if not _CONTRACT_VERSION_RE.fullmatch(value):
-        raise ValueError("contract_version must be bounded ASCII printable")
+        raise ValueError(f"{label} must be bounded ASCII printable")
 
 
 def _parse_registry_name(value: object, label: str) -> str:
@@ -649,7 +663,9 @@ def _parse_registry_name(value: object, label: str) -> str:
     return value
 
 
-def _validate_registry_name(value: str, label: str) -> None:
+def _validate_registry_name(value: object, label: str) -> None:
+    if type(value) is not str:
+        raise ValueError(f"{label} must be a string")
     if not _REGISTRY_NAME_RE.fullmatch(value):
         raise ValueError(f"{label} must match registry name pattern")
 
@@ -667,7 +683,9 @@ def _parse_optional_opaque_id(value: object, label: str) -> str | None:
     return _parse_opaque_id(value, label)
 
 
-def _validate_opaque_id(value: str, label: str) -> None:
+def _validate_opaque_id(value: object, label: str) -> None:
+    if type(value) is not str:
+        raise ValueError(f"{label} must be a string")
     encoded = value.encode("utf-8")
     if not 1 <= len(encoded) <= _MAX_OPAQUE_ID_BYTES:
         raise ValueError(f"{label} must be 1..255 UTF-8 bytes")
@@ -683,7 +701,9 @@ def _parse_ijson_int(value: object, label: str) -> int:
     return value
 
 
-def _validate_ijson_int_value(value: int, label: str) -> None:
+def _validate_ijson_int_value(value: object, label: str) -> None:
+    if type(value) is not int or isinstance(value, bool):
+        raise ValueError(f"{label} must be a non-negative I-JSON safe integer")
     if value < 0 or value > _IJSON_MAX_SAFE_INTEGER:
         raise ValueError(f"{label} must be a non-negative I-JSON safe integer")
 
@@ -694,12 +714,16 @@ def _require_bool(value: object, label: str) -> bool:
     return value
 
 
-def _validate_diagnostic_code(value: str) -> None:
+def _validate_diagnostic_code(value: object) -> None:
+    if type(value) is not str:
+        raise ValueError("diagnostic.code must be a string")
     if not _DIAGNOSTIC_CODE_RE.fullmatch(value):
         raise ValueError("diagnostic.code must match bounded opaque code pattern")
 
 
-def _validate_diagnostic_message(value: str) -> None:
+def _validate_diagnostic_message(value: object) -> None:
+    if type(value) is not str:
+        raise ValueError("diagnostic.message must be a string")
     encoded = value.encode("utf-8")
     if not 1 <= len(encoded) <= _MAX_DIAGNOSTIC_MESSAGE_BYTES:
         raise ValueError("diagnostic.message must be 1..4 KiB UTF-8")
@@ -797,10 +821,7 @@ def _validate_job_payload_binding(
     if inline_present == ref_present:
         raise ValueError("job_payload and job_payload_ref must be mutually exclusive")
     if job_payload is not None:
-        if type(job_payload) is not bytes:
-            raise ValueError("job_payload must be canonical JSON bytes or None")
-        if len(job_payload) > _MAX_INLINE_PAYLOAD_BYTES:
-            raise ValueError("job_payload exceeds maximum inline payload size")
+        _validate_canonical_job_payload_bytes(job_payload)
     if job_payload_ref is not None and type(job_payload_ref) is not ArtifactRef:
         raise ValueError("job_payload_ref must be ArtifactRef or None")
 
@@ -814,6 +835,26 @@ def _canonicalize_job_payload_object(payload: dict[str, object]) -> bytes:
     if len(canonical) > _MAX_INLINE_PAYLOAD_BYTES:
         raise ValueError("job_payload exceeds maximum inline payload size")
     return canonical
+
+
+def _validate_canonical_job_payload_bytes(value: object) -> None:
+    if type(value) is not bytes:
+        raise ValueError("job_payload must be canonical JSON bytes or None")
+    if len(value) > _MAX_INLINE_PAYLOAD_BYTES:
+        raise ValueError("job_payload exceeds maximum inline payload size")
+    try:
+        canonical = canonicalize_jcs(value)
+    except CanonicalEncodingError as exc:
+        raise ValueError(str(exc)) from exc
+    if canonical != value:
+        raise ValueError("job_payload must be canonical JSON bytes")
+    try:
+        payload = json.loads(value)
+    except (TypeError, UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("job_payload must be canonical JSON bytes") from exc
+    if type(payload) is not dict:
+        raise ValueError("job_payload must be a JSON object")
+    _validate_json_structure(payload)
 
 
 def _decode_job_payload_object(job_payload: bytes | None) -> dict[str, object] | None:
@@ -833,21 +874,23 @@ def _validate_json_structure(value: object, *, depth: int = 1, aggregate: int = 
     if depth > _MAX_JSON_DEPTH:
         raise ValueError("job_payload exceeds maximum JSON depth")
     if isinstance(value, dict):
-        next_aggregate = aggregate + 1
-        if next_aggregate > _MAX_JSON_AGGREGATE:
-            raise ValueError("job_payload exceeds maximum JSON aggregate size")
+        next_aggregate = aggregate
         for key, item in value.items():
             if type(key) is not str:
                 raise ValueError("job_payload object keys must be strings")
             if len(key.encode("utf-8")) > _MAX_JSON_KEY_BYTES:
                 raise ValueError("job_payload object key exceeds maximum size")
+            next_aggregate += 1
+            if next_aggregate > _MAX_JSON_AGGREGATE:
+                raise ValueError("job_payload exceeds maximum JSON aggregate size")
             next_aggregate = _validate_json_structure(item, depth=depth + 1, aggregate=next_aggregate)
         return next_aggregate
     if isinstance(value, list):
-        next_aggregate = aggregate + 1
-        if next_aggregate > _MAX_JSON_AGGREGATE:
-            raise ValueError("job_payload exceeds maximum JSON aggregate size")
+        next_aggregate = aggregate
         for item in value:
+            next_aggregate += 1
+            if next_aggregate > _MAX_JSON_AGGREGATE:
+                raise ValueError("job_payload exceeds maximum JSON aggregate size")
             next_aggregate = _validate_json_structure(item, depth=depth + 1, aggregate=next_aggregate)
         return next_aggregate
     if type(value) is str:
@@ -929,7 +972,9 @@ def _format_utc_timestamp_parts(
     return f"{year:04d}-{month:02d}-{day:02d}T{hour:02d}:{minute:02d}:{second:02d}{fraction_text}Z"
 
 
-def _validate_datetime_field(value: datetime, label: str) -> None:
+def _validate_datetime_field(value: object, label: str) -> None:
+    if type(value) is not datetime:
+        raise ValueError(f"{label} must be a datetime")
     if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
         raise ValueError(f"{label} must use UTC")
 

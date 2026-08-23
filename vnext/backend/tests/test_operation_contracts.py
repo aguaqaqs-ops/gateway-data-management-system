@@ -1119,6 +1119,82 @@ INVALID_STEP_STATUS_FIELD_COMBINATIONS: tuple[tuple[str, dict[str, object], str]
     ),
 )
 
+DIRECT_RECORD_CONSTRUCTOR_FAULTS: tuple[
+    tuple[str, str, dict[str, object], str],
+    ...,
+] = (
+    (
+        "operation-runtime-version",
+        "operation",
+        {"contract_version": "backend-vnext/operation-runtime/v2"},
+        "contract_version mismatch",
+    ),
+    (
+        "operation-non-canonical-payload",
+        "operation",
+        {"job_payload": b'{"b":1,"a":2}'},
+        "canonical JSON bytes",
+    ),
+    (
+        "operation-business-refs-list",
+        "operation",
+        {"business_refs": []},
+        "business_refs must be a tuple",
+    ),
+    (
+        "operation-artifact-refs-list",
+        "operation",
+        {"artifact_refs": []},
+        "artifact_refs must be a tuple",
+    ),
+    (
+        "operation-created-at-string",
+        "operation",
+        {"created_at": TIMESTAMP},
+        "created_at must be a datetime",
+    ),
+    (
+        "operation-optimistic-version-bool",
+        "operation",
+        {"optimistic_version": True},
+        "optimistic_version must be a non-negative I-JSON safe integer",
+    ),
+    (
+        "step-runtime-version",
+        "step",
+        {"contract_version": "backend-vnext/operation-runtime/v2"},
+        "contract_version mismatch",
+    ),
+    (
+        "step-prior-output-refs-list",
+        "step",
+        {"prior_output_refs": []},
+        "prior_output_refs must be a tuple",
+    ),
+    (
+        "step-updated-at-string",
+        "step",
+        {"updated_at": TIMESTAMP},
+        "updated_at must be a datetime",
+    ),
+    (
+        "step-attempt-count-bool",
+        "step",
+        {"attempt_count": True},
+        "attempt_count must be a non-negative I-JSON safe integer",
+    ),
+)
+
+INLINE_JSON_AGGREGATE_VALID_CASES: tuple[tuple[str, dict[str, object]], ...] = (
+    ("scalar-list-at-aggregate-limit", {"items": [0] * 4095}),
+    ("object-members-at-aggregate-limit", {f"key-{index}": 0 for index in range(4096)}),
+)
+
+INLINE_JSON_AGGREGATE_INVALID_CASES: tuple[tuple[str, dict[str, object]], ...] = (
+    ("scalar-list-over-aggregate-limit", {"items": [0] * 4096}),
+    ("object-members-over-aggregate-limit", {f"key-{index}": 0 for index in range(4097)}),
+)
+
 
 def test_operations_package_importable() -> None:
     importlib.import_module("gateway_backend.operations")
@@ -1431,6 +1507,54 @@ def test_step_record_is_frozen_and_owns_tuple_refs() -> None:
 def test_operation_record_constructor_rejects_invalid_status_fields() -> None:
     with pytest.raises(ValueError, match="diagnostic is forbidden"):
         _operation_record(diagnostic=OperationDiagnostic(code="FAILED", message="reason"))
+
+
+@pytest.mark.parametrize(
+    ("name", "record_kind", "changes", "match"),
+    DIRECT_RECORD_CONSTRUCTOR_FAULTS,
+)
+def test_direct_record_constructors_use_shared_validators(
+    name: str,
+    record_kind: str,
+    changes: dict[str, object],
+    match: str,
+) -> None:
+    del name
+    with pytest.raises(ValueError, match=match):
+        if record_kind == "operation":
+            _operation_record(**changes)
+        else:
+            _step_record(**changes)
+
+
+def test_value_object_constructors_reject_wrong_runtime_types() -> None:
+    with pytest.raises(ValueError, match="business_refs.kind must be a string"):
+        BusinessReference(kind=1, value="ws-1")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="diagnostic.code must be a string"):
+        OperationDiagnostic(code=1, message="reason")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(("name", "payload"), INLINE_JSON_AGGREGATE_VALID_CASES)
+def test_inline_json_aggregate_boundary_is_accepted(
+    name: str,
+    payload: dict[str, object],
+) -> None:
+    del name
+    document_record = operation_record_from_document(_minimal_operation_document(job_payload=payload))
+    direct_record = _operation_record(job_payload=canonicalize_json_value(payload))
+    assert document_record == direct_record
+
+
+@pytest.mark.parametrize(("name", "payload"), INLINE_JSON_AGGREGATE_INVALID_CASES)
+def test_inline_json_aggregate_boundary_is_rejected(
+    name: str,
+    payload: dict[str, object],
+) -> None:
+    del name
+    with pytest.raises(ValueError, match="maximum JSON aggregate size"):
+        operation_record_from_document(_minimal_operation_document(job_payload=payload))
+    with pytest.raises(ValueError, match="maximum JSON aggregate size"):
+        _operation_record(job_payload=canonicalize_json_value(payload))
 
 
 @st.composite

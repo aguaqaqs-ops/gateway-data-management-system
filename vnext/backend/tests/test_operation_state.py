@@ -34,6 +34,7 @@ TS0 = datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)
 TS1 = datetime(2024, 1, 2, 3, 5, 0, tzinfo=UTC)
 TS2 = datetime(2024, 1, 2, 3, 6, 0, tzinfo=UTC)
 TS_LEASE = datetime(2024, 1, 2, 3, 10, 0, tzinfo=UTC)
+TS_LEASE_LATER = datetime(2024, 1, 2, 3, 11, 0, tzinfo=UTC)
 DIAGNOSTIC = OperationDiagnostic(code="FAILED", message="owner reason")
 
 EXPECTED_OPERATION_ALLOWED_TRANSITIONS = {
@@ -619,6 +620,29 @@ WRITE_PRECONDITION_DENIED_CASES: tuple[
     ),
 )
 
+WRITE_PRECONDITION_CONSTRUCTOR_FAULTS: tuple[tuple[str, dict[str, object], str], ...] = (
+    (
+        "expected-version-bool",
+        {"expected_optimistic_version": True, "worker_id": None, "lease_token": None},
+        "expected_optimistic_version must be a non-negative I-JSON safe integer",
+    ),
+    (
+        "expected-version-negative",
+        {"expected_optimistic_version": -1, "worker_id": None, "lease_token": None},
+        "expected_optimistic_version must be a non-negative I-JSON safe integer",
+    ),
+    (
+        "expected-version-float",
+        {"expected_optimistic_version": 1.0, "worker_id": None, "lease_token": None},
+        "expected_optimistic_version must be a non-negative I-JSON safe integer",
+    ),
+    (
+        "worker-id-bool",
+        {"expected_optimistic_version": 1, "worker_id": True, "lease_token": "lease-1"},
+        "worker_id must be a string or None",
+    ),
+)
+
 OPERATION_TERMINAL_STATUSES = tuple(
     status for status in OperationStatus if status.is_final_terminal()
 )
@@ -789,11 +813,97 @@ def test_cancel_requested_cannot_reset() -> None:
         validate_operation_transition(current, candidate)
 
 
-def test_cancel_intent_requires_status_change_not_same_state_loop() -> None:
+def test_same_status_operation_heartbeat_uses_mutation_scope_guard() -> None:
     current = _operation_current_for_status(OperationStatus.RUNNING)
-    candidate = replace(current, optimistic_version=2, updated_at=TS2)
-    with pytest.raises(ValueError, match="same-state publication only allowed for final terminal"):
-        validate_operation_transition(current, candidate)
+    heartbeat = replace(current, optimistic_version=2, updated_at=TS2)
+    checkpoint = replace(
+        current,
+        checkpoint_ref=_artifact_ref("artifact-heartbeat-checkpoint"),
+        optimistic_version=2,
+        updated_at=TS2,
+    )
+    cancel_intent = replace(current, cancel_requested=True, optimistic_version=2, updated_at=TS2)
+
+    assert validate_operation_transition(current, heartbeat) is TransitionDisposition.APPLY
+    assert validate_operation_transition(current, checkpoint) is TransitionDisposition.APPLY
+    assert validate_operation_transition(current, cancel_intent) is TransitionDisposition.APPLY
+
+
+def test_same_status_operation_mutation_scope_rejects_immutable_and_reset() -> None:
+    current = _operation_current_for_status(OperationStatus.RUNNING)
+    changed_payload = replace(
+        current,
+        job_payload=canonicalize_json_value({"changed": True}),
+        optimistic_version=2,
+        updated_at=TS2,
+    )
+    with pytest.raises(ValueError, match="job_payload is immutable"):
+        validate_operation_transition(current, changed_payload)
+
+    cancelled = replace(current, cancel_requested=True)
+    reset = replace(cancelled, cancel_requested=False, optimistic_version=2, updated_at=TS2)
+    with pytest.raises(ValueError, match="cancel_requested cannot be reset"):
+        validate_operation_transition(cancelled, reset)
+
+
+def test_same_status_step_heartbeat_checkpoint_and_cancel_use_mutation_scope_guard() -> None:
+    current = _step_current_for_status(StepStatus.RUNNING)
+    heartbeat = replace(
+        current,
+        lease_expires_at=TS_LEASE_LATER,
+        optimistic_version=2,
+        updated_at=TS2,
+    )
+    checkpoint = replace(
+        current,
+        checkpoint_ref=_artifact_ref("artifact-step-heartbeat-checkpoint"),
+        optimistic_version=2,
+        updated_at=TS2,
+    )
+    cancel_intent = replace(current, cancel_requested=True, optimistic_version=2, updated_at=TS2)
+
+    assert validate_step_transition(current, heartbeat) is TransitionDisposition.APPLY
+    assert validate_step_transition(current, checkpoint) is TransitionDisposition.APPLY
+    assert validate_step_transition(current, cancel_intent) is TransitionDisposition.APPLY
+
+
+def test_same_status_step_mutation_scope_rejects_lease_identity_change() -> None:
+    current = _step_current_for_status(StepStatus.RUNNING)
+    candidate = replace(
+        current,
+        worker_id="worker-2",
+        lease_token="lease-2",
+        optimistic_version=2,
+        updated_at=TS2,
+    )
+    with pytest.raises(ValueError, match="immutable during RUNNING heartbeat"):
+        validate_step_transition(current, candidate)
+
+
+def test_manual_attention_rejects_same_status_mutation() -> None:
+    operation = _operation_current_for_status(OperationStatus.MANUAL_RECOVERY_REQUIRED)
+    operation_candidate = replace(operation, optimistic_version=3, updated_at=TS2)
+    with pytest.raises(ValueError, match="same-status mutation is forbidden"):
+        validate_operation_transition(operation, operation_candidate)
+
+    step = _step_current_for_status(StepStatus.MANUAL_RECOVERY_REQUIRED)
+    step_candidate = replace(step, optimistic_version=4, updated_at=TS2)
+    with pytest.raises(ValueError, match="same-status mutation is forbidden"):
+        validate_step_transition(step, step_candidate)
+
+
+def test_retry_transition_preserves_first_started_at() -> None:
+    current = _step_current_for_status(StepStatus.RETRY_WAIT)
+    candidate = _step_candidate(current, StepStatus.RUNNING, started_at=TS1)
+    with pytest.raises(ValueError, match="started_at is immutable"):
+        validate_step_transition(current, candidate)
+
+
+def test_authorized_manual_recovery_preserves_first_started_at() -> None:
+    current = _step_current_for_status(StepStatus.MANUAL_RECOVERY_REQUIRED)
+    candidate = _step_candidate(current, StepStatus.RUNNING, started_at=TS1)
+    with pytest.raises(ValueError, match="started_at is immutable"):
+        validate_step_transition(current, candidate, recovery_authorized=True)
 
 
 def test_cancelled_publication_is_explicit_status_edge() -> None:
@@ -888,6 +998,34 @@ def test_write_precondition_rejects_invalid_cases(
             current_lease_token=current_lease,
             precondition=precondition,
         )
+
+
+@pytest.mark.parametrize(("name", "changes", "match"), WRITE_PRECONDITION_CONSTRUCTOR_FAULTS)
+def test_write_precondition_constructor_rejects_invalid_scalar_types(
+    name: str,
+    changes: dict[str, object],
+    match: str,
+) -> None:
+    del name
+    with pytest.raises(ValueError, match=match):
+        WritePrecondition(**changes)  # type: ignore[arg-type]
+
+
+def test_write_precondition_guard_rejects_bool_current_version() -> None:
+    with pytest.raises(ValueError, match="current_optimistic_version must be"):
+        validate_write_precondition(
+            current_optimistic_version=True,
+            current_worker_id=None,
+            current_lease_token=None,
+            precondition=WritePrecondition(1, None, None),
+        )
+
+
+def test_transition_guard_rejects_non_bool_recovery_authorization() -> None:
+    current = _operation_current_for_status(OperationStatus.MANUAL_RECOVERY_REQUIRED)
+    candidate = _operation_candidate(current, OperationStatus.RUNNING)
+    with pytest.raises(ValueError, match="recovery_authorized must be a bool"):
+        validate_operation_transition(current, candidate, recovery_authorized=1)  # type: ignore[arg-type]
 
 
 def test_transition_guards_are_deterministic() -> None:

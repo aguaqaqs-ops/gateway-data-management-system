@@ -20,9 +20,10 @@ p4_ready: yes
 p3_p4_cleanup: complete
 p3_p4_cleanup_exit: pass
 p4_entry_context_ready: yes
-p4_entry_acceptance: ready_for_independent_acceptance
-p4_r1_s0: ready_for_acceptance
-p4_implementation_authorized: no_until_p4_entry_acceptance
+p4_entry_acceptance: pass
+p4_r1_s0: accepted
+p4_implementation_authorized: r1_s1a_only
+r1_s1a_authorized: yes
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
 default_retrieval: this_index

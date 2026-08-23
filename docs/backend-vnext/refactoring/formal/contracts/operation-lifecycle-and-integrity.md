@@ -133,6 +133,14 @@ Operation 与 Step persisted document 均为 closed object；`to_document()` 发
 - 结构状态矩阵、lease identity、diagnostic/completion/timestamp 交叉字段规则与 stale-write
   precondition 由 `gateway_backend.operations` 在 R1-S2a/S2b 证明；R2 负责数据库原子 CAS，
   不得把先读后验当作持久化实现。
+- `validate_operation_transition` / `validate_step_transition` 同时是候选 record mutation
+  的关系校验 owner：非终态、非 attention state 的 same-status heartbeat、checkpoint 和
+  cancel-intent mutation 也必须通过现有 guard，并返回 `APPLY`。这里的 `APPLY` 表示
+  mutation validation 通过，不增加 status matrix edge，也不把 mutation 解释为 status
+  self-loop。
+- R2 在 CAS 前必须组合执行相应 transition guard 与
+  `validate_write_precondition`；final terminal same-status 只有完整 record 相等时返回
+  `IDEMPOTENT`，`MANUAL_RECOVERY_REQUIRED` 禁止原地 same-status mutation。
 
 ### 6.4 Bounded validation
 

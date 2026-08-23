@@ -314,10 +314,13 @@ identity、step name、prior output refs 与 `created_at` 不得改变。
 
 R2 可增加 storage metadata，但不能把它加入 R1 persisted semantic contract。
 
-`validate_operation_transition` / `validate_step_transition` 只裁决 status publication；heartbeat、
-checkpoint、cancel intent 等 same-status mutation 由 record invariant + `validate_write_precondition`
-裁决，不把它们伪装成状态 self-loop。Final terminal duplicate 是唯一交给 transition guard 的
-same-status publication。
+`validate_operation_transition` / `validate_step_transition` 是 status matrix 与候选 record
+mutation 的共同关系校验 owner。heartbeat、checkpoint、cancel intent 等非终态、非 attention
+state same-status mutation 必须通过现有 transition guard；返回 `APPLY` 只表示 mutation
+validation 通过，不增加 status matrix edge，也不把 mutation 伪装成状态 self-loop。R2 在 CAS
+前必须组合执行 transition guard 与 `validate_write_precondition`。Final terminal duplicate
+仍只有在完整 persisted record 相等时返回 `IDEMPOTENT`；`MANUAL_RECOVERY_REQUIRED` 禁止原地
+same-status mutation。
 
 ## 3. Shared verification commands
 
@@ -684,6 +687,12 @@ disposition，并生成 `p4-r1-s5-handoff.md`。无 finding 时不创建空 S5 �
 未触发时，S4 record 写明 `S6: not_required` 与比例化理由。触发时由独立上下文读取 formal
 owners、R1 candidate 和 tests，输出 `p4-r1-s6-independent-review.md`；不得把低层偏好升级为
 新安全主体、broker、evidence service 或通用状态机。
+
+若 S6 为 `rework_required`，其下一步仅可先执行 docs-only finding disposition：在 owning
+Contract 与本计划中明确唯一语义 owner、允许路径、回归证明和 reopen 条件。该 disposition
+完成前不得修改 production/tests；disposition 完成后仍须获得 remediation 授权，才能执行
+conditional code/test 修复并重新运行独立审核。历史 S3b、S5、S6 记录保持封存，不通过改写
+历史结论消除 finding。
 
 ## 14. P4-R1-S7 — Module gate and handoff
 

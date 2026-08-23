@@ -17,6 +17,7 @@ from gateway_backend.operations import (
     ClaimCandidate,
     CorruptPersistedRecord,
     ConflictingDuplicate,
+    IntegrityScanPage,
     JobStepKey,
     LeaseExpired,
     OperationStore,
@@ -40,6 +41,7 @@ STORE_PUBLIC_EXPORTS = frozenset(
         "MAX_CLAIM_LIMIT",
         "MAX_PAGE_LIMIT",
         "ClaimCandidate",
+        "IntegrityScanPage",
         "CorruptPersistedRecord",
         "ConflictingDuplicate",
         "LeaseExpired",
@@ -70,6 +72,7 @@ def test_store_port_methods_have_frozen_signatures() -> None:
         "list_steps": ("self", "operation_id", "cursor", "limit"),
         "list_operations_by_status": ("self", "status", "cursor", "limit"),
         "list_claim_candidates": ("self", "now", "cursor", "limit"),
+        "scan_active_integrity": ("self", "cursor", "limit"),
         "insert_operation_with_initial_step": ("self", "operation", "step"),
         "insert_successor_step": ("self", "step"),
         "compare_and_set_operation": ("self", "candidate", "precondition", "recovery_authorized"),
@@ -93,6 +96,10 @@ def test_store_port_methods_have_frozen_signatures() -> None:
     assert (
         inspect.signature(OperationStore.list_claim_candidates).parameters["limit"].default
         == DEFAULT_CLAIM_LIMIT
+    )
+    assert (
+        inspect.signature(OperationStore.scan_active_integrity).parameters["limit"].default
+        == DEFAULT_PAGE_LIMIT
     )
     assert inspect.signature(OperationStore.compare_and_set_operation).parameters[
         "recovery_authorized"
@@ -123,6 +130,19 @@ def test_claim_candidate_is_bounded_and_immutable() -> None:
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
         candidate.status = StepStatus.RETRY_WAIT  # type: ignore[misc]
+
+
+def test_integrity_scan_page_is_bounded_and_immutable() -> None:
+    page = IntegrityScanPage(operations_scanned=2, steps_scanned=3, next_cursor="cursor")
+    assert page.operations_scanned == 2
+    assert page.steps_scanned == 3
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        page.steps_scanned = 4  # type: ignore[misc]
+
+    with pytest.raises(ValueError, match="non-negative"):
+        IntegrityScanPage(operations_scanned=-1, steps_scanned=0, next_cursor=None)
+    with pytest.raises(ValueError, match="non-empty"):
+        IntegrityScanPage(operations_scanned=0, steps_scanned=0, next_cursor="")
 
 
 @pytest.mark.parametrize("status", [StepStatus.RUNNING, StepStatus.SUCCEEDED])

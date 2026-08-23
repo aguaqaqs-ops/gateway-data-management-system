@@ -21,6 +21,7 @@ from gateway_backend.operations import (
     MAX_CLAIM_LIMIT,
     MAX_PAGE_LIMIT,
     JobStepKey,
+    IntegrityScanPage,
     LeaseExpired,
     OperationRecord,
     OperationStatus,
@@ -43,6 +44,16 @@ _SQLITE_INT_MIN = -(2**63)
 _SQLITE_INT_MAX = 2**63 - 1
 _MAX_CURSOR_BYTES = 1024
 _CURSOR_VERSION = 1
+_INTEGRITY_CURSOR_VERSION = 1
+_INTEGRITY_OPERATION_PHASE = "operations"
+_INTEGRITY_STEP_PHASE = "steps"
+_ACTIVE_OPERATION_STATUSES = ("QUEUED", "RUNNING", "MANUAL_RECOVERY_REQUIRED")
+_ACTIVE_STEP_STATUSES = (
+    "PENDING",
+    "RUNNING",
+    "RETRY_WAIT",
+    "MANUAL_RECOVERY_REQUIRED",
+)
 
 _OPERATION_COLUMNS = (
     "operation_id, contract_version, optimistic_version, job_kind, job_contract_version, "
@@ -276,6 +287,97 @@ class SQLiteOperationStore:
                 step_id=_required_row_text(last, "step_id"),
             )
         return tuple(candidates), next_cursor
+
+    def scan_active_integrity(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int = DEFAULT_PAGE_LIMIT,
+    ) -> IntegrityScanPage:
+        """Validate a bounded keyset page of active Operations or Steps.
+
+        Operations are scanned before Steps.  The cursor records the phase and the
+        last ``(updated_at_us, identity)`` pair in that phase, so callers can
+        repeatedly invoke this method without exposing SQL or row layout.
+        """
+
+        self._require_transaction()
+        _validate_page_request(limit, cursor, maximum=MAX_PAGE_LIMIT)
+        phase, last_updated_at_us, last_identity = _decode_integrity_cursor(cursor)
+
+        if phase == _INTEGRITY_OPERATION_PHASE:
+            rows = self._select_active_operation_rows(
+                last_updated_at_us=last_updated_at_us,
+                last_identity=last_identity,
+                limit=limit,
+            )
+            visible_rows, has_more = _page_rows(rows, limit)
+            for row in visible_rows:
+                operation_record_from_row(_as_mapping(row))
+            if has_more and visible_rows:
+                last = _as_mapping(visible_rows[-1])
+                return IntegrityScanPage(
+                    operations_scanned=len(visible_rows),
+                    steps_scanned=0,
+                    next_cursor=_encode_integrity_cursor(
+                        _INTEGRITY_OPERATION_PHASE,
+                        updated_at_us=_required_row_int(last, "updated_at_us"),
+                        identity=_required_row_text(last, "operation_id"),
+                    ),
+                )
+
+            remaining = limit - len(visible_rows)
+            if remaining == 0:
+                return IntegrityScanPage(
+                    operations_scanned=len(visible_rows),
+                    steps_scanned=0,
+                    next_cursor=_encode_integrity_cursor(_INTEGRITY_STEP_PHASE),
+                )
+            step_rows = self._select_active_step_rows(
+                last_updated_at_us=None,
+                last_identity=None,
+                limit=remaining,
+            )
+            visible_step_rows, step_has_more = _page_rows(step_rows, remaining)
+            for row in visible_step_rows:
+                step = step_record_from_row(_as_mapping(row))
+                self._validate_active_step_owner(step)
+            next_cursor = None
+            if step_has_more and visible_step_rows:
+                last = _as_mapping(visible_step_rows[-1])
+                next_cursor = _encode_integrity_cursor(
+                    _INTEGRITY_STEP_PHASE,
+                    updated_at_us=_required_row_int(last, "updated_at_us"),
+                    identity=_required_row_text(last, "step_id"),
+                )
+            return IntegrityScanPage(
+                operations_scanned=len(visible_rows),
+                steps_scanned=len(visible_step_rows),
+                next_cursor=next_cursor,
+            )
+
+        rows = self._select_active_step_rows(
+            last_updated_at_us=last_updated_at_us,
+            last_identity=last_identity,
+            limit=limit,
+        )
+        visible_rows, has_more = _page_rows(rows, limit)
+        for row in visible_rows:
+            step = step_record_from_row(_as_mapping(row))
+            self._validate_active_step_owner(step)
+        next_cursor = None
+        if has_more and visible_rows:
+            last = _as_mapping(visible_rows[-1])
+            next_cursor = _encode_integrity_cursor(
+                _INTEGRITY_STEP_PHASE,
+                updated_at_us=_required_row_int(last, "updated_at_us"),
+                identity=_required_row_text(last, "step_id"),
+            )
+        return IntegrityScanPage(
+            operations_scanned=0,
+            steps_scanned=len(visible_rows),
+            next_cursor=next_cursor,
+        )
 
     def insert_operation_with_initial_step(
         self,
@@ -526,6 +628,51 @@ class SQLiteOperationStore:
             (operation_id, step_name),
         ).fetchone())
 
+    def _select_active_operation_rows(
+        self,
+        *,
+        last_updated_at_us: int | None,
+        last_identity: str | None,
+        limit: int,
+    ) -> list[sqlite3.Row]:
+        placeholders = ", ".join("?" for _ in _ACTIVE_OPERATION_STATUSES)
+        query = (
+            f"SELECT {_OPERATION_COLUMNS} FROM operation_records "
+            f"WHERE status IN ({placeholders})"
+        )
+        parameters: list[object] = list(_ACTIVE_OPERATION_STATUSES)
+        if last_updated_at_us is not None and last_identity is not None:
+            query += " AND (updated_at_us > ? OR (updated_at_us = ? AND operation_id > ?))"
+            parameters.extend([last_updated_at_us, last_updated_at_us, last_identity])
+        query += " ORDER BY updated_at_us, operation_id LIMIT ?"
+        parameters.append(limit + 1)
+        return self._execute(query, tuple(parameters)).fetchall()
+
+    def _select_active_step_rows(
+        self,
+        *,
+        last_updated_at_us: int | None,
+        last_identity: str | None,
+        limit: int,
+    ) -> list[sqlite3.Row]:
+        placeholders = ", ".join("?" for _ in _ACTIVE_STEP_STATUSES)
+        query = f"SELECT {_STEP_COLUMNS} FROM step_records WHERE status IN ({placeholders})"
+        parameters: list[object] = list(_ACTIVE_STEP_STATUSES)
+        if last_updated_at_us is not None and last_identity is not None:
+            query += " AND (updated_at_us > ? OR (updated_at_us = ? AND step_id > ?))"
+            parameters.extend([last_updated_at_us, last_updated_at_us, last_identity])
+        query += " ORDER BY updated_at_us, step_id LIMIT ?"
+        parameters.append(limit + 1)
+        return self._execute(query, tuple(parameters)).fetchall()
+
+    def _validate_active_step_owner(self, step: StepRecord) -> None:
+        row = self._select_operation_row(step.operation_id)
+        if row is None:
+            raise CorruptPersistedRecord("active step has no owning operation")
+        operation = operation_record_from_row(_as_mapping(row))
+        if operation.status.is_final_terminal():
+            raise CorruptPersistedRecord("active step belongs to a terminal operation")
+
     def _insert_operation(self, row: Mapping[str, object]) -> None:
         columns = _OPERATION_INSERT_COLUMNS
         names = [column.strip() for column in columns.split(",")]
@@ -760,7 +907,15 @@ def operation_record_from_row(row: Mapping[str, object]) -> OperationRecord:
         return operation_record_from_document(document)
     except CorruptPersistedRecord:
         raise
-    except (CanonicalEncodingError, KeyError, TypeError, ValueError, OverflowError) as exc:
+    except (
+        CanonicalEncodingError,
+        IndexError,
+        KeyError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+        OverflowError,
+    ) as exc:
         raise CorruptPersistedRecord("operation row failed R1 readback") from exc
 
 
@@ -800,7 +955,15 @@ def step_record_from_row(row: Mapping[str, object]) -> StepRecord:
         return step_record_from_document(document)
     except CorruptPersistedRecord:
         raise
-    except (CanonicalEncodingError, KeyError, TypeError, ValueError, OverflowError) as exc:
+    except (
+        CanonicalEncodingError,
+        IndexError,
+        KeyError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+        OverflowError,
+    ) as exc:
         raise CorruptPersistedRecord("step row failed R1 readback") from exc
 
 
@@ -941,3 +1104,58 @@ def _expected_eligible_at_us(
             raise ValueError("RETRY_WAIT step requires retry_not_before")
         return _datetime_to_epoch_us(retry_not_before)
     return None
+
+
+def _encode_integrity_cursor(
+    phase: str,
+    *,
+    updated_at_us: int | None = None,
+    identity: str | None = None,
+) -> str:
+    if phase not in {_INTEGRITY_OPERATION_PHASE, _INTEGRITY_STEP_PHASE}:
+        raise ValueError("integrity cursor phase is unsupported")
+    if (updated_at_us is None) != (identity is None):
+        raise ValueError("integrity cursor key must be complete")
+    payload = {
+        "identity": identity,
+        "phase": phase,
+        "scope": "active_integrity",
+        "updated_at_us": updated_at_us,
+        "version": _INTEGRITY_CURSOR_VERSION,
+    }
+    raw = canonicalize_json_value(payload)
+    encoded = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    if len(encoded.encode("utf-8")) > _MAX_CURSOR_BYTES:
+        raise ValueError("generated integrity cursor exceeds its maximum size")
+    return encoded
+
+
+def _decode_integrity_cursor(
+    cursor: str | None,
+) -> tuple[str, int | None, str | None]:
+    if cursor is None:
+        return _INTEGRITY_OPERATION_PHASE, None, None
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+        if canonicalize_jcs(raw) != raw:
+            raise ValueError("cursor JSON is not canonical")
+        payload = json.loads(raw)
+    except (UnicodeEncodeError, UnicodeDecodeError, ValueError, json.JSONDecodeError, CanonicalEncodingError) as exc:
+        raise ValueError("integrity cursor is malformed") from exc
+    if type(payload) is not dict:
+        raise ValueError("integrity cursor payload must be an object")
+    if set(payload) != {"identity", "phase", "scope", "updated_at_us", "version"}:
+        raise ValueError("integrity cursor fields do not match")
+    if payload["scope"] != "active_integrity" or payload["version"] != _INTEGRITY_CURSOR_VERSION:
+        raise ValueError("integrity cursor scope or version is unsupported")
+    phase = payload["phase"]
+    if phase not in {_INTEGRITY_OPERATION_PHASE, _INTEGRITY_STEP_PHASE}:
+        raise ValueError("integrity cursor phase is unsupported")
+    updated_at_us = payload["updated_at_us"]
+    identity = payload["identity"]
+    if updated_at_us is None and identity is None:
+        return phase, None, None
+    if type(updated_at_us) is not int or type(identity) is not str or not identity:
+        raise ValueError("integrity cursor key is invalid")
+    return phase, updated_at_us, identity

@@ -24,6 +24,7 @@ from gateway_backend.operations import (
     OperationRecord,
     OperationStore,
     OperationStatus,
+    MAX_PAGE_LIMIT,
     RecordNotFound,
     StepRecord,
     StepStatus,
@@ -190,8 +191,12 @@ CORRUPT_OPERATION_ROWS = (
     ("business JSON has wrong root", {"business_refs": b"{}"}),
     ("non-canonical JSON blob", {"business_refs": b'[{"kind":"workspace", "value":"workspace-1"}]'}),
     ("scalar has wrong type", {"optimistic_version": "0"}),
+    ("scalar is outside the R1 range", {"optimistic_version": -1}),
     ("boolean has invalid integer", {"cancel_requested": 2}),
     ("enum has unknown value", {"status": "UNKNOWN"}),
+    ("contract version is unknown", {"contract_version": "backend-vnext/operation-runtime/v2"}),
+    ("canonical JSON is not UTF-8", {"job_payload": b"\xff"}),
+    ("composite binding is inconsistent", {"job_payload": None, "job_payload_ref": None}),
 )
 
 
@@ -209,9 +214,11 @@ def test_operation_row_corruption_is_owner_specific(
 CORRUPT_STEP_ROWS = (
     ("canonical blob is truncated", {"prior_output_refs": b"["}),
     ("scalar has wrong type", {"attempt_count": "1"}),
+    ("scalar is negative", {"attempt_count": -1}),
     ("boolean has invalid integer", {"cancel_requested": 2}),
     ("eligible metadata is inconsistent", {"eligible_at_us": 0}),
     ("status has unknown value", {"status": "UNKNOWN", "eligible_at_us": None}),
+    ("contract version is unknown", {"contract_version": "backend-vnext/operation-runtime/v2"}),
 )
 
 
@@ -249,6 +256,143 @@ def test_pending_step_uses_created_time_and_terminal_step_has_no_eligibility() -
         )
     )
     assert step_record_to_row(terminal)["eligible_at_us"] is None
+
+
+def test_active_integrity_scan_is_bounded_keyset_and_checks_operations_before_steps() -> None:
+    connection, store = _memory_store()
+    try:
+        for index in range(2):
+            operation = dataclasses.replace(
+                _operation_record(),
+                operation_id=f"op-integrity-{index}",
+            )
+            step = dataclasses.replace(
+                _initial_step_record(),
+                operation_id=operation.operation_id,
+                step_id=f"step-integrity-{index}",
+            )
+            assert (
+                store.insert_operation_with_initial_step(operation, step)
+                is TransitionDisposition.APPLY
+            )
+
+        pages = []
+        cursor = None
+        while True:
+            page = store.scan_active_integrity(cursor=cursor, limit=1)
+            pages.append(page)
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+
+        assert [(page.operations_scanned, page.steps_scanned) for page in pages] == [
+            (1, 0),
+            (1, 0),
+            (0, 1),
+            (0, 1),
+        ]
+        assert sum(page.operations_scanned for page in pages) == 2
+        assert sum(page.steps_scanned for page in pages) == 2
+    finally:
+        connection.close()
+
+
+def test_active_integrity_scan_rejects_corruption_without_repairing_the_row() -> None:
+    connection, store = _memory_store()
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        connection.execute(
+            "UPDATE operation_records SET business_refs = ? WHERE operation_id = ?",
+            (b"not-json", operation.operation_id),
+        )
+
+        with pytest.raises(CorruptPersistedRecord, match="operation row"):
+            store.scan_active_integrity()
+        assert connection.execute(
+            "SELECT business_refs FROM operation_records WHERE operation_id = ?",
+            (operation.operation_id,),
+        ).fetchone()[0] == b"not-json"
+    finally:
+        connection.close()
+
+
+def test_active_integrity_scan_rejects_step_owned_by_terminal_operation() -> None:
+    connection, store = _memory_store()
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        at_us = operation_record_to_row(operation)["updated_at_us"]
+        connection.execute(
+            """
+            UPDATE operation_records
+            SET status = 'SUCCEEDED', completed_at_us = ?, updated_at_us = ?
+            WHERE operation_id = ?
+            """,
+            (at_us, at_us, operation.operation_id),
+        )
+
+        with pytest.raises(CorruptPersistedRecord, match="terminal operation"):
+            store.scan_active_integrity()
+    finally:
+        connection.close()
+
+
+def test_terminal_corruption_is_not_part_of_active_integrity_scan() -> None:
+    connection, store = _memory_store()
+    try:
+        operation = _operation_record()
+        step = _initial_step_record()
+        store.insert_operation_with_initial_step(operation, step)
+        operation_row = operation_record_to_row(operation)
+        at_us = operation_row["updated_at_us"]
+        connection.execute(
+            """
+            UPDATE operation_records
+            SET status = 'SUCCEEDED', completed_at_us = ?, updated_at_us = ?, business_refs = ?
+            WHERE operation_id = ?
+            """,
+            (at_us, at_us, b"not-json", operation.operation_id),
+        )
+        connection.execute(
+            """
+            UPDATE step_records
+            SET status = 'CANCELLED', completed_at_us = ?, updated_at_us = ?, eligible_at_us = NULL,
+                prior_output_refs = ?
+            WHERE step_id = ?
+            """,
+            (at_us, at_us, b"[", step.step_id),
+        )
+
+        page = store.scan_active_integrity()
+        assert (page.operations_scanned, page.steps_scanned, page.next_cursor) == (0, 0, None)
+        with pytest.raises(CorruptPersistedRecord):
+            store.get_operation(operation.operation_id)
+        with pytest.raises(CorruptPersistedRecord):
+            store.get_step(step.step_id)
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("limit", [0, -1, MAX_PAGE_LIMIT + 1])
+def test_active_integrity_scan_rejects_unbounded_limits(limit: int) -> None:
+    connection, store = _memory_store()
+    try:
+        with pytest.raises(ValueError, match="limit"):
+            store.scan_active_integrity(limit=limit)
+    finally:
+        connection.close()
+
+
+def test_active_integrity_scan_rejects_malformed_cursor() -> None:
+    connection, store = _memory_store()
+    try:
+        with pytest.raises(ValueError, match="integrity cursor"):
+            store.scan_active_integrity(cursor="not-a-cursor")
+    finally:
+        connection.close()
 
 
 def test_store_create_readback_and_claim_candidate_round_trip() -> None:

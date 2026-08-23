@@ -137,6 +137,7 @@ EXPECTED_PUBLIC_EXPORTS = frozenset(
         "MAX_CLAIM_LIMIT",
         "MAX_PAGE_LIMIT",
         "ClaimCandidate",
+        "IntegrityScanPage",
         "CorruptPersistedRecord",
         "ConflictingDuplicate",
         "LeaseExpired",

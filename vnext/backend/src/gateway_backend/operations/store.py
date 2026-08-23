@@ -83,6 +83,25 @@ class ClaimCandidate:
         _validate_utc_datetime(self.created_at, "created_at")
 
 
+@dataclass(frozen=True, slots=True)
+class IntegrityScanPage:
+    """Bounded result for validating active persisted operation state."""
+
+    operations_scanned: int
+    steps_scanned: int
+    next_cursor: str | None
+
+    def __post_init__(self) -> None:
+        if type(self.operations_scanned) is not int or self.operations_scanned < 0:
+            raise ValueError("operations_scanned must be a non-negative integer")
+        if type(self.steps_scanned) is not int or self.steps_scanned < 0:
+            raise ValueError("steps_scanned must be a non-negative integer")
+        if self.next_cursor is not None and (
+            type(self.next_cursor) is not str or not self.next_cursor
+        ):
+            raise ValueError("next_cursor must be a non-empty string or None")
+
+
 @runtime_checkable
 class OperationStore(Protocol):
     """Transaction-scoped operation participant; it never commits or rolls back."""
@@ -119,6 +138,14 @@ class OperationStore(Protocol):
         limit: int = DEFAULT_CLAIM_LIMIT,
     ) -> tuple[tuple[ClaimCandidate, ...], str | None]:
         """Return due PENDING/RETRY_WAIT candidates in stable keyset order."""
+
+    def scan_active_integrity(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int = DEFAULT_PAGE_LIMIT,
+    ) -> IntegrityScanPage:
+        """Validate one bounded page of active persisted records."""
 
     def insert_operation_with_initial_step(
         self,
@@ -199,6 +226,7 @@ __all__ = [
     "MAX_CLAIM_LIMIT",
     "MAX_PAGE_LIMIT",
     "ClaimCandidate",
+    "IntegrityScanPage",
     "CorruptPersistedRecord",
     "ConflictingDuplicate",
     "LeaseExpired",

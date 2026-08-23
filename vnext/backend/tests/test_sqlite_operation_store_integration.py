@@ -19,6 +19,7 @@ from gateway_backend.infrastructure.control_db import (
 from gateway_backend.infrastructure.control_db.migrations import bootstrap_control_schema
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
+    CorruptPersistedRecord,
     ConflictingDuplicate,
     OperationStatus,
     RecordNotFound,
@@ -182,6 +183,33 @@ def test_operation_store_commits_and_reads_back_after_reopen(tmp_path: Path) -> 
         assert unit_of_work.operations.get_step(step.step_id) == step
         with pytest.raises(RuntimeError, match="read-only"):
             unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+
+
+def test_file_backed_active_integrity_scan_rejects_orphan_step_after_reopen(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    operation = operation_record_from_document(_operation_document("op-orphan-0001"))
+    step = step_record_from_document(_step_document("op-orphan-0001", "step-orphan-0001"))
+
+    with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+
+    connection = connect_control_db(db_path)
+    try:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute(
+            "DELETE FROM operation_records WHERE operation_id = ?",
+            (operation.operation_id,),
+        )
+        connection.execute("PRAGMA foreign_keys=ON")
+    finally:
+        connection.close()
+
+    with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as unit_of_work:
+        with pytest.raises(CorruptPersistedRecord, match="owning operation"):
+            unit_of_work.operations.scan_active_integrity()
 
 
 def test_lifecycle_claim_commits_and_reads_back_after_reopen(tmp_path: Path) -> None:

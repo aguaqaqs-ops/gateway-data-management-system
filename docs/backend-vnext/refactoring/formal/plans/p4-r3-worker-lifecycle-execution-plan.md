@@ -1,6 +1,6 @@
 # P4-R3 Worker and Process Lifecycle Detailed Execution Plan
 
-状态：**S0 ACCEPTED — S1a IMPLEMENTATION NOT AUTHORIZED**
+状态：**S7 MODULE GATE PASS — P4-R4-S0 DISCUSSION ONLY**
 
 日期：2026-08-24
 
@@ -33,13 +33,18 @@ input_design_document: p4-r3-s0-entry-brief.md
 input_design_document_sha: pending_s0_documentation_commit
 p4_r2_exit: pass
 p4_r3_s0_acceptance: accepted
-p4_r3_implementation_authorized: no
+p4_r3_implementation_authorized: no_further_r3_work
+validated_code_sha: acb3efca06a02aadaa5ce6d1e2a815e85d36e6af
+validated_source_tree: sha256:26994ad239969afb95556c03d9f03590837a98ac3148f3a9d70d835241370146
+module_gate: pass
+next_entry: P4-R4-S0 discussion
 first_implementation_step: P4-R3-S1a
 first_implementation_step_authorized: no
 ```
 
-本计划已通过 [P4-R3-S0 Independent Entry Acceptance](p4-r3-s0-entry-acceptance.md)。
-本文不授权Python、tests、settings或container变更；S1a仍需单独授权。
+本计划已通过 [P4-R3-S0 Independent Entry Acceptance](p4-r3-s0-entry-acceptance.md)，并已完成
+S1a–S7。S0中的未授权声明是入口时点的历史边界；当前R3 source/test与image gate已封存，
+后续只允许P4-R4-S0 entry discussion。
 
 ## 2. Actual code inventory and consequences
 
@@ -697,6 +702,17 @@ symbols、module entrypoint、settings、startup/claim/session/heartbeat/lifecyc
 image provenance、single-worker/local-SQLite/empty-registry limits、deferred/reopen和`next_entry: P4-R4-S0`。
 
 R3 handoff只允许R4-S0 discussion，不授权R4/R5/P5实现或真实Repository effect。
+
+## 19. P4-R3-S7 completion record
+
+S7 在 current HEAD `acb3efca06a02aadaa5ce6d1e2a815e85d36e6af` 完成 backend focused/unit/
+integration/serial、五包 ruff/mypy、diff/ancestry/source-tree checks，并在远端 Docker daemon
+`tmpuser@10.10.60.4` 重建并验证 `p4-r3-acb3efc`。image ID/digest 为
+`sha256:f461fc3ec5347e3779edbdc0c041ba15af9b2cc79c007e525f7844d3815abaaf`；source/test tree
+为 `sha256:26994ad239969afb95556c03d9f03590837a98ac3148f3a9d70d835241370146`。worker container
+smoke 证明空 DB `worker_ready`、SIGTERM drain、`worker_exited`/exit 0、WAL/schema reopen 和
+脱敏日志；精确 container/temp path 已清理。完整命令、矩阵、限制和 R4 boundary 见
+[P4/R3 Worker Lifecycle Handoff](p4-r3-worker-lifecycle-handoff.md)。
 
 ## 18. Global stop/reopen rules
 

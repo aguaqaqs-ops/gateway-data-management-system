@@ -1,6 +1,6 @@
 # P4 Active Context Index
 
-状态：P4-R2-S7 module gate pass；P4-R3-S0 accepted，S1a implementation not authorized
+状态：P4-R3-S7 module gate pass；P4-R4-S0 entry discussion only
 
 日期：2026-08-24
 
@@ -32,7 +32,7 @@ p4_r1_s4: pass_after_s5
 p4_r1_s5: pass
 p4_r1_s6: pass_after_f2_f3_remediation
 p4_r1_s7: pass
-p4_implementation_authorized: r3_s1a_authorization_pending
+p4_implementation_authorized: r4_s0_discussion_only
 r1_s1a_authorized: yes
 r1_s1b_authorized: yes
 r1_s2a_authorized: yes
@@ -66,8 +66,20 @@ p4_r3_entry_discussion_authorized: yes
 p4_r3_s0_design: accepted
 p4_r3_execution_plan: accepted
 p4_r3_s0_acceptance: accepted
-p4_r3_s1a_authorized: no
-p4_r3_implementation_authorized: no
+p4_r3_s1a: pass
+p4_r3_s1b: pass
+p4_r3_s2a: pass
+p4_r3_s2b: pass
+p4_r3_s3a: pass
+p4_r3_s3b: pass
+p4_r3_s4: pass_after_s5
+p4_r3_s5: pass
+p4_r3_s6: pass
+p4_r3_s7: pass
+p4_r3_exit: pass
+p4_r3_validated_code_sha: acb3efca06a02aadaa5ce6d1e2a815e85d36e6af
+p4_r3_implementation_authorized: no_further_r3_work
+p4_r4_entry_discussion_authorized: yes
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
 default_retrieval: this_index
@@ -110,23 +122,24 @@ final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
     R2 design acceptance与S1a未授权边界。
 15. [P4-R3-S0 Entry Brief](p4-r3-s0-entry-brief.md)：R3 worker、lease session、
     process-local lifecycle、startup gate、single-worker deployment与reopen边界的accepted design；
-    S1a implementation仍未授权。
+    S7 module gate已通过。
 16. [P4-R3 Worker and Process Lifecycle Detailed Execution Plan](p4-r3-worker-lifecycle-execution-plan.md)：
-    按现有R1/R2、bootstrap、tests和image接缝拆分的accepted逐step实施、审核、
-    handoff和对话上下文策略。
+    按现有R1/R2、bootstrap、tests和image接缝拆分的逐step实施、审核、module gate和handoff记录。
 17. [P4/R3-S0 Independent Entry Acceptance](p4-r3-s0-entry-acceptance.md)：
-    R3 owner、lifecycle、transaction、deployment和step/gate的独立acceptance；S1a未授权。
-18. [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)：
+    R3 owner、lifecycle、transaction、deployment和step/gate的独立acceptance。
+18. [P4/R3 Worker Lifecycle Handoff](p4-r3-worker-lifecycle-handoff.md)：S7 module gate、
+    current-HEAD image provenance、container smoke与R4-S0 entry boundary。
+19. [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)：
    operation/step 状态、integrity 与 recovery owner。
-19. [External Effect and Recovery](../contracts/external-effect-and-recovery.md)：
+20. [External Effect and Recovery](../contracts/external-effect-and-recovery.md)：
    external effect evidence、reconciliation 与 recovery owner。
-20. [Business Lifecycle and State](../contracts/business-lifecycle-and-state.md)：
+21. [Business Lifecycle and State](../contracts/business-lifecycle-and-state.md)：
    business object、occupancy、freeze point 与 T1/T3 owner。
-21. [Repository Service Contract](../contracts/repository-service.md)：Repository
+22. [Repository Service Contract](../contracts/repository-service.md)：Repository
    operation、marker/ref/CAS、reconciliation authority；P4 lease 不改变其语义。
-22. [P3 Capability Foundation Design](p3-capability-foundation-design.md)：P3 capability
+23. [P3 Capability Foundation Design](p3-capability-foundation-design.md)：P3 capability
    设计 authority 与 P4 直接依赖的 capability contracts 索引。
-23. [Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)：
+24. [Proportional Assurance and Risk-Based Verification Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)：
     跨阶段保障与测试取舍。
 
 可选（贡献者/实现约束）：
@@ -148,10 +161,9 @@ P3 **不交付、不授权**（P4 也不得静默改变其 owner）：
 - Repository Service reconciliation（control DB/marker/ref/CAS）——仍由 Repository
   contract 拥有；P4 lease 不改变 Repository operation authority。
 
-P4-R1已exit；P4-R2已完成S7 module gate。P4-R3-S0 design与detailed execution plan
-已通过independent acceptance；当前允许进行S1a authorization discussion，
-`p4_r2_authorized: no` 且 `p4_r3_implementation_authorized: no`，不得从R2 handoff推断
-worker、settings/Compose、R4/R5或P5 implementation authorization。
+P4-R1已exit；P4-R2已完成S7 module gate；P4-R3已完成S7 module gate。
+R3 handoff仅允许P4-R4-S0 entry discussion；`p4_r2_authorized: no`、
+`p4_r4_entry_discussion_authorized: yes`且R4/R5/P5 implementation仍未授权。
 
 ## 3. P3 handoff 指针
 

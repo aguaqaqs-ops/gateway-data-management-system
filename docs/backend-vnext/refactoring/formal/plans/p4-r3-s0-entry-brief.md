@@ -1,6 +1,6 @@
 # P4-R3-S0 Entry Brief: Worker and Process Lifecycle
 
-状态：**S0 DESIGN ACCEPTED — S1a IMPLEMENTATION NOT AUTHORIZED**
+状态：**S7 MODULE GATE PASS — P4-R4-S0 DISCUSSION ONLY**
 
 日期：2026-08-24
 
@@ -31,8 +31,10 @@ p4_r3_entry_discussion_authorized: yes
 p4_r3_s0_design: accepted
 p4_r3_s0_acceptance: accepted
 p4_r3_s1a_authorized: no
-p4_r3_implementation_authorized: no
-next_step: P4-R3-S1a
+p4_r3_implementation_authorized: no_further_r3_work
+validated_code_sha: acb3efca06a02aadaa5ce6d1e2a815e85d36e6af
+module_gate: pass
+next_step: P4-R4-S0 discussion
 next_step_authorized: no
 ```
 
@@ -41,9 +43,9 @@ integrity scan与cross-table transaction seam。当前HEAD是验证代码SHA的d
 后代，R2 source/test tree无漂移，且S4/S5/S6无open finding。
 
 本文固化已由 [P4-R3-S0 Independent Entry Acceptance](p4-r3-s0-entry-acceptance.md)
-接受的R3-S0需求与设计。该acceptance不是implementation authorization；未获得
-单独S1a授权前，不得据此修改Python source/tests、`pyproject.toml`、Dockerfile、
-Compose、settings或当前HTTP readiness。
+接受的R3-S0需求与设计。该acceptance本身不是implementation authorization；入口时点的
+S1a限制已由后续显式授权、S1a–S7 evidence和本 handoff 封存。当前R3不再开放新的
+source/test/settings/container变更；后续只允许P4-R4-S0 entry discussion。
 
 ## 2. Objective, users and scenarios
 

@@ -11,6 +11,7 @@ CAPABILITIES_ROOT = BACKEND_SRC / "gateway_backend" / "capabilities"
 CAPABILITIES_PREFIX = "gateway_backend.capabilities."
 OPERATIONS_ROOT = BACKEND_SRC / "gateway_backend" / "operations"
 CONTROL_DB_ROOT = BACKEND_SRC / "gateway_backend" / "infrastructure" / "control_db"
+BOOTSTRAP_ROOT = BACKEND_SRC / "gateway_backend" / "bootstrap"
 
 OPERATIONS_FORBIDDEN_IMPORT_PREFIXES = (
     "sqlite3",
@@ -395,6 +396,117 @@ def test_operations_source_has_no_operation_kind() -> None:
 def test_operations_source_has_no_deferred_stub() -> None:
     for source in sorted(OPERATIONS_ROOT.rglob("*.py")):
         assert "NotImplementedError" not in source.read_text(encoding="utf-8"), source
+
+
+def test_worker_contract_module_stays_runtime_neutral() -> None:
+    worker_source = OPERATIONS_ROOT / "worker.py"
+    assert worker_source.is_file()
+    text = worker_source.read_text(encoding="utf-8")
+    assert "sqlite3" not in text
+    assert "gateway_backend.infrastructure" not in text
+    assert "gateway_backend.settings" not in text
+    assert "gateway_repository" not in text
+    assert "subprocess" not in text
+    assert "threading" not in text
+    assert "NotImplementedError" not in text
+    assert "class WorkerError" not in text
+
+
+def test_lease_session_uses_only_operations_ports_and_atomic_actions() -> None:
+    lease_session_source = OPERATIONS_ROOT / "lease_session.py"
+    assert lease_session_source.is_file()
+    text = lease_session_source.read_text(encoding="utf-8")
+    assert "sqlite3" not in text
+    assert "gateway_backend.infrastructure" not in text
+    assert "gateway_backend.settings" not in text
+    assert "gateway_repository" not in text
+    assert "subprocess" not in text
+    assert "compare_and_set_" not in text
+    assert "insert_successor_step" not in text
+    assert "OperationLifecycleActions" in text
+    assert "NotImplementedError" not in text
+
+
+def test_worker_startup_stays_runtime_neutral_and_uses_injected_ports() -> None:
+    worker_startup_source = OPERATIONS_ROOT / "worker_startup.py"
+    assert worker_startup_source.is_file()
+    text = worker_startup_source.read_text(encoding="utf-8")
+    assert "sqlite3" not in text
+    assert "gateway_backend.infrastructure" not in text
+    assert "gateway_backend.settings" not in text
+    assert "gateway_repository" not in text
+    assert "subprocess" not in text
+    assert "threading" not in text
+    assert "signal" not in text
+    assert "NotImplementedError" not in text
+    assert "OperationLifecycleActions" in text
+    assert "read_uow_factory" in text
+    assert "write_uow_factory" in text
+
+
+def test_worker_lifecycle_stays_process_local_and_runtime_neutral() -> None:
+    lifecycle_source = OPERATIONS_ROOT / "worker_lifecycle.py"
+    assert lifecycle_source.is_file()
+    text = lifecycle_source.read_text(encoding="utf-8")
+    forbidden = (
+        "import sqlite3",
+        "from sqlite3",
+        "import signal",
+        "from signal",
+        "import subprocess",
+        "from subprocess",
+        "gateway_backend.infrastructure",
+        "gateway_backend.settings",
+        "gateway_repository",
+        "NotImplementedError",
+    )
+    assert not any(token in text for token in forbidden), lifecycle_source
+
+
+def test_worker_bootstrap_owns_concrete_process_composition() -> None:
+    assert (BOOTSTRAP_ROOT / "__init__.py").is_file()
+    entrypoint = BOOTSTRAP_ROOT / "operation_worker.py"
+    assert entrypoint.is_file()
+    text = entrypoint.read_text(encoding="utf-8")
+    forbidden = (
+        "gateway_backend.app",
+        "gateway_backend.capabilities",
+        "gateway_backend.compute",
+        "gateway_backend.repository_import_artifact",
+        "gateway_repository",
+        "uvicorn",
+        "fastapi",
+        "socket",
+        "pidfile",
+        "SIGHUP",
+    )
+    assert not any(token in text for token in forbidden), entrypoint
+    assert "initialize_control_db" in text
+    assert "SIGTERM" in text
+    assert "SIGINT" in text
+    assert "EmptyWorkerRegistry" in text
+
+    for source in sorted(BOOTSTRAP_ROOT.rglob("*.py")):
+        current_module, is_init = _python_module_name(source)
+        for imported in _imported_modules(source, current_module, is_init):
+            if imported.startswith("gateway_backend."):
+                assert imported.startswith(
+                    (
+                        "gateway_backend.bootstrap",
+                        "gateway_backend.infrastructure.control_db",
+                        "gateway_backend.operations",
+                        "gateway_backend.settings",
+                    )
+                ), f"{source} imports disallowed module {imported}"
+
+
+def test_operation_worker_settings_have_an_independent_environment_prefix() -> None:
+    settings_source = BACKEND_SRC / "gateway_backend" / "settings.py"
+    text = settings_source.read_text(encoding="utf-8")
+    assert "class BackendSettings" in text
+    assert "class OperationWorkerSettings" in text
+    assert 'env_prefix="GATEWAY_BACKEND_OPERATION_WORKER_"' in text
+    assert 'env_prefix="GATEWAY_BACKEND_"' in text
 
 
 def test_control_db_boundary_exists_and_has_no_application_wiring() -> None:

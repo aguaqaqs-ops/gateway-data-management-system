@@ -30,7 +30,7 @@ module: P4-R3
 input_handoff_sha: e9adbb03603e04bca5981c363fa01ac11576fbe7
 input_validated_code_sha: 31235dc820472a5ca2c99138fdf150090cfe122d
 input_design_document: p4-r3-s0-entry-brief.md
-input_design_document_sha: pending_s0_documentation_commit
+input_design_document_sha: edb15144ac5eae54e970c28f12f58e5e45b075a9
 p4_r2_exit: pass
 p4_r3_s0_acceptance: accepted
 p4_r3_implementation_authorized: no_further_r3_work

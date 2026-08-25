@@ -43,7 +43,7 @@ deferred_items:
   - multi-worker coordination, HA, external DB, retention and formal capacity baseline
 next_step: P4-R3-S1a
 next_step_authorized: no
-next_input_sha: pending_s0_documentation_commit
+next_input_sha: edb15144ac5eae54e970c28f12f58e5e45b075a9
 ```
 
 ## 1. Candidate identity

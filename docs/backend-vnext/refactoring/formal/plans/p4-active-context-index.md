@@ -1,8 +1,8 @@
 # P4 Active Context Index
 
-状态：P4-R3-S7 module gate pass；P4-R4-S0 entry discussion only
+状态：P4-R4-S7 module gate pass；P4-R5-S0 discussion only
 
-日期：2026-08-24
+日期：2026-08-25
 
 Owner：Backend vNext Architecture
 
@@ -32,7 +32,7 @@ p4_r1_s4: pass_after_s5
 p4_r1_s5: pass
 p4_r1_s6: pass_after_f2_f3_remediation
 p4_r1_s7: pass
-p4_implementation_authorized: r4_s0_discussion_only
+p4_implementation_authorized: r5_s0_discussion_only
 r1_s1a_authorized: yes
 r1_s1b_authorized: yes
 r1_s2a_authorized: yes
@@ -80,6 +80,25 @@ p4_r3_exit: pass
 p4_r3_validated_code_sha: acb3efca06a02aadaa5ce6d1e2a815e85d36e6af
 p4_r3_implementation_authorized: no_further_r3_work
 p4_r4_entry_discussion_authorized: yes
+p4_r4_s0_design: accepted
+p4_r4_execution_plan: accepted
+p4_r4_s0_acceptance: accepted
+p4_r4_s1a: pass
+p4_r4_s1b: pass
+p4_r4_s2a: pass
+p4_r4_s2b: pass
+p4_r4_s3a: pass
+p4_r4_s3b: pass
+p4_r4_s3c: pass
+p4_r4_s4: pass_after_s5
+p4_r4_s5: pass
+p4_r4_s6: pass_after_s5_remediation
+p4_r4_s7: pass
+p4_r4_exit: pass
+p4_r4_validated_code_sha: d1d929dcee3b0620b649a248079d846dfbe7aba1
+p4_r4_s1a_authorized: yes_completed
+p4_r4_implementation_authorized: no_further_r4_work
+p4_r5_entry_discussion_authorized: yes
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
 default_retrieval: this_index
@@ -129,6 +148,13 @@ final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
     R3 owner、lifecycle、transaction、deployment和step/gate的独立acceptance。
 18. [P4/R3 Worker Lifecycle Handoff](p4-r3-worker-lifecycle-handoff.md)：S7 module gate、
     current-HEAD image provenance、container smoke与R4-S0 entry boundary。
+18a. [P4-R4-S0 Entry Brief](p4-r4-s0-entry-brief.md)：JobDefinition、payload、checkpoint、READY
+     closure、successor、stub、cancel和R4/R5/P5 owner boundary。
+18b. [P4-R4 JobDefinition and Checkpoint Detailed Execution Plan](p4-r4-jobdefinition-checkpoint-execution-plan.md)：
+     可用短提示词逐step推进、review rounds、conversation strategy、gates和reopen authority。
+18c. [P4-R4-S0 Independent Entry Acceptance](p4-r4-s0-entry-acceptance.md)：R4设计/plan已接受。
+18d. [P4/R4 JobDefinition and Checkpoint Handoff](p4-r4-jobdefinition-checkpoint-handoff.md)：
+     S7 module gate、current-HEAD image provenance、container smoke与P4-R5-S0 entry boundary。
 19. [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)：
    operation/step 状态、integrity 与 recovery owner。
 20. [External Effect and Recovery](../contracts/external-effect-and-recovery.md)：
@@ -161,9 +187,9 @@ P3 **不交付、不授权**（P4 也不得静默改变其 owner）：
 - Repository Service reconciliation（control DB/marker/ref/CAS）——仍由 Repository
   contract 拥有；P4 lease 不改变 Repository operation authority。
 
-P4-R1已exit；P4-R2已完成S7 module gate；P4-R3已完成S7 module gate。
-R3 handoff仅允许P4-R4-S0 entry discussion；`p4_r2_authorized: no`、
-`p4_r4_entry_discussion_authorized: yes`且R4/R5/P5 implementation仍未授权。
+P4-R1已exit；P4-R2已完成S7 module gate；P4-R3已完成S7 module gate；P4-R4已完成S7
+module gate。`p4_r2_authorized: no`、`p4_r4_implementation_authorized: no_further_r4_work`
+且R5/P5 implementation仍未授权；下一入口为P4-R5-S0 discussion only。
 
 ## 3. P3 handoff 指针
 

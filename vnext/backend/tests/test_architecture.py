@@ -12,6 +12,26 @@ CAPABILITIES_PREFIX = "gateway_backend.capabilities."
 OPERATIONS_ROOT = BACKEND_SRC / "gateway_backend" / "operations"
 CONTROL_DB_ROOT = BACKEND_SRC / "gateway_backend" / "infrastructure" / "control_db"
 BOOTSTRAP_ROOT = BACKEND_SRC / "gateway_backend" / "bootstrap"
+APPLICATION_ROOT = BACKEND_SRC / "gateway_backend" / "application"
+APPLICATION_PREFIX = "gateway_backend.application."
+
+APPLICATION_FORBIDDEN_IMPORT_PREFIXES = (
+    "sqlite3",
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "gateway_backend.app",
+    "gateway_backend.bootstrap",
+    "gateway_backend.capabilities",
+    "gateway_backend.compute",
+    "gateway_backend.infrastructure",
+    "gateway_backend.settings",
+    "gateway_repository",
+    "gateway_repository_client",
+    "gateway_repository_contracts",
+    "gateway_repository_service",
+    "gateway_shared_kernel.testing",
+)
 
 OPERATIONS_FORBIDDEN_IMPORT_PREFIXES = (
     "sqlite3",
@@ -398,6 +418,135 @@ def test_operations_source_has_no_deferred_stub() -> None:
         assert "NotImplementedError" not in source.read_text(encoding="utf-8"), source
 
 
+def test_operations_does_not_import_application() -> None:
+    for source in sorted(OPERATIONS_ROOT.rglob("*.py")):
+        current_module, is_init = _python_module_name(source)
+        for imported in _imported_modules(source, current_module, is_init):
+            assert not imported.startswith(APPLICATION_PREFIX), (
+                f"{source} imports disallowed module {imported}"
+            )
+            assert imported != "gateway_backend.application", (
+                f"{source} imports disallowed module {imported}"
+            )
+
+
+def test_application_package_exists_and_exports_job_definition_contract() -> None:
+    assert APPLICATION_ROOT.is_dir()
+    assert (APPLICATION_ROOT / "__init__.py").is_file()
+    assert (APPLICATION_ROOT / "job_definitions.py").is_file()
+    application = importlib.import_module("gateway_backend.application")
+    assert frozenset(application.__all__) == frozenset(
+        {
+            "JobDefinition",
+            "JobDefinitionLookupError",
+            "JobDefinitionRegistry",
+            "NormalPublicationCapability",
+            "build_worker_registry",
+        }
+    )
+
+
+def test_application_module_respects_import_boundary() -> None:
+    for source in sorted(APPLICATION_ROOT.rglob("*.py")):
+        current_module, is_init = _python_module_name(source)
+        for imported in _imported_modules(source, current_module, is_init):
+            _assert_application_import_allowed(source, imported)
+
+
+def test_job_definitions_stays_memory_only() -> None:
+    source = APPLICATION_ROOT / "job_definitions.py"
+    text = source.read_text(encoding="utf-8")
+    forbidden = (
+        "sqlite3",
+        "subprocess",
+        "threading",
+        "signal",
+        "socket",
+        "httpx",
+        "open(",
+        "pathlib",
+        "NotImplementedError",
+    )
+    assert not any(token in text for token in forbidden), source
+
+
+def test_payloads_module_io_boundary() -> None:
+    source = APPLICATION_ROOT / "payloads.py"
+    assert source.is_file()
+    text = source.read_text(encoding="utf-8")
+    forbidden = (
+        "sqlite3",
+        "subprocess",
+        "threading",
+        "signal",
+        "socket",
+        "httpx",
+        "open(",
+        "pathlib",
+        "NotImplementedError",
+    )
+    assert not any(token in text for token in forbidden), source
+    assert "ArtifactStorePort" in text
+
+
+def test_checkpoints_module_io_boundary() -> None:
+    source = APPLICATION_ROOT / "checkpoints.py"
+    assert source.is_file()
+    text = source.read_text(encoding="utf-8")
+    forbidden = (
+        "sqlite3",
+        "subprocess",
+        "threading",
+        "signal",
+        "socket",
+        "httpx",
+        "open(",
+        "pathlib",
+        "NotImplementedError",
+    )
+    assert not any(token in text for token in forbidden), source
+    assert "ArtifactStorePort" in text
+    assert "gateway_backend.infrastructure" not in text
+
+
+def test_synthetic_jobs_module_io_boundary() -> None:
+    source = APPLICATION_ROOT / "synthetic_jobs.py"
+    assert source.is_file()
+    text = source.read_text(encoding="utf-8")
+    forbidden = (
+        "sqlite3",
+        "subprocess",
+        "threading",
+        "signal",
+        "socket",
+        "httpx",
+        "open(",
+        "pathlib",
+        "NotImplementedError",
+    )
+    assert not any(token in text for token in forbidden), source
+    assert "ArtifactStorePort" in text
+    assert "gateway_backend.infrastructure" not in text
+
+
+def test_external_effect_stub_module_io_boundary() -> None:
+    source = APPLICATION_ROOT / "external_effect_stub.py"
+    assert source.is_file()
+    text = source.read_text(encoding="utf-8")
+    forbidden = (
+        "sqlite3",
+        "subprocess",
+        "threading",
+        "signal",
+        "socket",
+        "httpx",
+        "open(",
+        "pathlib",
+    )
+    assert not any(token in text for token in forbidden), source
+    assert "gateway_backend.infrastructure" not in text
+
+
 def test_worker_contract_module_stays_runtime_neutral() -> None:
     worker_source = OPERATIONS_ROOT / "worker.py"
     assert worker_source.is_file()
@@ -480,11 +629,16 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
         "pidfile",
         "SIGHUP",
     )
-    assert not any(token in text for token in forbidden), entrypoint
+    for token in forbidden:
+        if token == "gateway_backend.app":
+            assert "gateway_backend.app." not in text
+            assert "from gateway_backend.app import" not in text
+            continue
+        assert token not in text, f"{token} must not appear in {entrypoint}"
     assert "initialize_control_db" in text
     assert "SIGTERM" in text
     assert "SIGINT" in text
-    assert "EmptyWorkerRegistry" in text
+    assert "build_job_worker_composition" in text
 
     for source in sorted(BOOTSTRAP_ROOT.rglob("*.py")):
         current_module, is_init = _python_module_name(source)
@@ -492,7 +646,9 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
             if imported.startswith("gateway_backend."):
                 assert imported.startswith(
                     (
+                        "gateway_backend.application",
                         "gateway_backend.bootstrap",
+                        "gateway_backend.infrastructure.artifact_store",
                         "gateway_backend.infrastructure.control_db",
                         "gateway_backend.operations",
                         "gateway_backend.settings",
@@ -698,3 +854,27 @@ def _assert_operations_import_allowed(source: Path, imported: str) -> None:
         assert imported.startswith("gateway_backend.operations"), (
             f"{source} imports disallowed backend module {imported}"
         )
+
+
+def _assert_application_import_allowed(source: Path, imported: str) -> None:
+    if imported == "__future__":
+        return
+    for prefix in APPLICATION_FORBIDDEN_IMPORT_PREFIXES:
+        assert imported != prefix and not imported.startswith(f"{prefix}."), (
+            f"{source} imports forbidden module {imported}"
+        )
+    for part in imported.split("."):
+        assert part != "_internal", f"{source} imports {imported}"
+    if imported == "gateway_backend.operations" or imported.startswith("gateway_backend.operations."):
+        return
+    if imported == APPLICATION_PREFIX or imported.startswith(APPLICATION_PREFIX):
+        return
+    if imported == "gateway_shared_kernel" or imported.startswith("gateway_shared_kernel."):
+        assert not imported.startswith("gateway_shared_kernel.testing"), (
+            f"{source} imports forbidden module {imported}"
+        )
+        return
+    if imported == "gateway_backend.artifacts" or imported.startswith("gateway_backend.artifacts."):
+        return
+    if imported.startswith("gateway_backend."):
+        assert False, f"{source} imports disallowed backend module {imported}"

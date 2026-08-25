@@ -227,6 +227,11 @@ def test_process_termination_respects_checkpoint_commit_barrier(
     termination_barrier: str,
     expected_step_version: int,
 ) -> None:
+    """P4-R4-S3c process owner for crash before/after checkpoint CAS.
+
+    Proves durable readback only (RUNNING + expected optimistic_version). An expired
+    lease timestamp in readback is not R5 takeover or reconciliation.
+    """
     db_path = tmp_path / "termination" / "control.sqlite3"
     db_path.parent.mkdir(parents=True)
     child_code = r'''

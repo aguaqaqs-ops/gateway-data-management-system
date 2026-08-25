@@ -52,6 +52,52 @@ P4 不实现：
 | 取消 | cooperative cancellation；外部请求已发送后不伪造远程取消、不生成新 key |
 | cleanup | P4 不自动删除 terminal operation；保留/GC 等待真实 consumer 和容量数据 |
 
+### 2.1 P4-R4-S0 JobDefinition and Checkpoint discussion closure
+
+本节记录 2026-08-25 完成的 R4-S0 架构讨论。它冻结总体设计边界，但不创建或授权
+R4 implementation；精确字段、wire shape、测试 fixture 和 step 拆分仍由独立 R4 entry
+brief 与 execution plan 负责。
+
+- **Registry owner and lifecycle**：`JobDefinition` 由 application owner 定义并在进程启动
+  时组装为 immutable registry。registry 是纯内存、有界 lookup；不使用 durable registry、
+  远程发现或 hot reload。identity 固定为 `(job_kind, step_name)`，
+  `job_contract_version` 独立匹配。runnable record 遇到未知 key 或版本时 fail closed。
+- **Handler boundary**：R4 通过 R3 已冻结的 `ClaimedExecutor`/`LeaseSession` adapter 执行；
+  handler 只能接收 transaction-fresh Operation/Step、`ExecutionControl`、session 和注入的
+  artifact port。payload decoder、artifact I/O 和 handler 计算不得在 DB transaction 内运行，
+  也不得依赖请求进程 closure、动态脚本或 Python object graph。
+- **Payload and checkpoint versions**：job payload、checkpoint 和 READY closure 各自使用
+  明确的 owner/version 轴。只接受 registry 已声明的 decoder；未知版本不做隐式迁移、宽松
+  读取或自动重写，active runnable record 直接 fail closed。
+- **Artifact port and identity**：R4 复用现有 `ArtifactStorePort` 与 `ArtifactRef`。`put`/
+  `locate` 必须保持 exact ref、size 和 raw digest 校验；artifact identity 不携带 host path。
+  R4 不新增 delete、quarantine、sidecar、generic manifest 或 artifact cleanup authority。
+- **Checkpoint authority**：运行中的恢复游标以 `StepRecord.checkpoint_ref` 为权威，
+  `prior_output_refs` 保持 immutable。`OperationRecord.checkpoint_ref` 仅作为 operation-level
+  或 terminal publication 的汇总字段；普通 R4 checkpoint 不引入 operation same-status
+  mutation，也不改变 R1/R2 schema、status 或 CAS contract。
+- **READY closure**：R4 定义最小、版本化的 JCS closure document，记录有序 artifact refs、
+  size/digest、closure version 和对应 job contract version。只有在所有 refs 可读取且完整性
+  校验通过后，才能在 terminal publication 中一次性设置 `ready_closure_ref`；缺失、损坏或
+  版本未知时 fail closed，不伪造 READY。
+- **Successor and final policy**：R4 只支持静态、显式的单 successor 组合或正常 terminal
+  publication，不引入任意 DAG、动态 fan-out 或隐式 successor。retry、takeover、expired
+  lease、unknown external outcome 和 manual recovery 仍由 R5 拥有。
+- **External-effect stub**：R4 只使用 test-only deterministic stub。stub 接受稳定的
+  idempotency key/request ref 并返回稳定 operation identity，可模拟 accepted、unknown 和
+  confirmed；R4 只持久化 request/checkpoint/identity，不执行真实 Repository/Dolt effect，
+  也不作 reconcile 或 retry 决策。
+- **Cancellation**：纯计算或 external stub 尚未提交请求时，cooperative cancel 可发布
+  `CANCELLED`；请求已提交或结果未知时不得伪造取消终局，必须保留原 identity/checkpoint
+  交给 R5 处理。
+- **Artifact write versus CAS**：先写 immutable artifact，再提交 durable CAS。stale CAS
+  造成的未引用 artifact 属于可恢复的 temporary/derived 状态，允许通过确定性 identity 和
+  幂等 `put` 限制重复；R4 不建立不可逆 cleanup 或 durable evidence 状态机。
+
+任何需要修改 R1 record/status/transition、R2 schema/store/CAS/error taxonomy、增加新的
+principal/IPC、改变 single-worker/local SQLite 边界或引入真实 Repository effect 的需求，
+必须 reopen 对应 owner，不得在 R4 implementation 中静默扩展。
+
 ## 3. 逻辑架构
 
 ```text
@@ -124,6 +170,9 @@ ready_closure_ref, optimistic_version, created/updated timestamps
 Step record 额外保存 step name、attempt count、lease token/expiry、last error code、
 checkpoint ref 和 prior output refs。具体业务 payload/schema 不进入 Operations owner 的通用语义。
 
+R4 恢复时先解析 active Step 的 checkpoint 和 prior outputs；Operation-level checkpoint 不替代
+active Step checkpoint，也不作为普通 heartbeat/checkpoint 的第二写入目标。
+
 ### 4.2 T1/T2/T3
 
 P4 提供执行机制，未来 P5 application 定义业务事务：
@@ -179,6 +228,9 @@ retry/backoff 和 poll interval 在详细设计中冻结，并必须满足测试
 - `MANUAL_RECOVERY_REQUIRED`、integrity incident 和未解决外部事实不进入普通 cleanup。
 - READY 前所需 artifact 必须存在且可读；READY 后的后台优化不得改变正式结果。
 - Runtime 不依赖具体 Workspace、Submission、Archive 或 capability 内部模型。
+- 未知 job/payload/checkpoint/closure version 不得进入 runnable 或 READY 状态。
+- READY closure 只允许一次性设置；terminal publication 前必须完成所有引用 artifact 的完整性校验。
+- 请求已提交或 outcome 未知时不得用新的 idempotency key 或 `CANCELLED` 终局掩盖原事实。
 
 P4 必须覆盖纯计算 synthetic job、external-effect stub job、process crash、lease takeover、
 duplicate delivery、cancel、drain/restart、checkpoint corruption 和 unknown outcome。
@@ -195,7 +247,14 @@ container boundary 后，P4 final candidate 必须重建当前 HEAD 镜像并运
 | 多实例 HA / 外部 DB | 非 P4 V1 目标；出现真实部署需求后重开架构决策 |
 | production Repository/Dolt integration | P5B owner；P4 使用 contract stub |
 | 任意 DAG / 动态 fan-out | 保留接口，不进入首版实现 |
+| R4 未引用 artifact 与 closure GC | R4 只保证 bounded/idempotent 写入；cleanup/retention 等待真实 consumer 和容量数据 |
+| R4 checkpoint/READY closure wire | 本节冻结 owner 和一致性边界；精确 document shape 由 R4-S0 execution plan 冻结 |
 
 ## 8. Entry acceptance
 
 实现授权前必须接受：[P4 Durable Operation Runtime Execution Plan](p4-durable-operation-runtime-execution-plan.md) 中的六个 module charter、schema/migration plan、fault matrix、测试命令、review owner、deferred register 和当前 HEAD provenance。通过 entry acceptance 后，才可将 `p4_implementation_authorized` 改为 `yes`。
+
+P4-R4-S0 的总体架构讨论、entry brief、detailed execution plan 和 independent acceptance
+已完成并分别封存于正式 plans。它们复用本节决策，已补齐 step split、review rounds、conversation
+strategy、test markers、container trigger、fault matrix 方向和 provenance；当前仍未授权
+R4 implementation。

@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Thread
+from typing import cast
 
 import pytest
 
+from gateway_backend.application.job_definitions import JobDefinition, NormalPublicationCapability
+from gateway_backend.application.checkpoints import (
+    CheckpointPublicationError,
+    make_terminal_ready_closure_builder,
+    prepare_ready_closure,
+)
+from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref
 from gateway_backend.bootstrap.operation_worker import (
     bootstrap_control_database,
     build_worker_runtime,
@@ -22,14 +31,47 @@ from gateway_backend.operations import (
     operation_record_from_document,
     step_record_from_document,
 )
+from gateway_backend.operations.contracts import JobStepKey, OperationRecord, StepRecord
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import OperationLifecycleActions
 from gateway_backend.operations.state import WritePrecondition
-from gateway_backend.operations.worker import CheckpointGeneration, ExecutionControl, WorkerEvent
+from gateway_backend.operations.worker import (
+    CheckpointGeneration,
+    ClaimedExecutor,
+    ExecutionControl,
+    ExecutorAcknowledgment,
+    StartupDisposition,
+    WorkerEvent,
+)
 from gateway_backend.operations.store import StaleWrite
 from gateway_backend.settings import OperationWorkerSettings
 
 pytestmark = pytest.mark.integration
+
+REGISTERED_KEY = JobStepKey(job_kind="import.package", step_name="validate")
+REGISTERED_VERSION = "backend-vnext/import-package/v1"
+REGISTERED_DECODER = "backend-vnext/import-package/decoder/v1"
+REGISTERED_HANDLER = "backend-vnext/import-package/handler/v1"
+
+
+def _registered_definition() -> JobDefinition:
+    return JobDefinition(
+        key=REGISTERED_KEY,
+        supported_payload_versions=frozenset({REGISTERED_VERSION}),
+        decoder_identity=REGISTERED_DECODER,
+        handler_identity=REGISTERED_HANDLER,
+        publication_capability=NormalPublicationCapability.TERMINAL,
+    )
+
+
+def _noop_handler(
+    operation: OperationRecord,
+    step: StepRecord,
+    control: ExecutionControl,
+    lease_session: LeaseSession,
+) -> ExecutorAcknowledgment:
+    del operation, step, control, lease_session
+    return ExecutorAcknowledgment.PUBLISHED
 
 
 def _operation_document(operation_id: str) -> dict[str, object]:
@@ -142,6 +184,127 @@ def test_missing_runnable_handler_fails_closed_before_claim(tmp_path: Path) -> N
         assert unit_of_work.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
         assert unit_of_work.operations.get_step(step.step_id).status is StepStatus.PENDING
     assert any(event.code.value == "startup_failed" for event in events)
+
+
+def test_unsupported_job_contract_version_fails_closed_before_claim(tmp_path: Path) -> None:
+    settings = OperationWorkerSettings(control_db_path=tmp_path / "control.sqlite3")
+    bootstrap_control_database(settings)
+    operation = operation_record_from_document(
+        {
+            **_operation_document("operation-worker-unsupported"),
+            "job_contract_version": "backend-vnext/unsupported/v9",
+        }
+    )
+    step = step_record_from_document(
+        _step_document(operation.operation_id, "step-worker-unsupported")
+    )
+    with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
+        assert (
+            unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+            is TransitionDisposition.APPLY
+        )
+
+    events: list[WorkerEvent] = []
+
+    def observe(event: WorkerEvent) -> None:
+        events.append(event)
+
+    runtime = build_worker_runtime(
+        settings,
+        observer=observe,
+        job_definitions=(_registered_definition(),),
+        handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, _noop_handler)},
+        payload_decoders={REGISTERED_DECODER: lambda payload: payload},
+    )
+    with pytest.raises(ValueError, match="fatally blocked"):
+        runtime.run(lambda: False, lambda _timeout: False)
+
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(operation.operation_id)
+        persisted_step = unit_of_work.operations.get_step(step.step_id)
+    assert persisted_operation.status is OperationStatus.QUEUED
+    assert persisted_step.status is StepStatus.PENDING
+    assert persisted_step.worker_id is None
+    assert persisted_step.lease_token is None
+    assert any(event.code.value == "startup_failed" for event in events)
+
+
+def test_unsupported_job_contract_version_rejected_at_claim_without_running_lease(
+    tmp_path: Path,
+) -> None:
+    settings = OperationWorkerSettings(
+        control_db_path=tmp_path / "claim-version-gate" / "control.sqlite3"
+    )
+    bootstrap_control_database(settings)
+    runtime = build_worker_runtime(
+        settings,
+        observer=lambda _event: None,
+        job_definitions=(_registered_definition(),),
+        handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, _noop_handler)},
+        payload_decoders={REGISTERED_DECODER: lambda payload: payload},
+    )
+    assert runtime._startup.startup() is StartupDisposition.READY
+
+    operation = operation_record_from_document(
+        {
+            **_operation_document("operation-claim-version-race"),
+            "job_contract_version": "backend-vnext/import-package/v9",
+        }
+    )
+    step = step_record_from_document(
+        _step_document(operation.operation_id, "step-claim-version-race")
+    )
+    with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
+        assert (
+            unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+            is TransitionDisposition.APPLY
+        )
+
+    with pytest.raises(ValueError, match="not supported"):
+        runtime._startup.claim_one()
+
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(operation.operation_id)
+        persisted_step = unit_of_work.operations.get_step(step.step_id)
+    assert persisted_operation.status is OperationStatus.QUEUED
+    assert persisted_step.status is StepStatus.PENDING
+    assert persisted_step.worker_id is None
+    assert persisted_step.lease_token is None
+
+
+def test_registered_key_reaches_ready_with_empty_queue(tmp_path: Path) -> None:
+    settings = OperationWorkerSettings(control_db_path=tmp_path / "registered" / "control.sqlite3")
+    bootstrap_control_database(settings)
+    events: list[str] = []
+    ready = Event()
+    stop = Event()
+
+    def observe(event: WorkerEvent) -> None:
+        code = event.code.value
+        events.append(code)
+        if code == "worker_ready":
+            ready.set()
+
+    runtime = build_worker_runtime(
+        settings,
+        observer=observe,
+        job_definitions=(_registered_definition(),),
+        handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, _noop_handler)},
+        payload_decoders={REGISTERED_DECODER: lambda payload: payload},
+    )
+    runner = Thread(target=runtime.run, args=(stop.is_set, stop.wait), daemon=False)
+    runner.start()
+    try:
+        assert ready.wait(timeout=5)
+        stop.set()
+        runner.join(timeout=5)
+        assert not runner.is_alive()
+    finally:
+        stop.set()
+        runner.join(timeout=5)
+
+    assert events[:1] == ["worker_ready"]
+    assert events[-2:] == ["drain_started", "worker_exited"]
 
 
 @pytest.mark.serial
@@ -337,3 +500,152 @@ def test_file_backed_publication_reloads_versions_after_multiple_heartbeats(
     assert persisted_step.optimistic_version == claimed_step.optimistic_version + 4
     with pytest.raises(StaleWrite, match="closed"):
         session.heartbeat()
+
+
+def test_stale_cas_after_closure_artifact_put_leaves_no_ready_closure_ref(
+    tmp_path: Path,
+) -> None:
+    settings = OperationWorkerSettings(control_db_path=tmp_path / "stale-cas.sqlite3")
+    bootstrap_control_database(settings)
+    artifact_store = InMemoryArtifactStore()
+    operation = operation_record_from_document(_operation_document("operation-stale-cas"))
+    step = step_record_from_document(_step_document(operation.operation_id, "step-stale-cas"))
+    with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
+        assert (
+            unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+            is TransitionDisposition.APPLY
+        )
+        claimed = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.operations.transaction_now,
+        ).claim_one("worker-stale-cas", "lease-stale-cas")
+    assert claimed is not None
+    claimed_operation, claimed_step = claimed
+
+    session = LeaseSession(
+        worker_id="worker-stale-cas",
+        lease_token="lease-stale-cas",
+        operation_id=claimed_operation.operation_id,
+        step_id=claimed_step.step_id,
+        write_uow_factory=lambda: ControlDbUnitOfWork(settings.control_db_path),
+        control=ExecutionControl(),
+        observer=lambda _event: None,
+    )
+    output_ref = put_with_built_ref(
+        artifact_store,
+        b"ready-output",
+        artifact_id="artifact-ready-output",
+        media_type="application/octet-stream",
+    )
+    closure_ref = prepare_ready_closure(
+        artifact_store,
+        (output_ref,),
+        claimed_operation.job_contract_version,
+    )
+    session.heartbeat()
+
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+        current_operation = unit_of_work.operations.get_operation(claimed_operation.operation_id)
+        current_step = unit_of_work.operations.get_step(claimed_step.step_id)
+        transaction_now = unit_of_work.operations.transaction_now
+    terminal_step, terminal_operation = make_terminal_ready_closure_builder(
+        closure_ref=closure_ref,
+    )(current_operation, current_step, transaction_now)
+
+    with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
+        store = unit_of_work.operations
+        transaction_now = store.transaction_now
+        with pytest.raises(StaleWrite):
+            OperationLifecycleActions(
+                store,
+                transaction_now=transaction_now,
+            ).complete_operation(
+                terminal_step,
+                WritePrecondition(
+                    expected_optimistic_version=claimed_step.optimistic_version,
+                    worker_id="worker-stale-cas",
+                    lease_token="lease-stale-cas",
+                ),
+                terminal_operation,
+                WritePrecondition(
+                    expected_optimistic_version=claimed_operation.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(claimed_operation.operation_id)
+        persisted_step = unit_of_work.operations.get_step(claimed_step.step_id)
+    assert persisted_operation.ready_closure_ref is None
+    assert persisted_operation.status is OperationStatus.RUNNING
+    assert persisted_step.status is StepStatus.RUNNING
+    assert artifact_store.locate(closure_ref) is not None
+
+
+def test_ready_closure_ref_set_once_rejects_second_publication(tmp_path: Path) -> None:
+    settings = OperationWorkerSettings(control_db_path=tmp_path / "closure-once.sqlite3")
+    bootstrap_control_database(settings)
+    artifact_store = InMemoryArtifactStore()
+    operation = operation_record_from_document(_operation_document("operation-closure-once"))
+    step = step_record_from_document(_step_document(operation.operation_id, "step-closure-once"))
+    with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
+        assert (
+            unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+            is TransitionDisposition.APPLY
+        )
+        claimed = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.operations.transaction_now,
+        ).claim_one("worker-closure-once", "lease-closure-once")
+    assert claimed is not None
+    claimed_operation, claimed_step = claimed
+
+    session = LeaseSession(
+        worker_id="worker-closure-once",
+        lease_token="lease-closure-once",
+        operation_id=claimed_operation.operation_id,
+        step_id=claimed_step.step_id,
+        write_uow_factory=lambda: ControlDbUnitOfWork(settings.control_db_path),
+        control=ExecutionControl(),
+        observer=lambda _event: None,
+    )
+    first_output = put_with_built_ref(
+        artifact_store,
+        b"first-output",
+        artifact_id="artifact-first-output",
+        media_type="application/octet-stream",
+    )
+    first_closure = prepare_ready_closure(
+        artifact_store,
+        (first_output,),
+        claimed_operation.job_contract_version,
+        artifact_id="ready-closure-first",
+    )
+    session.publish_operation(make_terminal_ready_closure_builder(closure_ref=first_closure))
+
+    second_output = put_with_built_ref(
+        artifact_store,
+        b"second-output",
+        artifact_id="artifact-second-output",
+        media_type="application/octet-stream",
+    )
+    second_closure = prepare_ready_closure(
+        artifact_store,
+        (second_output,),
+        claimed_operation.job_contract_version,
+        artifact_id="ready-closure-second",
+    )
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+        terminal_operation = unit_of_work.operations.get_operation(claimed_operation.operation_id)
+        terminal_step = unit_of_work.operations.get_step(claimed_step.step_id)
+    assert terminal_operation.ready_closure_ref == first_closure
+    with pytest.raises(CheckpointPublicationError, match="ready_closure_ref is already set"):
+        make_terminal_ready_closure_builder(closure_ref=second_closure)(
+            terminal_operation,
+            terminal_step,
+            datetime.now(UTC),
+        )
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(claimed_operation.operation_id)
+    assert persisted_operation.ready_closure_ref == first_closure

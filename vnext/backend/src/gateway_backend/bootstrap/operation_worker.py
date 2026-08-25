@@ -6,24 +6,41 @@ import logging
 import signal
 import threading
 import time
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from signal import Signals
 from types import FrameType
-from typing import Callable, cast
+from typing import Any, cast
 
 from pydantic import ValidationError
 
+from gateway_backend.application.job_definitions import (
+    JobDefinition,
+    JobDefinitionRegistry,
+    JobWorkerComposition,
+    build_job_worker_composition,
+    validate_active_pairs_job_contract_versions,
+)
+from gateway_backend.application.payloads import PayloadDecodeError, PayloadDecoder
+from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
 from gateway_backend.infrastructure.control_db import (
     ControlDbUnitOfWork,
     initialize_control_db,
 )
 from gateway_backend.operations import OperationRecord, OperationUnitOfWork, StepRecord
+from gateway_backend.operations.contracts import _validate_opaque_id
+from gateway_backend.operations.persistence import OperationLifecycleActions
 from gateway_backend.operations.worker import (
+    ClaimedExecutor,
     ClaimedWork,
+    ReadUnitOfWorkFactory,
+    RecoveryHook,
     StartupDisposition,
     WorkerEvent,
     WorkerEventCode,
     WorkerObserver,
+    WorkerRegistry,
+    WriteUnitOfWorkFactory,
 )
 from gateway_backend.operations.worker_lifecycle import WorkerLifecycleController
 from gateway_backend.operations.worker_runtime import WorkerRuntime
@@ -31,15 +48,6 @@ from gateway_backend.operations.worker_startup import WorkerStartup
 from gateway_backend.settings import OperationWorkerSettings
 
 _LOGGER = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True, slots=True)
-class EmptyWorkerRegistry:
-    """Immutable pre-R4 registry; runnable records fail closed at startup."""
-
-    def resolve(self, key: object) -> None:
-        del key
-        return None
 
 
 def _observe_event(event: WorkerEvent) -> None:
@@ -54,6 +62,34 @@ def _observe_event(event: WorkerEvent) -> None:
         event.worker_id or "-",
         event.attempt if event.attempt is not None else "-",
         event.error_category or "-",
+    )
+
+
+def _default_artifact_root(settings: OperationWorkerSettings) -> Path:
+    return settings.control_db_path.parent / "artifacts"
+
+
+def build_job_worker_composition_for_settings(
+    settings: OperationWorkerSettings,
+    *,
+    definitions: tuple[JobDefinition, ...] = (),
+    handlers: Mapping[str, ClaimedExecutor] | None = None,
+    payload_decoders: Mapping[str, PayloadDecoder] | None = None,
+) -> JobWorkerComposition:
+    """Build the immutable R4 composition for one worker process."""
+
+    if type(settings) is not OperationWorkerSettings:
+        raise ValueError("settings must be OperationWorkerSettings")
+    if type(definitions) is not tuple:
+        raise ValueError("definitions must be a tuple")
+    bound_handlers = {} if handlers is None else dict(handlers)
+    bound_decoders = {} if payload_decoders is None else dict(payload_decoders)
+    artifact_store = LocalArtifactStore(_default_artifact_root(settings))
+    return build_job_worker_composition(
+        definitions,
+        bound_handlers,
+        artifact_store=artifact_store,
+        decoders=bound_decoders,
     )
 
 
@@ -74,8 +110,11 @@ def build_worker_runtime(
     *,
     observer: WorkerObserver = _observe_event,
     monotonic: Callable[[], float] = time.monotonic,
+    job_definitions: tuple[JobDefinition, ...] = (),
+    handlers: Mapping[str, ClaimedExecutor] | None = None,
+    payload_decoders: Mapping[str, PayloadDecoder] | None = None,
 ) -> WorkerRuntime:
-    """Compose the SQLite-backed worker while keeping policy ports empty/fail-closed."""
+    """Compose the SQLite-backed worker with the immutable R4 registry adapter."""
 
     if type(settings) is not OperationWorkerSettings:
         raise ValueError("settings must be OperationWorkerSettings")
@@ -83,6 +122,15 @@ def build_worker_runtime(
         raise ValueError("observer must be callable")
     if not callable(monotonic):
         raise ValueError("monotonic must be callable")
+    if type(job_definitions) is not tuple:
+        raise ValueError("job_definitions must be a tuple")
+
+    composition = build_job_worker_composition_for_settings(
+        settings,
+        definitions=job_definitions,
+        handlers=handlers,
+        payload_decoders=payload_decoders,
+    )
 
     def read_uow_factory() -> OperationUnitOfWork:
         return ControlDbUnitOfWork(settings.control_db_path, read_only=True)
@@ -91,10 +139,11 @@ def build_worker_runtime(
         return ControlDbUnitOfWork(settings.control_db_path)
 
     startup_observer = _StartupObserver(observer)
-    startup = WorkerStartup(
+    startup = _R4WorkerStartup(
         read_uow_factory=read_uow_factory,
         write_uow_factory=write_uow_factory,
-        registry=EmptyWorkerRegistry(),
+        registry=composition.worker_registry,
+        definition_registry=composition.definition_registry,
         recovery_hook=_fail_closed_recovery,
         observer=startup_observer,
     )
@@ -160,6 +209,106 @@ def _fail_closed_recovery(
 ) -> StartupDisposition:
     del operation, step
     return StartupDisposition.FATAL_BLOCK
+
+
+class _R4WorkerStartup(WorkerStartup):
+    """Extend startup validation with job_contract_version coverage before claim."""
+
+    __slots__ = ("_definition_registry",)
+
+    def __init__(
+        self,
+        *,
+        read_uow_factory: ReadUnitOfWorkFactory,
+        write_uow_factory: WriteUnitOfWorkFactory,
+        registry: WorkerRegistry,
+        definition_registry: JobDefinitionRegistry,
+        recovery_hook: RecoveryHook,
+        observer: WorkerObserver,
+        worker_id_factory: Callable[[], str] | None = None,
+        lease_token_factory: Callable[[], str] | None = None,
+        page_limit: int | None = None,
+    ) -> None:
+        init_kwargs: dict[str, object] = {
+            "read_uow_factory": read_uow_factory,
+            "write_uow_factory": write_uow_factory,
+            "registry": registry,
+            "recovery_hook": recovery_hook,
+            "observer": observer,
+        }
+        if worker_id_factory is not None:
+            init_kwargs["worker_id_factory"] = worker_id_factory
+        if lease_token_factory is not None:
+            init_kwargs["lease_token_factory"] = lease_token_factory
+        if page_limit is not None:
+            init_kwargs["page_limit"] = page_limit
+        super().__init__(**init_kwargs)  # type: ignore[arg-type]
+        if type(definition_registry) is not JobDefinitionRegistry:
+            raise ValueError("definition_registry must be JobDefinitionRegistry")
+        self._definition_registry = definition_registry
+
+    def _validate_topology_and_registry(self) -> Any:
+        pairs = super()._validate_topology_and_registry()
+        validate_active_pairs_job_contract_versions(
+            self._definition_registry,
+            ((pair.operation, pair.step) for pair in pairs),
+        )
+        return pairs
+
+    def claim_one(self) -> ClaimedWork | None:
+        if not self._ready:
+            raise ValueError("worker startup gate has not reached READY")
+
+        with self._write_uow_factory() as unit_of_work:
+            store = unit_of_work.operations
+            transaction_now = store.transaction_now
+            candidates, _ = store.list_claim_candidates(
+                transaction_now,
+                limit=1,
+            )
+            if not candidates:
+                return None
+
+            candidate = candidates[0]
+            operation = store.get_operation(candidate.operation_id)
+            step = store.get_step(candidate.step_id)
+            validate_active_pairs_job_contract_versions(
+                self._definition_registry,
+                ((operation, step),),
+            )
+            executor = self._resolve_executor(candidate.job_step_key)
+            lease_token = self._lease_token_factory()
+            _validate_opaque_id(lease_token, "lease_token")
+            claimed = OperationLifecycleActions(
+                store,
+                transaction_now=transaction_now,
+            ).claim_one(self._worker_id, lease_token)
+            if claimed is None:
+                raise ValueError("claim candidate disappeared inside the write transaction")
+
+            claimed_operation, claimed_step = claimed
+            self._assert_claim_identity(
+                candidate,
+                claimed_operation,
+                claimed_step,
+                lease_token,
+            )
+            work = ClaimedWork(
+                operation=claimed_operation,
+                step=claimed_step,
+                executor=executor,
+            )
+
+        self._observer(
+            WorkerEvent(
+                code=WorkerEventCode.CLAIM_SUCCEEDED,
+                operation_id=work.operation.operation_id,
+                step_id=work.step.step_id,
+                worker_id=self._worker_id,
+                attempt=work.step.attempt_count,
+            )
+        )
+        return work
 
 
 def _install_signal_handlers(
@@ -273,6 +422,8 @@ class _StartupObserver:
 def _failure_category(error: Exception) -> str:
     if isinstance(error, ValidationError):
         return "settings_invalid"
+    if isinstance(error, PayloadDecodeError):
+        return "payload_decode_failed"
     if isinstance(error, TimeoutError):
         return "startup_timeout"
     return "worker_failure"
@@ -283,8 +434,8 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "EmptyWorkerRegistry",
     "bootstrap_control_database",
+    "build_job_worker_composition_for_settings",
     "build_worker_runtime",
     "main",
     "run",

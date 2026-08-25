@@ -68,7 +68,7 @@ next_entry: P4-R5-S0 discussion
 next_step_authorized: yes_for_discussion_only
 r5_implementation_authorized: no
 p5_implementation_authorized: no
-handoff_documentation_sha: pending_docs_commit
+handoff_documentation_sha: 8fb133700de361c3d55606fdc11d6521db95ac14
 ```
 
 ## 1. Sealed candidate and public boundary

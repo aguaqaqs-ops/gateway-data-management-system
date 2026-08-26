@@ -98,6 +98,32 @@ brief 与 execution plan 负责。
 principal/IPC、改变 single-worker/local SQLite 边界或引入真实 Repository effect 的需求，
 必须 reopen 对应 owner，不得在 R4 implementation 中静默扩展。
 
+### 2.2 P4-R5 retry, takeover and effect recovery discussion closure
+
+R5 的设计讨论已于 2026-08-26 收敛；详细 contract、failure matrix、预算、operator port 和
+执行边界见 [P4-R5 Retry, Takeover and Effect Recovery Design](p4-r5-retry-takeover-effect-recovery-design.md)。
+本节只记录与总体 P4 基线的兼容性结论：
+
+- R5 使用现有 immutable `(job_kind, step_name)` registry，可在 `JobDefinition` descriptor
+  上增加非持久化 `recovery_capability`，不创建第二 registry，也不把 recovery policy 写入
+  Operation/Step persisted document；
+- recovery hook 是只读、无 I/O 的 decision function；R3 runtime 在独立 write UoW 中通过
+  现有 transition/CAS 应用 `RecoveryDecision`，不改变 R1/R2 status、schema 或 fencing；
+- Step retry 走 `RUNNING -> RETRY_WAIT -> RUNNING`，Operation 在 active Step `RETRY_WAIT`
+  时保持 `RUNNING`；`attempt_count` 统计 recovery session，不统计 session 内 poll 次数；
+- 外部 request acceptance 后只复用原 idempotency key、request fingerprint 和
+  `repository_operation_id`；unknown outcome 只能 reconcile，无法判断时进入
+  `MANUAL_RECOVERY_REQUIRED` 并保留 occupancy；
+- R5 复用 application handler 解释 checkpoint，不解析业务 payload，不连接真实 Repository；
+  P5B 仍拥有真实 Repository/Dolt effect、commit/ref evidence 和 T1/T3；
+- operator 只有内部 `RESUME_RECONCILE`、`RETRY_FROM_CHECKPOINT` 和
+  `ABORT_CONFIRMED_FAILURE`，P5 后续接线 HTTP/授权；R5 不新增 principal、IPC 或稳定 R3
+  event enum；
+- 默认每 Step 三个 recovery session、`1s/2s/4s` backoff（上限 `10s`）、60 秒 reconcile
+  session、有界 jitter 和可注入 clock/wait/jitter；
+- R5 不改变 single-host/single-worker/SQLite/WAL、静态 successor、READY closure 或 cleanup
+  边界。任何需要 R1/R2/R3/R4/P5B owner 语义变化的候选必须 reopen。
+
 ## 3. 逻辑架构
 
 ```text

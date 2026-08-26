@@ -1,6 +1,6 @@
 # P4 Active Context Index
 
-状态：P4-R4-S7 module gate pass；P4-R5-S0 discussion only
+状态：P4-R4-S7 module gate pass；P4-R5 design discussion converged；S0 acceptance/implementation not authorized
 
 日期：2026-08-25
 
@@ -99,6 +99,12 @@ p4_r4_validated_code_sha: d1d929dcee3b0620b649a248079d846dfbe7aba1
 p4_r4_s1a_authorized: yes_completed
 p4_r4_implementation_authorized: no_further_r4_work
 p4_r5_entry_discussion_authorized: yes
+p4_r5_s0_design: discussion_converged
+p4_r5_s0_acceptance: not_run
+p4_r5_execution_plan: ready_for_s0_document_review
+p4_r5_documentation_seal: pending_docs_only_seal_commit
+p4_r5_s1a_authorized: no
+p4_r5_implementation_authorized: no
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
 default_retrieval: this_index
@@ -155,6 +161,12 @@ final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
 18c. [P4-R4-S0 Independent Entry Acceptance](p4-r4-s0-entry-acceptance.md)：R4设计/plan已接受。
 18d. [P4/R4 JobDefinition and Checkpoint Handoff](p4-r4-jobdefinition-checkpoint-handoff.md)：
      S7 module gate、current-HEAD image provenance、container smoke与P4-R5-S0 entry boundary。
+18e. [P4-R5 Retry, Takeover and Effect Recovery Design](p4-r5-retry-takeover-effect-recovery-design.md)：
+     retry/takeover/reconcile、identity、budget、operator port和owner boundary。
+18f. [P4-R5-S0 Entry Brief](p4-r5-s0-entry-brief.md)：
+     R5 entry identity、accepted defaults、S0 checks和implementation authorization boundary。
+18g. [P4-R5 Retry, Takeover and Effect Recovery Detailed Execution Plan](p4-r5-retry-takeover-effect-recovery-execution-plan.md)：
+     S1a-S3c step split、review rounds、markers、container gate和handoff schema。
 19. [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)：
    operation/step 状态、integrity 与 recovery owner。
 20. [External Effect and Recovery](../contracts/external-effect-and-recovery.md)：
@@ -188,8 +200,9 @@ P3 **不交付、不授权**（P4 也不得静默改变其 owner）：
   contract 拥有；P4 lease 不改变 Repository operation authority。
 
 P4-R1已exit；P4-R2已完成S7 module gate；P4-R3已完成S7 module gate；P4-R4已完成S7
-module gate。`p4_r2_authorized: no`、`p4_r4_implementation_authorized: no_further_r4_work`
-且R5/P5 implementation仍未授权；下一入口为P4-R5-S0 discussion only。
+module gate。`p4_r2_authorized: no`、`p4_r4_implementation_authorized: no_further_r4_work`、
+`p4_r5_s0_acceptance: not_run` 且 R5/P5 implementation仍未授权；下一步是 P4-R5-S0
+independent entry acceptance discussion。
 
 ## 3. P3 handoff 指针
 

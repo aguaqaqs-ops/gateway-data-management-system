@@ -140,12 +140,20 @@ S0 design acceptance不授权S1a implementation。
 
 目标：实现有限重试、接管和 evidence-first 外部 effect 编排，不接管 Repository authority。
 
-- S0：冻结 retryable failure owner、backoff/attempt policy、takeover matrix 和 stub boundary。
-- S1：定义 retry decision、reconcile port、unknown outcome 和 `MANUAL_RECOVERY_REQUIRED` guard。
-- S2：实现纯 compute retry、lease takeover、原 operation identity poll/reconcile 和 cancel boundary。
-- S3：覆盖 request-sent crash、effect-confirmed crash、poll timeout、duplicate delivery、普通失败和人工恢复。
-- S4–S6：审查新 key 生成、blind replay、occupancy 提前释放、错误终态伪造和 Repository contract 越界。
-- S7：handoff recovery matrix、fault evidence、stub contract 和未决参数清单。
+R5 的设计、S0 entry brief 和逐 step execution authority 已独立封存：
+
+- [P4-R5 Retry, Takeover and Effect Recovery Design](p4-r5-retry-takeover-effect-recovery-design.md)
+- [P4-R5-S0 Entry Brief](p4-r5-s0-entry-brief.md)
+- [P4-R5 Retry, Takeover and Effect Recovery Detailed Execution Plan](p4-r5-retry-takeover-effect-recovery-execution-plan.md)
+
+- S0：entry acceptance、owner/reopen/provenance freeze；不授权 implementation。
+- S1a/S1b：recovery capability、decision/outcome/reconcile port，以及 retry/failure/budget/diagnostic policy。
+- S2a/S2b/S2c：CAS takeover/retry scheduling、原 identity reconcile adapter、内部 operator recovery port。
+- S3a/S3b/S3c：pure-compute、external-effect stub 和跨边界 fault matrix。
+- S4：focused review；S5 仅在 finding 时启用；S6 independent review；S7 current-HEAD module gate/handoff。
+
+R5 implementation 仍未授权；每个 step 需要前一 handoff 和单独 authorization。真实
+Repository/Dolt effect、P5B T1/T3、HTTP/global readiness、Compose 和 HA 不属于本 R。
 
 禁止：业务 T3 finalize；自行判断 Repository commit/ref 是否存在；创建 generic external-effect journal。
 

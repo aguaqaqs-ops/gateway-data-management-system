@@ -19,9 +19,9 @@ step_id: P4-R5-S0
 input_handoff_sha: 895deeee80507e351ca7d97dc0e9e306712e8d72
 input_validated_code_sha: d1d929dcee3b0620b649a248079d846dfbe7aba1
 validated_source_tree: sha256:76bbf7eef1ac26eb814d5ad5be6a86fec06a6850c42ac7a445b0b2fe93270de6
-candidate_documentation_sha: pending_r5_docs_only_seal_commit
-candidate_worktree_at_gate: pending_clean_committed_docs_candidate
-candidate_document_set_hash: pending_s0_recompute_excluding_acceptance_record
+candidate_documentation_sha: be1b70c
+candidate_worktree_at_gate: clean_committed_after_docs_only_seal
+candidate_document_set_hash: 1c00f80e1f3b33ffdcf45aef049775678aaad068e3347d8772286831623afcd2
 p4_r4_exit: pass
 p4_r5_design_discussion: converged
 p4_r5_s0_acceptance: not_run
@@ -31,10 +31,21 @@ schema_or_status_change_authorized: no
 ```
 
 The input code candidate is R4's validated `d1d929d`; `895deee` is the last committed
-documentation-only descendant before this R5 document set. Before S0 acceptance, the R5 design,
-brief, execution plan, Active Context and formal README changes must be sealed in a docs-only commit.
-S0 then recomputes the candidate documentation hash with the acceptance record excluded, records the
-seal SHA, and verifies a clean committed worktree. No source/test/build-input drift is authorized.
+documentation-only descendant before this R5 document set. The R5 document candidate was sealed in
+docs-only commit `be1b70c`. The semantic document-set hash intentionally covers only the two normative
+R5 documents below, excluding this entry brief, Active Context, formal README and the future S0
+acceptance record to avoid status/self-reference:
+
+```bash
+sha256sum \
+  docs/backend-vnext/refactoring/formal/plans/p4-r5-retry-takeover-effect-recovery-design.md \
+  docs/backend-vnext/refactoring/formal/plans/p4-r5-retry-takeover-effect-recovery-execution-plan.md \
+  | sha256sum
+# 1c00f80e1f3b33ffdcf45aef049775678aaad068e3347d8772286831623afcd2
+```
+
+The entry brief, Active Context and formal README are status/retrieval wiring only. No source/test/
+build-input drift is authorized.
 
 ## 2. Objective and accepted scope
 
@@ -74,8 +85,8 @@ P5: business T1/T3, HTTP/global readiness and operator route
 5. Freeze the detailed step split, allowed paths, markers, review contexts and container trigger.
 6. Record current HEAD, validated code SHA, source tree identity and the fact that R4's image is
    valid only for the unchanged R4 source tree.
-7. Seal the R5 document set in a docs-only commit and recompute `candidate_document_set_hash` with
-   the S0 acceptance record excluded; a dirty worktree is not an accepted S0 candidate.
+7. Verify the sealed docs-only commit `be1b70c`, the normative document-set hash above and a clean
+   committed worktree; a dirty worktree is not an accepted S0 candidate.
 
 ## 5. Exit and authorization
 

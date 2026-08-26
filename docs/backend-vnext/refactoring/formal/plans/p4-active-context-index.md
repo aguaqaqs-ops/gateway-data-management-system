@@ -102,7 +102,8 @@ p4_r5_entry_discussion_authorized: yes
 p4_r5_s0_design: discussion_converged
 p4_r5_s0_acceptance: not_run
 p4_r5_execution_plan: ready_for_s0_document_review
-p4_r5_documentation_seal: pending_docs_only_seal_commit
+p4_r5_documentation_seal: be1b70c
+p4_r5_document_set_hash: 1c00f80e1f3b33ffdcf45aef049775678aaad068e3347d8772286831623afcd2
 p4_r5_s1a_authorized: no
 p4_r5_implementation_authorized: no
 p5_implementation_authorized: no

@@ -1,6 +1,6 @@
 # P4 Active Context Index
 
-状态：P4-R4-S7 module gate pass；P4-R5 design discussion converged；S0 acceptance/implementation not authorized
+状态：P4-R5-S0 independent acceptance pass；S1a authorized；implementation otherwise not authorized
 
 日期：2026-08-25
 
@@ -100,12 +100,12 @@ p4_r4_s1a_authorized: yes_completed
 p4_r4_implementation_authorized: no_further_r4_work
 p4_r5_entry_discussion_authorized: yes
 p4_r5_s0_design: discussion_converged
-p4_r5_s0_acceptance: not_run
-p4_r5_execution_plan: ready_for_s0_document_review
+p4_r5_s0_acceptance: accepted
+p4_r5_execution_plan: accepted
 p4_r5_documentation_seal: be1b70c
 p4_r5_document_set_hash: 1c00f80e1f3b33ffdcf45aef049775678aaad068e3347d8772286831623afcd2
-p4_r5_s1a_authorized: no
-p4_r5_implementation_authorized: no
+p4_r5_s1a_authorized: yes
+p4_r5_implementation_authorized: s1a_only
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
 default_retrieval: this_index
@@ -202,8 +202,8 @@ P3 **不交付、不授权**（P4 也不得静默改变其 owner）：
 
 P4-R1已exit；P4-R2已完成S7 module gate；P4-R3已完成S7 module gate；P4-R4已完成S7
 module gate。`p4_r2_authorized: no`、`p4_r4_implementation_authorized: no_further_r4_work`、
-`p4_r5_s0_acceptance: not_run` 且 R5/P5 implementation仍未授权；下一步是 P4-R5-S0
-independent entry acceptance discussion。
+`p4_r5_s0_acceptance: accepted`；当前仅 P4-R5-S1a 获授权，R5后续步骤与 P5/P5B
+implementation仍未授权。
 
 ## 3. P3 handoff 指针
 

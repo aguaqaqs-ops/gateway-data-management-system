@@ -299,8 +299,9 @@ Additional remote prerequisites:
   runner therefore only needs access to the Docker daemon; it does not need interactive
   `sudo` for this step.
 
-Use an interactive sudo prompt only. Do not pipe passwords through `ssh`, shell
-history, documentation, or passwordless sudo grants for pytest.
+For other operator-only procedures that genuinely require root, use an interactive sudo prompt
+only. Do not pipe passwords through `ssh`, shell history, documentation, or passwordless sudo
+grants for pytest; the current S10 Compose harness does not require sudo.
 
 ```sh
 ssh -t tmpuser@10.10.60.4

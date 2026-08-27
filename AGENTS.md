@@ -41,7 +41,7 @@ Compose 测试客户端镜像构建在 Linux nested LXC 中默认使用 Docker `
 
 ## 写测试
 
-四个 marker 已在全部包声明，`--strict-markers` 生效，拼错会导致收集失败。
+`repository_service` 的四个 marker 已声明，`--strict-markers` 生效，拼错会导致收集失败。
 
 - **不要**手写 `@pytest.mark.skipif(not dolt_available(), ...)`。dolt 门禁只有一处，
   在 `vnext/repository_service/tests/conftest.py`。

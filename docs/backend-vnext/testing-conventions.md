@@ -40,7 +40,9 @@ uv run pytest -m parallel_safe -n 4  # 已逐项审查、可进入并行批次�
 
 开发机可通过 `GATEWAY_TEST_BASETEMP=/mnt/gateway-test-tmpfs/pytest` 将 pytest 临时工作区
 放入有容量上限的 tmpfs；这不会替换 Docker named volume，也不能替代真实文件系统上的
-持久化、崩溃恢复、快照和容量语义验收。
+持久化、崩溃恢复、快照和容量语义验收。权威脚本在启用该变量时，会让三个实际 Compose
+e2e 文件回到真实磁盘临时目录，以避开 unprivileged LXC 下 Docker secret bind mount 的
+remount 限制；其余测试仍使用 tmpfs。
 
 裸跑 `uv run pytest` 会执行全部测试并自动并行；结果正确，但 `serial` 组会与其他测试
 争用 CPU，判定 flaky 时以脚本为准。

@@ -22,13 +22,26 @@ FAST_PACKAGES=(
     backend
 )
 
+run_locked_pytest() {
+    # The repository locks use the canonical PyPI registry. Do not let a
+    # machine-wide mirror override the lock identity during test execution;
+    # dependency provisioning may still use that mirror explicitly.
+    env \
+        -u UV_DEFAULT_INDEX \
+        -u UV_INDEX_URL \
+        -u UV_INSECURE_HOST \
+        -u PIP_INDEX_URL \
+        -u PIP_TRUSTED_HOST \
+        uv run --locked pytest "$@"
+}
+
 for package in "${FAST_PACKAGES[@]}"; do
     echo "==> ${package}"
-    (cd "${VNEXT_ROOT}/${package}" && uv run --locked pytest -q "$@")
+    (cd "${VNEXT_ROOT}/${package}" && run_locked_pytest -q "$@")
 done
 
 echo "==> repository_service (parallel)"
-(cd "${VNEXT_ROOT}/repository_service" && uv run --locked pytest -q -m "not serial" -n "${TEST_WORKERS}" "$@")
+(cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m "not serial" -n "${TEST_WORKERS}" "$@")
 
 echo "==> repository_service (serial)"
-(cd "${VNEXT_ROOT}/repository_service" && uv run --locked pytest -q -m serial -n 0 "$@")
+(cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m serial -n 0 "$@")

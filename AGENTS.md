@@ -25,8 +25,9 @@ uv run pytest -m serial -n 0   # 时序敏感组，必须串行
 pytest-xdist 的自适应行为。`serial` 组始终 `-n 0`，因为其正确性依赖时间和资源顺序，
 不按 CPU 数量盲目并行化。
 
-权威入口使用 `uv run --locked`，测试过程不得根据开发机的包镜像配置隐式改写 `uv.lock`；
-依赖变更必须显式更新锁文件并重新同步环境。
+权威入口使用隔离机器级 index 环境的 `uv run --locked`，测试过程不得根据开发机的包镜像
+配置隐式改写 `uv.lock`；依赖变更必须显式更新锁文件并重新同步环境。依赖准备阶段仍可
+显式使用 CT 的内网包缓存。
 
 Compose 测试客户端镜像构建在 Linux nested LXC 中默认使用 Docker `host` 网络，以便访问
 包镜像；可通过 `GATEWAY_DOCKER_BUILD_NETWORK=default` 覆盖。该设置只影响测试镜像构建，

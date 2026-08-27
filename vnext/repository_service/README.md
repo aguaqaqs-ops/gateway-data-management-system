@@ -100,6 +100,9 @@ Compose harness 会先查询镜像内 `gateway` UID/GID。若开发用户在 unp
 Gate-host consumer 使用已同步的客户端 venv 以 `uv run --locked --offline --no-sync` 执行；
 依赖安装属于环境准备阶段，不在每个 HTTP 场景中重新解析依赖或访问网络。
 
+权威测试入口会隔离宿主机全局 `UV_*`/`PIP_*` index 变量后再执行 locked run，避免内网
+镜像地址写回 canonical lock；环境初始化时仍可显式使用内网缓存同步依赖。
+
 客户端测试镜像会在 lock SHA 匹配时复用已有客户端镜像的依赖层；候选提交变化只更新源码
 和 provenance 标签。若该依赖基础镜像不存在，才回退到完整的 `uv sync --frozen` 构建。
 

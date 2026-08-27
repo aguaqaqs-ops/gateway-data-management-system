@@ -19,7 +19,10 @@ def pytest_collection_modifyitems(
 ) -> None:
     dolt_present = dolt_available()
     for item in items:
-        if item.get_closest_marker("serial") is not None:
+        if (
+            item.get_closest_marker("serial") is not None
+            and item.get_closest_marker("parallel_safe") is None
+        ):
             # Keep the timing sensitive tests on a single xdist worker so they
             # never race each other; the two-pass runner script isolates them
             # from the rest of the suite entirely.

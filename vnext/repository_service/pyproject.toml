@@ -41,6 +41,7 @@ markers = [
     "unit: no heavyweight external dependency; safe at full parallelism",
     "integration: needs real dolt, subprocesses, or durable on-disk state",
     "serial: timing sensitive; must not compete for CPU with other tests",
+    "parallel_safe: serial-origin test reviewed as independent and safe for the parallel batch",
 ]
 filterwarnings = [
     "error::starlette.exceptions.StarletteDeprecationWarning",

@@ -68,6 +68,7 @@ def test_log_event_is_fail_safe_when_logger_raises() -> None:
 
 
 @pytest.mark.serial
+@pytest.mark.parallel_safe
 def test_streaming_cleanup_error_survives_failing_log_event(monkeypatch: pytest.MonkeyPatch) -> None:
     import asyncio
     from typing import Any

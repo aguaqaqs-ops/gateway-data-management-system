@@ -14,8 +14,9 @@
 ./vnext/scripts/run-tests.sh
 ```
 
-`repository_service` 分两遍执行：主体并行，`serial` 组单独串行，避免 CPU 争用导致
-时序敏感测试 flaky。其余包体量小，worker 启动开销会超过并行收益，因此单进程执行。
+`repository_service` 分两遍执行：主体并行，未确认可隔离的 `serial` 组单独串行，避免
+CPU 争用导致时序敏感测试 flaky。少量从 serial 来源逐项审查通过的 `parallel_safe` 测试
+会加入主体并行批次。其余包体量小，worker 启动开销会超过并行收益，因此单进程执行。
 
 日常迭代用 marker 缩小范围：
 
@@ -23,8 +24,23 @@
 cd vnext/repository_service
 uv run pytest -m unit          # 约 910 项，无外部依赖，约 12 秒
 uv run pytest -m integration   # 需要真实 dolt
-uv run pytest -m serial -n 0   # 时序敏感组，必须串行
+uv run pytest -m 'serial and not parallel_safe' -n 0   # 未确认可隔离的时序敏感组
+uv run pytest -m parallel_safe -n 4  # 已逐项审查、可进入并行批次的 serial 来源测试
 ```
+
+`parallel_safe` 不是“运行较快”的别名，而是严格的隔离审查结论：测试不得依赖真实线程
+或进程、sleep/wait/固定时序、网络、Dolt、Docker、socket 或共享持久化状态。测试仍可保留
+`serial` 标记以记录其来源；权威入口会将 `parallel_safe` 纳入并行批次，并只对
+`serial and not parallel_safe` 使用 `-n 0`。当前仅审查通过以下 4 项：
+
+- `test_diagnostics.py::test_streaming_cleanup_error_survives_failing_log_event`
+- `test_row_stream_admission.py::test_ninth_row_stream_rejected_before_response_start`
+- `test_runtime_admission_ownership.py::test_shutdown_closes_admission_then_stops_cleaner_before_db_and_lock`
+- `test_upload_concurrency_admission.py::test_closed_pool_denies_new_upload`
+
+开发机可通过 `GATEWAY_TEST_BASETEMP=/mnt/gateway-test-tmpfs/pytest` 将 pytest 临时工作区
+放入有容量上限的 tmpfs；这不会替换 Docker named volume，也不能替代真实文件系统上的
+持久化、崩溃恢复、快照和容量语义验收。
 
 裸跑 `uv run pytest` 会执行全部测试并自动并行；结果正确，但 `serial` 组会与其他测试
 争用 CPU，判定 flaky 时以脚本为准。

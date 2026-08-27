@@ -256,6 +256,7 @@ def test_payload_too_large_releases_upload_permit(tmp_path: Path) -> None:
 
 
 @pytest.mark.serial
+@pytest.mark.parallel_safe
 def test_closed_pool_denies_new_upload(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     pool = PermitPool(2)

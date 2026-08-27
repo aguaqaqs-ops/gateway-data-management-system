@@ -16,14 +16,20 @@
 cd vnext/repository_service
 uv run pytest -m unit          # 约 910 项，无外部依赖，约 12 秒
 uv run pytest -m integration   # 需要真实 dolt
-uv run pytest -m serial -n 0   # 时序敏感组，必须串行
+uv run pytest -m 'serial and not parallel_safe' -n 0   # 未确认可隔离的时序敏感组
 ```
 
 `repository_service` 默认并行（`-n auto`）；其余包单进程，不要给它们加 xdist。
 在 CPU 充足的正式开发环境中可显式调整非串行 worker 数量，例如
 `GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`；默认 `auto` 保留
-pytest-xdist 的自适应行为。`serial` 组始终 `-n 0`，因为其正确性依赖时间和资源顺序，
-不按 CPU 数量盲目并行化。
+pytest-xdist 的自适应行为。`parallel_safe` 是从 `serial` 中经过逐项审查、确认不依赖
+时序、线程、进程、网络、Dolt 或共享持久化状态的例外；权威脚本会将它们加入并行批次。
+其余 `serial` 组始终 `-n 0`，不按 CPU 数量盲目并行化。
+
+开发机有临时 tmpfs 时，可将 pytest 临时工作区切换到指定的绝对路径，例如：
+`GATEWAY_TEST_BASETEMP=/mnt/gateway-test-tmpfs/pytest GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`。
+该变量只影响测试临时目录，不改变正式服务数据卷；涉及持久化、崩溃恢复和快照语义的正式验收
+仍须使用真实文件系统。
 
 权威入口使用隔离机器级 index 环境的 `uv run --locked`，测试过程不得根据开发机的包镜像
 配置隐式改写 `uv.lock`；依赖变更必须显式更新锁文件并重新同步环境。依赖准备阶段仍可
@@ -35,7 +41,7 @@ Compose 测试客户端镜像构建在 Linux nested LXC 中默认使用 Docker `
 
 ## 写测试
 
-三个 marker 已在全部包声明，`--strict-markers` 生效，拼错会导致收集失败。
+四个 marker 已在全部包声明，`--strict-markers` 生效，拼错会导致收集失败。
 
 - **不要**手写 `@pytest.mark.skipif(not dolt_available(), ...)`。dolt 门禁只有一处，
   在 `vnext/repository_service/tests/conftest.py`。

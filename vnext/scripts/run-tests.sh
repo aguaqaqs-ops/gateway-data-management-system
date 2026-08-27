@@ -15,6 +15,16 @@ if [[ ! "${TEST_WORKERS}" =~ ^(auto|[0-9]+)$ ]]; then
     exit 2
 fi
 
+PYTEST_TMP_ARGS=()
+if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
+    if [[ "${GATEWAY_TEST_BASETEMP}" != /* ]]; then
+        echo "error: GATEWAY_TEST_BASETEMP must be an absolute path" >&2
+        exit 2
+    fi
+    mkdir -p "${GATEWAY_TEST_BASETEMP}"
+    PYTEST_TMP_ARGS+=(--basetemp "${GATEWAY_TEST_BASETEMP}")
+fi
+
 FAST_PACKAGES=(
     shared_kernel
     repository_contracts
@@ -32,7 +42,7 @@ run_locked_pytest() {
         -u UV_INSECURE_HOST \
         -u PIP_INDEX_URL \
         -u PIP_TRUSTED_HOST \
-        uv run --locked pytest "$@"
+        uv run --locked pytest "${PYTEST_TMP_ARGS[@]}" "$@"
 }
 
 for package in "${FAST_PACKAGES[@]}"; do
@@ -41,7 +51,7 @@ for package in "${FAST_PACKAGES[@]}"; do
 done
 
 echo "==> repository_service (parallel)"
-(cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m "not serial" -n "${TEST_WORKERS}" "$@")
+(cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m "(not serial) or parallel_safe" -n "${TEST_WORKERS}" "$@")
 
 echo "==> repository_service (serial)"
-(cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m serial -n 0 "$@")
+(cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "$@")

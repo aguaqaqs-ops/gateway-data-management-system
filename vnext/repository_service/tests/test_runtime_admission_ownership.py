@@ -86,6 +86,7 @@ def test_runtime_owns_singleton_admission_pools() -> None:
 
 
 @pytest.mark.serial
+@pytest.mark.parallel_safe
 def test_shutdown_closes_admission_then_stops_cleaner_before_db_and_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

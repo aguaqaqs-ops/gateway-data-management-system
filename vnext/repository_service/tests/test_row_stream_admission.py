@@ -78,6 +78,7 @@ def test_open_failure_releases_row_stream_permit() -> None:
 
 
 @pytest.mark.serial
+@pytest.mark.parallel_safe
 def test_ninth_row_stream_rejected_before_response_start() -> None:
     pool = PermitPool(1)
     held = pool.try_acquire()

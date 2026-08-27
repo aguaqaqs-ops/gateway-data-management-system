@@ -1,6 +1,6 @@
 # P4-R5 Retry, Takeover and Effect Recovery Design
 
-状态：**DESIGN DISCUSSION CONVERGED — S0 acceptance and implementation not authorized**
+状态：**ACCEPTED — S7 module gate complete; P4-R6-S0 discussion only**
 
 日期：2026-08-26
 

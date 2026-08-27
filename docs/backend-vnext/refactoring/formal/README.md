@@ -30,10 +30,11 @@
 - [P4-R4 JobDefinition and Checkpoint Detailed Execution Plan](plans/p4-r4-jobdefinition-checkpoint-execution-plan.md)（S7 module gate pass）
 - [P4-R4-S0 Independent Entry Acceptance](plans/p4-r4-s0-entry-acceptance.md)（pass）
 - [P4/R4 JobDefinition and Checkpoint Handoff](plans/p4-r4-jobdefinition-checkpoint-handoff.md)（S7 module gate、current-HEAD image与P4-R5-S0 entry boundary）
-- [P4-R5 Retry, Takeover and Effect Recovery Design](plans/p4-r5-retry-takeover-effect-recovery-design.md)（design converged；S0 accepted）
+- [P4-R5 Retry, Takeover and Effect Recovery Design](plans/p4-r5-retry-takeover-effect-recovery-design.md)（design accepted；S7 module gate pass）
 - [P4-R5-S0 Entry Brief](plans/p4-r5-s0-entry-brief.md)（S0 accepted；owner/reopen和authorization boundary）
-- [P4-R5 Retry, Takeover and Effect Recovery Detailed Execution Plan](plans/p4-r5-retry-takeover-effect-recovery-execution-plan.md)（S0 accepted；step cards、review和module gate planning）
-- [P4-R5-S0 Independent Entry Acceptance](plans/p4-r5-s0-entry-acceptance.md)（pass；仅授权 S1a）
+- [P4-R5 Retry, Takeover and Effect Recovery Detailed Execution Plan](plans/p4-r5-retry-takeover-effect-recovery-execution-plan.md)（S7 module gate pass）
+- [P4-R5-S0 Independent Entry Acceptance](plans/p4-r5-s0-entry-acceptance.md)（pass）
+- [P4/R5 Retry, Takeover and Effect Recovery Handoff](plans/p4-r5-retry-takeover-effect-recovery-handoff.md)（S7 module gate、current-HEAD image与P4-R6-S0 entry boundary）
 - [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)（封印 candidate/image、支持面、限制、reopen）
 - [P2–P3 Cleanup Manifest](plans/p2-p3-cleanup-manifest.yaml)
 - [P3→P4 Cleanup Manifest](plans/p3-p4-cleanup-manifest.yaml)

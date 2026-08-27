@@ -462,6 +462,44 @@ def test_client_image_matches_requires_candidate_and_client_lock() -> None:
         )
 
 
+def test_client_dependency_base_requires_matching_lock() -> None:
+    with patch(
+        "support.compose_lifecycle_harness.inspect_image",
+        return_value=(_IMAGE_ID, {harness.CLIENT_UV_LOCK_LABEL: _LOCK}),
+    ):
+        assert harness.client_dependency_base_image(
+            image=harness.DEFAULT_CLIENT_IMAGE,
+            client_uv_lock_sha256=_LOCK,
+        ) == harness.DEFAULT_CLIENT_IMAGE
+    with patch(
+        "support.compose_lifecycle_harness.inspect_image",
+        return_value=(_IMAGE_ID, {harness.CLIENT_UV_LOCK_LABEL: "0" * 64}),
+    ):
+        assert harness.client_dependency_base_image(
+            image=harness.DEFAULT_CLIENT_IMAGE,
+            client_uv_lock_sha256=_LOCK,
+        ) is None
+
+
+def test_run_client_build_reuses_matching_dependency_base() -> None:
+    with (
+        patch.object(harness, "client_dependency_base_image", return_value="client-base:local"),
+        patch.object(harness, "docker_build_network", return_value="host"),
+        patch(
+            "support.compose_lifecycle_harness.subprocess.run",
+            return_value=subprocess.CompletedProcess(["docker"], 0, stdout="", stderr=""),
+        ) as run,
+    ):
+        harness._run_client_build(
+            harness.DEFAULT_CLIENT_IMAGE,
+            candidate_sha=_SHA,
+            client_uv_lock_sha256=_LOCK,
+        )
+    command = run.call_args.args[0]
+    assert "BASE_IMAGE=client-base:local" in command
+    assert "USE_PRELOADED_DEPENDENCIES=1" in command
+
+
 def test_ensure_client_image_skips_rebuild_when_labels_match() -> None:
     with (
         patch.object(harness, "current_client_uv_lock_sha256", return_value=_LOCK),
@@ -485,6 +523,7 @@ def test_ensure_client_image_rebuilds_when_labels_stale() -> None:
 def test_run_client_build_timeout_does_not_leak_secrets() -> None:
     with (
         patch.object(harness, "CLIENT_DOCKERFILE", harness.CLIENT_DOCKERFILE),
+        patch.object(harness, "client_dependency_base_image", return_value=None),
         patch(
             "support.compose_lifecycle_harness.subprocess.run",
             side_effect=subprocess.TimeoutExpired(cmd=["docker"], timeout=1800),

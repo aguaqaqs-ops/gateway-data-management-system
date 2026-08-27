@@ -43,6 +43,7 @@ CLIENT_UV_LOCK_PATH = CLIENT_PROJECT / "uv.lock"
 CONSUMER_SCRIPT = CLIENT_PROJECT / "tests" / "support" / "versioned_fixture_consumer.py"
 FIXTURE_ROOT = CLIENT_PROJECT / "tests" / "fixtures" / "versioned_v1"
 DEFAULT_CLIENT_IMAGE = "gateway-repository-client-e2e:local"
+CLIENT_DEPENDENCY_BASE_IMAGE_ENV = "GATEWAY_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE"
 CLIENT_UV_LOCK_LABEL = "gateway.p2r6.client-uv-lock-sha256"
 COMPOSE_PROFILE = "p2-r2"
 SERVICE_NAME = "repository-service"
@@ -768,6 +769,16 @@ def client_image_matches(
     )
 
 
+def client_dependency_base_image(*, image: str, client_uv_lock_sha256: str) -> str | None:
+    candidate = os.environ.get(CLIENT_DEPENDENCY_BASE_IMAGE_ENV, image)
+    digest, labels = inspect_image(candidate)
+    if not _IMAGE_ID.fullmatch(digest):
+        return None
+    if labels.get(CLIENT_UV_LOCK_LABEL) != client_uv_lock_sha256:
+        return None
+    return candidate
+
+
 def _run_client_build(
     image: str,
     *,
@@ -777,23 +788,35 @@ def _run_client_build(
     if not CLIENT_DOCKERFILE.is_file():
         raise RuntimeError(f"missing client Dockerfile: {CLIENT_DOCKERFILE}")
     env = os.environ.copy()
+    command = [
+        "docker",
+        "build",
+        "--network",
+        docker_build_network(),
+        "-f",
+        str(CLIENT_DOCKERFILE),
+        "--build-arg",
+        f"CANDIDATE_SHA={candidate_sha}",
+        "--build-arg",
+        f"UV_LOCK_SHA256={client_uv_lock_sha256}",
+    ]
+    dependency_base = client_dependency_base_image(
+        image=image,
+        client_uv_lock_sha256=client_uv_lock_sha256,
+    )
+    if dependency_base is not None:
+        command.extend(
+            [
+                "--build-arg",
+                f"BASE_IMAGE={dependency_base}",
+                "--build-arg",
+                "USE_PRELOADED_DEPENDENCIES=1",
+            ]
+        )
+    command.extend(["-t", image, str(VNEXT_ROOT)])
     try:
         completed = subprocess.run(
-            [
-                "docker",
-                "build",
-                "--network",
-                docker_build_network(),
-                "-f",
-                str(CLIENT_DOCKERFILE),
-                "--build-arg",
-                f"CANDIDATE_SHA={candidate_sha}",
-                "--build-arg",
-                f"UV_LOCK_SHA256={client_uv_lock_sha256}",
-                "-t",
-                image,
-                str(VNEXT_ROOT),
-            ],
+            command,
             check=False,
             capture_output=True,
             text=True,

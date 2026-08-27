@@ -12,6 +12,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -47,6 +48,7 @@ COMPOSE_PROFILE = "p2-r2"
 SERVICE_NAME = "repository-service"
 INSIDE_SERVICE_ENDPOINT = "http://repository-service:8000"
 CLIENT_BUILD_TIMEOUT_SECONDS = 1800
+DOCKER_BUILD_NETWORK_ENV = "GATEWAY_DOCKER_BUILD_NETWORK"
 _PROJECT_ROLE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 _SUFFIX = re.compile(r"^[0-9a-f]{12}$")
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -227,6 +229,65 @@ def write_token_file(path: Path, token: str) -> Path:
     path.write_text(token, encoding="utf-8")
     path.chmod(0o400)
     return path
+
+
+def docker_build_network() -> str:
+    """Return the network mode used by test-only Docker image builds."""
+
+    configured = os.environ.get(DOCKER_BUILD_NETWORK_ENV)
+    if configured:
+        return configured
+    # Docker's default build bridge is frequently isolated from package
+    # mirrors when Docker runs nested inside an LXC. Keep this configurable for
+    # Docker Desktop or builders with a different network policy.
+    return "host" if sys.platform.startswith("linux") else "default"
+
+
+def prepare_secret_file_for_container(
+    path: Path,
+    *,
+    uid: int,
+    gid: int,
+    helper_image: str,
+    secrets: Sequence[str] = (),
+    host_paths: Sequence[str] = (),
+) -> None:
+    """Make a Compose file secret readable by the image's runtime user.
+
+    A normal host process may not be able to chown to an arbitrary container
+    UID, notably in an unprivileged LXC. Docker's existing root helper then
+    performs the same narrowly-scoped host-file operation, so the test runner
+    itself does not need to be root.
+    """
+
+    try:
+        os.chown(path, uid, gid)
+    except PermissionError:
+        parent = path.parent.resolve()
+        run_command(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--user",
+                "0:0",
+                "--entrypoint",
+                "chown",
+                "--mount",
+                f"type=bind,src={parent},dst=/gateway-secret",
+                helper_image,
+                f"{uid}:{gid}",
+                f"/gateway-secret/{path.name}",
+            ],
+            secrets=secrets,
+            host_paths=host_paths,
+        )
+    stat = path.stat()
+    if stat.st_uid != uid or stat.st_gid != gid:
+        raise RuntimeError(
+            f"secret file ownership mismatch: expected {uid}:{gid}, "
+            f"got {stat.st_uid}:{stat.st_gid}"
+        )
 
 
 def compose_command(*args: str, project: str, compose_file: Path = COMPOSE_FILE) -> list[str]:
@@ -720,6 +781,8 @@ def _run_client_build(
             [
                 "docker",
                 "build",
+                "--network",
+                docker_build_network(),
                 "-f",
                 str(CLIENT_DOCKERFILE),
                 "--build-arg",
@@ -1365,7 +1428,14 @@ def start_p2r2_service(
             host_paths=paths,
         ).stdout.strip()
     )
-    os.chown(token_file, gateway_uid, gateway_gid)
+    prepare_secret_file_for_container(
+        token_file,
+        uid=gateway_uid,
+        gid=gateway_gid,
+        helper_image=service_image,
+        secrets=secrets,
+        host_paths=paths,
+    )
     run_command(
         compose_up_command(project=names.project),
         env=resolved_env,

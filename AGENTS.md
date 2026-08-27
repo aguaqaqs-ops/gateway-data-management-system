@@ -20,6 +20,14 @@ uv run pytest -m serial -n 0   # 时序敏感组，必须串行
 ```
 
 `repository_service` 默认并行（`-n auto`）；其余包单进程，不要给它们加 xdist。
+在 CPU 充足的正式开发环境中可显式调整非串行 worker 数量，例如
+`GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`；默认 `auto` 保留
+pytest-xdist 的自适应行为。`serial` 组始终 `-n 0`，因为其正确性依赖时间和资源顺序，
+不按 CPU 数量盲目并行化。
+
+Compose 测试客户端镜像构建在 Linux nested LXC 中默认使用 Docker `host` 网络，以便访问
+包镜像；可通过 `GATEWAY_DOCKER_BUILD_NETWORK=default` 覆盖。该设置只影响测试镜像构建，
+不改变生产 Compose 网络边界。
 
 ## 写测试
 

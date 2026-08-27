@@ -9,6 +9,11 @@ set -euo pipefail
 # dominate, so they run single process.
 
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TEST_WORKERS="${GATEWAY_TEST_WORKERS:-auto}"
+if [[ ! "${TEST_WORKERS}" =~ ^(auto|[0-9]+)$ ]]; then
+    echo "error: GATEWAY_TEST_WORKERS must be auto or a non-negative integer" >&2
+    exit 2
+fi
 
 FAST_PACKAGES=(
     shared_kernel
@@ -23,7 +28,7 @@ for package in "${FAST_PACKAGES[@]}"; do
 done
 
 echo "==> repository_service (parallel)"
-(cd "${VNEXT_ROOT}/repository_service" && uv run pytest -q -m "not serial" "$@")
+(cd "${VNEXT_ROOT}/repository_service" && uv run pytest -q -m "not serial" -n "${TEST_WORKERS}" "$@")
 
 echo "==> repository_service (serial)"
 (cd "${VNEXT_ROOT}/repository_service" && uv run pytest -q -m serial -n 0 "$@")

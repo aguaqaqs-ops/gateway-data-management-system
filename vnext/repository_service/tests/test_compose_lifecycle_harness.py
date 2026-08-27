@@ -170,6 +170,52 @@ def test_write_token_file_is_owner_read_only(tmp_path: Path) -> None:
     assert path.stat().st_mode & 0o777 == 0o400
 
 
+def test_docker_build_network_defaults_to_host_on_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(harness.DOCKER_BUILD_NETWORK_ENV, raising=False)
+    with patch.object(harness.sys, "platform", "linux"):
+        assert harness.docker_build_network() == "host"
+
+
+def test_docker_build_network_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(harness.DOCKER_BUILD_NETWORK_ENV, "default")
+    assert harness.docker_build_network() == "default"
+
+
+def test_prepare_secret_file_uses_docker_root_helper_when_local_chown_is_denied(
+    tmp_path: Path,
+) -> None:
+    path = harness.write_token_file(tmp_path / "token", _TOKEN)
+    fake_stat = type("FakeStat", (), {"st_uid": 100, "st_gid": 100})()
+    with (
+        patch.object(harness.os, "chown", side_effect=PermissionError),
+        patch.object(harness, "run_command") as run,
+        patch.object(harness.Path, "stat", return_value=fake_stat),
+    ):
+        harness.prepare_secret_file_for_container(
+            path,
+            uid=100,
+            gid=100,
+            helper_image="gateway-repository-service:local",
+            secrets=(_TOKEN,),
+            host_paths=(str(tmp_path),),
+        )
+
+    command = run.call_args.args[0]
+    assert command[:8] == [
+        "docker",
+        "run",
+        "--rm",
+        "--user",
+        "0:0",
+        "--entrypoint",
+        "chown",
+        "--mount",
+    ]
+    assert f"type=bind,src={tmp_path.resolve()},dst=/gateway-secret" in command
+    assert command[-3:] == ["gateway-repository-service:local", "100:100", "/gateway-secret/token"]
+    assert _TOKEN not in command
+
+
 def test_parse_rendered_compose_config_accepts_p2r2_service_without_ports() -> None:
     config = harness.parse_rendered_compose_config(_valid_service_config())
     harness.assert_p2r2_compose_boundary(config)

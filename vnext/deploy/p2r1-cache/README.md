@@ -293,8 +293,11 @@ Additional remote prerequisites:
 - **Git metadata**: `compose_build_harness` resolves `build-input-revision` via
   `git log`. The remote checkout must be a normal clone/checkout at the candidate
   SHA.
-- **S10 e2e chown**: `test_import_compose_e2e` calls `os.chown(token, gateway_uid,
-  gateway_gid)`; run the pytest node with interactive `sudo` on the remote host.
+- **S10 e2e chown**: the Compose harness resolves the image `gateway` UID/GID and, when a
+  development user in an unprivileged LXC cannot perform the host-side `chown`, uses a
+  short-lived root helper container against only the token-file parent directory. The
+  runner therefore only needs access to the Docker daemon; it does not need interactive
+  `sudo` for this step.
 
 Use an interactive sudo prompt only. Do not pipe passwords through `ssh`, shell
 history, documentation, or passwordless sudo grants for pytest.

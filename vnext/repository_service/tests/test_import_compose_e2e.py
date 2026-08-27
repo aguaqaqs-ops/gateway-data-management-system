@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -23,6 +22,7 @@ from support.compose_lifecycle_harness import (
     p2r2_compose_env,
     p2r2_project_session,
     parse_rendered_compose_config,
+    prepare_secret_file_for_container,
     run_command,
     wait_healthy,
     write_token_file,
@@ -98,7 +98,14 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
                 host_paths=host_paths,
             ).stdout.strip()
         )
-        os.chown(token_file, gateway_uid, gateway_gid)
+        prepare_secret_file_for_container(
+            token_file,
+            uid=gateway_uid,
+            gid=gateway_gid,
+            helper_image=service_image,
+            secrets=(token,),
+            host_paths=host_paths,
+        )
 
         run_command(
             compose_command("up", "-d", "--no-build", "repository-service", project=names.project),

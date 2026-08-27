@@ -87,6 +87,16 @@ tests/test_versioned_read_compose_e2e.py::test_compose_repository_service_fresh_
 `tests/test_compose_lifecycle_negative_probes.py`，用于 expected-failure cleanup，**不是**
 第五个 S7 PASS nodeid。Compose PASS 仍归 S7-5+。
 
+在 CPU 充足的开发环境中，可用 `GATEWAY_TEST_WORKERS=48` 或 `96` 调整
+`repository_service` 非串行测试的 xdist worker 数；省略时使用 `-n auto`。串行组仍固定
+使用 `-n 0`。Linux nested LXC 中客户端测试镜像构建默认使用 host 网络，可通过
+`GATEWAY_DOCKER_BUILD_NETWORK=default` 覆盖；这只影响构建网络，不改变 Compose 服务的
+内部网络边界。
+
+Compose harness 会先查询镜像内 `gateway` UID/GID。若开发用户在 unprivileged LXC 中无法
+直接修改 token 文件 owner，则调用同一镜像内的临时 root helper 完成限定路径的 `chown`，
+因此不需要让开发用户获得 root 或把 token 改成 world-readable。
+
 ## 容器启动（P2-R2 `p2-r2` profile）
 
 Repository Service HTTP shell 通过 Compose `p2-r2` profile 启动。镜像默认 CMD 为：

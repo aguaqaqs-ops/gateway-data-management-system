@@ -6,6 +6,7 @@ import ast
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID
@@ -172,7 +173,7 @@ def test_write_token_file_is_owner_read_only(tmp_path: Path) -> None:
 
 def test_docker_build_network_defaults_to_host_on_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(harness.DOCKER_BUILD_NETWORK_ENV, raising=False)
-    with patch.object(harness.sys, "platform", "linux"):
+    with patch.object(sys, "platform", "linux"):
         assert harness.docker_build_network() == "host"
 
 
@@ -187,9 +188,9 @@ def test_prepare_secret_file_uses_docker_root_helper_when_local_chown_is_denied(
     path = harness.write_token_file(tmp_path / "token", _TOKEN)
     fake_stat = type("FakeStat", (), {"st_uid": 100, "st_gid": 100})()
     with (
-        patch.object(harness.os, "chown", side_effect=PermissionError),
+        patch.object(os, "chown", side_effect=PermissionError),
         patch.object(harness, "run_command") as run,
-        patch.object(harness.Path, "stat", return_value=fake_stat),
+        patch.object(Path, "stat", return_value=fake_stat),
     ):
         harness.prepare_secret_file_for_container(
             path,

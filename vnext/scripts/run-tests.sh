@@ -24,11 +24,11 @@ FAST_PACKAGES=(
 
 for package in "${FAST_PACKAGES[@]}"; do
     echo "==> ${package}"
-    (cd "${VNEXT_ROOT}/${package}" && uv run pytest -q "$@")
+    (cd "${VNEXT_ROOT}/${package}" && uv run --locked pytest -q "$@")
 done
 
 echo "==> repository_service (parallel)"
-(cd "${VNEXT_ROOT}/repository_service" && uv run pytest -q -m "not serial" -n "${TEST_WORKERS}" "$@")
+(cd "${VNEXT_ROOT}/repository_service" && uv run --locked pytest -q -m "not serial" -n "${TEST_WORKERS}" "$@")
 
 echo "==> repository_service (serial)"
-(cd "${VNEXT_ROOT}/repository_service" && uv run pytest -q -m serial -n 0 "$@")
+(cd "${VNEXT_ROOT}/repository_service" && uv run --locked pytest -q -m serial -n 0 "$@")

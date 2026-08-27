@@ -97,6 +97,9 @@ Compose harness 会先查询镜像内 `gateway` UID/GID。若开发用户在 unp
 直接修改 token 文件 owner，则调用同一镜像内的临时 root helper 完成限定路径的 `chown`，
 因此不需要让开发用户获得 root 或把 token 改成 world-readable。
 
+Gate-host consumer 使用已同步的客户端 venv 以 `uv run --locked --offline --no-sync` 执行；
+依赖安装属于环境准备阶段，不在每个 HTTP 场景中重新解析依赖或访问网络。
+
 ## 容器启动（P2-R2 `p2-r2` profile）
 
 Repository Service HTTP shell 通过 Compose `p2-r2` profile 启动。镜像默认 CMD 为：

@@ -414,10 +414,11 @@ def test_ephemeral_client_docker_command_uses_readonly_fixture_mount_and_env_fil
     assert env_file.stat().st_mode & 0o777 == 0o600
 
 
-def test_host_runner_command_uses_locked_offline_client_project() -> None:
+def test_host_runner_command_uses_locked_offline_no_sync_client_project() -> None:
     command = harness.host_runner_command()
     assert command[:5] == ["uv", "run", "--project", str(harness.CLIENT_PROJECT), "--locked"]
     assert "--offline" in command
+    assert "--no-sync" in command
     assert str(harness.CONSUMER_SCRIPT) in command
 
 

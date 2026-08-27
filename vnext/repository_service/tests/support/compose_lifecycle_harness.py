@@ -674,6 +674,7 @@ def host_runner_command() -> list[str]:
         str(CLIENT_PROJECT),
         "--locked",
         "--offline",
+        "--no-sync",
         "python",
         str(CONSUMER_SCRIPT),
     ]

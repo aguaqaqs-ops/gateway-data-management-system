@@ -71,7 +71,7 @@ next_step_authorized: yes_for_discussion_only
 r6_implementation_authorized: no
 p5b_real_repository_effect_authorized: no
 p5_implementation_authorized: no
-handoff_documentation_sha: pending_docs_only_seal_commit
+handoff_documentation_sha: 91e96c2262529d80504fa5cdc50fdd111f2fe323
 ```
 
 ## 1. Sealed candidate and public boundary

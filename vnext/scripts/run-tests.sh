@@ -32,6 +32,12 @@ FAST_PACKAGES=(
     backend
 )
 
+COMPOSE_TEST_FILES=(
+    tests/test_compose_lifecycle_negative_probes.py
+    tests/test_import_compose_e2e.py
+    tests/test_versioned_read_compose_e2e.py
+)
+
 run_locked_pytest() {
     # The repository locks use the canonical PyPI registry. Do not let a
     # machine-wide mirror override the lock identity during test execution;
@@ -54,4 +60,20 @@ echo "==> repository_service (parallel)"
 (cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m "(not serial) or parallel_safe" -n "${TEST_WORKERS}" "$@")
 
 echo "==> repository_service (serial)"
-(cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "$@")
+if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
+    # Docker secret bind mounts cannot be remounted from an LXC-provided
+    # tmpfs in the authoritative Compose path. Keep those host paths on the
+    # real filesystem while using tmpfs for all other test-owned workspaces.
+    COMPOSE_IGNORES=()
+    for compose_file in "${COMPOSE_TEST_FILES[@]}"; do
+        COMPOSE_IGNORES+=("--ignore=${compose_file}")
+    done
+    (
+        cd "${VNEXT_ROOT}/repository_service"
+        run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${COMPOSE_IGNORES[@]}" "$@"
+        PYTEST_TMP_ARGS=()
+        run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${COMPOSE_TEST_FILES[@]}" "$@"
+    )
+else
+    (cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "$@")
+fi

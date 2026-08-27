@@ -7,6 +7,8 @@ import signal
 import threading
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from signal import Signals
 from types import FrameType
@@ -21,13 +23,25 @@ from gateway_backend.application.job_definitions import (
     build_job_worker_composition,
     validate_active_pairs_job_contract_versions,
 )
+from gateway_backend.application.recovery import RecoveryCapability, RecoveryPort
 from gateway_backend.application.payloads import PayloadDecodeError, PayloadDecoder
+from gateway_backend.application.synthetic_jobs import build_external_effect_stub_recovery_port
 from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
 from gateway_backend.infrastructure.control_db import (
     ControlDbUnitOfWork,
     initialize_control_db,
 )
 from gateway_backend.operations import OperationRecord, OperationUnitOfWork, StepRecord
+from gateway_backend.operations.contracts import JobStepKey
+from gateway_backend.operations.recovery import (
+    HandlerRecoveryCallback,
+    HandlerRecoveryResult,
+    RecoveryCapabilityValue,
+    RecoveryPolicyOutcomeDisposition,
+    StartupRecovery,
+    build_recovery_routed_executor,
+    build_startup_recovery,
+)
 from gateway_backend.operations.contracts import _validate_opaque_id
 from gateway_backend.operations.persistence import OperationLifecycleActions
 from gateway_backend.operations.worker import (
@@ -113,6 +127,7 @@ def build_worker_runtime(
     job_definitions: tuple[JobDefinition, ...] = (),
     handlers: Mapping[str, ClaimedExecutor] | None = None,
     payload_decoders: Mapping[str, PayloadDecoder] | None = None,
+    external_effect_stub: object | None = None,
 ) -> WorkerRuntime:
     """Compose the SQLite-backed worker with the immutable R4 registry adapter."""
 
@@ -139,12 +154,34 @@ def build_worker_runtime(
         return ControlDbUnitOfWork(settings.control_db_path)
 
     startup_observer = _StartupObserver(observer)
+    jitter = _deterministic_jitter
+    now_factory = _utc_now_factory
+
+    def capability_lookup(job_kind: str, step_name: str) -> RecoveryCapabilityValue:
+        definition = composition.definition_registry.get(
+            JobStepKey(job_kind=job_kind, step_name=step_name)
+        )
+        return RecoveryCapabilityValue(definition.recovery_capability.value)
+
+    startup_recovery = build_startup_recovery(
+        write_uow_factory=write_uow_factory,
+        capability_lookup=capability_lookup,
+        jitter=jitter,
+        now_factory=now_factory,
+    )
+    recovery_registry = _build_recovery_aware_registry(
+        composition,
+        jitter=jitter,
+        now_factory=now_factory,
+        external_effect_stub=external_effect_stub,
+    )
     startup = _R4WorkerStartup(
         read_uow_factory=read_uow_factory,
         write_uow_factory=write_uow_factory,
-        registry=composition.worker_registry,
+        registry=recovery_registry,
         definition_registry=composition.definition_registry,
         recovery_hook=_fail_closed_recovery,
+        startup_recovery=startup_recovery,
         observer=startup_observer,
     )
     bounded_startup = _StartupBudget(
@@ -211,6 +248,103 @@ def _fail_closed_recovery(
     return StartupDisposition.FATAL_BLOCK
 
 
+def _deterministic_jitter(lower: float, _upper: float) -> float:
+    return lower
+
+
+def _utc_now_factory() -> datetime:
+    return datetime.now(UTC)
+
+
+def _adapt_recovery_port(port: RecoveryPort) -> HandlerRecoveryCallback:
+    def recover(
+        operation: OperationRecord,
+        step: StepRecord,
+        control: object,
+        lease_session: object,
+    ) -> HandlerRecoveryResult:
+        outcome = port.recover(
+            operation,
+            step,
+            cast(Any, control),
+            cast(Any, lease_session),
+        )
+        return HandlerRecoveryResult(
+            disposition=RecoveryPolicyOutcomeDisposition(outcome.disposition.value),
+            diagnostic_code=outcome.diagnostic_code,
+            reason=outcome.reason,
+        )
+
+    return recover
+
+
+def _build_recovery_callbacks(
+    composition: JobWorkerComposition,
+    *,
+    external_effect_stub: object | None,
+    now_factory: Callable[[], datetime],
+) -> dict[JobStepKey, HandlerRecoveryCallback | None]:
+    callbacks: dict[JobStepKey, HandlerRecoveryCallback | None] = {}
+    for definition in composition.definition_registry.definitions():
+        if definition.recovery_capability is RecoveryCapability.EXTERNAL_EFFECT:
+            port = build_external_effect_stub_recovery_port(
+                composition.artifact_store,
+                external_stub=cast(Any, external_effect_stub),
+                now_factory=now_factory,
+            )
+            callbacks[definition.key] = _adapt_recovery_port(port)
+        else:
+            callbacks[definition.key] = None
+    return callbacks
+
+
+@dataclass(frozen=True, slots=True)
+class _RecoveryAwareWorkerRegistry:
+    """Wrap resolved executors with claim-path recovery routing at the JobStepKey boundary."""
+
+    _registry: WorkerRegistry
+    _definition_registry: JobDefinitionRegistry
+    _recovery_by_key: Mapping[JobStepKey, HandlerRecoveryCallback | None]
+    _jitter: Callable[[float, float], float]
+    _now_factory: Callable[[], datetime]
+
+    def resolve(self, key: JobStepKey) -> ClaimedExecutor | None:
+        executor = self._registry.resolve(key)
+        if executor is None:
+            return None
+        definition = self._definition_registry.get(key)
+        capability = RecoveryCapabilityValue(definition.recovery_capability.value)
+        recovery = self._recovery_by_key.get(key)
+        return build_recovery_routed_executor(
+            executor,
+            recovery,
+            capability,
+            jitter=self._jitter,
+            now_factory=self._now_factory,
+        )
+
+
+def _build_recovery_aware_registry(
+    composition: JobWorkerComposition,
+    *,
+    jitter: Callable[[float, float], float],
+    now_factory: Callable[[], datetime],
+    external_effect_stub: object | None,
+) -> WorkerRegistry:
+    recovery_by_key = _build_recovery_callbacks(
+        composition,
+        external_effect_stub=external_effect_stub,
+        now_factory=now_factory,
+    )
+    return _RecoveryAwareWorkerRegistry(
+        _registry=composition.worker_registry,
+        _definition_registry=composition.definition_registry,
+        _recovery_by_key=recovery_by_key,
+        _jitter=jitter,
+        _now_factory=now_factory,
+    )
+
+
 class _R4WorkerStartup(WorkerStartup):
     """Extend startup validation with job_contract_version coverage before claim."""
 
@@ -225,6 +359,7 @@ class _R4WorkerStartup(WorkerStartup):
         definition_registry: JobDefinitionRegistry,
         recovery_hook: RecoveryHook,
         observer: WorkerObserver,
+        startup_recovery: StartupRecovery | None = None,
         worker_id_factory: Callable[[], str] | None = None,
         lease_token_factory: Callable[[], str] | None = None,
         page_limit: int | None = None,
@@ -236,6 +371,8 @@ class _R4WorkerStartup(WorkerStartup):
             "recovery_hook": recovery_hook,
             "observer": observer,
         }
+        if startup_recovery is not None:
+            init_kwargs["startup_recovery"] = startup_recovery
         if worker_id_factory is not None:
             init_kwargs["worker_id_factory"] = worker_id_factory
         if lease_token_factory is not None:

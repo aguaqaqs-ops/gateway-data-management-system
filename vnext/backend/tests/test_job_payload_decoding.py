@@ -22,6 +22,7 @@ from gateway_backend.application.job_definitions import (
     JobDefinitionRegistry,
     NormalPublicationCapability,
 )
+from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.payloads import (
     CHECKPOINT_DOCUMENT_TYPE,
     CheckpointDecodeError,
@@ -73,6 +74,7 @@ def _sample_definition() -> JobDefinition:
         decoder_identity=DECODER_V1,
         handler_identity=HANDLER_V1,
         publication_capability=NormalPublicationCapability.TERMINAL,
+        recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
 
 
@@ -399,6 +401,7 @@ def test_job_definition_registry_rejects_duplicate_decoder_identity() -> None:
         decoder_identity=DECODER_V1,
         handler_identity="backend-vnext/synthetic/stub/handler/v1",
         publication_capability=NormalPublicationCapability.TERMINAL,
+        recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
     with pytest.raises(ValueError, match="duplicate decoder_identity"):
         JobDefinitionRegistry.build((first, second))

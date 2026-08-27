@@ -7,10 +7,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from gateway_backend.operations.recovery import RecoveryTransitionIntent
 
 from gateway_backend.operations.contracts import (
     JobStepKey,
+    OperationDiagnostic,
     OperationRecord,
     StepRecord,
     _validate_ijson_int_value,
@@ -203,6 +207,14 @@ class LeaseSession(Protocol):
         generation: CheckpointGeneration,
     ) -> ExecutorAcknowledgment:
         """Acknowledge handoff only for a checkpoint committed by this session."""
+
+    def publish_recovery_release(
+        self,
+        intent: RecoveryTransitionIntent,
+        *,
+        diagnostic: OperationDiagnostic,
+    ) -> ExecutorAcknowledgment:
+        """Release a live lease into a bounded recovery transition."""
 
     def completion_acknowledgment(self) -> ExecutorAcknowledgment | None:
         """Return the terminal or safe-handoff fact committed by this session."""

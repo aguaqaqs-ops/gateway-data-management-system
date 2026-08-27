@@ -34,6 +34,7 @@ from gateway_backend.application.job_definitions import (
     JobDefinitionRegistry,
     NormalPublicationCapability,
 )
+from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.payloads import CHECKPOINT_DOCUMENT_TYPE, CheckpointDecodeError
 from gateway_backend.artifacts import (
     ArtifactRef,
@@ -85,6 +86,7 @@ def _sample_definition() -> JobDefinition:
         decoder_identity=DECODER_V1,
         handler_identity=HANDLER_V1,
         publication_capability=NormalPublicationCapability.TERMINAL,
+        recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
 
 

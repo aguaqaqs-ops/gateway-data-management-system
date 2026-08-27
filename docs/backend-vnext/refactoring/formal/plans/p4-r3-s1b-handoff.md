@@ -96,3 +96,11 @@ applicable to this fake-UoW, operations-only step.
 S2a is the only next step and remains unauthorized. The validated implementation is intentionally
 left in the working tree because no explicit git commit authorization was provided. This handoff does
 not authorize S2a, S2b, R4, R5, or P5 implementation.
+
+## 4. Post-S1b lineage addendum (2026-08-27)
+
+`LeaseSession.publish_recovery_release()` was added later under
+[P4-R5-R3 Recovery-Release Reopen](p4-r5-r3-recovery-release-reopen.md). It extends the S1b
+fresh-transaction publication model with a bounded recovery-release mutation on a live lease. This
+addendum records lineage only; it does not retroactively widen the sealed S1b validation scope or
+change the S1b verification record above.

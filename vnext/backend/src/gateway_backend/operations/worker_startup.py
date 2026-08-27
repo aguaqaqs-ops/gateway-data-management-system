@@ -16,6 +16,7 @@ from gateway_backend.operations.contracts import (
     _validate_opaque_id,
 )
 from gateway_backend.operations.persistence import OperationLifecycleActions
+from gateway_backend.operations.recovery import StartupRecovery
 from gateway_backend.operations.store import (
     CorruptPersistedRecord,
     ClaimCandidate,
@@ -24,6 +25,7 @@ from gateway_backend.operations.store import (
     MAX_PAGE_LIMIT,
     OperationStore,
     RecordNotFound,
+    StaleWrite,
     StoreBusy,
     UnsupportedSchemaVersion,
 )
@@ -88,6 +90,7 @@ class WorkerStartup:
         "_write_uow_factory",
         "_registry",
         "_recovery_hook",
+        "_startup_recovery",
         "_observer",
         "_lease_token_factory",
         "_page_limit",
@@ -103,6 +106,7 @@ class WorkerStartup:
         registry: WorkerRegistry,
         recovery_hook: RecoveryHook,
         observer: WorkerObserver,
+        startup_recovery: StartupRecovery | None = None,
         worker_id_factory: Callable[[], str] = _new_worker_id,
         lease_token_factory: Callable[[], str] = _new_lease_token,
         page_limit: int = DEFAULT_PAGE_LIMIT,
@@ -115,6 +119,8 @@ class WorkerStartup:
             raise ValueError("registry must provide a callable resolve method")
         if not callable(recovery_hook):
             raise ValueError("recovery_hook must be callable")
+        if startup_recovery is not None and type(startup_recovery) is not StartupRecovery:
+            raise ValueError("startup_recovery must be StartupRecovery or None")
         if not callable(observer):
             raise ValueError("observer must be callable")
         if not callable(worker_id_factory):
@@ -131,6 +137,7 @@ class WorkerStartup:
         self._write_uow_factory = write_uow_factory
         self._registry = registry
         self._recovery_hook = recovery_hook
+        self._startup_recovery = startup_recovery
         self._observer = observer
         self._lease_token_factory = lease_token_factory
         self._page_limit = page_limit
@@ -153,6 +160,9 @@ class WorkerStartup:
             self._validate_topology_and_registry()
         except StoreBusy:
             self._emit_startup_block("store_busy")
+            return StartupDisposition.RETRYABLE_BLOCK
+        except StaleWrite:
+            self._emit_startup_block("stale_write")
             return StartupDisposition.RETRYABLE_BLOCK
         except (CorruptPersistedRecord, UnsupportedSchemaVersion, RecordNotFound, ValueError) as exc:
             self._emit_startup_block(_failure_category(exc))
@@ -313,9 +323,12 @@ class WorkerStartup:
         for pair in pairs:
             if self._is_manual(pair):
                 continue
-            candidate = self._recovery_hook(pair.operation, pair.step)
+            if self._startup_recovery is not None:
+                candidate = self._startup_recovery.recover_pair(pair.operation, pair.step)
+            else:
+                candidate = self._recovery_hook(pair.operation, pair.step)
             if type(candidate) is not StartupDisposition:
-                raise ValueError("recovery_hook must return StartupDisposition")
+                raise ValueError("recovery must return StartupDisposition")
             if candidate is StartupDisposition.FATAL_BLOCK:
                 disposition = StartupDisposition.FATAL_BLOCK
             elif (

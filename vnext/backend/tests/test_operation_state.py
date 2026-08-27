@@ -1119,3 +1119,69 @@ def test_manual_recovery_allowed_with_authorization() -> None:
         validate_operation_transition(current, candidate, recovery_authorized=True)
         is TransitionDisposition.APPLY
     )
+
+
+def test_recovery_policy_transition_intents_subset_of_allowed_transitions() -> None:
+    from datetime import timedelta
+
+    from gateway_backend.operations.recovery import (
+        RecoveryCapabilityValue,
+        RecoveryPolicyDecision,
+        RecoveryPolicyDecisionDisposition,
+        RecoveryPolicyOutcomeDisposition,
+        RecoveryTransitionIntent,
+        transition_for_decision,
+        transition_for_outcome,
+    )
+
+    base_time = TS0
+
+    def jitter(lower: float, _upper: float) -> float:
+        return lower
+
+    intents: list[RecoveryTransitionIntent] = []
+
+    for disposition in RecoveryPolicyDecisionDisposition:
+        retry_not_before = (
+            base_time + timedelta(seconds=1)
+            if disposition is RecoveryPolicyDecisionDisposition.MOVE_TO_RETRY_WAIT
+            else None
+        )
+        decision = RecoveryPolicyDecision(
+            disposition=disposition,
+            diagnostic_code="r5.retry_scheduled",
+            retry_not_before=retry_not_before,
+            reason="policy alignment probe",
+        )
+        intents.append(
+            transition_for_decision(
+                decision,
+                step_source=StepStatus.RUNNING,
+                operation_source=OperationStatus.RUNNING,
+                attempt_count=1,
+                now=base_time,
+                jitter=jitter,
+            )
+        )
+
+    for outcome in RecoveryPolicyOutcomeDisposition:
+        intents.append(
+            transition_for_outcome(
+                outcome,
+                capability=RecoveryCapabilityValue.PURE_RECOMPUTE,
+                attempt_count=1,
+                reconcile_elapsed_seconds=0.0,
+                effect_boundary_crossed=False,
+                cancel_requested=False,
+                now=base_time,
+                jitter=jitter,
+                step_source=StepStatus.RUNNING,
+                operation_source=OperationStatus.RUNNING,
+            )
+        )
+
+    for intent in intents:
+        if intent.step_target is not None:
+            assert intent.step_target in _STEP_ALLOWED_TRANSITIONS[intent.step_source]
+        if intent.operation_target is not None:
+            assert intent.operation_target in _OPERATION_ALLOWED_TRANSITIONS[intent.operation_source]

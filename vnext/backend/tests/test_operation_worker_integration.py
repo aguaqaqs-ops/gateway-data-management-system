@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event, Thread
 from typing import cast
@@ -12,6 +12,7 @@ from typing import cast
 import pytest
 
 from gateway_backend.application.job_definitions import JobDefinition, NormalPublicationCapability
+from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.checkpoints import (
     CheckpointPublicationError,
     make_terminal_ready_closure_builder,
@@ -61,6 +62,7 @@ def _registered_definition() -> JobDefinition:
         decoder_identity=REGISTERED_DECODER,
         handler_identity=REGISTERED_HANDLER,
         publication_capability=NormalPublicationCapability.TERMINAL,
+        recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
 
 
@@ -305,6 +307,54 @@ def test_registered_key_reaches_ready_with_empty_queue(tmp_path: Path) -> None:
 
     assert events[:1] == ["worker_ready"]
     assert events[-2:] == ["drain_started", "worker_exited"]
+
+
+def test_registered_runtime_startup_recovers_expired_running_step(tmp_path: Path) -> None:
+    """The concrete worker composition applies R5 startup takeover before claiming."""
+
+    settings = OperationWorkerSettings(control_db_path=tmp_path / "startup-recovery" / "control.sqlite3")
+    bootstrap_control_database(settings)
+    operation = operation_record_from_document(_operation_document("operation-startup-recovery"))
+    step = step_record_from_document(_step_document(operation.operation_id, "step-startup-recovery"))
+    with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
+        assert (
+            unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+            is TransitionDisposition.APPLY
+        )
+        claimed = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.operations.transaction_now,
+        ).claim_one("worker-startup-old", "lease-startup-old")
+    assert claimed is not None
+    with connect_control_db(settings.control_db_path) as connection:
+        connection.execute(
+            "UPDATE step_records SET started_at_us = ?, updated_at_us = ?, lease_expires_at_us = ? WHERE step_id = ?",
+            (1735689600000000, 1735689600000000, 1735689601000000, step.step_id),
+        )
+        connection.execute(
+            "UPDATE operation_records SET updated_at_us = ? WHERE operation_id = ?",
+            (1735689600000000, operation.operation_id),
+        )
+        connection.commit()
+
+    events: list[WorkerEvent] = []
+
+    def observe(event: WorkerEvent) -> None:
+        events.append(event)
+
+    runtime = build_worker_runtime(
+        settings,
+        observer=observe,
+        job_definitions=(_registered_definition(),),
+        handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, _noop_handler)},
+        payload_decoders={REGISTERED_DECODER: lambda payload: payload},
+    )
+    disposition = runtime._startup.startup()
+    assert disposition is StartupDisposition.RETRYABLE_BLOCK, events
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+        recovered_step = unit_of_work.operations.get_step(step.step_id)
+    assert recovered_step.status is StepStatus.RETRY_WAIT
+    assert recovered_step.lease_token is None
 
 
 @pytest.mark.serial
@@ -649,3 +699,238 @@ def test_ready_closure_ref_set_once_rejects_second_publication(tmp_path: Path) -
     with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
         persisted_operation = unit_of_work.operations.get_operation(claimed_operation.operation_id)
     assert persisted_operation.ready_closure_ref == first_closure
+
+
+def _execute_claimed_work(
+    db_path: Path,
+    work: object,
+    *,
+    worker_id: str,
+    lease_token: str,
+) -> ExecutorAcknowledgment:
+    from gateway_backend.operations.worker import ClaimedWork
+
+    assert type(work) is ClaimedWork
+    control = ExecutionControl()
+    session = LeaseSession(
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=work.operation.operation_id,
+        step_id=work.step.step_id,
+        write_uow_factory=lambda: ControlDbUnitOfWork(db_path),
+        control=control,
+        observer=lambda _event: None,
+    )
+    return work.executor(work.operation, work.step, control, session)
+
+
+def _expire_step_lease(db_path: Path, step_id: str) -> None:
+    from gateway_backend.infrastructure.control_db.sqlite_operations import _datetime_to_epoch_us
+
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        step = unit_of_work.operations.get_step(step_id)
+        transaction_now = unit_of_work.operations.transaction_now
+    lease_expires_at = transaction_now - timedelta(seconds=1)
+    updated_at = lease_expires_at - timedelta(seconds=1)
+    started_at = step.started_at
+    if started_at is None or started_at > updated_at:
+        started_at = updated_at - timedelta(seconds=1)
+    with connect_control_db(db_path) as connection:
+        connection.execute(
+            "UPDATE step_records SET started_at_us = ?, updated_at_us = ?, lease_expires_at_us = ? WHERE step_id = ?",
+            (
+                _datetime_to_epoch_us(started_at),
+                _datetime_to_epoch_us(updated_at),
+                _datetime_to_epoch_us(lease_expires_at),
+                step_id,
+            ),
+        )
+        connection.commit()
+
+
+def _due_retry_wait(db_path: Path, step_id: str) -> None:
+    from gateway_backend.infrastructure.control_db.sqlite_operations import _datetime_to_epoch_us
+
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        step = unit_of_work.operations.get_step(step_id)
+        transaction_now = unit_of_work.operations.transaction_now
+    retry_not_before = transaction_now - timedelta(seconds=1)
+    updated_at = retry_not_before
+    started_at = step.started_at
+    if started_at is None or started_at > updated_at:
+        started_at = updated_at - timedelta(seconds=1)
+    with connect_control_db(db_path) as connection:
+        connection.execute(
+            "UPDATE step_records SET retry_not_before_us = ?, updated_at_us = ?, started_at_us = ?, eligible_at_us = ? WHERE step_id = ?",
+            (
+                _datetime_to_epoch_us(retry_not_before),
+                _datetime_to_epoch_us(updated_at),
+                _datetime_to_epoch_us(started_at),
+                _datetime_to_epoch_us(retry_not_before),
+                step_id,
+            ),
+        )
+        connection.commit()
+
+
+def test_worker_runtime_external_effect_accepted_takeover_polls_original_identity(
+    tmp_path: Path,
+) -> None:
+    """P4-R5-S5: recovery-routed worker executor polls the original identity after takeover."""
+
+    from gateway_backend.application.external_effect_stub import (
+        DeterministicExternalEffectStub,
+        RecordingExternalEffectStub,
+        StubOutcome,
+        build_request_bytes,
+        compute_operation_identity,
+    )
+    from gateway_backend.application.synthetic_jobs import (
+        EXTERNAL_EFFECT_STUB_PAYLOAD_VERSION,
+        PollingExternalEffectStub,
+        external_effect_stub_composition_bundle,
+    )
+
+    settings = OperationWorkerSettings(
+        control_db_path=tmp_path / "worker-external-recovery" / "control.sqlite3",
+    )
+    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
+
+    bootstrap_control_database(settings)
+    artifact_store = LocalArtifactStore(settings.control_db_path.parent / "artifacts")
+
+    request_bytes = build_request_bytes("idem-worker-recovery", "request-worker-recovery")
+    expected_identity = compute_operation_identity("idem-worker-recovery", request_bytes)
+    inner_stub = DeterministicExternalEffectStub(request_bytes=request_bytes)
+    polling_stub = PollingExternalEffectStub(inner_stub, default_poll_result=None)
+    polling_stub.configure_poll(expected_identity, [None, StubOutcome.CONFIRMED])
+    recording_stub = RecordingExternalEffectStub(polling_stub)
+
+    definitions, handlers, decoders = external_effect_stub_composition_bundle(
+        artifact_store,
+        external_stub=recording_stub,
+    )
+
+    operation_id = "operation-worker-external-recovery"
+    step_id = "step-worker-external-recovery"
+    operation = operation_record_from_document(
+        {
+            "artifact_refs": [],
+            "business_refs": [],
+            "cancel_requested": False,
+            "checkpoint_ref": None,
+            "completed_at": None,
+            "contract_version": OPERATION_RUNTIME_CONTRACT_VERSION,
+            "created_at": "2026-08-24T12:00:00Z",
+            "diagnostic": None,
+            "document_type": "operation",
+            "job_contract_version": EXTERNAL_EFFECT_STUB_PAYLOAD_VERSION,
+            "job_kind": definitions[0].key.job_kind,
+            "job_payload": {
+                "idempotency_key": "idem-worker-recovery",
+                "request_body": "request-worker-recovery",
+                "stub_outcome": StubOutcome.ACCEPTED.value,
+            },
+            "job_payload_ref": None,
+            "operation_id": operation_id,
+            "optimistic_version": 0,
+            "ready_closure_ref": None,
+            "repository_operation_id": None,
+            "status": OperationStatus.QUEUED.value,
+            "updated_at": "2026-08-24T12:00:00Z",
+        }
+    )
+    step = step_record_from_document(
+        {
+            "attempt_count": 0,
+            "cancel_requested": False,
+            "checkpoint_ref": None,
+            "completed_at": None,
+            "contract_version": OPERATION_RUNTIME_CONTRACT_VERSION,
+            "created_at": "2026-08-24T12:00:00Z",
+            "diagnostic": None,
+            "document_type": "step",
+            "lease_expires_at": None,
+            "lease_token": None,
+            "operation_id": operation_id,
+            "optimistic_version": 0,
+            "prior_output_refs": [],
+            "retry_not_before": None,
+            "started_at": None,
+            "status": StepStatus.PENDING.value,
+            "step_id": step_id,
+            "step_name": definitions[0].key.step_name,
+            "updated_at": "2026-08-24T12:00:00Z",
+            "worker_id": None,
+        }
+    )
+    with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
+        assert (
+            unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+            is TransitionDisposition.APPLY
+        )
+
+    runtime = build_worker_runtime(
+        settings,
+        job_definitions=definitions,
+        handlers=handlers,
+        payload_decoders=decoders,
+        external_effect_stub=polling_stub,
+    )
+    startup = runtime._startup
+    assert startup.startup() is StartupDisposition.READY
+
+    first_work = startup.claim_one()
+    assert first_work is not None
+    first_ack = _execute_claimed_work(
+        settings.control_db_path,
+        first_work,
+        worker_id=first_work.step.worker_id or "worker-first",
+        lease_token=first_work.step.lease_token or "lease-first",
+    )
+    assert first_ack is ExecutorAcknowledgment.SAFE_HANDOFF
+    assert recording_stub.submit_count == 1
+
+    _expire_step_lease(settings.control_db_path, step_id)
+    assert startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+        retry_step = unit_of_work.operations.get_step(step_id)
+    assert retry_step.status is StepStatus.RETRY_WAIT
+
+    _due_retry_wait(settings.control_db_path, step_id)
+    assert startup.startup() is StartupDisposition.READY
+    second_work = startup.claim_one()
+    assert second_work is not None
+    second_ack = _execute_claimed_work(
+        settings.control_db_path,
+        second_work,
+        worker_id=second_work.step.worker_id or "worker-second",
+        lease_token=second_work.step.lease_token or "lease-second",
+    )
+    assert second_ack is ExecutorAcknowledgment.PUBLISHED
+    assert recording_stub.submit_count == 1
+
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+        retry_step = unit_of_work.operations.get_step(step_id)
+    assert retry_step.status is StepStatus.RETRY_WAIT
+
+    _due_retry_wait(settings.control_db_path, step_id)
+    assert startup.startup() is StartupDisposition.READY
+    third_work = startup.claim_one()
+    assert third_work is not None
+    third_ack = _execute_claimed_work(
+        settings.control_db_path,
+        third_work,
+        worker_id=third_work.step.worker_id or "worker-third",
+        lease_token=third_work.step.lease_token or "lease-third",
+    )
+    assert third_ack is ExecutorAcknowledgment.PUBLISHED
+    assert recording_stub.submit_count == 1
+
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(operation_id)
+        persisted_step = unit_of_work.operations.get_step(step_id)
+    assert persisted_operation.status is OperationStatus.SUCCEEDED
+    assert persisted_step.status is StepStatus.SUCCEEDED
+    assert persisted_operation.repository_operation_id == expected_identity
+    assert recording_stub.submit_count == 1

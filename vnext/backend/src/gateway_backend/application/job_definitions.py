@@ -11,6 +11,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from gateway_backend.artifacts.store import ArtifactStorePort
+from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.operations.contracts import JobStepKey, OperationRecord, StepRecord
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
@@ -58,6 +59,7 @@ class JobDefinition:
     decoder_identity: str
     handler_identity: str
     publication_capability: NormalPublicationCapability
+    recovery_capability: RecoveryCapability
 
     def __post_init__(self) -> None:
         if type(self.key) is not JobStepKey:
@@ -72,6 +74,8 @@ class JobDefinition:
         _validate_contract_version_string(self.handler_identity, "handler_identity")
         if type(self.publication_capability) is not NormalPublicationCapability:
             raise ValueError("publication_capability must be NormalPublicationCapability")
+        if type(self.recovery_capability) is not RecoveryCapability:
+            raise ValueError("recovery_capability must be RecoveryCapability")
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +301,7 @@ __all__ = [
     "JobDefinitionRegistry",
     "JobWorkerComposition",
     "NormalPublicationCapability",
+    "RecoveryCapability",
     "build_job_worker_composition",
     "build_worker_registry",
     "validate_active_pairs_job_contract_versions",

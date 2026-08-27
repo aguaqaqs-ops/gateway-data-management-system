@@ -80,6 +80,17 @@ class RecordingExternalEffectStub(ExternalEffectStub):
         self.last_idempotency_key = idempotency_key
         return self._inner.submit(idempotency_key, request_ref)
 
+    def poll(self, operation_identity: str) -> StubOutcome | None:
+        """Delegate polling when the wrapped stub explicitly supports it."""
+
+        poll = getattr(self._inner, "poll", None)
+        if not callable(poll):
+            raise ValueError("wrapped external effect stub is not poll-capable")
+        result = poll(operation_identity)
+        if result is not None and type(result) is not StubOutcome:
+            raise ValueError("external effect poll returned an unsupported outcome")
+        return result
+
 
 def decode_stub_outcome(value: object) -> StubOutcome:
     if type(value) is not str:

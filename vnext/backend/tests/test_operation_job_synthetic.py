@@ -15,6 +15,7 @@ from gateway_backend.application.checkpoints import (
     load_ready_closure,
 )
 from gateway_backend.application.external_effect_stub import (
+    ExternalEffectStub,
     StubOutcome,
     build_request_bytes,
     compute_operation_identity,
@@ -66,11 +67,11 @@ REQUEST_BODY_ALPHA = "request-alpha"
 REQUEST_BODY_BETA = "request-beta"
 
 STUB_OUTCOME_TERMINAL_EXPECTATIONS: tuple[
-    tuple[StubOutcome, OperationStatus, StepStatus, bool],
+    tuple[StubOutcome, OperationStatus, StepStatus, bool, ExecutorAcknowledgment],
     ...,
 ] = (
-    (StubOutcome.CONFIRMED, OperationStatus.SUCCEEDED, StepStatus.SUCCEEDED, True),
-    (StubOutcome.UNKNOWN, OperationStatus.MANUAL_RECOVERY_REQUIRED, StepStatus.MANUAL_RECOVERY_REQUIRED, False),
+    (StubOutcome.CONFIRMED, OperationStatus.SUCCEEDED, StepStatus.SUCCEEDED, True, ExecutorAcknowledgment.PUBLISHED),
+    (StubOutcome.UNKNOWN, OperationStatus.RUNNING, StepStatus.RUNNING, False, ExecutorAcknowledgment.SAFE_HANDOFF),
 )
 
 PAYLOAD_BINDING_PARITY: tuple[tuple[str, str], ...] = (
@@ -661,6 +662,33 @@ def test_stub_operation_identity_is_deterministic() -> None:
     assert first != other
 
 
+def test_normal_submit_identity_mismatch_fails_closed_without_ready(tmp_path: Path) -> None:
+    class WrongIdentityStub(ExternalEffectStub):
+        def submit(self, _idempotency_key: str, _request_ref: ArtifactRef) -> str:
+            return "synthetic-stub-op:wrong"
+
+    db_path = tmp_path / "stub-identity-mismatch.sqlite3"
+    artifact_store = InMemoryArtifactStore()
+    session, control, read_uow = _claimed_stub_session(db_path)
+    executor = build_external_effect_stub_handler(
+        artifact_store,
+        external_stub=WrongIdentityStub(),
+    )
+    with read_uow as unit_of_work:
+        operation = unit_of_work.operations.get_operation("operation-stub-1")
+        step = unit_of_work.operations.get_step("step-stub-1")
+
+    assert executor(operation, step, control, session) is ExecutorAcknowledgment.PUBLISHED
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation("operation-stub-1")
+        persisted_step = unit_of_work.operations.get_step("step-stub-1")
+    assert persisted_operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
+    assert persisted_operation.ready_closure_ref is None
+    assert persisted_operation.repository_operation_id is None
+    assert persisted_step.checkpoint_ref is None
+    assert not any("response" in artifact_id for artifact_id in artifact_store._artifacts)
+
+
 def test_cancel_before_request_publishes_cancelled(tmp_path: Path) -> None:
     db_path = tmp_path / "stub-cancel-before.sqlite3"
     artifact_store = InMemoryArtifactStore()
@@ -749,7 +777,7 @@ def test_cancel_after_request_retains_identity(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("stub_outcome", "operation_status", "step_status", "expects_ready_closure"),
+    ("stub_outcome", "operation_status", "step_status", "expects_ready_closure", "expected_ack"),
     STUB_OUTCOME_TERMINAL_EXPECTATIONS,
 )
 def test_stub_terminal_outcomes(
@@ -758,6 +786,7 @@ def test_stub_terminal_outcomes(
     operation_status: OperationStatus,
     step_status: StepStatus,
     expects_ready_closure: bool,
+    expected_ack: ExecutorAcknowledgment,
 ) -> None:
     db_path = tmp_path / f"stub-{stub_outcome.value}.sqlite3"
     artifact_store = InMemoryArtifactStore()
@@ -774,14 +803,17 @@ def test_stub_terminal_outcomes(
         step = unit_of_work.operations.get_step(f"step-stub-{stub_outcome.value}")
 
     acknowledgment = executor(operation, step, control, session)
-    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    assert acknowledgment is expected_ack
 
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         persisted_operation = unit_of_work.operations.get_operation(f"operation-stub-{stub_outcome.value}")
         persisted_step = unit_of_work.operations.get_step(f"step-stub-{stub_outcome.value}")
     assert persisted_operation.status is operation_status
     assert persisted_step.status is step_status
-    assert persisted_operation.repository_operation_id == _expected_stub_identity()
+    if stub_outcome is StubOutcome.UNKNOWN:
+        assert persisted_operation.repository_operation_id is None
+    else:
+        assert persisted_operation.repository_operation_id == _expected_stub_identity()
     assert persisted_step.checkpoint_ref is not None
     if expects_ready_closure:
         assert persisted_operation.ready_closure_ref is not None

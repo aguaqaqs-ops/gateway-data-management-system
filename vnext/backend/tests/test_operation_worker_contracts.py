@@ -11,7 +11,8 @@ import pytest
 import gateway_backend.operations as operations
 import gateway_backend.operations.worker as worker
 from gateway_backend.operations import JobStepKey, OperationUnitOfWork
-from gateway_backend.operations.contracts import OperationRecord, StepRecord
+from gateway_backend.operations.contracts import OperationDiagnostic, OperationRecord, StepRecord
+from gateway_backend.operations.recovery import RecoveryTransitionIntent
 
 pytestmark = pytest.mark.unit
 
@@ -222,6 +223,13 @@ def test_protocol_signatures_use_existing_records_and_ports() -> None:
     handoff_hints = get_type_hints(worker.LeaseSession.acknowledge_safe_handoff)
     assert handoff_hints["generation"] is worker.CheckpointGeneration
     assert handoff_hints["return"] is worker.ExecutorAcknowledgment
+    release_hints = get_type_hints(
+        worker.LeaseSession.publish_recovery_release,
+        globalns={**worker.__dict__, "RecoveryTransitionIntent": RecoveryTransitionIntent},
+    )
+    assert release_hints["intent"] is RecoveryTransitionIntent
+    assert release_hints["diagnostic"] is OperationDiagnostic
+    assert release_hints["return"] is worker.ExecutorAcknowledgment
     completion_hints = get_type_hints(worker.LeaseSession.completion_acknowledgment)
     assert completion_hints["return"] == worker.ExecutorAcknowledgment | None
 

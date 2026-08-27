@@ -15,6 +15,7 @@ from gateway_backend.application import (
     JobDefinitionLookupError,
     JobDefinitionRegistry,
     NormalPublicationCapability,
+    RecoveryCapability,
     build_worker_registry,
 )
 from gateway_backend.application.job_definitions import (
@@ -67,6 +68,7 @@ def _definition(
         decoder_identity=decoder_identity,
         handler_identity=handler_identity,
         publication_capability=publication_capability,
+        recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
 
 
@@ -109,6 +111,7 @@ MALFORMED_REGISTRY_BUILDS: tuple[tuple[Any, str], ...] = (
                 decoder_identity=DECODER_V1,
                 handler_identity=HANDLER_V2,
                 publication_capability=NormalPublicationCapability.SINGLE_SUCCESSOR,
+                recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
             ),
         ),
         "duplicate JobStepKey in registry build",

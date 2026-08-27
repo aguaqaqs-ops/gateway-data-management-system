@@ -8,6 +8,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from gateway_backend.operations.contracts import (
+    OperationDiagnostic,
     OperationRecord,
     OperationStatus,
     StepRecord,
@@ -15,7 +16,8 @@ from gateway_backend.operations.contracts import (
     _validate_opaque_id,
 )
 from gateway_backend.operations.persistence import LEASE_DURATION, OperationLifecycleActions
-from gateway_backend.operations.state import TransitionDisposition, WritePrecondition
+from gateway_backend.operations.recovery import RecoveryTransitionIntent
+from gateway_backend.operations.state import TransitionDisposition, WritePrecondition, validate_step_transition
 from gateway_backend.operations.store import (
     LeaseExpired,
     OperationUnitOfWork,
@@ -266,6 +268,113 @@ class LeaseSession:
             )
             return ExecutorAcknowledgment.SAFE_HANDOFF
 
+    def publish_recovery_release(
+        self,
+        intent: RecoveryTransitionIntent,
+        *,
+        diagnostic: OperationDiagnostic,
+    ) -> ExecutorAcknowledgment:
+        """Release a live lease into a bounded recovery transition."""
+
+        with self._mutation_lock:
+            self._ensure_open()
+            try:
+                with self._write_uow_factory() as unit_of_work:
+                    operation, current_step = self._load_live_records(unit_of_work)
+                    transaction_now = unit_of_work.operations.transaction_now
+                    step_target = intent.step_target
+                    if step_target is None:
+                        raise ValueError("recovery release requires a step target")
+                    if intent.step_source is not StepStatus.RUNNING:
+                        raise ValueError("recovery release only supports RUNNING step sources")
+
+                    step_candidate = dataclasses.replace(
+                        current_step,
+                        status=step_target,
+                        diagnostic=(
+                            diagnostic
+                            if step_target
+                            in {
+                                StepStatus.RETRY_WAIT,
+                                StepStatus.FAILED,
+                                StepStatus.MANUAL_RECOVERY_REQUIRED,
+                            }
+                            else None
+                        ),
+                        retry_not_before=intent.set_retry_not_before,
+                        updated_at=transaction_now,
+                        worker_id=None,
+                        lease_token=None,
+                        lease_expires_at=None,
+                        optimistic_version=current_step.optimistic_version + 1,
+                        completed_at=(
+                            transaction_now if step_target.is_final_terminal() else None
+                        ),
+                    )
+                    validate_step_transition(current_step, step_candidate)
+
+                    if step_target is StepStatus.RETRY_WAIT:
+                        self._validate_retry_wait_release_candidate(
+                            current_step,
+                            step_candidate,
+                            transaction_now,
+                        )
+                        self._actions(unit_of_work).mutate_live_step(
+                            step_candidate,
+                            self._step_precondition(current_step),
+                        )
+                    elif step_target.is_final_terminal() or step_target.requires_manual_recovery():
+                        operation_target = intent.operation_target
+                        if operation_target is None:
+                            raise ValueError("recovery release requires an operation target")
+                        operation_candidate = dataclasses.replace(
+                            operation,
+                            status=operation_target,
+                            diagnostic=(
+                                diagnostic
+                                if operation_target
+                                in {
+                                    OperationStatus.FAILED,
+                                    OperationStatus.MANUAL_RECOVERY_REQUIRED,
+                                }
+                                else None
+                            ),
+                            updated_at=transaction_now,
+                            optimistic_version=operation.optimistic_version + 1,
+                            completed_at=(
+                                transaction_now
+                                if operation_target.is_final_terminal()
+                                else None
+                            ),
+                        )
+                        self._validate_terminal_step_candidate(
+                            current_step,
+                            step_candidate,
+                            transaction_now,
+                            allow_manual=step_target.requires_manual_recovery(),
+                        )
+                        self._validate_terminal_operation_candidate(
+                            operation,
+                            operation_candidate,
+                        )
+                        self._actions(unit_of_work).complete_operation(
+                            step_candidate,
+                            self._step_precondition(current_step),
+                            operation_candidate,
+                            self._operation_precondition(operation),
+                            step_recovery_authorized=step_target.requires_manual_recovery(),
+                            operation_recovery_authorized=operation_target.requires_manual_recovery(),
+                        )
+                    else:
+                        raise ValueError("unsupported recovery release step target")
+            except (StaleWrite, LeaseExpired) as exc:
+                self._lose_lease(exc)
+                raise
+
+            self._closed = True
+            self._completion_acknowledgment = ExecutorAcknowledgment.PUBLISHED
+            return ExecutorAcknowledgment.PUBLISHED
+
     def completion_acknowledgment(self) -> ExecutorAcknowledgment | None:
         """Return only a publication fact committed by this session."""
 
@@ -376,6 +485,29 @@ class LeaseSession:
             raise ValueError("successor must have a distinct step identity")
         if successor.status is not StepStatus.PENDING:
             raise ValueError("successor step must be PENDING")
+
+    def _validate_retry_wait_release_candidate(
+        self,
+        current_step: StepRecord,
+        candidate: StepRecord,
+        transaction_now: datetime,
+    ) -> None:
+        if type(candidate) is not StepRecord:
+            raise ValueError("recovery release builder must return StepRecord")
+        if candidate.step_id != current_step.step_id or candidate.operation_id != self._operation_id:
+            raise ValueError("recovery release step identity does not match the lease session")
+        if candidate.status is not StepStatus.RETRY_WAIT:
+            raise ValueError("recovery release candidate must target RETRY_WAIT")
+        if candidate.worker_id is not None or candidate.lease_token is not None:
+            raise ValueError("recovery release must clear worker and lease token")
+        if candidate.lease_expires_at is not None:
+            raise ValueError("recovery release must clear lease expiry")
+        if candidate.optimistic_version != current_step.optimistic_version + 1:
+            raise ValueError("recovery release must increment optimistic_version once")
+        if candidate.updated_at < transaction_now:
+            raise ValueError("recovery release updated_at cannot precede transaction_now")
+        if candidate.retry_not_before is None:
+            raise ValueError("recovery release requires retry_not_before")
 
     def _validate_terminal_operation_candidate(
         self,

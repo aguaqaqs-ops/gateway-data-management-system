@@ -5,7 +5,15 @@ from gateway_backend.application.job_definitions import (
     JobDefinitionLookupError,
     JobDefinitionRegistry,
     NormalPublicationCapability,
+    RecoveryCapability,
     build_worker_registry,
+)
+from gateway_backend.application.recovery import (
+    RecoveryDecision,
+    RecoveryDecisionDisposition,
+    RecoveryOutcome,
+    RecoveryOutcomeDisposition,
+    RecoveryPort,
 )
 
 __all__ = [
@@ -13,5 +21,11 @@ __all__ = [
     "JobDefinitionLookupError",
     "JobDefinitionRegistry",
     "NormalPublicationCapability",
+    "RecoveryCapability",
+    "RecoveryDecision",
+    "RecoveryDecisionDisposition",
+    "RecoveryOutcome",
+    "RecoveryOutcomeDisposition",
+    "RecoveryPort",
     "build_worker_registry",
 ]

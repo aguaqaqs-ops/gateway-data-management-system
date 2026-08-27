@@ -441,6 +441,12 @@ def test_application_package_exists_and_exports_job_definition_contract() -> Non
             "JobDefinitionLookupError",
             "JobDefinitionRegistry",
             "NormalPublicationCapability",
+            "RecoveryCapability",
+            "RecoveryDecision",
+            "RecoveryDecisionDisposition",
+            "RecoveryOutcome",
+            "RecoveryOutcomeDisposition",
+            "RecoveryPort",
             "build_worker_registry",
         }
     )
@@ -468,6 +474,25 @@ def test_job_definitions_stays_memory_only() -> None:
         "NotImplementedError",
     )
     assert not any(token in text for token in forbidden), source
+
+
+def test_recovery_module_io_boundary() -> None:
+    source = APPLICATION_ROOT / "recovery.py"
+    assert source.is_file()
+    text = source.read_text(encoding="utf-8")
+    forbidden = (
+        "sqlite3",
+        "subprocess",
+        "threading",
+        "signal",
+        "socket",
+        "httpx",
+        "open(",
+        "pathlib",
+        "NotImplementedError",
+    )
+    assert not any(token in text for token in forbidden), source
+    assert "gateway_backend.infrastructure" not in text
 
 
 def test_payloads_module_io_boundary() -> None:

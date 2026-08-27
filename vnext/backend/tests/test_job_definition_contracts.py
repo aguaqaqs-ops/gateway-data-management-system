@@ -15,6 +15,7 @@ from gateway_backend.application import (
     JobDefinition,
     JobDefinitionLookupError,
     NormalPublicationCapability,
+    RecoveryCapability,
 )
 from gateway_backend.operations.contracts import JobStepKey
 
@@ -30,6 +31,12 @@ EXPECTED_PUBLIC_EXPORTS = frozenset(
         "JobDefinitionLookupError",
         "JobDefinitionRegistry",
         "NormalPublicationCapability",
+        "RecoveryCapability",
+        "RecoveryDecision",
+        "RecoveryDecisionDisposition",
+        "RecoveryOutcome",
+        "RecoveryOutcomeDisposition",
+        "RecoveryPort",
         "build_worker_registry",
     }
 )
@@ -38,6 +45,14 @@ EXPECTED_PUBLICATION_CAPABILITIES = frozenset(
     {
         "SINGLE_SUCCESSOR",
         "TERMINAL",
+    }
+)
+
+EXPECTED_RECOVERY_CAPABILITIES = frozenset(
+    {
+        "PURE_RECOMPUTE",
+        "EXTERNAL_EFFECT",
+        "NON_RETRYABLE",
     }
 )
 
@@ -54,6 +69,7 @@ def _sample_definition(
     decoder_identity: str = SAMPLE_DECODER,
     handler_identity: str = SAMPLE_HANDLER,
     publication_capability: NormalPublicationCapability = NormalPublicationCapability.TERMINAL,
+    recovery_capability: RecoveryCapability = RecoveryCapability.PURE_RECOMPUTE,
 ) -> JobDefinition:
     return JobDefinition(
         key=key,
@@ -61,6 +77,7 @@ def _sample_definition(
         decoder_identity=decoder_identity,
         handler_identity=handler_identity,
         publication_capability=publication_capability,
+        recovery_capability=recovery_capability,
     )
 
 
@@ -72,6 +89,7 @@ MALFORMED_DEFINITION_FIELDS: tuple[tuple[dict[str, Any], str], ...] = (
             "decoder_identity": SAMPLE_DECODER,
             "handler_identity": SAMPLE_HANDLER,
             "publication_capability": NormalPublicationCapability.TERMINAL,
+            "recovery_capability": RecoveryCapability.PURE_RECOMPUTE,
         },
         "key must be JobStepKey",
     ),
@@ -82,6 +100,7 @@ MALFORMED_DEFINITION_FIELDS: tuple[tuple[dict[str, Any], str], ...] = (
             "decoder_identity": SAMPLE_DECODER,
             "handler_identity": SAMPLE_HANDLER,
             "publication_capability": NormalPublicationCapability.TERMINAL,
+            "recovery_capability": RecoveryCapability.PURE_RECOMPUTE,
         },
         "supported_payload_versions must be frozenset",
     ),
@@ -92,6 +111,7 @@ MALFORMED_DEFINITION_FIELDS: tuple[tuple[dict[str, Any], str], ...] = (
             "decoder_identity": SAMPLE_DECODER,
             "handler_identity": SAMPLE_HANDLER,
             "publication_capability": NormalPublicationCapability.TERMINAL,
+            "recovery_capability": RecoveryCapability.PURE_RECOMPUTE,
         },
         "supported_payload_versions must not be empty",
     ),
@@ -102,6 +122,7 @@ MALFORMED_DEFINITION_FIELDS: tuple[tuple[dict[str, Any], str], ...] = (
             "decoder_identity": SAMPLE_DECODER,
             "handler_identity": SAMPLE_HANDLER,
             "publication_capability": NormalPublicationCapability.TERMINAL,
+            "recovery_capability": RecoveryCapability.PURE_RECOMPUTE,
         },
         "supported_payload_versions must be bounded ASCII printable",
     ),
@@ -112,6 +133,7 @@ MALFORMED_DEFINITION_FIELDS: tuple[tuple[dict[str, Any], str], ...] = (
             "decoder_identity": "bad\nidentity",
             "handler_identity": SAMPLE_HANDLER,
             "publication_capability": NormalPublicationCapability.TERMINAL,
+            "recovery_capability": RecoveryCapability.PURE_RECOMPUTE,
         },
         "decoder_identity must be bounded ASCII printable",
     ),
@@ -122,6 +144,7 @@ MALFORMED_DEFINITION_FIELDS: tuple[tuple[dict[str, Any], str], ...] = (
             "decoder_identity": SAMPLE_DECODER,
             "handler_identity": "bad\nidentity",
             "publication_capability": NormalPublicationCapability.TERMINAL,
+            "recovery_capability": RecoveryCapability.PURE_RECOMPUTE,
         },
         "handler_identity must be bounded ASCII printable",
     ),
@@ -132,8 +155,20 @@ MALFORMED_DEFINITION_FIELDS: tuple[tuple[dict[str, Any], str], ...] = (
             "decoder_identity": SAMPLE_DECODER,
             "handler_identity": SAMPLE_HANDLER,
             "publication_capability": "TERMINAL",
+            "recovery_capability": RecoveryCapability.PURE_RECOMPUTE,
         },
         "publication_capability must be NormalPublicationCapability",
+    ),
+    (
+        {
+            "key": SAMPLE_KEY,
+            "supported_payload_versions": frozenset({SAMPLE_VERSION}),
+            "decoder_identity": SAMPLE_DECODER,
+            "handler_identity": SAMPLE_HANDLER,
+            "publication_capability": NormalPublicationCapability.TERMINAL,
+            "recovery_capability": "PURE_RECOMPUTE",
+        },
+        "recovery_capability must be RecoveryCapability",
     ),
 )
 
@@ -148,6 +183,10 @@ def test_normal_publication_capability_values_exact() -> None:
     assert {item.value for item in NormalPublicationCapability} == EXPECTED_PUBLICATION_CAPABILITIES
 
 
+def test_recovery_capability_values_exact() -> None:
+    assert {item.value for item in RecoveryCapability} == EXPECTED_RECOVERY_CAPABILITIES
+
+
 def test_job_definition_is_frozen_bounded_descriptor() -> None:
     definition = _sample_definition()
     assert dataclasses.is_dataclass(definition)
@@ -157,12 +196,14 @@ def test_job_definition_is_frozen_bounded_descriptor() -> None:
         "decoder_identity",
         "handler_identity",
         "publication_capability",
+        "recovery_capability",
     )
     assert definition.key == SAMPLE_KEY
     assert definition.supported_payload_versions == frozenset({SAMPLE_VERSION})
     assert definition.decoder_identity == SAMPLE_DECODER
     assert definition.handler_identity == SAMPLE_HANDLER
     assert definition.publication_capability is NormalPublicationCapability.TERMINAL
+    assert definition.recovery_capability is RecoveryCapability.PURE_RECOMPUTE
 
 
 def test_job_definition_lookup_error_carries_bounded_context() -> None:

@@ -1,12 +1,13 @@
 # P4 Active Context Index
 
-状态：P4-R5-S7 module gate pass；R5 exit complete；P4-R6-S0 discussion only
+状态：P4-R5 exit complete；P4-R6-S0 discussion converged；independent entry acceptance pending
 
-日期：2026-08-27
+日期：2026-09-05
 
 Owner：Backend vNext Architecture
 
-本文是 Phase 4 设计的**默认入口**。它只组织检索边界，不拥有 wire、字段、状态机、
+本文是 Phase 4 设计的**P4 专用入口**（仓库当前默认入口是 P5 三件套，见
+`docs/backend-vnext/README.md`）。它只组织检索边界，不拥有 wire、字段、状态机、
 operation runtime 或错误矩阵。精确语义由列出的 normative owner 拥有。不得把本文当作
 contract，也不得直接开始 P4 implementation，除非另有 implementation authorization。
 
@@ -32,7 +33,7 @@ p4_r1_s4: pass_after_s5
 p4_r1_s5: pass
 p4_r1_s6: pass_after_f2_f3_remediation
 p4_r1_s7: pass
-p4_implementation_authorized: r5_s0_discussion_only
+p4_implementation_authorized: r6_s0_discussion_only
 r1_s1a_authorized: yes
 r1_s1b_authorized: yes
 r1_s2a_authorized: yes
@@ -118,12 +119,18 @@ p4_r5_s6: pass_after_s5_remediation
 p4_r5_s7: pass
 p4_r5_exit: pass
 p4_r5_validated_code_sha: 0fa2b897a75436b4319d4490bc97c54ced494783
+p4_r5_validated_source_tree: sha256:2fcb0e05217590b09a552e545a196847d76e50c260fa2229dca6335da1e02e4d
+p4_r5_post_seal_provenance_correction: pass
+p4_r5_current_head_container_gate: stale
 p4_r5_s1a_authorized: yes_completed
 p4_r5_implementation_authorized: no_further_r5_work
 p4_r6_entry_discussion_authorized: yes
+p4_r6_s0: discussion_converged_acceptance_pending
+p4_r6_implementation_authorized: no
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
-default_retrieval: this_index
+p4_default_retrieval: this_index
+repository_default_retrieval: p5_triad
 public_semantics_changed_in_c2: no
 pre_cleanup_tag: docs/p3-p4-cleanup-pre-20260823
 final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
@@ -185,6 +192,8 @@ final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
      S1a-S3c step split、review rounds、markers、container gate和handoff schema。
 18h. [P4/R5 Retry, Takeover and Effect Recovery Handoff](p4-r5-retry-takeover-effect-recovery-handoff.md)：
      S7 module gate、current-HEAD image provenance、container smoke与P4-R6-S0 entry boundary。
+18i. [P4-R6-S0 Entry Brief](p4-r6-s0-entry-brief.md)：P4最终acceptance/integration gate的
+     current-HEAD、测试分类、container applicability与entry acceptance boundary。
 19. [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)：
    operation/step 状态、integrity 与 recovery owner。
 20. [External Effect and Recovery](../contracts/external-effect-and-recovery.md)：
@@ -220,8 +229,9 @@ P3 **不交付、不授权**（P4 也不得静默改变其 owner）：
 P4-R1已exit；P4-R2已完成S7 module gate；P4-R3已完成S7 module gate；P4-R4已完成S7
 module gate；P4-R5已完成S7 module gate。`p4_r2_authorized: no`、
 `p4_r4_implementation_authorized: no_further_r4_work`、
-`p4_r5_implementation_authorized: no_further_r5_work`；当前仅 P4-R6-S0 discussion 获授权，
-R6 implementation 与 P5/P5B 仍未授权。
+`p4_r5_implementation_authorized: no_further_r5_work`。P4-R6-S0 discussion已收敛，当前仅
+独立entry acceptance获授权；R6 implementation与P5/P5B仍未授权。R6只拥有P4最终验收、
+集成、container与provenance gate；Workspace/HTTP/global readiness仍属于P5。
 
 ## 3. P3 handoff 指针
 

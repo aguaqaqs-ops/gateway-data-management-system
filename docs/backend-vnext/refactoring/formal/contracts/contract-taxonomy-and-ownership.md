@@ -410,17 +410,18 @@ Owner：对应 infrastructure adapter。
 | `SubmitAttempt` | Submission Application | Operations、Workspace、Interface |
 | `Submission`、Review projection/event | Submission Domain | Archive Application、Interface |
 | `BaselineNode`、`BaselineHead` | Baseline Domain | Workspace、Submission、Archive、History |
-| `ArchivePlan`、`ArchiveExecution` | Archive Application | Baseline、Operations、Interface |
+| `ArchivePlan` | Archive Application | Baseline、Interface |
 | `ArchiveResult` | Archive Domain | Baseline、Submission、Interface |
 | `CandidateProjection`、`PreviewArchivePlan` | Archive Application read model | Interface、StartArchive |
+| `HistoryTreeProjection`、业务历史边与节点分类 | History Application read model | Interface、History Compare |
 | `OperationRecord`、Step、Lease | Operations | Application jobs、Workers、Interface polling |
 | `SubmitFinalizeJobPayload` | Submission Application | Operations handler |
 | Repository identity/store/read/write/recovery wire semantics | Repository Service | Remote Repository adapter |
 | Business Repository Port | Consuming Application | Repository adapter/fake |
-| Archive mainline promotion decision | Archive Application | Repository Port |
+| Archive业务Baseline promotion decision | Archive Application | Baseline、Submission、Workspace |
 | Hidden SnapshotSummary table schema/content | Snapshot capability | Snapshot read/write adapter |
 | Hidden table 的普通版本化存储 | Repository Service | Repository adapter |
-| HTTP preview/submit/archive DTO | HTTP Interface | External clients、Application mapping |
+| HTTP preview/submit/review/archive/history DTO | HTTP Interface | External clients、Application mapping |
 | Cache registry/envelope | Cache module | Capability provider、Operations |
 | Cache payload schema | Payload-producing capability | Cache module、consumer capability |
 | Canonical/business golden expected content | 对应 Domain/Application/Capability owner | Python/Rust ordinary tests |

@@ -1,6 +1,6 @@
 # P4/R5 Retry, Takeover and Effect Recovery Handoff
 
-状态：**PASS — S7 module gate complete; P4-R6-S0 discussion only**
+状态：**PASS — S7 module gate complete; post-seal provenance corrected; P4-R6-S0 discussion only**
 
 日期：2026-08-27
 
@@ -21,7 +21,7 @@ input_handoff_sha: 053d0fcb60d9ffcd4d647ed509692ae487438651
 input_review_sha: f85c86729b4daed7ce41935bd1c8c0a186715d27
 input_validated_code_sha: d1d929dcee3b0620b649a248079d846dfbe7aba1
 validated_code_sha: 0fa2b897a75436b4319d4490bc97c54ced494783
-validated_source_tree: sha256:911fe38dc274b809abfba320d68ef2e360e8e4ae9e303a6bc54dcfbe71f2ae5c
+validated_source_tree: sha256:2fcb0e05217590b09a552e545a196847d76e50c260fa2229dca6335da1e02e4d
 source_tree_method: sorted_per_file_sha256_records_for_vnext/backend/src_and_tests_python_files
 candidate_worktree_at_gate: clean_committed
 result: pass
@@ -51,12 +51,13 @@ five_package_static: pass
 container_rebuild_required: yes
 container_reason: worker/runtime recovery composition touched; S7 rebuilt current HEAD image
 last_verified_image_revision: sha256:a2db693e2e9f56747532134d819067cf850f1606b34f845460aebb872c6b3d95
-last_verified_source_tree_image_identity: source_sha=0fa2b897a75436b4319d4490bc97c54ced494783; tree_sha256=sha256:911fe38dc274b809abfba320d68ef2e360e8e4ae9e303a6bc54dcfbe71f2ae5c
+last_verified_source_tree_image_identity: source_sha=0fa2b897a75436b4319d4490bc97c54ced494783; tree_sha256=sha256:2fcb0e05217590b09a552e545a196847d76e50c260fa2229dca6335da1e02e4d
 container_gate: passed
 benchmark: not_applicable_no_performance_claim
 findings: []
 deferred_items:
-  - P4-R6 workspace/HTTP/global readiness and deployment coordination
+  - P4-R6 current-HEAD acceptance, integration, container and provenance gate
+  - P5 workspace/HTTP/global readiness and deployment coordination
   - P5B real Repository/Dolt external effect and production handler registration
   - HA, multi-worker, external DB and Compose/global quiescence
   - production Repository client wire beyond deterministic stub
@@ -72,6 +73,11 @@ r6_implementation_authorized: no
 p5b_real_repository_effect_authorized: no
 p5_implementation_authorized: no
 handoff_documentation_sha: 91e96c2262529d80504fa5cdc50fdd111f2fe323
+post_seal_provenance_audit: 2026-09-05
+post_seal_audit_head: d7cb5b9c2c55e8f8b0814520e9d95c7df0ad00a5
+post_seal_backend_source_and_build_input_drift: none
+post_seal_cross_repository_gate_input_drift: yes
+current_head_container_gate: stale
 ```
 
 ## 1. Sealed candidate and public boundary
@@ -239,7 +245,7 @@ image_tag: p4-r5-0fa2b89
 image_id: sha256:a2db693e2e9f56747532134d819067cf850f1606b34f845460aebb872c6b3d95
 image_digest: p4-r5-0fa2b89@sha256:a2db693e2e9f56747532134d819067cf850f1606b34f845460aebb872c6b3d95
 image_source_code_sha: 0fa2b897a75436b4319d4490bc97c54ced494783
-image_source_tree_sha256: sha256:911fe38dc274b809abfba320d68ef2e360e8e4ae9e303a6bc54dcfbe71f2ae5c
+image_source_tree_sha256: sha256:2fcb0e05217590b09a552e545a196847d76e50c260fa2229dca6335da1e02e4d
 ```
 
 **Authoritative module CLI smoke** used a fresh `mktemp -d` host directory mounted at
@@ -266,6 +272,29 @@ implement real Repository/Dolt effects, HTTP/global readiness, Compose deploymen
 HA/multi-host operation or production handler registration.
 
 S4–S6 findings are closed, and S7 passed all backend/five-package/image/container gates. The only
-next action is **P4-R6-S0 discussion**. That discussion may define workspace/HTTP/global readiness
-boundaries; it does not authorize R6 implementation, P5B real Repository effects or P5 deployment
-work from this handoff alone.
+next action is **P4-R6-S0 discussion** for the P4 final acceptance and integration gate. It does not
+authorize R6 implementation, Workspace/HTTP/global readiness, P5B real Repository effects or P5
+deployment work from this handoff alone.
+
+## 8. Post-seal provenance correction and current-HEAD disposition — 2026-09-05
+
+The original S7 record associated source tree digest `911fe38d...` with candidate `0fa2b897`, but
+that value is not reproducible using the declared method. Recomputing sorted per-file SHA-256 records
+for tracked Python files under `vnext/backend/src` and `vnext/backend/tests`, both from the current
+tree and from a `git archive` of `0fa2b897`, produces
+`2fcb0e05217590b09a552e545a196847d76e50c260fa2229dca6335da1e02e4d`. This is also the digest
+recorded by the immediately preceding S6 independent review. The three S7 occurrences above are
+corrected to that reproducible value. The tested code SHA, image ID, commands and test counts are
+unchanged; this is a provenance-record correction, not a new image claim.
+
+Current HEAD `d7cb5b9c2c55e8f8b0814520e9d95c7df0ad00a5` is a clean descendant of the S7 handoff. Its
+`vnext/backend`, `vnext/shared_kernel` and `vnext/rust` build inputs are unchanged from `0fa2b897`,
+so no R5 runtime or contract drift reopens S6. Later commits do change the authoritative test runner,
+Compose lifecycle harness, Repository Service tests and the test-client Dockerfile. Under the
+current-HEAD container policy, the `a2db693e...` image and smoke remain historical evidence for the
+sealed R5 candidate, while the container gate for `d7cb5b9c` is `stale` and must be refreshed by the
+P4-R6 final integration candidate.
+
+R5 therefore remains closed at its sealed candidate. P4-R6 is the P4 acceptance and integration
+gate defined by the P4 execution plan; Workspace/HTTP/global readiness and real Repository effects
+remain P5/P5B scope. Only P4-R6-S0 discussion is authorized by this correction.

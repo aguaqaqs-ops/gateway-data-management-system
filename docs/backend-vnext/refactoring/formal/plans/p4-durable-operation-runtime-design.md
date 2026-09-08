@@ -6,6 +6,10 @@
 
 Owner：Backend vNext Operation Runtime
 
+2026-09-06 P5 amendment：当前没有integration-event consumer，P5不创建outbox；Archive改为
+本地BaselineHead事务，不使用Operation/T1-T3。以下P4 runtime机制保持不变，原先用于future
+outbox/Archive的占位表述按现行Business Lifecycle与External Effect contract收窄。
+
 上游：[P4 Active Context Index](p4-active-context-index.md)、[P3 Final Closure and P4/P5 Entry Handoff](p3-final-closure-handoff.md)
 
 本文将已收敛的 P4 entry/design decisions 固化为总体设计基线。它组合已有
@@ -41,7 +45,7 @@ P4 不实现：
 |---|---|
 | 物理包落点 | `vnext/backend/src/gateway_backend/operations/`；`backend_vnext` 只作逻辑架构名称 |
 | 部署形态 | 模块化单体部署单元；独立 worker entrypoint；同一受控信任域 |
-| Durable Store | backend application control DB 的 SQLite/WAL；operation、step、outbox 与业务表共享事务数据库 |
+| Durable Store | backend application control DB 的 SQLite/WAL；operation、step与需要原子提交的业务表共享事务数据库 |
 | 并发 | 首版顺序 step、有界并发，默认 `max_in_flight=1`；固定 fan-out/fan-in 只预留 |
 | claim/takeover | optimistic version + worker identity + lease token；过期 worker 的写入被 CAS 拒绝 |
 | 注册 key | `(job_kind, step_name) -> JobDefinition handler`；不再并存 `operation_kind` |
@@ -128,7 +132,7 @@ R5 的设计讨论已于 2026-08-26 收敛；详细 contract、failure matrix、
 
 ```text
 application use case / JobDefinition owner
-        |  create operation + outbox in one DB transaction
+        |  create operation + accepted business facts in one DB transaction
         v
 Operation Runtime port
         |
@@ -181,7 +185,8 @@ Step:      PENDING -> RUNNING -> RETRY_WAIT | SUCCEEDED | FAILED | CANCELLED | M
 ```
 
 `READY` 是 step output 的 closure/readability 条件，不是通用 Operation terminal status。
-Operation terminal status 不等于业务终局；Submit/Archive 的 T3 finalize 仍由业务 owner 负责。
+Operation terminal status 不等于业务终局；Submit的T3 finalize仍由业务owner负责。Archive不创建
+Operation，直接在本地业务事务中推进BaselineHead。
 
 通用 Operation envelope 至少绑定：
 
@@ -205,7 +210,7 @@ P4 提供执行机制，未来 P5 application 定义业务事务：
 
 ```text
 T1 business DB transaction:
-   validate -> persist business binding + Operation + outbox atomically
+   validate -> persist business binding + Operation atomically
 
 T2 durable worker:
    checkpoint immutable request/artifact -> submit/poll Repository operation

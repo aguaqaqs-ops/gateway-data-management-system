@@ -4,11 +4,12 @@
 
 本文把 [整体架构总纲](../architecture/architecture-and-refactoring-plan.md) 转换为可执行的重构阶段。阶段编号表示主要依赖顺序，不表示必须完成整个水平层后才能继续；每一阶段只建设下一条业务纵切所需的最小能力，并保持可运行、可验证和可回退。
 
-当前状态：Phase 2 `phase_2_complete: yes`；P3-R1 至 P3-R7 module gates `pass`；
-[P3 Final Closure Handoff](p3-final-closure-handoff.md) 已完成；`p3_exit: pass`、
-`p4_ready: yes`；P4-R1 module gate `pass`；P4-R2-S0 design `accepted`，R2-S1a
-implementation仍待单独授权。P4默认上下文从
-[P4 Active Context Index](p4-active-context-index.md) 开始。
+当前状态：Phase 2 `phase_2_complete: yes`；P3-R1至P3-R7 module gates与final closure均为
+`pass`；P4-R1至P4-R5 module gate均为`pass`。P4-R6最终acceptance/integration gate尚未
+exit，current-HEAD container gate仍stale。P5总体设计与5A baseline已accepted，5A Entry Brief
+已就绪；任何P5 implementation仍等待P4-R6 exit和明确授权。P4默认上下文从
+[P4 Active Context Index](p4-active-context-index.md)开始，P5设计入口见
+[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md)。
 P3 capability 模块边界与 sealed evidence 见各 module handoff 与
 [P3 Capability Foundation Design](p3-capability-foundation-design.md)。
 历史 P3 S-step/review/execution plan 过程记录已离开默认树；恢复见
@@ -119,7 +120,7 @@ Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-s
 ### 主要工作
 
 - 列出正式业务旅程：upload、preview、submit、review、archive、next baseline、history compare。
-- 固定 Workspace、UploadRevision、PreviewResult、SubmitAttempt、Submission Review、BaselineNode/Head、ArchivePlan/Execution/Result 的 owner、状态、generation gate、权限和失败语义。
+- 固定 Workspace、UploadRevision、PreviewResult、SubmitAttempt、Submission Review、BaselineNode/Head、ArchivePlan/Result 的 owner、状态、generation gate、权限和失败语义；ArchiveExecution 不属于当前模型。
 - 固定 SourcePackage raw authority、canonical Dolt storage、storage/comparison projection、SnapshotTableArtifact retention 和 Repository evidence 边界。
 - 保留既有128个canonical cases和一个必要的mixed-scalar业务golden，由测试直接消费，
   不建立generic scenario manifest、runner/harness/profile matrix或RunEvidence。
@@ -528,6 +529,11 @@ Operation 与业务 execution/effect evidence 的分界以 [External Effect and 
 
 所有 Slice 的对象、状态、占用、derived projection 与 freeze point 遵守 [Business Lifecycle and State](../contracts/business-lifecycle-and-state.md)。
 
+P5总体owner、部署、身份、跨Slice事务和Repository/Baseline双身份见
+[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md)。P5设计可在
+P4-R6期间收敛；任何P5代码、migration、HTTP route或deployment实现必须等待P4最终exit和
+明确implementation authorization。
+
 ### Slice 5A：Upload Preview
 
 ```text
@@ -544,6 +550,10 @@ HTTP
 
 Upload/Preview 产生 immutable UploadRevision、PreviewResult 与 full-row table facts；SnapshotTableArtifact 仅在未接受的 current Preview 或 active SubmitAttempt 期间持久 pin，T1 转移 pin responsibility，Attempt 终态释放。
 
+Upload仅做bounded admission并同步创建UploadRevision；Preview以`202 + operation_id`异步执行
+固定`materialize_inputs -> assemble_preview -> publish_preview`三步。首版模式只有
+`FULL | MODIFIED_ONLY`，要求既有显式Baseline，不承担baseline初始化。
+
 退出条件：正式 preview bundle 可由新前端 loader 打开，golden comparison/risk/digest 一致，API 不内联 capability 算法。
 
 ### Slice 5B：Submit Acceptance and Finalize
@@ -551,7 +561,7 @@ Upload/Preview 产生 immutable UploadRevision、PreviewResult 与 full-row tabl
 ```text
 Workspace submit gate
   -> reject NO_CANONICAL_CHANGE before Attempt
-  -> persist SubmitAttempt + Operation/outbox (T1)
+  -> persist SubmitAttempt + Operation (T1)
   -> build/reuse one RepositoryImportArtifact
   -> Repository SubmitImport
   -> poll/checkpoint
@@ -569,24 +579,28 @@ blind replay。该slice correctness通过后可记录首份真实production-path
 ### Slice 5C：Review
 
 实现直接approve、reject、withdraw和return；不建设单独start-review动作或中间审核
-状态。领域状态变化归Submission/Workspace。若详细设计证明review必须独立移动或
-回退Repository ref，再按ADR 0009 reopen condition增加standalone CAS。
+状态。领域状态变化归Submission/Workspace。Review不创建、移动、回退或清理Repository
+ref；所有成功Submission commit永久进入授权History。
 
-退出条件：状态机、权限、幂等和 ref release conflict 全部由自动测试覆盖。
+退出条件：状态机、权限、幂等、Workspace release与History visibility全部由自动测试覆盖。
 
 ### Slice 5D：Archive
 
-实现从approved Submission facts派生CandidateProjection、
-confirmation/anomaly resolution、纯读PreviewArchivePlan与StartArchive execute
-gate。Preview不持久化、不冻结；Start才重新校验并冻结ArchivePlan。使用immutable
-BaselineNode + BaselineHead，不建设batch。若Archive需要把既有commit提升到main，
-必须先以真实consumer重开standalone CAS设计；不能假设V1已经提供。
+实现从当前业务Baseline上的approved Submission facts派生CandidateProjection、
+confirmation/anomaly resolution、纯读PreviewArchivePlan与本地事务StartArchive gate。
+Preview不持久化、不冻结；Start成功时冻结ArchivePlan，直接把所选既有commit绑定为新
+BaselineNode，并原子创建ArchiveResult、推进BaselineHead、关闭未选sibling和释放Workspace。
+不建设batch、ArchiveExecution或Repository operation；不移动Repository `main`，不重新导入。
 
-退出条件：并发 archive、base main conflict、重复执行和部分失败有确定结果，业务与 repository operation 可关联审计。
+退出条件：并发Archive/AcceptSubmit、BaselineHead conflict、重复执行和事务失败有确定结果；
+旧baseline sibling不能覆盖新baseline，Repository没有新增commit/ref effect。
 
 ### Slice 5E：History Compare
 
-实现 immutable commit resolve、repository read/native diff、comparison/risk/surface/bundle 和只读 operation。
+实现授权业务HistoryTreeProjection、immutable commit resolve、repository read/native diff、
+comparison/risk/surface/bundle和只读operation。业务图包含initial baseline、全部成功
+Submission、Review/Archive disposition和未来登记的SYSTEM_MIGRATION；不把private candidate、
+失败import或operation marker伪装成业务节点。
 
 退出条件：history compare 不修改 Workspace/Submission/Archive 状态，远程 repository read 与本地 oracle 等价。
 
@@ -684,7 +698,7 @@ gateway-compute-worker     artifact-based worker/CLI
 5. Submit 双重验证但单写，禁止两个系统同时提交 repository 写入。
 6. Submit/Review 正式切换。
 7. Archive plan preview shadow。
-8. Archive mainline CAS 正式切换。
+8. Archive业务BaselineHead CAS正式切换；Repository `main`不随Archive移动。
 
 ### 规则
 

@@ -9,9 +9,18 @@
 - 明确依赖方向、兼容性和验收标准。
 - 发生关键变更时同步更新 contract tests、golden fixtures 或 ADR。
 
-当前内容：
+当前内容（仓库默认入口）：
 
-- [P4 Active Context Index](plans/p4-active-context-index.md)（P4 设计默认入口）
+- [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)
+- [P5-5A Baseline Acceptance](plans/p5-5a-baseline-acceptance.md)
+- [P5-5A-S0 Entry Brief](plans/p5-5a-s0-entry-brief.md)
+- [P5-5A Upload/Preview Detailed Design](plans/p5-5a-upload-preview-design.md)
+- [P5-5A Upload/Preview Execution Plan](plans/p5-5a-upload-preview-execution-plan.md)
+
+P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；P4-R6 exit
+仍 pending。以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述默认顺序：
+
+- [P4 Active Context Index](plans/p4-active-context-index.md)（P4 专用入口；不是仓库当前默认入口）
 - [P4 Durable Operation Runtime Design Baseline](plans/p4-durable-operation-runtime-design.md)
 - [P4 Durable Operation Runtime Execution Plan](plans/p4-durable-operation-runtime-execution-plan.md)
 - [P4 Entry Acceptance Candidate](plans/p4-entry-acceptance.md)
@@ -35,6 +44,10 @@
 - [P4-R5 Retry, Takeover and Effect Recovery Detailed Execution Plan](plans/p4-r5-retry-takeover-effect-recovery-execution-plan.md)（S7 module gate pass）
 - [P4-R5-S0 Independent Entry Acceptance](plans/p4-r5-s0-entry-acceptance.md)（pass）
 - [P4/R5 Retry, Takeover and Effect Recovery Handoff](plans/p4-r5-retry-takeover-effect-recovery-handoff.md)（S7 module gate、current-HEAD image与P4-R6-S0 entry boundary）
+- [P4-R6-S0 Entry Brief](plans/p4-r6-s0-entry-brief.md)（P4最终acceptance/integration gate；independent entry acceptance pending）
+- [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)（总体设计accepted；implementation等待P4-R6 exit）
+- [P5-5A Baseline Acceptance](plans/p5-5a-baseline-acceptance.md)（design inputs pass；implementation未授权）
+- [P5-5A-S0 Entry Brief](plans/p5-5a-s0-entry-brief.md)（Upload/Preview详细设计入口）
 - [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)（封印 candidate/image、支持面、限制、reopen）
 - [P2–P3 Cleanup Manifest](plans/p2-p3-cleanup-manifest.yaml)
 - [P3→P4 Cleanup Manifest](plans/p3-p4-cleanup-manifest.yaml)
@@ -88,12 +101,19 @@ tags `docs/p3-p4-cleanup-pre-20260823`、`docs/p3-p4-cleanup-final-20260823`。
   `docs/p3-p4-cleanup-pre-20260823`、`docs/p3-p4-cleanup-final-20260823`。不得为保留历史再复制一套 authority。
 - Legacy 只作为行为与 fixture 发现 oracle，不拥有 vNext 内部结构或性能目标。
 
-正式文档之间发生冲突时，应先暂停实现，明确语义 owner，并通过修改正式文档或新增 ADR 收口；不能依靠兼容代码长期维持两套含义。
+正式文档之间发生冲突时，应先暂停实现，明确语义 owner，并通过修改正式文档或新增 ADR 收口；
+不能依靠兼容代码长期维持两套含义。`docs/backend-vnext/contracts/`、`capabilities/`、
+`flows.md`、`operations.md`、`artifacts.md`、`identity-and-digests.md`、
+`implementation-boundary.md`和`modules.md`是non-authoritative historical oracle，只用于行为与
+fixture追溯；其中的同步Preview、`START_REVIEW`、Archive/Repository ref写入或旧状态名不得反向
+覆盖当前P5 authority。
 
 当前阶段：`phase_2_complete: yes`；P3 final closure `p3_exit: pass`、`p4_ready: yes`；
-P4-R1 module gate `pass`；P4-R2 module gate `pass`；P4-R3 module gate `pass`；
-P4-R4-S0 design/plan/acceptance已完成；P4-R5-S0 design/plan/acceptance已完成，当前仅
-P4-R5-S1a获授权；R5后续步骤、R4/R5/P5B implementation仍未授权。
-全局`p3_implementation_authorized: no`。默认入口见
-[P4 Active Context Index](plans/p4-active-context-index.md)。完整对外接口见
+P4-R1至P4-R5 module gate均为`pass`，R5 validated code为`0fa2b897`。P4-R6-S0 discussion
+已收敛，当前仅独立entry acceptance获授权；R6 implementation与P5/P5B implementation
+仍未授权。P5总体设计基线与5A baseline acceptance已通过，5A Entry Brief已就绪；这些
+docs-only结果不越过P4-R6或授权P5实现。
+全局`p3_implementation_authorized: no`。P4 专用入口见
+[P4 Active Context Index](plans/p4-active-context-index.md)；仓库当前默认入口是上述 P5 三件套。
+完整对外接口见
 [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)。

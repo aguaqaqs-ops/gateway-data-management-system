@@ -2,18 +2,22 @@
 
 状态：正式设计（Accepted）
 
-阶段：Phase 0 结论；Phase 2、Phase 4、Slice 5B/5D 实现
+阶段：Phase 0 结论；Phase 2、Phase 4、Slice 5B 实现
 
 Contract ID：`gateway-vnext.external-effect-and-recovery`
 
-Owner：Submit/Archive Application（业务 execution）；Operations（通用执行）；Repository Service（effect evidence）
+Owner：Submit Application（业务 execution）；Operations（通用执行）；Repository Service（effect evidence）
 
-Semantic version：`3.0.0`
+Semantic version：`4.0.0`
 
 2026-08-02收口：Repository Service effect遵循ADR 0009和Repository Service
 Contract的caller-selected verification、stable failure code与minimal recovery。旧
 `PREPARED/APPLIED/VERIFIED` Repository journal、`FailureDescriptor`和generic
 effect taxonomy不再约束当前实现；Phase 0–1错误表达由owner-owned simple error持有。
+
+2026-09-06 amendment：当前没有integration-event consumer，T1/T3不创建outbox，删除
+dispatcher与`after_business_finalize_before_outbox_delivery`故障点。Archive直接把既有
+Submission commit提升为业务Baseline，不产生Repository写effect，因此不属于本文。
 
 ## 1. 目的与 owner 分界
 
@@ -21,7 +25,7 @@ effect taxonomy不再约束当前实现；Phase 0–1错误表达由owner-owned 
 
 | 语义 | 唯一 owner |
 | --- | --- |
-| SubmitAttempt/ArchiveExecution、命令验收、业务 finalize | 对应 Application/Domain |
+| SubmitAttempt、命令验收、业务 finalize | Submission Application/Domain |
 | Operation/Step、claim/lease/retry/checkpoint | Operations |
 | Repository operation、commit marker、commit/ref result | Repository Service |
 | 业务Operation错误表达 | Operations/use case owner |
@@ -32,7 +36,7 @@ operation/commit/ref result。
 
 ## 2. Execution 四态
 
-SubmitAttempt 与 ArchiveExecution 分别拥有相同形状但不同业务语义的状态：
+SubmitAttempt拥有以下状态：
 
 ```text
 PREPARED -> EFFECT_PENDING -> FINALIZED
@@ -49,10 +53,10 @@ EFFECT_PENDING -----------> ABORTED
 ## 3. T1/T2/T3 边界
 
 ```text
-T1 Accept/Start (business DB transaction)
+T1 AcceptSubmit (business DB transaction)
   validate immutable bindings, idempotency and occupancy
-  persist PREPARED execution + Operation + outbox atomically
-  acquire business/repository serialization occupancy
+  persist PREPARED SubmitAttempt + Operation atomically
+  acquire Workspace/repository serialization occupancy
 
 T2 External effect (durable worker + Repository Service)
   persist immutable request/artifact checkpoint
@@ -63,12 +67,13 @@ T2 External effect (durable worker + Repository Service)
 T3 Finalize (business DB transaction)
   require matching SUCCEEDED result, requested==completed verification,
           type policy and business-owned package/digest facts
-  create Submission or ArchiveResult/BaselineNode
-  transition execution and business refs atomically
-  persist integration outbox record atomically
+  create exactly one Submission
+  transition SubmitAttempt, Workspace and Operation atomically
 ```
 
-Outbox delivery 发生在 T1/T3 commit 之后；业务状态与待投递 outbox record 必须同事务。正式故障点名称为 `after_business_finalize_before_outbox_delivery`。
+V1没有已确认integration-event consumer，不创建outbox table、record或dispatcher。未来出现
+真实consumer时必须先定义event owner、delivery contract、retention与replay边界，再以独立
+contract/ADR加入；不得预建空outbox。
 
 ## 4. Repository operation result
 
@@ -113,11 +118,10 @@ HTTP status或Operation/Repository状态表达请求与执行结果。External-e
 由持久业务execution状态、Repository operation identity和commit/ref result表达，
 不复制进每个error object。
 
-Use case owner必须定义stable`code`和所需typed`details`。最低必需code包括：
+Submit owner必须定义stable`code`和所需typed`details`。最低必需code包括：
 Submit的stale/binding/idempotency/`NO_CANONICAL_CHANGE`、Repository outcome
-unknown、import rejection和finalize recovery；Review的stale/transition/reason；
-Archive的stale plan/selection/readiness、Repository outcome unknown、main ref
-drift和finalize recovery。
+unknown、import rejection和finalize recovery。Review与Archive没有Repository写effect，
+其owner-specific错误由Business Lifecycle contract和各自use case拥有。
 
 ## 7. Fault and recovery tests
 
@@ -130,12 +134,12 @@ after_repository_effect_confirmed
 before_repository_verification
 after_repository_verification
 before_business_finalize
-after_business_finalize_before_outbox_delivery
+after_business_finalize_commit_before_worker_ack
 ```
 
 每个重要failure test同时断言失败后checkpoint与恢复后终局，包括
 execution/operation状态、业务事实有无、Repository operation/ref/commit、
-Workspace/serialization occupancy、下一恢复动作和最终event/artifact。测试使用
+Workspace/serialization occupancy、下一恢复动作和最终业务事实/artifact。测试使用
 owner-specific helper或integration test，不要求generic scenario runner、fault
 registry或RunEvidence。注入通道只能在test profile启用；production request schema
 不暴露fault control。
@@ -150,14 +154,16 @@ use-case code由其owner版本化，不要求提升Shared Kernel version。
 
 ## 9. 验收标准
 
-- T1/T3 的业务事实、Operation/outbox 原子性有 transaction tests。
+- T1/T3 的业务事实与Operation原子性有transaction tests；schema中没有未被真实consumer
+  需要的outbox。
 - 每个 request acceptance 后故障都从 journal/evidence 恢复，无 blind replay。
 - Repository restart、worker takeover、重复投递和 Finalize crash 最终只产生一个业务结果。
 - Unknown outcome不允许blind replay。Business occupancy只有在matching SUCCEEDED
   result完成finalize，或matching普通未发布stable failure完成abort后释放；
   MANUAL_RECOVERY_REQUIRED继续占用直到operator恢复并产生允许的终局。
 - Python/Repository对request fingerprint、operation identity和result的解释一致。
-- 故障场景使用正式 `...before_outbox_delivery` 名称。
+- T3 commit后worker丢失响应的场景使用正式
+  `after_business_finalize_commit_before_worker_ack`名称。
 
 ## 10. 关联文档
 

@@ -94,7 +94,9 @@ R1–R5 默认串行。R 内只有不共享未稳定 contract、不会改变 own
 
 ## 4. R2 — Durable Store & Atomic Transition
 
-目标：在同一 SQLite/WAL control DB 中提供 operation/step/outbox 所需的最小持久化能力。
+目标：在同一 SQLite/WAL control DB 中提供 operation/step 所需的最小持久化能力。
+当前没有已确认 integration-event consumer；outbox/dispatcher 不属于 P4 runtime 或当前 P5
+业务实现。未来 consumer 必须先由独立 contract/ADR 定义 owner、delivery 和 replay 语义。
 
 S0 accepted context、schema/transaction决策和逐step authority见
 [P4-R2-S0 Entry Brief](p4-r2-s0-entry-brief.md)与

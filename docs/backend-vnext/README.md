@@ -4,10 +4,24 @@
 
 vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约为前提。旧系统只作为问题样本和业务语义来源，不作为模块、状态机、ID/hash 或 artifact 结构的强制约束。
 
-## P4 默认入口
+## 当前默认入口
 
-Phase 3 已 exit。P4 设计从这里开始，不要把下文旧 contract/capability 清单当作
-Repository Service wire 或 P2 完成状态：
+Phase 3 已 exit，P4-R1 至 P4-R5 module gate 已通过；P4-R6 仍是 pending 的最终
+acceptance/integration gate。当前 P5 设计检索从以下三份已接受材料开始，不要从历史
+P4 handoff 或下文旧 contract/capability 清单推导 P5 语义：
+
+- [P5 Business Vertical Slices Design Baseline](refactoring/formal/plans/p5-business-vertical-slices-design.md)
+- [P5-5A Baseline Acceptance](refactoring/formal/plans/p5-5a-baseline-acceptance.md)
+- [P5-5A-S0 Entry Brief](refactoring/formal/plans/p5-5a-s0-entry-brief.md)
+
+5A-S0 detailed design and execution plan:
+
+- [P5-5A Upload/Preview Detailed Design](refactoring/formal/plans/p5-5a-upload-preview-design.md)
+- [P5-5A Upload/Preview Execution Plan](refactoring/formal/plans/p5-5a-upload-preview-execution-plan.md)
+
+P4 设计仍从 [P4 Active Context Index](refactoring/formal/plans/p4-active-context-index.md)
+进入；该 index 是 P4 专用 gate 入口，不覆盖当前 P5 默认入口。不要把下文旧
+contract/capability 清单当作 Repository Service wire 或 P2 完成状态：
 
 - [P4 Active Context Index](refactoring/formal/plans/p4-active-context-index.md)
 - [P4 Durable Operation Runtime Design Baseline](refactoring/formal/plans/p4-durable-operation-runtime-design.md)
@@ -21,11 +35,16 @@ Repository Service wire 或 P2 完成状态：
 - [P4/R2-S0 Independent Entry Acceptance](refactoring/formal/plans/p4-r2-s0-entry-acceptance.md)
 - [P2 External Interface Handoff](refactoring/formal/plans/p2-external-interface-handoff.md)
 
+P5总体设计和5A详细设计可与P4-R6最终验收并行收敛，但P5实现必须等待P4-R6 exit和明确
+授权。
+
 历史 P3 默认入口 `p3-active-context-index.md` 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823`
 与 [P3→P4 Cleanup Manifest](refactoring/formal/plans/p3-p4-cleanup-manifest.yaml)。
 
-旧 `contracts/`、`capabilities/`、`flows.md` 等是 P3 capability 设计 oracle；冲突以
-`refactoring/formal/` 为准。
+旧 `contracts/`、`capabilities/`、`flows.md`、`operations.md`、`artifacts.md`、
+`identity-and-digests.md`、`implementation-boundary.md` 和 `modules.md` 是 P3 capability 设计的
+**non-authoritative historical oracle**；它们保留用于行为/fixture 追溯，冲突以
+`refactoring/formal/` 当前 authority 为准，不得作为 P5 实现入口。
 
 ## 目录约定
 
@@ -39,7 +58,7 @@ Repository Service wire 或 P2 完成状态：
 - `modules.md`：目标代码模块边界。
 - `contracts/`：新一版对外或跨模块 contract（P3 capability oracle，不是 Repository Service wire）。
 - `adr/`：关键架构决策记录。
-- `refactoring/formal/`：现行 formal contract/ADR/architecture 与 P3 默认入口。
+- `refactoring/formal/`：现行 formal contract/ADR/architecture；仓库默认入口为 P5 三件套，P4/P3 各有专用历史入口。
 - 历史 `notes/`、`dolt-test/`、`implementation-plan.md` 与已完成 execution plan 已离开默认树；恢复见 tag `docs/p2-p3-cleanup-pre-20260817` 与 [cleanup manifest](refactoring/formal/plans/p2-p3-cleanup-manifest.yaml)。
 
 ## 当前已收口设计

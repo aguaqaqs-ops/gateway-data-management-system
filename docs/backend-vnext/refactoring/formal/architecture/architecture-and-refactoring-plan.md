@@ -14,12 +14,12 @@ interface reconciliation也已由
 [DX plan](../plans/dx-cross-phase-interface-reconciliation.md)闭合，S02联合代码清理已
 完成。P2-R1 v8 formal 已通过，默认 provider 为
 Candidate A offline CLI，Candidate B保留但默认禁用。
-2026-08-23：P2-R6-S11 `phase_2_complete: yes`；P3-R1 至 P3-R7 module gates `pass`；P3 final
-closure `p3_exit: pass`、`p4_ready: yes`；P4-R1 module gate `pass`；P4-R2-S0 design
-`accepted`，R2-S1a implementation仍待单独授权。当前下一入口为P4-R2-S1a authorization；
-默认检索见
-[P4 Active Context Index](../plans/p4-active-context-index.md) 与
-[P3 Final Closure Handoff](../plans/p3-final-closure-handoff.md)。
+2026-09-06：P2-R6-S11 `phase_2_complete: yes`；P3 final closure `p3_exit: pass`；P4-R1至R5
+module gate均为`pass`。P4-R6最终acceptance/integration gate尚未exit，current-HEAD container
+gate仍stale。P5总体设计与5A baseline已accepted，5A Entry Brief已就绪，但任何P5实现仍等待
+P4-R6 exit和明确授权。默认检索见[P4 Active Context Index](../plans/p4-active-context-index.md)、
+[P5 Business Vertical Slices Design Baseline](../plans/p5-business-vertical-slices-design.md)与
+[P5-5A-S0 Entry Brief](../plans/p5-5a-s0-entry-brief.md)。
 不得把文档 HEAD 当作 `CANDIDATE_SHA`。
 
 ## 1. 目标与范围
@@ -89,7 +89,11 @@ closure `p3_exit: pass`、`p4_ready: yes`；P4-R1 module gate `pass`；P4-R2-S0 
 
 业务系统内部以领域模块为骨架，capability 是可复用计算，application use case 是编排入口，operation 是执行引擎，infrastructure 是适配器。Repository Service 是明确的进程和数据所有权边界。
 
-持久化遵循“事实最小、projection 可派生”：Workspace/SubmitAttempt/Submission/BaselineNode/Head/ArchiveExecution/Result 各由单一 domain/application owner 管理；执行进度、Candidate、readiness、dry-run plan 和当前/历史标签不复制为业务状态。精确生命周期见 [Business Lifecycle and State Contract](../contracts/business-lifecycle-and-state.md)。
+持久化遵循“事实最小、projection 可派生”：Workspace/SubmitAttempt/Submission/BaselineNode/
+Head/ArchivePlan/Result各由单一domain/application owner管理；执行进度、Candidate、HistoryTree、
+readiness、dry-run plan和当前/历史标签不复制为业务状态。Archive直接推进业务Baseline；
+`ArchiveExecution` 不是持久化模型的一部分。精确生命周期见
+[Business Lifecycle and State Contract](../contracts/business-lifecycle-and-state.md)。
 
 ### 2.1 Python/Rust 语言职责
 
@@ -214,7 +218,7 @@ infrastructure adapters
 | --- | --- |
 | `workspace` | Workspace OPEN/CLOSED 生命周期、UploadRevision、immutable PreviewResult、当前引用与占用。 |
 | `submission` | SubmitAttempt、business-owned acceptance facts后的Submission、PENDING/APPROVED/REJECTED/RETURNED/WITHDRAWN review projection。 |
-| `archive` | Confirmation/AnomalyResolution、derived CandidateProjection、pure PreviewArchivePlan、frozen ArchivePlan、Execution/Result。 |
+| `archive` | Confirmation/AnomalyResolution、derived CandidateProjection、pure PreviewArchivePlan、frozen ArchivePlan、ArchiveResult；不持久化 ArchiveExecution。 |
 | `baseline` | Immutable BaselineNode 与当前 BaselineHead pointer；不拥有 batch。 |
 | `history` | 历史比较请求和结果身份；不拥有通用 comparison 算法。 |
 
@@ -237,7 +241,8 @@ modules/<module>/
 
 - Domain model 表达状态和不变量，不直接修改其他模块的存储。
 - 跨聚合协调位于 application use case，不塞入 entity，也不放入 HTTP handler。
-- 跨模块写入需要显式事务、outbox 或补偿策略，不通过捕获通用异常后静默回滚外部副作用。
+- 跨模块写入需要显式事务、durable operation identity/reconcile或补偿策略，不通过捕获通用异常
+  后静默回滚外部副作用；没有真实event consumer时不预建outbox。
 - API DTO、持久化 record 和 domain model 可以不同，不以一个 dataclass 同时承担全部职责。
 
 ## 6. Application、Flow 与 Operation
@@ -247,13 +252,14 @@ modules/<module>/
 现有 `flows` 逐步收敛为 `application/use_cases`。一个入口代表一个业务用例，例如：
 
 ```text
-UploadWorkspaceSource
-BuildUploadPreview
+CreateOrGetWorkspace
+AcceptUpload
+StartPreview
 AcceptSubmit
 FinalizeSubmit
 Approve/Reject/Withdraw/ReturnSubmission
 PreviewArchivePlan
-StartArchive/FinalizeArchive
+StartArchive
 CompareHistory
 ```
 
@@ -299,10 +305,10 @@ Step 间只传递可持久化数据：
 ### 6.3 目标异步调用链
 
 ```text
-API request
+async API request
   -> application use case
   -> validate domain state
-  -> persist business change + operation/outbox
+  -> persist business change + operation
   -> return operation_id
 
 worker
@@ -313,11 +319,14 @@ worker
   -> publish READY or final failure
 ```
 
-跨Repository Service写effect必须采用T1业务验收、T2 durable external effect、T3核对
+Submit跨Repository Service写effect必须采用T1业务验收、T2 durable external effect、T3核对
 matching SUCCEEDED result与requested/completed verification后业务finalize。Worker接管
 `RUNNING` step时先以既有operation identity查询Repository；请求可能已接受后不得
-blind replay。业务状态、Operation/outbox、effect result的权威边界见
+blind replay。业务状态、Operation、effect result的权威边界见
 [External Effect and Recovery Contract](../contracts/external-effect-and-recovery.md)。
+
+Archive不属于该异步模板：它直接引用既有immutable commit，在本地control DB短事务中创建
+ArchivePlan/Result、BaselineNode并CAS推进BaselineHead，不调用Repository写接口。
 
 ## 7. Capability 架构
 
@@ -440,7 +449,8 @@ retention/access属于store或业务policy。LocalArtifactStore、文件布局�
 - 按领域拆分 repository interface 和持久化实现。
 - 第一阶段可以共用同一个数据库实例，但不共用一个无边界 StateStore 类。
 - 领域 repository 保存领域 record；operation store 保存执行状态；artifact/cache registry 保存技术状态。
-- 跨领域一致性优先通过同库事务；跨 Repository Service 的一致性通过幂等、CAS、outbox 和显式补偿实现。
+- 跨领域一致性优先通过同库事务；Submit跨Repository Service的一致性通过幂等、CAS、
+  durable operation identity与evidence-first reconcile实现。没有真实consumer时不预建outbox。
 - SourcePackageArtifact 长期保存原始 bytes；SnapshotTableArtifact 只在 current Preview/active SubmitAttempt 期间 pin，终态后释放为可重算材料。首版不再额外长期保存一份重复 full-row archive。
 
 ## 9. Independent Repository Service
@@ -464,7 +474,7 @@ CurrentTableStore或generic dual-store framework。
 业务系统拥有：
 
 - 哪个 Workspace/Submission 可以写入。
-- 哪个derived CandidateProjection/ArchivePlan可以生成import。
+- 哪个SubmitAttempt可以发起Repository import；ArchivePlan只推进业务BaselineHead，不产生import。
 - ruleset、storage/comparison projection、CanonicalizationManifest、SnapshotSummary、Comparison 和 Risk 语义。
 - 原始package向外部系统的备份。
 - 业务content digest、no-change判断与选择Repository verification policy。

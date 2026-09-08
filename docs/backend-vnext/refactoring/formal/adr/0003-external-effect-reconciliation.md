@@ -6,12 +6,18 @@
 
 决策 owner：Backend vNext Application and Repository Architecture
 
-关联阶段：Phase 2、Phase 4、Slice 5B/5D
+关联阶段：Phase 2、Phase 4、Slice 5B
 
 2026-08-02 amendment：T1/T2/T3业务事务边界继续有效；Repository Service内部
 journal/effect classification与FULL evidence已由ADR 0009替代为四态Operation、
 caller-selected NONE/STRUCTURAL/FULL_SCAN、matching commit marker、stable未发布
 failure code和人工恢复分支。
+
+2026-09-06 amendment：本文只适用于Submit。Archive直接提升既有immutable commit并在本地
+control DB事务内推进业务BaselineHead，不产生Repository写effect。当前没有真实
+integration-event consumer，因此删除outbox/dispatcher和
+`after_business_finalize_before_outbox_delivery`；未来consumer必须通过新的contract/ADR
+重新引入。
 
 ## Context
 
@@ -19,8 +25,7 @@ failure code和人工恢复分支。
 
 ## Decision
 
-SubmitAttempt与ArchiveExecution各自使用
-`PREPARED/EFFECT_PENDING/FINALIZED/ABORTED`四态，并以T1验收、T2外部effect、T3
+SubmitAttempt使用`PREPARED/EFFECT_PENDING/FINALIZED/ABORTED`四态，并以T1验收、T2外部effect、T3
 业务finalize划分事务。Repository Service的SUCCEEDED operation、matching CommitId
 和target ref是effect result；业务content/digest facts仍由业务owner检查。Repository
 内部恢复使用matching commit marker，矛盾状态显式进入MANUAL_RECOVERY_REQUIRED。
@@ -28,8 +33,8 @@ SubmitAttempt与ArchiveExecution各自使用
 请求可能已被接受后必须先reconcile，并复用原operation、idempotency key、
 request/artifact digest；只有Repository matching SUCCEEDED或普通未发布stable failure才
 允许业务finalize/abort，MANUAL_RECOVERY_REQUIRED继续占用。Repository自身仅在无
-matching commit且artifact完整时以原key自动重放一次。Outbox record与业务finalize
-同事务，delivery独立。精确规则由
+matching commit且artifact完整时以原key自动重放一次。T1/T3只原子提交业务事实与
+Operation；不预建没有consumer的outbox。精确规则由
 [External Effect and Recovery Contract](../contracts/external-effect-and-recovery.md)唯一规定。
 
 ## Alternatives
@@ -50,5 +55,5 @@ replay快速解锁。
 
 - 每个 request-acceptance 前后注入点的 restart/takeover tests。
 - 已知Repository operation不blind replay；业务worker只查询原operation。
-- Repository SUCCEEDED result、T3和outbox delivery之间crash后恰好一次业务结果。
+- Repository SUCCEEDED result与T3之间或T3 commit后worker丢失响应时，最终恰好一个业务结果。
 - MANUAL_RECOVERY_REQUIRED不自动释放业务occupancy，由operator处理。

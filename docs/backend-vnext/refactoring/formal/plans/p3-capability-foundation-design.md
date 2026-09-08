@@ -8,6 +8,12 @@
 
 Owner：Backend vNext Capability Architecture
 
+> Historical interpretation fence（2026-09-08）：本文仍是P3 capability范围、行为和fixture的
+> 历史oracle；§2的`BuildUploadPreview`与`INITIALIZE_BASELINE`是当时的consumer假设，不是当前
+> P5 authority。P5实现必须从[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md)
+> 和[P5-5A Upload/Preview Detailed Design](p5-5a-upload-preview-design.md)进入；不得据本文合并
+> Upload/Preview identity或增加baseline初始化模式。
+
 ## 1. Purpose
 
 Phase 3 建立 backend vNext 的 capability foundation，并为后续 Preview vertical slice

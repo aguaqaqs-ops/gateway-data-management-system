@@ -14,6 +14,29 @@ CONTROL_DB_ROOT = BACKEND_SRC / "gateway_backend" / "infrastructure" / "control_
 BOOTSTRAP_ROOT = BACKEND_SRC / "gateway_backend" / "bootstrap"
 APPLICATION_ROOT = BACKEND_SRC / "gateway_backend" / "application"
 APPLICATION_PREFIX = "gateway_backend.application."
+DOMAIN_ROOT = BACKEND_SRC / "gateway_backend" / "domain"
+DOMAIN_PREFIX = "gateway_backend.domain."
+
+DOMAIN_FORBIDDEN_IMPORT_PREFIXES = (
+    "sqlite3",
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "gateway_backend.app",
+    "gateway_backend.application",
+    "gateway_backend.artifacts",
+    "gateway_backend.bootstrap",
+    "gateway_backend.capabilities",
+    "gateway_backend.compute",
+    "gateway_backend.infrastructure",
+    "gateway_backend.operations",
+    "gateway_backend.settings",
+    "gateway_repository",
+    "gateway_repository_client",
+    "gateway_repository_contracts",
+    "gateway_repository_service",
+    "gateway_shared_kernel.testing",
+)
 
 APPLICATION_FORBIDDEN_IMPORT_PREFIXES = (
     "sqlite3",
@@ -459,6 +482,14 @@ def test_application_module_respects_import_boundary() -> None:
             _assert_application_import_allowed(source, imported)
 
 
+def test_domain_module_respects_import_boundary() -> None:
+    assert DOMAIN_ROOT.is_dir()
+    for source in sorted(DOMAIN_ROOT.rglob("*.py")):
+        current_module, is_init = _python_module_name(source)
+        for imported in _imported_modules(source, current_module, is_init):
+            _assert_domain_import_allowed(source, imported)
+
+
 def test_job_definitions_stays_memory_only() -> None:
     source = APPLICATION_ROOT / "job_definitions.py"
     text = source.read_text(encoding="utf-8")
@@ -900,6 +931,28 @@ def _assert_application_import_allowed(source: Path, imported: str) -> None:
         )
         return
     if imported == "gateway_backend.artifacts" or imported.startswith("gateway_backend.artifacts."):
+        return
+    if imported == DOMAIN_PREFIX or imported.startswith(DOMAIN_PREFIX):
+        return
+    if imported.startswith("gateway_backend."):
+        assert False, f"{source} imports disallowed backend module {imported}"
+
+
+def _assert_domain_import_allowed(source: Path, imported: str) -> None:
+    if imported == "__future__":
+        return
+    for prefix in DOMAIN_FORBIDDEN_IMPORT_PREFIXES:
+        assert imported != prefix and not imported.startswith(f"{prefix}."), (
+            f"{source} imports forbidden module {imported}"
+        )
+    for part in imported.split("."):
+        assert part != "_internal", f"{source} imports {imported}"
+    if imported == DOMAIN_PREFIX or imported.startswith(DOMAIN_PREFIX):
+        return
+    if imported == "gateway_shared_kernel" or imported.startswith("gateway_shared_kernel."):
+        assert not imported.startswith("gateway_shared_kernel.testing"), (
+            f"{source} imports forbidden module {imported}"
+        )
         return
     if imported.startswith("gateway_backend."):
         assert False, f"{source} imports disallowed backend module {imported}"

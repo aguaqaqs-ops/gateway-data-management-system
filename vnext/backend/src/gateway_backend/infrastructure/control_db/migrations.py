@@ -1,4 +1,4 @@
-"""Forward-only Operations schema migration owned by the control DB boundary."""
+"""Forward-only control DB schema migrations owned by the control DB boundary."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from gateway_backend.operations import StoreBusy, UnsupportedSchemaVersion
 
 OPERATIONS_SCHEMA_COMPONENT = "operations"
 OPERATIONS_SCHEMA_VERSION = 1
+WORKSPACE_SCHEMA_COMPONENT = "workspace"
+WORKSPACE_SCHEMA_VERSION = 1
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SQLITE_INT_MIN = -(2**63)
@@ -40,6 +42,8 @@ _ACTIVE_STEP_STATUSES = (
     "'MANUAL_RECOVERY_REQUIRED'",
 )
 _CLAIMABLE_STEP_STATUSES = ("'PENDING'", "'RETRY_WAIT'")
+_WORKSPACE_STATES = ("'OPEN'", "'CLOSED'")
+_INPUT_COMPLETENESS = ("'FULL'", "'MODIFIED_ONLY'")
 
 
 def bootstrap_control_schema(
@@ -49,26 +53,59 @@ def bootstrap_control_schema(
 ) -> None:
     """Apply the Operations schema atomically if the component is not at v1."""
 
+    _bootstrap_component_schema(
+        connection,
+        component=OPERATIONS_SCHEMA_COMPONENT,
+        target_version=OPERATIONS_SCHEMA_VERSION,
+        apply=_apply_operations_v1,
+        now=now,
+    )
+
+
+def bootstrap_workspace_schema(
+    connection: sqlite3.Connection,
+    *,
+    now: Callable[[], datetime],
+) -> None:
+    """Apply the Workspace schema atomically if the component is not at v1."""
+
+    _bootstrap_component_schema(
+        connection,
+        component=WORKSPACE_SCHEMA_COMPONENT,
+        target_version=WORKSPACE_SCHEMA_VERSION,
+        apply=_apply_workspace_v1,
+        now=now,
+    )
+
+
+def _bootstrap_component_schema(
+    connection: sqlite3.Connection,
+    *,
+    component: str,
+    target_version: int,
+    apply: Callable[[sqlite3.Connection], None],
+    now: Callable[[], datetime],
+) -> None:
     if connection.in_transaction:
         raise ValueError("schema bootstrap requires a connection outside a transaction")
     try:
         connection.execute("BEGIN IMMEDIATE")
         connection.execute(_MIGRATION_LEDGER_DDL)
-        current_version = _current_component_version(connection)
-        if current_version > OPERATIONS_SCHEMA_VERSION:
+        current_version = _current_component_version(connection, component)
+        if current_version > target_version:
             raise UnsupportedSchemaVersion(
-                f"component {OPERATIONS_SCHEMA_COMPONENT!r} is newer than supported schema"
+                f"component {component!r} is newer than supported schema"
             )
-        if current_version == OPERATIONS_SCHEMA_VERSION:
+        if current_version == target_version:
             connection.execute("COMMIT")
             return
         if current_version != 0:
             raise RuntimeError("unsupported migration history")
-        _apply_operations_v1(connection)
+        apply(connection)
         applied_at_us = _datetime_to_epoch_us(now())
         connection.execute(
             "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
-            (OPERATIONS_SCHEMA_COMPONENT, OPERATIONS_SCHEMA_VERSION, applied_at_us),
+            (component, target_version, applied_at_us),
         )
         connection.execute("COMMIT")
     except UnsupportedSchemaVersion:
@@ -90,10 +127,31 @@ def _apply_operations_v1(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
-def _current_component_version(connection: sqlite3.Connection) -> int:
+def _apply_workspace_v1(connection: sqlite3.Connection) -> None:
+    statements = _workspace_v1_statements()
+    for statement in statements:
+        connection.execute(statement)
+    _assert_workspace_bootstrap_integrity(connection)
+
+
+def _assert_workspace_bootstrap_integrity(connection: sqlite3.Connection) -> None:
+    duplicate_open = connection.execute(
+        """
+        SELECT owner_actor_id, gateway_device_external_key, business_project_id, COUNT(*) AS open_count
+        FROM workspace_records
+        WHERE state = 'OPEN'
+        GROUP BY owner_actor_id, gateway_device_external_key, business_project_id
+        HAVING open_count > 1
+        """
+    ).fetchone()
+    if duplicate_open is not None:
+        raise RuntimeError("workspace bootstrap found multiple OPEN rows for one exact scope")
+
+
+def _current_component_version(connection: sqlite3.Connection, component: str) -> int:
     row = connection.execute(
         "SELECT MAX(version) FROM control_schema_migrations WHERE component = ?",
-        (OPERATIONS_SCHEMA_COMPONENT,),
+        (component,),
     ).fetchone()
     version = row[0]
     if version is None:
@@ -237,5 +295,159 @@ def _operations_v1_statements() -> tuple[str, ...]:
         """
         CREATE INDEX operation_records_status_readback
         ON operation_records(status, updated_at_us, operation_id)
+        """,
+    )
+
+
+def _workspace_v1_statements() -> tuple[str, ...]:
+    workspace_states = ", ".join(_WORKSPACE_STATES)
+    input_completeness = ", ".join(_INPUT_COMPLETENESS)
+    return (
+        f"""
+        CREATE TABLE workspace_records (
+            workspace_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+            owner_actor_id TEXT NOT NULL
+                CHECK (typeof(owner_actor_id) = 'text' AND length(owner_actor_id) BETWEEN 1 AND 255),
+            gateway_device_external_key TEXT NOT NULL
+                CHECK (typeof(gateway_device_external_key) = 'text'
+                       AND length(gateway_device_external_key) BETWEEN 1 AND 255),
+            business_project_id TEXT NOT NULL
+                CHECK (typeof(business_project_id) = 'text'
+                       AND length(business_project_id) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
+            state TEXT NOT NULL
+                CHECK (typeof(state) = 'text' AND state IN ({workspace_states})),
+            generation INTEGER NOT NULL
+                CHECK (typeof(generation) = 'integer' AND generation >= 0),
+            optimistic_version INTEGER NOT NULL
+                CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version >= 0),
+            current_upload_revision_id TEXT
+                CHECK (current_upload_revision_id IS NULL OR
+                       (typeof(current_upload_revision_id) = 'text'
+                        AND length(current_upload_revision_id) BETWEEN 1 AND 255)),
+            current_preview_result_id TEXT
+                CHECK (current_preview_result_id IS NULL OR
+                       (typeof(current_preview_result_id) = 'text'
+                        AND length(current_preview_result_id) BETWEEN 1 AND 255)),
+            created_at_us INTEGER NOT NULL
+                CHECK (typeof(created_at_us) = 'integer'),
+            updated_at_us INTEGER NOT NULL
+                CHECK (typeof(updated_at_us) = 'integer'),
+            closed_at_us INTEGER
+                CHECK (closed_at_us IS NULL OR typeof(closed_at_us) = 'integer')
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX workspace_records_open_exact_scope
+        ON workspace_records(owner_actor_id, gateway_device_external_key, business_project_id)
+        WHERE state = 'OPEN'
+        """,
+        f"""
+        CREATE TABLE upload_revision_records (
+            upload_revision_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(upload_revision_id) = 'text'
+                       AND length(upload_revision_id) BETWEEN 1 AND 255),
+            workspace_id TEXT NOT NULL
+                CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+            generation INTEGER NOT NULL
+                CHECK (typeof(generation) = 'integer' AND generation >= 0),
+            input_completeness TEXT NOT NULL
+                CHECK (typeof(input_completeness) = 'text'
+                       AND input_completeness IN ({input_completeness})),
+            source_artifacts BLOB NOT NULL
+                CHECK (typeof(source_artifacts) = 'blob'),
+            idempotency_key TEXT NOT NULL
+                CHECK (typeof(idempotency_key) = 'text'
+                       AND length(idempotency_key) BETWEEN 1 AND 255),
+            request_fingerprint TEXT NOT NULL
+                CHECK (typeof(request_fingerprint) = 'text'
+                       AND length(request_fingerprint) BETWEEN 1 AND 512),
+            created_by TEXT NOT NULL
+                CHECK (typeof(created_by) = 'text' AND length(created_by) BETWEEN 1 AND 255),
+            created_at_us INTEGER NOT NULL
+                CHECK (typeof(created_at_us) = 'integer'),
+            UNIQUE (workspace_id, generation),
+            FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT
+        )
+        """,
+        """
+        CREATE TABLE upload_idempotency_records (
+            workspace_id TEXT NOT NULL
+                CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+            idempotency_key TEXT NOT NULL
+                CHECK (typeof(idempotency_key) = 'text'
+                       AND length(idempotency_key) BETWEEN 1 AND 255),
+            request_fingerprint TEXT NOT NULL
+                CHECK (typeof(request_fingerprint) = 'text'
+                       AND length(request_fingerprint) BETWEEN 1 AND 512),
+            upload_revision_id TEXT NOT NULL
+                CHECK (typeof(upload_revision_id) = 'text'
+                       AND length(upload_revision_id) BETWEEN 1 AND 255),
+            PRIMARY KEY (workspace_id, idempotency_key),
+            FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
+            FOREIGN KEY (upload_revision_id) REFERENCES upload_revision_records(upload_revision_id)
+                ON DELETE RESTRICT
+        )
+        """,
+        """
+        CREATE TABLE preview_result_records (
+            preview_result_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(preview_result_id) = 'text'
+                       AND length(preview_result_id) BETWEEN 1 AND 255),
+            workspace_id TEXT NOT NULL
+                CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+            upload_revision_id TEXT NOT NULL
+                CHECK (typeof(upload_revision_id) = 'text'
+                       AND length(upload_revision_id) BETWEEN 1 AND 255),
+            generation INTEGER NOT NULL
+                CHECK (typeof(generation) = 'integer' AND generation >= 0),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
+            binding BLOB NOT NULL
+                CHECK (typeof(binding) = 'blob'),
+            operation_id TEXT NOT NULL UNIQUE
+                CHECK (typeof(operation_id) = 'text' AND length(operation_id) BETWEEN 1 AND 255),
+            created_at_us INTEGER NOT NULL
+                CHECK (typeof(created_at_us) = 'integer'),
+            FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
+            FOREIGN KEY (upload_revision_id) REFERENCES upload_revision_records(upload_revision_id)
+                ON DELETE RESTRICT
+        )
+        """,
+        """
+        CREATE TABLE preview_idempotency_records (
+            workspace_id TEXT NOT NULL
+                CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+            idempotency_key TEXT NOT NULL
+                CHECK (typeof(idempotency_key) = 'text'
+                       AND length(idempotency_key) BETWEEN 1 AND 255),
+            request_fingerprint TEXT NOT NULL
+                CHECK (typeof(request_fingerprint) = 'text'
+                       AND length(request_fingerprint) BETWEEN 1 AND 512),
+            preview_result_id TEXT NOT NULL
+                CHECK (typeof(preview_result_id) = 'text'
+                       AND length(preview_result_id) BETWEEN 1 AND 255),
+            PRIMARY KEY (workspace_id, idempotency_key),
+            FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
+            FOREIGN KEY (preview_result_id) REFERENCES preview_result_records(preview_result_id)
+                ON DELETE RESTRICT
+        )
+        """,
+        """
+        CREATE TABLE artifact_protection_intents (
+            artifact_id TEXT NOT NULL
+                CHECK (typeof(artifact_id) = 'text' AND length(artifact_id) BETWEEN 1 AND 255),
+            owner_kind TEXT NOT NULL
+                CHECK (typeof(owner_kind) = 'text' AND length(owner_kind) BETWEEN 1 AND 128),
+            owner_id TEXT NOT NULL
+                CHECK (typeof(owner_id) = 'text' AND length(owner_id) BETWEEN 1 AND 255),
+            intent TEXT NOT NULL
+                CHECK (typeof(intent) = 'text' AND length(intent) BETWEEN 1 AND 128),
+            recorded_at_us INTEGER NOT NULL
+                CHECK (typeof(recorded_at_us) = 'integer'),
+            PRIMARY KEY (artifact_id, owner_kind, owner_id)
+        )
         """,
     )

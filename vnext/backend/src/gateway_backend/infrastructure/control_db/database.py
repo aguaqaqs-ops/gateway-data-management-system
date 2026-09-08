@@ -8,9 +8,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 from gateway_backend.operations import OperationStore, StoreBusy
+
+if TYPE_CHECKING:
+    from gateway_backend.domain.workspace.ports import WorkspaceRepository
 
 BUSY_TIMEOUT_MS = 5_000
 
@@ -49,11 +52,15 @@ def initialize_control_db(
 ) -> None:
     """Bootstrap the component schema using a short-lived configured connection."""
 
-    from gateway_backend.infrastructure.control_db.migrations import bootstrap_control_schema
+    from gateway_backend.infrastructure.control_db.migrations import (
+        bootstrap_control_schema,
+        bootstrap_workspace_schema,
+    )
 
     connection = connect_control_db(db_path)
     try:
         bootstrap_control_schema(connection, now=now)
+        bootstrap_workspace_schema(connection, now=now)
     finally:
         connection.close()
 
@@ -77,6 +84,7 @@ class ControlDbUnitOfWork:
         self._connection: sqlite3.Connection | None = None
         self._transaction_now: datetime | None = None
         self._operations: OperationStore | None = None
+        self._workspace: WorkspaceRepository | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -93,6 +101,14 @@ class ControlDbUnitOfWork:
         if self._operations is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._operations
+
+    @property
+    def workspace(self) -> WorkspaceRepository:
+        """Return the workspace participant bound to this transaction."""
+
+        if self._workspace is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._workspace
 
     @property
     def transaction_now(self) -> datetime:
@@ -113,9 +129,17 @@ class ControlDbUnitOfWork:
             from gateway_backend.infrastructure.control_db.sqlite_operations import (
                 SQLiteOperationStore,
             )
+            from gateway_backend.infrastructure.control_db.sqlite_workspace import (
+                SQLiteWorkspaceRepository,
+            )
 
             self._transaction_now = transaction_now
             self._operations = SQLiteOperationStore(
+                connection,
+                transaction_now=transaction_now,
+                read_only=self._read_only,
+            )
+            self._workspace = SQLiteWorkspaceRepository(
                 connection,
                 transaction_now=transaction_now,
                 read_only=self._read_only,
@@ -144,6 +168,7 @@ class ControlDbUnitOfWork:
         rollback_only = bool(getattr(self._operations, "_rollback_only", False))
         self._connection = None
         self._operations = None
+        self._workspace = None
         self._transaction_now = None
         if connection is None:
             return

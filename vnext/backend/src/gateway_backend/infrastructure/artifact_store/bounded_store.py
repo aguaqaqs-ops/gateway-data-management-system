@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
-from collections.abc import Iterable, Iterator
+import tempfile
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
@@ -34,12 +37,22 @@ class BoundedArtifactStore:
         local_store: LocalArtifactStore,
         *,
         protection_store: SQLiteArtifactProtectionStore | None = None,
+        is_protected: Callable[[str], bool] | None = None,
         unpinned_ttl: timedelta = DEFAULT_UNPINNED_TTL,
     ) -> None:
         self._local_store = local_store
         self._protection_store = protection_store
+        self._is_protected = is_protected
         self._unpinned_ttl = unpinned_ttl
         self._published_at_by_artifact_id: dict[str, datetime] = {}
+
+    def put(self, raw_bytes: bytes, ref: ArtifactRef) -> ArtifactRef:
+        published = self._local_store.put(raw_bytes, ref)
+        self._published_at_by_artifact_id[published.artifact_id] = datetime.now(UTC)
+        return published
+
+    def locate(self, ref: ArtifactRef) -> bytes:
+        return self._local_store.locate(ref)
 
     def put_stream(
         self,
@@ -56,7 +69,8 @@ class BoundedArtifactStore:
             raise ValueError("declared_size must be a non-negative integer")
         if type(media_type) is not str or not media_type:
             raise ValueError("media_type must be a non-empty string")
-        raw_bytes, digest = _consume_bounded_stream(
+        staging_path, digest = _write_bounded_staging(
+            self._local_store.artifact_root,
             stream,
             declared_size=declared_size,
             declared_raw_sha256=declared_raw_sha256,
@@ -66,17 +80,29 @@ class BoundedArtifactStore:
         ref = ArtifactRef(
             artifact_id=artifact_id,
             media_type=media_type,
-            size_bytes=len(raw_bytes),
+            size_bytes=declared_size,
             raw_sha256=digest,
         )
-        published = self._local_store.put(raw_bytes, ref)
+        try:
+            published = self._local_store.put_from_path(staging_path, ref)
+        except BaseException:
+            if staging_path.exists():
+                staging_path.unlink()
+            raise
         self._published_at_by_artifact_id[published.artifact_id] = datetime.now(UTC)
         return published
 
     def read_exact(self, ref: ArtifactRef) -> Iterator[bytes]:
-        raw_bytes = self._local_store.locate(ref)
-        for offset in range(0, len(raw_bytes), _STREAM_CHUNK_SIZE):
-            yield raw_bytes[offset : offset + _STREAM_CHUNK_SIZE]
+        target, _sidecar = self._local_store._validated_paths(ref.artifact_id)  # noqa: SLF001
+        stored = self._local_store._load_stored_ref(ref.artifact_id)  # noqa: SLF001
+        if stored != ref:
+            raise ManifestVerificationError("stored artifact identity mismatch")
+        with target.open("rb") as handle:
+            while True:
+                chunk = handle.read(_STREAM_CHUNK_SIZE)
+                if not chunk:
+                    break
+                yield chunk
 
     def verify_readable(
         self,
@@ -116,7 +142,7 @@ class BoundedArtifactStore:
         )
 
     def classify_cleanup(self, ref: ArtifactRef, now: datetime) -> CleanupDecision:
-        if self._protection_store is not None and self._protection_store.is_protected(ref.artifact_id):
+        if self._artifact_is_protected(ref.artifact_id):
             return CleanupDecision(classification=CleanupClassification.PROTECTED)
         published_at = self._artifact_published_at(ref)
         eligible_after = published_at + self._unpinned_ttl
@@ -157,6 +183,13 @@ class BoundedArtifactStore:
         self._local_store._refs_by_artifact_id.pop(ref.artifact_id, None)  # noqa: SLF001
         return DeleteDisposition.DELETED
 
+    def _artifact_is_protected(self, artifact_id: str) -> bool:
+        if self._protection_store is not None:
+            return self._protection_store.is_protected(artifact_id)
+        if self._is_protected is not None:
+            return self._is_protected(artifact_id)
+        return False
+
     def _artifact_published_at(self, ref: ArtifactRef) -> datetime:
         recorded = self._published_at_by_artifact_id.get(ref.artifact_id)
         if recorded is not None:
@@ -168,30 +201,47 @@ class BoundedArtifactStore:
         return datetime.fromtimestamp(mtime, tz=UTC)
 
 
-def _consume_bounded_stream(
+def _write_bounded_staging(
+    artifact_root: Path,
     stream: Iterable[bytes],
     *,
     declared_size: int,
     declared_raw_sha256: DigestRef,
-) -> tuple[bytes, DigestRef]:
+) -> tuple[Path, DigestRef]:
     hasher = hashlib.sha256()
-    chunks: list[bytes] = []
     total = 0
-    for chunk in stream:
-        if type(chunk) is not bytes:
-            raise ManifestVerificationError("stream chunks must be bytes")
-        total += len(chunk)
-        if total > declared_size:
-            raise ManifestVerificationError("stream exceeds declared_size")
-        hasher.update(chunk)
-        chunks.append(chunk)
-    raw_bytes = b"".join(chunks)
-    if len(raw_bytes) != declared_size:
-        raise ManifestVerificationError("stream shorter than declared_size")
-    digest = raw_blob_digest(raw_bytes)
-    if digest.value != declared_raw_sha256.value:
-        raise ManifestVerificationError("declared_raw_sha256 mismatch")
-    return raw_bytes, digest
+    staging_dir = artifact_root / ".staging"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        mode="wb",
+        dir=staging_dir,
+        prefix=".upload-",
+        suffix=".tmp",
+        delete=False,
+    )
+    staging_path = Path(handle.name)
+    try:
+        with handle:
+            for chunk in stream:
+                if type(chunk) is not bytes:
+                    raise ManifestVerificationError("stream chunks must be bytes")
+                total += len(chunk)
+                if total > declared_size:
+                    raise ManifestVerificationError("stream exceeds declared_size")
+                hasher.update(chunk)
+                handle.write(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if total != declared_size:
+            raise ManifestVerificationError("stream shorter than declared_size")
+        digest = DigestRef("sha256:" + hasher.hexdigest())
+        if digest.value != declared_raw_sha256.value:
+            raise ManifestVerificationError("declared_raw_sha256 mismatch")
+        return staging_path, digest
+    except BaseException:
+        if staging_path.exists():
+            staging_path.unlink()
+        raise
 
 
 def artifact_binding_from_ref(ref: ArtifactRef) -> SourceArtifactBinding:

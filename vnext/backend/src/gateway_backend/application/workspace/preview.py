@@ -63,14 +63,14 @@ def validate_start_preview_binding(
 
     prior = repository.find_preview_idempotency(command.workspace_id, command.idempotency_key)
     if prior is not None:
-        if prior.upload_revision_id != command.upload_revision_id or prior.generation != command.generation:
+        if prior.request_fingerprint != command.request_fingerprint:
             raise IdempotencyConflict(idempotency_key=command.idempotency_key)
         return StartPreviewValidationResult(
             workspace=workspace,
             upload_revision=upload_revision,
             baseline_head=baseline_head,
             replay=True,
-            prior_result=prior,
+            prior_acceptance=prior,
         )
 
     return StartPreviewValidationResult(
@@ -78,7 +78,7 @@ def validate_start_preview_binding(
         upload_revision=upload_revision,
         baseline_head=baseline_head,
         replay=False,
-        prior_result=None,
+        prior_acceptance=None,
     )
 
 

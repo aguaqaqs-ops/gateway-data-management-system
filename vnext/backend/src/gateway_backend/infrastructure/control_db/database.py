@@ -10,6 +10,8 @@ from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Self
 
+from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.infrastructure.control_db.sqlite_protection import SQLiteArtifactProtectionStore
 from gateway_backend.operations import OperationStore, StoreBusy
 
 if TYPE_CHECKING:
@@ -119,6 +121,7 @@ class ControlDbUnitOfWork:
         self._transaction_now: datetime | None = None
         self._operations: OperationStore | None = None
         self._workspace: WorkspaceRepository | None = None
+        self._protection: SQLiteArtifactProtectionStore | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -143,6 +146,32 @@ class ControlDbUnitOfWork:
         if self._workspace is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._workspace
+
+    @property
+    def protection(self) -> SQLiteArtifactProtectionStore:
+        """Return the artifact-protection participant bound to this transaction."""
+
+        if self._protection is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._protection
+
+    def set_artifact_protection(
+        self,
+        refs: tuple[ArtifactRef, ...],
+        *,
+        owner_kind: str,
+        owner_id: str,
+        intent: str,
+    ) -> bool:
+        """Record protection intents in the current transaction."""
+
+        return self.protection.set_protection(
+            refs,
+            owner_kind=owner_kind,
+            owner_id=owner_id,
+            intent=intent,
+            recorded_at=self.transaction_now,
+        )
 
     @property
     def transaction_now(self) -> datetime:
@@ -178,6 +207,10 @@ class ControlDbUnitOfWork:
                 transaction_now=transaction_now,
                 read_only=self._read_only,
             )
+            self._protection = SQLiteArtifactProtectionStore(
+                connection,
+                read_only=self._read_only,
+            )
         except sqlite3.OperationalError as exc:
             if connection.in_transaction:
                 connection.execute("ROLLBACK")
@@ -203,6 +236,7 @@ class ControlDbUnitOfWork:
         self._connection = None
         self._operations = None
         self._workspace = None
+        self._protection = None
         self._transaction_now = None
         if connection is None:
             return

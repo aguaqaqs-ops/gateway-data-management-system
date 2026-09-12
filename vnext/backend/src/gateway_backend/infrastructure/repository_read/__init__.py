@@ -1,4 +1,4 @@
-"""Secret-file repository read settings and fail-closed provider seam."""
+"""Secret-file repository read settings and HTTP/Arrow table-access adapter."""
 
 from __future__ import annotations
 
@@ -6,6 +6,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 from gateway_backend.domain.workspace.models import BaselineHead
+from gateway_backend.infrastructure.repository_read.http_arrow import (
+    HttpArrowRepositoryTableAccessProvider,
+    build_http_repository_provider_factory,
+)
 
 
 def load_repository_bearer_token(token_file: Path) -> str:
@@ -33,7 +37,7 @@ class FailClosedBaselineHeadRead:
 
 
 class UnwiredRepositoryTableAccessProvider:
-    """Fail-closed table-access provider until the HTTP adapter is owned separately."""
+    """Fail-closed table-access provider retained only as a test seam."""
 
     def open_ref(self, repository_ref: object, timeout_policy: object = None) -> object:
         del repository_ref, timeout_policy
@@ -60,7 +64,9 @@ def build_unwired_repository_provider_factory(
 
 __all__ = [
     "FailClosedBaselineHeadRead",
+    "HttpArrowRepositoryTableAccessProvider",
     "UnwiredRepositoryTableAccessProvider",
+    "build_http_repository_provider_factory",
     "build_unwired_repository_provider_factory",
     "load_repository_bearer_token",
 ]

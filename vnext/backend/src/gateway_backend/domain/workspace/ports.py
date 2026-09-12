@@ -7,6 +7,7 @@ from typing import Protocol, runtime_checkable
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
     IdentityContext,
+    PreviewAcceptanceRecord,
     PreviewResult,
     ResolvedScope,
     UploadRevision,
@@ -52,8 +53,11 @@ class WorkspaceRepository(Protocol):
         self,
         workspace_id: str,
         idempotency_key: str,
-    ) -> PreviewResult | None:
+    ) -> PreviewAcceptanceRecord | None:
         """Return a prior preview acceptance for the same workspace idempotency key."""
+
+    def save_preview_acceptance(self, record: PreviewAcceptanceRecord) -> None:
+        """Persist preview acceptance idempotency bound to an Operation id."""
 
     def save_workspace(self, workspace: Workspace, *, expected_version: int) -> Workspace:
         """Persist workspace state with optimistic-version CAS."""

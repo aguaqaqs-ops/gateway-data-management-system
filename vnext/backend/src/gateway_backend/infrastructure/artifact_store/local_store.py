@@ -54,9 +54,40 @@ class LocalArtifactStore:
         except (OSError, ValueError, CanonicalEncodingError):
             raise ManifestVerificationError("artifact write failed") from None
 
+    def put_from_path(self, source: Path, ref: ArtifactRef) -> ArtifactRef:
+        try:
+            return self._put_from_path(source, ref)
+        except ManifestVerificationError:
+            raise
+        except (OSError, ValueError, CanonicalEncodingError):
+            raise ManifestVerificationError("artifact write failed") from None
+
     def _put(self, raw_bytes: bytes, ref: ArtifactRef) -> ArtifactRef:
         validate_artifact_ref_model(ref)
         self._verify_raw(raw_bytes, ref)
+        return self._commit_bytes(raw_bytes, ref)
+
+    def _put_from_path(self, source: Path, ref: ArtifactRef) -> ArtifactRef:
+        validate_artifact_ref_model(ref)
+        self._verify_path(source, ref)
+        existing = self._refs_by_artifact_id.get(ref.artifact_id)
+        if existing is not None and existing != ref:
+            raise ManifestVerificationError("artifact_id already identifies a different artifact")
+        target, sidecar = self._validated_paths(ref.artifact_id)
+        self._reject_on_disk_identity_mismatch(sidecar, ref)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        sidecar_temp: Path | None = None
+        try:
+            os.replace(source, target)
+            sidecar_temp = self._write_ref_sidecar_atomic(sidecar, ref)
+            sidecar_temp = None
+        finally:
+            if sidecar_temp is not None and sidecar_temp.exists():
+                sidecar_temp.unlink()
+        self._refs_by_artifact_id[ref.artifact_id] = ref
+        return ref
+
+    def _commit_bytes(self, raw_bytes: bytes, ref: ArtifactRef) -> ArtifactRef:
         existing = self._refs_by_artifact_id.get(ref.artifact_id)
         if existing is not None and existing != ref:
             raise ManifestVerificationError("artifact_id already identifies a different artifact")
@@ -114,6 +145,23 @@ class LocalArtifactStore:
         if len(raw_bytes) != ref.size_bytes:
             raise ManifestVerificationError("stored size_bytes mismatch")
         if raw_blob_digest(raw_bytes).value != ref.raw_sha256.value:
+            raise ManifestVerificationError("stored raw_sha256 mismatch")
+
+    @staticmethod
+    def _verify_path(source: Path, ref: ArtifactRef) -> None:
+        hasher = hashlib.sha256()
+        total = 0
+        with source.open("rb") as handle:
+            while True:
+                chunk = handle.read(64 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                hasher.update(chunk)
+        if total != ref.size_bytes:
+            raise ManifestVerificationError("stored size_bytes mismatch")
+        digest = "sha256:" + hasher.hexdigest()
+        if digest != ref.raw_sha256.value:
             raise ManifestVerificationError("stored raw_sha256 mismatch")
 
     def _load_stored_ref(self, artifact_id: str) -> ArtifactRef:

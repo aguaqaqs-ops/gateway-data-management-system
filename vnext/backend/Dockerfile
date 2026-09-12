@@ -6,6 +6,8 @@ WORKDIR /build/backend
 COPY backend/pyproject.toml backend/uv.lock backend/.python-version backend/README.md ./
 COPY rust /build/rust
 COPY shared_kernel /build/shared_kernel
+COPY repository_client /build/repository_client
+COPY repository_contracts /build/repository_contracts
 RUN uv python install 3.14.6
 RUN uv sync --frozen --no-install-project
 RUN rm -rf /build/wheels \
@@ -22,6 +24,8 @@ RUN pip install --no-cache-dir uv==${UV_VERSION}
 WORKDIR /app/backend
 COPY rust /app/rust
 COPY shared_kernel /app/shared_kernel
+COPY repository_client /app/repository_client
+COPY repository_contracts /app/repository_contracts
 COPY backend/pyproject.toml backend/uv.lock backend/.python-version backend/README.md ./
 RUN uv sync \
     --frozen \

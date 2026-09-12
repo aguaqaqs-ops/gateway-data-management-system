@@ -96,11 +96,21 @@ def test_dockerfile_uv_lock_sha256_matches_lockfile() -> None:
     assert _dockerfile_uv_lock_default() == _uv_lock_sha256()
 
 
-def test_compose_defines_repository_service_on_p2_r2_profile() -> None:
+def test_compose_repository_service_is_in_default_reachable_graph() -> None:
     compose = COMPOSE.read_text(encoding="utf-8")
     service = _service_block(compose, "repository-service")
-    assert 'profiles: ["p2-r2"]' in service
+    assert "profiles:" not in service
     assert "repository_service/Dockerfile" in service
+    backend = _service_block(compose, "backend")
+    worker = _service_block(compose, "worker")
+    assert "depends_on:" in backend
+    assert "condition: service_healthy" in backend
+    assert "depends_on:" in worker
+    assert "condition: service_healthy" in worker
+    assert "ports:" not in worker
+    assert "GATEWAY_BACKEND_SESSION_FILE" in backend
+    assert "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE" in backend
+    assert "GATEWAY_BACKEND_OPERATION_WORKER_PROVISIONED_MAPPING_FILE" in worker
 
 
 def test_compose_repository_probe_unchanged_on_p2_r1_profile() -> None:

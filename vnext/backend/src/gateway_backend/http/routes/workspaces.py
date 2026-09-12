@@ -46,6 +46,15 @@ def create_or_get_workspace_route(
             message="gateway admission is closed for new work",
             status_code=429,
         )
+    if (
+        body.gateway_device_external_key != context.gateway_device_external_key
+        or body.business_project_id != context.business_project_id
+    ):
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="resource not found",
+            status_code=404,
+        )
     result = create_or_get_workspace(
         context=context,
         scope_resolution=deps.scope_resolution,

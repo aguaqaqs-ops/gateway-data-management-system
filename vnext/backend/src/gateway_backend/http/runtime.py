@@ -17,12 +17,14 @@ from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.domain.workspace.errors import ScopeResolutionError
 from gateway_backend.domain.workspace.models import (
     IdentityContext,
+    PreviewAcceptanceRecord,
     PreviewResult,
     ResolvedScope,
     UploadRevision,
     Workspace,
     WorkspaceScope,
 )
+from gateway_backend.http.auth import BearerSessionPort, load_session_file
 from gateway_backend.http.dependencies import (
     ClosableAdmissionGate,
     ReadOnlyOperationStore,
@@ -38,10 +40,12 @@ from gateway_backend.infrastructure.control_db import (
     ControlDbUnitOfWork,
     initialize_and_verify_control_db,
 )
-from gateway_backend.infrastructure.repository_read import (
-    FailClosedBaselineHeadRead,
-    load_repository_bearer_token,
+from gateway_backend.infrastructure.control_db.sqlite_mapping import (
+    ProvisionedBaselineHeadRead,
+    ProvisionedScopeResolution,
+    seed_provisioned_mappings,
 )
+from gateway_backend.infrastructure.repository_read import load_repository_bearer_token
 from gateway_backend.settings import BackendSettings
 
 
@@ -95,9 +99,17 @@ class TransactionWorkspaceRepository:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.find_upload_idempotency(workspace_id, idempotency_key)
 
-    def find_preview_idempotency(self, workspace_id: str, idempotency_key: str) -> PreviewResult | None:
+    def find_preview_idempotency(
+        self,
+        workspace_id: str,
+        idempotency_key: str,
+    ) -> PreviewAcceptanceRecord | None:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.find_preview_idempotency(workspace_id, idempotency_key)
+
+    def save_preview_acceptance(self, record: PreviewAcceptanceRecord) -> None:
+        with self._write_uow() as unit_of_work:
+            unit_of_work.workspace.save_preview_acceptance(record)
 
     def save_workspace(self, workspace: Workspace, *, expected_version: int) -> Workspace:
         with self._write_uow() as unit_of_work:
@@ -136,17 +148,25 @@ def prepare_backend_runtime(settings: BackendSettings) -> BackendRuntime:
     """Validate settings, SQLite, artifact root, and preview registry before /readyz."""
 
     load_repository_bearer_token(settings.repository_bearer_token_file)
+    sessions = load_session_file(settings.session_file)
     validate_artifact_root(settings.artifact_root)
     parent = settings.control_db_path.parent
     parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     if not parent.is_dir():
         raise ValueError("control DB parent is not a directory")
     initialize_and_verify_control_db(settings.control_db_path)
+    seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file)
     registry = build_preview_job_registry()
     assert_preview_registry_ready(registry)
     local_store = LocalArtifactStore(settings.artifact_root)
+
+    def is_protected(artifact_id: str) -> bool:
+        with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+            return unit_of_work.protection.is_protected(artifact_id)
+
     artifact_store = BoundedArtifactStore(
         local_store,
+        is_protected=is_protected,
         unpinned_ttl=timedelta(seconds=settings.cleanup_unpinned_ttl_seconds),
     )
     admission_gate = ClosableAdmissionGate()
@@ -155,9 +175,9 @@ def prepare_backend_runtime(settings: BackendSettings) -> BackendRuntime:
         return ControlDbUnitOfWork(settings.control_db_path)
 
     workspace_http = WorkspaceHttpDependencies(
-        session_port=FailClosedSessionPort(),
-        scope_resolution=FailClosedScopeResolution(),
-        baseline_head_read=FailClosedBaselineHeadRead(),
+        session_port=BearerSessionPort(sessions),
+        scope_resolution=ProvisionedScopeResolution(settings.control_db_path),
+        baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),
         workspace_repository=TransactionWorkspaceRepository(settings.control_db_path),
         unit_of_work_factory=unit_of_work_factory,
         artifact_store=artifact_store,

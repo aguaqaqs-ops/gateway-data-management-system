@@ -8,7 +8,8 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from signal import Signals
 from types import FrameType
 from typing import Any, cast
@@ -28,19 +29,27 @@ from gateway_backend.application.preview_jobs import (
     PREVIEW_JOB_KIND,
     PreviewRuntimeDependencies,
     RepositoryProviderFactory,
+    bind_control_transaction_factory,
     build_preview_recovery_port,
     preview_composition_bundle,
 )
 from gateway_backend.application.synthetic_jobs import build_external_effect_stub_recovery_port
-from gateway_backend.infrastructure.artifact_store import LocalArtifactStore, validate_artifact_root
+from gateway_backend.infrastructure.artifact_store import (
+    BoundedArtifactStore,
+    LocalArtifactStore,
+    validate_artifact_root,
+)
 from gateway_backend.infrastructure.control_db import (
     ControlDbIntegrityError,
     ControlDbUnitOfWork,
     initialize_and_verify_control_db,
 )
+from gateway_backend.infrastructure.control_db.sqlite_mapping import (
+    ProvisionedBaselineHeadRead,
+    seed_provisioned_mappings,
+)
 from gateway_backend.infrastructure.repository_read import (
-    FailClosedBaselineHeadRead,
-    build_unwired_repository_provider_factory,
+    build_http_repository_provider_factory,
     load_repository_bearer_token,
 )
 from gateway_backend.operations import OperationRecord, OperationUnitOfWork, StepRecord
@@ -106,13 +115,62 @@ def build_job_worker_composition_for_settings(
         raise ValueError("definitions must be a tuple")
     bound_handlers = {} if handlers is None else dict(handlers)
     bound_decoders = {} if payload_decoders is None else dict(payload_decoders)
-    artifact_store = LocalArtifactStore(settings.artifact_root)
+    local_store = LocalArtifactStore(settings.artifact_root)
+    artifact_store = BoundedArtifactStore(
+        local_store,
+        is_protected=lambda artifact_id: _artifact_is_protected(settings.control_db_path, artifact_id),
+        unpinned_ttl=timedelta(hours=24),
+    )
     return build_job_worker_composition(
         definitions,
         bound_handlers,
         artifact_store=artifact_store,
         decoders=bound_decoders,
     )
+
+
+def build_production_preview_dependencies(
+    settings: OperationWorkerSettings,
+) -> tuple[PreviewRuntimeDependencies, WriteUnitOfWorkFactory]:
+    """Compose production Preview ports: Bounded store, HTTP/Arrow adapter, mapping Head."""
+
+    validate_artifact_root(settings.artifact_root)
+    token = load_repository_bearer_token(settings.repository_bearer_token_file)
+    bootstrap_control_database(settings)
+    seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file)
+    local_store = LocalArtifactStore(settings.artifact_root)
+    artifact_store = BoundedArtifactStore(
+        local_store,
+        is_protected=lambda artifact_id: _artifact_is_protected(settings.control_db_path, artifact_id),
+        unpinned_ttl=timedelta(hours=24),
+    )
+
+    def control_transaction_factory() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(settings.control_db_path)
+
+    preview_deps = PreviewRuntimeDependencies(
+        artifact_store=artifact_store,
+        repository_provider_factory=cast(
+            RepositoryProviderFactory,
+            build_http_repository_provider_factory(
+                base_url=settings.repository_base_url,
+                bearer_token=token,
+                timeout_seconds=settings.repository_timeout_seconds,
+            ),
+        ),
+        baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),
+        control_transaction_factory=control_transaction_factory,
+    )
+    write_uow_factory = cast(
+        WriteUnitOfWorkFactory,
+        bind_control_transaction_factory(control_transaction_factory),
+    )
+    return preview_deps, write_uow_factory
+
+
+def _artifact_is_protected(db_path: Path, artifact_id: str) -> bool:
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        return unit_of_work.protection.is_protected(artifact_id)
 
 
 def bootstrap_control_database(settings: OperationWorkerSettings) -> None:
@@ -137,6 +195,7 @@ def build_worker_runtime(
     payload_decoders: Mapping[str, PayloadDecoder] | None = None,
     external_effect_stub: object | None = None,
     preview_recovery: RecoveryPort | None = None,
+    write_uow_factory: WriteUnitOfWorkFactory | None = None,
 ) -> WorkerRuntime:
     """Compose the SQLite-backed worker with the immutable R4 registry adapter."""
 
@@ -159,8 +218,10 @@ def build_worker_runtime(
     def read_uow_factory() -> OperationUnitOfWork:
         return ControlDbUnitOfWork(settings.control_db_path, read_only=True)
 
-    def write_uow_factory() -> OperationUnitOfWork:
+    def default_write_uow_factory() -> OperationUnitOfWork:
         return ControlDbUnitOfWork(settings.control_db_path)
+
+    resolved_write_uow_factory = write_uow_factory or default_write_uow_factory
 
     startup_observer = _StartupObserver(observer)
     jitter = _deterministic_jitter
@@ -173,7 +234,7 @@ def build_worker_runtime(
         return RecoveryCapabilityValue(definition.recovery_capability.value)
 
     startup_recovery = build_startup_recovery(
-        write_uow_factory=write_uow_factory,
+        write_uow_factory=resolved_write_uow_factory,
         capability_lookup=capability_lookup,
         jitter=jitter,
         now_factory=now_factory,
@@ -187,7 +248,7 @@ def build_worker_runtime(
     )
     startup = _R4WorkerStartup(
         read_uow_factory=read_uow_factory,
-        write_uow_factory=write_uow_factory,
+        write_uow_factory=resolved_write_uow_factory,
         registry=recovery_registry,
         definition_registry=composition.definition_registry,
         recovery_hook=_fail_closed_recovery,
@@ -207,7 +268,7 @@ def build_worker_runtime(
     )
     return WorkerRuntime(
         startup=cast(WorkerStartup, bounded_startup),
-        write_uow_factory=write_uow_factory,
+        write_uow_factory=resolved_write_uow_factory,
         observer=observer,
         lifecycle=lifecycle,
         monotonic=monotonic,
@@ -229,23 +290,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             # Required paths and repository settings are normally supplied by the env prefix.
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
             previous_handlers = _install_signal_handlers(stop_requested)
-            validate_artifact_root(configured.artifact_root)
-            token = load_repository_bearer_token(configured.repository_bearer_token_file)
-            bootstrap_control_database(configured)
-            artifact_store = LocalArtifactStore(configured.artifact_root)
-
-            def control_transaction_factory() -> ControlDbUnitOfWork:
-                return ControlDbUnitOfWork(configured.control_db_path)
-
-            preview_deps = PreviewRuntimeDependencies(
-                artifact_store=artifact_store,
-                repository_provider_factory=cast(
-                    RepositoryProviderFactory,
-                    build_unwired_repository_provider_factory(token),
-                ),
-                baseline_head_read=FailClosedBaselineHeadRead(),
-                control_transaction_factory=control_transaction_factory,
-            )
+            preview_deps, write_uow_factory = build_production_preview_dependencies(configured)
             definitions, handlers, decoders = preview_composition_bundle(preview_deps)
             runtime = build_worker_runtime(
                 configured,
@@ -253,6 +298,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
                 handlers=handlers,
                 payload_decoders=decoders,
                 preview_recovery=build_preview_recovery_port(preview_deps),
+                write_uow_factory=write_uow_factory,
             )
         except ValidationError:
             _LOGGER.error("operation_worker_failed category=settings_invalid")

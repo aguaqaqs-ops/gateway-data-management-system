@@ -426,14 +426,53 @@ def _workspace_v1_statements() -> tuple[str, ...]:
             request_fingerprint TEXT NOT NULL
                 CHECK (typeof(request_fingerprint) = 'text'
                        AND length(request_fingerprint) BETWEEN 1 AND 512),
-            preview_result_id TEXT NOT NULL
-                CHECK (typeof(preview_result_id) = 'text'
-                       AND length(preview_result_id) BETWEEN 1 AND 255),
+            operation_id TEXT NOT NULL
+                CHECK (typeof(operation_id) = 'text'
+                       AND length(operation_id) BETWEEN 1 AND 255),
+            upload_revision_id TEXT NOT NULL
+                CHECK (typeof(upload_revision_id) = 'text'
+                       AND length(upload_revision_id) BETWEEN 1 AND 255),
+            generation INTEGER NOT NULL
+                CHECK (typeof(generation) = 'integer' AND generation >= 0),
+            business_baseline_node_id TEXT NOT NULL
+                CHECK (typeof(business_baseline_node_id) = 'text'
+                       AND length(business_baseline_node_id) BETWEEN 1 AND 255),
+            baseline_head_version INTEGER NOT NULL
+                CHECK (typeof(baseline_head_version) = 'integer' AND baseline_head_version >= 0),
             PRIMARY KEY (workspace_id, idempotency_key),
             FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
-            FOREIGN KEY (preview_result_id) REFERENCES preview_result_records(preview_result_id)
+            FOREIGN KEY (operation_id) REFERENCES operation_records(operation_id) ON DELETE RESTRICT,
+            FOREIGN KEY (upload_revision_id) REFERENCES upload_revision_records(upload_revision_id)
                 ON DELETE RESTRICT
         )
+        """,
+        """
+        CREATE TABLE provisioned_scope_mappings (
+            gateway_device_external_key TEXT NOT NULL
+                CHECK (typeof(gateway_device_external_key) = 'text'
+                       AND length(gateway_device_external_key) BETWEEN 1 AND 255),
+            business_project_id TEXT NOT NULL
+                CHECK (typeof(business_project_id) = 'text'
+                       AND length(business_project_id) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
+            business_baseline_node_id TEXT NOT NULL
+                CHECK (typeof(business_baseline_node_id) = 'text'
+                       AND length(business_baseline_node_id) BETWEEN 1 AND 255),
+            business_baseline_commit_id TEXT NOT NULL
+                CHECK (typeof(business_baseline_commit_id) = 'text'
+                       AND length(business_baseline_commit_id) BETWEEN 1 AND 255),
+            baseline_head_version INTEGER NOT NULL
+                CHECK (typeof(baseline_head_version) = 'integer' AND baseline_head_version >= 0),
+            enabled INTEGER NOT NULL
+                CHECK (typeof(enabled) = 'integer' AND enabled IN (0, 1)),
+            PRIMARY KEY (gateway_device_external_key, business_project_id)
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX provisioned_scope_mappings_one_active_device
+            ON provisioned_scope_mappings(gateway_device_external_key)
+            WHERE enabled = 1
         """,
         """
         CREATE TABLE artifact_protection_intents (

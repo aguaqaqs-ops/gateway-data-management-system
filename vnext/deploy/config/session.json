@@ -1,0 +1,15 @@
+{
+  "sessions": [
+    {
+      "token": "local-dev-session-token",
+      "actor_id": "local-dev-actor",
+      "gateway_device_external_key": "local-dev-device",
+      "business_project_id": "local-dev-project",
+      "permissions": [
+        "workspace_read",
+        "upload_submit_workspace",
+        "preview_workspace"
+      ]
+    }
+  ]
+}

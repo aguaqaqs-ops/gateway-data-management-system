@@ -1,0 +1,13 @@
+{
+  "mappings": [
+    {
+      "gateway_device_external_key": "local-dev-device",
+      "business_project_id": "local-dev-project",
+      "repository_id": "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11",
+      "business_baseline_node_id": "local-dev-node",
+      "business_baseline_commit_id": "local-dev-commit",
+      "baseline_head_version": 0,
+      "enabled": true
+    }
+  ]
+}

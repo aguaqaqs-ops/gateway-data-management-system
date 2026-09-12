@@ -13,6 +13,7 @@ from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 from gateway_backend.domain.workspace.errors import OpenWorkspaceConflict, WorkspaceVersionConflict
 from gateway_backend.domain.workspace.models import (
     InputCompleteness,
+    PreviewAcceptanceRecord,
     PreviewResult,
     PreviewResultDigests,
     SourceArtifactBinding,
@@ -133,20 +134,29 @@ class SQLiteWorkspaceRepository:
         self,
         workspace_id: str,
         idempotency_key: str,
-    ) -> PreviewResult | None:
+    ) -> PreviewAcceptanceRecord | None:
         row = self._connection.execute(
             """
-            SELECT pr.preview_result_id, pr.workspace_id, pr.upload_revision_id, pr.generation,
-                   pr.repository_id, pr.binding, pr.operation_id, pr.created_at_us
-            FROM preview_idempotency_records AS pi
-            JOIN preview_result_records AS pr ON pr.preview_result_id = pi.preview_result_id
-            WHERE pi.workspace_id = ? AND pi.idempotency_key = ?
+            SELECT workspace_id, idempotency_key, request_fingerprint, operation_id,
+                   upload_revision_id, generation, business_baseline_node_id, baseline_head_version
+            FROM preview_idempotency_records
+            WHERE workspace_id = ? AND idempotency_key = ?
             """,
             (workspace_id, idempotency_key),
         ).fetchone()
         if row is None:
             return None
-        return preview_result_from_row(_row_mapping(row))
+        mapping = _row_mapping(row)
+        return PreviewAcceptanceRecord(
+            workspace_id=_required_text(mapping, "workspace_id"),
+            idempotency_key=_required_text(mapping, "idempotency_key"),
+            request_fingerprint=_required_text(mapping, "request_fingerprint"),
+            operation_id=_required_text(mapping, "operation_id"),
+            upload_revision_id=_required_text(mapping, "upload_revision_id"),
+            generation=_required_int(mapping, "generation"),
+            business_baseline_node_id=_required_text(mapping, "business_baseline_node_id"),
+            baseline_head_version=_required_int(mapping, "baseline_head_version"),
+        )
 
     def save_workspace(self, workspace: Workspace, *, expected_version: int) -> Workspace:
         self._require_writable()
@@ -239,6 +249,27 @@ class SQLiteWorkspaceRepository:
             ),
         )
 
+    def save_preview_acceptance(self, record: PreviewAcceptanceRecord) -> None:
+        self._require_writable()
+        self._connection.execute(
+            """
+            INSERT INTO preview_idempotency_records (
+                workspace_id, idempotency_key, request_fingerprint, operation_id,
+                upload_revision_id, generation, business_baseline_node_id, baseline_head_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.workspace_id,
+                record.idempotency_key,
+                record.request_fingerprint,
+                record.operation_id,
+                record.upload_revision_id,
+                record.generation,
+                record.business_baseline_node_id,
+                record.baseline_head_version,
+            ),
+        )
+
     def save_preview_result(self, result: PreviewResult) -> None:
         self._require_writable()
         self._connection.execute(
@@ -249,24 +280,6 @@ class SQLiteWorkspaceRepository:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             preview_result_to_row(result),
-        )
-
-    def save_preview_idempotency(
-        self,
-        *,
-        workspace_id: str,
-        idempotency_key: str,
-        request_fingerprint: str,
-        preview_result_id: str,
-    ) -> None:
-        self._require_writable()
-        self._connection.execute(
-            """
-            INSERT INTO preview_idempotency_records (
-                workspace_id, idempotency_key, request_fingerprint, preview_result_id
-            ) VALUES (?, ?, ?, ?)
-            """,
-            (workspace_id, idempotency_key, request_fingerprint, preview_result_id),
         )
 
     def _require_writable(self) -> None:

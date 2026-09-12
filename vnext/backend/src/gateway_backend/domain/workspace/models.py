@@ -78,6 +78,36 @@ class BaselineHead:
 
 
 @dataclass(frozen=True, slots=True)
+class PreviewAcceptanceRecord:
+    workspace_id: str
+    idempotency_key: str
+    request_fingerprint: str
+    operation_id: str
+    upload_revision_id: str
+    generation: int
+    business_baseline_node_id: str
+    baseline_head_version: int
+
+    def __post_init__(self) -> None:
+        if type(self.workspace_id) is not str or not self.workspace_id:
+            raise ValueError("workspace_id must be a non-empty string")
+        if type(self.idempotency_key) is not str or not self.idempotency_key:
+            raise ValueError("idempotency_key must be a non-empty string")
+        if type(self.request_fingerprint) is not str or not self.request_fingerprint:
+            raise ValueError("request_fingerprint must be a non-empty string")
+        if type(self.operation_id) is not str or not self.operation_id:
+            raise ValueError("operation_id must be a non-empty string")
+        if type(self.upload_revision_id) is not str or not self.upload_revision_id:
+            raise ValueError("upload_revision_id must be a non-empty string")
+        if type(self.generation) is not int or self.generation < 0:
+            raise ValueError("generation must be a non-negative integer")
+        if type(self.business_baseline_node_id) is not str or not self.business_baseline_node_id:
+            raise ValueError("business_baseline_node_id must be a non-empty string")
+        if type(self.baseline_head_version) is not int or self.baseline_head_version < 0:
+            raise ValueError("baseline_head_version must be a non-negative integer")
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedScope:
     repository_id: str
     baseline_head: BaselineHead

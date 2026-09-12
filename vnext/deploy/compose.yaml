@@ -11,11 +11,18 @@ services:
       GATEWAY_BACKEND_REPOSITORY_BASE_URL: ${GATEWAY_BACKEND_REPOSITORY_BASE_URL:-http://repository-service:8000}
       GATEWAY_BACKEND_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
       GATEWAY_BACKEND_REPOSITORY_TIMEOUT_SECONDS: "30.0"
+      GATEWAY_BACKEND_SESSION_FILE: /run/gateway/session.json
+      GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE: /run/gateway/provisioned-mapping.json
     volumes:
       - backend-artifacts:/var/lib/gateway/artifacts
       - backend-control:/var/lib/gateway/control
+      - ${GATEWAY_BACKEND_SESSION_FILE:-./config/session.json}:/run/gateway/session.json:ro
+      - ${GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE:-./config/provisioned-mapping.json}:/run/gateway/provisioned-mapping.json:ro
     secrets:
       - repository-bearer-token
+    depends_on:
+      repository-service:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -37,11 +44,16 @@ services:
       GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL: ${GATEWAY_BACKEND_REPOSITORY_BASE_URL:-http://repository-service:8000}
       GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
       GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_TIMEOUT_SECONDS: "30.0"
+      GATEWAY_BACKEND_OPERATION_WORKER_PROVISIONED_MAPPING_FILE: /run/gateway/provisioned-mapping.json
     volumes:
       - backend-artifacts:/var/lib/gateway/artifacts
       - backend-control:/var/lib/gateway/control
+      - ${GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE:-./config/provisioned-mapping.json}:/run/gateway/provisioned-mapping.json:ro
     secrets:
       - repository-bearer-token
+    depends_on:
+      repository-service:
+        condition: service_healthy
   repository-probe:
     profiles: ["p2-r1"]
     cgroup: host
@@ -85,7 +97,6 @@ services:
         target: /run/gateway-p2r1
         read_only: true
   repository-service:
-    profiles: ["p2-r2"]
     image: ${GATEWAY_REPOSITORY_SERVICE_IMAGE:-gateway-repository-service:local}
     build:
       context: ..
@@ -130,7 +141,7 @@ services:
       start_period: 30s
 secrets:
   repository-bearer-token:
-    file: ${GATEWAY_P2R2_BEARER_TOKEN_FILE:-/dev/null}
+    file: ${GATEWAY_P2R2_BEARER_TOKEN_FILE}
 volumes:
   backend-artifacts:
   backend-control:

@@ -10,6 +10,7 @@ from gateway_backend.domain.workspace.models import (
     BaselineHead,
     IdentityContext,
     InputCompleteness,
+    PreviewAcceptanceRecord,
     PreviewResult,
     SourceArtifactBinding,
     SourceArtifactRole,
@@ -63,7 +64,7 @@ class StartPreviewValidationResult:
     upload_revision: UploadRevision
     baseline_head: BaselineHead
     replay: bool
-    prior_result: PreviewResult | None
+    prior_acceptance: PreviewAcceptanceRecord | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +85,6 @@ def compute_upload_request_fingerprint(
 ) -> str:
     artifact_payload = {
         role.value: {
-            "artifact_id": binding.artifact_id,
             "media_type": binding.media_type,
             "size_bytes": binding.size_bytes,
             "raw_sha256": binding.raw_sha256,

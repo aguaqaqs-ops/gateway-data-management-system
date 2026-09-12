@@ -86,15 +86,27 @@ from gateway_backend.capabilities.risk_evaluation import (
     RiskRulesetSnapshot,
     evaluate_risk,
 )
+from gateway_backend.capabilities.snapshot_materialization.artifact import (
+    ArtifactPublishError,
+    open_snapshot_table_artifact,
+)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
     RepositoryRefMaterializationRequest,
     RepositoryTableAccessProvider,
+    ROW_MATERIALIZATION_PROFILE,
+    SCALAR_ENCODING_VERSION,
+    SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
+    SourceKind,
+    Snapshot,
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
+    SnapshotSourceContext,
+    SnapshotSummary,
     SnapshotTableSet,
+    SUMMARY_CONTRACT_VERSION,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SqlSnapshotMaterializationRequest,
@@ -160,21 +172,21 @@ from gateway_backend.operations.worker import (
     ExecutorAcknowledgment,
 )
 
-PREVIEW_JOB_KIND = "backend-vnext.preview"
-PREVIEW_JOB_CONTRACT_VERSION = "backend-vnext.preview.v1"
+PREVIEW_JOB_KIND = "backend-vnext/preview"
+PREVIEW_JOB_CONTRACT_VERSION = "backend-vnext/preview/v1"
 PREVIEW_STEP_MATERIALIZE = "materialize_inputs"
 PREVIEW_STEP_ASSEMBLE = "assemble_preview"
 PREVIEW_STEP_PUBLISH = "publish_preview"
 
-PREVIEW_MATERIALIZE_DECODER = "backend-vnext.preview/materialize/decoder/v1"
-PREVIEW_ASSEMBLE_DECODER = "backend-vnext.preview/assemble/decoder/v1"
-PREVIEW_PUBLISH_DECODER = "backend-vnext.preview/publish/decoder/v1"
-PREVIEW_MATERIALIZE_HANDLER = "backend-vnext.preview/materialize/handler/v1"
-PREVIEW_ASSEMBLE_HANDLER = "backend-vnext.preview/assemble/handler/v1"
-PREVIEW_PUBLISH_HANDLER = "backend-vnext.preview/publish/handler/v1"
+PREVIEW_MATERIALIZE_DECODER = "backend-vnext/preview/materialize/decoder/v1"
+PREVIEW_ASSEMBLE_DECODER = "backend-vnext/preview/assemble/decoder/v1"
+PREVIEW_PUBLISH_DECODER = "backend-vnext/preview/publish/decoder/v1"
+PREVIEW_MATERIALIZE_HANDLER = "backend-vnext/preview/materialize/handler/v1"
+PREVIEW_ASSEMBLE_HANDLER = "backend-vnext/preview/assemble/handler/v1"
+PREVIEW_PUBLISH_HANDLER = "backend-vnext/preview/publish/handler/v1"
 
-PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext.preview/materialize-side/v1"
-PREVIEW_ASSEMBLE_CHECKPOINT_CONTRACT_VERSION = "backend-vnext.preview/assemble-checkpoint/v1"
+PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/preview/materialize-side/v1"
+PREVIEW_ASSEMBLE_CHECKPOINT_CONTRACT_VERSION = "backend-vnext/preview/assemble-checkpoint/v1"
 _JCS_MEDIA_TYPE = "application/jcs"
 
 _SIDE_BASELINE = "BASELINE"
@@ -240,6 +252,15 @@ class PreviewControlTransaction(Protocol):
 
     @property
     def transaction_now(self) -> datetime: ...
+
+    def set_artifact_protection(
+        self,
+        refs: tuple[ArtifactRef, ...],
+        *,
+        owner_kind: str,
+        owner_id: str,
+        intent: str,
+    ) -> bool: ...
 
 
 PreviewControlTransactionFactory = Callable[[], ContextManager[PreviewControlTransaction]]
@@ -491,11 +512,14 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                     "checkpoint envelope does not match the preview materialize JobDefinition",
                     code="CHECKPOINT_IDENTITY_MISMATCH",
                 )
-            if envelope.job_state.get(_JOB_STATE_SIDES) is None:
-                raise CheckpointDecodeError(
-                    "materialize checkpoint is missing side bindings",
-                    code="CHECKPOINT_JOB_STATE_MISMATCH",
-                )
+            sides = _sides_from_materialize_checkpoint(envelope.job_state, deps.artifact_store)
+            _pin_preview_refs(
+                deps,
+                (step.checkpoint_ref, *_closed_refs_from_sides(sides)),
+                owner_kind="preview-checkpoint",
+                owner_id=step.step_id,
+                intent="materialize-checkpoint",
+            )
         else:
             sides = _materialize_all_sides(payload, deps)
             envelope = envelope_for_step(
@@ -506,11 +530,18 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                 job_state={
                     _JOB_STATE_INPUT_COMPLETENESS: payload.input_completeness.value,
                     _JOB_STATE_BASELINE_COMMIT: payload.business_baseline_commit_id,
-                    _JOB_STATE_SIDES: _serialize_sides(sides, payload.input_completeness),
+                    _JOB_STATE_SIDES: _serialize_sides(sides, payload),
                 },
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref))
+            _pin_preview_refs(
+                deps,
+                (checkpoint_ref, *_closed_refs_from_sides(sides)),
+                owner_kind="preview-checkpoint",
+                owner_id=step.step_id,
+                intent="materialize-checkpoint",
+            )
 
         lease_session.refresh_control()
         if control.cancel_requested:
@@ -561,8 +592,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                 "materialize checkpoint does not match the preview JobDefinition",
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
-        sides = _materialize_all_sides(payload, deps)
-        _verify_materialize_checkpoint(materialize_envelope.job_state, sides, payload.input_completeness)
+        sides = _sides_from_materialize_checkpoint(materialize_envelope.job_state, deps.artifact_store)
 
         if step.checkpoint_ref is not None:
             envelope = load_checkpoint_envelope(deps.artifact_store, step.checkpoint_ref)
@@ -612,6 +642,13 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref))
+            _pin_preview_refs(
+                deps,
+                (checkpoint_ref, closure_ref, bundle_manifest_ref, *ready_refs),
+                owner_kind="preview-checkpoint",
+                owner_id=step.step_id,
+                intent="assemble-checkpoint",
+            )
 
         lease_session.refresh_control()
         if control.cancel_requested:
@@ -785,32 +822,6 @@ def _persist_preview_business_state(
         updated_at=transaction_now,
     )
     unit_of_work.workspace.save_workspace(updated_workspace, expected_version=workspace.optimistic_version)
-    _save_preview_idempotency(
-        unit_of_work.workspace,
-        workspace_id=payload.workspace_id,
-        idempotency_key=payload.idempotency_identity.idempotency_key,
-        request_fingerprint=payload.input_digest,
-        preview_result_id=preview_result.preview_result_id,
-    )
-
-
-def _save_preview_idempotency(
-    workspace_repo: WorkspaceRepository,
-    *,
-    workspace_id: str,
-    idempotency_key: str,
-    request_fingerprint: str,
-    preview_result_id: str,
-) -> None:
-    save = getattr(workspace_repo, "save_preview_idempotency", None)
-    if not callable(save):
-        raise PreviewJobError("workspace repository cannot persist preview idempotency")
-    save(
-        workspace_id=workspace_id,
-        idempotency_key=idempotency_key,
-        request_fingerprint=request_fingerprint,
-        preview_result_id=preview_result_id,
-    )
 
 
 def _publication_drift(
@@ -877,7 +888,7 @@ def _materialize_baseline(
         ruleset=TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION),
         table_ruleset_version=TABLE_RULESET_VERSION,
         materialization_stage=MaterializationStage.FINAL,
-        policy=MaterializationPolicy.READERS_REQUIRED,
+        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         context=ParserInvocationContext(NeverCancel()),
         artifact_store=store,
     )
@@ -1130,6 +1141,12 @@ def _assemble_preview(
     )
     if bundle_result.status is not BundleAssemblyStatus.READY or bundle_result.bundle is None:
         raise PreviewJobError("bundle assembly failed")
+    required_refs = _required_ready_refs(
+        payload=payload,
+        sides=sides,
+        pair_results=pair_results,
+        bundle_manifest_ref=bundle_result.bundle.manifest_ref,
+    )
     assemble_state: dict[str, object] = {
         "pair_ids": [item.pair_id for item in pair_results],
         "default_view": _PAIR_INITIAL_TO_MODIFIED,
@@ -1143,6 +1160,7 @@ def _assemble_preview(
             "surface_digest": pair_results[-1].surface_digest,
             "bundle_digest": bundle_result.bundle.bundle_digest.value,
         },
+        "required_refs": [artifact_ref_to_dict(item) for item in required_refs],
     }
     return assemble_state, bundle_result.bundle.manifest_ref, bundle_result.bundle.bundle_digest.value
 
@@ -1290,37 +1308,88 @@ def _ready_closure_refs_from_assemble(
     assemble_state: dict[str, object],
     bundle_manifest_ref: ArtifactRef,
 ) -> tuple[ArtifactRef, ...]:
-    del assemble_state
-    return (bundle_manifest_ref,)
+    raw_refs = assemble_state.get("required_refs")
+    if type(raw_refs) is not list or not raw_refs:
+        raise PreviewJobError("assemble state is missing required ready-closure refs")
+    refs: list[ArtifactRef] = []
+    for item in raw_refs:
+        if type(item) is not dict:
+            raise PreviewJobError("assemble required ref is invalid")
+        refs.append(artifact_ref_from_dict(item))
+    refs.append(bundle_manifest_ref)
+    return _unique_refs(tuple(refs))
 
 
-def _verify_materialize_checkpoint(
-    job_state: Mapping[str, object],
+def _required_ready_refs(
+    *,
+    payload: PreviewJobPayload,
     sides: dict[str, BoundSnapshotInput],
-    input_completeness: InputCompleteness,
-) -> None:
-    raw_sides = job_state.get(_JOB_STATE_SIDES)
-    if type(raw_sides) is not dict:
-        raise CheckpointDecodeError("materialize checkpoint sides are invalid", code="CHECKPOINT_JOB_STATE_MISMATCH")
-    for role, bound in sides.items():
-        if role == _SIDE_INITIAL and input_completeness is InputCompleteness.MODIFIED_ONLY:
-            if raw_sides.get("initial_reuses_baseline") is not True:
-                raise CheckpointDecodeError(
-                    "modified-only checkpoint must reuse baseline for initial",
-                    code="CHECKPOINT_JOB_STATE_MISMATCH",
-                )
+    pair_results: list[_PairPipelineResult],
+    bundle_manifest_ref: ArtifactRef,
+) -> tuple[ArtifactRef, ...]:
+    refs: list[ArtifactRef] = []
+    refs.extend(_side_input_refs(sides[_SIDE_BASELINE]))
+    if payload.input_completeness is InputCompleteness.FULL:
+        refs.extend(_side_input_refs(sides[_SIDE_INITIAL]))
+        refs.extend(_side_input_refs(sides[_SIDE_MODIFIED]))
+    else:
+        refs.extend(_side_input_refs(sides[_SIDE_MODIFIED]))
+    for pair_state in pair_results:
+        if pair_state.surface_result.surface is None:
+            raise PreviewJobError("pair surface is missing from ready closure")
+        refs.extend(collect_surface_refs(pair_state.surface_result.surface))
+    refs.append(bundle_manifest_ref)
+    return _unique_refs(tuple(refs))
+
+
+def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
+    if bound.table_set is None:
+        raise PreviewJobError("snapshot table set is missing closed refs")
+    refs: list[ArtifactRef] = []
+    for table in bound.table_set.tables:
+        if table.artifact is None:
+            raise PreviewJobError(f"table {table.descriptor.table_name} is missing artifact refs")
+        refs.append(table.artifact.manifest_ref)
+        refs.extend(table.artifact.manifest.row_file_refs)
+    return tuple(refs)
+
+
+def _unique_refs(refs: tuple[ArtifactRef, ...]) -> tuple[ArtifactRef, ...]:
+    seen: set[str] = set()
+    unique: list[ArtifactRef] = []
+    for ref in refs:
+        if ref.artifact_id in seen:
             continue
-        entry = raw_sides.get(role)
-        if type(entry) is not dict:
-            raise CheckpointDecodeError(
-                f"materialize checkpoint side {role} is invalid",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        if str(entry.get("snapshot_digest")) != bound.snapshot.snapshot_digest.value:
-            raise CheckpointDecodeError(
-                f"materialize checkpoint digest mismatch for {role}",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
+        seen.add(ref.artifact_id)
+        unique.append(ref)
+    return tuple(unique)
+
+
+def _pin_preview_refs(
+    deps: PreviewRuntimeDependencies,
+    refs: tuple[ArtifactRef, ...],
+    *,
+    owner_kind: str,
+    owner_id: str,
+    intent: str,
+) -> None:
+    unique = _unique_refs(refs)
+    if not unique:
+        return
+    with deps.control_transaction_factory() as unit_of_work:
+        unit_of_work.set_artifact_protection(
+            unique,
+            owner_kind=owner_kind,
+            owner_id=owner_id,
+            intent=intent,
+        )
+
+
+def _closed_refs_from_sides(sides: dict[str, BoundSnapshotInput]) -> tuple[ArtifactRef, ...]:
+    refs: list[ArtifactRef] = []
+    for bound in sides.values():
+        refs.extend(_side_input_refs(bound))
+    return tuple(refs)
 
 
 def _load_step(
@@ -1338,31 +1407,227 @@ def _load_step(
 
 def _serialize_sides(
     sides: dict[str, BoundSnapshotInput],
-    input_completeness: InputCompleteness,
+    payload: PreviewJobPayload,
 ) -> dict[str, object]:
-    payload: dict[str, object] = {}
+    document: dict[str, object] = {}
     for role, bound in sides.items():
-        payload[role] = _side_binding_document(bound)
-    payload["initial_reuses_baseline"] = (
-        input_completeness is InputCompleteness.MODIFIED_ONLY
-    )
-    return payload
+        document[role] = _side_binding_document(bound, role=role, payload=payload)
+    document["initial_reuses_baseline"] = payload.input_completeness is InputCompleteness.MODIFIED_ONLY
+    return document
 
 
-def _side_binding_document(bound: BoundSnapshotInput) -> dict[str, object]:
+def _side_binding_document(
+    bound: BoundSnapshotInput,
+    *,
+    role: str,
+    payload: PreviewJobPayload,
+) -> dict[str, object]:
+    if bound.table_set is None:
+        raise PreviewJobError(f"{role} table set is missing closed refs")
+    tables: list[dict[str, object]] = []
+    for table in bound.table_set.tables:
+        if table.artifact is None:
+            raise PreviewJobError(f"{role} table {table.descriptor.table_name} is missing artifact refs")
+        tables.append(
+            {
+                "table_name": table.descriptor.table_name,
+                "manifest_ref": artifact_ref_to_dict(table.artifact.manifest_ref),
+                "row_file_refs": [
+                    artifact_ref_to_dict(item) for item in table.artifact.manifest.row_file_refs
+                ],
+            }
+        )
+    source_ref: dict[str, object] | None = None
+    repository_identity: dict[str, object] | None = None
+    context = bound.snapshot.source_context
+    if context.source_kind is SourceKind.IMMUTABLE_REPOSITORY_REF:
+        repository_identity = {
+            "repository_id": context.repository_id,
+            "repository_ref": context.repository_ref,
+            "resolved_commit_hash": context.resolved_commit_hash,
+        }
+    elif role == _SIDE_INITIAL and payload.input_completeness is InputCompleteness.FULL:
+        source_ref = artifact_ref_to_dict(
+            _artifact_ref_from_binding(payload.source_artifacts[SourceArtifactRole.INITIAL])
+        )
+    elif role == _SIDE_MODIFIED:
+        source_ref = artifact_ref_to_dict(
+            _artifact_ref_from_binding(payload.source_artifacts[SourceArtifactRole.MODIFIED])
+        )
     return {
         "contract_version": PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
-        "snapshot_id": bound.snapshot.snapshot_id,
+        "snapshot": _snapshot_payload(bound.snapshot),
+        "source_ref": source_ref,
+        "repository_identity": repository_identity,
         "snapshot_digest": bound.snapshot.snapshot_digest.value,
         "raw_state_digest": bound.snapshot.raw_state_digest.value,
         "summary": _summary_payload(bound.summary),
-        "table_set": _table_set_payload(bound.table_set),
+        "tables": tables,
     }
 
 
-def _summary_payload(summary: object) -> dict[str, object]:
-    from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotSummary
+def _snapshot_payload(snapshot: Snapshot) -> dict[str, object]:
+    context = snapshot.source_context
+    return {
+        "snapshot_id": snapshot.snapshot_id,
+        "source_kind": snapshot.source_kind.value,
+        "parser_version": snapshot.parser_version,
+        "table_ruleset_version": snapshot.table_ruleset_version,
+        "scalar_encoding_version": snapshot.scalar_encoding_version,
+        "snapshot_materialization_contract_version": snapshot.snapshot_materialization_contract_version,
+        "row_materialization_profile": snapshot.row_materialization_profile,
+        "materialization_stage": snapshot.materialization_stage.value,
+        "snapshot_digest": snapshot.snapshot_digest.value,
+        "raw_state_digest": snapshot.raw_state_digest.value,
+        "created_at": snapshot.created_at,
+        "source_context": {
+            "source_kind": context.source_kind.value,
+            "sql_source_digest": None if context.sql_source_digest is None else context.sql_source_digest.value,
+            "composite_logic_source_digest": (
+                None
+                if context.composite_logic_source_digest is None
+                else context.composite_logic_source_digest.value
+            ),
+            "repository_id": context.repository_id,
+            "repository_ref": context.repository_ref,
+            "resolved_commit_hash": context.resolved_commit_hash,
+        },
+    }
 
+
+def _sides_from_materialize_checkpoint(
+    job_state: Mapping[str, object],
+    store: ArtifactStorePort,
+) -> dict[str, BoundSnapshotInput]:
+    raw_sides = job_state.get(_JOB_STATE_SIDES)
+    if type(raw_sides) is not dict:
+        raise CheckpointDecodeError(
+            "materialize checkpoint sides are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    sides: dict[str, BoundSnapshotInput] = {}
+    for role in (_SIDE_BASELINE, _SIDE_INITIAL, _SIDE_MODIFIED):
+        if role == _SIDE_INITIAL and raw_sides.get("initial_reuses_baseline") is True:
+            baseline = sides.get(_SIDE_BASELINE)
+            if baseline is None:
+                raise CheckpointDecodeError(
+                    "modified-only checkpoint must reuse baseline for initial",
+                    code="CHECKPOINT_JOB_STATE_MISMATCH",
+                )
+            sides[role] = baseline
+            continue
+        entry = raw_sides.get(role)
+        if type(entry) is not dict:
+            raise CheckpointDecodeError(
+                f"materialize checkpoint side {role} is invalid",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        sides[role] = _bound_from_side_document(entry, store)
+    return sides
+
+
+def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort) -> BoundSnapshotInput:
+    tables_raw = entry.get("tables")
+    if type(tables_raw) is not list or not tables_raw:
+        raise CheckpointDecodeError(
+            "materialize checkpoint is missing closed table refs",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    opened = []
+    for item in tables_raw:
+        if type(item) is not dict:
+            raise CheckpointDecodeError(
+                "materialize checkpoint table entry is invalid",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        manifest_raw = item.get("manifest_ref")
+        if type(manifest_raw) is not dict:
+            raise CheckpointDecodeError(
+                "materialize checkpoint table is missing manifest_ref",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        try:
+            manifest_ref = artifact_ref_from_dict(manifest_raw)
+            opened.append(open_snapshot_table_artifact(store, manifest_ref))
+        except (TypeError, ValueError, KeyError, ManifestVerificationError, ArtifactPublishError) as exc:
+            raise PreviewJobError("materialize checkpoint table artifact is unreadable") from exc
+    snapshot = _snapshot_from_payload(entry.get("snapshot"))
+    if snapshot.snapshot_digest.value != str(entry.get("snapshot_digest")):
+        raise CheckpointDecodeError(
+            "materialize checkpoint digest mismatch",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    summary = SnapshotSummary(
+        snapshot_id=snapshot.snapshot_id,
+        snapshot_digest=snapshot.snapshot_digest,
+        raw_state_digest=snapshot.raw_state_digest,
+        materialization_stage=snapshot.materialization_stage,
+        parser_version=snapshot.parser_version,
+        table_ruleset_version=snapshot.table_ruleset_version,
+        summary_contract_version=SUMMARY_CONTRACT_VERSION,
+        table_count=len(opened),
+        tables=tuple(table.descriptor for table in opened),
+        source_context=snapshot.source_context,
+        diagnostics=(),
+        row_count_total=sum(table.descriptor.row_count for table in opened),
+    )
+    table_set = SnapshotTableSet(
+        snapshot_id=snapshot.snapshot_id,
+        snapshot_digest=snapshot.snapshot_digest,
+        table_ruleset_version=snapshot.table_ruleset_version,
+        tables=tuple(opened),
+    )
+    return BoundSnapshotInput(snapshot, summary, table_set)
+
+
+def _snapshot_from_payload(raw: object) -> Snapshot:
+    if type(raw) is not dict:
+        raise CheckpointDecodeError(
+            "materialize checkpoint snapshot is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    context_raw = raw.get("source_context")
+    if type(context_raw) is not dict:
+        raise CheckpointDecodeError(
+            "materialize checkpoint source_context is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    source_kind = SourceKind(str(raw["source_kind"]))
+    context_kind = SourceKind(str(context_raw["source_kind"]))
+    sql_digest = context_raw.get("sql_source_digest")
+    composite_digest = context_raw.get("composite_logic_source_digest")
+    source_context = SnapshotSourceContext(
+        source_kind=context_kind,
+        sql_source_digest=None if sql_digest is None else DigestRef(str(sql_digest)),
+        composite_logic_source_digest=(
+            None if composite_digest is None else DigestRef(str(composite_digest))
+        ),
+        repository_id=None if context_raw.get("repository_id") is None else str(context_raw["repository_id"]),
+        repository_ref=None if context_raw.get("repository_ref") is None else str(context_raw["repository_ref"]),
+        resolved_commit_hash=(
+            None
+            if context_raw.get("resolved_commit_hash") is None
+            else str(context_raw["resolved_commit_hash"])
+        ),
+    )
+    del source_kind
+    return Snapshot(
+        snapshot_id=str(raw["snapshot_id"]),
+        source_kind=context_kind,
+        parser_version=int(raw["parser_version"]),
+        table_ruleset_version=int(raw["table_ruleset_version"]),
+        scalar_encoding_version=SCALAR_ENCODING_VERSION,
+        snapshot_materialization_contract_version=SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
+        row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
+        materialization_stage=MaterializationStage(str(raw["materialization_stage"])),
+        snapshot_digest=DigestRef(str(raw["snapshot_digest"])),
+        raw_state_digest=DigestRef(str(raw["raw_state_digest"])),
+        created_at=str(raw["created_at"]),
+        source_context=source_context,
+    )
+
+
+def _summary_payload(summary: object) -> dict[str, object]:
     if type(summary) is not SnapshotSummary:
         raise PreviewJobError("summary payload type is invalid")
     tables = []
@@ -1387,16 +1652,6 @@ def _summary_payload(summary: object) -> dict[str, object]:
         "table_count": summary.table_count,
         "row_count_total": summary.row_count_total,
         "tables": tables,
-    }
-
-
-def _table_set_payload(table_set: SnapshotTableSet | None) -> object | None:
-    if table_set is None:
-        return None
-    return {
-        "snapshot_id": table_set.snapshot_id,
-        "snapshot_digest": table_set.snapshot_digest.value,
-        "table_names": [table.descriptor.table_name for table in table_set.tables],
     }
 
 
@@ -1458,7 +1713,7 @@ def _sql_materialization_request(
         ruleset=TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION),
         table_ruleset_version=TABLE_RULESET_VERSION,
         materialization_stage=MaterializationStage.FINAL,
-        policy=MaterializationPolicy.READERS_REQUIRED,
+        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         context=ParserInvocationContext(NeverCancel()),
         artifact_store=store,
     )

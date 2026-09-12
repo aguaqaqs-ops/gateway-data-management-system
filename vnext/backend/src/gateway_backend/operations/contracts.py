@@ -33,7 +33,7 @@ _MAX_JSON_STRING_BYTES = 16 * 1024
 _MAX_REFS_PER_RECORD = 64
 _MAX_BUSINESS_REFS = 64
 
-_REGISTRY_NAME_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_REGISTRY_NAME_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 _DIAGNOSTIC_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_.:-]{0,127}$")
 _CONTRACT_VERSION_RE = re.compile(r"^[\x20-\x7e]{1,128}$")
 _TIMESTAMP_RE = re.compile(

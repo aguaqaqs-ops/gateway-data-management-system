@@ -55,6 +55,14 @@ def start_preview_route(
             message="Idempotency-Key header is required",
             status_code=422,
         )
+    resolved_key = idempotency_key.strip()
+    if len(resolved_key) > 255:
+        raise ApiError(
+            code="REQUEST_VALIDATION_FAILED",
+            message="Idempotency-Key must be 1..255 characters",
+            status_code=422,
+        )
+    options = body.options.model_dump()
     command = build_start_preview_command(
         context=context,
         workspace_id=workspace_id,
@@ -63,8 +71,8 @@ def start_preview_route(
         generation=body.generation,
         expected_baseline_node_id=body.expected_baseline_node_id,
         expected_baseline_head_version=body.expected_baseline_head_version,
-        idempotency_key=idempotency_key.strip(),
-        request_fingerprint_seed=body.options,
+        idempotency_key=resolved_key,
+        request_fingerprint_seed=options,
     )
     result = accept_preview_operation(
         command=command,
@@ -73,5 +81,6 @@ def start_preview_route(
         unit_of_work_factory=deps.unit_of_work_factory,
         job_registry=deps.job_registry,
         now=deps.now(),
+        options=options,
     )
     return result.response

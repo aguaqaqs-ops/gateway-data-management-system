@@ -8,6 +8,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class StartPreviewOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
 class StartPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -16,7 +20,7 @@ class StartPreviewRequest(BaseModel):
     generation: int = Field(ge=0)
     expected_baseline_node_id: str
     expected_baseline_head_version: int = Field(ge=0)
-    options: dict[str, object] = Field(default_factory=dict)
+    options: StartPreviewOptions = Field(default_factory=StartPreviewOptions)
 
 
 class OperationAcceptedResponse(BaseModel):

@@ -12,9 +12,12 @@ from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, get_workspace_http
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.multipart_upload import (
+    accept_multipart_upload,
+)
+from gateway_backend.http.orchestration.source_package_admission import (
+    UploadClosureInvalidError,
     UploadLimitExceededError,
     UploadMediaUnsupportedError,
-    accept_multipart_upload,
 )
 from gateway_backend.http.schemas.upload import UploadRevisionResponse
 
@@ -56,6 +59,13 @@ async def accept_upload_route(
             message="Idempotency-Key header is required",
             status_code=422,
         )
+    resolved_key = idempotency_key.strip()
+    if len(resolved_key) > 255:
+        raise ApiError(
+            code="REQUEST_VALIDATION_FAILED",
+            message="Idempotency-Key must be 1..255 characters",
+            status_code=422,
+        )
     form = await request.form()
     manifest_part = form.get("manifest")
     if not isinstance(manifest_part, UploadFile):
@@ -85,11 +95,12 @@ async def accept_upload_route(
         return await accept_multipart_upload(
             context=context,
             workspace_id=workspace_id,
-            idempotency_key=idempotency_key.strip(),
+            idempotency_key=resolved_key,
             manifest_part=manifest_part,
             file_parts=file_parts,
             scope_resolution=deps.scope_resolution,
             workspace_repository=deps.workspace_repository,
+            unit_of_work_factory=deps.unit_of_work_factory,
             artifact_store=deps.artifact_store,
             now=deps.now(),
         )
@@ -104,4 +115,10 @@ async def accept_upload_route(
             code="UPLOAD_MEDIA_UNSUPPORTED",
             message=str(exc),
             status_code=415,
+        ) from exc
+    except UploadClosureInvalidError as exc:
+        raise ApiError(
+            code="UPLOAD_CLOSURE_INVALID",
+            message=str(exc),
+            status_code=422,
         ) from exc

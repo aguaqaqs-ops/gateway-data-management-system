@@ -9,6 +9,8 @@ COPY shared_kernel /build/shared_kernel
 COPY repository_client /build/repository_client
 COPY repository_contracts /build/repository_contracts
 RUN uv python install 3.14.6
+ARG RUSTUP_TOOLCHAIN=1.97.0
+ENV RUSTUP_TOOLCHAIN=${RUSTUP_TOOLCHAIN}
 RUN uv sync --frozen --no-install-project
 RUN rm -rf /build/wheels \
     && mkdir -p /build/wheels \

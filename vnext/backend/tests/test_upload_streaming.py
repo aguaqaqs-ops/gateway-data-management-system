@@ -40,6 +40,7 @@ def test_validate_source_package_archive_accepts_file_handle() -> None:
     validate_source_package_archive(BytesIO(INITIAL_BYTES), compressed_bytes=len(INITIAL_BYTES))
 
 
+@pytest.mark.serial
 def test_stalled_body_times_out_while_waiting_for_next_chunk() -> None:
     async def stalled_stream() -> AsyncIterator[bytes]:
         yield (
@@ -60,6 +61,22 @@ def test_stalled_body_times_out_while_waiting_for_next_chunk() -> None:
     started = time.monotonic()
     asyncio.run(run())
     assert time.monotonic() - started < 0.12
+
+
+def test_non_multipart_content_type_is_rejected_before_parsing_body() -> None:
+    payload = _multipart_body([("manifest", b"{}"), ("modified", b"abc")])
+
+    async def run() -> None:
+        with pytest.raises(ApiError) as caught:
+            await parse_streaming_multipart(
+                headers=Headers({"content-type": f"application/json; boundary={_BOUNDARY}"}),
+                stream=_one_chunk(payload),
+            )
+        error = caught.value
+        assert error.status_code == 422
+        assert error.code == "REQUEST_VALIDATION_FAILED"
+
+    asyncio.run(run())
 
 
 def test_caller_controlled_part_name_is_rejected_without_pathname_escape() -> None:

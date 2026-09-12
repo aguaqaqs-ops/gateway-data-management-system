@@ -57,6 +57,25 @@ def test_accept_upload_returns_201(env: WorkspaceHttpTestEnvironment) -> None:
     assert set(body["source_artifacts"]) == {"INITIAL", "MODIFIED"}
 
 
+def test_accept_upload_rejects_non_multipart_content_type(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
+    workspace = _create_workspace(env.client, env.auth_headers()).json()
+    headers = env.auth_headers(idempotency_key="upload-wrong-media")
+    headers["Content-Type"] = "application/json; boundary=----not-multipart"
+    response = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
+        headers=headers,
+        files=upload_files(),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+    persisted = env.repository.get_workspace(workspace["workspace_id"])
+    assert persisted is not None
+    assert persisted.generation == 0
+    assert persisted.current_upload_revision_id is None
+
+
 def test_accept_upload_requires_idempotency_key(env: WorkspaceHttpTestEnvironment) -> None:
     workspace = _create_workspace(env.client, env.auth_headers()).json()
     response = env.client.post(

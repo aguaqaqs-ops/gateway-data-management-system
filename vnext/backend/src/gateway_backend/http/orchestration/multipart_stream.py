@@ -205,7 +205,9 @@ async def parse_streaming_multipart(
     content_type = headers.get("content-type")
     if content_type is None:
         raise _multipart_validation_error("multipart Content-Type is required")
-    _media, params = parse_options_header(content_type.encode("latin-1"))
+    media, params = parse_options_header(content_type.encode("latin-1"))
+    if media.lower() != b"multipart/form-data":
+        raise _multipart_validation_error("Content-Type must be multipart/form-data")
     boundary = params.get(b"boundary")
     if boundary is None:
         raise _multipart_validation_error("multipart boundary is required")

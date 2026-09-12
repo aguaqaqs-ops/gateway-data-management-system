@@ -1,5 +1,9 @@
 # P5-5A S5 Handoff: bootstrap / readiness / shutdown / container
 
+> **SUPERSEDED — 仅供历史追溯。** 基于脏树 `774bacb6`（S3/S4 未提交语境）；S3/S4 已在
+> `18e7155a` 提交。其中 image digest / source-tree **不得**作为 current-HEAD 证据。
+> 现行 authority：[P5-5A Remediation Review](p5-5a-remediation-review.md)；S6 待独立授权。
+
 状态：**PASS — S5 实现闭合；backend image 已按本脏树重建并通过 /readyz smoke；worker Compose conjunction 仍 deferred；独立审核未做**
 
 日期：2026-09-08

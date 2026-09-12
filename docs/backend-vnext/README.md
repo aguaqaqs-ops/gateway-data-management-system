@@ -18,6 +18,7 @@ P4 handoff 或下文旧 contract/capability 清单推导 P5 语义：
 
 - [P5-5A Upload/Preview Detailed Design](refactoring/formal/plans/p5-5a-upload-preview-design.md)
 - [P5-5A Upload/Preview Execution Plan](refactoring/formal/plans/p5-5a-upload-preview-execution-plan.md)
+- [P5-5A Remediation Review](refactoring/formal/plans/p5-5a-remediation-review.md)
 
 P4 设计仍从 [P4 Active Context Index](refactoring/formal/plans/p4-active-context-index.md)
 进入；该 index 是 P4 专用 gate 入口，不覆盖当前 P5 默认入口。不要把下文旧

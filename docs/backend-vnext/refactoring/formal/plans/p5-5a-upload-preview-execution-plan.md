@@ -358,16 +358,31 @@ domain、consistency、authorization或Repository边界。
 ## 7. 当前状态
 
 ```yaml
-current_head: d7cb5b9c2c55e8f8b0814520e9d95c7df0ad00a5
+current_head: 33bf0fb9bf09a93b0bcff7ae04c0ad73b218eddf
 p4_r6_exit: pending
-p5_5a_implementation_authorized: no
+p5_5a_implementation: landed
+p5_5a_slice_exit: pending
+remediation_review: pass
+hold: retained
+s6_authorized: no
 docs_only_changes_authorized: yes
 source_test_dependency_migration_deployment_changes_authorized: no
-container_gate: stale_from_prior_p4_context
+container_gate: stale
+last_verified_image_revision: sha256:7a8e2834e67f0131092b575e8ce11c0d02dcdcee219699ee5d22d07629d18faf
+last_verified_source_tree: sha256:8dfc303b3019e6436842e1a170702eb1a1bc929ff0bce16c9bf27f6eb4f59eaf
+current_source_tree: sha256:68682f21bff051de42908d5c84b019a525054bff535436051cf4c99b0636104a
+compose_yaml_sha256: sha256:113224e1ba968ed2ce588640d7fb07c7f8f2bb10ce136dd444f314dbe6591c81
+container_rebuild_required_at_s6: yes
+next_step: P5-5A-S6
+next_step_authorized: no
 ```
 
-本计划从属于 formal contracts 和 5A detailed design；不改写 P4/P3 historical handoff。授权后
-下一动作是 S1，不是隐式开始实现。
+`last_verified_*` 配对 `218d4a24`，historical only。`current_source_tree` 与旧镜像源码摘要不同，
+container gate 正确标为 **stale**；S6 须重建 current-HEAD 镜像。详见
+[P5-5A Remediation Review](p5-5a-remediation-review.md)。
+
+本计划从属于 formal contracts 和 5A detailed design；不改写 P4/P3 historical handoff。
+S1–S5 实现已落地；remediation review 已通过。下一动作是独立授权后的 S6，不是隐式开始 S6。
 
 ## 8. S0 docs-only execution record
 
@@ -432,3 +447,41 @@ artifacts.md,identity-and-digests.md,implementation-boundary.md,modules.md}`及P
 `LC_ALL=C`顺序，为每个文件计算SHA-256；仅从本文件输入流删除
 `candidate_document_set_sha256:`字段，再对`<file-sha><two-spaces><path><newline>`记录流计算最终
 SHA-256。该归一化避免hash字段自引用，且不忽略其他内容。
+
+## 9. Remediation review record
+
+```yaml
+stage: remediation_review
+candidate_head: 33bf0fb9bf09a93b0bcff7ae04c0ad73b218eddf
+parent: dd1c8c4d90196ebb05c09d67ae4ad365fe0a229a
+conversation_context: independent_review
+scope_paths: [docs/**]
+changed_paths:
+  - docs/backend-vnext/refactoring/formal/plans/p5-5a-remediation-review.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5a-upload-preview-execution-plan.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5a-s5-handoff.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5a-upload-preview-design.md
+  - docs/backend-vnext/refactoring/formal/README.md
+  - docs/backend-vnext/README.md
+remediation_items_closed:
+  - multipart_content_type_validation_422
+  - stalled_timeout_serial_marker
+review: pass
+findings: []
+hold: retained
+s6_authorized: no
+container_gate: stale
+container_rebuild_required_at_s6: yes
+tests:
+  backend_focused: pass_30
+  ruff_mypy: pass_308_files
+  uv_lock_check: pass
+  git_diff_check: pass
+decision: pass_remediation_review_hold_retained_s6_blocked
+next_step: P5-5A-S6
+next_step_authorized: no
+```
+
+完整验证矩阵与 provenance 对照见
+[P5-5A Remediation Review](p5-5a-remediation-review.md)。[P5-5A S5 Handoff](p5-5a-s5-handoff.md)
+标为 superseded。

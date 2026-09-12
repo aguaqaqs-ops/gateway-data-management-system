@@ -16,6 +16,7 @@
 - [P5-5A-S0 Entry Brief](plans/p5-5a-s0-entry-brief.md)
 - [P5-5A Upload/Preview Detailed Design](plans/p5-5a-upload-preview-design.md)
 - [P5-5A Upload/Preview Execution Plan](plans/p5-5a-upload-preview-execution-plan.md)
+- [P5-5A Remediation Review](plans/p5-5a-remediation-review.md)（remediation pass；HOLD retained；S6 未授权）
 
 P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；P4-R6 exit
 仍 pending。以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述默认顺序：

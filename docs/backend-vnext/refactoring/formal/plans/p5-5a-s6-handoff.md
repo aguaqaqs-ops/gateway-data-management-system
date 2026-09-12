@@ -1,6 +1,6 @@
 # P5-5A S6 Handoff: Slice Acceptance
 
-状态：**PASS — 5A slice functional acceptance 闭合；container gate deferred（rebuild 环境阻塞）**
+状态：**PASS — 5A slice functional acceptance 闭合；container gate 已闭合（current-HEAD 重建 + smoke + conjunction 通过）**
 
 日期：2026-09-12
 
@@ -53,16 +53,20 @@ review:
 container:
   required: yes
   rebuild_attempted: yes
-  rebuild_result: failed_rust_lang_network_unreachable_in_docker_build
-  image_revision: null_for_current_head
+  rebuild_result: pass_2026-09-12_after_rustup_toolchain_pin
+  image_revision: sha256:52666754dfab4fd2a17dbb84d3179ca15d34fefebca0403a3fdc64e8ee17a6fd
+  worker_image_revision: sha256:f90a6361b1028fa2540ff1f7f3fb278672a8aabcf7e18b13b306870822ea93ea
+  repository_service_image_revision: sha256:26092bd5a7e86d20675286d79e863a99c974718c3e25a265a058e240d2c6c966
   last_verified_image_revision: sha256:7a8e2834e67f0131092b575e8ce11c0d02dcdcee219699ee5d22d07629d18faf
-  status: deferred_rebuild_blocked
-  conjunction: not_run_rebuild_prerequisite
+  last_verified_image_scope: historical_218d4a24_not_current_head
+  image_source: backend_src_tests_at_33bf0fb9_plus_builder_rustup_toolchain_pin_in_this_closure
+  status: pass
+  conjunction: pass_backend_worker_repository
+  smoke: pass_healthz_200_readyz_200_logs_redacted_worker_ready
 deferred_touched:
-  - current_head_container_rebuild
-  - backend_worker_repository_compose_conjunction
-  - worker_compose_http_healthcheck
   - repository_service_compose_e2e_env_failures
+  - deploy_compose_build_network_wiring
+  - lxc_v6_default_route_dead_path
 reopen_required: false
 decision: pass
 hold: released
@@ -128,38 +132,83 @@ uv run pytest -q -m 'serial and not parallel_safe'  # 15 passed
 
 ## 3. Container provenance
 
-### 3.1 重建尝试
+### 3.1 初次重建尝试（失败）
 
 ```bash
 cd vnext/deploy && docker compose build backend
 ```
 
-**失败**：builder 阶段 `gateway-compute-python` maturin 构建需访问 `static.rust-lang.org`，
-Docker build 网络不可达（`Network is unreachable`）。`GATEWAY_DOCKER_BUILD_NETWORK=host` 重试同样失败。
+**失败**：builder 阶段 `gateway-compute-python` maturin 构建需访问 `static.rust-lang.org`
+（toolchain manifest / 缺失 component），BuildKit 构建容器内
+`tcp connect error: Network is unreachable (os error 101)`。`GATEWAY_DOCKER_BUILD_NETWORK=host`
+重试**为空操作**（见 §3.2 第 3 条），实际仍走默认网络。
 
-### 3.2 状态
+### 3.2 根因（2026-09-12 排查）
 
-| 项 | 值 |
-| --- | --- |
-| current_source_tree | `sha256:68682f21...`（implementation HEAD `33bf0fb9`；docs-only `71773296` 未改源码） |
-| last_verified_image | `sha256:7a8e2834...`（`218d4a24`）；**historical** |
-| container_gate | **deferred_rebuild_blocked** |
-| conjunction | 未运行（rebuild 前置未满足） |
+1. **BuildKit 沙箱 v6 路径死亡**：三个沙箱探针（`pve-registry-http` 节点默认网络、BuildKit
+   `--network=host`、`default` docker-driver）结果一致：IPv4 出站正常
+   （`static.rust-lang.org` HTTP 200、`static.crates.io` 可达，均为 ~2s），IPv6 内核存在默认路由
+   条目但实际不可达（立即失败）。`os error 101 (EUNRCH)` 正是 v6 路由死条目下的立即错误；
+   任何 v6 优先且 v4 回退不可靠的客户端都会以该错误终止。宿主 v4 出站正常
+   （`curl static.rust-lang.org` 200）。
+2. **builder 冷构建硬依赖 `static.rust-lang.org`**：`vnext/rust/rust-toolchain.toml`
+   （channel `1.97.0` / profile `minimal` / `rustfmt`,`clippy`）要求 rustup 对基座镜像
+   `rust:1.97.0-bookworm` 预装 full-profile toolchain 执行 manifest 同步 + 补装缺失 component。
+   这是全构建唯一触达该域名的步骤；其余网络步骤（PyPI / astral.sh）走 v4 正常。
+3. **文档化重试路径未接线**：`GATEWAY_DOCKER_BUILD_NETWORK` 仅被 repository_service 测试
+   harness（`compose_lifecycle_harness.py`）消费；deploy/compose.yaml 的 `build:` 未接任何
+   network 字段，`docker compose build` 不读取该变量 —— “host” 重试从未生效。
+   `BUILDX_BUILDER=default` 只是切换到另一个（更冷）缓存的 builder，不改变网络。
+4. **S5 当时能建**：当时构建容器 v4 出站健康、rustup 同步经 v4 完成，且多数层级 warm cache；
+   S6 失败 = 冷跑的 rustup 步骤遭遇 v6 优先故障 + 重试网络参数空操作叠加。
 
-历史 P4 image 不得作为 current-HEAD 证据（见 remediation review §3）。
+### 3.3 修复
 
-### 3.3 恢复条件
+- `vnext/backend/Dockerfile` builder 阶段（`uv python install` 之后、`uv sync` 之前）新增：
 
-网络可达后执行：
+  ```dockerfile
+  ARG RUSTUP_TOOLCHAIN=1.97.0
+  ENV RUSTUP_TOOLCHAIN=${RUSTUP_TOOLCHAIN}
+  ```
+
+  环境变量优先于 `rust-toolchain.toml`，toolchain 固定为基座镜像预装版本，构建期不再触发
+  rustup 网络同步。探针验证：pin 下 `cargo metadata` 0.13s 完成、零 syncing/downloading；
+  本次重建 maturin `--release` 步骤 9.4s、全构建 112s 通过。
+- 其余 RUN egress（PyPI / astral.sh）v4 验证可达，**无需** host 网络或 mirror 变更；
+  `compose.yaml` 未改动（sha256 保持 `113224e1...`）。
+- **Residual（记入 deferred，不阻塞）**：LXC 存在死亡 v6 默认路由，v6 优先客户端仍有同类失败
+  风险（环境层修复）；deploy compose 构建网络未接 `GATEWAY_DOCKER_BUILD_NETWORK`
+  （deploy hygiene，后续轮次接线）。
+
+### 3.4 current-HEAD 重建通过验证（2026-09-12）
+
+worktree clean @ `b82e449b`，`git diff 33bf0fb9..b82e449b -- vnext/backend` 为空
+（src/tests 与 implementation HEAD 逐字节一致，308 py files）；重建命令：
 
 ```bash
 cd vnext/deploy
-GATEWAY_P2R2_BEARER_TOKEN_FILE=<token> \
-GATEWAY_BACKEND_SESSION_FILE=./config/session.json \
-docker compose build backend
-# smoke: /healthz + /readyz
-# optional: backend ∧ worker ∧ repository conjunction
+docker compose build backend worker
 ```
+
+| 项 | 值 |
+| --- | --- |
+| current_source_tree | `sha256:68682f21...`（308 py files；identity 见 §3.4 命令段） |
+| backend image（current-HEAD） | `sha256:52666754dfab4fd2a17dbb84d3179ca15d34fefebca0403a3fdc64e8ee17a6fd`（tag `deploy-backend`） |
+| worker image（current-HEAD） | `sha256:f90a6361b1028fa2540ff1f7f3fb278672a8aabcf7e18b13b306870822ea93ea`（tag `deploy-worker`） |
+| repository-service image | `sha256:26092bd5...`（既有本地 image，非本轮 5A 重建范围） |
+| historical image | `sha256:7a8e2834...`（`218d4a24`）；**不得**作为 current-HEAD 证据 |
+| compose.yaml sha256 | `113224e1...`（未改动，与记录一致） |
+| image src 对照 | 镜像 `/app/backend/src` == worktree `vnext/backend/src`（178 py files，零差异） |
+| container_gate | **pass** |
+
+smoke（`docker compose up -d`：backend ∧ worker ∧ repository-service；token/session 用本地
+dev fixture，`config/session.json`）：
+
+- `/healthz` 200 `{"status":"ok"}`；`/readyz` 200 `{"status":"ok"}`
+- backend / worker 日志无 host path、无 bearer token（grep 计数 0）
+- worker 日志 `operation_worker_event code=worker_ready worker_id=worker-ad58ee86-3e70-4d9e-b2af-aec0388e3172`
+- 三服务 up；backend 与 repository-service `healthy`；worker 以 `worker_ready` 日志判定
+  （无 HTTP 端口）→ conjunction 闭合，smoke 后 `docker compose down`
 
 ## 4. S1–S5 证据摘要
 
@@ -173,10 +222,12 @@ docker compose build backend
 
 ## 5. Deferred register
 
-- current-HEAD backend image rebuild + smoke
-- backend ∧ worker ∧ repository Compose conjunction
-- worker HTTP healthcheck / `worker_ready` 日志证据
+- ~~current-HEAD backend image rebuild + smoke~~（闭合，见 §3.4）
+- ~~backend ∧ worker ∧ repository Compose conjunction~~（闭合，见 §3.4）
+- ~~worker `worker_ready` 日志证据~~（闭合，见 §3.4；worker 无 HTTP healthcheck，维持日志判定）
 - repository_service Dockerfile lock SHA256 漂移修复（P2/P4 owner）
+- deploy compose 构建网络接线（`GATEWAY_DOCKER_BUILD_NETWORK` 未接 deploy/compose.yaml；非阻塞）
+- LXC v6 默认路由死亡路径（环境层；非阻塞）
 - TTL/capacity 数值、History pagination、5B+ DTO
 
 ## 6. Authority

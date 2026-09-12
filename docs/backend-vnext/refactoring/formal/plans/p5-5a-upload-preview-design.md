@@ -387,7 +387,8 @@ SQL或合并 Preview identity；无法 exact reconstruction；需要 dynamic DAG
 
 本文件从属于 Business Lifecycle、External Effect、Operation Lifecycle、Canonical Storage、
 Repository Service contracts。`p4_r6_exit` 仍 **pending**；`p5_5a_slice_exit` **pass**（见
-[P5-5A S6 Handoff](p5-5a-s6-handoff.md)）；`container_gate` **deferred_rebuild_blocked**。
+[P5-5A S6 Handoff](p5-5a-s6-handoff.md)）；`container_gate` **pass**（current-HEAD 重建 + smoke +
+conjunction，见 handoff §3.4）。
 
 ## 10. S0 authority audit and historical boundary
 

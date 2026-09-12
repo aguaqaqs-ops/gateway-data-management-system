@@ -368,7 +368,8 @@ hold: released
 s6_authorized: yes
 docs_only_changes_authorized: yes
 source_test_dependency_migration_deployment_changes_authorized: no
-container_gate: deferred_rebuild_blocked
+container_gate: pass
+container_image_revision: sha256:52666754dfab4fd2a17dbb84d3179ca15d34fefebca0403a3fdc64e8ee17a6fd
 last_verified_image_revision: sha256:7a8e2834e67f0131092b575e8ce11c0d02dcdcee219699ee5d22d07629d18faf
 current_source_tree: sha256:68682f21bff051de42908d5c84b019a525054bff535436051cf4c99b0636104a
 compose_yaml_sha256: sha256:113224e1ba968ed2ce588640d7fb07c7f8f2bb10ce136dd444f314dbe6591c81
@@ -377,7 +378,9 @@ next_step_authorized: no
 ```
 
 5A slice functional acceptance 见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)。Container gate
-**deferred**（rebuild 环境阻塞）；`last_verified_image_revision` 仍为 historical（`218d4a24`）。
+**pass**（current-HEAD 重建 + smoke + conjunction 通过，见 handoff §3.4；image
+`sha256:52666754...` @ src `33bf0fb9` + builder `RUSTUP_TOOLCHAIN` pin）；
+`last_verified_image_revision` 为 historical（`218d4a24`），不得作为 current-HEAD 证据。
 
 本计划从属于 formal contracts 和 5A detailed design；不改写 P4/P3 historical handoff。
 5A slice exit **pass**；不替代 `p4_r6_exit`。

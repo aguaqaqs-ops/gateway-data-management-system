@@ -386,9 +386,8 @@ SQL或合并 Preview identity；无法 exact reconstruction；需要 dynamic DAG
 或 P4-R6 改变 Operation/Step/checkpoint/readiness/lease/CAS。
 
 本文件从属于 Business Lifecycle、External Effect、Operation Lifecycle、Canonical Storage、
-Repository Service contracts。`p4_r6_exit` 仍 **pending**；S1–S5 实现已落地（HEAD `33bf0fb9`）；
-remediation review **pass**；`hold` **retained**；`s6_authorized` **no**；`container_gate`
-**stale**（见 [P5-5A Remediation Review](p5-5a-remediation-review.md)）。
+Repository Service contracts。`p4_r6_exit` 仍 **pending**；`p5_5a_slice_exit` **pass**（见
+[P5-5A S6 Handoff](p5-5a-s6-handoff.md)）；`container_gate` **deferred_rebuild_blocked**。
 
 ## 10. S0 authority audit and historical boundary
 

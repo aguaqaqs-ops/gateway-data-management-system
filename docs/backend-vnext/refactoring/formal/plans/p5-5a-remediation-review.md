@@ -76,4 +76,8 @@ next_step_authorized: no
 
 ## 5. Next step
 
-独立授权 `s6_authorized: yes` 后进入 S6 slice acceptance：重建 current-HEAD 镜像、运行权威测试矩阵、产出 `p5-5a-s6-handoff.md`。
+S6 slice acceptance 已完成，见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)。
+
+- `p5_5a_slice_exit`: **pass**
+- `hold`: **released**
+- `container_gate`: **deferred_rebuild_blocked**（rebuild 尝试因 Docker 内 rust-lang 网络不可达失败）

@@ -358,31 +358,29 @@ domain、consistency、authorization或Repository边界。
 ## 7. 当前状态
 
 ```yaml
-current_head: 33bf0fb9bf09a93b0bcff7ae04c0ad73b218eddf
+current_head: 717732962c59863f6472252e94c8430a02b148a7
+implementation_head: 33bf0fb9bf09a93b0bcff7ae04c0ad73b218eddf
 p4_r6_exit: pending
 p5_5a_implementation: landed
-p5_5a_slice_exit: pending
+p5_5a_slice_exit: pass
 remediation_review: pass
-hold: retained
-s6_authorized: no
+hold: released
+s6_authorized: yes
 docs_only_changes_authorized: yes
 source_test_dependency_migration_deployment_changes_authorized: no
-container_gate: stale
+container_gate: deferred_rebuild_blocked
 last_verified_image_revision: sha256:7a8e2834e67f0131092b575e8ce11c0d02dcdcee219699ee5d22d07629d18faf
-last_verified_source_tree: sha256:8dfc303b3019e6436842e1a170702eb1a1bc929ff0bce16c9bf27f6eb4f59eaf
 current_source_tree: sha256:68682f21bff051de42908d5c84b019a525054bff535436051cf4c99b0636104a
 compose_yaml_sha256: sha256:113224e1ba968ed2ce588640d7fb07c7f8f2bb10ce136dd444f314dbe6591c81
-container_rebuild_required_at_s6: yes
-next_step: P5-5A-S6
+next_step: P5-5B-S0-entry-brief
 next_step_authorized: no
 ```
 
-`last_verified_*` 配对 `218d4a24`，historical only。`current_source_tree` 与旧镜像源码摘要不同，
-container gate 正确标为 **stale**；S6 须重建 current-HEAD 镜像。详见
-[P5-5A Remediation Review](p5-5a-remediation-review.md)。
+5A slice functional acceptance 见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)。Container gate
+**deferred**（rebuild 环境阻塞）；`last_verified_image_revision` 仍为 historical（`218d4a24`）。
 
 本计划从属于 formal contracts 和 5A detailed design；不改写 P4/P3 historical handoff。
-S1–S5 实现已落地；remediation review 已通过。下一动作是独立授权后的 S6，不是隐式开始 S6。
+5A slice exit **pass**；不替代 `p4_r6_exit`。
 
 ## 8. S0 docs-only execution record
 
@@ -485,3 +483,29 @@ next_step_authorized: no
 完整验证矩阵与 provenance 对照见
 [P5-5A Remediation Review](p5-5a-remediation-review.md)。[P5-5A S5 Handoff](p5-5a-s5-handoff.md)
 标为 superseded。
+
+## 10. S6 slice acceptance record
+
+```yaml
+stage: S6
+candidate_head: 717732962c59863f6472252e94c8430a02b148a7
+implementation_head: 33bf0fb9bf09a93b0bcff7ae04c0ad73b218eddf
+conversation_context: independent_acceptance
+review: pass
+findings: []
+hold: released
+p5_5a_slice_exit: pass
+container_gate: deferred_rebuild_blocked
+tests:
+  backend_all: pass_1876
+  backend_unit: pass_1761
+  backend_integration: pass_127
+  backend_serial: pass_15
+  five_package_static: pass
+  authoritative_runner: partial_pass_repo_service_env_failures
+decision: pass
+next_step: P5-5B-S0-entry-brief
+next_step_authorized: no
+```
+
+详见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)。

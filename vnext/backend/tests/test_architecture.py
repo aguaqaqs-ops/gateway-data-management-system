@@ -691,10 +691,12 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
             assert "from gateway_backend.app import" not in text
             continue
         assert token not in text, f"{token} must not appear in {entrypoint}"
-    assert "initialize_control_db" in text
+    assert "initialize_and_verify_control_db" in text
     assert "SIGTERM" in text
     assert "SIGINT" in text
     assert "build_job_worker_composition" in text
+    assert "build_http_repository_provider_factory" in text
+    assert "build_production_preview_dependencies" in text
 
     for source in sorted(BOOTSTRAP_ROOT.rglob("*.py")):
         current_module, is_init = _python_module_name(source)
@@ -706,10 +708,21 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                         "gateway_backend.bootstrap",
                         "gateway_backend.infrastructure.artifact_store",
                         "gateway_backend.infrastructure.control_db",
+                        "gateway_backend.infrastructure.repository_read",
                         "gateway_backend.operations",
                         "gateway_backend.settings",
                     )
                 ), f"{source} imports disallowed module {imported}"
+
+
+def test_repository_client_is_confined_to_repository_read() -> None:
+    src = BACKEND_SRC / "gateway_backend"
+    allowed_dir = src / "infrastructure" / "repository_read"
+    for source in sorted(src.rglob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        if "gateway_repository" not in text:
+            continue
+        assert allowed_dir == source.parent or allowed_dir in source.parents, source
 
 
 def test_operation_worker_settings_have_an_independent_environment_prefix() -> None:
@@ -750,6 +763,7 @@ def test_control_db_boundary_exists_and_has_no_application_wiring() -> None:
                 assert (
                     imported.startswith("gateway_backend.operations")
                     or imported.startswith("gateway_backend.artifacts")
+                    or imported.startswith("gateway_backend.domain.workspace")
                     or imported.startswith("gateway_backend.infrastructure.control_db")
                 ), f"{source} imports disallowed backend module {imported}"
 
@@ -914,6 +928,8 @@ def _assert_operations_import_allowed(source: Path, imported: str) -> None:
 
 def _assert_application_import_allowed(source: Path, imported: str) -> None:
     if imported == "__future__":
+        return
+    if source.name == "preview_jobs.py" and imported.startswith("gateway_backend.capabilities."):
         return
     for prefix in APPLICATION_FORBIDDEN_IMPORT_PREFIXES:
         assert imported != prefix and not imported.startswith(f"{prefix}."), (

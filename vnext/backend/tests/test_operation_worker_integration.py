@@ -45,7 +45,7 @@ from gateway_backend.operations.worker import (
     WorkerEvent,
 )
 from gateway_backend.operations.store import StaleWrite
-from gateway_backend.settings import OperationWorkerSettings
+from tests.support.runtime_settings import make_operation_worker_settings
 
 pytestmark = pytest.mark.integration
 
@@ -129,7 +129,7 @@ def _step_document(operation_id: str, step_id: str) -> dict[str, object]:
 def test_empty_file_backed_worker_reaches_ready_drains_and_reopens_wal(
     tmp_path: Path,
 ) -> None:
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "state" / "control.sqlite3")
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "state" / "control.sqlite3")
     bootstrap_control_database(settings)
     events: list[str] = []
     ready = Event()
@@ -163,7 +163,7 @@ def test_empty_file_backed_worker_reaches_ready_drains_and_reopens_wal(
 
 
 def test_missing_runnable_handler_fails_closed_before_claim(tmp_path: Path) -> None:
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "control.sqlite3")
     bootstrap_control_database(settings)
     operation = operation_record_from_document(_operation_document("operation-worker-1"))
     step = step_record_from_document(_step_document(operation.operation_id, "step-worker-1"))
@@ -189,7 +189,7 @@ def test_missing_runnable_handler_fails_closed_before_claim(tmp_path: Path) -> N
 
 
 def test_unsupported_job_contract_version_fails_closed_before_claim(tmp_path: Path) -> None:
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "control.sqlite3")
     bootstrap_control_database(settings)
     operation = operation_record_from_document(
         {
@@ -234,7 +234,8 @@ def test_unsupported_job_contract_version_fails_closed_before_claim(tmp_path: Pa
 def test_unsupported_job_contract_version_rejected_at_claim_without_running_lease(
     tmp_path: Path,
 ) -> None:
-    settings = OperationWorkerSettings(
+    settings = make_operation_worker_settings(
+        tmp_path,
         control_db_path=tmp_path / "claim-version-gate" / "control.sqlite3"
     )
     bootstrap_control_database(settings)
@@ -275,7 +276,7 @@ def test_unsupported_job_contract_version_rejected_at_claim_without_running_leas
 
 
 def test_registered_key_reaches_ready_with_empty_queue(tmp_path: Path) -> None:
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "registered" / "control.sqlite3")
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "registered" / "control.sqlite3")
     bootstrap_control_database(settings)
     events: list[str] = []
     ready = Event()
@@ -312,7 +313,7 @@ def test_registered_key_reaches_ready_with_empty_queue(tmp_path: Path) -> None:
 def test_registered_runtime_startup_recovers_expired_running_step(tmp_path: Path) -> None:
     """The concrete worker composition applies R5 startup takeover before claiming."""
 
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "startup-recovery" / "control.sqlite3")
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "startup-recovery" / "control.sqlite3")
     bootstrap_control_database(settings)
     operation = operation_record_from_document(_operation_document("operation-startup-recovery"))
     step = step_record_from_document(_step_document(operation.operation_id, "step-startup-recovery"))
@@ -361,7 +362,7 @@ def test_registered_runtime_startup_recovers_expired_running_step(tmp_path: Path
 def test_file_backed_heartbeat_and_concurrent_cancel_are_read_back(
     tmp_path: Path,
 ) -> None:
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "control.sqlite3")
     bootstrap_control_database(settings)
     operation = operation_record_from_document(_operation_document("operation-worker-2"))
     step = step_record_from_document(_step_document(operation.operation_id, "step-worker-2"))
@@ -477,7 +478,7 @@ def test_file_backed_heartbeat_and_concurrent_cancel_are_read_back(
 def test_file_backed_publication_reloads_versions_after_multiple_heartbeats(
     tmp_path: Path,
 ) -> None:
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "control.sqlite3")
     bootstrap_control_database(settings)
     operation = operation_record_from_document(_operation_document("operation-worker-3"))
     step = step_record_from_document(_step_document(operation.operation_id, "step-worker-3"))
@@ -555,7 +556,7 @@ def test_file_backed_publication_reloads_versions_after_multiple_heartbeats(
 def test_stale_cas_after_closure_artifact_put_leaves_no_ready_closure_ref(
     tmp_path: Path,
 ) -> None:
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "stale-cas.sqlite3")
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "stale-cas.sqlite3")
     bootstrap_control_database(settings)
     artifact_store = InMemoryArtifactStore()
     operation = operation_record_from_document(_operation_document("operation-stale-cas"))
@@ -634,7 +635,7 @@ def test_stale_cas_after_closure_artifact_put_leaves_no_ready_closure_ref(
 
 
 def test_ready_closure_ref_set_once_rejects_second_publication(tmp_path: Path) -> None:
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "closure-once.sqlite3")
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "closure-once.sqlite3")
     bootstrap_control_database(settings)
     artifact_store = InMemoryArtifactStore()
     operation = operation_record_from_document(_operation_document("operation-closure-once"))
@@ -791,7 +792,8 @@ def test_worker_runtime_external_effect_accepted_takeover_polls_original_identit
         external_effect_stub_composition_bundle,
     )
 
-    settings = OperationWorkerSettings(
+    settings = make_operation_worker_settings(
+        tmp_path,
         control_db_path=tmp_path / "worker-external-recovery" / "control.sqlite3",
     )
     from gateway_backend.infrastructure.artifact_store import LocalArtifactStore

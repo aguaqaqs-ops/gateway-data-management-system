@@ -25,7 +25,8 @@ from gateway_backend.operations.worker_lifecycle import (
     WorkerLifecycleController,
 )
 from gateway_backend.operations.worker_startup import WorkerStartup
-from gateway_backend.settings import BackendSettings, OperationWorkerSettings
+from gateway_backend.settings import OperationWorkerSettings
+from tests.support.runtime_settings import make_operation_worker_settings
 
 from tests.test_operation_worker_scheduler import (
     FakeClock,
@@ -45,31 +46,42 @@ def test_worker_settings_are_separate_from_backend_settings_and_fixed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     db_path = tmp_path / "state" / "control.sqlite3"
+    artifact_root = tmp_path / "artifacts"
+    token_file = tmp_path / "repository-bearer-token"
+    mapping_file = tmp_path / "provisioned-mapping.json"
+    monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH", str(db_path))
+    monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_ARTIFACT_ROOT", str(artifact_root))
     monkeypatch.setenv(
-        "GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH",
-        str(db_path),
+        "GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL",
+        "http://127.0.0.1:9",
+    )
+    monkeypatch.setenv(
+        "GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BEARER_TOKEN_FILE",
+        str(token_file),
+    )
+    monkeypatch.setenv(
+        "GATEWAY_BACKEND_OPERATION_WORKER_PROVISIONED_MAPPING_FILE",
+        str(mapping_file),
     )
 
     settings = OperationWorkerSettings()  # type: ignore[call-arg]
 
     assert settings.control_db_path == db_path
+    assert settings.artifact_root == artifact_root
     assert settings.lease_duration_seconds == 30.0
     assert settings.heartbeat_interval_seconds == 10.0
     assert settings.max_in_flight == 1
     assert settings.claim_limit == 1
-    assert BackendSettings().artifact_root.name == "artifacts"
+    assert "secret" not in repr(settings)
 
     with pytest.raises(ValidationError, match="absolute"):
-        OperationWorkerSettings(control_db_path=Path("relative/control.sqlite3"))
+        make_operation_worker_settings(tmp_path, control_db_path=Path("relative/control.sqlite3"))
     with pytest.raises(ValidationError, match="fixed"):
-        OperationWorkerSettings(
-            control_db_path=db_path,
-            heartbeat_interval_seconds=5.0,
-        )
+        make_operation_worker_settings(tmp_path, heartbeat_interval_seconds=5.0)
 
 
 def test_worker_settings_are_frozen(tmp_path: Path) -> None:
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(tmp_path)
 
     with pytest.raises(ValidationError):
         settings.claim_limit = 2
@@ -115,7 +127,9 @@ def test_bootstrap_maps_runtime_timeout_to_nonzero_without_clean_exit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    settings = OperationWorkerSettings(control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(tmp_path)
+    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "repository-bearer-token").write_text("test-repository-token\n", encoding="utf-8")
 
     class TimedOutRuntime:
         def run(self, _drain_requested: object, _wait: object) -> None:
@@ -131,7 +145,7 @@ def test_bootstrap_maps_runtime_timeout_to_nonzero_without_clean_exit(
     monkeypatch.setattr(
         operation_worker_bootstrap,
         "build_worker_runtime",
-        lambda _settings: TimedOutRuntime(),
+        lambda *_args, **_kwargs: TimedOutRuntime(),
     )
 
     assert operation_worker_bootstrap.run(settings) == 1

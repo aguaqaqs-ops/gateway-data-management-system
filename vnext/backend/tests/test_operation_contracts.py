@@ -320,7 +320,7 @@ def _registry_name_value_faults() -> tuple[tuple[str, str, str], ...]:
     return (
         ("empty", "", "registry name pattern"),
         ("too-long", "a" * 129, "registry name pattern"),
-        ("illegal-char", "bad/kind", "registry name pattern"),
+        ("illegal-char", "bad kind", "registry name pattern"),
     )
 
 

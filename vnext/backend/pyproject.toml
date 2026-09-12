@@ -15,6 +15,7 @@ dependencies = [
     "pydantic-settings==2.14.2",
     "pyarrow==25.0.0",
     "uvicorn==0.51.0",
+    "python-multipart==0.0.20",
 ]
 
 [tool.uv.sources]
@@ -23,6 +24,10 @@ gateway-shared-kernel = { path = "../shared_kernel", editable = true }
 
 [project.scripts]
 gateway-backend = "gateway_backend:main"
+
+[[tool.uv.index]]
+url = "http://192.168.233.184:3141/root/pypi/+simple/"
+default = true
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]

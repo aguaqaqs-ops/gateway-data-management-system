@@ -15,6 +15,17 @@ from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.validate import validate_artifact_ref_model
 
 
+def validate_artifact_root(artifact_root: Path) -> None:
+    """Fail closed unless the configured root already exists as a writable directory."""
+
+    if not isinstance(artifact_root, Path) or not artifact_root.is_absolute():
+        raise ValueError("artifact root must be an existing directory")
+    if not artifact_root.is_dir():
+        raise ValueError("artifact root must be an existing directory")
+    if not os.access(artifact_root, os.W_OK | os.X_OK):
+        raise ValueError("artifact root must be writable")
+
+
 class LocalArtifactStore:
     """Persist bytes under a configured root without exposing the host path."""
 

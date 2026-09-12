@@ -9,7 +9,6 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from signal import Signals
 from types import FrameType
 from typing import Any, cast
@@ -25,11 +24,24 @@ from gateway_backend.application.job_definitions import (
 )
 from gateway_backend.application.recovery import RecoveryCapability, RecoveryPort
 from gateway_backend.application.payloads import PayloadDecodeError, PayloadDecoder
+from gateway_backend.application.preview_jobs import (
+    PREVIEW_JOB_KIND,
+    PreviewRuntimeDependencies,
+    RepositoryProviderFactory,
+    build_preview_recovery_port,
+    preview_composition_bundle,
+)
 from gateway_backend.application.synthetic_jobs import build_external_effect_stub_recovery_port
-from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
+from gateway_backend.infrastructure.artifact_store import LocalArtifactStore, validate_artifact_root
 from gateway_backend.infrastructure.control_db import (
+    ControlDbIntegrityError,
     ControlDbUnitOfWork,
-    initialize_control_db,
+    initialize_and_verify_control_db,
+)
+from gateway_backend.infrastructure.repository_read import (
+    FailClosedBaselineHeadRead,
+    build_unwired_repository_provider_factory,
+    load_repository_bearer_token,
 )
 from gateway_backend.operations import OperationRecord, OperationUnitOfWork, StepRecord
 from gateway_backend.operations.contracts import JobStepKey
@@ -79,10 +91,6 @@ def _observe_event(event: WorkerEvent) -> None:
     )
 
 
-def _default_artifact_root(settings: OperationWorkerSettings) -> Path:
-    return settings.control_db_path.parent / "artifacts"
-
-
 def build_job_worker_composition_for_settings(
     settings: OperationWorkerSettings,
     *,
@@ -98,7 +106,7 @@ def build_job_worker_composition_for_settings(
         raise ValueError("definitions must be a tuple")
     bound_handlers = {} if handlers is None else dict(handlers)
     bound_decoders = {} if payload_decoders is None else dict(payload_decoders)
-    artifact_store = LocalArtifactStore(_default_artifact_root(settings))
+    artifact_store = LocalArtifactStore(settings.artifact_root)
     return build_job_worker_composition(
         definitions,
         bound_handlers,
@@ -116,7 +124,7 @@ def bootstrap_control_database(settings: OperationWorkerSettings) -> None:
     parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     if not parent.is_dir():
         raise ValueError("control DB parent is not a directory")
-    initialize_control_db(settings.control_db_path)
+    initialize_and_verify_control_db(settings.control_db_path)
 
 
 def build_worker_runtime(
@@ -128,6 +136,7 @@ def build_worker_runtime(
     handlers: Mapping[str, ClaimedExecutor] | None = None,
     payload_decoders: Mapping[str, PayloadDecoder] | None = None,
     external_effect_stub: object | None = None,
+    preview_recovery: RecoveryPort | None = None,
 ) -> WorkerRuntime:
     """Compose the SQLite-backed worker with the immutable R4 registry adapter."""
 
@@ -174,6 +183,7 @@ def build_worker_runtime(
         jitter=jitter,
         now_factory=now_factory,
         external_effect_stub=external_effect_stub,
+        preview_recovery=preview_recovery,
     )
     startup = _R4WorkerStartup(
         read_uow_factory=read_uow_factory,
@@ -215,22 +225,56 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
     stop_requested = threading.Event()
     previous_handlers: tuple[object, object] | None = None
     try:
-        # control_db_path is intentionally required and is normally supplied by the env prefix.
-        configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
-        previous_handlers = _install_signal_handlers(stop_requested)
-        bootstrap_control_database(configured)
-        runtime = build_worker_runtime(configured)
-        runtime.run(stop_requested.is_set, stop_requested.wait)
-    except ValidationError:
-        _LOGGER.error("operation_worker_failed category=settings_invalid")
-        return 1
-    except Exception as exc:
-        _LOGGER.error("operation_worker_failed category=%s", _failure_category(exc))
-        return 1
+        try:
+            # Required paths and repository settings are normally supplied by the env prefix.
+            configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
+            previous_handlers = _install_signal_handlers(stop_requested)
+            validate_artifact_root(configured.artifact_root)
+            token = load_repository_bearer_token(configured.repository_bearer_token_file)
+            bootstrap_control_database(configured)
+            artifact_store = LocalArtifactStore(configured.artifact_root)
+
+            def control_transaction_factory() -> ControlDbUnitOfWork:
+                return ControlDbUnitOfWork(configured.control_db_path)
+
+            preview_deps = PreviewRuntimeDependencies(
+                artifact_store=artifact_store,
+                repository_provider_factory=cast(
+                    RepositoryProviderFactory,
+                    build_unwired_repository_provider_factory(token),
+                ),
+                baseline_head_read=FailClosedBaselineHeadRead(),
+                control_transaction_factory=control_transaction_factory,
+            )
+            definitions, handlers, decoders = preview_composition_bundle(preview_deps)
+            runtime = build_worker_runtime(
+                configured,
+                job_definitions=definitions,
+                handlers=handlers,
+                payload_decoders=decoders,
+                preview_recovery=build_preview_recovery_port(preview_deps),
+            )
+        except ValidationError:
+            _LOGGER.error("operation_worker_failed category=settings_invalid")
+            return 1
+        except ControlDbIntegrityError:
+            _LOGGER.error("operation_worker_failed category=control_db_integrity")
+            return 1
+        except ValueError:
+            _LOGGER.error("operation_worker_failed category=settings_invalid")
+            return 1
+        except Exception as exc:
+            _LOGGER.error("operation_worker_failed category=%s", _failure_category(exc))
+            return 1
+        try:
+            runtime.run(stop_requested.is_set, stop_requested.wait)
+        except Exception as exc:
+            _LOGGER.error("operation_worker_failed category=%s", _failure_category(exc))
+            return 1
+        return 0
     finally:
         if previous_handlers is not None:
             _restore_signal_handlers(previous_handlers)
-    return 0
 
 
 def main() -> int:
@@ -283,6 +327,7 @@ def _build_recovery_callbacks(
     *,
     external_effect_stub: object | None,
     now_factory: Callable[[], datetime],
+    preview_recovery: RecoveryPort | None,
 ) -> dict[JobStepKey, HandlerRecoveryCallback | None]:
     callbacks: dict[JobStepKey, HandlerRecoveryCallback | None] = {}
     for definition in composition.definition_registry.definitions():
@@ -293,6 +338,8 @@ def _build_recovery_callbacks(
                 now_factory=now_factory,
             )
             callbacks[definition.key] = _adapt_recovery_port(port)
+        elif preview_recovery is not None and definition.key.job_kind == PREVIEW_JOB_KIND:
+            callbacks[definition.key] = _adapt_recovery_port(preview_recovery)
         else:
             callbacks[definition.key] = None
     return callbacks
@@ -330,11 +377,13 @@ def _build_recovery_aware_registry(
     jitter: Callable[[float, float], float],
     now_factory: Callable[[], datetime],
     external_effect_stub: object | None,
+    preview_recovery: RecoveryPort | None = None,
 ) -> WorkerRegistry:
     recovery_by_key = _build_recovery_callbacks(
         composition,
         external_effect_stub=external_effect_stub,
         now_factory=now_factory,
+        preview_recovery=preview_recovery,
     )
     return _RecoveryAwareWorkerRegistry(
         _registry=composition.worker_registry,

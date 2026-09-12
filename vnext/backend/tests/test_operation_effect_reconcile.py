@@ -63,7 +63,7 @@ from gateway_backend.operations import (
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import OperationLifecycleActions
 from gateway_backend.operations.worker import ExecutionControl, ExecutorAcknowledgment
-from gateway_backend.settings import OperationWorkerSettings
+from tests.support.runtime_settings import make_operation_worker_settings
 
 BASE_TIME = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
 IDEMPOTENCY_KEY_ALPHA = "idem-alpha"
@@ -141,7 +141,7 @@ def _bootstrap_stub_claimed(
     lease_token: str = "lease-reconcile-1",
     stub_outcome: str = StubOutcome.ACCEPTED.value,
 ) -> tuple[LeaseSession, ExecutionControl]:
-    bootstrap_control_database(OperationWorkerSettings(control_db_path=db_path))
+    bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
     operation = operation_record_from_document(
         _stub_operation_document(operation_id, stub_outcome=stub_outcome)
     )

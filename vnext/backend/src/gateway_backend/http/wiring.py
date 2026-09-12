@@ -1,0 +1,40 @@
+"""Register 5A workspace HTTP routes and exception handlers."""
+
+from __future__ import annotations
+
+from fastapi import FastAPI
+
+from gateway_backend.http.dependencies import WorkspaceHttpDependencies
+from gateway_backend.http.errors import register_exception_handlers
+from gateway_backend.http.routes.operations import router as operations_router
+from gateway_backend.http.routes.preview_operations import router as preview_operations_router
+from gateway_backend.http.routes.preview_results import router as preview_results_router
+from gateway_backend.http.routes.upload_revisions import router as upload_revisions_router
+from gateway_backend.http.routes.workspaces import router as workspaces_router
+
+PRODUCTION_OPENAPI_PATHS = frozenset(
+    {
+        "/healthz",
+        "/readyz",
+        "/v1/workspaces",
+        "/v1/workspaces/{workspace_id}/upload-revisions",
+        "/v1/workspaces/{workspace_id}/preview-operations",
+        "/v1/operations/{operation_id}",
+        "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}",
+        "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+    }
+)
+
+
+def register_workspace_http(
+    app: FastAPI,
+    deps: WorkspaceHttpDependencies | None = None,
+) -> None:
+    register_exception_handlers(app)
+    if deps is not None:
+        app.state.workspace_http = deps
+    app.include_router(workspaces_router)
+    app.include_router(upload_revisions_router)
+    app.include_router(preview_operations_router)
+    app.include_router(operations_router)
+    app.include_router(preview_results_router)

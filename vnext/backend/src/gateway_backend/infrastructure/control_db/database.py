@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 BUSY_TIMEOUT_MS = 5_000
 
 
+class ControlDbIntegrityError(RuntimeError):
+    """Raised when SQLite integrity or foreign-key checks fail at startup."""
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -43,6 +47,36 @@ def connect_control_db(db_path: Path) -> sqlite3.Connection:
         connection.close()
         raise
     return connection
+
+
+def assert_control_db_integrity(connection: sqlite3.Connection) -> None:
+    """Run bounded PRAGMA integrity checks without leaking row payloads."""
+
+    try:
+        integrity_rows = connection.execute("PRAGMA integrity_check").fetchall()
+        foreign_key_rows = connection.execute("PRAGMA foreign_key_check").fetchall()
+    except sqlite3.OperationalError as exc:
+        _raise_if_busy(exc)
+        raise ControlDbIntegrityError("control DB integrity check failed") from None
+    if len(integrity_rows) != 1 or integrity_rows[0][0] != "ok":
+        raise ControlDbIntegrityError("control DB integrity check failed")
+    if foreign_key_rows:
+        raise ControlDbIntegrityError("control DB foreign key check failed")
+
+
+def initialize_and_verify_control_db(
+    db_path: Path,
+    *,
+    now: Callable[[], datetime] = _utc_now,
+) -> None:
+    """Initialize schema, then fail closed on integrity errors."""
+
+    initialize_control_db(db_path, now=now)
+    connection = connect_control_db(db_path)
+    try:
+        assert_control_db_integrity(connection)
+    finally:
+        connection.close()
 
 
 def initialize_control_db(

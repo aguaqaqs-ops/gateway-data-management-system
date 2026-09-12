@@ -102,7 +102,7 @@ from gateway_backend.operations.worker import (
     StartupDisposition,
 )
 from gateway_backend.operations.worker_startup import WorkerStartup
-from gateway_backend.settings import OperationWorkerSettings
+from tests.support.runtime_settings import make_operation_worker_settings
 
 pytestmark = pytest.mark.integration
 
@@ -228,7 +228,7 @@ def _bootstrap_claimed(
     worker_id: str = "worker-recovery-1",
     lease_token: str = "lease-recovery-1",
 ) -> tuple[LeaseSession, ExecutionControl]:
-    bootstrap_control_database(OperationWorkerSettings(control_db_path=db_path))
+    bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
     operation = operation_record_from_document(_operation_document(operation_id))
     step = step_record_from_document(_step_document(operation.operation_id, step_id))
     with ControlDbUnitOfWork(db_path) as unit_of_work:
@@ -555,7 +555,7 @@ def _bootstrap_stub_claimed(
     lease_token: str = "lease-stub-recovery-1",
     stub_outcome: str = StubOutcome.CONFIRMED.value,
 ) -> tuple[LeaseSession, ExecutionControl]:
-    bootstrap_control_database(OperationWorkerSettings(control_db_path=db_path))
+    bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
     operation = operation_record_from_document(
         _stub_operation_document(operation_id, stub_outcome=stub_outcome)
     )

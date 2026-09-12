@@ -9,6 +9,7 @@ from gateway_backend.domain.workspace.errors import WorkspaceVersionConflict
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
     IdentityContext,
+    PreviewAcceptanceRecord,
     PreviewResult,
     ResolvedScope,
     UploadRevision,
@@ -55,7 +56,7 @@ class InMemoryWorkspaceRepository:
         self._upload_revisions: dict[str, UploadRevision] = {}
         self._preview_results: dict[str, PreviewResult] = {}
         self._upload_idempotency: dict[tuple[str, str], str] = {}
-        self._preview_idempotency: dict[tuple[str, str], str] = {}
+        self._preview_idempotency: dict[tuple[str, str], PreviewAcceptanceRecord] = {}
 
     def find_open_by_scope(self, scope: WorkspaceScope) -> Workspace | None:
         workspace_id = self._open_by_scope.get(scope)
@@ -89,11 +90,8 @@ class InMemoryWorkspaceRepository:
         self,
         workspace_id: str,
         idempotency_key: str,
-    ) -> PreviewResult | None:
-        result_id = self._preview_idempotency.get((workspace_id, idempotency_key))
-        if result_id is None:
-            return None
-        return self._preview_results.get(result_id)
+    ) -> PreviewAcceptanceRecord | None:
+        return self._preview_idempotency.get((workspace_id, idempotency_key))
 
     def save_workspace(self, workspace: Workspace, *, expected_version: int) -> Workspace:
         current = self._workspaces.get(workspace.workspace_id)
@@ -129,14 +127,33 @@ class InMemoryWorkspaceRepository:
     def save_preview_result(self, result: PreviewResult) -> None:
         self._preview_results[result.preview_result_id] = result
 
+    def save_preview_acceptance(self, record: PreviewAcceptanceRecord) -> None:
+        self._preview_idempotency[(record.workspace_id, record.idempotency_key)] = record
+
     def register_preview_idempotency(
         self,
         *,
         workspace_id: str,
         idempotency_key: str,
-        preview_result_id: str,
+        request_fingerprint: str,
+        operation_id: str,
+        upload_revision_id: str,
+        generation: int,
+        business_baseline_node_id: str,
+        baseline_head_version: int,
     ) -> None:
-        self._preview_idempotency[(workspace_id, idempotency_key)] = preview_result_id
+        self.save_preview_acceptance(
+            PreviewAcceptanceRecord(
+                workspace_id=workspace_id,
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+                operation_id=operation_id,
+                upload_revision_id=upload_revision_id,
+                generation=generation,
+                business_baseline_node_id=business_baseline_node_id,
+                baseline_head_version=baseline_head_version,
+            )
+        )
 
 
 def make_identity(

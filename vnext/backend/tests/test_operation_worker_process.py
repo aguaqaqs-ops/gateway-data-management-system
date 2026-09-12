@@ -22,6 +22,7 @@ from gateway_backend.operations import (
     operation_record_from_document,
     step_record_from_document,
 )
+from tests.support.runtime_settings import write_mapping_file
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
@@ -48,6 +49,15 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
         part for part in (source_path, environment.get("PYTHONPATH")) if part
     )
     environment["GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH"] = str(db_path)
+    artifact_root = db_path.parent / "artifacts"
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    token_file = db_path.parent / "repository-bearer-token"
+    token_file.write_text("test-repository-token\n", encoding="utf-8")
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_ARTIFACT_ROOT"] = str(artifact_root)
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = "http://127.0.0.1:9"
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BEARER_TOKEN_FILE"] = str(token_file)
+    mapping_file = write_mapping_file(db_path.parent / "provisioned-mapping.json")
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_PROVISIONED_MAPPING_FILE"] = str(mapping_file)
     return environment
 
 
@@ -99,6 +109,7 @@ def test_module_worker_bootstraps_empty_db_and_drains_on_sigterm(tmp_path: Path)
     assert "RuntimeWarning" not in output
     assert "runpy" not in output
     assert str(db_path) not in output
+    assert "test-repository-token" not in output
     assert db_path.is_file()
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
@@ -136,6 +147,7 @@ def test_module_worker_failure_is_nonzero_and_redacted(
     assert "operation_worker_failed" in output
     assert str(db_path) not in output
     assert "lease-" not in output
+    assert "test-repository-token" not in output
 
 
 def test_missing_handler_failure_redacts_payload_token_path_and_sql(
@@ -214,8 +226,8 @@ def test_missing_handler_failure_redacts_payload_token_path_and_sql(
     assert process.returncode != 0
     assert "operation_worker_failed" in output
     assert secret_token not in output
-    assert secret_sql not in output
     assert str(db_path) not in output
+    assert "test-repository-token" not in output
 
 
 @pytest.mark.parametrize(

@@ -200,7 +200,12 @@ def test_validate_start_preview_binding_replays_prior_preview_idempotency() -> N
     repository.register_preview_idempotency(
         workspace_id=workspace.workspace_id,
         idempotency_key="preview-key-1",
-        preview_result_id=prior.preview_result_id,
+        request_fingerprint="fp-preview",
+        operation_id=prior.operation_id,
+        upload_revision_id=prior.upload_revision_id,
+        generation=prior.generation,
+        business_baseline_node_id=prior.business_baseline_node_id,
+        baseline_head_version=prior.baseline_head_version,
     )
     command = _start_preview_command(
         workspace_id=workspace.workspace_id,
@@ -214,7 +219,8 @@ def test_validate_start_preview_binding_replays_prior_preview_idempotency() -> N
     )
 
     assert result.replay is True
-    assert result.prior_result == prior
+    assert result.prior_acceptance is not None
+    assert result.prior_acceptance.operation_id == prior.operation_id
 
 
 def test_validate_start_preview_binding_conflicts_on_reused_preview_key_with_different_input() -> None:
@@ -229,7 +235,12 @@ def test_validate_start_preview_binding_conflicts_on_reused_preview_key_with_dif
     repository.register_preview_idempotency(
         workspace_id=workspace.workspace_id,
         idempotency_key="preview-key-1",
-        preview_result_id=prior.preview_result_id,
+        request_fingerprint="fp-other",
+        operation_id=prior.operation_id,
+        upload_revision_id="ur-other",
+        generation=99,
+        business_baseline_node_id=prior.business_baseline_node_id,
+        baseline_head_version=prior.baseline_head_version,
     )
     command = _start_preview_command(
         workspace_id=workspace.workspace_id,

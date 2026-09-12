@@ -6,14 +6,42 @@ services:
     ports:
       - "8000:8000"
     environment:
+      GATEWAY_BACKEND_CONTROL_DB_PATH: /var/lib/gateway/control/control.sqlite3
       GATEWAY_BACKEND_ARTIFACT_ROOT: /var/lib/gateway/artifacts
+      GATEWAY_BACKEND_REPOSITORY_BASE_URL: ${GATEWAY_BACKEND_REPOSITORY_BASE_URL:-http://repository-service:8000}
+      GATEWAY_BACKEND_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
+      GATEWAY_BACKEND_REPOSITORY_TIMEOUT_SECONDS: "30.0"
     volumes:
       - backend-artifacts:/var/lib/gateway/artifacts
+      - backend-control:/var/lib/gateway/control
+    secrets:
+      - repository-bearer-token
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz')
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
   worker:
     build:
       context: ..
       dockerfile: backend/Dockerfile
-    command: ["python", "-c", "print('worker bootstrap')"]
+    command: ["python", "-m", "gateway_backend.bootstrap.operation_worker"]
+    environment:
+      GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH: /var/lib/gateway/control/control.sqlite3
+      GATEWAY_BACKEND_OPERATION_WORKER_ARTIFACT_ROOT: /var/lib/gateway/artifacts
+      GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL: ${GATEWAY_BACKEND_REPOSITORY_BASE_URL:-http://repository-service:8000}
+      GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
+      GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_TIMEOUT_SECONDS: "30.0"
+    volumes:
+      - backend-artifacts:/var/lib/gateway/artifacts
+      - backend-control:/var/lib/gateway/control
+    secrets:
+      - repository-bearer-token
   repository-probe:
     profiles: ["p2-r1"]
     cgroup: host
@@ -105,5 +133,6 @@ secrets:
     file: ${GATEWAY_P2R2_BEARER_TOKEN_FILE:-/dev/null}
 volumes:
   backend-artifacts:
+  backend-control:
   repository-data:
   repository-service-data:

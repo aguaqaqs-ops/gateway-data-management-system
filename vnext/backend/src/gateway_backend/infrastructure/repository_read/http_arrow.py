@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import tempfile
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import cast
 from uuid import UUID
 
 import httpx
-import pyarrow as pa
 import pyarrow.ipc as ipc
 from gateway_repository_client import RepositoryClient
 from gateway_repository_client.arrow_stream import ArrowIpcByteStream
@@ -120,7 +121,6 @@ class HttpArrowRepositoryRefSession:
         self._repository_id = repository_id
         self._commit_id = commit_id
         self._catalog: RepositoryTableCatalog | None = None
-        self._rows: dict[str, tuple[tuple[object | None, ...], ...]] = {}
         self._hidden: HiddenFinalSummary | None = None
         self._closed = False
 
@@ -141,11 +141,9 @@ class HttpArrowRepositoryRefSession:
 
     def read_hidden_summary(self) -> HiddenFinalSummary | None:
         self._ensure_open()
-        catalog = self.get_catalog()
-        for table in catalog.tables:
-            self._rows.setdefault(canonicalize_identifier(table.table_name), self._load_rows(table.table_name))
         if self._hidden is None:
-            self._hidden = _hidden_summary_from_catalog(catalog, self._rows)
+            catalog = self.get_catalog()
+            self._hidden = _hidden_summary_from_streaming_tables(catalog, self._iter_table_rows)
         return self._hidden
 
     def open_table_reader(self, table_name: str) -> HttpArrowRepositoryTableReader:
@@ -163,11 +161,7 @@ class HttpArrowRepositoryRefSession:
                 f"table {table_name!r} is not in the catalog",
                 table=table_name,
             )
-        rows = self._rows.get(canonical)
-        if rows is None:
-            rows = self._load_rows(matched.table_name)
-            self._rows[canonical] = rows
-        return HttpArrowRepositoryTableReader(matched, rows)
+        return HttpArrowRepositoryTableReader(matched, self._iter_table_rows)
 
     def export_table_artifact(self, table_name: str, export_format: str) -> None:
         del table_name, export_format
@@ -192,30 +186,30 @@ class HttpArrowRepositoryRefSession:
             ),
         )
 
-    def _load_rows(self, table_name: str) -> tuple[tuple[object | None, ...], ...]:
-        return cast(
-            tuple[tuple[object | None, ...], ...],
-            _run(self._load_rows_async(table_name)),
-        )
+    def _iter_table_rows(self, table_name: str) -> Iterator[tuple[object | None, ...]]:
+        ipc_path = cast(str, _run(self._spool_table_ipc(table_name)))
+        try:
+            yield from _iter_rows_from_ipc_path(ipc_path)
+        finally:
+            Path(ipc_path).unlink(missing_ok=True)
 
-    async def _load_rows_async(self, table_name: str) -> tuple[tuple[object | None, ...], ...]:
+    async def _spool_table_ipc(self, table_name: str) -> str:
         stream = self._client.stream_versioned_table_rows(
             repository_id=_as_uuid(self._repository_id),
             commit_id=self._commit_id,
             table_name=table_name,
         )
-        raw = await _read_arrow_bytes(stream)
-        return _tuples_from_ipc(raw)
+        return await _spool_arrow_ipc(stream)
 
 
 class HttpArrowRepositoryTableReader:
     def __init__(
         self,
         table: RepositoryCatalogTable,
-        rows: tuple[tuple[object | None, ...], ...],
+        rows_factory: Callable[[str], Iterator[tuple[object | None, ...]]],
     ) -> None:
         self._table = table
-        self._rows = rows
+        self._rows_factory = rows_factory
         self._closed = False
 
     def catalog_table(self) -> RepositoryCatalogTable:
@@ -225,7 +219,7 @@ class HttpArrowRepositoryTableReader:
         return tuple(column.name for column in self._table.columns)
 
     def stream_rows(self) -> Iterator[tuple[object | None, ...]]:
-        yield from self._rows
+        yield from self._rows_factory(self._table.table_name)
 
     def close(self) -> None:
         self._closed = True
@@ -286,24 +280,29 @@ def _as_uuid(repository_id: str) -> UUID:
         ) from exc
 
 
-async def _read_arrow_bytes(stream: ArrowIpcByteStream) -> bytes:
-    chunks: list[bytes] = []
-    async with stream:
-        async for chunk in stream.aiter_bytes():
-            chunks.append(chunk)
-    return b"".join(chunks)
+async def _spool_arrow_ipc(stream: ArrowIpcByteStream) -> str:
+    handle = tempfile.NamedTemporaryFile(prefix="gateway-arrow-", suffix=".ipc", delete=False)
+    path = handle.name
+    try:
+        with handle:
+            async with stream:
+                async for chunk in stream.aiter_bytes():
+                    handle.write(chunk)
+    except BaseException:
+        Path(path).unlink(missing_ok=True)
+        raise
+    return path
 
 
-def _tuples_from_ipc(raw: bytes) -> tuple[tuple[object | None, ...], ...]:
-    reader = ipc.open_stream(pa.BufferReader(raw))
-    rows: list[tuple[object | None, ...]] = []
-    for batch in reader:
-        columns = [batch.column(index).to_pylist() for index in range(batch.num_columns)]
-        if not columns:
-            continue
-        for values in zip(*columns, strict=True):
-            rows.append(tuple(values))
-    return tuple(rows)
+def _iter_rows_from_ipc_path(path: str) -> Iterator[tuple[object | None, ...]]:
+    with Path(path).open("rb") as handle:
+        reader = ipc.open_stream(handle)
+        for batch in reader:
+            columns = [batch.column(index).to_pylist() for index in range(batch.num_columns)]
+            if not columns:
+                continue
+            for values in zip(*columns, strict=True):
+                yield tuple(values)
 
 
 def _catalog_from_response(
@@ -341,9 +340,9 @@ def _catalog_from_response(
     )
 
 
-def _hidden_summary_from_catalog(
+def _hidden_summary_from_streaming_tables(
     catalog: RepositoryTableCatalog,
-    rows: dict[str, tuple[tuple[object | None, ...], ...]],
+    rows_factory: Callable[[str], Iterator[tuple[object | None, ...]]],
 ) -> HiddenFinalSummary:
     descriptors: list[SnapshotTableDescriptor] = []
     for table in catalog.tables:
@@ -353,13 +352,14 @@ def _hidden_summary_from_catalog(
         column_names = tuple(item.canonical_name for item in source_columns)
         compare_keys = tuple(canonicalize_identifier(name) for name in table.primary_key_columns)
         schema = compare_schema_digest(canonical, column_names, compare_keys)
-        table_rows = rows.get(canonical, ())
-        encoded = tuple(
-            encode_repository_row(table.columns, tuple(row), table=canonical).cells
-            for row in table_rows
-        )
-        row_hashes = tuple(row_content_hash(source_columns, row) for row in encoded)
-        fast_hashes = tuple(fast_row_hash(source_columns, row) for row in encoded)
+        row_hashes: list[bytes] = []
+        fast_hashes: list[bytes] = []
+        row_count = 0
+        for row in rows_factory(table.table_name):
+            encoded_row = encode_repository_row(table.columns, tuple(row), table=canonical).cells
+            row_hashes.append(row_content_hash(source_columns, encoded_row))
+            fast_hashes.append(fast_row_hash(source_columns, encoded_row))
+            row_count += 1
         columns = tuple(
             SnapshotColumnDescriptor(
                 name=item.canonical_name,
@@ -376,14 +376,14 @@ def _hidden_summary_from_catalog(
                 columns=columns,
                 primary_key_columns=compare_keys,
                 compare_key_columns=compare_keys,
-                row_count=len(encoded),
+                row_count=row_count,
                 materialization_stage=MaterializationStage.FINAL,
                 compare_schema_digest=schema,
                 table_ruleset_version=TABLE_RULESET_VERSION,
                 row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
                 scalar_encoding_version=SCALAR_ENCODING_VERSION,
-                fast_row_digest=fast_row_digest_of(fast_hashes),
-                raw_content_digest=raw_content_digest_of(row_hashes),
+                fast_row_digest=fast_row_digest_of(tuple(fast_hashes)),
+                raw_content_digest=raw_content_digest_of(tuple(row_hashes)),
                 degraded_reason=DegradedReason.KEYLESS if not compare_keys else None,
             )
         )

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 
 from gateway_backend.operations import StoreBusy, UnsupportedSchemaVersion
@@ -11,7 +12,7 @@ from gateway_backend.operations import StoreBusy, UnsupportedSchemaVersion
 OPERATIONS_SCHEMA_COMPONENT = "operations"
 OPERATIONS_SCHEMA_VERSION = 1
 WORKSPACE_SCHEMA_COMPONENT = "workspace"
-WORKSPACE_SCHEMA_VERSION = 1
+WORKSPACE_SCHEMA_VERSION = 2
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SQLITE_INT_MIN = -(2**63)
@@ -51,13 +52,13 @@ def bootstrap_control_schema(
     *,
     now: Callable[[], datetime],
 ) -> None:
-    """Apply the Operations schema atomically if the component is not at v1."""
+    """Apply Operations schema steps until the component reaches the supported version."""
 
     _bootstrap_component_schema(
         connection,
         component=OPERATIONS_SCHEMA_COMPONENT,
         target_version=OPERATIONS_SCHEMA_VERSION,
-        apply=_apply_operations_v1,
+        steps={1: _apply_operations_v1},
         now=now,
     )
 
@@ -67,13 +68,13 @@ def bootstrap_workspace_schema(
     *,
     now: Callable[[], datetime],
 ) -> None:
-    """Apply the Workspace schema atomically if the component is not at v1."""
+    """Apply Workspace schema steps until the component reaches the supported version."""
 
     _bootstrap_component_schema(
         connection,
         component=WORKSPACE_SCHEMA_COMPONENT,
         target_version=WORKSPACE_SCHEMA_VERSION,
-        apply=_apply_workspace_v1,
+        steps={1: _apply_workspace_v1, 2: _apply_workspace_v2},
         now=now,
     )
 
@@ -83,7 +84,7 @@ def _bootstrap_component_schema(
     *,
     component: str,
     target_version: int,
-    apply: Callable[[sqlite3.Connection], None],
+    steps: Mapping[int, Callable[[sqlite3.Connection], None]],
     now: Callable[[], datetime],
 ) -> None:
     if connection.in_transaction:
@@ -99,14 +100,18 @@ def _bootstrap_component_schema(
         if current_version == target_version:
             connection.execute("COMMIT")
             return
-        if current_version != 0:
-            raise RuntimeError("unsupported migration history")
-        apply(connection)
-        applied_at_us = _datetime_to_epoch_us(now())
-        connection.execute(
-            "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
-            (component, target_version, applied_at_us),
-        )
+        while current_version < target_version:
+            next_version = current_version + 1
+            apply = steps.get(next_version)
+            if apply is None:
+                raise RuntimeError("unsupported migration history")
+            apply(connection)
+            applied_at_us = _datetime_to_epoch_us(now())
+            connection.execute(
+                "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
+                (component, next_version, applied_at_us),
+            )
+            current_version = next_version
         connection.execute("COMMIT")
     except UnsupportedSchemaVersion:
         _rollback_if_needed(connection)
@@ -132,6 +137,17 @@ def _apply_workspace_v1(connection: sqlite3.Connection) -> None:
     for statement in statements:
         connection.execute(statement)
     _assert_workspace_bootstrap_integrity(connection)
+
+
+def _apply_workspace_v2(connection: sqlite3.Connection) -> None:
+    connection.execute(_PREVIEW_IDEMPOTENCY_V2_DDL)
+    _copy_preview_idempotency_to_v2(connection)
+    connection.execute("DROP TABLE preview_idempotency_records")
+    connection.execute(
+        "ALTER TABLE preview_idempotency_records_v2 RENAME TO preview_idempotency_records"
+    )
+    for statement in _workspace_v2_statements():
+        connection.execute(statement)
 
 
 def _assert_workspace_bootstrap_integrity(connection: sqlite3.Connection) -> None:
@@ -426,26 +442,67 @@ def _workspace_v1_statements() -> tuple[str, ...]:
             request_fingerprint TEXT NOT NULL
                 CHECK (typeof(request_fingerprint) = 'text'
                        AND length(request_fingerprint) BETWEEN 1 AND 512),
-            operation_id TEXT NOT NULL
-                CHECK (typeof(operation_id) = 'text'
-                       AND length(operation_id) BETWEEN 1 AND 255),
-            upload_revision_id TEXT NOT NULL
-                CHECK (typeof(upload_revision_id) = 'text'
-                       AND length(upload_revision_id) BETWEEN 1 AND 255),
-            generation INTEGER NOT NULL
-                CHECK (typeof(generation) = 'integer' AND generation >= 0),
-            business_baseline_node_id TEXT NOT NULL
-                CHECK (typeof(business_baseline_node_id) = 'text'
-                       AND length(business_baseline_node_id) BETWEEN 1 AND 255),
-            baseline_head_version INTEGER NOT NULL
-                CHECK (typeof(baseline_head_version) = 'integer' AND baseline_head_version >= 0),
+            preview_result_id TEXT NOT NULL
+                CHECK (typeof(preview_result_id) = 'text'
+                       AND length(preview_result_id) BETWEEN 1 AND 255),
             PRIMARY KEY (workspace_id, idempotency_key),
             FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
-            FOREIGN KEY (operation_id) REFERENCES operation_records(operation_id) ON DELETE RESTRICT,
-            FOREIGN KEY (upload_revision_id) REFERENCES upload_revision_records(upload_revision_id)
+            FOREIGN KEY (preview_result_id) REFERENCES preview_result_records(preview_result_id)
                 ON DELETE RESTRICT
         )
         """,
+        """
+        CREATE TABLE artifact_protection_intents (
+            artifact_id TEXT NOT NULL
+                CHECK (typeof(artifact_id) = 'text' AND length(artifact_id) BETWEEN 1 AND 255),
+            owner_kind TEXT NOT NULL
+                CHECK (typeof(owner_kind) = 'text' AND length(owner_kind) BETWEEN 1 AND 128),
+            owner_id TEXT NOT NULL
+                CHECK (typeof(owner_id) = 'text' AND length(owner_id) BETWEEN 1 AND 255),
+            intent TEXT NOT NULL
+                CHECK (typeof(intent) = 'text' AND length(intent) BETWEEN 1 AND 128),
+            recorded_at_us INTEGER NOT NULL
+                CHECK (typeof(recorded_at_us) = 'integer'),
+            PRIMARY KEY (artifact_id, owner_kind, owner_id)
+        )
+        """,
+    )
+
+
+_PREVIEW_IDEMPOTENCY_V2_DDL = """
+CREATE TABLE preview_idempotency_records_v2 (
+    workspace_id TEXT NOT NULL
+        CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+    idempotency_key TEXT NOT NULL
+        CHECK (typeof(idempotency_key) = 'text'
+               AND length(idempotency_key) BETWEEN 1 AND 255),
+    request_fingerprint TEXT NOT NULL
+        CHECK (typeof(request_fingerprint) = 'text'
+               AND length(request_fingerprint) BETWEEN 1 AND 512),
+    operation_id TEXT NOT NULL
+        CHECK (typeof(operation_id) = 'text'
+               AND length(operation_id) BETWEEN 1 AND 255),
+    upload_revision_id TEXT NOT NULL
+        CHECK (typeof(upload_revision_id) = 'text'
+               AND length(upload_revision_id) BETWEEN 1 AND 255),
+    generation INTEGER NOT NULL
+        CHECK (typeof(generation) = 'integer' AND generation >= 0),
+    business_baseline_node_id TEXT NOT NULL
+        CHECK (typeof(business_baseline_node_id) = 'text'
+               AND length(business_baseline_node_id) BETWEEN 1 AND 255),
+    baseline_head_version INTEGER NOT NULL
+        CHECK (typeof(baseline_head_version) = 'integer' AND baseline_head_version >= 0),
+    PRIMARY KEY (workspace_id, idempotency_key),
+    FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
+    FOREIGN KEY (operation_id) REFERENCES operation_records(operation_id) ON DELETE RESTRICT,
+    FOREIGN KEY (upload_revision_id) REFERENCES upload_revision_records(upload_revision_id)
+        ON DELETE RESTRICT
+)
+"""
+
+
+def _workspace_v2_statements() -> tuple[str, ...]:
+    return (
         """
         CREATE TABLE provisioned_scope_mappings (
             gateway_device_external_key TEXT NOT NULL
@@ -474,19 +531,68 @@ def _workspace_v1_statements() -> tuple[str, ...]:
             ON provisioned_scope_mappings(gateway_device_external_key)
             WHERE enabled = 1
         """,
-        """
-        CREATE TABLE artifact_protection_intents (
-            artifact_id TEXT NOT NULL
-                CHECK (typeof(artifact_id) = 'text' AND length(artifact_id) BETWEEN 1 AND 255),
-            owner_kind TEXT NOT NULL
-                CHECK (typeof(owner_kind) = 'text' AND length(owner_kind) BETWEEN 1 AND 128),
-            owner_id TEXT NOT NULL
-                CHECK (typeof(owner_id) = 'text' AND length(owner_id) BETWEEN 1 AND 255),
-            intent TEXT NOT NULL
-                CHECK (typeof(intent) = 'text' AND length(intent) BETWEEN 1 AND 128),
-            recorded_at_us INTEGER NOT NULL
-                CHECK (typeof(recorded_at_us) = 'integer'),
-            PRIMARY KEY (artifact_id, owner_kind, owner_id)
-        )
-        """,
     )
+
+
+def _copy_preview_idempotency_to_v2(connection: sqlite3.Connection) -> None:
+    rows = connection.execute(
+        """
+        SELECT
+            idempotency.workspace_id,
+            idempotency.idempotency_key,
+            idempotency.request_fingerprint,
+            result.operation_id,
+            result.upload_revision_id,
+            result.generation,
+            result.binding
+        FROM preview_idempotency_records AS idempotency
+        LEFT JOIN preview_result_records AS result
+            ON result.preview_result_id = idempotency.preview_result_id
+        """
+    ).fetchall()
+    for row in rows:
+        operation_id = row[3]
+        upload_revision_id = row[4]
+        generation = row[5]
+        binding_blob = row[6]
+        if (
+            type(operation_id) is not str
+            or type(upload_revision_id) is not str
+            or type(generation) is not int
+            or not isinstance(binding_blob, bytes)
+        ):
+            raise RuntimeError("workspace v2 migration found dangling preview idempotency")
+        node_id, head_version = _preview_binding_fields(binding_blob)
+        connection.execute(
+            """
+            INSERT INTO preview_idempotency_records_v2 (
+                workspace_id, idempotency_key, request_fingerprint, operation_id,
+                upload_revision_id, generation, business_baseline_node_id, baseline_head_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row[0],
+                row[1],
+                row[2],
+                operation_id,
+                upload_revision_id,
+                generation,
+                node_id,
+                head_version,
+            ),
+        )
+
+
+def _preview_binding_fields(binding_blob: bytes) -> tuple[str, int]:
+    try:
+        binding = json.loads(binding_blob.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("workspace v2 migration found undecodable preview binding") from exc
+    if type(binding) is not dict:
+        raise RuntimeError("workspace v2 migration found undecodable preview binding")
+    node_id = binding.get("business_baseline_node_id")
+    head_version = binding.get("baseline_head_version")
+    if type(node_id) is not str or not node_id or type(head_version) is not int:
+        raise RuntimeError("workspace v2 migration found undecodable preview binding")
+    return node_id, head_version
+

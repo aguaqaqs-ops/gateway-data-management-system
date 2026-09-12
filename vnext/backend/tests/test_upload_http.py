@@ -229,3 +229,95 @@ def test_failed_revision_insert_rolls_back_workspace_pointer(
     assert persisted is not None
     assert persisted.current_upload_revision_id is None
     assert persisted.generation == 0
+
+
+def test_accept_upload_supersedes_queued_preview_for_previous_generation(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from gateway_backend.operations import OperationStatus, StepStatus
+
+    workspace = _create_workspace(env.client, env.auth_headers()).json()
+    first_upload = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
+        headers=env.auth_headers(idempotency_key="upload-before-preview"),
+        files=upload_files(),
+    ).json()
+    preview = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/preview-operations",
+        headers=env.auth_headers(idempotency_key="preview-queued"),
+        json={
+            "expected_workspace_version": first_upload["optimistic_version"],
+            "upload_revision_id": first_upload["upload_revision_id"],
+            "generation": first_upload["generation"],
+            "expected_baseline_node_id": "node-1",
+            "expected_baseline_head_version": 3,
+            "options": {},
+        },
+    )
+    assert preview.status_code == 202
+    operation_id = preview.json()["operation_id"]
+    second = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
+        headers=env.auth_headers(idempotency_key="upload-supersede"),
+        files=upload_files(expected_version=first_upload["optimistic_version"]),
+    )
+    assert second.status_code == 201
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        steps, _cursor = unit_of_work.operations.list_steps(operation_id)
+        candidates, _next = unit_of_work.operations.list_claim_candidates(
+            unit_of_work.operations.transaction_now
+        )
+    assert operation.status is OperationStatus.SUPERSEDED
+    assert steps[0].status is StepStatus.CANCELLED
+    assert all(candidate.operation_id != operation_id for candidate in candidates)
+
+
+def test_accept_upload_sets_cancel_intent_on_running_preview(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from gateway_backend.operations.persistence import OperationLifecycleActions
+
+    workspace = _create_workspace(env.client, env.auth_headers()).json()
+    first_upload = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
+        headers=env.auth_headers(idempotency_key="upload-before-running"),
+        files=upload_files(),
+    ).json()
+    preview = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/preview-operations",
+        headers=env.auth_headers(idempotency_key="preview-running"),
+        json={
+            "expected_workspace_version": first_upload["optimistic_version"],
+            "upload_revision_id": first_upload["upload_revision_id"],
+            "generation": first_upload["generation"],
+            "expected_baseline_node_id": "node-1",
+            "expected_baseline_head_version": 3,
+            "options": {},
+        },
+    )
+    assert preview.status_code == 202
+    operation_id = preview.json()["operation_id"]
+    with ControlDbUnitOfWork(env.db_path) as unit_of_work:
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        claimed = actions.claim_one("worker-1", "lease-running-1")
+        assert claimed is not None
+        assert claimed[0].operation_id == operation_id
+    second = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
+        headers=env.auth_headers(idempotency_key="upload-cancel-running"),
+        files=upload_files(expected_version=first_upload["optimistic_version"]),
+    )
+    assert second.status_code == 201
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        steps, _cursor = unit_of_work.operations.list_steps(operation_id)
+    assert operation.status.value == "RUNNING"
+    assert operation.cancel_requested is True
+    assert steps[0].cancel_requested is True
+    assert steps[0].status.value == "RUNNING"

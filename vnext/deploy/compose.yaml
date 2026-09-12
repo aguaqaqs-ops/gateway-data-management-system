@@ -11,15 +11,15 @@ services:
       GATEWAY_BACKEND_REPOSITORY_BASE_URL: ${GATEWAY_BACKEND_REPOSITORY_BASE_URL:-http://repository-service:8000}
       GATEWAY_BACKEND_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
       GATEWAY_BACKEND_REPOSITORY_TIMEOUT_SECONDS: "30.0"
-      GATEWAY_BACKEND_SESSION_FILE: /run/gateway/session.json
+      GATEWAY_BACKEND_SESSION_FILE: /run/secrets/backend-session
       GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE: /run/gateway/provisioned-mapping.json
     volumes:
       - backend-artifacts:/var/lib/gateway/artifacts
       - backend-control:/var/lib/gateway/control
-      - ${GATEWAY_BACKEND_SESSION_FILE:-./config/session.json}:/run/gateway/session.json:ro
       - ${GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE:-./config/provisioned-mapping.json}:/run/gateway/provisioned-mapping.json:ro
     secrets:
       - repository-bearer-token
+      - backend-session
     depends_on:
       repository-service:
         condition: service_healthy
@@ -142,6 +142,8 @@ services:
 secrets:
   repository-bearer-token:
     file: ${GATEWAY_P2R2_BEARER_TOKEN_FILE}
+  backend-session:
+    file: ${GATEWAY_BACKEND_SESSION_FILE}
 volumes:
   backend-artifacts:
   backend-control:

@@ -113,7 +113,7 @@ def test_production_readyz_is_ok_after_startup_and_omits_secrets(tmp_path: Path)
     assert str(tmp_path) not in ready.text
     assert str(tmp_path) not in health.text
     runtime = prepare_backend_runtime(settings)
-    assert type(runtime.workspace_http.session_port).__name__ == "BearerSessionPort"
+    assert type(runtime.workspace_http.session_port).__name__ == "LiveFileSessionPort"
     assert type(runtime.workspace_http.scope_resolution).__name__ == "ProvisionedScopeResolution"
     assert type(runtime.workspace_http.baseline_head_read).__name__ == "ProvisionedBaselineHeadRead"
 

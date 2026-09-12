@@ -262,6 +262,8 @@ class PreviewControlTransaction(Protocol):
         intent: str,
     ) -> bool: ...
 
+    def clear_artifact_protection(self, *, owner_kind: str, owner_id: str) -> int: ...
+
 
 PreviewControlTransactionFactory = Callable[[], ContextManager[PreviewControlTransaction]]
 RepositoryProviderFactory = Callable[[str, str], RepositoryTableAccessProvider]
@@ -534,13 +536,12 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                 },
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
-            lease_session.publish_checkpoint(make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref))
-            _pin_preview_refs(
-                deps,
-                (checkpoint_ref, *_closed_refs_from_sides(sides)),
-                owner_kind="preview-checkpoint",
-                owner_id=step.step_id,
-                intent="materialize-checkpoint",
+            lease_session.publish_checkpoint(
+                _pinned_checkpoint_builder(
+                    checkpoint_ref=checkpoint_ref,
+                    extra_refs=_closed_refs_from_sides(sides),
+                    intent="materialize-checkpoint",
+                )
             )
 
         lease_session.refresh_control()
@@ -613,6 +614,17 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     "assemble checkpoint is missing ready_closure_artifact_id",
                     code="CHECKPOINT_JOB_STATE_MISMATCH",
                 )
+            resume_refs: list[ArtifactRef] = [step.checkpoint_ref]
+            ready_closure_ref_raw = envelope.job_state.get(_JOB_STATE_READY_CLOSURE_REF)
+            if type(ready_closure_ref_raw) is dict:
+                resume_refs.append(artifact_ref_from_dict(ready_closure_ref_raw))
+            _pin_preview_refs(
+                deps,
+                tuple(resume_refs),
+                owner_kind="preview-checkpoint",
+                owner_id=step.step_id,
+                intent="assemble-checkpoint",
+            )
         else:
             assemble_state, bundle_manifest_ref, bundle_digest = _assemble_preview(
                 payload,
@@ -641,13 +653,12 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                 },
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
-            lease_session.publish_checkpoint(make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref))
-            _pin_preview_refs(
-                deps,
-                (checkpoint_ref, closure_ref, bundle_manifest_ref, *ready_refs),
-                owner_kind="preview-checkpoint",
-                owner_id=step.step_id,
-                intent="assemble-checkpoint",
+            lease_session.publish_checkpoint(
+                _pinned_checkpoint_builder(
+                    checkpoint_ref=checkpoint_ref,
+                    extra_refs=(closure_ref, bundle_manifest_ref, *ready_refs),
+                    intent="assemble-checkpoint",
+                )
             )
 
         lease_session.refresh_control()
@@ -771,6 +782,11 @@ def _atomic_publish_preview(
             raise PreviewJobError("workspace is missing at preview publication")
         baseline_head = deps.baseline_head_read.get_current_head(payload.repository_id)
         if _publication_drift(payload, workspace, baseline_head):
+            _release_preview_step_protection(
+                transaction,
+                operation_id=operation.operation_id,
+                clear_operation_owner=True,
+            )
             terminal_step = _terminal_step(step, transaction_now, status=StepStatus.SUCCEEDED)
             terminal_operation = dataclasses.replace(
                 operation,
@@ -786,6 +802,7 @@ def _atomic_publish_preview(
             workspace=workspace,
             payload=payload,
             preview_result=pending_result,
+            ready_closure_ref=ready_closure_ref,
             transaction_now=transaction_now,
         )
         terminal_step = _terminal_step(step, transaction_now, status=StepStatus.SUCCEEDED)
@@ -812,6 +829,7 @@ def _persist_preview_business_state(
     workspace: Workspace,
     payload: PreviewJobPayload,
     preview_result: PreviewResult,
+    ready_closure_ref: ArtifactRef,
     transaction_now: datetime,
 ) -> None:
     unit_of_work.workspace.save_preview_result(preview_result)
@@ -822,6 +840,17 @@ def _persist_preview_business_state(
         updated_at=transaction_now,
     )
     unit_of_work.workspace.save_workspace(updated_workspace, expected_version=workspace.optimistic_version)
+    unit_of_work.set_artifact_protection(
+        _unique_refs((ready_closure_ref, *_payload_source_refs(payload))),
+        owner_kind="current-preview",
+        owner_id=workspace.workspace_id,
+        intent="current-preview",
+    )
+    _release_preview_step_protection(
+        unit_of_work,
+        operation_id=preview_result.operation_id,
+        clear_operation_owner=False,
+    )
 
 
 def _publication_drift(
@@ -1363,6 +1392,66 @@ def _unique_refs(refs: tuple[ArtifactRef, ...]) -> tuple[ArtifactRef, ...]:
         seen.add(ref.artifact_id)
         unique.append(ref)
     return tuple(unique)
+
+
+def _pinned_checkpoint_builder(
+    *,
+    checkpoint_ref: ArtifactRef,
+    extra_refs: tuple[ArtifactRef, ...],
+    intent: str,
+) -> Callable[[OperationRecord, StepRecord, datetime], StepRecord]:
+    inner = make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref)
+
+    def builder(
+        operation: OperationRecord,
+        step: StepRecord,
+        transaction_now: datetime,
+    ) -> StepRecord:
+        candidate = inner(operation, step, transaction_now)
+        transaction = _active_preview_transaction.get()
+        if transaction is None:
+            raise PreviewJobError("preview checkpoint transaction is not bound")
+        transaction.set_artifact_protection(
+            _unique_refs((checkpoint_ref, *extra_refs)),
+            owner_kind="preview-checkpoint",
+            owner_id=step.step_id,
+            intent=intent,
+        )
+        return candidate
+
+    return builder
+
+
+def _payload_source_refs(payload: PreviewJobPayload) -> tuple[ArtifactRef, ...]:
+    refs: list[ArtifactRef] = []
+    for binding in payload.source_artifacts.values():
+        refs.append(
+            ArtifactRef(
+                artifact_id=binding.artifact_id,
+                media_type=binding.media_type,
+                size_bytes=binding.size_bytes,
+                raw_sha256=DigestRef(binding.raw_sha256),
+            )
+        )
+    return tuple(refs)
+
+
+def _release_preview_step_protection(
+    unit_of_work: PreviewControlTransaction,
+    *,
+    operation_id: str,
+    clear_operation_owner: bool,
+) -> None:
+    for step_name in (PREVIEW_STEP_MATERIALIZE, PREVIEW_STEP_ASSEMBLE, PREVIEW_STEP_PUBLISH):
+        unit_of_work.clear_artifact_protection(
+            owner_kind="preview-checkpoint",
+            owner_id=_successor_step_id(operation_id, step_name),
+        )
+    if clear_operation_owner:
+        unit_of_work.clear_artifact_protection(
+            owner_kind="preview-operation",
+            owner_id=operation_id,
+        )
 
 
 def _pin_preview_refs(

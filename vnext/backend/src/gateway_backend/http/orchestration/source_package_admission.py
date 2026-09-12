@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import io
+from typing import BinaryIO
+
 from gateway_backend.capabilities.source_package_staging._archive import (
     ExpansionCounter,
     StagingFault,
@@ -35,13 +38,30 @@ def assert_supported_source_media_type(media_type: str) -> None:
         raise UploadMediaUnsupportedError(f"unsupported upload media type {media_type!r}")
 
 
-def validate_source_package_archive(payload: bytes) -> None:
-    if len(payload) > RESOURCE_BUDGETS.max_source_package_compressed_bytes:
+def validate_source_package_archive(
+    payload: bytes | BinaryIO,
+    *,
+    compressed_bytes: int | None = None,
+) -> None:
+    source: bytes | BinaryIO
+    if isinstance(payload, (bytes, bytearray)):
+        size = len(payload)
+        source = bytes(payload)
+    else:
+        if compressed_bytes is None:
+            current = payload.tell()
+            payload.seek(0, io.SEEK_END)
+            size = payload.tell() - current
+            payload.seek(current)
+        else:
+            size = compressed_bytes
+        source = payload
+    if size > RESOURCE_BUDGETS.max_source_package_compressed_bytes:
         raise UploadLimitExceededError("compressed source package exceeds budget")
-    counter = ExpansionCounter(compressed_bytes=len(payload), expanded_bytes=0, entry_count=0)
+    counter = ExpansionCounter(compressed_bytes=size, expanded_bytes=0, entry_count=0)
     saw_required_sql = False
     try:
-        for member in iter_members(PackageKind.TAR_GZ, payload, None, RESOURCE_BUDGETS, counter):
+        for member in iter_members(PackageKind.TAR_GZ, source, None, RESOURCE_BUDGETS, counter):
             if member.entry_kind is EntryKind.SYMLINK_UNSUPPORTED:
                 raise UploadClosureInvalidError("symlink and hardlink members are refused")
             if member.normalized_path == REQUIRED_SQL_PATH:

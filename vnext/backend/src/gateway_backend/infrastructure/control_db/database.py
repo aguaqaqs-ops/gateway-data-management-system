@@ -173,6 +173,11 @@ class ControlDbUnitOfWork:
             recorded_at=self.transaction_now,
         )
 
+    def clear_artifact_protection(self, *, owner_kind: str, owner_id: str) -> int:
+        """Delete protection intents owned by one (kind, id) pair."""
+
+        return self.protection.clear_protection(owner_kind=owner_kind, owner_id=owner_id)
+
     @property
     def transaction_now(self) -> datetime:
         """Return the single UTC clock sample captured for this transaction."""

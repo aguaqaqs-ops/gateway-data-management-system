@@ -61,6 +61,8 @@ def test_full_materialize_publishes_checkpoint_and_assemble_successor(tmp_path: 
     sides = envelope.job_state["sides"]
     assert isinstance(sides, dict)
     assert {"BASELINE", "INITIAL", "MODIFIED"}.issubset(sides)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.protection.is_protected(materialize_step.checkpoint_ref.artifact_id)
 
 
 def test_modified_only_reuses_baseline_for_effective_initial(tmp_path: Path) -> None:

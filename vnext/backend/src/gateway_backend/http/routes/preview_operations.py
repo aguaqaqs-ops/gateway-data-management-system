@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request, status
 
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
-from gateway_backend.http.dependencies import WorkspaceHttpDependencies, get_workspace_http
+from gateway_backend.http.dependencies import WorkspaceHttpDependencies, acquire_new_work, get_workspace_http
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.preview_acceptance import (
     accept_preview_operation,
@@ -42,12 +42,6 @@ def start_preview_route(
     deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> OperationAcceptedResponse:
-    if not deps.admission_gate.allows_new_work():
-        raise ApiError(
-            code="ADMISSION_LIMIT_REACHED",
-            message="gateway admission is closed for new work",
-            status_code=429,
-        )
     idempotency_key = request.headers.get("Idempotency-Key")
     if idempotency_key is None or not idempotency_key.strip():
         raise ApiError(
@@ -74,13 +68,15 @@ def start_preview_route(
         idempotency_key=resolved_key,
         request_fingerprint_seed=options,
     )
-    result = accept_preview_operation(
-        command=command,
-        scope_resolution=deps.scope_resolution,
-        workspace_repository=deps.workspace_repository,
-        unit_of_work_factory=deps.unit_of_work_factory,
-        job_registry=deps.job_registry,
-        now=deps.now(),
-        options=options,
-    )
+    with acquire_new_work(deps.admission_gate):
+        result = accept_preview_operation(
+            command=command,
+            scope_resolution=deps.scope_resolution,
+            workspace_repository=deps.workspace_repository,
+            unit_of_work_factory=deps.unit_of_work_factory,
+            job_registry=deps.job_registry,
+            artifact_store=deps.artifact_store,
+            now=deps.now(),
+            options=options,
+        )
     return result.response

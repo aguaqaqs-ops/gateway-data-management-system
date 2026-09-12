@@ -12,7 +12,8 @@ import pyarrow.ipc as ipc
 import pytest
 
 from gateway_backend.bootstrap.operation_worker import build_production_preview_dependencies
-from gateway_backend.http.auth import BearerSessionPort
+from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryRef
+from gateway_backend.http.auth import LiveFileSessionPort
 from gateway_backend.http.runtime import prepare_backend_runtime
 from gateway_backend.infrastructure.control_db.sqlite_mapping import ProvisionedBaselineHeadRead
 from gateway_backend.infrastructure.repository_read.http_arrow import (
@@ -52,7 +53,7 @@ def test_prepare_backend_runtime_uses_provisioned_identity_ports(tmp_path: Path)
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     runtime = prepare_backend_runtime(settings)
-    assert type(runtime.workspace_http.session_port) is BearerSessionPort
+    assert type(runtime.workspace_http.session_port) is LiveFileSessionPort
     assert type(runtime.workspace_http.scope_resolution).__name__ == "ProvisionedScopeResolution"
     assert type(runtime.workspace_http.baseline_head_read) is ProvisionedBaselineHeadRead
 
@@ -119,8 +120,6 @@ def test_http_arrow_adapter_reads_exact_commit_catalog_and_rows() -> None:
     )
     provider = factory(str(REPO_ID), COMMIT_ID)
     assert type(provider) is HttpArrowRepositoryTableAccessProvider
-    from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryRef
-
     session = provider.open_ref(
         RepositoryRef(repository_id=str(REPO_ID), ref=COMMIT_ID),
         None,
@@ -132,4 +131,124 @@ def test_http_arrow_adapter_reads_exact_commit_catalog_and_rows() -> None:
     reader = session.open_table_reader("items")
     rows = tuple(reader.stream_rows())
     assert rows == ((1,),)
+    session.close()
+
+
+def _arrow_ipc_batches(*groups: list[int]) -> bytes:
+    schema = pa.schema([("id", pa.int64())])
+    buffer = io.BytesIO()
+    with ipc.new_stream(buffer, schema) as writer:
+        for values in groups:
+            writer.write_batch(pa.record_batch([values], schema=schema))
+    return buffer.getvalue()
+
+
+def test_http_arrow_streams_record_batches_without_session_row_cache() -> None:
+    catalog = {
+        "commit_id": COMMIT_ID,
+        "tables": [
+            {
+                "name": "items",
+                "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                "primary_key": ["id"],
+                "row_count": 3,
+            }
+        ],
+    }
+    encoded = encode_commit_id_path(COMMIT_ID)
+    catalog_path = f"/v1/repositories/{REPO_ID}/versioned/commits/{encoded}/catalog"
+    rows_path = f"/v1/repositories/{REPO_ID}/versioned/commits/{encoded}/rows"
+    arrow_bytes = _arrow_ipc_batches([1, 2], [3])
+    row_requests = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == catalog_path:
+            return httpx.Response(200, json={"catalog": catalog}, headers={"X-Request-ID": "req-catalog"})
+        if request.url.path == rows_path:
+            row_requests["count"] += 1
+            return httpx.Response(
+                200,
+                content=arrow_bytes,
+                headers={
+                    "X-Request-ID": f"req-rows-{row_requests['count']}",
+                    "Content-Type": "application/vnd.apache.arrow.stream",
+                },
+            )
+        return httpx.Response(404, json={"code": "NOT_FOUND"}, headers={"X-Request-ID": "req-miss"})
+
+    factory = build_http_repository_provider_factory(
+        base_url="http://repository.test",
+        bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0,
+        transport=httpx.MockTransport(handler),
+    )
+    session = factory(str(REPO_ID), COMMIT_ID).open_ref(
+        RepositoryRef(repository_id=str(REPO_ID), ref=COMMIT_ID),
+        None,
+    )
+    reader = session.open_table_reader("items")
+    assert tuple(reader.stream_rows()) == ((1,), (2,), (3,))
+    assert not hasattr(session, "_rows")
+    assert row_requests["count"] == 1
+    assert tuple(session.open_table_reader("items").stream_rows()) == ((1,), (2,), (3,))
+    assert row_requests["count"] == 2
+    session.close()
+
+
+def test_http_arrow_hidden_summary_streams_tables_without_preloading_rows() -> None:
+    catalog = {
+        "commit_id": COMMIT_ID,
+        "tables": [
+            {
+                "name": "items",
+                "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                "primary_key": ["id"],
+                "row_count": 1,
+            },
+            {
+                "name": "other",
+                "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                "primary_key": ["id"],
+                "row_count": 1,
+            },
+        ],
+    }
+    encoded = encode_commit_id_path(COMMIT_ID)
+    catalog_path = f"/v1/repositories/{REPO_ID}/versioned/commits/{encoded}/catalog"
+    rows_path = f"/v1/repositories/{REPO_ID}/versioned/commits/{encoded}/rows"
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == catalog_path:
+            return httpx.Response(200, json={"catalog": catalog}, headers={"X-Request-ID": "req-catalog"})
+        if request.url.path == rows_path:
+            table_name = request.url.params.get("table_name")
+            requested.append(str(table_name))
+            payload = _arrow_ipc_table() if table_name == "items" else _arrow_ipc_batches([9])
+            return httpx.Response(
+                200,
+                content=payload,
+                headers={
+                    "X-Request-ID": f"req-{table_name}",
+                    "Content-Type": "application/vnd.apache.arrow.stream",
+                },
+            )
+        return httpx.Response(404, json={"code": "NOT_FOUND"}, headers={"X-Request-ID": "req-miss"})
+
+    factory = build_http_repository_provider_factory(
+        base_url="http://repository.test",
+        bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0,
+        transport=httpx.MockTransport(handler),
+    )
+    session = factory(str(REPO_ID), COMMIT_ID).open_ref(
+        RepositoryRef(repository_id=str(REPO_ID), ref=COMMIT_ID),
+        None,
+    )
+    summary = session.read_hidden_summary()
+    assert summary is not None
+    assert requested == ["items", "other"]
+    assert not hasattr(session, "_rows")
+    tuple(session.open_table_reader("items").stream_rows())
+    assert requested == ["items", "other", "items"]
     session.close()

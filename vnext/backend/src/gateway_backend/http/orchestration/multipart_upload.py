@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import time
-from collections.abc import Callable, Mapping
+import shutil
+from collections.abc import Callable
 from datetime import datetime
 
-from starlette.datastructures import UploadFile
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.application.workspace.contracts import AcceptUploadCommand
@@ -24,6 +23,10 @@ from gateway_backend.domain.workspace.models import (
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.mappers import upload_revision_to_response
+from gateway_backend.http.orchestration.multipart_stream import (
+    ParsedMultipartUpload,
+    iter_file_chunks,
+)
 from gateway_backend.http.orchestration.source_package_admission import (
     UploadLimitExceededError,
     UploadMediaUnsupportedError,
@@ -32,13 +35,7 @@ from gateway_backend.http.orchestration.source_package_admission import (
 )
 from gateway_backend.http.schemas.upload import ArtifactManifestPart, UploadManifestPart, UploadRevisionResponse
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.settings import (
-    FIXED_UPLOAD_MAX_COMPRESSED_BYTES,
-    FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,
-)
-
-_STREAM_CHUNK_SIZE = 64 * 1024
-_MANIFEST_MAX_BYTES = 64 * 1024
+from gateway_backend.settings import FIXED_UPLOAD_MAX_COMPRESSED_BYTES
 
 
 async def accept_multipart_upload(
@@ -46,8 +43,7 @@ async def accept_multipart_upload(
     context: IdentityContext,
     workspace_id: str,
     idempotency_key: str,
-    manifest_part: UploadFile,
-    file_parts: Mapping[str, UploadFile],
+    parsed: ParsedMultipartUpload,
     scope_resolution: ScopeResolutionPort,
     workspace_repository: WorkspaceRepository,
     unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
@@ -55,13 +51,34 @@ async def accept_multipart_upload(
     now: datetime,
 ) -> UploadRevisionResponse:
     del workspace_repository
-    manifest_bytes = await _read_bounded_part(
-        manifest_part,
-        max_bytes=_MANIFEST_MAX_BYTES,
-        timeout_seconds=FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,
-    )
     try:
-        manifest_payload = json.loads(manifest_bytes.decode("utf-8"))
+        return _accept_staged_upload(
+            context=context,
+            workspace_id=workspace_id,
+            idempotency_key=idempotency_key,
+            parsed=parsed,
+            scope_resolution=scope_resolution,
+            unit_of_work_factory=unit_of_work_factory,
+            artifact_store=artifact_store,
+            now=now,
+        )
+    finally:
+        shutil.rmtree(parsed.staging_dir, ignore_errors=True)
+
+
+def _accept_staged_upload(
+    *,
+    context: IdentityContext,
+    workspace_id: str,
+    idempotency_key: str,
+    parsed: ParsedMultipartUpload,
+    scope_resolution: ScopeResolutionPort,
+    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+    artifact_store: BoundedArtifactStorePort,
+    now: datetime,
+) -> UploadRevisionResponse:
+    try:
+        manifest_payload = json.loads(parsed.manifest_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ApiError(
             code="REQUEST_VALIDATION_FAILED",
@@ -101,14 +118,14 @@ async def accept_multipart_upload(
         manifest.artifacts.MODIFIED,
     )
 
-    if set(file_parts) != set(declared_parts):
+    if set(parsed.file_parts) != set(declared_parts):
         raise ApiError(
             code="REQUEST_VALIDATION_FAILED",
             message="file parts must exactly match manifest part_name mapping",
             status_code=422,
             details={
                 "declared": sorted(declared_parts),
-                "received": sorted(file_parts),
+                "received": sorted(parsed.file_parts),
             },
         )
 
@@ -118,16 +135,17 @@ async def accept_multipart_upload(
         assert_supported_source_media_type(declared.media_type)
         if declared.size_bytes > FIXED_UPLOAD_MAX_COMPRESSED_BYTES:
             raise UploadLimitExceededError("compressed source package exceeds budget")
-        chunks = await _read_upload_chunks(
-            file_parts[part_name],
-            declared_size=declared.size_bytes,
-            max_compressed=FIXED_UPLOAD_MAX_COMPRESSED_BYTES,
-            timeout_seconds=FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,
-        )
+        staged = parsed.file_parts[part_name]
+        if staged.size_bytes != declared.size_bytes:
+            raise ApiError(
+                code="REQUEST_VALIDATION_FAILED",
+                message="part size mismatch",
+                status_code=422,
+            )
         try:
             ref = artifact_store.put_stream(
                 "source-package",
-                chunks,
+                iter_file_chunks(staged.path),
                 declared_size=declared.size_bytes,
                 declared_raw_sha256=DigestRef(declared.raw_sha256),
                 media_type=declared.media_type,
@@ -136,8 +154,8 @@ async def accept_multipart_upload(
             raise _map_store_error(exc) from exc
         except ValueError as exc:
             raise _map_store_error(exc) from exc
-        payload = b"".join(artifact_store.read_exact(ref))
-        validate_source_package_archive(payload)
+        with staged.path.open("rb") as handle:
+            validate_source_package_archive(handle, compressed_bytes=staged.size_bytes)
         source_refs.append(ref)
         source_artifacts[role] = SourceArtifactBinding(
             artifact_id=ref.artifact_id,
@@ -161,6 +179,8 @@ async def accept_multipart_upload(
             command=command,
             scope_resolution=scope_resolution,
             repository=unit_of_work.workspace,
+            operations=unit_of_work.operations,
+            protection=unit_of_work,
         )
         if not result.replay and source_refs:
             unit_of_work.set_artifact_protection(
@@ -187,56 +207,3 @@ def _map_store_error(exc: Exception) -> Exception:
             status_code=422,
         )
     return UploadLimitExceededError(message)
-
-
-async def _read_bounded_part(
-    upload_file: UploadFile,
-    *,
-    max_bytes: int,
-    timeout_seconds: float,
-) -> bytes:
-    chunks: list[bytes] = []
-    total = 0
-    started = time.monotonic()
-    while True:
-        if time.monotonic() - started > timeout_seconds:
-            raise UploadLimitExceededError("upload stream timed out")
-        chunk = await upload_file.read(_STREAM_CHUNK_SIZE)
-        if not chunk:
-            break
-        payload = chunk if type(chunk) is bytes else bytes(chunk)
-        total += len(payload)
-        if total > max_bytes:
-            raise UploadLimitExceededError("upload exceeds bounded budget")
-        chunks.append(payload)
-    return b"".join(chunks)
-
-
-async def _read_upload_chunks(
-    upload_file: UploadFile,
-    *,
-    declared_size: int,
-    max_compressed: int,
-    timeout_seconds: float,
-) -> list[bytes]:
-    chunks: list[bytes] = []
-    total = 0
-    started = time.monotonic()
-    while True:
-        if time.monotonic() - started > timeout_seconds:
-            raise UploadLimitExceededError("upload stream timed out")
-        chunk = await upload_file.read(_STREAM_CHUNK_SIZE)
-        if not chunk:
-            break
-        payload = chunk if type(chunk) is bytes else bytes(chunk)
-        total += len(payload)
-        if total > declared_size or total > max_compressed:
-            raise UploadLimitExceededError("compressed source package exceeds budget")
-        chunks.append(payload)
-    if total != declared_size:
-        raise ApiError(
-            code="REQUEST_VALIDATION_FAILED",
-            message="part size mismatch",
-            status_code=422,
-        )
-    return chunks

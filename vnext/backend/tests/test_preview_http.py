@@ -150,3 +150,70 @@ def test_start_preview_rejects_oversized_idempotency_key(env: WorkspaceHttpTestE
     )
     assert response.status_code == 422
     assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_start_preview_rejects_unreadable_source_before_queueing(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
+    import sqlite3
+
+    from gateway_shared_kernel import DigestRef
+
+    from gateway_backend.artifacts.types import ArtifactRef
+
+    workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
+    revision = env.repository.get_upload_revision(upload["upload_revision_id"])
+    assert revision is not None
+    for binding in revision.source_artifacts.values():
+        env.artifact_store.drop(
+            ArtifactRef(
+                artifact_id=binding.artifact_id,
+                media_type=binding.media_type,
+                size_bytes=binding.size_bytes,
+                raw_sha256=DigestRef(binding.raw_sha256),
+            )
+        )
+    response = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/preview-operations",
+        headers=env.auth_headers(idempotency_key="preview-unreadable"),
+        json=_preview_body(workspace, upload),
+    )
+    assert response.status_code == 503
+    assert response.json()["code"] == "DEPENDENCY_UNAVAILABLE"
+    connection = sqlite3.connect(env.db_path)
+    try:
+        operations = connection.execute("SELECT COUNT(*) FROM operation_records").fetchone()
+        acceptances = connection.execute(
+            "SELECT COUNT(*) FROM preview_idempotency_records"
+        ).fetchone()
+    finally:
+        connection.close()
+    assert operations is not None and operations[0] == 0
+    assert acceptances is not None and acceptances[0] == 0
+
+
+def test_start_preview_replays_after_new_upload_generation(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
+    workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
+    url = f"/v1/workspaces/{workspace['workspace_id']}/preview-operations"
+    headers = env.auth_headers(idempotency_key="preview-generation-replay")
+    body = _preview_body(workspace, upload)
+    first = env.client.post(url, headers=headers, json=body)
+    assert first.status_code == 202
+    second_upload = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
+        headers=env.auth_headers(idempotency_key="upload-after-preview"),
+        files=upload_files(expected_version=upload["optimistic_version"]),
+    )
+    assert second_upload.status_code == 201
+    replay = env.client.post(url, headers=headers, json=body)
+    assert replay.status_code == 202
+    assert replay.json()["operation_id"] == first.json()["operation_id"]
+    conflict = env.client.post(
+        url,
+        headers=headers,
+        json=_preview_body(workspace, second_upload.json()),
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"

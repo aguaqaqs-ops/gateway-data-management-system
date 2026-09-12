@@ -109,8 +109,18 @@ def test_compose_repository_service_is_in_default_reachable_graph() -> None:
     assert "condition: service_healthy" in worker
     assert "ports:" not in worker
     assert "GATEWAY_BACKEND_SESSION_FILE" in backend
+    assert ":-./config/session.json" not in compose
+    assert "file: ${GATEWAY_BACKEND_SESSION_FILE}" in compose
+    assert "file: ${GATEWAY_BACKEND_SESSION_FILE:-" not in compose
+    assert "backend-session" in backend
     assert "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE" in backend
     assert "GATEWAY_BACKEND_OPERATION_WORKER_PROVISIONED_MAPPING_FILE" in worker
+
+
+def test_compose_dev_overlay_points_backend_session_at_local_fixture() -> None:
+    overlay = (VNEXT_ROOT / "deploy" / "compose.dev.yaml").read_text(encoding="utf-8")
+    assert "backend-session:" in overlay
+    assert "file: ./config/session.json" in overlay
 
 
 def test_compose_repository_probe_unchanged_on_p2_r1_profile() -> None:

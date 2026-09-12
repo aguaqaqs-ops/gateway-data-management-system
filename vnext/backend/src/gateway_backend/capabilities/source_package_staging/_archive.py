@@ -8,6 +8,7 @@ import tarfile
 import zipfile
 from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import BinaryIO
 
 import compression.zstd
 
@@ -93,7 +94,7 @@ def apply_transport(
 
 def iter_members(
     package_kind: PackageKind,
-    payload: bytes | None,
+    payload: bytes | BinaryIO | None,
     directory_entries: tuple[tuple[str, bytes], ...] | None,
     budgets: ResourceBudgets,
     counter: ExpansionCounter,
@@ -112,8 +113,13 @@ def iter_members(
             "package payload bytes are required",
         )
     if package_kind is PackageKind.SQL_FILE:
+        if not isinstance(payload, (bytes, bytearray)):
+            raise StagingFault(
+                StagingDiagnosticCode.SOURCE_PACKAGE_INVALID,
+                "package payload bytes are required",
+            )
         yield _single_sql_member(
-            payload,
+            bytes(payload),
             budgets,
             counter,
             original_path="dbcfg.sql",
@@ -121,7 +127,12 @@ def iter_members(
         )
         return
     if package_kind is PackageKind.SQL_GZ:
-        sql_bytes = _gzip_decompress(payload, budgets, counter, limit=budgets.max_sql_document_bytes)
+        if not isinstance(payload, (bytes, bytearray)):
+            raise StagingFault(
+                StagingDiagnosticCode.SOURCE_PACKAGE_INVALID,
+                "package payload bytes are required",
+            )
+        sql_bytes = _gzip_decompress(bytes(payload), budgets, counter, limit=budgets.max_sql_document_bytes)
         yield _single_sql_member(
             sql_bytes,
             budgets,
@@ -134,7 +145,12 @@ def iter_members(
         yield from _iter_tar_gz(payload, budgets, counter)
         return
     if package_kind is PackageKind.ZIP:
-        yield from _iter_zip(payload, budgets, counter)
+        if not isinstance(payload, (bytes, bytearray)):
+            raise StagingFault(
+                StagingDiagnosticCode.SOURCE_PACKAGE_INVALID,
+                "package payload bytes are required",
+            )
+        yield from _iter_zip(bytes(payload), budgets, counter)
         return
     raise StagingFault(
         StagingDiagnosticCode.SOURCE_PACKAGE_UNSUPPORTED,
@@ -197,17 +213,28 @@ def _iter_directory(
 
 
 def _iter_tar_gz(
-    payload: bytes,
+    payload: bytes | BinaryIO,
     budgets: ResourceBudgets,
     counter: ExpansionCounter,
 ) -> Iterator[ArchiveMember]:
-    if payload.startswith(_ZSTD_MAGIC):
-        raise StagingFault(
-            StagingDiagnosticCode.TAR_ZST_FORBIDDEN,
-            "zstd must not be admitted as TAR_GZ",
-        )
+    if isinstance(payload, (bytes, bytearray)):
+        if payload.startswith(_ZSTD_MAGIC):
+            raise StagingFault(
+                StagingDiagnosticCode.TAR_ZST_FORBIDDEN,
+                "zstd must not be admitted as TAR_GZ",
+            )
+        fileobj: BinaryIO = io.BytesIO(payload)
+    else:
+        probe = payload.read(4)
+        payload.seek(0)
+        if probe.startswith(_ZSTD_MAGIC):
+            raise StagingFault(
+                StagingDiagnosticCode.TAR_ZST_FORBIDDEN,
+                "zstd must not be admitted as TAR_GZ",
+            )
+        fileobj = payload
     try:
-        with tarfile.open(fileobj=io.BytesIO(payload), mode="r|gz") as archive:
+        with tarfile.open(fileobj=fileobj, mode="r|gz") as archive:
             while True:
                 member = archive.next()
                 if member is None:

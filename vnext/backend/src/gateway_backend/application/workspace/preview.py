@@ -40,6 +40,22 @@ def validate_start_preview_binding(
         raise ScopeForbidden
     assert_exact_scope(workspace, command.context)
     assert_workspace_open(workspace)
+
+    prior = repository.find_preview_idempotency(command.workspace_id, command.idempotency_key)
+    if prior is not None:
+        if prior.request_fingerprint != command.request_fingerprint:
+            raise IdempotencyConflict(idempotency_key=command.idempotency_key)
+        upload_revision = repository.get_upload_revision(prior.upload_revision_id)
+        if upload_revision is None:
+            raise PreviewBindingConflict("upload revision is missing")
+        return StartPreviewValidationResult(
+            workspace=workspace,
+            upload_revision=upload_revision,
+            baseline_head=resolved.baseline_head,
+            replay=True,
+            prior_acceptance=prior,
+        )
+
     assert_workspace_version_cas(workspace, command.expected_workspace_version)
 
     if workspace.current_upload_revision_id != command.upload_revision_id:
@@ -60,18 +76,6 @@ def validate_start_preview_binding(
         raise PreviewBindingConflict("expected baseline node does not match current BaselineHead")
     if baseline_head.baseline_head_version != command.expected_baseline_head_version:
         raise PreviewBindingConflict("expected baseline head version does not match current head")
-
-    prior = repository.find_preview_idempotency(command.workspace_id, command.idempotency_key)
-    if prior is not None:
-        if prior.request_fingerprint != command.request_fingerprint:
-            raise IdempotencyConflict(idempotency_key=command.idempotency_key)
-        return StartPreviewValidationResult(
-            workspace=workspace,
-            upload_revision=upload_revision,
-            baseline_head=baseline_head,
-            replay=True,
-            prior_acceptance=prior,
-        )
 
     return StartPreviewValidationResult(
         workspace=workspace,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime
+from typing import Protocol
 from uuid import uuid4
 
 from gateway_backend.application.workspace.contracts import (
@@ -16,6 +17,7 @@ from gateway_backend.application.workspace.errors import IdempotencyConflict
 from gateway_backend.domain.workspace.errors import ScopeForbidden
 from gateway_backend.domain.workspace.models import (
     IdentityContext,
+    PreviewAcceptanceRecord,
     UploadRevision,
     Workspace,
     WorkspaceState,
@@ -30,9 +32,20 @@ from gateway_backend.domain.workspace.policies import (
     validate_upload_role_closure,
 )
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
+from gateway_backend.operations import (
+    OperationStatus,
+    StepStatus,
+    WritePrecondition,
+)
+from gateway_backend.operations.store import OperationStore, RecordNotFound
 
 PERMISSION_WORKSPACE_READ = "workspace_read"
 PERMISSION_UPLOAD_SUBMIT = "upload_submit_workspace"
+
+
+class ArtifactProtectionIntentPort(Protocol):
+    def clear_artifact_protection(self, *, owner_kind: str, owner_id: str) -> int:
+        """Delete protection rows for one owner."""
 
 
 def create_or_get_workspace(
@@ -75,6 +88,8 @@ def accept_upload(
     command: AcceptUploadCommand,
     scope_resolution: ScopeResolutionPort,
     repository: WorkspaceRepository,
+    operations: OperationStore | None = None,
+    protection: ArtifactProtectionIntentPort | None = None,
 ) -> AcceptUploadResult:
     assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
     scope_resolution.resolve(command.context)
@@ -131,4 +146,123 @@ def accept_upload(
         expected_version=command.expected_workspace_version,
     )
     repository.save_upload_revision(revision)
+    if operations is not None:
+        _supersede_or_cancel_prior_previews(
+            repository=repository,
+            operations=operations,
+            protection=protection,
+            workspace_id=workspace.workspace_id,
+            next_generation=next_generation,
+            now=operations.transaction_now,
+        )
     return AcceptUploadResult(workspace=saved_workspace, revision=revision, replay=False)
+
+
+def _supersede_or_cancel_prior_previews(
+    *,
+    repository: WorkspaceRepository,
+    operations: OperationStore,
+    protection: ArtifactProtectionIntentPort | None,
+    workspace_id: str,
+    next_generation: int,
+    now: datetime,
+) -> None:
+    if protection is not None:
+        protection.clear_artifact_protection(
+            owner_kind="current-preview",
+            owner_id=workspace_id,
+        )
+    for acceptance in repository.list_preview_acceptances(workspace_id):
+        if acceptance.generation >= next_generation:
+            continue
+        try:
+            operation = operations.get_operation(acceptance.operation_id)
+        except RecordNotFound:
+            continue
+        steps, _cursor = operations.list_steps(acceptance.operation_id)
+        live_steps = tuple(
+            step
+            for step in steps
+            if step.status in {StepStatus.PENDING, StepStatus.RETRY_WAIT, StepStatus.RUNNING}
+        )
+        if operation.status is OperationStatus.QUEUED:
+            for step in live_steps:
+                cancelled = replace(
+                    step,
+                    status=StepStatus.CANCELLED,
+                    worker_id=None,
+                    lease_token=None,
+                    lease_expires_at=None,
+                    completed_at=now,
+                    updated_at=now,
+                    optimistic_version=step.optimistic_version + 1,
+                )
+                operations.compare_and_set_step(
+                    cancelled,
+                    WritePrecondition(
+                        expected_optimistic_version=step.optimistic_version,
+                        worker_id=None,
+                        lease_token=None,
+                    ),
+                )
+            superseded = replace(
+                operation,
+                status=OperationStatus.SUPERSEDED,
+                completed_at=now,
+                updated_at=now,
+                optimistic_version=operation.optimistic_version + 1,
+            )
+            operations.compare_and_set_operation(
+                superseded,
+                WritePrecondition(
+                    expected_optimistic_version=operation.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+            _clear_preview_owner(protection, acceptance)
+            continue
+        if operation.status is OperationStatus.RUNNING and live_steps:
+            live_step = live_steps[0]
+            operations.compare_and_set_operation(
+                replace(
+                    operation,
+                    cancel_requested=True,
+                    updated_at=now,
+                    optimistic_version=operation.optimistic_version + 1,
+                ),
+                WritePrecondition(
+                    expected_optimistic_version=operation.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+            operations.compare_and_set_step(
+                replace(
+                    live_step,
+                    cancel_requested=True,
+                    updated_at=now,
+                    optimistic_version=live_step.optimistic_version + 1,
+                ),
+                WritePrecondition(
+                    expected_optimistic_version=live_step.optimistic_version,
+                    worker_id=live_step.worker_id,
+                    lease_token=live_step.lease_token,
+                ),
+                require_live_lease=live_step.status is StepStatus.RUNNING,
+            )
+            continue
+        if operation.status.is_final_terminal():
+            _clear_preview_owner(protection, acceptance)
+
+
+def _clear_preview_owner(
+    protection: ArtifactProtectionIntentPort | None,
+    acceptance: PreviewAcceptanceRecord,
+) -> None:
+    if protection is None:
+        return
+    protection.clear_artifact_protection(
+        owner_kind="preview-operation",
+        owner_id=acceptance.operation_id,
+    )

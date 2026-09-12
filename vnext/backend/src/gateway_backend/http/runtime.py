@@ -24,7 +24,7 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
     WorkspaceScope,
 )
-from gateway_backend.http.auth import BearerSessionPort, load_session_file
+from gateway_backend.http.auth import LiveFileSessionPort, load_session_file
 from gateway_backend.http.dependencies import (
     ClosableAdmissionGate,
     ReadOnlyOperationStore,
@@ -107,6 +107,10 @@ class TransactionWorkspaceRepository:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.find_preview_idempotency(workspace_id, idempotency_key)
 
+    def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
+        with self._read_uow() as unit_of_work:
+            return unit_of_work.workspace.list_preview_acceptances(workspace_id)
+
     def save_preview_acceptance(self, record: PreviewAcceptanceRecord) -> None:
         with self._write_uow() as unit_of_work:
             unit_of_work.workspace.save_preview_acceptance(record)
@@ -148,7 +152,7 @@ def prepare_backend_runtime(settings: BackendSettings) -> BackendRuntime:
     """Validate settings, SQLite, artifact root, and preview registry before /readyz."""
 
     load_repository_bearer_token(settings.repository_bearer_token_file)
-    sessions = load_session_file(settings.session_file)
+    load_session_file(settings.session_file)
     validate_artifact_root(settings.artifact_root)
     parent = settings.control_db_path.parent
     parent.mkdir(mode=0o750, parents=True, exist_ok=True)
@@ -169,13 +173,13 @@ def prepare_backend_runtime(settings: BackendSettings) -> BackendRuntime:
         is_protected=is_protected,
         unpinned_ttl=timedelta(seconds=settings.cleanup_unpinned_ttl_seconds),
     )
-    admission_gate = ClosableAdmissionGate()
+    admission_gate = ClosableAdmissionGate(limit=settings.http_new_work_limit)
 
     def unit_of_work_factory() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(settings.control_db_path)
 
     workspace_http = WorkspaceHttpDependencies(
-        session_port=BearerSessionPort(sessions),
+        session_port=LiveFileSessionPort(settings.session_file),
         scope_resolution=ProvisionedScopeResolution(settings.control_db_path),
         baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),
         workspace_repository=TransactionWorkspaceRepository(settings.control_db_path),

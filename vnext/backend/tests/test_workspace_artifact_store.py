@@ -153,3 +153,46 @@ def test_delete_eligible_removes_unpinned_artifact_after_ttl(tmp_path: Path) -> 
     )
     with pytest.raises(ManifestVerificationError):
         store._local_store.locate(ref)  # noqa: SLF001
+
+
+def test_clear_protection_releases_only_when_no_remaining_owner(
+    db_path: Path,
+    tmp_path: Path,
+) -> None:
+    local = LocalArtifactStore(tmp_path / "artifacts")
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        store = BoundedArtifactStore(local, protection_store=unit_of_work.protection)
+        ref = store.put_stream(
+            "source-package",
+            [PAYLOAD],
+            declared_size=len(PAYLOAD),
+            declared_raw_sha256=DIGEST,
+            media_type="application/gzip",
+        )
+        store.set_protection(
+            [ref],
+            owner_kind="preview-checkpoint",
+            owner_id="step-1",
+            intent="pin",
+            recorded_at=NOW,
+        )
+        store.set_protection(
+            [ref],
+            owner_kind="current-preview",
+            owner_id="ws-1",
+            intent="pin",
+            recorded_at=NOW,
+        )
+        assert store.classify_cleanup(ref, NOW).classification is CleanupClassification.PROTECTED
+        unit_of_work.protection.clear_protection(
+            owner_kind="preview-checkpoint",
+            owner_id="step-1",
+        )
+        assert store.classify_cleanup(ref, NOW).classification is CleanupClassification.PROTECTED
+        unit_of_work.protection.clear_protection(
+            owner_kind="current-preview",
+            owner_id="ws-1",
+        )
+        store._published_at_by_artifact_id[ref.artifact_id] = NOW  # noqa: SLF001
+        later = NOW + timedelta(hours=25)
+        assert store.classify_cleanup(ref, later).classification is CleanupClassification.ELIGIBLE_AFTER

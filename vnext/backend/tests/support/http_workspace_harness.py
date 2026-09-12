@@ -33,6 +33,7 @@ from gateway_backend.domain.workspace.models import (
 )
 from gateway_backend.http.auth import BearerSessionPort
 from gateway_backend.http.dependencies import (
+    AdmissionGatePort,
     OpenAdmissionGate,
     ReadOnlyOperationStore,
     WorkspaceHttpDependencies,
@@ -85,6 +86,9 @@ class InMemoryBoundedArtifactStore:
 
     def read_exact(self, ref: ArtifactRef) -> Iterator[bytes]:
         yield self._store.locate(ref)
+
+    def drop(self, ref: ArtifactRef) -> None:
+        self._store._artifacts.pop(ref.artifact_id, None)  # noqa: SLF001
 
     def verify_readable(
         self,
@@ -184,6 +188,10 @@ class SqliteWorkspaceRepositoryFacade:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.find_preview_idempotency(workspace_id, idempotency_key)
 
+    def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
+        with self._read_uow() as unit_of_work:
+            return unit_of_work.workspace.list_preview_acceptances(workspace_id)
+
     def save_workspace(self, workspace: Workspace, *, expected_version: int) -> Workspace:
         with self._write_uow() as unit_of_work:
             return unit_of_work.workspace.save_workspace(workspace, expected_version=expected_version)
@@ -228,6 +236,7 @@ def create_workspace_http_environment(
     *,
     identity: IdentityContext | None = None,
     admission_open: bool = True,
+    admission_gate: AdmissionGatePort | None = None,
     include_preview_registry: bool = True,
     extra_sessions: dict[str, IdentityContext] | None = None,
     now: Callable[[], datetime] | None = None,
@@ -256,6 +265,20 @@ def create_workspace_http_environment(
         def allows_new_work(self) -> bool:
             return admission_open
 
+        def try_acquire(self) -> bool:
+            return admission_open
+
+        def release(self) -> None:
+            return None
+
+    resolved_gate: AdmissionGatePort
+    if admission_gate is not None:
+        resolved_gate = admission_gate
+    elif not admission_open:
+        resolved_gate = _AdmissionGate()
+    else:
+        resolved_gate = OpenAdmissionGate()
+
     def fixed_now() -> datetime:
         return FIXED_NOW
 
@@ -270,7 +293,7 @@ def create_workspace_http_environment(
         artifact_store=cast(BoundedArtifactStorePort, artifact_store),
         job_registry=preview_job_registry() if include_preview_registry else JobDefinitionRegistry.build(()),
         bundle_reader=bundle_reader,
-        admission_gate=_AdmissionGate() if not admission_open else OpenAdmissionGate(),
+        admission_gate=resolved_gate,
         operation_reader=operation_reader,
         now=clock,
     )

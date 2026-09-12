@@ -17,6 +17,7 @@ from gateway_backend.application.workspace.contracts import (
 from gateway_backend.application.workspace.preview import validate_start_preview_binding
 from gateway_shared_kernel import DigestRef
 
+from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import (
     IdentityContext,
@@ -118,12 +119,53 @@ def accept_preview_operation(
     workspace_repository: WorkspaceRepository,
     unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
     job_registry: JobDefinitionRegistry,
+    artifact_store: BoundedArtifactStorePort,
     now: datetime,
     options: Mapping[str, object] | None = None,
 ) -> PreviewAcceptanceResult:
     del workspace_repository
     resolved_options = dict(options or {})
     assert_preview_job_registered(job_registry)
+    with unit_of_work_factory() as unit_of_work:
+        validation = validate_start_preview_binding(
+            command=command,
+            scope_resolution=scope_resolution,
+            repository=unit_of_work.workspace,
+        )
+        if validation.replay and validation.prior_acceptance is not None:
+            return PreviewAcceptanceResult(
+                response=OperationAcceptedResponse(
+                    operation_id=validation.prior_acceptance.operation_id,
+                    workspace_id=command.workspace_id,
+                    upload_revision_id=command.upload_revision_id,
+                    generation=command.generation,
+                    status="QUEUED",
+                ),
+                replay=True,
+            )
+        upload_revision = validation.upload_revision
+        source_refs = _source_artifact_refs(upload_revision)
+
+    for ref, binding in zip(
+        source_refs,
+        (
+            upload_revision.source_artifacts[role]
+            for role in sorted(upload_revision.source_artifacts, key=lambda item: item.value)
+        ),
+        strict=True,
+    ):
+        verified = artifact_store.verify_readable(
+            ref,
+            expected_size=binding.size_bytes,
+            expected_raw_sha256=DigestRef(binding.raw_sha256),
+        )
+        if not verified.verified:
+            raise ApiError(
+                code="DEPENDENCY_UNAVAILABLE",
+                message="source artifact is not readable",
+                status_code=503,
+            )
+
     with unit_of_work_factory() as unit_of_work:
         validation = validate_start_preview_binding(
             command=command,

@@ -82,3 +82,38 @@ def test_production_shutdown_closes_admission_gate(tmp_path: Path) -> None:
         assert client.get("/healthz").status_code == 200
         assert TEST_REPOSITORY_TOKEN not in client.get("/readyz").text
     assert app.state.admission_gate.allows_new_work() is False
+
+
+def test_closable_admission_gate_rejects_when_in_flight_limit_reached() -> None:
+    gate = ClosableAdmissionGate(limit=1)
+    assert gate.try_acquire() is True
+    assert gate.try_acquire() is False
+    gate.release()
+    assert gate.try_acquire() is True
+
+
+def test_create_routes_reject_when_admission_slots_are_full(tmp_path: Path) -> None:
+    gate = ClosableAdmissionGate(limit=1)
+    assert gate.try_acquire() is True
+    env = create_workspace_http_environment(tmp_path, admission_gate=gate)
+    rejected = env.client.post(
+        "/v1/workspaces",
+        headers=AUTH,
+        json={
+            "gateway_device_external_key": "device-1",
+            "business_project_id": "project-1",
+        },
+    )
+    assert rejected.status_code == 429
+    assert rejected.json()["code"] == "ADMISSION_LIMIT_REACHED"
+    assert rejected.json()["message"] == "gateway admission limit reached"
+    gate.release()
+    created = env.client.post(
+        "/v1/workspaces",
+        headers=AUTH,
+        json={
+            "gateway_device_external_key": "device-1",
+            "business_project_id": "project-1",
+        },
+    )
+    assert created.status_code in {200, 201}

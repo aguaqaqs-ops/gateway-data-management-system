@@ -223,6 +223,48 @@ def test_validate_start_preview_binding_replays_prior_preview_idempotency() -> N
     assert result.prior_acceptance.operation_id == prior.operation_id
 
 
+def test_validate_start_preview_replays_after_workspace_generation_change() -> None:
+    repository = InMemoryWorkspaceRepository()
+    workspace, _revision = _seed_uploaded_workspace(repository)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=workspace.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    prior = _preview_result()
+    repository.save_preview_result(prior)
+    repository.register_preview_idempotency(
+        workspace_id=workspace.workspace_id,
+        idempotency_key="preview-key-1",
+        request_fingerprint="fp-preview",
+        operation_id=prior.operation_id,
+        upload_revision_id=prior.upload_revision_id,
+        generation=prior.generation,
+        business_baseline_node_id=prior.business_baseline_node_id,
+        baseline_head_version=prior.baseline_head_version,
+    )
+    bumped = replace(
+        workspace,
+        generation=workspace.generation + 1,
+        optimistic_version=workspace.optimistic_version + 1,
+        current_upload_revision_id="ur-2",
+    )
+    repository.save_workspace(bumped, expected_version=workspace.optimistic_version)
+    command = _start_preview_command(
+        workspace_id=workspace.workspace_id,
+        expected_workspace_version=workspace.optimistic_version,
+    )
+
+    result = validate_start_preview_binding(
+        command=command,
+        scope_resolution=scope_resolution,
+        repository=repository,
+    )
+
+    assert result.replay is True
+    assert result.prior_acceptance is not None
+    assert result.prior_acceptance.operation_id == prior.operation_id
+
+
 def test_validate_start_preview_binding_conflicts_on_reused_preview_key_with_different_input() -> None:
     repository = InMemoryWorkspaceRepository()
     workspace, _revision = _seed_uploaded_workspace(repository)

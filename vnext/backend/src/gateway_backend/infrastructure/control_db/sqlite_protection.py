@@ -63,6 +63,18 @@ class SQLiteArtifactProtectionStore:
             applied = True
         return applied
 
+    def clear_protection(self, *, owner_kind: str, owner_id: str) -> int:
+        if self._read_only:
+            raise RuntimeError("artifact protection store is read-only in this transaction")
+        cursor = self._connection.execute(
+            """
+            DELETE FROM artifact_protection_intents
+            WHERE owner_kind = ? AND owner_id = ?
+            """,
+            (owner_kind, owner_id),
+        )
+        return int(cursor.rowcount)
+
     def is_protected(self, artifact_id: str) -> bool:
         row = self._connection.execute(
             "SELECT 1 FROM artifact_protection_intents WHERE artifact_id = ? LIMIT 1",

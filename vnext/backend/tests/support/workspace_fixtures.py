@@ -93,6 +93,13 @@ class InMemoryWorkspaceRepository:
     ) -> PreviewAcceptanceRecord | None:
         return self._preview_idempotency.get((workspace_id, idempotency_key))
 
+    def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
+        return tuple(
+            record
+            for (record_workspace_id, _key), record in sorted(self._preview_idempotency.items())
+            if record_workspace_id == workspace_id
+        )
+
     def save_workspace(self, workspace: Workspace, *, expected_version: int) -> Workspace:
         current = self._workspaces.get(workspace.workspace_id)
         if current is not None and current.optimistic_version != expected_version:

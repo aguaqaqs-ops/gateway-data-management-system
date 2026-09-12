@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from gateway_backend.application.workspace.services import create_or_get_workspace
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
-from gateway_backend.http.dependencies import WorkspaceHttpDependencies, get_workspace_http
+from gateway_backend.http.dependencies import WorkspaceHttpDependencies, acquire_new_work, get_workspace_http
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.mappers import workspace_to_response
 from gateway_backend.http.schemas.workspace import CreateWorkspaceRequest, WorkspaceResponse
@@ -40,26 +40,21 @@ def create_or_get_workspace_route(
             message="CreateOrGetWorkspace does not accept Idempotency-Key",
             status_code=422,
         )
-    if not deps.admission_gate.allows_new_work():
-        raise ApiError(
-            code="ADMISSION_LIMIT_REACHED",
-            message="gateway admission is closed for new work",
-            status_code=429,
+    with acquire_new_work(deps.admission_gate):
+        if (
+            body.gateway_device_external_key != context.gateway_device_external_key
+            or body.business_project_id != context.business_project_id
+        ):
+            raise ApiError(
+                code="RESOURCE_NOT_FOUND",
+                message="resource not found",
+                status_code=404,
+            )
+        result = create_or_get_workspace(
+            context=context,
+            scope_resolution=deps.scope_resolution,
+            repository=deps.workspace_repository,
+            created_at=deps.now(),
         )
-    if (
-        body.gateway_device_external_key != context.gateway_device_external_key
-        or body.business_project_id != context.business_project_id
-    ):
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        )
-    result = create_or_get_workspace(
-        context=context,
-        scope_resolution=deps.scope_resolution,
-        repository=deps.workspace_repository,
-        created_at=deps.now(),
-    )
     response.status_code = status.HTTP_200_OK if result.replay else status.HTTP_201_CREATED
     return workspace_to_response(result.workspace)

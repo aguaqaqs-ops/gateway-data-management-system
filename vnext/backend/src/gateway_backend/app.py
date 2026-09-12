@@ -38,6 +38,9 @@ def create_app(
             runtime.admission_gate.close()
 
     app = FastAPI(title="Gateway Backend vNext", lifespan=lifespan)
+    from gateway_backend.http.errors import register_exception_handlers
+
+    register_exception_handlers(app)
     app.state.ready = False
     _register_health_routes(app, ready=None)
     return app

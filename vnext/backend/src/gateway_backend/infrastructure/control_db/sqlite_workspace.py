@@ -37,6 +37,10 @@ _UPLOAD_REVISION_COLUMNS = (
     "upload_revision_id, workspace_id, generation, input_completeness, source_artifacts, "
     "idempotency_key, request_fingerprint, created_by, created_at_us"
 )
+_PREVIEW_IDEMPOTENCY_COLUMNS = (
+    "workspace_id, idempotency_key, request_fingerprint, operation_id, "
+    "upload_revision_id, generation, business_baseline_node_id, baseline_head_version"
+)
 
 
 class SQLiteWorkspaceRepository:
@@ -136,9 +140,8 @@ class SQLiteWorkspaceRepository:
         idempotency_key: str,
     ) -> PreviewAcceptanceRecord | None:
         row = self._connection.execute(
-            """
-            SELECT workspace_id, idempotency_key, request_fingerprint, operation_id,
-                   upload_revision_id, generation, business_baseline_node_id, baseline_head_version
+            f"""
+            SELECT {_PREVIEW_IDEMPOTENCY_COLUMNS}
             FROM preview_idempotency_records
             WHERE workspace_id = ? AND idempotency_key = ?
             """,
@@ -146,17 +149,19 @@ class SQLiteWorkspaceRepository:
         ).fetchone()
         if row is None:
             return None
-        mapping = _row_mapping(row)
-        return PreviewAcceptanceRecord(
-            workspace_id=_required_text(mapping, "workspace_id"),
-            idempotency_key=_required_text(mapping, "idempotency_key"),
-            request_fingerprint=_required_text(mapping, "request_fingerprint"),
-            operation_id=_required_text(mapping, "operation_id"),
-            upload_revision_id=_required_text(mapping, "upload_revision_id"),
-            generation=_required_int(mapping, "generation"),
-            business_baseline_node_id=_required_text(mapping, "business_baseline_node_id"),
-            baseline_head_version=_required_int(mapping, "baseline_head_version"),
-        )
+        return _preview_acceptance_from_mapping(_row_mapping(row))
+
+    def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
+        rows = self._connection.execute(
+            f"""
+            SELECT {_PREVIEW_IDEMPOTENCY_COLUMNS}
+            FROM preview_idempotency_records
+            WHERE workspace_id = ?
+            ORDER BY generation ASC, idempotency_key ASC
+            """,
+            (workspace_id,),
+        ).fetchall()
+        return tuple(_preview_acceptance_from_mapping(_row_mapping(row)) for row in rows)
 
     def save_workspace(self, workspace: Workspace, *, expected_version: int) -> Workspace:
         self._require_writable()
@@ -352,6 +357,19 @@ def upload_revision_from_row(row: Mapping[str, object]) -> UploadRevision:
         request_fingerprint=_required_text(row, "request_fingerprint"),
         created_by=_required_text(row, "created_by"),
         created_at=_epoch_us_to_datetime(_required_int(row, "created_at_us")),
+    )
+
+
+def _preview_acceptance_from_mapping(row: Mapping[str, object]) -> PreviewAcceptanceRecord:
+    return PreviewAcceptanceRecord(
+        workspace_id=_required_text(row, "workspace_id"),
+        idempotency_key=_required_text(row, "idempotency_key"),
+        request_fingerprint=_required_text(row, "request_fingerprint"),
+        operation_id=_required_text(row, "operation_id"),
+        upload_revision_id=_required_text(row, "upload_revision_id"),
+        generation=_required_int(row, "generation"),
+        business_baseline_node_id=_required_text(row, "business_baseline_node_id"),
+        baseline_head_version=_required_int(row, "baseline_head_version"),
     )
 
 

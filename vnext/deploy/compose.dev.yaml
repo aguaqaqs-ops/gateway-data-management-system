@@ -1,0 +1,3 @@
+secrets:
+  backend-session:
+    file: ./config/session.json

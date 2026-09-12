@@ -50,10 +50,19 @@ def test_publish_succeeds_and_updates_workspace_pointer(tmp_path: Path) -> None:
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         persisted_operation = unit_of_work.operations.get_operation(operation_id)
         workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)
+        assemble_step = unit_of_work.operations.get_step(f"{operation_id}-step-2")
     assert persisted_operation.status is OperationStatus.SUCCEEDED
     assert persisted_operation.ready_closure_ref is not None
     assert workspace is not None
     assert workspace.current_preview_result_id is not None
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.protection.is_protected(
+            persisted_operation.ready_closure_ref.artifact_id
+        )
+        if assemble_step.checkpoint_ref is not None:
+            assert not unit_of_work.protection.is_protected(
+                assemble_step.checkpoint_ref.artifact_id
+            )
 
 
 def test_publish_supersedes_when_generation_drifts(tmp_path: Path) -> None:

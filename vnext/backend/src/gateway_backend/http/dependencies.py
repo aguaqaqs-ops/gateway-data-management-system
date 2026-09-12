@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import Lock
@@ -34,6 +35,12 @@ class AdmissionGatePort(Protocol):
     def allows_new_work(self) -> bool:
         """Return False when gateway admission is closed for new commands."""
 
+    def try_acquire(self) -> bool:
+        """Reserve one in-flight creation slot, or return False when closed or full."""
+
+    def release(self) -> None:
+        """Release one previously acquired creation slot."""
+
 
 @runtime_checkable
 class BundleReaderPort(Protocol):
@@ -45,11 +52,21 @@ class OpenAdmissionGate:
     def allows_new_work(self) -> bool:
         return True
 
+    def try_acquire(self) -> bool:
+        return True
+
+    def release(self) -> None:
+        return None
+
 
 class ClosableAdmissionGate:
-    """Process-local gate that closes creation admission before HTTP drain."""
+    """Process-local gate that bounds in-flight creation and closes before HTTP drain."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, limit: int = 32) -> None:
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        self._limit = limit
+        self._in_flight = 0
         self._open = True
         self._lock = Lock()
 
@@ -57,9 +74,44 @@ class ClosableAdmissionGate:
         with self._lock:
             return self._open
 
+    def try_acquire(self) -> bool:
+        with self._lock:
+            if not self._open or self._in_flight >= self._limit:
+                return False
+            self._in_flight += 1
+            return True
+
+    def release(self) -> None:
+        with self._lock:
+            if self._in_flight > 0:
+                self._in_flight -= 1
+
     def close(self) -> None:
         with self._lock:
             self._open = False
+
+
+@contextmanager
+def acquire_new_work(gate: AdmissionGatePort) -> Iterator[None]:
+    """Admit one creation request or raise 429 without leaking the slot."""
+
+    if not gate.try_acquire():
+        from gateway_backend.http.errors import ApiError
+
+        closed = not gate.allows_new_work()
+        raise ApiError(
+            code="ADMISSION_LIMIT_REACHED",
+            message=(
+                "gateway admission is closed for new work"
+                if closed
+                else "gateway admission limit reached"
+            ),
+            status_code=429,
+        )
+    try:
+        yield
+    finally:
+        gate.release()
 
 
 @dataclass(frozen=True, slots=True)

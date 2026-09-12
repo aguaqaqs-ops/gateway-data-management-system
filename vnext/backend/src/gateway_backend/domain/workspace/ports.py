@@ -56,6 +56,9 @@ class WorkspaceRepository(Protocol):
     ) -> PreviewAcceptanceRecord | None:
         """Return a prior preview acceptance for the same workspace idempotency key."""
 
+    def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
+        """Return preview acceptances recorded for one workspace."""
+
     def save_preview_acceptance(self, record: PreviewAcceptanceRecord) -> None:
         """Persist preview acceptance idempotency bound to an Operation id."""
 

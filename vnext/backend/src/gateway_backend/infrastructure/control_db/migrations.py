@@ -595,4 +595,3 @@ def _preview_binding_fields(binding_blob: bytes) -> tuple[str, int]:
     if type(node_id) is not str or not node_id or type(head_version) is not int:
         raise RuntimeError("workspace v2 migration found undecodable preview binding")
     return node_id, head_version
-

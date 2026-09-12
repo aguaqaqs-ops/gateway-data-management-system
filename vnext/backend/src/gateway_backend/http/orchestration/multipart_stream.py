@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import re
 import shutil
 import tempfile
 import time
@@ -24,6 +26,11 @@ from gateway_backend.settings import (
 _STREAM_CHUNK_SIZE = 64 * 1024
 _MANIFEST_MAX_BYTES = 64 * 1024
 _MAX_FILES = 3
+_HEADER_NAME_MAX_BYTES = 256
+_HEADER_VALUE_MAX_BYTES = 4 * 1024
+_HEADERS_PER_PART_MAX = 16
+_HEADERS_TOTAL_MAX_BYTES = 8 * 1024
+_PART_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
 @dataclass
@@ -50,17 +57,25 @@ class _ActivePart:
     size_bytes: int = 0
 
 
+def _multipart_validation_error(message: str) -> ApiError:
+    return ApiError(
+        code="REQUEST_VALIDATION_FAILED",
+        message=message,
+        status_code=422,
+    )
+
+
 class _StreamingMultipartParser:
     def __init__(self, *, staging_dir: Path, max_compressed: int, timeout_seconds: float) -> None:
         self._staging_dir = staging_dir
         self._max_compressed = max_compressed
         self._timeout_seconds = timeout_seconds
         self._started = time.monotonic()
-        self._charset = "utf-8"
         self._current = _ActivePart(name="", is_manifest=False)
         self._header_name = b""
         self._header_value = b""
-        self._headers: list[tuple[bytes, bytes]] = []
+        self._headers_in_part = 0
+        self._header_bytes_total = 0
         self._content_disposition: bytes | None = None
         self._manifest: bytes | None = None
         self._files: dict[str, StagedUploadPart] = {}
@@ -70,20 +85,28 @@ class _StreamingMultipartParser:
         self._current = _ActivePart(name="", is_manifest=False)
         self._header_name = b""
         self._header_value = b""
-        self._headers = []
+        self._headers_in_part = 0
         self._content_disposition = None
 
     def on_header_field(self, data: bytes, start: int, end: int) -> None:
         self._header_name += data[start:end]
+        self._enforce_header_budget(self._header_name, _HEADER_NAME_MAX_BYTES, "multipart header name")
 
     def on_header_value(self, data: bytes, start: int, end: int) -> None:
         self._header_value += data[start:end]
+        self._enforce_header_budget(self._header_value, _HEADER_VALUE_MAX_BYTES, "multipart header value")
 
     def on_header_end(self) -> None:
         field = self._header_name.lower()
+        header_bytes = len(self._header_name) + len(self._header_value)
+        self._header_bytes_total += header_bytes
+        if self._header_bytes_total > _HEADERS_TOTAL_MAX_BYTES:
+            raise _multipart_validation_error("multipart headers exceed bounded budget")
+        self._headers_in_part += 1
+        if self._headers_in_part > _HEADERS_PER_PART_MAX:
+            raise _multipart_validation_error("too many multipart headers on one part")
         if field == b"content-disposition":
             self._content_disposition = self._header_value
-        self._headers.append((field, self._header_value))
         self._header_name = b""
         self._header_value = b""
 
@@ -91,30 +114,20 @@ class _StreamingMultipartParser:
         _disposition, options = parse_options_header(self._content_disposition)
         raw_name = options.get(b"name")
         if raw_name is None:
-            raise ApiError(
-                code="REQUEST_VALIDATION_FAILED",
-                message="multipart part is missing a name",
-                status_code=422,
-            )
+            raise _multipart_validation_error("multipart part is missing a name")
         name = raw_name.decode("latin-1")
+        if _PART_NAME_PATTERN.fullmatch(name) is None:
+            raise _multipart_validation_error("multipart part name is invalid")
         self._current.name = name
         self._current.is_manifest = name == "manifest"
         if self._current.is_manifest:
             return
         if name in self._files:
-            raise ApiError(
-                code="REQUEST_VALIDATION_FAILED",
-                message=f"duplicate multipart part {name!r}",
-                status_code=422,
-            )
+            raise _multipart_validation_error(f"duplicate multipart part {name!r}")
         self._file_count += 1
         if self._file_count > _MAX_FILES:
-            raise ApiError(
-                code="REQUEST_VALIDATION_FAILED",
-                message="too many multipart file parts",
-                status_code=422,
-            )
-        path = self._staging_dir / f"part-{self._file_count}-{name}"
+            raise _multipart_validation_error("too many multipart file parts")
+        path = self._staging_dir / f"part-{self._file_count}"
         self._current.path = path
         self._current.handle = path.open("wb")
 
@@ -127,11 +140,7 @@ class _StreamingMultipartParser:
             return
         handle = self._current.handle
         if handle is None:
-            raise ApiError(
-                code="REQUEST_VALIDATION_FAILED",
-                message="multipart file part is missing a body",
-                status_code=422,
-            )
+            raise _multipart_validation_error("multipart file part is missing a body")
         self._current.size_bytes += len(payload)
         if self._current.size_bytes > self._max_compressed:
             raise UploadLimitExceededError("compressed source package exceeds budget")
@@ -140,11 +149,7 @@ class _StreamingMultipartParser:
     def on_part_end(self) -> None:
         if self._current.is_manifest:
             if self._manifest is not None:
-                raise ApiError(
-                    code="REQUEST_VALIDATION_FAILED",
-                    message="duplicate multipart part 'manifest'",
-                    status_code=422,
-                )
+                raise _multipart_validation_error("duplicate multipart part 'manifest'")
             self._manifest = bytes(self._current.data)
             return
         handle = self._current.handle
@@ -153,11 +158,7 @@ class _StreamingMultipartParser:
             handle.close()
             self._current.handle = None
         if path is None:
-            raise ApiError(
-                code="REQUEST_VALIDATION_FAILED",
-                message="multipart file part is missing a body",
-                status_code=422,
-            )
+            raise _multipart_validation_error("multipart file part is missing a body")
         self._files[self._current.name] = StagedUploadPart(
             name=self._current.name,
             path=path,
@@ -173,11 +174,7 @@ class _StreamingMultipartParser:
 
     def result(self) -> ParsedMultipartUpload:
         if self._manifest is None:
-            raise ApiError(
-                code="REQUEST_VALIDATION_FAILED",
-                message="manifest multipart part is required",
-                status_code=422,
-            )
+            raise _multipart_validation_error("manifest multipart part is required")
         return ParsedMultipartUpload(
             manifest_bytes=self._manifest,
             file_parts=self._files,
@@ -190,6 +187,13 @@ class _StreamingMultipartParser:
             handle.close()
             self._current.handle = None
 
+    def _enforce_header_budget(self, accumulated: bytes, limit: int, label: str) -> None:
+        if len(accumulated) > limit:
+            raise _multipart_validation_error(f"{label} exceeds bounded budget")
+        pending_total = self._header_bytes_total + len(accumulated)
+        if pending_total > _HEADERS_TOTAL_MAX_BYTES:
+            raise _multipart_validation_error("multipart headers exceed bounded budget")
+
 
 async def parse_streaming_multipart(
     *,
@@ -200,19 +204,11 @@ async def parse_streaming_multipart(
 ) -> ParsedMultipartUpload:
     content_type = headers.get("content-type")
     if content_type is None:
-        raise ApiError(
-            code="REQUEST_VALIDATION_FAILED",
-            message="multipart Content-Type is required",
-            status_code=422,
-        )
+        raise _multipart_validation_error("multipart Content-Type is required")
     _media, params = parse_options_header(content_type.encode("latin-1"))
     boundary = params.get(b"boundary")
     if boundary is None:
-        raise ApiError(
-            code="REQUEST_VALIDATION_FAILED",
-            message="multipart boundary is required",
-            status_code=422,
-        )
+        raise _multipart_validation_error("multipart boundary is required")
     staging_dir = Path(tempfile.mkdtemp(prefix="gateway-upload-"))
     parser_state = _StreamingMultipartParser(
         staging_dir=staging_dir,
@@ -230,8 +226,19 @@ async def parse_streaming_multipart(
         "on_end": parser_state.on_end,
     }
     parser = multipart.MultipartParser(boundary, cast(Any, callbacks))
+    iterator = stream.__aiter__()
+    deadline = time.monotonic() + timeout_seconds
     try:
-        async for chunk in stream:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise UploadLimitExceededError("upload stream timed out")
+            try:
+                chunk = await asyncio.wait_for(iterator.__anext__(), timeout=remaining)
+            except StopAsyncIteration:
+                break
+            except TimeoutError:
+                raise UploadLimitExceededError("upload stream timed out") from None
             parser_state.check_timeout()
             if chunk:
                 parser.write(chunk)

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from gateway_backend.application.checkpoints import load_ready_closure
 from gateway_backend.application.preview_jobs import (
     PREVIEW_ASSEMBLE_HANDLER,
     PREVIEW_MATERIALIZE_HANDLER,
@@ -59,6 +60,9 @@ def test_publish_succeeds_and_updates_workspace_pointer(tmp_path: Path) -> None:
         assert unit_of_work.protection.is_protected(
             persisted_operation.ready_closure_ref.artifact_id
         )
+        closure = load_ready_closure(harness.artifact_store, persisted_operation.ready_closure_ref)
+        for ref in closure.artifact_refs():
+            assert unit_of_work.protection.is_protected(ref.artifact_id)
         if assemble_step.checkpoint_ref is not None:
             assert not unit_of_work.protection.is_protected(
                 assemble_step.checkpoint_ref.artifact_id
@@ -81,9 +85,20 @@ def test_publish_supersedes_when_generation_drifts(tmp_path: Path) -> None:
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         persisted_operation = unit_of_work.operations.get_operation(operation_id)
         workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)
+        assemble_step = unit_of_work.operations.get_step(f"{operation_id}-step-2")
+        materialize_step = unit_of_work.operations.get_step(f"{operation_id}-step-1")
     assert persisted_operation.status is OperationStatus.SUPERSEDED
     assert workspace is not None
     assert workspace.current_preview_result_id is None
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        if assemble_step.checkpoint_ref is not None:
+            assert not unit_of_work.protection.is_protected(
+                assemble_step.checkpoint_ref.artifact_id
+            )
+        if materialize_step.checkpoint_ref is not None:
+            assert not unit_of_work.protection.is_protected(
+                materialize_step.checkpoint_ref.artifact_id
+            )
 
 
 def test_publish_cancel_before_publication_leaves_workspace_unchanged(tmp_path: Path) -> None:
@@ -91,6 +106,15 @@ def test_publish_cancel_before_publication_leaves_workspace_unchanged(tmp_path: 
     operation_id = "op-publish-cancel"
     harness.seed_workspace()
     _run_through_assemble(harness, operation_id)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assemble_step = unit_of_work.operations.get_step(f"{operation_id}-step-2")
+        materialize_step = unit_of_work.operations.get_step(f"{operation_id}-step-1")
+        assemble_checkpoint = assemble_step.checkpoint_ref
+        materialize_checkpoint = materialize_step.checkpoint_ref
+        assert assemble_checkpoint is not None
+        assert materialize_checkpoint is not None
+        assert unit_of_work.protection.is_protected(assemble_checkpoint.artifact_id)
+        assert unit_of_work.protection.is_protected(materialize_checkpoint.artifact_id)
     session, control, operation, step = claim_next_step(harness)
     worker_id = "worker-preview-1"
     lease_token = "lease-preview-1"
@@ -123,6 +147,8 @@ def test_publish_cancel_before_publication_leaves_workspace_unchanged(tmp_path: 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         persisted_operation = unit_of_work.operations.get_operation(operation_id)
         workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)
+        assert not unit_of_work.protection.is_protected(assemble_checkpoint.artifact_id)
+        assert not unit_of_work.protection.is_protected(materialize_checkpoint.artifact_id)
     assert persisted_operation.status is OperationStatus.CANCELLED
     assert workspace is not None
     assert workspace.current_preview_result_id is None

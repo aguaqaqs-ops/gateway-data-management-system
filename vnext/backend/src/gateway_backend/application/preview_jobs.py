@@ -19,6 +19,7 @@ from gateway_backend.application.checkpoints import (
     definition_matches_checkpoint,
     envelope_for_step,
     load_checkpoint_envelope,
+    load_ready_closure,
     make_checkpoint_step_builder,
     prepare_ready_closure,
     prepare_step_checkpoint,
@@ -803,6 +804,7 @@ def _atomic_publish_preview(
             payload=payload,
             preview_result=pending_result,
             ready_closure_ref=ready_closure_ref,
+            closure_output_refs=closure_output_refs,
             transaction_now=transaction_now,
         )
         terminal_step = _terminal_step(step, transaction_now, status=StepStatus.SUCCEEDED)
@@ -820,6 +822,7 @@ def _atomic_publish_preview(
     if control.cancel_requested:
         lease_session.publish_operation(_make_cancelled_terminal_builder())
         return
+    closure_output_refs = load_ready_closure(deps.artifact_store, ready_closure_ref).artifact_refs()
     lease_session.publish_operation(builder)
 
 
@@ -830,6 +833,7 @@ def _persist_preview_business_state(
     payload: PreviewJobPayload,
     preview_result: PreviewResult,
     ready_closure_ref: ArtifactRef,
+    closure_output_refs: tuple[ArtifactRef, ...],
     transaction_now: datetime,
 ) -> None:
     unit_of_work.workspace.save_preview_result(preview_result)
@@ -841,7 +845,7 @@ def _persist_preview_business_state(
     )
     unit_of_work.workspace.save_workspace(updated_workspace, expected_version=workspace.optimistic_version)
     unit_of_work.set_artifact_protection(
-        _unique_refs((ready_closure_ref, *_payload_source_refs(payload))),
+        _unique_refs((ready_closure_ref, *closure_output_refs, *_payload_source_refs(payload))),
         owner_kind="current-preview",
         owner_id=workspace.workspace_id,
         intent="current-preview",
@@ -1867,11 +1871,19 @@ def _make_cancelled_terminal_builder() -> Callable[
         step: StepRecord,
         transaction_now: datetime,
     ) -> tuple[StepRecord, OperationRecord]:
+        transaction = _active_preview_transaction.get()
+        if transaction is None:
+            raise PreviewJobError("preview cancellation transaction is not bound")
         if operation.ready_closure_ref is not None:
             raise CheckpointPublicationError(
                 "ready_closure_ref is already set",
                 code="CLOSURE_ALREADY_SET",
             )
+        _release_preview_step_protection(
+            transaction,
+            operation_id=operation.operation_id,
+            clear_operation_owner=True,
+        )
         terminal_step = dataclasses.replace(
             step,
             status=StepStatus.CANCELLED,

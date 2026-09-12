@@ -60,14 +60,11 @@ class LiveFileSessionPort:
             raise ValueError("session file must be absolute")
         self._session_file = session_file
         self._clock = clock if clock is not None else (lambda: datetime.now(UTC))
-        self._cached_entries: dict[str, LoadedSession] | None = None
-        self._cached_mtime_ns: int | None = None
-        self._cached_size: int | None = None
 
     def resolve(self, request: Request) -> IdentityContext:
         token = _bearer_token(request)
         try:
-            entries = self._load_current()
+            entries = load_session_entries(self._session_file)
         except (OSError, ValueError):
             raise ApiError(
                 code="AUTHENTICATION_REQUIRED",
@@ -88,20 +85,6 @@ class LiveFileSessionPort:
                 status_code=401,
             )
         return entry.identity
-
-    def _load_current(self) -> dict[str, LoadedSession]:
-        stat = self._session_file.stat()
-        if (
-            self._cached_entries is not None
-            and self._cached_mtime_ns == stat.st_mtime_ns
-            and self._cached_size == stat.st_size
-        ):
-            return self._cached_entries
-        entries = load_session_entries(self._session_file)
-        self._cached_entries = entries
-        self._cached_mtime_ns = stat.st_mtime_ns
-        self._cached_size = stat.st_size
-        return entries
 
 
 def load_session_file(session_file: Path) -> dict[str, IdentityContext]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ WORKSPACE_BODY = {
     "business_project_id": TEST_PROJECT_ID,
 }
 AUTH = {"Authorization": f"Bearer {TEST_SESSION_TOKEN}"}
+ROTATED_TOKEN = "xxxx-session-token"
 
 
 def _settings(tmp_path: Path) -> BackendSettings:
@@ -66,6 +68,41 @@ def test_rewriting_session_file_without_token_revokes_access(tmp_path: Path) -> 
         revoked = client.post("/v1/workspaces", headers=AUTH, json=WORKSPACE_BODY)
     assert revoked.status_code == 401
     assert revoked.json()["code"] == "AUTHENTICATION_REQUIRED"
+
+
+def test_same_size_token_replacement_revokes_old_identity_when_mtime_preserved(
+    tmp_path: Path,
+) -> None:
+    assert len(ROTATED_TOKEN) == len(TEST_SESSION_TOKEN)
+    settings = _settings(tmp_path)
+    app = create_app(settings)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        created = client.post("/v1/workspaces", headers=AUTH, json=WORKSPACE_BODY)
+        assert created.status_code in {200, 201}
+        original_stat = settings.session_file.stat()
+        document = default_session_document()
+        sessions = document["sessions"]
+        assert isinstance(sessions, list)
+        first = sessions[0]
+        assert isinstance(first, dict)
+        first["token"] = ROTATED_TOKEN
+        write_session_file(settings.session_file, document)
+        os.utime(
+            settings.session_file,
+            ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+        )
+        replaced = settings.session_file.stat()
+        assert replaced.st_size == original_stat.st_size
+        assert replaced.st_mtime_ns == original_stat.st_mtime_ns
+        revoked = client.post("/v1/workspaces", headers=AUTH, json=WORKSPACE_BODY)
+        accepted = client.post(
+            "/v1/workspaces",
+            headers={"Authorization": f"Bearer {ROTATED_TOKEN}"},
+            json=WORKSPACE_BODY,
+        )
+    assert revoked.status_code == 401
+    assert revoked.json()["code"] == "AUTHENTICATION_REQUIRED"
+    assert accepted.status_code in {200, 201}
 
 
 def test_expired_session_is_rejected_on_resolve(tmp_path: Path) -> None:

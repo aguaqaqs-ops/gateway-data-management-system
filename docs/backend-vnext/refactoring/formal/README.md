@@ -14,10 +14,12 @@
 - [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)
 - [P5-5B-S0 Entry Brief](plans/p5-5b-s0-entry-brief.md)（Submit/AcceptSubmit 详细设计入口；design S0 authorized）
 
-Parallel prerequisite gate（阻塞 5B implementation；**不是** P5 semantic 默认入口）：
+P4-R6 exit（**pass** on sealed candidate `7fbddc73`；解除 5B source/test/deployment 硬前置）：
 
-- [P4-R6-S0 Entry Brief](plans/p4-r6-s0-entry-brief.md)（P4 最终 acceptance/integration gate；exit pending）
-- [P4-R6-S0 Independent Entry Acceptance](plans/p4-r6-s0-independent-entry-acceptance.md)（S0 accepted；S1–S7仍需明确授权）
+- [P4-R6-S7 Final Handoff](plans/p4-r6-s7-final-handoff.md)（`p4_r6_exit: pass`）
+- [P4-R6-S6 Container and Provenance Evidence](plans/p4-r6-s6-container-provenance-evidence.md)
+- [P4-R6-S4 Independent Review](plans/p4-r6-s4-independent-review.md)（F1 closed）
+- [P4-R6-S0 Independent Entry Acceptance](plans/p4-r6-s0-independent-entry-acceptance.md)
 - [P4-R6-S0 Finding Disposition](plans/p4-r6-s0-finding-disposition.md)（historical reopen；remediation已闭合）
 
 P5-5A historical input（slice exit pass；container gate pass）：
@@ -29,9 +31,8 @@ P5-5A historical input（slice exit pass；container gate pass）：
 - [P5-5A Remediation Review](plans/p5-5a-remediation-review.md)（remediation pass；superseded by S6）
 - [P5-5A S6 Handoff](plans/p5-5a-s6-handoff.md)（slice exit pass；container gate pass）
 
-P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；P4-R6 exit
-仍 pending。P4-R6 与 P5-5B 详细设计可并行收敛，但 **P4-R6 exit=pass** 才是 5B
-source/test/deployment 硬前置；P4 Active Context Index 不覆盖 P5 semantic default entry。
+P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；**P4-R6 exit pass**。
+P5-5B implementation 仍需单独授权；P4 Active Context Index 不覆盖 P5 semantic default entry。
 以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述 P5 默认顺序：
 
 - [P4 Active Context Index](plans/p4-active-context-index.md)（P4 专用入口；不是仓库当前默认入口）
@@ -61,7 +62,9 @@ source/test/deployment 硬前置；P4 Active Context Index 不覆盖 P5 semantic
 - [P4-R6-S0 Entry Brief](plans/p4-r6-s0-entry-brief.md)（historical entry brief；S0已由独立acceptance接受）
 - [P4-R6/R1 Registry-Name Contract Reopen](plans/p4-r6-r1-registry-name-contract-reopen.md)（bounded `/` grammar amendment）
 - [P4-R6-S0 Finding Disposition](plans/p4-r6-s0-finding-disposition.md)（historical reopen；remediation已闭合）
-- [P4-R6-S0 Independent Entry Acceptance](plans/p4-r6-s0-independent-entry-acceptance.md)（pass；R6 implementation未授权）
+- [P4-R6-S0 Independent Entry Acceptance](plans/p4-r6-s0-independent-entry-acceptance.md)（pass）
+- [P4-R6-S6 Container and Provenance Evidence](plans/p4-r6-s6-container-provenance-evidence.md)（container gate pass）
+- [P4-R6-S7 Final Handoff](plans/p4-r6-s7-final-handoff.md)（`p4_r6_exit: pass`）
 - [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)（总体设计accepted；implementation等待P4-R6 exit）
 - [P5-5A Baseline Acceptance](plans/p5-5a-baseline-acceptance.md)（historical；superseded by 5A slice exit / 5B-S0）
 - [P5-5A-S0 Entry Brief](plans/p5-5a-s0-entry-brief.md)（historical input；superseded by P5-5B-S0）

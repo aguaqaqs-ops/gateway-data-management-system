@@ -9,6 +9,8 @@ set -euo pipefail
 # dominate, so they run single process.
 
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/gateway-index-env.sh
+source "${VNEXT_ROOT}/scripts/lib/gateway-index-env.sh"
 TEST_WORKERS="${GATEWAY_TEST_WORKERS:-auto}"
 if [[ ! "${TEST_WORKERS}" =~ ^(auto|[0-9]+)$ ]]; then
     echo "error: GATEWAY_TEST_WORKERS must be auto or a non-negative integer" >&2
@@ -42,13 +44,7 @@ run_locked_pytest() {
     # The repository locks use the canonical PyPI registry. Do not let a
     # machine-wide mirror override the lock identity during test execution;
     # dependency provisioning may still use that mirror explicitly.
-    env \
-        -u UV_DEFAULT_INDEX \
-        -u UV_INDEX_URL \
-        -u UV_INSECURE_HOST \
-        -u PIP_INDEX_URL \
-        -u PIP_TRUSTED_HOST \
-        uv run --locked pytest "${PYTEST_TMP_ARGS[@]}" "$@"
+    gateway_with_isolated_index uv run --locked pytest "${PYTEST_TMP_ARGS[@]}" "$@"
 }
 
 for package in "${FAST_PACKAGES[@]}"; do

@@ -174,7 +174,16 @@ def _run_isolated_import_probe(project_dir: Path, script: str) -> subprocess.Com
     venv_dir = tempfile.mkdtemp(prefix="uv-r1-")
     try:
         env = os.environ.copy()
-        for inherited_name in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV"):
+        for inherited_name in (
+            "PYTHONHOME",
+            "PYTHONPATH",
+            "VIRTUAL_ENV",
+            "UV_DEFAULT_INDEX",
+            "UV_INDEX_URL",
+            "UV_INSECURE_HOST",
+            "PIP_INDEX_URL",
+            "PIP_TRUSTED_HOST",
+        ):
             env.pop(inherited_name, None)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["UV_PROJECT_ENVIRONMENT"] = venv_dir

@@ -99,8 +99,10 @@ dependency_base_available() {
   [[ -n "${label_digest}" && "${label_digest}" == "${UV_LOCK_SHA256}" ]]
 }
 
+BUILD_NETWORK="${GATEWAY_DOCKER_BUILD_NETWORK:-host}"
+
 build_args=(
-  --network=host
+  --network="${BUILD_NETWORK}"
   --file "${VNEXT_ROOT}/repository_service/Dockerfile"
   --tag "${IMAGE_TAG}"
   --build-arg "CANDIDATE_SHA=${CANDIDATE_SHA}"

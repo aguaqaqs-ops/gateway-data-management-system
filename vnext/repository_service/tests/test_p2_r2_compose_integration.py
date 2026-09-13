@@ -175,6 +175,21 @@ def test_compose_repository_service_maps_operational_env_allowlist() -> None:
         assert expected in service, f"missing compose mapping: {expected}"
 
 
+def test_compose_services_wire_docker_build_network() -> None:
+    compose = COMPOSE.read_text(encoding="utf-8")
+    for service_name in ("backend", "worker", "repository-service", "repository-probe"):
+        service = _service_block(compose, service_name)
+        assert "network: ${GATEWAY_DOCKER_BUILD_NETWORK:-}" in service
+
+
+def test_compose_repository_service_runtime_has_no_bootstrap_index_env() -> None:
+    service = _service_block(COMPOSE.read_text(encoding="utf-8"), "repository-service")
+    environment = service.split("environment:", maxsplit=1)[1].split("secrets:", maxsplit=1)[0]
+    assert "UV_BOOTSTRAP" not in environment
+    assert "UV_INDEX" not in environment
+    assert "PIP_INDEX" not in environment
+
+
 def test_readme_documents_env_file_and_force_recreate() -> None:
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "--env-file" in readme

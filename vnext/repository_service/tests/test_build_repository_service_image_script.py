@@ -184,6 +184,38 @@ def _build_arg_map(argv_file: Path) -> dict[str, str]:
     return values
 
 
+def _docker_network(argv_file: Path) -> str | None:
+    for arg in argv_file.read_text(encoding="utf-8").splitlines():
+        if arg.startswith("--network="):
+            return arg.partition("=")[2]
+    return None
+
+
+@pytest.mark.unit
+def test_build_script_honors_docker_build_network_override(tmp_path: Path) -> None:
+    completed, argv_file = _run_build_script(
+        tmp_path,
+        timeout_script='#!/usr/bin/env bash\nshift\nexec "$@"\n',
+        docker_build_exit_code=0,
+        extra_env={"GATEWAY_DOCKER_BUILD_NETWORK": "default"},
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert _docker_network(argv_file) == "default"
+    _assert_no_secret_leak(completed)
+
+
+@pytest.mark.unit
+def test_build_script_defaults_docker_build_network_to_host(tmp_path: Path) -> None:
+    completed, argv_file = _run_build_script(
+        tmp_path,
+        timeout_script='#!/usr/bin/env bash\nshift\nexec "$@"\n',
+        docker_build_exit_code=0,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert _docker_network(argv_file) == "host"
+    _assert_no_secret_leak(completed)
+
+
 @pytest.mark.unit
 def test_build_script_propagates_docker_failure(tmp_path: Path) -> None:
     completed, argv_file = _run_build_script(

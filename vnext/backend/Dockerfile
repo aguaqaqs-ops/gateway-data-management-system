@@ -1,6 +1,6 @@
 FROM rust:1.97.0-bookworm AS builder
 ARG UV_VERSION=0.11.28
-RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
+RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
 ENV PATH="/root/.local/bin:${PATH}"
 WORKDIR /build/backend
 COPY backend/pyproject.toml backend/uv.lock backend/.python-version backend/README.md ./
@@ -22,7 +22,13 @@ RUN rm -rf /build/wheels \
 
 FROM python:3.14.6-slim-bookworm
 ARG UV_VERSION=0.11.28
-RUN pip install --no-cache-dir uv==${UV_VERSION}
+ARG UV_BOOTSTRAP_INDEX_URL=https://pypi.org/simple
+ARG UV_BOOTSTRAP_TRUSTED_HOST
+RUN if [ -n "${UV_BOOTSTRAP_TRUSTED_HOST}" ]; then \
+      pip install --no-cache-dir --index-url="${UV_BOOTSTRAP_INDEX_URL}" --trusted-host "${UV_BOOTSTRAP_TRUSTED_HOST}" "uv==${UV_VERSION}"; \
+    else \
+      pip install --no-cache-dir --index-url="${UV_BOOTSTRAP_INDEX_URL}" "uv==${UV_VERSION}"; \
+    fi
 WORKDIR /app/backend
 COPY rust /app/rust
 COPY shared_kernel /app/shared_kernel

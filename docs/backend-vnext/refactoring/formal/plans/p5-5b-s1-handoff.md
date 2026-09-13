@@ -22,6 +22,7 @@ first_authorized_step: P5-5B-S1
 ```yaml
 stage: P5-5B-S1-submission-domain-application
 parent_head: 6b8e7fc5468389c5f2907d8d3a9a5f52566e5ef6
+candidate_head: 1d1d47f8593ad6a3556f341c7aed56c853647579
 remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5b-s1-remediation-handoff.md
 uv_lock_in_diff: no
 ```

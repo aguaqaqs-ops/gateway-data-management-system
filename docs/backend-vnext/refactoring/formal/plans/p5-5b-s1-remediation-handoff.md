@@ -23,13 +23,15 @@ first_authorized_step: P5-5B-S1
 
 ```yaml
 parent_head: 6b8e7fc5468389c5f2907d8d3a9a5f52566e5ef6
-candidate_head: pending_commit
+candidate_head: 1d1d47f8593ad6a3556f341c7aed56c853647579
+git_rev_parse_HEAD: 1d1d47f8593ad6a3556f341c7aed56c853647579
+implementation_commit: 1d1d47f8593ad6a3556f341c7aed56c853647579
+handoff_docs_commit: see git log -- docs/backend-vnext/refactoring/formal/plans/p5-5b-s1-remediation-handoff.md
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 uv_lock_in_diff: no
 verification_index_isolation: gateway_with_isolated_index / env -u UV_INDEX_URL -u UV_DEFAULT_INDEX
+git_status_short: clean
 ```
-
-Round-2 完成后须更新 `candidate_head` 为 implementation commit 的 `git rev-parse HEAD`。
 
 ## Finding → fix → owner → retest
 

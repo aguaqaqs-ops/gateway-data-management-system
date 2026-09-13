@@ -22,7 +22,7 @@ deferred: canonical_registry_migration_if_internal_index_changes_lock_source
 | --- | --- |
 | entry HEAD | `583e567397f9673624df885b2485c7ae4afc58a3` |
 | tested implementation SHA | `c394db28fd43ab3aeabab7eda2d010df0dc3b3fb` |
-| handoff documentation SHA | pending_docs_commit |
+| handoff documentation SHA | `996ab6c33a1152a14f91b23cbd8e7333c56f8248` |
 | clean gate worktree | `/tmp/internal-build-gate.kuvoN8` (detached at implementation SHA) |
 
 ### Lockfile SHA256 (unchanged vs entry HEAD)

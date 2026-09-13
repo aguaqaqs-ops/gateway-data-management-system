@@ -13,7 +13,7 @@ Owner：Backend vNext Architecture Acceptance + Operation Runtime Integration
 ```yaml
 step_id: P4-R6-S7
 tested_candidate_sha: 7fbddc731d304be719fb980d6c538a6b9cf6910f
-handoff_documentation_sha: pending_docs_commit
+handoff_documentation_sha: 93670a6ded2bad56c13c879f6c769e698973ac73
 original_worktree_head: 7e8cea7b3454a8cfdd7c2ba880becee5c427a0de
 gate_worktree: /tmp/p4-r6-gate.TTdACz
 tested_worktree_committed: true

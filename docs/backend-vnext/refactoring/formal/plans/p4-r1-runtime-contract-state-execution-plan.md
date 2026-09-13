@@ -282,7 +282,7 @@ S0 应接受以下保守默认值或记录替代值及依据：
 | Budget | Recommended default |
 |---|---|
 | opaque operation/step/worker/lease/repository ID | 1..255 UTF-8 bytes；拒绝 NUL/control/host path |
-| `job_kind` / `step_name` | 1..128 ASCII `[A-Za-z0-9._:-]` |
+| `job_kind` / `step_name` | 1..128 ASCII `[A-Za-z0-9._:/-]`；`/` 是 opaque namespace 字符，不是 path separator |
 | business reference `kind` / `value` | kind 同 `job_kind` pattern；value 1..255 UTF-8 bytes 且拒绝 control/host path |
 | contract version | 1..128 ASCII printable |
 | owner-provided failure/diagnostic code | 1..128 ASCII `[A-Z][A-Z0-9_.:-]{0,127}` |

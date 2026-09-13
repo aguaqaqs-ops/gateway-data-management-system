@@ -275,6 +275,7 @@ def test_unsupported_job_contract_version_rejected_at_claim_without_running_leas
     assert persisted_step.lease_token is None
 
 
+@pytest.mark.serial
 def test_registered_key_reaches_ready_with_empty_queue(tmp_path: Path) -> None:
     settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "registered" / "control.sqlite3")
     bootstrap_control_database(settings)

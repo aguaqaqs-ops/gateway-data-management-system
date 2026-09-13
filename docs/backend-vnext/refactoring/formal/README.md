@@ -17,6 +17,8 @@
 Parallel prerequisite gate（阻塞 5B implementation；**不是** P5 semantic 默认入口）：
 
 - [P4-R6-S0 Entry Brief](plans/p4-r6-s0-entry-brief.md)（P4 最终 acceptance/integration gate；exit pending）
+- [P4-R6-S0 Independent Entry Acceptance](plans/p4-r6-s0-independent-entry-acceptance.md)（S0 accepted；S1–S7仍需明确授权）
+- [P4-R6-S0 Finding Disposition](plans/p4-r6-s0-finding-disposition.md)（historical reopen；remediation已闭合）
 
 P5-5A historical input（slice exit pass；container gate pass）：
 
@@ -56,7 +58,10 @@ source/test/deployment 硬前置；P4 Active Context Index 不覆盖 P5 semantic
 - [P4-R5 Retry, Takeover and Effect Recovery Detailed Execution Plan](plans/p4-r5-retry-takeover-effect-recovery-execution-plan.md)（S7 module gate pass）
 - [P4-R5-S0 Independent Entry Acceptance](plans/p4-r5-s0-entry-acceptance.md)（pass）
 - [P4/R5 Retry, Takeover and Effect Recovery Handoff](plans/p4-r5-retry-takeover-effect-recovery-handoff.md)（S7 module gate、current-HEAD image与P4-R6-S0 entry boundary）
-- [P4-R6-S0 Entry Brief](plans/p4-r6-s0-entry-brief.md)（P4最终acceptance/integration gate；independent entry acceptance pending）
+- [P4-R6-S0 Entry Brief](plans/p4-r6-s0-entry-brief.md)（historical entry brief；S0已由独立acceptance接受）
+- [P4-R6/R1 Registry-Name Contract Reopen](plans/p4-r6-r1-registry-name-contract-reopen.md)（bounded `/` grammar amendment）
+- [P4-R6-S0 Finding Disposition](plans/p4-r6-s0-finding-disposition.md)（historical reopen；remediation已闭合）
+- [P4-R6-S0 Independent Entry Acceptance](plans/p4-r6-s0-independent-entry-acceptance.md)（pass；R6 implementation未授权）
 - [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)（总体设计accepted；implementation等待P4-R6 exit）
 - [P5-5A Baseline Acceptance](plans/p5-5a-baseline-acceptance.md)（historical；superseded by 5A slice exit / 5B-S0）
 - [P5-5A-S0 Entry Brief](plans/p5-5a-s0-entry-brief.md)（historical input；superseded by P5-5B-S0）
@@ -121,9 +126,10 @@ fixture追溯；其中的同步Preview、`START_REVIEW`、Archive/Repository ref
 覆盖当前P5 authority。
 
 当前阶段：`phase_2_complete: yes`；P3 final closure `p3_exit: pass`、`p4_ready: yes`；
-P4-R1至P4-R5 module gate均为`pass`，R5 validated code为`0fa2b897`。P4-R6-S0 discussion
-已收敛，当前仅独立entry acceptance获授权；R6 implementation与P5B implementation
-仍未授权。P5总体设计基线accepted；P5-5A slice exit `pass`；P5-5B-S0 entry brief
+P4-R1至P4-R5 module gate均为`pass`，R5 validated code为`0fa2b897`。P4-R6-S0 independent
+entry acceptance为`accepted`：registry-name bounded reopen与marker remediation已闭合；S1–S7
+gate execution仍需新的明确授权，R6 implementation与P5B implementation仍未授权。P5总体设计基线accepted；
+P5-5A slice exit `pass`；P5-5B-S0 entry brief
 accepted且`p5_5b_design_s0_authorized: yes`；`p5_5b_implementation_authorized: no`。
 这些docs-only结果不越过P4-R6或授权P5B实现。
 全局`p3_implementation_authorized: no`。P4 专用入口见

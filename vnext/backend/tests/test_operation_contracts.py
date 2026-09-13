@@ -321,7 +321,15 @@ def _registry_name_value_faults() -> tuple[tuple[str, str, str], ...]:
         ("empty", "", "registry name pattern"),
         ("too-long", "a" * 129, "registry name pattern"),
         ("illegal-char", "bad kind", "registry name pattern"),
+        ("host-path-backslash", "bad\\kind", "registry name pattern"),
     )
+
+
+REGISTRY_NAME_POSITIVE_CASES: tuple[tuple[str, str, str, str], ...] = (
+    ("preview-consumer-job-kind", "backend-vnext/preview", "materialize", "workspace"),
+    ("slash-bearing-step-name", "import.package", "validate/publish", "workspace"),
+    ("slash-bearing-business-kind", "import.package", "validate", "backend-vnext/workspace"),
+)
 
 
 def _timestamp_value_faults() -> tuple[tuple[str, str, str], ...]:
@@ -1247,6 +1255,82 @@ def test_job_step_key_registry_identity() -> None:
     assert first != different
     assert hash(first) == hash(second)
     assert {first: "handler"}[second] == "handler"
+
+
+@pytest.mark.parametrize(
+    ("name", "job_kind", "step_name", "business_ref_kind"),
+    REGISTRY_NAME_POSITIVE_CASES,
+)
+def test_job_step_key_accepts_registry_name_values(
+    name: str,
+    job_kind: str,
+    step_name: str,
+    business_ref_kind: str,
+) -> None:
+    del name, business_ref_kind
+    key = JobStepKey(job_kind=job_kind, step_name=step_name)
+    assert (key.job_kind, key.step_name) == (job_kind, step_name)
+
+
+@pytest.mark.parametrize(
+    ("name", "job_kind", "step_name", "business_ref_kind"),
+    REGISTRY_NAME_POSITIVE_CASES,
+)
+def test_operation_document_round_trips_registry_name_values(
+    name: str,
+    job_kind: str,
+    step_name: str,
+    business_ref_kind: str,
+) -> None:
+    del name, step_name
+    record = operation_record_from_document(
+        _minimal_operation_document(
+            job_kind=job_kind,
+            business_refs=[{"kind": business_ref_kind, "value": "ws-1"}],
+        )
+    )
+    assert record.job_kind == job_kind
+    assert record.business_refs[0].kind == business_ref_kind
+    round_tripped = operation_record_from_document(record.to_document())
+    assert round_tripped == record
+
+
+@pytest.mark.parametrize(
+    ("name", "job_kind", "step_name", "business_ref_kind"),
+    REGISTRY_NAME_POSITIVE_CASES,
+)
+def test_step_document_round_trips_registry_name_values(
+    name: str,
+    job_kind: str,
+    step_name: str,
+    business_ref_kind: str,
+) -> None:
+    del name, job_kind, business_ref_kind
+    record = step_record_from_document(_minimal_step_document(step_name=step_name))
+    assert record.step_name == step_name
+    round_tripped = step_record_from_document(record.to_document())
+    assert round_tripped == record
+
+
+@pytest.mark.parametrize(
+    ("name", "job_kind", "step_name", "business_ref_kind"),
+    REGISTRY_NAME_POSITIVE_CASES,
+)
+def test_business_reference_round_trips_registry_name_kind(
+    name: str,
+    job_kind: str,
+    step_name: str,
+    business_ref_kind: str,
+) -> None:
+    del name, job_kind, step_name
+    ref = BusinessReference(kind=business_ref_kind, value="ws-1")
+    document = ref.to_document()
+    assert document == {"kind": business_ref_kind, "value": "ws-1"}
+    round_tripped = BusinessReference(
+        kind=document["kind"],  # type: ignore[arg-type]
+        value=document["value"],  # type: ignore[arg-type]
+    )
+    assert round_tripped == ref
 
 
 def test_public_exports_match_operations_surface() -> None:

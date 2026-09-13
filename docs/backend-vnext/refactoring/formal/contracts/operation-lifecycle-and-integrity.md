@@ -151,8 +151,16 @@ Operation 与 Step persisted document 均为 closed object；`to_document()` 发
 
 ### 6.4 Bounded validation
 
-保守默认预算包括：opaque ID 1..255 UTF-8 bytes；`job_kind` / `step_name` 1..128 ASCII；
+保守默认预算包括：opaque ID 1..255 UTF-8 bytes；`job_kind` / `step_name` 1..128 ASCII
+`[A-Za-z0-9._:/-]`；
 inline payload 最大 64 KiB；JSON depth 32、aggregate 4096、key 128 UTF-8 bytes、string 16 KiB；
 business/artifact refs 每 tuple 最多 64、单 record 内 ArtifactRef 合计最多 64；optimistic
 version / attempt count 为非负 I-JSON safe integer。Runtime 只验证 JSON/I-JSON shape 与资源
 预算，不解释 job payload 业务字段。
+
+2026-09-13 P4-R6-S0 bounded amendment：`/` 是已确认 P5 `backend-vnext/preview`
+consumer 需要的 opaque namespace 字符。它不表示文件系统路径、URL 或层级，runtime 不得将
+registry name 拼接为 host path。该扩展不拒绝任何原先合法值，不改 persisted key、
+schema、status/CAS 语义或 `backend-vnext/operation-runtime/v1` version。`BusinessReference.kind`
+复用同一 pattern。精确 disposition 与回归要求见
+[P4-R6/R1 Registry-Name Contract Reopen](../plans/p4-r6-r1-registry-name-contract-reopen.md)。

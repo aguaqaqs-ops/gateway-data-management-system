@@ -1,8 +1,8 @@
 # P4 Active Context Index
 
-状态：P4-R5 exit complete；P4-R6-S0 discussion converged；independent entry acceptance pending
+状态：P4-R5 exit complete；P4-R6-S0 independent entry accepted；S1–S7 gate execution未授权
 
-日期：2026-09-05
+日期：2026-09-13
 
 Owner：Backend vNext Architecture
 
@@ -33,7 +33,7 @@ p4_r1_s4: pass_after_s5
 p4_r1_s5: pass
 p4_r1_s6: pass_after_f2_f3_remediation
 p4_r1_s7: pass
-p4_implementation_authorized: r6_s0_discussion_only
+p4_implementation_authorized: r6_s0_acceptance_only
 r1_s1a_authorized: yes
 r1_s1b_authorized: yes
 r1_s2a_authorized: yes
@@ -125,7 +125,9 @@ p4_r5_current_head_container_gate: stale
 p4_r5_s1a_authorized: yes_completed
 p4_r5_implementation_authorized: no_further_r5_work
 p4_r6_entry_discussion_authorized: yes
-p4_r6_s0: discussion_converged_acceptance_pending
+p4_r6_s0: accepted
+p4_r6_s0_registry_name_reopen: accepted_and_validated
+p4_r6_s0_serial_marker_remediation: pass
 p4_r6_implementation_authorized: no
 p5_implementation_authorized: no
 p3_production_integration_authorized: no
@@ -194,6 +196,12 @@ final_cleanup_tag: docs/p3-p4-cleanup-final-20260823
      S7 module gate、current-HEAD image provenance、container smoke与P4-R6-S0 entry boundary。
 18i. [P4-R6-S0 Entry Brief](p4-r6-s0-entry-brief.md)：P4最终acceptance/integration gate的
      current-HEAD、测试分类、container applicability与entry acceptance boundary。
+18j. [P4-R6/R1 Registry-Name Contract Reopen](p4-r6-r1-registry-name-contract-reopen.md)：有界接受
+     `/` 作为 opaque registry-name 字符；不增加 path 语义或 version/schema 轴。
+18k. [P4-R6-S0 Finding Disposition](p4-r6-s0-finding-disposition.md)：S0 `reopen`、测试
+     marker 修复与重审授权边界。
+18l. [P4-R6-S0 Independent Entry Acceptance](p4-r6-s0-independent-entry-acceptance.md)：S0
+     `accepted`、current-HEAD delta、唯一test owner、S1–S7 gate与provenance冻结；implementation未授权。
 19. [Operation Lifecycle and Integrity](../contracts/operation-lifecycle-and-integrity.md)：
    operation/step 状态、integrity 与 recovery owner。
 20. [External Effect and Recovery](../contracts/external-effect-and-recovery.md)：
@@ -229,9 +237,10 @@ P3 **不交付、不授权**（P4 也不得静默改变其 owner）：
 P4-R1已exit；P4-R2已完成S7 module gate；P4-R3已完成S7 module gate；P4-R4已完成S7
 module gate；P4-R5已完成S7 module gate。`p4_r2_authorized: no`、
 `p4_r4_implementation_authorized: no_further_r4_work`、
-`p4_r5_implementation_authorized: no_further_r5_work`。P4-R6-S0 discussion已收敛，当前仅
-独立entry acceptance获授权；R6 implementation与P5/P5B仍未授权。R6只拥有P4最终验收、
-集成、container与provenance gate；Workspace/HTTP/global readiness仍属于P5。
+`p4_r5_implementation_authorized: no_further_r5_work`。P4-R6-S0 independent entry acceptance
+已通过：registry-name bounded reopen、test owners与`serial` marker remediation均已闭合。
+S1–S7 gate execution仍需新的明确授权；R6 implementation与P5/P5B implementation仍未授权。
+R6只拥有P4最终验收、集成、container与provenance gate；Workspace/HTTP/global readiness仍属于P5。
 
 ## 3. P3 handoff 指针
 

@@ -31,13 +31,25 @@ pytest-xdist 的自适应行为。`parallel_safe` 是从 `serial` 中经过逐�
 该变量只影响测试临时目录，不改变正式服务数据卷；涉及持久化、崩溃恢复和快照语义的正式验收
 仍须使用真实文件系统。
 
-权威入口使用隔离机器级 index 环境的 `uv run --locked`，测试过程不得根据开发机的包镜像
-配置隐式改写 `uv.lock`；依赖变更必须显式更新锁文件并重新同步环境。依赖准备阶段仍可
-显式使用 CT 的内网包缓存。
+Host 依赖准备权威入口：
 
-Compose 测试客户端镜像构建在 Linux nested LXC 中默认使用 Docker `host` 网络，以便访问
-包镜像；可通过 `GATEWAY_DOCKER_BUILD_NETWORK=default` 覆盖。该设置只影响测试镜像构建，
-不改变生产 Compose 网络边界。
+```bash
+./vnext/scripts/prepare-dev-dependencies.sh
+```
+
+`GATEWAY_DEV_DEPENDENCY_MODE=internal` 时须显式提供 `UV_INDEX_URL` 或 `UV_DEFAULT_INDEX`；
+默认 `pypi` 模式在同步时会剥离机器级 index，保持 lock 的 canonical PyPI identity。
+可选 `GATEWAY_DEV_OFFLINE=1` 使用 `uv sync --locked --offline`。该脚本不跑测试。
+
+权威测试入口使用隔离机器级 index 环境的 `uv run --locked`，测试过程不得根据开发机的包镜像
+配置隐式改写 `uv.lock`；依赖变更必须显式更新锁文件并重新同步环境。
+
+Docker 镜像构建可通过 `GATEWAY_DOCKER_BUILD_NETWORK` 控制 build 网络（`deploy/compose.yaml`
+与 `build-repository-service-image.sh` 均读取；默认分别为 bridge 与 `host`）。
+`GATEWAY_BACKEND_UV_BOOTSTRAP_*` / `GATEWAY_REPOSITORY_UV_BOOTSTRAP_*` 仅作为 build-time
+参数，不进入 production runtime ENV。Compose 测试客户端镜像在 Linux nested LXC 中默认使用
+Docker `host` 网络；可通过 `GATEWAY_DOCKER_BUILD_NETWORK=default` 覆盖。该设置只影响镜像
+构建，不改变 production Compose 服务网络边界。
 
 ## 写测试
 

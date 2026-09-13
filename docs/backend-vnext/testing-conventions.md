@@ -8,10 +8,39 @@
 
 ## 执行入口
 
-权威入口是 `vnext/scripts/run-tests.sh`，它按正确顺序跑完全部 Python 包：
+Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
+
+```bash
+./vnext/scripts/prepare-dev-dependencies.sh
+./vnext/scripts/run-tests.sh
+```
+
+`prepare-dev-dependencies.sh` 只同步五包 venv，不跑 pytest。`run-tests.sh` 按正确顺序跑
+完全部 Python 包：
 
 ```bash
 ./vnext/scripts/run-tests.sh
+```
+
+### 内网构建环境变量（仅记录名与语义；不得写入 lockfile 或 production runtime）
+
+| 变量 | 阶段 | 说明 |
+| --- | --- | --- |
+| `GATEWAY_DEV_DEPENDENCY_MODE` | host 准备 | `internal` 需显式 index；`pypi`（默认）剥离机器 index |
+| `GATEWAY_DEV_OFFLINE` | host 准备 | `1` → `uv sync --locked --offline` |
+| `UV_INDEX_URL` / `UV_DEFAULT_INDEX` | host 准备（internal） | 内网 PyPI mirror；不得进入 `run-tests.sh` |
+| `UV_INSECURE_HOST` | host 准备 / Docker build | HTTP mirror trusted-host |
+| `GATEWAY_DOCKER_BUILD_NETWORK` | Docker build | 仅 build 网络；不改变 Compose 服务 runtime |
+| `GATEWAY_BACKEND_UV_BOOTSTRAP_*` | backend/worker build | build-time pip 装 uv；不进 runtime ENV |
+| `GATEWAY_REPOSITORY_UV_BOOTSTRAP_*` | repository-service build | 同上 |
+| `GATEWAY_P2R1_CACHE_URL` | repository-service build | retained artifact cache 根 URL |
+
+权威 runner 与提交前静态检查须隔离机器 index：
+
+```bash
+env -u UV_DEFAULT_INDEX -u UV_INDEX_URL -u UV_INSECURE_HOST \
+    -u PIP_INDEX_URL -u PIP_TRUSTED_HOST \
+    uv run --locked pytest ...
 ```
 
 `repository_service` 分两遍执行：主体并行，未确认可隔离的 `serial` 组单独串行，避免

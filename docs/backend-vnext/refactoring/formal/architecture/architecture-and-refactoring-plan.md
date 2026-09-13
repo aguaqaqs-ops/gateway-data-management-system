@@ -15,11 +15,13 @@ interface reconciliation也已由
 完成。P2-R1 v8 formal 已通过，默认 provider 为
 Candidate A offline CLI，Candidate B保留但默认禁用。
 2026-09-06：P2-R6-S11 `phase_2_complete: yes`；P3 final closure `p3_exit: pass`；P4-R1至R5
-module gate均为`pass`。P4-R6最终acceptance/integration gate尚未exit，current-HEAD container
-gate仍stale。P5总体设计与5A baseline已accepted，5A Entry Brief已就绪，但任何P5实现仍等待
-P4-R6 exit和明确授权。默认检索见[P4 Active Context Index](../plans/p4-active-context-index.md)、
-[P5 Business Vertical Slices Design Baseline](../plans/p5-business-vertical-slices-design.md)与
-[P5-5A-S0 Entry Brief](../plans/p5-5a-s0-entry-brief.md)。
+module gate均为`pass`。P4-R6最终acceptance/integration gate尚未exit（parallel prerequisite）。
+P5-5A slice exit `pass`，container gate `pass`（证据见
+[P5-5A S6 Handoff](../plans/p5-5a-s6-handoff.md)）。P5总体设计accepted；P5-5B-S0 entry brief
+accepted且`p5_5b_design_s0_authorized: yes`；P5-5B implementation与real Repository effect
+仍未授权。默认检索见[P5 Business Vertical Slices Design Baseline](../plans/p5-business-vertical-slices-design.md)与
+[P5-5B-S0 Entry Brief](../plans/p5-5b-s0-entry-brief.md)。P4专用入口见
+[P4 Active Context Index](../plans/p4-active-context-index.md)。
 不得把文档 HEAD 当作 `CANDIDATE_SHA`。
 
 ## 1. 目标与范围

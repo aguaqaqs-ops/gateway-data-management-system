@@ -7,15 +7,16 @@ vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约�
 ## 当前默认入口
 
 Phase 3 已 exit，P4-R1 至 P4-R5 module gate 已通过；P4-R6 仍是 pending 的最终
-acceptance/integration gate。当前 P5 设计检索从以下三份已接受材料开始，不要从历史
-P4 handoff 或下文旧 contract/capability 清单推导 P5 语义：
+acceptance/integration gate。当前 P5 设计检索从以下材料开始，不要从历史 P4 handoff 或
+下文旧 contract/capability 清单推导 P5 语义：
 
 - [P5 Business Vertical Slices Design Baseline](refactoring/formal/plans/p5-business-vertical-slices-design.md)
+- [P5-5B-S0 Entry Brief](refactoring/formal/plans/p5-5b-s0-entry-brief.md)
+
+P5-5A historical input（slice exit pass；container gate pass）：
+
 - [P5-5A Baseline Acceptance](refactoring/formal/plans/p5-5a-baseline-acceptance.md)
 - [P5-5A-S0 Entry Brief](refactoring/formal/plans/p5-5a-s0-entry-brief.md)
-
-5A-S0 detailed design and execution plan:
-
 - [P5-5A Upload/Preview Detailed Design](refactoring/formal/plans/p5-5a-upload-preview-design.md)
 - [P5-5A Upload/Preview Execution Plan](refactoring/formal/plans/p5-5a-upload-preview-execution-plan.md)
 - [P5-5A Remediation Review](refactoring/formal/plans/p5-5a-remediation-review.md)
@@ -37,8 +38,8 @@ contract/capability 清单当作 Repository Service wire 或 P2 完成状态：
 - [P4/R2-S0 Independent Entry Acceptance](refactoring/formal/plans/p4-r2-s0-entry-acceptance.md)
 - [P2 External Interface Handoff](refactoring/formal/plans/p2-external-interface-handoff.md)
 
-P5总体设计和5A详细设计可与P4-R6最终验收并行收敛，但P5实现必须等待P4-R6 exit和明确
-授权。
+P5 总体设计和 5B-S0 详细设计可与 P4-R6 最终验收并行收敛，但 5B 实现必须等待 P4-R6 exit
+和明确授权。
 
 历史 P3 默认入口 `p3-active-context-index.md` 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823`
 与 [P3→P4 Cleanup Manifest](refactoring/formal/plans/p3-p4-cleanup-manifest.yaml)。
@@ -60,7 +61,7 @@ P5总体设计和5A详细设计可与P4-R6最终验收并行收敛，但P5实现
 - `modules.md`：目标代码模块边界。
 - `contracts/`：新一版对外或跨模块 contract（P3 capability oracle，不是 Repository Service wire）。
 - `adr/`：关键架构决策记录。
-- `refactoring/formal/`：现行 formal contract/ADR/architecture；仓库默认入口为 P5 三件套，P4/P3 各有专用历史入口。
+- `refactoring/formal/`：现行 formal contract/ADR/architecture；仓库默认入口为 P5 baseline 与 5B-S0 Entry Brief，P4/P3 各有专用历史入口。
 - 历史 `notes/`、`dolt-test/`、`implementation-plan.md` 与已完成 execution plan 已离开默认树；恢复见 tag `docs/p2-p3-cleanup-pre-20260817` 与 [cleanup manifest](refactoring/formal/plans/p2-p3-cleanup-manifest.yaml)。
 
 ## 当前已收口设计

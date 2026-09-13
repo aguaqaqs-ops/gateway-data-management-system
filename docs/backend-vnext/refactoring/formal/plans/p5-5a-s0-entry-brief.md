@@ -1,6 +1,6 @@
 # P5-5A-S0 Entry Brief: Upload and Preview
 
-状态：**ENTRY BASELINE ACCEPTED — DETAILED DESIGN READY; IMPLEMENTATION BLOCKED BY P4-R6**
+状态：**CLOSED — HISTORICAL INPUT; 5A slice exit pass; superseded by P5-5B-S0**
 
 日期：2026-09-06
 
@@ -23,8 +23,10 @@ p5_design_baseline: accepted
 p5_5a_baseline_acceptance: pass
 p5_5a_detailed_design_ready: yes
 p5_5a_implementation_authorized: no
+p5_5a_slice_exit: pass
 p5b_repository_write_in_scope: false
 source_or_test_change_authorized: false
+superseded_by: P5-5B-S0
 ```
 
 S0的目的，是在实现前冻结5A的application/domain/HTTP/Operation边界、最小持久事实、

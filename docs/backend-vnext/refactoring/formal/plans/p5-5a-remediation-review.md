@@ -1,6 +1,6 @@
 # P5-5A Remediation Review
 
-状态：**PASS — remediation review 闭合；HOLD 保留；S6 未授权**
+状态：**PASS — remediation review 闭合；superseded by [P5-5A S6 Handoff](p5-5a-s6-handoff.md)**
 
 日期：2026-09-12
 

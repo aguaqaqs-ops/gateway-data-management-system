@@ -1,6 +1,6 @@
 # P5-5A 上传/预览详细设计
 
-状态：**S0 独立 docs review 通过；设计已接受；尚未授权实现**
+状态：**CLOSED — design accepted; historical input for 5B; 5A slice exit pass**
 
 日期：2026-09-08
 

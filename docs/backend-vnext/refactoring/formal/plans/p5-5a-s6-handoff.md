@@ -8,11 +8,11 @@ Owner：Architecture Acceptance
 
 上游：[P5-5A Remediation Review](p5-5a-remediation-review.md)、
 [P5-5A Upload/Preview Execution Plan](p5-5a-upload-preview-execution-plan.md) S6、
-HEAD `71773296`（implementation `33bf0fb9` + remediation docs）。
+HEAD `c8ff3606`（implementation `33bf0fb9` + container gate closure docs）。
 
 ```yaml
 stage: S6
-candidate_head: 717732962c59863f6472252e94c8430a02b148a7
+candidate_head: c8ff3606a59901e32f92dda98aa045a936c361df
 implementation_head: 33bf0fb9bf09a93b0bcff7ae04c0ad73b218eddf
 conversation_context: independent_acceptance
 scope_paths:
@@ -71,9 +71,9 @@ reopen_required: false
 decision: pass
 hold: released
 p5_5a_slice_exit: pass
-p5_5b_design_s0_authorized: no
-next_step: P5-5B-S0-entry-brief
-next_step_authorized: no
+p5_5b_design_s0_authorized: yes
+next_step: P5-5B-S0-detailed-design-and-execution-plan
+next_step_authorized: yes
 validated_source_tree: sha256:68682f21bff051de42908d5c84b019a525054bff535436051cf4c99b0636104a
 source_tree_method: sorted_per_file_sha256_records_for_vnext/backend/src_and_tests_python_files
 source_tree_file_count: 308
@@ -115,7 +115,9 @@ compose_yaml_sha256: sha256:113224e1ba968ed2ce588640d7fb07c7f8f2bb10ce136dd444f3
 
 repository_service 失败项：
 
-- `test_dockerfile_uv_lock_sha256_matches_lockfile` — Dockerfile `UV_LOCK_SHA256` 与 lockfile 漂移
+- `test_dockerfile_uv_lock_sha256_matches_lockfile` — S6 记录时 Dockerfile `UV_LOCK_SHA256` 与
+  lockfile 漂移；**current HEAD `c8ff3606` 已 pass（1 passed）**；属 historical env drift，不阻塞
+  5B docs-only 入口
 - `test_import_isolation_in_isolated_environments` ×3 — offline uv cache 缺包
 - Compose e2e ×8 — `ensure_repository_service_image()` / worktree provenance
 
@@ -225,7 +227,7 @@ dev fixture，`config/session.json`）：
 - ~~current-HEAD backend image rebuild + smoke~~（闭合，见 §3.4）
 - ~~backend ∧ worker ∧ repository Compose conjunction~~（闭合，见 §3.4）
 - ~~worker `worker_ready` 日志证据~~（闭合，见 §3.4；worker 无 HTTP healthcheck，维持日志判定）
-- repository_service Dockerfile lock SHA256 漂移修复（P2/P4 owner）
+- ~~repository_service Dockerfile lock SHA256 漂移修复~~（historical；current HEAD `c8ff3606` 已 pass）
 - deploy compose 构建网络接线（`GATEWAY_DOCKER_BUILD_NETWORK` 未接 deploy/compose.yaml；非阻塞）
 - LXC v6 默认路由死亡路径（环境层；非阻塞）
 - TTL/capacity 数值、History pagination、5B+ DTO
@@ -235,4 +237,5 @@ dev fixture，`config/session.json`）：
 - `p5_5a_slice_exit`: **pass**
 - `hold`: **released**
 - `p4_r6_exit`: 仍 **pending**（5A slice exit 不替代 P4-R6）
-- `p5_5b_design_s0_authorized`: **no**
+- `p5_5b_design_s0_authorized`: **yes**（见 [P5-5B-S0 Entry Brief](p5-5b-s0-entry-brief.md)）
+- `p5_5b_implementation_authorized`: **no**（须 P4-R6 exit=pass）

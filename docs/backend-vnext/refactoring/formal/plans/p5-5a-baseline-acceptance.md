@@ -1,6 +1,6 @@
 # P5-5A Baseline Acceptance
 
-状态：**PASS — DESIGN INPUTS CONVERGED; 5A ENTRY BRIEF ACCEPTED; IMPLEMENTATION NOT AUTHORIZED**
+状态：**PASS — DESIGN INPUTS CONVERGED; 5A slice exit pass（见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)）；historical input for 5B**
 
 日期：2026-09-06
 

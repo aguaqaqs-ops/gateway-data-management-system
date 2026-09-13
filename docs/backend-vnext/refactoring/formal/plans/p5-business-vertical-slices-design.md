@@ -1,6 +1,6 @@
 # P5 Business Vertical Slices Design Baseline
 
-状态：**ACCEPTED DESIGN BASELINE — 5A BASELINE ACCEPTED; P5 IMPLEMENTATION PENDING P4 EXIT**
+状态：**ACCEPTED DESIGN BASELINE — 5A SLICE EXIT PASS; 5B-S0 ENTRY ACCEPTED; IMPLEMENTATION BLOCKED BY P4-R6**
 
 日期：2026-09-06
 
@@ -12,7 +12,9 @@ Owner：Backend vNext Business Applications and Interfaces
 [Canonical Storage and Repository Boundary](../contracts/canonical-storage-and-repository-boundary.md)、
 [Implementation Stages](implementation-stages.md)
 
-5A入口：[P5-5A-S0 Entry Brief](p5-5a-s0-entry-brief.md)
+5B 入口：[P5-5B-S0 Entry Brief](p5-5b-s0-entry-brief.md)
+
+5A historical input：[P5-5A S6 Handoff](p5-5a-s6-handoff.md)
 
 ## 1. Decision and authorization boundary
 
@@ -24,21 +26,29 @@ p4_r6_exit: pending
 p5_design_discussion: converged
 p5_design_baseline: accepted
 p5_5a_baseline: accepted
-p5_5a_s0_entry_brief: ready
+p5_5a_slice_exit: pass
+p5_5a_s0_entry_brief: closed_historical_input
+p5_5b_s0_entry_brief: accepted
+p5_5b_design_s0_authorized: yes
+p5_5b_implementation_authorized: no
 p5_implementation_authorized: no
 p5b_real_repository_effect_authorized: no
 ```
 
-本基线允许P5总体设计、Contract/ADR修订和5A详细设计继续，不授权source、test、migration、
-HTTP route、settings、image或deployment实现。P5 implementation必须等待P4-R6最终handoff并
-取得明确授权。当前P4-R6的current-HEAD container gate仍为stale；本次docs-only设计不作任何
-新的代码、测试或镜像声明。
+本基线允许 P5 总体设计、Contract/ADR 修订和 5B 详细设计继续，不授权 source、test、migration、
+HTTP route、settings、image 或 deployment 实现。P5/5B implementation 必须等待 P4-R6 最终
+exit 并取得明确授权。P5-5A slice exit 与 container gate 均已 pass（证据见
+[P5-5A S6 Handoff](p5-5a-s6-handoff.md)）；P4-R6 exit 仍 pending，阻塞 5B implementation。
+本次 docs-only 设计不作任何新的代码、测试或镜像声明。
 
 ## 2. Objective and staged depth
 
 P5按`5A Upload/Preview -> 5B Submit -> 5C Review -> 5D Archive -> 5E History Compare`
-交付正式业务纵切。总体基线只冻结跨Slice identity、owner、事务、权限和Repository边界；当前
-只对5A展开详细入口。5B-5E在前一Slice通过后再写详细设计，不一次性冻结全部DTO和实现步骤。
+交付正式业务纵切。总体基线只冻结跨Slice identity、owner、事务、权限和Repository边界。
+**5A** slice exit pass，作为 historical input / slice evidence，不再作为默认详细设计入口。
+**5B** 是当前 detailed slice 入口（[P5-5B-S0 Entry Brief](p5-5b-s0-entry-brief.md) accepted；
+detailed design 为下一步）。**5C–5E** 仍待前序 Slice 通过后再写详细设计，不一次性冻结全部
+DTO和实现步骤。
 
 P5第一屏交付的是可用业务API和前端loader所需bundle，不建设营销或兼容适配层。新vNext HTTP
 DTO独立版本化，不承诺旧`/api/*` wire兼容；legacy只用于发现需要保留的业务语义和fixture。
@@ -276,6 +286,7 @@ online ruleset migration、external event consumer、HA和外部DB保持独立�
 
 ## 13. Current next action
 
-[P5-5A Baseline Acceptance](p5-5a-baseline-acceptance.md)确认5A设计输入闭合；
-[P5-5A-S0 Entry Brief](p5-5a-s0-entry-brief.md)冻结下一设计/实施入口。P4-R6 exit前只能继续
-docs/interface/schema planning；5A source implementation仍为`not authorized`。
+[P5-5B-S0 Entry Brief](p5-5b-s0-entry-brief.md) 已 accepted 并授权 5B design S0；下一产物为
+`P5-5B-S0-detailed-design-and-execution-plan`。P4-R6 exit 前仅 docs 详细设计 authorized；
+`p5_5b_implementation_authorized: no`，5B source/test/deployment 仍 blocked。5A 实现证据见
+[P5-5A S6 Handoff](p5-5a-s6-handoff.md)。

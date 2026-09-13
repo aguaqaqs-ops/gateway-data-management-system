@@ -1,6 +1,6 @@
 # P5-5A 上传/预览执行计划
 
-状态：**S0 独立 docs review 通过；设计已接受；当前仅有 docs-only 授权**
+状态：**CLOSED — slice exit pass; historical input for 5B**
 
 日期：2026-09-08
 
@@ -358,7 +358,7 @@ domain、consistency、authorization或Repository边界。
 ## 7. 当前状态
 
 ```yaml
-current_head: 717732962c59863f6472252e94c8430a02b148a7
+current_head: c8ff3606a59901e32f92dda98aa045a936c361df
 implementation_head: 33bf0fb9bf09a93b0bcff7ae04c0ad73b218eddf
 p4_r6_exit: pending
 p5_5a_implementation: landed
@@ -373,8 +373,8 @@ container_image_revision: sha256:52666754dfab4fd2a17dbb84d3179ca15d34fefebca0403
 last_verified_image_revision: sha256:7a8e2834e67f0131092b575e8ce11c0d02dcdcee219699ee5d22d07629d18faf
 current_source_tree: sha256:68682f21bff051de42908d5c84b019a525054bff535436051cf4c99b0636104a
 compose_yaml_sha256: sha256:113224e1ba968ed2ce588640d7fb07c7f8f2bb10ce136dd444f314dbe6591c81
-next_step: P5-5B-S0-entry-brief
-next_step_authorized: no
+next_step: P5-5B-S0-detailed-design-and-execution-plan
+next_step_authorized: yes
 ```
 
 5A slice functional acceptance 见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)。Container gate
@@ -491,14 +491,15 @@ next_step_authorized: no
 
 ```yaml
 stage: S6
-candidate_head: 717732962c59863f6472252e94c8430a02b148a7
+candidate_head: c8ff3606a59901e32f92dda98aa045a936c361df
 implementation_head: 33bf0fb9bf09a93b0bcff7ae04c0ad73b218eddf
 conversation_context: independent_acceptance
 review: pass
 findings: []
 hold: released
 p5_5a_slice_exit: pass
-container_gate: deferred_rebuild_blocked
+container_gate: pass
+container_image_revision: sha256:52666754dfab4fd2a17dbb84d3179ca15d34fefebca0403a3fdc64e8ee17a6fd
 tests:
   backend_all: pass_1876
   backend_unit: pass_1761
@@ -507,8 +508,8 @@ tests:
   five_package_static: pass
   authoritative_runner: partial_pass_repo_service_env_failures
 decision: pass
-next_step: P5-5B-S0-entry-brief
-next_step_authorized: no
+next_step: P5-5B-S0-detailed-design-and-execution-plan
+next_step_authorized: yes
 ```
 
 详见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)。

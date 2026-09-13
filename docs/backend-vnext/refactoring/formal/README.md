@@ -9,18 +9,28 @@
 - 明确依赖方向、兼容性和验收标准。
 - 发生关键变更时同步更新 contract tests、golden fixtures 或 ADR。
 
-当前内容（仓库默认入口）：
+当前内容（仓库 P5 默认入口）：
 
 - [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)
+- [P5-5B-S0 Entry Brief](plans/p5-5b-s0-entry-brief.md)（Submit/AcceptSubmit 详细设计入口；design S0 authorized）
+
+Parallel prerequisite gate（阻塞 5B implementation；**不是** P5 semantic 默认入口）：
+
+- [P4-R6-S0 Entry Brief](plans/p4-r6-s0-entry-brief.md)（P4 最终 acceptance/integration gate；exit pending）
+
+P5-5A historical input（slice exit pass；container gate pass）：
+
 - [P5-5A Baseline Acceptance](plans/p5-5a-baseline-acceptance.md)
 - [P5-5A-S0 Entry Brief](plans/p5-5a-s0-entry-brief.md)
 - [P5-5A Upload/Preview Detailed Design](plans/p5-5a-upload-preview-design.md)
 - [P5-5A Upload/Preview Execution Plan](plans/p5-5a-upload-preview-execution-plan.md)
-- [P5-5A Remediation Review](plans/p5-5a-remediation-review.md)（remediation pass）
-- [P5-5A S6 Handoff](plans/p5-5a-s6-handoff.md)（slice exit pass；container gate deferred）
+- [P5-5A Remediation Review](plans/p5-5a-remediation-review.md)（remediation pass；superseded by S6）
+- [P5-5A S6 Handoff](plans/p5-5a-s6-handoff.md)（slice exit pass；container gate pass）
 
 P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；P4-R6 exit
-仍 pending。以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述默认顺序：
+仍 pending。P4-R6 与 P5-5B 详细设计可并行收敛，但 **P4-R6 exit=pass** 才是 5B
+source/test/deployment 硬前置；P4 Active Context Index 不覆盖 P5 semantic default entry。
+以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述 P5 默认顺序：
 
 - [P4 Active Context Index](plans/p4-active-context-index.md)（P4 专用入口；不是仓库当前默认入口）
 - [P4 Durable Operation Runtime Design Baseline](plans/p4-durable-operation-runtime-design.md)
@@ -48,8 +58,8 @@ P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md
 - [P4/R5 Retry, Takeover and Effect Recovery Handoff](plans/p4-r5-retry-takeover-effect-recovery-handoff.md)（S7 module gate、current-HEAD image与P4-R6-S0 entry boundary）
 - [P4-R6-S0 Entry Brief](plans/p4-r6-s0-entry-brief.md)（P4最终acceptance/integration gate；independent entry acceptance pending）
 - [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)（总体设计accepted；implementation等待P4-R6 exit）
-- [P5-5A Baseline Acceptance](plans/p5-5a-baseline-acceptance.md)（design inputs pass；implementation未授权）
-- [P5-5A-S0 Entry Brief](plans/p5-5a-s0-entry-brief.md)（Upload/Preview详细设计入口）
+- [P5-5A Baseline Acceptance](plans/p5-5a-baseline-acceptance.md)（historical；superseded by 5A slice exit / 5B-S0）
+- [P5-5A-S0 Entry Brief](plans/p5-5a-s0-entry-brief.md)（historical input；superseded by P5-5B-S0）
 - [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)（封印 candidate/image、支持面、限制、reopen）
 - [P2–P3 Cleanup Manifest](plans/p2-p3-cleanup-manifest.yaml)
 - [P3→P4 Cleanup Manifest](plans/p3-p4-cleanup-manifest.yaml)
@@ -112,10 +122,12 @@ fixture追溯；其中的同步Preview、`START_REVIEW`、Archive/Repository ref
 
 当前阶段：`phase_2_complete: yes`；P3 final closure `p3_exit: pass`、`p4_ready: yes`；
 P4-R1至P4-R5 module gate均为`pass`，R5 validated code为`0fa2b897`。P4-R6-S0 discussion
-已收敛，当前仅独立entry acceptance获授权；R6 implementation与P5/P5B implementation
-仍未授权。P5总体设计基线与5A baseline acceptance已通过，5A Entry Brief已就绪；这些
-docs-only结果不越过P4-R6或授权P5实现。
+已收敛，当前仅独立entry acceptance获授权；R6 implementation与P5B implementation
+仍未授权。P5总体设计基线accepted；P5-5A slice exit `pass`；P5-5B-S0 entry brief
+accepted且`p5_5b_design_s0_authorized: yes`；`p5_5b_implementation_authorized: no`。
+这些docs-only结果不越过P4-R6或授权P5B实现。
 全局`p3_implementation_authorized: no`。P4 专用入口见
-[P4 Active Context Index](plans/p4-active-context-index.md)；仓库当前默认入口是上述 P5 三件套。
+[P4 Active Context Index](plans/p4-active-context-index.md)；仓库当前默认入口是 P5 baseline
+与 [P5-5B-S0 Entry Brief](plans/p5-5b-s0-entry-brief.md)。
 完整对外接口见
 [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)。

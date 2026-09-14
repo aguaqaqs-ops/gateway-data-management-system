@@ -23,9 +23,9 @@ from gateway_backend.domain.submission.models import (
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
+    WorkspaceSubmitOccupancy,
     derive_preview_canonical_business_digest,
 )
-from gateway_backend.application.submission.contracts import WorkspaceSubmitOccupancy
 from gateway_backend.domain.submission.policies import (
     assert_submission_attempt_binding,
     transition_attempt_state,

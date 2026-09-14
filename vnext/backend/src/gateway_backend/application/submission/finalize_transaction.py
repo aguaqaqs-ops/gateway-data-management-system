@@ -10,13 +10,14 @@ from gateway_backend.application.submission.contracts import (
     FinalizeSubmitResult,
     MatchingFinalizeFacts,
 )
+from gateway_backend.application.submission.errors import FinalizeRecoveryRequired
 from gateway_backend.application.submission.finalize import finalize_submit
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
+from gateway_backend.application.submission.ports import SubmitControlTransaction
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.domain.submission.models import SubmitAttempt, SubmitAttemptState
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+from gateway_backend.domain.submission.models import SubmitAttempt, SubmitAttemptState, Submission
 from gateway_backend.operations import (
     OperationStatus,
     StepStatus,
@@ -30,12 +31,14 @@ class FinalizeSubmitTransactionRequest:
     facts: MatchingFinalizeFacts
     submission_id: str
     created_at: datetime
+    worker_id: str | None = None
+    lease_token: str | None = None
 
 
 def finalize_submit_transaction(
     *,
     request: FinalizeSubmitTransactionRequest,
-    unit_of_work: ControlDbUnitOfWork,
+    unit_of_work: SubmitControlTransaction,
 ) -> FinalizeSubmitResult:
     attempt = unit_of_work.submission.get_submit_attempt(request.submit_attempt_id)
     if attempt is None:
@@ -43,7 +46,7 @@ def finalize_submit_transaction(
     if attempt.state is not SubmitAttemptState.EFFECT_PENDING:
         existing = unit_of_work.submission.get_submission_by_attempt(request.submit_attempt_id)
         if existing is not None and attempt.state is SubmitAttemptState.FINALIZED:
-            return finalize_submit(
+            result = finalize_submit(
                 command=FinalizeSubmitCommand(
                     attempt=attempt,
                     facts=request.facts,
@@ -52,6 +55,12 @@ def finalize_submit_transaction(
                 ),
                 existing_submission=existing,
             )
+            _assert_finalized_closure(
+                unit_of_work,
+                attempt=result.attempt,
+                submission=result.submission,
+            )
+            return result
         raise ValueError("finalize requires EFFECT_PENDING attempt")
 
     workspace = unit_of_work.workspace.get_workspace(attempt.workspace_id)
@@ -94,7 +103,13 @@ def finalize_submit_transaction(
         submit_attempt_id=attempt.submit_attempt_id,
         submission_id=result.submission.submission_id,
     )
-    unit_of_work.submission.delete_repository_occupancy(attempt.repository_id)
+    unit_of_work.submission.delete_repository_occupancy(
+        repository_id=attempt.repository_id,
+        workspace_id=attempt.workspace_id,
+        submit_attempt_id=attempt.submit_attempt_id,
+        business_baseline_node_id=attempt.business_baseline_node_id,
+        baseline_head_version=attempt.baseline_head_version,
+    )
 
     _transfer_finalize_protection(unit_of_work, attempt=finalized_attempt)
 
@@ -118,8 +133,8 @@ def finalize_submit_transaction(
         terminal_step,
         WritePrecondition(
             expected_optimistic_version=await_step.optimistic_version,
-            worker_id=await_step.worker_id,
-            lease_token=await_step.lease_token,
+            worker_id=request.worker_id,
+            lease_token=request.lease_token,
         ),
         require_live_lease=await_step.status is StepStatus.RUNNING,
     )
@@ -141,8 +156,31 @@ def finalize_submit_transaction(
     return result
 
 
+def _assert_finalized_closure(
+    unit_of_work: SubmitControlTransaction,
+    *,
+    attempt: SubmitAttempt,
+    submission: Submission,
+) -> None:
+    occupancy = unit_of_work.submission.get_workspace_occupancy(attempt.workspace_id)
+    if occupancy is None or occupancy.active_submission_id != submission.submission_id:
+        raise FinalizeRecoveryRequired(
+            "workspace occupancy is not bound to the finalized submission"
+        )
+    repository_occupancy = unit_of_work.submission.get_repository_occupancy(attempt.repository_id)
+    if repository_occupancy is not None:
+        raise FinalizeRecoveryRequired("repository occupancy is still held after finalize")
+    operation = unit_of_work.operations.get_operation(attempt.operation_id)
+    if operation.status is not OperationStatus.SUCCEEDED:
+        raise FinalizeRecoveryRequired("operation is not SUCCEEDED")
+    steps, _cursor = unit_of_work.operations.list_steps(attempt.operation_id)
+    await_step = next((step for step in steps if step.step_name == SUBMIT_STEP_AWAIT), None)
+    if await_step is None or await_step.status is not StepStatus.SUCCEEDED:
+        raise FinalizeRecoveryRequired("await_import_result is not SUCCEEDED")
+
+
 def _transfer_finalize_protection(
-    unit_of_work: ControlDbUnitOfWork,
+    unit_of_work: SubmitControlTransaction,
     *,
     attempt: SubmitAttempt,
 ) -> None:

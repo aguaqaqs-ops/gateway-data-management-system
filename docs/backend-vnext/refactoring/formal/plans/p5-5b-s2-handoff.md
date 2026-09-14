@@ -1,107 +1,137 @@
 # P5-5B-S2 Control DB Schema, Repositories and T1/T3 UoW Handoff
 
-状态：**S2 implementation complete — focused gate passed**
+状态：**S2 remediation complete — independent re-review required**
 
 日期：2026-09-14
 
 Owner：P5-5B Delivery
 
-## Scope delivered
+## Authority gate snapshot
 
-- Workspace schema **v3**（5 张 submit 表 + 双 occupancy projection）
-- `SQLiteSubmissionRepository`（读写端口 + T1/T3/Abort 写方法）
-- `ControlDbUnitOfWork.submission` 与 `list_artifact_protection_for_owner`
-- T1 `accept_submit_transaction`、T3 `finalize_submit_transaction`、stable `abort_submit_transaction`
-- 权威单元测试（migration / repository / transaction matrix）
+```yaml
+p4_r6_exit: pass
+p5_5b_design: accepted
+p5_5b_implementation_authorized: yes
+p5b_real_repository_effect_authorized: yes
+unresolved_contract_drift: none
+first_authorized_step: P5-5B-S1
+implementation_authority_unchanged: true
+```
 
-## Deferred（S2 边界外）
+## Traceability
 
-- HTTP routes / OpenAPI（S4）
-- Import builder / artifact package bytes（S3）
-- 真实 Repository Client upload/import、worker handler（S5）
-- `sqlite_protection.py`、contract packages、lockfile 变更
-
-## Schema v3 migration
-
-| 表 | 关键约束 |
-| --- | --- |
-| `submit_attempt_records` | PK `submit_attempt_id`；四态 CHECK；`optimistic_version`；FK workspace + operation |
-| `submit_idempotency_records` | PK `(workspace_id, idempotency_key)`；UNIQUE `submit_attempt_id` |
-| `submission_records` | PK `submission_id`；UNIQUE `submit_attempt_id` |
-| `workspace_submit_occupancy_records` | PK `workspace_id`；XOR：attempt/submission 恰一非空 |
-| `repository_submit_occupancy_records` | PK `repository_id`；UNIQUE `workspace_id` + `submit_attempt_id` |
-
-- `WORKSPACE_SCHEMA_VERSION = 3`
-- `_apply_workspace_v3` 前执行 `PRAGMA integrity_check` / `foreign_key_check` fail-closed 审计
-- v2 历史库 reopen → v3；newer ledger 版本 → `UnsupportedSchemaVersion`
-- synthetic failure rollback 探针保留
-
-**Test owner**：[`test_submit_control_db_migrations.py`](vnext/backend/tests/test_submit_control_db_migrations.py)（§4 唯一 owner）
+```yaml
+stage: P5-5B-S2-control-db-t1-t3
+parent_head: 3d39fdcf884ff71899664154f4ef9c6e19fa6147
+candidate_head: uncommitted_working_tree_on_3d39fdcf
+input_authority:
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-independent-review-findings.md
+scope_paths:
+  - vnext/backend/src/gateway_backend/infrastructure/control_db/**
+  - vnext/backend/src/gateway_backend/application/submission/**
+  - vnext/backend/src/gateway_backend/domain/submission/**
+  - vnext/backend/tests/test_submit_control_db_migrations.py
+  - vnext/backend/tests/test_sqlite_submit_repository.py
+  - vnext/backend/tests/test_submit_transactions.py
+  - vnext/backend/tests/test_sqlite_workspace_repository.py
+  - vnext/backend/tests/test_workspace_control_db_migrations.py
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-*.md
+changed_paths:
+  - vnext/backend/src/gateway_backend/domain/submission/__init__.py
+  - vnext/backend/src/gateway_backend/domain/submission/errors.py
+  - vnext/backend/src/gateway_backend/domain/submission/models.py
+  - vnext/backend/src/gateway_backend/application/submission/__init__.py
+  - vnext/backend/src/gateway_backend/application/submission/abort_transaction.py
+  - vnext/backend/src/gateway_backend/application/submission/accept.py
+  - vnext/backend/src/gateway_backend/application/submission/accept_transaction.py
+  - vnext/backend/src/gateway_backend/application/submission/contracts.py
+  - vnext/backend/src/gateway_backend/application/submission/errors.py
+  - vnext/backend/src/gateway_backend/application/submission/finalize_transaction.py
+  - vnext/backend/src/gateway_backend/application/submission/ports.py
+  - vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_submission.py
+  - vnext/backend/tests/test_architecture.py
+  - vnext/backend/tests/test_sqlite_submit_repository.py
+  - vnext/backend/tests/test_submit_control_db_migrations.py
+  - vnext/backend/tests/test_submit_domain.py
+  - vnext/backend/tests/test_submit_transactions.py
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s1-handoff.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-handoff.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-remediation-handoff.md
+plan_alignment_s1_paths:
+  note: S2-F3 architecture-guard alignment only; not a silent S1 scope expansion
+  - vnext/backend/tests/test_architecture.py
+  - vnext/backend/src/gateway_backend/application/submission/contracts.py
+  - vnext/backend/src/gateway_backend/application/submission/errors.py
+  - vnext/backend/src/gateway_backend/domain/submission/models.py
+  - vnext/backend/src/gateway_backend/domain/submission/errors.py
+  - vnext/backend/tests/test_submit_domain.py
+invariants_delivered:
+  - Workspace schema v3 Attempt/Submission/idempotency/two occupancy relations
+  - T1 preflight I/O outside writer transaction; short T1 is control-DB CAS only
+  - T3/abort lease fencing uses caller identity, not row-copied tokens
+  - Occupancy release is owner-qualified CAS
+  - T3 replay requires matching Attempt/Submission/Workspace/Operation/await-step closure
+  - Abort after P4 terminalize is idempotent and does not rewrite terminal steps
+  - Submit job registry requires all three steps before Accept writes
+unique_test_owners:
+  - tests/test_submit_control_db_migrations.py
+  - tests/test_sqlite_submit_repository.py
+  - tests/test_submit_transactions.py
+  - tests/test_architecture.py  # S2-F3 allowlist alignment only
+focused_commands_and_results:
+  - cd vnext/backend && uv run pytest -q -m unit tests/test_architecture.py tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_submit_control_db_migrations.py tests/test_sqlite_submit_repository.py tests/test_submit_transactions.py tests/test_sqlite_workspace_repository.py tests/test_workspace_control_db_migrations.py => 152 passed
+  - cd vnext/backend && uv run pytest -q -m unit => 1876 passed / 0 failed
+  - cd vnext/backend && uv run ruff check . && uv run mypy => pass (332 files)
+five_package_static: deferred
+authoritative_runner: deferred
+container_rebuild_required: no
+container_reason: S2 is control DB/application/domain submission only; no image, Compose, entrypoint, UID/GID, volume, or production ENV change
+last_verified_image_revision: not_applicable
+container_gate_for_current_head: not_applicable
+uv_lock_in_diff: no
+uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
+findings:
+  - S2-F1..F13 addressed in p5-5b-s2-remediation-handoff.md
+deferred:
+  - HTTP routes / OpenAPI (S4)
+  - Import builder / artifact package bytes (S3)
+  - Real Repository Client upload/import and worker handlers (S5)
+  - Independent S1/S2 closure countersign
+reopen_required: []
+implementation_authority_unchanged: true
+next_step: independent_review_of_S2_remediation
+```
 
 ## Transaction matrix
 
-| 场景 | 入口 | 断言要点 |
+| 场景 | 实际行为 | 断言要点 |
 | --- | --- | --- |
 | T1 persist | `accept_submit_transaction` | Attempt PREPARED + idempotency + Operation/Step + occupancy + protection 转移 |
-| T1 all-or-nothing | monkeypatch 中途写失败 | 无 attempt/idempotency/operation/occupancy 残留 |
-| T1 replay | 同 key 第二次 | same `submit_attempt_id`，`replay=True` |
-| T1 idempotency conflict | same key + different fingerprint | `IdempotencyConflict` |
-| Concurrent occupancy | 两 workspace 争同一 `repository_id` | unique 决定 winner；loser `SubmitOccupancyConflict` |
-| T3 exactly-one | `finalize_submit_transaction` | submission 唯一；replay 不 second insert |
-| T3 occupancy switch | finalize 后 | `active_submission_id` 设置；repository occupancy 删除 |
-| Stable abort | `abort_submit_transaction` | ABORTED + occupancy 释放 + 无 submission |
-| CAS 防线 | workspace/attempt version 过期 | 冲突，无部分提交 |
+| T1 all-or-nothing | monkeypatch 中途写失败 | 无 attempt / idempotency / Operation+Step / occupancy / submit-attempt protection；workspace version 不变 |
+| T1 replay | 同 key 第二次 | `replay=True`；不调用 baseline digest / main resolve |
+| T1 I/O boundary | recording ports | digest/main 各 1 次且 writer transaction 未打开 |
+| T1 registry | 仅 prepare 注册 | Accept 拒绝且零写入 |
+| T1 workspace version | T1 前 bump version | `WorkspaceVersionConflict` + 零写入 |
+| T1 occupancy serialization | 两 workspace 顺序争同一 `repository_id` | SQLite 单写者串行化；loser `SubmitOccupancyConflict`（不是线程并发） |
+| T3 exactly-one | finalize + replay | submission 唯一；完整 closure 才 ACK |
+| T3 incomplete replay | 逐组件破坏 occupancy / await Step / Operation | `FINALIZE_RECOVERY_REQUIRED`，不得 ACK |
+| T3/abort lease | takeover 后旧 identity | `StaleWrite`；当前 holder 成功 |
+| Stable abort | EFFECT_PENDING + RUNNING await | ABORTED + occupancy 释放 + 无 submission；`validate_abort_proof` 在写事务外 |
+| Abort after P4 terminalize | await 已 FAILED | business abort 成功；二次 replay=True |
+| PREPARED abort | prepare PENDING、无 lease | occupancy 释放；P4 合法 CANCELLED（QUEUED 不能 FAILED） |
+| Occupancy owner CAS | mismatched attempt id | `SubmitOccupancyConflict` + 行不变 |
 
-**Test owner**：[`test_submit_transactions.py`](vnext/backend/tests/test_submit_transactions.py)（§4 唯一 owner：T1/T3/abort/并发）
-
-## 并发线性化
-
-- Idempotency：`submit_idempotency_records` UNIQUE `(workspace_id, idempotency_key)` + UNIQUE `submit_attempt_id`
-- Repository occupancy：`repository_submit_occupancy_records` UNIQUE `repository_id`
-- Attempt / workspace：`optimistic_version` CAS（`cas_update_attempt` / `save_workspace`）
-- Operation runtime：先 terminalize active step，再 terminalize operation（P4 状态机约束）
-
-## Focused gate（2026-09-14）
-
-```bash
-cd vnext/backend
-uv run pytest -q -m unit \
-  tests/test_submit_control_db_migrations.py \
-  tests/test_sqlite_submit_repository.py \
-  tests/test_submit_transactions.py \
-  tests/test_sqlite_workspace_repository.py \
-  tests/test_workspace_control_db_migrations.py
-# 27 passed
-
-uv run ruff check src/gateway_backend/infrastructure/control_db \
-  src/gateway_backend/application/submission \
-  tests/test_submit_control_db_migrations.py \
-  tests/test_sqlite_submit_repository.py tests/test_submit_transactions.py
-# clean
-
-uv run mypy
-# clean
-```
-
-## Test owner 治理（S2）
-
-| 文件 | 角色 |
-| --- | --- |
-| [`test_submit_control_db_migrations.py`](vnext/backend/tests/test_submit_control_db_migrations.py) | v3 DDL/FK/index、rollback、reopen、newer-version fail-closed |
-| [`test_sqlite_submit_repository.py`](vnext/backend/tests/test_sqlite_submit_repository.py) | row mapping、occupancy/CAS/idempotency roundtrip |
-| [`test_submit_transactions.py`](vnext/backend/tests/test_submit_transactions.py) | T1/T3/abort 单 SQLite 事务矩阵与并发 winner |
-| [`test_workspace_control_db_migrations.py`](vnext/backend/tests/test_workspace_control_db_migrations.py) | v3 bootstrap 不破坏既有 workspace migration 回归 |
-| [`test_sqlite_workspace_repository.py`](vnext/backend/tests/test_sqlite_workspace_repository.py) | v3 bootstrap 不破坏 upload/workspace CAS |
+**Test owner**：[`test_submit_transactions.py`](../../../../../vnext/backend/tests/test_submit_transactions.py)
 
 ## S1 纯逻辑复用
 
-- `validate_accept_submit`（T1 事务内外）
-- `finalize_submit`（T3 闭包 + replay 校验）
-- `validate_abort_proof`（stable abort 事务外）
-- `transition_attempt_state`：finalize/abort 通过 `**changes` 原子设置终态字段（避免中间态 invariant 违反）
+- `validate_accept_submit`（S1 内存路径；仍按原顺序在 `NoCanonicalChange` / closure 之后才 `main_resolve`）
+- `validate_accept_submit_with_frozen`（T1 写锁内，不再调用任何 I/O port）
+- `validate_abort_proof`（stable abort **写事务外**）
+- `finalize_submit`（Attempt↔Submission binding；T3 replay 另验 occupancy/Operation/Step closure）
 
-## 下一跳（S3+）
+## 下一跳
 
-1. Import builder / artifact package bytes
-2. Worker handler + 真实 Repository effect（S5）
-3. HTTP routes / OpenAPI（S4）
+独立评审按 [p5-5b-s2-independent-review-findings.md](p5-5b-s2-independent-review-findings.md) §4 复核。S3 不以本卷 delivery 自证为 entry。

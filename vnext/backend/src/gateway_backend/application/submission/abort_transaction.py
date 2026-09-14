@@ -7,16 +7,29 @@ from datetime import datetime
 
 from gateway_backend.application.submission.abort import validate_abort_proof
 from gateway_backend.application.submission.contracts import MatchingAbortProof
-from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
-from gateway_backend.application.submission.ports import RepositoryAbortEvidencePort
+from gateway_backend.application.submission.ports import (
+    RepositoryAbortEvidencePort,
+    SubmitControlTransaction,
+    SubmitControlUnitOfWorkFactory,
+)
 from gateway_backend.domain.submission.models import SubmitAttempt, SubmitAttemptState
 from gateway_backend.domain.submission.policies import transition_attempt_state
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import (
     OperationDiagnostic,
+    OperationRecord,
     OperationStatus,
+    StepRecord,
     StepStatus,
     WritePrecondition,
+)
+
+_ACTIVE_STEP_STATUSES = frozenset(
+    {
+        StepStatus.PENDING,
+        StepStatus.RUNNING,
+        StepStatus.RETRY_WAIT,
+        StepStatus.MANUAL_RECOVERY_REQUIRED,
+    }
 )
 
 
@@ -25,6 +38,8 @@ class AbortSubmitTransactionRequest:
     submit_attempt_id: str
     proof: MatchingAbortProof
     aborted_at: datetime
+    worker_id: str | None = None
+    lease_token: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +52,27 @@ def abort_submit_transaction(
     *,
     request: AbortSubmitTransactionRequest,
     evidence: RepositoryAbortEvidencePort,
-    unit_of_work: ControlDbUnitOfWork,
+    unit_of_work_factory: SubmitControlUnitOfWorkFactory,
+) -> AbortSubmitTransactionResult:
+    with unit_of_work_factory(read_only=True) as unit_of_work:
+        attempt = unit_of_work.submission.get_submit_attempt(request.submit_attempt_id)
+        if attempt is None:
+            raise ValueError("submit attempt is missing")
+        if attempt.state is SubmitAttemptState.ABORTED:
+            return AbortSubmitTransactionResult(attempt=attempt, replay=True)
+        if attempt.state not in {SubmitAttemptState.PREPARED, SubmitAttemptState.EFFECT_PENDING}:
+            raise ValueError("abort requires PREPARED or EFFECT_PENDING attempt")
+
+    validate_abort_proof(attempt=attempt, proof=request.proof, evidence=evidence)
+
+    with unit_of_work_factory(read_only=False) as unit_of_work:
+        return _abort_submit_in_transaction(request=request, unit_of_work=unit_of_work)
+
+
+def _abort_submit_in_transaction(
+    *,
+    request: AbortSubmitTransactionRequest,
+    unit_of_work: SubmitControlTransaction,
 ) -> AbortSubmitTransactionResult:
     attempt = unit_of_work.submission.get_submit_attempt(request.submit_attempt_id)
     if attempt is None:
@@ -46,8 +81,6 @@ def abort_submit_transaction(
         return AbortSubmitTransactionResult(attempt=attempt, replay=True)
     if attempt.state not in {SubmitAttemptState.PREPARED, SubmitAttemptState.EFFECT_PENDING}:
         raise ValueError("abort requires PREPARED or EFFECT_PENDING attempt")
-
-    validate_abort_proof(attempt=attempt, proof=request.proof, evidence=evidence)
 
     workspace = unit_of_work.workspace.get_workspace(attempt.workspace_id)
     if workspace is None:
@@ -74,8 +107,17 @@ def abort_submit_transaction(
         updated_workspace,
         expected_version=workspace.optimistic_version,
     )
-    unit_of_work.submission.delete_workspace_occupancy(attempt.workspace_id)
-    unit_of_work.submission.delete_repository_occupancy(attempt.repository_id)
+    unit_of_work.submission.delete_workspace_occupancy(
+        attempt.workspace_id,
+        expected_submit_attempt_id=attempt.submit_attempt_id,
+    )
+    unit_of_work.submission.delete_repository_occupancy(
+        repository_id=attempt.repository_id,
+        workspace_id=attempt.workspace_id,
+        submit_attempt_id=attempt.submit_attempt_id,
+        business_baseline_node_id=attempt.business_baseline_node_id,
+        baseline_head_version=attempt.baseline_head_version,
+    )
     unit_of_work.clear_artifact_protection(
         owner_kind="submit-attempt",
         owner_id=attempt.submit_attempt_id,
@@ -83,27 +125,41 @@ def abort_submit_transaction(
 
     operation = unit_of_work.operations.get_operation(attempt.operation_id)
     steps, _cursor = unit_of_work.operations.list_steps(attempt.operation_id)
-    active_step = next(
-        (
-            step
-            for step in steps
-            if step.status
-            in {StepStatus.PENDING, StepStatus.RUNNING, StepStatus.RETRY_WAIT, StepStatus.MANUAL_RECOVERY_REQUIRED}
-        ),
-        None,
+    _fail_active_step_if_needed(
+        unit_of_work,
+        steps=steps,
+        request=request,
+        abort_code=request.proof.stable_failure_code,
     )
-    if active_step is None:
-        active_step = next((step for step in steps if step.step_name == SUBMIT_STEP_AWAIT), steps[-1])
+    _fail_operation_if_needed(
+        unit_of_work,
+        operation=operation,
+        abort_code=request.proof.stable_failure_code,
+    )
+    return AbortSubmitTransactionResult(attempt=aborted_attempt, replay=False)
 
+
+def _fail_active_step_if_needed(
+    unit_of_work: SubmitControlTransaction,
+    *,
+    steps: tuple[StepRecord, ...],
+    request: AbortSubmitTransactionRequest,
+    abort_code: str,
+) -> None:
+    active_step = next((step for step in steps if step.status in _ACTIVE_STEP_STATUSES), None)
+    if active_step is None:
+        return
     transaction_now = unit_of_work.transaction_now
-    abort_diagnostic = OperationDiagnostic(
-        code=request.proof.stable_failure_code,
-        message="submit attempt aborted",
-    )
+    if active_step.status is StepStatus.RUNNING:
+        terminal_status = StepStatus.FAILED
+        diagnostic = OperationDiagnostic(code=abort_code, message="submit attempt aborted")
+    else:
+        terminal_status = StepStatus.CANCELLED
+        diagnostic = OperationDiagnostic(code=abort_code, message="submit attempt aborted")
     failed_step = replace(
         active_step,
-        status=StepStatus.FAILED,
-        diagnostic=abort_diagnostic,
+        status=terminal_status,
+        diagnostic=diagnostic,
         completed_at=transaction_now,
         updated_at=transaction_now,
         worker_id=None,
@@ -115,15 +171,30 @@ def abort_submit_transaction(
         failed_step,
         WritePrecondition(
             expected_optimistic_version=active_step.optimistic_version,
-            worker_id=active_step.worker_id,
-            lease_token=active_step.lease_token,
+            worker_id=request.worker_id,
+            lease_token=request.lease_token,
         ),
         require_live_lease=active_step.status is StepStatus.RUNNING,
     )
+
+
+def _fail_operation_if_needed(
+    unit_of_work: SubmitControlTransaction,
+    *,
+    operation: OperationRecord,
+    abort_code: str,
+) -> None:
+    if operation.status.is_final_terminal():
+        return
+    transaction_now = unit_of_work.transaction_now
+    if operation.status is OperationStatus.RUNNING:
+        terminal_status = OperationStatus.FAILED
+    else:
+        terminal_status = OperationStatus.CANCELLED
     failed_operation = replace(
         operation,
-        status=OperationStatus.FAILED,
-        diagnostic=abort_diagnostic,
+        status=terminal_status,
+        diagnostic=OperationDiagnostic(code=abort_code, message="submit attempt aborted"),
         completed_at=transaction_now,
         updated_at=transaction_now,
         optimistic_version=operation.optimistic_version + 1,
@@ -136,4 +207,3 @@ def abort_submit_transaction(
             lease_token=None,
         ),
     )
-    return AbortSubmitTransactionResult(attempt=aborted_attempt, replay=False)

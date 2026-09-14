@@ -764,6 +764,7 @@ def test_control_db_boundary_exists_and_has_no_application_wiring() -> None:
                     imported.startswith("gateway_backend.operations")
                     or imported.startswith("gateway_backend.artifacts")
                     or imported.startswith("gateway_backend.domain.workspace")
+                    or imported.startswith("gateway_backend.domain.submission")
                     or imported.startswith("gateway_backend.infrastructure.control_db")
                 ), f"{source} imports disallowed backend module {imported}"
 

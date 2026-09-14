@@ -1,6 +1,6 @@
 # P5-5B-S1 Submission Domain and Application Handoff
 
-状态：**superseded by remediation — see p5-5b-s1-remediation-handoff.md**
+状态：**S1 focused gate re-verified in S2 remediation — independent countersign still required**
 
 日期：2026-09-14
 
@@ -79,9 +79,8 @@ finalize_unit_owner_deferred:
 recovery_integration_owner_deferred:
   - tests/test_submit_recovery.py       # execution plan §4 Repository/recovery integration owner
 focused_commands_and_results:
-  - cd vnext/backend && env -u UV_INDEX_URL -u UV_DEFAULT_INDEX uv run pytest -q -m unit tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_architecture.py => 102 passed (round-3)
-  - cd vnext/backend && uv run ruff check src/gateway_backend/domain/submission src/gateway_backend/application/submission tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py => pass
-  - cd vnext/backend && uv run mypy => Success (324 source files)
+  - cd vnext/backend && uv run pytest -q -m unit tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_architecture.py => 102 passed (S2 remediation re-run 2026-09-14)
+  - cd vnext/backend && uv run ruff check . && uv run mypy => pass (332 source files)
 five_package_static: deferred
 authoritative_runner: deferred
 container_rebuild_required: deferred
@@ -90,6 +89,7 @@ last_verified_image_revision: not_applicable
 container_gate_for_current_head: not_applicable
 findings:
   - S1-F1..F9 addressed in p5-5b-s1-remediation-handoff.md (round-1 + round-2 + round-3)
+  - S2-F1 S1 focused re-run recorded in p5-5b-s2-remediation-handoff.md
 deferred:
   - T1 SQLite atomicity and occupancy persistence (S2)
   - HTTP / Repository wire / JobDefinition effect (S4/S5)
@@ -98,7 +98,7 @@ deferred:
   - Repository/recovery integration (test_submit_recovery.py per execution plan)
 reopen_required: []
 implementation_authority_unchanged: true
-next_step: independent_re_review_of_S1_round_3_closure
+next_step: independent_countersign_of_S1_closure_after_s2_remediation_rerun
 ```
 
 ## Notes

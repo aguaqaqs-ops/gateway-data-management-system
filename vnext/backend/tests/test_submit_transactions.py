@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import TracebackType
 
 import pytest
 
@@ -13,14 +14,18 @@ from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.submission.accept_transaction import (
     AcceptSubmitPreflight,
     accept_submit_transaction,
+    deterministic_submit_attempt_id,
+    deterministic_submit_operation_id,
 )
 from gateway_backend.application.submission.abort_transaction import (
     AbortSubmitTransactionRequest,
+    AbortSubmitTransactionResult,
     abort_submit_transaction,
 )
 from gateway_backend.application.submission.contracts import (
     SUBMIT_JOB_CONTRACT_VERSION,
     AcceptSubmitCommand,
+    FinalizeSubmitResult,
     MatchingAbortProof,
     MatchingFinalizeFacts,
     RepositoryOperationTerminalStatus,
@@ -28,7 +33,9 @@ from gateway_backend.application.submission.contracts import (
     compute_new_accept_fingerprint,
 )
 from gateway_backend.application.submission.errors import (
+    FinalizeRecoveryRequired,
     IdempotencyConflict,
+    PreviewBindingConflict,
     SubmitOccupancyConflict,
 )
 from gateway_backend.application.submission.finalize_transaction import (
@@ -36,6 +43,7 @@ from gateway_backend.application.submission.finalize_transaction import (
     finalize_submit_transaction,
 )
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND, SUBMIT_STEP_AWAIT, SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
+from gateway_backend.application.submission.ports import SubmitControlUnitOfWorkFactory
 from gateway_backend.application.workspace.services import create_or_get_workspace
 from gateway_shared_kernel import DigestRef
 
@@ -50,6 +58,7 @@ from gateway_backend.domain.submission.models import (
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
 )
+from gateway_backend.domain.workspace.errors import WorkspaceVersionConflict
 from gateway_backend.domain.workspace.models import (
     InputCompleteness,
     PreviewResult,
@@ -63,7 +72,9 @@ from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWo
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
+    OperationDiagnostic,
     OperationStatus,
+    StaleWrite,
     StepRecord,
     StepStatus,
     WritePrecondition,
@@ -89,27 +100,98 @@ _SHA_REPO = "sha256:" + "9" * 64
 
 
 @dataclass
+class WriterLockTracker:
+    writer_open: bool = False
+
+
+class TrackingUnitOfWork:
+    def __init__(
+        self,
+        inner: ControlDbUnitOfWork,
+        tracker: WriterLockTracker,
+        *,
+        read_only: bool,
+    ) -> None:
+        self._inner = inner
+        self._tracker = tracker
+        self._read_only = read_only
+
+    def __enter__(self) -> ControlDbUnitOfWork:
+        if not self._read_only:
+            self._tracker.writer_open = True
+        return self._inner.__enter__()
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        try:
+            self._inner.__exit__(exc_type, exc, tb)
+        finally:
+            self._tracker.writer_open = False
+
+
+def _uow_factory(db_path: Path) -> SubmitControlUnitOfWorkFactory:
+    def factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(db_path, read_only=read_only)
+
+    return factory
+
+
+def _tracking_uow_factory(db_path: Path, tracker: WriterLockTracker) -> SubmitControlUnitOfWorkFactory:
+    def factory(*, read_only: bool = False) -> TrackingUnitOfWork:
+        return TrackingUnitOfWork(
+            ControlDbUnitOfWork(db_path, read_only=read_only),
+            tracker,
+            read_only=read_only,
+        )
+
+    return factory
+
+
+@dataclass
 class FakeBaselineCanonicalDigestPort:
     digest: str = BASELINE_CANONICAL_DIGEST
+    tracker: WriterLockTracker | None = None
+    calls: int = 0
+    writer_open_during_calls: tuple[bool, ...] = ()
 
     def get_baseline_canonical_digest(self, *, repository_id: str, baseline_head: object) -> str:
         del repository_id, baseline_head
+        self.calls += 1
+        writer_open = False if self.tracker is None else self.tracker.writer_open
+        self.writer_open_during_calls = (*self.writer_open_during_calls, writer_open)
         return self.digest
 
 
 @dataclass
 class RecordingMainResolvePort:
     commit_id: str = "commit-main"
+    tracker: WriterLockTracker | None = None
+    calls: int = 0
+    writer_open_during_calls: tuple[bool, ...] = ()
 
     def resolve_main_expected_commit(self, *, repository_id: str) -> str:
         del repository_id
+        self.calls += 1
+        writer_open = False if self.tracker is None else self.tracker.writer_open
+        self.writer_open_during_calls = (*self.writer_open_during_calls, writer_open)
         return self.commit_id
 
 
 @dataclass
 class FakeAbortEvidencePort:
+    tracker: WriterLockTracker | None = None
+    calls: int = 0
+    writer_open_during_calls: tuple[bool, ...] = ()
+
     def validate_matching_stable_failure(self, *, attempt: SubmitAttempt, proof: MatchingAbortProof) -> None:
         del attempt, proof
+        self.calls += 1
+        writer_open = False if self.tracker is None else self.tracker.writer_open
+        self.writer_open_during_calls = (*self.writer_open_during_calls, writer_open)
 
 
 @dataclass
@@ -338,7 +420,7 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
             repository_id=seed.workspace.repository_id,
             baseline_head=BASELINE_HEAD,
         ),
-        unit_of_work_factory=lambda: ControlDbUnitOfWork(seed.db_path),
+        unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
         baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
@@ -374,7 +456,7 @@ def test_t1_accept_replay_returns_existing_attempt(db_path: Path) -> None:
             repository_id=seed.workspace.repository_id,
             baseline_head=BASELINE_HEAD,
         ),
-        unit_of_work_factory=lambda: ControlDbUnitOfWork(seed.db_path),
+        unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
         baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
@@ -387,7 +469,7 @@ def test_t1_accept_replay_returns_existing_attempt(db_path: Path) -> None:
             repository_id=seed.workspace.repository_id,
             baseline_head=BASELINE_HEAD,
         ),
-        unit_of_work_factory=lambda: ControlDbUnitOfWork(seed.db_path),
+        unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
         baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
@@ -417,7 +499,7 @@ def test_t1_accept_rolls_back_when_late_write_fails(db_path: Path, monkeypatch: 
                 repository_id=seed.workspace.repository_id,
                 baseline_head=BASELINE_HEAD,
             ),
-            unit_of_work_factory=lambda: ControlDbUnitOfWork(seed.db_path),
+            unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
             baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=RecordingMainResolvePort(),
@@ -426,8 +508,37 @@ def test_t1_accept_rolls_back_when_late_write_fails(db_path: Path, monkeypatch: 
         )
 
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        attempt_id = deterministic_submit_attempt_id(
+            workspace_id=seed.workspace.workspace_id,
+            idempotency_key="accept-key-1",
+        )
+        operation_id = deterministic_submit_operation_id(
+            workspace_id=seed.workspace.workspace_id,
+            idempotency_key="accept-key-1",
+        )
+        workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
         assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None
+        assert unit_of_work.submission.get_submit_attempt(attempt_id) is None
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
+        assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+        assert unit_of_work.list_artifact_protection_for_owner(
+            owner_kind="submit-attempt",
+            owner_id=attempt_id,
+        ) == frozenset()
+        assert unit_of_work.list_artifact_protection_for_owner(
+            owner_kind="current-preview",
+            owner_id=seed.workspace.workspace_id,
+        ) == frozenset(ref.artifact_id for ref in seed.protected_refs)
+        assert workspace is not None
+        assert workspace.optimistic_version == seed.workspace.optimistic_version
+        assert unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM operation_records WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone()[0] == 0
+        assert unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM step_records WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone()[0] == 0
 
 
 def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
@@ -520,7 +631,7 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
                 repository_id=seed.workspace.repository_id,
                 baseline_head=BASELINE_HEAD,
             ),
-            unit_of_work_factory=lambda: ControlDbUnitOfWork(seed.db_path),
+            unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
             baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=RecordingMainResolvePort(),
@@ -537,7 +648,7 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path)
             repository_id=first_seed.workspace.repository_id,
             baseline_head=BASELINE_HEAD,
         ),
-        unit_of_work_factory=lambda: ControlDbUnitOfWork(first_seed.db_path),
+        unit_of_work_factory=_uow_factory(first_seed.db_path),
         job_registry=_submit_job_registry(),
         baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
@@ -601,7 +712,7 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path)
                 repository_id="repo-1",
                 baseline_head=BASELINE_HEAD,
             ),
-            unit_of_work_factory=lambda: ControlDbUnitOfWork(db_path),
+            unit_of_work_factory=_uow_factory(db_path),
             job_registry=_submit_job_registry(),
             baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=RecordingMainResolvePort(),
@@ -617,7 +728,7 @@ def _seed_effect_pending_attempt(db_path: Path, seed: SubmitSeed) -> SubmitAttem
             repository_id=seed.workspace.repository_id,
             baseline_head=BASELINE_HEAD,
         ),
-        unit_of_work_factory=lambda: ControlDbUnitOfWork(seed.db_path),
+        unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
         baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
@@ -835,6 +946,8 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) ->
                 facts=facts,
                 submission_id="sub-1",
                 created_at=TS1,
+                worker_id="worker-test",
+                lease_token="lease-test",
             ),
             unit_of_work=unit_of_work,
         )
@@ -875,6 +988,8 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
                 facts=facts,
                 submission_id="sub-1",
                 created_at=TS1,
+                worker_id="worker-test",
+                lease_token="lease-test",
             ),
             unit_of_work=unit_of_work,
         )
@@ -885,6 +1000,8 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
                 facts=facts,
                 submission_id="sub-1",
                 created_at=TS1,
+                worker_id="worker-test",
+                lease_token="lease-test",
             ),
             unit_of_work=unit_of_work,
         )
@@ -900,21 +1017,24 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
 def test_stable_abort_releases_occupancy_without_submission(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        result = abort_submit_transaction(
-            request=AbortSubmitTransactionRequest(
-                submit_attempt_id=attempt.submit_attempt_id,
-                proof=MatchingAbortProof(
-                    repository_id=seed.workspace.repository_id,
-                    repository_operation_id="repo-op-1",
-                    terminal_status=RepositoryOperationTerminalStatus.FAILED,
-                    stable_failure_code="IMPORT_REJECTED",
-                ),
-                aborted_at=TS1,
+    tracker = WriterLockTracker()
+    evidence = FakeAbortEvidencePort(tracker=tracker)
+    result = abort_submit_transaction(
+        request=AbortSubmitTransactionRequest(
+            submit_attempt_id=attempt.submit_attempt_id,
+            proof=MatchingAbortProof(
+                repository_id=seed.workspace.repository_id,
+                repository_operation_id="repo-op-1",
+                terminal_status=RepositoryOperationTerminalStatus.FAILED,
+                stable_failure_code="IMPORT_REJECTED",
             ),
-            evidence=FakeAbortEvidencePort(),
-            unit_of_work=unit_of_work,
-        )
+            aborted_at=TS1,
+            worker_id="worker-test",
+            lease_token="lease-test",
+        ),
+        evidence=evidence,
+        unit_of_work_factory=_tracking_uow_factory(db_path, tracker),
+    )
     assert result.replay is False
     assert result.attempt.state is SubmitAttemptState.ABORTED
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
@@ -926,3 +1046,481 @@ def test_stable_abort_releases_occupancy_without_submission(db_path: Path) -> No
     assert occupancy is None
     assert repository_occupancy is None
     assert operation.status is OperationStatus.FAILED
+    assert evidence.calls == 1
+    assert evidence.writer_open_during_calls == (False,)
+
+
+def _finalize_facts(seed: SubmitSeed) -> MatchingFinalizeFacts:
+    return MatchingFinalizeFacts(
+        repository_id=seed.workspace.repository_id,
+        repository_operation_id="repo-op-1",
+        repository_commit_id="commit-new",
+        repository_expected_parent_commit_id="commit-main",
+        repository_artifact_id="repo-artifact-1",
+        repository_import_artifact_raw_sha256=_SHA_PACKAGE,
+        canonicalization_manifest_ref="manifest-1",
+        canonicalization_manifest_digest=_SHA_MANIFEST,
+        completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+        completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
+        target_ref=SubmitTargetRef.MAIN,
+    )
+
+
+def _abort_proof(seed: SubmitSeed) -> MatchingAbortProof:
+    return MatchingAbortProof(
+        repository_id=seed.workspace.repository_id,
+        repository_operation_id="repo-op-1",
+        terminal_status=RepositoryOperationTerminalStatus.FAILED,
+        stable_failure_code="IMPORT_REJECTED",
+    )
+
+
+def _finalize(
+    db_path: Path,
+    attempt: SubmitAttempt,
+    seed: SubmitSeed,
+    *,
+    worker_id: str | None = "worker-test",
+    lease_token: str | None = "lease-test",
+) -> FinalizeSubmitResult:
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        return finalize_submit_transaction(
+            request=FinalizeSubmitTransactionRequest(
+                submit_attempt_id=attempt.submit_attempt_id,
+                facts=_finalize_facts(seed),
+                submission_id="sub-1",
+                created_at=TS1,
+                worker_id=worker_id,
+                lease_token=lease_token,
+            ),
+            unit_of_work=unit_of_work,
+        )
+
+
+def _abort(
+    db_path: Path,
+    attempt: SubmitAttempt,
+    seed: SubmitSeed,
+    *,
+    worker_id: str | None,
+    lease_token: str | None,
+    tracker: WriterLockTracker | None = None,
+) -> tuple[AbortSubmitTransactionResult, FakeAbortEvidencePort]:
+    evidence = FakeAbortEvidencePort(tracker=tracker)
+    factory = _tracking_uow_factory(db_path, tracker) if tracker is not None else _uow_factory(db_path)
+    result = abort_submit_transaction(
+        request=AbortSubmitTransactionRequest(
+            submit_attempt_id=attempt.submit_attempt_id,
+            proof=_abort_proof(seed),
+            aborted_at=TS1,
+            worker_id=worker_id,
+            lease_token=lease_token,
+        ),
+        evidence=evidence,
+        unit_of_work_factory=factory,
+    )
+    return result, evidence
+
+
+def _prepare_only_registry() -> JobDefinitionRegistry:
+    return JobDefinitionRegistry.build(
+        (
+            JobDefinition(
+                key=JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_PREPARE),
+                supported_payload_versions=frozenset({SUBMIT_JOB_CONTRACT_VERSION}),
+                decoder_identity="backend-vnext/submit/prepare-import/decoder/v1",
+                handler_identity="backend-vnext/submit/prepare-import/handler/v1",
+                publication_capability=NormalPublicationCapability.SINGLE_SUCCESSOR,
+                recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
+            ),
+        )
+    )
+
+
+def test_t1_accept_ports_run_outside_writer_transaction(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    tracker = WriterLockTracker()
+    digest = FakeBaselineCanonicalDigestPort(tracker=tracker)
+    resolve = RecordingMainResolvePort(tracker=tracker)
+    accept_submit_transaction(
+        command=_accept_command(seed, idempotency_key="accept-key-1"),
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_tracking_uow_factory(seed.db_path, tracker),
+        job_registry=_submit_job_registry(),
+        baseline_digest=digest,
+        main_resolve=resolve,
+        preflight=_preflight(seed),
+        now=TS1,
+    )
+    assert digest.calls == 1
+    assert resolve.calls == 1
+    assert digest.writer_open_during_calls == (False,)
+    assert resolve.writer_open_during_calls == (False,)
+
+
+def test_t1_accept_replay_does_not_call_repository_ports(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    command = _accept_command(seed, idempotency_key="accept-key-1")
+    accept_submit_transaction(
+        command=command,
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(seed.db_path),
+        job_registry=_submit_job_registry(),
+        baseline_digest=FakeBaselineCanonicalDigestPort(),
+        main_resolve=RecordingMainResolvePort(),
+        preflight=_preflight(seed),
+        now=TS1,
+    )
+    digest = FakeBaselineCanonicalDigestPort()
+    resolve = RecordingMainResolvePort()
+    replay = accept_submit_transaction(
+        command=command,
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(seed.db_path),
+        job_registry=_submit_job_registry(),
+        baseline_digest=digest,
+        main_resolve=resolve,
+        preflight=_preflight(seed),
+        now=TS1,
+    )
+    assert replay.replay is True
+    assert digest.calls == 0
+    assert resolve.calls == 0
+
+
+def test_t1_rejects_incomplete_submit_job_registry_without_writes(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    with pytest.raises(PreviewBindingConflict, match="submit job definition is not registered"):
+        accept_submit_transaction(
+            command=_accept_command(seed, idempotency_key="accept-key-1"),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_prepare_only_registry(),
+            baseline_digest=FakeBaselineCanonicalDigestPort(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None
+        assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
+
+
+def test_t1_rejects_stale_workspace_version_without_writes(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
+        assert workspace is not None
+        unit_of_work.workspace.save_workspace(
+            replace(workspace, optimistic_version=workspace.optimistic_version + 1, updated_at=TS1),
+            expected_version=workspace.optimistic_version,
+        )
+    with pytest.raises(WorkspaceVersionConflict):
+        accept_submit_transaction(
+            command=_accept_command(seed, idempotency_key="accept-key-1"),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            baseline_digest=FakeBaselineCanonicalDigestPort(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None
+        assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
+
+
+def _take_over_await_lease(db_path: Path, operation_id: str) -> None:
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        steps, _cursor = unit_of_work.operations.list_steps(operation_id)
+        await_step = next(step for step in steps if step.step_name == SUBMIT_STEP_AWAIT)
+        unit_of_work.connection.execute(
+            """
+            UPDATE step_records
+            SET worker_id = ?, lease_token = ?
+            WHERE step_id = ?
+            """,
+            ("worker-new", "lease-new", await_step.step_id),
+        )
+
+
+def test_t3_rejects_stale_lease_after_takeover(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    _take_over_await_lease(db_path, attempt.operation_id)
+    with pytest.raises(StaleWrite, match="write precondition no longer matches"):
+        _finalize(db_path, attempt, seed, worker_id="worker-test", lease_token="lease-test")
+    result = _finalize(db_path, attempt, seed, worker_id="worker-new", lease_token="lease-new")
+    assert result.replay is False
+
+
+def test_abort_rejects_stale_lease_after_takeover(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    _take_over_await_lease(db_path, attempt.operation_id)
+    with pytest.raises(StaleWrite, match="write precondition no longer matches"):
+        _abort(db_path, attempt, seed, worker_id="worker-test", lease_token="lease-test")
+    result, _evidence = _abort(db_path, attempt, seed, worker_id="worker-new", lease_token="lease-new")
+    assert result.replay is False
+    assert result.attempt.state is SubmitAttemptState.ABORTED
+
+
+def _terminalize_await_step(db_path: Path, operation_id: str, *, fail_operation: bool) -> None:
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        steps, _cursor = unit_of_work.operations.list_steps(operation_id)
+        await_step = next(step for step in steps if step.step_name == SUBMIT_STEP_AWAIT)
+        now = unit_of_work.transaction_now
+        failed = replace(
+            await_step,
+            status=StepStatus.FAILED,
+            diagnostic=OperationDiagnostic(code="OPERATOR_CLOSED", message="operator recovery"),
+            completed_at=now,
+            updated_at=now,
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            optimistic_version=await_step.optimistic_version + 1,
+        )
+        unit_of_work.operations.compare_and_set_step(
+            failed,
+            WritePrecondition(
+                expected_optimistic_version=await_step.optimistic_version,
+                worker_id=await_step.worker_id,
+                lease_token=await_step.lease_token,
+            ),
+            require_live_lease=True,
+        )
+        if fail_operation:
+            operation = unit_of_work.operations.get_operation(operation_id)
+            unit_of_work.operations.compare_and_set_operation(
+                replace(
+                    operation,
+                    status=OperationStatus.FAILED,
+                    diagnostic=OperationDiagnostic(code="OPERATOR_CLOSED", message="operator recovery"),
+                    completed_at=now,
+                    updated_at=now,
+                    optimistic_version=operation.optimistic_version + 1,
+                ),
+                WritePrecondition(
+                    expected_optimistic_version=operation.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+
+
+def test_abort_is_idempotent_after_operator_terminalized_await_step(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    _terminalize_await_step(db_path, attempt.operation_id, fail_operation=True)
+    first, _evidence = _abort(db_path, attempt, seed, worker_id=None, lease_token=None)
+    assert first.replay is False
+    assert first.attempt.state is SubmitAttemptState.ABORTED
+    second, _evidence = _abort(db_path, attempt, seed, worker_id=None, lease_token=None)
+    assert second.replay is True
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
+        assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+
+
+def test_abort_completes_when_await_step_failed_and_operation_still_running(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    _terminalize_await_step(db_path, attempt.operation_id, fail_operation=False)
+    result, _evidence = _abort(db_path, attempt, seed, worker_id=None, lease_token=None)
+    assert result.replay is False
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(attempt.operation_id)
+        occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
+    assert operation.status is OperationStatus.FAILED
+    assert occupancy is None
+
+
+def test_abort_rejects_mismatched_occupancy_owner(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            """
+            INSERT INTO operation_records (
+                operation_id, contract_version, optimistic_version, job_kind, job_contract_version,
+                job_payload, job_payload_ref, business_refs, artifact_refs, repository_operation_id,
+                checkpoint_ref, ready_closure_ref, status, diagnostic, cancel_requested,
+                created_at_us, updated_at_us, completed_at_us
+            ) VALUES (?, ?, 0, 'backend-vnext/submit', ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'QUEUED', NULL, 0, ?, ?, NULL)
+            """,
+            (
+                "op-other",
+                OPERATION_RUNTIME_CONTRACT_VERSION,
+                SUBMIT_JOB_CONTRACT_VERSION,
+                b"{}",
+                b"[]",
+                b"[]",
+                1,
+                1,
+            ),
+        )
+        unit_of_work.submission.insert_attempt_prepared(
+            replace(
+                attempt,
+                submit_attempt_id="sa-other",
+                operation_id="op-other",
+                state=SubmitAttemptState.PREPARED,
+                optimistic_version=0,
+                effect_pending_at=None,
+                canonicalization_manifest_ref=None,
+                canonicalization_manifest_digest=None,
+                repository_import_artifact_ref=None,
+                repository_artifact_ref=None,
+                repository_operation_id=None,
+                accept_idempotency_key="accept-key-other",
+            )
+        )
+        unit_of_work.connection.execute(
+            """
+            UPDATE workspace_submit_occupancy_records
+            SET active_submit_attempt_id = ?
+            WHERE workspace_id = ?
+            """,
+            ("sa-other", seed.workspace.workspace_id),
+        )
+    with pytest.raises(SubmitOccupancyConflict):
+        _abort(db_path, attempt, seed, worker_id="worker-test", lease_token="lease-test")
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
+        persisted = unit_of_work.submission.get_submit_attempt(attempt.submit_attempt_id)
+    assert occupancy is not None
+    assert occupancy.active_submit_attempt_id == "sa-other"
+    assert persisted is not None
+    assert persisted.state is SubmitAttemptState.EFFECT_PENDING
+
+
+@pytest.mark.parametrize(
+    "broken_component",
+    ("workspace occupancy", "repository occupancy", "await step", "operation"),
+)
+def test_t3_replay_fails_closed_when_closure_is_incomplete(
+    db_path: Path,
+    broken_component: str,
+) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    _finalize(db_path, attempt, seed)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        if broken_component == "workspace occupancy":
+            unit_of_work.connection.execute(
+                "DELETE FROM workspace_submit_occupancy_records WHERE workspace_id = ?",
+                (seed.workspace.workspace_id,),
+            )
+        elif broken_component == "repository occupancy":
+            unit_of_work.connection.execute(
+                """
+                INSERT INTO repository_submit_occupancy_records (
+                    repository_id, workspace_id, submit_attempt_id,
+                    business_baseline_node_id, baseline_head_version, acquired_at_us
+                ) VALUES (?, ?, ?, ?, ?, 1)
+                """,
+                (
+                    seed.workspace.repository_id,
+                    seed.workspace.workspace_id,
+                    attempt.submit_attempt_id,
+                    BASELINE_HEAD.business_baseline_node_id,
+                    BASELINE_HEAD.baseline_head_version,
+                ),
+            )
+        elif broken_component == "await step":
+            unit_of_work.connection.execute(
+                "DELETE FROM step_records WHERE step_name = ?",
+                (SUBMIT_STEP_AWAIT,),
+            )
+        else:
+            unit_of_work.connection.execute(
+                "UPDATE operation_records SET status = 'CANCELLED' WHERE operation_id = ?",
+                (attempt.operation_id,),
+            )
+    with pytest.raises(FinalizeRecoveryRequired):
+        _finalize(db_path, attempt, seed)
+
+
+def test_prepared_abort_releases_occupancy_without_live_lease(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    accepted = accept_submit_transaction(
+        command=_accept_command(seed, idempotency_key="accept-key-1"),
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(seed.db_path),
+        job_registry=_submit_job_registry(),
+        baseline_digest=FakeBaselineCanonicalDigestPort(),
+        main_resolve=RecordingMainResolvePort(),
+        preflight=_preflight(seed),
+        now=TS1,
+    )
+    backend_ref = BackendArtifactRef(
+        artifact_id="backend-pkg-1",
+        media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
+        size_bytes=10,
+        raw_sha256=_SHA_PACKAGE,
+    )
+    repository_ref = RepositoryArtifactRef(
+        artifact_id="repo-artifact-1",
+        media_type="application/octet-stream",
+        size_bytes=10,
+        raw_sha256=_SHA_REPO,
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        attempt = unit_of_work.submission.get_submit_attempt(accepted.submit_attempt_id)
+        assert attempt is not None
+        unit_of_work.submission.cas_update_attempt(
+            replace(
+                attempt,
+                optimistic_version=1,
+                canonicalization_manifest_ref="manifest-1",
+                canonicalization_manifest_digest=_SHA_MANIFEST,
+                repository_import_artifact_ref=backend_ref,
+                repository_artifact_ref=repository_ref,
+                repository_operation_id="repo-op-1",
+            ),
+            expected_version=0,
+        )
+    tracker = WriterLockTracker()
+    result, evidence = _abort(
+        db_path,
+        replace(attempt, optimistic_version=1),
+        seed,
+        worker_id=None,
+        lease_token=None,
+        tracker=tracker,
+    )
+    assert result.replay is False
+    assert evidence.calls == 1
+    assert evidence.writer_open_during_calls == (False,)
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        persisted = unit_of_work.submission.get_submit_attempt(accepted.submit_attempt_id)
+        occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
+        operation = unit_of_work.operations.get_operation(accepted.operation_id)
+        steps, _cursor = unit_of_work.operations.list_steps(accepted.operation_id)
+        prepare = next(step for step in steps if step.step_name == SUBMIT_STEP_PREPARE)
+    assert persisted is not None
+    assert persisted.state is SubmitAttemptState.ABORTED
+    assert occupancy is None
+    assert operation.status is OperationStatus.CANCELLED
+    assert prepare.status is StepStatus.CANCELLED

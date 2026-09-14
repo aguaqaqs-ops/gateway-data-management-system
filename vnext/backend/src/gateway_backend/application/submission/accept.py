@@ -25,7 +25,7 @@ from gateway_backend.application.submission.ports import (
     SubmissionRepository,
 )
 from gateway_backend.domain.workspace.errors import ScopeForbidden
-from gateway_backend.domain.workspace.models import PreviewResult, UploadRevision, Workspace
+from gateway_backend.domain.workspace.models import BaselineHead, PreviewResult, UploadRevision, Workspace
 from gateway_backend.domain.workspace.policies import (
     assert_exact_scope,
     assert_permission,
@@ -52,47 +52,21 @@ def validate_accept_submit(
 ) -> AcceptSubmitValidationResult:
     assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
     resolved = scope_resolution.resolve(command.context)
+    replay = try_accept_submit_replay(
+        command=command,
+        workspace_repository=workspace_repository,
+        submission_repository=submission_repository,
+        resolved_repository_id=resolved.repository_id,
+        baseline_head=resolved.baseline_head,
+    )
+    if replay is not None:
+        return replay
+
     workspace = workspace_repository.get_workspace(command.workspace_id)
     if workspace is None:
         raise ScopeForbidden
     assert_exact_scope(workspace, command.context)
     _assert_resolved_repository_matches_workspace(resolved.repository_id, workspace)
-
-    prior_record = submission_repository.find_submit_idempotency(
-        command.workspace_id,
-        command.idempotency_key,
-    )
-    if prior_record is not None:
-        prior_attempt = submission_repository.get_submit_attempt(prior_record.submit_attempt_id)
-        if prior_attempt is None:
-            raise PreviewBindingConflict("submit attempt is missing")
-        _assert_replay_binding_matches_attempt(command, prior_attempt)
-        replay_fingerprint = compute_replay_accept_fingerprint(
-            command=command,
-            attempt=prior_attempt,
-            workspace=workspace,
-        )
-        if replay_fingerprint != prior_record.request_fingerprint:
-            raise IdempotencyConflict(idempotency_key=command.idempotency_key)
-        upload_revision = workspace_repository.get_upload_revision(prior_attempt.upload_revision_id)
-        if upload_revision is None:
-            raise PreviewBindingConflict("upload revision is missing")
-        preview_result = workspace_repository.get_preview_result(prior_attempt.preview_result_id)
-        if preview_result is None:
-            raise PreviewBindingConflict("preview result is missing")
-        _assert_preview_repository_matches_workspace(preview_result, workspace)
-        return AcceptSubmitValidationResult(
-            workspace=workspace,
-            upload_revision=upload_revision,
-            preview_result=preview_result,
-            baseline_head=resolved.baseline_head,
-            repository_expected_commit_id=prior_attempt.repository_expected_commit_id,
-            canonical_business_digest=prior_attempt.canonical_business_digest,
-            accept_request_fingerprint=replay_fingerprint,
-            replay=True,
-            prior_attempt=prior_attempt,
-        )
-
     assert_workspace_open(workspace)
     assert_workspace_version_cas(workspace, command.expected_workspace_version)
     _assert_preview_binding(workspace, command)
@@ -112,7 +86,6 @@ def validate_accept_submit(
         raise NoCanonicalChange
 
     _assert_no_submit_occupancy(occupancy, workspace.workspace_id, workspace.repository_id)
-
     assert_preview_ready_closure_digest(preview_ready_closure_digest)
 
     if main_resolve is None:
@@ -130,7 +103,123 @@ def validate_accept_submit(
         snapshot_table_artifact_refs=snapshot_table_artifact_refs,
         preview_ready_closure_digest=preview_ready_closure_digest,
     )
+    return AcceptSubmitValidationResult(
+        workspace=workspace,
+        upload_revision=upload_revision,
+        preview_result=preview_result,
+        baseline_head=baseline_head,
+        repository_expected_commit_id=repository_expected_commit_id,
+        canonical_business_digest=preview_digest,
+        accept_request_fingerprint=request_fingerprint,
+        replay=False,
+        prior_attempt=None,
+    )
 
+
+def try_accept_submit_replay(
+    *,
+    command: AcceptSubmitCommand,
+    workspace_repository: WorkspaceRepository,
+    submission_repository: SubmissionRepository,
+    resolved_repository_id: str,
+    baseline_head: BaselineHead,
+) -> AcceptSubmitValidationResult | None:
+    workspace = workspace_repository.get_workspace(command.workspace_id)
+    if workspace is None:
+        raise ScopeForbidden
+    assert_exact_scope(workspace, command.context)
+    _assert_resolved_repository_matches_workspace(resolved_repository_id, workspace)
+
+    prior_record = submission_repository.find_submit_idempotency(
+        command.workspace_id,
+        command.idempotency_key,
+    )
+    if prior_record is None:
+        return None
+    prior_attempt = submission_repository.get_submit_attempt(prior_record.submit_attempt_id)
+    if prior_attempt is None:
+        raise PreviewBindingConflict("submit attempt is missing")
+    _assert_replay_binding_matches_attempt(command, prior_attempt)
+    replay_fingerprint = compute_replay_accept_fingerprint(
+        command=command,
+        attempt=prior_attempt,
+        workspace=workspace,
+    )
+    if replay_fingerprint != prior_record.request_fingerprint:
+        raise IdempotencyConflict(idempotency_key=command.idempotency_key)
+    upload_revision = workspace_repository.get_upload_revision(prior_attempt.upload_revision_id)
+    if upload_revision is None:
+        raise PreviewBindingConflict("upload revision is missing")
+    preview_result = workspace_repository.get_preview_result(prior_attempt.preview_result_id)
+    if preview_result is None:
+        raise PreviewBindingConflict("preview result is missing")
+    _assert_preview_repository_matches_workspace(preview_result, workspace)
+    return AcceptSubmitValidationResult(
+        workspace=workspace,
+        upload_revision=upload_revision,
+        preview_result=preview_result,
+        baseline_head=baseline_head,
+        repository_expected_commit_id=prior_attempt.repository_expected_commit_id,
+        canonical_business_digest=prior_attempt.canonical_business_digest,
+        accept_request_fingerprint=replay_fingerprint,
+        replay=True,
+        prior_attempt=prior_attempt,
+    )
+
+
+def validate_accept_submit_with_frozen(
+    *,
+    command: AcceptSubmitCommand,
+    workspace_repository: WorkspaceRepository,
+    submission_repository: SubmissionRepository,
+    occupancy: SubmitOccupancyReadPort,
+    resolved_repository_id: str,
+    baseline_head: BaselineHead,
+    baseline_canonical_digest: str,
+    repository_expected_commit_id: str,
+    snapshot_table_artifact_refs: tuple[str, ...] = (),
+    preview_ready_closure_digest: str,
+) -> AcceptSubmitValidationResult:
+    replay = try_accept_submit_replay(
+        command=command,
+        workspace_repository=workspace_repository,
+        submission_repository=submission_repository,
+        resolved_repository_id=resolved_repository_id,
+        baseline_head=baseline_head,
+    )
+    if replay is not None:
+        return replay
+
+    workspace = workspace_repository.get_workspace(command.workspace_id)
+    if workspace is None:
+        raise ScopeForbidden
+    assert_exact_scope(workspace, command.context)
+    _assert_resolved_repository_matches_workspace(resolved_repository_id, workspace)
+    assert_workspace_open(workspace)
+    assert_workspace_version_cas(workspace, command.expected_workspace_version)
+    _assert_preview_binding(workspace, command)
+    upload_revision = _load_upload_revision(workspace_repository, command)
+    preview_result = _load_preview_result(workspace_repository, command, upload_revision, workspace)
+    _assert_baseline_binding(command, baseline_head)
+    if derive_preview_staleness(preview_result, baseline_head):
+        raise PreviewDerivedStale
+
+    preview_digest = preview_canonical_business_digest(preview_result)
+    if preview_digest == baseline_canonical_digest:
+        raise NoCanonicalChange
+
+    _assert_no_submit_occupancy(occupancy, workspace.workspace_id, workspace.repository_id)
+    assert_preview_ready_closure_digest(preview_ready_closure_digest)
+    request_fingerprint = compute_new_accept_fingerprint(
+        command=command,
+        workspace=workspace,
+        preview_result=preview_result,
+        upload_revision=upload_revision,
+        baseline_head=baseline_head,
+        repository_expected_commit_id=repository_expected_commit_id,
+        snapshot_table_artifact_refs=snapshot_table_artifact_refs,
+        preview_ready_closure_digest=preview_ready_closure_digest,
+    )
     return AcceptSubmitValidationResult(
         workspace=workspace,
         upload_revision=upload_revision,

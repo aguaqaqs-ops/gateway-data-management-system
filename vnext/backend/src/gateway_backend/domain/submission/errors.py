@@ -22,3 +22,26 @@ class SubmitAttemptInvariantViolation(SubmissionDomainError):
 
 class SubmissionBindingConflict(SubmissionDomainError):
     """Raised when Submission facts do not match the bound SubmitAttempt."""
+
+
+class SubmitAttemptVersionConflict(SubmissionDomainError):
+    """SubmitAttempt optimistic version CAS failed."""
+
+    stable_code = "SUBMIT_ATTEMPT_VERSION_CONFLICT"
+
+    def __init__(self, *, expected: int, actual: int) -> None:
+        super().__init__(
+            f"submit attempt optimistic version conflict: expected {expected}, actual {actual}"
+        )
+        self.expected = expected
+        self.actual = actual
+
+
+class SubmitOccupancyConflict(SubmissionDomainError):
+    """Workspace or repository submit occupancy is already held or owner CAS failed."""
+
+    stable_code = "SUBMIT_OCCUPANCY_CONFLICT"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason

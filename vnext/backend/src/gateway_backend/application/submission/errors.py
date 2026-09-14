@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from gateway_backend.domain.submission.errors import (
+    SubmitAttemptVersionConflict as SubmitAttemptVersionConflict,
+)
+from gateway_backend.domain.submission.errors import (
+    SubmitOccupancyConflict as SubmitOccupancyConflict,
+)
+
 
 class SubmitApplicationError(Exception):
     """Base error for submission application services."""
@@ -48,16 +55,6 @@ class BaselineVersionConflict(SubmitApplicationError):
         self.reason = reason
 
 
-class SubmitOccupancyConflict(SubmitApplicationError):
-    """Workspace or repository submit occupancy is already held."""
-
-    stable_code = "SUBMIT_OCCUPANCY_CONFLICT"
-
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
-
-
 class NoCanonicalChange(SubmitApplicationError):
     """Preview canonical digest equals current business base; zero writes allowed."""
 
@@ -79,23 +76,20 @@ class FinalizeBindingMismatch(SubmitApplicationError):
         self.reason = reason
 
 
-class SubmitAttemptVersionConflict(SubmitApplicationError):
-    """SubmitAttempt optimistic version CAS failed."""
-
-    stable_code = "SUBMIT_ATTEMPT_VERSION_CONFLICT"
-
-    def __init__(self, *, expected: int, actual: int) -> None:
-        super().__init__(
-            f"submit attempt optimistic version conflict: expected {expected}, actual {actual}"
-        )
-        self.expected = expected
-        self.actual = actual
-
-
 class AbortProofNotSatisfied(SubmitApplicationError):
     """Repository stable abort proof is missing or not allowed."""
 
     stable_code = "ABORT_PROOF_NOT_SATISFIED"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class FinalizeRecoveryRequired(SubmitApplicationError):
+    """T3 replay found a FINALIZED attempt without a matching T3 closure."""
+
+    stable_code = "FINALIZE_RECOVERY_REQUIRED"
 
     def __init__(self, reason: str) -> None:
         super().__init__(reason)

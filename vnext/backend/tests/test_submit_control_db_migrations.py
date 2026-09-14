@@ -162,3 +162,63 @@ def test_historical_workspace_v2_reopens_to_v3() -> None:
     assert connection.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'submit_attempt_records'"
     ).fetchone() is not None
+
+
+def _seed_workspace_v2(connection: sqlite3.Connection, *, migration_time_us: int) -> None:
+    from datetime import UTC, datetime
+
+    migration_time = datetime(2024, 1, 2, 3, 4, 5, 678901, tzinfo=UTC)
+    bootstrap_control_schema(connection, now=lambda: migration_time)
+    connection.execute("BEGIN IMMEDIATE")
+    migrations._apply_workspace_v1(connection)
+    connection.execute(
+        "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
+        (WORKSPACE_SCHEMA_COMPONENT, 1, migration_time_us),
+    )
+    connection.execute("COMMIT")
+    _apply_workspace_v2(connection)
+    connection.execute(
+        "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
+        (WORKSPACE_SCHEMA_COMPONENT, 2, migration_time_us),
+    )
+
+
+def test_corrupted_workspace_v2_foreign_keys_reject_v3_upgrade() -> None:
+    from datetime import UTC, datetime
+
+    migration_time = datetime(2024, 1, 2, 3, 4, 5, 678901, tzinfo=UTC)
+    connection = _connection()
+    _seed_workspace_v2(connection, migration_time_us=1_704_164_645_678_901)
+    connection.execute(
+        """
+        INSERT INTO workspace_records (
+            workspace_id, owner_actor_id, gateway_device_external_key, business_project_id,
+            repository_id, state, generation, optimistic_version, current_upload_revision_id,
+            current_preview_result_id, created_at_us, updated_at_us, closed_at_us
+        ) VALUES (?, ?, ?, ?, ?, 'OPEN', 1, 0, NULL, NULL, 1, 1, NULL)
+        """,
+        ("ws-1", "actor-1", "device-1", "project-1", "repo-1"),
+    )
+    connection.execute(
+        """
+        INSERT INTO upload_revision_records (
+            upload_revision_id, workspace_id, generation, input_completeness, source_artifacts,
+            idempotency_key, request_fingerprint, created_by, created_at_us
+        ) VALUES (?, ?, 1, 'FULL', ?, ?, ?, ?, 1)
+        """,
+        ("ur-1", "ws-1", b"[]", "upload-key-1", "sha256:fp", "actor-1"),
+    )
+    connection.execute("PRAGMA foreign_keys=OFF")
+    connection.execute("DELETE FROM workspace_records WHERE workspace_id = ?", ("ws-1",))
+    connection.execute("PRAGMA foreign_keys=ON")
+
+    with pytest.raises(RuntimeError, match="foreign key check failure"):
+        bootstrap_workspace_schema(connection, now=lambda: migration_time)
+
+    assert connection.execute(
+        "SELECT COUNT(*) FROM control_schema_migrations WHERE component = ?",
+        (WORKSPACE_SCHEMA_COMPONENT,),
+    ).fetchone()[0] == 2
+    assert connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'submit_attempt_records'"
+    ).fetchone() is None

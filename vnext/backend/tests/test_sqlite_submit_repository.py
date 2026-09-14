@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from gateway_backend.application.submission.contracts import (
-    RepositorySubmitOccupancy,
-    SubmitAcceptanceRecord,
-)
 from gateway_backend.application.submission.errors import SubmitAttemptVersionConflict
+from gateway_backend.domain.submission.errors import SubmitOccupancyConflict
 from gateway_backend.domain.submission.models import (
     BuilderMutationPolicy,
+    RepositorySubmitOccupancy,
+    SubmitAcceptanceRecord,
     SubmitAttempt,
     SubmitAttemptState,
     SubmitTargetRef,
@@ -258,7 +258,13 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
             submit_attempt_id="sa-1",
             submission_id="sub-1",
         )
-        unit_of_work.submission.delete_repository_occupancy("repo-1")
+        unit_of_work.submission.delete_repository_occupancy(
+            repository_id="repo-1",
+            workspace_id="ws-1",
+            submit_attempt_id="sa-1",
+            business_baseline_node_id="node-1",
+            baseline_head_version=1,
+        )
 
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         loaded_submission = unit_of_work.submission.get_submission_by_attempt("sa-1")
@@ -270,3 +276,145 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
     assert workspace_occupancy.active_submission_id == "sub-1"
     assert workspace_occupancy.active_submit_attempt_id is None
     assert repository_occupancy is None
+
+
+def test_occupancy_delete_rejects_mismatched_owner(db_path: Path) -> None:
+    _seed_workspace(db_path)
+    _seed_operation(db_path, "op-submit-1")
+    attempt = _sample_attempt()
+    occupancy = RepositorySubmitOccupancy(
+        repository_id="repo-1",
+        workspace_id="ws-1",
+        submit_attempt_id="sa-1",
+        business_baseline_node_id="node-1",
+        baseline_head_version=1,
+        acquired_at=TS0,
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.submission.insert_attempt_prepared(attempt)
+        unit_of_work.submission.insert_workspace_attempt_occupancy(
+            workspace_id="ws-1",
+            submit_attempt_id="sa-1",
+        )
+        unit_of_work.submission.insert_repository_occupancy(occupancy)
+        with pytest.raises(SubmitOccupancyConflict, match="workspace submit occupancy delete"):
+            unit_of_work.submission.delete_workspace_occupancy(
+                "ws-1",
+                expected_submit_attempt_id="sa-other",
+            )
+        with pytest.raises(SubmitOccupancyConflict, match="repository submit occupancy delete"):
+            unit_of_work.submission.delete_repository_occupancy(
+                repository_id="repo-1",
+                workspace_id="ws-1",
+                submit_attempt_id="sa-other",
+                business_baseline_node_id="node-1",
+                baseline_head_version=1,
+            )
+
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy("ws-1")
+        repository_occupancy = unit_of_work.submission.get_repository_occupancy("repo-1")
+    assert workspace_occupancy is not None
+    assert workspace_occupancy.active_submit_attempt_id == "sa-1"
+    assert repository_occupancy is not None
+    assert repository_occupancy.submit_attempt_id == "sa-1"
+
+
+MALFORMED_JSON_SHAPES = (
+    (
+        "string-list-integer-item",
+        lambda: _decode_string_list(json.dumps(["ok", 123]).encode("utf-8")),
+        "string list items must be strings",
+    ),
+    (
+        "string-list-null-item",
+        lambda: _decode_string_list(json.dumps(["ok", None]).encode("utf-8")),
+        "string list items must be strings",
+    ),
+    (
+        "backend-ref-integer-id",
+        lambda: _decode_backend_artifact_ref(_artifact_ref_bytes(artifact_id=123)),
+        "artifact_id must be a non-empty string",
+    ),
+    (
+        "backend-ref-bool-size",
+        lambda: _decode_backend_artifact_ref(_artifact_ref_bytes(size_bytes=True)),
+        "size_bytes must be an integer",
+    ),
+    (
+        "backend-ref-extra-key",
+        lambda: _decode_backend_artifact_ref(
+            json.dumps(
+                {
+                    "artifact_id": "a",
+                    "media_type": "application/octet-stream",
+                    "size_bytes": 1,
+                    "raw_sha256": "sha256:x",
+                    "extra": "no",
+                }
+            ).encode("utf-8")
+        ),
+        "keys must match exactly",
+    ),
+    (
+        "backend-ref-missing-key",
+        lambda: _decode_backend_artifact_ref(
+            json.dumps(
+                {
+                    "artifact_id": "a",
+                    "media_type": "application/octet-stream",
+                    "size_bytes": 1,
+                }
+            ).encode("utf-8")
+        ),
+        "keys must match exactly",
+    ),
+    (
+        "repository-ref-string-size",
+        lambda: _decode_repository_artifact_ref(_artifact_ref_bytes(size_bytes="1")),
+        "size_bytes must be an integer",
+    ),
+)
+
+
+def _artifact_ref_bytes(**overrides: object) -> bytes:
+    document: dict[str, object] = {
+        "artifact_id": "a",
+        "media_type": "application/octet-stream",
+        "size_bytes": 1,
+        "raw_sha256": "sha256:x",
+    }
+    document.update(overrides)
+    return json.dumps(document).encode("utf-8")
+
+
+def _decode_string_list(payload: bytes) -> object:
+    from gateway_backend.infrastructure.control_db.sqlite_submission import _decode_string_list
+
+    return _decode_string_list(payload)
+
+
+def _decode_backend_artifact_ref(value: bytes) -> object:
+    from gateway_backend.infrastructure.control_db.sqlite_submission import _decode_backend_artifact_ref
+
+    return _decode_backend_artifact_ref(value)
+
+
+def _decode_repository_artifact_ref(value: bytes) -> object:
+    from gateway_backend.infrastructure.control_db.sqlite_submission import (
+        _decode_repository_artifact_ref,
+    )
+
+    return _decode_repository_artifact_ref(value)
+
+
+@pytest.mark.parametrize(("name", "decode", "match"), MALFORMED_JSON_SHAPES)
+def test_submit_json_decoders_reject_malformed_shapes(
+    name: str,
+    decode: object,
+    match: str,
+) -> None:
+    del name
+    with pytest.raises(ValueError, match=match):
+        assert callable(decode)
+        decode()

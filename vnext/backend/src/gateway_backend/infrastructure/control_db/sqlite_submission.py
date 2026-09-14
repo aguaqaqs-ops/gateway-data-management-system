@@ -10,12 +10,7 @@ from typing import cast
 
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-from gateway_backend.application.submission.contracts import (
-    RepositorySubmitOccupancy,
-    SubmitAcceptanceRecord,
-    WorkspaceSubmitOccupancy,
-)
-from gateway_backend.application.submission.errors import (
+from gateway_backend.domain.submission.errors import (
     SubmitAttemptVersionConflict,
     SubmitOccupancyConflict,
 )
@@ -23,12 +18,15 @@ from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
     RepositoryArtifactRef,
+    RepositorySubmitOccupancy,
+    SubmitAcceptanceRecord,
     SubmitAttempt,
     SubmitAttemptState,
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
     Submission,
+    WorkspaceSubmitOccupancy,
 )
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -288,12 +286,22 @@ class SQLiteSubmissionRepository:
         if updated.rowcount != 1:
             raise SubmitOccupancyConflict("workspace submit occupancy switch failed")
 
-    def delete_workspace_occupancy(self, workspace_id: str) -> None:
+    def delete_workspace_occupancy(
+        self,
+        workspace_id: str,
+        *,
+        expected_submit_attempt_id: str,
+    ) -> None:
         self._require_writable()
-        self._connection.execute(
-            "DELETE FROM workspace_submit_occupancy_records WHERE workspace_id = ?",
-            (workspace_id,),
+        updated = self._connection.execute(
+            """
+            DELETE FROM workspace_submit_occupancy_records
+            WHERE workspace_id = ? AND active_submit_attempt_id = ?
+            """,
+            (workspace_id, expected_submit_attempt_id),
         )
+        if updated.rowcount != 1:
+            raise SubmitOccupancyConflict("workspace submit occupancy delete failed")
 
     def insert_repository_occupancy(self, occupancy: RepositorySubmitOccupancy) -> None:
         self._require_writable()
@@ -317,12 +325,35 @@ class SQLiteSubmissionRepository:
         except sqlite3.IntegrityError as exc:
             raise _map_integrity_error(exc) from None
 
-    def delete_repository_occupancy(self, repository_id: str) -> None:
+    def delete_repository_occupancy(
+        self,
+        *,
+        repository_id: str,
+        workspace_id: str,
+        submit_attempt_id: str,
+        business_baseline_node_id: str,
+        baseline_head_version: int,
+    ) -> None:
         self._require_writable()
-        self._connection.execute(
-            "DELETE FROM repository_submit_occupancy_records WHERE repository_id = ?",
-            (repository_id,),
+        updated = self._connection.execute(
+            """
+            DELETE FROM repository_submit_occupancy_records
+            WHERE repository_id = ?
+              AND workspace_id = ?
+              AND submit_attempt_id = ?
+              AND business_baseline_node_id = ?
+              AND baseline_head_version = ?
+            """,
+            (
+                repository_id,
+                workspace_id,
+                submit_attempt_id,
+                business_baseline_node_id,
+                baseline_head_version,
+            ),
         )
+        if updated.rowcount != 1:
+            raise SubmitOccupancyConflict("repository submit occupancy delete failed")
 
     def _require_writable(self) -> None:
         if self._read_only:
@@ -508,7 +539,12 @@ def _decode_string_list(payload: bytes) -> tuple[str, ...]:
     document = json.loads(payload.decode("utf-8"))
     if type(document) is not list:
         raise ValueError("string list column must be a JSON array")
-    return tuple(str(item) for item in document)
+    items: list[str] = []
+    for item in document:
+        if type(item) is not str:
+            raise ValueError("string list items must be strings")
+        items.append(item)
+    return tuple(items)
 
 
 def _encode_backend_artifact_ref(ref: BackendArtifactRef | None) -> bytes | None:
@@ -530,13 +566,12 @@ def _decode_backend_artifact_ref(value: object) -> BackendArtifactRef | None:
     if type(value) is not bytes:
         raise ValueError("backend artifact ref must be bytes or None")
     document = json.loads(value.decode("utf-8"))
-    if type(document) is not dict:
-        raise ValueError("backend artifact ref must be an object")
+    mapping = _require_exact_object(document, _ARTIFACT_REF_KEYS, "backend artifact ref")
     return BackendArtifactRef(
-        artifact_id=str(document["artifact_id"]),
-        media_type=str(document["media_type"]),
-        size_bytes=int(document["size_bytes"]),
-        raw_sha256=str(document["raw_sha256"]),
+        artifact_id=_required_object_text(mapping, "artifact_id"),
+        media_type=_required_object_text(mapping, "media_type"),
+        size_bytes=_required_object_int(mapping, "size_bytes"),
+        raw_sha256=_required_object_text(mapping, "raw_sha256"),
     )
 
 
@@ -559,13 +594,12 @@ def _decode_repository_artifact_ref(value: object) -> RepositoryArtifactRef | No
     if type(value) is not bytes:
         raise ValueError("repository artifact ref must be bytes or None")
     document = json.loads(value.decode("utf-8"))
-    if type(document) is not dict:
-        raise ValueError("repository artifact ref must be an object")
+    mapping = _require_exact_object(document, _ARTIFACT_REF_KEYS, "repository artifact ref")
     return RepositoryArtifactRef(
-        artifact_id=str(document["artifact_id"]),
-        media_type=str(document["media_type"]),
-        size_bytes=int(document["size_bytes"]),
-        raw_sha256=str(document["raw_sha256"]),
+        artifact_id=_required_object_text(mapping, "artifact_id"),
+        media_type=_required_object_text(mapping, "media_type"),
+        size_bytes=_required_object_int(mapping, "size_bytes"),
+        raw_sha256=_required_object_text(mapping, "raw_sha256"),
     )
 
 
@@ -582,6 +616,37 @@ def _row_mapping(row: object) -> Mapping[str, object]:
     if isinstance(row, sqlite3.Row):
         return {key: row[key] for key in row.keys()}
     return cast(Mapping[str, object], row)
+
+
+_ARTIFACT_REF_KEYS = frozenset({"artifact_id", "media_type", "size_bytes", "raw_sha256"})
+
+
+def _require_exact_object(
+    document: object,
+    expected_keys: frozenset[str],
+    label: str,
+) -> Mapping[str, object]:
+    if type(document) is not dict:
+        raise ValueError(f"{label} must be an object")
+    mapping = cast(Mapping[str, object], document)
+    actual_keys = frozenset(mapping)
+    if actual_keys != expected_keys:
+        raise ValueError(f"{label} keys must match exactly")
+    return mapping
+
+
+def _required_object_text(mapping: Mapping[str, object], key: str) -> str:
+    value = mapping[key]
+    if type(value) is not str or not value:
+        raise ValueError(f"{key} must be a non-empty string")
+    return value
+
+
+def _required_object_int(mapping: Mapping[str, object], key: str) -> int:
+    value = mapping[key]
+    if type(value) is not int:
+        raise ValueError(f"{key} must be an integer")
+    return value
 
 
 def _required_text(row: Mapping[str, object], key: str) -> str:

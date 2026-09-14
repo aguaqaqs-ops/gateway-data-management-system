@@ -3,43 +3,51 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
-from gateway_backend.application.submission.accept import validate_accept_submit
+from gateway_backend.application.submission.accept import (
+    PERMISSION_UPLOAD_SUBMIT,
+    try_accept_submit_replay,
+    validate_accept_submit_with_frozen,
+)
 from gateway_backend.application.submission.contracts import (
     SUBMIT_JOB_CONTRACT_VERSION,
     AcceptSubmitCommand,
     AcceptSubmitValidationResult,
-    RepositorySubmitOccupancy,
-    SubmitAcceptanceRecord,
     derive_repository_import_idempotency_key,
     derive_repository_upload_idempotency_key,
 )
 from gateway_backend.application.submission.errors import PreviewBindingConflict
 from gateway_backend.application.submission.job_payload import (
     SUBMIT_JOB_KIND,
+    SUBMIT_STEP_AWAIT,
     SUBMIT_STEP_PREPARE,
+    SUBMIT_STEP_SUBMIT,
     build_submit_job_payload,
 )
 from gateway_backend.application.submission.ports import (
     BaselineCanonicalDigestPort,
     RepositoryMainResolvePort,
     SubmitControlTransaction,
+    SubmitControlUnitOfWorkFactory,
 )
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import (
     BuilderMutationPolicy,
+    RepositorySubmitOccupancy,
+    SubmitAcceptanceRecord,
     SubmitAttempt,
     SubmitAttemptState,
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
 )
+from gateway_backend.domain.workspace.errors import ScopeForbidden
+from gateway_backend.domain.workspace.models import BaselineHead
+from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     BusinessReference,
@@ -50,6 +58,8 @@ from gateway_backend.operations import (
     StepStatus,
 )
 
+_SUBMIT_JOB_STEPS = (SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT, SUBMIT_STEP_AWAIT)
+
 
 @dataclass(frozen=True, slots=True)
 class AcceptSubmitPreflight:
@@ -58,6 +68,9 @@ class AcceptSubmitPreflight:
     preview_operation_id: str
     protected_artifact_refs: tuple[ArtifactRef, ...]
     snapshot_table_set_digest: str
+    resolved_repository_id: str | None = None
+    baseline_canonical_digest: str | None = None
+    repository_expected_commit_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,9 +81,12 @@ class AcceptSubmitTransactionResult:
 
 
 def assert_submit_job_registered(registry: JobDefinitionRegistry) -> None:
-    key = JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_PREPARE)
     try:
-        registry.resolve_runnable(key, SUBMIT_JOB_CONTRACT_VERSION)
+        for step_name in _SUBMIT_JOB_STEPS:
+            registry.resolve_runnable(
+                JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=step_name),
+                SUBMIT_JOB_CONTRACT_VERSION,
+            )
     except JobDefinitionLookupError as exc:
         raise PreviewBindingConflict("submit job definition is not registered") from exc
 
@@ -91,7 +107,7 @@ def accept_submit_transaction(
     *,
     command: AcceptSubmitCommand,
     scope_resolution: ScopeResolutionPort,
-    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+    unit_of_work_factory: SubmitControlUnitOfWorkFactory,
     job_registry: JobDefinitionRegistry,
     baseline_digest: BaselineCanonicalDigestPort,
     main_resolve: RepositoryMainResolvePort,
@@ -99,33 +115,45 @@ def accept_submit_transaction(
     now: datetime,
 ) -> AcceptSubmitTransactionResult:
     assert_submit_job_registered(job_registry)
-    with unit_of_work_factory() as unit_of_work:
-        validation = validate_accept_submit(
+    assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
+    resolved = scope_resolution.resolve(command.context)
+
+    with unit_of_work_factory(read_only=True) as unit_of_work:
+        replay = try_accept_submit_replay(
             command=command,
-            scope_resolution=scope_resolution,
             workspace_repository=unit_of_work.workspace,
             submission_repository=unit_of_work.submission,
-            occupancy=unit_of_work.submission,
-            baseline_digest=baseline_digest,
-            main_resolve=main_resolve,
-            snapshot_table_artifact_refs=preflight.snapshot_table_artifact_refs,
-            preview_ready_closure_digest=preflight.preview_ready_closure_digest,
+            resolved_repository_id=resolved.repository_id,
+            baseline_head=resolved.baseline_head,
         )
-        if validation.replay and validation.prior_attempt is not None:
+        if replay is not None and replay.prior_attempt is not None:
             return AcceptSubmitTransactionResult(
-                submit_attempt_id=validation.prior_attempt.submit_attempt_id,
-                operation_id=validation.prior_attempt.operation_id,
+                submit_attempt_id=replay.prior_attempt.submit_attempt_id,
+                operation_id=replay.prior_attempt.operation_id,
                 replay=True,
             )
+        workspace = unit_of_work.workspace.get_workspace(command.workspace_id)
+        if workspace is None:
+            raise ScopeForbidden
+        repository_id = workspace.repository_id
 
-    with unit_of_work_factory() as unit_of_work:
+    frozen = replace(
+        preflight,
+        resolved_repository_id=resolved.repository_id,
+        baseline_canonical_digest=baseline_digest.get_baseline_canonical_digest(
+            repository_id=repository_id,
+            baseline_head=resolved.baseline_head,
+        ),
+        repository_expected_commit_id=main_resolve.resolve_main_expected_commit(
+            repository_id=repository_id
+        ),
+    )
+    with unit_of_work_factory(read_only=False) as unit_of_work:
         return _accept_submit_in_transaction(
             command=command,
-            scope_resolution=scope_resolution,
             unit_of_work=unit_of_work,
-            baseline_digest=baseline_digest,
-            main_resolve=main_resolve,
-            preflight=preflight,
+            baseline_head=resolved.baseline_head,
+            preflight=frozen,
             now=now,
         )
 
@@ -133,21 +161,26 @@ def accept_submit_transaction(
 def _accept_submit_in_transaction(
     *,
     command: AcceptSubmitCommand,
-    scope_resolution: ScopeResolutionPort,
-    unit_of_work: ControlDbUnitOfWork,
-    baseline_digest: BaselineCanonicalDigestPort,
-    main_resolve: RepositoryMainResolvePort,
+    unit_of_work: SubmitControlTransaction,
+    baseline_head: BaselineHead,
     preflight: AcceptSubmitPreflight,
     now: datetime,
 ) -> AcceptSubmitTransactionResult:
-    validation = validate_accept_submit(
+    if (
+        preflight.resolved_repository_id is None
+        or preflight.baseline_canonical_digest is None
+        or preflight.repository_expected_commit_id is None
+    ):
+        raise PreviewBindingConflict("accept preflight is missing frozen repository facts")
+    validation = validate_accept_submit_with_frozen(
         command=command,
-        scope_resolution=scope_resolution,
         workspace_repository=unit_of_work.workspace,
         submission_repository=unit_of_work.submission,
         occupancy=unit_of_work.submission,
-        baseline_digest=baseline_digest,
-        main_resolve=main_resolve,
+        resolved_repository_id=preflight.resolved_repository_id,
+        baseline_head=baseline_head,
+        baseline_canonical_digest=preflight.baseline_canonical_digest,
+        repository_expected_commit_id=preflight.repository_expected_commit_id,
         snapshot_table_artifact_refs=preflight.snapshot_table_artifact_refs,
         preview_ready_closure_digest=preflight.preview_ready_closure_digest,
     )

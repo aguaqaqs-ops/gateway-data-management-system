@@ -230,6 +230,37 @@ class Submission:
             raise ValueError("created_at must be datetime")
 
 
+@dataclass(frozen=True, slots=True)
+class SubmitAcceptanceRecord:
+    workspace_id: str
+    idempotency_key: str
+    request_fingerprint: str
+    submit_attempt_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceSubmitOccupancy:
+    workspace_id: str
+    active_submit_attempt_id: str | None
+    active_submission_id: str | None
+
+    def __post_init__(self) -> None:
+        has_attempt = self.active_submit_attempt_id is not None
+        has_submission = self.active_submission_id is not None
+        if has_attempt == has_submission:
+            raise ValueError("workspace occupancy row must hold exactly one active pointer")
+
+
+@dataclass(frozen=True, slots=True)
+class RepositorySubmitOccupancy:
+    repository_id: str
+    workspace_id: str
+    submit_attempt_id: str
+    business_baseline_node_id: str
+    baseline_head_version: int
+    acquired_at: datetime
+
+
 def derive_preview_canonical_business_digest(*, bundle_digest: str) -> str:
     _validate_non_empty_str(bundle_digest, "bundle_digest")
     return bundle_digest

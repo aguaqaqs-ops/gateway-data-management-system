@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from datetime import datetime
 from typing import Protocol
 
-from gateway_backend.application.submission.contracts import (
-    MatchingAbortProof,
+from gateway_backend.application.submission.contracts import MatchingAbortProof
+from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.domain.submission.models import (
     RepositorySubmitOccupancy,
     SubmitAcceptanceRecord,
+    SubmitAttempt,
+    Submission,
     WorkspaceSubmitOccupancy,
 )
-from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.domain.submission.models import SubmitAttempt, Submission
 from gateway_backend.domain.workspace.models import BaselineHead
 from gateway_backend.domain.workspace.ports import WorkspaceRepository
 from gateway_backend.operations import OperationStore
@@ -48,6 +50,14 @@ class SubmitControlTransaction(Protocol):
         owner_kind: str,
         owner_id: str,
     ) -> frozenset[str]: ...
+
+
+class SubmitControlUnitOfWorkFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        read_only: bool = False,
+    ) -> AbstractContextManager[SubmitControlTransaction]: ...
 
 
 class SubmissionRepository(Protocol):
@@ -111,14 +121,27 @@ class SubmitTransactionRepository(SubmissionRepository, SubmitOccupancyReadPort,
     ) -> None:
         """Atomically switch workspace occupancy from Attempt to Submission."""
 
-    def delete_workspace_occupancy(self, workspace_id: str) -> None:
-        """Delete workspace submit occupancy row."""
+    def delete_workspace_occupancy(
+        self,
+        workspace_id: str,
+        *,
+        expected_submit_attempt_id: str,
+    ) -> None:
+        """Delete workspace submit occupancy row when it still points at this Attempt."""
 
     def insert_repository_occupancy(self, occupancy: RepositorySubmitOccupancy) -> None:
         """Insert repository submit occupancy row."""
 
-    def delete_repository_occupancy(self, repository_id: str) -> None:
-        """Delete repository submit occupancy row."""
+    def delete_repository_occupancy(
+        self,
+        *,
+        repository_id: str,
+        workspace_id: str,
+        submit_attempt_id: str,
+        business_baseline_node_id: str,
+        baseline_head_version: int,
+    ) -> None:
+        """Delete repository submit occupancy row when owner facts still match."""
 
 
 class BaselineCanonicalDigestPort(Protocol):

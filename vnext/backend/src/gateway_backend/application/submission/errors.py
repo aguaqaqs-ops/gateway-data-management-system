@@ -79,6 +79,19 @@ class FinalizeBindingMismatch(SubmitApplicationError):
         self.reason = reason
 
 
+class SubmitAttemptVersionConflict(SubmitApplicationError):
+    """SubmitAttempt optimistic version CAS failed."""
+
+    stable_code = "SUBMIT_ATTEMPT_VERSION_CONFLICT"
+
+    def __init__(self, *, expected: int, actual: int) -> None:
+        super().__init__(
+            f"submit attempt optimistic version conflict: expected {expected}, actual {actual}"
+        )
+        self.expected = expected
+        self.actual = actual
+
+
 class AbortProofNotSatisfied(SubmitApplicationError):
     """Repository stable abort proof is missing or not allowed."""
 

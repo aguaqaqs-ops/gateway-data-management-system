@@ -16,6 +16,7 @@ from gateway_backend.operations import OperationStore, StoreBusy
 
 if TYPE_CHECKING:
     from gateway_backend.domain.workspace.ports import WorkspaceRepository
+    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
 
 BUSY_TIMEOUT_MS = 5_000
 
@@ -122,6 +123,7 @@ class ControlDbUnitOfWork:
         self._operations: OperationStore | None = None
         self._workspace: WorkspaceRepository | None = None
         self._protection: SQLiteArtifactProtectionStore | None = None
+        self._submission: SQLiteSubmissionRepository | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -146,6 +148,14 @@ class ControlDbUnitOfWork:
         if self._workspace is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._workspace
+
+    @property
+    def submission(self) -> SQLiteSubmissionRepository:
+        """Return the submission participant bound to this transaction."""
+
+        if self._submission is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._submission
 
     @property
     def protection(self) -> SQLiteArtifactProtectionStore:
@@ -178,6 +188,23 @@ class ControlDbUnitOfWork:
 
         return self.protection.clear_protection(owner_kind=owner_kind, owner_id=owner_id)
 
+    def list_artifact_protection_for_owner(
+        self,
+        *,
+        owner_kind: str,
+        owner_id: str,
+    ) -> frozenset[str]:
+        """Return artifact ids protected by one owner within the current transaction."""
+
+        rows = self.connection.execute(
+            """
+            SELECT artifact_id FROM artifact_protection_intents
+            WHERE owner_kind = ? AND owner_id = ?
+            """,
+            (owner_kind, owner_id),
+        ).fetchall()
+        return frozenset(row[0] for row in rows)
+
     @property
     def transaction_now(self) -> datetime:
         """Return the single UTC clock sample captured for this transaction."""
@@ -197,6 +224,9 @@ class ControlDbUnitOfWork:
             from gateway_backend.infrastructure.control_db.sqlite_operations import (
                 SQLiteOperationStore,
             )
+            from gateway_backend.infrastructure.control_db.sqlite_submission import (
+                SQLiteSubmissionRepository,
+            )
             from gateway_backend.infrastructure.control_db.sqlite_workspace import (
                 SQLiteWorkspaceRepository,
             )
@@ -214,6 +244,11 @@ class ControlDbUnitOfWork:
             )
             self._protection = SQLiteArtifactProtectionStore(
                 connection,
+                read_only=self._read_only,
+            )
+            self._submission = SQLiteSubmissionRepository(
+                connection,
+                transaction_now=transaction_now,
                 read_only=self._read_only,
             )
         except sqlite3.OperationalError as exc:
@@ -242,6 +277,7 @@ class ControlDbUnitOfWork:
         self._operations = None
         self._workspace = None
         self._protection = None
+        self._submission = None
         self._transaction_now = None
         if connection is None:
             return

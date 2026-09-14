@@ -12,7 +12,7 @@ from gateway_backend.operations import StoreBusy, UnsupportedSchemaVersion
 OPERATIONS_SCHEMA_COMPONENT = "operations"
 OPERATIONS_SCHEMA_VERSION = 1
 WORKSPACE_SCHEMA_COMPONENT = "workspace"
-WORKSPACE_SCHEMA_VERSION = 2
+WORKSPACE_SCHEMA_VERSION = 3
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SQLITE_INT_MIN = -(2**63)
@@ -45,6 +45,16 @@ _ACTIVE_STEP_STATUSES = (
 _CLAIMABLE_STEP_STATUSES = ("'PENDING'", "'RETRY_WAIT'")
 _WORKSPACE_STATES = ("'OPEN'", "'CLOSED'")
 _INPUT_COMPLETENESS = ("'FULL'", "'MODIFIED_ONLY'")
+_SUBMIT_ATTEMPT_STATES = (
+    "'PREPARED'",
+    "'EFFECT_PENDING'",
+    "'FINALIZED'",
+    "'ABORTED'",
+)
+_SUBMIT_TARGET_REFS = ("'main'",)
+_SUBMIT_VERIFICATION_POLICIES = ("'STRUCTURAL'",)
+_SUBMIT_UNKNOWN_TYPE_POLICIES = ("'REJECT'",)
+_BUILDER_MUTATION_POLICIES = ("'REBUILD_ALWAYS'",)
 
 
 def bootstrap_control_schema(
@@ -74,7 +84,7 @@ def bootstrap_workspace_schema(
         connection,
         component=WORKSPACE_SCHEMA_COMPONENT,
         target_version=WORKSPACE_SCHEMA_VERSION,
-        steps={1: _apply_workspace_v1, 2: _apply_workspace_v2},
+        steps={1: _apply_workspace_v1, 2: _apply_workspace_v2, 3: _apply_workspace_v3},
         now=now,
     )
 
@@ -137,6 +147,21 @@ def _apply_workspace_v1(connection: sqlite3.Connection) -> None:
     for statement in statements:
         connection.execute(statement)
     _assert_workspace_bootstrap_integrity(connection)
+
+
+def _apply_workspace_v3(connection: sqlite3.Connection) -> None:
+    _assert_workspace_migration_integrity(connection)
+    for statement in _workspace_v3_statements():
+        connection.execute(statement)
+
+
+def _assert_workspace_migration_integrity(connection: sqlite3.Connection) -> None:
+    integrity_rows = connection.execute("PRAGMA integrity_check").fetchall()
+    foreign_key_rows = connection.execute("PRAGMA foreign_key_check").fetchall()
+    if len(integrity_rows) != 1 or integrity_rows[0][0] != "ok":
+        raise RuntimeError("workspace v3 migration found integrity check failure")
+    if foreign_key_rows:
+        raise RuntimeError("workspace v3 migration found foreign key check failure")
 
 
 def _apply_workspace_v2(connection: sqlite3.Connection) -> None:
@@ -581,6 +606,260 @@ def _copy_preview_idempotency_to_v2(connection: sqlite3.Connection) -> None:
                 head_version,
             ),
         )
+
+
+def _workspace_v3_statements() -> tuple[str, ...]:
+    attempt_states = ", ".join(_SUBMIT_ATTEMPT_STATES)
+    target_refs = ", ".join(_SUBMIT_TARGET_REFS)
+    verification_policies = ", ".join(_SUBMIT_VERIFICATION_POLICIES)
+    unknown_type_policies = ", ".join(_SUBMIT_UNKNOWN_TYPE_POLICIES)
+    builder_policies = ", ".join(_BUILDER_MUTATION_POLICIES)
+    return (
+        f"""
+        CREATE TABLE submit_attempt_records (
+            submit_attempt_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(submit_attempt_id) = 'text'
+                       AND length(submit_attempt_id) BETWEEN 1 AND 255),
+            workspace_id TEXT NOT NULL
+                CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+            workspace_generation INTEGER NOT NULL
+                CHECK (typeof(workspace_generation) = 'integer' AND workspace_generation >= 0),
+            upload_revision_id TEXT NOT NULL
+                CHECK (typeof(upload_revision_id) = 'text'
+                       AND length(upload_revision_id) BETWEEN 1 AND 255),
+            preview_result_id TEXT NOT NULL
+                CHECK (typeof(preview_result_id) = 'text'
+                       AND length(preview_result_id) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
+            business_baseline_node_id TEXT NOT NULL
+                CHECK (typeof(business_baseline_node_id) = 'text'
+                       AND length(business_baseline_node_id) BETWEEN 1 AND 255),
+            business_baseline_commit_id TEXT NOT NULL
+                CHECK (typeof(business_baseline_commit_id) = 'text'
+                       AND length(business_baseline_commit_id) BETWEEN 1 AND 255),
+            baseline_head_version INTEGER NOT NULL
+                CHECK (typeof(baseline_head_version) = 'integer' AND baseline_head_version >= 0),
+            repository_expected_commit_id TEXT NOT NULL
+                CHECK (typeof(repository_expected_commit_id) = 'text'
+                       AND length(repository_expected_commit_id) BETWEEN 1 AND 255),
+            canonical_business_digest TEXT NOT NULL
+                CHECK (typeof(canonical_business_digest) = 'text'
+                       AND length(canonical_business_digest) BETWEEN 1 AND 512),
+            source_digest TEXT NOT NULL
+                CHECK (typeof(source_digest) = 'text' AND length(source_digest) BETWEEN 1 AND 512),
+            snapshot_digest TEXT NOT NULL
+                CHECK (typeof(snapshot_digest) = 'text' AND length(snapshot_digest) BETWEEN 1 AND 512),
+            source_artifact_refs BLOB NOT NULL
+                CHECK (typeof(source_artifact_refs) = 'blob'),
+            snapshot_table_artifact_refs BLOB NOT NULL
+                CHECK (typeof(snapshot_table_artifact_refs) = 'blob'),
+            preview_ready_closure_ref TEXT NOT NULL
+                CHECK (typeof(preview_ready_closure_ref) = 'text'
+                       AND length(preview_ready_closure_ref) BETWEEN 1 AND 255),
+            preview_ready_closure_digest TEXT NOT NULL
+                CHECK (typeof(preview_ready_closure_digest) = 'text'
+                       AND length(preview_ready_closure_digest) BETWEEN 1 AND 512),
+            canonicalization_manifest_ref TEXT
+                CHECK (canonicalization_manifest_ref IS NULL OR
+                       (typeof(canonicalization_manifest_ref) = 'text'
+                        AND length(canonicalization_manifest_ref) BETWEEN 1 AND 255)),
+            canonicalization_manifest_digest TEXT
+                CHECK (canonicalization_manifest_digest IS NULL OR
+                       (typeof(canonicalization_manifest_digest) = 'text'
+                        AND length(canonicalization_manifest_digest) BETWEEN 1 AND 512)),
+            repository_import_artifact_ref BLOB
+                CHECK (repository_import_artifact_ref IS NULL OR
+                       typeof(repository_import_artifact_ref) = 'blob'),
+            repository_artifact_ref BLOB
+                CHECK (repository_artifact_ref IS NULL OR typeof(repository_artifact_ref) = 'blob'),
+            repository_operation_id TEXT
+                CHECK (repository_operation_id IS NULL OR
+                       (typeof(repository_operation_id) = 'text'
+                        AND length(repository_operation_id) BETWEEN 1 AND 255)),
+            repository_operation_evidence TEXT
+                CHECK (repository_operation_evidence IS NULL OR
+                       (typeof(repository_operation_evidence) = 'text'
+                        AND length(repository_operation_evidence) BETWEEN 1 AND 4096)),
+            requested_target_ref TEXT NOT NULL
+                CHECK (typeof(requested_target_ref) = 'text'
+                       AND requested_target_ref IN ({target_refs})),
+            requested_verification_policy TEXT NOT NULL
+                CHECK (typeof(requested_verification_policy) = 'text'
+                       AND requested_verification_policy IN ({verification_policies})),
+            requested_unknown_type_policy TEXT NOT NULL
+                CHECK (typeof(requested_unknown_type_policy) = 'text'
+                       AND requested_unknown_type_policy IN ({unknown_type_policies})),
+            builder_mutation_policy TEXT NOT NULL
+                CHECK (typeof(builder_mutation_policy) = 'text'
+                       AND builder_mutation_policy IN ({builder_policies})),
+            accept_idempotency_key TEXT NOT NULL
+                CHECK (typeof(accept_idempotency_key) = 'text'
+                       AND length(accept_idempotency_key) BETWEEN 1 AND 255),
+            accept_request_fingerprint TEXT NOT NULL
+                CHECK (typeof(accept_request_fingerprint) = 'text'
+                       AND length(accept_request_fingerprint) BETWEEN 1 AND 512),
+            repository_upload_idempotency_key TEXT NOT NULL
+                CHECK (typeof(repository_upload_idempotency_key) = 'text'
+                       AND length(repository_upload_idempotency_key) BETWEEN 1 AND 255),
+            repository_import_idempotency_key TEXT NOT NULL
+                CHECK (typeof(repository_import_idempotency_key) = 'text'
+                       AND length(repository_import_idempotency_key) BETWEEN 1 AND 255),
+            operation_id TEXT NOT NULL UNIQUE
+                CHECK (typeof(operation_id) = 'text' AND length(operation_id) BETWEEN 1 AND 255),
+            state TEXT NOT NULL
+                CHECK (typeof(state) = 'text' AND state IN ({attempt_states})),
+            submission_id TEXT
+                CHECK (submission_id IS NULL OR
+                       (typeof(submission_id) = 'text' AND length(submission_id) BETWEEN 1 AND 255)),
+            optimistic_version INTEGER NOT NULL
+                CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version >= 0),
+            created_by TEXT NOT NULL
+                CHECK (typeof(created_by) = 'text' AND length(created_by) BETWEEN 1 AND 255),
+            created_at_us INTEGER NOT NULL
+                CHECK (typeof(created_at_us) = 'integer'),
+            effect_pending_at_us INTEGER
+                CHECK (effect_pending_at_us IS NULL OR typeof(effect_pending_at_us) = 'integer'),
+            finalized_at_us INTEGER
+                CHECK (finalized_at_us IS NULL OR typeof(finalized_at_us) = 'integer'),
+            aborted_at_us INTEGER
+                CHECK (aborted_at_us IS NULL OR typeof(aborted_at_us) = 'integer'),
+            abort_code TEXT
+                CHECK (abort_code IS NULL OR
+                       (typeof(abort_code) = 'text' AND length(abort_code) BETWEEN 1 AND 128)),
+            FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
+            FOREIGN KEY (operation_id) REFERENCES operation_records(operation_id) ON DELETE RESTRICT
+        )
+        """,
+        """
+        CREATE TABLE submit_idempotency_records (
+            workspace_id TEXT NOT NULL
+                CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+            idempotency_key TEXT NOT NULL
+                CHECK (typeof(idempotency_key) = 'text'
+                       AND length(idempotency_key) BETWEEN 1 AND 255),
+            request_fingerprint TEXT NOT NULL
+                CHECK (typeof(request_fingerprint) = 'text'
+                       AND length(request_fingerprint) BETWEEN 1 AND 512),
+            submit_attempt_id TEXT NOT NULL UNIQUE
+                CHECK (typeof(submit_attempt_id) = 'text'
+                       AND length(submit_attempt_id) BETWEEN 1 AND 255),
+            PRIMARY KEY (workspace_id, idempotency_key),
+            FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
+            FOREIGN KEY (submit_attempt_id) REFERENCES submit_attempt_records(submit_attempt_id)
+                ON DELETE RESTRICT
+        )
+        """,
+        f"""
+        CREATE TABLE submission_records (
+            submission_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(submission_id) = 'text' AND length(submission_id) BETWEEN 1 AND 255),
+            submit_attempt_id TEXT NOT NULL UNIQUE
+                CHECK (typeof(submit_attempt_id) = 'text'
+                       AND length(submit_attempt_id) BETWEEN 1 AND 255),
+            workspace_id TEXT NOT NULL
+                CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+            workspace_generation INTEGER NOT NULL
+                CHECK (typeof(workspace_generation) = 'integer' AND workspace_generation >= 0),
+            upload_revision_id TEXT NOT NULL
+                CHECK (typeof(upload_revision_id) = 'text'
+                       AND length(upload_revision_id) BETWEEN 1 AND 255),
+            preview_result_id TEXT NOT NULL
+                CHECK (typeof(preview_result_id) = 'text'
+                       AND length(preview_result_id) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
+            based_on_baseline_node_id TEXT NOT NULL
+                CHECK (typeof(based_on_baseline_node_id) = 'text'
+                       AND length(based_on_baseline_node_id) BETWEEN 1 AND 255),
+            business_baseline_commit_id TEXT NOT NULL
+                CHECK (typeof(business_baseline_commit_id) = 'text'
+                       AND length(business_baseline_commit_id) BETWEEN 1 AND 255),
+            repository_commit_id TEXT NOT NULL
+                CHECK (typeof(repository_commit_id) = 'text'
+                       AND length(repository_commit_id) BETWEEN 1 AND 255),
+            canonical_business_digest TEXT NOT NULL
+                CHECK (typeof(canonical_business_digest) = 'text'
+                       AND length(canonical_business_digest) BETWEEN 1 AND 512),
+            source_artifact_refs BLOB NOT NULL
+                CHECK (typeof(source_artifact_refs) = 'blob'),
+            canonicalization_manifest_ref TEXT NOT NULL
+                CHECK (typeof(canonicalization_manifest_ref) = 'text'
+                       AND length(canonicalization_manifest_ref) BETWEEN 1 AND 255),
+            canonicalization_manifest_digest TEXT NOT NULL
+                CHECK (typeof(canonicalization_manifest_digest) = 'text'
+                       AND length(canonicalization_manifest_digest) BETWEEN 1 AND 512),
+            repository_import_artifact_raw_sha256 TEXT NOT NULL
+                CHECK (typeof(repository_import_artifact_raw_sha256) = 'text'
+                       AND length(repository_import_artifact_raw_sha256) BETWEEN 1 AND 512),
+            repository_artifact_id TEXT NOT NULL
+                CHECK (typeof(repository_artifact_id) = 'text'
+                       AND length(repository_artifact_id) BETWEEN 1 AND 255),
+            requested_verification_policy TEXT NOT NULL
+                CHECK (typeof(requested_verification_policy) = 'text'
+                       AND requested_verification_policy IN ({verification_policies})),
+            completed_verification_policy TEXT NOT NULL
+                CHECK (typeof(completed_verification_policy) = 'text'
+                       AND completed_verification_policy IN ({verification_policies})),
+            requested_unknown_type_policy TEXT NOT NULL
+                CHECK (typeof(requested_unknown_type_policy) = 'text'
+                       AND requested_unknown_type_policy IN ({unknown_type_policies})),
+            target_ref TEXT NOT NULL
+                CHECK (typeof(target_ref) = 'text' AND target_ref IN ({target_refs})),
+            created_by TEXT NOT NULL
+                CHECK (typeof(created_by) = 'text' AND length(created_by) BETWEEN 1 AND 255),
+            created_at_us INTEGER NOT NULL
+                CHECK (typeof(created_at_us) = 'integer'),
+            FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
+            FOREIGN KEY (submit_attempt_id) REFERENCES submit_attempt_records(submit_attempt_id)
+                ON DELETE RESTRICT
+        )
+        """,
+        """
+        CREATE TABLE workspace_submit_occupancy_records (
+            workspace_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+            active_submit_attempt_id TEXT
+                CHECK (active_submit_attempt_id IS NULL OR
+                       (typeof(active_submit_attempt_id) = 'text'
+                        AND length(active_submit_attempt_id) BETWEEN 1 AND 255)),
+            active_submission_id TEXT
+                CHECK (active_submission_id IS NULL OR
+                       (typeof(active_submission_id) = 'text'
+                        AND length(active_submission_id) BETWEEN 1 AND 255)),
+            CHECK (
+                (active_submit_attempt_id IS NOT NULL AND active_submission_id IS NULL) OR
+                (active_submit_attempt_id IS NULL AND active_submission_id IS NOT NULL)
+            ),
+            FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
+            FOREIGN KEY (active_submit_attempt_id) REFERENCES submit_attempt_records(submit_attempt_id)
+                ON DELETE RESTRICT,
+            FOREIGN KEY (active_submission_id) REFERENCES submission_records(submission_id)
+                ON DELETE RESTRICT
+        )
+        """,
+        """
+        CREATE TABLE repository_submit_occupancy_records (
+            repository_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
+            workspace_id TEXT NOT NULL UNIQUE
+                CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),
+            submit_attempt_id TEXT NOT NULL UNIQUE
+                CHECK (typeof(submit_attempt_id) = 'text'
+                       AND length(submit_attempt_id) BETWEEN 1 AND 255),
+            business_baseline_node_id TEXT NOT NULL
+                CHECK (typeof(business_baseline_node_id) = 'text'
+                       AND length(business_baseline_node_id) BETWEEN 1 AND 255),
+            baseline_head_version INTEGER NOT NULL
+                CHECK (typeof(baseline_head_version) = 'integer' AND baseline_head_version >= 0),
+            acquired_at_us INTEGER NOT NULL
+                CHECK (typeof(acquired_at_us) = 'integer'),
+            FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
+            FOREIGN KEY (submit_attempt_id) REFERENCES submit_attempt_records(submit_attempt_id)
+                ON DELETE RESTRICT
+        )
+        """,
+    )
 
 
 def _preview_binding_fields(binding_blob: bytes) -> tuple[str, int]:

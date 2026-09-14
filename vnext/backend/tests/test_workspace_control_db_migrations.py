@@ -53,10 +53,15 @@ def test_workspace_bootstrap_creates_tables_constraints_and_indexes() -> None:
         "preview_idempotency_records",
         "preview_result_records",
         "provisioned_scope_mappings",
+        "repository_submit_occupancy_records",
         "step_records",
+        "submit_attempt_records",
+        "submit_idempotency_records",
+        "submission_records",
         "upload_idempotency_records",
         "upload_revision_records",
         "workspace_records",
+        "workspace_submit_occupancy_records",
     } <= tables
 
     ledger_rows = connection.execute(
@@ -65,6 +70,7 @@ def test_workspace_bootstrap_creates_tables_constraints_and_indexes() -> None:
     assert ledger_rows == [
         (OPERATIONS_SCHEMA_COMPONENT, 1),
         (WORKSPACE_SCHEMA_COMPONENT, 1),
+        (WORKSPACE_SCHEMA_COMPONENT, 2),
         (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
     ]
 
@@ -210,6 +216,7 @@ def test_historical_workspace_v1_file_reopens_and_seeds_mappings(tmp_path: Path)
             (OPERATIONS_SCHEMA_COMPONENT, 1),
             (WORKSPACE_SCHEMA_COMPONENT, 1),
             (WORKSPACE_SCHEMA_COMPONENT, 2),
+            (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
         ]
         idempotency_columns = [
             row[1] for row in reopened.execute("PRAGMA table_info(preview_idempotency_records)")
@@ -231,10 +238,10 @@ def test_historical_workspace_v1_file_reopens_and_seeds_mappings(tmp_path: Path)
         assert reopened.execute(
             "SELECT COUNT(*) FROM control_schema_migrations WHERE component = ?",
             (WORKSPACE_SCHEMA_COMPONENT,),
-        ).fetchone()[0] == 2
+        ).fetchone()[0] == WORKSPACE_SCHEMA_VERSION
         reopened.execute(
             "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
-            (WORKSPACE_SCHEMA_COMPONENT, 3, EXPECTED_MIGRATION_TIME_US),
+            (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION + 1, EXPECTED_MIGRATION_TIME_US),
         )
         with pytest.raises(UnsupportedSchemaVersion):
             bootstrap_workspace_schema(reopened, now=lambda: MIGRATION_TIME)

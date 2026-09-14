@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from gateway_backend.application.submission.contracts import (
     FinalizeSubmitCommand,
     FinalizeSubmitResult,
@@ -121,12 +119,10 @@ def finalize_submit(
         )
     submission = build_submission(command=command)
     finalized_attempt = transition_attempt_state(
-        replace(
-            command.attempt,
-            submission_id=submission.submission_id,
-            finalized_at=command.created_at,
-        ),
+        command.attempt,
         target=SubmitAttemptState.FINALIZED,
+        submission_id=submission.submission_id,
+        finalized_at=command.created_at,
     )
     return FinalizeSubmitResult(
         attempt=finalized_attempt,

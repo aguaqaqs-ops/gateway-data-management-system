@@ -1,7 +1,20 @@
 """Submit acceptance and finalize application services."""
 
 from gateway_backend.application.submission.abort import ALLOWED_ABORT_CODES, validate_abort_proof
+from gateway_backend.application.submission.abort_transaction import (
+    AbortSubmitTransactionRequest,
+    AbortSubmitTransactionResult,
+    abort_submit_transaction,
+)
 from gateway_backend.application.submission.accept import validate_accept_submit
+from gateway_backend.application.submission.accept_transaction import (
+    AcceptSubmitPreflight,
+    AcceptSubmitTransactionResult,
+    accept_submit_transaction,
+    assert_submit_job_registered,
+    deterministic_submit_attempt_id,
+    deterministic_submit_operation_id,
+)
 from gateway_backend.application.submission.contracts import (
     ACCEPT_SUBMIT_REQUEST_PREFIX,
     SUBMIT_JOB_CONTRACT_VERSION,
@@ -31,6 +44,7 @@ from gateway_backend.application.submission.errors import (
     PreviewBindingConflict,
     PreviewDerivedStale,
     SubmitApplicationError,
+    SubmitAttemptVersionConflict,
     SubmitOccupancyConflict,
 )
 from gateway_backend.application.submission.finalize import (
@@ -39,11 +53,24 @@ from gateway_backend.application.submission.finalize import (
     validate_finalize_replay,
     validate_matching_result_for_finalize,
 )
+from gateway_backend.application.submission.finalize_transaction import (
+    FinalizeSubmitTransactionRequest,
+    finalize_submit_transaction,
+)
+from gateway_backend.application.submission.job_payload import (
+    SUBMIT_JOB_KIND,
+    SUBMIT_STEP_AWAIT,
+    SUBMIT_STEP_PREPARE,
+    SUBMIT_STEP_SUBMIT,
+    build_submit_job_payload,
+)
 from gateway_backend.application.submission.ports import (
     BaselineCanonicalDigestPort,
     RepositoryAbortEvidencePort,
     RepositoryMainResolvePort,
+    SubmitControlTransaction,
     SubmitOccupancyReadPort,
+    SubmitTransactionRepository,
     SubmissionRepository,
 )
 
@@ -51,13 +78,18 @@ __all__ = [
     "ACCEPT_SUBMIT_REQUEST_PREFIX",
     "ALLOWED_ABORT_CODES",
     "AbortProofNotSatisfied",
+    "AbortSubmitTransactionRequest",
+    "AbortSubmitTransactionResult",
     "AcceptSubmitCommand",
+    "AcceptSubmitPreflight",
+    "AcceptSubmitTransactionResult",
     "AcceptSubmitValidationResult",
     "BaselineCanonicalDigestPort",
     "BaselineVersionConflict",
     "FinalizeBindingMismatch",
     "FinalizeSubmitCommand",
     "FinalizeSubmitResult",
+    "FinalizeSubmitTransactionRequest",
     "IdempotencyConflict",
     "MatchingAbortProof",
     "MatchingFinalizeFacts",
@@ -69,13 +101,27 @@ __all__ = [
     "RepositoryOperationTerminalStatus",
     "RepositorySubmitOccupancy",
     "SUBMIT_JOB_CONTRACT_VERSION",
+    "SUBMIT_JOB_KIND",
+    "SUBMIT_STEP_AWAIT",
+    "SUBMIT_STEP_PREPARE",
+    "SUBMIT_STEP_SUBMIT",
     "SubmitAcceptanceRecord",
+    "SubmitControlTransaction",
+    "SubmitTransactionRepository",
     "SubmitApplicationError",
+    "SubmitAttemptVersionConflict",
     "SubmitOccupancyConflict",
     "SubmitOccupancyReadPort",
     "SubmissionRepository",
     "WorkspaceSubmitOccupancy",
+    "abort_submit_transaction",
+    "accept_submit_transaction",
+    "assert_submit_job_registered",
     "build_submission",
+    "build_submit_job_payload",
+    "deterministic_submit_attempt_id",
+    "deterministic_submit_operation_id",
+    "finalize_submit_transaction",
     "compute_accept_request_fingerprint",
     "compute_new_accept_fingerprint",
     "compute_replay_accept_fingerprint",

@@ -1,0 +1,183 @@
+"""T3 finalize SQLite transaction orchestration."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from datetime import datetime
+
+from gateway_backend.application.submission.contracts import (
+    FinalizeSubmitCommand,
+    FinalizeSubmitResult,
+    MatchingFinalizeFacts,
+)
+from gateway_backend.application.submission.finalize import finalize_submit
+from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
+from gateway_shared_kernel import DigestRef
+
+from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.domain.submission.models import SubmitAttempt, SubmitAttemptState
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+from gateway_backend.operations import (
+    OperationStatus,
+    StepStatus,
+    WritePrecondition,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class FinalizeSubmitTransactionRequest:
+    submit_attempt_id: str
+    facts: MatchingFinalizeFacts
+    submission_id: str
+    created_at: datetime
+
+
+def finalize_submit_transaction(
+    *,
+    request: FinalizeSubmitTransactionRequest,
+    unit_of_work: ControlDbUnitOfWork,
+) -> FinalizeSubmitResult:
+    attempt = unit_of_work.submission.get_submit_attempt(request.submit_attempt_id)
+    if attempt is None:
+        raise ValueError("submit attempt is missing")
+    if attempt.state is not SubmitAttemptState.EFFECT_PENDING:
+        existing = unit_of_work.submission.get_submission_by_attempt(request.submit_attempt_id)
+        if existing is not None and attempt.state is SubmitAttemptState.FINALIZED:
+            return finalize_submit(
+                command=FinalizeSubmitCommand(
+                    attempt=attempt,
+                    facts=request.facts,
+                    submission_id=existing.submission_id,
+                    created_at=request.created_at,
+                ),
+                existing_submission=existing,
+            )
+        raise ValueError("finalize requires EFFECT_PENDING attempt")
+
+    workspace = unit_of_work.workspace.get_workspace(attempt.workspace_id)
+    if workspace is None:
+        raise ValueError("workspace is missing")
+
+    existing_submission = unit_of_work.submission.get_submission_by_attempt(request.submit_attempt_id)
+    result = finalize_submit(
+        command=FinalizeSubmitCommand(
+            attempt=attempt,
+            facts=request.facts,
+            submission_id=request.submission_id,
+            created_at=request.created_at,
+        ),
+        existing_submission=existing_submission,
+    )
+    if not result.replay:
+        unit_of_work.submission.insert_submission(result.submission)
+
+    finalized_attempt = replace(
+        result.attempt,
+        optimistic_version=attempt.optimistic_version + 1,
+    )
+    unit_of_work.submission.cas_update_attempt(
+        finalized_attempt,
+        expected_version=attempt.optimistic_version,
+    )
+
+    updated_workspace = replace(
+        workspace,
+        optimistic_version=workspace.optimistic_version + 1,
+        updated_at=request.created_at,
+    )
+    unit_of_work.workspace.save_workspace(
+        updated_workspace,
+        expected_version=workspace.optimistic_version,
+    )
+    unit_of_work.submission.switch_workspace_occupancy_to_submission(
+        workspace_id=attempt.workspace_id,
+        submit_attempt_id=attempt.submit_attempt_id,
+        submission_id=result.submission.submission_id,
+    )
+    unit_of_work.submission.delete_repository_occupancy(attempt.repository_id)
+
+    _transfer_finalize_protection(unit_of_work, attempt=finalized_attempt)
+
+    operation = unit_of_work.operations.get_operation(attempt.operation_id)
+    steps, _cursor = unit_of_work.operations.list_steps(attempt.operation_id)
+    await_step = next((step for step in steps if step.step_name == SUBMIT_STEP_AWAIT), None)
+    if await_step is None:
+        raise ValueError("await_import_result step is missing")
+    transaction_now = unit_of_work.transaction_now
+    terminal_step = replace(
+        await_step,
+        status=StepStatus.SUCCEEDED,
+        completed_at=transaction_now,
+        updated_at=transaction_now,
+        worker_id=None,
+        lease_token=None,
+        lease_expires_at=None,
+        optimistic_version=await_step.optimistic_version + 1,
+    )
+    unit_of_work.operations.compare_and_set_step(
+        terminal_step,
+        WritePrecondition(
+            expected_optimistic_version=await_step.optimistic_version,
+            worker_id=await_step.worker_id,
+            lease_token=await_step.lease_token,
+        ),
+        require_live_lease=await_step.status is StepStatus.RUNNING,
+    )
+    terminal_operation = replace(
+        operation,
+        status=OperationStatus.SUCCEEDED,
+        completed_at=transaction_now,
+        updated_at=transaction_now,
+        optimistic_version=operation.optimistic_version + 1,
+    )
+    unit_of_work.operations.compare_and_set_operation(
+        terminal_operation,
+        WritePrecondition(
+            expected_optimistic_version=operation.optimistic_version,
+            worker_id=None,
+            lease_token=None,
+        ),
+    )
+    return result
+
+
+def _transfer_finalize_protection(
+    unit_of_work: ControlDbUnitOfWork,
+    *,
+    attempt: SubmitAttempt,
+) -> None:
+    unit_of_work.clear_artifact_protection(
+        owner_kind="submit-attempt",
+        owner_id=attempt.submit_attempt_id,
+    )
+    source_refs = tuple(
+        ArtifactRef(
+            artifact_id=artifact_id,
+            media_type="application/octet-stream",
+            size_bytes=0,
+            raw_sha256=DigestRef("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+        )
+        for artifact_id in attempt.source_artifact_refs
+    )
+    if source_refs:
+        unit_of_work.set_artifact_protection(
+            source_refs,
+            owner_kind="source-package",
+            owner_id=attempt.submit_attempt_id,
+            intent="source-package",
+        )
+    manifest_digest = attempt.canonicalization_manifest_digest
+    if attempt.canonicalization_manifest_ref is not None and manifest_digest is not None:
+        unit_of_work.set_artifact_protection(
+            (
+                ArtifactRef(
+                    artifact_id=attempt.canonicalization_manifest_ref,
+                    media_type="application/json",
+                    size_bytes=0,
+                    raw_sha256=DigestRef(manifest_digest),
+                ),
+            ),
+            owner_kind="canonicalization-manifest",
+            owner_id=attempt.submit_attempt_id,
+            intent="canonicalization-manifest",
+        )

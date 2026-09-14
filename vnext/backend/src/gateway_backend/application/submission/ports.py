@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from gateway_backend.application.submission.contracts import (
@@ -10,8 +11,43 @@ from gateway_backend.application.submission.contracts import (
     SubmitAcceptanceRecord,
     WorkspaceSubmitOccupancy,
 )
+from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
 from gateway_backend.domain.workspace.models import BaselineHead
+from gateway_backend.domain.workspace.ports import WorkspaceRepository
+from gateway_backend.operations import OperationStore
+
+
+class SubmitControlTransaction(Protocol):
+    @property
+    def submission(self) -> SubmitTransactionRepository: ...
+
+    @property
+    def workspace(self) -> WorkspaceRepository: ...
+
+    @property
+    def operations(self) -> OperationStore: ...
+
+    @property
+    def transaction_now(self) -> datetime: ...
+
+    def set_artifact_protection(
+        self,
+        refs: tuple[ArtifactRef, ...],
+        *,
+        owner_kind: str,
+        owner_id: str,
+        intent: str,
+    ) -> bool: ...
+
+    def clear_artifact_protection(self, *, owner_kind: str, owner_id: str) -> int: ...
+
+    def list_artifact_protection_for_owner(
+        self,
+        *,
+        owner_kind: str,
+        owner_id: str,
+    ) -> frozenset[str]: ...
 
 
 class SubmissionRepository(Protocol):
@@ -38,6 +74,51 @@ class SubmitOccupancyReadPort(Protocol):
 
     def get_repository_occupancy(self, repository_id: str) -> RepositorySubmitOccupancy | None:
         """Return repository submit occupancy projection when occupied."""
+
+
+class SubmitTransactionRepository(SubmissionRepository, SubmitOccupancyReadPort, Protocol):
+    def insert_attempt_prepared(self, attempt: SubmitAttempt) -> None:
+        """Insert one PREPARED SubmitAttempt."""
+
+    def insert_idempotency(self, record: SubmitAcceptanceRecord) -> None:
+        """Insert one submit idempotency row."""
+
+    def insert_submission(self, submission: Submission) -> None:
+        """Insert one immutable Submission."""
+
+    def cas_update_attempt(
+        self,
+        attempt: SubmitAttempt,
+        *,
+        expected_version: int,
+    ) -> SubmitAttempt:
+        """Update one SubmitAttempt with optimistic-version CAS."""
+
+    def insert_workspace_attempt_occupancy(
+        self,
+        *,
+        workspace_id: str,
+        submit_attempt_id: str,
+    ) -> None:
+        """Insert workspace Attempt occupancy pointer."""
+
+    def switch_workspace_occupancy_to_submission(
+        self,
+        *,
+        workspace_id: str,
+        submit_attempt_id: str,
+        submission_id: str,
+    ) -> None:
+        """Atomically switch workspace occupancy from Attempt to Submission."""
+
+    def delete_workspace_occupancy(self, workspace_id: str) -> None:
+        """Delete workspace submit occupancy row."""
+
+    def insert_repository_occupancy(self, occupancy: RepositorySubmitOccupancy) -> None:
+        """Insert repository submit occupancy row."""
+
+    def delete_repository_occupancy(self, repository_id: str) -> None:
+        """Delete repository submit occupancy row."""
 
 
 class BaselineCanonicalDigestPort(Protocol):

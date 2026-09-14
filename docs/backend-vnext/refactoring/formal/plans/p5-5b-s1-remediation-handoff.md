@@ -1,6 +1,6 @@
 # P5-5B-S1 Finding-Scoped Remediation Handoff
 
-状态：**round-2 remediation complete — independent re-review required**
+状态：**round-3 closure complete — independent re-review required**
 
 日期：2026-09-14
 
@@ -23,9 +23,10 @@ first_authorized_step: P5-5B-S1
 
 ```yaml
 parent_head: 6b8e7fc5468389c5f2907d8d3a9a5f52566e5ef6
-candidate_head: 1d1d47f8593ad6a3556f341c7aed56c853647579
-git_rev_parse_HEAD: 1d1d47f8593ad6a3556f341c7aed56c853647579
+candidate_head: 4b1a7a7c1e84d371f2f83d4b9cb763a3b9490a47
+git_rev_parse_HEAD: 4b1a7a7c1e84d371f2f83d4b9cb763a3b9490a47
 implementation_commit: 1d1d47f8593ad6a3556f341c7aed56c853647579
+round3_closure_commit: 4b1a7a7c1e84d371f2f83d4b9cb763a3b9490a47
 handoff_docs_commit: see git log -- docs/backend-vnext/refactoring/formal/plans/p5-5b-s1-remediation-handoff.md
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 uv_lock_in_diff: no
@@ -59,8 +60,16 @@ git_status_short: clean
 | 文件 | 角色 |
 | --- | --- |
 | [`test_submit_application.py`](vnext/backend/tests/test_submit_application.py) | **S1 contract smoke**：Accept ordering、occupancy、abort、finalize 纯函数窄负例；**非** matching/business closure 的 authoritative owner |
-| [`test_submit_finalize.py`](vnext/backend/tests/test_submit_finalize.py) | **Execution plan §4 authoritative owner**：matching result、business closure、Finalize replay（S5 交付；S1 不宣称已覆盖） |
+| [`test_submit_finalize.py`](vnext/backend/tests/test_submit_finalize.py) | **Execution plan §4 authoritative unit owner**：matching result、business closure、Finalize replay（S5 交付；S1 不宣称已覆盖） |
+| [`test_submit_recovery.py`](vnext/backend/tests/test_submit_recovery.py) | **Execution plan §4 Repository/recovery integration owner**（S1 不宣称已覆盖） |
 | [`test_submit_idempotency.py`](vnext/backend/tests/test_submit_idempotency.py) | **Accept fingerprint / replay 唯一 unit owner**（含 closure digest 与 CLOSED replay） |
+
+### Round 3（本轮关闭：F3 fail-closed、F9 措辞）
+
+| Finding | 修复摘要 | Test owner | Retest |
+| --- | --- | --- | --- |
+| **S1-F3** | `preview_ready_closure_digest` 必传；`assert_preview_ready_closure_digest` 在 Accept/fingerprint 边界拒绝空值 | **`test_submit_idempotency.py`** | 空 digest → `PreviewBindingConflict`；不 resolve main |
+| **S1-F9** | handoff 统一为 **authoritative unit owner**（`test_submit_finalize.py`）；recovery integration 单独指 `test_submit_recovery.py` | docs | 无 integration owner 指称 finalize unit file |
 
 ## Scope paths（unchanged）
 
@@ -72,13 +81,15 @@ git_status_short: clean
 - `vnext/backend/tests/test_architecture.py`
 - `docs/backend-vnext/refactoring/formal/plans/p5-5b-s1-*.md`
 
-## Invariants delivered（round-2 后）
+## Invariants delivered（round-3 后）
 
 - Repository scope fail-closed on Accept（resolved + preview vs workspace）
 - Server-computed accept fingerprint with `source_digest` / `snapshot_digest` / **`preview_ready_closure_digest`**
+- New Accept **fail-closed** on missing/empty closure digest before main resolve
 - Same-key replay 跳过 `assert_workspace_open`；仍执行 scope re-authorization
 - Workspace occupancy XOR + row existence guard
-- Pure T3 matching/replay closure **smoke** in S1；integration owner = `test_submit_finalize.py`（S5）
+- Pure T3 matching/replay closure **smoke** in S1；**authoritative unit owner** = `test_submit_finalize.py`（S5）
+- Repository/recovery **integration owner** = `test_submit_recovery.py`（execution plan；S1 不宣称）
 - Abort proof shape + matching identity guard
 - `uv.lock` 未纳入 delivery diff（post-fix verified）
 
@@ -105,15 +116,18 @@ git diff vnext/backend/uv.lock
 sha256sum vnext/backend/uv.lock
 ```
 
-结果（2026-09-14 round-2）：
+结果（2026-09-14 round-3）：
 
-- pytest：**99 passed**
+- pytest：**102 passed**
 - ruff：**pass**
 - mypy：**Success (324 source files)**
 - `git diff --check`：**pass**
 - `uv.lock` diff：**empty**
 - `uv.lock` SHA-256：**21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea**
+- container_rebuild_required：**no**（纯 Python/domain/docs 变更）
+
+历史（round-2）：99 passed
 
 ## Next step
 
-Independent reviewer 复跑 focused gate + round-2 probes（lock SHA、closure digest fingerprint、CLOSED replay、finalize owner 声明）。`pass` 后再开 S2。
+Independent reviewer 复跑 focused gate + round-3 probes（空 closure digest 负例、finalize **unit** owner 措辞）。`pass` 后可签署 S1 closure，再开 S2。

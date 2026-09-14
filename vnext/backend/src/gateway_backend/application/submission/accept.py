@@ -5,6 +5,7 @@ from __future__ import annotations
 from gateway_backend.application.submission.contracts import (
     AcceptSubmitCommand,
     AcceptSubmitValidationResult,
+    assert_preview_ready_closure_digest,
     compute_new_accept_fingerprint,
     compute_replay_accept_fingerprint,
     preview_canonical_business_digest,
@@ -47,7 +48,7 @@ def validate_accept_submit(
     baseline_digest: BaselineCanonicalDigestPort,
     main_resolve: RepositoryMainResolvePort | None = None,
     snapshot_table_artifact_refs: tuple[str, ...] = (),
-    preview_ready_closure_digest: str = "",
+    preview_ready_closure_digest: str,
 ) -> AcceptSubmitValidationResult:
     assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
     resolved = scope_resolution.resolve(command.context)
@@ -111,6 +112,8 @@ def validate_accept_submit(
         raise NoCanonicalChange
 
     _assert_no_submit_occupancy(occupancy, workspace.workspace_id, workspace.repository_id)
+
+    assert_preview_ready_closure_digest(preview_ready_closure_digest)
 
     if main_resolve is None:
         raise PreviewBindingConflict("repository main resolve port is required for new accepts")

@@ -7,14 +7,16 @@ from typing import Any, cast
 
 import pytest
 
+from gateway_backend.application.submission.accept import validate_accept_submit
 from gateway_backend.application.submission.contracts import (
+    assert_preview_ready_closure_digest,
     compute_accept_request_fingerprint,
     compute_new_accept_fingerprint,
     compute_replay_accept_fingerprint,
     derive_repository_import_idempotency_key,
     derive_repository_upload_idempotency_key,
 )
-from gateway_backend.application.submission.errors import IdempotencyConflict
+from gateway_backend.application.submission.errors import IdempotencyConflict, PreviewBindingConflict
 from gateway_backend.domain.workspace.models import WorkspaceState
 from tests.test_submit_application import (
     BASELINE_HEAD,
@@ -135,6 +137,54 @@ def test_compute_accept_request_fingerprint_requires_closure_digest_not_ref_only
     )
 
     assert baseline != changed_digest
+
+
+def test_assert_preview_ready_closure_digest_rejects_empty_value() -> None:
+    with pytest.raises(PreviewBindingConflict, match="preview ready closure digest is required"):
+        assert_preview_ready_closure_digest("")
+
+
+def test_compute_new_accept_fingerprint_rejects_empty_closure_digest(
+    submit_application_harness: SubmitApplicationHarness,
+) -> None:
+    harness = submit_application_harness
+    command = make_accept_command(idempotency_key="accept-key-new")
+    upload_revision = harness.workspace_repository.get_upload_revision("ur-1")
+    assert upload_revision is not None
+
+    with pytest.raises(PreviewBindingConflict, match="preview ready closure digest is required"):
+        compute_new_accept_fingerprint(
+            command=command,
+            workspace=WORKSPACE,
+            preview_result=PREVIEW_RESULT,
+            upload_revision=upload_revision,
+            baseline_head=BASELINE_HEAD,
+            repository_expected_commit_id="commit-main",
+            snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
+            preview_ready_closure_digest="",
+        )
+
+
+def test_validate_accept_submit_rejects_empty_closure_digest(
+    submit_application_harness: SubmitApplicationHarness,
+) -> None:
+    harness = submit_application_harness
+    command = make_accept_command(idempotency_key="accept-key-new")
+
+    with pytest.raises(PreviewBindingConflict, match="preview ready closure digest is required"):
+        validate_accept_submit(
+            command=command,
+            scope_resolution=harness.scope_resolution,
+            workspace_repository=harness.workspace_repository,
+            submission_repository=harness.submission_repository,
+            occupancy=harness.occupancy,
+            baseline_digest=harness.baseline_digest,
+            main_resolve=harness.main_resolve,
+            snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
+            preview_ready_closure_digest="",
+        )
+
+    assert harness.main_resolve.resolve_calls == 0
 
 
 def test_same_key_same_body_replays_without_recomputing_main(

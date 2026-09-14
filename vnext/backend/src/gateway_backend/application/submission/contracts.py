@@ -26,10 +26,17 @@ from gateway_backend.domain.workspace.models import (
 )
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.application.submission.errors import PreviewBindingConflict
+
 SUBMIT_JOB_CONTRACT_VERSION = "backend-vnext/submit/v1"
 ACCEPT_SUBMIT_REQUEST_PREFIX = b"gateway-vnext:accept-submit-request:v1\0"
 REPOSITORY_UPLOAD_KEY_PREFIX = "p5b-upload-v1:"
 REPOSITORY_IMPORT_KEY_PREFIX = "p5b-import-v1:"
+
+
+def assert_preview_ready_closure_digest(preview_ready_closure_digest: str) -> None:
+    if type(preview_ready_closure_digest) is not str or not preview_ready_closure_digest:
+        raise PreviewBindingConflict("preview ready closure digest is required")
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +238,7 @@ def compute_new_accept_fingerprint(
     snapshot_table_artifact_refs: tuple[str, ...],
     preview_ready_closure_digest: str,
 ) -> str:
+    assert_preview_ready_closure_digest(preview_ready_closure_digest)
     return compute_accept_request_fingerprint(
         workspace_id=workspace.workspace_id,
         owner_actor_id=workspace.owner_actor_id,

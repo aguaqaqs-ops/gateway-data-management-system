@@ -22,7 +22,7 @@ first_authorized_step: P5-5B-S1
 ```yaml
 stage: P5-5B-S1-submission-domain-application
 parent_head: 6b8e7fc5468389c5f2907d8d3a9a5f52566e5ef6
-candidate_head: 1d1d47f8593ad6a3556f341c7aed56c853647579
+candidate_head: 4b1a7a7c1e84d371f2f83d4b9cb763a3b9490a47
 remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5b-s1-remediation-handoff.md
 uv_lock_in_diff: no
 ```
@@ -66,18 +66,20 @@ invariants_delivered:
   - Repository upload/import effect-key derivation from submit_attempt_id
   - Accept pre-transaction validation order with idempotency replay and NO_CANONICAL_CHANGE
   - Replay path does not resolve Repository main
-  - Pure matching/replay closure smoke in test_submit_application.py（authoritative integration owner: test_submit_finalize.py / S5）
+  - Pure matching/replay closure smoke in test_submit_application.py（authoritative unit owner: test_submit_finalize.py / S5）
   - Abort proof shape + matching identity guard（transaction/recovery proof deferred to S2/S5）
   - Workspace occupancy XOR and row-existence occupancy guard
 unique_test_owners:
   - tests/test_submit_domain.py
-  - tests/test_submit_application.py  # S1 contract smoke; not finalize integration owner
+  - tests/test_submit_application.py  # S1 contract smoke; not finalize unit owner
   - tests/test_submit_idempotency.py    # Accept fingerprint/replay authoritative unit owner
   - tests/test_architecture.py
-finalize_integration_owner_deferred:
-  - tests/test_submit_finalize.py       # execution plan §4 authoritative owner (S5)
+finalize_unit_owner_deferred:
+  - tests/test_submit_finalize.py       # execution plan §4 authoritative unit owner (S5)
+recovery_integration_owner_deferred:
+  - tests/test_submit_recovery.py       # execution plan §4 Repository/recovery integration owner
 focused_commands_and_results:
-  - cd vnext/backend && env -u UV_INDEX_URL -u UV_DEFAULT_INDEX uv run pytest -q -m unit tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_architecture.py => 99 passed (round-2)
+  - cd vnext/backend && env -u UV_INDEX_URL -u UV_DEFAULT_INDEX uv run pytest -q -m unit tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_architecture.py => 102 passed (round-3)
   - cd vnext/backend && uv run ruff check src/gateway_backend/domain/submission src/gateway_backend/application/submission tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py => pass
   - cd vnext/backend && uv run mypy => Success (324 source files)
 five_package_static: deferred
@@ -87,15 +89,16 @@ container_reason: S1 is pure domain/application memory contracts only; container
 last_verified_image_revision: not_applicable
 container_gate_for_current_head: not_applicable
 findings:
-  - S1-F1..F9 addressed in p5-5b-s1-remediation-handoff.md (round-1 + round-2)
+  - S1-F1..F9 addressed in p5-5b-s1-remediation-handoff.md (round-1 + round-2 + round-3)
 deferred:
   - T1 SQLite atomicity and occupancy persistence (S2)
   - HTTP / Repository wire / JobDefinition effect (S4/S5)
   - Import builder and nominal artifact conversion boundary (S3)
-  - End-to-end finalize replay integration (S5 / test_submit_finalize.py)
+  - End-to-end finalize replay unit coverage (S5 / test_submit_finalize.py)
+  - Repository/recovery integration (test_submit_recovery.py per execution plan)
 reopen_required: []
 implementation_authority_unchanged: true
-next_step: independent_re_review_of_S1_round_2_remediation
+next_step: independent_re_review_of_S1_round_3_closure
 ```
 
 ## Notes

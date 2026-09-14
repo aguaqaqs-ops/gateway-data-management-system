@@ -23,10 +23,10 @@ first_authorized_step: P5-5B-S1
 
 ```yaml
 parent_head: 6b8e7fc5468389c5f2907d8d3a9a5f52566e5ef6
-candidate_head: 4b1a7a7c1e84d371f2f83d4b9cb763a3b9490a47
-git_rev_parse_HEAD: 4b1a7a7c1e84d371f2f83d4b9cb763a3b9490a47
+candidate_head: 28b890571588045bb8a95d2b5a2f34dbd63fb16b
+git_rev_parse_HEAD: 28b890571588045bb8a95d2b5a2f34dbd63fb16b
 implementation_commit: 1d1d47f8593ad6a3556f341c7aed56c853647579
-round3_closure_commit: 4b1a7a7c1e84d371f2f83d4b9cb763a3b9490a47
+round3_closure_commit: 28b890571588045bb8a95d2b5a2f34dbd63fb16b
 handoff_docs_commit: see git log -- docs/backend-vnext/refactoring/formal/plans/p5-5b-s1-remediation-handoff.md
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 uv_lock_in_diff: no

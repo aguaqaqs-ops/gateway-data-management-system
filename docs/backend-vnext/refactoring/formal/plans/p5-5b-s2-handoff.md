@@ -23,7 +23,7 @@ implementation_authority_unchanged: true
 ```yaml
 stage: P5-5B-S2-control-db-t1-t3
 parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
-candidate_head: de7ad788fa25c127e43fe5031ba49e34736fcdcb
+candidate_head: f9414aa4813a2c0deb608ff3f36aba6b10ecbb36
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md
@@ -72,7 +72,7 @@ plan_alignment_s1_paths:
   - vnext/backend/tests/test_submit_domain.py
 invariants_delivered:
   - Workspace schema v3 Attempt/Submission/idempotency/two occupancy relations
-  - T1 preflight control-DB reads inside read-only SQLite txn; local guards before baseline/main ports; external ports with zero active UoW
+  - T1 preflight control-DB reads inside read-only SQLite txn; §6.1 order = binding/stale → baseline → NO_CANONICAL_CHANGE → occupancy/closure → main_resolve; external ports with zero active UoW
   - T3/abort lease + caller-observed version fencing (token identity + expected optimistic versions)
   - Occupancy release is owner-qualified CAS
   - T3 replay requires matching Attempt/Submission/Workspace/Operation/await-step closure
@@ -85,8 +85,8 @@ unique_test_owners:
   - tests/test_submit_transactions.py
   - tests/test_architecture.py  # S2-F3 allowlist alignment only
 focused_commands_and_results:
-  - cd vnext/backend && uv run pytest -q -m unit tests/test_architecture.py tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_submit_control_db_migrations.py tests/test_sqlite_submit_repository.py tests/test_submit_transactions.py tests/test_sqlite_workspace_repository.py tests/test_workspace_control_db_migrations.py => 156 passed
-  - cd vnext/backend && uv run pytest -q -m unit => 1880 passed / 0 failed
+  - cd vnext/backend && uv run pytest -q -m unit tests/test_architecture.py tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_submit_control_db_migrations.py tests/test_sqlite_submit_repository.py tests/test_submit_transactions.py tests/test_sqlite_workspace_repository.py tests/test_workspace_control_db_migrations.py => 158 passed
+  - cd vnext/backend && uv run pytest -q -m unit => 1882 passed / 0 failed
   - cd vnext/backend && uv run ruff check . && uv run mypy => pass (332 files)
 five_package_static: deferred
 authoritative_runner: deferred
@@ -120,7 +120,7 @@ process_track_open:
 | T1 all-or-nothing | monkeypatch 中途写失败 | 无 attempt / idempotency / Operation+Step / occupancy / submit-attempt protection；workspace version 不变 |
 | T1 replay | 同 key 第二次 | `replay=True`；不调用 baseline digest / main resolve |
 | T1 I/O boundary | recording ports | digest/main 各 1 次且 writer transaction 未打开 |
-| T1 NO_CANONICAL_CHANGE | baseline digest 等于 preview canonical | `main_resolve.calls == 0`；全程无写锁；零写入 |
+| T1 NO_CANONICAL_CHANGE | baseline digest 等于 preview canonical | `baseline_calls==1`；`main_resolve.calls == 0`；全程无写锁；零写入；优先于 occupancy/closure 冲突 |
 | T1 registry | 仅 prepare 注册 | Accept 拒绝且零写入 |
 | T1 workspace version | T1 前 bump version | `WorkspaceVersionConflict` + 零写入 |
 | T1 occupancy serialization | 两 workspace 顺序争同一 `repository_id` | SQLite 单写者串行化；loser `SubmitOccupancyConflict`（不是线程并发） |

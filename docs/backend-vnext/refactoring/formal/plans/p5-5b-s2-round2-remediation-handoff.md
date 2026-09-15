@@ -28,7 +28,7 @@ implementation_authority_unchanged: true
 stage: P5-5B-S2-round2-remediation
 parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
 round2_initial_commit: bebf2fad64430c5da05333f863f56e08e959414f
-candidate_head: de7ad788fa25c127e43fe5031ba49e34736fcdcb
+candidate_head: f9414aa4813a2c0deb608ff3f36aba6b10ecbb36
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 uv_lock_in_diff: no
 container_rebuild_required: no
@@ -69,7 +69,13 @@ container_gate_for_current_head: not_applicable
 | **P2-1** | 纯本地 preflight（version/binding/stale/occupancy/closure）置于 `baseline_digest` 之前；`NO_CANONICAL_CHANGE` 仍在其后 | `test_submit_transactions.py` | stale version + 不可用 baseline → `WorkspaceVersionConflict` 且 `baseline_calls==0` |
 | **P2-2** | `WriterLockTracker.active_uow_entries` + port `uow_active_during_calls`；证明外部 port 调用时零活跃 UoW（含 read-only） | `test_submit_transactions.py` | no-op/happy path `uow_active_during_calls==(False,)` |
 
-初版 Round-2 交付 commit：`bebf2fad64430c5da05333f863f56e08e959414f`（parent `c561ffe9`）。复审 follow-up 第一轮：`b87efe8a115bb5ca91a495968620037d65567ac1`。第二轮 review tip 见本卷 `candidate_head`。
+## Round-2 复审 follow-up 第三轮（de7ad788 之后）
+
+| 项 | 修复摘要 | Test owner | Retest |
+| --- | --- | --- | --- |
+| **P2-3** | occupancy/closure 移回 `NO_CANONICAL_CHANGE` 之后；新增 `assert_accept_preflight_post_noop_guards`；§6.1 顺序 = binding/stale → baseline → NO_CANONICAL_CHANGE → occupancy/closure → main_resolve | `test_submit_transactions.py` | no-op + repository occupancy / 空 closure digest → `NoCanonicalChange`（非 occupancy/closure 冲突）且 `baseline_calls==1` |
+
+初版 Round-2 交付 commit：`bebf2fad64430c5da05333f863f56e08e959414f`（parent `c561ffe9`）。复审 follow-up 第一轮：`b87efe8a115bb5ca91a495968620037d65567ac1`。第二轮：`de7ad788fa25c127e43fe5031ba49e34736fcdcb`。第三轮 review tip 见本卷 `candidate_head`。
 
 ## S2-F17 闭合记录（选项 B）
 
@@ -98,16 +104,16 @@ uv run pytest -q -m unit \
   tests/test_submit_transactions.py \
   tests/test_sqlite_workspace_repository.py \
   tests/test_workspace_control_db_migrations.py
-# 156 passed (round-2 亲跑)
+# 158 passed (round-2 亲跑，含 P2-3 no-op 优先级回归)
 
 uv run pytest -q -m unit
-# 1880 passed / 0 failed
+# 1882 passed / 0 failed
 
 uv run ruff check . && uv run mypy
 # ruff clean; mypy Success (332 source files)
 ```
 
-## Verification record（review tip `b87efe8a`）
+## Verification record（review tip `f9414aa4`）
 
 ```bash
 cd /home/dev/gateway-data-management-system
@@ -125,10 +131,10 @@ uv run pytest -q -m unit \
   tests/test_submit_transactions.py \
   tests/test_sqlite_workspace_repository.py \
   tests/test_workspace_control_db_migrations.py
-# 156 passed
+# 158 passed
 
 uv run pytest -q -m unit
-# 1880 passed / 115 deselected / 0 failed
+# 1882 passed / 115 deselected / 0 failed
 
 uv run ruff check . && uv run mypy
 # ruff clean; mypy Success (332 source files)

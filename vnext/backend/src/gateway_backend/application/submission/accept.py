@@ -226,6 +226,12 @@ def evaluate_new_accept_preflight_local_guards(
     if derive_preview_staleness(loaded.preview_result, loaded.baseline_head):
         raise PreviewDerivedStale
 
+
+def assert_accept_preflight_post_noop_guards(
+    *,
+    loaded: AcceptPreflightLoadedFacts,
+) -> None:
+    """§6.1 occupancy/closure guards after NO_CANONICAL_CHANGE is excluded."""
     if loaded.workspace_occupancy_held:
         raise SubmitOccupancyConflict("workspace submit occupancy is already held")
     if loaded.repository_occupancy_held:
@@ -255,6 +261,7 @@ def evaluate_new_accept_preflight(
         loaded=loaded,
         baseline_canonical_digest=baseline_canonical_digest,
     )
+    assert_accept_preflight_post_noop_guards(loaded=loaded)
 
 
 def validate_accept_submit_with_frozen(

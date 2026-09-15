@@ -1507,6 +1507,7 @@ def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: 
             now=TS1,
         )
     assert resolve.calls == 0
+    assert digest.calls == 1
     assert tracker.writer_entries == 0
     assert tracker.active_uow_entries == 0
     assert tracker.factory_calls == (True,)
@@ -1524,6 +1525,115 @@ def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: 
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM step_records").fetchone()[0] == 0
         assert workspace is not None
         assert workspace.optimistic_version == seed.workspace.optimistic_version
+
+
+def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> None:
+    first_seed = seed_submit_ready_workspace(db_path)
+    accept_submit_transaction(
+        command=_accept_command(first_seed, idempotency_key="accept-key-1"),
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=first_seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(first_seed.db_path),
+        job_registry=_submit_job_registry(),
+        baseline_digest=FakeBaselineCanonicalDigestPort(),
+        main_resolve=RecordingMainResolvePort(),
+        preflight=_preflight(first_seed),
+        now=TS1,
+    )
+
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        workspace = Workspace(
+            workspace_id="ws-2",
+            owner_actor_id="actor-2",
+            gateway_device_external_key="device-2",
+            business_project_id="project-2",
+            repository_id="repo-1",
+            state=first_seed.workspace.state,
+            generation=1,
+            optimistic_version=0,
+            current_upload_revision_id="ur-2",
+            current_preview_result_id="pr-2",
+            created_at=TS0,
+            updated_at=TS0,
+        )
+        unit_of_work.workspace.save_workspace(workspace, expected_version=0)
+        upload_revision = replace(first_seed.upload_revision, upload_revision_id="ur-2", workspace_id="ws-2")
+        preview = replace(
+            first_seed.preview_result,
+            preview_result_id="pr-2",
+            workspace_id="ws-2",
+            upload_revision_id="ur-2",
+            operation_id="op-preview-2",
+        )
+        unit_of_work.workspace.save_upload_revision(upload_revision)
+        unit_of_work.workspace.save_preview_result(preview)
+        updated = replace(
+            workspace,
+            optimistic_version=1,
+            current_upload_revision_id="ur-2",
+            current_preview_result_id="pr-2",
+            updated_at=TS1,
+        )
+        unit_of_work.workspace.save_workspace(updated, expected_version=0)
+        unit_of_work.set_artifact_protection(
+            first_seed.protected_refs,
+            owner_kind="current-preview",
+            owner_id="ws-2",
+            intent="current-preview",
+        )
+
+    second_seed = SubmitSeed(
+        db_path=db_path,
+        workspace=updated,
+        upload_revision=upload_revision,
+        preview_result=preview,
+        preview_operation_id="op-preview-2",
+        protected_refs=first_seed.protected_refs,
+    )
+    digest = FakeBaselineCanonicalDigestPort(digest="sha256:preview-canonical")
+    with pytest.raises(NoCanonicalChange):
+        accept_submit_transaction(
+            command=_accept_command(second_seed, idempotency_key="accept-key-2"),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id="repo-1",
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(db_path),
+            job_registry=_submit_job_registry(),
+            baseline_digest=digest,
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(second_seed),
+            now=TS1,
+        )
+    assert digest.calls == 1
+
+
+def test_t1_no_canonical_change_precedes_closure_digest_conflict(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    digest = FakeBaselineCanonicalDigestPort(digest="sha256:preview-canonical")
+    with pytest.raises(NoCanonicalChange):
+        accept_submit_transaction(
+            command=_accept_command(seed, idempotency_key="accept-key-1"),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            baseline_digest=digest,
+            main_resolve=RecordingMainResolvePort(),
+            preflight=AcceptSubmitPreflight(
+                snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
+                preview_ready_closure_digest="",
+                preview_operation_id=seed.preview_operation_id,
+                protected_artifact_refs=seed.protected_refs,
+                snapshot_table_set_digest=SNAPSHOT_TABLE_SET_DIGEST,
+            ),
+            now=TS1,
+        )
+    assert digest.calls == 1
 
 
 def _terminalize_await_step(db_path: Path, operation_id: str, *, fail_operation: bool) -> None:

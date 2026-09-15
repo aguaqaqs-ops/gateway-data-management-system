@@ -9,6 +9,7 @@ from datetime import datetime
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
+    assert_accept_preflight_post_noop_guards,
     assert_no_canonical_change_after_baseline,
     evaluate_new_accept_preflight_local_guards,
     load_new_accept_preflight_facts,
@@ -154,6 +155,7 @@ def accept_submit_transaction(
         loaded=loaded,
         baseline_canonical_digest=baseline_canonical_digest,
     )
+    assert_accept_preflight_post_noop_guards(loaded=loaded)
 
     frozen = replace(
         preflight,

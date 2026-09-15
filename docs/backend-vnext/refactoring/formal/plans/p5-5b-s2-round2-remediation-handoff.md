@@ -28,7 +28,7 @@ implementation_authority_unchanged: true
 stage: P5-5B-S2-round2-remediation
 parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
 round2_initial_commit: bebf2fad64430c5da05333f863f56e08e959414f
-candidate_head: b87efe8a115bb5ca91a495968620037d65567ac1
+candidate_head: de7ad788fa25c127e43fe5031ba49e34736fcdcb
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 uv_lock_in_diff: no
 container_rebuild_required: no
@@ -62,7 +62,14 @@ container_gate_for_current_head: not_applicable
 | **P2** | `WriterLockTracker` 增 `writer_entries`/`factory_calls`；no-op 断言从未请求 `read_only=False` | `test_submit_transactions.py` | `writer_entries==0` + `factory_calls==(True,)` |
 | **F18** | `p5-5b-s2-handoff.md` authority/changed_paths 与 round-2 handoff 对齐 | docs | `unresolved_contract_drift` 一致；brief 列入 changed_paths |
 
-初版 Round-2 交付 commit：`bebf2fad64430c5da05333f863f56e08e959414f`（parent `c561ffe9`）。复审 follow-up review tip：`b87efe8a115bb5ca91a495968620037d65567ac1`。
+## Round-2 复审 follow-up 第二轮（b87efe8a 之后）
+
+| 项 | 修复摘要 | Test owner | Retest |
+| --- | --- | --- | --- |
+| **P2-1** | 纯本地 preflight（version/binding/stale/occupancy/closure）置于 `baseline_digest` 之前；`NO_CANONICAL_CHANGE` 仍在其后 | `test_submit_transactions.py` | stale version + 不可用 baseline → `WorkspaceVersionConflict` 且 `baseline_calls==0` |
+| **P2-2** | `WriterLockTracker.active_uow_entries` + port `uow_active_during_calls`；证明外部 port 调用时零活跃 UoW（含 read-only） | `test_submit_transactions.py` | no-op/happy path `uow_active_during_calls==(False,)` |
+
+初版 Round-2 交付 commit：`bebf2fad64430c5da05333f863f56e08e959414f`（parent `c561ffe9`）。复审 follow-up 第一轮：`b87efe8a115bb5ca91a495968620037d65567ac1`。第二轮 review tip 见本卷 `candidate_head`。
 
 ## S2-F17 闭合记录（选项 B）
 

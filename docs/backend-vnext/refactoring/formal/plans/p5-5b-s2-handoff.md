@@ -23,7 +23,7 @@ implementation_authority_unchanged: true
 ```yaml
 stage: P5-5B-S2-control-db-t1-t3
 parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
-candidate_head: b87efe8a115bb5ca91a495968620037d65567ac1
+candidate_head: de7ad788fa25c127e43fe5031ba49e34736fcdcb
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md
@@ -72,7 +72,7 @@ plan_alignment_s1_paths:
   - vnext/backend/tests/test_submit_domain.py
 invariants_delivered:
   - Workspace schema v3 Attempt/Submission/idempotency/two occupancy relations
-  - T1 preflight control-DB reads inside read-only SQLite txn; baseline/main ports outside any SQLite txn
+  - T1 preflight control-DB reads inside read-only SQLite txn; local guards before baseline/main ports; external ports with zero active UoW
   - T3/abort lease + caller-observed version fencing (token identity + expected optimistic versions)
   - Occupancy release is owner-qualified CAS
   - T3 replay requires matching Attempt/Submission/Workspace/Operation/await-step closure
@@ -138,7 +138,7 @@ process_track_open:
 ## S1 纯逻辑复用
 
 - `validate_accept_submit`（S1 内存路径；仍按原顺序在 `NoCanonicalChange` / closure 之后才 `main_resolve`）
-- `load_new_accept_preflight_facts` + `evaluate_new_accept_preflight`（T1 §6.1 steps 3-5；baseline I/O 在 SQLite 读事务外）
+- `load_new_accept_preflight_facts` + `evaluate_new_accept_preflight_local_guards` + `assert_no_canonical_change_after_baseline`（本地校验先于 baseline I/O；外部 port 零活跃 UoW）
 - `validate_accept_submit_with_frozen`（T1 写锁内，不再调用任何 I/O port）
 - `validate_abort_proof`（stable abort **写事务外**）
 - `finalize_submit`（Attempt↔Submission binding；T3 replay 另验 occupancy/Operation/Step closure）

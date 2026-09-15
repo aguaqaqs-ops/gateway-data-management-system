@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from gateway_backend.application.submission.contracts import (
     AcceptSubmitCommand,
     AcceptSubmitValidationResult,
@@ -36,6 +38,18 @@ from gateway_backend.domain.workspace.policies import (
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
 
 PERMISSION_UPLOAD_SUBMIT = "upload_submit_workspace"
+
+
+@dataclass(frozen=True, slots=True)
+class AcceptPreflightLoadedFacts:
+    workspace: Workspace
+    upload_revision: UploadRevision
+    preview_result: PreviewResult
+    resolved_repository_id: str
+    baseline_head: BaselineHead
+    workspace_occupancy_held: bool
+    repository_occupancy_held: bool
+    preview_ready_closure_digest: str
 
 
 def validate_accept_submit(
@@ -167,43 +181,61 @@ def try_accept_submit_replay(
     )
 
 
-def preflight_new_accept_submit(
+def load_new_accept_preflight_facts(
     *,
     command: AcceptSubmitCommand,
     workspace_repository: WorkspaceRepository,
     occupancy: SubmitOccupancyReadPort,
     resolved_repository_id: str,
     baseline_head: BaselineHead,
-    baseline_digest: BaselineCanonicalDigestPort,
-    snapshot_table_artifact_refs: tuple[str, ...] = (),
     preview_ready_closure_digest: str,
-) -> str:
-    """Read-only §6.1 steps 3-5 guards for new-key accepts (no writer lock)."""
+) -> AcceptPreflightLoadedFacts:
+    """Load control-DB facts for new-key accepts inside a SQLite read transaction."""
     workspace = workspace_repository.get_workspace(command.workspace_id)
     if workspace is None:
         raise ScopeForbidden
+    upload_revision = _load_upload_revision(workspace_repository, command)
+    preview_result = _load_preview_result(workspace_repository, command, upload_revision, workspace)
+    workspace_occupancy = occupancy.get_workspace_occupancy(workspace.workspace_id)
+    repository_occupancy = occupancy.get_repository_occupancy(workspace.repository_id)
+    return AcceptPreflightLoadedFacts(
+        workspace=workspace,
+        upload_revision=upload_revision,
+        preview_result=preview_result,
+        resolved_repository_id=resolved_repository_id,
+        baseline_head=baseline_head,
+        workspace_occupancy_held=workspace_occupancy is not None,
+        repository_occupancy_held=repository_occupancy is not None,
+        preview_ready_closure_digest=preview_ready_closure_digest,
+    )
+
+
+def evaluate_new_accept_preflight(
+    *,
+    command: AcceptSubmitCommand,
+    loaded: AcceptPreflightLoadedFacts,
+    baseline_canonical_digest: str,
+) -> None:
+    """Pure §6.1 steps 3-5 guards after control-DB facts are materialized."""
+    workspace = loaded.workspace
     assert_exact_scope(workspace, command.context)
-    _assert_resolved_repository_matches_workspace(resolved_repository_id, workspace)
+    _assert_resolved_repository_matches_workspace(loaded.resolved_repository_id, workspace)
     assert_workspace_open(workspace)
     assert_workspace_version_cas(workspace, command.expected_workspace_version)
     _assert_preview_binding(workspace, command)
-    upload_revision = _load_upload_revision(workspace_repository, command)
-    preview_result = _load_preview_result(workspace_repository, command, upload_revision, workspace)
-    _assert_baseline_binding(command, baseline_head)
-    if derive_preview_staleness(preview_result, baseline_head):
+    _assert_baseline_binding(command, loaded.baseline_head)
+    if derive_preview_staleness(loaded.preview_result, loaded.baseline_head):
         raise PreviewDerivedStale
 
-    preview_digest = preview_canonical_business_digest(preview_result)
-    baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
-        repository_id=workspace.repository_id,
-        baseline_head=baseline_head,
-    )
+    preview_digest = preview_canonical_business_digest(loaded.preview_result)
     if preview_digest == baseline_canonical_digest:
         raise NoCanonicalChange
 
-    _assert_no_submit_occupancy(occupancy, workspace.workspace_id, workspace.repository_id)
-    assert_preview_ready_closure_digest(preview_ready_closure_digest)
-    return baseline_canonical_digest
+    if loaded.workspace_occupancy_held:
+        raise SubmitOccupancyConflict("workspace submit occupancy is already held")
+    if loaded.repository_occupancy_held:
+        raise SubmitOccupancyConflict("repository submit occupancy is already held")
+    assert_preview_ready_closure_digest(loaded.preview_ready_closure_digest)
 
 
 def validate_accept_submit_with_frozen(

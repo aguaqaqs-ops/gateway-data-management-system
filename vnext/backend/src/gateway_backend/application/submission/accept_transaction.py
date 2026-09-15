@@ -9,7 +9,8 @@ from datetime import datetime
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
-    preflight_new_accept_submit,
+    evaluate_new_accept_preflight,
+    load_new_accept_preflight_facts,
     try_accept_submit_replay,
     validate_accept_submit_with_frozen,
 )
@@ -45,7 +46,6 @@ from gateway_backend.domain.submission.models import (
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
 )
-from gateway_backend.domain.workspace.errors import ScopeForbidden
 from gateway_backend.domain.workspace.models import BaselineHead
 from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
@@ -133,20 +133,25 @@ def accept_submit_transaction(
                 operation_id=replay.prior_attempt.operation_id,
                 replay=True,
             )
-        baseline_canonical_digest = preflight_new_accept_submit(
+        loaded = load_new_accept_preflight_facts(
             command=command,
             workspace_repository=unit_of_work.workspace,
             occupancy=unit_of_work.submission,
             resolved_repository_id=resolved.repository_id,
             baseline_head=resolved.baseline_head,
-            baseline_digest=baseline_digest,
-            snapshot_table_artifact_refs=preflight.snapshot_table_artifact_refs,
             preview_ready_closure_digest=preflight.preview_ready_closure_digest,
         )
-        workspace = unit_of_work.workspace.get_workspace(command.workspace_id)
-        if workspace is None:
-            raise ScopeForbidden
-        repository_id = workspace.repository_id
+        repository_id = loaded.workspace.repository_id
+
+    baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
+        repository_id=repository_id,
+        baseline_head=resolved.baseline_head,
+    )
+    evaluate_new_accept_preflight(
+        command=command,
+        loaded=loaded,
+        baseline_canonical_digest=baseline_canonical_digest,
+    )
 
     frozen = replace(
         preflight,

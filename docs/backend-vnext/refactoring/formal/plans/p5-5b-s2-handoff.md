@@ -13,7 +13,7 @@ p4_r6_exit: pass
 p5_5b_design: accepted
 p5_5b_implementation_authorized: yes
 p5b_real_repository_effect_authorized: yes
-unresolved_contract_drift: none
+unresolved_contract_drift: pending_D1_design_owner_errata
 first_authorized_step: P5-5B-S1
 implementation_authority_unchanged: true
 ```
@@ -23,7 +23,7 @@ implementation_authority_unchanged: true
 ```yaml
 stage: P5-5B-S2-control-db-t1-t3
 parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
-candidate_head: uncommitted_working_tree_on_c561ffe9
+candidate_head: pending_round2_review_follow_up_commit
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md
@@ -60,6 +60,7 @@ changed_paths:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-handoff.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-remediation-handoff.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-round2-remediation-handoff.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-round2-remediation-brief.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-independent-review-findings.md
 plan_alignment_s1_paths:
   note: S2-F3 architecture-guard alignment only; not a silent S1 scope expansion
@@ -71,7 +72,7 @@ plan_alignment_s1_paths:
   - vnext/backend/tests/test_submit_domain.py
 invariants_delivered:
   - Workspace schema v3 Attempt/Submission/idempotency/two occupancy relations
-  - T1 preflight I/O outside writer transaction; NO_CANONICAL_CHANGE before main_resolve and writer lock
+  - T1 preflight control-DB reads inside read-only SQLite txn; baseline/main ports outside any SQLite txn
   - T3/abort lease + caller-observed version fencing (token identity + expected optimistic versions)
   - Occupancy release is owner-qualified CAS
   - T3 replay requires matching Attempt/Submission/Workspace/Operation/await-step closure
@@ -105,7 +106,10 @@ deferred:
   - Independent S1/S2 closure countersign
 reopen_required: []
 implementation_authority_unchanged: true
-next_step: independent_review_of_S2_round2_remediation
+next_step: independent_review_of_S2_round2_review_follow_up
+process_track_open:
+  - candidate_head SHA binding after review follow-up commit
+  - S1 independent countersign
 ```
 
 ## Transaction matrix
@@ -134,7 +138,7 @@ next_step: independent_review_of_S2_round2_remediation
 ## S1 纯逻辑复用
 
 - `validate_accept_submit`（S1 内存路径；仍按原顺序在 `NoCanonicalChange` / closure 之后才 `main_resolve`）
-- `preflight_new_accept_submit`（T1 read-only §6.1 steps 3-5；`NoCanonicalChange` 先于 `main_resolve`）
+- `load_new_accept_preflight_facts` + `evaluate_new_accept_preflight`（T1 §6.1 steps 3-5；baseline I/O 在 SQLite 读事务外）
 - `validate_accept_submit_with_frozen`（T1 写锁内，不再调用任何 I/O port）
 - `validate_abort_proof`（stable abort **写事务外**）
 - `finalize_submit`（Attempt↔Submission binding；T3 replay 另验 occupancy/Operation/Step closure）

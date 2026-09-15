@@ -27,7 +27,8 @@ implementation_authority_unchanged: true
 ```yaml
 stage: P5-5B-S2-round2-remediation
 parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
-candidate_head: uncommitted_working_tree_on_c561ffe9
+round2_initial_commit: bebf2fad64430c5da05333f863f56e08e959414f
+candidate_head: pending_review_follow_up_commit
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 uv_lock_in_diff: no
 container_rebuild_required: no
@@ -41,7 +42,7 @@ container_gate_for_current_head: not_applicable
 | Finding | 修复摘要 | Test owner | Retest |
 | --- | --- | --- | --- |
 | **S2-F14** | `FinalizeSubmitTransactionRequest` 必填 `expected_*_version`；`AbortSubmitTransactionRequest` 可选同名字段；新鲜 finalize/abort CAS 使用 caller 观察 version | `test_submit_transactions.py` | stale step+取消、stale attempt、abort stale step → 拒绝零终态写；lease takeover 回归绿 |
-| **S2-F15** | 抽取 `preflight_new_accept_submit`；`NO_CANONICAL_CHANGE` 在 read-only preflight（写锁前）裁决；`main_resolve` 仅在 no-op 排除后 | `test_submit_transactions.py` | `main_resolve.calls==0` + 全程无写锁 + 零写入；happy path I/O boundary 回归绿 |
+| **S2-F15** | `load_new_accept_preflight_facts` + `evaluate_new_accept_preflight`；`NO_CANONICAL_CHANGE` 在写锁前裁决；`main_resolve` 仅在 no-op 排除后 | `test_submit_transactions.py` | `main_resolve.calls==0` + 全程无写锁 + 零写入；happy path I/O boundary 回归绿 |
 | **S2-F16** | abort 状态门收窄 EFFECT_PENDING-only；删合成 PREPARED abort 测试；handoff matrix 删 PREPARED abort 行 | `test_submit_transactions.py` | PREPARED → 状态门拒绝；EFFECT_PENDING abort 矩阵回归绿 |
 | **S2-F17** | 选项 B：单写者下事务内 `save_workspace` CAS 失败不可达论证；可达路径由 `test_t1_rejects_stale_workspace_version_without_writes` 覆盖 | docs | 不新增注入测试 |
 | **S2-F18** | `candidate_head`/`changed_paths` 更新；本卷落盘；S1 countersign 证据准备（不自签） | docs | binding + changed_paths + 本卷 |
@@ -52,6 +53,16 @@ container_gate_for_current_head: not_applicable
 | --- | --- | --- |
 | **D-1** | pending design owner errata | §6.1/§6.3 mapping/BaselineHead 互斥；S2 pass 门禁项；候选勘误见 brief §8.2 |
 | **D-2** | reported | QUEUED/prepare-PENDING 取消无 occupancy 释放口；S2 未实现任何释放行为 |
+
+## Round-2 复审 follow-up（bebf2fad 之后）
+
+| 项 | 修复摘要 | Test owner | Retest |
+| --- | --- | --- | --- |
+| **P1** | baseline I/O 移出 SQLite 读事务：`load_new_accept_preflight_facts` 仅 control-DB 读；`baseline_digest` 在读事务关闭后调用 | `test_submit_transactions.py` | `digest.writer_open_during_calls==(False,)` |
+| **P2** | `WriterLockTracker` 增 `writer_entries`/`factory_calls`；no-op 断言从未请求 `read_only=False` | `test_submit_transactions.py` | `writer_entries==0` + `factory_calls==(True,)` |
+| **F18** | `p5-5b-s2-handoff.md` authority/changed_paths 与 round-2 handoff 对齐 | docs | `unresolved_contract_drift` 一致；brief 列入 changed_paths |
+
+初版 Round-2 交付 commit：`bebf2fad`（parent `c561ffe9`）。复审 follow-up 形成 review tip commit 后更新 `candidate_head`。
 
 ## S2-F17 闭合记录（选项 B）
 
@@ -120,4 +131,4 @@ uv run ruff check . && uv run mypy
 
 ## Next step
 
-独立评审按 brief §6 + §7 复核：代码轨 F14–F18 + gate 全绿；设计轨 D-1 勘误落地；过程轨 binding 提交后 `candidate_head` 绑定 review tip 全 SHA + S1 countersign 落盘。
+独立评审按 brief §6 + §7 + 本卷「复审 follow-up」复核：代码轨 F14–F18 + P1/P2 + gate 全绿；设计轨 D-1 勘误落地；过程轨 `candidate_head` 绑定 review follow-up 全 SHA + S1 countersign 落盘（实现侧不自签）。

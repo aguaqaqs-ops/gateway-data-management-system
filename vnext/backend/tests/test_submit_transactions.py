@@ -104,6 +104,8 @@ _SHA_REPO = "sha256:" + "9" * 64
 @dataclass
 class WriterLockTracker:
     writer_open: bool = False
+    writer_entries: int = 0
+    factory_calls: tuple[bool, ...] = ()
 
 
 class TrackingUnitOfWork:
@@ -120,6 +122,7 @@ class TrackingUnitOfWork:
 
     def __enter__(self) -> ControlDbUnitOfWork:
         if not self._read_only:
+            self._tracker.writer_entries += 1
             self._tracker.writer_open = True
         return self._inner.__enter__()
 
@@ -144,6 +147,7 @@ def _uow_factory(db_path: Path) -> SubmitControlUnitOfWorkFactory:
 
 def _tracking_uow_factory(db_path: Path, tracker: WriterLockTracker) -> SubmitControlUnitOfWorkFactory:
     def factory(*, read_only: bool = False) -> TrackingUnitOfWork:
+        tracker.factory_calls = (*tracker.factory_calls, read_only)
         return TrackingUnitOfWork(
             ControlDbUnitOfWork(db_path, read_only=read_only),
             tracker,
@@ -1485,7 +1489,10 @@ def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: 
             now=TS1,
         )
     assert resolve.calls == 0
-    assert tracker.writer_open is False
+    assert tracker.writer_entries == 0
+    assert tracker.factory_calls == (True,)
+    assert digest.writer_open_during_calls == (False,)
+    assert resolve.writer_open_during_calls == ()
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
         workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
         assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None

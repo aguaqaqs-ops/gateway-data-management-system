@@ -20,6 +20,14 @@ from gateway_backend.artifacts.store import (
     ManifestVerificationError,
     put_with_built_ref,
 )
+from gateway_backend.artifacts.nominal_refs import (
+    NominalArtifactRefError,
+    assert_backend_ref_not_repository_ref,
+    assert_repository_ref_not_backend_ref,
+    backend_artifact_ref_from_store_ref,
+    repository_artifact_ref_from_upload_response,
+    store_ref_from_backend_artifact_ref,
+)
 from gateway_backend.artifacts.types import (
     ArtifactRef,
     assert_no_host_path_identity,
@@ -36,15 +44,21 @@ __all__ = [
     "DeleteDisposition",
     "InMemoryArtifactStore",
     "ManifestVerificationError",
+    "NominalArtifactRefError",
     "VerifyReadableResult",
+    "assert_backend_ref_not_repository_ref",
+    "assert_repository_ref_not_backend_ref",
     "artifact_ref_from_dict",
     "artifact_ref_from_json",
     "artifact_ref_to_dict",
     "artifact_ref_to_json",
+    "backend_artifact_ref_from_store_ref",
     "assert_no_host_path_identity",
     "build_artifact_id",
     "put_with_built_ref",
     "raw_sha256_from_bytes",
+    "repository_artifact_ref_from_upload_response",
+    "store_ref_from_backend_artifact_ref",
     "validate_artifact_id",
     "validate_artifact_ref",
 ]

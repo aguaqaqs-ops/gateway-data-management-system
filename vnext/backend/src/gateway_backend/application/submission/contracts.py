@@ -7,8 +7,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Protocol
 
+from gateway_backend.artifacts.store import ArtifactStorePort
 from gateway_backend.domain.submission.models import (
+    BackendArtifactRef,
     BuilderMutationPolicy,
     RepositorySubmitOccupancy as RepositorySubmitOccupancy,
     SubmitAcceptanceRecord as SubmitAcceptanceRecord,
@@ -32,9 +35,110 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.application.submission.errors import PreviewBindingConflict
 
 SUBMIT_JOB_CONTRACT_VERSION = "backend-vnext/submit/v1"
+PREPARE_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/prepare-import-checkpoint/v1"
 ACCEPT_SUBMIT_REQUEST_PREFIX = b"gateway-vnext:accept-submit-request:v1\0"
 REPOSITORY_UPLOAD_KEY_PREFIX = "p5b-upload-v1:"
 REPOSITORY_IMPORT_KEY_PREFIX = "p5b-import-v1:"
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotTableBinding:
+    artifact_id: str
+    media_type: str
+    size_bytes: int
+    raw_sha256: str
+
+    def __post_init__(self) -> None:
+        if type(self.artifact_id) is not str or not self.artifact_id:
+            raise ValueError("artifact_id must be a non-empty string")
+        if type(self.media_type) is not str or not self.media_type:
+            raise ValueError("media_type must be a non-empty string")
+        if type(self.size_bytes) is not int or self.size_bytes < 0:
+            raise ValueError("size_bytes must be a non-negative integer")
+        if type(self.raw_sha256) is not str or not self.raw_sha256:
+            raise ValueError("raw_sha256 must be a non-empty string")
+
+
+@dataclass(frozen=True, slots=True)
+class PrepareImportBuildInput:
+    submit_attempt_id: str
+    builder_mutation_policy: BuilderMutationPolicy
+    input_closure_digest: str
+    source_artifact_digest: str
+    repository_base_digest: str
+    storage_projection_version: str
+    ruleset_id: str
+    ruleset_version: str
+    ruleset_digest: str
+    snapshot_tables: tuple[SnapshotTableBinding, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.submit_attempt_id) is not str or not self.submit_attempt_id:
+            raise ValueError("submit_attempt_id must be a non-empty string")
+        if type(self.builder_mutation_policy) is not BuilderMutationPolicy:
+            raise ValueError("builder_mutation_policy must be BuilderMutationPolicy")
+        if type(self.input_closure_digest) is not str or not self.input_closure_digest:
+            raise ValueError("input_closure_digest must be a non-empty string")
+        if type(self.snapshot_tables) is not tuple or not self.snapshot_tables:
+            raise ValueError("snapshot_tables must be a non-empty tuple")
+        for item in self.snapshot_tables:
+            if type(item) is not SnapshotTableBinding:
+                raise ValueError("snapshot_tables must contain SnapshotTableBinding")
+
+
+@dataclass(frozen=True, slots=True)
+class PrepareImportCheckpoint:
+    schema_version: str
+    attempt_id: str
+    canonicalization_manifest_ref: str
+    canonicalization_manifest_digest: str
+    backend_import_artifact_ref: BackendArtifactRef
+    package_raw_size: int
+    package_raw_sha256: str
+    input_closure_digest: str
+    builder_mutation_policy: BuilderMutationPolicy
+
+    def __post_init__(self) -> None:
+        if self.schema_version != PREPARE_IMPORT_CHECKPOINT_SCHEMA:
+            raise ValueError("unsupported prepare import checkpoint schema")
+        if type(self.attempt_id) is not str or not self.attempt_id:
+            raise ValueError("attempt_id must be a non-empty string")
+        if type(self.canonicalization_manifest_ref) is not str or not self.canonicalization_manifest_ref:
+            raise ValueError("canonicalization_manifest_ref must be a non-empty string")
+        if type(self.canonicalization_manifest_digest) is not str or not self.canonicalization_manifest_digest:
+            raise ValueError("canonicalization_manifest_digest must be a non-empty string")
+        if type(self.backend_import_artifact_ref) is not BackendArtifactRef:
+            raise ValueError("backend_import_artifact_ref must be BackendArtifactRef")
+        if type(self.package_raw_size) is not int or self.package_raw_size < 0:
+            raise ValueError("package_raw_size must be a non-negative integer")
+        if type(self.package_raw_sha256) is not str or not self.package_raw_sha256:
+            raise ValueError("package_raw_sha256 must be a non-empty string")
+        if self.backend_import_artifact_ref.raw_sha256 != self.package_raw_sha256:
+            raise ValueError("package_raw_sha256 must match backend_import_artifact_ref.raw_sha256")
+        if type(self.builder_mutation_policy) is not BuilderMutationPolicy:
+            raise ValueError("builder_mutation_policy must be BuilderMutationPolicy")
+
+
+@dataclass(frozen=True, slots=True)
+class PrepareImportPublicationResult:
+    checkpoint: PrepareImportCheckpoint
+    replay: bool = False
+
+
+class SubmitImportPublicationPort(Protocol):
+    def build_and_publish(
+        self,
+        *,
+        build_input: PrepareImportBuildInput,
+        store: ArtifactStorePort,
+    ) -> PrepareImportPublicationResult: ...
+
+    def read_back_package(
+        self,
+        *,
+        checkpoint: PrepareImportCheckpoint,
+        store: ArtifactStorePort,
+    ) -> bytes: ...
 
 
 def assert_preview_ready_closure_digest(preview_ready_closure_digest: str) -> None:

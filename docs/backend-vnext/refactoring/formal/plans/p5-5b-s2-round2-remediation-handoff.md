@@ -62,7 +62,7 @@ container_gate_for_current_head: not_applicable
 | **P2** | `WriterLockTracker` 增 `writer_entries`/`factory_calls`；no-op 断言从未请求 `read_only=False` | `test_submit_transactions.py` | `writer_entries==0` + `factory_calls==(True,)` |
 | **F18** | `p5-5b-s2-handoff.md` authority/changed_paths 与 round-2 handoff 对齐 | docs | `unresolved_contract_drift` 一致；brief 列入 changed_paths |
 
-初版 Round-2 交付 commit：`bebf2fad`（parent `c561ffe9`）。复审 follow-up 形成 review tip commit 后更新 `candidate_head`。
+初版 Round-2 交付 commit：`bebf2fad64430c5da05333f863f56e08e959414f`（parent `c561ffe9`）。复审 follow-up review tip：`b87efe8a115bb5ca91a495968620037d65567ac1`。
 
 ## S2-F17 闭合记录（选项 B）
 
@@ -100,7 +100,7 @@ uv run ruff check . && uv run mypy
 # ruff clean; mypy Success (332 source files)
 ```
 
-## Verification record
+## Verification record（review tip `b87efe8a`）
 
 ```bash
 cd /home/dev/gateway-data-management-system
@@ -127,7 +127,7 @@ uv run ruff check . && uv run mypy
 # ruff clean; mypy Success (332 source files)
 ```
 
-锁 diff 为空声明：`git diff -- vnext/backend/uv.lock` 在验证后确认为 0 行。
+锁 diff 为空声明：`git diff -- vnext/backend/uv.lock` 在验证后确认为 0 行（`uv run` 后 `git checkout -- vnext/backend/uv.lock` 恢复）。
 
 ## Next step
 

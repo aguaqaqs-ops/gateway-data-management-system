@@ -210,16 +210,14 @@ nodeids、deferred/reopen。受控入口正常消费后完全不需要“验证�
 `test_canonical_lock_identity.py` 与 wrapper 单元测试；rebuild required=yes（触及 build/native
 入口）。
 
-## 7. 代码候选 handoff（2026-09-15）
+## 7. 代码候选 handoff（final @ `2da4d71f`)
+
+**Code candidate**：`2da4d71f3c8090cfac08390cfe5f3fb79fd305f4`
+**Independent review**：[`p5-5b-s2-final-independent-review.md`](refactoring/formal/plans/p5-5b-s2-final-independent-review.md)
 
 ### Changed paths
 
-- `vnext/scripts/lib/gateway-index-env.sh`（扩展 env 隔离、`gateway_invoke_uv`、危险参数拒绝）
-- `vnext/scripts/uv-consume.sh`（新）
-- `vnext/scripts/{run-tests,prepare-dev-dependencies,native_kernel_component,build-repository-service-image}.sh`
-- `vnext/backend/tests/test_canonical_lock_identity.py`（新，identity gate owner）
-- `vnext/repository_service/tests/{test_uv_consume_script,test_prepare_dev_dependencies_script,test_build_repository_service_image_script}.py`
-- `AGENTS.md`、`docs/backend-vnext/testing-conventions.md`、`docs/backend-vnext/internal-build-environment-handoff.md`
+见 commit `2da4d71f`（含 D-1、`uv-consume.sh`、wrapper 测试、AGENTS/testing-conventions）。
 
 ### 消费入口清单
 
@@ -233,51 +231,49 @@ nodeids、deferred/reopen。受控入口正常消费后完全不需要“验证�
 ### Config 策略
 
 - 默认：`gateway_invoke_uv` → unset index/mode env + `uv --no-config`
-- internal prepare：`GATEWAY_UV_CONSUME_PRESERVE_INDEX=1`（保留 caller index，仍 `--no-config`）
-- no-sync：`uv lock --check --offline` 先于 `uv run --locked --no-sync`
+- internal prepare：`GATEWAY_UV_CONSUME_PRESERVE_INDEX=1`
+- no-sync：`uv lock --check --offline --project <WORK_DIR>` 先于 `uv run --locked --no-sync`；跨项目 `.py` 脚本拒绝；下游命令（pytest）外部路径允许
 
-### Focused 验证
+### Focused 验证（@ `2da4d71f`，closure 时未重跑）
 
 | 命令 | 结果 |
 | --- | --- |
-| `backend/tests/test_canonical_lock_identity.py`（参数化副本） | pass（3/5；工作区污染锁导致 2 项 live-lock 检查 fail，见下） |
-| `repository_service` wrapper/prepare/build 单测（34 项，`-n 0`） | pass |
+| `test_canonical_lock_identity.py` | pass |
+| `repository_service` wrapper/prepare/build 单测（`-n 4` 含 37 项） | pass |
 | 五包 `uv-consume.sh run ruff/mypy` | pass |
 
-### Host native 门禁
-
-五锁 before/after SHA 一致（见下表）。`prepare` 后执行。
+### Host native 门禁（closure 亲跑 @ `2da4d71f`）
 
 | 命令 | 退出码 |
 | --- | --- |
+| `prepare-dev-dependencies.sh` | 0 |
 | `wheel-smoke` | 0 |
 | `wheel-trap-regression` | 0 |
-| `NATIVE_KERNEL_FORCE_RESTORE_FAIL=1 wheel-smoke` | 99（body 成功后 restore 注入） |
+| `NATIVE_KERNEL_FORCE_RESTORE_FAIL=1 wheel-smoke` | 99 |
 
-### 五锁 SHA（工作区快照；backend/rs 相对 git HEAD 已污染）
+五锁 before/after 全程一致；`git diff -- vnext/*/uv.lock` 为空。
+
+### 五锁 SHA（canonical @ closure）
 
 | 包 | sha256 |
 | --- | --- |
 | shared_kernel | `7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898` |
 | repository_contracts | `b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3` |
 | repository_client | `6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954` |
-| backend | `fe02d6dcaf746d512f88caee499c7281f33982d7f62c80a795e3493527fa0913`（工作区 LAN mirror） |
-| repository_service | `7ad042b3893d51c2475888961d663aa94635ce2d6051697fe766fa6820ae5dd0`（工作区 LAN mirror） |
+| backend | `21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea` |
+| repository_service | `6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11` |
 
-### Container 门禁
+### Container 门禁（@ `2da4d71f`）
 
 | 命令 | 结果 | 备注 |
 | --- | --- | --- |
-| `build-repository-service-image.sh` | **blocked** | `worktree is dirty`（identity helper 门禁） |
-| `docker compose build backend worker` | **pass** | `deploy-backend:latest` / `deploy-worker:latest` 已重建 |
-| `./vnext/scripts/run-tests.sh` | **partial** | 受工作区污染锁 + dirty worktree 影响；identity/uv_lock_sha256/compose 相关 nodeid 失败 |
+| `build-repository-service-image.sh` | **pass** | `gateway-repository-service:local` → `sha256:b44a67a7fe6260293ce80ad5e94ee3ba8d65a6c9d16494255c9585807a837a44`；`CANDIDATE_SHA=2da4d71f` |
+| `docker compose build backend worker` | **pass** | 当前 HEAD 重建 |
+| `./vnext/scripts/run-tests.sh` | **pass** | 首次 serial 因 dolt 残留失败 2 项；清理后同 SHA 重跑全绿 |
 
-### Deferred / 独立 reviewer
+### Independent reviewer
 
-- 工作区 `backend`/`repository_service` 锁污染须在**独立 lock-restore slice**恢复 canonical 后再签 identity gate pass
-- `run-tests.sh` 全绿须在 clean worktree + canonical 五锁 环境复跑
-- `build-repository-service-image.sh` 须在 clean worktree 复跑并记录 image revision
-- 独立 reviewer pass 待新开 context
+**pass** — 见 [`p5-5b-s2-final-independent-review.md`](refactoring/formal/plans/p5-5b-s2-final-independent-review.md)
 
 ## 6. 启动提示词与评审
 

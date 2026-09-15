@@ -1,6 +1,6 @@
 # P5-5B-S1 Submission Domain and Application Handoff
 
-状态：**S1 focused gate re-verified in S2 remediation — independent countersign still required**
+状态：**S1 closure signed — independent countersign complete**
 
 日期：2026-09-14
 
@@ -98,7 +98,11 @@ deferred:
   - Repository/recovery integration (test_submit_recovery.py per execution plan)
 reopen_required: []
 implementation_authority_unchanged: true
-next_step: independent_countersign_of_S1_closure_after_s2_remediation_rerun
+next_step: P5-5B-S3 entry (S2 closure pass)
+independent_countersign:
+  review: docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-final-independent-review.md
+  candidate_head: 2da4d71f3c8090cfac08390cfe5f3fb79fd305f4
+  s1_focused_rerun: 102 passed (four-file); nine-file 165 passed; full unit 1894 passed (cross-ref S2 final)
 ```
 
 ## Notes

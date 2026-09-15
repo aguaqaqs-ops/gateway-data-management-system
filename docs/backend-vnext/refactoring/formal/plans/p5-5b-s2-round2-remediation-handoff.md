@@ -1,6 +1,6 @@
 # P5-5B-S2 Round-2 Finding-Scoped Remediation Handoff
 
-状态：**round-2 remediation complete — independent re-review required**
+状态：**round-2 remediation complete — S2 closure pass**
 
 日期：2026-09-15
 
@@ -17,7 +17,7 @@ p4_r6_exit: pass
 p5_5b_design: accepted
 p5_5b_implementation_authorized: yes
 p5b_real_repository_effect_authorized: yes
-unresolved_contract_drift: pending_D1_design_owner_errata
+unresolved_contract_drift: none
 first_authorized_step: P5-5B-S1
 implementation_authority_unchanged: true
 ```
@@ -28,13 +28,14 @@ implementation_authority_unchanged: true
 stage: P5-5B-S2-round2-remediation
 parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
 round2_initial_commit: bebf2fad64430c5da05333f863f56e08e959414f
-candidate_head: f9414aa4813a2c0deb608ff3f36aba6b10ecbb36
+candidate_head: 2da4d71f3c8090cfac08390cfe5f3fb79fd305f4
+independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-final-independent-review.md
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 uv_lock_in_diff: no
-container_rebuild_required: no
-container_reason: round-2 remediation is control DB/application submission only; no Dockerfile, Compose, entrypoint, image, UID/GID, volume, or runtime ENV change
-last_verified_image_revision: not_applicable
-container_gate_for_current_head: not_applicable
+container_rebuild_required: yes
+container_reason: final candidate `2da4d71f` includes uv-lock guard wiring on native/build/run-tests entrypoints
+last_verified_image_revision: gateway-repository-service:local sha256:b44a67a7fe6260293ce80ad5e94ee3ba8d65a6c9d16494255c9585807a837a44
+container_gate_for_current_head: pass
 ```
 
 ## Finding → fix → owner → retest
@@ -142,6 +143,21 @@ uv run ruff check . && uv run mypy
 
 锁 diff 为空声明：`git diff -- vnext/backend/uv.lock` 在验证后确认为 0 行（`uv run` 后 `git checkout -- vnext/backend/uv.lock` 恢复）。
 
+## Final verification record (`2da4d71f`)
+
+```bash
+./vnext/scripts/uv-consume.sh -C vnext/backend run --offline pytest -q -m unit
+# 1894 passed, 115 deselected, 0 failed
+
+./vnext/scripts/run-tests.sh
+# pass（serial 批次首次因并行 unit 遗留 dolt 子进程失败 2 项；清理后同 SHA 重跑全绿）
+
+git diff -- vnext/*/uv.lock | wc -l
+# 0
+```
+
+Focused/static/identity：见 [p5-5b-s2-final-independent-review.md](p5-5b-s2-final-independent-review.md)（`verified_at: 2da4d71f`）。
+
 ## Next step
 
-独立评审按 brief §6 + §7 + 本卷「复审 follow-up」复核：代码轨 F14–F18 + P1/P2 + gate 全绿；设计轨 D-1 勘误落地（见 [D-1 执行计划](p5-5b-s2-d1-projection-freshness-execution-plan.md) 与 [D-1 handoff](p5-5b-s2-d1-projection-freshness-handoff.md)）；过程轨 `candidate_head` 绑定 review follow-up 全 SHA + S1 countersign 落盘（实现侧不自签）。
+S2 closure pass；见 [p5-5b-s2-final-independent-review.md](p5-5b-s2-final-independent-review.md)。下一授权步骤：**P5-5B-S3** entry。

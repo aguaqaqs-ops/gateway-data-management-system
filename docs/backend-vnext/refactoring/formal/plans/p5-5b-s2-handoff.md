@@ -1,6 +1,6 @@
 # P5-5B-S2 Control DB Schema, Repositories and T1/T3 UoW Handoff
 
-状态：**S2 round-2 remediation complete — independent re-review required**
+状态：**S2 closure pass**
 
 日期：2026-09-15
 
@@ -23,7 +23,8 @@ implementation_authority_unchanged: true
 ```yaml
 stage: P5-5B-S2-control-db-t1-t3
 parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
-candidate_head: f9414aa4813a2c0deb608ff3f36aba6b10ecbb36
+candidate_head: 2da4d71f3c8090cfac08390cfe5f3fb79fd305f4
+independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-final-independent-review.md
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md
@@ -51,7 +52,10 @@ changed_paths:
   - vnext/backend/src/gateway_backend/application/submission/finalize_transaction.py
   - vnext/backend/src/gateway_backend/application/submission/ports.py
   - vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_submission.py
+  - vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_mapping.py
+  - vnext/backend/src/gateway_backend/infrastructure/control_db/database.py
   - vnext/backend/tests/test_architecture.py
+  - vnext/backend/tests/test_canonical_lock_identity.py
   - vnext/backend/tests/test_sqlite_submit_repository.py
   - vnext/backend/tests/test_submit_control_db_migrations.py
   - vnext/backend/tests/test_submit_domain.py
@@ -62,6 +66,25 @@ changed_paths:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-round2-remediation-handoff.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-round2-remediation-brief.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-independent-review-findings.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-d1-projection-freshness-execution-plan.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-d1-projection-freshness-handoff.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-final-independent-review.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md
+  - docs/backend-vnext/uv-lockfile-canonical-guard-pending.md
+  - vnext/scripts/uv-consume.sh
+  - vnext/scripts/lib/gateway-index-env.sh
+  - vnext/scripts/run-tests.sh
+  - vnext/scripts/prepare-dev-dependencies.sh
+  - vnext/scripts/native_kernel_component.sh
+  - vnext/scripts/build-repository-service-image.sh
+  - vnext/repository_service/tests/test_uv_consume_script.py
+  - vnext/repository_service/tests/test_run_tests_script.py
+  - vnext/repository_service/tests/test_build_repository_service_image_script.py
+  - vnext/repository_service/tests/test_prepare_dev_dependencies_script.py
+  - AGENTS.md
+  - docs/backend-vnext/testing-conventions.md
+  - docs/backend-vnext/internal-build-environment-handoff.md
 plan_alignment_s1_paths:
   note: S2-F3 architecture-guard alignment only; not a silent S1 scope expansion
   - vnext/backend/tests/test_architecture.py
@@ -73,6 +96,7 @@ plan_alignment_s1_paths:
 invariants_delivered:
   - Workspace schema v3 Attempt/Submission/idempotency/two occupancy relations
   - T1 preflight control-DB reads inside read-only SQLite txn; §6.1 order = binding/stale → baseline → NO_CANONICAL_CHANGE → occupancy/closure → main_resolve; external ports with zero active UoW
+  - T1 same-uow projection freshness (D-1): replay 前同连接 `resolve_provisioned_scope`；新 key 完整 Head node/commit/version equality
   - T3/abort lease + caller-observed version fencing (token identity + expected optimistic versions)
   - Occupancy release is owner-qualified CAS
   - T3 replay requires matching Attempt/Submission/Workspace/Operation/await-step closure
@@ -85,15 +109,15 @@ unique_test_owners:
   - tests/test_submit_transactions.py
   - tests/test_architecture.py  # S2-F3 allowlist alignment only
 focused_commands_and_results:
-  - cd vnext/backend && uv run pytest -q -m unit tests/test_architecture.py tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_submit_control_db_migrations.py tests/test_sqlite_submit_repository.py tests/test_submit_transactions.py tests/test_sqlite_workspace_repository.py tests/test_workspace_control_db_migrations.py => 158 passed
-  - cd vnext/backend && uv run pytest -q -m unit => 1882 passed / 0 failed
-  - cd vnext/backend && uv run ruff check . && uv run mypy => pass (332 files)
-five_package_static: deferred
-authoritative_runner: deferred
-container_rebuild_required: no
-container_reason: S2 is control DB/application/domain submission only; no image, Compose, entrypoint, UID/GID, volume, or production ENV change
-last_verified_image_revision: not_applicable
-container_gate_for_current_head: not_applicable
+  - ./vnext/scripts/uv-consume.sh -C vnext/backend run --offline pytest -q -m unit tests/test_architecture.py tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_submit_control_db_migrations.py tests/test_sqlite_submit_repository.py tests/test_submit_transactions.py tests/test_sqlite_workspace_repository.py tests/test_workspace_control_db_migrations.py => 165 passed @ 2da4d71f
+  - ./vnext/scripts/uv-consume.sh -C vnext/backend run --offline pytest -q -m unit => 1894 passed / 0 failed @ 2da4d71f
+  - 五包 uv-consume ruff/mypy => pass @ 2da4d71f (not re-run at closure)
+five_package_static: pass @ 2da4d71f
+authoritative_runner: pass @ 2da4d71f (run-tests.sh; serial 205 passed after dolt cleanup retry)
+container_rebuild_required: yes
+container_reason: final candidate `2da4d71f` touches native_kernel_component.sh, build-repository-service-image.sh, run-tests.sh (uv-lock guard)
+last_verified_image_revision: gateway-repository-service:local sha256:b44a67a7fe6260293ce80ad5e94ee3ba8d65a6c9d16494255c9585807a837a44; compose backend/worker rebuilt @ 2da4d71f
+container_gate_for_current_head: pass
 uv_lock_in_diff: no
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 findings:
@@ -103,13 +127,11 @@ deferred:
   - HTTP routes / OpenAPI (S4)
   - Import builder / artifact package bytes (S3)
   - Real Repository Client upload/import and worker handlers (S5)
-  - Independent S1/S2 closure countersign
+  - D-2 occupancy release on QUEUED/prepare-PENDING cancel (reported, not gating)
 reopen_required: []
 implementation_authority_unchanged: true
-next_step: independent_review_of_S2_round2_review_follow_up
-process_track_open:
-  - candidate_head SHA binding after review follow-up commit
-  - S1 independent countersign
+next_step: P5-5B-S3 entry
+process_track_open: []
 ```
 
 ## Transaction matrix

@@ -23,7 +23,7 @@ implementation_authority_unchanged: true
 ```yaml
 stage: P5-5B-S2-control-db-t1-t3
 parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
-candidate_head: pending_round2_review_follow_up_commit
+candidate_head: b87efe8a115bb5ca91a495968620037d65567ac1
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md

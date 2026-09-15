@@ -28,7 +28,7 @@ implementation_authority_unchanged: true
 stage: P5-5B-S2-round2-remediation
 parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
 round2_initial_commit: bebf2fad64430c5da05333f863f56e08e959414f
-candidate_head: pending_review_follow_up_commit
+candidate_head: b87efe8a115bb5ca91a495968620037d65567ac1
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 uv_lock_in_diff: no
 container_rebuild_required: no

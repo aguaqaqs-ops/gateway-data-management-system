@@ -105,6 +105,7 @@ _SHA_REPO = "sha256:" + "9" * 64
 class WriterLockTracker:
     writer_open: bool = False
     writer_entries: int = 0
+    active_uow_entries: int = 0
     factory_calls: tuple[bool, ...] = ()
 
 
@@ -121,6 +122,7 @@ class TrackingUnitOfWork:
         self._read_only = read_only
 
     def __enter__(self) -> ControlDbUnitOfWork:
+        self._tracker.active_uow_entries += 1
         if not self._read_only:
             self._tracker.writer_entries += 1
             self._tracker.writer_open = True
@@ -135,6 +137,7 @@ class TrackingUnitOfWork:
         try:
             self._inner.__exit__(exc_type, exc, tb)
         finally:
+            self._tracker.active_uow_entries -= 1
             self._tracker.writer_open = False
 
 
@@ -163,12 +166,18 @@ class FakeBaselineCanonicalDigestPort:
     tracker: WriterLockTracker | None = None
     calls: int = 0
     writer_open_during_calls: tuple[bool, ...] = ()
+    uow_active_during_calls: tuple[bool, ...] = ()
+    fail_with: BaseException | None = None
 
     def get_baseline_canonical_digest(self, *, repository_id: str, baseline_head: object) -> str:
         del repository_id, baseline_head
         self.calls += 1
         writer_open = False if self.tracker is None else self.tracker.writer_open
+        uow_active = False if self.tracker is None else self.tracker.active_uow_entries > 0
         self.writer_open_during_calls = (*self.writer_open_during_calls, writer_open)
+        self.uow_active_during_calls = (*self.uow_active_during_calls, uow_active)
+        if self.fail_with is not None:
+            raise self.fail_with
         return self.digest
 
 
@@ -178,12 +187,15 @@ class RecordingMainResolvePort:
     tracker: WriterLockTracker | None = None
     calls: int = 0
     writer_open_during_calls: tuple[bool, ...] = ()
+    uow_active_during_calls: tuple[bool, ...] = ()
 
     def resolve_main_expected_commit(self, *, repository_id: str) -> str:
         del repository_id
         self.calls += 1
         writer_open = False if self.tracker is None else self.tracker.writer_open
+        uow_active = False if self.tracker is None else self.tracker.active_uow_entries > 0
         self.writer_open_during_calls = (*self.writer_open_during_calls, writer_open)
+        self.uow_active_during_calls = (*self.uow_active_during_calls, uow_active)
         return self.commit_id
 
 
@@ -1221,6 +1233,8 @@ def test_t1_accept_ports_run_outside_writer_transaction(db_path: Path) -> None:
     assert resolve.calls == 1
     assert digest.writer_open_during_calls == (False,)
     assert resolve.writer_open_during_calls == (False,)
+    assert digest.uow_active_during_calls == (False,)
+    assert resolve.uow_active_during_calls == (False,)
 
 
 def test_t1_accept_replay_does_not_call_repository_ports(db_path: Path) -> None:
@@ -1290,6 +1304,9 @@ def test_t1_rejects_stale_workspace_version_without_writes(db_path: Path) -> Non
             replace(workspace, optimistic_version=workspace.optimistic_version + 1, updated_at=TS1),
             expected_version=workspace.optimistic_version,
         )
+    baseline_digest = FakeBaselineCanonicalDigestPort(
+        fail_with=RuntimeError("baseline provider unavailable"),
+    )
     with pytest.raises(WorkspaceVersionConflict):
         accept_submit_transaction(
             command=_accept_command(seed, idempotency_key="accept-key-1"),
@@ -1299,11 +1316,12 @@ def test_t1_rejects_stale_workspace_version_without_writes(db_path: Path) -> Non
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=FakeBaselineCanonicalDigestPort(),
+            baseline_digest=baseline_digest,
             main_resolve=RecordingMainResolvePort(),
             preflight=_preflight(seed),
             now=TS1,
         )
+    assert baseline_digest.calls == 0
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
         assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
@@ -1490,9 +1508,12 @@ def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: 
         )
     assert resolve.calls == 0
     assert tracker.writer_entries == 0
+    assert tracker.active_uow_entries == 0
     assert tracker.factory_calls == (True,)
     assert digest.writer_open_during_calls == (False,)
+    assert digest.uow_active_during_calls == (False,)
     assert resolve.writer_open_during_calls == ()
+    assert resolve.uow_active_during_calls == ()
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
         workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
         assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None

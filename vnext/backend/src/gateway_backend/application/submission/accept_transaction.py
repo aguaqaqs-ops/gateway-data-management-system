@@ -9,7 +9,8 @@ from datetime import datetime
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
-    evaluate_new_accept_preflight,
+    assert_no_canonical_change_after_baseline,
+    evaluate_new_accept_preflight_local_guards,
     load_new_accept_preflight_facts,
     try_accept_submit_replay,
     validate_accept_submit_with_frozen,
@@ -143,12 +144,13 @@ def accept_submit_transaction(
         )
         repository_id = loaded.workspace.repository_id
 
+    evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
+
     baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
         repository_id=repository_id,
         baseline_head=resolved.baseline_head,
     )
-    evaluate_new_accept_preflight(
-        command=command,
+    assert_no_canonical_change_after_baseline(
         loaded=loaded,
         baseline_canonical_digest=baseline_canonical_digest,
     )

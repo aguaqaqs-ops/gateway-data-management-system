@@ -210,13 +210,12 @@ def load_new_accept_preflight_facts(
     )
 
 
-def evaluate_new_accept_preflight(
+def evaluate_new_accept_preflight_local_guards(
     *,
     command: AcceptSubmitCommand,
     loaded: AcceptPreflightLoadedFacts,
-    baseline_canonical_digest: str,
 ) -> None:
-    """Pure §6.1 steps 3-5 guards after control-DB facts are materialized."""
+    """Pure local §6.1 guards that do not require baseline/main port I/O."""
     workspace = loaded.workspace
     assert_exact_scope(workspace, command.context)
     _assert_resolved_repository_matches_workspace(loaded.resolved_repository_id, workspace)
@@ -227,15 +226,35 @@ def evaluate_new_accept_preflight(
     if derive_preview_staleness(loaded.preview_result, loaded.baseline_head):
         raise PreviewDerivedStale
 
-    preview_digest = preview_canonical_business_digest(loaded.preview_result)
-    if preview_digest == baseline_canonical_digest:
-        raise NoCanonicalChange
-
     if loaded.workspace_occupancy_held:
         raise SubmitOccupancyConflict("workspace submit occupancy is already held")
     if loaded.repository_occupancy_held:
         raise SubmitOccupancyConflict("repository submit occupancy is already held")
     assert_preview_ready_closure_digest(loaded.preview_ready_closure_digest)
+
+
+def assert_no_canonical_change_after_baseline(
+    *,
+    loaded: AcceptPreflightLoadedFacts,
+    baseline_canonical_digest: str,
+) -> None:
+    preview_digest = preview_canonical_business_digest(loaded.preview_result)
+    if preview_digest == baseline_canonical_digest:
+        raise NoCanonicalChange
+
+
+def evaluate_new_accept_preflight(
+    *,
+    command: AcceptSubmitCommand,
+    loaded: AcceptPreflightLoadedFacts,
+    baseline_canonical_digest: str,
+) -> None:
+    """Pure §6.1 steps 3-5 guards after control-DB facts are materialized."""
+    evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
+    assert_no_canonical_change_after_baseline(
+        loaded=loaded,
+        baseline_canonical_digest=baseline_canonical_digest,
+    )
 
 
 def validate_accept_submit_with_frozen(

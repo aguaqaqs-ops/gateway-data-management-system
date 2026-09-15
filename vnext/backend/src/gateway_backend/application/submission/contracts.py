@@ -90,8 +90,7 @@ class PrepareImportBuildInput:
 class PrepareImportCheckpoint:
     schema_version: str
     attempt_id: str
-    canonicalization_manifest_ref: str
-    canonicalization_manifest_digest: str
+    canonicalization_manifest_ref: BackendArtifactRef
     backend_import_artifact_ref: BackendArtifactRef
     package_raw_size: int
     package_raw_sha256: str
@@ -103,10 +102,8 @@ class PrepareImportCheckpoint:
             raise ValueError("unsupported prepare import checkpoint schema")
         if type(self.attempt_id) is not str or not self.attempt_id:
             raise ValueError("attempt_id must be a non-empty string")
-        if type(self.canonicalization_manifest_ref) is not str or not self.canonicalization_manifest_ref:
-            raise ValueError("canonicalization_manifest_ref must be a non-empty string")
-        if type(self.canonicalization_manifest_digest) is not str or not self.canonicalization_manifest_digest:
-            raise ValueError("canonicalization_manifest_digest must be a non-empty string")
+        if type(self.canonicalization_manifest_ref) is not BackendArtifactRef:
+            raise ValueError("canonicalization_manifest_ref must be BackendArtifactRef")
         if type(self.backend_import_artifact_ref) is not BackendArtifactRef:
             raise ValueError("backend_import_artifact_ref must be BackendArtifactRef")
         if type(self.package_raw_size) is not int or self.package_raw_size < 0:

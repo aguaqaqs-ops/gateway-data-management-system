@@ -1,6 +1,6 @@
 # P5-5B-S3 Import Builder and Artifact Boundary Handoff
 
-状态：**S3 delivery complete — pending independent review**
+状态：**S3 baseline delivered — remediation in p5-5b-s3-remediation-handoff.md**
 
 日期：2026-09-15
 
@@ -23,7 +23,8 @@ s3_entry: authorized
 ```yaml
 stage: P5-5B-S3-import-builder-artifact-boundary
 parent_head: 2da4d71f3c8090cfac08390cfe5f3fb79fd305f4
-candidate_head: 669f1ca00845c8ef2e82beb55c0063acf3951017
+baseline_commit: 8618b21a
+candidate_head: pending remediation commit
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md §S3

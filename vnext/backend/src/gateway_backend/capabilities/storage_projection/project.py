@@ -714,6 +714,32 @@ def _encode_cell(cell: object, codec: CanonicalColumnCodec, view: StorageRuleVie
         ) from exc
 
 
+def materialize_canonical_source_rows(
+    request: ProjectionRequest,
+    item: ProjectionTableInput,
+    view: StorageRuleView,
+) -> tuple[tuple[object, ...], ...]:
+    """Return owner-canonicalized source rows for import replay materialization."""
+    snapshot_digest = item.source_binding.snapshot_digest
+    descriptor = _bound_descriptor(item, snapshot_digest)
+    _, _, retained_indexes = _retained_schema(view, descriptor)
+    if view.ordered_policy is OrderedPolicy.GID_NO_V1:
+        rows = tuple(_iter_source_rows(request, item, descriptor, view))
+        _require_row_count(len(rows), descriptor, view)
+        gid_index, no_index = _ordered_indexes(descriptor, view)
+        try:
+            projected = project_ordered_rows(rows, gid_index=gid_index, no_index=no_index)
+        except OrderedProjectionError as exc:
+            raise _ProjectionFailed(_error(exc.code, exc.message, view.canonical_table)) from exc
+        content_rows = tuple(
+            sorted(projected.rows, key=lambda row: _allocated_gid(row[gid_index]))
+        )
+        return content_rows
+    rows = tuple(_iter_source_rows(request, item, descriptor, view))
+    _require_row_count(len(rows), descriptor, view)
+    return rows
+
+
 def _allocated_gid(cell: object) -> int:
     if not isinstance(cell, UnsignedIntegerScalar):
         raise _ProjectionFailed(

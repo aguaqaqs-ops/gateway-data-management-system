@@ -41,6 +41,11 @@ from gateway_backend.capabilities.storage_projection.package import (
     repository_import_manifest_bytes,
     validate_repository_import_package,
 )
+from gateway_backend.capabilities.storage_projection.import_replay import (
+    ImportReplayError,
+    build_import_mutation_snapshots,
+    render_repository_import_replay_sql,
+)
 from gateway_backend.capabilities.storage_projection.project import project_storage
 from gateway_backend.capabilities.storage_projection.publish import (
     PublicationError,
@@ -82,6 +87,8 @@ __all__ = [
     "RepositoryImportColumn",
     "RepositoryImportTable",
     "WrittenImportPackage",
+    "ImportReplayError",
+    "build_import_mutation_snapshots",
     "build_repository_import_package",
     "canonicalization_manifest_from_bytes",
     "durable_manifest_bytes",
@@ -89,6 +96,7 @@ __all__ = [
     "open_repository_import_package",
     "project_storage",
     "publish_canonicalization",
+    "render_repository_import_replay_sql",
     "repository_import_input_from_bytes",
     "repository_import_manifest_bytes",
     "validate_repository_import_package",

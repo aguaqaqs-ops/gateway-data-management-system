@@ -12,6 +12,7 @@ VNEXT_ROOT = Path(__file__).resolve().parents[2]
 PREPARE_SCRIPT = VNEXT_ROOT / "scripts" / "prepare-dev-dependencies.sh"
 INDEX_LIB = VNEXT_ROOT / "scripts" / "lib" / "gateway-index-env.sh"
 RUN_TESTS_SCRIPT = VNEXT_ROOT / "scripts" / "run-tests.sh"
+UV_CONSUME_SCRIPT = VNEXT_ROOT / "scripts" / "uv-consume.sh"
 
 
 def _run_prepare(
@@ -90,23 +91,26 @@ def test_prepare_preserves_all_lockfiles() -> None:
 
 
 @pytest.mark.unit
-def test_prepare_script_pypi_mode_strips_machine_index() -> None:
+def test_prepare_script_uses_uv_consume_wrapper() -> None:
     script = PREPARE_SCRIPT.read_text(encoding="utf-8")
-    assert 'gateway_with_isolated_index uv "${sync_args[@]}"' in script
-    assert 'MODE}" == "pypi"' in script
+    assert "uv-consume.sh" in script
+    assert "GATEWAY_UV_CONSUME_PRESERVE_INDEX=1" in script
+    assert 'MODE}" == "internal"' in script
 
 
 @pytest.mark.unit
-def test_run_tests_strips_machine_index() -> None:
-    probe = subprocess.run(
+def test_index_lib_unsets_extended_uv_env_names() -> None:
+    completed = subprocess.run(
         [
             "bash",
             "-c",
             (
                 f'source "{INDEX_LIB}" && '
-                'export UV_INDEX_URL=http://internal.example/simple && '
-                'export UV_DEFAULT_INDEX=http://internal.example/simple && '
-                'gateway_with_isolated_index env | sort'
+                "export UV_INDEX=http://mirror.example/simple && "
+                "export UV_EXTRA_INDEX_URL=http://mirror.example/extra && "
+                "export UV_FIND_LINKS=/tmp/wheels && "
+                "export UV_FROZEN=1 && "
+                'gateway_with_isolated_uv_config env | sort'
             ),
         ],
         check=True,
@@ -114,9 +118,20 @@ def test_run_tests_strips_machine_index() -> None:
         text=True,
         cwd=VNEXT_ROOT,
     )
-    lines = probe.stdout.splitlines()
-    assert not any(line.startswith("UV_INDEX_URL=") for line in lines)
-    assert not any(line.startswith("UV_DEFAULT_INDEX=") for line in lines)
+    lines = completed.stdout.splitlines()
+    for prefix in (
+        "UV_INDEX=",
+        "UV_EXTRA_INDEX_URL=",
+        "UV_FIND_LINKS=",
+        "UV_FROZEN=",
+    ):
+        assert not any(line.startswith(prefix) for line in lines)
+
+
+@pytest.mark.unit
+def test_run_tests_uses_uv_consume_wrapper() -> None:
     run_tests = RUN_TESTS_SCRIPT.read_text(encoding="utf-8")
-    assert "gateway_with_isolated_index" in run_tests
+    assert "uv-consume.sh" in run_tests
+    assert "gateway_assert_lockfiles_unchanged" in run_tests
     assert "gateway-index-env.sh" in run_tests
+    assert UV_CONSUME_SCRIPT.is_file()

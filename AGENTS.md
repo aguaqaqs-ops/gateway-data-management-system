@@ -41,8 +41,23 @@ Host 依赖准备权威入口：
 默认 `pypi` 模式在同步时会剥离机器级 index，保持 lock 的 canonical PyPI identity。
 可选 `GATEWAY_DEV_OFFLINE=1` 使用 `uv sync --locked --offline`。该脚本不跑测试。
 
-权威测试入口使用隔离机器级 index 环境的 `uv run --locked`，测试过程不得根据开发机的包镜像
-配置隐式改写 `uv.lock`；依赖变更必须显式更新锁文件并重新同步环境。
+受控 uv 消费入口：
+
+```bash
+./vnext/scripts/uv-consume.sh -C vnext/<package> <sync|run|lock-check|pip-install> ...
+```
+
+`run-tests.sh`、`prepare-dev-dependencies.sh`、`native_kernel_component.sh` 与
+`build-repository-service-image.sh` 已接入该 wrapper。普通 `run`/`sync` 默认 `--locked` 并隔离
+ambient index/config；`--no-sync` 路径先执行只读 `uv lock --check --offline`，再
+`uv run --locked --no-sync`。消费入口在执行前后比较五锁 SHA，漂移即非零退出且不自动 restore。
+
+权威测试入口通过 `uv-consume.sh` 消费依赖，测试过程不得根据开发机的包镜像配置隐式改写
+`uv.lock`；依赖变更必须经显式授权步骤更新锁文件并重新同步环境。提交前静态检查示例：
+
+```bash
+cd vnext/<package> && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy
+```
 
 Docker 镜像构建可通过 `GATEWAY_DOCKER_BUILD_NETWORK` 控制 build 网络（`deploy/compose.yaml`
 与 `build-repository-service-image.sh` 均读取；默认分别为 bridge 与 `host`）。
@@ -151,5 +166,5 @@ main CAS、control DB事务和跨root误操作仍保持强验证。完整测试�
 `tests`）。mypy 增量缓存命中时五个包合计约 1.5 秒，不是耗时项，不要为了省时间跳过：
 
 ```bash
-cd vnext/<package> && uv run ruff check . && uv run mypy
+cd vnext/<package> && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy
 ```

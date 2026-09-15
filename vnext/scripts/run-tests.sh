@@ -11,6 +11,7 @@ set -euo pipefail
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/gateway-index-env.sh
 source "${VNEXT_ROOT}/scripts/lib/gateway-index-env.sh"
+UV_CONSUME="${GATEWAY_UV_CONSUME:-${VNEXT_ROOT}/scripts/uv-consume.sh}"
 TEST_WORKERS="${GATEWAY_TEST_WORKERS:-auto}"
 if [[ ! "${TEST_WORKERS}" =~ ^(auto|[0-9]+)$ ]]; then
     echo "error: GATEWAY_TEST_WORKERS must be auto or a non-negative integer" >&2
@@ -40,20 +41,31 @@ COMPOSE_TEST_FILES=(
     tests/test_versioned_read_compose_e2e.py
 )
 
+LOCK_SNAPSHOT="$(mktemp)"
+trap 'rm -f "${LOCK_SNAPSHOT}"' EXIT
+gateway_snapshot_lockfile_sha256 "${VNEXT_ROOT}" >"${LOCK_SNAPSHOT}"
+
+export GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT=1
+
 run_locked_pytest() {
-    # The repository locks use the canonical PyPI registry. Do not let a
-    # machine-wide mirror override the lock identity during test execution;
-    # dependency provisioning may still use that mirror explicitly.
-    gateway_with_isolated_index uv run --locked pytest "${PYTEST_TMP_ARGS[@]}" "$@"
+    "${UV_CONSUME}" -C . run pytest "${PYTEST_TMP_ARGS[@]}" "$@"
 }
 
+test_exit=0
 for package in "${FAST_PACKAGES[@]}"; do
     echo "==> ${package}"
-    (cd "${VNEXT_ROOT}/${package}" && run_locked_pytest -q "$@")
+    if ! (cd "${VNEXT_ROOT}/${package}" && run_locked_pytest -q "$@"); then
+        test_exit=1
+    fi
 done
 
 echo "==> repository_service (parallel)"
-(cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m "(not serial) or parallel_safe" -n "${TEST_WORKERS}" "$@")
+if ! (
+    cd "${VNEXT_ROOT}/repository_service"
+    run_locked_pytest -q -m "(not serial) or parallel_safe" -n "${TEST_WORKERS}" "$@"
+); then
+    test_exit=1
+fi
 
 echo "==> repository_service (serial)"
 if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
@@ -64,12 +76,30 @@ if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
     for compose_file in "${COMPOSE_TEST_FILES[@]}"; do
         COMPOSE_IGNORES+=("--ignore=${compose_file}")
     done
-    (
+    if ! (
         cd "${VNEXT_ROOT}/repository_service"
         run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${COMPOSE_IGNORES[@]}" "$@"
-        PYTEST_TMP_ARGS=()
+    ); then
+        test_exit=1
+    fi
+    PYTEST_TMP_ARGS=()
+    if ! (
+        cd "${VNEXT_ROOT}/repository_service"
         run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${COMPOSE_TEST_FILES[@]}" "$@"
-    )
+    ); then
+        test_exit=1
+    fi
 else
-    (cd "${VNEXT_ROOT}/repository_service" && run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "$@")
+    if ! (
+        cd "${VNEXT_ROOT}/repository_service"
+        run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "$@"
+    ); then
+        test_exit=1
+    fi
 fi
+
+if ! gateway_assert_lockfiles_unchanged "${VNEXT_ROOT}" "${LOCK_SNAPSHOT}"; then
+    exit 1
+fi
+
+exit "${test_exit}"

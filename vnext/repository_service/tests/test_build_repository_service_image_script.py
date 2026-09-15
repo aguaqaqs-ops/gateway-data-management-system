@@ -8,11 +8,21 @@ import os
 import re
 import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
 
 from support.compose_build_harness import BUILD_SCRIPT, UV_LOCK_PATH, VNEXT_ROOT
+
+INDEX_LIB = VNEXT_ROOT / "scripts" / "lib" / "gateway-index-env.sh"
+_LOCK_PACKAGES = (
+    "shared_kernel",
+    "repository_contracts",
+    "repository_client",
+    "backend",
+    "repository_service",
+)
 
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -31,6 +41,26 @@ _IDENTITY_ENV_KEYS = (
 
 def _uv_lock_sha256() -> str:
     return hashlib.sha256(UV_LOCK_PATH.read_bytes()).hexdigest()
+
+
+def _isolated_vnext_root(tmp_path: Path) -> Path:
+    isolated = tmp_path / "vnext"
+    for package in _LOCK_PACKAGES:
+        dest = isolated / package
+        dest.mkdir(parents=True)
+        shutil.copy(VNEXT_ROOT / package / "uv.lock", dest / "uv.lock")
+    return isolated
+
+
+def _snapshot_all_locks() -> str:
+    completed = subprocess.run(
+        ["bash", "-c", f'source "{INDEX_LIB}" && gateway_snapshot_lockfile_sha256 "{VNEXT_ROOT}"'],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=VNEXT_ROOT,
+    )
+    return completed.stdout
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -135,6 +165,22 @@ def _base_env(bin_dir: Path) -> dict[str, str]:
     return env
 
 
+def _fake_uv_consume_script(*, lock_check_exit: int = 0) -> str:
+    return textwrap.dedent(
+        f"""\
+        #!/usr/bin/env bash
+        set -euo pipefail
+        if [[ "$1" == "-C" ]]; then
+          shift 2
+        fi
+        if [[ "$1" == "lock-check" ]]; then
+          exit {lock_check_exit}
+        fi
+        exit 0
+        """
+    )
+
+
 def _run_build_script(
     tmp_path: Path,
     *,
@@ -143,24 +189,32 @@ def _run_build_script(
     extra_env: dict[str, str] | None = None,
     python3_script: str | None = None,
     docker_lock_sha: str | None = None,
+    docker_script: str | None = None,
+    uv_consume_script: str | None = None,
+    lock_root: Path | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     argv_file = tmp_path / "docker-build.argv"
     _write_executable(bin_dir / "timeout", timeout_script)
-    _write_executable(
-        bin_dir / "docker",
-        _fake_docker_script(
+    if docker_script is None:
+        docker_script = _fake_docker_script(
             build_exit_code=docker_build_exit_code,
             argv_file=argv_file,
             lock_sha=docker_lock_sha,
-        ),
-    )
+        )
+    _write_executable(bin_dir / "docker", docker_script)
     _write_executable(bin_dir / "curl", "#!/usr/bin/env bash\nexit 1\n")
     if python3_script is None:
         python3_script = _python3_identity_override(_stub_identity_json())
     _write_executable(bin_dir / "python3", python3_script)
+    if uv_consume_script is None:
+        uv_consume_script = _fake_uv_consume_script(lock_check_exit=0)
+    _write_executable(bin_dir / "uv-consume.sh", uv_consume_script)
     env = _base_env(bin_dir)
+    env["GATEWAY_UV_CONSUME"] = str(bin_dir / "uv-consume.sh")
+    if lock_root is not None:
+        env["GATEWAY_VNEXT_LOCK_ROOT"] = str(lock_root)
     if extra_env:
         env.update(extra_env)
     completed = subprocess.run(
@@ -189,6 +243,76 @@ def _docker_network(argv_file: Path) -> str | None:
         if arg.startswith("--network="):
             return arg.partition("=")[2]
     return None
+
+
+@pytest.mark.unit
+def test_build_script_snapshots_five_lockfiles_before_and_after_build(tmp_path: Path) -> None:
+    script = BUILD_SCRIPT.read_text(encoding="utf-8")
+    assert "gateway_snapshot_lockfile_sha256" in script
+    assert "gateway_assert_lockfiles_unchanged" in script
+    assert "lock-check" in script
+
+
+@pytest.mark.unit
+def test_build_script_lock_check_failure_skips_docker(tmp_path: Path) -> None:
+    completed, argv_file = _run_build_script(
+        tmp_path,
+        timeout_script='#!/usr/bin/env bash\nshift\nexec "$@"\n',
+        docker_build_exit_code=0,
+        uv_consume_script=_fake_uv_consume_script(lock_check_exit=1),
+    )
+    assert completed.returncode == 1
+    assert not argv_file.is_file()
+
+
+@pytest.mark.unit
+def test_build_script_preserves_build_exit_when_locks_drift(tmp_path: Path) -> None:
+    isolated = _isolated_vnext_root(tmp_path)
+    lock_path = isolated / "shared_kernel" / "uv.lock"
+    drift_docker = _fake_docker_script(
+        build_exit_code=42,
+        argv_file=tmp_path / "docker-build.argv",
+    ).replace(
+        "exit 42",
+        f'printf "\\n" >> "{lock_path}"\n  exit 42',
+    )
+    completed, argv_file = _run_build_script(
+        tmp_path,
+        timeout_script='#!/usr/bin/env bash\nshift\nexec "$@"\n',
+        docker_build_exit_code=42,
+        docker_script=drift_docker,
+        lock_root=isolated,
+    )
+    assert completed.returncode == 42, completed.stderr
+    argv = argv_file.read_text(encoding="utf-8").splitlines()
+    dockerfile = str(VNEXT_ROOT / "repository_service" / "Dockerfile")
+    file_index = argv.index("--file")
+    assert argv[file_index + 1] == dockerfile
+    assert str(VNEXT_ROOT) in argv
+
+
+@pytest.mark.unit
+def test_build_script_preserves_lockfiles_on_success(tmp_path: Path) -> None:
+    before = _snapshot_all_locks()
+    completed, _ = _run_build_script(
+        tmp_path,
+        timeout_script='#!/usr/bin/env bash\nshift\nexec "$@"\n',
+        docker_build_exit_code=0,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert _snapshot_all_locks() == before
+
+
+@pytest.mark.unit
+def test_build_script_preserves_lockfiles_on_docker_failure(tmp_path: Path) -> None:
+    before = _snapshot_all_locks()
+    completed, _ = _run_build_script(
+        tmp_path,
+        timeout_script='#!/usr/bin/env bash\nshift\nexec "$@"\n',
+        docker_build_exit_code=42,
+    )
+    assert completed.returncode == 42
+    assert _snapshot_all_locks() == before
 
 
 @pytest.mark.unit

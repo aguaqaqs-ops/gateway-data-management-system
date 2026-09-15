@@ -23,11 +23,18 @@ from gateway_backend.application.submission.errors import (
 from gateway_backend.application.submission.ports import (
     BaselineCanonicalDigestPort,
     RepositoryMainResolvePort,
+    SubmitControlTransaction,
     SubmitOccupancyReadPort,
     SubmissionRepository,
 )
-from gateway_backend.domain.workspace.errors import ScopeForbidden
-from gateway_backend.domain.workspace.models import BaselineHead, PreviewResult, UploadRevision, Workspace
+from gateway_backend.domain.workspace.errors import ScopeForbidden, ScopeResolutionError
+from gateway_backend.domain.workspace.models import (
+    BaselineHead,
+    PreviewResult,
+    ResolvedScope,
+    UploadRevision,
+    Workspace,
+)
 from gateway_backend.domain.workspace.policies import (
     assert_exact_scope,
     assert_permission,
@@ -168,11 +175,16 @@ def try_accept_submit_replay(
     if preview_result is None:
         raise PreviewBindingConflict("preview result is missing")
     _assert_preview_repository_matches_workspace(preview_result, workspace)
+    frozen_baseline_head = BaselineHead(
+        business_baseline_node_id=prior_attempt.business_baseline_node_id,
+        business_baseline_commit_id=prior_attempt.business_baseline_commit_id,
+        baseline_head_version=prior_attempt.baseline_head_version,
+    )
     return AcceptSubmitValidationResult(
         workspace=workspace,
         upload_revision=upload_revision,
         preview_result=preview_result,
-        baseline_head=baseline_head,
+        baseline_head=frozen_baseline_head,
         repository_expected_commit_id=prior_attempt.repository_expected_commit_id,
         canonical_business_digest=prior_attempt.canonical_business_digest,
         accept_request_fingerprint=replay_fingerprint,
@@ -267,37 +279,54 @@ def evaluate_new_accept_preflight(
 def validate_accept_submit_with_frozen(
     *,
     command: AcceptSubmitCommand,
-    workspace_repository: WorkspaceRepository,
-    submission_repository: SubmissionRepository,
-    occupancy: SubmitOccupancyReadPort,
-    resolved_repository_id: str,
-    baseline_head: BaselineHead,
+    unit_of_work: SubmitControlTransaction,
+    preflight_baseline_head: BaselineHead,
     baseline_canonical_digest: str,
     repository_expected_commit_id: str,
     snapshot_table_artifact_refs: tuple[str, ...] = (),
     preview_ready_closure_digest: str,
 ) -> AcceptSubmitValidationResult:
-    replay = try_accept_submit_replay(
-        command=command,
-        workspace_repository=workspace_repository,
-        submission_repository=submission_repository,
-        resolved_repository_id=resolved_repository_id,
-        baseline_head=baseline_head,
+    workspace_repository = unit_of_work.workspace
+    submission_repository = unit_of_work.submission
+    occupancy = unit_of_work.submission
+    fresh_scope = _resolve_fresh_provisioned_scope(unit_of_work, command)
+
+    prior_record = submission_repository.find_submit_idempotency(
+        command.workspace_id,
+        command.idempotency_key,
     )
-    if replay is not None:
+    if prior_record is not None:
+        workspace = workspace_repository.get_workspace(command.workspace_id)
+        if workspace is None:
+            raise ScopeForbidden
+        assert_exact_scope(workspace, command.context)
+        _assert_fresh_mapping_authorization(fresh_scope, workspace)
+        replay = try_accept_submit_replay(
+            command=command,
+            workspace_repository=workspace_repository,
+            submission_repository=submission_repository,
+            resolved_repository_id=fresh_scope.repository_id,
+            baseline_head=preflight_baseline_head,
+        )
+        if replay is None:
+            raise PreviewBindingConflict("submit replay validation failed")
         return replay
+
+    baseline_head = fresh_scope.baseline_head
 
     workspace = workspace_repository.get_workspace(command.workspace_id)
     if workspace is None:
         raise ScopeForbidden
     assert_exact_scope(workspace, command.context)
-    _assert_resolved_repository_matches_workspace(resolved_repository_id, workspace)
+    _assert_fresh_mapping_authorization(fresh_scope, workspace)
     assert_workspace_open(workspace)
     assert_workspace_version_cas(workspace, command.expected_workspace_version)
     _assert_preview_binding(workspace, command)
     upload_revision = _load_upload_revision(workspace_repository, command)
     preview_result = _load_preview_result(workspace_repository, command, upload_revision, workspace)
     _assert_baseline_binding(command, baseline_head)
+    _assert_baseline_heads_match(baseline_head, preflight_baseline_head)
+    _assert_preview_baseline_binding(preview_result, baseline_head)
     if derive_preview_staleness(preview_result, baseline_head):
         raise PreviewDerivedStale
 
@@ -328,6 +357,23 @@ def validate_accept_submit_with_frozen(
         replay=False,
         prior_attempt=None,
     )
+
+
+def _resolve_fresh_provisioned_scope(
+    unit_of_work: SubmitControlTransaction,
+    command: AcceptSubmitCommand,
+) -> ResolvedScope:
+    try:
+        return unit_of_work.resolve_provisioned_scope(
+            gateway_device_external_key=command.context.gateway_device_external_key,
+            business_project_id=command.context.business_project_id,
+        )
+    except ScopeResolutionError:
+        raise ScopeForbidden
+
+
+def _assert_fresh_mapping_authorization(fresh_scope: ResolvedScope, workspace: Workspace) -> None:
+    _assert_resolved_repository_matches_workspace(fresh_scope.repository_id, workspace)
 
 
 def _assert_resolved_repository_matches_workspace(
@@ -419,6 +465,24 @@ def _assert_baseline_binding(command: AcceptSubmitCommand, baseline_head: object
         raise BaselineVersionConflict(
             "expected baseline head version does not match current BaselineHead"
         )
+
+
+def _assert_baseline_heads_match(current: BaselineHead, expected: BaselineHead) -> None:
+    if current.business_baseline_node_id != expected.business_baseline_node_id:
+        raise BaselineVersionConflict("current BaselineHead node does not match preflight Head")
+    if current.business_baseline_commit_id != expected.business_baseline_commit_id:
+        raise BaselineVersionConflict("current BaselineHead commit does not match preflight Head")
+    if current.baseline_head_version != expected.baseline_head_version:
+        raise BaselineVersionConflict("current BaselineHead version does not match preflight Head")
+
+
+def _assert_preview_baseline_binding(preview_result: PreviewResult, baseline_head: BaselineHead) -> None:
+    if preview_result.business_baseline_node_id != baseline_head.business_baseline_node_id:
+        raise PreviewBindingConflict("preview baseline node does not match current BaselineHead")
+    if preview_result.business_baseline_commit_id != baseline_head.business_baseline_commit_id:
+        raise PreviewBindingConflict("preview baseline commit does not match current BaselineHead")
+    if preview_result.baseline_head_version != baseline_head.baseline_head_version:
+        raise PreviewBindingConflict("preview baseline version does not match current BaselineHead")
 
 
 def _assert_no_submit_occupancy(

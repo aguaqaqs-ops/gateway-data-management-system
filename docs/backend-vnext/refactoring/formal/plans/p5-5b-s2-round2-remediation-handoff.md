@@ -51,7 +51,7 @@ container_gate_for_current_head: not_applicable
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| **D-1** | pending design owner errata | §6.1/§6.3 mapping/BaselineHead 互斥；S2 pass 门禁项；候选勘误见 brief §8.2 |
+| **D-1** | implementation delivered — independent review required | T1 同连接 projection freshness 已交付；见 [D-1 执行计划](p5-5b-s2-d1-projection-freshness-execution-plan.md) 与 [D-1 handoff](p5-5b-s2-d1-projection-freshness-handoff.md)；`unresolved_contract_drift: none` |
 | **D-2** | reported | QUEUED/prepare-PENDING 取消无 occupancy 释放口；S2 未实现任何释放行为 |
 
 ## Round-2 复审 follow-up（bebf2fad 之后）
@@ -144,4 +144,4 @@ uv run ruff check . && uv run mypy
 
 ## Next step
 
-独立评审按 brief §6 + §7 + 本卷「复审 follow-up」复核：代码轨 F14–F18 + P1/P2 + gate 全绿；设计轨 D-1 勘误落地；过程轨 `candidate_head` 绑定 review follow-up 全 SHA + S1 countersign 落盘（实现侧不自签）。
+独立评审按 brief §6 + §7 + 本卷「复审 follow-up」复核：代码轨 F14–F18 + P1/P2 + gate 全绿；设计轨 D-1 勘误落地（见 [D-1 执行计划](p5-5b-s2-d1-projection-freshness-execution-plan.md) 与 [D-1 handoff](p5-5b-s2-d1-projection-freshness-handoff.md)）；过程轨 `candidate_head` 绑定 review follow-up 全 SHA + S1 countersign 落盘（实现侧不自签）。

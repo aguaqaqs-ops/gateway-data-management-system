@@ -179,9 +179,57 @@ def _load_active_mapping(
     )
 
 
+def resolve_provisioned_scope_from_connection(
+    connection: sqlite3.Connection,
+    *,
+    gateway_device_external_key: str,
+    business_project_id: str,
+) -> ResolvedScope:
+    """Read one provisioned scope from the current SQLite connection."""
+
+    mapping = _load_active_mapping(
+        connection,
+        gateway_device_external_key=gateway_device_external_key,
+        business_project_id=business_project_id,
+    )
+    if mapping is None:
+        raise ScopeResolutionError("provisioned mapping is missing")
+    if mapping["enabled"] != 1:
+        raise ScopeResolutionError("provisioned mapping is disabled")
+    return ResolvedScope(
+        repository_id=mapping["repository_id"],
+        baseline_head=BaselineHead(
+            business_baseline_node_id=mapping["business_baseline_node_id"],
+            business_baseline_commit_id=mapping["business_baseline_commit_id"],
+            baseline_head_version=mapping["baseline_head_version"],
+        ),
+    )
+
+
+class ProvisionedScopeTransactionRead:
+    """Same-transaction provisioned scope reader for Submit T1."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+
+    def resolve_provisioned_scope(
+        self,
+        *,
+        gateway_device_external_key: str,
+        business_project_id: str,
+    ) -> ResolvedScope:
+        return resolve_provisioned_scope_from_connection(
+            self._connection,
+            gateway_device_external_key=gateway_device_external_key,
+            business_project_id=business_project_id,
+        )
+
+
 __all__ = [
     "ProvisionedBaselineHeadRead",
     "ProvisionedScopeResolution",
+    "ProvisionedScopeTransactionRead",
     "load_provisioned_mapping_file",
+    "resolve_provisioned_scope_from_connection",
     "seed_provisioned_mappings",
 ]

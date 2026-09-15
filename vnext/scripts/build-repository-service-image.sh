@@ -13,21 +13,29 @@ set -euo pipefail
 #   GATEWAY_P2R1_BUILD_INPUT_REVISION    optional; must match helper build_input_revision
 #   GATEWAY_P2R1_SOURCE_TREE_SHA256      optional; must match helper source_tree_sha256
 #   GATEWAY_P2R1_UV_LOCK_SHA256          optional; must match repository_service/uv.lock
+#   GATEWAY_VNEXT_LOCK_ROOT              optional; test-only override for five-lock snapshot/assert
 #   DOCKER_HOST                          optional remote Docker daemon
 #
 # GATEWAY_P2R1_BUILD_REVISION is ignored and is not an identity override.
+# GATEWAY_VNEXT_LOCK_ROOT must not change the Docker build context or provenance inputs.
 
-VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "${VNEXT_ROOT}/.." && pwd)"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOCK_ROOT="${GATEWAY_VNEXT_LOCK_ROOT:-${SCRIPT_ROOT}}"
+# shellcheck source=lib/gateway-index-env.sh
+source "${SCRIPT_ROOT}/scripts/lib/gateway-index-env.sh"
+UV_CONSUME="${GATEWAY_UV_CONSUME:-${SCRIPT_ROOT}/scripts/uv-consume.sh}"
+REPO_ROOT="$(cd "${SCRIPT_ROOT}/.." && pwd)"
+LOCK_SNAPSHOT="$(mktemp)"
+gateway_snapshot_lockfile_sha256 "${LOCK_ROOT}" >"${LOCK_SNAPSHOT}"
 IMAGE_TAG="${GATEWAY_REPOSITORY_SERVICE_IMAGE:-gateway-repository-service:local}"
-UV_LOCK_SHA256="$(sha256sum "${VNEXT_ROOT}/repository_service/uv.lock" | awk '{print $1}')"
+UV_LOCK_SHA256="$(sha256sum "${SCRIPT_ROOT}/repository_service/uv.lock" | awk '{print $1}')"
 if [[ -n "${GATEWAY_P2R1_UV_LOCK_SHA256:-}" && "${GATEWAY_P2R1_UV_LOCK_SHA256}" != "${UV_LOCK_SHA256}" ]]; then
   echo "error: GATEWAY_P2R1_UV_LOCK_SHA256 does not match repository_service/uv.lock" >&2
   exit 1
 fi
 DEPENDENCY_BASE="${GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE:-gateway-p2r1-repository:lock-${UV_LOCK_SHA256:0:12}}"
 CACHE_URL="${GATEWAY_P2R1_CACHE_URL:-http://172.17.0.1:18080}"
-DIGEST_HELPER="${VNEXT_ROOT}/repository_service/tests/support/build_context_digest.py"
+DIGEST_HELPER="${SCRIPT_ROOT}/repository_service/tests/support/build_context_digest.py"
 
 if ! IDENTITY_JSON="$(python3 "${DIGEST_HELPER}" identity)"; then
   echo "error: unable to compute repository image identity" >&2
@@ -103,7 +111,7 @@ BUILD_NETWORK="${GATEWAY_DOCKER_BUILD_NETWORK:-host}"
 
 build_args=(
   --network="${BUILD_NETWORK}"
-  --file "${VNEXT_ROOT}/repository_service/Dockerfile"
+  --file "${SCRIPT_ROOT}/repository_service/Dockerfile"
   --tag "${IMAGE_TAG}"
   --build-arg "CANDIDATE_SHA=${CANDIDATE_SHA}"
   --build-arg "BUILD_INPUT_REVISION=${BUILD_INPUT_REVISION}"
@@ -140,13 +148,35 @@ else
   exit 1
 fi
 
-if timeout 1800 docker build "${build_args[@]}" "${VNEXT_ROOT}"; then
+if ! "${UV_CONSUME}" -C "${SCRIPT_ROOT}/repository_service" lock-check; then
+  rm -f "${LOCK_SNAPSHOT}"
+  exit 1
+fi
+
+build_exit=0
+if timeout 1800 docker build "${build_args[@]}" "${SCRIPT_ROOT}"; then
   :
 else
-  exit_code=$?
-  if [[ "${exit_code}" -eq 124 ]]; then
+  build_exit=$?
+  if [[ "${build_exit}" -eq 124 ]]; then
     echo "error: docker build timed out after 1800s" >&2
   fi
-  exit "${exit_code}"
+fi
+
+lock_ec=0
+if ! gateway_assert_lockfiles_unchanged "${LOCK_ROOT}" "${LOCK_SNAPSHOT}"; then
+  lock_ec=1
+fi
+rm -f "${LOCK_SNAPSHOT}"
+
+if [[ "${lock_ec}" -ne 0 ]]; then
+  if [[ "${build_exit}" -eq 0 ]]; then
+    exit 1
+  fi
+  exit "${build_exit}"
+fi
+
+if [[ "${build_exit}" -ne 0 ]]; then
+  exit "${build_exit}"
 fi
 echo "==> built ${IMAGE_TAG}"

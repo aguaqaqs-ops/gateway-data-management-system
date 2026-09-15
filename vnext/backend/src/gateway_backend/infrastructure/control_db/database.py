@@ -15,6 +15,7 @@ from gateway_backend.infrastructure.control_db.sqlite_protection import SQLiteAr
 from gateway_backend.operations import OperationStore, StoreBusy
 
 if TYPE_CHECKING:
+    from gateway_backend.domain.workspace.models import ResolvedScope
     from gateway_backend.domain.workspace.ports import WorkspaceRepository
     from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
 
@@ -212,6 +213,24 @@ class ControlDbUnitOfWork:
         if self._transaction_now is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._transaction_now
+
+    def resolve_provisioned_scope(
+        self,
+        *,
+        gateway_device_external_key: str,
+        business_project_id: str,
+    ) -> ResolvedScope:
+        """Return transaction-fresh provisioned scope for one device/project key."""
+
+        from gateway_backend.infrastructure.control_db.sqlite_mapping import (
+            resolve_provisioned_scope_from_connection,
+        )
+
+        return resolve_provisioned_scope_from_connection(
+            self.connection,
+            gateway_device_external_key=gateway_device_external_key,
+            business_project_id=business_project_id,
+        )
 
     def __enter__(self) -> Self:
         if self._connection is not None:

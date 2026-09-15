@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -33,6 +35,7 @@ from gateway_backend.application.submission.contracts import (
     compute_new_accept_fingerprint,
 )
 from gateway_backend.application.submission.errors import (
+    BaselineVersionConflict,
     FinalizeRecoveryRequired,
     IdempotencyConflict,
     NoCanonicalChange,
@@ -60,8 +63,9 @@ from gateway_backend.domain.submission.models import (
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
 )
-from gateway_backend.domain.workspace.errors import WorkspaceVersionConflict
+from gateway_backend.domain.workspace.errors import ScopeForbidden, WorkspaceVersionConflict
 from gateway_backend.domain.workspace.models import (
+    BaselineHead,
     InputCompleteness,
     PreviewResult,
     PreviewResultDigests,
@@ -71,6 +75,7 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
 )
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.sqlite_mapping import seed_provisioned_mappings
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
@@ -229,6 +234,94 @@ def db_path(tmp_path: Path) -> Path:
     return path
 
 
+def _seed_provisioned_mapping(
+    db_path: Path,
+    *,
+    device_key: str = "device-1",
+    project_id: str = "project-1",
+    repository_id: str = "repo-1",
+    baseline_head: BaselineHead = BASELINE_HEAD,
+    enabled: bool = True,
+) -> None:
+    mapping_file = db_path.parent / "provisioned-mapping.json"
+    mapping_file.write_text(
+        json.dumps(
+            {
+                "mappings": [
+                    {
+                        "gateway_device_external_key": device_key,
+                        "business_project_id": project_id,
+                        "repository_id": repository_id,
+                        "business_baseline_node_id": baseline_head.business_baseline_node_id,
+                        "business_baseline_commit_id": baseline_head.business_baseline_commit_id,
+                        "baseline_head_version": baseline_head.baseline_head_version,
+                        "enabled": enabled,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    seed_provisioned_mappings(db_path, mapping_file)
+
+
+def _upsert_provisioned_mapping_row(
+    db_path: Path,
+    *,
+    device_key: str = "device-1",
+    project_id: str = "project-1",
+    repository_id: str = "repo-1",
+    baseline_head: BaselineHead = BASELINE_HEAD,
+    enabled: bool = True,
+) -> None:
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            """
+            INSERT INTO provisioned_scope_mappings (
+                gateway_device_external_key,
+                business_project_id,
+                repository_id,
+                business_baseline_node_id,
+                business_baseline_commit_id,
+                baseline_head_version,
+                enabled
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(gateway_device_external_key, business_project_id) DO UPDATE SET
+                repository_id = excluded.repository_id,
+                business_baseline_node_id = excluded.business_baseline_node_id,
+                business_baseline_commit_id = excluded.business_baseline_commit_id,
+                baseline_head_version = excluded.baseline_head_version,
+                enabled = excluded.enabled
+            """,
+            (
+                device_key,
+                project_id,
+                repository_id,
+                baseline_head.business_baseline_node_id,
+                baseline_head.business_baseline_commit_id,
+                baseline_head.baseline_head_version,
+                1 if enabled else 0,
+            ),
+        )
+
+
+def _assert_t1_zero_writes(db_path: Path, seed: SubmitSeed, *, idempotency_key: str) -> None:
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
+        assert workspace is not None
+        assert workspace.optimistic_version == seed.workspace.optimistic_version
+        assert (
+            unit_of_work.submission.find_submit_idempotency(
+                seed.workspace.workspace_id,
+                idempotency_key,
+            )
+            is None
+        )
+        assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
+        assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
+
+
 def _submit_job_registry() -> JobDefinitionRegistry:
     definitions = (
         JobDefinition(
@@ -322,6 +415,7 @@ def seed_submit_ready_workspace(
     *,
     repository_id: str = "repo-1",
 ) -> SubmitSeed:
+    _seed_provisioned_mapping(db_path, repository_id=repository_id)
     scope_resolution = FixedScopeResolutionPort(
         repository_id=repository_id,
         baseline_head=BASELINE_HEAD,
@@ -1850,3 +1944,221 @@ def test_prepared_attempt_rejects_business_abort(db_path: Path) -> None:
     assert repository_occupancy is not None
     assert persisted is not None
     assert persisted.state is SubmitAttemptState.PREPARED
+
+
+@dataclass
+class DriftOnResolveMainResolvePort:
+    commit_id: str = "commit-main"
+    calls: int = 0
+    on_resolve: Callable[[], None] | None = None
+
+    def resolve_main_expected_commit(self, *, repository_id: str) -> str:
+        del repository_id
+        self.calls += 1
+        if self.on_resolve is not None:
+            self.on_resolve()
+        return self.commit_id
+
+
+def _drift_head_version_only(db_path: Path) -> None:
+    _upsert_provisioned_mapping_row(
+        db_path,
+        baseline_head=replace(BASELINE_HEAD, baseline_head_version=BASELINE_HEAD.baseline_head_version + 1),
+    )
+
+
+def _drift_head_commit_only(db_path: Path) -> None:
+    _upsert_provisioned_mapping_row(
+        db_path,
+        baseline_head=replace(BASELINE_HEAD, business_baseline_commit_id="commit-only-drift"),
+    )
+
+
+def _drift_head_node_only(db_path: Path) -> None:
+    _upsert_provisioned_mapping_row(
+        db_path,
+        baseline_head=replace(BASELINE_HEAD, business_baseline_node_id="node-only-drift"),
+    )
+
+
+def _drift_mapping_disable(db_path: Path) -> None:
+    _upsert_provisioned_mapping_row(db_path, enabled=False)
+
+
+def _drift_repo_swap(db_path: Path) -> None:
+    _upsert_provisioned_mapping_row(db_path, repository_id="repo-other")
+
+
+NEW_KEY_PROJECTION_DRIFT_CASES: tuple[tuple[str, type[Exception], Callable[[Path], None]], ...] = (
+    ("version_only", BaselineVersionConflict, _drift_head_version_only),
+    ("commit_only", BaselineVersionConflict, _drift_head_commit_only),
+    ("node_only", BaselineVersionConflict, _drift_head_node_only),
+    ("mapping_disable", ScopeForbidden, _drift_mapping_disable),
+    ("repo_swap", ScopeForbidden, _drift_repo_swap),
+)
+
+
+@pytest.mark.parametrize(
+    ("case_id", "expected_error", "apply_drift"),
+    NEW_KEY_PROJECTION_DRIFT_CASES,
+    ids=[case[0] for case in NEW_KEY_PROJECTION_DRIFT_CASES],
+)
+def test_t1_new_key_rejects_projection_drift_without_writes(
+    db_path: Path,
+    case_id: str,
+    expected_error: type[Exception],
+    apply_drift: Callable[[Path], None],
+) -> None:
+    del case_id
+    seed = seed_submit_ready_workspace(db_path)
+    idempotency_key = "accept-key-drift"
+    resolve = DriftOnResolveMainResolvePort(on_resolve=lambda: apply_drift(seed.db_path))
+    with pytest.raises(expected_error):
+        accept_submit_transaction(
+            command=_accept_command(seed, idempotency_key=idempotency_key),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            baseline_digest=FakeBaselineCanonicalDigestPort(),
+            main_resolve=resolve,
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+    _assert_t1_zero_writes(seed.db_path, seed, idempotency_key=idempotency_key)
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        row = unit_of_work.connection.execute(
+            """
+            SELECT repository_id, business_baseline_node_id, business_baseline_commit_id,
+                   baseline_head_version, enabled
+            FROM provisioned_scope_mappings
+            WHERE gateway_device_external_key = ? AND business_project_id = ?
+            """,
+            ("device-1", "project-1"),
+        ).fetchone()
+        assert row is not None
+        if expected_error is ScopeForbidden and apply_drift is _drift_mapping_disable:
+            assert row["enabled"] == 0
+        elif expected_error is ScopeForbidden and apply_drift is _drift_repo_swap:
+            assert row["repository_id"] == "repo-other"
+
+
+def test_t1_replay_rejects_when_mapping_disabled_after_concurrent_winner(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    command = _accept_command(seed, idempotency_key="accept-key-winner")
+    winner_submitted = False
+
+    def on_resolve() -> None:
+        nonlocal winner_submitted
+        if winner_submitted:
+            return
+        accept_submit_transaction(
+            command=command,
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            baseline_digest=FakeBaselineCanonicalDigestPort(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+        _upsert_provisioned_mapping_row(seed.db_path, enabled=False)
+        winner_submitted = True
+
+    with pytest.raises(ScopeForbidden):
+        accept_submit_transaction(
+            command=command,
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            baseline_digest=FakeBaselineCanonicalDigestPort(),
+            main_resolve=DriftOnResolveMainResolvePort(on_resolve=on_resolve),
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        winner_id = deterministic_submit_attempt_id(
+            workspace_id=seed.workspace.workspace_id,
+            idempotency_key=command.idempotency_key,
+        )
+        winner = unit_of_work.submission.get_submit_attempt(winner_id)
+        assert winner is not None
+        assert winner.state is SubmitAttemptState.PREPARED
+        assert unit_of_work.connection.execute(
+            "SELECT enabled FROM provisioned_scope_mappings WHERE gateway_device_external_key = ?",
+            ("device-1",),
+        ).fetchone()[0] == 0
+
+
+def test_t1_replay_returns_winner_when_only_head_drifts_after_concurrent_winner(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    command = _accept_command(seed, idempotency_key="accept-key-head-replay")
+    winner_submitted = False
+    winner_attempt_id: str | None = None
+
+    def on_resolve() -> None:
+        nonlocal winner_submitted, winner_attempt_id
+        if winner_submitted:
+            return
+        winner = accept_submit_transaction(
+            command=command,
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            baseline_digest=FakeBaselineCanonicalDigestPort(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+        assert winner.replay is False
+        winner_attempt_id = winner.submit_attempt_id
+        _drift_head_commit_only(seed.db_path)
+        winner_submitted = True
+
+    digest = FakeBaselineCanonicalDigestPort()
+    drift_resolve = DriftOnResolveMainResolvePort(on_resolve=on_resolve)
+    result = accept_submit_transaction(
+        command=command,
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(seed.db_path),
+        job_registry=_submit_job_registry(),
+        baseline_digest=digest,
+        main_resolve=drift_resolve,
+        preflight=_preflight(seed),
+        now=TS1,
+    )
+    assert result.replay is True
+    assert result.submit_attempt_id == winner_attempt_id
+    assert digest.calls == 1
+    assert drift_resolve.calls == 1
+
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        winner = unit_of_work.submission.get_submit_attempt(result.submit_attempt_id)
+        assert winner is not None
+        assert winner.state is SubmitAttemptState.PREPARED
+        row = unit_of_work.connection.execute(
+            """
+            SELECT business_baseline_commit_id
+            FROM provisioned_scope_mappings
+            WHERE gateway_device_external_key = ? AND business_project_id = ?
+            """,
+            ("device-1", "project-1"),
+        ).fetchone()
+        assert row is not None
+        assert row["business_baseline_commit_id"] == "commit-only-drift"
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 1

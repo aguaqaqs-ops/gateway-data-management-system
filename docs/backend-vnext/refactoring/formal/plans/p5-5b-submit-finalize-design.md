@@ -429,6 +429,10 @@ path或private ref。HTTP/auth/capability rejection的唯一test owner由executi
    CommitId仅成为`repository_expected_commit_id`；T1后Repository main drift由T2 mandatory CAS
    稳定拒绝，不通过长事务或跨库锁消除。
 
+新 key 的 preflight 与 T1 使用同一 control DB projection 解释 active mapping/BaselineHead。
+Server-owned provisioning JSON 是该 projection 的输入；运行时变更以 projection 更新事务提交
+为生效点。文件改写本身不承诺即时生效。T1 同连接的 SQLite 读取不属于本节禁止的外部 I/O。
+
 ### 6.2 Effective request fingerprint
 
 `accept_request_fingerprint` 使用 JCS object + domain separator
@@ -442,17 +446,35 @@ Head覆盖原值。新的key即使body相同也是新动作，但 occupancy/curr
 
 ### 6.3 T1 in-transaction validation order
 
-1. 再查 `(workspace_id, accept_idempotency_key)`；处理被并发winner插入的same/same或conflict。
-2. transaction-fresh读取mapping、BaselineHead、Workspace、UploadRevision、PreviewResult。
-3. 校验exact frozen scope/Repository、Workspace OPEN、expected optimistic version、current upload/
-   preview pointers、generation与caller binding。
-4. 校验fresh Head等于expected node/version且Preview非derived-stale；再次执行
-   `NO_CANONICAL_CHANGE` guard。
-5. 校验Workspace没有Attempt/Submission occupancy，Repository occupancy row不存在；unique
+1. 再查 `(workspace_id, accept_idempotency_key)`。若已存在，返回 replay 前必须用当前 T1 UoW
+   的同一 SQLite 连接，按 caller device/project exact key 读取当前 mapping，并结合
+   Workspace/Attempt 的 scope 检查 mapping 存在且 enabled、exact scope 与当前 Repository
+   visibility。禁用或换仓不能沿用 preflight 的 resolved_repository_id 通过授权。授权通过后，
+   再以既有 Attempt 冻结的 server facts 重建 effective fingerprint，same/same 返回 replay，
+   same/different 返回既有 conflict。当前 Head 的 node/commit/version 不覆盖 Attempt 的冻结值，
+   也不触发新 key 的 Head CAS；当前授权与冻结 fingerprint 必须分开处理。不为该分支重新调用
+   baseline digest/main resolve，亦不再写入新 Attempt。处理被并发 winner 插入的 same/same 或
+   conflict。
+2. 使用当前 T1 UoW 的同一 SQLite 连接，按 caller 的 device/project exact key
+   transaction-fresh 读取 provisioned active mapping/BaselineHead，以及 Workspace、
+   UploadRevision、PreviewResult。不得调用会新开连接/UoW 或读取 session/mapping 文件的 adapter。
+3. 对新 key，当前 mapping 必须存在、enabled，且其 Repository 与 frozen scope/Workspace 一致；
+   校验 exact frozen scope/Repository、Workspace OPEN、expected optimistic version、current
+   upload/preview pointers、generation 与 caller binding。当前 BaselineHead 必须满足 caller
+   expected node/version，并与 preflight Head 及 immutable Preview 的 baseline binding 三字段
+   完整一致：business_baseline_node_id、business_baseline_commit_id、baseline_head_version。
+   Caller body 不新增 expected commit 字段；commit 由 server-owned Head/Preview facts 比较。
+   Preview 必须非 derived-stale；仅在完整 equality 通过后，使用绑定该 Head 的 preflight
+   canonical digest 执行 `NO_CANONICAL_CHANGE` guard。包括 commit-only 在内的 Head 漂移均先
+   拒绝，不混用 fresh Head 与旧 digest，不在事务内重新获取 canonical digest，也不能仅复用
+   现有 node/version guards 代替完整比较。Same-key replay 仍按既有冻结 fingerprint/Attempt
+   facts 比较，不施加新 key 的当前 Head CAS；当前 session/exact scope/Repository 可见性重新
+   授权仍适用，不能借 replay 绕过 mapping 禁用。
+4. 校验 Workspace 没有 Attempt/Submission occupancy，Repository occupancy row 不存在；unique
    constraints是并发线性化点。
-6. 校验artifact protection intents仍由current Preview持有，所有refs/digests等于preflight结果。
-7. 校验Submit三步JobDefinition/decoder/handler/version registry snapshot ready。
-8. 写入全部T1 facts；任一constraint/CAS失败回滚整个前缀。
+5. 校验artifact protection intents仍由current Preview持有，所有refs/digests等于preflight结果。
+6. 校验Submit三步JobDefinition/decoder/handler/version registry snapshot ready。
+7. 写入全部T1 facts；任一constraint/CAS失败回滚整个前缀。
 
 ### 6.4 T1 single-transaction matrix
 
@@ -727,6 +749,11 @@ Repository poll/reconcile/admission参数；P4的60s reconcile session、lease/b
 Backend与worker必须从同一composition factory获得Submit definitions/decoders/handler identity；
 HTTP T1使用同一immutable registry snapshot做preflight。Repository client不得记录bearer、body、
 source SQL、path或checkpoint payload。
+
+HTTP/worker bootstrap 的 provisioning 输入按既有 seed 事务写入运行时 projection；文件更新
+不意味着自动 hot reload。每次已授权 seed 提交是一次 provisioning 应用。本文不新增 reload
+writer、不改变 seed/upsert 生命周期；若要禁止旧 seed 覆盖、支持热更新或多 writer generation，
+应另行修订对应 provisioning owner contract，不由 D-1 隐式实现。
 
 ### 13.2 Readiness and shutdown
 

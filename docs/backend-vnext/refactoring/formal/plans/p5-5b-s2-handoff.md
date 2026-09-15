@@ -13,7 +13,7 @@ p4_r6_exit: pass
 p5_5b_design: accepted
 p5_5b_implementation_authorized: yes
 p5b_real_repository_effect_authorized: yes
-unresolved_contract_drift: pending_D1_design_owner_errata
+unresolved_contract_drift: none
 first_authorized_step: P5-5B-S1
 implementation_authority_unchanged: true
 ```

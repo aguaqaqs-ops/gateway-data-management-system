@@ -35,13 +35,18 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 | `GATEWAY_REPOSITORY_UV_BOOTSTRAP_*` | repository-service build | 同上 |
 | `GATEWAY_P2R1_CACHE_URL` | repository-service build | retained artifact cache 根 URL |
 
-权威 runner 与提交前静态检查须隔离机器 index：
+权威 runner 与提交前静态检查须通过受控消费入口（`uv-consume.sh` 或 `run-tests.sh`），
+隔离机器 index/config 并在退出时比较五锁 SHA：
 
 ```bash
-env -u UV_DEFAULT_INDEX -u UV_INDEX_URL -u UV_INSECURE_HOST \
-    -u PIP_INDEX_URL -u PIP_TRUSTED_HOST \
-    uv run --locked pytest ...
+./vnext/scripts/run-tests.sh
+./vnext/scripts/uv-consume.sh -C vnext/<package> run pytest ...
+./vnext/scripts/uv-consume.sh -C vnext/<package> run ruff check .
 ```
+
+`--no-sync` 消费路径必须先执行只读 `uv lock --check --offline`；不得以自动 sync 替换待验证
+wheel。五锁 canonical registry identity 的权威 owner 为
+`backend/tests/test_canonical_lock_identity.py`。
 
 `repository_service` 分两遍执行：主体并行，未确认可隔离的 `serial` 组单独串行，避免
 CPU 争用导致时序敏感测试 flaky。少量从 serial 来源逐项审查通过的 `parallel_safe` 测试

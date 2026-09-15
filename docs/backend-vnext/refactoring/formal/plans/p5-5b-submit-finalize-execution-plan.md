@@ -160,6 +160,7 @@ vnext/backend/src/gateway_backend/infrastructure/control_db/migrations.py
 vnext/backend/src/gateway_backend/infrastructure/control_db/database.py
 vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_submission.py
 vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_workspace.py
+vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_mapping.py
 vnext/backend/src/gateway_backend/infrastructure/control_db/__init__.py
 vnext/backend/src/gateway_backend/domain/workspace/models.py
 vnext/backend/src/gateway_backend/domain/workspace/ports.py

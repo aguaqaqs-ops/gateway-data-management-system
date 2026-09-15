@@ -201,8 +201,8 @@ round-1 F11 原文所指的 `save_workspace` CAS 失败回滚路径。
 
 | 处方(第四卷复审 #1) | 不采纳理由 |
 | --- | --- |
-| 「T1 使用同一事务连接重新读取 mapping/BaselineHead」「`SubmitControlTransaction` 增加 mapping/BaselineHead 读取参与者」 | 裁定(经 2026-09-15 第四卷复审方反馈修正,采纳其改写原文):**§6.1 与 §6.3 对 P-boundary freshness 的要求不可同时由现有架构实现;解决它需要 design/ownership clarification,而不是 S2 在现有 port 上自行创造跨 SQLite + session-file 的原子读取语义**。具体依据:(a) mapping/BaselineHead 是 P-boundary 的 **session/mapping file**(design :723),control DB 无对应表、无既有 port;(b) design §6.1:416 **明令禁止**事务内「session file、artifact 或 Repository network I/O」,该处方直接违反本条;(c) S2 plan 自身(:177)已固定「Repository resolve/artifact I/O 使用 fake preflight,不在 transaction 内」;(d) 授权面勘误:`domain/workspace/ports.py` **在** S2 allowed paths 之列(plan :165,亲验)——本卷初稿「路径无授权」表述**撤回**,真正的约束是 plan :60 全局规则「所有 implementation 阶段禁止修改 owning contract 语义……若确需修改,触发 reopen 而非本 slice remediation」,新增跨边界原子读取属自行创造 contract semantics。§6.3:446 与 §6.1:416 互斥 → 定性 **D-1(design finding,非 finding 无效、非 S2 实现缺陷)**;执行基线 = preflight 末位 resolve 冻结 + T1 fresh 重读全部 control DB 可变 facts(现成全锁内 fresh)+ main drift 由 T2 mandatory CAS 拒(:428-430)。 |
-| 测试「preflight 后 Head 漂移 → 零写入」 | 同因不可构造:T1 按 round-1 S2-F4 的正确形态**不得**在事务内重调 port;Head/main drift 的裁决点在 T2 CAS(design :428-430),不属 T1 测试面。 |
+| 「T1 使用同一事务连接重新读取 mapping/BaselineHead」「`SubmitControlTransaction` 增加 mapping/BaselineHead 读取参与者」 | **撤回（D-1 裁定）**。mapping/BaselineHead 已由 Workspace schema v2 `provisioned_scope_mappings` projection 承载；T1 同连接 SQLite 读取不属于 §6.1 禁止的外部 I/O。见 [D-1 执行计划](p5-5b-s2-d1-projection-freshness-execution-plan.md) 与 owning design §6.1/§6.3 勘误。 |
+| 测试「preflight 后 Head 漂移 → 零写入」 | **撤回（D-1 裁定）**。新 key 在 T1 须完整比较 Head node/commit/version；T2 mandatory CAS 仅保护 Repository main CommitId，不替代 Head equality。见 D-1 执行计划 §5 测试规格。 |
 
 ## 5. 设计澄清项(上报设计 owner,不在 S2 授权面内解决)
 
@@ -283,8 +283,10 @@ closure 签署(binding 提交后)与 S1 closure 落盘确认;S1 countersign 依�
 | F15 评 P1 可接受(Blocker 保留给数据完整性/跨 scope 写/不可恢复状态机错误);F15 仍必须阻止 S2 pass | **确认**,与 §6 gate 一致(F15 在 gate 内即 pass-blocking) |
 | F14 为真实新 finding(round-1 F5 规格漏 version half);F16 PREPARED 与 T2 crossing 顺序冲突 | **确认**,T2 crossing 佐证记入 F16 依据 |
 
-### 8.2 D-1 勘误候选文本(供 design owner 裁定)
+### 8.2 D-1 勘误候选文本（**superseded** — 保留历史，不作执行依据）
 
+> **状态：superseded。** 第四卷复审 preflight-only 弱化路线已被 D-1 裁定（`same_uow_projection_freshness`）取代；权威文本见 [D-1 执行计划 §3](p5-5b-s2-d1-projection-freshness-execution-plan.md) 与 owning design §6.1/§6.3 落盘版本。以下为历史候选原文:
+>
 > 建议将 design §6.3 step 2(:446)「transaction-fresh 读取 mapping、BaselineHead」勘误为:
 > 「transaction-fresh 重读 control DB 可变业务 facts(Workspace、Upload、Preview、
 > SubmitAttempt、SubmitIdempotency、双 occupancy);mapping/BaselineHead 使用 preflight

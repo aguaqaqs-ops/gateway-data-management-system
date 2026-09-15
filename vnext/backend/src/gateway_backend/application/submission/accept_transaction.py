@@ -13,7 +13,6 @@ from gateway_backend.application.submission.accept import (
     assert_no_canonical_change_after_baseline,
     evaluate_new_accept_preflight_local_guards,
     load_new_accept_preflight_facts,
-    try_accept_submit_replay,
     validate_accept_submit_with_frozen,
 )
 from gateway_backend.application.submission.contracts import (
@@ -122,54 +121,51 @@ def accept_submit_transaction(
     resolved = scope_resolution.resolve(command.context)
 
     with unit_of_work_factory(read_only=True) as unit_of_work:
-        replay = try_accept_submit_replay(
-            command=command,
-            workspace_repository=unit_of_work.workspace,
-            submission_repository=unit_of_work.submission,
-            resolved_repository_id=resolved.repository_id,
-            baseline_head=resolved.baseline_head,
+        prior_record = unit_of_work.submission.find_submit_idempotency(
+            command.workspace_id,
+            command.idempotency_key,
         )
-        if replay is not None and replay.prior_attempt is not None:
-            return AcceptSubmitTransactionResult(
-                submit_attempt_id=replay.prior_attempt.submit_attempt_id,
-                operation_id=replay.prior_attempt.operation_id,
-                replay=True,
+        is_replay = prior_record is not None
+        if is_replay:
+            frozen = preflight
+        else:
+            loaded = load_new_accept_preflight_facts(
+                command=command,
+                workspace_repository=unit_of_work.workspace,
+                occupancy=unit_of_work.submission,
+                resolved_repository_id=resolved.repository_id,
+                baseline_head=resolved.baseline_head,
+                preview_ready_closure_digest=preflight.preview_ready_closure_digest,
             )
-        loaded = load_new_accept_preflight_facts(
-            command=command,
-            workspace_repository=unit_of_work.workspace,
-            occupancy=unit_of_work.submission,
-            resolved_repository_id=resolved.repository_id,
+            repository_id = loaded.workspace.repository_id
+
+    if not is_replay:
+        evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
+
+        baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
+            repository_id=repository_id,
             baseline_head=resolved.baseline_head,
-            preview_ready_closure_digest=preflight.preview_ready_closure_digest,
         )
-        repository_id = loaded.workspace.repository_id
+        assert_no_canonical_change_after_baseline(
+            loaded=loaded,
+            baseline_canonical_digest=baseline_canonical_digest,
+        )
+        assert_accept_preflight_post_noop_guards(loaded=loaded)
 
-    evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
+        frozen = replace(
+            preflight,
+            resolved_repository_id=resolved.repository_id,
+            baseline_canonical_digest=baseline_canonical_digest,
+            repository_expected_commit_id=main_resolve.resolve_main_expected_commit(
+                repository_id=repository_id
+            ),
+        )
 
-    baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
-        repository_id=repository_id,
-        baseline_head=resolved.baseline_head,
-    )
-    assert_no_canonical_change_after_baseline(
-        loaded=loaded,
-        baseline_canonical_digest=baseline_canonical_digest,
-    )
-    assert_accept_preflight_post_noop_guards(loaded=loaded)
-
-    frozen = replace(
-        preflight,
-        resolved_repository_id=resolved.repository_id,
-        baseline_canonical_digest=baseline_canonical_digest,
-        repository_expected_commit_id=main_resolve.resolve_main_expected_commit(
-            repository_id=repository_id
-        ),
-    )
     with unit_of_work_factory(read_only=False) as unit_of_work:
         return _accept_submit_in_transaction(
             command=command,
             unit_of_work=unit_of_work,
-            baseline_head=resolved.baseline_head,
+            preflight_baseline_head=resolved.baseline_head,
             preflight=frozen,
             now=now,
         )
@@ -179,11 +175,16 @@ def _accept_submit_in_transaction(
     *,
     command: AcceptSubmitCommand,
     unit_of_work: SubmitControlTransaction,
-    baseline_head: BaselineHead,
+    preflight_baseline_head: BaselineHead,
     preflight: AcceptSubmitPreflight,
     now: datetime,
 ) -> AcceptSubmitTransactionResult:
-    if (
+    prior_record = unit_of_work.submission.find_submit_idempotency(
+        command.workspace_id,
+        command.idempotency_key,
+    )
+    is_replay = prior_record is not None
+    if not is_replay and (
         preflight.resolved_repository_id is None
         or preflight.baseline_canonical_digest is None
         or preflight.repository_expected_commit_id is None
@@ -191,13 +192,10 @@ def _accept_submit_in_transaction(
         raise PreviewBindingConflict("accept preflight is missing frozen repository facts")
     validation = validate_accept_submit_with_frozen(
         command=command,
-        workspace_repository=unit_of_work.workspace,
-        submission_repository=unit_of_work.submission,
-        occupancy=unit_of_work.submission,
-        resolved_repository_id=preflight.resolved_repository_id,
-        baseline_head=baseline_head,
-        baseline_canonical_digest=preflight.baseline_canonical_digest,
-        repository_expected_commit_id=preflight.repository_expected_commit_id,
+        unit_of_work=unit_of_work,
+        preflight_baseline_head=preflight_baseline_head,
+        baseline_canonical_digest=preflight.baseline_canonical_digest or "",
+        repository_expected_commit_id=preflight.repository_expected_commit_id or "",
         snapshot_table_artifact_refs=preflight.snapshot_table_artifact_refs,
         preview_ready_closure_digest=preflight.preview_ready_closure_digest,
     )

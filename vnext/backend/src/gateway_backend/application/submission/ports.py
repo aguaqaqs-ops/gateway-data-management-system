@@ -15,7 +15,7 @@ from gateway_backend.domain.submission.models import (
     Submission,
     WorkspaceSubmitOccupancy,
 )
-from gateway_backend.domain.workspace.models import BaselineHead
+from gateway_backend.domain.workspace.models import BaselineHead, ResolvedScope
 from gateway_backend.domain.workspace.ports import WorkspaceRepository
 from gateway_backend.operations import OperationStore
 
@@ -50,6 +50,14 @@ class SubmitControlTransaction(Protocol):
         owner_kind: str,
         owner_id: str,
     ) -> frozenset[str]: ...
+
+    def resolve_provisioned_scope(
+        self,
+        *,
+        gateway_device_external_key: str,
+        business_project_id: str,
+    ) -> ResolvedScope:
+        """Read transaction-fresh provisioned mapping/BaselineHead for one scope key."""
 
 
 class SubmitControlUnitOfWorkFactory(Protocol):

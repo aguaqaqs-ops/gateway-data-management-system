@@ -5,6 +5,9 @@ VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_ROOT="${VNEXT_ROOT}/backend"
 COMPUTE_PYTHON_ROOT="${VNEXT_ROOT}/rust/gateway-compute-python"
 RUST_ROOT="${VNEXT_ROOT}/rust"
+# shellcheck source=lib/gateway-index-env.sh
+source "${VNEXT_ROOT}/scripts/lib/gateway-index-env.sh"
+UV_CONSUME="${VNEXT_ROOT}/scripts/uv-consume.sh"
 
 usage() {
   echo "usage: $0 wheel-smoke|wheel-smoke-installed|component-pytest|wheel-trap-regression" >&2
@@ -31,14 +34,13 @@ restore_production_install() {
     echo "injecting restore_production_install failure" >&2
     return 99
   fi
-  cd "${BACKEND_ROOT}"
   export UV_OFFLINE=true
-  uv sync --locked --offline --all-groups --reinstall-package gateway-compute-python
+  "${UV_CONSUME}" -C "${BACKEND_ROOT}" sync --offline --all-groups --reinstall-package gateway-compute-python
   cleanup_compute_python_source_so
 }
 
 assert_installed_extension_has_no_test_hooks() {
-  uv run --offline --no-sync python - <<'PY'
+  "${UV_CONSUME}" -C "${BACKEND_ROOT}" run --offline --no-sync python - <<'PY'
 import gateway_compute.gateway_compute as native
 
 bad = [
@@ -52,7 +54,7 @@ PY
 }
 
 assert_installed_wheel_provenance() {
-  uv run --offline --no-sync python - <<'PY'
+  "${UV_CONSUME}" -C "${BACKEND_ROOT}" run --offline --no-sync python - <<'PY'
 import hashlib
 import importlib.metadata
 import json
@@ -102,9 +104,9 @@ PY
 build_release_wheel() {
   local out_dir="$1"
   local python_interpreter
-  python_interpreter="$(uv run python -c 'import os, sys; print(os.path.realpath(sys.executable))')"
+  python_interpreter="$("${UV_CONSUME}" -C "${BACKEND_ROOT}" run python -c 'import os, sys; print(os.path.realpath(sys.executable))')"
   export CARGO_NET_OFFLINE=true
-  uv run maturin build \
+  "${UV_CONSUME}" -C "${BACKEND_ROOT}" run maturin build \
     --release \
     --locked \
     --offline \
@@ -117,6 +119,13 @@ build_release_wheel() {
 wheel_smoke_finalize_exit() {
   local body_ec="$1"
   local restore_ec="$2"
+  local lock_ec="${3:-0}"
+  if [[ "${lock_ec}" -ne 0 ]]; then
+    if [[ "${body_ec}" -eq 0 ]]; then
+      return "${lock_ec}"
+    fi
+    return "${body_ec}"
+  fi
   if [[ "${body_ec}" -eq 0 && "${restore_ec}" -ne 0 ]]; then
     echo "restore_production_install failed with exit ${restore_ec}" >&2
     return "${restore_ec}"
@@ -132,13 +141,19 @@ wheel_smoke_finalize_exit() {
 wheel_smoke_on_exit() {
   local ec=$?
   local restore_ec=0
+  local lock_ec=0
   restore_production_install || restore_ec=$?
   CARGO_TARGET_DIR="${WHEEL_SMOKE_SAVED_CARGO_TARGET_DIR-}"
   if [[ -n "${WHEEL_SMOKE_TMP:-}" ]]; then
     rm -rf "${WHEEL_SMOKE_TMP}"
     WHEEL_SMOKE_TMP=""
   fi
-  wheel_smoke_finalize_exit "${ec}" "${restore_ec}"
+  if [[ -n "${WHEEL_SMOKE_LOCK_SNAPSHOT:-}" ]]; then
+    gateway_assert_lockfiles_unchanged "${VNEXT_ROOT}" "${WHEEL_SMOKE_LOCK_SNAPSHOT}" || lock_ec=$?
+    rm -f "${WHEEL_SMOKE_LOCK_SNAPSHOT}"
+    WHEEL_SMOKE_LOCK_SNAPSHOT=""
+  fi
+  wheel_smoke_finalize_exit "${ec}" "${restore_ec}" "${lock_ec}"
   exit $?
 }
 
@@ -154,6 +169,8 @@ wheel_smoke_exit_trap_regression() {
     export NATIVE_KERNEL_FORCE_RESTORE_FAIL=1
     WHEEL_SMOKE_TMP="$(mktemp -d)"
     WHEEL_SMOKE_SAVED_CARGO_TARGET_DIR="${saved_cargo_target_dir}"
+    WHEEL_SMOKE_LOCK_SNAPSHOT="$(mktemp)"
+    gateway_snapshot_lockfile_sha256 "${VNEXT_ROOT}" >"${WHEEL_SMOKE_LOCK_SNAPSHOT}"
     export CARGO_TARGET_DIR="${WHEEL_SMOKE_TMP}/cargo-target"
     mkdir -p "${CARGO_TARGET_DIR}"
     printf '%s\n' "${WHEEL_SMOKE_TMP}" >"${marker}"
@@ -186,6 +203,8 @@ wheel_smoke_exit_trap_regression() {
     export NATIVE_KERNEL_FORCE_RESTORE_FAIL=1
     WHEEL_SMOKE_TMP="$(mktemp -d)"
     WHEEL_SMOKE_SAVED_CARGO_TARGET_DIR="${saved_cargo_target_dir}"
+    WHEEL_SMOKE_LOCK_SNAPSHOT="$(mktemp)"
+    gateway_snapshot_lockfile_sha256 "${VNEXT_ROOT}" >"${WHEEL_SMOKE_LOCK_SNAPSHOT}"
     export CARGO_TARGET_DIR="${WHEEL_SMOKE_TMP}/cargo-target"
     mkdir -p "${CARGO_TARGET_DIR}"
     printf '%s\n' "${WHEEL_SMOKE_TMP}" >"${marker}"
@@ -216,7 +235,7 @@ wheel_smoke_exit_trap_regression() {
 
 run_installed_wheel_smoke_python() {
   local wheel_label="${1:-installed-wheel}"
-  uv run --offline --no-sync python - <<PY
+  "${UV_CONSUME}" -C "${BACKEND_ROOT}" run --offline --no-sync python - <<PY
 import importlib.metadata
 import json
 import sys
@@ -300,7 +319,6 @@ PY
 }
 
 wheel_smoke_installed() {
-  cd "${BACKEND_ROOT}"
   export UV_OFFLINE=true
   run_installed_wheel_smoke_python "preinstalled"
 }
@@ -311,12 +329,13 @@ wheel_smoke() {
     local wheel
     WHEEL_SMOKE_TMP="$(mktemp -d)"
     WHEEL_SMOKE_SAVED_CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
+    WHEEL_SMOKE_LOCK_SNAPSHOT="$(mktemp)"
+    gateway_snapshot_lockfile_sha256 "${VNEXT_ROOT}" >"${WHEEL_SMOKE_LOCK_SNAPSHOT}"
     echo "wheel-smoke tmp=${WHEEL_SMOKE_TMP}"
     trap wheel_smoke_on_exit EXIT
 
-    cd "${BACKEND_ROOT}"
     export UV_OFFLINE=true
-    uv sync --locked --offline --all-groups
+    "${UV_CONSUME}" -C "${BACKEND_ROOT}" sync --offline --all-groups
 
     echo "building release wheel into ${WHEEL_SMOKE_TMP}/dist"
     export CARGO_TARGET_DIR="${WHEEL_SMOKE_TMP}/cargo-target"
@@ -328,7 +347,7 @@ wheel_smoke() {
     export NATIVE_KERNEL_SOURCE_ROOT="${COMPUTE_PYTHON_ROOT}/python"
     export NATIVE_KERNEL_WHEEL_PATH="${wheel}"
     export NATIVE_KERNEL_WHEEL_SHA256="$(sha256sum "${wheel}" | awk '{print $1}')"
-    uv pip install --offline --force-reinstall "${wheel}"
+    "${UV_CONSUME}" -C "${BACKEND_ROOT}" pip-install --offline --force-reinstall "${wheel}"
     assert_installed_extension_has_no_test_hooks
     assert_installed_wheel_provenance
     run_installed_wheel_smoke_python "${wheel}"
@@ -336,9 +355,8 @@ wheel_smoke() {
 }
 
 component_pytest() {
-  cd "${BACKEND_ROOT}"
   export UV_OFFLINE=true
-  uv run --offline --no-sync pytest -q \
+  "${UV_CONSUME}" -C "${BACKEND_ROOT}" run --offline --no-sync pytest -q \
     "${COMPUTE_PYTHON_ROOT}/tests/test_v1.py"
 }
 

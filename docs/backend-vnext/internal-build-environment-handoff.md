@@ -65,9 +65,11 @@ Tools: uv 0.12.5, Python 3.13.5, Docker 26.1.5.
 
 | Path | Role | May change lock? |
 | --- | --- | --- |
-| `prepare-dev-dependencies.sh` | host `uv sync --locked` | no (post assert) |
-| `run-tests.sh` | authoritative pytest | no (index stripped) |
-| `build-repository-service-image.sh` | repository-service image | no |
+| `uv-consume.sh` | controlled `sync`/`run`/`lock-check`/`pip-install` | no (exit SHA assert) |
+| `prepare-dev-dependencies.sh` | host dependency sync via `uv-consume.sh` | no |
+| `run-tests.sh` | authoritative pytest via `uv-consume.sh` | no (exit SHA assert) |
+| `native_kernel_component.sh` | host wheel-smoke via `uv-consume.sh` | no (exit SHA assert) |
+| `build-repository-service-image.sh` | repository-service image | no (exit SHA assert) |
 | `deploy/compose.yaml` build args | backend/worker/rs bootstrap | no |
 | Compose e2e harness | test client + rs image | no |
 

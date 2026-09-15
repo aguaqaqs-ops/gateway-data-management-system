@@ -14,6 +14,7 @@ set -euo pipefail
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/gateway-index-env.sh
 source "${VNEXT_ROOT}/scripts/lib/gateway-index-env.sh"
+UV_CONSUME="${VNEXT_ROOT}/scripts/uv-consume.sh"
 
 MODE="${GATEWAY_DEV_DEPENDENCY_MODE:-pypi}"
 OFFLINE="${GATEWAY_DEV_OFFLINE:-0}"
@@ -35,22 +36,16 @@ if [[ "${OFFLINE}" != "0" && "${OFFLINE}" != "1" ]]; then
     exit 2
 fi
 
-LOCK_SNAPSHOT="$(mktemp)"
-trap 'rm -f "${LOCK_SNAPSHOT}"' EXIT
-
-gateway_snapshot_lockfile_sha256 "${VNEXT_ROOT}" >"${LOCK_SNAPSHOT}"
-
-sync_args=(sync --locked)
-if [[ "${OFFLINE}" == "1" ]]; then
-    sync_args+=(--offline)
-fi
-
 run_sync() {
-    if [[ "${MODE}" == "pypi" ]]; then
-        gateway_with_isolated_index uv "${sync_args[@]}"
-    else
-        uv "${sync_args[@]}"
+    local -a consume_env=()
+    local -a sync_args=()
+    if [[ "${MODE}" == "internal" ]]; then
+        consume_env+=(GATEWAY_UV_CONSUME_PRESERVE_INDEX=1)
     fi
+    if [[ "${OFFLINE}" == "1" ]]; then
+        sync_args+=(--offline)
+    fi
+    env "${consume_env[@]}" "${UV_CONSUME}" -C . sync "${sync_args[@]}"
 }
 
 while IFS= read -r package; do
@@ -61,5 +56,4 @@ while IFS= read -r package; do
     )
 done < <(gateway_dev_packages)
 
-gateway_assert_lockfiles_unchanged "${VNEXT_ROOT}" "${LOCK_SNAPSHOT}"
 echo "==> dependency prepare complete; lockfiles unchanged"

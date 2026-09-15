@@ -1,8 +1,8 @@
 # P5-5B-S2 Control DB Schema, Repositories and T1/T3 UoW Handoff
 
-状态：**S2 remediation complete — independent re-review required**
+状态：**S2 round-2 remediation complete — independent re-review required**
 
-日期：2026-09-14
+日期：2026-09-15
 
 Owner：P5-5B Delivery
 
@@ -22,8 +22,8 @@ implementation_authority_unchanged: true
 
 ```yaml
 stage: P5-5B-S2-control-db-t1-t3
-parent_head: 3d39fdcf884ff71899664154f4ef9c6e19fa6147
-candidate_head: uncommitted_working_tree_on_3d39fdcf
+parent_head: c561ffe97bb968b9bb9852fa0bdd4492b9b94c28
+candidate_head: uncommitted_working_tree_on_c561ffe9
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md
@@ -59,6 +59,8 @@ changed_paths:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s1-handoff.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-handoff.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-remediation-handoff.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-round2-remediation-handoff.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s2-independent-review-findings.md
 plan_alignment_s1_paths:
   note: S2-F3 architecture-guard alignment only; not a silent S1 scope expansion
   - vnext/backend/tests/test_architecture.py
@@ -69,11 +71,12 @@ plan_alignment_s1_paths:
   - vnext/backend/tests/test_submit_domain.py
 invariants_delivered:
   - Workspace schema v3 Attempt/Submission/idempotency/two occupancy relations
-  - T1 preflight I/O outside writer transaction; short T1 is control-DB CAS only
-  - T3/abort lease fencing uses caller identity, not row-copied tokens
+  - T1 preflight I/O outside writer transaction; NO_CANONICAL_CHANGE before main_resolve and writer lock
+  - T3/abort lease + caller-observed version fencing (token identity + expected optimistic versions)
   - Occupancy release is owner-qualified CAS
   - T3 replay requires matching Attempt/Submission/Workspace/Operation/await-step closure
   - Abort after P4 terminalize is idempotent and does not rewrite terminal steps
+  - Business abort accepts EFFECT_PENDING only (PREPARED rejected at state gate)
   - Submit job registry requires all three steps before Accept writes
 unique_test_owners:
   - tests/test_submit_control_db_migrations.py
@@ -81,8 +84,8 @@ unique_test_owners:
   - tests/test_submit_transactions.py
   - tests/test_architecture.py  # S2-F3 allowlist alignment only
 focused_commands_and_results:
-  - cd vnext/backend && uv run pytest -q -m unit tests/test_architecture.py tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_submit_control_db_migrations.py tests/test_sqlite_submit_repository.py tests/test_submit_transactions.py tests/test_sqlite_workspace_repository.py tests/test_workspace_control_db_migrations.py => 152 passed
-  - cd vnext/backend && uv run pytest -q -m unit => 1876 passed / 0 failed
+  - cd vnext/backend && uv run pytest -q -m unit tests/test_architecture.py tests/test_submit_domain.py tests/test_submit_application.py tests/test_submit_idempotency.py tests/test_submit_control_db_migrations.py tests/test_sqlite_submit_repository.py tests/test_submit_transactions.py tests/test_sqlite_workspace_repository.py tests/test_workspace_control_db_migrations.py => 156 passed
+  - cd vnext/backend && uv run pytest -q -m unit => 1880 passed / 0 failed
   - cd vnext/backend && uv run ruff check . && uv run mypy => pass (332 files)
 five_package_static: deferred
 authoritative_runner: deferred
@@ -94,6 +97,7 @@ uv_lock_in_diff: no
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 findings:
   - S2-F1..F13 addressed in p5-5b-s2-remediation-handoff.md
+  - S2-F14..F18 addressed in p5-5b-s2-round2-remediation-handoff.md
 deferred:
   - HTTP routes / OpenAPI (S4)
   - Import builder / artifact package bytes (S3)
@@ -101,7 +105,7 @@ deferred:
   - Independent S1/S2 closure countersign
 reopen_required: []
 implementation_authority_unchanged: true
-next_step: independent_review_of_S2_remediation
+next_step: independent_review_of_S2_round2_remediation
 ```
 
 ## Transaction matrix
@@ -112,15 +116,17 @@ next_step: independent_review_of_S2_remediation
 | T1 all-or-nothing | monkeypatch 中途写失败 | 无 attempt / idempotency / Operation+Step / occupancy / submit-attempt protection；workspace version 不变 |
 | T1 replay | 同 key 第二次 | `replay=True`；不调用 baseline digest / main resolve |
 | T1 I/O boundary | recording ports | digest/main 各 1 次且 writer transaction 未打开 |
+| T1 NO_CANONICAL_CHANGE | baseline digest 等于 preview canonical | `main_resolve.calls == 0`；全程无写锁；零写入 |
 | T1 registry | 仅 prepare 注册 | Accept 拒绝且零写入 |
 | T1 workspace version | T1 前 bump version | `WorkspaceVersionConflict` + 零写入 |
 | T1 occupancy serialization | 两 workspace 顺序争同一 `repository_id` | SQLite 单写者串行化；loser `SubmitOccupancyConflict`（不是线程并发） |
 | T3 exactly-one | finalize + replay | submission 唯一；完整 closure 才 ACK |
 | T3 incomplete replay | 逐组件破坏 occupancy / await Step / Operation | `FINALIZE_RECOVERY_REQUIRED`，不得 ACK |
 | T3/abort lease | takeover 后旧 identity | `StaleWrite`；当前 holder 成功 |
+| T3/abort version | caller 旧 step/attempt version（token 可不变） | `StaleWrite` / `SubmitAttemptVersionConflict`；零终态写 |
 | Stable abort | EFFECT_PENDING + RUNNING await | ABORTED + occupancy 释放 + 无 submission；`validate_abort_proof` 在写事务外 |
 | Abort after P4 terminalize | await 已 FAILED | business abort 成功；二次 replay=True |
-| PREPARED abort | prepare PENDING、无 lease | occupancy 释放；P4 合法 CANCELLED（QUEUED 不能 FAILED） |
+| PREPARED business abort | T1 后 PREPARED | 状态门拒绝；occupancy 保留 |
 | Occupancy owner CAS | mismatched attempt id | `SubmitOccupancyConflict` + 行不变 |
 
 **Test owner**：[`test_submit_transactions.py`](../../../../../vnext/backend/tests/test_submit_transactions.py)
@@ -128,6 +134,7 @@ next_step: independent_review_of_S2_remediation
 ## S1 纯逻辑复用
 
 - `validate_accept_submit`（S1 内存路径；仍按原顺序在 `NoCanonicalChange` / closure 之后才 `main_resolve`）
+- `preflight_new_accept_submit`（T1 read-only §6.1 steps 3-5；`NoCanonicalChange` 先于 `main_resolve`）
 - `validate_accept_submit_with_frozen`（T1 写锁内，不再调用任何 I/O port）
 - `validate_abort_proof`（stable abort **写事务外**）
 - `finalize_submit`（Attempt↔Submission binding；T3 replay 另验 occupancy/Operation/Step closure）

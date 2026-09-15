@@ -40,6 +40,9 @@ class AbortSubmitTransactionRequest:
     aborted_at: datetime
     worker_id: str | None = None
     lease_token: str | None = None
+    expected_attempt_version: int | None = None
+    expected_await_step_version: int | None = None
+    expected_operation_version: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,8 +63,8 @@ def abort_submit_transaction(
             raise ValueError("submit attempt is missing")
         if attempt.state is SubmitAttemptState.ABORTED:
             return AbortSubmitTransactionResult(attempt=attempt, replay=True)
-        if attempt.state not in {SubmitAttemptState.PREPARED, SubmitAttemptState.EFFECT_PENDING}:
-            raise ValueError("abort requires PREPARED or EFFECT_PENDING attempt")
+        if attempt.state is not SubmitAttemptState.EFFECT_PENDING:
+            raise ValueError("abort requires EFFECT_PENDING attempt")
 
     validate_abort_proof(attempt=attempt, proof=request.proof, evidence=evidence)
 
@@ -79,8 +82,8 @@ def _abort_submit_in_transaction(
         raise ValueError("submit attempt is missing")
     if attempt.state is SubmitAttemptState.ABORTED:
         return AbortSubmitTransactionResult(attempt=attempt, replay=True)
-    if attempt.state not in {SubmitAttemptState.PREPARED, SubmitAttemptState.EFFECT_PENDING}:
-        raise ValueError("abort requires PREPARED or EFFECT_PENDING attempt")
+    if attempt.state is not SubmitAttemptState.EFFECT_PENDING:
+        raise ValueError("abort requires EFFECT_PENDING attempt")
 
     workspace = unit_of_work.workspace.get_workspace(attempt.workspace_id)
     if workspace is None:
@@ -95,7 +98,11 @@ def _abort_submit_in_transaction(
     )
     unit_of_work.submission.cas_update_attempt(
         aborted_attempt,
-        expected_version=attempt.optimistic_version,
+        expected_version=(
+            request.expected_attempt_version
+            if request.expected_attempt_version is not None
+            else attempt.optimistic_version
+        ),
     )
 
     updated_workspace = replace(
@@ -133,6 +140,7 @@ def _abort_submit_in_transaction(
     )
     _fail_operation_if_needed(
         unit_of_work,
+        request=request,
         operation=operation,
         abort_code=request.proof.stable_failure_code,
     )
@@ -170,7 +178,11 @@ def _fail_active_step_if_needed(
     unit_of_work.operations.compare_and_set_step(
         failed_step,
         WritePrecondition(
-            expected_optimistic_version=active_step.optimistic_version,
+            expected_optimistic_version=(
+                request.expected_await_step_version
+                if request.expected_await_step_version is not None
+                else active_step.optimistic_version
+            ),
             worker_id=request.worker_id,
             lease_token=request.lease_token,
         ),
@@ -181,6 +193,7 @@ def _fail_active_step_if_needed(
 def _fail_operation_if_needed(
     unit_of_work: SubmitControlTransaction,
     *,
+    request: AbortSubmitTransactionRequest,
     operation: OperationRecord,
     abort_code: str,
 ) -> None:
@@ -202,7 +215,11 @@ def _fail_operation_if_needed(
     unit_of_work.operations.compare_and_set_operation(
         failed_operation,
         WritePrecondition(
-            expected_optimistic_version=operation.optimistic_version,
+            expected_optimistic_version=(
+                request.expected_operation_version
+                if request.expected_operation_version is not None
+                else operation.optimistic_version
+            ),
             worker_id=None,
             lease_token=None,
         ),

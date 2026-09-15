@@ -35,6 +35,7 @@ from gateway_backend.application.submission.contracts import (
 from gateway_backend.application.submission.errors import (
     FinalizeRecoveryRequired,
     IdempotencyConflict,
+    NoCanonicalChange,
     PreviewBindingConflict,
     SubmitOccupancyConflict,
 )
@@ -48,6 +49,7 @@ from gateway_backend.application.workspace.services import create_or_get_workspa
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.domain.submission.errors import SubmitAttemptVersionConflict
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
@@ -926,6 +928,7 @@ def _seed_effect_pending_attempt(db_path: Path, seed: SubmitSeed) -> SubmitAttem
 def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
+    attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
     facts = MatchingFinalizeFacts(
         repository_id=seed.workspace.repository_id,
         repository_operation_id="repo-op-1",
@@ -946,6 +949,9 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) ->
                 facts=facts,
                 submission_id="sub-1",
                 created_at=TS1,
+                expected_attempt_version=attempt_version,
+                expected_await_step_version=await_version,
+                expected_operation_version=operation_version,
                 worker_id="worker-test",
                 lease_token="lease-test",
             ),
@@ -968,6 +974,7 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) ->
 def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
+    attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
     facts = MatchingFinalizeFacts(
         repository_id=seed.workspace.repository_id,
         repository_operation_id="repo-op-1",
@@ -988,6 +995,9 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
                 facts=facts,
                 submission_id="sub-1",
                 created_at=TS1,
+                expected_attempt_version=attempt_version,
+                expected_await_step_version=await_version,
+                expected_operation_version=operation_version,
                 worker_id="worker-test",
                 lease_token="lease-test",
             ),
@@ -1000,6 +1010,9 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
                 facts=facts,
                 submission_id="sub-1",
                 created_at=TS1,
+                expected_attempt_version=attempt_version,
+                expected_await_step_version=await_version,
+                expected_operation_version=operation_version,
                 worker_id="worker-test",
                 lease_token="lease-test",
             ),
@@ -1050,6 +1063,29 @@ def test_stable_abort_releases_occupancy_without_submission(db_path: Path) -> No
     assert evidence.writer_open_during_calls == (False,)
 
 
+def _read_finalize_versions(
+    db_path: Path,
+    attempt: SubmitAttempt,
+) -> tuple[int, int, int]:
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        current = unit_of_work.submission.get_submit_attempt(attempt.submit_attempt_id)
+        assert current is not None
+        if current.state is SubmitAttemptState.FINALIZED:
+            return (current.optimistic_version, 0, 0)
+        operation = unit_of_work.operations.get_operation(attempt.operation_id)
+        steps, _cursor = unit_of_work.operations.list_steps(attempt.operation_id)
+        await_step = next(
+            (step for step in steps if step.step_name == SUBMIT_STEP_AWAIT),
+            None,
+        )
+        await_version = await_step.optimistic_version if await_step is not None else 0
+        return (
+            current.optimistic_version,
+            await_version,
+            operation.optimistic_version,
+        )
+
+
 def _finalize_facts(seed: SubmitSeed) -> MatchingFinalizeFacts:
     return MatchingFinalizeFacts(
         repository_id=seed.workspace.repository_id,
@@ -1082,7 +1118,14 @@ def _finalize(
     *,
     worker_id: str | None = "worker-test",
     lease_token: str | None = "lease-test",
+    expected_attempt_version: int | None = None,
+    expected_await_step_version: int | None = None,
+    expected_operation_version: int | None = None,
 ) -> FinalizeSubmitResult:
+    actual_attempt_version, actual_await_version, actual_operation_version = _read_finalize_versions(
+        db_path,
+        attempt,
+    )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         return finalize_submit_transaction(
             request=FinalizeSubmitTransactionRequest(
@@ -1090,6 +1133,21 @@ def _finalize(
                 facts=_finalize_facts(seed),
                 submission_id="sub-1",
                 created_at=TS1,
+                expected_attempt_version=(
+                    expected_attempt_version
+                    if expected_attempt_version is not None
+                    else actual_attempt_version
+                ),
+                expected_await_step_version=(
+                    expected_await_step_version
+                    if expected_await_step_version is not None
+                    else actual_await_version
+                ),
+                expected_operation_version=(
+                    expected_operation_version
+                    if expected_operation_version is not None
+                    else actual_operation_version
+                ),
                 worker_id=worker_id,
                 lease_token=lease_token,
             ),
@@ -1282,6 +1340,164 @@ def test_abort_rejects_stale_lease_after_takeover(db_path: Path) -> None:
     assert result.attempt.state is SubmitAttemptState.ABORTED
 
 
+def _advance_await_step_with_cancel(db_path: Path, operation_id: str) -> int:
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        steps, _cursor = unit_of_work.operations.list_steps(operation_id)
+        await_step = next(step for step in steps if step.step_name == SUBMIT_STEP_AWAIT)
+        observed_version = await_step.optimistic_version
+        now = unit_of_work.transaction_now
+        updated_step = replace(
+            await_step,
+            cancel_requested=True,
+            optimistic_version=await_step.optimistic_version + 1,
+            updated_at=now,
+        )
+        unit_of_work.operations.compare_and_set_step(
+            updated_step,
+            WritePrecondition(
+                expected_optimistic_version=await_step.optimistic_version,
+                worker_id=await_step.worker_id,
+                lease_token=await_step.lease_token,
+            ),
+            require_live_lease=True,
+        )
+        operation = unit_of_work.operations.get_operation(operation_id)
+        updated_operation = replace(
+            operation,
+            cancel_requested=True,
+            optimistic_version=operation.optimistic_version + 1,
+            updated_at=now,
+        )
+        unit_of_work.operations.compare_and_set_operation(
+            updated_operation,
+            WritePrecondition(
+                expected_optimistic_version=operation.optimistic_version,
+                worker_id=None,
+                lease_token=None,
+            ),
+        )
+        return observed_version
+
+
+def _bump_attempt_version(db_path: Path, submit_attempt_id: str) -> int:
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        assert attempt is not None
+        observed_version = attempt.optimistic_version
+        unit_of_work.submission.cas_update_attempt(
+            replace(attempt, optimistic_version=attempt.optimistic_version + 1),
+            expected_version=attempt.optimistic_version,
+        )
+        return observed_version
+
+
+def _assert_effect_pending_with_occupancy_held(
+    db_path: Path,
+    seed: SubmitSeed,
+    attempt: SubmitAttempt,
+) -> None:
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        persisted = unit_of_work.submission.get_submit_attempt(attempt.submit_attempt_id)
+        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
+        repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
+        operation = unit_of_work.operations.get_operation(attempt.operation_id)
+    assert persisted is not None
+    assert persisted.state is SubmitAttemptState.EFFECT_PENDING
+    assert workspace_occupancy is not None
+    assert workspace_occupancy.active_submit_attempt_id == attempt.submit_attempt_id
+    assert repository_occupancy is not None
+    assert repository_occupancy.submit_attempt_id == attempt.submit_attempt_id
+    assert operation.status is not OperationStatus.SUCCEEDED
+
+
+def test_t3_rejects_stale_step_version_after_cancel_advance(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    stale_await_version = _advance_await_step_with_cancel(db_path, attempt.operation_id)
+    with pytest.raises(StaleWrite, match="write precondition no longer matches"):
+        _finalize(
+            db_path,
+            attempt,
+            seed,
+            expected_await_step_version=stale_await_version,
+        )
+    _assert_effect_pending_with_occupancy_held(db_path, seed, attempt)
+
+
+def test_t3_rejects_stale_attempt_version(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    stale_attempt_version = _bump_attempt_version(db_path, attempt.submit_attempt_id)
+    with pytest.raises(SubmitAttemptVersionConflict):
+        _finalize(
+            db_path,
+            attempt,
+            seed,
+            expected_attempt_version=stale_attempt_version,
+        )
+    _assert_effect_pending_with_occupancy_held(db_path, seed, attempt)
+
+
+def test_abort_rejects_stale_step_version_when_expected_set(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    stale_await_version = _advance_await_step_with_cancel(db_path, attempt.operation_id)
+    evidence = FakeAbortEvidencePort()
+    with pytest.raises(StaleWrite, match="write precondition no longer matches"):
+        abort_submit_transaction(
+            request=AbortSubmitTransactionRequest(
+                submit_attempt_id=attempt.submit_attempt_id,
+                proof=_abort_proof(seed),
+                aborted_at=TS1,
+                worker_id="worker-test",
+                lease_token="lease-test",
+                expected_await_step_version=stale_await_version,
+            ),
+            evidence=evidence,
+            unit_of_work_factory=_uow_factory(db_path),
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        persisted = unit_of_work.submission.get_submit_attempt(attempt.submit_attempt_id)
+    assert persisted is not None
+    assert persisted.state is SubmitAttemptState.EFFECT_PENDING
+
+
+def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    tracker = WriterLockTracker()
+    resolve = RecordingMainResolvePort(tracker=tracker)
+    digest = FakeBaselineCanonicalDigestPort(
+        digest="sha256:preview-canonical",
+        tracker=tracker,
+    )
+    with pytest.raises(NoCanonicalChange):
+        accept_submit_transaction(
+            command=_accept_command(seed, idempotency_key="accept-key-1"),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_tracking_uow_factory(seed.db_path, tracker),
+            job_registry=_submit_job_registry(),
+            baseline_digest=digest,
+            main_resolve=resolve,
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+    assert resolve.calls == 0
+    assert tracker.writer_open is False
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
+        assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None
+        assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
+        assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM operation_records").fetchone()[0] == 0
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM step_records").fetchone()[0] == 0
+        assert workspace is not None
+        assert workspace.optimistic_version == seed.workspace.optimistic_version
+
+
 def _terminalize_await_step(db_path: Path, operation_id: str, *, fail_operation: bool) -> None:
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         steps, _cursor = unit_of_work.operations.list_steps(operation_id)
@@ -1459,7 +1675,7 @@ def test_t3_replay_fails_closed_when_closure_is_incomplete(
         _finalize(db_path, attempt, seed)
 
 
-def test_prepared_abort_releases_occupancy_without_live_lease(db_path: Path) -> None:
+def test_prepared_attempt_rejects_business_abort(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     accepted = accept_submit_transaction(
         command=_accept_command(seed, idempotency_key="accept-key-1"),
@@ -1474,53 +1690,25 @@ def test_prepared_abort_releases_occupancy_without_live_lease(db_path: Path) -> 
         preflight=_preflight(seed),
         now=TS1,
     )
-    backend_ref = BackendArtifactRef(
-        artifact_id="backend-pkg-1",
-        media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
-        size_bytes=10,
-        raw_sha256=_SHA_PACKAGE,
-    )
-    repository_ref = RepositoryArtifactRef(
-        artifact_id="repo-artifact-1",
-        media_type="application/octet-stream",
-        size_bytes=10,
-        raw_sha256=_SHA_REPO,
-    )
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         attempt = unit_of_work.submission.get_submit_attempt(accepted.submit_attempt_id)
         assert attempt is not None
-        unit_of_work.submission.cas_update_attempt(
-            replace(
-                attempt,
-                optimistic_version=1,
-                canonicalization_manifest_ref="manifest-1",
-                canonicalization_manifest_digest=_SHA_MANIFEST,
-                repository_import_artifact_ref=backend_ref,
-                repository_artifact_ref=repository_ref,
-                repository_operation_id="repo-op-1",
+        assert attempt.state is SubmitAttemptState.PREPARED
+    with pytest.raises(ValueError, match="abort requires EFFECT_PENDING attempt"):
+        abort_submit_transaction(
+            request=AbortSubmitTransactionRequest(
+                submit_attempt_id=accepted.submit_attempt_id,
+                proof=_abort_proof(seed),
+                aborted_at=TS1,
             ),
-            expected_version=0,
+            evidence=FakeAbortEvidencePort(),
+            unit_of_work_factory=_uow_factory(db_path),
         )
-    tracker = WriterLockTracker()
-    result, evidence = _abort(
-        db_path,
-        replace(attempt, optimistic_version=1),
-        seed,
-        worker_id=None,
-        lease_token=None,
-        tracker=tracker,
-    )
-    assert result.replay is False
-    assert evidence.calls == 1
-    assert evidence.writer_open_during_calls == (False,)
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        persisted = unit_of_work.submission.get_submit_attempt(accepted.submit_attempt_id)
         occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
-        operation = unit_of_work.operations.get_operation(accepted.operation_id)
-        steps, _cursor = unit_of_work.operations.list_steps(accepted.operation_id)
-        prepare = next(step for step in steps if step.step_name == SUBMIT_STEP_PREPARE)
+        repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
+        persisted = unit_of_work.submission.get_submit_attempt(accepted.submit_attempt_id)
+    assert occupancy is not None
+    assert repository_occupancy is not None
     assert persisted is not None
-    assert persisted.state is SubmitAttemptState.ABORTED
-    assert occupancy is None
-    assert operation.status is OperationStatus.CANCELLED
-    assert prepare.status is StepStatus.CANCELLED
+    assert persisted.state is SubmitAttemptState.PREPARED

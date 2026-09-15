@@ -31,6 +31,9 @@ class FinalizeSubmitTransactionRequest:
     facts: MatchingFinalizeFacts
     submission_id: str
     created_at: datetime
+    expected_attempt_version: int
+    expected_await_step_version: int
+    expected_operation_version: int
     worker_id: str | None = None
     lease_token: str | None = None
 
@@ -86,7 +89,7 @@ def finalize_submit_transaction(
     )
     unit_of_work.submission.cas_update_attempt(
         finalized_attempt,
-        expected_version=attempt.optimistic_version,
+        expected_version=request.expected_attempt_version,
     )
 
     updated_workspace = replace(
@@ -132,7 +135,7 @@ def finalize_submit_transaction(
     unit_of_work.operations.compare_and_set_step(
         terminal_step,
         WritePrecondition(
-            expected_optimistic_version=await_step.optimistic_version,
+            expected_optimistic_version=request.expected_await_step_version,
             worker_id=request.worker_id,
             lease_token=request.lease_token,
         ),
@@ -148,7 +151,7 @@ def finalize_submit_transaction(
     unit_of_work.operations.compare_and_set_operation(
         terminal_operation,
         WritePrecondition(
-            expected_optimistic_version=operation.optimistic_version,
+            expected_optimistic_version=request.expected_operation_version,
             worker_id=None,
             lease_token=None,
         ),

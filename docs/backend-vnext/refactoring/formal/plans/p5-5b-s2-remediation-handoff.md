@@ -27,7 +27,7 @@ implementation_authority_unchanged: true
 ```yaml
 stage: P5-5B-S2-remediation
 parent_head: 3d39fdcf884ff71899664154f4ef9c6e19fa6147
-candidate_head: uncommitted_working_tree_on_3d39fdcf
+candidate_head: uncommitted_working_tree_on_c561ffe9
 uv_lock_sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 uv_lock_in_diff: no
 container_rebuild_required: no
@@ -80,7 +80,7 @@ application 禁止 import infrastructure 的规则未改。
 | **S2-F8** | T3 replay `_assert_finalized_closure`；半破坏 → `FINALIZE_RECOVERY_REQUIRED` | `test_submit_transactions.py` | occupancy / await Step / Operation 逐组件 fail closed |
 | **S2-F9** | registry 校验 prepare/submit/await 三步 | `test_submit_transactions.py` | 仅 prepare → Accept 拒绝且零写入 |
 | **S2-F10** | 损坏 v2 FK → v3 拒绝、ledger 停 v2 | `test_submit_control_db_migrations.py` | `test_corrupted_workspace_v2_foreign_keys_reject_v3_upgrade` |
-| **S2-F11** | T1 rollback 全 participant；workspace 版本过期回滚；PREPARED + PENDING 无 lease abort（P4 合法 CANCELLED，非 FAILED） | `test_submit_transactions.py` | 见矩阵 |
+| **S2-F11** | T1 rollback 全 participant；workspace 版本过期回滚；PREPARED abort 项以 S2-F16 收窄替代闭合 | `test_submit_transactions.py` | 见 round-2 矩阵 |
 | **S2-F12** | JSON decoder exact keys + exact primitive types | `test_sqlite_submit_repository.py` | `MALFORMED_JSON_SHAPES` |
 | **S2-F13** | 重写 `p5-5b-s2-handoff.md` | docs | 本文件 + S2 handoff |
 

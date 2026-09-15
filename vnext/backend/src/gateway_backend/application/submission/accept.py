@@ -167,6 +167,45 @@ def try_accept_submit_replay(
     )
 
 
+def preflight_new_accept_submit(
+    *,
+    command: AcceptSubmitCommand,
+    workspace_repository: WorkspaceRepository,
+    occupancy: SubmitOccupancyReadPort,
+    resolved_repository_id: str,
+    baseline_head: BaselineHead,
+    baseline_digest: BaselineCanonicalDigestPort,
+    snapshot_table_artifact_refs: tuple[str, ...] = (),
+    preview_ready_closure_digest: str,
+) -> str:
+    """Read-only §6.1 steps 3-5 guards for new-key accepts (no writer lock)."""
+    workspace = workspace_repository.get_workspace(command.workspace_id)
+    if workspace is None:
+        raise ScopeForbidden
+    assert_exact_scope(workspace, command.context)
+    _assert_resolved_repository_matches_workspace(resolved_repository_id, workspace)
+    assert_workspace_open(workspace)
+    assert_workspace_version_cas(workspace, command.expected_workspace_version)
+    _assert_preview_binding(workspace, command)
+    upload_revision = _load_upload_revision(workspace_repository, command)
+    preview_result = _load_preview_result(workspace_repository, command, upload_revision, workspace)
+    _assert_baseline_binding(command, baseline_head)
+    if derive_preview_staleness(preview_result, baseline_head):
+        raise PreviewDerivedStale
+
+    preview_digest = preview_canonical_business_digest(preview_result)
+    baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
+        repository_id=workspace.repository_id,
+        baseline_head=baseline_head,
+    )
+    if preview_digest == baseline_canonical_digest:
+        raise NoCanonicalChange
+
+    _assert_no_submit_occupancy(occupancy, workspace.workspace_id, workspace.repository_id)
+    assert_preview_ready_closure_digest(preview_ready_closure_digest)
+    return baseline_canonical_digest
+
+
 def validate_accept_submit_with_frozen(
     *,
     command: AcceptSubmitCommand,

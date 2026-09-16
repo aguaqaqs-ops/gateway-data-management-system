@@ -5,7 +5,7 @@ from __future__ import annotations
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.capabilities.mutation_planning._digest import row_digest_from_image
-from gateway_backend.capabilities.mutation_planning._dolt_renderer import (
+from gateway_backend.capabilities.mutation_planning._repository_replay_renderer import (
     REPOSITORY_REPLAY_RENDERER_CAPABILITY,
 )
 from gateway_backend.capabilities.mutation_planning.contracts import (

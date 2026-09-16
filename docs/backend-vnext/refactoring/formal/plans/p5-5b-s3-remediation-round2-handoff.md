@@ -1,6 +1,6 @@
 # P5-5B-S3 Remediation Round 2 Handoff (Review-3)
 
-状态：**remediation complete — pending review-4 light re-confirmation**
+状态：**remediation complete — pending review-5 light re-confirmation**
 
 日期：2026-09-16
 
@@ -14,6 +14,7 @@ remediation_commit: pending
 input_review:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-3.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-4.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-5.md
 prior_remediation:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-handoff.md
 implementation_authority_unchanged: true
@@ -24,10 +25,12 @@ implementation_authority_unchanged: true
 | Finding | Closure |
 | --- | --- |
 | S3-H1 / P1 | `SubmitImportPublicationAdapter` reopens snapshot readers after `project_storage` (`_reopen_projection_inputs`); materialize path closes reopened readers in `finally`. `test_build_and_publish_from_pinned_parquet_artifact_succeeds` covers real Parquet `ARTIFACTS_REQUIRED` → `build_and_publish`. `FakeSnapshotTableReader` fails closed on closed `descriptor`/`iter_rows`. |
-| S3-H2 / P2 | Import replay split restores DAG: `storage_projection.import_replay` owns schema DDL + `build_import_projection_snapshots`; `mutation_planning.import_replay` owns `build_import_mutation_snapshots` (contracts-only upstream). DML orchestration lives in `repository_import_artifact._render_import_mutation_dml`. Removed `_dolt_renderer` re-export from `mutation_planning.__init__`. `test_architecture.py` 3/3 pass. |
+| S3-H2 / P2 | Import replay split restores DAG: `storage_projection.import_replay` owns schema DDL + `build_import_projection_snapshots`; `mutation_planning.import_replay` owns `build_import_mutation_snapshots` + public `render_import_mutation_dml`. Removed `_dolt_renderer` re-export from `mutation_planning.__init__`. `test_architecture.py` 3/3 pass. |
 | S3-H3 / P1 | `PrepareImportCheckpoint.canonicalization_manifest_digest` restored (semantic). `SubmitImportPublicationPort.verify_checkpoint_semantic_binding` validates manifest semantic digest + package `canonicalization_manifest_digest` binding. `reuse_prepare_import_checkpoint` calls port verify. Negative mismatch test added. |
 | S3-H4 / P2 | `_assert_projection_identity` no longer equates `repository_base_digest` to `manifest.source_artifact_digest`; only `source_artifact_digest` checked. `test_repository_base_digest_may_differ_from_source_artifact_digest` added. |
 | S3-H5 / P2 | `test_manifest_digest_is_independent_of_table_input_order` second `project_storage` call uses `reader.reopen()` for swapped table order; `FakeSnapshotTableReader` closed contract unchanged. Full unit suite green. |
+| S3-J1 / P2 | `render_import_mutation_dml` accepts `repository_base_digest`; consumer passes `build_input.repository_base_digest` to `MutationRepositoryBase`. `test_repository_base_digest_reaches_mutation_planner` captures planner request. |
+| S3-J2 / P2 | `_dolt_renderer` renamed to `_repository_replay_renderer`; public `render_import_mutation_dml` exported from `mutation_planning`. Consumer no longer imports `_dolt_renderer` or `storage_projection._digest`; manifest verify uses `open_canonicalization_manifest().manifest_digest`. Owner tests import public API only. |
 
 ### Corrected prior claims
 
@@ -52,6 +55,9 @@ vnext/backend/tests/test_storage_projection_import_replay.py
 vnext/backend/tests/test_mutation_planning_import_replay.py (new)
 vnext/backend/tests/support/storage_projection.py
 vnext/backend/tests/test_storage_projection_integrity.py
+vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py (renamed)
+vnext/backend/tests/test_dolt_renderer.py
+vnext/backend/tests/support/mutation_contracts.py
 docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-round2-handoff.md
 ```
 
@@ -67,10 +73,10 @@ docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-round2-handoff.
   tests/test_repository_import_artifact_package.py \
   tests/test_artifact_boundary.py \
   tests/test_canonical_lock_identity.py
-# 95 passed (includes integrity owner after H5 fix)
+# 131 passed (review-5 focused battery incl. integrity + dolt renderer)
 
 ./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest -q -m unit
-# 1915 passed, 115 deselected, 68.41s
+# 1916 passed, 115 deselected, 69.36s
 
 cd vnext/backend && ../scripts/uv-consume.sh -C . run --no-sync ruff check .
 # pass
@@ -84,7 +90,7 @@ uv_lock_in_diff: no
 five_package_static: backend-only (ruff + mypy full package)
 container_rebuild_required: no
 container_reason: Python/tests/docs only; no image or deployment boundary touched
-next_step: independent S3 review-4 light re-confirmation
+next_step: independent S3 review-5 light re-confirmation
 ```
 
 ## Notes

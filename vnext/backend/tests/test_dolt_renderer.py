@@ -13,7 +13,7 @@ from gateway_backend.capabilities.mutation_planning import (
     MutationPolicy,
     plan_storage_mutation,
 )
-from gateway_backend.capabilities.mutation_planning._dolt_renderer import (
+from gateway_backend.capabilities.mutation_planning._repository_replay_renderer import (
     REPOSITORY_REPLAY_RENDERER_CAPABILITY,
     render_change_set_replay,
 )
@@ -144,7 +144,7 @@ def test_external_reference_renderer_capability_fails_closed() -> None:
 
 def test_replay_size_cap_rejects_without_partial_output(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "gateway_backend.capabilities.mutation_planning._dolt_renderer.MAX_REPLAY_SQL_BYTES",
+        "gateway_backend.capabilities.mutation_planning._repository_replay_renderer.MAX_REPLAY_SQL_BYTES",
         64,
     )
     mutations = tuple(insert_mutation(board=str(i), link_no=str(i + 1)) for i in range(8))

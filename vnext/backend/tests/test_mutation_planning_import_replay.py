@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from gateway_backend.capabilities.mutation_planning import build_import_mutation_snapshots
+from gateway_backend.capabilities.mutation_planning import (
+    build_import_mutation_snapshots,
+    render_import_mutation_dml,
+)
 from gateway_backend.capabilities.storage_projection import (
     ProjectionInvocationContext,
     ProjectionRequest,
@@ -18,8 +21,8 @@ from gateway_backend.capabilities.storage_projection import (
 )
 from gateway_backend.capabilities.storage_projection._ordered import GID_PSEUDO_MIN
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
-from gateway_backend.repository_import_artifact import _render_import_mutation_dml
 from tests.support.storage_projection import (
+    digest_ref,
     as_row,
     int_cell,
     int_column,
@@ -76,7 +79,11 @@ def test_import_replay_sql_includes_drop_create_and_inserts() -> None:
     snapshots = build_import_mutation_snapshots(projection_snapshots)
     replay_sql = (
         render_repository_import_schema_replay_sql(result.import_input)
-        + _render_import_mutation_dml(result, snapshots)
+        + render_import_mutation_dml(
+            result,
+            snapshots,
+            repository_base_digest=digest_ref("aa"),
+        )
     ).decode("utf-8")
     assert "DROP TABLE IF EXISTS `net_cfg`" in replay_sql
     assert "CREATE TABLE `net_cfg`" in replay_sql
@@ -116,7 +123,11 @@ def test_import_replay_allocates_ordered_blank_gid() -> None:
     snapshots = build_import_mutation_snapshots(projection_snapshots)
     gid_cell = snapshots[0].rows[0].image.columns[0][1]
     assert gid_cell == {"kind": "unsigned-integer", "decimal": str(GID_PSEUDO_MIN)}
-    replay_sql = _render_import_mutation_dml(result, snapshots).decode("utf-8")
+    replay_sql = render_import_mutation_dml(
+        result,
+        snapshots,
+        repository_base_digest=digest_ref("aa"),
+    ).decode("utf-8")
     assert f"VALUES ({GID_PSEUDO_MIN}, 1, 'x')" in replay_sql
 
 
@@ -150,5 +161,9 @@ def test_import_replay_supports_set_columns() -> None:
         result,
     )
     snapshots = build_import_mutation_snapshots(projection_snapshots)
-    replay_sql = _render_import_mutation_dml(result, snapshots).decode("utf-8")
+    replay_sql = render_import_mutation_dml(
+        result,
+        snapshots,
+        repository_base_digest=digest_ref("aa"),
+    ).decode("utf-8")
     assert "INSERT INTO `unknown_widget`" in replay_sql

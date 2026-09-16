@@ -24,22 +24,7 @@ from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.mutation_planning import (
     ImportReplayError as MutationImportReplayError,
     build_import_mutation_snapshots,
-    plan_storage_mutation,
-)
-from gateway_backend.capabilities.mutation_planning._dolt_renderer import (
-    REPOSITORY_REPLAY_RENDERER_CAPABILITY,
-    render_change_set_replay,
-)
-from gateway_backend.capabilities.mutation_planning.contracts import (
-    MutationPlanStatus,
-    MutationPlanningInput,
-    MutationPlanningRequest,
-    MutationPolicy,
-    MutationProjectionBinding,
-    MutationRepositoryBase,
-    MutationSourceIdentity,
-    MutationTableSnapshot,
-    MutationThresholdPolicy,
+    render_import_mutation_dml,
 )
 from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
 from gateway_backend.capabilities.snapshot_materialization.contracts import ArtifactSourceBinding
@@ -58,12 +43,7 @@ from gateway_backend.capabilities.storage_projection import (
 from gateway_backend.capabilities.storage_projection.import_replay import (
     ImportReplayError as ProjectionImportReplayError,
 )
-from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest
-from gateway_backend.capabilities.storage_projection.contracts import (
-    CanonicalizationManifest,
-    ProjectionResult,
-    WrittenImportPackage,
-)
+from gateway_backend.capabilities.storage_projection.contracts import WrittenImportPackage
 from gateway_backend.capabilities.storage_projection.package import (
     MANIFEST_ENTRY_NAME,
     REPLAY_SQL_ENTRY_NAME,
@@ -150,7 +130,11 @@ class SubmitImportPublicationAdapter:
                 projection_snapshots = build_import_projection_snapshots(reopened_request, projection)
                 after_tables = build_import_mutation_snapshots(projection_snapshots)
                 schema_sql = render_repository_import_schema_replay_sql(projection.import_input)
-                mutation_dml = _render_import_mutation_dml(projection, after_tables)
+                mutation_dml = render_import_mutation_dml(
+                    projection,
+                    after_tables,
+                    repository_base_digest=DigestRef(build_input.repository_base_digest),
+                )
                 replay_sql = schema_sql + mutation_dml
             except (ProjectionImportReplayError, MutationImportReplayError) as exc:
                 raise SubmitImportPublicationError(str(exc)) from exc
@@ -223,7 +207,9 @@ class SubmitImportPublicationAdapter:
             manifest = open_canonicalization_manifest(store, manifest_ref)
         except PublicationError as exc:
             raise SubmitImportPublicationError(str(exc)) from exc
-        semantic_digest = compute_manifest_digest(manifest).value
+        if manifest.manifest_digest is None:
+            raise SubmitImportPublicationError("stored manifest is missing manifest_digest")
+        semantic_digest = manifest.manifest_digest.value
         if semantic_digest != checkpoint.canonicalization_manifest_digest:
             raise SubmitImportPublicationError(
                 "checkpoint semantic manifest digest does not match stored manifest"
@@ -273,59 +259,6 @@ def write_repository_import_package(
     written = build_repository_import_package(manifest=manifest, replay_sql=replay_sql)
     path.write_bytes(written.payload)
     return written
-
-
-def _render_import_mutation_dml(
-    projection: ProjectionResult,
-    snapshots: tuple[MutationTableSnapshot, ...],
-) -> bytes:
-    manifest = projection.manifest
-    if manifest is None:
-        raise SubmitImportPublicationError("projection manifest is required")
-    empty_manifest = CanonicalizationManifest(
-        contract_version=manifest.contract_version,
-        storage_projection_version=manifest.storage_projection_version,
-        ruleset_id=manifest.ruleset_id,
-        ruleset_version=manifest.ruleset_version,
-        ruleset_digest=manifest.ruleset_digest,
-        source_artifact_digest=manifest.source_artifact_digest,
-        tables=(),
-        manifest_digest=DigestRef("sha256:" + "0f" * 32),
-    )
-    binding = MutationProjectionBinding(
-        before_storage_projection_digest=manifest.manifest_digest or DigestRef("sha256:" + "00" * 32),
-        after_storage_projection_digest=manifest.manifest_digest or DigestRef("sha256:" + "01" * 32),
-        before_manifest_digest=empty_manifest.manifest_digest or DigestRef("sha256:" + "02" * 32),
-        after_manifest_digest=manifest.manifest_digest or DigestRef("sha256:" + "03" * 32),
-        table_ruleset_digest=manifest.ruleset_digest,
-    )
-    planning_input = MutationPlanningInput(
-        mutation_policy=MutationPolicy.REBUILD_ALWAYS,
-        projection_binding=binding,
-        repository_base=MutationRepositoryBase(
-            base_repository_ref_digest=manifest.source_artifact_digest,
-        ),
-        source_identity=MutationSourceIdentity(
-            source_identity_digest=manifest.source_artifact_digest,
-        ),
-        renderer_capability=REPOSITORY_REPLAY_RENDERER_CAPABILITY,
-        threshold_policy=MutationThresholdPolicy(),
-    )
-    request = MutationPlanningRequest(
-        planning_input=planning_input,
-        before_manifest=empty_manifest,
-        after_manifest=manifest,
-        before_tables=(),
-        after_tables=snapshots,
-        destructive_confirmation_granted=True,
-    )
-    planned = plan_storage_mutation(request)
-    if planned.status is not MutationPlanStatus.READY or planned.change_set_closure is None:
-        raise SubmitImportPublicationError("mutation planning failed for repository import replay")
-    outcome = render_change_set_replay(planned.change_set_closure)
-    if outcome.status != "READY" or outcome.sql_bytes is None:
-        raise SubmitImportPublicationError("mutation DML rendering failed")
-    return outcome.sql_bytes
 
 
 def _assert_rebuild_policy(build_input: PrepareImportBuildInput) -> None:

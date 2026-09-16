@@ -374,6 +374,40 @@ def test_repository_base_digest_may_differ_from_source_artifact_digest() -> None
     assert published.checkpoint.canonicalization_manifest_digest
 
 
+def test_repository_base_digest_reaches_mutation_planner(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.capabilities.mutation_planning._planner import plan_storage_mutation as real_plan
+    from gateway_backend.capabilities.mutation_planning.contracts import MutationPlanningRequest
+
+    captured: list[MutationPlanningRequest] = []
+
+    def _capture(request: MutationPlanningRequest) -> object:
+        captured.append(request)
+        return real_plan(request)
+
+    monkeypatch.setattr(
+        "gateway_backend.capabilities.mutation_planning.import_replay.plan_storage_mutation",
+        _capture,
+    )
+    adapter = SubmitImportPublicationAdapter()
+    store = InMemoryArtifactStore()
+    source_digest = dummy_digest()
+    base_digest = digest_ref("cc")
+    build_input = replace(
+        _build_input(),
+        source_artifact_digest=source_digest.value,
+        repository_base_digest=base_digest.value,
+    )
+    adapter.build_and_publish_from_inputs(
+        build_input=build_input,
+        store=store,
+        projection_inputs=_projection_inputs(),
+    )
+    assert captured
+    request = captured[0]
+    assert request.planning_input.repository_base.base_repository_ref_digest == base_digest
+    assert request.planning_input.source_identity.source_identity_digest == source_digest
+
+
 def test_reuse_rejects_mismatched_semantic_manifest_digest() -> None:
     adapter = SubmitImportPublicationAdapter()
     build_input = _build_input()

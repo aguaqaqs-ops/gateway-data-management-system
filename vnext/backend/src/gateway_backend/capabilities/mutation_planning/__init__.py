@@ -9,6 +9,7 @@ from gateway_backend.capabilities.mutation_planning._planner import plan_storage
 from gateway_backend.capabilities.mutation_planning.import_replay import (
     ImportReplayError,
     build_import_mutation_snapshots,
+    render_import_mutation_dml,
 )
 from gateway_backend.capabilities.mutation_planning.contracts import (
     CANONICAL_ENCODING_VERSION,
@@ -118,6 +119,7 @@ __all__ = [
     "ImportReplayError",
     "build_import_mutation_snapshots",
     "plan_storage_mutation",
+    "render_import_mutation_dml",
     "publish_change_set_closure",
     "validate_canonical_cell_value",
     "validate_change_set_ordering",

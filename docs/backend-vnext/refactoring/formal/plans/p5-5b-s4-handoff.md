@@ -27,7 +27,7 @@ s4_independent_review: changes_required (remediated)
 
 ```yaml
 stage: P5-5B-S4-backend-http-v1-re-authorization
-candidate_head: 9fa652ae8c8f0e0e0e0e0e0e0e0e0e0e0e0e0e0
+candidate_head: 0e25e0c93437dc9c501dca6c2fbdfab97deaed9b
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md §5/§12
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md §S4/§4

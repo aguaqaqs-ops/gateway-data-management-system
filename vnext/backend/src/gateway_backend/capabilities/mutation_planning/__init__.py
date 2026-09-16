@@ -5,11 +5,11 @@ from gateway_backend.capabilities.mutation_planning._artifacts import (
     publish_change_set_closure,
     validate_published_change_set_closure,
 )
-from gateway_backend.capabilities.mutation_planning._dolt_renderer import (
-    REPOSITORY_REPLAY_RENDERER_CAPABILITY,
-    render_change_set_replay,
-)
 from gateway_backend.capabilities.mutation_planning._planner import plan_storage_mutation
+from gateway_backend.capabilities.mutation_planning.import_replay import (
+    ImportReplayError,
+    build_import_mutation_snapshots,
+)
 from gateway_backend.capabilities.mutation_planning.contracts import (
     CANONICAL_ENCODING_VERSION,
     CHANGE_SET_ARTIFACT_CONTRACT_VERSION,
@@ -115,10 +115,10 @@ __all__ = [
     "compute_change_set_digest",
     "compute_mutation_plan_identity_digest",
     "mutation_plan_identity_payload",
-    "REPOSITORY_REPLAY_RENDERER_CAPABILITY",
+    "ImportReplayError",
+    "build_import_mutation_snapshots",
     "plan_storage_mutation",
     "publish_change_set_closure",
-    "render_change_set_replay",
     "validate_canonical_cell_value",
     "validate_change_set_ordering",
     "validate_published_change_set_closure",

@@ -483,6 +483,38 @@ def _require_optional_non_negative_int(value: object, label: str) -> None:
     _require_non_negative_int(value, label)
 
 
+@dataclass(frozen=True, slots=True)
+class ImportReplayKeyedRow:
+    key_columns: tuple[tuple[str, dict[str, object]], ...]
+    image_columns: tuple[tuple[str, dict[str, object]], ...]
+
+    def __post_init__(self) -> None:
+        if type(self.key_columns) is not tuple:
+            raise ValueError("key_columns must be a tuple")
+        if type(self.image_columns) is not tuple:
+            raise ValueError("image_columns must be a tuple")
+
+
+@dataclass(frozen=True, slots=True)
+class ImportReplayTableSnapshot:
+    manifest_table: CanonicalizationManifestTable
+    storage_view: StorageRuleView
+    rows: tuple[ImportReplayKeyedRow, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.manifest_table) is not CanonicalizationManifestTable:
+            raise ValueError("manifest_table must be CanonicalizationManifestTable")
+        if type(self.storage_view) is not StorageRuleView:
+            raise ValueError("storage_view must be StorageRuleView")
+        if self.manifest_table.name != self.storage_view.canonical_table:
+            raise ValueError("manifest_table name must match storage_view canonical_table")
+        if type(self.rows) is not tuple:
+            raise ValueError("rows must be a tuple")
+        for row in self.rows:
+            if type(row) is not ImportReplayKeyedRow:
+                raise ValueError("rows must contain ImportReplayKeyedRow")
+
+
 def _name_tuple(values: tuple[str, ...], label: str) -> tuple[str, ...]:
     if type(values) is not tuple:
         raise ValueError(f"{label} must be a tuple")

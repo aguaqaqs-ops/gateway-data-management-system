@@ -453,8 +453,15 @@ def test_manifest_digest_is_independent_of_table_input_order() -> None:
         primary_key_columns=("id",),
         rows=(as_row(int_cell(1)),),
     )
+    ordered_reader, ordered_binding = ordered
+    keyed_reader, keyed_binding = keyed
     first = project_storage(_request(ordered, keyed))
-    second = project_storage(_request(keyed, ordered))
+    second = project_storage(
+        _request(
+            (keyed_reader.reopen(), keyed_binding),
+            (ordered_reader.reopen(), ordered_binding),
+        )
+    )
     assert first.status is ProjectionStatus.COMPLETE
     assert second.status is ProjectionStatus.COMPLETE
     assert first.manifest is not None

@@ -34,9 +34,13 @@ class FakeSnapshotTableReader:
         self.closed = False
 
     def descriptor(self) -> SnapshotTableDescriptor:
+        if self.closed:
+            raise RuntimeError("READER_CLOSED")
         return self._descriptor
 
     def iter_rows(self) -> Iterator[SourceRow]:
+        if self.closed:
+            raise RuntimeError("READER_CLOSED")
         if self._iter_error is not None:
             raise self._iter_error
         return iter(self._rows)

@@ -1,42 +1,21 @@
-"""Public snapshot import replay materialization for RepositoryImportArtifact."""
+"""Public schema DDL and projection snapshot replay for RepositoryImportArtifact."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
 from gateway_shared_kernel import (
-    DigestRef,
     NullScalar,
     SignedIntegerScalar,
     StringScalar,
     UnsignedIntegerScalar,
 )
 
-from gateway_backend.capabilities.mutation_planning import (
-    REPOSITORY_REPLAY_RENDERER_CAPABILITY,
-    CanonicalStorageKey,
-    MutationKeyedRow,
-    MutationPlanStatus,
-    MutationPlanningInput,
-    MutationPlanningRequest,
-    MutationPolicy,
-    MutationProjectionBinding,
-    MutationRepositoryBase,
-    MutationSourceIdentity,
-    MutationTableSnapshot,
-    MutationThresholdPolicy,
-    PersistedRowImage,
-    plan_storage_mutation,
-    render_change_set_replay,
-)
-from gateway_backend.capabilities.mutation_planning._digest import (
-    key_bytes_for_ordering,
-    row_digest_from_image,
-)
 from gateway_backend.capabilities.storage_projection._digest import CanonicalColumnCodec
 from gateway_backend.capabilities.storage_projection.contracts import (
-    CanonicalizationManifest,
     CanonicalizationManifestTable,
+    ImportReplayKeyedRow,
+    ImportReplayTableSnapshot,
     ProjectionRequest,
     ProjectionResult,
     RepositoryImportArtifactInput,
@@ -49,20 +28,28 @@ from gateway_backend.capabilities.storage_projection.project import (
     materialize_canonical_source_rows,
 )
 
+
 class ImportReplayError(ValueError):
-    """Raised when snapshot import replay materialization fails."""
+    """Raised when repository import schema replay fails."""
 
 
-def build_import_mutation_snapshots(
+def render_repository_import_schema_replay_sql(import_input: RepositoryImportArtifactInput) -> bytes:
+    parts: list[bytes] = []
+    for table in sorted(import_input.tables, key=lambda item: item.name.encode("utf-8")):
+        parts.append(_render_drop_create_table(table))
+    return b"".join(parts)
+
+
+def build_import_projection_snapshots(
     request: ProjectionRequest,
     result: ProjectionResult,
-) -> tuple[MutationTableSnapshot, ...]:
+) -> tuple[ImportReplayTableSnapshot, ...]:
     if result.manifest is None:
         raise ImportReplayError("projection manifest is required")
     inputs_by_name = {item.canonical_table: item for item in request.tables}
     manifest_by_name = {table.name: table for table in result.manifest.tables}
     projected_by_name = {table.canonical_table: table for table in result.tables}
-    snapshots: list[MutationTableSnapshot] = []
+    snapshots: list[ImportReplayTableSnapshot] = []
     for table_name in sorted(manifest_by_name):
         manifest_table = manifest_by_name[table_name]
         projected = projected_by_name.get(table_name)
@@ -84,31 +71,13 @@ def build_import_mutation_snapshots(
             retained_indexes=retained_indexes,
         )
         snapshots.append(
-            MutationTableSnapshot(
+            ImportReplayTableSnapshot(
                 manifest_table=manifest_table,
                 storage_view=projected.storage_view,
                 rows=keyed_rows,
             )
         )
     return tuple(snapshots)
-
-
-def render_repository_import_replay_sql(
-    result: ProjectionResult,
-    snapshots: tuple[MutationTableSnapshot, ...],
-) -> bytes:
-    if result.manifest is None or result.import_input is None:
-        raise ImportReplayError("COMPLETE projection is missing manifest or import input")
-    ddl = _render_schema_replay(result.import_input)
-    dml = _render_mutation_replay_sql(result, snapshots)
-    return ddl + dml
-
-
-def _render_schema_replay(import_input: RepositoryImportArtifactInput) -> bytes:
-    parts: list[bytes] = []
-    for table in sorted(import_input.tables, key=lambda item: item.name.encode("utf-8")):
-        parts.append(_render_drop_create_table(table))
-    return b"".join(parts)
 
 
 def _render_drop_create_table(table: RepositoryImportTable) -> bytes:
@@ -124,68 +93,16 @@ def _render_drop_create_table(table: RepositoryImportTable) -> bytes:
     return f"DROP TABLE IF EXISTS {name};\nCREATE TABLE {name} ({body});\n".encode("utf-8")
 
 
-def _render_mutation_replay_sql(
-    result: ProjectionResult,
-    snapshots: tuple[MutationTableSnapshot, ...],
-) -> bytes:
-    manifest = result.manifest
-    assert manifest is not None
-    empty_manifest = CanonicalizationManifest(
-        contract_version=manifest.contract_version,
-        storage_projection_version=manifest.storage_projection_version,
-        ruleset_id=manifest.ruleset_id,
-        ruleset_version=manifest.ruleset_version,
-        ruleset_digest=manifest.ruleset_digest,
-        source_artifact_digest=manifest.source_artifact_digest,
-        tables=(),
-        manifest_digest=DigestRef("sha256:" + "0f" * 32),
-    )
-    binding = MutationProjectionBinding(
-        before_storage_projection_digest=manifest.manifest_digest or DigestRef("sha256:" + "00" * 32),
-        after_storage_projection_digest=manifest.manifest_digest or DigestRef("sha256:" + "01" * 32),
-        before_manifest_digest=empty_manifest.manifest_digest or DigestRef("sha256:" + "02" * 32),
-        after_manifest_digest=manifest.manifest_digest or DigestRef("sha256:" + "03" * 32),
-        table_ruleset_digest=manifest.ruleset_digest,
-    )
-    planning_input = MutationPlanningInput(
-        mutation_policy=MutationPolicy.REBUILD_ALWAYS,
-        projection_binding=binding,
-        repository_base=MutationRepositoryBase(
-            base_repository_ref_digest=manifest.source_artifact_digest,
-        ),
-        source_identity=MutationSourceIdentity(
-            source_identity_digest=manifest.source_artifact_digest,
-        ),
-        renderer_capability=REPOSITORY_REPLAY_RENDERER_CAPABILITY,
-        threshold_policy=MutationThresholdPolicy(),
-    )
-    request = MutationPlanningRequest(
-        planning_input=planning_input,
-        before_manifest=empty_manifest,
-        after_manifest=manifest,
-        before_tables=(),
-        after_tables=snapshots,
-        destructive_confirmation_granted=True,
-    )
-    planned = plan_storage_mutation(request)
-    if planned.status is not MutationPlanStatus.READY or planned.change_set_closure is None:
-        raise ImportReplayError("mutation planning failed for repository import replay")
-    outcome = render_change_set_replay(planned.change_set_closure)
-    if outcome.status != "READY" or outcome.sql_bytes is None:
-        raise ImportReplayError("replay SQL rendering failed")
-    return outcome.sql_bytes
-
-
 def _keyed_rows_from_canonical(
     canonical_rows: tuple[tuple[object, ...], ...],
     *,
     manifest_table: CanonicalizationManifestTable,
     codecs: Mapping[int, CanonicalColumnCodec],
     retained_indexes: tuple[int, ...],
-) -> tuple[MutationKeyedRow, ...]:
+) -> tuple[ImportReplayKeyedRow, ...]:
     retained = manifest_table.retained_columns
     key_columns = manifest_table.canonical_key_columns
-    keyed_rows: list[MutationKeyedRow] = []
+    keyed_rows: list[ImportReplayKeyedRow] = []
     for row in canonical_rows:
         image_columns = _image_columns_for_row(
             row,
@@ -193,18 +110,33 @@ def _keyed_rows_from_canonical(
             codecs=codecs,
             retained_indexes=retained_indexes,
         )
-        image = PersistedRowImage(columns=image_columns)
         image_by_name = {name: cell for name, cell in image_columns}
         key_pairs = tuple((column, dict(image_by_name[column])) for column in key_columns)
         keyed_rows.append(
-            MutationKeyedRow(
-                key=CanonicalStorageKey(columns=key_pairs),
-                image=image,
-                row_digest=row_digest_from_image(image, retained_columns=retained),
+            ImportReplayKeyedRow(
+                key_columns=key_pairs,
+                image_columns=image_columns,
             )
         )
-    keyed_rows.sort(key=lambda item: key_bytes_for_ordering(item.key))
+    keyed_rows.sort(key=lambda item: _key_bytes_for_ordering(item.key_columns))
     return tuple(keyed_rows)
+
+
+def _key_bytes_for_ordering(key_columns: tuple[tuple[str, dict[str, object]], ...]) -> bytes:
+    parts: list[bytes] = []
+    for _name, cell in key_columns:
+        kind = cell.get("kind")
+        if kind == "null":
+            parts.append(b"\x00")
+        elif kind == "unsigned-integer":
+            parts.append(b"\x01" + str(cell.get("decimal", "")).encode("utf-8"))
+        elif kind == "signed-integer":
+            parts.append(b"\x02" + str(cell.get("decimal", "")).encode("utf-8"))
+        elif kind == "string":
+            parts.append(b"\x03" + str(cell.get("text", "")).encode("utf-8"))
+        else:
+            raise ImportReplayError("unsupported key cell for ordering")
+    return b"".join(parts)
 
 
 def _image_columns_for_row(

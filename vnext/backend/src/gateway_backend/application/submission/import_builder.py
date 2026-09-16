@@ -45,18 +45,10 @@ def reuse_prepare_import_checkpoint(
     package_payload = publication.read_back_package(checkpoint=checkpoint, store=store)
     if raw_blob_digest(package_payload).value != checkpoint.package_raw_sha256:
         raise SubmitImportBuilderError("checkpoint package raw SHA does not match read-back")
-    manifest_ref = ArtifactRef(
-        artifact_id=checkpoint.canonicalization_manifest_ref.artifact_id,
-        media_type=checkpoint.canonicalization_manifest_ref.media_type,
-        size_bytes=checkpoint.canonicalization_manifest_ref.size_bytes,
-        raw_sha256=DigestRef(checkpoint.canonicalization_manifest_ref.raw_sha256),
-    )
     try:
-        manifest_payload = store.locate(manifest_ref)
-    except Exception as exc:
-        raise SubmitImportBuilderError("checkpoint manifest is missing or corrupt") from exc
-    if raw_blob_digest(manifest_payload).value != checkpoint.canonicalization_manifest_ref.raw_sha256:
-        raise SubmitImportBuilderError("checkpoint manifest raw SHA does not match read-back")
+        publication.verify_checkpoint_semantic_binding(checkpoint=checkpoint, store=store)
+    except ValueError as exc:
+        raise SubmitImportBuilderError(str(exc)) from exc
     return PrepareImportPublicationResult(checkpoint=checkpoint, replay=True)
 
 

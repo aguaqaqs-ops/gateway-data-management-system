@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from gateway_backend.application.submission.contracts import (
     PrepareImportBuildInput,
     SnapshotTableBinding,
+)
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    MaterializationPolicy,
+    SnapshotMaterializationStatus,
 )
 from gateway_backend.application.submission.import_builder import (
     SubmitImportBuilderError,
@@ -21,8 +27,10 @@ from gateway_backend.capabilities.storage_projection.package import unpack_repos
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.domain.submission.models import BuilderMutationPolicy
 from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+from tests.support.snapshot_materialization import materialize_sql
 from tests.support.storage_projection import (
     as_row,
+    digest_ref,
     dummy_digest,
     int_cell,
     int_column,
@@ -306,6 +314,86 @@ def test_publish_writes_only_manifest_and_package_artifacts() -> None:
     assert published.checkpoint.canonicalization_manifest_ref.artifact_id in artifact_ids
     assert published.checkpoint.backend_import_artifact_ref.artifact_id in artifact_ids
     assert not any(artifact_id.startswith("change-set-closure-") for artifact_id in artifact_ids)
+
+
+def test_build_and_publish_from_pinned_parquet_artifact_succeeds() -> None:
+    store = InMemoryArtifactStore()
+    sql = (
+        "CREATE TABLE `unknown_widget` (`id` INT NOT NULL PRIMARY KEY, `flags` SET('x','y') NOT NULL);"
+        "INSERT INTO `unknown_widget` VALUES (1, 'x');"
+    )
+    result = materialize_sql(
+        sql,
+        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        artifact_store=store,
+    )
+    assert result.status is SnapshotMaterializationStatus.COMPLETE
+    assert result.table_set is not None
+    table = result.table_set.tables[0]
+    assert table.artifact is not None
+    binding = SnapshotTableBinding(
+        artifact_id=table.artifact.manifest_ref.artifact_id,
+        media_type=table.artifact.manifest_ref.media_type,
+        size_bytes=table.artifact.manifest_ref.size_bytes,
+        raw_sha256=table.artifact.manifest_ref.raw_sha256.value,
+    )
+    ruleset = migrated_table_ruleset_snapshot()
+    assert ruleset.ruleset_digest is not None
+    build_input = PrepareImportBuildInput(
+        submit_attempt_id="sa-import-parquet",
+        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        input_closure_digest="sha256:closure-parquet",
+        source_artifact_digest=table.artifact.manifest.snapshot_digest.value,
+        repository_base_digest=table.artifact.manifest.snapshot_digest.value,
+        storage_projection_version=STORAGE_PROJECTION_VERSION,
+        ruleset_id=ruleset.ruleset_id,
+        ruleset_version=ruleset.ruleset_version,
+        ruleset_digest=ruleset.ruleset_digest.value,
+        snapshot_tables=(binding,),
+    )
+    adapter = SubmitImportPublicationAdapter()
+    published = adapter.build_and_publish(build_input=build_input, store=store)
+    assert published.replay is False
+    payload = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
+    replay_sql = _replay_sql_from_package(payload)
+    assert "INSERT INTO `unknown_widget`" in replay_sql
+
+
+def test_repository_base_digest_may_differ_from_source_artifact_digest() -> None:
+    adapter = SubmitImportPublicationAdapter()
+    store = InMemoryArtifactStore()
+    build_input = replace(
+        _build_input(),
+        repository_base_digest=digest_ref("cc").value,
+    )
+    published = adapter.build_and_publish_from_inputs(
+        build_input=build_input,
+        store=store,
+        projection_inputs=_projection_inputs(),
+    )
+    assert published.checkpoint.canonicalization_manifest_digest
+
+
+def test_reuse_rejects_mismatched_semantic_manifest_digest() -> None:
+    adapter = SubmitImportPublicationAdapter()
+    build_input = _build_input()
+    store = InMemoryArtifactStore()
+    published = adapter.build_and_publish_from_inputs(
+        build_input=build_input,
+        store=store,
+        projection_inputs=_projection_inputs(),
+    )
+    mismatched = replace(
+        published.checkpoint,
+        canonicalization_manifest_digest=digest_ref("ff").value,
+    )
+    with pytest.raises(SubmitImportBuilderError, match="semantic manifest digest"):
+        reuse_prepare_import_checkpoint(
+            build_input=build_input,
+            checkpoint=mismatched,
+            publication=adapter,
+            store=store,
+        )
 
 
 def test_reuse_rejects_mismatched_input_closure_digest() -> None:

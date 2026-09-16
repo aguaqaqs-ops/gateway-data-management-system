@@ -91,6 +91,7 @@ class PrepareImportCheckpoint:
     schema_version: str
     attempt_id: str
     canonicalization_manifest_ref: BackendArtifactRef
+    canonicalization_manifest_digest: str
     backend_import_artifact_ref: BackendArtifactRef
     package_raw_size: int
     package_raw_sha256: str
@@ -104,6 +105,8 @@ class PrepareImportCheckpoint:
             raise ValueError("attempt_id must be a non-empty string")
         if type(self.canonicalization_manifest_ref) is not BackendArtifactRef:
             raise ValueError("canonicalization_manifest_ref must be BackendArtifactRef")
+        if type(self.canonicalization_manifest_digest) is not str or not self.canonicalization_manifest_digest:
+            raise ValueError("canonicalization_manifest_digest must be a non-empty string")
         if type(self.backend_import_artifact_ref) is not BackendArtifactRef:
             raise ValueError("backend_import_artifact_ref must be BackendArtifactRef")
         if type(self.package_raw_size) is not int or self.package_raw_size < 0:
@@ -136,6 +139,13 @@ class SubmitImportPublicationPort(Protocol):
         checkpoint: PrepareImportCheckpoint,
         store: ArtifactStorePort,
     ) -> bytes: ...
+
+    def verify_checkpoint_semantic_binding(
+        self,
+        *,
+        checkpoint: PrepareImportCheckpoint,
+        store: ArtifactStorePort,
+    ) -> None: ...
 
 
 def assert_preview_ready_closure_digest(preview_ready_closure_digest: str) -> None:

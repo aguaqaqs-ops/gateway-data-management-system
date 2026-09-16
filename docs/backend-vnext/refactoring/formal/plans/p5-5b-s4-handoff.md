@@ -1,6 +1,6 @@
 # P5-5B-S4 Backend HTTP v1 and Re-authorization Handoff
 
-状态：**S4 round-3 re-review remediation complete — pending independent re-review**
+状态：**S4 independent review pass — S5 entry authorized**
 
 日期：2026-09-16
 
@@ -9,13 +9,21 @@ Owner：P5-5B Delivery
 ## Authority gate snapshot
 
 ```yaml
+p4_r6_exit: pass
 s3_handoff: pass
 p5_5b_design: accepted
 p5_5b_implementation_authorized: yes
+p5b_real_repository_effect_authorized: yes
+unresolved_contract_drift: none
 s4_entry: authorized
 s4_scope: backend HTTP adapter only; fake/S2 local UoW; no Repository effect
-s4_independent_review: changes_required (round-3 re-review remediated)
+s4_independent_review: pass
+s5_entry: authorized
+s5_authorization_source: explicit_user_instruction_2026-09-16
 ```
+
+最终独立复审与 S5 入口授权记录见
+[p5-5b-s4-final-independent-review.md](p5-5b-s4-final-independent-review.md)。
 
 ## Scope amendment
 
@@ -185,7 +193,14 @@ uv run ruff check src/gateway_backend/http \
 
 ## Deferred / observations
 
-**F6 → S5 entry gate**: message sniffing / P4 文案耦合（同 round-2）。
+**F6 → S5 first work item**：message sniffing / P4 文案耦合已在 S5 entry audit 中确认不触发
+contract reopen；必须先以 typed error / stable classification 关闭，之后才开始真实 Repository effect。
+Finding-scoped 路径扩展仅包括：
+
+- `vnext/backend/src/gateway_backend/http/orchestration/submit_acceptance.py`
+- `vnext/backend/src/gateway_backend/http/orchestration/operator_recovery.py`
+- `vnext/backend/tests/test_submit_http.py`
+- `vnext/backend/tests/test_operator_recovery_http.py`
 
 **F9 observation**: AcceptSubmit replay 仍经过 `acquire_new_work`；design 未冻结，留 S7。
 
@@ -198,6 +213,10 @@ uv run ruff check src/gateway_backend/http \
 ## next_step
 
 ```yaml
-next_step: S4 independent re-review (round 3 re-review)
-s5_entry_gate: S4 review pass + explicit S5 authorization
+next_step: P5-5B-S5 F6 typed-error closure, then planned S5 implementation
+s5_entry_gate: pass
+s5_authorized: yes
+s5_first_required_work: close_F6_typed_error_and_stable_classification
+real_repository_effect_before_F6_closure: forbidden
+s6_authorized: no
 ```

@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 
 from tests.support.http_workspace_harness import (
+    BASELINE_HEAD,
     WorkspaceHttpTestEnvironment,
     create_workspace_http_environment,
+    seed_submit_ready_workspace,
 )
 from tests.support.upload_http_packages import upload_files
 from tests.support.workspace_fixtures import make_identity
@@ -58,3 +60,29 @@ def test_session_identity_cannot_be_overridden_by_body(env: WorkspaceHttpTestEnv
         },
     )
     assert response.status_code == 422
+
+
+def test_submit_permission_matrix(env: WorkspaceHttpTestEnvironment, tmp_path: Path) -> None:
+    read_only_root = tmp_path / "submit-read-only"
+    read_only_root.mkdir()
+    read_only = create_workspace_http_environment(
+        read_only_root,
+        identity=make_identity(permissions=frozenset({"workspace_read", "preview_workspace"})),
+    )
+    seed = seed_submit_ready_workspace(read_only.db_path, read_only.artifact_store)
+    workspace = seed["workspace"]
+    response = read_only.client.post(
+        f"/v1/workspaces/{workspace.workspace_id}/submit-attempts",
+        headers=read_only.auth_headers(idempotency_key="matrix-submit"),
+        json={
+            "expected_workspace_version": workspace.optimistic_version,
+            "upload_revision_id": seed["upload_revision"].upload_revision_id,
+            "preview_result_id": seed["preview_result"].preview_result_id,
+            "generation": seed["upload_revision"].generation,
+            "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
+            "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
+            "options": {},
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "SCOPE_FORBIDDEN"

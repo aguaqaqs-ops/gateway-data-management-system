@@ -2,19 +2,34 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.app import create_app
-from gateway_backend.application.job_definitions import JobDefinitionRegistry
+from gateway_backend.application.job_definitions import (
+    JobDefinition,
+    JobDefinitionRegistry,
+    NormalPublicationCapability,
+)
 from gateway_backend.application.preview_jobs import preview_job_definitions
+from gateway_backend.application.recovery import RecoveryCapability
+from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
+from gateway_backend.application.submission.errors import AbortProofNotSatisfied
+from gateway_backend.application.submission.job_payload import (
+    SUBMIT_JOB_KIND,
+    SUBMIT_STEP_AWAIT,
+    SUBMIT_STEP_PREPARE,
+    SUBMIT_STEP_SUBMIT,
+)
+from gateway_backend.application.workspace.services import create_or_get_workspace
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.artifacts.bounded_store import (
     BoundedArtifactStorePort,
@@ -25,21 +40,45 @@ from gateway_backend.artifacts.bounded_store import (
 )
 from gateway_backend.domain.workspace.models import (
     IdentityContext,
+    InputCompleteness,
     PreviewAcceptanceRecord,
     PreviewResult,
+    PreviewResultDigests,
+    SourceArtifactBinding,
+    SourceArtifactRole,
     UploadRevision,
     Workspace,
     WorkspaceScope,
 )
-from gateway_backend.http.auth import BearerSessionPort
+from gateway_backend.http.auth import BearerSessionPort, StaticInternalBearerPort
 from gateway_backend.http.dependencies import (
     AdmissionGatePort,
+    ArtifactRefLookupPort,
+    FailClosedOperatorRecoveryPort,
     OpenAdmissionGate,
+    OperatorRecoveryApplicationPort,
     ReadOnlyOperationStore,
+    ReadOnlySubmissionStore,
     WorkspaceHttpDependencies,
 )
 from gateway_backend.http.wiring import register_workspace_http
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.sqlite_mapping import seed_provisioned_mappings
+from gateway_backend.operations import (
+    OPERATION_RUNTIME_CONTRACT_VERSION,
+    JobStepKey,
+    OperationStatus,
+    StepRecord,
+    StepStatus,
+)
+from gateway_backend.operations.contracts import OperationDiagnostic
+from gateway_backend.operations.recovery import (
+    OperatorRecoveryCommand,
+    OperatorRecoveryRequest,
+    RecoveryCapabilityValue,
+    build_authorized_operator_recovery,
+)
+from gateway_backend.operations.state import TransitionDisposition, WritePrecondition
 from tests.support.workspace_fixtures import (
     FixedScopeResolutionPort,
     MutableBaselineHeadReadPort,
@@ -49,8 +88,21 @@ from tests.support.workspace_fixtures import (
 
 TEST_BEARER = "test-session-token"
 TEST_BEARER_LIMITED = "limited-session-token"
+TEST_INTERNAL_BEARER = "test-internal-bearer"
 BASELINE_HEAD = make_baseline_head(version=3, commit_id="commit-base")
+BASELINE_CANONICAL_DIGEST = "sha256:baseline-canonical"
 FIXED_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
+_PAYLOAD_INITIAL = b"a"
+_PAYLOAD_MODIFIED = b"ab"
+_PAYLOAD_CLOSURE = b"c"
+_PAYLOAD_SNAP = b"d"
+_SHA_INITIAL = raw_blob_digest(_PAYLOAD_INITIAL).value
+_SHA_MODIFIED = raw_blob_digest(_PAYLOAD_MODIFIED).value
+_SHA_CLOSURE = raw_blob_digest(_PAYLOAD_CLOSURE).value
+_SHA_SNAP = raw_blob_digest(_PAYLOAD_SNAP).value
+_PREVIEW_CANONICAL_DIGEST = "sha256:" + "p" * 62 + "ca"
 
 
 class InMemoryBoundedArtifactStore:
@@ -59,6 +111,7 @@ class InMemoryBoundedArtifactStore:
     def __init__(self, store: InMemoryArtifactStore | None = None) -> None:
         self._store = store or InMemoryArtifactStore()
         self._counter = 0
+        self._registered_refs: dict[str, ArtifactRef] = {}
 
     def put_stream(
         self,
@@ -89,6 +142,15 @@ class InMemoryBoundedArtifactStore:
 
     def drop(self, ref: ArtifactRef) -> None:
         self._store._artifacts.pop(ref.artifact_id, None)  # noqa: SLF001
+
+    def register_bytes(self, ref: ArtifactRef, payload: bytes) -> None:
+        if len(payload) != ref.size_bytes:
+            raise ValueError("payload size mismatch")
+        self._store.put(payload, ref)
+        self._registered_refs[ref.artifact_id] = ref
+
+    def lookup_ref(self, artifact_id: str) -> ArtifactRef | None:
+        return self._registered_refs.get(artifact_id)
 
     def verify_readable(
         self,
@@ -213,6 +275,564 @@ def preview_job_registry() -> JobDefinitionRegistry:
     return JobDefinitionRegistry.build(preview_job_definitions())
 
 
+def submit_job_definitions() -> tuple[JobDefinition, ...]:
+    return (
+        JobDefinition(
+            key=JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_PREPARE),
+            supported_payload_versions=frozenset({SUBMIT_JOB_CONTRACT_VERSION}),
+            decoder_identity="backend-vnext/submit/prepare-import/decoder/v1",
+            handler_identity="backend-vnext/submit/prepare-import/handler/v1",
+            publication_capability=NormalPublicationCapability.SINGLE_SUCCESSOR,
+            recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
+        ),
+        JobDefinition(
+            key=JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_SUBMIT),
+            supported_payload_versions=frozenset({SUBMIT_JOB_CONTRACT_VERSION}),
+            decoder_identity="backend-vnext/submit/submit-import/decoder/v1",
+            handler_identity="backend-vnext/submit/submit-import/handler/v1",
+            publication_capability=NormalPublicationCapability.SINGLE_SUCCESSOR,
+            recovery_capability=RecoveryCapability.EXTERNAL_EFFECT,
+        ),
+        JobDefinition(
+            key=JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_AWAIT),
+            supported_payload_versions=frozenset({SUBMIT_JOB_CONTRACT_VERSION}),
+            decoder_identity="backend-vnext/submit/await-import-result/decoder/v1",
+            handler_identity="backend-vnext/submit/await-import-result/handler/v1",
+            publication_capability=NormalPublicationCapability.TERMINAL,
+            recovery_capability=RecoveryCapability.EXTERNAL_EFFECT,
+        ),
+    )
+
+
+def workspace_job_registry(*, include_preview: bool = True, include_submit: bool = True) -> JobDefinitionRegistry:
+    definitions: list[JobDefinition] = []
+    if include_preview:
+        definitions.extend(preview_job_definitions())
+    if include_submit:
+        definitions.extend(submit_job_definitions())
+    return JobDefinitionRegistry.build(tuple(definitions))
+
+
+@dataclass
+class FakeBaselineCanonicalDigestPort:
+    digest: str = BASELINE_CANONICAL_DIGEST
+
+    def get_baseline_canonical_digest(self, *, repository_id: str, baseline_head: object) -> str:
+        del repository_id, baseline_head
+        return self.digest
+
+
+@dataclass
+class RecordingMainResolvePort:
+    commit_id: str = "commit-main"
+
+    def resolve_main_expected_commit(self, *, repository_id: str) -> str:
+        del repository_id
+        return self.commit_id
+
+
+class FailingMainResolvePort:
+    def resolve_main_expected_commit(self, *, repository_id: str) -> str:
+        del repository_id
+        from gateway_backend.http.errors import ApiError
+
+        raise ApiError(
+            code="DEPENDENCY_UNAVAILABLE",
+            message="repository main resolve is unavailable",
+            status_code=503,
+        )
+
+
+class LocalOperatorRecoveryPort:
+    def __init__(
+        self,
+        unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+        *,
+        job_registry: JobDefinitionRegistry,
+    ) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+        self._recovery = build_authorized_operator_recovery(
+            write_uow_factory=unit_of_work_factory,
+            capability_lookup=_submit_recovery_capability_lookup(job_registry),
+        )
+
+    def execute_recovery(self, request: OperatorRecoveryRequest) -> TransitionDisposition:
+        if request.command is OperatorRecoveryCommand.ABORT_CONFIRMED_FAILURE:
+            with self._unit_of_work_factory() as unit_of_work:
+                operation = unit_of_work.operations.get_operation(request.operation_id)
+                step = unit_of_work.operations.get_step(request.step_id)
+            if not (
+                operation.status is OperationStatus.FAILED and step.status is StepStatus.FAILED
+            ):
+                raise AbortProofNotSatisfied("repository abort proof is deferred to S5")
+        return self._recovery.execute(request)
+
+
+def _submit_recovery_capability_lookup(
+    registry: JobDefinitionRegistry,
+) -> Callable[[str, str], RecoveryCapabilityValue]:
+    mapping: dict[tuple[str, str], RecoveryCapabilityValue] = {}
+    for step_name in (SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT, SUBMIT_STEP_AWAIT):
+        definition = registry.resolve_runnable(
+            JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=step_name),
+            SUBMIT_JOB_CONTRACT_VERSION,
+        )
+        capability = definition.recovery_capability
+        if capability is RecoveryCapability.PURE_RECOMPUTE:
+            mapped = RecoveryCapabilityValue.PURE_RECOMPUTE
+        elif capability is RecoveryCapability.EXTERNAL_EFFECT:
+            mapped = RecoveryCapabilityValue.EXTERNAL_EFFECT
+        else:
+            mapped = RecoveryCapabilityValue.NON_RETRYABLE
+        mapping[(SUBMIT_JOB_KIND, step_name)] = mapped
+
+    def lookup(job_kind: str, step_name: str) -> RecoveryCapabilityValue:
+        return mapping[(job_kind, step_name)]
+
+    return lookup
+
+
+def _seed_provisioned_mapping(db_path: Path, *, repository_id: str = "repo-1") -> None:
+    mapping_file = db_path.parent / "provisioned-mapping.json"
+    mapping_file.write_text(
+        json.dumps(
+            {
+                "mappings": [
+                    {
+                        "gateway_device_external_key": "device-1",
+                        "business_project_id": "project-1",
+                        "repository_id": repository_id,
+                        "business_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
+                        "business_baseline_commit_id": BASELINE_HEAD.business_baseline_commit_id,
+                        "baseline_head_version": BASELINE_HEAD.baseline_head_version,
+                        "enabled": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    seed_provisioned_mappings(db_path, mapping_file)
+
+
+def _protected_preview_refs() -> tuple[ArtifactRef, ...]:
+    return (
+        ArtifactRef(
+            artifact_id="initial-1",
+            media_type="application/gzip",
+            size_bytes=len(_PAYLOAD_INITIAL),
+            raw_sha256=DigestRef(_SHA_INITIAL),
+        ),
+        ArtifactRef(
+            artifact_id="modified-1",
+            media_type="application/gzip",
+            size_bytes=len(_PAYLOAD_MODIFIED),
+            raw_sha256=DigestRef(_SHA_MODIFIED),
+        ),
+        ArtifactRef(
+            artifact_id="closure-1",
+            media_type="application/json",
+            size_bytes=len(_PAYLOAD_CLOSURE),
+            raw_sha256=DigestRef(_SHA_CLOSURE),
+        ),
+        ArtifactRef(
+            artifact_id="snap-1",
+            media_type="application/octet-stream",
+            size_bytes=len(_PAYLOAD_SNAP),
+            raw_sha256=DigestRef(_SHA_SNAP),
+        ),
+    )
+
+
+def seed_submit_ready_workspace(
+    db_path: Path,
+    artifact_store: InMemoryBoundedArtifactStore,
+    *,
+    repository_id: str = "repo-1",
+) -> dict[str, Any]:
+    _seed_provisioned_mapping(db_path, repository_id=repository_id)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    context = make_identity(permissions=frozenset({"upload_submit_workspace", "workspace_read"}))
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        created = create_or_get_workspace(
+            context=context,
+            scope_resolution=scope_resolution,
+            repository=unit_of_work.workspace,
+            created_at=TS0,
+        )
+        workspace = created.workspace
+        upload_revision = UploadRevision(
+            upload_revision_id="ur-1",
+            workspace_id=workspace.workspace_id,
+            generation=1,
+            input_completeness=InputCompleteness.FULL,
+            source_artifacts={
+                SourceArtifactRole.INITIAL: SourceArtifactBinding(
+                    artifact_id="initial-1",
+                    media_type="application/gzip",
+                    size_bytes=len(_PAYLOAD_INITIAL),
+                    raw_sha256=_SHA_INITIAL,
+                ),
+                SourceArtifactRole.MODIFIED: SourceArtifactBinding(
+                    artifact_id="modified-1",
+                    media_type="application/gzip",
+                    size_bytes=len(_PAYLOAD_MODIFIED),
+                    raw_sha256=_SHA_MODIFIED,
+                ),
+            },
+            idempotency_key="upload-key",
+            request_fingerprint="fp-upload",
+            created_by="actor-1",
+            created_at=TS0,
+        )
+        preview = PreviewResult(
+            preview_result_id="pr-1",
+            workspace_id=workspace.workspace_id,
+            upload_revision_id=upload_revision.upload_revision_id,
+            generation=1,
+            repository_id=repository_id,
+            business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+            business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+            baseline_head_version=BASELINE_HEAD.baseline_head_version,
+            ruleset_version="rules-1",
+            contract_version="contract-1",
+            provider_versions={"comparison": "v1"},
+            digests=PreviewResultDigests(
+                source_digest="d-source",
+                input_digest="d-input",
+                snapshot_digest="d-snapshot",
+                comparison_digest="d-comparison",
+                risk_digest="d-risk",
+                surface_digest="d-surface",
+                bundle_digest=_PREVIEW_CANONICAL_DIGEST,
+            ),
+            bundle_artifact_id="bundle-1",
+            ready_closure_artifact_id="closure-1",
+            operation_id="op-preview-1",
+            created_at=TS1,
+        )
+        unit_of_work.workspace.save_upload_revision(upload_revision)
+        unit_of_work.workspace.save_preview_result(preview)
+        updated_workspace = replace(
+            workspace,
+            repository_id=repository_id,
+            generation=1,
+            optimistic_version=workspace.optimistic_version + 1,
+            current_upload_revision_id=upload_revision.upload_revision_id,
+            current_preview_result_id=preview.preview_result_id,
+            updated_at=TS1,
+        )
+        unit_of_work.workspace.save_workspace(
+            updated_workspace,
+            expected_version=workspace.optimistic_version,
+        )
+        preview_operation_id = preview.operation_id
+        protected_refs = _protected_preview_refs()
+        unit_of_work.set_artifact_protection(
+            protected_refs,
+            owner_kind="current-preview",
+            owner_id=updated_workspace.workspace_id,
+            intent="current-preview",
+        )
+        unit_of_work.set_artifact_protection(
+            protected_refs,
+            owner_kind="preview-operation",
+            owner_id=preview_operation_id,
+            intent="preview-operation",
+        )
+
+    payload_by_id = {
+        "initial-1": _PAYLOAD_INITIAL,
+        "modified-1": _PAYLOAD_MODIFIED,
+        "closure-1": _PAYLOAD_CLOSURE,
+        "snap-1": _PAYLOAD_SNAP,
+    }
+    for ref in protected_refs:
+        artifact_store.register_bytes(ref, payload_by_id[ref.artifact_id])
+
+    return {
+        "workspace": updated_workspace,
+        "upload_revision": upload_revision,
+        "preview_result": preview,
+        "preview_operation_id": preview_operation_id,
+    }
+
+
+def promote_submit_recovery_target(
+    db_path: Path,
+    *,
+    operation_id: str,
+    step_id: str,
+    when: datetime = FIXED_NOW,
+) -> None:
+    from datetime import timedelta
+
+    diagnostic = OperationDiagnostic(
+        code="MANUAL",
+        message="manual recovery required for test",
+    )
+    lease_expires_at = datetime.now(UTC) + timedelta(hours=1)
+
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        if operation.status is OperationStatus.QUEUED:
+            running_operation = replace(
+                operation,
+                status=OperationStatus.RUNNING,
+                updated_at=when,
+                optimistic_version=operation.optimistic_version + 1,
+            )
+            unit_of_work.operations.compare_and_set_operation(
+                running_operation,
+                WritePrecondition(
+                    expected_optimistic_version=operation.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+            operation = running_operation
+
+        step = unit_of_work.operations.get_step(step_id)
+        if step.status is StepStatus.PENDING:
+            running_step = replace(
+                step,
+                status=StepStatus.RUNNING,
+                attempt_count=1,
+                started_at=when,
+                updated_at=when,
+                worker_id="worker-test",
+                lease_token="lease-test",
+                lease_expires_at=lease_expires_at,
+                optimistic_version=step.optimistic_version + 1,
+            )
+            unit_of_work.operations.compare_and_set_step(
+                running_step,
+                WritePrecondition(
+                    expected_optimistic_version=step.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+            step = running_step
+
+        if step.status is StepStatus.RUNNING:
+            recovery_step = replace(
+                step,
+                status=StepStatus.MANUAL_RECOVERY_REQUIRED,
+                diagnostic=diagnostic,
+                updated_at=when,
+                worker_id=None,
+                lease_token=None,
+                lease_expires_at=None,
+                optimistic_version=step.optimistic_version + 1,
+            )
+            unit_of_work.operations.compare_and_set_step(
+                recovery_step,
+                WritePrecondition(
+                    expected_optimistic_version=step.optimistic_version,
+                    worker_id=step.worker_id,
+                    lease_token=step.lease_token,
+                ),
+            )
+
+        if operation.status is OperationStatus.RUNNING:
+            recovery_operation = replace(
+                operation,
+                status=OperationStatus.MANUAL_RECOVERY_REQUIRED,
+                diagnostic=diagnostic,
+                updated_at=when,
+                optimistic_version=operation.optimistic_version + 1,
+            )
+            unit_of_work.operations.compare_and_set_operation(
+                recovery_operation,
+                WritePrecondition(
+                    expected_optimistic_version=operation.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+
+
+def promote_submit_terminal_failed(
+    db_path: Path,
+    *,
+    operation_id: str,
+    step_id: str,
+    when: datetime = FIXED_NOW,
+) -> None:
+    from datetime import timedelta
+
+    diagnostic = OperationDiagnostic(code="FAILED", message="terminal failure for test")
+    lease_expires_at = datetime.now(UTC) + timedelta(hours=1)
+
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        if operation.status is OperationStatus.QUEUED:
+            running_operation = replace(
+                operation,
+                status=OperationStatus.RUNNING,
+                updated_at=when,
+                optimistic_version=operation.optimistic_version + 1,
+            )
+            unit_of_work.operations.compare_and_set_operation(
+                running_operation,
+                WritePrecondition(
+                    expected_optimistic_version=operation.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+            operation = running_operation
+
+        step = unit_of_work.operations.get_step(step_id)
+        if step.status is StepStatus.PENDING:
+            running_step = replace(
+                step,
+                status=StepStatus.RUNNING,
+                attempt_count=1,
+                started_at=when,
+                updated_at=when,
+                worker_id="worker-test",
+                lease_token="lease-test",
+                lease_expires_at=lease_expires_at,
+                optimistic_version=step.optimistic_version + 1,
+            )
+            unit_of_work.operations.compare_and_set_step(
+                running_step,
+                WritePrecondition(
+                    expected_optimistic_version=step.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+            step = running_step
+
+        if step.status is StepStatus.RUNNING:
+            failed_step = replace(
+                step,
+                status=StepStatus.FAILED,
+                diagnostic=diagnostic,
+                completed_at=when,
+                updated_at=when,
+                worker_id=None,
+                lease_token=None,
+                lease_expires_at=None,
+                optimistic_version=step.optimistic_version + 1,
+            )
+            unit_of_work.operations.compare_and_set_step(
+                failed_step,
+                WritePrecondition(
+                    expected_optimistic_version=step.optimistic_version,
+                    worker_id=step.worker_id,
+                    lease_token=step.lease_token,
+                ),
+            )
+
+        if operation.status is OperationStatus.RUNNING:
+            failed_operation = replace(
+                operation,
+                status=OperationStatus.FAILED,
+                diagnostic=diagnostic,
+                completed_at=when,
+                updated_at=when,
+                optimistic_version=operation.optimistic_version + 1,
+            )
+            unit_of_work.operations.compare_and_set_operation(
+                failed_operation,
+                WritePrecondition(
+                    expected_optimistic_version=operation.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+
+
+def advance_submit_to_external_step(
+    db_path: Path,
+    operation_id: str,
+    *,
+    when: datetime = FIXED_NOW,
+) -> str:
+    from datetime import timedelta
+
+    prepare_step_id = f"{operation_id}-step-1"
+    external_step_id = f"{operation_id}-step-2"
+    lease_expires_at = datetime.now(UTC) + timedelta(hours=1)
+
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        prepare = unit_of_work.operations.get_step(prepare_step_id)
+        running_prepare = replace(
+            prepare,
+            status=StepStatus.RUNNING,
+            attempt_count=1,
+            started_at=when,
+            updated_at=when,
+            worker_id="worker-test",
+            lease_token="lease-test",
+            lease_expires_at=lease_expires_at,
+            optimistic_version=prepare.optimistic_version + 1,
+        )
+        unit_of_work.operations.compare_and_set_step(
+            running_prepare,
+            WritePrecondition(
+                expected_optimistic_version=prepare.optimistic_version,
+                worker_id=None,
+                lease_token=None,
+            ),
+        )
+        succeeded_prepare = replace(
+            running_prepare,
+            status=StepStatus.SUCCEEDED,
+            completed_at=when,
+            updated_at=when,
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            optimistic_version=running_prepare.optimistic_version + 1,
+        )
+        unit_of_work.operations.compare_and_set_step(
+            succeeded_prepare,
+            WritePrecondition(
+                expected_optimistic_version=running_prepare.optimistic_version,
+                worker_id=running_prepare.worker_id,
+                lease_token=running_prepare.lease_token,
+            ),
+        )
+        submit_step = StepRecord(
+            contract_version=OPERATION_RUNTIME_CONTRACT_VERSION,
+            step_id=external_step_id,
+            operation_id=operation_id,
+            step_name=SUBMIT_STEP_SUBMIT,
+            status=StepStatus.PENDING,
+            attempt_count=0,
+            diagnostic=None,
+            cancel_requested=False,
+            retry_not_before=None,
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            checkpoint_ref=None,
+            prior_output_refs=(),
+            created_at=when,
+            updated_at=when,
+            started_at=None,
+            completed_at=None,
+            optimistic_version=0,
+        )
+        unit_of_work.operations.insert_successor_step(submit_step)
+
+    promote_submit_recovery_target(
+        db_path,
+        operation_id=operation_id,
+        step_id=external_step_id,
+        when=when,
+    )
+    return external_step_id
+
+
 @dataclass
 class WorkspaceHttpTestEnvironment:
     client: TestClient
@@ -230,6 +850,9 @@ class WorkspaceHttpTestEnvironment:
             headers["Idempotency-Key"] = idempotency_key
         return headers
 
+    def internal_auth_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {TEST_INTERNAL_BEARER}"}
+
 
 def create_workspace_http_environment(
     tmp_path: Path,
@@ -238,8 +861,11 @@ def create_workspace_http_environment(
     admission_open: bool = True,
     admission_gate: AdmissionGatePort | None = None,
     include_preview_registry: bool = True,
+    include_submit_registry: bool = True,
     extra_sessions: dict[str, IdentityContext] | None = None,
     now: Callable[[], datetime] | None = None,
+    baseline_canonical_digest: FakeBaselineCanonicalDigestPort | None = None,
+    main_resolve_port: RecordingMainResolvePort | FailingMainResolvePort | None = None,
 ) -> WorkspaceHttpTestEnvironment:
     db_path = tmp_path / "control.db"
     initialize_control_db(db_path)
@@ -256,10 +882,25 @@ def create_workspace_http_environment(
     artifact_store = InMemoryBoundedArtifactStore()
     bundle_reader = InMemoryBundleReader()
 
-    def unit_of_work_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(db_path)
+    def unit_of_work_factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(db_path, read_only=read_only)
 
     operation_reader = ReadOnlyOperationStore(unit_of_work_factory)
+    submission_reader = ReadOnlySubmissionStore(unit_of_work_factory)
+    baseline_digest = baseline_canonical_digest or FakeBaselineCanonicalDigestPort()
+    main_resolve = main_resolve_port or RecordingMainResolvePort()
+    job_registry = workspace_job_registry(
+        include_preview=include_preview_registry,
+        include_submit=include_submit_registry,
+    )
+    operator_recovery_port: OperatorRecoveryApplicationPort
+    if include_submit_registry:
+        operator_recovery_port = LocalOperatorRecoveryPort(
+            unit_of_work_factory,
+            job_registry=job_registry,
+        )
+    else:
+        operator_recovery_port = FailClosedOperatorRecoveryPort()
 
     class _AdmissionGate:
         def allows_new_work(self) -> bool:
@@ -291,10 +932,16 @@ def create_workspace_http_environment(
         workspace_repository=repository,
         unit_of_work_factory=unit_of_work_factory,
         artifact_store=cast(BoundedArtifactStorePort, artifact_store),
-        job_registry=preview_job_registry() if include_preview_registry else JobDefinitionRegistry.build(()),
+        artifact_ref_lookup=cast(ArtifactRefLookupPort, artifact_store),
+        job_registry=job_registry,
         bundle_reader=bundle_reader,
         admission_gate=resolved_gate,
         operation_reader=operation_reader,
+        submission_reader=submission_reader,
+        internal_bearer_port=StaticInternalBearerPort(TEST_INTERNAL_BEARER),
+        baseline_canonical_digest=baseline_digest,
+        main_resolve=main_resolve,
+        operator_recovery_port=operator_recovery_port,
         now=clock,
     )
     app = create_app(workspace_http=deps)

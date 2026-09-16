@@ -1,0 +1,264 @@
+"""Submit acceptance orchestration for HTTP AcceptSubmit."""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import datetime
+from typing import cast
+
+from gateway_shared_kernel import DigestRef
+
+from gateway_backend.application.job_definitions import JobDefinitionRegistry
+from gateway_backend.application.submission.accept import validate_accept_submit
+from gateway_backend.application.submission.accept_transaction import (
+    AcceptSubmitPreflight,
+    accept_submit_transaction,
+    assert_submit_job_registered,
+)
+from gateway_backend.application.submission.contracts import AcceptSubmitCommand
+from gateway_backend.application.submission.errors import PreviewBindingConflict
+from gateway_backend.application.submission.ports import (
+    BaselineCanonicalDigestPort,
+    RepositoryMainResolvePort,
+    SubmitControlUnitOfWorkFactory,
+)
+from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
+from gateway_backend.http.dependencies import ArtifactRefLookupPort
+from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.domain.workspace.models import IdentityContext, PreviewResult, UploadRevision
+from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
+from gateway_backend.http.errors import ApiError
+from gateway_backend.http.schemas.submit import SubmitAcceptedResponse, SubmitAttemptStateLiteral
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+
+PREVIEW_READY_CLOSURE_DIGEST_PREFIX = "v1:"
+
+
+@dataclass(frozen=True, slots=True)
+class SubmitAcceptanceResult:
+    response: SubmitAcceptedResponse
+    replay: bool
+
+
+def derive_preview_ready_closure_digest(preview: PreviewResult) -> str:
+    return f"{PREVIEW_READY_CLOSURE_DIGEST_PREFIX}{preview.ready_closure_artifact_id}"
+
+
+def derive_snapshot_table_set_digest(snapshot_table_artifact_refs: tuple[str, ...]) -> str:
+    joined = ",".join(sorted(snapshot_table_artifact_refs))
+    digest = hashlib.sha256(joined.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def build_accept_submit_command(
+    *,
+    context: IdentityContext,
+    workspace_id: str,
+    expected_workspace_version: int,
+    upload_revision_id: str,
+    preview_result_id: str,
+    generation: int,
+    expected_baseline_node_id: str,
+    expected_baseline_head_version: int,
+    idempotency_key: str,
+    options: Mapping[str, object],
+) -> AcceptSubmitCommand:
+    return AcceptSubmitCommand(
+        context=context,
+        workspace_id=workspace_id,
+        expected_workspace_version=expected_workspace_version,
+        upload_revision_id=upload_revision_id,
+        preview_result_id=preview_result_id,
+        generation=generation,
+        expected_baseline_node_id=expected_baseline_node_id,
+        expected_baseline_head_version=expected_baseline_head_version,
+        idempotency_key=idempotency_key,
+        options=dict(options),
+    )
+
+
+def load_accept_submit_preflight(
+    *,
+    command: AcceptSubmitCommand,
+    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+    preview_result: PreviewResult,
+    upload_revision: UploadRevision,
+    artifact_ref_lookup: ArtifactRefLookupPort,
+) -> AcceptSubmitPreflight:
+    preview_operation_id = preview_result.operation_id
+    with unit_of_work_factory() as unit_of_work:
+        preview_refs = unit_of_work.list_artifact_protection_for_owner(
+            owner_kind="current-preview",
+            owner_id=command.workspace_id,
+        )
+        operation_refs = unit_of_work.list_artifact_protection_for_owner(
+            owner_kind="preview-operation",
+            owner_id=preview_operation_id,
+        )
+        held_ids = preview_refs | operation_refs
+
+    source_ids = frozenset(
+        binding.artifact_id
+        for _role, binding in sorted(
+            upload_revision.source_artifacts.items(),
+            key=lambda item: item[0].value,
+        )
+    )
+    closure_id = preview_result.ready_closure_artifact_id
+    snapshot_table_artifact_refs = tuple(
+        sorted(
+            artifact_id
+            for artifact_id in held_ids
+            if artifact_id not in source_ids and artifact_id != closure_id
+        )
+    )
+    protected_artifact_refs = _protected_artifact_refs(
+        upload_revision=upload_revision,
+        preview_result=preview_result,
+        snapshot_table_artifact_refs=snapshot_table_artifact_refs,
+        artifact_ref_lookup=artifact_ref_lookup,
+    )
+    return AcceptSubmitPreflight(
+        snapshot_table_artifact_refs=snapshot_table_artifact_refs,
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(preview_result),
+        preview_operation_id=preview_operation_id,
+        protected_artifact_refs=protected_artifact_refs,
+        snapshot_table_set_digest=derive_snapshot_table_set_digest(snapshot_table_artifact_refs),
+    )
+
+
+def accept_submit_operation(
+    *,
+    command: AcceptSubmitCommand,
+    scope_resolution: ScopeResolutionPort,
+    workspace_repository: WorkspaceRepository,
+    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+    job_registry: JobDefinitionRegistry,
+    artifact_store: BoundedArtifactStorePort,
+    artifact_ref_lookup: ArtifactRefLookupPort,
+    baseline_digest: BaselineCanonicalDigestPort,
+    main_resolve: RepositoryMainResolvePort,
+    now: datetime,
+) -> SubmitAcceptanceResult:
+    try:
+        assert_submit_job_registered(job_registry)
+    except PreviewBindingConflict as exc:
+        if "not registered" in str(exc):
+            raise ApiError(
+                code="SERVICE_NOT_READY",
+                message="submit job definition is not registered",
+                status_code=503,
+            ) from exc
+        raise
+
+    upload_revision = workspace_repository.get_upload_revision(command.upload_revision_id)
+    preview_result = workspace_repository.get_preview_result(command.preview_result_id)
+    if upload_revision is None or preview_result is None:
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="resource not found",
+            status_code=404,
+        )
+
+    preflight = load_accept_submit_preflight(
+        command=command,
+        unit_of_work_factory=unit_of_work_factory,
+        preview_result=preview_result,
+        upload_revision=upload_revision,
+        artifact_ref_lookup=artifact_ref_lookup,
+    )
+
+    with unit_of_work_factory() as unit_of_work:
+        validation = validate_accept_submit(
+            command=command,
+            scope_resolution=scope_resolution,
+            workspace_repository=workspace_repository,
+            submission_repository=unit_of_work.submission,
+            occupancy=unit_of_work.submission,
+            baseline_digest=baseline_digest,
+            main_resolve=main_resolve,
+            snapshot_table_artifact_refs=preflight.snapshot_table_artifact_refs,
+            preview_ready_closure_digest=preflight.preview_ready_closure_digest,
+        )
+
+    if not validation.replay:
+        for ref in preflight.protected_artifact_refs:
+            verified = artifact_store.verify_readable(
+                ref,
+                expected_size=ref.size_bytes,
+                expected_raw_sha256=ref.raw_sha256,
+            )
+            if not verified.verified:
+                raise ApiError(
+                    code="ARTIFACT_UNAVAILABLE",
+                    message="required artifact is not readable",
+                    status_code=503,
+                )
+
+    transaction_result = accept_submit_transaction(
+        command=command,
+        scope_resolution=scope_resolution,
+        unit_of_work_factory=cast(SubmitControlUnitOfWorkFactory, unit_of_work_factory),
+        job_registry=job_registry,
+        baseline_digest=baseline_digest,
+        main_resolve=main_resolve,
+        preflight=preflight,
+        now=now,
+    )
+
+    with unit_of_work_factory() as unit_of_work:
+        attempt = unit_of_work.submission.get_submit_attempt(transaction_result.submit_attempt_id)
+    if attempt is None:
+        raise ApiError(
+            code="SERVICE_NOT_READY",
+            message="submit attempt is unavailable after acceptance",
+            status_code=503,
+        )
+
+    state: SubmitAttemptStateLiteral = attempt.state.value
+    return SubmitAcceptanceResult(
+        response=SubmitAcceptedResponse(
+            submit_attempt_id=transaction_result.submit_attempt_id,
+            operation_id=transaction_result.operation_id,
+            workspace_id=command.workspace_id,
+            preview_result_id=command.preview_result_id,
+            generation=command.generation,
+            state=state,
+        ),
+        replay=transaction_result.replay,
+    )
+
+
+def _protected_artifact_refs(
+    *,
+    upload_revision: UploadRevision,
+    preview_result: PreviewResult,
+    snapshot_table_artifact_refs: tuple[str, ...],
+    artifact_ref_lookup: ArtifactRefLookupPort,
+) -> tuple[ArtifactRef, ...]:
+    refs_by_id: dict[str, ArtifactRef] = {}
+    for _role, binding in sorted(upload_revision.source_artifacts.items(), key=lambda item: item[0].value):
+        refs_by_id[binding.artifact_id] = ArtifactRef(
+            artifact_id=binding.artifact_id,
+            media_type=binding.media_type,
+            size_bytes=binding.size_bytes,
+            raw_sha256=DigestRef(binding.raw_sha256),
+        )
+    closure_id = preview_result.ready_closure_artifact_id
+    for artifact_id in (closure_id, *snapshot_table_artifact_refs):
+        if artifact_id in refs_by_id:
+            continue
+        resolved = artifact_ref_lookup.lookup_ref(artifact_id)
+        if resolved is None:
+            raise PreviewBindingConflict(f"artifact metadata is missing for {artifact_id!r}")
+        refs_by_id[artifact_id] = resolved
+    source_ids = frozenset(
+        binding.artifact_id for _role, binding in upload_revision.source_artifacts.items()
+    )
+    required_ids = source_ids | {closure_id} | frozenset(snapshot_table_artifact_refs)
+    selected = tuple(refs_by_id[artifact_id] for artifact_id in sorted(required_ids))
+    if frozenset(ref.artifact_id for ref in selected) != required_ids:
+        raise PreviewBindingConflict("preview artifact protection does not match required refs")
+    return selected

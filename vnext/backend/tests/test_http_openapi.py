@@ -21,7 +21,7 @@ def client(tmp_path: Path) -> TestClient:
 def test_openapi_paths_match_frozen_routes(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     paths = set(schema["paths"])
-    assert PRODUCTION_OPENAPI_PATHS <= paths
+    assert PRODUCTION_OPENAPI_PATHS == paths
 
 
 def test_openapi_schemas_reject_additional_properties(client: TestClient) -> None:
@@ -46,3 +46,13 @@ def test_openapi_schemas_reject_additional_properties(client: TestClient) -> Non
         },
     )
     assert extra_field.status_code == 422
+
+
+def test_openapi_submit_request_rejects_additional_properties(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    accept_request = schema["components"]["schemas"]["AcceptSubmitRequest"]
+    assert accept_request.get("additionalProperties") is False
+    submit_response = schema["components"]["schemas"]["SubmitAcceptedResponse"]
+    assert "submit_attempt_id" in submit_response["properties"]
+    recovery_request = schema["components"]["schemas"]["OperatorRecoveryRequestBody"]
+    assert recovery_request.get("additionalProperties") is False

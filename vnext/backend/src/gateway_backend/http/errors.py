@@ -10,11 +10,23 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from gateway_backend.application.submission.errors import (
+    AbortProofNotSatisfied,
+    BaselineVersionConflict,
+    FinalizeBindingMismatch,
+    FinalizeRecoveryRequired,
+    IdempotencyConflict as SubmitIdempotencyConflict,
+    NoCanonicalChange,
+    PreviewBindingConflict as SubmitPreviewBindingConflict,
+    PreviewDerivedStale,
+    SubmitApplicationError,
+)
 from gateway_backend.application.workspace.errors import (
     IdempotencyConflict,
     PreviewBindingConflict,
     WorkspaceApplicationError,
 )
+from gateway_backend.domain.submission.errors import SubmissionDomainError, SubmitOccupancyConflict
 from gateway_backend.domain.workspace.errors import (
     PermissionDenied,
     ScopeForbidden,
@@ -123,6 +135,75 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             message=str(exc),
             status_code=409,
         )
+    if isinstance(exc, SubmitIdempotencyConflict):
+        return ApiError(
+            code="IDEMPOTENCY_CONFLICT",
+            message=str(exc),
+            status_code=409,
+            details={"idempotency_key": exc.idempotency_key},
+        )
+    if isinstance(exc, SubmitPreviewBindingConflict):
+        return ApiError(
+            code="PREVIEW_BINDING_CONFLICT",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, PreviewDerivedStale):
+        return ApiError(
+            code="PREVIEW_DERIVED_STALE",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, BaselineVersionConflict):
+        return ApiError(
+            code="BASELINE_VERSION_CONFLICT",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, NoCanonicalChange):
+        return ApiError(
+            code="NO_CANONICAL_CHANGE",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, SubmitOccupancyConflict):
+        return ApiError(
+            code="SUBMIT_OCCUPANCY_CONFLICT",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, AbortProofNotSatisfied):
+        return ApiError(
+            code="ABORT_PROOF_NOT_SATISFIED",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, FinalizeBindingMismatch):
+        return ApiError(
+            code="SUBMIT_RESULT_BINDING_MISMATCH",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, FinalizeRecoveryRequired):
+        return ApiError(
+            code="FINALIZE_RECOVERY_REQUIRED",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, SubmitApplicationError):
+        stable_code = getattr(exc, "stable_code", None)
+        if stable_code == "IDEMPOTENCY_CONFLICT":
+            return ApiError(
+                code="IDEMPOTENCY_CONFLICT",
+                message=str(exc),
+                status_code=409,
+                details={"idempotency_key": getattr(exc, "idempotency_key", None)},
+            )
+        return ApiError(
+            code="REQUEST_VALIDATION_FAILED",
+            message=str(exc),
+            status_code=422,
+        )
     if isinstance(exc, UploadClosureInvalid):
         return ApiError(
             code="UPLOAD_CLOSURE_INVALID",
@@ -163,6 +244,44 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def workspace_application_error_handler(
         _request: Request,
         exc: WorkspaceApplicationError,
+    ) -> JSONResponse:
+        mapped = map_domain_exception(exc)
+        if mapped is None:
+            return error_response(
+                code=INTERNAL_ERROR_CODE,
+                message=INTERNAL_ERROR_MESSAGE,
+                status_code=500,
+            )
+        return error_response(
+            code=mapped.code,
+            message=mapped.message,
+            status_code=mapped.status_code,
+            details=mapped.details,
+        )
+
+    @app.exception_handler(SubmitApplicationError)
+    async def submit_application_error_handler(
+        _request: Request,
+        exc: SubmitApplicationError,
+    ) -> JSONResponse:
+        mapped = map_domain_exception(exc)
+        if mapped is None:
+            return error_response(
+                code=INTERNAL_ERROR_CODE,
+                message=INTERNAL_ERROR_MESSAGE,
+                status_code=500,
+            )
+        return error_response(
+            code=mapped.code,
+            message=mapped.message,
+            status_code=mapped.status_code,
+            details=mapped.details,
+        )
+
+    @app.exception_handler(SubmissionDomainError)
+    async def submission_domain_error_handler(
+        _request: Request,
+        exc: SubmissionDomainError,
     ) -> JSONResponse:
         mapped = map_domain_exception(exc)
         if mapped is None:

@@ -7,12 +7,15 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
     TEST_BEARER_LIMITED,
     WorkspaceHttpTestEnvironment,
     create_workspace_http_environment,
+    seed_submit_ready_workspace,
 )
 from tests.support.upload_http_packages import upload_files
 from tests.support.workspace_fixtures import make_identity
@@ -109,3 +112,98 @@ def test_get_operation_requires_workspace_read_permission(tmp_path: Path) -> Non
     )
     assert response.status_code == 403
     assert response.json()["code"] == "SCOPE_FORBIDDEN"
+
+
+def test_get_submit_operation_returns_200(env: WorkspaceHttpTestEnvironment) -> None:
+    seed = seed_submit_ready_workspace(env.db_path, env.artifact_store)
+    workspace = seed["workspace"]
+    response = env.client.post(
+        f"/v1/workspaces/{workspace.workspace_id}/submit-attempts",
+        headers=env.auth_headers(idempotency_key="submit-op"),
+        json={
+            "expected_workspace_version": workspace.optimistic_version,
+            "upload_revision_id": seed["upload_revision"].upload_revision_id,
+            "preview_result_id": seed["preview_result"].preview_result_id,
+            "generation": seed["upload_revision"].generation,
+            "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
+            "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
+            "options": {},
+        },
+    )
+    assert response.status_code == 202
+    operation_id = response.json()["operation_id"]
+    get_response = env.client.get(
+        f"/v1/operations/{operation_id}",
+        headers=env.auth_headers(),
+    )
+    assert get_response.status_code == 200
+    body = get_response.json()
+    assert body["operation_id"] == operation_id
+    assert body["job_kind"] == "backend-vnext/submit"
+    assert body["status"] == "QUEUED"
+
+
+def _accept_submit_operation(env: WorkspaceHttpTestEnvironment) -> tuple[str, str]:
+    seed = seed_submit_ready_workspace(env.db_path, env.artifact_store)
+    workspace = seed["workspace"]
+    response = env.client.post(
+        f"/v1/workspaces/{workspace.workspace_id}/submit-attempts",
+        headers=env.auth_headers(idempotency_key="submit-op-negative"),
+        json={
+            "expected_workspace_version": workspace.optimistic_version,
+            "upload_revision_id": seed["upload_revision"].upload_revision_id,
+            "preview_result_id": seed["preview_result"].preview_result_id,
+            "generation": seed["upload_revision"].generation,
+            "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
+            "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
+            "options": {},
+        },
+    )
+    assert response.status_code == 202
+    body = response.json()
+    return body["operation_id"], body["submit_attempt_id"]
+
+
+def test_get_submit_operation_hides_missing_submit_attempt_ref(env: WorkspaceHttpTestEnvironment) -> None:
+    operation_id, _submit_attempt_id = _accept_submit_operation(env)
+    with ControlDbUnitOfWork(env.db_path) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        workspace_id = next(ref.value for ref in operation.business_refs if ref.kind == "workspace")
+        business_refs_blob = canonicalize_json_value([{"kind": "workspace", "value": workspace_id}])
+        unit_of_work.connection.execute(
+            "UPDATE operation_records SET business_refs = ? WHERE operation_id = ?",
+            (business_refs_blob, operation_id),
+        )
+    response = env.client.get(
+        f"/v1/operations/{operation_id}",
+        headers=env.auth_headers(),
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_get_submit_operation_hides_missing_attempt_record(env: WorkspaceHttpTestEnvironment) -> None:
+    operation_id, submit_attempt_id = _accept_submit_operation(env)
+    with ControlDbUnitOfWork(env.db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "DELETE FROM submit_idempotency_records WHERE submit_attempt_id = ?",
+            (submit_attempt_id,),
+        )
+        unit_of_work.connection.execute(
+            "DELETE FROM workspace_submit_occupancy_records WHERE active_submit_attempt_id = ?",
+            (submit_attempt_id,),
+        )
+        unit_of_work.connection.execute(
+            "DELETE FROM repository_submit_occupancy_records WHERE submit_attempt_id = ?",
+            (submit_attempt_id,),
+        )
+        unit_of_work.connection.execute(
+            "DELETE FROM submit_attempt_records WHERE submit_attempt_id = ?",
+            (submit_attempt_id,),
+        )
+    response = env.client.get(
+        f"/v1/operations/{operation_id}",
+        headers=env.auth_headers(),
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"

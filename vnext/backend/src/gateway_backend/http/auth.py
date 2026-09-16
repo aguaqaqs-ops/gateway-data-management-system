@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -186,3 +187,43 @@ def require_identity(request: Request) -> IdentityContext:
     from gateway_backend.http.dependencies import get_workspace_http
 
     return get_workspace_http(request).session_port.resolve(request)
+
+
+@runtime_checkable
+class InternalBearerPort(Protocol):
+    def verify(self, request: Request) -> None:
+        """Validate deployment internal bearer authentication."""
+
+
+class StaticInternalBearerPort:
+    """Compare bearer tokens in constant time without logging secrets."""
+
+    def __init__(self, expected_token: str) -> None:
+        if type(expected_token) is not str or not expected_token:
+            raise ValueError("expected_token must be a non-empty string")
+        self._expected_token = expected_token
+
+    def verify(self, request: Request) -> None:
+        token = _bearer_token(request)
+        if not hmac.compare_digest(token, self._expected_token):
+            raise ApiError(
+                code="AUTHENTICATION_REQUIRED",
+                message="authentication required",
+                status_code=401,
+            )
+
+
+class FailClosedInternalBearerPort:
+    def verify(self, request: Request) -> None:
+        del request
+        raise ApiError(
+            code="AUTHENTICATION_REQUIRED",
+            message="authentication required",
+            status_code=401,
+        )
+
+
+def require_internal_bearer(request: Request) -> None:
+    from gateway_backend.http.dependencies import get_workspace_http
+
+    get_workspace_http(request).internal_bearer_port.verify(request)

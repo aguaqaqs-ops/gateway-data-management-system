@@ -36,5 +36,6 @@ def get_operation_route(
         context=context,
         operation=operation,
         workspace_repository=deps.workspace_repository,
+        submission_reader=deps.submission_reader,
     )
     return operation_to_response(operation)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Lock
 from typing import Protocol, runtime_checkable
@@ -12,15 +12,24 @@ from typing import Protocol, runtime_checkable
 from fastapi import Request
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
+from gateway_backend.application.submission.ports import (
+    BaselineCanonicalDigestPort,
+    RepositoryMainResolvePort,
+)
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
+from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.domain.submission.models import SubmitAttempt, Submission
+from gateway_backend.domain.workspace.models import BaselineHead
 from gateway_backend.domain.workspace.ports import (
     BaselineHeadReadPort,
     ScopeResolutionPort,
     WorkspaceRepository,
 )
-from gateway_backend.http.auth import SessionPort
+from gateway_backend.http.auth import FailClosedInternalBearerPort, InternalBearerPort, SessionPort
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.operations.contracts import OperationRecord
+from gateway_backend.operations.contracts import OperationRecord, StepRecord
+from gateway_backend.operations.recovery import OperatorRecoveryRequest
+from gateway_backend.operations.state import TransitionDisposition
 from gateway_backend.operations.store import RecordNotFound
 
 
@@ -28,6 +37,24 @@ from gateway_backend.operations.store import RecordNotFound
 class OperationReaderPort(Protocol):
     def get_operation(self, operation_id: str) -> OperationRecord:
         """Return an operation or raise RecordNotFound."""
+
+    def get_step(self, step_id: str) -> StepRecord:
+        """Return a step or raise RecordNotFound."""
+
+
+@runtime_checkable
+class SubmissionReaderPort(Protocol):
+    def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
+        """Load one SubmitAttempt."""
+
+    def get_submission(self, submission_id: str) -> Submission | None:
+        """Load one Submission."""
+
+
+@runtime_checkable
+class OperatorRecoveryApplicationPort(Protocol):
+    def execute_recovery(self, request: OperatorRecoveryRequest) -> TransitionDisposition:
+        """Apply or replay one authorized operator recovery command."""
 
 
 @runtime_checkable
@@ -40,6 +67,18 @@ class AdmissionGatePort(Protocol):
 
     def release(self) -> None:
         """Release one previously acquired creation slot."""
+
+
+@runtime_checkable
+class ArtifactRefLookupPort(Protocol):
+    def lookup_ref(self, artifact_id: str) -> ArtifactRef | None:
+        """Return durable artifact metadata when the store can resolve one id."""
+
+
+class FailClosedArtifactRefLookup:
+    def lookup_ref(self, artifact_id: str) -> ArtifactRef | None:
+        del artifact_id
+        return None
 
 
 @runtime_checkable
@@ -114,6 +153,57 @@ def acquire_new_work(gate: AdmissionGatePort) -> Iterator[None]:
         gate.release()
 
 
+class FailClosedBaselineCanonicalDigestPort:
+    def get_baseline_canonical_digest(
+        self,
+        *,
+        repository_id: str,
+        baseline_head: BaselineHead,
+    ) -> str:
+        del repository_id, baseline_head
+        from gateway_backend.http.errors import ApiError
+
+        raise ApiError(
+            code="SERVICE_NOT_READY",
+            message="baseline canonical digest port is unavailable",
+            status_code=503,
+        )
+
+
+class FailClosedRepositoryMainResolvePort:
+    def resolve_main_expected_commit(self, *, repository_id: str) -> str:
+        del repository_id
+        from gateway_backend.http.errors import ApiError
+
+        raise ApiError(
+            code="DEPENDENCY_UNAVAILABLE",
+            message="repository main resolve is unavailable",
+            status_code=503,
+        )
+
+
+class FailClosedOperatorRecoveryPort:
+    def execute_recovery(self, request: OperatorRecoveryRequest) -> TransitionDisposition:
+        del request
+        from gateway_backend.http.errors import ApiError
+
+        raise ApiError(
+            code="SERVICE_NOT_READY",
+            message="operator recovery composition is unavailable",
+            status_code=503,
+        )
+
+
+class FailClosedSubmissionReader:
+    def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
+        del submit_attempt_id
+        return None
+
+    def get_submission(self, submission_id: str) -> Submission | None:
+        del submission_id
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class WorkspaceHttpDependencies:
     session_port: SessionPort
@@ -127,6 +217,20 @@ class WorkspaceHttpDependencies:
     admission_gate: AdmissionGatePort
     operation_reader: OperationReaderPort
     now: Callable[[], datetime]
+    submission_reader: SubmissionReaderPort = field(default_factory=FailClosedSubmissionReader)
+    artifact_ref_lookup: ArtifactRefLookupPort = field(default_factory=FailClosedArtifactRefLookup)
+    internal_bearer_port: InternalBearerPort = field(
+        default_factory=FailClosedInternalBearerPort
+    )
+    baseline_canonical_digest: BaselineCanonicalDigestPort = field(
+        default_factory=FailClosedBaselineCanonicalDigestPort
+    )
+    main_resolve: RepositoryMainResolvePort = field(
+        default_factory=FailClosedRepositoryMainResolvePort
+    )
+    operator_recovery_port: OperatorRecoveryApplicationPort = field(
+        default_factory=FailClosedOperatorRecoveryPort
+    )
 
     @classmethod
     def default_now(cls) -> datetime:
@@ -166,3 +270,31 @@ class ReadOnlyOperationStore:
                     message="resource not found",
                     status_code=404,
                 ) from None
+
+    def get_step(self, step_id: str) -> StepRecord:
+        with self._unit_of_work_factory() as unit_of_work:
+            try:
+                return unit_of_work.operations.get_step(step_id)
+            except RecordNotFound:
+                from gateway_backend.http.errors import ApiError
+
+                raise ApiError(
+                    code="RECOVERY_TARGET_NOT_FOUND",
+                    message="recovery target not found",
+                    status_code=404,
+                ) from None
+
+
+class ReadOnlySubmissionStore:
+    """Read-only submission access for HTTP GET without opening a write transaction."""
+
+    def __init__(self, unit_of_work_factory: Callable[[], ControlDbUnitOfWork]) -> None:
+        self._unit_of_work_factory = unit_of_work_factory
+
+    def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
+        with self._unit_of_work_factory() as unit_of_work:
+            return unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+
+    def get_submission(self, submission_id: str) -> Submission | None:
+        with self._unit_of_work_factory() as unit_of_work:
+            return unit_of_work.submission.get_submission(submission_id)

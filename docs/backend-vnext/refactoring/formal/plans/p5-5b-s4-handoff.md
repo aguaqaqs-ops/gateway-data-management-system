@@ -31,7 +31,7 @@ Round-2 新增：
 
 ```yaml
 stage: P5-5B-S4-backend-http-v1-re-authorization
-candidate_head: TBD
+candidate_head: 7362c943
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md §5/§6.1/§12
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md §S4/§4

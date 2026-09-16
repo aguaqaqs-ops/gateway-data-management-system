@@ -114,5 +114,6 @@ def get_submit_attempt_route(
         submit_attempt_id=submit_attempt_id,
         workspace_repository=deps.workspace_repository,
         submission_reader=deps.submission_reader,
+        scope_resolution=deps.scope_resolution,
     )
     return submit_attempt_to_response(attempt)

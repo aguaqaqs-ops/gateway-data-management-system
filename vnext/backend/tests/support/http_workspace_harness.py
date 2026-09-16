@@ -325,9 +325,11 @@ class FakeBaselineCanonicalDigestPort:
 @dataclass
 class RecordingMainResolvePort:
     commit_id: str = "commit-main"
+    resolve_calls: int = 0
 
     def resolve_main_expected_commit(self, *, repository_id: str) -> str:
         del repository_id
+        self.resolve_calls += 1
         return self.commit_id
 
 
@@ -841,6 +843,8 @@ class WorkspaceHttpTestEnvironment:
     artifact_store: InMemoryBoundedArtifactStore
     bundle_reader: InMemoryBundleReader
     baseline_head_read: MutableBaselineHeadReadPort
+    scope_resolution: FixedScopeResolutionPort
+    main_resolve: RecordingMainResolvePort | FailingMainResolvePort
     identity: IdentityContext
     now: Callable[[], datetime]
 
@@ -947,6 +951,8 @@ def create_workspace_http_environment(
     app = create_app(workspace_http=deps)
     return WorkspaceHttpTestEnvironment(
         client=TestClient(app, raise_server_exceptions=False),
+        scope_resolution=scope_resolution,
+        main_resolve=main_resolve,
         db_path=db_path,
         repository=repository,
         artifact_store=artifact_store,

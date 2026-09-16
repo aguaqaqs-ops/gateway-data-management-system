@@ -16,6 +16,7 @@ from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
     FakeBaselineCanonicalDigestPort,
     FailingMainResolvePort,
+    RecordingMainResolvePort,
     WorkspaceHttpTestEnvironment,
     create_workspace_http_environment,
     seed_submit_ready_workspace,
@@ -292,6 +293,92 @@ def test_accept_submit_rejects_unavailable_main_resolve(tmp_path: Path) -> None:
     )
     assert response.status_code == 503
     assert response.json()["code"] == "DEPENDENCY_UNAVAILABLE"
+
+
+def test_accept_submit_without_permission_hides_missing_preview(tmp_path: Path) -> None:
+    environment = create_workspace_http_environment(
+        tmp_path,
+        identity=make_identity(permissions=frozenset({"workspace_read", "preview_workspace"})),
+    )
+    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
+    workspace = _seeded_workspace_dict(seed)
+    body = _submit_body(workspace)
+    body["preview_result_id"] = "pr-missing"
+    response = environment.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+        headers=environment.auth_headers(idempotency_key="submit-forbidden-missing"),
+        json=body,
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "SCOPE_FORBIDDEN"
+
+
+def test_accept_submit_rejects_empty_preview_result_id(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
+    env, workspace = seeded_env
+    body = _submit_body(workspace)
+    body["preview_result_id"] = ""
+    response = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+        headers=env.auth_headers(idempotency_key="submit-empty-preview-id"),
+        json=body,
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_accept_submit_rejects_string_workspace_version(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
+    env, workspace = seeded_env
+    body = _submit_body(workspace)
+    body["expected_workspace_version"] = "0"
+    response = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+        headers=env.auth_headers(idempotency_key="submit-string-version"),
+        json=body,
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_accept_submit_prefers_artifact_unavailable_over_main_resolve(tmp_path: Path) -> None:
+    environment = create_workspace_http_environment(tmp_path, main_resolve_port=FailingMainResolvePort())
+    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
+    workspace = _seeded_workspace_dict(seed)
+    upload = seed["upload_revision"]
+    for binding in upload.source_artifacts.values():
+        environment.artifact_store.drop(
+            ArtifactRef(
+                artifact_id=binding.artifact_id,
+                media_type=binding.media_type,
+                size_bytes=binding.size_bytes,
+                raw_sha256=DigestRef(binding.raw_sha256),
+            )
+        )
+    response = environment.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+        headers=environment.auth_headers(idempotency_key="submit-artifact-before-main"),
+        json=_submit_body(workspace),
+    )
+    assert response.status_code == 503
+    assert response.json()["code"] == "ARTIFACT_UNAVAILABLE"
+
+
+def test_accept_submit_resolves_main_once(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
+    env, workspace = seeded_env
+    assert isinstance(env.main_resolve, RecordingMainResolvePort)
+    env.main_resolve.resolve_calls = 0
+    response = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+        headers=env.auth_headers(idempotency_key="submit-main-once"),
+        json=_submit_body(workspace),
+    )
+    assert response.status_code == 202
+    assert env.main_resolve.resolve_calls == 1
 
 
 def test_accept_submit_rejects_admission_limit(tmp_path: Path) -> None:

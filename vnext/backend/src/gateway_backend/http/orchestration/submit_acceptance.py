@@ -11,7 +11,14 @@ from typing import cast
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
-from gateway_backend.application.submission.accept import validate_accept_submit
+from gateway_backend.application.submission.accept import (
+    PERMISSION_UPLOAD_SUBMIT,
+    assert_accept_preflight_post_noop_guards,
+    assert_no_canonical_change_after_baseline,
+    evaluate_new_accept_preflight_local_guards,
+    load_new_accept_preflight_facts,
+    try_accept_submit_replay,
+)
 from gateway_backend.application.submission.accept_transaction import (
     AcceptSubmitPreflight,
     accept_submit_transaction,
@@ -28,6 +35,7 @@ from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import IdentityContext, PreviewResult, UploadRevision
+from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.schemas.submit import SubmitAcceptedResponse, SubmitAttemptStateLiteral
@@ -153,14 +161,53 @@ def accept_submit_operation(
             ) from exc
         raise
 
-    upload_revision = workspace_repository.get_upload_revision(command.upload_revision_id)
-    preview_result = workspace_repository.get_preview_result(command.preview_result_id)
-    if upload_revision is None or preview_result is None:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
+    assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
+
+    is_replay = False
+
+    with unit_of_work_factory() as unit_of_work:
+        resolved = scope_resolution.resolve(command.context)
+        replay_result = try_accept_submit_replay(
+            command=command,
+            workspace_repository=unit_of_work.workspace,
+            submission_repository=unit_of_work.submission,
+            resolved_repository_id=resolved.repository_id,
+            baseline_head=resolved.baseline_head,
         )
+        if replay_result is not None:
+            is_replay = True
+            upload_revision = replay_result.upload_revision
+            preview_result = replay_result.preview_result
+        else:
+            loaded_upload = workspace_repository.get_upload_revision(command.upload_revision_id)
+            loaded_preview = workspace_repository.get_preview_result(command.preview_result_id)
+            if loaded_upload is None or loaded_preview is None:
+                raise ApiError(
+                    code="RESOURCE_NOT_FOUND",
+                    message="resource not found",
+                    status_code=404,
+                )
+            upload_revision = loaded_upload
+            preview_result = loaded_preview
+            preview_ready_closure_digest = derive_preview_ready_closure_digest(preview_result)
+            loaded = load_new_accept_preflight_facts(
+                command=command,
+                workspace_repository=unit_of_work.workspace,
+                occupancy=unit_of_work.submission,
+                resolved_repository_id=resolved.repository_id,
+                baseline_head=resolved.baseline_head,
+                preview_ready_closure_digest=preview_ready_closure_digest,
+            )
+            evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
+            baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
+                repository_id=loaded.workspace.repository_id,
+                baseline_head=resolved.baseline_head,
+            )
+            assert_no_canonical_change_after_baseline(
+                loaded=loaded,
+                baseline_canonical_digest=baseline_canonical_digest,
+            )
+            assert_accept_preflight_post_noop_guards(loaded=loaded)
 
     preflight = load_accept_submit_preflight(
         command=command,
@@ -170,20 +217,7 @@ def accept_submit_operation(
         artifact_ref_lookup=artifact_ref_lookup,
     )
 
-    with unit_of_work_factory() as unit_of_work:
-        validation = validate_accept_submit(
-            command=command,
-            scope_resolution=scope_resolution,
-            workspace_repository=workspace_repository,
-            submission_repository=unit_of_work.submission,
-            occupancy=unit_of_work.submission,
-            baseline_digest=baseline_digest,
-            main_resolve=main_resolve,
-            snapshot_table_artifact_refs=preflight.snapshot_table_artifact_refs,
-            preview_ready_closure_digest=preflight.preview_ready_closure_digest,
-        )
-
-    if not validation.replay:
+    if not is_replay:
         for ref in preflight.protected_artifact_refs:
             verified = artifact_store.verify_readable(
                 ref,

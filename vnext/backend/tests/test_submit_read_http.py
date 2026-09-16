@@ -123,6 +123,22 @@ def test_get_submit_attempt_requires_workspace_read(tmp_path: Path) -> None:
     assert response.json()["code"] == "SCOPE_FORBIDDEN"
 
 
+def test_get_submit_attempt_hides_stale_mapping(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
+    env, workspace = seeded_env
+    accepted = _accept_submit(env, workspace, key="submit-mapping-stale")
+    env.scope_resolution.resolve_calls = 0
+    env.scope_resolution.repository_id = "repo-other"
+    response = env.client.get(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts/{accepted['submit_attempt_id']}",
+        headers=env.auth_headers(),
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+    assert env.scope_resolution.resolve_calls >= 1
+
+
 def test_get_submission_returns_redacted_submission(seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]]) -> None:
     env, workspace = seeded_env
     accepted = _accept_submit(env, workspace, key="submit-submission-read")
@@ -177,3 +193,60 @@ def test_get_submission_returns_redacted_submission(seeded_env: tuple[WorkspaceH
     assert body["canonical_business_digest"] == _PREVIEW_CANONICAL_DIGEST
     assert "repository_artifact_id" not in body
     assert "repository_import_artifact_raw_sha256" not in body
+
+
+def test_get_submission_hides_stale_mapping(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
+    env, workspace = seeded_env
+    accepted = _accept_submit(env, workspace, key="submission-mapping-stale")
+    from gateway_backend.domain.submission.models import Submission, SubmitTargetRef, SubmitUnknownTypePolicy, SubmitVerificationPolicy
+
+    with ControlDbUnitOfWork(env.db_path) as unit_of_work:
+        attempt = unit_of_work.submission.get_submit_attempt(accepted["submit_attempt_id"])
+        assert attempt is not None
+        finalized_attempt = replace(
+            attempt,
+            state=SubmitAttemptState.FINALIZED,
+            submission_id="sub-mapping",
+            finalized_at=TS1,
+        )
+        unit_of_work.submission.cas_update_attempt(
+            finalized_attempt,
+            expected_version=attempt.optimistic_version,
+        )
+        submission = Submission(
+            submission_id="sub-mapping",
+            submit_attempt_id=attempt.submit_attempt_id,
+            workspace_id=attempt.workspace_id,
+            workspace_generation=attempt.workspace_generation,
+            upload_revision_id=attempt.upload_revision_id,
+            preview_result_id=attempt.preview_result_id,
+            repository_id=attempt.repository_id,
+            based_on_baseline_node_id=attempt.business_baseline_node_id,
+            business_baseline_commit_id=attempt.business_baseline_commit_id,
+            repository_commit_id="commit-final",
+            canonical_business_digest=attempt.canonical_business_digest,
+            source_artifact_refs=attempt.source_artifact_refs,
+            canonicalization_manifest_ref="manifest-1",
+            canonicalization_manifest_digest=_SHA_MANIFEST,
+            repository_import_artifact_raw_sha256="sha256:" + "e" * 64,
+            repository_artifact_id="repo-artifact-1",
+            requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+            completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+            requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
+            target_ref=SubmitTargetRef.MAIN,
+            created_by=attempt.created_by,
+            created_at=TS1,
+        )
+        unit_of_work.submission.insert_submission(submission)
+
+    env.scope_resolution.resolve_calls = 0
+    env.scope_resolution.repository_id = "repo-other"
+    response = env.client.get(
+        f"/v1/workspaces/{workspace['workspace_id']}/submissions/sub-mapping",
+        headers=env.auth_headers(),
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+    assert env.scope_resolution.resolve_calls >= 1

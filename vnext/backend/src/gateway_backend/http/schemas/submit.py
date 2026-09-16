@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
+from gateway_backend.http.schemas.constraints import BoundedOpaqueId, NonNegativeIJsonInt
 
 
 class AcceptSubmitOptions(BaseModel):
@@ -17,12 +18,12 @@ class AcceptSubmitOptions(BaseModel):
 class AcceptSubmitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    expected_workspace_version: int = Field(ge=0)
-    preview_result_id: str
-    upload_revision_id: str
-    generation: int = Field(ge=0)
-    expected_baseline_node_id: str
-    expected_baseline_head_version: int = Field(ge=0)
+    expected_workspace_version: NonNegativeIJsonInt
+    preview_result_id: BoundedOpaqueId
+    upload_revision_id: BoundedOpaqueId
+    generation: NonNegativeIJsonInt
+    expected_baseline_node_id: BoundedOpaqueId
+    expected_baseline_head_version: NonNegativeIJsonInt
     options: AcceptSubmitOptions = Field(default_factory=AcceptSubmitOptions)
 
 

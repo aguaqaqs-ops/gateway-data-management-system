@@ -6,7 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from gateway_backend.application.job_definitions import JobDefinitionRegistry
+from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
+from gateway_backend.http.errors import ApiError
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
 from gateway_backend.application.submission.job_payload import (
@@ -27,19 +28,26 @@ router = APIRouter(tags=["operator-recovery"])
 
 def _capability_lookup(registry: JobDefinitionRegistry) -> CapabilityLookup:
     mapping: dict[tuple[str, str], RecoveryCapabilityValue] = {}
-    for step_name in (SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT, SUBMIT_STEP_AWAIT):
-        definition = registry.resolve_runnable(
-            JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=step_name),
-            SUBMIT_JOB_CONTRACT_VERSION,
-        )
-        capability = definition.recovery_capability
-        if capability is RecoveryCapability.PURE_RECOMPUTE:
-            mapped = RecoveryCapabilityValue.PURE_RECOMPUTE
-        elif capability is RecoveryCapability.EXTERNAL_EFFECT:
-            mapped = RecoveryCapabilityValue.EXTERNAL_EFFECT
-        else:
-            mapped = RecoveryCapabilityValue.NON_RETRYABLE
-        mapping[(SUBMIT_JOB_KIND, step_name)] = mapped
+    try:
+        for step_name in (SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT, SUBMIT_STEP_AWAIT):
+            definition = registry.resolve_runnable(
+                JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=step_name),
+                SUBMIT_JOB_CONTRACT_VERSION,
+            )
+            capability = definition.recovery_capability
+            if capability is RecoveryCapability.PURE_RECOMPUTE:
+                mapped = RecoveryCapabilityValue.PURE_RECOMPUTE
+            elif capability is RecoveryCapability.EXTERNAL_EFFECT:
+                mapped = RecoveryCapabilityValue.EXTERNAL_EFFECT
+            else:
+                mapped = RecoveryCapabilityValue.NON_RETRYABLE
+            mapping[(SUBMIT_JOB_KIND, step_name)] = mapped
+    except JobDefinitionLookupError as exc:
+        raise ApiError(
+            code="SERVICE_NOT_READY",
+            message="submit job definition is not registered",
+            status_code=503,
+        ) from exc
     return CapabilityLookup(mapping)
 
 

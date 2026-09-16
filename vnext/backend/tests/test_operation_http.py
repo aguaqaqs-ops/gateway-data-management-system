@@ -182,6 +182,19 @@ def test_get_submit_operation_hides_missing_submit_attempt_ref(env: WorkspaceHtt
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
+def test_get_submit_operation_hides_stale_mapping(env: WorkspaceHttpTestEnvironment) -> None:
+    operation_id, _submit_attempt_id = _accept_submit_operation(env)
+    env.scope_resolution.resolve_calls = 0
+    env.scope_resolution.repository_id = "repo-other"
+    response = env.client.get(
+        f"/v1/operations/{operation_id}",
+        headers=env.auth_headers(),
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+    assert env.scope_resolution.resolve_calls >= 1
+
+
 def test_get_submit_operation_hides_missing_attempt_record(env: WorkspaceHttpTestEnvironment) -> None:
     operation_id, submit_attempt_id = _accept_submit_operation(env)
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:

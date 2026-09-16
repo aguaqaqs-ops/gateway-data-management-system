@@ -315,6 +315,76 @@ def test_operator_recovery_replays_abort_on_terminal_failure(tmp_path: Path) -> 
     assert response.json()["disposition"] == "IDEMPOTENT"
 
 
+def test_operator_recovery_rejects_ijson_version_overflow(tmp_path: Path) -> None:
+    environment = create_workspace_http_environment(tmp_path)
+    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
+    accepted = _accept_submit(environment, _seeded_workspace_dict(seed))
+    step_id = f"{accepted['operation_id']}-step-1"
+    promote_submit_recovery_target(
+        environment.db_path,
+        operation_id=accepted["operation_id"],
+        step_id=step_id,
+    )
+    response = environment.client.post(
+        f"/internal/v1/operations/{accepted['operation_id']}/steps/{step_id}/recovery",
+        headers=environment.internal_auth_headers(),
+        json={
+            "operation_id": accepted["operation_id"],
+            "step_id": step_id,
+            "command": "RETRY_FROM_CHECKPOINT",
+            "expected_operation_optimistic_version": 2**53,
+            "expected_step_optimistic_version": 0,
+            "reason": "operator recovery test",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_operator_recovery_rejects_reason_utf8_budget_overflow(tmp_path: Path) -> None:
+    environment = create_workspace_http_environment(tmp_path)
+    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
+    accepted = _accept_submit(environment, _seeded_workspace_dict(seed))
+    step_id = f"{accepted['operation_id']}-step-1"
+    promote_submit_recovery_target(
+        environment.db_path,
+        operation_id=accepted["operation_id"],
+        step_id=step_id,
+    )
+    response = environment.client.post(
+        f"/internal/v1/operations/{accepted['operation_id']}/steps/{step_id}/recovery",
+        headers=environment.internal_auth_headers(),
+        json={
+            "operation_id": accepted["operation_id"],
+            "step_id": step_id,
+            "command": "RETRY_FROM_CHECKPOINT",
+            "expected_operation_optimistic_version": 0,
+            "expected_step_optimistic_version": 0,
+            "reason": "é" * 4096,
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_operator_recovery_returns_service_not_ready_without_submit_registry(tmp_path: Path) -> None:
+    environment = create_workspace_http_environment(tmp_path, include_submit_registry=False)
+    response = environment.client.post(
+        "/internal/v1/operations/op-missing/steps/step-missing/recovery",
+        headers=environment.internal_auth_headers(),
+        json={
+            "operation_id": "op-missing",
+            "step_id": "step-missing",
+            "command": "RETRY_FROM_CHECKPOINT",
+            "expected_operation_optimistic_version": 0,
+            "expected_step_optimistic_version": 0,
+            "reason": "operator recovery test",
+        },
+    )
+    assert response.status_code == 503
+    assert response.json()["code"] == "SERVICE_NOT_READY"
+
+
 def test_operator_recovery_external_step_accepts_resume(tmp_path: Path) -> None:
     environment = create_workspace_http_environment(tmp_path)
     seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)

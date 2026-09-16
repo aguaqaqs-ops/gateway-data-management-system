@@ -4,18 +4,24 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
+
+from gateway_backend.http.schemas.constraints import (
+    BoundedDiagnosticReason,
+    BoundedOpaqueId,
+    NonNegativeIJsonInt,
+)
 
 
 class OperatorRecoveryRequestBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    operation_id: str
-    step_id: str
+    operation_id: BoundedOpaqueId
+    step_id: BoundedOpaqueId
     command: Literal["RESUME_RECONCILE", "RETRY_FROM_CHECKPOINT", "ABORT_CONFIRMED_FAILURE"]
-    expected_operation_optimistic_version: int = Field(ge=0)
-    expected_step_optimistic_version: int = Field(ge=0)
-    reason: str = Field(min_length=1, max_length=4096)
+    expected_operation_optimistic_version: NonNegativeIJsonInt
+    expected_step_optimistic_version: NonNegativeIJsonInt
+    reason: BoundedDiagnosticReason
 
 
 class OperatorRecoveryResponse(BaseModel):

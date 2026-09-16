@@ -25,9 +25,11 @@ TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 class FixedScopeResolutionPort:
     repository_id: str = "repo-1"
     baseline_head: BaselineHead | None = None
+    resolve_calls: int = 0
 
     def resolve(self, context: IdentityContext) -> ResolvedScope:
         del context
+        self.resolve_calls += 1
         if self.baseline_head is None:
             from gateway_backend.domain.workspace.errors import ScopeResolutionError
 

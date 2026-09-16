@@ -37,5 +37,6 @@ def get_submission_route(
         submission_id=submission_id,
         workspace_repository=deps.workspace_repository,
         submission_reader=deps.submission_reader,
+        scope_resolution=deps.scope_resolution,
     )
     return submission_to_response(submission)

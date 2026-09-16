@@ -50,6 +50,19 @@ baseline_changed_paths_8618b21a:
   - vnext/backend/tests/test_submit_artifact_protection.py
   - vnext/backend/tests/test_artifact_boundary.py
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-handoff.md
+remediation_changed_paths_8618b21a_to_33c14a92:
+  - vnext/backend/src/gateway_backend/application/submission/contracts.py
+  - vnext/backend/src/gateway_backend/application/submission/import_builder.py
+  - vnext/backend/src/gateway_backend/capabilities/mutation_planning/__init__.py
+  - vnext/backend/src/gateway_backend/capabilities/storage_projection/__init__.py
+  - vnext/backend/src/gateway_backend/capabilities/storage_projection/import_replay.py
+  - vnext/backend/src/gateway_backend/capabilities/storage_projection/project.py
+  - vnext/backend/src/gateway_backend/repository_import_artifact.py
+  - vnext/backend/tests/test_storage_projection_import_replay.py
+  - vnext/backend/tests/test_submit_artifact_protection.py
+  - vnext/backend/tests/test_submit_import_builder.py
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-handoff.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-handoff.md
 remediation_changed_paths_33c14a92_to_d093caf9:
   - vnext/backend/src/gateway_backend/application/submission/contracts.py
   - vnext/backend/src/gateway_backend/application/submission/import_builder.py
@@ -72,26 +85,56 @@ remediation_changed_paths_33c14a92_to_d093caf9:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-5.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-independent-review.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-round2-handoff.md
+remediation_changed_paths_union_8618b21a_to_d093caf9:
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-handoff.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-3.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-4.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-5.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-handoff.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-independent-review.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-round2-handoff.md
+  - vnext/backend/src/gateway_backend/application/submission/contracts.py
+  - vnext/backend/src/gateway_backend/application/submission/import_builder.py
+  - vnext/backend/src/gateway_backend/capabilities/mutation_planning/__init__.py
+  - vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py
+  - vnext/backend/src/gateway_backend/capabilities/mutation_planning/import_replay.py
+  - vnext/backend/src/gateway_backend/capabilities/storage_projection/__init__.py
+  - vnext/backend/src/gateway_backend/capabilities/storage_projection/contracts.py
+  - vnext/backend/src/gateway_backend/capabilities/storage_projection/import_replay.py
+  - vnext/backend/src/gateway_backend/capabilities/storage_projection/project.py
+  - vnext/backend/src/gateway_backend/repository_import_artifact.py
+  - vnext/backend/tests/support/mutation_contracts.py
+  - vnext/backend/tests/support/storage_projection.py
+  - vnext/backend/tests/test_dolt_renderer.py
+  - vnext/backend/tests/test_mutation_planning_import_replay.py
+  - vnext/backend/tests/test_storage_projection_import_replay.py
+  - vnext/backend/tests/test_storage_projection_integrity.py
+  - vnext/backend/tests/test_submit_artifact_protection.py
+  - vnext/backend/tests/test_submit_import_builder.py
 uv_lock_in_diff: no
 ```
 
 ## Invariants delivered
 
 ```yaml
-invariants_delivered:
+invariants_delivered_final_d093caf9:
   - REBUILD_ALWAYS-only prepare import publication via SubmitImportPublicationPort
   - manifest-first then package-second publication order (SubmitImportPublicationAdapter)
-  - one durable package identity: checkpoint reuse read-back preserves BackendArtifactRef + raw SHA
+  - one durable package identity: checkpoint reuse read-back preserves BackendArtifactRef + raw SHA + semantic manifest binding
   - pre-checkpoint orphan bytes do not change published manifest digest or package raw SHA
   - BackendArtifactRef / RepositoryArtifactRef nominal conversion boundary in artifacts/nominal_refs.py
   - import_builder.py depends only on ports + artifacts + domain (no capabilities import)
-  - pin transfer preview→attempt and terminal promote/clear helpers (application layer)
+  - pin_prepare_import_artifacts extends submit-attempt protection with manifest/package refs (S3-only pin helper)
+  - repository_import_artifact orchestrates public storage_projection + mutation_planning APIs (remediation)
   - no Repository Service wire calls in S3 scope
+  - preview→attempt transfer and terminal promote/clear remain S2 transaction owners; S5 wiring deferred
 unique_test_owners:
   - tests/test_submit_import_builder.py
-  - tests/test_submit_artifact_protection.py
+  - tests/test_submit_artifact_protection.py  # test_pin_prepare_import_artifacts_extends_attempt_protection
   - tests/test_artifact_boundary.py  # nominal ref negative matrix (reopen cases retained)
   - tests/test_repository_import_artifact_package.py  # existing formal v1 bytes/shape owner
+  - tests/test_mutation_planning_import_replay.py  # mutation replay owner (remediation)
+  - tests/test_storage_projection_import_replay.py  # schema replay owner (remediation)
 ```
 
 ## Evidence matrix
@@ -119,21 +162,30 @@ unique_test_owners:
 | `test_nominal_ref_cross_type_substitution_is_rejected` | Parameterized cross-type substitution faults rejected |
 | `test_artifact_boundary.py` reopen cases | Existing canonical row hash reopen owner retained (P3 history) |
 
-### Pin transfer / release
+### Prepare-import pin helper (S3 owner)
 
 | Owner test | Assertion |
 | --- | --- |
-| `test_transfer_preview_protection_to_attempt_moves_exact_refs` | Preview pins cleared; submit-attempt holds exact snapshot/closure refs |
-| `test_accept_transaction_transfers_preview_pins_to_attempt` | T1 accept harness: preview pins move to attempt |
-| `test_finalize_promotes_source_and_manifest_pins` | T3 finalize: attempt snapshot pins cleared; source-package + canonicalization-manifest intents |
-| `test_abort_clears_attempt_pins_without_promotion` | Abort clears attempt pins; no promote |
+| `test_pin_prepare_import_artifacts_extends_attempt_protection` | `pin_prepare_import_artifacts` adds manifest/package refs to submit-attempt protection without disturbing existing snapshot pins |
+
+Preview→attempt transfer and terminal promote/clear are owned by S2 transaction tests (`test_submit_transactions.py`); not re-proven in S3 scope.
 
 ## Explicit non-deliverables
 
+### Historical baseline @ `8618b21a` only
+
+- No `capabilities/**`, `test_architecture.py`, lockfile, or Repository package changes **at baseline delivery**.
+
+### Final candidate @ `d093caf9` (still out of scope)
+
 - **No generic refcount/GC** or second canonical owner introduced.
-- `accept_transaction.py` / `finalize_transaction.py` **not modified**; S5 wires S3 helpers.
+- `accept_transaction.py` / `finalize_transaction.py` **not modified**; S5 wires prepare-import publication into transactions.
 - No `prepare_import` JobDefinition handler, HTTP routes, or Repository upload-import wire.
-- No `capabilities/**`, `test_architecture.py`, lockfile, or Repository package changes.
+- No lockfile or Repository package changes.
+
+### Final remediation scope delivered @ `d093caf9`
+
+Remediation **did** modify `storage_projection/**` and `mutation_planning/**` (import replay split, public DML composition, reader lifecycle, semantic checkpoint binding). Authority: [p5-5b-s3-remediation-round2-handoff.md](p5-5b-s3-remediation-round2-handoff.md).
 
 ## Verification record
 

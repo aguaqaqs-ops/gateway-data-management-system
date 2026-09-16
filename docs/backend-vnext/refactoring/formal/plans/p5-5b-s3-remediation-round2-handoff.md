@@ -17,6 +17,7 @@ input_review:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-4.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-5.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-6.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-7.md
 prior_remediation:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-handoff.md
 implementation_authority_unchanged: true
@@ -34,6 +35,7 @@ implementation_authority_unchanged: true
 | S3-J1 / P2 | `render_import_mutation_dml` accepts `repository_base_digest`; consumer passes `build_input.repository_base_digest` to `MutationRepositoryBase`. `test_repository_base_digest_reaches_mutation_planner` captures planner request. |
 | S3-J2 / P2 | `_dolt_renderer` renamed to `_repository_replay_renderer`; public `render_import_mutation_dml` exported from `mutation_planning`. Consumer no longer imports `_dolt_renderer` or `storage_projection._digest`; manifest verify uses `open_canonicalization_manifest().manifest_digest`. Owner tests import public API only. |
 | S3-J3 / P2 | Handoff binds final candidate/remediation SHAs; focused command lists all 10 owner files (131 passed); baseline evidence marked historical; five-package static provenance recorded. |
+| S3-J4 / P2 | Main handoff records round-1 (`8618b21a..33c14a92`) + round-2/3 remediation paths and union `8618b21a..d093caf9`; final invariants/non-deliverables distinguish baseline vs remediation capability scope; S3 protection owner is `test_pin_prepare_import_artifacts_extends_attempt_protection` only. |
 
 ### Corrected prior claims
 

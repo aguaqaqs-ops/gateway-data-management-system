@@ -22,6 +22,7 @@ from gateway_backend.application.job_definitions import (
 from gateway_backend.application.preview_jobs import preview_job_definitions
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
+from gateway_backend.application.submission.ports import BaselineCanonicalDigestPort
 from gateway_backend.application.submission.errors import AbortProofNotSatisfied
 from gateway_backend.application.submission.job_payload import (
     SUBMIT_JOB_KIND,
@@ -319,6 +320,17 @@ class FakeBaselineCanonicalDigestPort:
 
     def get_baseline_canonical_digest(self, *, repository_id: str, baseline_head: object) -> str:
         del repository_id, baseline_head
+        return self.digest
+
+
+@dataclass
+class RecordingBaselineCanonicalDigestPort:
+    digest: str = BASELINE_CANONICAL_DIGEST
+    digest_calls: int = 0
+
+    def get_baseline_canonical_digest(self, *, repository_id: str, baseline_head: object) -> str:
+        del repository_id, baseline_head
+        self.digest_calls += 1
         return self.digest
 
 
@@ -868,7 +880,7 @@ def create_workspace_http_environment(
     include_submit_registry: bool = True,
     extra_sessions: dict[str, IdentityContext] | None = None,
     now: Callable[[], datetime] | None = None,
-    baseline_canonical_digest: FakeBaselineCanonicalDigestPort | None = None,
+    baseline_canonical_digest: BaselineCanonicalDigestPort | None = None,
     main_resolve_port: RecordingMainResolvePort | FailingMainResolvePort | None = None,
 ) -> WorkspaceHttpTestEnvironment:
     db_path = tmp_path / "control.db"

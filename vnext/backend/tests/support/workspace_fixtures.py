@@ -26,10 +26,15 @@ class FixedScopeResolutionPort:
     repository_id: str = "repo-1"
     baseline_head: BaselineHead | None = None
     resolve_calls: int = 0
+    simulate_resolution_error: str | None = None
 
     def resolve(self, context: IdentityContext) -> ResolvedScope:
         del context
         self.resolve_calls += 1
+        if self.simulate_resolution_error is not None:
+            from gateway_backend.domain.workspace.errors import ScopeResolutionError
+
+            raise ScopeResolutionError(self.simulate_resolution_error)
         if self.baseline_head is None:
             from gateway_backend.domain.workspace.errors import ScopeResolutionError
 

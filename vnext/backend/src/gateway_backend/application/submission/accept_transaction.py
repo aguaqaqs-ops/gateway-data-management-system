@@ -142,10 +142,13 @@ def accept_submit_transaction(
     if not is_replay:
         evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
 
-        baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
-            repository_id=repository_id,
-            baseline_head=resolved.baseline_head,
-        )
+        if preflight.baseline_canonical_digest is not None:
+            baseline_canonical_digest = preflight.baseline_canonical_digest
+        else:
+            baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
+                repository_id=repository_id,
+                baseline_head=resolved.baseline_head,
+            )
         assert_no_canonical_change_after_baseline(
             loaded=loaded,
             baseline_canonical_digest=baseline_canonical_digest,

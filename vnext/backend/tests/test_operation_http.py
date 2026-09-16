@@ -97,6 +97,22 @@ def test_get_operation_hides_cross_scope_workspace(tmp_path: Path) -> None:
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
+def test_get_operation_without_read_permission_hides_missing_id(tmp_path: Path) -> None:
+    limited_identity = make_identity(
+        permissions=frozenset({"upload_submit_workspace", "preview_workspace"}),
+    )
+    env = create_workspace_http_environment(
+        tmp_path,
+        extra_sessions={TEST_BEARER_LIMITED: limited_identity},
+    )
+    response = env.client.get(
+        "/v1/operations/op-missing",
+        headers={"Authorization": f"Bearer {TEST_BEARER_LIMITED}"},
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "SCOPE_FORBIDDEN"
+
+
 def test_get_operation_requires_workspace_read_permission(tmp_path: Path) -> None:
     limited_identity = make_identity(
         permissions=frozenset({"upload_submit_workspace", "preview_workspace"}),

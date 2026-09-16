@@ -16,6 +16,7 @@ from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
     FakeBaselineCanonicalDigestPort,
     FailingMainResolvePort,
+    RecordingBaselineCanonicalDigestPort,
     RecordingMainResolvePort,
     WorkspaceHttpTestEnvironment,
     create_workspace_http_environment,
@@ -364,6 +365,39 @@ def test_accept_submit_prefers_artifact_unavailable_over_main_resolve(tmp_path: 
     )
     assert response.status_code == 503
     assert response.json()["code"] == "ARTIFACT_UNAVAILABLE"
+
+
+def test_accept_submit_resolves_baseline_digest_once(tmp_path: Path) -> None:
+    baseline_port = RecordingBaselineCanonicalDigestPort()
+    environment = create_workspace_http_environment(
+        tmp_path,
+        baseline_canonical_digest=baseline_port,
+    )
+    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
+    workspace = _seeded_workspace_dict(seed)
+    response = environment.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+        headers=environment.auth_headers(idempotency_key="submit-baseline-once"),
+        json=_submit_body(workspace),
+    )
+    assert response.status_code == 202
+    assert baseline_port.digest_calls == 1
+
+
+def test_accept_submit_replays_without_current_closure_metadata(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
+    env, workspace = seeded_env
+    url = f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts"
+    headers = env.auth_headers(idempotency_key="submit-replay-frozen")
+    body = _submit_body(workspace)
+    first = env.client.post(url, headers=headers, json=body)
+    assert first.status_code == 202
+    closure_ref = env.artifact_store._registered_refs["closure-1"]
+    env.artifact_store.drop(closure_ref)
+    second = env.client.post(url, headers=headers, json=body)
+    assert second.status_code == 202
+    assert second.json()["submit_attempt_id"] == first.json()["submit_attempt_id"]
 
 
 def test_accept_submit_resolves_main_once(

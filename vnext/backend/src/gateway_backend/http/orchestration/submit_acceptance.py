@@ -13,6 +13,7 @@ from gateway_shared_kernel import DigestRef
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
+    AcceptPreflightLoadedFacts,
     assert_accept_preflight_post_noop_guards,
     assert_no_canonical_change_after_baseline,
     evaluate_new_accept_preflight_local_guards,
@@ -34,7 +35,13 @@ from gateway_backend.application.submission.ports import (
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.domain.workspace.models import IdentityContext, PreviewResult, UploadRevision
+from gateway_backend.domain.submission.models import SubmitAttempt
+from gateway_backend.domain.workspace.models import (
+    BaselineHead,
+    IdentityContext,
+    PreviewResult,
+    UploadRevision,
+)
 from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
 from gateway_backend.http.errors import ApiError
@@ -42,6 +49,12 @@ from gateway_backend.http.schemas.submit import SubmitAcceptedResponse, SubmitAt
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
 PREVIEW_READY_CLOSURE_DIGEST_PREFIX = "v1:"
+
+
+def _submit_uow_factory(
+    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+) -> SubmitControlUnitOfWorkFactory:
+    return cast(SubmitControlUnitOfWorkFactory, unit_of_work_factory)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +71,16 @@ def derive_snapshot_table_set_digest(snapshot_table_artifact_refs: tuple[str, ..
     joined = ",".join(sorted(snapshot_table_artifact_refs))
     digest = hashlib.sha256(joined.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"
+
+
+def build_replay_preflight_from_attempt(attempt: SubmitAttempt) -> AcceptSubmitPreflight:
+    return AcceptSubmitPreflight(
+        snapshot_table_artifact_refs=tuple(attempt.snapshot_table_artifact_refs),
+        preview_ready_closure_digest=attempt.preview_ready_closure_digest,
+        preview_operation_id="",
+        protected_artifact_refs=(),
+        snapshot_table_set_digest=attempt.snapshot_digest,
+    )
 
 
 def build_accept_submit_command(
@@ -94,9 +117,10 @@ def load_accept_submit_preflight(
     preview_result: PreviewResult,
     upload_revision: UploadRevision,
     artifact_ref_lookup: ArtifactRefLookupPort,
+    baseline_canonical_digest: str | None = None,
 ) -> AcceptSubmitPreflight:
     preview_operation_id = preview_result.operation_id
-    with unit_of_work_factory() as unit_of_work:
+    with _submit_uow_factory(unit_of_work_factory)(read_only=True) as unit_of_work:
         preview_refs = unit_of_work.list_artifact_protection_for_owner(
             owner_kind="current-preview",
             owner_id=command.workspace_id,
@@ -134,6 +158,7 @@ def load_accept_submit_preflight(
         preview_operation_id=preview_operation_id,
         protected_artifact_refs=protected_artifact_refs,
         snapshot_table_set_digest=derive_snapshot_table_set_digest(snapshot_table_artifact_refs),
+        baseline_canonical_digest=baseline_canonical_digest,
     )
 
 
@@ -164,8 +189,11 @@ def accept_submit_operation(
     assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
 
     is_replay = False
+    preflight: AcceptSubmitPreflight
+    new_key_loaded: AcceptPreflightLoadedFacts | None = None
+    resolved_baseline_head: BaselineHead | None = None
 
-    with unit_of_work_factory() as unit_of_work:
+    with _submit_uow_factory(unit_of_work_factory)(read_only=True) as unit_of_work:
         resolved = scope_resolution.resolve(command.context)
         replay_result = try_accept_submit_replay(
             command=command,
@@ -176,8 +204,10 @@ def accept_submit_operation(
         )
         if replay_result is not None:
             is_replay = True
-            upload_revision = replay_result.upload_revision
-            preview_result = replay_result.preview_result
+            prior_attempt = replay_result.prior_attempt
+            if prior_attempt is None:
+                raise PreviewBindingConflict("submit replay validation failed")
+            preflight = build_replay_preflight_from_attempt(prior_attempt)
         else:
             loaded_upload = workspace_repository.get_upload_revision(command.upload_revision_id)
             loaded_preview = workspace_repository.get_preview_result(command.preview_result_id)
@@ -190,7 +220,7 @@ def accept_submit_operation(
             upload_revision = loaded_upload
             preview_result = loaded_preview
             preview_ready_closure_digest = derive_preview_ready_closure_digest(preview_result)
-            loaded = load_new_accept_preflight_facts(
+            new_key_loaded = load_new_accept_preflight_facts(
                 command=command,
                 workspace_repository=unit_of_work.workspace,
                 occupancy=unit_of_work.submission,
@@ -198,26 +228,33 @@ def accept_submit_operation(
                 baseline_head=resolved.baseline_head,
                 preview_ready_closure_digest=preview_ready_closure_digest,
             )
-            evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
-            baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
-                repository_id=loaded.workspace.repository_id,
-                baseline_head=resolved.baseline_head,
-            )
-            assert_no_canonical_change_after_baseline(
-                loaded=loaded,
-                baseline_canonical_digest=baseline_canonical_digest,
-            )
-            assert_accept_preflight_post_noop_guards(loaded=loaded)
+            evaluate_new_accept_preflight_local_guards(command=command, loaded=new_key_loaded)
+            assert_accept_preflight_post_noop_guards(loaded=new_key_loaded)
+            resolved_baseline_head = resolved.baseline_head
 
-    preflight = load_accept_submit_preflight(
-        command=command,
-        unit_of_work_factory=unit_of_work_factory,
-        preview_result=preview_result,
-        upload_revision=upload_revision,
-        artifact_ref_lookup=artifact_ref_lookup,
-    )
-
-    if not is_replay:
+    if is_replay:
+        pass
+    else:
+        if new_key_loaded is None or resolved_baseline_head is None:
+            raise PreviewBindingConflict("accept preflight is missing loaded facts")
+        baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
+            repository_id=new_key_loaded.workspace.repository_id,
+            baseline_head=resolved_baseline_head,
+        )
+        assert_no_canonical_change_after_baseline(
+            loaded=new_key_loaded,
+            baseline_canonical_digest=baseline_canonical_digest,
+        )
+        upload_revision = new_key_loaded.upload_revision
+        preview_result = new_key_loaded.preview_result
+        preflight = load_accept_submit_preflight(
+            command=command,
+            unit_of_work_factory=unit_of_work_factory,
+            preview_result=preview_result,
+            upload_revision=upload_revision,
+            artifact_ref_lookup=artifact_ref_lookup,
+            baseline_canonical_digest=baseline_canonical_digest,
+        )
         for ref in preflight.protected_artifact_refs:
             verified = artifact_store.verify_readable(
                 ref,
@@ -242,7 +279,7 @@ def accept_submit_operation(
         now=now,
     )
 
-    with unit_of_work_factory() as unit_of_work:
+    with _submit_uow_factory(unit_of_work_factory)(read_only=True) as unit_of_work:
         attempt = unit_of_work.submission.get_submit_attempt(transaction_result.submit_attempt_id)
     if attempt is None:
         raise ApiError(

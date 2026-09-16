@@ -10,7 +10,10 @@ from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, get_workspace_http
 from gateway_backend.http.mappers import operation_to_response
-from gateway_backend.http.orchestration.operation_scope import authorize_operation_read
+from gateway_backend.http.orchestration.operation_scope import (
+    assert_workspace_read_permission,
+    authorize_operation_read,
+)
 from gateway_backend.http.schemas.operation import OperationResponse
 
 router = APIRouter(tags=["operations"])
@@ -31,6 +34,7 @@ def get_operation_route(
     deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> OperationResponse:
+    assert_workspace_read_permission(context)
     operation = deps.operation_reader.get_operation(operation_id)
     authorize_operation_read(
         context=context,
@@ -38,5 +42,6 @@ def get_operation_route(
         workspace_repository=deps.workspace_repository,
         submission_reader=deps.submission_reader,
         scope_resolution=deps.scope_resolution,
+        permission_checked=True,
     )
     return operation_to_response(operation)

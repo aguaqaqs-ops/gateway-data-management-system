@@ -14,6 +14,17 @@ from gateway_backend.operations.contracts import OperationRecord
 
 PERMISSION_WORKSPACE_READ = "workspace_read"
 
+_MAPPING_NOT_FOUND_REASONS = frozenset(
+    {
+        "provisioned mapping is missing",
+        "provisioned mapping is disabled",
+    }
+)
+
+
+def assert_workspace_read_permission(context: IdentityContext) -> None:
+    assert_permission(context, PERMISSION_WORKSPACE_READ)
+
 
 def workspace_id_from_operation(operation: OperationRecord) -> str | None:
     for ref in operation.business_refs:
@@ -29,7 +40,22 @@ def submit_attempt_id_from_operation(operation: OperationRecord) -> str | None:
     return None
 
 
-def _authorize_workspace_read(
+def _map_scope_resolution_error(exc: ScopeResolutionError) -> ApiError:
+    if exc.reason in _MAPPING_NOT_FOUND_REASONS:
+        return ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="resource not found",
+            status_code=404,
+        )
+    return ApiError(
+        code="DEPENDENCY_UNAVAILABLE",
+        message=str(exc),
+        status_code=503,
+        details={"reason": exc.reason},
+    )
+
+
+def _authorize_workspace_scope(
     *,
     context: IdentityContext,
     workspace_id: str,
@@ -37,7 +63,6 @@ def _authorize_workspace_read(
     scope_resolution: ScopeResolutionPort,
     frozen_repository_id: str | None = None,
 ) -> Workspace:
-    assert_permission(context, PERMISSION_WORKSPACE_READ)
     workspace = workspace_repository.get_workspace(workspace_id)
     if workspace is None:
         raise ApiError(
@@ -74,12 +99,7 @@ def _authorize_current_mapping(
     try:
         resolved = scope_resolution.resolve(context)
     except ScopeResolutionError as exc:
-        raise ApiError(
-            code="DEPENDENCY_UNAVAILABLE",
-            message=str(exc),
-            status_code=503,
-            details={"reason": exc.reason},
-        ) from exc
+        raise _map_scope_resolution_error(exc) from exc
     if resolved.repository_id != workspace.repository_id:
         raise ApiError(
             code="RESOURCE_NOT_FOUND",
@@ -102,7 +122,10 @@ def authorize_operation_read(
     workspace_repository: WorkspaceRepository,
     submission_reader: SubmissionReaderPort,
     scope_resolution: ScopeResolutionPort,
+    permission_checked: bool = False,
 ) -> Workspace:
+    if not permission_checked:
+        assert_workspace_read_permission(context)
     workspace_id = workspace_id_from_operation(operation)
     if workspace_id is None:
         raise ApiError(
@@ -133,14 +156,13 @@ def authorize_operation_read(
                 status_code=404,
             )
         frozen_repository_id = attempt.repository_id
-    workspace = _authorize_workspace_read(
+    return _authorize_workspace_scope(
         context=context,
         workspace_id=workspace_id,
         workspace_repository=workspace_repository,
         scope_resolution=scope_resolution,
         frozen_repository_id=frozen_repository_id,
     )
-    return workspace
 
 
 def read_submit_attempt(
@@ -152,6 +174,7 @@ def read_submit_attempt(
     submission_reader: SubmissionReaderPort,
     scope_resolution: ScopeResolutionPort,
 ) -> SubmitAttempt:
+    assert_workspace_read_permission(context)
     attempt = submission_reader.get_submit_attempt(submit_attempt_id)
     if attempt is None or attempt.workspace_id != workspace_id:
         raise ApiError(
@@ -159,7 +182,7 @@ def read_submit_attempt(
             message="resource not found",
             status_code=404,
         )
-    _authorize_workspace_read(
+    _authorize_workspace_scope(
         context=context,
         workspace_id=workspace_id,
         workspace_repository=workspace_repository,
@@ -178,6 +201,7 @@ def read_submission(
     submission_reader: SubmissionReaderPort,
     scope_resolution: ScopeResolutionPort,
 ) -> Submission:
+    assert_workspace_read_permission(context)
     submission = submission_reader.get_submission(submission_id)
     if submission is None or submission.workspace_id != workspace_id:
         raise ApiError(
@@ -185,7 +209,7 @@ def read_submission(
             message="resource not found",
             status_code=404,
         )
-    _authorize_workspace_read(
+    _authorize_workspace_scope(
         context=context,
         workspace_id=workspace_id,
         workspace_repository=workspace_repository,

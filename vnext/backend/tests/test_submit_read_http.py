@@ -107,6 +107,21 @@ def test_get_submit_attempt_hides_cross_scope(tmp_path: Path) -> None:
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
+def test_get_submit_attempt_without_read_permission_hides_missing_id(tmp_path: Path) -> None:
+    environment = create_workspace_http_environment(
+        tmp_path,
+        identity=make_identity(permissions=frozenset({"upload_submit_workspace"})),
+    )
+    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
+    workspace = _seeded_workspace_dict(seed)
+    response = environment.client.get(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts/sa-missing",
+        headers=environment.auth_headers(),
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "SCOPE_FORBIDDEN"
+
+
 def test_get_submit_attempt_requires_workspace_read(tmp_path: Path) -> None:
     environment = create_workspace_http_environment(
         tmp_path,
@@ -121,6 +136,20 @@ def test_get_submit_attempt_requires_workspace_read(tmp_path: Path) -> None:
     )
     assert response.status_code == 403
     assert response.json()["code"] == "SCOPE_FORBIDDEN"
+
+
+def test_get_submit_attempt_hides_missing_mapping(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
+    env, workspace = seeded_env
+    accepted = _accept_submit(env, workspace, key="submit-mapping-missing")
+    env.scope_resolution.simulate_resolution_error = "provisioned mapping is missing"
+    response = env.client.get(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts/{accepted['submit_attempt_id']}",
+        headers=env.auth_headers(),
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
 def test_get_submit_attempt_hides_stale_mapping(

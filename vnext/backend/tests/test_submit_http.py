@@ -10,6 +10,7 @@ import pytest
 
 from gateway_shared_kernel import DigestRef
 
+from gateway_backend.application.submission.contracts import preview_canonical_business_digest
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.http.dependencies import ClosableAdmissionGate
 from tests.support.http_workspace_harness import (
@@ -258,6 +259,38 @@ def test_accept_submit_rejects_workspace_occupancy(
     )
     assert second.status_code == 409
     assert second.json()["code"] == "SUBMIT_OCCUPANCY_CONFLICT"
+
+
+def test_accept_submit_prefers_no_canonical_change_over_occupancy_conflict(tmp_path: Path) -> None:
+    baseline_port = FakeBaselineCanonicalDigestPort()
+    environment = create_workspace_http_environment(
+        tmp_path,
+        baseline_canonical_digest=baseline_port,
+    )
+    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
+    workspace = _seeded_workspace_dict(seed)
+    url = f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts"
+    first = environment.client.post(
+        url,
+        headers=environment.auth_headers(idempotency_key="submit-no-change-first"),
+        json=_submit_body(workspace),
+    )
+    assert first.status_code == 202
+    baseline_port.digest = preview_canonical_business_digest(seed["preview_result"])
+    with ControlDbUnitOfWork(environment.db_path) as unit_of_work:
+        refreshed_workspace = unit_of_work.workspace.get_workspace(workspace["workspace_id"])
+        assert refreshed_workspace is not None
+        workspace = {
+            **workspace,
+            "optimistic_version": refreshed_workspace.optimistic_version,
+        }
+    second = environment.client.post(
+        url,
+        headers=environment.auth_headers(idempotency_key="submit-no-change-second"),
+        json=_submit_body(workspace),
+    )
+    assert second.status_code == 409
+    assert second.json()["code"] == "NO_CANONICAL_CHANGE"
 
 
 def test_accept_submit_rejects_unreadable_artifacts(tmp_path: Path) -> None:

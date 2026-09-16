@@ -1,6 +1,6 @@
 # P5-5B-S4 Backend HTTP v1 and Re-authorization Handoff
 
-状态：**S4 round-3 remediation complete — pending independent re-review**
+状态：**S4 round-3 re-review remediation complete — pending independent re-review**
 
 日期：2026-09-16
 
@@ -14,7 +14,7 @@ p5_5b_design: accepted
 p5_5b_implementation_authorized: yes
 s4_entry: authorized
 s4_scope: backend HTTP adapter only; fake/S2 local UoW; no Repository effect
-s4_independent_review: changes_required (round-3 remediated)
+s4_independent_review: changes_required (round-3 re-review remediated)
 ```
 
 ## Scope amendment
@@ -35,7 +35,7 @@ Round-3 最小 application 例外（用户授权，消除 baseline 双调用）�
 
 ```yaml
 stage: P5-5B-S4-backend-http-v1-re-authorization
-candidate_head: b3b7e45719804b2f239244639335590504962e97
+candidate_head: TBD
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md §5/§6.1/§12
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md §S4/§4
@@ -105,6 +105,12 @@ docker_rebuild_required: no
 | F3 读路径 permission 在对象加载之后 | `assert_workspace_read_permission` 先于 GET；消除 403/404 oracle |
 | F4 mapping missing → 503 | `provisioned mapping is missing/disabled` → `404 RESOURCE_NOT_FOUND` |
 
+### Round 3 re-review (independent review)
+
+| Finding | Fix |
+|---------|-----|
+| R3-RR-F1 NO_CANONICAL_CHANGE 被 occupancy 提前遮蔽 | `post_noop_guards` 移到 baseline I/O 与 `assert_no_canonical_change_after_baseline` 之后 |
+
 ## Deliverables
 
 | 路由 | 行为 | 权限 |
@@ -145,7 +151,7 @@ docker_rebuild_required: no
 
 | 文件 | 覆盖 |
 |------|------|
-| `tests/test_submit_http.py` | POST 202、baseline 单次、replay 冻结 facts、permission-before-read、422、503/409 族 |
+| `tests/test_submit_http.py` | POST 202、baseline 单次、replay 冻结 facts、NO_CANONICAL_CHANGE 优先于 occupancy、permission-before-read、422、503/409 族 |
 | `tests/test_submit_read_http.py` | GET 200、permission-first 403 oracle、mapping missing 404、mapping 漂移 404 |
 | `tests/test_operator_recovery_http.py` | round-2 recovery 矩阵 |
 | `tests/test_operation_http.py` | Operation GET、permission-first 403 oracle、mapping 漂移 404 |
@@ -163,7 +169,7 @@ uv run pytest -q -m unit \
   tests/test_operation_http.py \
   tests/test_http_auth_matrix.py \
   tests/test_http_openapi.py
-# 61 passed
+# 62 passed
 
 uv run pytest -q -m unit tests/test_submit_transactions.py -k "baseline or canonical"
 # 3 passed
@@ -192,6 +198,6 @@ uv run ruff check src/gateway_backend/http \
 ## next_step
 
 ```yaml
-next_step: S4 independent re-review (round 3)
+next_step: S4 independent re-review (round 3 re-review)
 s5_entry_gate: S4 review pass + explicit S5 authorization
 ```

@@ -229,7 +229,6 @@ def accept_submit_operation(
                 preview_ready_closure_digest=preview_ready_closure_digest,
             )
             evaluate_new_accept_preflight_local_guards(command=command, loaded=new_key_loaded)
-            assert_accept_preflight_post_noop_guards(loaded=new_key_loaded)
             resolved_baseline_head = resolved.baseline_head
 
     if is_replay:
@@ -245,6 +244,7 @@ def accept_submit_operation(
             loaded=new_key_loaded,
             baseline_canonical_digest=baseline_canonical_digest,
         )
+        assert_accept_preflight_post_noop_guards(loaded=new_key_loaded)
         upload_revision = new_key_loaded.upload_revision
         preview_result = new_key_loaded.preview_result
         preflight = load_accept_submit_preflight(

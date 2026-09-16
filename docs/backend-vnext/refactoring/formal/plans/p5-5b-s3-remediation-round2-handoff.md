@@ -1,6 +1,6 @@
 # P5-5B-S3 Remediation Round 2 Handoff (Review-3)
 
-状态：**remediation complete — pending review-5 light re-confirmation**
+状态：**remediation complete — S3 final candidate `d093caf9`**
 
 日期：2026-09-16
 
@@ -10,11 +10,13 @@ Owner：P5-5B Delivery
 
 ```yaml
 baseline_commit: 33c14a92
-remediation_commit: pending
+remediation_commit: 2881e747
+candidate_head: d093caf919d36631e99e832b7227fe5a4ec5ac9f
 input_review:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-3.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-4.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-5.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-6.md
 prior_remediation:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-handoff.md
 implementation_authority_unchanged: true
@@ -31,6 +33,7 @@ implementation_authority_unchanged: true
 | S3-H5 / P2 | `test_manifest_digest_is_independent_of_table_input_order` second `project_storage` call uses `reader.reopen()` for swapped table order; `FakeSnapshotTableReader` closed contract unchanged. Full unit suite green. |
 | S3-J1 / P2 | `render_import_mutation_dml` accepts `repository_base_digest`; consumer passes `build_input.repository_base_digest` to `MutationRepositoryBase`. `test_repository_base_digest_reaches_mutation_planner` captures planner request. |
 | S3-J2 / P2 | `_dolt_renderer` renamed to `_repository_replay_renderer`; public `render_import_mutation_dml` exported from `mutation_planning`. Consumer no longer imports `_dolt_renderer` or `storage_projection._digest`; manifest verify uses `open_canonicalization_manifest().manifest_digest`. Owner tests import public API only. |
+| S3-J3 / P2 | Handoff binds final candidate/remediation SHAs; focused command lists all 10 owner files (131 passed); baseline evidence marked historical; five-package static provenance recorded. |
 
 ### Corrected prior claims
 
@@ -72,11 +75,13 @@ docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-round2-handoff.
   tests/test_submit_artifact_protection.py \
   tests/test_repository_import_artifact_package.py \
   tests/test_artifact_boundary.py \
-  tests/test_canonical_lock_identity.py
-# 131 passed (review-5 focused battery incl. integrity + dolt renderer)
+  tests/test_canonical_lock_identity.py \
+  tests/test_storage_projection_integrity.py \
+  tests/test_dolt_renderer.py
+# 131 passed
 
 ./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest -q -m unit
-# 1916 passed, 115 deselected, 69.36s
+# 1916 passed, 115 deselected, 68.92s
 
 cd vnext/backend && ../scripts/uv-consume.sh -C . run --no-sync ruff check .
 # pass
@@ -87,10 +92,10 @@ cd vnext/backend && ../scripts/uv-consume.sh -C . run --no-sync mypy
 
 ```yaml
 uv_lock_in_diff: no
-five_package_static: backend-only (ruff + mypy full package)
+five_package_static: pass (provenance p5-5b-s3-independent-review-6; Backend 341, Shared Kernel 34, Repository Contracts 15, Repository Client 26, Repository Service 198 source files)
 container_rebuild_required: no
 container_reason: Python/tests/docs only; no image or deployment boundary touched
-next_step: independent S3 review-5 light re-confirmation
+next_step: independent S3 review-6 traceability confirmation / S3 stage pass sign-off
 ```
 
 ## Notes

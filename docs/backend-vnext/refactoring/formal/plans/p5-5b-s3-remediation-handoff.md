@@ -1,6 +1,8 @@
 # P5-5B-S3 Remediation Handoff
 
-状态：**remediation complete — pending independent re-review**
+> **Superseded.** 当前权威 remediation 记录为 [p5-5b-s3-remediation-round2-handoff.md](p5-5b-s3-remediation-round2-handoff.md)（final candidate `d093caf9`）。本文保留首轮 remediation 历史证据。
+
+状态：**superseded — round-1 remediation @ `33c14a92`**
 
 日期：2026-09-16
 
@@ -10,7 +12,7 @@ Owner：P5-5B Delivery
 
 ```yaml
 baseline_commit: 8618b21a
-remediation_commit: pending
+remediation_commit: 33c14a92
 input_reviews:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-2.md

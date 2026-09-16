@@ -1,6 +1,6 @@
 # P5-5B-S3 Import Builder and Artifact Boundary Handoff
 
-状态：**S3 baseline delivered — remediation in p5-5b-s3-remediation-handoff.md**
+状态：**S3 complete — final candidate `d093caf9`（权威 remediation 记录见 [p5-5b-s3-remediation-round2-handoff.md](p5-5b-s3-remediation-round2-handoff.md)）**
 
 日期：2026-09-15
 
@@ -24,7 +24,9 @@ s3_entry: authorized
 stage: P5-5B-S3-import-builder-artifact-boundary
 parent_head: 2da4d71f3c8090cfac08390cfe5f3fb79fd305f4
 baseline_commit: 8618b21a
-candidate_head: pending remediation commit
+remediation_parent: 33c14a92
+remediation_commit: 2881e747
+candidate_head: d093caf919d36631e99e832b7227fe5a4ec5ac9f
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md §S3
@@ -38,7 +40,7 @@ scope_paths:
   - vnext/backend/tests/test_repository_import_artifact_package.py
   - vnext/backend/tests/test_submit_artifact_protection.py
   - vnext/backend/tests/test_artifact_boundary.py
-changed_paths:
+baseline_changed_paths_8618b21a:
   - vnext/backend/src/gateway_backend/artifacts/nominal_refs.py
   - vnext/backend/src/gateway_backend/artifacts/__init__.py
   - vnext/backend/src/gateway_backend/application/submission/contracts.py
@@ -48,6 +50,28 @@ changed_paths:
   - vnext/backend/tests/test_submit_artifact_protection.py
   - vnext/backend/tests/test_artifact_boundary.py
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-handoff.md
+remediation_changed_paths_33c14a92_to_d093caf9:
+  - vnext/backend/src/gateway_backend/application/submission/contracts.py
+  - vnext/backend/src/gateway_backend/application/submission/import_builder.py
+  - vnext/backend/src/gateway_backend/capabilities/mutation_planning/__init__.py
+  - vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py
+  - vnext/backend/src/gateway_backend/capabilities/mutation_planning/import_replay.py
+  - vnext/backend/src/gateway_backend/capabilities/storage_projection/__init__.py
+  - vnext/backend/src/gateway_backend/capabilities/storage_projection/contracts.py
+  - vnext/backend/src/gateway_backend/capabilities/storage_projection/import_replay.py
+  - vnext/backend/src/gateway_backend/repository_import_artifact.py
+  - vnext/backend/tests/support/mutation_contracts.py
+  - vnext/backend/tests/support/storage_projection.py
+  - vnext/backend/tests/test_dolt_renderer.py
+  - vnext/backend/tests/test_mutation_planning_import_replay.py
+  - vnext/backend/tests/test_storage_projection_import_replay.py
+  - vnext/backend/tests/test_storage_projection_integrity.py
+  - vnext/backend/tests/test_submit_import_builder.py
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-3.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-4.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-independent-review-5.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-independent-review.md
+  - docs/backend-vnext/refactoring/formal/plans/p5-5b-s3-remediation-round2-handoff.md
 uv_lock_in_diff: no
 ```
 
@@ -113,6 +137,8 @@ unique_test_owners:
 
 ## Verification record
 
+### Historical baseline evidence @ `8618b21a`
+
 ```bash
 cd vnext/backend
 uv run pytest -q -m unit \
@@ -132,17 +158,44 @@ uv run mypy
 # Success: no issues found in 337 source files
 ```
 
+### Final evidence @ `d093caf9`（权威细节见 round-2 handoff）
+
+```bash
+./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest -q -m unit \
+  tests/test_architecture.py \
+  tests/test_submit_import_builder.py \
+  tests/test_mutation_planning_import_replay.py \
+  tests/test_storage_projection_import_replay.py \
+  tests/test_submit_artifact_protection.py \
+  tests/test_repository_import_artifact_package.py \
+  tests/test_artifact_boundary.py \
+  tests/test_canonical_lock_identity.py \
+  tests/test_storage_projection_integrity.py \
+  tests/test_dolt_renderer.py
+# 131 passed
+
+./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest -q -m unit
+# 1916 passed, 115 deselected
+
+cd vnext/backend && ../scripts/uv-consume.sh -C . run --no-sync ruff check .
+cd vnext/backend && ../scripts/uv-consume.sh -C . run --no-sync mypy
+# Backend 341 source files pass
+```
+
 ```yaml
-focused_commands_and_results:
+focused_commands_and_results_baseline_8618b21a:
   - cd vnext/backend && uv run pytest -q -m unit tests/test_submit_import_builder.py tests/test_repository_import_artifact_package.py tests/test_submit_artifact_protection.py tests/test_artifact_boundary.py => 37 passed
-  - cd vnext/backend && uv run ruff check src/gateway_backend/application/submission src/gateway_backend/repository_import_artifact.py src/gateway_backend/artifacts tests/test_submit_import_builder.py tests/test_submit_artifact_protection.py => pass
+  - cd vnext/backend && uv run ruff check ... => pass
   - cd vnext/backend && uv run mypy => pass (337 source files)
-five_package_static: deferred
-authoritative_runner: deferred
+focused_commands_and_results_final_d093caf9:
+  - 10-file S3 owner battery => 131 passed
+  - backend full unit -m unit => 1916 passed
+five_package_static: pass (provenance p5-5b-s3-independent-review-6; Backend 341, Shared Kernel 34, Repository Contracts 15, Repository Client 26, Repository Service 198)
+authoritative_runner: not_run
 container_rebuild_required: no
-container_reason: S3 is application/artifact adapter logic only; no Dockerfile, Compose, entrypoint, or deployment boundary touched
+container_reason: S3 remediation is Python/tests/docs only; no Dockerfile, Compose, entrypoint, or deployment boundary touched
 last_verified_image_revision: not_applicable
-container_gate_for_current_head: not_applicable
+container_gate_for_current_head: not_claimed
 findings: []
 deferred:
   - accept/finalize transaction wiring to import_builder helpers (S5)
@@ -150,11 +203,11 @@ deferred:
   - Repository Service upload-import wire (S5)
 reopen_required: []
 implementation_authority_unchanged: true
-next_step: P5-5B-S4
+next_step: P5-5B-S4 (S3 stage pass sign-off after handoff traceability confirmation)
 ```
 
 ## Notes
 
-- `SubmitImportPublicationAdapter` in `repository_import_artifact.py` orchestrates projection → REBUILD_ALWAYS planner → `_dolt_renderer.render_change_set_replay` → `publish_canonicalization`, then converts store `ArtifactRef` to `BackendArtifactRef` via `artifacts/nominal_refs.py`.
+- `SubmitImportPublicationAdapter` in `repository_import_artifact.py` orchestrates `storage_projection` schema DDL + public `mutation_planning.render_import_mutation_dml` (repository base digest from build input) → `publish_canonicalization`, then converts store `ArtifactRef` to `BackendArtifactRef` via `artifacts/nominal_refs.py`. Renderer implementation lives in owner-internal `_repository_replay_renderer.py`.
 - `PrepareImportBuildInput.ruleset_version` is the table-rules **string** version (`TableRulesetSnapshot.ruleset_version`), distinct from `table_ruleset_version` int.
 - `import_builder.publish_prepare_import_package` is the application entry; tests also exercise adapter `build_and_publish_from_inputs` where direct `ProjectionTableInput` injection is required.

@@ -11,7 +11,10 @@ import httpx
 from gateway_repository_client import RepositoryClient
 from gateway_repository_client.errors import RepositoryClientTimeoutError
 
-from gateway_backend.application.submission.errors import RepositoryWriteTimeoutError
+from gateway_backend.application.submission.errors import (
+    RepositoryWriteTimeoutError,
+    RepositoryWriteTransportError,
+)
 from gateway_repository_contracts import (
     GetOperationResponse,
     IdempotencyKeyString,
@@ -147,7 +150,10 @@ class HttpRepositoryWriteClient:
 
 
 def _run(coro: object) -> object:
-    return asyncio.run(coro)  # type: ignore[arg-type]
+    try:
+        return asyncio.run(coro)  # type: ignore[arg-type]
+    except httpx.TransportError as exc:
+        raise RepositoryWriteTransportError(str(exc)) from exc
 
 
 def _as_uuid(value: str) -> UUID:

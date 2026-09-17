@@ -277,6 +277,15 @@ def _start_inprocess_repository_service(
     raise RuntimeError("in-process repository service did not become ready")
 
 
+def _repository_service_python() -> Path:
+    python = REPOSITORY_SERVICE_ROOT / ".venv" / "bin" / "python"
+    if not python.is_file():
+        raise RuntimeError(
+            "repository_service .venv is missing; run ./vnext/scripts/prepare-dev-dependencies.sh"
+        )
+    return python
+
+
 def _start_subprocess_repository_service(
     tmp_path: Path,
     *,
@@ -286,11 +295,7 @@ def _start_subprocess_repository_service(
     data_root.mkdir(parents=True, exist_ok=True)
     port_file = data_root / "port.json"
     command = [
-        "uv",
-        "run",
-        "--project",
-        str(REPOSITORY_SERVICE_ROOT),
-        "python",
+        str(_repository_service_python()),
         str(STARTER_SCRIPT),
         str(data_root),
         bearer_token,

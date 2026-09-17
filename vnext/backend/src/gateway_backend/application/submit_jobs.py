@@ -12,7 +12,6 @@ from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
 from uuid import UUID
 
-import httpx
 from gateway_repository_contracts import (
     OperationStatus as RepositoryOperationStatus,
     REPOSITORY_IMPORT_MEDIA_TYPE,
@@ -105,6 +104,7 @@ from gateway_backend.application.submission.errors import (
     FinalizeBindingMismatch,
     FinalizeRecoveryRequired,
     RepositoryWriteTimeoutError,
+    RepositoryWriteTransportError,
 )
 from gateway_backend.application.submission.ports import (
     RepositoryAbortEvidencePort,
@@ -148,6 +148,7 @@ from gateway_backend.operations.worker import (
     LeaseSession,
     WriteUnitOfWorkFactory,
 )
+from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 
 SUBMIT_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/submit-import-checkpoint/v1"
@@ -1064,22 +1065,27 @@ def _submit_may_invoke_handler_without_checkpoint(
 ) -> bool:
     if step.step_name != SUBMIT_STEP_SUBMIT:
         return False
-    payload = _load_submit_payload(operation, deps.artifact_store)
-    attempt = _load_submit_attempt(deps, payload.submit_attempt_id)
+    try:
+        payload = _load_submit_payload(operation, deps.artifact_store)
+        attempt = _load_submit_attempt(deps, payload.submit_attempt_id)
+    except Exception:
+        return False
     return (
         attempt.state is SubmitAttemptState.EFFECT_PENDING
         and attempt.repository_artifact_ref is not None
     )
 
 
-def _map_handler_failure_to_recovery_outcome(exc: BaseException) -> RecoveryOutcome:
+def _map_handler_failure_to_recovery_outcome(
+    exc: BaseException,
+) -> RecoveryOutcome | None:
     if isinstance(exc, (RepositoryWriteTimeoutError, TimeoutError)):
         return RecoveryOutcome(
             disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
             diagnostic_code=DIAGNOSTIC_RECONCILE_TIMEOUT,
             reason=str(exc),
         )
-    if isinstance(exc, httpx.TransportError):
+    if isinstance(exc, RepositoryWriteTransportError):
         return RecoveryOutcome(
             disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
             diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
@@ -1103,11 +1109,7 @@ def _map_handler_failure_to_recovery_outcome(exc: BaseException) -> RecoveryOutc
             diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
             reason=str(exc),
         )
-    return RecoveryOutcome(
-        disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
-        diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
-        reason=str(exc),
-    )
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1186,7 +1188,10 @@ def _recover_external_effect_step(
     try:
         acknowledgment = handler(operation, step, control, lease_session)
     except Exception as exc:
-        return _map_handler_failure_to_recovery_outcome(exc)
+        outcome = _map_handler_failure_to_recovery_outcome(exc)
+        if outcome is None:
+            raise
+        return outcome
 
     if acknowledgment is ExecutorAcknowledgment.PUBLISHED:
         return RecoveryOutcome(
@@ -1199,6 +1204,12 @@ def _recover_external_effect_step(
         diagnostic_code=None,
         reason=None,
     )
+
+
+def _capability_storage_projection_version(contract_version: str) -> str:
+    if contract_version == "v1":
+        return STORAGE_PROJECTION_VERSION
+    raise SubmitImportBuilderError("unsupported storage_projection_version")
 
 
 def _build_prepare_import_build_input(
@@ -1217,7 +1228,9 @@ def _build_prepare_import_build_input(
         input_closure_digest=payload.snapshot_table_set_digest,
         source_artifact_digest=attempt.snapshot_digest,
         repository_base_digest=attempt.source_digest,
-        storage_projection_version=payload.storage_projection_version,
+        storage_projection_version=_capability_storage_projection_version(
+            payload.storage_projection_version
+        ),
         ruleset_id=ruleset.ruleset_id,
         ruleset_version=ruleset.ruleset_version,
         ruleset_digest=ruleset.ruleset_digest.value,

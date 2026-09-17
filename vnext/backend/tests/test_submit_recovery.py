@@ -41,7 +41,6 @@ from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.worker import ExecutionControl
 from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
 from gateway_backend.infrastructure.repository_write.abort_evidence import HttpRepositoryAbortEvidencePort
-from tests.support.dolt import dolt_available
 from tests.support.submit_job_harness import (
     assert_occupancy_released,
     assert_occupancy_retained,
@@ -316,10 +315,10 @@ def test_operator_abort_import_rejected_releases_occupancy(tmp_path: Path) -> No
 
 
 @pytest.mark.serial
-def test_operator_abort_evidence_rejects_unknown_repository_operation(tmp_path: Path) -> None:
-    if not dolt_available():
-        pytest.skip("dolt is not available")
-
+def test_operator_abort_evidence_rejects_unknown_repository_operation(
+    tmp_path: Path,
+    requires_dolt: None,
+) -> None:
     db_path = _initialized_db_path(tmp_path, "recovery-live-abort.sqlite3")
     repository_id = str(uuid4())
     seed = seed_submit_ready_workspace(db_path, repository_id=repository_id)
@@ -351,6 +350,7 @@ def test_submit_recovery_maps_value_error_to_manual_recovery() -> None:
     from gateway_backend.application.submit_jobs import _map_handler_failure_to_recovery_outcome
 
     outcome = _map_handler_failure_to_recovery_outcome(ValueError("simulated crossing failure"))
+    assert outcome is not None
     assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
     assert outcome.diagnostic_code == DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED
 
@@ -361,6 +361,7 @@ def test_submit_recovery_maps_timeout_to_manual_recovery() -> None:
     outcome = _map_handler_failure_to_recovery_outcome(
         RepositoryWriteTimeoutError("reconcile deadline exhausted")
     )
+    assert outcome is not None
     assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
     assert outcome.diagnostic_code == DIAGNOSTIC_RECONCILE_TIMEOUT
 
@@ -372,13 +373,22 @@ def test_submit_recovery_maps_abort_proof_not_satisfied_to_manual_recovery() -> 
     outcome = _map_handler_failure_to_recovery_outcome(
         AbortProofNotSatisfied("matching evidence missing")
     )
+    assert outcome is not None
     assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
     assert outcome.diagnostic_code == DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED
 
 
+def test_submit_recovery_leaves_unmapped_errors_unhandled() -> None:
+    from gateway_backend.application.submit_jobs import _map_handler_failure_to_recovery_outcome
+
+    assert _map_handler_failure_to_recovery_outcome(AttributeError("programming error")) is None
+
+
 @pytest.mark.serial
-@pytest.mark.skipif(not dolt_available(), reason="dolt is not available")
-def test_operator_abort_import_rejected_via_recovery_port(tmp_path: Path) -> None:
+def test_operator_abort_import_rejected_via_recovery_port(
+    tmp_path: Path,
+    requires_dolt: None,
+) -> None:
     import hashlib
 
     from gateway_backend.application.submit_jobs import (

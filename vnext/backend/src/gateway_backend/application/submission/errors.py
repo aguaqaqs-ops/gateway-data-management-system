@@ -18,6 +18,10 @@ class RepositoryWriteTimeoutError(TimeoutError):
     """Raised when repository polling exceeds the configured reconcile deadline."""
 
 
+class RepositoryWriteTransportError(SubmitApplicationError):
+    """Raised when repository HTTP transport fails before a typed client error."""
+
+
 class IdempotencyConflict(SubmitApplicationError):
     """Same idempotency key was reused with a different request fingerprint."""
 

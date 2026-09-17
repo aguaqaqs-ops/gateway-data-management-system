@@ -14,17 +14,15 @@ from gateway_backend.application.submission.accept_transaction import (
     AcceptSubmitPreflight,
     accept_submit_transaction,
 )
-from gateway_backend.application.submission.contracts import PrepareImportBuildInput
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
 from gateway_backend.application.submit_jobs import (
     SubmitControlTransactionFactory,
-    SubmitJobPayload,
     SubmitRuntimeDependencies,
+    _capability_storage_projection_version,
     bind_submit_control_transaction_factory,
     build_prepare_import_handler,
 )
-from gateway_backend.domain.submission.models import SubmitAttempt
-from gateway_backend.operations.contracts import OperationRecord
+from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -68,25 +66,6 @@ _NET_CFG_SQL = (
     "CREATE TABLE `net_cfg` (`board` VARCHAR NOT NULL, `link_no` INT NOT NULL, PRIMARY KEY (`board`, `link_no`));"
     "INSERT INTO `net_cfg` VALUES ('eth0', 1);"
 )
-
-
-@pytest.fixture(autouse=True)
-def _map_payload_storage_projection_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    from gateway_backend.application import submit_jobs
-    from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
-
-    original = submit_jobs._build_prepare_import_build_input
-
-    def patched(
-        *,
-        payload: SubmitJobPayload,
-        attempt: SubmitAttempt,
-        operation: OperationRecord,
-    ) -> PrepareImportBuildInput:
-        build_input = original(payload=payload, attempt=attempt, operation=operation)
-        return replace(build_input, storage_projection_version=STORAGE_PROJECTION_VERSION)
-
-    monkeypatch.setattr(submit_jobs, "_build_prepare_import_build_input", patched)
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +239,10 @@ def _run_prepare_handler(
         operation = unit_of_work.operations.get_operation(operation_id)
         step = unit_of_work.operations.get_step(f"{operation_id}-step-1")
     return handler(operation, step, control, session)
+
+
+def test_capability_storage_projection_version_maps_contract_v1() -> None:
+    assert _capability_storage_projection_version("v1") == STORAGE_PROJECTION_VERSION
 
 
 def test_prepare_handler_publishes_checkpoint_and_successor(

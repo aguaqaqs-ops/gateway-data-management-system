@@ -33,7 +33,6 @@ from gateway_backend.operations import (
     step_record_from_document,
 )
 from gateway_backend.operations.worker import StartupDisposition, WorkerEvent
-from tests.support.dolt import dolt_available
 from tests.support.submit_job_harness import (
     RecordingTransport,
     build_submit_worker_harness,
@@ -43,24 +42,6 @@ from tests.support.submit_job_harness import (
 from tests.test_submit_job_prepare import _accept_prepared_operation, _run_prepare_handler
 
 pytestmark = pytest.mark.integration
-
-
-@pytest.fixture(autouse=True)
-def _map_payload_storage_projection_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    from dataclasses import replace
-
-    from gateway_backend.application import submit_jobs
-    from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
-
-    original = submit_jobs._build_prepare_import_build_input
-
-    from typing import Any
-
-    def patched(*, payload: Any, attempt: Any, operation: Any) -> Any:
-        build_input = original(payload=payload, attempt=attempt, operation=operation)
-        return replace(build_input, storage_projection_version=STORAGE_PROJECTION_VERSION)
-
-    monkeypatch.setattr(submit_jobs, "_build_prepare_import_build_input", patched)
 
 
 def _submit_operation_document(operation_id: str) -> dict[str, object]:
@@ -200,10 +181,10 @@ def test_submit_worker_duplicate_claim_is_exclusive(tmp_path: Path) -> None:
 
 
 @pytest.mark.serial
-def test_submit_worker_reaches_ready_with_live_repository_service(tmp_path: Path) -> None:
-    if not dolt_available():
-        pytest.skip("dolt is not available")
-
+def test_submit_worker_reaches_ready_with_live_repository_service(
+    tmp_path: Path,
+    requires_dolt: None,
+) -> None:
     with repository_service_session(tmp_path) as service:
         ready = Event()
         stop = Event()

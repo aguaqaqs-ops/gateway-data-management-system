@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 import httpx
@@ -40,7 +40,6 @@ from gateway_backend.operations.worker import (
     ExecutorAcknowledgment,
     StartupDisposition,
 )
-from tests.support.dolt import dolt_available
 from tests.support.submit_job_harness import (
     RecordingTransport,
     SubmitWorkerHarness,
@@ -133,8 +132,10 @@ def test_submit_upload_and_import_wire_mapping_uses_recording_transport() -> Non
 
 
 @pytest.mark.serial
-@pytest.mark.skipif(not dolt_available(), reason="dolt is not available")
-def test_submit_upload_and_import_wire_mapping_against_live_repository(tmp_path: Path) -> None:
+def test_submit_upload_and_import_wire_mapping_against_live_repository(
+    tmp_path: Path,
+    requires_dolt: None,
+) -> None:
     with repository_service_session(tmp_path) as service:
         seeded = service.repository_id_factory(idempotency_key="create-submit-effect-live")
         transport = RecordingTransport()
@@ -177,20 +178,6 @@ def test_submit_upload_and_import_wire_mapping_against_live_repository(tmp_path:
 
 
 _HANDLER_REPOSITORY_UUID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
-
-
-@pytest.fixture(autouse=True)
-def _map_payload_storage_projection_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    from gateway_backend.application import submit_jobs
-    from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
-
-    original = submit_jobs._build_prepare_import_build_input
-
-    def patched(*, payload: Any, attempt: Any, operation: Any) -> Any:
-        build_input = original(payload=payload, attempt=attempt, operation=operation)
-        return replace(build_input, storage_projection_version=STORAGE_PROJECTION_VERSION)
-
-    monkeypatch.setattr(submit_jobs, "_build_prepare_import_build_input", patched)
 
 
 def _lease_session(
@@ -352,6 +339,7 @@ def test_await_import_result_succeeded_finalizes_submission(tmp_path: Path) -> N
     assert submission is not None
 
 
+@pytest.mark.serial
 def test_await_import_result_timeout_marks_manual_recovery(tmp_path: Path) -> None:
     def _running_forever_handler(request: httpx.Request) -> httpx.Response:
         if "/operations/" in request.url.path and request.method == "GET":

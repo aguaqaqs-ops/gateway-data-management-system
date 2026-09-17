@@ -943,13 +943,7 @@ def _assert_application_import_allowed(source: Path, imported: str) -> None:
         return
     if source.name == "submit_jobs.py" and imported.startswith("gateway_backend.capabilities."):
         return
-    if source.name == "submit_jobs.py" and imported.startswith("gateway_backend.infrastructure."):
-        return
-    if source.name == "submit_jobs.py" and imported == "gateway_backend.repository_import_artifact":
-        return
     if source.name == "ports.py" and imported.startswith("gateway_repository_contracts"):
-        return
-    if source.name == "submit_jobs.py" and imported == "httpx":
         return
     for prefix in APPLICATION_FORBIDDEN_IMPORT_PREFIXES:
         assert imported != prefix and not imported.startswith(f"{prefix}."), (

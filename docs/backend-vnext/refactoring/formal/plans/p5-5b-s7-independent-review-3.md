@@ -1,10 +1,12 @@
 # P5-5B-S7 Independent Review 3 — Remediation Closure (Round 2)
 
-状态：**PASS — S7 closed; S8 entry eligible**
+状态：**SUPERSEDED — rejected @ review-4; see [p5-5b-s7-independent-review-4.md](p5-5b-s7-independent-review-4.md)**
 
 日期：2026-09-18
 
 Owner：Independent reviewer（closure）
+
+> 本文件错误声明 pass / s8_entry eligible；review-4 打开 S7-F7/F8。Round 3 remediation 见 handoff round 3。
 
 ## Decision
 

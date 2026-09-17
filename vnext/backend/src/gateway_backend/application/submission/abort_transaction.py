@@ -43,6 +43,7 @@ class AbortSubmitTransactionRequest:
     expected_attempt_version: int | None = None
     expected_await_step_version: int | None = None
     expected_operation_version: int | None = None
+    defer_operation_terminal: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,10 +70,10 @@ def abort_submit_transaction(
     validate_abort_proof(attempt=attempt, proof=request.proof, evidence=evidence)
 
     with unit_of_work_factory(read_only=False) as unit_of_work:
-        return _abort_submit_in_transaction(request=request, unit_of_work=unit_of_work)
+        return abort_submit_in_control_transaction(request=request, unit_of_work=unit_of_work)
 
 
-def _abort_submit_in_transaction(
+def abort_submit_in_control_transaction(
     *,
     request: AbortSubmitTransactionRequest,
     unit_of_work: SubmitControlTransaction,
@@ -133,20 +134,21 @@ def _abort_submit_in_transaction(
 
     release_submit_checkpoint_protection(unit_of_work, operation_id=attempt.operation_id)
 
-    operation = unit_of_work.operations.get_operation(attempt.operation_id)
-    steps, _cursor = unit_of_work.operations.list_steps(attempt.operation_id)
-    _fail_active_step_if_needed(
-        unit_of_work,
-        steps=steps,
-        request=request,
-        abort_code=request.proof.stable_failure_code,
-    )
-    _fail_operation_if_needed(
-        unit_of_work,
-        request=request,
-        operation=operation,
-        abort_code=request.proof.stable_failure_code,
-    )
+    if not request.defer_operation_terminal:
+        operation = unit_of_work.operations.get_operation(attempt.operation_id)
+        steps, _cursor = unit_of_work.operations.list_steps(attempt.operation_id)
+        _fail_active_step_if_needed(
+            unit_of_work,
+            steps=steps,
+            request=request,
+            abort_code=request.proof.stable_failure_code,
+        )
+        _fail_operation_if_needed(
+            unit_of_work,
+            request=request,
+            operation=operation,
+            abort_code=request.proof.stable_failure_code,
+        )
     return AbortSubmitTransactionResult(attempt=aborted_attempt, replay=False)
 
 

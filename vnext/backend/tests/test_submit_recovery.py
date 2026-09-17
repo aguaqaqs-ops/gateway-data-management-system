@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+import httpx
 import pytest
 import time
 
@@ -52,10 +53,12 @@ from tests.support.submit_job_harness import (
     assert_occupancy_released,
     assert_occupancy_retained,
     build_submit_worker_harness,
+    default_repository_handler,
     repository_service_session,
     submit_step_id,
 )
 from tests.test_submit_job_effect import (
+    _assert_submit_checkpoint_protection_released,
     _operation_poll_handler,
     _prepare_manifest_digest,
     _run_submit_to_await_claim,
@@ -575,3 +578,70 @@ def test_await_import_finalize_commits_lease_acknowledgment_via_worker_runtime(
     assert attempt.state is SubmitAttemptState.FINALIZED
     assert submission is not None
     assert row_count == 1
+
+
+@pytest.mark.serial
+def test_await_import_stable_abort_completes_via_worker_runtime(
+    tmp_path: Path,
+) -> None:
+    def _import_rejected_handler(request: httpx.Request) -> httpx.Response:
+        if "/operations/" in request.url.path and request.method == "GET":
+            operation_id = request.url.path.rsplit("/", 1)[-1]
+            return httpx.Response(
+                200,
+                json={
+                    "operation": {
+                        "operation_id": operation_id,
+                        "status": "FAILED",
+                        "error": {
+                            "code": "IMPORT_REJECTED",
+                            "message": "import rejected",
+                            "request_id": None,
+                        },
+                        "result": None,
+                    }
+                },
+                headers={"X-Request-ID": "req-operation"},
+            )
+        return default_repository_handler(request)
+
+    seed_harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(_import_rejected_handler),
+    )
+    await_work, operation_id = _run_submit_to_await_claim(seed_harness)
+    await_executor = build_await_import_result_handler(seed_harness.submit_deps)
+    with ControlDbUnitOfWork(seed_harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        await_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+        assert await_work.step.worker_id is not None
+        assert await_work.step.lease_token is not None
+    work = ClaimedWork(operation, await_step, await_executor)
+    assert seed_harness.runtime._lifecycle.mark_ready_to_claim() is False
+    seed_harness.runtime._run_claim(
+        work,
+        lambda: False,
+        lambda timeout: False,
+        claim_anchor=time.monotonic(),
+    )
+    with ControlDbUnitOfWork(seed_harness.db_path, read_only=True) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(operation_id)
+        persisted_await_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+        submit_attempt_id = next(
+            ref.value for ref in persisted_operation.business_refs if ref.kind == "submit_attempt"
+        )
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        assert persisted_operation.status is OperationStatus.FAILED
+        assert persisted_await_step.status is StepStatus.FAILED
+        assert attempt is not None
+        assert attempt.state is SubmitAttemptState.ABORTED
+        _assert_submit_checkpoint_protection_released(
+            unit_of_work,
+            operation_id=operation_id,
+            submit_attempt_id=submit_attempt_id,
+        )

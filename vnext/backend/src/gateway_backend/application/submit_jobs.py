@@ -63,9 +63,10 @@ from gateway_backend.application.submit_registry import (
     SUBMIT_IMPORT_HANDLER,
     submit_job_definitions,
 )
-from gateway_backend.application.submission.abort import ALLOWED_ABORT_CODES
+from gateway_backend.application.submission.abort import ALLOWED_ABORT_CODES, validate_abort_proof
 from gateway_backend.application.submission.abort_transaction import (
     AbortSubmitTransactionRequest,
+    abort_submit_in_control_transaction,
     abort_submit_transaction,
 )
 from gateway_backend.application.submission.contracts import (
@@ -900,16 +901,17 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 terminal_status=RepositoryOperationTerminalStatus.FAILED,
                 stable_failure_code=repository_operation.error.code,
             )
-            abort_submit_transaction(
-                request=AbortSubmitTransactionRequest(
-                    submit_attempt_id=payload.submit_attempt_id,
-                    proof=proof,
-                    aborted_at=datetime.now(UTC),
-                    worker_id=step.worker_id,
-                    lease_token=step.lease_token,
-                ),
-                evidence=_StaticAbortEvidence(repository_operation),
-                unit_of_work_factory=_read_write_factory(deps.control_transaction_factory),
+            lease_session.publish_operation(
+                _make_stable_abort_builder(
+                    request=AbortSubmitTransactionRequest(
+                        submit_attempt_id=payload.submit_attempt_id,
+                        proof=proof,
+                        aborted_at=datetime.now(UTC),
+                        worker_id=step.worker_id,
+                        lease_token=step.lease_token,
+                    ),
+                    evidence=_StaticAbortEvidence(repository_operation),
+                )
             )
             return ExecutorAcknowledgment.PUBLISHED
 
@@ -2256,6 +2258,63 @@ def _terminal_step(step: StepRecord, transaction_now: datetime, *, status: StepS
         updated_at=transaction_now,
         optimistic_version=step.optimistic_version + 1,
     )
+
+
+def _make_stable_abort_builder(
+    *,
+    request: AbortSubmitTransactionRequest,
+    evidence: RepositoryAbortEvidencePort,
+) -> Callable[[OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]]:
+    def builder(
+        operation: OperationRecord,
+        step: StepRecord,
+        transaction_now: datetime,
+    ) -> tuple[StepRecord, OperationRecord]:
+        transaction = _active_submit_transaction.get()
+        if transaction is None:
+            raise SubmitJobError("submit abort transaction is not bound")
+        attempt = transaction.submission.get_submit_attempt(request.submit_attempt_id)
+        if attempt is None:
+            raise SubmitJobError("submit attempt is missing")
+        validate_abort_proof(attempt=attempt, proof=request.proof, evidence=evidence)
+        abort_submit_in_control_transaction(
+            request=AbortSubmitTransactionRequest(
+                submit_attempt_id=request.submit_attempt_id,
+                proof=request.proof,
+                aborted_at=transaction_now,
+                worker_id=step.worker_id,
+                lease_token=step.lease_token,
+                expected_attempt_version=attempt.optimistic_version,
+                expected_await_step_version=step.optimistic_version,
+                expected_operation_version=operation.optimistic_version,
+                defer_operation_terminal=True,
+            ),
+            unit_of_work=transaction,
+        )
+        abort_code = request.proof.stable_failure_code
+        diagnostic = OperationDiagnostic(code=abort_code, message="submit attempt aborted")
+        terminal_step = dataclasses.replace(
+            step,
+            status=StepStatus.FAILED,
+            diagnostic=diagnostic,
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            completed_at=transaction_now,
+            updated_at=transaction_now,
+            optimistic_version=step.optimistic_version + 1,
+        )
+        terminal_operation = dataclasses.replace(
+            operation,
+            status=OperationStatus.FAILED,
+            diagnostic=diagnostic,
+            completed_at=transaction_now,
+            updated_at=transaction_now,
+            optimistic_version=operation.optimistic_version + 1,
+        )
+        return terminal_step, terminal_operation
+
+    return builder
 
 
 def _make_finalize_success_builder(

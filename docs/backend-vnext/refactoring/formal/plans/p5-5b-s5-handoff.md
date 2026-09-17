@@ -1,6 +1,6 @@
 # P5-5B-S5 Submit JobDefinition, Repository Effect and Recovery Handoff
 
-状态：**S5 Round-4 remediation complete — candidate 待提交（基线 `259a3164` + Round-4 工作区）**
+状态：**S5 Round-5 remediation complete — candidate 待提交（基线 `0c97fc27` + Round-5 工作区）**
 
 日期：2026-09-17
 
@@ -37,8 +37,8 @@ s6_entry: deferred
 
 ```yaml
 stage: P5-5B-S5-submit-jobdefinition-repository-effect-recovery
-parent_head: 259a3164f717bea45bff66a119a97a5f3d03d715
-candidate_head: pending-round-4-commit
+parent_head: 0c97fc276b641ea59bbbdbc99cde7ff0d772aa46
+candidate_head: pending-round-5-commit
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md §8–§9
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md §S5
@@ -127,7 +127,7 @@ Recording transport 固定 `operation_id = 018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11`
 | Upload response-loss（`PREPARED`、无 submit checkpoint） | 同 upload key/bytes replay → `EFFECT_PENDING` | `test_submit_import_upload_response_loss_replays_via_recovery` |
 | Upload response metadata 漂移 | adapter 拒绝；Attempt 保持 `PREPARED` | `test_upload_artifact_rejects_mismatched_response_metadata`；`test_submit_import_aborts_before_effect_pending_on_upload_metadata_mismatch` |
 | 终态 evidence 持久化后 T3 前崩溃 | 从 durable evidence 重做 T3；无需 re-poll；**checkpoint/evidence 受 submit-checkpoint protection 保护** | `test_await_import_persists_terminal_evidence_before_finalize`；`test_await_import_replays_t3_from_persisted_evidence_without_poll`；`test_await_import_pins_checkpoint_and_evidence_protection` |
-| await/terminal artifact TTL 清理 | reconcile/terminal publish 经 `_pinned_checkpoint_builder` pin；T3/T2 终态后 `release_submit_checkpoint_protection`；manual recovery **保留** | `test_await_import_pins_checkpoint_and_evidence_protection`；`test_await_import_finalize_releases_checkpoint_protection` |
+| await/terminal artifact TTL 清理 | reconcile/terminal publish 经 `_pinned_checkpoint_builder` pin；prepare checkpoint 统一 `step_id` owner（`_pin_submit_checkpoint_refs`）；T3/T2 终态后 `release_submit_checkpoint_protection` 清尽三步 checkpoint；manual recovery **保留** | `test_await_import_pins_checkpoint_and_evidence_protection`；`test_await_import_finalize_releases_checkpoint_protection`；`test_await_import_stable_abort_releases_checkpoint_protection` |
 | checkpoint/evidence decoder 额外字段或缺字段 | `_require_exact_job_state_keys`；`request_sent`/`reconcile_started_at` 严格校验；terminal status 与 evidence 绑定 | `test_prepare_checkpoint_rejects_inexact_job_state`；`test_submit_checkpoint_rejects_inexact_job_state`；`test_terminal_evidence_rejects_unknown_fields`；`test_terminal_evidence_rejects_checkpoint_status_mismatch` |
 | 非允许 abort code（非三码） | `MANUAL_RECOVERY_REQUIRED`；不盲 abort | `ALLOWED_ABORT_CODES` 守卫 + `HttpRepositoryAbortEvidencePort` |
 
@@ -204,6 +204,13 @@ Recording transport 固定 `operation_id = 018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11`
 | B1b | T3 finalize / T2 abort 调用 `release_submit_checkpoint_protection`；manual recovery 不释放 | `test_await_import_finalize_releases_checkpoint_protection` |
 | M4 | `_require_exact_job_state_keys`；submit `request_sent` bool + `reconcile_started_at` 必填；terminal evidence exact keys + status 绑定 | `test_prepare_checkpoint_rejects_inexact_job_state`；`test_submit_checkpoint_rejects_inexact_job_state`；`test_await_terminal_checkpoint_rejects_unknown_job_state_fields`；`test_await_terminal_checkpoint_rejects_non_terminal_status`；`test_terminal_evidence_rejects_unknown_fields`；`test_terminal_evidence_rejects_checkpoint_status_mismatch` |
 
+## Remediation round-5（独立审核 mypy + prepare protection owner）
+
+| ID | 修复 | 证据 nodeid |
+|----|------|-------------|
+| B1 | `test_submit_job_payload.py`：`DigestRef` 从 `gateway_shared_kernel` 导入（mypy explicit export） | 全量 `../scripts/uv-consume.sh -C . run mypy`；`--no-incremental` 同结果 |
+| M1 | 移除 `_pin_prepare_refs` 中 `submit_attempt_id` checkpoint pin；抽取 `_pin_submit_checkpoint_refs`；prepare replay 补 `step_id` pin | `test_await_import_finalize_releases_checkpoint_protection`（含 prepare + owner 列表）；`test_await_import_stable_abort_releases_checkpoint_protection` |
+
 ## Focused gate
 
 ```bash
@@ -223,14 +230,14 @@ cd vnext/backend
   tests/test_submit_job_effect.py \
   tests/test_submit_recovery.py \
   tests/test_submit_worker.py
-# 25 passed, 7 deselected
+# 26 passed, 7 deselected
 
 # Serial
 ../scripts/uv-consume.sh -C . run pytest -q -m serial \
   tests/test_submit_recovery.py \
   tests/test_submit_worker.py \
   tests/test_submit_job_effect.py
-# 7 passed, 13 deselected
+# 7 passed, 26 deselected
 
 # HTTP unit
 ../scripts/uv-consume.sh -C . run pytest -q -m unit \
@@ -244,13 +251,14 @@ cd vnext/backend
   src/gateway_backend/application/submission/errors.py \
   src/gateway_backend/application/submission/operator_recovery_mapping.py \
   src/gateway_backend/infrastructure/repository_write \
-  tests/test_submit_job_prepare.py tests/test_submit_job_effect.py \
+  tests/test_submit_job_payload.py tests/test_submit_job_prepare.py tests/test_submit_job_effect.py \
   tests/test_submit_recovery.py tests/test_submit_worker.py \
   tests/test_operator_recovery_mapping.py tests/test_architecture.py
 # All checks passed
 
 ../scripts/uv-consume.sh -C . run mypy
-# Success: no issues found in 369 source files
+../scripts/uv-consume.sh -C . run mypy --no-incremental
+# Success: no issues found in 369 source files（含 tests/test_submit_job_payload.py）
 
 # Lock/dockerfile gate
 cd ../repository_service

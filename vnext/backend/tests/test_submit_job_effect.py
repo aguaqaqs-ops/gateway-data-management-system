@@ -731,6 +731,27 @@ def test_await_import_pins_checkpoint_and_evidence_protection(
         assert unit_of_work.protection.is_protected(evidence_ref["artifact_id"])
 
 
+def _assert_submit_checkpoint_protection_released(
+    unit_of_work: ControlDbUnitOfWork,
+    *,
+    operation_id: str,
+    submit_attempt_id: str,
+) -> None:
+    prepare_step = unit_of_work.operations.get_step(
+        submit_step_id(operation_id, SUBMIT_STEP_PREPARE)
+    )
+    assert prepare_step.checkpoint_ref is not None
+    assert not unit_of_work.protection.is_protected(prepare_step.checkpoint_ref.artifact_id)
+    assert unit_of_work.list_artifact_protection_for_owner(
+        owner_kind="submit-checkpoint",
+        owner_id=submit_attempt_id,
+    ) == frozenset()
+    for step_name in (SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT, SUBMIT_STEP_AWAIT):
+        step = unit_of_work.operations.get_step(submit_step_id(operation_id, step_name))
+        if step.checkpoint_ref is not None:
+            assert not unit_of_work.protection.is_protected(step.checkpoint_ref.artifact_id)
+
+
 def test_await_import_finalize_releases_checkpoint_protection(tmp_path: Path) -> None:
     harness = build_submit_worker_harness(
         tmp_path,
@@ -756,6 +777,10 @@ def test_await_import_finalize_releases_checkpoint_protection(tmp_path: Path) ->
     handler = build_await_import_result_handler(await_deps)
     handler(await_work.operation, await_work.step, control, session)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        submit_attempt_id = next(
+            ref.value for ref in operation.business_refs if ref.kind == "submit_attempt"
+        )
         await_step = unit_of_work.operations.get_step(
             submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
         )
@@ -765,6 +790,65 @@ def test_await_import_finalize_releases_checkpoint_protection(tmp_path: Path) ->
         assert type(evidence_ref) is dict
         assert not unit_of_work.protection.is_protected(await_step.checkpoint_ref.artifact_id)
         assert not unit_of_work.protection.is_protected(evidence_ref["artifact_id"])
+        _assert_submit_checkpoint_protection_released(
+            unit_of_work,
+            operation_id=operation_id,
+            submit_attempt_id=submit_attempt_id,
+        )
+
+
+def test_await_import_stable_abort_releases_checkpoint_protection(tmp_path: Path) -> None:
+    def _import_rejected_handler(request: httpx.Request) -> httpx.Response:
+        if "/operations/" in request.url.path and request.method == "GET":
+            operation_id = request.url.path.rsplit("/", 1)[-1]
+            return httpx.Response(
+                200,
+                json={
+                    "operation": {
+                        "operation_id": operation_id,
+                        "status": "FAILED",
+                        "error": {
+                            "code": "IMPORT_REJECTED",
+                            "message": "import rejected",
+                            "request_id": None,
+                        },
+                        "result": None,
+                    }
+                },
+                headers={"X-Request-ID": "req-operation"},
+            )
+        return default_repository_handler(request)
+
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(_import_rejected_handler),
+    )
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    worker_id, lease_token = _await_lease_identity(await_work)
+    control, session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=await_work.operation.operation_id,
+        step_id=await_work.step.step_id,
+    )
+    handler = build_await_import_result_handler(harness.submit_deps)
+    handler(await_work.operation, await_work.step, control, session)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        submit_attempt_id = next(
+            ref.value for ref in operation.business_refs if ref.kind == "submit_attempt"
+        )
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        assert operation.status is OperationStatus.FAILED
+        assert attempt is not None
+        assert attempt.state is SubmitAttemptState.ABORTED
+        _assert_submit_checkpoint_protection_released(
+            unit_of_work,
+            operation_id=operation_id,
+            submit_attempt_id=submit_attempt_id,
+        )
 
 
 def test_await_import_persists_terminal_evidence_before_finalize(tmp_path: Path) -> None:

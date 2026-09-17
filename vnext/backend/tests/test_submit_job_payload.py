@@ -15,7 +15,8 @@ from gateway_backend.application.submit_jobs import (
     decode_submit_payload,
     submit_payload_decoders,
 )
-from gateway_backend.artifacts.types import ArtifactRef, DigestRef
+from gateway_backend.artifacts.types import ArtifactRef
+from gateway_shared_kernel import DigestRef
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.application.submit_registry import (
     AWAIT_IMPORT_DECODER,

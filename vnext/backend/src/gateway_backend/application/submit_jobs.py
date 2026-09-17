@@ -465,8 +465,15 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                 attempt=attempt,
                 operation=operation,
                 checkpoint=prepare_checkpoint,
-                checkpoint_ref=step.checkpoint_ref,
             )
+            with deps.control_transaction_factory() as unit_of_work:
+                _pin_submit_checkpoint_refs(
+                    unit_of_work,
+                    step_id=step.step_id,
+                    checkpoint_ref=step.checkpoint_ref,
+                    extra_refs=_prepare_checkpoint_extra_refs(prepare_checkpoint),
+                    intent="prepare-import-checkpoint",
+                )
         else:
             build_input = _build_prepare_import_build_input(
                 payload=payload,
@@ -1386,19 +1393,22 @@ def _prepare_step_checkpoint(
         attempt=attempt,
         operation=operation_record,
         checkpoint=checkpoint,
-        checkpoint_ref=checkpoint_ref,
     )
     lease_session.publish_checkpoint(
         _pinned_checkpoint_builder(
             checkpoint_ref=checkpoint_ref,
-            extra_refs=(
-                store_ref_from_backend_artifact_ref(checkpoint.canonicalization_manifest_ref),
-                store_ref_from_backend_artifact_ref(checkpoint.backend_import_artifact_ref),
-            ),
+            extra_refs=_prepare_checkpoint_extra_refs(checkpoint),
             intent="prepare-import-checkpoint",
         )
     )
     return checkpoint_ref
+
+
+def _prepare_checkpoint_extra_refs(checkpoint: PrepareImportCheckpoint) -> tuple[ArtifactRef, ...]:
+    return (
+        store_ref_from_backend_artifact_ref(checkpoint.canonicalization_manifest_ref),
+        store_ref_from_backend_artifact_ref(checkpoint.backend_import_artifact_ref),
+    )
 
 
 def _pin_prepare_refs(
@@ -1407,7 +1417,6 @@ def _pin_prepare_refs(
     attempt: SubmitAttempt,
     operation: OperationRecord,
     checkpoint: PrepareImportCheckpoint,
-    checkpoint_ref: ArtifactRef,
 ) -> None:
     snapshot_refs = tuple(
         ref
@@ -1422,12 +1431,22 @@ def _pin_prepare_refs(
             package_ref=checkpoint.backend_import_artifact_ref,
             existing_snapshot_refs=snapshot_refs,
         )
-        unit_of_work.set_artifact_protection(
-            (checkpoint_ref,),
-            owner_kind="submit-checkpoint",
-            owner_id=attempt.submit_attempt_id,
-            intent="prepare-import-checkpoint",
-        )
+
+
+def _pin_submit_checkpoint_refs(
+    transaction: SubmitControlTransaction,
+    *,
+    step_id: str,
+    checkpoint_ref: ArtifactRef,
+    extra_refs: tuple[ArtifactRef, ...],
+    intent: str,
+) -> None:
+    transaction.set_artifact_protection(
+        (checkpoint_ref, *extra_refs),
+        owner_kind="submit-checkpoint",
+        owner_id=step_id,
+        intent=intent,
+    )
 
 
 def _job_state_for_prepare(checkpoint: PrepareImportCheckpoint) -> dict[str, object]:
@@ -2187,11 +2206,11 @@ def _pinned_checkpoint_builder(
         transaction = _active_submit_transaction.get()
         if transaction is None:
             raise SubmitJobError("submit checkpoint transaction is not bound")
-        refs = (checkpoint_ref, *extra_refs)
-        transaction.set_artifact_protection(
-            refs,
-            owner_kind="submit-checkpoint",
-            owner_id=step.step_id,
+        _pin_submit_checkpoint_refs(
+            transaction,
+            step_id=step.step_id,
+            checkpoint_ref=checkpoint_ref,
+            extra_refs=extra_refs,
             intent=intent,
         )
         return candidate

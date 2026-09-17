@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +22,13 @@ from tests.support.runtime_settings import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _skip_repository_ready_probe() -> None:
+    with patch("gateway_backend.http.runtime.assert_repository_service_ready"):
+        yield
+
 
 WORKSPACE_BODY = {
     "gateway_device_external_key": TEST_DEVICE_KEY,

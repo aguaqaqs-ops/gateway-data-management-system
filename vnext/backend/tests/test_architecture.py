@@ -674,6 +674,20 @@ def test_worker_lifecycle_stays_process_local_and_runtime_neutral() -> None:
     assert not any(token in text for token in forbidden), lifecycle_source
 
 
+def test_http_bootstrap_owns_uvicorn_entry() -> None:
+    entrypoint = BOOTSTRAP_ROOT / "http_server.py"
+    assert entrypoint.is_file()
+    text = entrypoint.read_text(encoding="utf-8")
+    assert "AdmissionFirstUvicornServer" in text
+    assert "begin_http_pre_drain" in text
+    assert "SIGTERM" not in text
+    assert "handle_exit" in text
+    dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
+    assert 'CMD ["python", "-m", "gateway_backend.bootstrap.http_server"]' in dockerfile.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_worker_bootstrap_owns_concrete_process_composition() -> None:
     assert (BOOTSTRAP_ROOT / "__init__.py").is_file()
     entrypoint = BOOTSTRAP_ROOT / "operation_worker.py"
@@ -712,6 +726,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                     (
                         "gateway_backend.application",
                         "gateway_backend.bootstrap",
+                        "gateway_backend.http.shutdown",
                         "gateway_backend.infrastructure.artifact_store",
                         "gateway_backend.infrastructure.control_db",
                         "gateway_backend.infrastructure.repository_read",

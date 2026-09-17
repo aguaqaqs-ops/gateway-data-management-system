@@ -47,4 +47,4 @@ RUN uv pip install \
     --no-deps \
     /tmp/*.whl
 ENV PATH="/app/backend/.venv/bin:${PATH}" PYTHONPATH="/app/backend/src"
-CMD ["uvicorn", "gateway_backend.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "gateway_backend.bootstrap.http_server"]

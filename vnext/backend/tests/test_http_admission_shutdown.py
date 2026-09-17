@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
+import socket
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
 import pytest
+import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from uvicorn.config import Config
 
 from gateway_backend.app import create_app
+from gateway_backend.bootstrap.http_server import AdmissionFirstUvicornServer
 from gateway_backend.http.dependencies import ClosableAdmissionGate
+from gateway_backend.http.shutdown import begin_http_pre_drain, resolve_fastapi_app
 from tests.support.http_workspace_harness import (
+    BASELINE_HEAD,
     TEST_BEARER,
     create_workspace_http_environment,
 )
@@ -66,7 +73,7 @@ def test_create_routes_reject_after_admission_close_while_reads_remain(tmp_path:
     assert missing_operation.status_code in {401, 403, 404}
 
 
-def test_production_shutdown_closes_admission_gate(tmp_path: Path) -> None:
+def test_production_pre_drain_marks_not_ready_and_closes_admission(tmp_path: Path) -> None:
     prepare_backend_runtime_paths(tmp_path)
     settings = make_backend_settings(
         tmp_path,
@@ -78,14 +85,12 @@ def test_production_shutdown_closes_admission_gate(tmp_path: Path) -> None:
         with TestClient(create_app(settings)) as client:
             fastapi_app = cast(FastAPI, client.app)
             assert client.get("/readyz").status_code == 200
-            gate = fastapi_app.state.admission_gate
-            assert gate.allows_new_work() is True
-            gate.close()
-            assert gate.allows_new_work() is False
-            assert client.get("/readyz").status_code == 200
+            assert fastapi_app.state.admission_gate.allows_new_work() is True
+            begin_http_pre_drain(fastapi_app)
+            assert fastapi_app.state.admission_gate.allows_new_work() is False
+            assert client.get("/readyz").status_code == 503
             assert client.get("/healthz").status_code == 200
             assert TEST_REPOSITORY_TOKEN not in client.get("/readyz").text
-        assert fastapi_app.state.admission_gate.allows_new_work() is False
 
 
 def test_production_lifespan_shutdown_marks_not_ready(tmp_path: Path) -> None:
@@ -106,8 +111,47 @@ def test_production_lifespan_shutdown_marks_not_ready(tmp_path: Path) -> None:
         assert fastapi_app.state.admission_gate.allows_new_work() is False
 
 
+def test_admission_first_server_pre_drains_before_super_shutdown(tmp_path: Path) -> None:
+    prepare_backend_runtime_paths(tmp_path)
+    settings = make_backend_settings(
+        tmp_path,
+        control_db_path=tmp_path / "control" / "control.sqlite3",
+        artifact_root=tmp_path / "artifacts",
+        repository_bearer_token_file=tmp_path / "repository-bearer-token",
+    )
+    captured: list[tuple[bool, bool]] = []
+
+    async def tracking_shutdown(
+        self: uvicorn.Server,
+        sockets: list[socket.socket] | None = None,
+    ) -> None:
+        fastapi_app = resolve_fastapi_app(self.config.loaded_app)
+        assert fastapi_app is not None
+        captured.append(
+            (
+                bool(fastapi_app.state.ready),
+                fastapi_app.state.admission_gate.allows_new_work(),
+            )
+        )
+
+    async def run_shutdown_probe() -> None:
+        with patch("gateway_backend.http.runtime.assert_repository_service_ready"):
+            app = create_app(settings)
+            with TestClient(app):
+                config = Config(app=app, host="127.0.0.1", port=0, log_level="error")
+                config.load()
+                server = AdmissionFirstUvicornServer(config)
+                server.started = True
+                with patch.object(uvicorn.Server, "shutdown", tracking_shutdown):
+                    await server.shutdown()
+
+    asyncio.run(run_shutdown_probe())
+
+    assert captured == [(False, False)]
+
+
 def test_submit_create_route_rejects_after_admission_close(tmp_path: Path) -> None:
-    from tests.support.http_workspace_harness import BASELINE_HEAD, seed_submit_ready_workspace
+    from tests.support.http_workspace_harness import seed_submit_ready_workspace
 
     env = create_workspace_http_environment(tmp_path, admission_open=True)
     seed = seed_submit_ready_workspace(env.db_path, env.artifact_store)

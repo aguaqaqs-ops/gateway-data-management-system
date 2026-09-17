@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies
+from gateway_backend.http.shutdown import begin_http_pre_drain
 from gateway_backend.settings import BackendSettings
 
 
@@ -35,8 +36,7 @@ def create_app(
         try:
             yield
         finally:
-            app.state.ready = False
-            runtime.admission_gate.close()
+            begin_http_pre_drain(app)
 
     app = FastAPI(title="Gateway Backend vNext", lifespan=lifespan)
     from gateway_backend.http.errors import register_exception_handlers

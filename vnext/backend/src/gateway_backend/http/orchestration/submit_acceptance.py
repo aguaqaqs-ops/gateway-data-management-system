@@ -24,7 +24,10 @@ from gateway_backend.application.submission.accept_transaction import (
     accept_submit_transaction,
     assert_submit_job_registered,
 )
-from gateway_backend.application.submission.contracts import AcceptSubmitCommand
+from gateway_backend.application.submission.contracts import (
+    AcceptSubmitCommand,
+    is_submit_snapshot_table_binding_candidate,
+)
 from gateway_backend.application.submission.errors import PreviewBindingConflict, SubmitJobNotRegistered
 from gateway_backend.application.submission.ports import (
     BaselineCanonicalDigestPort,
@@ -130,17 +133,24 @@ def load_accept_submit_preflight(
         )
     )
     closure_id = preview_result.ready_closure_artifact_id
-    snapshot_table_artifact_refs = tuple(
+    protected_preview_artifact_ids = tuple(
         sorted(
             artifact_id
             for artifact_id in held_ids
             if artifact_id not in source_ids and artifact_id != closure_id
         )
     )
+    snapshot_table_artifact_refs = tuple(
+        sorted(
+            artifact_id
+            for artifact_id in protected_preview_artifact_ids
+            if is_submit_snapshot_table_binding_candidate(artifact_id)
+        )
+    )
     protected_artifact_refs = _protected_artifact_refs(
         upload_revision=upload_revision,
         preview_result=preview_result,
-        snapshot_table_artifact_refs=snapshot_table_artifact_refs,
+        snapshot_table_artifact_refs=protected_preview_artifact_ids,
         artifact_ref_lookup=artifact_ref_lookup,
     )
     return AcceptSubmitPreflight(

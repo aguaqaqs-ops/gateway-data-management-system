@@ -59,6 +59,22 @@ class SnapshotTableBinding:
             raise ValueError("raw_sha256 must be a non-empty string")
 
 
+_SUBMIT_NON_TABLE_ARTIFACT_PREFIXES = (
+    "bundle-manifest-",
+    "comparison-closure-",
+    "comparison-standard-",
+    "comparison-standard-manifest-",
+    "risk-annotation-",
+    "sta-rows-",
+)
+
+
+def is_submit_snapshot_table_binding_candidate(artifact_id: str) -> bool:
+    """Return whether a protected preview artifact may be opened as a snapshot table manifest."""
+
+    return not any(artifact_id.startswith(prefix) for prefix in _SUBMIT_NON_TABLE_ARTIFACT_PREFIXES)
+
+
 @dataclass(frozen=True, slots=True)
 class PrepareImportBuildInput:
     submit_attempt_id: str

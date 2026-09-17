@@ -79,6 +79,7 @@ from gateway_backend.application.submission.contracts import (
     RepositoryOperationTerminalStatus,
     SnapshotTableBinding,
     SubmitImportPublicationPort,
+    is_submit_snapshot_table_binding_candidate,
 )
 from gateway_backend.application.submission.effect_pending_transaction import (
     BindRepositoryOperationRequest,
@@ -119,6 +120,7 @@ from gateway_backend.artifacts.nominal_refs import store_ref_from_backend_artifa
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError, put_with_built_ref
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.capabilities.snapshot_materialization.artifact import manifest_from_bytes
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
@@ -454,6 +456,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                 payload=payload,
                 attempt=attempt,
                 operation=operation,
+                store=deps.artifact_store,
             )
             reuse_prepare_import_checkpoint(
                 build_input=build_input,
@@ -480,6 +483,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                 payload=payload,
                 attempt=attempt,
                 operation=operation,
+                store=deps.artifact_store,
             )
             publication = publish_prepare_import_package(
                 build_input=build_input,
@@ -1339,11 +1343,12 @@ def _build_prepare_import_build_input(
     payload: SubmitJobPayload,
     attempt: SubmitAttempt,
     operation: OperationRecord,
+    store: ArtifactStorePort,
 ) -> PrepareImportBuildInput:
     ruleset = migrated_table_ruleset_snapshot()
     if ruleset.ruleset_digest is None:
         raise SubmitImportBuilderError("ruleset digest is required")
-    snapshot_tables = _snapshot_bindings_from_operation(operation, attempt)
+    snapshot_tables = _snapshot_bindings_from_operation(operation, attempt, store)
     return PrepareImportBuildInput(
         submit_attempt_id=payload.submit_attempt_id,
         builder_mutation_policy=payload.builder_mutation_policy,
@@ -2137,23 +2142,63 @@ def _assert_payload_matches_attempt(payload: SubmitJobPayload, attempt: SubmitAt
 def _snapshot_bindings_from_operation(
     operation: OperationRecord,
     attempt: SubmitAttempt,
+    store: ArtifactStorePort,
 ) -> tuple[SnapshotTableBinding, ...]:
     required_ids = frozenset(attempt.snapshot_table_artifact_refs)
-    bindings: list[SnapshotTableBinding] = []
+    candidates: list[tuple[ArtifactRef, str, str]] = []
     for ref in operation.artifact_refs:
         if ref.artifact_id not in required_ids:
             continue
-        bindings.append(
-            SnapshotTableBinding(
-                artifact_id=ref.artifact_id,
-                media_type=ref.media_type,
-                size_bytes=ref.size_bytes,
-                raw_sha256=ref.raw_sha256.value,
-            )
-        )
-    if frozenset(item.artifact_id for item in bindings) != required_ids:
+        if not is_submit_snapshot_table_binding_candidate(ref.artifact_id):
+            continue
+        try:
+            manifest = manifest_from_bytes(store.locate(ref))
+        except (ManifestVerificationError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+            raise SubmitImportBuilderError(
+                f"snapshot table manifest {ref.artifact_id!r} is missing or corrupt"
+            ) from exc
+        candidates.append((ref, manifest.table_name, manifest.snapshot_digest.value))
+    if not candidates:
         raise SubmitImportBuilderError("operation artifact refs do not cover snapshot table bindings")
-    return tuple(sorted(bindings, key=lambda item: item.artifact_id))
+
+    selected_refs: list[ArtifactRef] = []
+    by_table: dict[str, list[tuple[ArtifactRef, str, str]]] = {}
+    for ref, table_name, snapshot_digest in candidates:
+        by_table.setdefault(table_name, []).append((ref, table_name, snapshot_digest))
+    for group in by_table.values():
+        if len(group) == 1:
+            selected_refs.append(group[0][0])
+            continue
+        matching_side = [item for item in group if item[2] == attempt.snapshot_digest]
+        if matching_side:
+            selected_refs.append(matching_side[0][0])
+            continue
+        digest_counts: dict[str, int] = {}
+        for _ref, _table_name, snapshot_digest in group:
+            digest_counts[snapshot_digest] = digest_counts.get(snapshot_digest, 0) + 1
+        chosen_digest = min(digest_counts, key=lambda digest: (digest_counts[digest], digest))
+        for ref, _table_name, snapshot_digest in group:
+            if snapshot_digest == chosen_digest:
+                selected_refs.append(ref)
+                break
+
+    bindings = tuple(
+        sorted(
+            (
+                SnapshotTableBinding(
+                    artifact_id=ref.artifact_id,
+                    media_type=ref.media_type,
+                    size_bytes=ref.size_bytes,
+                    raw_sha256=ref.raw_sha256.value,
+                )
+                for ref in selected_refs
+            ),
+            key=lambda item: item.artifact_id,
+        )
+    )
+    if not bindings:
+        raise SubmitImportBuilderError("operation artifact refs do not cover snapshot table bindings")
+    return bindings
 
 
 def _submit_attempt_id_from_operation(operation: OperationRecord) -> str:

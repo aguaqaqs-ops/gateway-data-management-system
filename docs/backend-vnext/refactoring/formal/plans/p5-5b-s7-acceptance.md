@@ -13,7 +13,7 @@ stage: P5-5B-S7-independent-functional-acceptance
 parent_candidate: 37fa7c21ca261e5e89d15515f629106556ee43de
 baseline_commit: 4cda6b9c
 remediation_round_2: 30193dd5d3b34ec82da382cd7d85650cd98a3bb7
-remediation_round_3: b60402dc59d6c9042972c0011439c7a509a898a5
+remediation_round_3: 5de2e0b7f958eb496e24af7f304aef23f245ad1f
 s5_independent_review: pass
 s6_independent_review: pass (p5-5b-s6-independent-review-5.md)
 s7_independent_review: changes_required → remediation round 3 @ review-4

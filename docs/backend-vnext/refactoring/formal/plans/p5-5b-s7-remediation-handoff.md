@@ -13,7 +13,7 @@ review: p5-5b-s7-independent-review-4.md
 parent_candidate: 37fa7c21ca261e5e89d15515f629106556ee43de
 baseline_commit: 4cda6b9c
 remediation_round_2: 30193dd5d3b34ec82da382cd7d85650cd98a3bb7
-remediation_round_3: b60402dc59d6c9042972c0011439c7a509a898a5
+remediation_round_3: 5de2e0b7f958eb496e24af7f304aef23f245ad1f
 findings_addressed:
   S7-F1: closed @ review-4 — finalize_transaction.py + submit_jobs.py + test_submit_recovery.py
   S7-F4: closed @ review-4 — test_operator_recovery_http.py

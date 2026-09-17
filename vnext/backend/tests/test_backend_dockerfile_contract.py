@@ -66,4 +66,11 @@ def test_compose_worker_grace_and_backend_internal_bearer_secret() -> None:
     assert worker_block is not None
     block = worker_block.group(1)
     assert "stop_grace_period: 180s" in block
-    assert "backend-internal-bearer:" in compose
+    backend_block = re.search(
+        r"^  backend:\n(.*?)(?=^  worker:)",
+        compose,
+        re.M | re.S,
+    )
+    assert backend_block is not None
+    assert "- backend-internal-bearer" in backend_block.group(1)
+    assert "stop_grace_period: 180s" in backend_block.group(1)

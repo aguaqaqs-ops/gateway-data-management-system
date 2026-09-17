@@ -19,7 +19,7 @@ from gateway_backend.application.submission.ports import (
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
-from gateway_backend.domain.workspace.models import BaselineHead
+from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness
 from gateway_backend.domain.workspace.ports import (
     BaselineHeadReadPort,
     ScopeResolutionPort,
@@ -159,8 +159,10 @@ class FailClosedBaselineCanonicalDigestPort:
         *,
         repository_id: str,
         baseline_head: BaselineHead,
+        input_completeness: InputCompleteness,
+        ruleset_version: str,
     ) -> str:
-        del repository_id, baseline_head
+        del repository_id, baseline_head, input_completeness, ruleset_version
         from gateway_backend.http.errors import ApiError
 
         raise ApiError(

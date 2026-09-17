@@ -100,6 +100,8 @@ def test_production_lifespan_shutdown_marks_not_ready(tmp_path: Path) -> None:
         with TestClient(create_app(settings)) as client:
             fastapi_app = cast(FastAPI, client.app)
             assert client.get("/readyz").status_code == 200
+        assert client.get("/readyz").status_code == 503
+        assert client.get("/healthz").status_code == 200
         assert fastapi_app.state.ready is False
         assert fastapi_app.state.admission_gate.allows_new_work() is False
 

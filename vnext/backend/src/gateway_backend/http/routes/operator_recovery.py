@@ -7,41 +7,19 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
+from gateway_backend.application.submit_registry import build_submit_recovery_capability_mapping
 from gateway_backend.http.errors import ApiError
-from gateway_backend.application.recovery import RecoveryCapability
-from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
-from gateway_backend.application.submission.job_payload import (
-    SUBMIT_JOB_KIND,
-    SUBMIT_STEP_AWAIT,
-    SUBMIT_STEP_PREPARE,
-    SUBMIT_STEP_SUBMIT,
-)
 from gateway_backend.http.auth import require_internal_bearer
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, get_workspace_http
 from gateway_backend.http.orchestration.operator_recovery import CapabilityLookup, execute_operator_recovery
 from gateway_backend.http.schemas.operator_recovery import OperatorRecoveryRequestBody, OperatorRecoveryResponse
-from gateway_backend.operations import JobStepKey
-from gateway_backend.operations.recovery import RecoveryCapabilityValue
 
 router = APIRouter(tags=["operator-recovery"])
 
 
 def _capability_lookup(registry: JobDefinitionRegistry) -> CapabilityLookup:
-    mapping: dict[tuple[str, str], RecoveryCapabilityValue] = {}
     try:
-        for step_name in (SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT, SUBMIT_STEP_AWAIT):
-            definition = registry.resolve_runnable(
-                JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=step_name),
-                SUBMIT_JOB_CONTRACT_VERSION,
-            )
-            capability = definition.recovery_capability
-            if capability is RecoveryCapability.PURE_RECOMPUTE:
-                mapped = RecoveryCapabilityValue.PURE_RECOMPUTE
-            elif capability is RecoveryCapability.EXTERNAL_EFFECT:
-                mapped = RecoveryCapabilityValue.EXTERNAL_EFFECT
-            else:
-                mapped = RecoveryCapabilityValue.NON_RETRYABLE
-            mapping[(SUBMIT_JOB_KIND, step_name)] = mapped
+        mapping = build_submit_recovery_capability_mapping(registry)
     except JobDefinitionLookupError as exc:
         raise ApiError(
             code="SERVICE_NOT_READY",

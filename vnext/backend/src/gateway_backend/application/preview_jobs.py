@@ -149,6 +149,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
     TableRulesetSnapshot,
 )
 from gateway_backend.domain.workspace.models import (
+    BaselineHead,
     InputCompleteness,
     PreviewResult,
     PreviewResultDigests,
@@ -907,16 +908,15 @@ def _materialize_all_sides(
     return sides
 
 
-def _materialize_baseline(
-    payload: PreviewJobPayload,
+def _materialize_baseline_commit(
+    *,
+    repository_id: str,
+    commit_id: str,
     provider: RepositoryTableAccessProvider,
     store: ArtifactStorePort,
 ) -> BoundSnapshotInput:
     request = RepositoryRefMaterializationRequest(
-        repository_ref=RepositoryRef(
-            repository_id=payload.repository_id,
-            ref=payload.business_baseline_commit_id,
-        ),
+        repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
         provider=provider,
         ruleset=TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION),
         table_ruleset_version=TABLE_RULESET_VERSION,
@@ -927,6 +927,19 @@ def _materialize_baseline(
     )
     result = materialize_repository_ref(request)
     return _bound_from_materialization(result, label="baseline")
+
+
+def _materialize_baseline(
+    payload: PreviewJobPayload,
+    provider: RepositoryTableAccessProvider,
+    store: ArtifactStorePort,
+) -> BoundSnapshotInput:
+    return _materialize_baseline_commit(
+        repository_id=payload.repository_id,
+        commit_id=payload.business_baseline_commit_id,
+        provider=provider,
+        store=store,
+    )
 
 
 def _materialize_uploaded_side(binding: SourceArtifactBinding, store: ArtifactStorePort) -> BoundSnapshotInput:
@@ -962,7 +975,7 @@ class _PairPipelineResult:
     surface_result: SurfaceAssemblyResult
 
 
-def _surface_artifact_closure(surface: ComparisonSurface | None, pair_id: str) -> BundleArtifactClosure:
+def surface_artifact_closure(surface: ComparisonSurface | None, pair_id: str) -> BundleArtifactClosure:
     if surface is None:
         raise PreviewJobError("surface assembly did not produce a surface for bundle closure")
     bindings: list[BundleArtifactBinding] = []
@@ -1154,7 +1167,7 @@ def _assemble_preview(
                 before_index,
                 current_index,
                 pair_state.surface_result,
-                _surface_artifact_closure(pair_state.surface_result.surface, pair_id),
+                surface_artifact_closure(pair_state.surface_result.surface, pair_id),
             )
         )
 
@@ -1196,6 +1209,110 @@ def _assemble_preview(
         "required_refs": [artifact_ref_to_dict(item) for item in required_refs],
     }
     return assemble_state, bundle_result.bundle.manifest_ref, bundle_result.bundle.bundle_digest.value
+
+
+def compute_baseline_canonical_bundle_digest(
+    *,
+    repository_id: str,
+    baseline_head: BaselineHead,
+    input_completeness: InputCompleteness,
+    ruleset_version: str,
+    provider_factory: Callable[[str, str], RepositoryTableAccessProvider],
+    store: ArtifactStorePort,
+) -> str:
+    """Compute business-base canonical digest using preview-isomorphic bundle topology."""
+
+    if type(ruleset_version) is not str or not ruleset_version:
+        raise PreviewJobError("ruleset_version must be a non-empty string")
+    provider = provider_factory(repository_id, baseline_head.business_baseline_commit_id)
+    del ruleset_version  # bound for port contract; materialization uses TABLE_RULESET_VERSION like preview job
+    baseline = _materialize_baseline_commit(
+        repository_id=repository_id,
+        commit_id=baseline_head.business_baseline_commit_id,
+        provider=provider,
+        store=store,
+    )
+    sides: dict[str, BoundSnapshotInput] = {_SIDE_BASELINE: baseline}
+    if input_completeness is InputCompleteness.FULL:
+        sides[_SIDE_INITIAL] = baseline
+        sides[_SIDE_MODIFIED] = baseline
+    else:
+        sides[_SIDE_MODIFIED] = baseline
+
+    control = ExecutionControl()
+    bundle_pairs: list[BundlePairInput] = []
+    if input_completeness is InputCompleteness.FULL:
+        pair_specs: tuple[tuple[str, BoundSnapshotInput, BoundSnapshotInput, PairRole], ...] = (
+            (_PAIR_BASELINE_TO_INITIAL, sides[_SIDE_BASELINE], sides[_SIDE_INITIAL], PairRole.BASELINE_TO_INITIAL),
+            (_PAIR_INITIAL_TO_MODIFIED, sides[_SIDE_INITIAL], sides[_SIDE_MODIFIED], PairRole.INITIAL_TO_MODIFIED),
+        )
+        bundle_profile = BundleProfile.MULTI_PAIR
+        bundle_inputs: tuple[BundleInput, ...] = (
+            BundleInput(0, "baseline", "Baseline"),
+            BundleInput(1, "initial", "Initial"),
+            BundleInput(2, "modified", "Modified"),
+        )
+        bundle_indexes: dict[str, tuple[int, int]] = {
+            _PAIR_BASELINE_TO_INITIAL: (0, 1),
+            _PAIR_INITIAL_TO_MODIFIED: (1, 2),
+        }
+    else:
+        pair_specs = (
+            (
+                _PAIR_INITIAL_TO_MODIFIED,
+                sides[_SIDE_BASELINE],
+                sides[_SIDE_MODIFIED],
+                PairRole.INITIAL_TO_MODIFIED,
+            ),
+        )
+        bundle_profile = BundleProfile.SINGLE_PAIR
+        bundle_inputs = (
+            BundleInput(0, "baseline", "Baseline"),
+            BundleInput(1, "modified", "Modified"),
+        )
+        bundle_indexes = {_PAIR_INITIAL_TO_MODIFIED: (0, 1)}
+
+    for pair_id, before, current, pair_role in pair_specs:
+        if control.cancel_requested:
+            raise PreviewJobError("baseline canonical digest assembly cancelled")
+        pair_state = _run_pair_pipeline(
+            pair_id=pair_id,
+            before=before,
+            current=current,
+            pair_role=pair_role,
+            input_completeness=input_completeness,
+            baseline=sides[_SIDE_BASELINE] if input_completeness is InputCompleteness.MODIFIED_ONLY else None,
+            store=store,
+            control=control,
+        )
+        before_index, current_index = bundle_indexes[pair_id]
+        bundle_pairs.append(
+            BundlePairInput(
+                pair_id,
+                before_index,
+                current_index,
+                pair_state.surface_result,
+                surface_artifact_closure(pair_state.surface_result.surface, pair_id),
+            )
+        )
+
+    bundle_result = assemble_bundle(
+        BundleAssemblyInput(
+            bundle_contract_version=BUNDLE_CONTRACT_VERSION,
+            bundle_profile=bundle_profile,
+            inputs=bundle_inputs,
+            pairs=tuple(bundle_pairs),
+            ref_scope=BundleRefScope.BUNDLE_RELATIVE,
+        ),
+        source_store=store,
+        context=BundleAssemblyContext(
+            checkpoint=lambda: None,
+            cancel_requested=lambda: control.cancel_requested,
+        ),
+    )
+    if bundle_result.status is not BundleAssemblyStatus.READY or bundle_result.bundle is None:
+        raise PreviewJobError("baseline bundle assembly failed")
+    return bundle_result.bundle.bundle_digest.value
 
 
 def _run_pair_pipeline(
@@ -2065,7 +2182,9 @@ __all__ = [
     "build_materialize_inputs_handler",
     "build_preview_recovery_port",
     "build_publish_preview_handler",
+    "compute_baseline_canonical_bundle_digest",
     "decode_preview_payload",
+    "surface_artifact_closure",
     "preview_composition_bundle",
     "preview_job_definitions",
     "preview_payload_decoders",

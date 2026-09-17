@@ -179,8 +179,15 @@ class FakeBaselineCanonicalDigestPort:
     uow_active_during_calls: tuple[bool, ...] = ()
     fail_with: BaseException | None = None
 
-    def get_baseline_canonical_digest(self, *, repository_id: str, baseline_head: object) -> str:
-        del repository_id, baseline_head
+    def get_baseline_canonical_digest(
+        self,
+        *,
+        repository_id: str,
+        baseline_head: object,
+        input_completeness: object,
+        ruleset_version: str,
+    ) -> str:
+        del repository_id, baseline_head, input_completeness, ruleset_version
         self.calls += 1
         writer_open = False if self.tracker is None else self.tracker.writer_open
         uow_active = False if self.tracker is None else self.tracker.active_uow_entries > 0

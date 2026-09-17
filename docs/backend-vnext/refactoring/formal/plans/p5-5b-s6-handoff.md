@@ -1,6 +1,6 @@
 # P5-5B-S6 Readiness, Shutdown, Settings and Deployment Wiring Handoff
 
-状态：**S6 complete — candidate 待提交**
+状态：**S6 initial handoff — superseded by remediation round 1（见 p5-5b-s6-remediation-handoff.md）**
 
 日期：2026-09-17
 
@@ -67,7 +67,7 @@ container_reason: S6 touched compose/settings/readiness/deployment boundary
 ## Invariants delivered
 
 - Backend `/readyz` 开放前校验 combined preview+submit registry **与** Repository `/readyz`（fail-closed；错误消息不含 token/URL path）。
-- HTTP T1 preflight 与 worker 共用 `submit_job_definitions()` / decoder identity 快照。
+- HTTP 与 worker 共用 `preview_job_definitions()` + `submit_job_definitions()` 源；remediation 后 `assert_submit_registry_decoders` 校验 submit decoder identity。
 - Shutdown 顺序：readiness=false → admission close；new-work POST 返回 429；GET submit-attempts/submissions 仍可达。
 - `HttpBaselineCanonicalDigestPort` 在 `runtime.py` 内组合 materialize + comparison + bundle assembly；失败映射 503 `DEPENDENCY_UNAVAILABLE`。
 - Compose internal bearer secret 与 backend session/repository bearer 并列挂载。

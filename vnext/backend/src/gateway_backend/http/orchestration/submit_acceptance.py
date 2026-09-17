@@ -237,6 +237,8 @@ def accept_submit_operation(
         baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
             repository_id=new_key_loaded.workspace.repository_id,
             baseline_head=resolved_baseline_head,
+            input_completeness=new_key_loaded.upload_revision.input_completeness,
+            ruleset_version=new_key_loaded.preview_result.ruleset_version,
         )
         assert_no_canonical_change_after_baseline(
             loaded=new_key_loaded,

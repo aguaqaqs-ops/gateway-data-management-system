@@ -19,7 +19,7 @@ from gateway_backend.domain.submission.models import (
     Submission,
     WorkspaceSubmitOccupancy,
 )
-from gateway_backend.domain.workspace.models import BaselineHead, ResolvedScope
+from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness, ResolvedScope
 from gateway_backend.domain.workspace.ports import WorkspaceRepository
 from gateway_backend.operations import OperationStore
 
@@ -162,6 +162,8 @@ class BaselineCanonicalDigestPort(Protocol):
         *,
         repository_id: str,
         baseline_head: BaselineHead,
+        input_completeness: InputCompleteness,
+        ruleset_version: str,
     ) -> str:
         """Return current business-base canonical digest for NO_CANONICAL_CHANGE guard."""
 

@@ -122,6 +122,7 @@ def test_compose_three_process_submit_stack_smoke_and_backend_restart(tmp_path: 
     _require_docker()
     env = _compose_env(tmp_path)
     build = _run_compose(env, "build", "backend", "worker", "repository-service")
+    used_repository_fallback = False
     if build.returncode != 0:
         backend_worker_build = _run_compose(env, "build", "backend", "worker")
         if backend_worker_build.returncode != 0:
@@ -130,6 +131,7 @@ def test_compose_three_process_submit_stack_smoke_and_backend_restart(tmp_path: 
                 f"repository build: {build.stderr[:200]}; "
                 f"backend build: {backend_worker_build.stderr[:200]}"
             )
+        used_repository_fallback = True
         up = _run_compose(env, "up", "-d", "--no-build", "repository-service", "backend", "worker")
     else:
         up = _run_compose(env, "up", "-d", "repository-service", "backend", "worker")
@@ -137,6 +139,12 @@ def test_compose_three_process_submit_stack_smoke_and_backend_restart(tmp_path: 
         pytest.fail(f"compose up failed: {up.stderr}\n{up.stdout}")
 
     try:
+        if used_repository_fallback:
+            images = _run_compose(env, "images", "repository-service", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}")
+            pytest.skip(
+                "repository-service conjunction build unavailable; fallback image in use: "
+                f"{images.stdout.strip()}"
+            )
         _wait_http_ok(f"{BACKEND_URL}/readyz")
         _worker_ready(env)
 

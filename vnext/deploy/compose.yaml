@@ -39,6 +39,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+    stop_grace_period: 180s
   worker:
     build:
       context: ..

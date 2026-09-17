@@ -127,8 +127,10 @@ class FakeBaselineCanonicalDigestPort:
         *,
         repository_id: str,
         baseline_head: BaselineHead,
+        input_completeness: object,
+        ruleset_version: str,
     ) -> str:
-        del repository_id, baseline_head
+        del repository_id, baseline_head, input_completeness, ruleset_version
         return self.digest
 
 

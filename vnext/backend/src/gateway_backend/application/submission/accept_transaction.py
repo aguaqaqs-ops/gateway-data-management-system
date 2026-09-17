@@ -148,6 +148,8 @@ def accept_submit_transaction(
             baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
                 repository_id=repository_id,
                 baseline_head=resolved.baseline_head,
+                input_completeness=loaded.upload_revision.input_completeness,
+                ruleset_version=loaded.preview_result.ruleset_version,
             )
         assert_no_canonical_change_after_baseline(
             loaded=loaded,

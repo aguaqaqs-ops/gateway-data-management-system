@@ -102,6 +102,8 @@ def validate_accept_submit(
     baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
         repository_id=workspace.repository_id,
         baseline_head=baseline_head,
+        input_completeness=upload_revision.input_completeness,
+        ruleset_version=preview_result.ruleset_version,
     )
     if preview_digest == baseline_canonical_digest:
         raise NoCanonicalChange

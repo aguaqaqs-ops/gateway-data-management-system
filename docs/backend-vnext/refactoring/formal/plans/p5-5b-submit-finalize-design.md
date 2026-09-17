@@ -423,6 +423,15 @@ path或private ref。HTTP/auth/capability rejection的唯一test owner由executi
    resolve `main`，也不受后来 Workspace/Head version变化影响。
 4. 对新 key解析唯一 active mapping/BaselineHead，检查 caller body binding、derived-stale、
    canonical digest与current business base。`NO_CANONICAL_CHANGE`在此返回且不写 idempotency row。
+   **Current business-base canonical digest** 定义为：对 `baseline_head.business_baseline_commit_id`
+   materialize 后，按 bound `UploadRevision.input_completeness` 与 `PreviewResult.ruleset_version`，
+   使用与 preview assemble **相同**的 bundle profile/inputs/pairs 拓扑重跑 comparison+bundle
+   assembly；comparison 各侧均使用 baseline 快照（identity/no-change 路径）。比较两侧均为
+   `bundle_digest` 字符串；相等 ⇒ `409 NO_CANONICAL_CHANGE`。`BaselineCanonicalDigestPort` 必须接收
+   `input_completeness` 与 `ruleset_version` 以保证与 preview canonical digest 同构。注：当上传内容与
+   baseline 字节完全相同时，preview job 可能在 assemble 阶段失败（`DUPLICATE_SOURCE_ARTIFACT_REF`），
+   该路径由 preview 契约承担；`NO_CANONICAL_CHANGE` 主要覆盖 source 不同但 canonical business
+   content 相同的 no-op 场景（如 `DROP_FROM_STORAGE`）。
 5. 在 Preview pin仍有效时 verify required source/snapshot/READY closure exact可读。
 6. 通过 Repository Client执行`ResolveVersionedRef(repository_id, main)`；失败返回503且不进入T1。
 7. 打开T1 `BEGIN IMMEDIATE`短事务，按§6.3重新读并裁决所有可变business facts。步骤6返回的

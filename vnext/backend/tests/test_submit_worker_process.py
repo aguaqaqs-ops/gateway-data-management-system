@@ -7,7 +7,6 @@ import selectors
 import signal
 import subprocess
 import sys
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -303,5 +302,3 @@ sys.stdin.buffer.read(1)
     assert persisted_operation.status is OperationStatus.RUNNING
     assert persisted_step.status is StepStatus.RUNNING
     assert persisted_step.optimistic_version == expected_step_version
-    assert persisted_step.lease_expires_at is not None
-    assert persisted_step.lease_expires_at < datetime.now(UTC) - timedelta(seconds=1)

@@ -289,8 +289,15 @@ def workspace_job_registry(*, include_preview: bool = True, include_submit: bool
 class FakeBaselineCanonicalDigestPort:
     digest: str = BASELINE_CANONICAL_DIGEST
 
-    def get_baseline_canonical_digest(self, *, repository_id: str, baseline_head: object) -> str:
-        del repository_id, baseline_head
+    def get_baseline_canonical_digest(
+        self,
+        *,
+        repository_id: str,
+        baseline_head: object,
+        input_completeness: object,
+        ruleset_version: str,
+    ) -> str:
+        del repository_id, baseline_head, input_completeness, ruleset_version
         return self.digest
 
 
@@ -299,8 +306,15 @@ class RecordingBaselineCanonicalDigestPort:
     digest: str = BASELINE_CANONICAL_DIGEST
     digest_calls: int = 0
 
-    def get_baseline_canonical_digest(self, *, repository_id: str, baseline_head: object) -> str:
-        del repository_id, baseline_head
+    def get_baseline_canonical_digest(
+        self,
+        *,
+        repository_id: str,
+        baseline_head: object,
+        input_completeness: object,
+        ruleset_version: str,
+    ) -> str:
+        del repository_id, baseline_head, input_completeness, ruleset_version
         self.digest_calls += 1
         return self.digest
 

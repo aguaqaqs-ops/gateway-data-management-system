@@ -16,7 +16,6 @@ from gateway_backend.settings import (
     FIXED_UPLOAD_MAX_EXPANDED_BYTES,
     FIXED_UPLOAD_MAX_PATH_BYTES,
     OperationWorkerSettings,
-    _WORKER_FIXED_BUDGETS,
     require_http_url,
 )
 from tests.support.runtime_settings import (
@@ -84,9 +83,9 @@ def test_backend_settings_require_internal_bearer_absolute_path(tmp_path: Path) 
 
 def test_worker_settings_freeze_lifecycle_budgets(tmp_path: Path) -> None:
     settings = make_operation_worker_settings(tmp_path)
-    assert settings.graceful_drain_timeout_seconds == _WORKER_FIXED_BUDGETS["graceful_drain_timeout_seconds"]
-    assert settings.max_in_flight == _WORKER_FIXED_BUDGETS["max_in_flight"]
-    assert settings.claim_limit == _WORKER_FIXED_BUDGETS["claim_limit"]
+    assert settings.graceful_drain_timeout_seconds == 180.0
+    assert settings.max_in_flight == 1
+    assert settings.claim_limit == 1
     with pytest.raises(ValidationError, match="fixed"):
         make_operation_worker_settings(tmp_path, graceful_drain_timeout_seconds=1.0)
 

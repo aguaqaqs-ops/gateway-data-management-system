@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -29,7 +29,6 @@ from gateway_backend.domain.workspace.models import (
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.schemas.preview import OperationAcceptedResponse
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     BusinessReference,

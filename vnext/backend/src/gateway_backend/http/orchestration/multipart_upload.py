@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Callable
 from datetime import datetime
 
 from gateway_shared_kernel import DigestRef
@@ -35,7 +34,6 @@ from gateway_backend.http.orchestration.source_package_admission import (
     validate_source_package_archive,
 )
 from gateway_backend.http.schemas.upload import ArtifactManifestPart, UploadManifestPart, UploadRevisionResponse
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.settings import FIXED_UPLOAD_MAX_COMPRESSED_BYTES
 
 

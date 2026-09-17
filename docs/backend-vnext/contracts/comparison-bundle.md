@@ -214,6 +214,12 @@ bundle-root/
 - Snapshot/input table artifacts 可以跨 pair 复用。
 - 跨 pair 复用的 snapshot table artifact 使用 `shared/snapshot-tables/...` bundle-root ref；bundle
   pair ref rewrite 不得再次把这类 ref 改写到 `pairs/<pair_id>/shared/...`。
+- MULTI_PAIR 闭包中若出现**相同 `source_ref` 且相同 artifact kind** 的重复 binding（原本会触发
+  `DUPLICATE_SOURCE_ARTIFACT_REF`），assembler 将其提升为 `shared/{kind-segment}/{digest-suffix}/artifact`
+  （`kind-segment` 为 kind 小写；`SNAPSHOT_TABLE` 仍使用 `shared/snapshot-tables/{digest}.parquet`）。
+  该提升仅作用于重复 ref 场景；无重复 ref 的合法 bundle 布局与 digest 不变。提升后 `pair_id=None`、
+  `shared=true`，`table_name` 保留首个 binding 的值。`bundle_contract_version`
+  `backend-vnext/comparison-bundle/v2` 不因此 bump。
 - Upload preview 的 `before_table_ref`、`current_table_ref` 和 `browse_table_ref` 若非空，必须直接指向
   可读取的 Parquet snapshot rows；不得以 JSON descriptor 或 metadata envelope 占位。
 - Upload preview 默认只发布单侧 snapshot：current 侧存在时只发布 `current_table_ref`（包括
@@ -362,5 +368,7 @@ flow_assembly_cache optional
 - History 2/3 节点可以表达为 1/2 个 pair surface。
 - Upload FULL preview 发布 `baseline_to_initial` 与 `initial_to_modified` 两个 pair surface，不做三方 diff。
 - Upload preview 的默认 view 是 `initial_to_modified`；`manifest.comparison_surface_ref` 指向该默认 surface 的顶层副本，`preview_index.views[].derived_artifacts.comparison_surface_ref` 指向各自的 `pairs/{pair_id}/comparison-surface.json`。
-- Upload preview snapshot、records、risk 和 projection artifact 均为 pair-scoped ref；同名表在不同 pair 中不得共享 `tables/...`、`comparison/records/...` 或 `risk/...` 路径。
+- Upload preview snapshot、records、risk 和 projection artifact 默认 pair-scoped；不同 `source_ref`
+  不得共享同一 pair-scoped logical path（`tables/...`、`comparison/records/...`、`risk/...` 等）。
+  相同 `source_ref` 的跨 pair 重复允许提升为 `shared/...`（见上条）。
 - Ordered unsupported bundle 仍可 READY，并提供 review-required risk/diagnostics。

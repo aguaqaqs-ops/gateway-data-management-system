@@ -306,7 +306,7 @@ def test_http_baseline_canonical_digest_port_returns_digest_for_full() -> None:
     assert digest.startswith("sha256:")
 
 
-def test_http_baseline_canonical_digest_port_maps_failures_to_503() -> None:
+def test_http_baseline_canonical_digest_port_maps_unsupported_ruleset_to_service_not_ready() -> None:
     factory = build_http_repository_provider_factory(
         base_url="http://repository.test",
         bearer_token=TEST_REPOSITORY_TOKEN,
@@ -320,6 +320,85 @@ def test_http_baseline_canonical_digest_port_maps_failures_to_503() -> None:
             baseline_head=BASELINE_HEAD,
             input_completeness=InputCompleteness.MODIFIED_ONLY,
             ruleset_version="unsupported-ruleset",
+        )
+    assert exc_info.value.code == "SERVICE_NOT_READY"
+    assert exc_info.value.status_code == 503
+
+
+def test_http_baseline_canonical_digest_port_maps_repository_connect_failure_to_503() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    factory = build_http_repository_provider_factory(
+        base_url="http://repository.test",
+        bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0,
+        transport=httpx.MockTransport(handler),
+    )
+    port = HttpBaselineCanonicalDigestPort(provider_factory=factory)
+    with pytest.raises(ApiError) as exc_info:
+        port.get_baseline_canonical_digest(
+            repository_id=str(REPO_ID),
+            baseline_head=BASELINE_HEAD,
+            input_completeness=InputCompleteness.MODIFIED_ONLY,
+            ruleset_version=RULESET_VERSION,
+        )
+    assert exc_info.value.code == "DEPENDENCY_UNAVAILABLE"
+    assert exc_info.value.status_code == 503
+
+
+def test_http_baseline_canonical_digest_port_maps_repository_timeout_to_503() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow")
+
+    factory = build_http_repository_provider_factory(
+        base_url="http://repository.test",
+        bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0,
+        transport=httpx.MockTransport(handler),
+    )
+    port = HttpBaselineCanonicalDigestPort(provider_factory=factory)
+    with pytest.raises(ApiError) as exc_info:
+        port.get_baseline_canonical_digest(
+            repository_id=str(REPO_ID),
+            baseline_head=BASELINE_HEAD,
+            input_completeness=InputCompleteness.MODIFIED_ONLY,
+            ruleset_version=RULESET_VERSION,
+        )
+    assert exc_info.value.code == "DEPENDENCY_UNAVAILABLE"
+    assert exc_info.value.status_code == 503
+
+
+def test_http_baseline_canonical_digest_port_maps_repository_wire_error_to_503() -> None:
+    encoded = encode_commit_id_path(COMMIT_ID)
+    catalog_path = f"/v1/repositories/{REPO_ID}/versioned/commits/{encoded}/catalog"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == catalog_path:
+            return httpx.Response(
+                503,
+                json={
+                    "code": "SERVICE_NOT_READY",
+                    "message": "repository is not ready",
+                    "request_id": "req-catalog",
+                },
+                headers={"X-Request-ID": "req-catalog"},
+            )
+        return httpx.Response(404, json={"code": "NOT_FOUND"}, headers={"X-Request-ID": "req-miss"})
+
+    factory = build_http_repository_provider_factory(
+        base_url="http://repository.test",
+        bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0,
+        transport=httpx.MockTransport(handler),
+    )
+    port = HttpBaselineCanonicalDigestPort(provider_factory=factory)
+    with pytest.raises(ApiError) as exc_info:
+        port.get_baseline_canonical_digest(
+            repository_id=str(REPO_ID),
+            baseline_head=BASELINE_HEAD,
+            input_completeness=InputCompleteness.MODIFIED_ONLY,
+            ruleset_version=RULESET_VERSION,
         )
     assert exc_info.value.code == "DEPENDENCY_UNAVAILABLE"
     assert exc_info.value.status_code == 503

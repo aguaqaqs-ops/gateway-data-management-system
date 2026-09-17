@@ -486,6 +486,8 @@ def _collect_bindings(
                 if previous_source.shared
                 else _promote_binding_to_shared(previous_source)
             )
+            if not previous_source.shared:
+                by_path.pop(previous_source.logical_path, None)
             by_source[binding.source_ref] = shared_binding
             by_path[shared_binding.logical_path] = shared_binding
             continue

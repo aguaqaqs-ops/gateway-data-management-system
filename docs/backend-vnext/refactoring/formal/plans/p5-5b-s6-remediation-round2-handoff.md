@@ -1,6 +1,6 @@
 # P5-5B-S6 Remediation Round 2 Handoff
 
-状态：**S6 remediation round 2 complete — candidate 待 round 3 复审**
+状态：**S6 remediation round 2 complete — superseded by round 3（见 p5-5b-s6-remediation-round3-handoff.md）**
 
 日期：2026-09-17
 

@@ -13,6 +13,12 @@ from uuid import UUID, uuid4
 
 import httpx
 from gateway_repository_client import RepositoryClient
+from gateway_repository_client.errors import (
+    RepositoryClientError,
+    RepositoryClientTimeoutError,
+    RepositoryProtocolError,
+    RepositoryStreamError,
+)
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.preview_jobs import (
@@ -34,7 +40,10 @@ from gateway_backend.application.submit_registry import (
 )
 from gateway_backend.application.submission.accept_transaction import assert_submit_job_registered
 from gateway_backend.artifacts import InMemoryArtifactStore
-from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryTableAccessProvider
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    RepositoryProviderError,
+    RepositoryTableAccessProvider,
+)
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import (
@@ -212,6 +221,44 @@ def assert_repository_service_ready(
         raise ValueError("repository service is not ready") from None
 
 
+_BASELINE_DIGEST_UNSUPPORTED_RULESET_MESSAGE = (
+    "ruleset_version is not supported by this implementation"
+)
+
+
+def _api_error_for_baseline_digest_failure(exc: BaseException) -> ApiError:
+    if isinstance(exc, PreviewJobError):
+        if str(exc) == _BASELINE_DIGEST_UNSUPPORTED_RULESET_MESSAGE:
+            return ApiError(
+                code="SERVICE_NOT_READY",
+                message="preview ruleset version is not supported by this deployment",
+                status_code=503,
+            )
+        return ApiError(
+            code="DEPENDENCY_UNAVAILABLE",
+            message="baseline canonical digest is unavailable",
+            status_code=503,
+        )
+    if isinstance(
+        exc,
+        (
+            ValueError,
+            RepositoryProviderError,
+            httpx.HTTPError,
+            RepositoryClientError,
+            RepositoryProtocolError,
+            RepositoryStreamError,
+            RepositoryClientTimeoutError,
+        ),
+    ):
+        return ApiError(
+            code="DEPENDENCY_UNAVAILABLE",
+            message="baseline canonical digest is unavailable",
+            status_code=503,
+        )
+    raise exc
+
+
 class HttpBaselineCanonicalDigestPort:
     def __init__(
         self,
@@ -238,12 +285,8 @@ class HttpBaselineCanonicalDigestPort:
                 provider_factory=self._provider_factory,
                 store=store,
             )
-        except (PreviewJobError, ValueError) as exc:
-            raise ApiError(
-                code="DEPENDENCY_UNAVAILABLE",
-                message="baseline canonical digest is unavailable",
-                status_code=503,
-            ) from exc
+        except BaseException as exc:
+            raise _api_error_for_baseline_digest_failure(exc) from exc
 
 
 class HttpRepositoryMainResolvePort:

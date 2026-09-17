@@ -146,7 +146,9 @@ MULTI_PAIR
 规则：
 
 - 每个 pair surface 独立闭合。
-- Pair 之间不合并 records 或 risk artifacts。
+- Pair 之间默认不合并 records 或 risk artifacts；但当 MULTI_PAIR 闭包出现相同 `source_ref` 且相同
+  kind 的重复 binding 时，assembler 提升为 `shared/{kind-segment}/...`（详见
+  `../contracts/comparison-bundle.md` 跨 pair 共享规则）。合法 bundle（无重复 ref）不受影响。
 - Shared snapshot/input artifacts 可以只写一次。
 - composite points/formulas supplemental artifacts 保持 pair 隔离；Dataset Replacement 的 before/current side artifact 也不得合并。
 - 3 节点 history compare 使用两个 pair，不生成三方 diff。

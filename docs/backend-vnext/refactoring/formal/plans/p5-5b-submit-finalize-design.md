@@ -429,7 +429,11 @@ path或private ref。HTTP/auth/capability rejection的唯一test owner由executi
    assembly；comparison 各侧均使用 baseline 快照（identity/no-change 路径）。比较两侧均为
    `bundle_digest` 字符串；相等 ⇒ `409 NO_CANONICAL_CHANGE`。`BaselineCanonicalDigestPort` 必须接收
    `input_completeness` 与 `ruleset_version` 以保证与 preview canonical digest 同构；bound
-   `PreviewResult.ruleset_version` 必须等于本进程实现的 `RULESET_VERSION`，否则 fail-closed。
+   `PreviewResult.ruleset_version` 必须等于本进程实现的 table-rules `RULESET_VERSION`（当前
+   `"v2"`，由 `build_preview_job_payload` 发出），否则 fail-closed 并返回 `503
+   SERVICE_NOT_READY`（非 `DEPENDENCY_UNAVAILABLE`）。注：submit job payload 的
+   `ruleset_version` 是独立契约字段（当前 `"v1"`），与 preview 同名不同义；升级后 bound preview
+   `ruleset_version != RULESET_VERSION` 的 workspace 须重新 preview 后方可 accept。
    MULTI_PAIR bundle 组装时，跨 pair 出现相同 `source_ref` 的比较/risk/projection 等产物提升为
    `shared/…`（与 snapshot table 共享规则同构），因此 FULL identity/no-change 路径与 preview 均可
    成功组装。`NO_CANONICAL_CHANGE` 主要覆盖 source 不同但 canonical business content 相同的 no-op

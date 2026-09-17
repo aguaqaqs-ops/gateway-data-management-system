@@ -1,6 +1,6 @@
 # P5-5B-S6 Readiness, Shutdown, Settings and Deployment Wiring Handoff
 
-状态：**S6 initial handoff — superseded by remediation round 2（见 p5-5b-s6-remediation-round2-handoff.md）**
+状态：**S6 initial handoff — superseded by remediation round 3（见 p5-5b-s6-remediation-round3-handoff.md）**
 
 日期：2026-09-17
 

@@ -22,6 +22,18 @@ from gateway_backend.application.submit_jobs import (
     build_submit_recovery_port,
     submit_composition_bundle,
 )
+from gateway_backend.application.submission.contracts import (
+    PREPARE_IMPORT_CHECKPOINT_SCHEMA,
+    PrepareImportBuildInput,
+    PrepareImportCheckpoint,
+    PrepareImportPublicationResult,
+)
+from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_ref
+from gateway_backend.capabilities.storage_projection.contracts import (
+    CANONICALIZATION_MANIFEST_MEDIA_TYPE,
+)
+from gateway_backend.artifacts.nominal_refs import backend_artifact_ref_from_store_ref
+from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE
 from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
 from gateway_backend.application.submission.job_payload import (
     SUBMIT_STEP_AWAIT,
@@ -40,6 +52,79 @@ from tests.support.runtime_settings import make_operation_worker_settings
 REPOSITORY_SERVICE_ROOT = Path(__file__).resolve().parents[3] / "repository_service"
 STARTER_SCRIPT = Path(__file__).with_name("repository_service_starter.py")
 DEFAULT_BEARER_TOKEN = "test-bearer-token"
+LIVE_RESTART_OWNER_MANIFEST_DIGEST = (
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+)
+
+
+def _repository_service_build_package_bytes(
+    *,
+    manifest: dict[str, object],
+    replay_sql: bytes,
+) -> bytes:
+    for candidate in (REPOSITORY_SERVICE_ROOT / "src", REPOSITORY_SERVICE_ROOT / "tests"):
+        path = str(candidate)
+        if path not in sys.path:
+            sys.path.insert(0, path)
+    from test_import_package import build_package_bytes  # type: ignore[import-not-found]
+
+    return build_package_bytes(manifest=manifest, replay_sql=replay_sql)  # type: ignore[no-any-return]
+
+
+def build_dolt_compatible_prepare_publication(
+    *,
+    build_input: PrepareImportBuildInput,
+    store: ArtifactStorePort,
+) -> PrepareImportPublicationResult:
+    """Publish a minimal import package known to succeed against live Dolt in integration tests."""
+
+    artifact_store = store
+    manifest: dict[str, object] = {
+        "package_version": 1,
+        "canonicalization_manifest_digest": LIVE_RESTART_OWNER_MANIFEST_DIGEST,
+        "tables": [
+            {
+                "name": "records",
+                "schema": {
+                    "columns": [{"name": "id", "sql_type": "BIGINT", "nullable": False}],
+                    "primary_key": ["id"],
+                },
+                "row_count": 0,
+            }
+        ],
+    }
+    replay_sql = b"CREATE TABLE records (id BIGINT NOT NULL PRIMARY KEY);\n"
+    package_bytes = _repository_service_build_package_bytes(
+        manifest=manifest,
+        replay_sql=replay_sql,
+    )
+    manifest_bytes = json.dumps(manifest, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
+    manifest_ref = put_with_built_ref(
+        artifact_store,
+        manifest_bytes,
+        artifact_id=f"manifest-{build_input.submit_attempt_id}",
+        media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
+    )
+    package_ref = put_with_built_ref(
+        artifact_store,
+        package_bytes,
+        artifact_id=f"package-{build_input.submit_attempt_id}",
+        media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
+    )
+    checkpoint = PrepareImportCheckpoint(
+        schema_version=PREPARE_IMPORT_CHECKPOINT_SCHEMA,
+        attempt_id=build_input.submit_attempt_id,
+        canonicalization_manifest_ref=backend_artifact_ref_from_store_ref(manifest_ref),
+        canonicalization_manifest_digest=LIVE_RESTART_OWNER_MANIFEST_DIGEST,
+        backend_import_artifact_ref=backend_artifact_ref_from_store_ref(package_ref),
+        package_raw_size=package_ref.size_bytes,
+        package_raw_sha256=package_ref.raw_sha256.value,
+        input_closure_digest=build_input.input_closure_digest,
+        builder_mutation_policy=build_input.builder_mutation_policy,
+    )
+    return PrepareImportPublicationResult(checkpoint=checkpoint, replay=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,32 +244,69 @@ class RepositoryServiceClient:
         )
 
     def close(self) -> None:
-        if self._process is None:
-            return
-        pgid = self._pgid
-        if pgid is not None:
+        shutdown_repository_service_client(self, preserve_data=False)
+
+    def shutdown(self, *, preserve_data: bool = True) -> None:
+        shutdown_repository_service_client(self, preserve_data=preserve_data)
+
+
+def shutdown_repository_service_client(
+    client: RepositoryServiceClient,
+    *,
+    preserve_data: bool = True,
+) -> None:
+    """Stop a Repository Service fixture; optionally retain ``data_root`` for restart tests."""
+
+    if client._server is not None:
+        client._server.should_exit = True
+        if client._thread is not None:
+            client._thread.join(timeout=20.0)
+        if client._runtime is not None:
+            client._runtime.shutdown()
+        client._server = None
+        client._thread = None
+        client._runtime = None
+        if preserve_data:
+            port_file = client.data_root / "port.json"
+            if port_file.is_file():
+                port_file.unlink()
+        if not preserve_data and client.data_root.exists():
+            shutil.rmtree(client.data_root, ignore_errors=True)
+        return
+
+    if client._process is None:
+        return
+
+    pgid = client._pgid
+    if pgid is not None:
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            if client._process.poll() is not None:
+                break
             try:
-                os.killpg(pgid, signal.SIGTERM)
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            deadline = time.monotonic() + 15.0
-            while time.monotonic() < deadline:
-                if self._process.poll() is not None:
-                    break
-                try:
-                    os.killpg(pgid, 0)
-                except ProcessLookupError:
-                    break
-                time.sleep(0.05)
-            else:
-                try:
-                    os.killpg(pgid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-        if self._process.poll() is None:
-            self._process.wait(timeout=10.0)
-        if self.data_root.exists():
-            shutil.rmtree(self.data_root, ignore_errors=True)
+    if client._process.poll() is None:
+        client._process.wait(timeout=10.0)
+    client._process = None
+    client._pgid = None
+    if preserve_data:
+        port_file = client.data_root / "port.json"
+        if port_file.is_file():
+            port_file.unlink()
+    if not preserve_data and client.data_root.exists():
+        shutil.rmtree(client.data_root, ignore_errors=True)
 
 
 def seed_minimal_repository(

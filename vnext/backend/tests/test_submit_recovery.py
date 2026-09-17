@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from types import TracebackType
+from typing import Any, cast
 from uuid import uuid4
 
 import httpx
@@ -26,13 +28,19 @@ from gateway_backend.application.submission.abort_transaction import (
     AbortSubmitTransactionRequest,
     abort_submit_transaction,
 )
-from gateway_backend.application.submission.accept_transaction import accept_submit_transaction
+from gateway_backend.application.submission.accept_transaction import (
+    AcceptSubmitPreflight,
+    accept_submit_transaction,
+)
 from gateway_backend.application.submit_registry import submit_job_registry
 from gateway_backend.application.submission.contracts import (
     MatchingAbortProof,
     RepositoryOperationTerminalStatus,
 )
+from gateway_backend.application.submission.contracts import PrepareImportBuildInput
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT, SUBMIT_STEP_SUBMIT
+from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.artifacts.store import ArtifactStorePort
 from gateway_backend.domain.submission.models import SubmitAttempt, SubmitAttemptState
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.database import initialize_control_db
@@ -41,20 +49,32 @@ from gateway_backend.operations import (
     OperationStatus,
     StepRecord,
     StepStatus,
+    TransitionDisposition,
     WritePrecondition,
 )
+from gateway_backend.operations.store import OperationUnitOfWork
 from gateway_backend.operations.lease_session import LeaseSession
-from gateway_backend.operations.worker import ClaimedWork, ExecutionControl
+from gateway_backend.operations.worker import (
+    ClaimedWork,
+    ExecutionControl,
+    ExecutorAcknowledgment,
+    StartupDisposition,
+    WriteUnitOfWorkFactory,
+)
 from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
 from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
 from gateway_backend.infrastructure.repository_write.abort_evidence import HttpRepositoryAbortEvidencePort
 from tests.support.submit_job_harness import (
     RecordingTransport,
+    SubmitWorkerHarness,
     assert_occupancy_released,
     assert_occupancy_retained,
     build_submit_worker_harness,
+    build_dolt_compatible_prepare_publication,
     default_repository_handler,
     repository_service_session,
+    shutdown_repository_service_client,
+    start_repository_service_client,
     submit_step_id,
 )
 from tests.test_submit_job_effect import (
@@ -64,15 +84,20 @@ from tests.test_submit_job_effect import (
     _run_submit_to_await_claim,
 )
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
+from tests.test_submit_job_prepare import _materialize_snapshot, _run_prepare_handler
 from tests.test_submit_transactions import (
     BASELINE_HEAD,
+    PREVIEW_READY_CLOSURE_DIGEST,
+    SNAPSHOT_TABLE_SET_DIGEST,
     FakeAbortEvidencePort,
     FakeBaselineCanonicalDigestPort,
     RecordingMainResolvePort,
     SubmitSeed,
+    _SHA_INITIAL,
     _accept_command,
     _preflight,
     _seed_effect_pending_attempt,
+    _submit_job_registry,
     _uow_factory,
     seed_submit_ready_workspace,
 )
@@ -80,6 +105,160 @@ from tests.test_submit_transactions import (
 pytestmark = pytest.mark.integration
 
 TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
+FAULT_AFTER_BUSINESS_FINALIZE_COMMIT_BEFORE_WORKER_ACK = (
+    "after_business_finalize_commit_before_worker_ack"
+)
+
+
+class _FaultAfterCommitUnitOfWork:
+    def __init__(self, inner: OperationUnitOfWork) -> None:
+        self._inner = inner
+
+    def __enter__(self) -> OperationUnitOfWork:
+        return self._inner.__enter__()
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool | None:
+        result = self._inner.__exit__(exc_type, exc, tb)  # type: ignore[func-returns-value]
+        if exc_type is None:
+            raise RuntimeError(FAULT_AFTER_BUSINESS_FINALIZE_COMMIT_BEFORE_WORKER_ACK)
+        return result
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
+
+
+_ORIGINAL_PUBLISH_OPERATION = LeaseSession.publish_operation
+_INJECT_FINALIZE_PUBLISH_FAULT = False
+
+
+def _publish_operation_fault_after_commit(
+    lease_session: LeaseSession,
+    builder: Callable[[OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]],
+) -> tuple[TransitionDisposition, TransitionDisposition]:
+    if not _INJECT_FINALIZE_PUBLISH_FAULT:
+        return _ORIGINAL_PUBLISH_OPERATION(lease_session, builder)
+
+    original_factory = lease_session._write_uow_factory
+
+    def fault_factory() -> _FaultAfterCommitUnitOfWork:
+        return _FaultAfterCommitUnitOfWork(original_factory())
+
+    lease_session._write_uow_factory = cast(WriteUnitOfWorkFactory, fault_factory)
+    try:
+        return _ORIGINAL_PUBLISH_OPERATION(lease_session, builder)
+    finally:
+        lease_session._write_uow_factory = original_factory
+
+
+def _accept_prepared_operation_for_repository(
+    db_path: Path,
+    store: InMemoryArtifactStore,
+    *,
+    repository_id: str,
+    expected_commit_id: str,
+) -> str:
+    seed = seed_submit_ready_workspace(db_path, repository_id=repository_id)
+    snapshot_ref, snapshot_digest = _materialize_snapshot(store)
+    protected_refs = tuple(
+        ref for ref in seed.protected_refs if ref.artifact_id != "snap-1"
+    ) + (snapshot_ref,)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.clear_artifact_protection(
+            owner_kind="current-preview",
+            owner_id=seed.workspace.workspace_id,
+        )
+        unit_of_work.set_artifact_protection(
+            protected_refs,
+            owner_kind="current-preview",
+            owner_id=seed.workspace.workspace_id,
+            intent="current-preview",
+        )
+    preflight = AcceptSubmitPreflight(
+        snapshot_table_artifact_refs=(snapshot_ref.artifact_id,),
+        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
+        preview_operation_id=seed.preview_operation_id,
+        protected_artifact_refs=protected_refs,
+        snapshot_table_set_digest=SNAPSHOT_TABLE_SET_DIGEST,
+    )
+    accepted = accept_submit_transaction(
+        command=_accept_command(seed, idempotency_key="accept-key-live-restart"),
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(seed.db_path),
+        job_registry=_submit_job_registry(),
+        baseline_digest=FakeBaselineCanonicalDigestPort(),
+        main_resolve=RecordingMainResolvePort(commit_id=expected_commit_id),
+        preflight=preflight,
+        now=TS1,
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        attempt = unit_of_work.submission.get_submit_attempt(accepted.submit_attempt_id)
+        assert attempt is not None
+        unit_of_work.submission.cas_update_attempt(
+            replace(
+                attempt,
+                source_digest=_SHA_INITIAL,
+                snapshot_digest=snapshot_digest,
+            ),
+            expected_version=attempt.optimistic_version,
+        )
+    return accepted.operation_id
+
+
+def _run_submit_to_await_claim_for_repository(
+    harness: SubmitWorkerHarness,
+    *,
+    repository_id: str,
+    expected_commit_id: str,
+) -> tuple[ClaimedWork, str]:
+    operation_id = _accept_prepared_operation_for_repository(
+        harness.db_path,
+        harness.artifact_store,
+        repository_id=repository_id,
+        expected_commit_id=expected_commit_id,
+    )
+    _run_prepare_handler(harness.db_path, harness.artifact_store, operation_id)
+    startup = harness.runtime._startup
+    assert startup.startup() is StartupDisposition.READY
+    submit_work = startup.claim_one()
+    assert submit_work is not None
+    assert submit_work.step.step_name == SUBMIT_STEP_SUBMIT
+    assert submit_work.step.worker_id is not None
+    assert submit_work.step.lease_token is not None
+    submit_control = ExecutionControl()
+    submit_session = LeaseSession(
+        worker_id=submit_work.step.worker_id,
+        lease_token=submit_work.step.lease_token,
+        operation_id=submit_work.operation.operation_id,
+        step_id=submit_work.step.step_id,
+        write_uow_factory=build_worker_write_uow_factory(
+            lambda: ControlDbUnitOfWork(harness.db_path)
+        ),
+        control=submit_control,
+        observer=lambda _event: None,
+    )
+    assert (
+        submit_work.executor(
+            submit_work.operation,
+            submit_work.step,
+            submit_control,
+            submit_session,
+        )
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+    await_work = startup.claim_one()
+    assert await_work is not None
+    assert await_work.step.step_name == SUBMIT_STEP_AWAIT
+    assert await_work.step.worker_id is not None
+    assert await_work.step.lease_token is not None
+    return await_work, operation_id
 
 
 def _initialized_db_path(tmp_path: Path, name: str) -> Path:
@@ -578,6 +757,226 @@ def test_await_import_finalize_commits_lease_acknowledgment_via_worker_runtime(
     assert attempt.state is SubmitAttemptState.FINALIZED
     assert submission is not None
     assert row_count == 1
+
+
+@pytest.mark.serial
+def test_await_import_finalize_response_loss_after_terminal_commit_before_worker_ack(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Contract §7 ``after_business_finalize_commit_before_worker_ack`` crash barrier owner.
+
+    Design §11 "replay 返回既有 Submission" 指 T3 business finalize 已 durable；此窗口内 worker
+    行为是 terminal durable fact eliminates reclaim，而非再次 claim/re-execute handler。
+    """
+    captured_sessions: list[LeaseSession] = []
+    original_init = LeaseSession.__init__
+
+    def tracking_init(self: LeaseSession, *args: Any, **kwargs: Any) -> None:
+        original_init(self, *args, **kwargs)
+        captured_sessions.append(self)
+
+    monkeypatch.setattr(LeaseSession, "__init__", tracking_init)
+    monkeypatch.setattr(
+        LeaseSession,
+        "publish_operation",
+        _publish_operation_fault_after_commit,
+    )
+
+    seed_harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(),
+    )
+    await_work, operation_id = _run_submit_to_await_claim(seed_harness)
+    manifest_digest = _prepare_manifest_digest(seed_harness, operation_id)
+    write_client = cast(HttpRepositoryWriteClient, seed_harness.submit_deps.repository_write)
+    await_write = replace(
+        write_client,
+        transport=RecordingTransport(_operation_poll_handler(manifest_digest)),
+    )
+    await_deps = replace(seed_harness.submit_deps, repository_write=await_write)
+    await_executor = build_await_import_result_handler(await_deps)
+    with ControlDbUnitOfWork(seed_harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        await_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+        assert await_work.step.worker_id is not None
+        assert await_work.step.lease_token is not None
+    work = ClaimedWork(operation, await_step, await_executor)
+    assert seed_harness.runtime._lifecycle.mark_ready_to_claim() is False
+    monkeypatch.setattr(
+        "tests.test_submit_recovery._INJECT_FINALIZE_PUBLISH_FAULT",
+        True,
+    )
+    try:
+        with pytest.raises(RuntimeError, match=FAULT_AFTER_BUSINESS_FINALIZE_COMMIT_BEFORE_WORKER_ACK):
+            seed_harness.runtime._run_claim(
+                work,
+                lambda: False,
+                lambda timeout: False,
+                claim_anchor=time.monotonic(),
+            )
+    finally:
+        monkeypatch.setattr(
+            "tests.test_submit_recovery._INJECT_FINALIZE_PUBLISH_FAULT",
+            False,
+        )
+    assert captured_sessions
+    assert captured_sessions[-1].completion_acknowledgment() is None
+
+    with ControlDbUnitOfWork(seed_harness.db_path, read_only=True) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(operation_id)
+        persisted_await_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+        submit_attempt_id = next(
+            ref.value for ref in persisted_operation.business_refs if ref.kind == "submit_attempt"
+        )
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        submission = unit_of_work.submission.get_submission_by_attempt(submit_attempt_id)
+        row_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM submission_records WHERE submit_attempt_id = ?",
+            (submit_attempt_id,),
+        ).fetchone()[0]
+    assert persisted_operation.status is OperationStatus.SUCCEEDED
+    assert persisted_await_step.status is StepStatus.SUCCEEDED
+    assert attempt is not None
+    assert attempt.state is SubmitAttemptState.FINALIZED
+    assert submission is not None
+    assert row_count == 1
+
+    startup = seed_harness.runtime._startup
+    assert startup.startup() is StartupDisposition.READY
+    assert startup.claim_one() is None
+
+
+@pytest.mark.serial
+def test_await_import_result_consumes_matching_terminal_after_repository_restart(
+    tmp_path: Path,
+    requires_dolt: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_backend.application.submission.contracts import PrepareImportPublicationResult
+    from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+
+    def _dolt_compatible_prepare_publication(
+        self: SubmitImportPublicationAdapter,
+        *,
+        build_input: PrepareImportBuildInput,
+        store: ArtifactStorePort,
+        projection_inputs: tuple[Any, ...],
+    ) -> PrepareImportPublicationResult:
+        del self, projection_inputs
+        return build_dolt_compatible_prepare_publication(
+            build_input=build_input,
+            store=store,
+        )
+
+    monkeypatch.setattr(
+        SubmitImportPublicationAdapter,
+        "build_and_publish_from_inputs",
+        _dolt_compatible_prepare_publication,
+    )
+
+    data_root = tmp_path / "repo-restart-journey"
+    service1 = start_repository_service_client(data_root)
+    try:
+        seeded = service1.repository_id_factory(idempotency_key="create-repo-restart-journey")
+        harness = build_submit_worker_harness(
+            tmp_path / "worker-repo-restart",
+            repository_base_url=service1.base_url,
+        )
+        await_work, operation_id = _run_submit_to_await_claim_for_repository(
+            harness,
+            repository_id=seeded.repository_id,
+            expected_commit_id=seeded.initial_commit_id,
+        )
+        write_client = service1.write_client()
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+            operation = unit_of_work.operations.get_operation(operation_id)
+            submit_step = unit_of_work.operations.get_step(
+                submit_step_id(operation_id, SUBMIT_STEP_SUBMIT)
+            )
+            assert submit_step.checkpoint_ref is not None
+            submit_attempt_id = next(
+                ref.value for ref in operation.business_refs if ref.kind == "submit_attempt"
+            )
+            attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+            assert attempt is not None
+            assert attempt.repository_operation_id is not None
+            repository_operation_id = attempt.repository_operation_id
+            workspace_id = attempt.workspace_id
+        terminal_operation = write_client.wait_operation(
+            repository_id=seeded.repository_id,
+            operation_id=repository_operation_id,
+            deadline_seconds=120.0,
+        )
+        assert terminal_operation.status.value == "SUCCEEDED"
+    finally:
+        shutdown_repository_service_client(service1, preserve_data=True)
+
+    service2 = start_repository_service_client(data_root)
+    try:
+        restarted_client = service2.write_client()
+        restarted_terminal = restarted_client.get_operation(
+            repository_id=seeded.repository_id,
+            operation_id=repository_operation_id,
+        )
+        assert restarted_terminal.status.value == "SUCCEEDED"
+
+        await_deps = replace(
+            harness.submit_deps,
+            repository_write=restarted_client,
+        )
+        await_executor = build_await_import_result_handler(await_deps)
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+            operation = unit_of_work.operations.get_operation(operation_id)
+            await_step = unit_of_work.operations.get_step(
+                submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+            )
+            assert await_work.step.worker_id is not None
+            assert await_work.step.lease_token is not None
+        work = ClaimedWork(operation, await_step, await_executor)
+        assert harness.runtime._lifecycle.mark_ready_to_claim() is False
+        harness.runtime._run_claim(
+            work,
+            lambda: False,
+            lambda timeout: False,
+            claim_anchor=time.monotonic(),
+        )
+    finally:
+        shutdown_repository_service_client(service2, preserve_data=False)
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(operation_id)
+        persisted_await_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+        submit_attempt_id = next(
+            ref.value for ref in persisted_operation.business_refs if ref.kind == "submit_attempt"
+        )
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        submission = unit_of_work.submission.get_submission_by_attempt(submit_attempt_id)
+        row_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM submission_records WHERE submit_attempt_id = ?",
+            (submit_attempt_id,),
+        ).fetchone()[0]
+    assert attempt is not None
+    assert persisted_operation.status is OperationStatus.SUCCEEDED
+    assert persisted_await_step.status is StepStatus.SUCCEEDED
+    assert attempt.state is SubmitAttemptState.FINALIZED
+    assert submission is not None
+    assert row_count == 1
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy(workspace_id)
+        repository_occupancy = unit_of_work.submission.get_repository_occupancy(
+            seeded.repository_id
+        )
+    assert repository_occupancy is None
+    assert workspace_occupancy is not None
+    assert workspace_occupancy.active_submission_id == submission.submission_id
 
 
 @pytest.mark.serial

@@ -15,13 +15,14 @@ baseline_commit: 4cda6b9c
 remediation_round_2: 30193dd5d3b34ec82da382cd7d85650cd98a3bb7
 remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
 remediation_round_4: e5c43c0c9f71de3cd2e602504ec9034f16add8af
+remediation_round_4_fix: d3661fe0eda4a3463afed879c6a5bbec72f79404
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
-records_head: 3b007419809397d0dd794352967352e9985be5f5
+records_head: pending_r4_fix_closeout
 s5_independent_review: pass
 s6_independent_review: pass (p5-5b-s6-independent-review-5.md)
 s7_independent_review: pass (p5-5b-s7-independent-review-7.md)
 decision: pass
-findings_closed: [S7-F1, S7-F4, S7-F6, S7-F7, S7-F8, S7-O2-owner-T3-crash-barrier, S7-O2-owner-repository-restart-journey]
+findings_closed: [S7-F1, S7-F4, S7-F6, S7-F7, S7-F8, S7-O2-owner-T3-crash-barrier, S7-O2-owner-repository-restart-journey, R4-F1]
 findings_reclassified: [S7-F2]
 findings_open: []
 accumulated_submit_unit: pass_319
@@ -36,7 +37,7 @@ p5_5b_slice_exit: not_declared
 timezone: Asia/Shanghai
 ```
 
-> `b48ca592` 曾 pin 不可解析的 amend 孤本 `5de2e0b7…`；Round 3 code seal 为 `7c511c4b`；Round 4 owner evidence seal 为 `e5c43c0c`。
+> `b48ca592` 曾 pin 不可解析的 amend 孤本 `5de2e0b7…`；Round 3 code seal 为 `7c511c4b`；Round 4 owner evidence seal 为 `e5c43c0c`；`d3661fe0` 为 R4-F1 test-only lease 健壮性修订（§490/491 owner 语义与 `decision: pass` 不变）。
 
 ## Stage lineage
 
@@ -53,6 +54,7 @@ timezone: Asia/Shanghai
 | S7 F8 closeout | `b80a283f` | superseded @ review-6 |
 | S7 review-6 | [p5-5b-s7-independent-review-6.md](p5-5b-s7-independent-review-6.md) | **superseded** (premature) |
 | S7 remediation r4 | `e5c43c0c` | owner evidence @ review-7 |
+| S7 remediation r4 fix | `d3661fe0` | R4-F1 lease window（test-only） |
 | S7 closure | [p5-5b-s7-independent-review-7.md](p5-5b-s7-independent-review-7.md) | **pass** |
 | S7 review-3 | [p5-5b-s7-independent-review-3.md](p5-5b-s7-independent-review-3.md) | **superseded** |
 

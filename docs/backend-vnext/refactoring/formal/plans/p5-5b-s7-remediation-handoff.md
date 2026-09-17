@@ -15,8 +15,9 @@ baseline_commit: 4cda6b9c
 remediation_round_2: 30193dd5d3b34ec82da382cd7d85650cd98a3bb7
 remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
 remediation_round_4: e5c43c0c9f71de3cd2e602504ec9034f16add8af
+remediation_round_4_fix: d3661fe0eda4a3463afed879c6a5bbec72f79404
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
-records_head: 3b007419809397d0dd794352967352e9985be5f5
+records_head: pending_r4_fix_closeout
 findings_addressed:
   S7-F1: closed @ review-4 — finalize_transaction.py + submit_jobs.py + test_submit_recovery.py
   S7-F4: closed @ review-4 — test_operator_recovery_http.py
@@ -26,10 +27,11 @@ findings_addressed:
   S7-F8: closed @ review-7 — acceptance/review-7 mechanical seal
   S7-O2-T3-crash-barrier: closed @ review-7 — test_await_import_finalize_response_loss_after_terminal_commit_before_worker_ack
   S7-O2-repository-restart: closed @ review-7 — test_await_import_result_consumes_matching_terminal_after_repository_restart
+  R4-F1: closed @ d3661fe0 — restart owner claim moved post-restart (test-only lease robustness)
 timezone: Asia/Shanghai
 ```
 
-> `b48ca592` 的 pin（`5de2e0b7…`）为 amend 孤本，不可解析；Round 3 code seal 为 `7c511c4b`；Round 4 owner evidence 为 `e5c43c0c`。
+> `b48ca592` 的 pin（`5de2e0b7…`）为 amend 孤本，不可解析；Round 3 code seal 为 `7c511c4b`；Round 4 owner evidence 为 `e5c43c0c`；R4-F1 test-only fix 为 `d3661fe0`。
 
 ## Changes by finding (round 4)
 
@@ -38,6 +40,7 @@ timezone: Asia/Shanghai
 | T3 crash barrier owner | `tests/test_submit_recovery.py` | `after_business_finalize_commit_before_worker_ack` UoW commit 后 fault；WorkerRuntime `_run_claim`；terminal durable fact eliminates reclaim |
 | Repository restart owner | `tests/test_submit_recovery.py`, `tests/support/submit_job_harness.py` | live import journey + `shutdown_repository_service_client(preserve_data=True)` + post-restart poll/finalize |
 | F8 closeout | `p5-5b-s7-acceptance.md`, `p5-5b-s7-independent-review-7.md`, 本 handoff | decision pass / s8_entry eligible |
+| R4-F1 lease window | `tests/test_submit_recovery.py` | post-restart claim；docstring §490；hard-kill 语义 |
 
 ## Prior round paths (for provenance)
 
@@ -46,10 +49,15 @@ timezone: Asia/Shanghai
 | S7-F7 | `abort_transaction.py`, `submit_jobs.py`, `test_submit_recovery.py` |
 | S7-F8 | `p5-5b-s7-acceptance.md`, 本 handoff |
 
-## Focused retest (@ `e5c43c0c`)
+## Focused retest (@ `d3661fe0`)
 
 ```bash
 cd vnext/backend
+
+../scripts/uv-consume.sh -C . run pytest -q -m 'integration and serial' \
+  tests/test_submit_recovery.py \
+  -k 'after_terminal_commit_before_worker_ack or repository_restart or (worker_runtime and (finalize or stable_abort))'
+# 4 passed, 9 deselected
 
 ../scripts/uv-consume.sh -C . run pytest -q -m 'integration and serial' \
   tests/test_submit_recovery.py -k 'after_terminal_commit_before_worker_ack or repository_restart'

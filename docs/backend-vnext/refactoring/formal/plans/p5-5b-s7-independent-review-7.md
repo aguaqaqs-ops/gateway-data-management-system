@@ -14,14 +14,15 @@ Owner：Independent reviewer（read-only；本文件是唯一写入）
 stage: P5-5B-S7-owner-evidence-and-f8-closeout
 review_target: e5c43c0c9f71de3cd2e602504ec9034f16add8af
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
-records_head: 3b007419809397d0dd794352967352e9985be5f5
+records_head: pending_r4_fix_closeout
 parent_candidate: 37fa7c21ca261e5e89d15515f629106556ee43de
 baseline_commit: 4cda6b9c
 remediation_round_2: 30193dd5d3b34ec82da382cd7d85650cd98a3bb7
 remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
 remediation_round_4: e5c43c0c9f71de3cd2e602504ec9034f16add8af
+remediation_round_4_fix: d3661fe0eda4a3463afed879c6a5bbec72f79404
 decision: pass
-findings_closed: [S7-F1, S7-F4, S7-F6, S7-F7, S7-F8, S7-O2-owner-T3-crash-barrier, S7-O2-owner-repository-restart-journey]
+findings_closed: [S7-F1, S7-F4, S7-F6, S7-F7, S7-F8, S7-O2-owner-T3-crash-barrier, S7-O2-owner-repository-restart-journey, R4-F1]
 findings_reclassified: [S7-F2]
 findings_open: []
 s7_closure: pass
@@ -63,3 +64,15 @@ timezone: Asia/Shanghai
 ## 5. S8 entry note
 
 S7 不宣称 `./vnext/scripts/run-tests.sh` 全量、五包 static、镜像 conjunction gate 已通过；上述为 S8 前置条件。
+
+## 6. R4-F1 post-review fix @ `d3661fe0`
+
+独立复审发现 repository restart owner 在重启前 claim T3 await step（30 s durable lease），与
+`wait_operation(deadline_seconds=120)` 矛盾；claim 与 finalize 间隔 >30 s 会以 `LeaseExpired` 失败（与契约无关）。
+
+| Item | Detail |
+| --- | --- |
+| Fix | `_run_submit_import_for_repository` 只到 T2；重启后 `startup()` → `claim_one()` → `replace(await_work, executor=…)` → `_run_claim` |
+| Scope | test-only；`implementation_seal: e5c43c0c` 不变；§490 owner 语义不变 |
+| Probe | 32 s 延迟注入（service2 启动前）→ pass；修复前 → `LeaseExpired` @ `lease_session.py:400` |
+| Diff | `git diff --stat e5c43c0c..d3661fe0 -- vnext/` → 仅 `tests/test_submit_recovery.py` |

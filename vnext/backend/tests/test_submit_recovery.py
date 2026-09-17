@@ -212,12 +212,12 @@ def _accept_prepared_operation_for_repository(
     return accepted.operation_id
 
 
-def _run_submit_to_await_claim_for_repository(
+def _run_submit_import_for_repository(
     harness: SubmitWorkerHarness,
     *,
     repository_id: str,
     expected_commit_id: str,
-) -> tuple[ClaimedWork, str]:
+) -> str:
     operation_id = _accept_prepared_operation_for_repository(
         harness.db_path,
         harness.artifact_store,
@@ -253,12 +253,7 @@ def _run_submit_to_await_claim_for_repository(
         )
         is ExecutorAcknowledgment.PUBLISHED
     )
-    await_work = startup.claim_one()
-    assert await_work is not None
-    assert await_work.step.step_name == SUBMIT_STEP_AWAIT
-    assert await_work.step.worker_id is not None
-    assert await_work.step.lease_token is not None
-    return await_work, operation_id
+    return operation_id
 
 
 def _initialized_db_path(tmp_path: Path, name: str) -> Path:
@@ -858,6 +853,16 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
     requires_dolt: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Repository restart consumer journey owner (execution-plan §490).
+
+    Restart semantics: ``shutdown_repository_service_client`` stops the fixture via
+    ``os.killpg(pgid, SIGTERM)``. The starter runs uvicorn on a non-main thread, so
+    ``capture_signals`` does not apply and the process exits immediately (hard kill),
+    not production graceful shutdown (main-thread uvicorn SIGTERM → ``should_exit`` →
+    ``runtime.shutdown()``). This owner proves durable await markers survive hard kill
+    and can be consumed by a new repository-service process; it does not cover graceful
+    restart.
+    """
     from gateway_backend.application.submission.contracts import PrepareImportPublicationResult
     from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
 
@@ -882,13 +887,19 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
 
     data_root = tmp_path / "repo-restart-journey"
     service1 = start_repository_service_client(data_root)
+    repository_operation_id = ""
+    workspace_id = ""
+    operation_id = ""
+    seeded_repository_id = ""
+    harness: SubmitWorkerHarness | None = None
     try:
         seeded = service1.repository_id_factory(idempotency_key="create-repo-restart-journey")
+        seeded_repository_id = seeded.repository_id
         harness = build_submit_worker_harness(
             tmp_path / "worker-repo-restart",
             repository_base_url=service1.base_url,
         )
-        await_work, operation_id = _run_submit_to_await_claim_for_repository(
+        operation_id = _run_submit_import_for_repository(
             harness,
             repository_id=seeded.repository_id,
             expected_commit_id=seeded.initial_commit_id,
@@ -915,13 +926,17 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
         )
         assert terminal_operation.status.value == "SUCCEEDED"
     finally:
+        service1_process = service1._process
         shutdown_repository_service_client(service1, preserve_data=True)
+        if service1_process is not None:
+            assert service1_process.poll() is not None
 
+    assert harness is not None
     service2 = start_repository_service_client(data_root)
     try:
         restarted_client = service2.write_client()
         restarted_terminal = restarted_client.get_operation(
-            repository_id=seeded.repository_id,
+            repository_id=seeded_repository_id,
             operation_id=repository_operation_id,
         )
         assert restarted_terminal.status.value == "SUCCEEDED"
@@ -930,18 +945,20 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
             harness.submit_deps,
             repository_write=restarted_client,
         )
-        await_executor = build_await_import_result_handler(await_deps)
-        with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-            operation = unit_of_work.operations.get_operation(operation_id)
-            await_step = unit_of_work.operations.get_step(
-                submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
-            )
-            assert await_work.step.worker_id is not None
-            assert await_work.step.lease_token is not None
-        work = ClaimedWork(operation, await_step, await_executor)
+        startup = harness.runtime._startup
+        assert startup.startup() is StartupDisposition.READY
+        await_work = startup.claim_one()
+        assert await_work is not None
+        assert await_work.step.step_name == SUBMIT_STEP_AWAIT
+        assert await_work.step.worker_id is not None
+        assert await_work.step.lease_token is not None
+        await_work = replace(
+            await_work,
+            executor=build_await_import_result_handler(await_deps),
+        )
         assert harness.runtime._lifecycle.mark_ready_to_claim() is False
         harness.runtime._run_claim(
-            work,
+            await_work,
             lambda: False,
             lambda timeout: False,
             claim_anchor=time.monotonic(),
@@ -972,7 +989,7 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         workspace_occupancy = unit_of_work.submission.get_workspace_occupancy(workspace_id)
         repository_occupancy = unit_of_work.submission.get_repository_occupancy(
-            seeded.repository_id
+            seeded_repository_id
         )
     assert repository_occupancy is None
     assert workspace_occupancy is not None

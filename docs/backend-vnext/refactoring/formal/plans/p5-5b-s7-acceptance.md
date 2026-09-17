@@ -16,7 +16,7 @@ remediation_round_2: 30193dd5d3b34ec82da382cd7d85650cd98a3bb7
 remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
 remediation_round_4: e5c43c0c9f71de3cd2e602504ec9034f16add8af
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
-records_head: pending_review-7_commit
+records_head: 3b007419809397d0dd794352967352e9985be5f5
 s5_independent_review: pass
 s6_independent_review: pass (p5-5b-s6-independent-review-5.md)
 s7_independent_review: pass (p5-5b-s7-independent-review-7.md)

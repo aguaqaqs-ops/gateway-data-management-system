@@ -16,7 +16,7 @@ remediation_round_2: 30193dd5d3b34ec82da382cd7d85650cd98a3bb7
 remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
 remediation_round_4: e5c43c0c9f71de3cd2e602504ec9034f16add8af
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
-records_head: pending_review-7_commit
+records_head: 3b007419809397d0dd794352967352e9985be5f5
 findings_addressed:
   S7-F1: closed @ review-4 — finalize_transaction.py + submit_jobs.py + test_submit_recovery.py
   S7-F4: closed @ review-4 — test_operator_recovery_http.py

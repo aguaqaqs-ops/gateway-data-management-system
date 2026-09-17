@@ -15,7 +15,7 @@ baseline_commit: 4cda6b9c
 remediation_round_2: 30193dd5d3b34ec82da382cd7d85650cd98a3bb7
 remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
 implementation_seal: 7c511c4b8b59842b67d24083abf274ba620b2e7e
-records_head: pending
+records_head: b80a283f689ed6e957f932a72bc283aeacbef5be
 findings_addressed:
   S7-F1: closed @ review-4 — finalize_transaction.py + submit_jobs.py + test_submit_recovery.py
   S7-F4: closed @ review-4 — test_operator_recovery_http.py

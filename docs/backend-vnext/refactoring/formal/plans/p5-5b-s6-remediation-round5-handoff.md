@@ -11,7 +11,7 @@ Owner：P5-5B Delivery
 ```yaml
 review: independent Round 4 RR12 FAIL (RR13/RR14/RR15 findings; not p5-5b-s6-independent-review-4.md)
 parent_candidate: 5a2bd56dafe5ccb71f5ffe334a12e41c639ff215
-implementation_candidate: f52fc2e1c3eb13a48ee229dcb761cab9aa35e2bc
+implementation_candidate: acf63ec3550a09c364886b50b1fb0cad893184c6
 remediation_round: 5
 findings_addressed:
   S6-RR12: closed (carried from round 4) — AdmissionFirstUvicornServer pre-drain before Uvicorn drain

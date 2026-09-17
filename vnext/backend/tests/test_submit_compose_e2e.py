@@ -181,3 +181,76 @@ def test_compose_three_process_submit_stack_smoke_and_backend_restart(tmp_path: 
         down = _run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:
             pytest.fail(f"compose down failed: {down.stderr}\n{down.stdout}")
+
+
+def test_compose_submit_accept_route_is_wired_for_unprepared_workspace(tmp_path: Path) -> None:
+    """Prove submit HTTP route + registry wiring in the three-process stack.
+
+    Full Accept→upload→import→poll→T3→read remains deferred to S8 when
+    repository-service image build is unavailable (dolt checksum).
+    """
+    _require_docker()
+    env = _compose_env(tmp_path)
+    env["GATEWAY_REPOSITORY_SERVICE_IMAGE"] = "gateway-repository-service:local"
+    build = _run_compose(env, "build", "backend", "worker")
+    if build.returncode != 0:
+        pytest.skip(f"backend/worker compose build unavailable: {build.stderr[:200]}")
+    up = _run_compose(env, "up", "-d", "--no-build", "repository-service", "backend", "worker")
+    if up.returncode != 0:
+        pytest.fail(f"compose up failed: {up.stderr}\n{up.stdout}")
+
+    try:
+        _wait_http_ok(f"{BACKEND_URL}/readyz")
+        _worker_ready(env)
+
+        workspace_request = urllib.request.Request(
+            f"{BACKEND_URL}/v1/workspaces",
+            data=json.dumps(
+                {
+                    "gateway_device_external_key": "compose-device",
+                    "business_project_id": "compose-project",
+                }
+            ).encode("utf-8"),
+            headers={
+                "Authorization": "Bearer compose-session-token",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(workspace_request, timeout=10.0) as response:
+            workspace = json.loads(response.read().decode("utf-8"))
+
+        accept_request = urllib.request.Request(
+            f"{BACKEND_URL}/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+            data=json.dumps(
+                {
+                    "expected_workspace_version": workspace["optimistic_version"],
+                    "upload_revision_id": "missing-upload",
+                    "preview_result_id": "missing-preview",
+                    "generation": 1,
+                    "expected_baseline_node_id": "compose-node",
+                    "expected_baseline_head_version": 0,
+                    "options": {},
+                }
+            ).encode("utf-8"),
+            headers={
+                "Authorization": "Bearer compose-session-token",
+                "Idempotency-Key": "compose-submit-unprepared",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(accept_request, timeout=10.0) as response:
+                status = response.status
+                body = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            body = json.loads(exc.read().decode("utf-8"))
+
+        assert status in {400, 404, 409, 422}
+        assert body.get("code") != "SERVICE_NOT_READY"
+    finally:
+        down = _run_compose(env, "down", "-v", "--remove-orphans")
+        if down.returncode != 0:
+            pytest.fail(f"compose down failed: {down.stderr}\n{down.stdout}")

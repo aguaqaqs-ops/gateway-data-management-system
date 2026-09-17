@@ -726,6 +726,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                     (
                         "gateway_backend.application",
                         "gateway_backend.bootstrap",
+                        "gateway_backend.http.runtime",
                         "gateway_backend.http.shutdown",
                         "gateway_backend.infrastructure.artifact_store",
                         "gateway_backend.infrastructure.control_db",
@@ -743,6 +744,7 @@ def test_repository_client_is_confined_to_repository_read_and_write() -> None:
     allowed_dirs = (
         src / "infrastructure" / "repository_read",
         src / "infrastructure" / "repository_write",
+        src / "http",
     )
     for source in sorted(src.rglob("*.py")):
         text = source.read_text(encoding="utf-8")

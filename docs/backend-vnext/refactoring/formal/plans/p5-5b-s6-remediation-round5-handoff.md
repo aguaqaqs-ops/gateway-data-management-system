@@ -50,7 +50,9 @@ cd vnext/backend
   tests/test_http_admission_shutdown_process.py \
   tests/test_submit_worker_process.py \
   tests/test_backend_http_container_gate.py
-# 4 passed, 1 skipped (repository-service build unavailable)
+# 7 collected; 6 passed, 1 skipped
+# skipped: test_backend_container_ready_and_stops_cleanly_with_repository_service
+#   (repository-service build unavailable — dolt checksum; unrelated to backend entrypoint)
 
 ../scripts/uv-consume.sh -C . run ruff check .
 # All checks passed
@@ -73,6 +75,17 @@ docker inspect "${COMPOSE_PROJECT_NAME}-backend" --format '{{json .Config.Cmd}}'
 
 `test_backend_container_ready_and_stops_cleanly_with_repository_service` skipped when
 `repository-service` build fails (dolt checksum); backend-only build and CMD inspect still required.
+
+Serial owner nodeids (7): `test_http_server_subprocess_fails_closed_when_repository_unreachable`,
+`test_uvicorn_sigterm_rejects_new_submit_before_exit`,
+`test_module_worker_bootstraps_submit_registry_and_drains_on_sigterm`,
+`test_submit_process_termination_respects_checkpoint_commit_barrier[before_checkpoint-1]`,
+`test_submit_process_termination_respects_checkpoint_commit_barrier[after_checkpoint-2]`,
+`test_backend_image_builds_with_http_server_entrypoint`,
+`test_backend_container_ready_and_stops_cleanly_with_repository_service` (skipped).
+
+Follow-up (non-blocking): wire container runtime gate to a test-owned Repository stub/container so
+backend SIGTERM/readiness evidence is not coupled to unrelated Dolt image build failures.
 
 ## New owner test nodeids
 

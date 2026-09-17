@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -14,7 +15,10 @@ from gateway_backend.application.recovery import (
     DIAGNOSTIC_RECONCILE_TIMEOUT,
     RecoveryOutcomeDisposition,
 )
-from gateway_backend.application.submit_jobs import build_submit_recovery_port
+from gateway_backend.application.submit_jobs import (
+    build_await_import_result_handler,
+    build_submit_recovery_port,
+)
 from gateway_backend.application.submission.errors import RepositoryWriteTimeoutError
 from gateway_backend.application.submission.abort_transaction import (
     AbortSubmitTransactionRequest,
@@ -26,7 +30,7 @@ from gateway_backend.application.submission.contracts import (
     MatchingAbortProof,
     RepositoryOperationTerminalStatus,
 )
-from gateway_backend.application.submission.job_payload import SUBMIT_STEP_SUBMIT
+from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT, SUBMIT_STEP_SUBMIT
 from gateway_backend.domain.submission.models import SubmitAttempt, SubmitAttemptState
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.database import initialize_control_db
@@ -38,15 +42,24 @@ from gateway_backend.operations import (
     WritePrecondition,
 )
 from gateway_backend.operations.lease_session import LeaseSession
-from gateway_backend.operations.worker import ExecutionControl
+from gateway_backend.operations.worker import ExecutionControl, ExecutorAcknowledgment
+from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
 from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
 from gateway_backend.infrastructure.repository_write.abort_evidence import HttpRepositoryAbortEvidencePort
 from tests.support.submit_job_harness import (
+    RecordingTransport,
     assert_occupancy_released,
     assert_occupancy_retained,
     build_submit_worker_harness,
     repository_service_session,
     submit_step_id,
+)
+from tests.test_submit_job_effect import (
+    _await_lease_identity,
+    _lease_session,
+    _operation_poll_handler,
+    _prepare_manifest_digest,
+    _run_submit_to_await_claim,
 )
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.test_submit_transactions import (
@@ -508,3 +521,69 @@ def test_operator_abort_import_rejected_via_recovery_port(
     assert persisted_attempt is not None
     assert persisted_attempt.state is SubmitAttemptState.ABORTED
     assert persisted_operation.status is OperationStatus.FAILED
+
+
+def test_await_import_replay_after_finalize_commit_before_worker_ack(tmp_path: Path) -> None:
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(),
+    )
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    manifest_digest = _prepare_manifest_digest(harness, operation_id)
+    write_client = cast(HttpRepositoryWriteClient, harness.submit_deps.repository_write)
+    await_write = replace(
+        write_client,
+        transport=RecordingTransport(_operation_poll_handler(manifest_digest)),
+    )
+    await_deps = replace(harness.submit_deps, repository_write=await_write)
+    handler = build_await_import_result_handler(await_deps)
+    worker_id, lease_token = _await_lease_identity(await_work)
+    control, session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=await_work.operation.operation_id,
+        step_id=await_work.step.step_id,
+    )
+    assert (
+        handler(await_work.operation, await_work.step, control, session)
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        await_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+        submit_attempt_id = next(
+            ref.value for ref in operation.business_refs if ref.kind == "submit_attempt"
+        )
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        submission = unit_of_work.submission.get_submission_by_attempt(submit_attempt_id)
+        row_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM submission_records WHERE submit_attempt_id = ?",
+            (submit_attempt_id,),
+        ).fetchone()[0]
+    assert operation.status is OperationStatus.SUCCEEDED
+    assert attempt is not None
+    assert attempt.state is SubmitAttemptState.FINALIZED
+    assert submission is not None
+    assert row_count == 1
+
+    replay_control, replay_session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=operation.operation_id,
+        step_id=await_step.step_id,
+    )
+    assert (
+        handler(operation, await_step, replay_control, replay_session)
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        replay_rows = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM submission_records WHERE submit_attempt_id = ?",
+            (submit_attempt_id,),
+        ).fetchone()[0]
+    assert replay_rows == 1

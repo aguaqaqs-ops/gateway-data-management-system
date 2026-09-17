@@ -667,14 +667,25 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
         control: ExecutionControl,
         lease_session: LeaseSession,
     ) -> ExecutorAcknowledgment:
+        payload = _load_submit_payload(operation, deps.artifact_store)
+        with deps.control_transaction_factory() as unit_of_work:
+            fresh_operation = unit_of_work.operations.get_operation(operation.operation_id)
+            fresh_attempt = unit_of_work.submission.get_submit_attempt(payload.submit_attempt_id)
+        if fresh_attempt is None:
+            raise SubmitJobError("submit attempt is missing")
+        _assert_payload_matches_attempt(payload, fresh_attempt)
+        if (
+            fresh_attempt.state is SubmitAttemptState.FINALIZED
+            and fresh_operation.status is OperationStatus.SUCCEEDED
+        ):
+            return ExecutorAcknowledgment.PUBLISHED
+
         lease_session.refresh_control()
         if step.checkpoint_ref is None and control.cancel_requested:
             lease_session.publish_operation(_make_cancelled_terminal_builder())
             return ExecutorAcknowledgment.PUBLISHED
 
-        payload = _load_submit_payload(operation, deps.artifact_store)
-        attempt = _load_submit_attempt(deps, payload.submit_attempt_id)
-        _assert_payload_matches_attempt(payload, attempt)
+        attempt = fresh_attempt
         if attempt.state is not SubmitAttemptState.EFFECT_PENDING:
             if attempt.state is SubmitAttemptState.FINALIZED and operation.status is OperationStatus.SUCCEEDED:
                 return ExecutorAcknowledgment.PUBLISHED

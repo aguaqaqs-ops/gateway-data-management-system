@@ -407,3 +407,26 @@ def test_operator_recovery_external_step_accepts_resume(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["command"] == "RESUME_RECONCILE"
     assert response.json()["disposition"] == "APPLY"
+
+
+def test_operator_recovery_rejects_retry_on_external_step(tmp_path: Path) -> None:
+    environment = create_workspace_http_environment(tmp_path)
+    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
+    workspace = _seeded_workspace_dict(seed)
+    accepted = _accept_submit(environment, workspace)
+    external_step_id = advance_submit_to_external_step(
+        environment.db_path,
+        accepted["operation_id"],
+    )
+    response = environment.client.post(
+        f"/internal/v1/operations/{accepted['operation_id']}/steps/{external_step_id}/recovery",
+        headers=environment.internal_auth_headers(),
+        json=_recovery_body(
+            environment,
+            accepted,
+            {"step_id": external_step_id},
+            command="RETRY_FROM_CHECKPOINT",
+        ),
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == "RECOVERY_CAPABILITY_CONFLICT"

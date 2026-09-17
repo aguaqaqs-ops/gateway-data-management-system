@@ -684,6 +684,89 @@ def test_submit_import_aborts_before_effect_pending_on_upload_metadata_mismatch(
     assert attempt.repository_artifact_ref is None
 
 
+def test_await_import_pins_checkpoint_and_evidence_protection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _block_finalize(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("block finalize to inspect protection")
+
+    monkeypatch.setattr(
+        "gateway_backend.application.submit_jobs.finalize_submit_transaction",
+        _block_finalize,
+    )
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(),
+    )
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    manifest_digest = _prepare_manifest_digest(harness, operation_id)
+    write_client = cast(HttpRepositoryWriteClient, harness.submit_deps.repository_write)
+    await_write = replace(
+        write_client,
+        transport=RecordingTransport(_operation_poll_handler(manifest_digest)),
+    )
+    await_deps = replace(harness.submit_deps, repository_write=await_write)
+    worker_id, lease_token = _await_lease_identity(await_work)
+    control, session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=await_work.operation.operation_id,
+        step_id=await_work.step.step_id,
+    )
+    handler = build_await_import_result_handler(await_deps)
+    with pytest.raises(RuntimeError, match="block finalize to inspect protection"):
+        handler(await_work.operation, await_work.step, control, session)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        await_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+        assert await_step.checkpoint_ref is not None
+        envelope = load_checkpoint_envelope(harness.artifact_store, await_step.checkpoint_ref)
+        evidence_ref = envelope.job_state.get("terminal_result_evidence_ref")
+        assert type(evidence_ref) is dict
+        assert unit_of_work.protection.is_protected(await_step.checkpoint_ref.artifact_id)
+        assert unit_of_work.protection.is_protected(evidence_ref["artifact_id"])
+
+
+def test_await_import_finalize_releases_checkpoint_protection(tmp_path: Path) -> None:
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(),
+    )
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    manifest_digest = _prepare_manifest_digest(harness, operation_id)
+    write_client = cast(HttpRepositoryWriteClient, harness.submit_deps.repository_write)
+    await_write = replace(
+        write_client,
+        transport=RecordingTransport(_operation_poll_handler(manifest_digest)),
+    )
+    await_deps = replace(harness.submit_deps, repository_write=await_write)
+    worker_id, lease_token = _await_lease_identity(await_work)
+    control, session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=await_work.operation.operation_id,
+        step_id=await_work.step.step_id,
+    )
+    handler = build_await_import_result_handler(await_deps)
+    handler(await_work.operation, await_work.step, control, session)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        await_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+        assert await_step.checkpoint_ref is not None
+        envelope = load_checkpoint_envelope(harness.artifact_store, await_step.checkpoint_ref)
+        evidence_ref = envelope.job_state.get("terminal_result_evidence_ref")
+        assert type(evidence_ref) is dict
+        assert not unit_of_work.protection.is_protected(await_step.checkpoint_ref.artifact_id)
+        assert not unit_of_work.protection.is_protected(evidence_ref["artifact_id"])
+
+
 def test_await_import_persists_terminal_evidence_before_finalize(tmp_path: Path) -> None:
     harness = build_submit_worker_harness(
         tmp_path,
@@ -808,7 +891,11 @@ def test_await_import_replays_t3_from_persisted_evidence_without_poll(
         )
         assert await_step.checkpoint_ref is not None
         envelope = load_checkpoint_envelope(harness.artifact_store, await_step.checkpoint_ref)
-        assert envelope.job_state.get("terminal_result_evidence_ref") is not None
+        evidence_ref = envelope.job_state.get("terminal_result_evidence_ref")
+        assert evidence_ref is not None
+        assert type(evidence_ref) is dict
+        assert unit_of_work.protection.is_protected(await_step.checkpoint_ref.artifact_id)
+        assert unit_of_work.protection.is_protected(evidence_ref["artifact_id"])
     replay_handler = build_await_import_result_handler(replay_deps)
     replay_control, replay_session = _lease_session(
         harness,

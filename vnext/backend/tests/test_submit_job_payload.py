@@ -6,11 +6,16 @@ import json
 import pytest
 
 from gateway_backend.application.payloads import PayloadDecodeError
+from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
 from gateway_backend.application.submit_jobs import (
+    _await_checkpoint_from_job_state,
+    _load_terminal_repository_evidence,
     _prepare_checkpoint_from_job_state,
+    _submit_state_from_job_state,
     decode_submit_payload,
     submit_payload_decoders,
 )
+from gateway_backend.artifacts.types import ArtifactRef, DigestRef
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.application.submit_registry import (
     AWAIT_IMPORT_DECODER,
@@ -179,16 +184,20 @@ def test_decode_submit_payload_rejects_unsupported_contract_version() -> None:
         decode_submit_payload(payload_object)
 
 
-def test_prepare_checkpoint_rejects_unknown_job_state_fields() -> None:
-    job_state = {
+def _artifact_ref_dict(artifact_id: str) -> dict[str, object]:
+    return {
+        "artifact_id": artifact_id,
+        "media_type": "application/jcs",
+        "size_bytes": 1,
+        "raw_sha256": "sha256:" + "a" * 64,
+    }
+
+
+def _canonical_prepare_checkpoint_job_state() -> dict[str, object]:
+    return {
         "schema_version": "backend-vnext/submit/prepare-import-checkpoint/v1",
         "attempt_id": "sa-payload-1",
-        "canonicalization_manifest_ref": {
-            "artifact_id": "manifest-1",
-            "media_type": "application/jcs",
-            "size_bytes": 1,
-            "raw_sha256": "sha256:" + "a" * 64,
-        },
+        "canonicalization_manifest_ref": _artifact_ref_dict("manifest-1"),
         "canonicalization_manifest_digest": "sha256:" + "b" * 64,
         "backend_import_artifact_ref": {
             "artifact_id": "backend-1",
@@ -200,10 +209,197 @@ def test_prepare_checkpoint_rejects_unknown_job_state_fields() -> None:
         "package_raw_sha256": "sha256:" + "c" * 64,
         "input_closure_digest": "sha256:" + "d" * 64,
         "builder_mutation_policy": "REBUILD_ALWAYS",
-        "unexpected_field": "x",
     }
+
+
+def _canonical_submit_request_checkpoint_job_state() -> dict[str, object]:
+    return {
+        "schema_version": "backend-vnext/submit/submit-import-checkpoint/v1",
+        "prepare_checkpoint_ref": _artifact_ref_dict("prepare-cp-1"),
+        "repository_artifact_ref": {
+            "artifact_id": "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
+            "media_type": "application/vnd.gateway.repository-import.v1+tar+zstd",
+            "size_bytes": 2,
+            "raw_sha256": "sha256:" + "c" * 64,
+        },
+        "upload_idempotency_key": "p5b-upload-v1:abc",
+        "request_artifact_id": "request-1",
+        "request_artifact_ref": _artifact_ref_dict("request-1"),
+        "request_fingerprint": "sha256:" + "e" * 64,
+        "import_idempotency_key": "p5b-import-v1:abc",
+        "idempotency_key": "p5b-import-v1:abc",
+        "request_sent": False,
+        "reconcile_started_at": "2024-06-01T12:00:00Z",
+    }
+
+
+def _canonical_await_terminal_checkpoint_job_state() -> dict[str, object]:
+    return {
+        "schema_version": "backend-vnext/submit/await-import-result-checkpoint/v1",
+        "submit_checkpoint_ref": _artifact_ref_dict("submit-cp-1"),
+        "operation_identity": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+        "reconcile_started_at": "2024-06-01T12:00:00Z",
+        "last_observed_repository_status": "SUCCEEDED",
+        "terminal_result_evidence_ref": _artifact_ref_dict("evidence-1"),
+    }
+
+
+def _canonical_terminal_evidence_object() -> dict[str, object]:
+    return {
+        "document_type": "submit_repository_terminal_evidence",
+        "contract_version": "backend-vnext/submit/repository-terminal-evidence/v1",
+        "operation_id": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+        "status": "SUCCEEDED",
+        "result": {
+            "operation_id": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+            "commit_id": "commit-main",
+            "artifact_id": "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
+            "expected_commit_id": "commit-main",
+            "canonicalization_manifest_digest": "sha256:" + "b" * 64,
+            "completed_verification_policy": "STRUCTURAL",
+            "unknown_type_policy": "REJECT",
+            "target_ref": "main",
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("decoder", "base_state", "mutation", "message"),
+    (
+        (
+            _prepare_checkpoint_from_job_state,
+            _canonical_prepare_checkpoint_job_state(),
+            {"unexpected_field": "x"},
+            "unknown keys",
+        ),
+        (
+            _prepare_checkpoint_from_job_state,
+            _canonical_prepare_checkpoint_job_state(),
+            {"attempt_id": None},
+            "missing keys",
+        ),
+    ),
+)
+def test_prepare_checkpoint_rejects_inexact_job_state(
+    decoder: object,
+    base_state: dict[str, object],
+    mutation: dict[str, object],
+    message: str,
+) -> None:
+    job_state = dict(base_state)
+    job_state.update(mutation)
+    if "attempt_id" in mutation and mutation["attempt_id"] is None:
+        del job_state["attempt_id"]
+    with pytest.raises(CheckpointDecodeError, match=message):
+        decoder(job_state, expected_attempt_id="sa-payload-1")  # type: ignore[operator]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ({"request_sent": None}, "request_sent must be a bool"),
+        ({"request_sent": "false"}, "request_sent must be a bool"),
+        ({"reconcile_started_at": None}, "missing keys"),
+        ({"use_sent_branch": True, "operation_identity": None}, "missing keys"),
+        ({"unexpected_field": "x"}, "unknown keys"),
+    ),
+)
+def test_submit_checkpoint_rejects_inexact_job_state(
+    mutation: dict[str, object],
+    message: str,
+) -> None:
+    job_state = _canonical_submit_request_checkpoint_job_state()
+    if mutation.get("use_sent_branch") is True:
+        job_state["request_sent"] = True
+        job_state["operation_identity"] = "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11"
+    for key, value in mutation.items():
+        if key == "use_sent_branch":
+            continue
+        if value is None:
+            del job_state[key]
+        else:
+            job_state[key] = value
+    store = InMemoryArtifactStore()
+    request_ref = ArtifactRef(
+        artifact_id="request-1",
+        media_type="application/jcs",
+        size_bytes=1,
+        raw_sha256=DigestRef("sha256:" + "a" * 64),
+    )
+    put_with_built_ref(store, b"{}", artifact_id=request_ref.artifact_id, media_type=request_ref.media_type)
+    prepare_ref = artifact_ref_from_dict(_artifact_ref_dict("prepare-cp-1"))
+    checkpoint_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
+    payload = decode_submit_payload(_canonical_payload_object())
+    with pytest.raises(CheckpointDecodeError, match=message):
+        _submit_state_from_job_state(
+            store,
+            job_state,
+            expected_payload=payload,
+            prepare_checkpoint_ref=prepare_ref,
+            checkpoint_ref=checkpoint_ref,
+        )
+
+
+def test_await_terminal_checkpoint_rejects_unknown_job_state_fields() -> None:
+    job_state = _canonical_await_terminal_checkpoint_job_state()
+    job_state["unexpected_field"] = "x"
+    submit_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
     with pytest.raises(CheckpointDecodeError, match="unknown keys"):
-        _prepare_checkpoint_from_job_state(job_state, expected_attempt_id="sa-payload-1")
+        _await_checkpoint_from_job_state(
+            job_state,
+            expected_submit_checkpoint_ref=submit_ref,
+            expected_repository_operation_id="018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+        )
+
+
+def test_await_terminal_checkpoint_rejects_non_terminal_status() -> None:
+    job_state = _canonical_await_terminal_checkpoint_job_state()
+    job_state["last_observed_repository_status"] = "QUEUED"
+    submit_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
+    with pytest.raises(CheckpointDecodeError, match="terminal repository status"):
+        _await_checkpoint_from_job_state(
+            job_state,
+            expected_submit_checkpoint_ref=submit_ref,
+            expected_repository_operation_id="018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+        )
+
+
+def test_terminal_evidence_rejects_unknown_fields() -> None:
+    store = InMemoryArtifactStore()
+    evidence = _canonical_terminal_evidence_object()
+    evidence["unexpected_field"] = "x"
+    evidence_ref = put_with_built_ref(
+        store,
+        json.dumps(evidence).encode(),
+        artifact_id="evidence-1",
+        media_type="application/jcs",
+    )
+    with pytest.raises(CheckpointDecodeError, match="unknown keys"):
+        _load_terminal_repository_evidence(store, evidence_ref)
+
+
+def test_terminal_evidence_rejects_checkpoint_status_mismatch() -> None:
+    store = InMemoryArtifactStore()
+    evidence = _canonical_terminal_evidence_object()
+    evidence["status"] = "FAILED"
+    evidence["error"] = {
+        "code": "IMPORT_REJECTED",
+        "message": "rejected",
+    }
+    del evidence["result"]
+    evidence_ref = put_with_built_ref(
+        store,
+        json.dumps(evidence).encode(),
+        artifact_id="evidence-1",
+        media_type="application/jcs",
+    )
+    with pytest.raises(CheckpointDecodeError, match="status does not match checkpoint"):
+        _load_terminal_repository_evidence(
+            store,
+            evidence_ref,
+            expected_operation_id="018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+            expected_status="SUCCEEDED",
+        )
 
 
 def test_submit_job_definitions_identities_match_submit_registry_constants() -> None:

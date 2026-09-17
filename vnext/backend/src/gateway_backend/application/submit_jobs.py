@@ -743,7 +743,11 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             )
             await_checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(
-                make_checkpoint_step_builder(checkpoint_ref=await_checkpoint_ref)
+                _pinned_checkpoint_builder(
+                    checkpoint_ref=await_checkpoint_ref,
+                    extra_refs=(),
+                    intent="await-import-reconcile-checkpoint",
+                )
             )
             await_checkpoint_state = _AwaitCheckpointState(
                 submit_checkpoint_ref=submit_step.checkpoint_ref,
@@ -761,6 +765,8 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             repository_operation = _load_terminal_repository_evidence(
                 deps.artifact_store,
                 await_checkpoint_state.terminal_result_evidence_ref,
+                expected_operation_id=submit_state.repository_operation_id,
+                expected_status=await_checkpoint_state.last_observed_repository_status,
             )
         else:
             try:
@@ -787,7 +793,11 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             if await_checkpoint_ref is None:
                 raise SubmitJobError("await_import_result checkpoint is missing for reconcile handoff")
             checkpoint_generation = lease_session.publish_checkpoint(
-                make_checkpoint_step_builder(checkpoint_ref=await_checkpoint_ref)
+                _pinned_checkpoint_builder(
+                    checkpoint_ref=await_checkpoint_ref,
+                    extra_refs=(),
+                    intent="await-import-reconcile-checkpoint",
+                )
             )
             return lease_session.acknowledge_safe_handoff(checkpoint_generation)
 
@@ -815,7 +825,11 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             )
             await_checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, terminal_envelope)
             lease_session.publish_checkpoint(
-                make_checkpoint_step_builder(checkpoint_ref=await_checkpoint_ref)
+                _pinned_checkpoint_builder(
+                    checkpoint_ref=await_checkpoint_ref,
+                    extra_refs=(evidence_ref,),
+                    intent="await-import-terminal-checkpoint",
+                )
             )
             await_checkpoint_state = _AwaitCheckpointState(
                 submit_checkpoint_ref=submit_step.checkpoint_ref,
@@ -1481,17 +1495,51 @@ _ALLOWED_AWAIT_TERMINAL_CHECKPOINT_KEYS = _ALLOWED_AWAIT_RECONCILE_CHECKPOINT_KE
 )
 
 
-def _reject_unknown_job_state_keys(
+def _require_exact_job_state_keys(
     job_state: Mapping[str, object],
     *,
     allowed_keys: frozenset[str],
 ) -> None:
-    unknown = sorted(set(job_state) - allowed_keys)
+    actual_keys = frozenset(job_state)
+    missing = sorted(allowed_keys - actual_keys)
+    if missing:
+        raise CheckpointDecodeError(
+            f"checkpoint job_state is missing keys: {', '.join(missing)}",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    unknown = sorted(actual_keys - allowed_keys)
     if unknown:
         raise CheckpointDecodeError(
             f"checkpoint job_state contains unknown keys: {', '.join(unknown)}",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
+
+
+_TERMINAL_REPOSITORY_EVIDENCE_BASE_KEYS = frozenset(
+    {
+        "document_type",
+        "contract_version",
+        "operation_id",
+        "status",
+    }
+)
+_TERMINAL_REPOSITORY_EVIDENCE_SUCCEEDED_KEYS = _TERMINAL_REPOSITORY_EVIDENCE_BASE_KEYS | frozenset(
+    {"result"}
+)
+_TERMINAL_REPOSITORY_EVIDENCE_FAILED_KEYS = _TERMINAL_REPOSITORY_EVIDENCE_BASE_KEYS | frozenset({"error"})
+
+
+def _require_terminal_repository_status_value(value: object, *, label: str) -> str:
+    status = _require_non_empty_str_value(value, label=label)
+    if status not in {
+        RepositoryOperationStatus.SUCCEEDED.value,
+        RepositoryOperationStatus.FAILED.value,
+    }:
+        raise CheckpointDecodeError(
+            f"{label} must be a terminal repository status",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    return status
 
 
 def _job_state_for_await_reconcile(
@@ -1538,8 +1586,8 @@ def _await_checkpoint_from_job_state(
             "await checkpoint schema_version is invalid",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
-    has_terminal_evidence = job_state.get(_JOB_STATE_TERMINAL_RESULT_EVIDENCE_REF) is not None
-    _reject_unknown_job_state_keys(
+    has_terminal_evidence = _JOB_STATE_TERMINAL_RESULT_EVIDENCE_REF in job_state
+    _require_exact_job_state_keys(
         job_state,
         allowed_keys=(
             _ALLOWED_AWAIT_TERMINAL_CHECKPOINT_KEYS
@@ -1572,7 +1620,7 @@ def _await_checkpoint_from_job_state(
     last_observed_repository_status = None
     terminal_result_evidence_ref = None
     if has_terminal_evidence:
-        last_observed_repository_status = _require_non_empty_str_value(
+        last_observed_repository_status = _require_terminal_repository_status_value(
             job_state.get(_JOB_STATE_LAST_OBSERVED_REPOSITORY_STATUS),
             label="last_observed_repository_status",
         )
@@ -1621,6 +1669,9 @@ def _persist_terminal_repository_evidence(
 def _load_terminal_repository_evidence(
     store: ArtifactStorePort,
     evidence_ref: ArtifactRef,
+    *,
+    expected_operation_id: str | None = None,
+    expected_status: str | None = None,
 ) -> VersionedOperation:
     evidence_object = json.loads(store.locate(evidence_ref))
     if type(evidence_object) is not dict:
@@ -1640,13 +1691,34 @@ def _load_terminal_repository_evidence(
             "terminal repository evidence contract_version is invalid",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
+    status = _require_terminal_repository_status_value(
+        evidence_object.get("status"),
+        label="terminal repository evidence status",
+    )
+    allowed_keys = (
+        _TERMINAL_REPOSITORY_EVIDENCE_SUCCEEDED_KEYS
+        if status == RepositoryOperationStatus.SUCCEEDED.value
+        else _TERMINAL_REPOSITORY_EVIDENCE_FAILED_KEYS
+    )
+    _require_exact_job_state_keys(evidence_object, allowed_keys=allowed_keys)
     operation_payload = {
         "operation_id": evidence_object.get("operation_id"),
-        "status": evidence_object.get("status"),
+        "status": status,
         "result": evidence_object.get("result"),
         "error": evidence_object.get("error"),
     }
-    return VersionedOperation.model_validate(operation_payload)
+    operation = VersionedOperation.model_validate(operation_payload)
+    if expected_operation_id is not None and str(operation.operation_id) != expected_operation_id:
+        raise CheckpointDecodeError(
+            "terminal repository evidence operation_id does not match checkpoint",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if expected_status is not None and operation.status.value != expected_status:
+        raise CheckpointDecodeError(
+            "terminal repository evidence status does not match checkpoint",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    return operation
 
 
 def _prepare_checkpoint_from_job_state(
@@ -1660,7 +1732,7 @@ def _prepare_checkpoint_from_job_state(
             "prepare checkpoint schema_version is invalid",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
-    _reject_unknown_job_state_keys(job_state, allowed_keys=_ALLOWED_PREPARE_CHECKPOINT_KEYS)
+    _require_exact_job_state_keys(job_state, allowed_keys=_ALLOWED_PREPARE_CHECKPOINT_KEYS)
     attempt_id = job_state.get(_JOB_STATE_ATTEMPT_ID)
     if type(attempt_id) is not str or attempt_id != expected_attempt_id:
         raise CheckpointDecodeError(
@@ -1758,14 +1830,24 @@ def _submit_state_from_job_state(
             "submit checkpoint schema_version is invalid",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
-    request_sent = job_state.get(JOB_STATE_REQUEST_SENT) is True
-    _reject_unknown_job_state_keys(
+    request_sent_value = job_state.get(JOB_STATE_REQUEST_SENT)
+    if type(request_sent_value) is not bool:
+        raise CheckpointDecodeError(
+            "submit checkpoint request_sent must be a bool",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    request_sent = request_sent_value
+    _require_exact_job_state_keys(
         job_state,
         allowed_keys=(
             _ALLOWED_SUBMIT_CHECKPOINT_SENT_KEYS
             if request_sent
             else _ALLOWED_SUBMIT_CHECKPOINT_REQUEST_KEYS
         ),
+    )
+    _require_non_empty_str_value(
+        job_state.get(JOB_STATE_RECONCILE_STARTED_AT),
+        label="reconcile_started_at",
     )
     stored_prepare_ref = _require_artifact_ref_dict(
         job_state.get(_JOB_STATE_PREPARE_CHECKPOINT_REF),
@@ -2298,6 +2380,18 @@ def _successor_step_id(operation_id: str, step_name: str) -> str:
     return f"{operation_id}-step-{suffix}"
 
 
+def release_submit_checkpoint_protection(
+    unit_of_work: SubmitControlTransaction,
+    *,
+    operation_id: str,
+) -> None:
+    for step_name in (SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT, SUBMIT_STEP_AWAIT):
+        unit_of_work.clear_artifact_protection(
+            owner_kind="submit-checkpoint",
+            owner_id=_successor_step_id(operation_id, step_name),
+        )
+
+
 def _checkpoint_generation(step: StepRecord) -> int:
     attempt_count = step.attempt_count
     if type(attempt_count) is not int or isinstance(attempt_count, bool) or attempt_count < 1:
@@ -2504,6 +2598,7 @@ __all__ = [
     "build_submit_operator_recovery_port",
     "build_submit_recovery_port",
     "decode_submit_payload",
+    "release_submit_checkpoint_protection",
     "submit_composition_bundle",
     "submit_payload_decoders",
 ]

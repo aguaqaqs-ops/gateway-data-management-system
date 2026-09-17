@@ -129,6 +129,9 @@ def _abort_submit_in_transaction(
         owner_kind="submit-attempt",
         owner_id=attempt.submit_attempt_id,
     )
+    from gateway_backend.application.submit_jobs import release_submit_checkpoint_protection
+
+    release_submit_checkpoint_protection(unit_of_work, operation_id=attempt.operation_id)
 
     operation = unit_of_work.operations.get_operation(attempt.operation_id)
     steps, _cursor = unit_of_work.operations.list_steps(attempt.operation_id)

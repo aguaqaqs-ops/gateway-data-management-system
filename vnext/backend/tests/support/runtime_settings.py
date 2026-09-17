@@ -9,6 +9,7 @@ from gateway_backend.settings import BackendSettings, OperationWorkerSettings
 
 TEST_REPOSITORY_BASE_URL = "http://127.0.0.1:9"
 TEST_REPOSITORY_TOKEN = "test-repository-token"
+TEST_INTERNAL_BEARER_TOKEN = "test-internal-bearer"
 TEST_SESSION_TOKEN = "test-session-token"
 TEST_MAPPING_REPOSITORY_ID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
 TEST_MAPPING_COMMIT_ID = "commit-base"
@@ -101,12 +102,17 @@ def make_backend_settings(
     )
     repository_base_url = overrides.pop("repository_base_url", TEST_REPOSITORY_BASE_URL)
     session_file = overrides.pop("session_file", tmp_path / "session.json")
+    internal_bearer_file = overrides.pop(
+        "internal_bearer_token_file",
+        tmp_path / "internal-bearer-token",
+    )
     mapping_file = overrides.pop("provisioned_mapping_file", tmp_path / "provisioned-mapping.json")
     return BackendSettings(
         control_db_path=db_path,
         artifact_root=artifact_root,  # type: ignore[arg-type]
         repository_base_url=repository_base_url,  # type: ignore[arg-type]
         repository_bearer_token_file=token_file,  # type: ignore[arg-type]
+        internal_bearer_token_file=internal_bearer_file,  # type: ignore[arg-type]
         session_file=session_file,  # type: ignore[arg-type]
         provisioned_mapping_file=mapping_file,  # type: ignore[arg-type]
         **overrides,  # type: ignore[arg-type]
@@ -121,5 +127,8 @@ def prepare_backend_runtime_paths(tmp_path: Path) -> None:
     token_file = tmp_path / "repository-bearer-token"
     if not token_file.exists():
         token_file.write_text(TEST_REPOSITORY_TOKEN + "\n", encoding="utf-8")
+    internal_bearer_file = tmp_path / "internal-bearer-token"
+    if not internal_bearer_file.exists():
+        internal_bearer_file.write_text(TEST_INTERNAL_BEARER_TOKEN + "\n", encoding="utf-8")
     write_session_file(tmp_path / "session.json")
     write_mapping_file(tmp_path / "provisioned-mapping.json")

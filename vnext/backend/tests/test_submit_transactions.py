@@ -44,7 +44,6 @@ from gateway_backend.application.submission.errors import (
     FinalizeRecoveryRequired,
     IdempotencyConflict,
     NoCanonicalChange,
-    PreviewBindingConflict,
     SubmitJobNotRegistered,
     SubmitOccupancyConflict,
 )

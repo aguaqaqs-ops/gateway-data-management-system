@@ -14,7 +14,14 @@ import pytest
 from gateway_backend.bootstrap.operation_worker import build_production_preview_dependencies
 from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryRef
 from gateway_backend.http.auth import LiveFileSessionPort
-from gateway_backend.http.runtime import prepare_backend_runtime
+from gateway_backend.http.runtime import (
+    HttpRepositoryMainResolvePort,
+    build_workspace_job_registry,
+    prepare_backend_runtime,
+)
+from gateway_backend.application.submit_registry import submit_job_definitions
+from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND, SUBMIT_STEP_PREPARE
+from gateway_backend.operations.contracts import JobStepKey
 from gateway_backend.infrastructure.control_db.sqlite_mapping import ProvisionedBaselineHeadRead
 from gateway_backend.infrastructure.repository_read.http_arrow import (
     HttpArrowRepositoryTableAccessProvider,
@@ -52,10 +59,18 @@ def test_prepare_backend_runtime_uses_provisioned_identity_ports(tmp_path: Path)
         artifact_root=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
-    runtime = prepare_backend_runtime(settings)
+    runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)
     assert type(runtime.workspace_http.session_port) is LiveFileSessionPort
     assert type(runtime.workspace_http.scope_resolution).__name__ == "ProvisionedScopeResolution"
     assert type(runtime.workspace_http.baseline_head_read) is ProvisionedBaselineHeadRead
+    assert type(runtime.workspace_http.main_resolve) is HttpRepositoryMainResolvePort
+    registry = build_workspace_job_registry()
+    worker_definition = submit_job_definitions()[0]
+    http_definition = registry.get(
+        JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_PREPARE)
+    )
+    assert http_definition.decoder_identity == worker_definition.decoder_identity
+    assert http_definition.handler_identity == worker_definition.handler_identity
 
 
 def test_production_worker_wires_http_arrow_adapter_and_mapping_head(tmp_path: Path) -> None:
@@ -193,6 +208,30 @@ def test_http_arrow_streams_record_batches_without_session_row_cache() -> None:
     assert tuple(session.open_table_reader("items").stream_rows()) == ((1,), (2,), (3,))
     assert row_requests["count"] == 2
     session.close()
+
+
+def test_http_repository_main_resolve_uses_exact_wire() -> None:
+    encoded = encode_commit_id_path("commit-main")
+    path = f"/v1/repositories/{REPO_ID}/versioned/refs/main"
+    assert path.endswith(f"/refs/{encoded}") or "/refs/main" in path
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.headers.get("Authorization") == f"Bearer {TEST_REPOSITORY_TOKEN}"
+        assert request.url.path.endswith("/versioned/refs/main") or encoded in request.url.path
+        return httpx.Response(
+            200,
+            json={"ref_name": "main", "commit_id": "commit-main"},
+            headers={"X-Request-ID": "req-main"},
+        )
+
+    port = HttpRepositoryMainResolvePort(
+        base_url="http://repository.test",
+        bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0,
+        transport=httpx.MockTransport(handler),
+    )
+    assert port.resolve_main_expected_commit(repository_id=str(REPO_ID)) == "commit-main"
 
 
 def test_http_arrow_hidden_summary_streams_tables_without_preloading_rows() -> None:

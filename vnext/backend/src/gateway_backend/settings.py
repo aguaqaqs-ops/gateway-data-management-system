@@ -63,6 +63,7 @@ class BackendSettings(BaseSettings):
     artifact_root: Path
     repository_base_url: str
     repository_bearer_token_file: Path = Field(repr=False)
+    internal_bearer_token_file: Path = Field(repr=False)
     repository_timeout_seconds: float = FIXED_REPOSITORY_TIMEOUT_SECONDS
     session_file: Path
     provisioned_mapping_file: Path
@@ -95,6 +96,11 @@ class BackendSettings(BaseSettings):
     @classmethod
     def _require_absolute_token_file(cls, value: Path) -> Path:
         return require_absolute_path(value, field_name="repository_bearer_token_file")
+
+    @field_validator("internal_bearer_token_file")
+    @classmethod
+    def _require_absolute_internal_bearer_token_file(cls, value: Path) -> Path:
+        return require_absolute_path(value, field_name="internal_bearer_token_file")
 
     @field_validator("session_file")
     @classmethod
@@ -202,6 +208,7 @@ class OperationWorkerSettings(BaseSettings):
 
 
 __all__ = [
+    "_WORKER_FIXED_BUDGETS",
     "BackendSettings",
     "FIXED_CLEANUP_RETRY_BACKOFF_SECONDS",
     "FIXED_CLEANUP_SWEEP_BATCH_SIZE",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,7 +20,14 @@ from gateway_backend.infrastructure.control_db import (
     initialize_and_verify_control_db,
 )
 from gateway_backend.infrastructure.control_db.database import assert_control_db_integrity
-from gateway_backend.http.runtime import prepare_backend_runtime
+from gateway_backend.http.auth import StaticInternalBearerPort
+from gateway_backend.http.dependencies import ReadOnlySubmissionStore
+from gateway_backend.http.runtime import (
+    HttpBaselineCanonicalDigestPort,
+    HttpRepositoryMainResolvePort,
+    assert_repository_service_ready,
+    prepare_backend_runtime,
+)
 from gateway_backend.infrastructure.artifact_store import validate_artifact_root
 from gateway_backend.infrastructure.repository_read import load_repository_bearer_token
 from tests.support.runtime_settings import (
@@ -37,6 +45,11 @@ def test_preview_registry_rejects_empty_and_accepts_frozen_three_steps() -> None
     assert_preview_registry_ready(build_preview_job_registry())
 
 
+def test_assert_repository_service_ready_fails_closed_when_not_ok() -> None:
+    with pytest.raises(ValueError, match="not ready"):
+        assert_repository_service_ready("http://127.0.0.1:9", "token", timeout_seconds=0.01)
+
+
 def test_prepare_backend_runtime_fails_closed_without_artifact_root(tmp_path: Path) -> None:
     prepare_backend_runtime_paths(tmp_path)
     settings = make_backend_settings(
@@ -46,7 +59,7 @@ def test_prepare_backend_runtime_fails_closed_without_artifact_root(tmp_path: Pa
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     with pytest.raises(ValueError, match="artifact root"):
-        prepare_backend_runtime(settings)
+        prepare_backend_runtime(settings, skip_repository_ready_probe=True)
 
 
 def test_prepare_backend_runtime_fails_closed_without_token_file(tmp_path: Path) -> None:
@@ -58,7 +71,7 @@ def test_prepare_backend_runtime_fails_closed_without_token_file(tmp_path: Path)
         repository_bearer_token_file=tmp_path / "missing-token",
     )
     with pytest.raises(ValueError, match="unreadable"):
-        prepare_backend_runtime(settings)
+        prepare_backend_runtime(settings, skip_repository_ready_probe=True)
 
 
 def test_token_loader_does_not_embed_secret_in_errors(tmp_path: Path) -> None:
@@ -103,19 +116,25 @@ def test_production_readyz_is_ok_after_startup_and_omits_secrets(tmp_path: Path)
         artifact_root=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
-    with TestClient(create_app(settings)) as client:
-        ready = client.get("/readyz")
-        health = client.get("/healthz")
+    with patch("gateway_backend.http.runtime.assert_repository_service_ready"):
+        with TestClient(create_app(settings)) as client:
+            ready = client.get("/readyz")
+            health = client.get("/healthz")
     assert ready.status_code == 200
     assert ready.json() == {"status": "ok"}
     assert health.status_code == 200
     assert TEST_REPOSITORY_TOKEN not in ready.text
     assert str(tmp_path) not in ready.text
     assert str(tmp_path) not in health.text
-    runtime = prepare_backend_runtime(settings)
+    runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)
     assert type(runtime.workspace_http.session_port).__name__ == "LiveFileSessionPort"
     assert type(runtime.workspace_http.scope_resolution).__name__ == "ProvisionedScopeResolution"
     assert type(runtime.workspace_http.baseline_head_read).__name__ == "ProvisionedBaselineHeadRead"
+    assert type(runtime.workspace_http.submission_reader) is ReadOnlySubmissionStore
+    assert type(runtime.workspace_http.internal_bearer_port) is StaticInternalBearerPort
+    assert type(runtime.workspace_http.baseline_canonical_digest) is HttpBaselineCanonicalDigestPort
+    assert type(runtime.workspace_http.main_resolve) is HttpRepositoryMainResolvePort
+    assert runtime.workspace_http.job_registry.resolve_runnable is not None
 
 
 def test_validate_artifact_root_requires_existing_directory(tmp_path: Path) -> None:

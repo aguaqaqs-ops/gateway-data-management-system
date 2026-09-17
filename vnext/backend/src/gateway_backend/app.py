@@ -35,6 +35,7 @@ def create_app(
         try:
             yield
         finally:
+            app.state.ready = False
             runtime.admission_gate.close()
 
     app = FastAPI(title="Gateway Backend vNext", lifespan=lifespan)

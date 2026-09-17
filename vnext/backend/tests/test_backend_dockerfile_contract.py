@@ -51,3 +51,19 @@ def test_compose_backend_build_args_and_runtime_separation() -> None:
     environment = block.split("environment:", maxsplit=1)[1].split("volumes:", maxsplit=1)[0]
     assert "UV_BOOTSTRAP" not in environment
     assert "UV_INDEX" not in environment
+    assert "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE" in environment
+    assert "backend-internal-bearer" in block
+
+
+@pytest.mark.unit
+def test_compose_worker_grace_and_backend_internal_bearer_secret() -> None:
+    compose = COMPOSE.read_text(encoding="utf-8")
+    worker_block = re.search(
+        r"^  worker:\n(.*?)(?=^  repository-probe:)",
+        compose,
+        re.M | re.S,
+    )
+    assert worker_block is not None
+    block = worker_block.group(1)
+    assert "stop_grace_period: 180s" in block
+    assert "backend-internal-bearer:" in compose

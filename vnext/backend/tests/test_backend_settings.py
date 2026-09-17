@@ -16,9 +16,11 @@ from gateway_backend.settings import (
     FIXED_UPLOAD_MAX_EXPANDED_BYTES,
     FIXED_UPLOAD_MAX_PATH_BYTES,
     OperationWorkerSettings,
+    _WORKER_FIXED_BUDGETS,
     require_http_url,
 )
 from tests.support.runtime_settings import (
+    TEST_INTERNAL_BEARER_TOKEN,
     TEST_REPOSITORY_TOKEN,
     make_backend_settings,
     make_operation_worker_settings,
@@ -59,7 +61,13 @@ def test_backend_settings_freeze_upload_admission_and_cleanup_budgets(tmp_path: 
 def test_settings_repr_and_validation_errors_omit_token_and_paths(tmp_path: Path) -> None:
     token_file = tmp_path / "repository-bearer-token"
     token_file.write_text(TEST_REPOSITORY_TOKEN, encoding="utf-8")
-    settings = make_backend_settings(tmp_path, repository_bearer_token_file=token_file)
+    internal_bearer_file = tmp_path / "internal-bearer-token"
+    internal_bearer_file.write_text(TEST_INTERNAL_BEARER_TOKEN, encoding="utf-8")
+    settings = make_backend_settings(
+        tmp_path,
+        repository_bearer_token_file=token_file,
+        internal_bearer_token_file=internal_bearer_file,
+    )
     rendered = repr(settings)
     assert rendered == "BackendSettings(redacted)"
     assert TEST_REPOSITORY_TOKEN not in rendered
@@ -67,6 +75,20 @@ def test_settings_repr_and_validation_errors_omit_token_and_paths(tmp_path: Path
     with pytest.raises(ValueError, match="credentials") as exc_info:
         require_http_url("http://user:super-secret@example.invalid")
     assert "super-secret" not in str(exc_info.value)
+
+
+def test_backend_settings_require_internal_bearer_absolute_path(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="absolute"):
+        make_backend_settings(tmp_path, internal_bearer_token_file=Path("relative-token"))
+
+
+def test_worker_settings_freeze_lifecycle_budgets(tmp_path: Path) -> None:
+    settings = make_operation_worker_settings(tmp_path)
+    assert settings.graceful_drain_timeout_seconds == _WORKER_FIXED_BUDGETS["graceful_drain_timeout_seconds"]
+    assert settings.max_in_flight == _WORKER_FIXED_BUDGETS["max_in_flight"]
+    assert settings.claim_limit == _WORKER_FIXED_BUDGETS["claim_limit"]
+    with pytest.raises(ValidationError, match="fixed"):
+        make_operation_worker_settings(tmp_path, graceful_drain_timeout_seconds=1.0)
 
 
 def test_worker_settings_require_artifact_root_and_repository_read(tmp_path: Path) -> None:

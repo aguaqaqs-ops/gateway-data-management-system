@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
+from unittest.mock import patch
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from gateway_backend.app import create_app
@@ -71,17 +74,60 @@ def test_production_shutdown_closes_admission_gate(tmp_path: Path) -> None:
         artifact_root=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
-    app = create_app(settings)
-    with TestClient(app) as client:
-        assert client.get("/readyz").status_code == 200
-        gate = app.state.admission_gate
-        assert gate.allows_new_work() is True
-        gate.close()
-        assert gate.allows_new_work() is False
-        assert client.get("/readyz").status_code == 200
-        assert client.get("/healthz").status_code == 200
-        assert TEST_REPOSITORY_TOKEN not in client.get("/readyz").text
-    assert app.state.admission_gate.allows_new_work() is False
+    with patch("gateway_backend.http.runtime.assert_repository_service_ready"):
+        with TestClient(create_app(settings)) as client:
+            fastapi_app = cast(FastAPI, client.app)
+            assert client.get("/readyz").status_code == 200
+            gate = fastapi_app.state.admission_gate
+            assert gate.allows_new_work() is True
+            gate.close()
+            assert gate.allows_new_work() is False
+            assert client.get("/readyz").status_code == 200
+            assert client.get("/healthz").status_code == 200
+            assert TEST_REPOSITORY_TOKEN not in client.get("/readyz").text
+        assert fastapi_app.state.admission_gate.allows_new_work() is False
+
+
+def test_production_lifespan_shutdown_marks_not_ready(tmp_path: Path) -> None:
+    prepare_backend_runtime_paths(tmp_path)
+    settings = make_backend_settings(
+        tmp_path,
+        control_db_path=tmp_path / "control" / "control.sqlite3",
+        artifact_root=tmp_path / "artifacts",
+        repository_bearer_token_file=tmp_path / "repository-bearer-token",
+    )
+    with patch("gateway_backend.http.runtime.assert_repository_service_ready"):
+        with TestClient(create_app(settings)) as client:
+            fastapi_app = cast(FastAPI, client.app)
+            assert client.get("/readyz").status_code == 200
+        assert fastapi_app.state.ready is False
+        assert fastapi_app.state.admission_gate.allows_new_work() is False
+
+
+def test_submit_create_route_rejects_after_admission_close(tmp_path: Path) -> None:
+    from tests.support.http_workspace_harness import BASELINE_HEAD, seed_submit_ready_workspace
+
+    env = create_workspace_http_environment(tmp_path, admission_open=True)
+    seed = seed_submit_ready_workspace(env.db_path, env.artifact_store)
+    workspace = seed["workspace"]
+    upload = seed["upload_revision"]
+    preview = seed["preview_result"]
+    closed = create_workspace_http_environment(tmp_path, admission_open=False)
+    rejected = closed.client.post(
+        f"/v1/workspaces/{workspace.workspace_id}/submit-attempts",
+        headers=closed.auth_headers(idempotency_key="submit-admission-close"),
+        json={
+            "expected_workspace_version": workspace.optimistic_version,
+            "upload_revision_id": upload.upload_revision_id,
+            "preview_result_id": preview.preview_result_id,
+            "generation": upload.generation,
+            "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
+            "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
+            "options": {},
+        },
+    )
+    assert rejected.status_code == 429
+    assert rejected.json()["code"] == "ADMISSION_LIMIT_REACHED"
 
 
 def test_closable_admission_gate_rejects_when_in_flight_limit_reached() -> None:

@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 import httpx
-import pytest
 
 from gateway_backend.application.submit_jobs import (
     SubmitRuntimeDependencies,
@@ -32,12 +31,10 @@ from gateway_backend.application.submission.job_payload import (
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.bootstrap.operation_worker import bootstrap_control_database, build_worker_runtime
 from gateway_backend.operations.worker import WorkerEvent, WorkerObserver
-from gateway_backend.operations.worker import WriteUnitOfWorkFactory
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
 from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
 from gateway_backend.settings import OperationWorkerSettings
-from tests.support.dolt import dolt_available
 from tests.support.runtime_settings import make_operation_worker_settings
 
 REPOSITORY_SERVICE_ROOT = Path(__file__).resolve().parents[3] / "repository_service"

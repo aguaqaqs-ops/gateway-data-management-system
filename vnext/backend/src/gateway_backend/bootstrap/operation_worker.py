@@ -347,6 +347,12 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             # Required paths and repository settings are normally supplied by the env prefix.
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
             previous_handlers = _install_signal_handlers(stop_requested)
+            from gateway_backend.http.runtime import (
+                assert_workspace_registry_ready,
+                build_workspace_job_registry,
+            )
+
+            assert_workspace_registry_ready(build_workspace_job_registry())
             preview_deps, write_uow_factory = build_production_preview_dependencies(configured)
             submit_deps = build_production_submit_dependencies(configured, preview_deps=preview_deps)
             preview_definitions, preview_handlers, preview_decoders = preview_composition_bundle(

@@ -17,7 +17,6 @@ from gateway_backend.app import create_app
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     JobDefinitionRegistry,
-    NormalPublicationCapability,
 )
 from gateway_backend.application.preview_jobs import preview_job_definitions
 from gateway_backend.application.submit_registry import submit_job_definitions

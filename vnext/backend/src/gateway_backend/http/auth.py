@@ -183,6 +183,22 @@ def _bearer_token(request: Request) -> str:
     return token
 
 
+def load_internal_bearer_token(token_file: Path) -> str:
+    """Read deployment internal bearer token without embedding it in errors."""
+
+    if not isinstance(token_file, Path) or not token_file.is_absolute():
+        raise ValueError("internal bearer token file must be absolute")
+    try:
+        if not token_file.is_file():
+            raise ValueError("internal bearer token file is unreadable")
+        token = token_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        raise ValueError("internal bearer token file is unreadable") from None
+    if token == "":
+        raise ValueError("internal bearer token file is empty")
+    return token
+
+
 def require_identity(request: Request) -> IdentityContext:
     from gateway_backend.http.dependencies import get_workspace_http
 

@@ -1,6 +1,6 @@
-# P5-5B-S7 Remediation Handoff (Round 3)
+# P5-5B-S7 Remediation Handoff (Round 3 + F8 Closeout)
 
-状态：**S7 remediation round 3 complete — candidate pending review-5 closure**
+状态：**F8 record sealing remediated — pending review-6 mechanical verification**
 
 日期：2026-09-18
 
@@ -9,28 +9,32 @@ Owner：P5-5B Delivery
 ## Review closure
 
 ```yaml
-review: p5-5b-s7-independent-review-4.md
+review: p5-5b-s7-independent-review-5.md
 parent_candidate: 37fa7c21ca261e5e89d15515f629106556ee43de
 baseline_commit: 4cda6b9c
 remediation_round_2: 30193dd5d3b34ec82da382cd7d85650cd98a3bb7
-remediation_round_3: 5de2e0b7f958eb496e24af7f304aef23f245ad1f
+remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
+implementation_seal: 7c511c4b8b59842b67d24083abf274ba620b2e7e
+records_head: pending
 findings_addressed:
   S7-F1: closed @ review-4 — finalize_transaction.py + submit_jobs.py + test_submit_recovery.py
   S7-F4: closed @ review-4 — test_operator_recovery_http.py
   S7-F6: closed @ review-4 — test_architecture.py (http/runtime.py only)
   S7-F2: reclassified_deferred_to_s8 — compose smoke removed
-  S7-F7: remediated — abort_transaction.py defer_operation_terminal + publish_operation stable-abort builder; WorkerRuntime serial owner
-  S7-F8: remediated — closure record provenance corrected in S7 docs
+  S7-F7: closed @ review-5 — abort_transaction.py defer_operation_terminal + publish_operation stable-abort builder; WorkerRuntime serial owner
+  S7-F8: remediated — pin 7c511c4b reachable; integration deselected count corrected
 findings_not_remediated:
   S7-O2: repository restart journey — reopen candidate, non-blocking
 ```
+
+> `b48ca592` 的 pin（`5de2e0b7…`）为 amend 孤本，不可解析；authoritative implementation seal 为 `7c511c4b`。
 
 ## Changes by finding (round 3)
 
 | Finding | Paths | Fix |
 | --- | --- | --- |
 | S7-F7 | `application/submission/abort_transaction.py`, `application/submit_jobs.py`, `tests/test_submit_recovery.py` | `defer_operation_terminal`；`abort_submit_in_control_transaction`；`_make_stable_abort_builder` + `publish_operation`；`test_await_import_stable_abort_completes_via_worker_runtime` |
-| S7-F8 | `p5-5b-s7-acceptance.md`, `p5-5b-s7-independent-review-3.md`, `p5-5b-s7-remediation-handoff.md` | pin round-2 seal `30193dd5`；integration 26 not 27；S6 doc reference；review-3 superseded；round-3 candidate pending |
+| S7-F8 | `p5-5b-s7-acceptance.md`, `p5-5b-s7-remediation-handoff.md` | pin `7c511c4b`；integration retest `9 deselected`；`implementation_seal` / `records_head` 字段 |
 
 ## Prior round paths (for provenance)
 
@@ -41,22 +45,22 @@ findings_not_remediated:
 | S7-F6 | `test_architecture.py` |
 | S7-F2 | `test_submit_compose_e2e.py`, review docs |
 
-## Focused retest
+## Focused retest (@ `7c511c4b`)
 
 ```bash
 cd vnext/backend
 
 ../scripts/uv-consume.sh -C . run pytest -q -m 'integration and serial' \
   tests/test_submit_recovery.py -k 'worker_runtime and (finalize or stable_abort)'
-# 2 passed
+# 2 passed, 9 deselected
 
 ../scripts/uv-consume.sh -C . run pytest -q -m unit \
   tests/test_submit_transactions.py -k abort
-# 7 passed
+# 7 passed, 28 deselected
 
 ../scripts/uv-consume.sh -C . run pytest -q -m 'integration and not serial' \
   tests/test_submit_job_effect.py -k stable_abort
-# 1 passed
+# 1 passed, 15 deselected
 
 ACCUMULATED=(tests/test_submit_domain.py tests/test_submit_idempotency.py \
   tests/test_submit_application.py tests/test_submit_transactions.py \
@@ -74,7 +78,7 @@ ACCUMULATED=(tests/test_submit_domain.py tests/test_submit_idempotency.py \
 
 ../scripts/uv-consume.sh -C . run pytest -q -m 'integration and not serial' \
   tests/test_submit_job_effect.py tests/test_submit_recovery.py tests/test_submit_worker.py
-# 26 passed, 8 deselected
+# 26 passed, 9 deselected
 
 ../scripts/uv-consume.sh -C . run ruff check \
   src/gateway_backend/application/submit_jobs.py \
@@ -95,6 +99,6 @@ ACCUMULATED=(tests/test_submit_domain.py tests/test_submit_idempotency.py \
 ## next_step
 
 ```yaml
-next_step: P5-5B-S7 review-5 independent closure verification
-s8_entry: blocked_until_review_5_pass
+next_step: P5-5B-S7 review-6 mechanical F8 sealing verification
+s8_entry: blocked
 ```

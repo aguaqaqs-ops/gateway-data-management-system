@@ -1,11 +1,15 @@
-"""Repository upload/import wire-mapping integration tests for submit_import."""
+"""Repository upload/import wire-mapping and handler-level submit effect tests."""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
+from typing import Any, cast
 from uuid import UUID
 
+import httpx
 import pytest
 from gateway_repository_contracts import (
     REPOSITORY_IMPORT_MEDIA_TYPE,
@@ -13,12 +17,39 @@ from gateway_repository_contracts import (
     VerificationPolicy,
 )
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
+from gateway_backend.application.checkpoints import load_checkpoint_envelope
+from gateway_backend.application.recovery import DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED
+from gateway_backend.application.submit_jobs import (
+    _prepare_checkpoint_from_job_state,
+    build_await_import_result_handler,
+)
+from gateway_backend.application.submission.job_payload import (
+    SUBMIT_STEP_AWAIT,
+    SUBMIT_STEP_PREPARE,
+    SUBMIT_STEP_SUBMIT,
+)
+from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
+from gateway_backend.domain.submission.models import SubmitAttemptState
+from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
+from gateway_backend.operations import OperationStatus, StepStatus
+from gateway_backend.operations.lease_session import LeaseSession
+from gateway_backend.operations.worker import (
+    ClaimedWork,
+    ExecutionControl,
+    ExecutorAcknowledgment,
+    StartupDisposition,
+)
+from tests.support.dolt import dolt_available
 from tests.support.submit_job_harness import (
     RecordingTransport,
-    dolt_available,
+    SubmitWorkerHarness,
+    build_submit_worker_harness,
+    default_repository_handler,
     repository_service_session,
+    submit_step_id,
 )
+from tests.test_submit_job_prepare import _accept_prepared_operation, _run_prepare_handler
 
 pytestmark = pytest.mark.integration
 
@@ -101,6 +132,7 @@ def test_submit_upload_and_import_wire_mapping_uses_recording_transport() -> Non
     assert operation_id == "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11"
 
 
+@pytest.mark.serial
 @pytest.mark.skipif(not dolt_available(), reason="dolt is not available")
 def test_submit_upload_and_import_wire_mapping_against_live_repository(tmp_path: Path) -> None:
     with repository_service_session(tmp_path) as service:
@@ -142,3 +174,288 @@ def test_submit_upload_and_import_wire_mapping_against_live_repository(tmp_path:
         "unknown_type_policy",
     }
     UUID(operation_id)
+
+
+_HANDLER_REPOSITORY_UUID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
+
+
+@pytest.fixture(autouse=True)
+def _map_payload_storage_projection_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.application import submit_jobs
+    from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
+
+    original = submit_jobs._build_prepare_import_build_input
+
+    def patched(*, payload: Any, attempt: Any, operation: Any) -> Any:
+        build_input = original(payload=payload, attempt=attempt, operation=operation)
+        return replace(build_input, storage_projection_version=STORAGE_PROJECTION_VERSION)
+
+    monkeypatch.setattr(submit_jobs, "_build_prepare_import_build_input", patched)
+
+
+def _lease_session(
+    harness: SubmitWorkerHarness,
+    *,
+    worker_id: str,
+    lease_token: str,
+    operation_id: str,
+    step_id: str,
+) -> tuple[ExecutionControl, LeaseSession]:
+    def control_transaction_factory() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(harness.db_path)
+
+    control = ExecutionControl()
+    session = LeaseSession(
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=operation_id,
+        step_id=step_id,
+        write_uow_factory=build_worker_write_uow_factory(control_transaction_factory),
+        control=control,
+        observer=lambda _event: None,
+    )
+    return control, session
+
+
+def _await_lease_identity(await_work: ClaimedWork) -> tuple[str, str]:
+    worker_id = await_work.step.worker_id
+    lease_token = await_work.step.lease_token
+    if worker_id is None or lease_token is None:
+        raise AssertionError("await step lease identity is missing")
+    return worker_id, lease_token
+
+
+def _run_submit_to_await_claim(
+    harness: SubmitWorkerHarness,
+) -> tuple[ClaimedWork, str]:
+    operation_id = _accept_prepared_operation(
+        harness.db_path,
+        harness.artifact_store,
+        repository_id=_HANDLER_REPOSITORY_UUID,
+    )
+    _run_prepare_handler(harness.db_path, harness.artifact_store, operation_id)
+    startup = harness.runtime._startup
+    assert startup.startup() is StartupDisposition.READY
+    submit_work = startup.claim_one()
+    assert submit_work is not None
+    assert submit_work.step.step_name == SUBMIT_STEP_SUBMIT
+    assert submit_work.step.worker_id is not None
+    assert submit_work.step.lease_token is not None
+    submit_control, submit_session = _lease_session(
+        harness,
+        worker_id=submit_work.step.worker_id,
+        lease_token=submit_work.step.lease_token,
+        operation_id=submit_work.operation.operation_id,
+        step_id=submit_work.step.step_id,
+    )
+    assert (
+        submit_work.executor(
+            submit_work.operation,
+            submit_work.step,
+            submit_control,
+            submit_session,
+        )
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+    await_work = startup.claim_one()
+    assert await_work is not None
+    assert await_work.step.step_name == SUBMIT_STEP_AWAIT
+    assert await_work.step.worker_id is not None
+    assert await_work.step.lease_token is not None
+    return await_work, operation_id
+
+
+def _prepare_manifest_digest(harness: SubmitWorkerHarness, operation_id: str) -> str:
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        submit_attempt_id = next(
+            ref.value for ref in operation.business_refs if ref.kind == "submit_attempt"
+        )
+        prepare_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_PREPARE)
+        )
+    assert prepare_step.checkpoint_ref is not None
+    envelope = load_checkpoint_envelope(harness.artifact_store, prepare_step.checkpoint_ref)
+    prepare_checkpoint = _prepare_checkpoint_from_job_state(
+        envelope.job_state,
+        expected_attempt_id=submit_attempt_id,
+    )
+    return prepare_checkpoint.canonicalization_manifest_digest
+
+
+def _operation_poll_handler(manifest_digest: str) -> Callable[[httpx.Request], httpx.Response]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/operations/" in request.url.path and request.method == "GET":
+            operation_id = request.url.path.rsplit("/", 1)[-1]
+            return httpx.Response(
+                200,
+                json={
+                    "operation": {
+                        "operation_id": operation_id,
+                        "status": "SUCCEEDED",
+                        "error": None,
+                        "result": {
+                            "commit_id": "commit-c1",
+                            "target_ref": "main",
+                            "artifact_id": "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
+                            "canonicalization_manifest_digest": manifest_digest,
+                            "expected_commit_id": "commit-c0",
+                            "completed_verification_policy": "STRUCTURAL",
+                            "unknown_type_policy": "REJECT",
+                        },
+                    }
+                },
+                headers={"X-Request-ID": "req-operation"},
+            )
+        return default_repository_handler(request)
+
+    return handler
+
+
+def test_await_import_result_succeeded_finalizes_submission(tmp_path: Path) -> None:
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(),
+    )
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    manifest_digest = _prepare_manifest_digest(harness, operation_id)
+    write_client = cast(HttpRepositoryWriteClient, harness.submit_deps.repository_write)
+    await_write = replace(
+        write_client,
+        transport=RecordingTransport(_operation_poll_handler(manifest_digest)),
+    )
+    await_deps = replace(harness.submit_deps, repository_write=await_write)
+    worker_id, lease_token = _await_lease_identity(await_work)
+    control, session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=await_work.operation.operation_id,
+        step_id=await_work.step.step_id,
+    )
+    handler = build_await_import_result_handler(await_deps)
+    assert (
+        handler(await_work.operation, await_work.step, control, session)
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        submit_attempt_id = next(
+            ref.value for ref in operation.business_refs if ref.kind == "submit_attempt"
+        )
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        assert attempt is not None
+        submission = unit_of_work.submission.get_submission_by_attempt(attempt.submit_attempt_id)
+    assert operation.status is OperationStatus.SUCCEEDED
+    assert attempt.state is SubmitAttemptState.FINALIZED
+    assert submission is not None
+
+
+def test_await_import_result_timeout_marks_manual_recovery(tmp_path: Path) -> None:
+    def _running_forever_handler(request: httpx.Request) -> httpx.Response:
+        if "/operations/" in request.url.path and request.method == "GET":
+            operation_id = request.url.path.rsplit("/", 1)[-1]
+            return httpx.Response(
+                200,
+                json={
+                    "operation": {
+                        "operation_id": operation_id,
+                        "status": "RUNNING",
+                        "error": None,
+                        "result": None,
+                    }
+                },
+                headers={"X-Request-ID": "req-operation"},
+            )
+        return default_repository_handler(request)
+
+    transport = RecordingTransport(_running_forever_handler)
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=transport,
+    )
+    timeout_write = replace(
+        cast(HttpRepositoryWriteClient, harness.submit_deps.repository_write),
+        poll_deadline_seconds=0.2,
+    )
+    timeout_deps = replace(harness.submit_deps, repository_write=timeout_write)
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    worker_id, lease_token = _await_lease_identity(await_work)
+    control, session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=await_work.operation.operation_id,
+        step_id=await_work.step.step_id,
+    )
+    handler = build_await_import_result_handler(timeout_deps)
+    assert (
+        handler(await_work.operation, await_work.step, control, session)
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        await_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+    assert operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
+    assert operation.diagnostic is not None
+    assert operation.diagnostic.code == "R5.RECONCILE_TIMEOUT"
+    assert await_step.status is StepStatus.MANUAL_RECOVERY_REQUIRED
+
+
+def test_await_import_result_disallowed_failure_marks_manual_recovery(tmp_path: Path) -> None:
+    def _disallowed_failure_handler(request: httpx.Request) -> httpx.Response:
+        if "/operations/" in request.url.path and request.method == "GET":
+            operation_id = request.url.path.rsplit("/", 1)[-1]
+            return httpx.Response(
+                200,
+                json={
+                    "operation": {
+                        "operation_id": operation_id,
+                        "status": "FAILED",
+                        "error": {
+                            "code": "MANUAL_RECOVERY_REQUIRED",
+                            "message": "not an allowed stable abort",
+                            "request_id": None,
+                        },
+                        "result": None,
+                    }
+                },
+                headers={"X-Request-ID": "req-operation"},
+            )
+        return default_repository_handler(request)
+
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(_disallowed_failure_handler),
+    )
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    worker_id, lease_token = _await_lease_identity(await_work)
+    control, session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=await_work.operation.operation_id,
+        step_id=await_work.step.step_id,
+    )
+    handler = build_await_import_result_handler(harness.submit_deps)
+    assert (
+        handler(await_work.operation, await_work.step, control, session)
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        submit_attempt_id = next(
+            ref.value for ref in operation.business_refs if ref.kind == "submit_attempt"
+        )
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        assert attempt is not None
+        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy(attempt.workspace_id)
+    assert operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
+    assert operation.diagnostic is not None
+    assert operation.diagnostic.code == DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED.upper()
+    assert workspace_occupancy is not None

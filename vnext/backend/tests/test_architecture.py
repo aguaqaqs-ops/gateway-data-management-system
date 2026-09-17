@@ -677,7 +677,6 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
         "gateway_backend.app",
         "gateway_backend.capabilities",
         "gateway_backend.compute",
-        "gateway_backend.repository_import_artifact",
         "gateway_repository",
         "uvicorn",
         "fastapi",
@@ -712,6 +711,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                         "gateway_backend.infrastructure.repository_read",
                         "gateway_backend.infrastructure.repository_write",
                         "gateway_backend.operations",
+                        "gateway_backend.repository_import_artifact",
                         "gateway_backend.settings",
                     )
                 ), f"{source} imports disallowed module {imported}"
@@ -946,6 +946,10 @@ def _assert_application_import_allowed(source: Path, imported: str) -> None:
     if source.name == "submit_jobs.py" and imported.startswith("gateway_backend.infrastructure."):
         return
     if source.name == "submit_jobs.py" and imported == "gateway_backend.repository_import_artifact":
+        return
+    if source.name == "ports.py" and imported.startswith("gateway_repository_contracts"):
+        return
+    if source.name == "submit_jobs.py" and imported == "httpx":
         return
     for prefix in APPLICATION_FORBIDDEN_IMPORT_PREFIXES:
         assert imported != prefix and not imported.startswith(f"{prefix}."), (

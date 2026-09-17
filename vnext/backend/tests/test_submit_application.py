@@ -83,6 +83,16 @@ PREVIEW_READY_CLOSURE_DIGEST = "d-closure"
 @dataclass
 class FakeAbortEvidencePort:
     reject_reason: str | None = None
+    stable_failure_code: str = "IMPORT_REJECTED"
+
+    def resolve_stable_failure_code(
+        self,
+        *,
+        repository_id: str,
+        repository_operation_id: str,
+    ) -> str:
+        del repository_id, repository_operation_id
+        return self.stable_failure_code
 
     def validate_matching_stable_failure(
         self,

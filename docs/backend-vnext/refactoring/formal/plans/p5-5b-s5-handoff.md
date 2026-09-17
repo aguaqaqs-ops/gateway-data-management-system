@@ -1,6 +1,6 @@
 # P5-5B-S5 Submit JobDefinition, Repository Effect and Recovery Handoff
 
-状态：**S5 complete — candidate `3eaaf3a5`**
+状态：**S5 remediation complete — candidate `8996a2b5`（工作区已修复，待提交）**
 
 日期：2026-09-16
 
@@ -36,7 +36,7 @@ s6_entry: deferred
 ```yaml
 stage: P5-5B-S5-submit-jobdefinition-repository-effect-recovery
 parent_head: 0fdc0cb6cf4f6549331e989b7eb8994ebef46c9a
-candidate_head: 3eaaf3a524cc4f16030329973b89b66e17f1cc98
+candidate_head: 8996a2b5f0de3b2a0eb53270c2cdc13c7f931883
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md §8–§9
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md §S5
@@ -75,10 +75,11 @@ container_rebuild_required: no
 | 组件 | 行为 |
 |------|------|
 | `submit_registry.py` | 三步 `JobDefinition` 唯一权威源（prepare / submit / await） |
-| `submit_jobs.py` | payload + 三 checkpoint decoder；prepare/submit/await handlers；recovery ports；operator abort adapter；`submit_composition_bundle`；`build_production_submit_dependencies` |
+| `submit_jobs.py` | payload + 三 checkpoint decoder；prepare/submit/await handlers；recovery ports；operator abort adapter；`submit_composition_bundle`；stacked write factory 绑定 |
+| `operation_worker.py` | `build_worker_write_uow_factory`（preview+submit 叠加）；`build_production_submit_dependencies`（`sub-{uuid4()}`） |
 | `effect_pending_transaction.py` | T2 crossing：`PREPARED → EFFECT_PENDING` 单 SQLite UoW；occupancy 保持 |
 | `infrastructure/repository_write/` | `HttpRepositoryWriteClient`（upload / versioned import / get/wait operation）；`HttpRepositoryAbortEvidencePort` |
-| `operation_worker.py` | preview+submit definitions/handlers/decoders 合并；submit EXTERNAL_EFFECT 走 `build_submit_recovery_port` |
+| `operation_worker.py` | preview+submit definitions/handlers/decoders 合并；submit EXTERNAL_EFFECT 走 `build_submit_recovery_port`；worker 使用 stacked write factory |
 | F6 typed errors | `SubmitJobNotRegistered`、`OperatorRecovery*Conflict`；HTTP 层去除 message sniffing |
 
 ## Step topology and operator capability mapping
@@ -93,7 +94,7 @@ container_rebuild_required: no
 
 ## Repository operation / ref evidence
 
-集成测试通过 **subprocess Repository Service**（`submit_job_harness.repository_service_session`）验证真实 wire：
+集成测试默认通过 **subprocess Repository Service**（`GATEWAY_SUBMIT_TEST_REPOSITORY_MODE=subprocess`；`inprocess` 仅显式 opt-in）验证真实 wire：
 
 | 证据项 | 测试 owner | 结论 |
 |--------|-----------|------|
@@ -110,12 +111,12 @@ Recording transport 固定 `operation_id = 018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11`
 |------|------|---------|
 | `submit_import` / `await_import_result` 无 checkpoint 恢复 | `MANUAL_RECOVERY_REQUIRED`；occupancy **保留** | `test_submit_recovery_without_checkpoint_retains_occupancy` |
 | `PREPARED` 状态 operator abort | occupancy **保留**（不得盲放） | `test_prepared_attempt_operator_abort_retains_occupancy` |
-| Repository `IMPORT_REJECTED` + operator `ABORT_CONFIRMED_FAILURE` | P4 CAS → `abort_submit_transaction` + evidence port；occupancy **释放** | `test_operator_abort_import_rejected_releases_occupancy` |
+| Repository `IMPORT_REJECTED` + operator `ABORT_CONFIRMED_FAILURE` | P4 CAS → `abort_submit_transaction` + **live** evidence port（`resolve_stable_failure_code` 不读 P4 diagnostic）；occupancy **释放** | `test_operator_abort_import_rejected_releases_occupancy`；`test_operator_abort_import_rejected_via_recovery_port` |
 | Abort evidence 与 attempt `repository_operation_id` 不匹配 | `AbortProofNotSatisfied`；不释放 | `test_operator_abort_evidence_rejects_unknown_repository_operation` |
 | Repository terminal success vs business T3 | `await_import_result` 解码 bounded evidence → `MatchingFinalizeFacts` → `finalize_submit_transaction`；与 Repository SUCCEEDED 显式分层 | `test_submit_finalize.py` 单元族 + effect happy path |
 | 非 `EFFECT_PENDING` / binding fault / missing operation id | finalize 守卫拒绝 | `test_validate_matching_result_for_finalize_*` |
 | T3 response-loss replay | `validate_finalize_replay` + 不插入第二条 submission | `test_finalize_submit_replay_returns_existing_submission`、`test_finalize_submit_transaction_replay_does_not_insert_second_submission` |
-| Poll reconcile timeout | `MANUAL_RECOVERY_REQUIRED` diagnostic；occupancy 保留 | handler `wait_operation` `TimeoutError` 路径（`submit_jobs.build_await_import_result_handler`） |
+| Poll reconcile timeout | `MANUAL_RECOVERY_REQUIRED` diagnostic；occupancy 保留 | `test_await_import_result_timeout_marks_manual_recovery`；`RepositoryWriteTimeoutError` + `_map_handler_failure_to_recovery_outcome` |
 | 非允许 abort code（非三码） | `MANUAL_RECOVERY_REQUIRED`；不盲 abort | `ALLOWED_ABORT_CODES` 守卫 + `HttpRepositoryAbortEvidencePort` |
 
 允许 stable abort 三码：`IMPORT_REJECTED`、`EXPECTED_COMMIT_MISMATCH`、`VERIFICATION_FAILED_NOT_PUBLISHED`。
@@ -136,12 +137,30 @@ Recording transport 固定 `operation_id = 018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11`
 | `tests/test_submit_job_payload.py` | 封闭 payload、version、registry identity、policy 负例 |
 | `tests/test_submit_job_prepare.py` | checkpoint/ref reuse、successor 发布、replay |
 | `tests/test_submit_finalize.py` | matching closure、finalize replay、binding mismatch |
-| `tests/test_submit_job_effect.py` | upload/import exact wire；live repository journey |
-| `tests/test_submit_recovery.py` | no-blind-replay、unknown-outcome occupancy、operator abort effect |
-| `tests/test_submit_worker.py` | composition 注册、claim、duplicate exclusive、live repository ready |
+| `tests/test_submit_job_effect.py` | upload/import exact wire；live repository journey；await handler 级 finalize / timeout / disallowed failure |
+| `tests/test_submit_recovery.py` | no-blind-replay、unknown-outcome occupancy、operator abort effect、`_map_handler_failure_to_recovery_outcome` 负例、live operator port abort |
+| `tests/test_submit_worker.py` | composition 注册、claim、duplicate exclusive、live repository ready、**executor** submit_import checkpoint、W2 EFFECT_PENDING 重建 |
+| `tests/test_operator_recovery_mapping.py` | generic stale write → `OPERATION_VERSION_CONFLICT` |
 | `tests/test_architecture.py` | repository_write 双边界、submit_jobs 例外、bootstrap 接线 |
 
 **未修改** P4 owner：`test_operation_effect_reconcile.py`、`test_operation_job_recovery.py`。
+
+## Remediation round（F1–F4 / S1 / N1–N5）
+
+| ID | 修复 | 证据 nodeid |
+|----|------|-------------|
+| F1+N5 | worker `build_worker_write_uow_factory` 叠加 submit binder；harness 使用 bound deps | `test_submit_worker_executes_submit_import_publishes_checkpoint` |
+| F2 | `RepositoryWriteTimeoutError` + await/recovery 映射 | `test_await_import_result_timeout_marks_manual_recovery`、`test_submit_recovery_maps_timeout_to_manual_recovery` |
+| F3 | EFFECT_PENDING 无 checkpoint 幂等重建 | `test_submit_import_w2_crash_rebuilds_checkpoint_via_claim` |
+| S1 | `_map_handler_failure_to_recovery_outcome` | `test_submit_recovery_maps_value_error_to_manual_recovery`、`test_submit_recovery_maps_abort_proof_not_satisfied_to_manual_recovery` |
+| F4 | `resolve_stable_failure_code` 取自 repository evidence | `test_operator_abort_import_rejected_via_recovery_port` |
+| N1 | handler 级 await 端到端 | `test_await_import_result_succeeded_finalizes_submission`、同上 timeout/disallowed failure |
+| N2 | `test_submit_finalize.py` 仅保留 replay 唯一新增用例 | `test_finalize_submit_transaction_replay_does_not_insert_second_submission` |
+| N3 | `tests/support/dolt.py` 统一 dolt 门禁 | conftest 引用 |
+| N4 | live 用例 `@pytest.mark.serial` | `test_submit_upload_and_import_wire_mapping_against_live_repository` 等 |
+| N5 | harness stacked factory + bound deps | 与 F1 同证据 |
+| F8 | `uv.lock` 恢复 canonical PyPI identity | handoff `uv_lock_in_diff: no` |
+| F5/F6/F7/S4/F9 | uuid factory 回迁、`VersionedOperation` port 类型、stale-write 映射、cancel 死分支标注 | `test_operator_recovery_mapping.py`；`operation_worker.build_production_submit_dependencies` |
 
 ## Focused gate
 
@@ -163,13 +182,14 @@ uv run pytest -q -m 'integration and not serial' \
   tests/test_submit_job_effect.py \
   tests/test_submit_recovery.py \
   tests/test_submit_worker.py
-# 7 passed, 3 deselected
+# 13 passed, 6 deselected
 
 # Serial
 uv run pytest -q -m serial \
   tests/test_submit_recovery.py \
-  tests/test_submit_worker.py
-# 3 passed, 5 deselected
+  tests/test_submit_worker.py \
+  tests/test_submit_job_effect.py
+# 6 passed, 13 deselected
 
 # Static
 uv run ruff check src/gateway_backend/application/submit_jobs.py \
@@ -180,7 +200,7 @@ uv run ruff check src/gateway_backend/application/submit_jobs.py \
 # All checks passed
 
 ../scripts/uv-consume.sh -C . run mypy
-# Success: no issues found in 367 source files
+# Success: no issues found in 369 source files
 ```
 
 ## Deferred / observations

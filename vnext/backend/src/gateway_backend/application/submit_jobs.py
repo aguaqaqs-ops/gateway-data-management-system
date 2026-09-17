@@ -12,6 +12,7 @@ from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
 from uuid import UUID
 
+import httpx
 from gateway_repository_contracts import (
     OperationStatus as RepositoryOperationStatus,
     REPOSITORY_IMPORT_MEDIA_TYPE,
@@ -99,8 +100,15 @@ from gateway_backend.application.submission.job_payload import (
     SUBMIT_STEP_PREPARE,
     SUBMIT_STEP_SUBMIT,
 )
+from gateway_backend.application.submission.errors import (
+    AbortProofNotSatisfied,
+    FinalizeBindingMismatch,
+    FinalizeRecoveryRequired,
+    RepositoryWriteTimeoutError,
+)
 from gateway_backend.application.submission.ports import (
     RepositoryAbortEvidencePort,
+    RepositoryWritePort,
     SubmitControlTransaction,
     SubmitControlUnitOfWorkFactory,
 )
@@ -118,7 +126,6 @@ from gateway_backend.domain.submission.models import (
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
 )
-from gateway_backend.application.submission.ports import RepositoryWritePort
 from gateway_backend.operations.contracts import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationDiagnostic,
@@ -362,7 +369,12 @@ def bind_submit_control_transaction_factory(
 
 def submit_composition_bundle(
     deps: SubmitRuntimeDependencies,
-) -> tuple[tuple[JobDefinition, ...], Mapping[str, ClaimedExecutor], Mapping[str, PayloadDecoder]]:
+) -> tuple[
+    tuple[JobDefinition, ...],
+    Mapping[str, ClaimedExecutor],
+    Mapping[str, PayloadDecoder],
+    SubmitRuntimeDependencies,
+]:
     bound_deps = SubmitRuntimeDependencies(
         artifact_store=deps.artifact_store,
         publication=deps.publication,
@@ -380,6 +392,7 @@ def submit_composition_bundle(
             AWAIT_IMPORT_HANDLER: build_await_import_result_handler(bound_deps),
         },
         dict(submit_payload_decoders()),
+        bound_deps,
     )
 
 
@@ -526,75 +539,22 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
                 checkpoint_ref=step.checkpoint_ref,
             )
         else:
-            package_bytes = deps.publication.read_back_package(
-                checkpoint=prepare_checkpoint,
-                store=deps.artifact_store,
-            )
-            repository_artifact_ref = deps.repository_write.upload_artifact(
-                repository_id=payload.repository_id,
-                idempotency_key=payload.repository_upload_idempotency_key,
-                media_type=prepare_checkpoint.backend_import_artifact_ref.media_type,
-                raw_sha256=prepare_checkpoint.package_raw_sha256,
-                body=package_bytes,
-            )
-            request_bytes = _build_import_request_bytes(payload, repository_artifact_ref)
-            request_ref = put_with_built_ref(
-                deps.artifact_store,
-                request_bytes,
-                artifact_id=_import_request_artifact_id(request_bytes),
-                media_type=_JCS_MEDIA_TYPE,
-            )
-            request_fingerprint = compute_request_fingerprint(request_bytes)
-            effect_pending_at = datetime.now(UTC)
-            with deps.control_transaction_factory() as unit_of_work:
-                fresh_attempt = unit_of_work.submission.get_submit_attempt(payload.submit_attempt_id)
-                if fresh_attempt is None:
-                    raise SubmitJobError("submit attempt is missing")
-                mark_submit_attempt_effect_pending(
-                    request=EffectPendingTransactionRequest(
-                        submit_attempt_id=payload.submit_attempt_id,
-                        checkpoint=prepare_checkpoint,
-                        repository_artifact_ref=repository_artifact_ref,
-                        effect_pending_at=effect_pending_at,
-                        expected_attempt_version=fresh_attempt.optimistic_version,
-                    ),
-                    unit_of_work=unit_of_work,
-                )
-            envelope = envelope_for_step(
-                key=submit_definition.key,
+            request_state, last_checkpoint_generation = _materialize_submit_checkpoint_state(
+                deps=deps,
+                submit_definition=submit_definition,
                 operation=operation,
                 step=step,
-                checkpoint_generation=_checkpoint_generation(step),
-                job_state=_job_state_for_submit_request(
-                    prepare_checkpoint_ref=prepare_step.checkpoint_ref,
-                    repository_artifact_ref=repository_artifact_ref,
-                    payload=payload,
-                    request_artifact_ref=request_ref,
-                    request_fingerprint=request_fingerprint,
-                    reconcile_started_at=_iso_utc_timestamp(effect_pending_at),
-                ),
-            )
-            checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
-            last_checkpoint_generation = lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
-                    checkpoint_ref=checkpoint_ref,
-                    extra_refs=(prepare_step.checkpoint_ref, request_ref),
-                    intent="submit-import-checkpoint",
-                )
-            )
-            request_state = _SubmitCheckpointState(
+                lease_session=lease_session,
+                payload=payload,
+                attempt=attempt,
+                prepare_checkpoint=prepare_checkpoint,
                 prepare_checkpoint_ref=prepare_step.checkpoint_ref,
-                repository_artifact_ref=repository_artifact_ref,
-                request_artifact_ref=request_ref,
-                request_fingerprint=request_fingerprint,
-                request_sent=False,
-                repository_operation_id=None,
-                checkpoint_ref=checkpoint_ref,
             )
 
         if not request_state.request_sent:
             lease_session.refresh_control()
             if control.cancel_requested:
+                # unreachable until submit cancel source exists (effect boundary crossed)
                 lease_session.publish_operation(_make_cancelled_terminal_builder())
                 return ExecutorAcknowledgment.PUBLISHED
             repository_operation_id = deps.repository_write.submit_versioned_import(
@@ -650,6 +610,7 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
 
         lease_session.refresh_control()
         if control.cancel_requested:
+            # unreachable until submit cancel source exists (post-effect publish path)
             lease_session.publish_operation(_make_cancelled_terminal_builder())
             return ExecutorAcknowledgment.PUBLISHED
 
@@ -756,14 +717,11 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             lease_session.publish_checkpoint(make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref))
 
         try:
-            repository_operation = cast(
-                VersionedOperation,
-                deps.repository_write.wait_operation(
-                    repository_id=payload.repository_id,
-                    operation_id=submit_state.repository_operation_id,
-                ),
+            repository_operation = deps.repository_write.wait_operation(
+                repository_id=payload.repository_id,
+                operation_id=submit_state.repository_operation_id,
             )
-        except TimeoutError:
+        except (TimeoutError, RepositoryWriteTimeoutError):
             lease_session.publish_operation(
                 _make_manual_recovery_terminal_builder(
                     submit_state.repository_operation_id,
@@ -871,6 +829,7 @@ def build_submit_recovery_port(deps: SubmitRuntimeDependencies) -> RecoveryPort:
         ) -> RecoveryOutcome:
             if step.step_name == SUBMIT_STEP_SUBMIT:
                 return _recover_external_effect_step(
+                    deps=deps,
                     handler=submit_handler,
                     operation=operation,
                     step=step,
@@ -879,6 +838,7 @@ def build_submit_recovery_port(deps: SubmitRuntimeDependencies) -> RecoveryPort:
                 )
             if step.step_name == SUBMIT_STEP_AWAIT:
                 return _recover_external_effect_step(
+                    deps=deps,
                     handler=await_handler,
                     operation=operation,
                     step=step,
@@ -921,13 +881,15 @@ def build_submit_operator_recovery_port(
                     raise ValueError("submit attempt is missing")
                 if attempt.repository_operation_id is None:
                     raise ValueError("matching repository operation identity is required for business abort")
-                if operation.diagnostic is None:
-                    raise ValueError("operation diagnostic is required for abort proof")
+                stable_failure_code = abort_evidence.resolve_stable_failure_code(
+                    repository_id=attempt.repository_id,
+                    repository_operation_id=attempt.repository_operation_id,
+                )
                 proof = MatchingAbortProof(
                     repository_id=attempt.repository_id,
                     repository_operation_id=attempt.repository_operation_id,
                     terminal_status=RepositoryOperationTerminalStatus.FAILED,
-                    stable_failure_code=operation.diagnostic.code,
+                    stable_failure_code=stable_failure_code,
                 )
             abort_submit_transaction(
                 request=AbortSubmitTransactionRequest(
@@ -943,9 +905,229 @@ def build_submit_operator_recovery_port(
     return cast(OperatorRecoveryApplicationPort, _SubmitOperatorRecoveryPort())
 
 
+def _materialize_submit_checkpoint_state(
+    *,
+    deps: SubmitRuntimeDependencies,
+    submit_definition: JobDefinition,
+    operation: OperationRecord,
+    step: StepRecord,
+    lease_session: LeaseSession,
+    payload: SubmitJobPayload,
+    attempt: SubmitAttempt,
+    prepare_checkpoint: PrepareImportCheckpoint,
+    prepare_checkpoint_ref: ArtifactRef,
+) -> tuple[_SubmitCheckpointState, object | None]:
+    if (
+        attempt.state is SubmitAttemptState.EFFECT_PENDING
+        and attempt.repository_artifact_ref is not None
+    ):
+        repository_artifact_ref = attempt.repository_artifact_ref
+        request_bytes = _build_import_request_bytes(payload, repository_artifact_ref)
+        request_ref = put_with_built_ref(
+            deps.artifact_store,
+            request_bytes,
+            artifact_id=_import_request_artifact_id(request_bytes),
+            media_type=_JCS_MEDIA_TYPE,
+        )
+        request_fingerprint = compute_request_fingerprint(request_bytes)
+        reconcile_started_at = _iso_utc_timestamp(attempt.effect_pending_at or datetime.now(UTC))
+        if attempt.repository_operation_id is not None:
+            envelope = envelope_for_step(
+                key=submit_definition.key,
+                operation=operation,
+                step=step,
+                checkpoint_generation=_checkpoint_generation(step),
+                job_state=_job_state_for_submit_sent(
+                    prepare_checkpoint_ref=prepare_checkpoint_ref,
+                    repository_artifact_ref=repository_artifact_ref,
+                    payload=payload,
+                    request_artifact_ref=request_ref,
+                    request_fingerprint=request_fingerprint,
+                    repository_operation_id=attempt.repository_operation_id,
+                    reconcile_started_at=reconcile_started_at,
+                ),
+            )
+            request_sent = True
+            repository_operation_id = attempt.repository_operation_id
+        else:
+            envelope = envelope_for_step(
+                key=submit_definition.key,
+                operation=operation,
+                step=step,
+                checkpoint_generation=_checkpoint_generation(step),
+                job_state=_job_state_for_submit_request(
+                    prepare_checkpoint_ref=prepare_checkpoint_ref,
+                    repository_artifact_ref=repository_artifact_ref,
+                    payload=payload,
+                    request_artifact_ref=request_ref,
+                    request_fingerprint=request_fingerprint,
+                    reconcile_started_at=reconcile_started_at,
+                ),
+            )
+            request_sent = False
+            repository_operation_id = None
+        checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
+        checkpoint_generation = lease_session.publish_checkpoint(
+            _pinned_checkpoint_builder(
+                checkpoint_ref=checkpoint_ref,
+                extra_refs=(prepare_checkpoint_ref, request_ref),
+                intent="submit-import-checkpoint",
+            )
+        )
+        return (
+            _SubmitCheckpointState(
+                prepare_checkpoint_ref=prepare_checkpoint_ref,
+                repository_artifact_ref=repository_artifact_ref,
+                request_artifact_ref=request_ref,
+                request_fingerprint=request_fingerprint,
+                request_sent=request_sent,
+                repository_operation_id=repository_operation_id,
+                checkpoint_ref=checkpoint_ref,
+            ),
+            checkpoint_generation,
+        )
+
+    package_bytes = deps.publication.read_back_package(
+        checkpoint=prepare_checkpoint,
+        store=deps.artifact_store,
+    )
+    repository_artifact_ref = deps.repository_write.upload_artifact(
+        repository_id=payload.repository_id,
+        idempotency_key=payload.repository_upload_idempotency_key,
+        media_type=prepare_checkpoint.backend_import_artifact_ref.media_type,
+        raw_sha256=prepare_checkpoint.package_raw_sha256,
+        body=package_bytes,
+    )
+    request_bytes = _build_import_request_bytes(payload, repository_artifact_ref)
+    request_ref = put_with_built_ref(
+        deps.artifact_store,
+        request_bytes,
+        artifact_id=_import_request_artifact_id(request_bytes),
+        media_type=_JCS_MEDIA_TYPE,
+    )
+    request_fingerprint = compute_request_fingerprint(request_bytes)
+    effect_pending_at = datetime.now(UTC)
+    with deps.control_transaction_factory() as unit_of_work:
+        fresh_attempt = unit_of_work.submission.get_submit_attempt(payload.submit_attempt_id)
+        if fresh_attempt is None:
+            raise SubmitJobError("submit attempt is missing")
+        mark_submit_attempt_effect_pending(
+            request=EffectPendingTransactionRequest(
+                submit_attempt_id=payload.submit_attempt_id,
+                checkpoint=prepare_checkpoint,
+                repository_artifact_ref=repository_artifact_ref,
+                effect_pending_at=effect_pending_at,
+                expected_attempt_version=fresh_attempt.optimistic_version,
+            ),
+            unit_of_work=unit_of_work,
+        )
+    envelope = envelope_for_step(
+        key=submit_definition.key,
+        operation=operation,
+        step=step,
+        checkpoint_generation=_checkpoint_generation(step),
+        job_state=_job_state_for_submit_request(
+            prepare_checkpoint_ref=prepare_checkpoint_ref,
+            repository_artifact_ref=repository_artifact_ref,
+            payload=payload,
+            request_artifact_ref=request_ref,
+            request_fingerprint=request_fingerprint,
+            reconcile_started_at=_iso_utc_timestamp(effect_pending_at),
+        ),
+    )
+    checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
+    checkpoint_generation = lease_session.publish_checkpoint(
+        _pinned_checkpoint_builder(
+            checkpoint_ref=checkpoint_ref,
+            extra_refs=(prepare_checkpoint_ref, request_ref),
+            intent="submit-import-checkpoint",
+        )
+    )
+    return (
+        _SubmitCheckpointState(
+            prepare_checkpoint_ref=prepare_checkpoint_ref,
+            repository_artifact_ref=repository_artifact_ref,
+            request_artifact_ref=request_ref,
+            request_fingerprint=request_fingerprint,
+            request_sent=False,
+            repository_operation_id=None,
+            checkpoint_ref=checkpoint_ref,
+        ),
+        checkpoint_generation,
+    )
+
+
+def _submit_may_invoke_handler_without_checkpoint(
+    deps: SubmitRuntimeDependencies,
+    operation: OperationRecord,
+    step: StepRecord,
+) -> bool:
+    if step.step_name != SUBMIT_STEP_SUBMIT:
+        return False
+    payload = _load_submit_payload(operation, deps.artifact_store)
+    attempt = _load_submit_attempt(deps, payload.submit_attempt_id)
+    return (
+        attempt.state is SubmitAttemptState.EFFECT_PENDING
+        and attempt.repository_artifact_ref is not None
+    )
+
+
+def _map_handler_failure_to_recovery_outcome(exc: BaseException) -> RecoveryOutcome:
+    if isinstance(exc, (RepositoryWriteTimeoutError, TimeoutError)):
+        return RecoveryOutcome(
+            disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
+            diagnostic_code=DIAGNOSTIC_RECONCILE_TIMEOUT,
+            reason=str(exc),
+        )
+    if isinstance(exc, httpx.TransportError):
+        return RecoveryOutcome(
+            disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
+            diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
+            reason=str(exc),
+        )
+    if isinstance(
+        exc,
+        (
+            SubmitJobError,
+            CheckpointDecodeError,
+            PayloadDecodeError,
+            SubmitImportBuilderError,
+            FinalizeBindingMismatch,
+            AbortProofNotSatisfied,
+            FinalizeRecoveryRequired,
+            ValueError,
+        ),
+    ):
+        return RecoveryOutcome(
+            disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
+            diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
+            reason=str(exc),
+        )
+    return RecoveryOutcome(
+        disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
+        diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
+        reason=str(exc),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _StaticAbortEvidence:
     operation: VersionedOperation
+
+    def resolve_stable_failure_code(
+        self,
+        *,
+        repository_id: str,
+        repository_operation_id: str,
+    ) -> str:
+        del repository_id
+        if str(self.operation.operation_id) != repository_operation_id:
+            raise ValueError("repository operation identity does not match proof")
+        if self.operation.status is not RepositoryOperationStatus.FAILED:
+            raise ValueError("repository operation is not FAILED")
+        if self.operation.error is None:
+            raise ValueError("repository FAILED operation is missing error evidence")
+        return self.operation.error.code
 
     def validate_matching_stable_failure(
         self,
@@ -964,6 +1146,7 @@ class _StaticAbortEvidence:
 
 def _recover_external_effect_step(
     *,
+    deps: SubmitRuntimeDependencies,
     handler: ClaimedExecutor,
     operation: OperationRecord,
     step: StepRecord,
@@ -989,7 +1172,11 @@ def _recover_external_effect_step(
             reason=None,
         )
 
-    if step.checkpoint_ref is None:
+    if step.checkpoint_ref is None and not _submit_may_invoke_handler_without_checkpoint(
+        deps,
+        operation,
+        step,
+    ):
         return RecoveryOutcome(
             disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
             diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
@@ -998,12 +1185,8 @@ def _recover_external_effect_step(
 
     try:
         acknowledgment = handler(operation, step, control, lease_session)
-    except (SubmitJobError, CheckpointDecodeError, PayloadDecodeError, SubmitImportBuilderError) as exc:
-        return RecoveryOutcome(
-            disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
-            diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
-            reason=str(exc),
-        )
+    except Exception as exc:
+        return _map_handler_failure_to_recovery_outcome(exc)
 
     if acknowledgment is ExecutorAcknowledgment.PUBLISHED:
         return RecoveryOutcome(
@@ -1338,6 +1521,10 @@ def _matching_finalize_facts(
     )
 
 
+def _wire_repository_raw_sha256(value: str) -> str:
+    return value.removeprefix("sha256:")
+
+
 def _build_import_request_bytes(
     payload: SubmitJobPayload,
     repository_artifact_ref: RepositoryArtifactRef,
@@ -1348,7 +1535,7 @@ def _build_import_request_bytes(
             artifact_id=UUID(repository_artifact_ref.artifact_id),
             media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
             size_bytes=repository_artifact_ref.size_bytes,
-            raw_sha256=repository_artifact_ref.raw_sha256,
+            raw_sha256=_wire_repository_raw_sha256(repository_artifact_ref.raw_sha256),
         ),
         target_ref="main",
         expected_commit_id=payload.repository_expected_commit_id,
@@ -1894,57 +2081,6 @@ def _decode_builder_mutation_policy(value: object) -> BuilderMutationPolicy:
         raise PayloadDecodeError("builder_mutation_policy is invalid", code="PAYLOAD_SHAPE_INVALID") from exc
 
 
-def build_production_submit_dependencies(
-    settings: object,
-    *,
-    preview_deps: object,
-) -> SubmitRuntimeDependencies:
-    """Compose production Submit ports on top of the shared Preview artifact store."""
-
-    from gateway_backend.application.preview_jobs import PreviewRuntimeDependencies
-    from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
-    from gateway_backend.infrastructure.repository_read import load_repository_bearer_token
-    from gateway_backend.infrastructure.repository_write import HttpRepositoryWriteClient
-    from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
-
-    if type(preview_deps) is not PreviewRuntimeDependencies:
-        raise ValueError("preview_deps must be PreviewRuntimeDependencies")
-
-    control_db_path = getattr(settings, "control_db_path", None)
-    bearer_token_file = getattr(settings, "repository_bearer_token_file", None)
-    repository_base_url = getattr(settings, "repository_base_url", None)
-    repository_timeout_seconds = getattr(settings, "repository_timeout_seconds", None)
-    if (
-        control_db_path is None
-        or bearer_token_file is None
-        or repository_base_url is None
-        or repository_timeout_seconds is None
-    ):
-        raise ValueError("settings must provide operation worker repository wiring")
-
-    token = load_repository_bearer_token(bearer_token_file)
-
-    def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(control_db_path)
-
-    def submission_id_factory() -> str:
-        return f"sub-{datetime.now(UTC).timestamp():.0f}"
-
-    return SubmitRuntimeDependencies(
-        artifact_store=preview_deps.artifact_store,
-        publication=SubmitImportPublicationAdapter(),
-        repository_write=HttpRepositoryWriteClient(
-            base_url=repository_base_url,
-            bearer_token=token,
-            timeout_seconds=repository_timeout_seconds,
-        ),
-        control_transaction_factory=bind_submit_control_transaction_factory(
-            control_transaction_factory,
-        ),
-        submission_id_factory=submission_id_factory,
-    )
-
-
 __all__ = [
     "AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA",
     "OperatorRecoveryApplicationPort",
@@ -1953,8 +2089,8 @@ __all__ = [
     "SubmitRepositoryPolicy",
     "SubmitRuntimeDependencies",
     "build_await_import_result_handler",
+    "bind_submit_control_transaction_factory",
     "build_prepare_import_handler",
-    "build_production_submit_dependencies",
     "build_submit_import_handler",
     "build_submit_operator_recovery_port",
     "build_submit_recovery_port",

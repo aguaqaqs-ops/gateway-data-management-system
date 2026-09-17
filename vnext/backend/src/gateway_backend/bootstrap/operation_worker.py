@@ -13,6 +13,7 @@ from pathlib import Path
 from signal import Signals
 from types import FrameType
 from typing import Any, cast
+from uuid import uuid4
 
 from pydantic import ValidationError
 
@@ -34,10 +35,12 @@ from gateway_backend.application.preview_jobs import (
     preview_composition_bundle,
 )
 from gateway_backend.application.submit_jobs import (
-    build_production_submit_dependencies,
+    SubmitRuntimeDependencies,
+    bind_submit_control_transaction_factory,
     build_submit_recovery_port,
     submit_composition_bundle,
 )
+from gateway_backend.application.submission.ports import SubmitControlUnitOfWorkFactory
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.application.synthetic_jobs import build_external_effect_stub_recovery_port
 from gateway_backend.infrastructure.artifact_store import (
@@ -58,6 +61,8 @@ from gateway_backend.infrastructure.repository_read import (
     build_http_repository_provider_factory,
     load_repository_bearer_token,
 )
+from gateway_backend.infrastructure.repository_write import HttpRepositoryWriteClient
+from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
 from gateway_backend.operations import OperationRecord, OperationUnitOfWork, StepRecord
 from gateway_backend.operations.contracts import JobStepKey
 from gateway_backend.operations.recovery import (
@@ -167,11 +172,55 @@ def build_production_preview_dependencies(
         baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),
         control_transaction_factory=control_transaction_factory,
     )
-    write_uow_factory = cast(
-        WriteUnitOfWorkFactory,
-        bind_control_transaction_factory(control_transaction_factory),
-    )
+    write_uow_factory = build_worker_write_uow_factory(control_transaction_factory)
     return preview_deps, write_uow_factory
+
+
+def build_worker_write_uow_factory(
+    control_transaction_factory: Callable[[], ControlDbUnitOfWork],
+) -> WriteUnitOfWorkFactory:
+    """Stack preview and submit transaction binders for LeaseSession checkpoint writes."""
+
+    preview_bound = bind_control_transaction_factory(control_transaction_factory)
+    return cast(
+        WriteUnitOfWorkFactory,
+        bind_submit_control_transaction_factory(
+            cast(SubmitControlUnitOfWorkFactory, preview_bound)
+        ),
+    )
+
+
+def build_production_submit_dependencies(
+    settings: OperationWorkerSettings,
+    *,
+    preview_deps: PreviewRuntimeDependencies,
+) -> SubmitRuntimeDependencies:
+    """Compose production Submit ports on top of the shared Preview artifact store."""
+
+    if type(settings) is not OperationWorkerSettings:
+        raise ValueError("settings must be OperationWorkerSettings")
+    if type(preview_deps) is not PreviewRuntimeDependencies:
+        raise ValueError("preview_deps must be PreviewRuntimeDependencies")
+
+    token = load_repository_bearer_token(settings.repository_bearer_token_file)
+
+    def control_transaction_factory() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(settings.control_db_path)
+
+    def submission_id_factory() -> str:
+        return f"sub-{uuid4()}"
+
+    return SubmitRuntimeDependencies(
+        artifact_store=preview_deps.artifact_store,
+        publication=SubmitImportPublicationAdapter(),
+        repository_write=HttpRepositoryWriteClient(
+            base_url=settings.repository_base_url,
+            bearer_token=token,
+            timeout_seconds=settings.repository_timeout_seconds,
+        ),
+        control_transaction_factory=control_transaction_factory,
+        submission_id_factory=submission_id_factory,
+    )
 
 
 def _artifact_is_protected(db_path: Path, artifact_id: str) -> bool:
@@ -303,8 +352,8 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             preview_definitions, preview_handlers, preview_decoders = preview_composition_bundle(
                 preview_deps
             )
-            submit_definitions, submit_handlers, submit_decoders = submit_composition_bundle(
-                submit_deps
+            submit_definitions, submit_handlers, submit_decoders, bound_submit_deps = (
+                submit_composition_bundle(submit_deps)
             )
             runtime = build_worker_runtime(
                 configured,
@@ -312,7 +361,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
                 handlers={**preview_handlers, **submit_handlers},
                 payload_decoders={**preview_decoders, **submit_decoders},
                 preview_recovery=build_preview_recovery_port(preview_deps),
-                submit_recovery=build_submit_recovery_port(submit_deps),
+                submit_recovery=build_submit_recovery_port(bound_submit_deps),
                 write_uow_factory=write_uow_factory,
             )
         except ValidationError:

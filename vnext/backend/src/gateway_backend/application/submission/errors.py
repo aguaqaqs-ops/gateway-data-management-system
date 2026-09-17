@@ -14,6 +14,10 @@ class SubmitApplicationError(Exception):
     """Base error for submission application services."""
 
 
+class RepositoryWriteTimeoutError(TimeoutError):
+    """Raised when repository polling exceeds the configured reconcile deadline."""
+
+
 class IdempotencyConflict(SubmitApplicationError):
     """Same idempotency key was reused with a different request fingerprint."""
 

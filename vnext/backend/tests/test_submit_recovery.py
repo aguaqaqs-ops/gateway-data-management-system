@@ -11,9 +11,11 @@ import pytest
 
 from gateway_backend.application.recovery import (
     DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
+    DIAGNOSTIC_RECONCILE_TIMEOUT,
     RecoveryOutcomeDisposition,
 )
 from gateway_backend.application.submit_jobs import build_submit_recovery_port
+from gateway_backend.application.submission.errors import RepositoryWriteTimeoutError
 from gateway_backend.application.submission.abort_transaction import (
     AbortSubmitTransactionRequest,
     abort_submit_transaction,
@@ -37,12 +39,13 @@ from gateway_backend.operations import (
 )
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.worker import ExecutionControl
+from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
 from gateway_backend.infrastructure.repository_write.abort_evidence import HttpRepositoryAbortEvidencePort
+from tests.support.dolt import dolt_available
 from tests.support.submit_job_harness import (
     assert_occupancy_released,
     assert_occupancy_retained,
     build_submit_worker_harness,
-    dolt_available,
     repository_service_session,
     submit_step_id,
 )
@@ -76,13 +79,6 @@ def _seed_running_submit_without_checkpoint(
     seed: SubmitSeed,
 ) -> tuple[SubmitAttempt, OperationRecord, StepRecord, str, str]:
     from gateway_backend.application.submission.job_payload import SUBMIT_STEP_PREPARE
-    from gateway_backend.domain.submission.models import (
-        BackendArtifactRef,
-        RepositoryArtifactRef,
-        SubmitAttemptState,
-    )
-    from tests.test_submit_transactions import _SHA_MANIFEST, _SHA_PACKAGE, _SHA_REPO
-
     prepare_worker_id = "worker-prepare"
     prepare_lease_token = "lease-prepare"
     submit_worker_id = "worker-submit"
@@ -100,35 +96,11 @@ def _seed_running_submit_without_checkpoint(
         preflight=_preflight(seed),
         now=TS1,
     )
-    backend_ref = BackendArtifactRef(
-        artifact_id="backend-pkg-1",
-        media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
-        size_bytes=10,
-        raw_sha256=_SHA_PACKAGE,
-    )
-    repository_ref = RepositoryArtifactRef(
-        artifact_id="repo-artifact-1",
-        media_type="application/octet-stream",
-        size_bytes=10,
-        raw_sha256=_SHA_REPO,
-    )
     prepare_id = submit_step_id(accepted.operation_id, SUBMIT_STEP_PREPARE)
     submit_id = submit_step_id(accepted.operation_id, SUBMIT_STEP_SUBMIT)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         attempt = unit_of_work.submission.get_submit_attempt(accepted.submit_attempt_id)
         assert attempt is not None
-        updated = replace(
-            attempt,
-            state=SubmitAttemptState.EFFECT_PENDING,
-            effect_pending_at=TS1,
-            optimistic_version=1,
-            canonicalization_manifest_ref="manifest-1",
-            canonicalization_manifest_digest=_SHA_MANIFEST,
-            repository_import_artifact_ref=backend_ref,
-            repository_artifact_ref=repository_ref,
-            repository_operation_id=None,
-        )
-        unit_of_work.submission.cas_update_attempt(updated, expected_version=0)
         now = unit_of_work.operations.transaction_now
         lease_expires_at = now + timedelta(seconds=60)
         prepare = unit_of_work.operations.get_step(prepare_id)
@@ -228,7 +200,7 @@ def _seed_running_submit_without_checkpoint(
         )
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         return (
-            updated,
+            attempt,
             unit_of_work.operations.get_operation(accepted.operation_id),
             unit_of_work.operations.get_step(submit_id),
             submit_worker_id,
@@ -237,13 +209,16 @@ def _seed_running_submit_without_checkpoint(
 
 
 def test_submit_recovery_without_checkpoint_retains_occupancy(tmp_path: Path) -> None:
-    db_path = _initialized_db_path(tmp_path, "recovery-no-checkpoint.sqlite3")
+    harness = build_submit_worker_harness(
+        tmp_path / "worker",
+        repository_base_url="http://127.0.0.1:9",
+    )
+    db_path = harness.db_path
     seed = seed_submit_ready_workspace(db_path)
     attempt, operation, step, worker_id, lease_token = _seed_running_submit_without_checkpoint(
         db_path,
         seed,
     )
-    harness = build_submit_worker_harness(tmp_path / "worker", repository_base_url="http://127.0.0.1:9")
     recovery = build_submit_recovery_port(harness.submit_deps)
 
     control = ExecutionControl()
@@ -252,7 +227,9 @@ def test_submit_recovery_without_checkpoint_retains_occupancy(tmp_path: Path) ->
         lease_token=lease_token,
         operation_id=operation.operation_id,
         step_id=step.step_id,
-        write_uow_factory=lambda: ControlDbUnitOfWork(db_path),
+        write_uow_factory=build_worker_write_uow_factory(
+            lambda: ControlDbUnitOfWork(db_path)
+        ),
         control=control,
         observer=lambda _event: None,
     )
@@ -368,3 +345,156 @@ def test_operator_abort_evidence_rejects_unknown_repository_operation(tmp_path: 
         repository_id=seed.workspace.repository_id,
         submit_attempt_id=attempt.submit_attempt_id,
     )
+
+
+def test_submit_recovery_maps_value_error_to_manual_recovery() -> None:
+    from gateway_backend.application.submit_jobs import _map_handler_failure_to_recovery_outcome
+
+    outcome = _map_handler_failure_to_recovery_outcome(ValueError("simulated crossing failure"))
+    assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
+    assert outcome.diagnostic_code == DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED
+
+
+def test_submit_recovery_maps_timeout_to_manual_recovery() -> None:
+    from gateway_backend.application.submit_jobs import _map_handler_failure_to_recovery_outcome
+
+    outcome = _map_handler_failure_to_recovery_outcome(
+        RepositoryWriteTimeoutError("reconcile deadline exhausted")
+    )
+    assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
+    assert outcome.diagnostic_code == DIAGNOSTIC_RECONCILE_TIMEOUT
+
+
+def test_submit_recovery_maps_abort_proof_not_satisfied_to_manual_recovery() -> None:
+    from gateway_backend.application.submit_jobs import _map_handler_failure_to_recovery_outcome
+    from gateway_backend.application.submission.errors import AbortProofNotSatisfied
+
+    outcome = _map_handler_failure_to_recovery_outcome(
+        AbortProofNotSatisfied("matching evidence missing")
+    )
+    assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
+    assert outcome.diagnostic_code == DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED
+
+
+@pytest.mark.serial
+@pytest.mark.skipif(not dolt_available(), reason="dolt is not available")
+def test_operator_abort_import_rejected_via_recovery_port(tmp_path: Path) -> None:
+    import hashlib
+
+    from gateway_backend.application.submit_jobs import (
+        bind_submit_control_transaction_factory,
+        build_submit_operator_recovery_port,
+        _read_write_factory,
+    )
+    from gateway_backend.application.submit_registry import submit_job_registry
+    from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
+    from gateway_backend.operations import TransitionDisposition
+    from gateway_backend.operations.recovery import (
+        OperatorRecoveryCommand,
+        OperatorRecoveryRequest,
+    )
+    from tests.support.http_workspace_harness import (
+        _submit_recovery_capability_lookup,
+        promote_submit_recovery_target,
+    )
+
+    invalid_body = b"not-a-valid-package"
+    invalid_sha = hashlib.sha256(invalid_body).hexdigest()
+    with repository_service_session(tmp_path / "repository-live-abort-port") as service:
+        seeded = service.repository_id_factory(idempotency_key="create-live-abort-port")
+        write_client = service.write_client()
+        artifact_ref = write_client.upload_artifact(
+            repository_id=seeded.repository_id,
+            idempotency_key="upload-live-abort-port",
+            media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
+            raw_sha256=invalid_sha,
+            body=invalid_body,
+        )
+        repository_operation_id = write_client.submit_versioned_import(
+            repository_id=seeded.repository_id,
+            idempotency_key="import-live-abort-port",
+            artifact_ref=artifact_ref,
+            expected_commit_id=seeded.initial_commit_id,
+        )
+        failed_operation = write_client.wait_operation(
+            repository_id=seeded.repository_id,
+            operation_id=repository_operation_id,
+            deadline_seconds=60.0,
+        )
+        assert failed_operation.status.value == "FAILED"
+        assert failed_operation.error is not None
+        assert failed_operation.error.code == "IMPORT_REJECTED"
+
+        db_path = _initialized_db_path(tmp_path, "recovery-operator-port.sqlite3")
+        seed = seed_submit_ready_workspace(db_path, repository_id=seeded.repository_id)
+        attempt = _seed_effect_pending_attempt(db_path, seed)
+        with ControlDbUnitOfWork(db_path) as unit_of_work:
+            current = unit_of_work.submission.get_submit_attempt(attempt.submit_attempt_id)
+            assert current is not None
+            updated = replace(
+                current,
+                repository_operation_id=repository_operation_id,
+                optimistic_version=current.optimistic_version + 1,
+            )
+            unit_of_work.submission.cas_update_attempt(
+                updated,
+                expected_version=current.optimistic_version,
+            )
+        await_step_id = submit_step_id(attempt.operation_id, SUBMIT_STEP_AWAIT)
+        with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+            await_step = unit_of_work.operations.get_step(await_step_id)
+        promote_submit_recovery_target(
+            db_path,
+            operation_id=attempt.operation_id,
+            step_id=await_step_id,
+            when=await_step.updated_at,
+        )
+        evidence = HttpRepositoryAbortEvidencePort(client=write_client)
+        assert (
+            evidence.resolve_stable_failure_code(
+                repository_id=seeded.repository_id,
+                repository_operation_id=repository_operation_id,
+            )
+            == "IMPORT_REJECTED"
+        )
+
+        def control_transaction_factory() -> ControlDbUnitOfWork:
+            return ControlDbUnitOfWork(db_path)
+
+        harness = build_submit_worker_harness(
+            tmp_path / "worker-operator-port",
+            repository_base_url=service.base_url,
+        )
+        port = build_submit_operator_recovery_port(
+            write_uow_factory=control_transaction_factory,
+            capability_lookup=_submit_recovery_capability_lookup(submit_job_registry()),
+            submit_control_uow_factory=_read_write_factory(
+                bind_submit_control_transaction_factory(control_transaction_factory)
+            ),
+            abort_evidence=evidence,
+            submit_deps=harness.submit_deps,
+        )
+        with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+            operation = unit_of_work.operations.get_operation(attempt.operation_id)
+            await_step = unit_of_work.operations.get_step(await_step_id)
+        request = OperatorRecoveryRequest(
+            command=OperatorRecoveryCommand.ABORT_CONFIRMED_FAILURE,
+            operation_id=operation.operation_id,
+            step_id=await_step.step_id,
+            expected_operation_optimistic_version=operation.optimistic_version,
+            expected_step_optimistic_version=await_step.optimistic_version,
+            reason="operator confirmed repository import rejected",
+        )
+        assert port.execute_recovery(request) is TransitionDisposition.APPLY
+
+    assert_occupancy_released(
+        db_path,
+        workspace_id=seed.workspace.workspace_id,
+        repository_id=seed.workspace.repository_id,
+    )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        persisted_attempt = unit_of_work.submission.get_submit_attempt(attempt.submit_attempt_id)
+        persisted_operation = unit_of_work.operations.get_operation(attempt.operation_id)
+    assert persisted_attempt is not None
+    assert persisted_attempt.state is SubmitAttemptState.ABORTED
+    assert persisted_operation.status is OperationStatus.FAILED

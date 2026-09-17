@@ -9,6 +9,9 @@ from uuid import UUID
 
 import httpx
 from gateway_repository_client import RepositoryClient
+from gateway_repository_client.errors import RepositoryClientTimeoutError
+
+from gateway_backend.application.submission.errors import RepositoryWriteTimeoutError
 from gateway_repository_contracts import (
     GetOperationResponse,
     IdempotencyKeyString,
@@ -23,6 +26,7 @@ from gateway_repository_contracts import (
 from gateway_repository_contracts.types import MediaTypeString, Sha256String
 
 from gateway_backend.application.submission.ports import RepositoryWritePort
+from gateway_backend.canonicalization_manifest import REPOSITORY_IMPORT_MEDIA_TYPE
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
 from gateway_backend.artifacts.nominal_refs import repository_artifact_ref_from_upload_response
 
@@ -51,7 +55,7 @@ class HttpRepositoryWriteClient:
                 repository_id=_as_uuid(repository_id),
                 idempotency_key=_as_idempotency_key(idempotency_key),
                 media_type=_as_media_type(media_type),
-                raw_sha256=_as_sha256(raw_sha256),
+                raw_sha256=_wire_sha256(raw_sha256),
                 body=body,
             )
             ),
@@ -69,9 +73,9 @@ class HttpRepositoryWriteClient:
         repo_uuid = _as_uuid(repository_id)
         wire_ref = WireRepositoryArtifactRef(
             artifact_id=_as_uuid(artifact_ref.artifact_id),
-            media_type=_as_media_type(artifact_ref.media_type),
+            media_type=_as_media_type(REPOSITORY_IMPORT_MEDIA_TYPE),
             size_bytes=artifact_ref.size_bytes,
-            raw_sha256=_as_sha256(artifact_ref.raw_sha256),
+            raw_sha256=_wire_sha256(artifact_ref.raw_sha256),
         )
         request = SubmitVersionedImportRequest(
             repository_id=repo_uuid,
@@ -118,16 +122,19 @@ class HttpRepositoryWriteClient:
         operation_id: str,
         deadline_seconds: float | None = None,
     ) -> VersionedOperation:
-        return cast(
-            VersionedOperation,
-            _run(
-                self._client().wait_operation(
-                    repository_id=_as_uuid(repository_id),
-                    operation_id=_as_uuid(operation_id),
-                    deadline_seconds=deadline_seconds,
-                )
-            ),
-        )
+        try:
+            return cast(
+                VersionedOperation,
+                _run(
+                    self._client().wait_operation(
+                        repository_id=_as_uuid(repository_id),
+                        operation_id=_as_uuid(operation_id),
+                        deadline_seconds=deadline_seconds,
+                    )
+                ),
+            )
+        except RepositoryClientTimeoutError as exc:
+            raise RepositoryWriteTimeoutError(str(exc)) from exc
 
     def _client(self) -> RepositoryClient:
         return RepositoryClient(
@@ -157,6 +164,10 @@ def _as_media_type(value: str) -> MediaTypeString:
 
 def _as_sha256(value: str) -> Sha256String:
     return Sha256String(value)
+
+
+def _wire_sha256(value: str) -> Sha256String:
+    return _as_sha256(value.removeprefix("sha256:"))
 
 
 def _artifact_ref_from_response(response: UploadArtifactResponse) -> RepositoryArtifactRef:

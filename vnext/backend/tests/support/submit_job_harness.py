@@ -18,12 +18,12 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from gateway_backend.application.preview_jobs import bind_control_transaction_factory
 from gateway_backend.application.submit_jobs import (
     SubmitRuntimeDependencies,
     build_submit_recovery_port,
     submit_composition_bundle,
 )
+from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
 from gateway_backend.application.submission.job_payload import (
     SUBMIT_STEP_AWAIT,
     SUBMIT_STEP_PREPARE,
@@ -37,15 +37,12 @@ from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
 from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
 from gateway_backend.settings import OperationWorkerSettings
+from tests.support.dolt import dolt_available
 from tests.support.runtime_settings import make_operation_worker_settings
 
 REPOSITORY_SERVICE_ROOT = Path(__file__).resolve().parents[3] / "repository_service"
 STARTER_SCRIPT = Path(__file__).with_name("repository_service_starter.py")
 DEFAULT_BEARER_TOKEN = "test-bearer-token"
-
-
-def dolt_available() -> bool:
-    return shutil.which("dolt") is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,10 +75,10 @@ class RecordingTransport(httpx.AsyncBaseTransport):
         )
         if self._handler is not None:
             return self._handler(request)
-        return _default_repository_handler(request)
+        return default_repository_handler(request)
 
 
-def _default_repository_handler(request: httpx.Request) -> httpx.Response:
+def default_repository_handler(request: httpx.Request) -> httpx.Response:
     path = request.url.path
     if path == "/v1/repositories" and request.method == "POST":
         return httpx.Response(
@@ -123,8 +120,12 @@ def _default_repository_handler(request: httpx.Request) -> httpx.Response:
                     "error": None,
                     "result": {
                         "commit_id": "commit-c1",
+                        "target_ref": "main",
                         "artifact_id": "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
                         "canonicalization_manifest_digest": "sha256:" + "f" * 64,
+                        "expected_commit_id": "commit-c0",
+                        "completed_verification_policy": "STRUCTURAL",
+                        "unknown_type_policy": "REJECT",
                     },
                 }
             },
@@ -296,6 +297,7 @@ def _start_subprocess_repository_service(
         str(port_file),
     ]
     env = os.environ.copy()
+    env.pop("VIRTUAL_ENV", None)
     pythonpath_parts = [
         str(REPOSITORY_SERVICE_ROOT / "src"),
         str(REPOSITORY_SERVICE_ROOT / "tests"),
@@ -339,7 +341,8 @@ def _start_subprocess_repository_service(
 
 
 def start_repository_service_client(tmp_path: Path) -> RepositoryServiceClient:
-    if _try_import_service_runtime():
+    mode = os.environ.get("GATEWAY_SUBMIT_TEST_REPOSITORY_MODE", "subprocess").lower()
+    if mode == "inprocess" and _try_import_service_runtime():
         return _start_inprocess_repository_service(tmp_path, bearer_token=DEFAULT_BEARER_TOKEN)
     return _start_subprocess_repository_service(tmp_path, bearer_token=DEFAULT_BEARER_TOKEN)
 
@@ -362,14 +365,6 @@ def repository_service_session(tmp_path: Path) -> Iterator[RepositoryServiceClie
             client.close()
 
 
-@pytest.fixture
-def repository_service_client(tmp_path: Path) -> Iterator[RepositoryServiceClient]:
-    if not dolt_available():
-        pytest.skip("dolt is not available")
-    with repository_service_session(tmp_path) as client:
-        yield client
-
-
 @dataclass
 class SubmitWorkerHarness:
     settings: OperationWorkerSettings
@@ -390,6 +385,7 @@ def build_submit_worker_harness(
     *,
     repository_base_url: str,
     observer: WorkerObserver | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
 ) -> SubmitWorkerHarness:
     tmp_path.mkdir(parents=True, exist_ok=True)
     token_file = tmp_path / "repository-bearer-token"
@@ -410,11 +406,14 @@ def build_submit_worker_harness(
         repository_write=HttpRepositoryWriteClient(
             base_url=repository_base_url,
             bearer_token=DEFAULT_BEARER_TOKEN,
+            transport=transport,
         ),
         control_transaction_factory=control_transaction_factory,
         submission_id_factory=lambda: "sub-test-1",
     )
-    submit_definitions, submit_handlers, submit_decoders = submit_composition_bundle(submit_deps)
+    submit_definitions, submit_handlers, submit_decoders, bound_submit_deps = (
+        submit_composition_bundle(submit_deps)
+    )
     def _noop_observer(_event: WorkerEvent) -> None:
         return None
 
@@ -424,16 +423,13 @@ def build_submit_worker_harness(
         job_definitions=submit_definitions,
         handlers=dict(submit_handlers),
         payload_decoders=dict(submit_decoders),
-        submit_recovery=build_submit_recovery_port(submit_deps),
-        write_uow_factory=cast(
-            WriteUnitOfWorkFactory,
-            bind_control_transaction_factory(control_transaction_factory),
-        ),
+        submit_recovery=build_submit_recovery_port(bound_submit_deps),
+        write_uow_factory=build_worker_write_uow_factory(control_transaction_factory),
     )
     return SubmitWorkerHarness(
         settings=settings,
         artifact_store=artifact_store,
-        submit_deps=submit_deps,
+        submit_deps=bound_submit_deps,
         definitions=submit_definitions,
         handlers=dict(submit_handlers),
         payload_decoders=dict(submit_decoders),

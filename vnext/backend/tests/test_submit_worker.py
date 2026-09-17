@@ -9,28 +9,58 @@ import pytest
 
 from gateway_backend.application.submit_registry import (
     PREPARE_IMPORT_HANDLER,
+    SUBMIT_IMPORT_HANDLER,
     submit_job_definitions,
 )
+from gateway_backend.capabilities.storage_projection.contracts import REPOSITORY_IMPORT_MEDIA_TYPE
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
-from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND, SUBMIT_STEP_PREPARE
+from gateway_backend.application.submission.job_payload import (
+    SUBMIT_JOB_KIND,
+    SUBMIT_STEP_PREPARE,
+    SUBMIT_STEP_SUBMIT,
+)
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
+from gateway_backend.operations.lease_session import LeaseSession
+from gateway_backend.operations.worker import ExecutionControl, ExecutorAcknowledgment
+from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationStatus,
     StepStatus,
     TransitionDisposition,
+    WritePrecondition,
     operation_record_from_document,
     step_record_from_document,
 )
 from gateway_backend.operations.worker import StartupDisposition, WorkerEvent
+from tests.support.dolt import dolt_available
 from tests.support.submit_job_harness import (
+    RecordingTransport,
     build_submit_worker_harness,
-    dolt_available,
     repository_service_session,
     submit_step_id,
 )
+from tests.test_submit_job_prepare import _accept_prepared_operation, _run_prepare_handler
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(autouse=True)
+def _map_payload_storage_projection_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dataclasses import replace
+
+    from gateway_backend.application import submit_jobs
+    from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
+
+    original = submit_jobs._build_prepare_import_build_input
+
+    from typing import Any
+
+    def patched(*, payload: Any, attempt: Any, operation: Any) -> Any:
+        build_input = original(payload=payload, attempt=attempt, operation=operation)
+        return replace(build_input, storage_projection_version=STORAGE_PROJECTION_VERSION)
+
+    monkeypatch.setattr(submit_jobs, "_build_prepare_import_build_input", patched)
 
 
 def _submit_operation_document(operation_id: str) -> dict[str, object]:
@@ -195,3 +225,165 @@ def test_submit_worker_reaches_ready_with_live_repository_service(tmp_path: Path
             stop.set()
             runner.join(timeout=15)
         assert not runner.is_alive()
+
+
+REPOSITORY_UUID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
+
+
+def test_submit_worker_executes_submit_import_publishes_checkpoint(tmp_path: Path) -> None:
+    transport = RecordingTransport()
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=transport,
+    )
+    operation_id = _accept_prepared_operation(
+        harness.db_path,
+        harness.artifact_store,
+        repository_id=REPOSITORY_UUID,
+    )
+    _run_prepare_handler(harness.db_path, harness.artifact_store, operation_id)
+
+    startup = harness.runtime._startup
+    assert startup.startup() is StartupDisposition.READY
+    work = startup.claim_one()
+    assert work is not None
+    assert work.step.step_name == SUBMIT_STEP_SUBMIT
+    assert work.step.worker_id is not None
+    assert work.step.lease_token is not None
+    def control_transaction_factory() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(harness.db_path)
+
+    control = ExecutionControl()
+    session = LeaseSession(
+        worker_id=work.step.worker_id,
+        lease_token=work.step.lease_token,
+        operation_id=work.operation.operation_id,
+        step_id=work.step.step_id,
+        write_uow_factory=build_worker_write_uow_factory(control_transaction_factory),
+        control=control,
+        observer=lambda _event: None,
+    )
+    acknowledgment = work.executor(work.operation, work.step, control, session)
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    assert len(transport.requests) >= 2
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        submit_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_SUBMIT)
+        )
+        steps, _cursor = unit_of_work.operations.list_steps(operation_id)
+        await_step = next(step for step in steps if step.step_name == "await_import_result")
+    assert submit_step.checkpoint_ref is not None
+    assert await_step.status is StepStatus.PENDING
+
+
+@pytest.mark.serial
+def test_submit_import_w2_crash_rebuilds_checkpoint_via_claim(tmp_path: Path) -> None:
+    from dataclasses import replace
+    from datetime import timedelta
+
+    from gateway_backend.domain.submission.models import (
+        BackendArtifactRef,
+        RepositoryArtifactRef,
+        SubmitAttemptState,
+    )
+    from tests.test_submit_transactions import _SHA_MANIFEST, _SHA_PACKAGE, _SHA_REPO
+
+    transport = RecordingTransport()
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=transport,
+    )
+    operation_id = _accept_prepared_operation(
+        harness.db_path,
+        harness.artifact_store,
+        repository_id=REPOSITORY_UUID,
+    )
+    _run_prepare_handler(harness.db_path, harness.artifact_store, operation_id)
+
+    submit_id = submit_step_id(operation_id, SUBMIT_STEP_SUBMIT)
+    worker_id = "worker-submit-w2"
+    lease_token = "lease-submit-w2"
+    backend_ref = BackendArtifactRef(
+        artifact_id="backend-pkg-1",
+        media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
+        size_bytes=10,
+        raw_sha256=_SHA_PACKAGE,
+    )
+    repository_ref = RepositoryArtifactRef(
+        artifact_id="018f0f0f-3e7b-7c16-8a9e-2e4b9f4d2c12",
+        media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
+        size_bytes=10,
+        raw_sha256=_SHA_REPO,
+    )
+    with ControlDbUnitOfWork(harness.db_path) as unit_of_work:
+        operation_record = unit_of_work.operations.get_operation(operation_id)
+        submit_attempt_id = next(
+            ref.value
+            for ref in operation_record.business_refs
+            if ref.kind == "submit_attempt"
+        )
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        assert attempt is not None
+        updated = replace(
+            attempt,
+            state=SubmitAttemptState.EFFECT_PENDING,
+            effect_pending_at=unit_of_work.operations.transaction_now,
+            canonicalization_manifest_ref="manifest-1",
+            canonicalization_manifest_digest=_SHA_MANIFEST,
+            repository_import_artifact_ref=backend_ref,
+            repository_artifact_ref=repository_ref,
+            repository_operation_id=None,
+            optimistic_version=attempt.optimistic_version + 1,
+        )
+        unit_of_work.submission.cas_update_attempt(updated, expected_version=attempt.optimistic_version)
+        submit_step = unit_of_work.operations.get_step(submit_id)
+        now = unit_of_work.operations.transaction_now
+        running_submit = replace(
+            submit_step,
+            status=StepStatus.RUNNING,
+            attempt_count=1,
+            worker_id=worker_id,
+            lease_token=lease_token,
+            lease_expires_at=now + timedelta(seconds=60),
+            started_at=now,
+            updated_at=now,
+            checkpoint_ref=None,
+            optimistic_version=submit_step.optimistic_version + 1,
+        )
+        unit_of_work.operations.compare_and_set_step(
+            running_submit,
+            WritePrecondition(
+                expected_optimistic_version=submit_step.optimistic_version,
+                worker_id=None,
+                lease_token=None,
+            ),
+        )
+
+    def control_transaction_factory() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(harness.db_path)
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        step = unit_of_work.operations.get_step(submit_id)
+    assert step.checkpoint_ref is None
+
+    handler = harness.handlers[SUBMIT_IMPORT_HANDLER]
+    control = ExecutionControl()
+    session = LeaseSession(
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=operation.operation_id,
+        step_id=step.step_id,
+        write_uow_factory=build_worker_write_uow_factory(control_transaction_factory),
+        control=control,
+        observer=lambda _event: None,
+    )
+    acknowledgment = handler(operation, step, control, session)
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        submit_step = unit_of_work.operations.get_step(step.step_id)
+    assert submit_step.checkpoint_ref is not None

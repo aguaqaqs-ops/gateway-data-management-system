@@ -215,6 +215,16 @@ class FakeAbortEvidencePort:
     tracker: WriterLockTracker | None = None
     calls: int = 0
     writer_open_during_calls: tuple[bool, ...] = ()
+    stable_failure_code: str = "IMPORT_REJECTED"
+
+    def resolve_stable_failure_code(
+        self,
+        *,
+        repository_id: str,
+        repository_operation_id: str,
+    ) -> str:
+        del repository_id, repository_operation_id
+        return self.stable_failure_code
 
     def validate_matching_stable_failure(self, *, attempt: SubmitAttempt, proof: MatchingAbortProof) -> None:
         del attempt, proof

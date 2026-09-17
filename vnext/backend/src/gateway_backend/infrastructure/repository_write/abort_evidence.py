@@ -17,6 +17,26 @@ from gateway_backend.infrastructure.repository_write.http import HttpRepositoryW
 class HttpRepositoryAbortEvidencePort:
     client: HttpRepositoryWriteClient
 
+    def resolve_stable_failure_code(
+        self,
+        *,
+        repository_id: str,
+        repository_operation_id: str,
+    ) -> str:
+        operation = self.client.get_operation(
+            repository_id=repository_id,
+            operation_id=repository_operation_id,
+        )
+        if operation.status is not OperationStatus.FAILED:
+            raise AbortProofNotSatisfied("repository operation is not FAILED")
+        if operation.error is None:
+            raise AbortProofNotSatisfied("repository FAILED operation is missing error evidence")
+        if operation.error.code not in ALLOWED_ABORT_CODES:
+            raise AbortProofNotSatisfied(
+                f"repository failure code {operation.error.code!r} is not an allowed stable abort"
+            )
+        return operation.error.code
+
     def validate_matching_stable_failure(
         self,
         *,

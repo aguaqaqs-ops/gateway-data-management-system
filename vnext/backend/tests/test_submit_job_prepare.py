@@ -148,8 +148,10 @@ def _materialize_snapshot(store: InMemoryArtifactStore) -> tuple[ArtifactRef, st
 def _accept_prepared_operation(
     db_path: Path,
     store: InMemoryArtifactStore,
+    *,
+    repository_id: str = "repo-1",
 ) -> str:
-    seed = seed_submit_ready_workspace(db_path)
+    seed = seed_submit_ready_workspace(db_path, repository_id=repository_id)
     snapshot_ref, snapshot_digest = _materialize_snapshot(store)
     protected_refs = tuple(
         ref for ref in seed.protected_refs if ref.artifact_id != "snap-1"

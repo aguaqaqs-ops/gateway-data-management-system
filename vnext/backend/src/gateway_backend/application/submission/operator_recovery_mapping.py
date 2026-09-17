@@ -51,6 +51,8 @@ def classify_operator_recovery_stale_write(exc: StaleWrite) -> tuple[str, str]:
     message = str(exc)
     if message == _OPERATION_STALE_WRITE_MESSAGE:
         return ("OPERATION_VERSION_CONFLICT", "operation optimistic version is stale")
-    if message in {_STEP_STALE_WRITE_MESSAGE, _GENERIC_STALE_WRITE_MESSAGE}:
+    if message == _STEP_STALE_WRITE_MESSAGE:
         return ("STEP_VERSION_CONFLICT", "step optimistic version is stale")
+    if message == _GENERIC_STALE_WRITE_MESSAGE:
+        return ("OPERATION_VERSION_CONFLICT", "operation optimistic version is stale")
     return ("STEP_VERSION_CONFLICT", "step optimistic version is stale")

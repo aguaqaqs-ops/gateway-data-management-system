@@ -6,9 +6,10 @@ import json
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
-import httpx
 import uvicorn
 
 from gateway_repository_service.app import create_app  # type: ignore[import-not-found]
@@ -31,14 +32,16 @@ def _wait_until_server_started(server: uvicorn.Server, *, timeout_seconds: float
 
 def _wait_until_ready(base_url: str, bearer_token: str, *, timeout_seconds: float = 30.0) -> None:
     deadline = time.monotonic() + timeout_seconds
-    headers = {"Authorization": f"Bearer {bearer_token}"}
+    request = urllib.request.Request(
+        f"{base_url}/readyz",
+        headers={"Authorization": f"Bearer {bearer_token}"},
+    )
     while time.monotonic() < deadline:
         try:
-            with httpx.Client(base_url=base_url, timeout=2.0) as client:
-                response = client.get("/readyz", headers=headers)
-                if response.status_code == 200:
+            with urllib.request.urlopen(request, timeout=2.0) as response:
+                if response.status == 200:
                     return
-        except httpx.HTTPError:
+        except urllib.error.URLError:
             pass
         time.sleep(0.05)
     raise RuntimeError("repository service did not become ready in time")

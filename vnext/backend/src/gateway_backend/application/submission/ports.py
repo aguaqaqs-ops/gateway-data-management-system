@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from datetime import datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from gateway_repository_contracts import VersionedOperation
 
 from gateway_backend.application.submission.contracts import MatchingAbortProof
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
@@ -169,6 +172,14 @@ class RepositoryMainResolvePort(Protocol):
 
 
 class RepositoryAbortEvidencePort(Protocol):
+    def resolve_stable_failure_code(
+        self,
+        *,
+        repository_id: str,
+        repository_operation_id: str,
+    ) -> str:
+        """Return the repository FAILED operation stable failure code."""
+
     def validate_matching_stable_failure(
         self,
         *,
@@ -203,7 +214,7 @@ class RepositoryWritePort(Protocol):
         *,
         repository_id: str,
         operation_id: str,
-    ) -> object: ...
+    ) -> VersionedOperation: ...
 
     def wait_operation(
         self,
@@ -211,4 +222,4 @@ class RepositoryWritePort(Protocol):
         repository_id: str,
         operation_id: str,
         deadline_seconds: float | None = None,
-    ) -> object: ...
+    ) -> VersionedOperation: ...

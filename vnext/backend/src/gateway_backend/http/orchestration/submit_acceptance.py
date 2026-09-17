@@ -26,7 +26,7 @@ from gateway_backend.application.submission.accept_transaction import (
     assert_submit_job_registered,
 )
 from gateway_backend.application.submission.contracts import AcceptSubmitCommand
-from gateway_backend.application.submission.errors import PreviewBindingConflict
+from gateway_backend.application.submission.errors import PreviewBindingConflict, SubmitJobNotRegistered
 from gateway_backend.application.submission.ports import (
     BaselineCanonicalDigestPort,
     RepositoryMainResolvePort,
@@ -177,14 +177,12 @@ def accept_submit_operation(
 ) -> SubmitAcceptanceResult:
     try:
         assert_submit_job_registered(job_registry)
-    except PreviewBindingConflict as exc:
-        if "not registered" in str(exc):
-            raise ApiError(
-                code="SERVICE_NOT_READY",
-                message="submit job definition is not registered",
-                status_code=503,
-            ) from exc
-        raise
+    except SubmitJobNotRegistered as exc:
+        raise ApiError(
+            code=exc.stable_code,
+            message=str(exc),
+            status_code=503,
+        ) from exc
 
     assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
 

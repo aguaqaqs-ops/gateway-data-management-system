@@ -33,6 +33,12 @@ from gateway_backend.application.preview_jobs import (
     build_preview_recovery_port,
     preview_composition_bundle,
 )
+from gateway_backend.application.submit_jobs import (
+    build_production_submit_dependencies,
+    build_submit_recovery_port,
+    submit_composition_bundle,
+)
+from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.application.synthetic_jobs import build_external_effect_stub_recovery_port
 from gateway_backend.infrastructure.artifact_store import (
     BoundedArtifactStore,
@@ -195,6 +201,7 @@ def build_worker_runtime(
     payload_decoders: Mapping[str, PayloadDecoder] | None = None,
     external_effect_stub: object | None = None,
     preview_recovery: RecoveryPort | None = None,
+    submit_recovery: RecoveryPort | None = None,
     write_uow_factory: WriteUnitOfWorkFactory | None = None,
 ) -> WorkerRuntime:
     """Compose the SQLite-backed worker with the immutable R4 registry adapter."""
@@ -245,6 +252,7 @@ def build_worker_runtime(
         now_factory=now_factory,
         external_effect_stub=external_effect_stub,
         preview_recovery=preview_recovery,
+        submit_recovery=submit_recovery,
     )
     startup = _R4WorkerStartup(
         read_uow_factory=read_uow_factory,
@@ -291,13 +299,20 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
             previous_handlers = _install_signal_handlers(stop_requested)
             preview_deps, write_uow_factory = build_production_preview_dependencies(configured)
-            definitions, handlers, decoders = preview_composition_bundle(preview_deps)
+            submit_deps = build_production_submit_dependencies(configured, preview_deps=preview_deps)
+            preview_definitions, preview_handlers, preview_decoders = preview_composition_bundle(
+                preview_deps
+            )
+            submit_definitions, submit_handlers, submit_decoders = submit_composition_bundle(
+                submit_deps
+            )
             runtime = build_worker_runtime(
                 configured,
-                job_definitions=definitions,
-                handlers=handlers,
-                payload_decoders=decoders,
+                job_definitions=preview_definitions + submit_definitions,
+                handlers={**preview_handlers, **submit_handlers},
+                payload_decoders={**preview_decoders, **submit_decoders},
                 preview_recovery=build_preview_recovery_port(preview_deps),
+                submit_recovery=build_submit_recovery_port(submit_deps),
                 write_uow_factory=write_uow_factory,
             )
         except ValidationError:
@@ -374,10 +389,17 @@ def _build_recovery_callbacks(
     external_effect_stub: object | None,
     now_factory: Callable[[], datetime],
     preview_recovery: RecoveryPort | None,
+    submit_recovery: RecoveryPort | None,
 ) -> dict[JobStepKey, HandlerRecoveryCallback | None]:
     callbacks: dict[JobStepKey, HandlerRecoveryCallback | None] = {}
     for definition in composition.definition_registry.definitions():
-        if definition.recovery_capability is RecoveryCapability.EXTERNAL_EFFECT:
+        if (
+            submit_recovery is not None
+            and definition.key.job_kind == SUBMIT_JOB_KIND
+            and definition.recovery_capability is RecoveryCapability.EXTERNAL_EFFECT
+        ):
+            callbacks[definition.key] = _adapt_recovery_port(submit_recovery)
+        elif definition.recovery_capability is RecoveryCapability.EXTERNAL_EFFECT:
             port = build_external_effect_stub_recovery_port(
                 composition.artifact_store,
                 external_stub=cast(Any, external_effect_stub),
@@ -424,12 +446,14 @@ def _build_recovery_aware_registry(
     now_factory: Callable[[], datetime],
     external_effect_stub: object | None,
     preview_recovery: RecoveryPort | None = None,
+    submit_recovery: RecoveryPort | None = None,
 ) -> WorkerRegistry:
     recovery_by_key = _build_recovery_callbacks(
         composition,
         external_effect_stub=external_effect_stub,
         now_factory=now_factory,
         preview_recovery=preview_recovery,
+        submit_recovery=submit_recovery,
     )
     return _RecoveryAwareWorkerRegistry(
         _registry=composition.worker_registry,

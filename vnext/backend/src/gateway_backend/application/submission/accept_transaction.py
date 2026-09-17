@@ -22,7 +22,7 @@ from gateway_backend.application.submission.contracts import (
     derive_repository_import_idempotency_key,
     derive_repository_upload_idempotency_key,
 )
-from gateway_backend.application.submission.errors import PreviewBindingConflict
+from gateway_backend.application.submission.errors import PreviewBindingConflict, SubmitJobNotRegistered
 from gateway_backend.application.submission.job_payload import (
     SUBMIT_JOB_KIND,
     SUBMIT_STEP_AWAIT,
@@ -90,7 +90,7 @@ def assert_submit_job_registered(registry: JobDefinitionRegistry) -> None:
                 SUBMIT_JOB_CONTRACT_VERSION,
             )
     except JobDefinitionLookupError as exc:
-        raise PreviewBindingConflict("submit job definition is not registered") from exc
+        raise SubmitJobNotRegistered() from exc
 
 
 def deterministic_submit_attempt_id(*, workspace_id: str, idempotency_key: str) -> str:

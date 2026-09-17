@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from typing import Literal
 
-from gateway_backend.application.submission.errors import AbortProofNotSatisfied
+from gateway_backend.application.submission.errors import (
+    AbortProofNotSatisfied,
+    OperatorRecoveryCapabilityConflict,
+    OperatorRecoveryIdentityConflict,
+    OperatorRecoveryStateConflict,
+)
+from gateway_backend.application.submission.operator_recovery_mapping import (
+    classify_operator_recovery_stale_write,
+    classify_operator_recovery_value_error,
+)
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.http.dependencies import (
     OperatorRecoveryApplicationPort,
@@ -77,7 +86,7 @@ def execute_operator_recovery(
             step_status=step.status,
         )
     except ValueError as exc:
-        raise _map_authorize_value_error(exc) from exc
+        raise _map_classified_recovery_error(classify_operator_recovery_value_error(exc)) from exc
 
     request = OperatorRecoveryRequest(
         command=command,
@@ -97,16 +106,10 @@ def execute_operator_recovery(
             status_code=409,
         ) from exc
     except StaleWrite as exc:
-        raise _map_stale_write(exc) from exc
+        code, message = classify_operator_recovery_stale_write(exc)
+        raise ApiError(code=code, message=message, status_code=409) from exc
     except ValueError as exc:
-        message = str(exc)
-        if "does not belong" in message or "mismatch" in message:
-            raise ApiError(
-                code="RECOVERY_IDENTITY_CONFLICT",
-                message="recovery target identity is invalid",
-                status_code=409,
-            ) from exc
-        raise _map_authorize_value_error(exc)
+        raise _map_classified_recovery_error(classify_operator_recovery_value_error(exc)) from exc
 
     response_disposition: Literal["APPLY", "IDEMPOTENT"]
     if disposition is TransitionDisposition.IDEMPOTENT:
@@ -154,63 +157,32 @@ def _load_step(operation_reader: OperationReaderPort, step_id: str) -> StepRecor
     return operation_reader.get_step(step_id)
 
 
-_RECOVERY_STATE_MESSAGES = frozenset(
-    {
-        "operator recovery requires MANUAL_RECOVERY_REQUIRED operation",
-        "operator recovery requires MANUAL_RECOVERY_REQUIRED step",
-    }
-)
-_RECOVERY_CAPABILITY_MESSAGES = frozenset(
-    {
-        "RESUME_RECONCILE requires EXTERNAL_EFFECT capability",
-        "RETRY_FROM_CHECKPOINT requires PURE_RECOMPUTE capability",
-    }
-)
-_OPERATION_STALE_WRITE_MESSAGE = "operation CAS lost its precondition"
-_STEP_STALE_WRITE_MESSAGE = "step CAS lost its precondition"
-_GENERIC_STALE_WRITE_MESSAGE = "write precondition no longer matches"
-
-
-def _map_authorize_value_error(exc: ValueError) -> ApiError:
-    message = str(exc)
-    if message in _RECOVERY_CAPABILITY_MESSAGES:
+def _map_classified_recovery_error(exc: Exception) -> ApiError:
+    if isinstance(exc, OperatorRecoveryCapabilityConflict):
         return ApiError(
-            code="RECOVERY_CAPABILITY_CONFLICT",
+            code=exc.stable_code,
             message="recovery command is not allowed for this step capability",
             status_code=409,
         )
-    if message in _RECOVERY_STATE_MESSAGES:
+    if isinstance(exc, OperatorRecoveryStateConflict):
+        return ApiError(
+            code=exc.stable_code,
+            message="recovery source state does not allow this command",
+            status_code=409,
+        )
+    if isinstance(exc, OperatorRecoveryIdentityConflict):
+        return ApiError(
+            code=exc.stable_code,
+            message="recovery target identity is invalid",
+            status_code=409,
+        )
+    if isinstance(exc, ValueError):
         return ApiError(
             code="RECOVERY_STATE_CONFLICT",
             message="recovery source state does not allow this command",
             status_code=409,
         )
-    return ApiError(
-        code="RECOVERY_STATE_CONFLICT",
-        message="recovery source state does not allow this command",
-        status_code=409,
-    )
-
-
-def _map_stale_write(exc: StaleWrite) -> ApiError:
-    message = str(exc)
-    if message == _OPERATION_STALE_WRITE_MESSAGE:
-        return ApiError(
-            code="OPERATION_VERSION_CONFLICT",
-            message="operation optimistic version is stale",
-            status_code=409,
-        )
-    if message in {_STEP_STALE_WRITE_MESSAGE, _GENERIC_STALE_WRITE_MESSAGE}:
-        return ApiError(
-            code="STEP_VERSION_CONFLICT",
-            message="step optimistic version is stale",
-            status_code=409,
-        )
-    return ApiError(
-        code="STEP_VERSION_CONFLICT",
-        message="step optimistic version is stale",
-        status_code=409,
-    )
+    raise exc
 
 
 def _assert_submit_recovery_target(

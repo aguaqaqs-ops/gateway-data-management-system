@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Protocol
 
 from gateway_backend.application.submission.contracts import MatchingAbortProof
+from gateway_backend.domain.submission.models import RepositoryArtifactRef
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import (
     RepositorySubmitOccupancy,
@@ -175,3 +176,39 @@ class RepositoryAbortEvidencePort(Protocol):
         proof: MatchingAbortProof,
     ) -> None:
         """Verify repository-scoped FAILED evidence matches the bound Attempt."""
+
+
+class RepositoryWritePort(Protocol):
+    def upload_artifact(
+        self,
+        *,
+        repository_id: str,
+        idempotency_key: str,
+        media_type: str,
+        raw_sha256: str,
+        body: bytes,
+    ) -> RepositoryArtifactRef: ...
+
+    def submit_versioned_import(
+        self,
+        *,
+        repository_id: str,
+        idempotency_key: str,
+        artifact_ref: RepositoryArtifactRef,
+        expected_commit_id: str,
+    ) -> str: ...
+
+    def get_operation(
+        self,
+        *,
+        repository_id: str,
+        operation_id: str,
+    ) -> object: ...
+
+    def wait_operation(
+        self,
+        *,
+        repository_id: str,
+        operation_id: str,
+        deadline_seconds: float | None = None,
+    ) -> object: ...

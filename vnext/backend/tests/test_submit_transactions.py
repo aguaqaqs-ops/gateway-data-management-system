@@ -11,8 +11,13 @@ from types import TracebackType
 
 import pytest
 
-from gateway_backend.application.job_definitions import JobDefinition, JobDefinitionRegistry, NormalPublicationCapability
+from gateway_backend.application.job_definitions import (
+    JobDefinition,
+    JobDefinitionRegistry,
+    NormalPublicationCapability,
+)
 from gateway_backend.application.recovery import RecoveryCapability
+from gateway_backend.application.submit_registry import submit_job_registry
 from gateway_backend.application.submission.accept_transaction import (
     AcceptSubmitPreflight,
     accept_submit_transaction,
@@ -40,6 +45,7 @@ from gateway_backend.application.submission.errors import (
     IdempotencyConflict,
     NoCanonicalChange,
     PreviewBindingConflict,
+    SubmitJobNotRegistered,
     SubmitOccupancyConflict,
 )
 from gateway_backend.application.submission.finalize_transaction import (
@@ -323,33 +329,7 @@ def _assert_t1_zero_writes(db_path: Path, seed: SubmitSeed, *, idempotency_key: 
 
 
 def _submit_job_registry() -> JobDefinitionRegistry:
-    definitions = (
-        JobDefinition(
-            key=JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_PREPARE),
-            supported_payload_versions=frozenset({SUBMIT_JOB_CONTRACT_VERSION}),
-            decoder_identity="backend-vnext/submit/prepare-import/decoder/v1",
-            handler_identity="backend-vnext/submit/prepare-import/handler/v1",
-            publication_capability=NormalPublicationCapability.SINGLE_SUCCESSOR,
-            recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
-        ),
-        JobDefinition(
-            key=JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_SUBMIT),
-            supported_payload_versions=frozenset({SUBMIT_JOB_CONTRACT_VERSION}),
-            decoder_identity="backend-vnext/submit/submit-import/decoder/v1",
-            handler_identity="backend-vnext/submit/submit-import/handler/v1",
-            publication_capability=NormalPublicationCapability.SINGLE_SUCCESSOR,
-            recovery_capability=RecoveryCapability.EXTERNAL_EFFECT,
-        ),
-        JobDefinition(
-            key=JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_AWAIT),
-            supported_payload_versions=frozenset({SUBMIT_JOB_CONTRACT_VERSION}),
-            decoder_identity="backend-vnext/submit/await-import-result/decoder/v1",
-            handler_identity="backend-vnext/submit/await-import-result/handler/v1",
-            publication_capability=NormalPublicationCapability.TERMINAL,
-            recovery_capability=RecoveryCapability.EXTERNAL_EFFECT,
-        ),
-    )
-    return JobDefinitionRegistry.build(definitions)
+    return submit_job_registry()
 
 
 def _preview_result(workspace_id: str) -> PreviewResult:
@@ -1369,7 +1349,7 @@ def test_t1_accept_replay_does_not_call_repository_ports(db_path: Path) -> None:
 
 def test_t1_rejects_incomplete_submit_job_registry_without_writes(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
-    with pytest.raises(PreviewBindingConflict, match="submit job definition is not registered"):
+    with pytest.raises(SubmitJobNotRegistered):
         accept_submit_transaction(
             command=_accept_command(seed, idempotency_key="accept-key-1"),
             scope_resolution=FixedScopeResolutionPort(

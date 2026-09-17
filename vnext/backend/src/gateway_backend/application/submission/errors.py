@@ -94,3 +94,42 @@ class FinalizeRecoveryRequired(SubmitApplicationError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class SubmitJobNotRegistered(SubmitApplicationError):
+    """Submit JobDefinition registry is incomplete at acceptance time."""
+
+    stable_code = "SERVICE_NOT_READY"
+
+    def __init__(self) -> None:
+        super().__init__("submit job definition is not registered")
+
+
+class OperatorRecoveryIdentityConflict(SubmitApplicationError):
+    """Operator recovery target identity does not match persisted facts."""
+
+    stable_code = "RECOVERY_IDENTITY_CONFLICT"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class OperatorRecoveryStateConflict(SubmitApplicationError):
+    """Operator recovery source state does not allow the requested command."""
+
+    stable_code = "RECOVERY_STATE_CONFLICT"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class OperatorRecoveryCapabilityConflict(SubmitApplicationError):
+    """Operator recovery command is incompatible with step recovery capability."""
+
+    stable_code = "RECOVERY_CAPABILITY_CONFLICT"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason

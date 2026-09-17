@@ -20,6 +20,7 @@ from gateway_backend.application.job_definitions import (
     NormalPublicationCapability,
 )
 from gateway_backend.application.preview_jobs import preview_job_definitions
+from gateway_backend.application.submit_registry import submit_job_definitions
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
 from gateway_backend.application.submission.ports import BaselineCanonicalDigestPort
@@ -274,35 +275,6 @@ class SqliteWorkspaceRepositoryFacade:
 
 def preview_job_registry() -> JobDefinitionRegistry:
     return JobDefinitionRegistry.build(preview_job_definitions())
-
-
-def submit_job_definitions() -> tuple[JobDefinition, ...]:
-    return (
-        JobDefinition(
-            key=JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_PREPARE),
-            supported_payload_versions=frozenset({SUBMIT_JOB_CONTRACT_VERSION}),
-            decoder_identity="backend-vnext/submit/prepare-import/decoder/v1",
-            handler_identity="backend-vnext/submit/prepare-import/handler/v1",
-            publication_capability=NormalPublicationCapability.SINGLE_SUCCESSOR,
-            recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
-        ),
-        JobDefinition(
-            key=JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_SUBMIT),
-            supported_payload_versions=frozenset({SUBMIT_JOB_CONTRACT_VERSION}),
-            decoder_identity="backend-vnext/submit/submit-import/decoder/v1",
-            handler_identity="backend-vnext/submit/submit-import/handler/v1",
-            publication_capability=NormalPublicationCapability.SINGLE_SUCCESSOR,
-            recovery_capability=RecoveryCapability.EXTERNAL_EFFECT,
-        ),
-        JobDefinition(
-            key=JobStepKey(job_kind=SUBMIT_JOB_KIND, step_name=SUBMIT_STEP_AWAIT),
-            supported_payload_versions=frozenset({SUBMIT_JOB_CONTRACT_VERSION}),
-            decoder_identity="backend-vnext/submit/await-import-result/decoder/v1",
-            handler_identity="backend-vnext/submit/await-import-result/handler/v1",
-            publication_capability=NormalPublicationCapability.TERMINAL,
-            recovery_capability=RecoveryCapability.EXTERNAL_EFFECT,
-        ),
-    )
 
 
 def workspace_job_registry(*, include_preview: bool = True, include_submit: bool = True) -> JobDefinitionRegistry:

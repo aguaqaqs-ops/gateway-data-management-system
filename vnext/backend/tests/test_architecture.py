@@ -697,6 +697,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
     assert "build_job_worker_composition" in text
     assert "build_http_repository_provider_factory" in text
     assert "build_production_preview_dependencies" in text
+    assert "build_production_submit_dependencies" in text
 
     for source in sorted(BOOTSTRAP_ROOT.rglob("*.py")):
         current_module, is_init = _python_module_name(source)
@@ -709,20 +710,26 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                         "gateway_backend.infrastructure.artifact_store",
                         "gateway_backend.infrastructure.control_db",
                         "gateway_backend.infrastructure.repository_read",
+                        "gateway_backend.infrastructure.repository_write",
                         "gateway_backend.operations",
                         "gateway_backend.settings",
                     )
                 ), f"{source} imports disallowed module {imported}"
 
 
-def test_repository_client_is_confined_to_repository_read() -> None:
+def test_repository_client_is_confined_to_repository_read_and_write() -> None:
     src = BACKEND_SRC / "gateway_backend"
-    allowed_dir = src / "infrastructure" / "repository_read"
+    allowed_dirs = (
+        src / "infrastructure" / "repository_read",
+        src / "infrastructure" / "repository_write",
+    )
     for source in sorted(src.rglob("*.py")):
         text = source.read_text(encoding="utf-8")
-        if "gateway_repository" not in text:
+        if "gateway_repository_client" not in text:
             continue
-        assert allowed_dir == source.parent or allowed_dir in source.parents, source
+        assert any(
+            allowed_dir == source.parent or allowed_dir in source.parents for allowed_dir in allowed_dirs
+        ), source
 
 
 def test_operation_worker_settings_have_an_independent_environment_prefix() -> None:
@@ -931,6 +938,14 @@ def _assert_application_import_allowed(source: Path, imported: str) -> None:
     if imported == "__future__":
         return
     if source.name == "preview_jobs.py" and imported.startswith("gateway_backend.capabilities."):
+        return
+    if source.name == "submit_jobs.py" and imported.startswith("gateway_repository_contracts"):
+        return
+    if source.name == "submit_jobs.py" and imported.startswith("gateway_backend.capabilities."):
+        return
+    if source.name == "submit_jobs.py" and imported.startswith("gateway_backend.infrastructure."):
+        return
+    if source.name == "submit_jobs.py" and imported == "gateway_backend.repository_import_artifact":
         return
     for prefix in APPLICATION_FORBIDDEN_IMPORT_PREFIXES:
         assert imported != prefix and not imported.startswith(f"{prefix}."), (

@@ -1,66 +1,63 @@
-# P5-5B-S7 Remediation Handoff (Round 3 + F8 Closeout)
+# P5-5B-S7 Remediation Handoff (Round 4 Owner Evidence + F8 Closeout)
 
-状态：**F8 record sealing remediated — pending review-6 mechanical verification**
+状态：**S7 pass @ review-7 — S8 entry eligible**
 
-日期：2026-09-18
+日期：2026-09-17 (UTC+8)
 
 Owner：P5-5B Delivery
 
 ## Review closure
 
 ```yaml
-review: p5-5b-s7-independent-review-5.md
+review: p5-5b-s7-independent-review-7.md
 parent_candidate: 37fa7c21ca261e5e89d15515f629106556ee43de
 baseline_commit: 4cda6b9c
 remediation_round_2: 30193dd5d3b34ec82da382cd7d85650cd98a3bb7
 remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
-implementation_seal: 7c511c4b8b59842b67d24083abf274ba620b2e7e
-records_head: b80a283f689ed6e957f932a72bc283aeacbef5be
+remediation_round_4: e5c43c0c9f71de3cd2e602504ec9034f16add8af
+implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
+records_head: pending_review-7_commit
 findings_addressed:
   S7-F1: closed @ review-4 — finalize_transaction.py + submit_jobs.py + test_submit_recovery.py
   S7-F4: closed @ review-4 — test_operator_recovery_http.py
   S7-F6: closed @ review-4 — test_architecture.py (http/runtime.py only)
   S7-F2: reclassified_deferred_to_s8 — compose smoke removed
   S7-F7: closed @ review-5 — abort_transaction.py defer_operation_terminal + publish_operation stable-abort builder; WorkerRuntime serial owner
-  S7-F8: remediated — pin 7c511c4b reachable; integration deselected count corrected
-findings_not_remediated:
-  S7-O2: repository restart journey — reopen candidate, non-blocking
+  S7-F8: closed @ review-7 — acceptance/review-7 mechanical seal
+  S7-O2-T3-crash-barrier: closed @ review-7 — test_await_import_finalize_response_loss_after_terminal_commit_before_worker_ack
+  S7-O2-repository-restart: closed @ review-7 — test_await_import_result_consumes_matching_terminal_after_repository_restart
+timezone: Asia/Shanghai
 ```
 
-> `b48ca592` 的 pin（`5de2e0b7…`）为 amend 孤本，不可解析；authoritative implementation seal 为 `7c511c4b`。
+> `b48ca592` 的 pin（`5de2e0b7…`）为 amend 孤本，不可解析；Round 3 code seal 为 `7c511c4b`；Round 4 owner evidence 为 `e5c43c0c`。
 
-## Changes by finding (round 3)
+## Changes by finding (round 4)
 
 | Finding | Paths | Fix |
 | --- | --- | --- |
-| S7-F7 | `application/submission/abort_transaction.py`, `application/submit_jobs.py`, `tests/test_submit_recovery.py` | `defer_operation_terminal`；`abort_submit_in_control_transaction`；`_make_stable_abort_builder` + `publish_operation`；`test_await_import_stable_abort_completes_via_worker_runtime` |
-| S7-F8 | `p5-5b-s7-acceptance.md`, `p5-5b-s7-remediation-handoff.md` | pin `7c511c4b`；integration retest `9 deselected`；`implementation_seal` / `records_head` 字段 |
+| T3 crash barrier owner | `tests/test_submit_recovery.py` | `after_business_finalize_commit_before_worker_ack` UoW commit 后 fault；WorkerRuntime `_run_claim`；terminal durable fact eliminates reclaim |
+| Repository restart owner | `tests/test_submit_recovery.py`, `tests/support/submit_job_harness.py` | live import journey + `shutdown_repository_service_client(preserve_data=True)` + post-restart poll/finalize |
+| F8 closeout | `p5-5b-s7-acceptance.md`, `p5-5b-s7-independent-review-7.md`, 本 handoff | decision pass / s8_entry eligible |
 
 ## Prior round paths (for provenance)
 
-| Finding | Round 2 paths |
+| Finding | Round 3 paths |
 | --- | --- |
-| S7-F1 | `finalize_transaction.py`, `submit_jobs.py`, `test_submit_recovery.py` |
-| S7-F4 | `test_operator_recovery_http.py` |
-| S7-F6 | `test_architecture.py` |
-| S7-F2 | `test_submit_compose_e2e.py`, review docs |
+| S7-F7 | `abort_transaction.py`, `submit_jobs.py`, `test_submit_recovery.py` |
+| S7-F8 | `p5-5b-s7-acceptance.md`, 本 handoff |
 
-## Focused retest (@ `7c511c4b`)
+## Focused retest (@ `e5c43c0c`)
 
 ```bash
 cd vnext/backend
 
 ../scripts/uv-consume.sh -C . run pytest -q -m 'integration and serial' \
+  tests/test_submit_recovery.py -k 'after_terminal_commit_before_worker_ack or repository_restart'
+# 2 passed
+
+../scripts/uv-consume.sh -C . run pytest -q -m 'integration and serial' \
   tests/test_submit_recovery.py -k 'worker_runtime and (finalize or stable_abort)'
 # 2 passed, 9 deselected
-
-../scripts/uv-consume.sh -C . run pytest -q -m unit \
-  tests/test_submit_transactions.py -k abort
-# 7 passed, 28 deselected
-
-../scripts/uv-consume.sh -C . run pytest -q -m 'integration and not serial' \
-  tests/test_submit_job_effect.py -k stable_abort
-# 1 passed, 15 deselected
 
 ACCUMULATED=(tests/test_submit_domain.py tests/test_submit_idempotency.py \
   tests/test_submit_application.py tests/test_submit_transactions.py \
@@ -78,15 +75,9 @@ ACCUMULATED=(tests/test_submit_domain.py tests/test_submit_idempotency.py \
 
 ../scripts/uv-consume.sh -C . run pytest -q -m 'integration and not serial' \
   tests/test_submit_job_effect.py tests/test_submit_recovery.py tests/test_submit_worker.py
-# 26 passed, 9 deselected
+# 26 passed, 11 deselected
 
-../scripts/uv-consume.sh -C . run ruff check \
-  src/gateway_backend/application/submit_jobs.py \
-  src/gateway_backend/application/submission/abort_transaction.py \
-  src/gateway_backend/application/submission/finalize_transaction.py \
-  tests/test_submit_recovery.py
-# pass
-
+../scripts/uv-consume.sh -C . run ruff check .
 ../scripts/uv-consume.sh -C . run mypy
 # Success: 377 source files
 ```
@@ -99,6 +90,6 @@ ACCUMULATED=(tests/test_submit_domain.py tests/test_submit_idempotency.py \
 ## next_step
 
 ```yaml
-next_step: P5-5B-S7 review-6 mechanical F8 sealing verification
-s8_entry: blocked
+next_step: P5-5B-S8 container and authoritative runner gate
+s8_entry: eligible
 ```

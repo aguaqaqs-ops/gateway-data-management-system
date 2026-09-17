@@ -22,6 +22,16 @@ class RepositoryWriteTransportError(SubmitApplicationError):
     """Raised when repository HTTP transport fails before a typed client error."""
 
 
+class RepositoryUploadMetadataMismatch(SubmitApplicationError):
+    """Upload response metadata does not match the outbound request."""
+
+    stable_code = "REPOSITORY_UPLOAD_METADATA_MISMATCH"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class IdempotencyConflict(SubmitApplicationError):
     """Same idempotency key was reused with a different request fingerprint."""
 

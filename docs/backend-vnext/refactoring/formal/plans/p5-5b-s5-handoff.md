@@ -1,6 +1,6 @@
 # P5-5B-S5 Submit JobDefinition, Repository Effect and Recovery Handoff
 
-状态：**S5 Round-2 remediation complete — candidate 待提交（基线 `8d051aa6` + Round-2 工作区）**
+状态：**S5 Round-3 remediation complete — candidate 待提交（基线 `7cb872a1` + Round-3 工作区）**
 
 日期：2026-09-17
 
@@ -37,8 +37,8 @@ s6_entry: deferred
 
 ```yaml
 stage: P5-5B-S5-submit-jobdefinition-repository-effect-recovery
-parent_head: 8d051aa619d9ee996824f219c9dfd27f855339fe
-candidate_head: pending-round-2-commit
+parent_head: 7cb872a1d9e42eaade218cf2f284f87cd82f4cf8
+candidate_head: pending-round-3-commit
 input_authority:
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md §8–§9
   - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md §S5
@@ -123,6 +123,10 @@ Recording transport 固定 `operation_id = 018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11`
 | 非 `EFFECT_PENDING` / binding fault / missing operation id | finalize 守卫拒绝 | `test_validate_matching_result_for_finalize_*` |
 | T3 response-loss replay | `validate_finalize_replay` + 不插入第二条 submission | `test_finalize_submit_replay_returns_existing_submission`、`test_finalize_submit_transaction_replay_does_not_insert_second_submission` |
 | Poll reconcile timeout | `MANUAL_RECOVERY_REQUIRED` diagnostic；occupancy 保留 | `test_await_import_result_timeout_marks_manual_recovery`；`RepositoryWriteTimeoutError` + `_map_handler_failure_to_recovery_outcome` |
+| Repository SUCCEEDED 与 T1/payload 绑定不一致 | `SUBMIT_RESULT_BINDING_MISMATCH`；occupancy **保留** | `test_await_import_rejects_mismatched_*` 四例 |
+| Upload response-loss（`PREPARED`、无 submit checkpoint） | 同 upload key/bytes replay → `EFFECT_PENDING` | `test_submit_import_upload_response_loss_replays_via_recovery` |
+| Upload response metadata 漂移 | adapter 拒绝；Attempt 保持 `PREPARED` | `test_upload_artifact_rejects_mismatched_response_metadata`；`test_submit_import_aborts_before_effect_pending_on_upload_metadata_mismatch` |
+| 终态 evidence 持久化后 T3 前崩溃 | 从 durable evidence 重做 T3；无需 re-poll | `test_await_import_persists_terminal_evidence_before_finalize`；`test_await_import_replays_t3_from_persisted_evidence_without_poll` |
 | 非允许 abort code（非三码） | `MANUAL_RECOVERY_REQUIRED`；不盲 abort | `ALLOWED_ABORT_CODES` 守卫 + `HttpRepositoryAbortEvidencePort` |
 
 允许 stable abort 三码：`IMPORT_REJECTED`、`EXPECTED_COMMIT_MISMATCH`、`VERIFICATION_FAILED_NOT_PUBLISHED`。
@@ -140,12 +144,12 @@ Recording transport 固定 `operation_id = 018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11`
 
 | 文件 | 覆盖 |
 |------|------|
-| `tests/test_submit_job_payload.py` | 封闭 payload、version、registry identity、policy 负例 |
+| `tests/test_submit_job_payload.py` | 封闭 payload、contract_version、prepare checkpoint exact keys、registry identity、policy 负例 |
 | `tests/test_submit_job_prepare.py` | checkpoint/ref reuse、successor 发布、replay |
 | `tests/test_submit_finalize.py` | matching closure、finalize replay、binding mismatch |
-| `tests/test_submit_job_effect.py` | upload/import exact wire；live repository journey；await handler 级 finalize / timeout / disallowed failure |
+| `tests/test_submit_job_effect.py` | upload/import exact wire；matching closure 负例；upload metadata 边界；terminal evidence 持久化/T3 replay；live repository journey |
 | `tests/test_submit_recovery.py` | no-blind-replay、unknown-outcome occupancy、operator abort effect、`_map_handler_failure_to_recovery_outcome` 负例、live operator port abort |
-| `tests/test_submit_worker.py` | composition 注册、claim、duplicate exclusive、live repository ready、**executor** submit_import checkpoint、W2 EFFECT_PENDING 重建 |
+| `tests/test_submit_worker.py` | composition 注册、claim、duplicate exclusive、live repository ready、**executor** submit_import checkpoint、W2 EFFECT_PENDING 重建、upload response-loss recovery |
 | `tests/test_operator_recovery_mapping.py` | generic / operation / step stale-write 三分映射 |
 | `tests/test_architecture.py` | repository_write 双边界、submit_jobs capabilities 例外、bootstrap 接线 |
 
@@ -180,6 +184,16 @@ Recording transport 固定 `operation_id = 018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11`
 | N3 | `requires_dolt` fixture（`tests/conftest.py`） | live repository 用例统一 fixture 参数 |
 | N4 | `test_await_import_result_timeout_marks_manual_recovery` 标 `@pytest.mark.serial` | 同上 nodeid |
 
+## Remediation round-3（独立审核 B1–B3 / M4–M5）
+
+| ID | 修复 | 证据 nodeid |
+|----|------|-------------|
+| B1 | `_matching_finalize_facts` 从 Repository result 逐项读取/校验；binding mismatch → `SUBMIT_RESULT_BINDING_MISMATCH` | `test_await_import_rejects_mismatched_repository_operation_id`；`test_await_import_rejects_mismatched_expected_commit_id`；`test_await_import_rejects_mismatched_verification_policy`；`test_await_import_rejects_mismatched_unknown_type_policy` |
+| B2 | `_submit_may_invoke_handler_without_checkpoint` 支持 `PREPARED`+prepare CP；upload key/bytes replay | `test_submit_import_upload_response_loss_replays_via_recovery`；`test_submit_import_prepared_without_prepare_checkpoint_stays_manual_recovery` |
+| B3 | `HttpRepositoryWriteClient.upload_artifact` 校验 response metadata；`RepositoryUploadMetadataMismatch` | `test_upload_artifact_rejects_mismatched_response_metadata`；`test_submit_import_aborts_before_effect_pending_on_upload_metadata_mismatch` |
+| M4 | `contract_version` fail-closed；prepare checkpoint exact key set；submit `request_artifact_id`/request bytes 校验 | `test_decode_submit_payload_rejects_unsupported_contract_version`；`test_prepare_checkpoint_rejects_unknown_job_state_fields` |
+| M5 | await checkpoint 持久化 `last_observed_repository_status` + `terminal_result_evidence_ref`；T3 从 evidence replay | `test_await_import_persists_terminal_evidence_before_finalize`；`test_await_import_replays_t3_from_persisted_evidence_without_poll` |
+
 ## Focused gate
 
 ```bash
@@ -192,14 +206,14 @@ cd vnext/backend
   tests/test_submit_finalize.py \
   tests/test_architecture.py \
   tests/test_operator_recovery_mapping.py
-# 61 passed
+# 63 passed
 
 # Integration（非 serial）
 ../scripts/uv-consume.sh -C . run pytest -q -m 'integration and not serial' \
   tests/test_submit_job_effect.py \
   tests/test_submit_recovery.py \
   tests/test_submit_worker.py
-# 13 passed, 7 deselected
+# 23 passed, 7 deselected
 
 # Serial
 ../scripts/uv-consume.sh -C . run pytest -q -m serial \

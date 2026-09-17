@@ -7,12 +7,15 @@ from threading import Event, Thread
 
 import pytest
 
+from gateway_backend.application.recovery import RecoveryOutcomeDisposition
+from gateway_backend.application.submit_jobs import build_submit_recovery_port
 from gateway_backend.application.submit_registry import (
     PREPARE_IMPORT_HANDLER,
     SUBMIT_IMPORT_HANDLER,
     submit_job_definitions,
 )
 from gateway_backend.capabilities.storage_projection.contracts import REPOSITORY_IMPORT_MEDIA_TYPE
+from gateway_backend.domain.submission.models import SubmitAttemptState
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
 from gateway_backend.application.submission.job_payload import (
     SUBMIT_JOB_KIND,
@@ -368,3 +371,119 @@ def test_submit_import_w2_crash_rebuilds_checkpoint_via_claim(tmp_path: Path) ->
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         submit_step = unit_of_work.operations.get_step(step.step_id)
     assert submit_step.checkpoint_ref is not None
+
+
+def test_submit_import_upload_response_loss_replays_via_recovery(tmp_path: Path) -> None:
+    from dataclasses import replace
+    from datetime import timedelta
+
+    from gateway_backend.domain.submission.models import SubmitAttemptState
+
+    transport = RecordingTransport()
+    harness = build_submit_worker_harness(
+        tmp_path / "worker-upload-replay",
+        repository_base_url="http://repository.test",
+        transport=transport,
+    )
+    operation_id = _accept_prepared_operation(
+        harness.db_path,
+        harness.artifact_store,
+        repository_id=REPOSITORY_UUID,
+    )
+    _run_prepare_handler(harness.db_path, harness.artifact_store, operation_id)
+    submit_id = submit_step_id(operation_id, SUBMIT_STEP_SUBMIT)
+    worker_id = "worker-upload-replay"
+    lease_token = "lease-upload-replay"
+    with ControlDbUnitOfWork(harness.db_path) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        submit_step = unit_of_work.operations.get_step(submit_id)
+        now = unit_of_work.operations.transaction_now
+        running_submit = replace(
+            submit_step,
+            status=StepStatus.RUNNING,
+            attempt_count=1,
+            worker_id=worker_id,
+            lease_token=lease_token,
+            lease_expires_at=now + timedelta(seconds=60),
+            started_at=now,
+            updated_at=now,
+            checkpoint_ref=None,
+            optimistic_version=submit_step.optimistic_version + 1,
+        )
+        unit_of_work.operations.compare_and_set_step(
+            running_submit,
+            WritePrecondition(
+                expected_optimistic_version=submit_step.optimistic_version,
+                worker_id=None,
+                lease_token=None,
+            ),
+        )
+        operation = unit_of_work.operations.get_operation(operation_id)
+    recovery = build_submit_recovery_port(harness.submit_deps)
+    control = ExecutionControl()
+    session = LeaseSession(
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=operation.operation_id,
+        step_id=submit_id,
+        write_uow_factory=build_worker_write_uow_factory(
+            lambda: ControlDbUnitOfWork(harness.db_path)
+        ),
+        control=control,
+        observer=lambda _event: None,
+    )
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        step = unit_of_work.operations.get_step(submit_id)
+    outcome = recovery.recover(operation, step, control, session)
+    assert outcome.disposition is RecoveryOutcomeDisposition.PUBLISHED
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        submit_attempt_id = next(
+            ref.value for ref in operation.business_refs if ref.kind == "submit_attempt"
+        )
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        submit_step = unit_of_work.operations.get_step(submit_id)
+    assert attempt is not None
+    assert attempt.state is SubmitAttemptState.EFFECT_PENDING
+    assert attempt.repository_artifact_ref is not None
+    assert submit_step.checkpoint_ref is not None
+    assert any(request.url.endswith("/artifacts") for request in transport.requests)
+
+
+def test_submit_import_prepared_without_prepare_checkpoint_stays_manual_recovery(
+    tmp_path: Path,
+) -> None:
+    from gateway_backend.application.recovery import DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED
+    from tests.test_submit_recovery import _seed_running_submit_without_checkpoint
+    from tests.test_submit_transactions import seed_submit_ready_workspace
+
+    harness = build_submit_worker_harness(
+        tmp_path / "worker-upload-no-prepare",
+        repository_base_url="http://127.0.0.1:9",
+    )
+    db_path = harness.db_path
+    seed = seed_submit_ready_workspace(db_path, repository_id=REPOSITORY_UUID)
+    attempt, operation, step, worker_id, lease_token = _seed_running_submit_without_checkpoint(
+        db_path,
+        seed,
+    )
+    recovery = build_submit_recovery_port(harness.submit_deps)
+    control = ExecutionControl()
+    session = LeaseSession(
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=operation.operation_id,
+        step_id=step.step_id,
+        write_uow_factory=build_worker_write_uow_factory(
+            lambda: ControlDbUnitOfWork(db_path)
+        ),
+        control=control,
+        observer=lambda _event: None,
+    )
+    outcome = recovery.recover(operation, step, control, session)
+    assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
+    assert outcome.diagnostic_code == DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        current = unit_of_work.submission.get_submit_attempt(attempt.submit_attempt_id)
+    assert current is not None
+    assert current.state is SubmitAttemptState.PREPARED

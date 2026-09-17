@@ -12,6 +12,7 @@ from gateway_repository_client import RepositoryClient
 from gateway_repository_client.errors import RepositoryClientTimeoutError
 
 from gateway_backend.application.submission.errors import (
+    RepositoryUploadMetadataMismatch,
     RepositoryWriteTimeoutError,
     RepositoryWriteTransportError,
 )
@@ -63,7 +64,23 @@ class HttpRepositoryWriteClient:
             )
             ),
         )
-        return _artifact_ref_from_response(response)
+        artifact_ref = _artifact_ref_from_response(response)
+        expected_size = len(body)
+        expected_sha = _normalize_request_sha256(raw_sha256)
+        actual_sha = _normalize_request_sha256(artifact_ref.raw_sha256)
+        if artifact_ref.media_type != media_type:
+            raise RepositoryUploadMetadataMismatch(
+                "upload response media_type does not match request"
+            )
+        if artifact_ref.size_bytes != expected_size:
+            raise RepositoryUploadMetadataMismatch(
+                "upload response size_bytes does not match request body"
+            )
+        if actual_sha != expected_sha:
+            raise RepositoryUploadMetadataMismatch(
+                "upload response raw_sha256 does not match request"
+            )
+        return artifact_ref
 
     def submit_versioned_import(
         self,
@@ -174,6 +191,10 @@ def _as_sha256(value: str) -> Sha256String:
 
 def _wire_sha256(value: str) -> Sha256String:
     return _as_sha256(value.removeprefix("sha256:"))
+
+
+def _normalize_request_sha256(value: str) -> str:
+    return value.removeprefix("sha256:")
 
 
 def _artifact_ref_from_response(response: UploadArtifactResponse) -> RepositoryArtifactRef:

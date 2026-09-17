@@ -6,7 +6,12 @@ import json
 import pytest
 
 from gateway_backend.application.payloads import PayloadDecodeError
-from gateway_backend.application.submit_jobs import decode_submit_payload, submit_payload_decoders
+from gateway_backend.application.submit_jobs import (
+    _prepare_checkpoint_from_job_state,
+    decode_submit_payload,
+    submit_payload_decoders,
+)
+from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.application.submit_registry import (
     AWAIT_IMPORT_DECODER,
     AWAIT_IMPORT_HANDLER,
@@ -165,6 +170,40 @@ def test_rejects_unknown_keys_and_policy_drift(
     payload_object.update(mutation)
     with pytest.raises(PayloadDecodeError, match=message):
         decode_submit_payload(payload_object)
+
+
+def test_decode_submit_payload_rejects_unsupported_contract_version() -> None:
+    payload_object = _canonical_payload_object()
+    payload_object["contract_version"] = "backend-vnext/submit/v999"
+    with pytest.raises(PayloadDecodeError, match="contract_version must be"):
+        decode_submit_payload(payload_object)
+
+
+def test_prepare_checkpoint_rejects_unknown_job_state_fields() -> None:
+    job_state = {
+        "schema_version": "backend-vnext/submit/prepare-import-checkpoint/v1",
+        "attempt_id": "sa-payload-1",
+        "canonicalization_manifest_ref": {
+            "artifact_id": "manifest-1",
+            "media_type": "application/jcs",
+            "size_bytes": 1,
+            "raw_sha256": "sha256:" + "a" * 64,
+        },
+        "canonicalization_manifest_digest": "sha256:" + "b" * 64,
+        "backend_import_artifact_ref": {
+            "artifact_id": "backend-1",
+            "media_type": "application/vnd.gateway.repository-import.v1+tar+zstd",
+            "size_bytes": 2,
+            "raw_sha256": "sha256:" + "c" * 64,
+        },
+        "package_raw_size": 2,
+        "package_raw_sha256": "sha256:" + "c" * 64,
+        "input_closure_digest": "sha256:" + "d" * 64,
+        "builder_mutation_policy": "REBUILD_ALWAYS",
+        "unexpected_field": "x",
+    }
+    with pytest.raises(CheckpointDecodeError, match="unknown keys"):
+        _prepare_checkpoint_from_job_state(job_state, expected_attempt_id="sa-payload-1")
 
 
 def test_submit_job_definitions_identities_match_submit_registry_constants() -> None:

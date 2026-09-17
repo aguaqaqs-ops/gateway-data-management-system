@@ -204,6 +204,53 @@ def test_multi_pair_shared_snapshot_is_published_once() -> None:
     assert snapshot_entries[0]["logical_path"].startswith("shared/snapshot-tables/")
 
 
+def test_multi_pair_identical_artifact_refs_are_shared() -> None:
+    records_raw = b"shared record bytes"
+    records_ref = _raw_ref("records-shared", records_raw, media_type="application/octet-stream")
+    first = _surface_result()
+    second = _surface_result()
+    binding_one = BundleArtifactBinding(
+        records_ref,
+        "pairs/left_to_middle/comparison/records/orders/rows.bin",
+        BundleArtifactKind.RECORDS,
+        pair_id="left_to_middle",
+    )
+    binding_two = BundleArtifactBinding(
+        records_ref,
+        "pairs/middle_to_right/comparison/records/orders/rows.bin",
+        BundleArtifactKind.RECORDS,
+        pair_id="middle_to_right",
+    )
+    source = InMemoryArtifactStore()
+    source.put(records_raw, records_ref)
+    result = assemble_bundle(
+        _request(
+            (
+                BundlePairInput("left_to_middle", 0, 1, first, BundleArtifactClosure((binding_one,))),
+                BundlePairInput("middle_to_right", 1, 2, second, BundleArtifactClosure((binding_two,))),
+            ),
+            profile=BundleProfile.MULTI_PAIR,
+            inputs=(
+                BundleInput(0, "left", "Left"),
+                BundleInput(1, "middle", "Middle"),
+                BundleInput(2, "right", "Right"),
+            ),
+        ),
+        source_store=source,
+    )
+
+    assert result.status is BundleAssemblyStatus.READY
+    assert result.bundle is not None
+    closure_raw = source.locate(result.bundle.artifact_closure_ref)
+    closure = json.loads(closure_raw)
+    record_entries = [
+        item for item in closure["closure_entries"] if item["kind"] == BundleArtifactKind.RECORDS.value
+    ]
+    assert len(record_entries) == 1
+    assert record_entries[0]["logical_path"].startswith("shared/records/")
+    assert record_entries[0]["shared"] is True
+
+
 def test_nested_json_refs_are_rewritten_and_closure_remains_replayable() -> None:
     source = InMemoryArtifactStore()
     child_raw = b"record bytes"

@@ -15,6 +15,7 @@ from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.submission.ports import (
     BaselineCanonicalDigestPort,
     RepositoryMainResolvePort,
+    SubmitControlUnitOfWorkFactory,
 )
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.types import ArtifactRef
@@ -212,7 +213,7 @@ class WorkspaceHttpDependencies:
     scope_resolution: ScopeResolutionPort
     baseline_head_read: BaselineHeadReadPort
     workspace_repository: WorkspaceRepository
-    unit_of_work_factory: Callable[[], ControlDbUnitOfWork]
+    unit_of_work_factory: SubmitControlUnitOfWorkFactory
     artifact_store: BoundedArtifactStorePort
     job_registry: JobDefinitionRegistry
     bundle_reader: BundleReaderPort

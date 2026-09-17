@@ -22,7 +22,11 @@ from gateway_backend.application.preview_jobs import preview_job_definitions
 from gateway_backend.application.submit_registry import submit_job_definitions
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
-from gateway_backend.application.submission.ports import BaselineCanonicalDigestPort
+from gateway_backend.application.submission.ports import (
+    BaselineCanonicalDigestPort,
+    SubmitControlUnitOfWorkFactory,
+)
+from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
 from gateway_backend.application.submission.errors import AbortProofNotSatisfied
 from gateway_backend.application.submission.job_payload import (
     SUBMIT_JOB_KIND,
@@ -345,13 +349,17 @@ class FailingMainResolvePort:
 class LocalOperatorRecoveryPort:
     def __init__(
         self,
-        unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+        unit_of_work_factory: SubmitControlUnitOfWorkFactory,
         *,
         job_registry: JobDefinitionRegistry,
     ) -> None:
         self._unit_of_work_factory = unit_of_work_factory
+
+        def write_uow_factory() -> ControlDbUnitOfWork:
+            return cast(ControlDbUnitOfWork, unit_of_work_factory(read_only=False))
+
         self._recovery = build_authorized_operator_recovery(
-            write_uow_factory=unit_of_work_factory,
+            write_uow_factory=write_uow_factory,
             capability_lookup=_submit_recovery_capability_lookup(job_registry),
         )
 
@@ -496,7 +504,7 @@ def seed_submit_ready_workspace(
             business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
             business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
             baseline_head_version=BASELINE_HEAD.baseline_head_version,
-            ruleset_version="rules-1",
+            ruleset_version=RULESET_VERSION,
             contract_version="contract-1",
             provider_versions={"comparison": "v1"},
             digests=PreviewResultDigests(

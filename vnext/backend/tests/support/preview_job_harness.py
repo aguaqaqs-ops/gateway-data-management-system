@@ -205,20 +205,23 @@ def build_preview_harness(
     tmp_path: Path,
     *,
     input_completeness: InputCompleteness = InputCompleteness.FULL,
+    canonical_noop: bool = False,
 ) -> PreviewJobHarness:
     db_path = tmp_path / "preview-control.sqlite3"
     bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
     artifact_store = InMemoryArtifactStore()
+    modified_sql = BASELINE_SQL if canonical_noop else MODIFIED_SQL
+    initial_sql = BASELINE_SQL if canonical_noop else INITIAL_SQL
     modified_binding = store_source_package(
         artifact_store,
-        MODIFIED_SQL.encode("utf-8"),
+        modified_sql.encode("utf-8"),
         artifact_id="modified-package",
     )
     initial_binding = None
     if input_completeness is InputCompleteness.FULL:
         initial_binding = store_source_package(
             artifact_store,
-            INITIAL_SQL.encode("utf-8"),
+            initial_sql.encode("utf-8"),
             artifact_id="initial-package",
         )
     upload_revision = build_upload_revision(

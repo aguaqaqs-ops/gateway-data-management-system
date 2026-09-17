@@ -410,6 +410,12 @@ def test_external_target_sync_source_stays_on_capability_leaf() -> None:
             assert token not in text, f"{source} contains forbidden token {token}"
 
 
+def test_http_runtime_does_not_duplicate_surface_artifact_closure() -> None:
+    runtime_source = BACKEND_SRC / "gateway_backend" / "http" / "runtime.py"
+    text = runtime_source.read_text(encoding="utf-8")
+    assert "_surface_artifact_closure" not in text
+
+
 def test_operations_package_is_sole_runtime_owner() -> None:
     backend_root = BACKEND_SRC / "gateway_backend"
     assert OPERATIONS_ROOT.is_dir()

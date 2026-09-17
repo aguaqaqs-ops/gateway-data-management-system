@@ -9,6 +9,7 @@ from datetime import datetime
 
 from gateway_shared_kernel import DigestRef
 
+from gateway_backend.application.submission.ports import SubmitControlUnitOfWorkFactory
 from gateway_backend.application.workspace.contracts import AcceptUploadCommand
 from gateway_backend.application.workspace.services import accept_upload
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
@@ -46,7 +47,7 @@ async def accept_multipart_upload(
     parsed: ParsedMultipartUpload,
     scope_resolution: ScopeResolutionPort,
     workspace_repository: WorkspaceRepository,
-    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+    unit_of_work_factory: SubmitControlUnitOfWorkFactory,
     artifact_store: BoundedArtifactStorePort,
     now: datetime,
 ) -> UploadRevisionResponse:
@@ -73,7 +74,7 @@ def _accept_staged_upload(
     idempotency_key: str,
     parsed: ParsedMultipartUpload,
     scope_resolution: ScopeResolutionPort,
-    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+    unit_of_work_factory: SubmitControlUnitOfWorkFactory,
     artifact_store: BoundedArtifactStorePort,
     now: datetime,
 ) -> UploadRevisionResponse:

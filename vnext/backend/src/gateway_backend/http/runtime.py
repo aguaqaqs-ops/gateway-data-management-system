@@ -238,18 +238,12 @@ class HttpBaselineCanonicalDigestPort:
                 provider_factory=self._provider_factory,
                 store=store,
             )
-        except (PreviewJobError, ValueError):
+        except (PreviewJobError, ValueError) as exc:
             raise ApiError(
                 code="DEPENDENCY_UNAVAILABLE",
                 message="baseline canonical digest is unavailable",
                 status_code=503,
-            ) from None
-        except Exception:
-            raise ApiError(
-                code="DEPENDENCY_UNAVAILABLE",
-                message="baseline canonical digest is unavailable",
-                status_code=503,
-            ) from None
+            ) from exc
 
 
 class HttpRepositoryMainResolvePort:

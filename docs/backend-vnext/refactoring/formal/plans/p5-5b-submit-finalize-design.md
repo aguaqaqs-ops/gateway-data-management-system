@@ -428,10 +428,12 @@ path或private ref。HTTP/auth/capability rejection的唯一test owner由executi
    使用与 preview assemble **相同**的 bundle profile/inputs/pairs 拓扑重跑 comparison+bundle
    assembly；comparison 各侧均使用 baseline 快照（identity/no-change 路径）。比较两侧均为
    `bundle_digest` 字符串；相等 ⇒ `409 NO_CANONICAL_CHANGE`。`BaselineCanonicalDigestPort` 必须接收
-   `input_completeness` 与 `ruleset_version` 以保证与 preview canonical digest 同构。注：当上传内容与
-   baseline 字节完全相同时，preview job 可能在 assemble 阶段失败（`DUPLICATE_SOURCE_ARTIFACT_REF`），
-   该路径由 preview 契约承担；`NO_CANONICAL_CHANGE` 主要覆盖 source 不同但 canonical business
-   content 相同的 no-op 场景（如 `DROP_FROM_STORAGE`）。
+   `input_completeness` 与 `ruleset_version` 以保证与 preview canonical digest 同构；bound
+   `PreviewResult.ruleset_version` 必须等于本进程实现的 `RULESET_VERSION`，否则 fail-closed。
+   MULTI_PAIR bundle 组装时，跨 pair 出现相同 `source_ref` 的比较/risk/projection 等产物提升为
+   `shared/…`（与 snapshot table 共享规则同构），因此 FULL identity/no-change 路径与 preview 均可
+   成功组装。`NO_CANONICAL_CHANGE` 主要覆盖 source 不同但 canonical business content 相同的 no-op
+   场景（如 `DROP_FROM_STORAGE`）。
 5. 在 Preview pin仍有效时 verify required source/snapshot/READY closure exact可读。
 6. 通过 Repository Client执行`ResolveVersionedRef(repository_id, main)`；失败返回503且不进入T1。
 7. 打开T1 `BEGIN IMMEDIATE`短事务，按§6.3重新读并裁决所有可变business facts。步骤6返回的

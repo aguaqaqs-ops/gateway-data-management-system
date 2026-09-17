@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
 
 from gateway_shared_kernel import DigestRef
 
@@ -46,15 +45,7 @@ from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.schemas.submit import SubmitAcceptedResponse, SubmitAttemptStateLiteral
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-
 PREVIEW_READY_CLOSURE_DIGEST_PREFIX = "v1:"
-
-
-def _submit_uow_factory(
-    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
-) -> SubmitControlUnitOfWorkFactory:
-    return cast(SubmitControlUnitOfWorkFactory, unit_of_work_factory)
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,14 +104,14 @@ def build_accept_submit_command(
 def load_accept_submit_preflight(
     *,
     command: AcceptSubmitCommand,
-    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+    unit_of_work_factory: SubmitControlUnitOfWorkFactory,
     preview_result: PreviewResult,
     upload_revision: UploadRevision,
     artifact_ref_lookup: ArtifactRefLookupPort,
     baseline_canonical_digest: str | None = None,
 ) -> AcceptSubmitPreflight:
     preview_operation_id = preview_result.operation_id
-    with _submit_uow_factory(unit_of_work_factory)(read_only=True) as unit_of_work:
+    with unit_of_work_factory(read_only=True) as unit_of_work:
         preview_refs = unit_of_work.list_artifact_protection_for_owner(
             owner_kind="current-preview",
             owner_id=command.workspace_id,
@@ -167,7 +158,7 @@ def accept_submit_operation(
     command: AcceptSubmitCommand,
     scope_resolution: ScopeResolutionPort,
     workspace_repository: WorkspaceRepository,
-    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+    unit_of_work_factory: SubmitControlUnitOfWorkFactory,
     job_registry: JobDefinitionRegistry,
     artifact_store: BoundedArtifactStorePort,
     artifact_ref_lookup: ArtifactRefLookupPort,
@@ -191,7 +182,7 @@ def accept_submit_operation(
     new_key_loaded: AcceptPreflightLoadedFacts | None = None
     resolved_baseline_head: BaselineHead | None = None
 
-    with _submit_uow_factory(unit_of_work_factory)(read_only=True) as unit_of_work:
+    with unit_of_work_factory(read_only=True) as unit_of_work:
         resolved = scope_resolution.resolve(command.context)
         replay_result = try_accept_submit_replay(
             command=command,
@@ -271,7 +262,7 @@ def accept_submit_operation(
     transaction_result = accept_submit_transaction(
         command=command,
         scope_resolution=scope_resolution,
-        unit_of_work_factory=cast(SubmitControlUnitOfWorkFactory, unit_of_work_factory),
+        unit_of_work_factory=unit_of_work_factory,
         job_registry=job_registry,
         baseline_digest=baseline_digest,
         main_resolve=main_resolve,
@@ -279,7 +270,7 @@ def accept_submit_operation(
         now=now,
     )
 
-    with _submit_uow_factory(unit_of_work_factory)(read_only=True) as unit_of_work:
+    with unit_of_work_factory(read_only=True) as unit_of_work:
         attempt = unit_of_work.submission.get_submit_attempt(transaction_result.submit_attempt_id)
     if attempt is None:
         raise ApiError(

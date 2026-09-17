@@ -44,7 +44,7 @@ def _base_payload(**overrides: object) -> dict[str, object]:
             SourceArtifactRole.MODIFIED.value: _BINDING["raw_sha256"],
         },
         "input_digest": "fp-preview",
-        "ruleset_version": "v1",
+        "ruleset_version": "v2",
         "capability_contract_versions": {},
         "provider_versions": {},
         "ready_closure_contract_version": "v1",

@@ -11,11 +11,15 @@ from gateway_backend.application.preview_jobs import (
     PREVIEW_ASSEMBLE_HANDLER,
     PREVIEW_MATERIALIZE_HANDLER,
     PREVIEW_STEP_PUBLISH,
+    compute_baseline_canonical_bundle_digest,
 )
-from gateway_backend.domain.workspace.models import InputCompleteness
+from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
+from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import StepStatus
 from tests.support.preview_job_harness import (
+    BASELINE_HEAD,
+    REPOSITORY_ID,
     PreviewJobHarness,
     build_preview_harness,
     claim_next_step,
@@ -75,6 +79,41 @@ def test_modified_only_assemble_checkpoint_contains_single_pair(tmp_path: Path) 
     required_refs = assemble_state["required_refs"]
     assert isinstance(required_refs, list)
     assert required_refs
+
+
+def test_full_canonical_noop_bundle_digest_matches_baseline_port(tmp_path: Path) -> None:
+    harness = build_preview_harness(
+        tmp_path,
+        input_completeness=InputCompleteness.FULL,
+        canonical_noop=True,
+    )
+    operation_id = "op-assemble-full-noop"
+    _run_materialize(harness, operation_id)
+    session, control, operation, step = claim_next_step(harness)
+    run_claimed_handler(harness, PREVIEW_ASSEMBLE_HANDLER, session, control, operation, step)
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assemble_step = unit_of_work.operations.get_step(step_id_for(operation_id, "assemble_preview"))
+    assert assemble_step.checkpoint_ref is not None
+    envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
+    assemble_state = envelope.job_state["assemble_state"]
+    assert isinstance(assemble_state, dict)
+    preview_bundle_digest = assemble_state["digests"]["bundle_digest"]
+    assert isinstance(preview_bundle_digest, str)
+
+    port_bundle_digest = compute_baseline_canonical_bundle_digest(
+        repository_id=REPOSITORY_ID,
+        baseline_head=BaselineHead(
+            business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+            business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+            baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        ),
+        input_completeness=InputCompleteness.FULL,
+        ruleset_version=RULESET_VERSION,
+        provider_factory=harness.deps.repository_provider_factory,
+        store=harness.artifact_store,
+    )
+    assert preview_bundle_digest == port_bundle_digest
 
 
 def test_assemble_resumes_from_checkpoint_when_repository_is_unavailable(tmp_path: Path) -> None:

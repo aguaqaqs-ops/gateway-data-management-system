@@ -145,6 +145,7 @@ from gateway_backend.capabilities.table_access.contracts import (
 )
 from gateway_backend.capabilities.table_access.sql import parse_sql
 from gateway_backend.capabilities.table_rules.contracts import (
+    RULESET_VERSION,
     TABLE_RULESET_VERSION,
     TableRulesetSnapshot,
 )
@@ -1224,8 +1225,9 @@ def compute_baseline_canonical_bundle_digest(
 
     if type(ruleset_version) is not str or not ruleset_version:
         raise PreviewJobError("ruleset_version must be a non-empty string")
+    if ruleset_version != RULESET_VERSION:
+        raise PreviewJobError("ruleset_version is not supported by this implementation")
     provider = provider_factory(repository_id, baseline_head.business_baseline_commit_id)
-    del ruleset_version  # bound for port contract; materialization uses TABLE_RULESET_VERSION like preview job
     baseline = _materialize_baseline_commit(
         repository_id=repository_id,
         commit_id=baseline_head.business_baseline_commit_id,

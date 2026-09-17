@@ -17,7 +17,9 @@ from gateway_backend.application.workspace.contracts import (
 from gateway_backend.application.workspace.preview import validate_start_preview_binding
 from gateway_shared_kernel import DigestRef
 
+from gateway_backend.application.submission.ports import SubmitControlUnitOfWorkFactory
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
+from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import (
     IdentityContext,
@@ -94,7 +96,7 @@ def build_preview_job_payload(
         "source_artifacts": source_artifacts,
         "source_digests": source_digests,
         "input_digest": upload_revision.request_fingerprint,
-        "ruleset_version": "v1",
+        "ruleset_version": RULESET_VERSION,
         "capability_contract_versions": {},
         "provider_versions": {},
         "ready_closure_contract_version": "v1",
@@ -117,7 +119,7 @@ def accept_preview_operation(
     command: StartPreviewCommand,
     scope_resolution: ScopeResolutionPort,
     workspace_repository: WorkspaceRepository,
-    unit_of_work_factory: Callable[[], ControlDbUnitOfWork],
+    unit_of_work_factory: SubmitControlUnitOfWorkFactory,
     job_registry: JobDefinitionRegistry,
     artifact_store: BoundedArtifactStorePort,
     now: datetime,

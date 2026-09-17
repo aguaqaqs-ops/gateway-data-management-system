@@ -436,6 +436,23 @@ def _failure_message(failures: Iterable[BundlePairFailure]) -> str:
     return "REQUIRED_PAIR_FAILURE:" + ",".join(item.pair_id for item in failures)
 
 
+def _shared_logical_path_for_binding(binding: BundleArtifactBinding) -> str:
+    digest_suffix = binding.source_ref.raw_sha256.value.removeprefix("sha256:")
+    if binding.kind is BundleArtifactKind.SNAPSHOT_TABLE:
+        return f"shared/snapshot-tables/{digest_suffix}.parquet"
+    kind_segment = binding.kind.value.lower()
+    return f"shared/{kind_segment}/{digest_suffix}/artifact"
+
+
+def _promote_binding_to_shared(binding: BundleArtifactBinding) -> BundleArtifactBinding:
+    return replace(
+        binding,
+        logical_path=_shared_logical_path_for_binding(binding),
+        pair_id=None,
+        shared=True,
+    )
+
+
 def _collect_bindings(
     active_pairs: Iterable[tuple[BundlePairInput, ComparisonSurface]],
     shared: BundleArtifactClosure,
@@ -460,18 +477,17 @@ def _collect_bindings(
             raise BundleAssemblyError("PAIR_ARTIFACT_PATH_SCOPE_MISMATCH")
         previous_source = by_source.get(binding.source_ref)
         if previous_source is not None:
-            if previous_source.kind is BundleArtifactKind.SNAPSHOT_TABLE and binding.kind is BundleArtifactKind.SNAPSHOT_TABLE:
-                shared_binding = replace(
-                    previous_source,
-                    logical_path=f"shared/snapshot-tables/{binding.source_ref.raw_sha256.value.removeprefix('sha256:')}.parquet",
-                    pair_id=None,
-                    shared=True,
-                )
-                by_source[binding.source_ref] = shared_binding
-                by_path[shared_binding.logical_path] = shared_binding
+            if previous_source == binding:
                 continue
-            if previous_source != binding:
+            if previous_source.kind is not binding.kind:
                 raise BundleAssemblyError("DUPLICATE_SOURCE_ARTIFACT_REF")
+            shared_binding = (
+                previous_source
+                if previous_source.shared
+                else _promote_binding_to_shared(previous_source)
+            )
+            by_source[binding.source_ref] = shared_binding
+            by_path[shared_binding.logical_path] = shared_binding
             continue
         previous_path = by_path.get(binding.logical_path)
         if previous_path is not None and previous_path.source_ref != binding.source_ref:

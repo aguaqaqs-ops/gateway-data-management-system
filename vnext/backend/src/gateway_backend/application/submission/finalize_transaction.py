@@ -36,6 +36,7 @@ class FinalizeSubmitTransactionRequest:
     expected_operation_version: int
     worker_id: str | None = None
     lease_token: str | None = None
+    defer_operation_terminal: bool = False
 
 
 def finalize_submit_transaction(
@@ -119,46 +120,47 @@ def finalize_submit_transaction(
 
     release_submit_checkpoint_protection(unit_of_work, operation_id=attempt.operation_id)
 
-    operation = unit_of_work.operations.get_operation(attempt.operation_id)
-    steps, _cursor = unit_of_work.operations.list_steps(attempt.operation_id)
-    await_step = next((step for step in steps if step.step_name == SUBMIT_STEP_AWAIT), None)
-    if await_step is None:
-        raise ValueError("await_import_result step is missing")
-    transaction_now = unit_of_work.transaction_now
-    terminal_step = replace(
-        await_step,
-        status=StepStatus.SUCCEEDED,
-        completed_at=transaction_now,
-        updated_at=transaction_now,
-        worker_id=None,
-        lease_token=None,
-        lease_expires_at=None,
-        optimistic_version=await_step.optimistic_version + 1,
-    )
-    unit_of_work.operations.compare_and_set_step(
-        terminal_step,
-        WritePrecondition(
-            expected_optimistic_version=request.expected_await_step_version,
-            worker_id=request.worker_id,
-            lease_token=request.lease_token,
-        ),
-        require_live_lease=await_step.status is StepStatus.RUNNING,
-    )
-    terminal_operation = replace(
-        operation,
-        status=OperationStatus.SUCCEEDED,
-        completed_at=transaction_now,
-        updated_at=transaction_now,
-        optimistic_version=operation.optimistic_version + 1,
-    )
-    unit_of_work.operations.compare_and_set_operation(
-        terminal_operation,
-        WritePrecondition(
-            expected_optimistic_version=request.expected_operation_version,
+    if not request.defer_operation_terminal:
+        operation = unit_of_work.operations.get_operation(attempt.operation_id)
+        steps, _cursor = unit_of_work.operations.list_steps(attempt.operation_id)
+        await_step = next((step for step in steps if step.step_name == SUBMIT_STEP_AWAIT), None)
+        if await_step is None:
+            raise ValueError("await_import_result step is missing")
+        transaction_now = unit_of_work.transaction_now
+        terminal_step = replace(
+            await_step,
+            status=StepStatus.SUCCEEDED,
+            completed_at=transaction_now,
+            updated_at=transaction_now,
             worker_id=None,
             lease_token=None,
-        ),
-    )
+            lease_expires_at=None,
+            optimistic_version=await_step.optimistic_version + 1,
+        )
+        unit_of_work.operations.compare_and_set_step(
+            terminal_step,
+            WritePrecondition(
+                expected_optimistic_version=request.expected_await_step_version,
+                worker_id=request.worker_id,
+                lease_token=request.lease_token,
+            ),
+            require_live_lease=await_step.status is StepStatus.RUNNING,
+        )
+        terminal_operation = replace(
+            operation,
+            status=OperationStatus.SUCCEEDED,
+            completed_at=transaction_now,
+            updated_at=transaction_now,
+            optimistic_version=operation.optimistic_version + 1,
+        )
+        unit_of_work.operations.compare_and_set_operation(
+            terminal_operation,
+            WritePrecondition(
+                expected_optimistic_version=request.expected_operation_version,
+                worker_id=None,
+                lease_token=None,
+            ),
+        )
     return result
 
 

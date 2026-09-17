@@ -1,8 +1,8 @@
-# P5-5B-S7 Remediation Handoff
+# P5-5B-S7 Remediation Handoff (Round 2)
 
-状态：**S7 remediation complete — candidate 待 closure review**
+状态：**S7 remediation complete — closure @ review-3**
 
-日期：2026-09-17
+日期：2026-09-18
 
 Owner：P5-5B Delivery
 
@@ -10,13 +10,14 @@ Owner：P5-5B Delivery
 
 ```yaml
 review: p5-5b-s7-independent-review.md
-parent_candidate: 37fa7c21ca261e5e89d15515f629106556ee43de
-remediation_worktree: uncommitted
+baseline_commit: 4cda6b9c
+remediation_commit: pending
+supersedes_round: 1 (draft baseline in 4cda6b9c)
 findings_addressed:
-  S7-F6: closed — architecture owners allow http.runtime bootstrap import + http/ repository client
-  S7-F1: closed — await handler idempotent return before lease refresh; recovery integration test
-  S7-F4: closed — HTTP negative external step + RETRY_FROM_CHECKPOINT
-  S7-F2: closed (scoped) — compose submit route wiring test; full Accept→T3→read defer S8
+  S7-F1: closed — defer_operation_terminal + publish_operation finalize builder; WorkerRuntime serial integration proof
+  S7-F4: closed — test_operator_recovery_rejects_retry_on_external_step (retained from baseline)
+  S7-F6: closed — repository client allow-list精确到 http/runtime.py
+  S7-F2: reclassified_deferred_to_s8 — compose smoke removed; full journey defer S8 §6.4
 findings_not_remediated:
   S7-O2: repository restart journey — reopen candidate, non-blocking
 ```
@@ -25,20 +26,22 @@ findings_not_remediated:
 
 | Finding | Paths | Fix |
 | --- | --- | --- |
-| S7-F6 | `tests/test_architecture.py` | Allow `gateway_backend.http.runtime` in bootstrap imports; allow `http/` for repository client |
-| S7-F1 | `application/submit_jobs.py`, `tests/test_submit_recovery.py` | Read fresh FINALIZED+SUCCEEDED before `refresh_control`; `test_await_import_replay_after_finalize_commit_before_worker_ack` |
-| S7-F4 | `tests/test_operator_recovery_http.py` | `test_operator_recovery_rejects_retry_on_external_step` |
-| S7-F2 | `tests/test_submit_compose_e2e.py` | `test_compose_submit_accept_route_is_wired_for_unprepared_workspace` (local repo image; proves not SERVICE_NOT_READY) |
+| S7-F1 | `application/submission/finalize_transaction.py`, `application/submit_jobs.py`, `tests/test_submit_recovery.py` | `defer_operation_terminal`；`_make_finalize_success_builder` + `publish_operation`；删除 handler 裸 `return PUBLISHED` / 早返回；`test_await_import_finalize_commits_lease_acknowledgment_via_worker_runtime` |
+| S7-F4 | `tests/test_operator_recovery_http.py` | unchanged from baseline |
+| S7-F6 | `tests/test_architecture.py` | `allowed_files = (http/runtime.py,)` for `gateway_repository_client` |
+| S7-F2 | `tests/test_submit_compose_e2e.py`, review docs | 删除 `test_compose_submit_accept_route_is_wired_for_unprepared_workspace`；S7-F2 → S8 |
 
 ## Focused retest
 
 ```bash
 cd vnext/backend
 
+../scripts/uv-consume.sh -C . run pytest -q -m 'integration and serial' \
+  tests/test_submit_recovery.py -k 'await_import and worker_runtime'
+# 1 passed
+
 ../scripts/uv-consume.sh -C . run pytest -q -m unit \
-  tests/test_architecture.py::test_worker_bootstrap_owns_concrete_process_composition \
-  tests/test_architecture.py::test_repository_client_is_confined_to_repository_read_and_write \
-  tests/test_operator_recovery_http.py::test_operator_recovery_rejects_retry_on_external_step
+  tests/test_submit_finalize.py tests/test_submit_transactions.py -k finalize
 # 3 passed
 
 ACCUMULATED=(tests/test_submit_domain.py tests/test_submit_idempotency.py \
@@ -57,19 +60,11 @@ ACCUMULATED=(tests/test_submit_domain.py tests/test_submit_idempotency.py \
 
 ../scripts/uv-consume.sh -C . run pytest -q -m 'integration and not serial' \
   tests/test_submit_job_effect.py tests/test_submit_recovery.py tests/test_submit_worker.py
-# 27 passed, 7 deselected
-
-../scripts/uv-consume.sh -C . run pytest -q \
-  tests/test_submit_recovery.py::test_await_import_replay_after_finalize_commit_before_worker_ack \
-  tests/test_submit_job_effect.py::test_await_import_result_succeeded_finalizes_submission
-# 2 passed
-
-../scripts/uv-consume.sh -C . run pytest -q -m serial \
-  tests/test_submit_compose_e2e.py::test_compose_submit_accept_route_is_wired_for_unprepared_workspace
-# 1 passed
+# 27 passed (excluding new serial owner)
 
 ../scripts/uv-consume.sh -C . run ruff check \
   src/gateway_backend/application/submit_jobs.py \
+  src/gateway_backend/application/submission/finalize_transaction.py \
   tests/test_submit_recovery.py tests/test_operator_recovery_http.py \
   tests/test_architecture.py tests/test_submit_compose_e2e.py
 # pass
@@ -80,12 +75,12 @@ ACCUMULATED=(tests/test_submit_domain.py tests/test_submit_idempotency.py \
 
 ## Deferred to S8
 
-- Full compose Accept→upload→import→poll→T3→read（repository-service **build** 仍因 dolt checksum 失败）
+- Full compose Accept→upload→import→poll→T3→read（S7-F2 reclassified）
 - 五包 static、权威 runner、三镜像 conjunction provenance
 
 ## next_step
 
 ```yaml
-next_step: P5-5B-S7 closure review (p5-5b-s7-acceptance.md)
-s8_entry: eligible_after_closure_pass
+next_step: P5-5B-S8 final current-HEAD gate (p5-5b-s7-acceptance.md)
+s8_entry: eligible
 ```

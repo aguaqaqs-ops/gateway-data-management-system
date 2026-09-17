@@ -744,11 +744,15 @@ def test_repository_client_is_confined_to_repository_read_and_write() -> None:
     allowed_dirs = (
         src / "infrastructure" / "repository_read",
         src / "infrastructure" / "repository_write",
-        src / "http",
+    )
+    allowed_files = (
+        src / "http" / "runtime.py",
     )
     for source in sorted(src.rglob("*.py")):
         text = source.read_text(encoding="utf-8")
         if "gateway_repository_client" not in text:
+            continue
+        if source in allowed_files:
             continue
         assert any(
             allowed_dir == source.parent or allowed_dir in source.parents for allowed_dir in allowed_dirs

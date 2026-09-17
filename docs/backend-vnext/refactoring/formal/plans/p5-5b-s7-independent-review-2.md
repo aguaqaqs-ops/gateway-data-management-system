@@ -1,10 +1,12 @@
 # P5-5B-S7 Independent Review 2 — Remediation Closure
 
-状态：**PASS — S7 closed; S8 entry eligible**
+状态：**SUPERSEDED — rejected; see [p5-5b-s7-independent-review-3.md](p5-5b-s7-independent-review-3.md)**
 
 日期：2026-09-17
 
 Owner：Independent reviewer（closure）
+
+> 本文件记录首轮 remediation 的错误 closure（handler 直调假阳性、architecture 过宽、compose smoke 无效）。Round 2 remediation 见 review-3。
 
 ## Decision
 

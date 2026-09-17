@@ -669,16 +669,10 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
     ) -> ExecutorAcknowledgment:
         payload = _load_submit_payload(operation, deps.artifact_store)
         with deps.control_transaction_factory() as unit_of_work:
-            fresh_operation = unit_of_work.operations.get_operation(operation.operation_id)
             fresh_attempt = unit_of_work.submission.get_submit_attempt(payload.submit_attempt_id)
         if fresh_attempt is None:
             raise SubmitJobError("submit attempt is missing")
         _assert_payload_matches_attempt(payload, fresh_attempt)
-        if (
-            fresh_attempt.state is SubmitAttemptState.FINALIZED
-            and fresh_operation.status is OperationStatus.SUCCEEDED
-        ):
-            return ExecutorAcknowledgment.PUBLISHED
 
         lease_session.refresh_control()
         if step.checkpoint_ref is None and control.cancel_requested:
@@ -687,8 +681,6 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
 
         attempt = fresh_attempt
         if attempt.state is not SubmitAttemptState.EFFECT_PENDING:
-            if attempt.state is SubmitAttemptState.FINALIZED and operation.status is OperationStatus.SUCCEEDED:
-                return ExecutorAcknowledgment.PUBLISHED
             raise SubmitJobError("await_import_result requires EFFECT_PENDING attempt")
 
         submit_step = _load_step(
@@ -876,27 +868,13 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                     )
                 )
                 return ExecutorAcknowledgment.PUBLISHED
-            with deps.control_transaction_factory() as unit_of_work:
-                fresh_attempt = unit_of_work.submission.get_submit_attempt(payload.submit_attempt_id)
-                if fresh_attempt is None:
-                    raise SubmitJobError("submit attempt is missing")
-                fresh_operation = unit_of_work.operations.get_operation(operation.operation_id)
-                steps, _cursor = unit_of_work.operations.list_steps(operation.operation_id)
-                await_step = next(item for item in steps if item.step_name == SUBMIT_STEP_AWAIT)
-                finalize_submit_transaction(
-                    request=FinalizeSubmitTransactionRequest(
-                        submit_attempt_id=payload.submit_attempt_id,
-                        facts=facts,
-                        submission_id=deps.submission_id_factory(),
-                        created_at=unit_of_work.transaction_now,
-                        expected_attempt_version=fresh_attempt.optimistic_version,
-                        expected_await_step_version=await_step.optimistic_version,
-                        expected_operation_version=fresh_operation.optimistic_version,
-                        worker_id=step.worker_id,
-                        lease_token=step.lease_token,
-                    ),
-                    unit_of_work=unit_of_work,
+            lease_session.publish_operation(
+                _make_finalize_success_builder(
+                    submit_attempt_id=payload.submit_attempt_id,
+                    facts=facts,
+                    submission_id_factory=deps.submission_id_factory,
                 )
+            )
             return ExecutorAcknowledgment.PUBLISHED
 
         if repository_operation.status is RepositoryOperationStatus.FAILED:
@@ -2278,6 +2256,60 @@ def _terminal_step(step: StepRecord, transaction_now: datetime, *, status: StepS
         updated_at=transaction_now,
         optimistic_version=step.optimistic_version + 1,
     )
+
+
+def _make_finalize_success_builder(
+    *,
+    submit_attempt_id: str,
+    facts: MatchingFinalizeFacts,
+    submission_id_factory: Callable[[], str],
+) -> Callable[[OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]]:
+    def builder(
+        operation: OperationRecord,
+        step: StepRecord,
+        transaction_now: datetime,
+    ) -> tuple[StepRecord, OperationRecord]:
+        transaction = _active_submit_transaction.get()
+        if transaction is None:
+            raise SubmitJobError("submit finalize transaction is not bound")
+        attempt = transaction.submission.get_submit_attempt(submit_attempt_id)
+        if attempt is None:
+            raise SubmitJobError("submit attempt is missing")
+        finalize_submit_transaction(
+            request=FinalizeSubmitTransactionRequest(
+                submit_attempt_id=submit_attempt_id,
+                facts=facts,
+                submission_id=submission_id_factory(),
+                created_at=transaction_now,
+                expected_attempt_version=attempt.optimistic_version,
+                expected_await_step_version=step.optimistic_version,
+                expected_operation_version=operation.optimistic_version,
+                worker_id=step.worker_id,
+                lease_token=step.lease_token,
+                defer_operation_terminal=True,
+            ),
+            unit_of_work=transaction,
+        )
+        terminal_step = dataclasses.replace(
+            step,
+            status=StepStatus.SUCCEEDED,
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            completed_at=transaction_now,
+            updated_at=transaction_now,
+            optimistic_version=step.optimistic_version + 1,
+        )
+        terminal_operation = dataclasses.replace(
+            operation,
+            status=OperationStatus.SUCCEEDED,
+            completed_at=transaction_now,
+            updated_at=transaction_now,
+            optimistic_version=operation.optimistic_version + 1,
+        )
+        return terminal_step, terminal_operation
+
+    return builder
 
 
 def _make_cancelled_terminal_builder() -> Callable[

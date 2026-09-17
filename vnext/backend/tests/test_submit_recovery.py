@@ -9,6 +9,7 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
+import time
 
 from gateway_backend.application.recovery import (
     DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
@@ -42,7 +43,7 @@ from gateway_backend.operations import (
     WritePrecondition,
 )
 from gateway_backend.operations.lease_session import LeaseSession
-from gateway_backend.operations.worker import ExecutionControl, ExecutorAcknowledgment
+from gateway_backend.operations.worker import ClaimedWork, ExecutionControl
 from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
 from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
 from gateway_backend.infrastructure.repository_write.abort_evidence import HttpRepositoryAbortEvidencePort
@@ -55,8 +56,6 @@ from tests.support.submit_job_harness import (
     submit_step_id,
 )
 from tests.test_submit_job_effect import (
-    _await_lease_identity,
-    _lease_session,
     _operation_poll_handler,
     _prepare_manifest_digest,
     _run_submit_to_await_claim,
@@ -523,40 +522,46 @@ def test_operator_abort_import_rejected_via_recovery_port(
     assert persisted_operation.status is OperationStatus.FAILED
 
 
-def test_await_import_replay_after_finalize_commit_before_worker_ack(tmp_path: Path) -> None:
-    harness = build_submit_worker_harness(
+@pytest.mark.serial
+def test_await_import_finalize_commits_lease_acknowledgment_via_worker_runtime(
+    tmp_path: Path,
+) -> None:
+    seed_harness = build_submit_worker_harness(
         tmp_path,
         repository_base_url="http://repository.test",
         transport=RecordingTransport(),
     )
-    await_work, operation_id = _run_submit_to_await_claim(harness)
-    manifest_digest = _prepare_manifest_digest(harness, operation_id)
-    write_client = cast(HttpRepositoryWriteClient, harness.submit_deps.repository_write)
+    await_work, operation_id = _run_submit_to_await_claim(seed_harness)
+    manifest_digest = _prepare_manifest_digest(seed_harness, operation_id)
+    write_client = cast(HttpRepositoryWriteClient, seed_harness.submit_deps.repository_write)
     await_write = replace(
         write_client,
         transport=RecordingTransport(_operation_poll_handler(manifest_digest)),
     )
-    await_deps = replace(harness.submit_deps, repository_write=await_write)
-    handler = build_await_import_result_handler(await_deps)
-    worker_id, lease_token = _await_lease_identity(await_work)
-    control, session = _lease_session(
-        harness,
-        worker_id=worker_id,
-        lease_token=lease_token,
-        operation_id=await_work.operation.operation_id,
-        step_id=await_work.step.step_id,
-    )
-    assert (
-        handler(await_work.operation, await_work.step, control, session)
-        is ExecutorAcknowledgment.PUBLISHED
-    )
-    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+    await_deps = replace(seed_harness.submit_deps, repository_write=await_write)
+    await_executor = build_await_import_result_handler(await_deps)
+    with ControlDbUnitOfWork(seed_harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
         await_step = unit_of_work.operations.get_step(
             submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
         )
+        assert await_work.step.worker_id is not None
+        assert await_work.step.lease_token is not None
+    work = ClaimedWork(operation, await_step, await_executor)
+    assert seed_harness.runtime._lifecycle.mark_ready_to_claim() is False
+    seed_harness.runtime._run_claim(
+        work,
+        lambda: False,
+        lambda timeout: False,
+        claim_anchor=time.monotonic(),
+    )
+    with ControlDbUnitOfWork(seed_harness.db_path, read_only=True) as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(operation_id)
+        persisted_await_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
         submit_attempt_id = next(
-            ref.value for ref in operation.business_refs if ref.kind == "submit_attempt"
+            ref.value for ref in persisted_operation.business_refs if ref.kind == "submit_attempt"
         )
         attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
         submission = unit_of_work.submission.get_submission_by_attempt(submit_attempt_id)
@@ -564,26 +569,9 @@ def test_await_import_replay_after_finalize_commit_before_worker_ack(tmp_path: P
             "SELECT COUNT(*) FROM submission_records WHERE submit_attempt_id = ?",
             (submit_attempt_id,),
         ).fetchone()[0]
-    assert operation.status is OperationStatus.SUCCEEDED
+    assert persisted_operation.status is OperationStatus.SUCCEEDED
+    assert persisted_await_step.status is StepStatus.SUCCEEDED
     assert attempt is not None
     assert attempt.state is SubmitAttemptState.FINALIZED
     assert submission is not None
     assert row_count == 1
-
-    replay_control, replay_session = _lease_session(
-        harness,
-        worker_id=worker_id,
-        lease_token=lease_token,
-        operation_id=operation.operation_id,
-        step_id=await_step.step_id,
-    )
-    assert (
-        handler(operation, await_step, replay_control, replay_session)
-        is ExecutorAcknowledgment.PUBLISHED
-    )
-    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        replay_rows = unit_of_work.connection.execute(
-            "SELECT COUNT(*) FROM submission_records WHERE submit_attempt_id = ?",
-            (submit_attempt_id,),
-        ).fetchone()[0]
-    assert replay_rows == 1

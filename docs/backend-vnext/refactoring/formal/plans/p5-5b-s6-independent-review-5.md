@@ -38,7 +38,7 @@ s7_entry: eligible
 **Architecture boundary expansion（S6 scope，非 regression）**：
 - `operation_worker.py` 导入 `http.runtime` 共享 production composition
 - `http/runtime.py` 使用 `gateway_repository_client`（readiness/resolve ports）
-- `test_architecture.py` 已更新允许 `http.runtime` / `http.shutdown` imports
+- `test_architecture.py` bootstrap import allow-list 在 S6 已允许 `http.runtime` / `http.shutdown`；**repository client 精确 allow-list（仅 `http/runtime.py`）在 S7 remediation 工作区闭合**（见 [p5-5b-s7-independent-review-3.md](p5-5b-s7-independent-review-3.md)）
 
 ## 3. Focused gate results（@ `37fa7c21`, `uv-consume.sh`）
 

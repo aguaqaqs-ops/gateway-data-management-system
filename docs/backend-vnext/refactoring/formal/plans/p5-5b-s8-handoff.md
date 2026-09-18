@@ -1,6 +1,6 @@
 # P5-5B-S8 Final Current-HEAD Gate and Slice Handoff
 
-状态：**pass — slice exit 建议 `p5_5b_slice_exit=pass`（不自行授权 P5-5C / production）**
+状态：**pending_closure — S8-F1 mypy 硬失败待闭合（见 [p5-5b-s8-f1-remediation-handoff.md](p5-5b-s8-f1-remediation-handoff.md)）**
 
 日期：2026-09-18 (UTC+8)
 
@@ -23,13 +23,14 @@ records_head: f4aab01863c8d644b94dd9808c1104851795945f
 clean_status: yes
 container_rebuild_required: yes
 container_gate_for_current_head: passed
-five_package_static: pass
-authoritative_runner: pass
+five_package_static: pending_closure
+authoritative_runner: pending_closure
 findings_closed: [S7-F2]
+findings_open: [S8-F1]
 deferred: [S7-O1, S7-O3, S7-O4, occupancy-assertion-gap, shutdown-no-caller, private-process-access]
 reopen_required: []
 implementation_authority_unchanged: false
-p5_5b_slice_exit: pass
+p5_5b_slice_exit: pending_closure
 timezone: Asia/Shanghai
 ```
 
@@ -211,7 +212,7 @@ git status --short        # empty
 ## Next step
 
 ```yaml
-p5_5b_slice_exit: pass
+p5_5b_slice_exit: pending_closure
 next_step: independent_acceptance_authority_for_slice_exit_declaration
 p5_5c_authorized: no
 production_deployment_authorized: no

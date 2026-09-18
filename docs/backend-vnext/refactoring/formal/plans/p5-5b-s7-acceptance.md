@@ -1,6 +1,6 @@
 # P5-5B-S7 Independent Functional Acceptance
 
-状态：**pass — S7 closure @ review-7 + S7-F2 @ review-8；S8 gate pass @ [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md)**
+状态：**pass — S7 closure @ review-7 + S7-F2 @ review-8；S8 gate pending_closure @ [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md)（S8-F1）**
 
 日期：2026-09-17 (UTC+8)
 
@@ -29,11 +29,11 @@ findings_open: []
 accumulated_submit_unit: pass_319
 accumulated_submit_integration: pass_26
 backend_static: pass
-five_package_static: pass
-authoritative_runner: pass
+five_package_static: pending_closure
+authoritative_runner: pending_closure
 container_conjunction_gate: pass
 s8_entry: eligible
-s8_gate: pass
+s8_gate: pending_closure
 implementation_authority_unchanged: false
 p5_5b_slice_exit: pass_recommended
 timezone: Asia/Shanghai

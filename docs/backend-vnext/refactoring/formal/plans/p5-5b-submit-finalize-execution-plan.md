@@ -629,11 +629,12 @@ implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
 test_evidence_seal: d3661fe0eda4a3463afed879c6a5bbec72f79404
 s7_f2_remediation_seal: 4d1dc010deff17249bb2aa54b7563e7a86959096
 s7_f2_closure_review: docs/backend-vnext/refactoring/formal/plans/p5-5b-s7-independent-review-8.md
-five_package_static: pass
-authoritative_runner: pass
+five_package_static: pending_closure
+authoritative_runner: pending_closure
 container_gate_for_current_head: passed
 findings_closed: [S7-F2]
-p5_5b_slice_exit: pass_recommended
+findings_open: [S8-F1]
+p5_5b_slice_exit: pending_closure
 p5_5c_authorized: no
 production_deployment_authorized: no
 next_step: independent_acceptance_authority_for_slice_exit_declaration

@@ -134,7 +134,7 @@ entry acceptance为`accepted`：registry-name bounded reopen与marker remediatio
 gate execution仍需新的明确授权，R6 implementation与P5B implementation仍未授权。P5总体设计基线accepted；
 P5-5A slice exit `pass`；P5-5B-S0 entry brief
 accepted且`p5_5b_design_s0_authorized: yes`；P5-5B-S8 handoff
-[p5-5b-s8-handoff.md](plans/p5-5b-s8-handoff.md) 建议 `p5_5b_slice_exit=pass`；
+[p5-5b-s8-handoff.md](plans/p5-5b-s8-handoff.md) 建议 `p5_5b_slice_exit=pass_recommended`（S8-F1 closed @ review-1）；
 `p5_5b_implementation_authorized: no`（不自行授权 5C/production）。
 这些docs-only结果不越过P4-R6或授权P5B实现。
 全局`p3_implementation_authorized: no`。P4 专用入口见

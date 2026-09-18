@@ -1,6 +1,6 @@
 # P5-5B-S8-F1 Remediation Handoff
 
-状态：**pending_closure — S8-F1 finding-scoped remediation**
+状态：**closed @ review-1 — S8-F1 remediated**
 
 日期：2026-09-18 (UTC+8)
 
@@ -13,6 +13,7 @@ Owner：P5-5B Delivery
 handoff_kind: p5_5b_s8_f1_remediation
 finding: S8-F1
 gate_candidate_before_fix: 87c497634e4f6417de7fbb46b42086fd61af9031
+test_hygiene_fix_seal: 460d6f5b1efdb24199534778bd5cc9d4a8131d13
 test_hygiene_seal: 87c497634e4f6417de7fbb46b42086fd61af9031
 authority:
   - p5-5b-submit-finalize-execution-plan.md §6.2
@@ -25,9 +26,10 @@ risk_class: static_gate_blocker
 implementation_authority_unchanged: true
 container_rebuild_required: no
 container_reason: S8-F1 test-only; backend Dockerfile copies backend/src only
-findings_open: [S8-F1]
-findings_closed: []
-next_step: test_hygiene_fix_seal_then_rerun_gates
+findings_open: []
+findings_closed: [S8-F1]
+closure_review: p5-5b-s8-independent-review-1.md
+next_step: s8_handoff_reseal
 timezone: Asia/Shanghai
 ```
 

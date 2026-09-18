@@ -622,19 +622,21 @@ S8 exit要求所有contract barrier有且仅有一个test owner、independent fi
 
 ```yaml
 stage: P5-5B-S8-final-current-head-gate
-candidate_head: 87c497634e4f6417de7fbb46b42086fd61af9031
-gate_tested_head: 87c497634e4f6417de7fbb46b42086fd61af9031
+candidate_head: 460d6f5b1efdb24199534778bd5cc9d4a8131d13
+gate_tested_head: 460d6f5b1efdb24199534778bd5cc9d4a8131d13
+test_hygiene_fix_seal: 460d6f5b1efdb24199534778bd5cc9d4a8131d13
 handoff: docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-handoff.md
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
 test_evidence_seal: d3661fe0eda4a3463afed879c6a5bbec72f79404
 s7_f2_remediation_seal: 4d1dc010deff17249bb2aa54b7563e7a86959096
 s7_f2_closure_review: docs/backend-vnext/refactoring/formal/plans/p5-5b-s7-independent-review-8.md
-five_package_static: pending_closure
-authoritative_runner: pending_closure
+s8_f1_closure_review: docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-independent-review-1.md
+five_package_static: pass
+authoritative_runner: pass
 container_gate_for_current_head: passed
-findings_closed: [S7-F2]
-findings_open: [S8-F1]
-p5_5b_slice_exit: pending_closure
+findings_closed: [S7-F2, S8-F1]
+findings_open: []
+p5_5b_slice_exit: pass_recommended
 p5_5c_authorized: no
 production_deployment_authorized: no
 next_step: independent_acceptance_authority_for_slice_exit_declaration

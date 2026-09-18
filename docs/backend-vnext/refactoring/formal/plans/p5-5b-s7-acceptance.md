@@ -1,6 +1,6 @@
 # P5-5B-S7 Independent Functional Acceptance
 
-状态：**pass — S7 closure @ review-7 + S7-F2 @ review-8；S8 gate pending_closure @ [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md)（S8-F1）**
+状态：**pass — S7 closure @ review-7 + S7-F2 @ review-8；S8 gate pass @ [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md)（S8-F1 @ review-1）**
 
 日期：2026-09-17 (UTC+8)
 
@@ -17,7 +17,7 @@ remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
 remediation_round_4: e5c43c0c9f71de3cd2e602504ec9034f16add8af
 remediation_round_4_fix: d3661fe0eda4a3463afed879c6a5bbec72f79404
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
-records_head: f4aab01863c8d644b94dd9808c1104851795945f
+records_head: pending_hygiene_seal
 s5_independent_review: pass
 s6_independent_review: pass (p5-5b-s6-independent-review-5.md)
 s7_independent_review: pass (p5-5b-s7-independent-review-7.md)
@@ -29,11 +29,12 @@ findings_open: []
 accumulated_submit_unit: pass_319
 accumulated_submit_integration: pass_26
 backend_static: pass
-five_package_static: pending_closure
-authoritative_runner: pending_closure
+five_package_static: pass
+authoritative_runner: pass
 container_conjunction_gate: pass
 s8_entry: eligible
-s8_gate: pending_closure
+s8_gate: pass
+s8_f1_closure_review: pass (p5-5b-s8-independent-review-1.md)
 implementation_authority_unchanged: false
 p5_5b_slice_exit: pass_recommended
 timezone: Asia/Shanghai
@@ -59,6 +60,7 @@ timezone: Asia/Shanghai
 | S7 remediation r4 fix | `d3661fe0` | R4-F1 lease window（test-only） |
 | S7 closure | [p5-5b-s7-independent-review-7.md](p5-5b-s7-independent-review-7.md) | **pass** |
 | S7-F2 closure | [p5-5b-s7-independent-review-8.md](p5-5b-s7-independent-review-8.md) | **pass** @ `4d1dc010` |
+| S8-F1 closure | [p5-5b-s8-independent-review-1.md](p5-5b-s8-independent-review-1.md) | **pass** @ `460d6f5b` |
 | S7 review-3 | [p5-5b-s7-independent-review-3.md](p5-5b-s7-independent-review-3.md) | **superseded** |
 
 ## Deliverables

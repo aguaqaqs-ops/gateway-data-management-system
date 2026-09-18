@@ -12,7 +12,7 @@ acceptance/integration gate。当前 P5 设计检索从以下材料开始，不�
 
 - [P5 Business Vertical Slices Design Baseline](refactoring/formal/plans/p5-business-vertical-slices-design.md)
 - [P5-5B-S0 Entry Brief](refactoring/formal/plans/p5-5b-s0-entry-brief.md)
-- [P5-5B-S8 Handoff](refactoring/formal/plans/p5-5b-s8-handoff.md)（current-HEAD gate pass；建议 slice exit）
+- [P5-5B-S8 Handoff](refactoring/formal/plans/p5-5b-s8-handoff.md)（current-HEAD gate pass @ `460d6f5b`；S8-F1 closed；建议 slice exit）
 
 P5-5A historical input（slice exit pass；container gate pass）：
 

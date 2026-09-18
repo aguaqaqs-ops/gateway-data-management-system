@@ -622,7 +622,7 @@ S8 exit要求所有contract barrier有且仅有一个test owner、independent fi
 
 ```yaml
 stage: P5-5B-S8-final-current-head-gate
-candidate_head: 8f4e71d0e1d78e5f19d52a08cff98fb0d90b8fc7
+candidate_head: 46b003a9d580ffebf460df6b92e9b9f40d395728
 gate_tested_head: 87c497634e4f6417de7fbb46b42086fd61af9031
 handoff: docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-handoff.md
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af

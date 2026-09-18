@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,7 +26,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def _skip_repository_ready_probe() -> None:
+def _skip_repository_ready_probe() -> Iterator[None]:
     with patch("gateway_backend.http.runtime.assert_repository_service_ready"):
         yield
 

@@ -8,7 +8,8 @@ Owner：P5-5B Delivery
 
 上游：[P5-5B Submit Finalize Execution Plan §6–§8](p5-5b-submit-finalize-execution-plan.md)、
 [P5-5B-S7 Remediation Handoff](p5-5b-s7-remediation-handoff.md)、
-[P5-5B-S7 Independent Review 7](p5-5b-s7-independent-review-7.md)
+[P5-5B-S7 Independent Review 7](p5-5b-s7-independent-review-7.md)、
+[P5-5B-S7 Independent Review 8](p5-5b-s7-independent-review-8.md)
 
 ```yaml
 stage: P5-5B-S8-final-current-head-gate
@@ -18,7 +19,7 @@ implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
 test_evidence_seal: d3661fe0eda4a3463afed879c6a5bbec72f79404
 s7_f2_remediation_seal: 4d1dc010deff17249bb2aa54b7563e7a86959096
 test_hygiene_seal: 87c497634e4f6417de7fbb46b42086fd61af9031
-records_head: 2d59016f3148156080c39ef8ab8e836ab5d9be1a
+records_head: f4aab01863c8d644b94dd9808c1104851795945f
 clean_status: yes
 container_rebuild_required: yes
 container_gate_for_current_head: passed
@@ -42,13 +43,15 @@ timezone: Asia/Shanghai
 | `test_hygiene_seal` | `87c49763` | `test_live_session.py` repository ready probe 隔离（权威 runner 门禁） |
 | `candidate_head` | `87c49763` | 全部 gate 实测代码对象（与 `gate_tested_head` 一致） |
 | `gate_tested_head` | `87c49763` | 镜像构建与 conjunction 实测对象 |
-| `records_head` | 见 YAML 顶栏 | handoff 文档发布 SHA（docs-only 修订可晚于 candidate） |
+| `s7_f2_closure_review` | 见 review-8 `records_head` | S7-F2 remediation 独立复核（`4d1dc010` closure @ review-8） |
+| `records_head` | 见 YAML 顶栏 | 本文档发布 revision；`git rev-parse HEAD` 必须等于此 SHA；gate 代码仍以 `candidate_head` 为准 |
 
 `implementation_authority_unchanged: false`：`4d1dc010` 在 S7-F2 remediation 中扩展了 allowed paths 外的最小生产修订（`submit_jobs.py`、`submit_acceptance.py`、`contracts.py`），以修复真实 preview artifact 集合无法被 prepare-import 打开的问题；其余 Submit finalize 语义与 Round 4 seal 一致。
 
 ## S7-F2 remediation summary
 
-**Authority**：[p5-5b-s7-independent-review-4.md](p5-5b-s7-independent-review-4.md) §4.3
+**Authority**：[p5-5b-s7-independent-review-4.md](p5-5b-s7-independent-review-4.md) §4.3（reclassification）；
+**Closure**：[p5-5b-s7-independent-review-8.md](p5-5b-s7-independent-review-8.md)（`4d1dc010` remediation 独立复核）
 
 **Changed paths**：
 
@@ -187,9 +190,23 @@ cd vnext/backend
 
 ```bash
 git diff --check          # pass
+HEAD=$(git rev-parse HEAD)
+for f in docs/backend-vnext/refactoring/formal/plans/p5-5b-s7-independent-review-8.md \
+         docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-handoff.md \
+         docs/backend-vnext/refactoring/formal/plans/p5-5b-s7-acceptance.md; do
+  sed -i "s/^records_head: .*/records_head: $HEAD/" "$f"
+done
+RH=$(grep -m1 '^records_head:' docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-handoff.md | awk '{print $2}')
+test "$HEAD" = "$RH"      # publication tip：records_head 必须等于当前 HEAD
+git add docs/backend-vnext/refactoring/formal/plans/p5-5b-s7-independent-review-8.md \
+        docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-handoff.md \
+        docs/backend-vnext/refactoring/formal/plans/p5-5b-s7-acceptance.md
+git commit --amend --no-edit
 git status --short        # empty
-git rev-parse HEAD        # 应等于 YAML records_head
 ```
+
+注：`test` 在 `git commit --amend` **之前**执行；amend 将 `records_head` 落盘为 amend 前
+`HEAD`（content seal）。gate 代码仍以 `candidate_head: 87c49763` 为准。
 
 ## Next step
 

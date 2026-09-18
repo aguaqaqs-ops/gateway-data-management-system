@@ -92,7 +92,7 @@ ACCUMULATED=(tests/test_submit_domain.py tests/test_submit_idempotency.py \
 
 ## Deferred to S8
 
-- Full compose Accept→upload→import→poll→T3→read（S7-F2 reclassified）
+- Full compose Accept→upload→import→poll→T3→read（S7-F2 reclassified → closed @ [p5-5b-s7-independent-review-8.md](p5-5b-s7-independent-review-8.md)）
 - 五包 static、权威 runner、三镜像 conjunction provenance
 
 ## next_step

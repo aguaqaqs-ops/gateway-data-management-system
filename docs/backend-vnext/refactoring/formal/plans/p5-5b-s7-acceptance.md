@@ -1,6 +1,6 @@
 # P5-5B-S7 Independent Functional Acceptance
 
-状态：**pass — S7 closure @ review-7；S8 gate pass @ [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md)**
+状态：**pass — S7 closure @ review-7 + S7-F2 @ review-8；S8 gate pass @ [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md)**
 
 日期：2026-09-17 (UTC+8)
 
@@ -17,10 +17,11 @@ remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
 remediation_round_4: e5c43c0c9f71de3cd2e602504ec9034f16add8af
 remediation_round_4_fix: d3661fe0eda4a3463afed879c6a5bbec72f79404
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
-records_head: e19744e0f852518acea6aa91284cd5b10cc89fc3
+records_head: f4aab01863c8d644b94dd9808c1104851795945f
 s5_independent_review: pass
 s6_independent_review: pass (p5-5b-s6-independent-review-5.md)
 s7_independent_review: pass (p5-5b-s7-independent-review-7.md)
+s7_f2_closure_review: pass (p5-5b-s7-independent-review-8.md)
 decision: pass
 findings_closed: [S7-F1, S7-F2, S7-F4, S7-F6, S7-F7, S7-F8, S7-O2-owner-T3-crash-barrier, S7-O2-owner-repository-restart-journey, R4-F1]
 findings_reclassified: []
@@ -57,6 +58,7 @@ timezone: Asia/Shanghai
 | S7 remediation r4 | `e5c43c0c` | owner evidence @ review-7 |
 | S7 remediation r4 fix | `d3661fe0` | R4-F1 lease window（test-only） |
 | S7 closure | [p5-5b-s7-independent-review-7.md](p5-5b-s7-independent-review-7.md) | **pass** |
+| S7-F2 closure | [p5-5b-s7-independent-review-8.md](p5-5b-s7-independent-review-8.md) | **pass** @ `4d1dc010` |
 | S7 review-3 | [p5-5b-s7-independent-review-3.md](p5-5b-s7-independent-review-3.md) | **superseded** |
 
 ## Deliverables
@@ -66,7 +68,7 @@ timezone: Asia/Shanghai
 - Round 2：T3 finalize LeaseSession bridge、architecture 精确屏障、operator capability HTTP
 - Round 3：stable abort LeaseSession bridge（S7-F7）+ closure record provenance（S7-F8）
 - Round 4：execution-plan §490–491 owner tests（T3 crash barrier + Repository restart consumer journey）
-- S7-F2 closed @ S8（完整 compose journey；见 [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md)）
+- S7-F2 closed @ review-8（`4d1dc010` remediation；gate evidence @ [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md)）
 - S8 gate：五包 static、权威 runner、三镜像 conjunction 均已 pass
 
 ```yaml

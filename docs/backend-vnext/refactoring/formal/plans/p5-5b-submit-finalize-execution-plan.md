@@ -618,25 +618,24 @@ S8 exit要求所有contract barrier有且仅有一个test owner、independent fi
 即使全部通过，handoff也只能建议`p5_5b_slice_exit=pass`并把下一步交给独立acceptance authority；
 不得自行授权implementation（本轮）、5C、production deployment或任何新Repository effect。
 
-## 9. Current docs-only handoff
+## 9. Current handoff
 
 ```yaml
-stage: P5-5B-S0-detailed-design-candidate
-base_head: 7e8cea7b3454a8cfdd7c2ba880becee5c427a0de
-scope_paths: [docs/**]
-deliverables:
-  - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md
-  - docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-execution-plan.md
-source_or_test_changes: none
-python_dolt_docker_tests_run: false
-markdown_local_link_check: pass
-markdown_fence_check: pass
-diff_whitespace_check: pass
-p4_r6_exit: pending
-p5_5b_implementation_authorized: no
-p5b_real_repository_effect_authorized: no
-design_status: candidate_draft
-next_step: independent_docs_review
+stage: P5-5B-S8-final-current-head-gate
+candidate_head: dd1f81fa4127abb2bbd17f8bbb7f428d8fa8bcf4
+gate_tested_head: 87c497634e4f6417de7fbb46b42086fd61af9031
+handoff: docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-handoff.md
+implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
+test_evidence_seal: d3661fe0eda4a3463afed879c6a5bbec72f79404
+s7_f2_remediation_seal: 4d1dc010deff17249bb2aa54b7563e7a86959096
+five_package_static: pass
+authoritative_runner: pass
+container_gate_for_current_head: passed
+findings_closed: [S7-F2]
+p5_5b_slice_exit: pass_recommended
+p5_5c_authorized: no
+production_deployment_authorized: no
+next_step: independent_acceptance_authority_for_slice_exit_declaration
 ```
 
 ## 10. S0 finding-scoped remediation

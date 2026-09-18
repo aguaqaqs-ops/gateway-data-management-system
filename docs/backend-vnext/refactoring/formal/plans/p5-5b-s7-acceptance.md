@@ -1,6 +1,6 @@
 # P5-5B-S7 Independent Functional Acceptance
 
-状态：**pass — S7 closure @ review-7；S8 entry eligible（附 S8 gate 前置）**
+状态：**pass — S7 closure @ review-7；S8 gate pass @ [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md)**
 
 日期：2026-09-17 (UTC+8)
 
@@ -22,18 +22,19 @@ s5_independent_review: pass
 s6_independent_review: pass (p5-5b-s6-independent-review-5.md)
 s7_independent_review: pass (p5-5b-s7-independent-review-7.md)
 decision: pass
-findings_closed: [S7-F1, S7-F4, S7-F6, S7-F7, S7-F8, S7-O2-owner-T3-crash-barrier, S7-O2-owner-repository-restart-journey, R4-F1]
-findings_reclassified: [S7-F2]
+findings_closed: [S7-F1, S7-F2, S7-F4, S7-F6, S7-F7, S7-F8, S7-O2-owner-T3-crash-barrier, S7-O2-owner-repository-restart-journey, R4-F1]
+findings_reclassified: []
 findings_open: []
 accumulated_submit_unit: pass_319
 accumulated_submit_integration: pass_26
 backend_static: pass
-five_package_static: deferred
-authoritative_runner: deferred
-container_conjunction_gate: deferred
+five_package_static: pass
+authoritative_runner: pass
+container_conjunction_gate: pass
 s8_entry: eligible
-implementation_authority_unchanged: true
-p5_5b_slice_exit: not_declared
+s8_gate: pass
+implementation_authority_unchanged: false
+p5_5b_slice_exit: pass_recommended
 timezone: Asia/Shanghai
 ```
 
@@ -65,17 +66,11 @@ timezone: Asia/Shanghai
 - Round 2：T3 finalize LeaseSession bridge、architecture 精确屏障、operator capability HTTP
 - Round 3：stable abort LeaseSession bridge（S7-F7）+ closure record provenance（S7-F8）
 - Round 4：execution-plan §490–491 owner tests（T3 crash barrier + Repository restart consumer journey）
-- S7-F2 reclassified to S8（完整 compose journey；无效 smoke 已删除）
-- **Not in S7 scope**：五包 static、权威 runner、三镜像 conjunction/full journey smoke（S8）
-
-## S8 prerequisites recorded
-
-1. Run `./vnext/scripts/run-tests.sh` without ignore
-2. Five-package ruff/mypy
-3. Rebuild current-HEAD backend/worker/repository-service images
-4. Container gate：Accept→upload→import→poll→T3→read + restart recovery
+- S7-F2 closed @ S8（完整 compose journey；见 [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md)）
+- S8 gate：五包 static、权威 runner、三镜像 conjunction 均已 pass
 
 ```yaml
-next_step: P5-5B-S8 container and authoritative runner gate
-s8_entry: eligible
+next_step: independent_acceptance_authority_for_p5_5b_slice_exit
+s8_gate: pass
+p5_5b_slice_exit: pass_recommended
 ```

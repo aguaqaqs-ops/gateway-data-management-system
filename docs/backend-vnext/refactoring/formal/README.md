@@ -133,7 +133,9 @@ P4-R1至P4-R5 module gate均为`pass`，R5 validated code为`0fa2b897`。P4-R6-S
 entry acceptance为`accepted`：registry-name bounded reopen与marker remediation已闭合；S1–S7
 gate execution仍需新的明确授权，R6 implementation与P5B implementation仍未授权。P5总体设计基线accepted；
 P5-5A slice exit `pass`；P5-5B-S0 entry brief
-accepted且`p5_5b_design_s0_authorized: yes`；`p5_5b_implementation_authorized: no`。
+accepted且`p5_5b_design_s0_authorized: yes`；P5-5B-S8 handoff
+[p5-5b-s8-handoff.md](plans/p5-5b-s8-handoff.md) 建议 `p5_5b_slice_exit=pass`；
+`p5_5b_implementation_authorized: no`（不自行授权 5C/production）。
 这些docs-only结果不越过P4-R6或授权P5B实现。
 全局`p3_implementation_authorized: no`。P4 专用入口见
 [P4 Active Context Index](plans/p4-active-context-index.md)；仓库当前默认入口是 P5 baseline

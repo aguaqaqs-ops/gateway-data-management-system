@@ -26,6 +26,7 @@ s8_f1_closure_review: p5-5b-s8-independent-review-1.md
 records_head: f9f5422ffc84a3f79d7f08f162840d08a49bb5b4
 clean_status: yes
 container_rebuild_required: no
+container_reason: S8-F1 test-only; backend/worker build input unchanged; runner ensure may refresh repository-service tag labels without payload change
 container_gate_for_current_head: passed
 five_package_static: pass
 authoritative_runner: pass
@@ -161,13 +162,15 @@ GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh
 cd vnext/deploy && docker compose build --no-cache backend worker
 ```
 
-| Image | ID | Fresh rebuild |
+| Image | ID / labels | When / how |
 | --- | --- | --- |
-| `deploy-backend:latest` | `sha256:6309926b558c270bb47a13b42a37971c88b5cddba11d5c48dd07420a54ab4450` | yes (`--no-cache`) |
-| `deploy-worker:latest` | `sha256:3ce442466a9925b1601bedb8f031b4c43c597eddbb2408f6f9922af40a7bb227` | yes (`--no-cache`) |
-| `gateway-repository-service:local` | `sha256:a725a242e07b1185ed3a1eb8c1e3edd43d550811ee994df405ac6a56b0a5b1e6` | yes (`build-repository-service-image.sh` @ candidate HEAD) |
+| `deploy-backend:latest` | `sha256:6309926b558c270bb47a13b42a37971c88b5cddba11d5c48dd07420a54ab4450` | fresh `--no-cache` @ `87c49763` conjunction gate |
+| `deploy-worker:latest` | `sha256:3ce442466a9925b1601bedb8f031b4c43c597eddbb2408f6f9922af40a7bb227` | fresh `--no-cache` @ `87c49763` conjunction gate |
+| `gateway-repository-service:local`（smoke 证据） | `sha256:a725a242e07b1185ed3a1eb8c1e3edd43d550811ee994df405ac6a56b0a5b1e6`；`revision=87c49763`；**现无 tag**（按 ID 复核） | `build-repository-service-image.sh` @ `87c49763` |
+| `gateway-repository-service:local`（**current tag**） | `sha256:227e661f40fdbae80605bb5ee8a1a6bb3530232721aa3d8041df91e374b2d64c`；`revision=460d6f5b`；`build-input-revision=4d1dc010`；`source-tree-sha256=sha256:62a38a08…`；`uv-lock-sha256=6dc9659f…` | authoritative runner serial 批次内 `ensure_repository_service_image()` @ `460d6f5b` |
+| `gateway-repository-client-e2e:local` | `sha256:b518680f835a23e5169de0c183bd9a12bde624627c04cda7a043e60f6e88c342` | 同上 runner 批次 side effect @ `460d6f5b` |
 
-**Note:** 裸 `docker compose build repository-service` 在本环境因 `dolt-linux-amd64.tar.gz` checksum mismatch 失败；与 S6 历史风险一致。Conjunction 使用 `build-repository-service-image.sh`（`USE_PRELOADED_DEPENDENCIES=1`）成功构建 `87c49763` 镜像。S8-F1（`460d6f5b`）为 test-only，**不重建**镜像；image ID 与 `87c49763` gate 一致。
+**Note:** 裸 `docker compose build repository-service` 在本环境因 `dolt-linux-amd64.tar.gz` checksum mismatch 失败；与 S6 历史风险一致。Conjunction smoke 使用 `build-repository-service-image.sh`（`USE_PRELOADED_DEPENDENCIES=1`）在 **`87c49763`** 构建 `a725a242…`。S8-F1（`460d6f5b`）**不要求**手工重建 backend/worker/repository-service 镜像；但权威 runner 的 `ensure_repository_service_image()` 会在 label 漂移时自动刷新 `gateway-repository-service:local` tag（payload 相同，仅 candidate 相关层/标签不同）。记录时点以 labels 或 smoke 证据 image ID 为准；在当前 publication tip 再跑 runner 会将 tag 刷新为 `revision=<tip>`。
 
 ### Source-tree digest recipe
 
@@ -183,7 +186,7 @@ git ls-files 'vnext/**' \
 
 原记 `sha256:15e496bb…` 不可复现；`87c49763` 按本配方为 `sha256:4fe713c8…`（historical digest correction，见 review-1 §4.1）。
 
-### Conjunction smoke (@ candidate HEAD)
+### Conjunction smoke（证据 @ `87c49763`；backend/worker 镜像 ID 仍有效）
 
 ```bash
 cd vnext/backend
@@ -199,15 +202,15 @@ cd vnext/backend
 
 ## Deferred register（非阻塞）
 
-| 项 | 处置 |
-| --- | --- |
-| S7-O1 PRE_REQUEST cross-owner | acceptable |
-| S7-O3 `defer_operation_terminal` 无 production caller | deferred |
-| S7-O4 `abort_submit_in_control_transaction` 未进 `__all__` | deferred |
-| 崩溃 owner 未补 occupancy 断言 | deferred |
-| `RepositoryServiceClient.shutdown()` 无调用方 | deferred |
-| `service1._process` 私有访问 + finally 断言 | deferred |
-| Repository restart owner 范围 | 仅 hard-kill 后持久性 + Backend 消费；graceful shutdown / startup recovery 属其他 owner |
+| 项 | 来源 | 处置 |
+| --- | --- | --- |
+| S7-O1 PRE_REQUEST cross-owner | [p5-5b-s7-independent-review.md](p5-5b-s7-independent-review.md) §cross-owner | acceptable |
+| S7-O3 `defer_operation_terminal` 无 production caller | [p5-5b-s7-independent-review-5.md](p5-5b-s7-independent-review-5.md) F7 closure | deferred |
+| S7-O4 `abort_submit_in_control_transaction` 未进 `__all__` | [p5-5b-s7-independent-review-5.md](p5-5b-s7-independent-review-5.md) F7 closure | deferred |
+| occupancy-assertion-gap | [p5-5b-s7-independent-review-7.md](p5-5b-s7-independent-review-7.md) T3 crash barrier owner；`test_await_import_finalize_response_loss_after_terminal_commit_before_worker_ack` 断言 operation/attempt 终态但未断言 post-crash occupancy（S8 handoff 观察） | deferred |
+| shutdown-no-caller | `tests/support/submit_job_harness.py` `RepositoryServiceClient.shutdown` 仅 test harness；无 production caller（S8 handoff 观察） | deferred |
+| private-process-access | `test_await_import_result_consumes_matching_terminal_after_repository_restart` finally 块访问 `service1._process`（S8 handoff 观察；§490 restart owner） | deferred |
+| Repository restart owner 范围 | [p5-5b-submit-finalize-execution-plan.md](p5-5b-submit-finalize-execution-plan.md) §490–491；review-7 | 仅 hard-kill 后持久性 + Backend 消费；graceful shutdown / startup recovery 属其他 owner |
 
 ## Hygiene
 

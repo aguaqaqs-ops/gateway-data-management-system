@@ -30,7 +30,7 @@ implementation_authority_unchanged: true
 five_package_static: pass
 authoritative_runner: pass
 container_rebuild_required: no
-container_reason: S8-F1 test-only; backend Dockerfile copies backend/src only
+container_reason: S8-F1 test-only; backend Dockerfile copies backend/src only; runner ensure may refresh repository-service tag labels without payload change
 s8_gate_evidence: p5-5b-s8-handoff.md
 p5_5b_slice_exit: pass_recommended
 p5_5c_authorized: no
@@ -40,11 +40,25 @@ timezone: Asia/Shanghai
 
 ## 2. Changed paths audit（`87c49763..460d6f5b`）
 
+### 2.1 Code paths（S8-F1 remediation scope）
+
 | Path | Role |
 | --- | --- |
 | `vnext/backend/tests/test_live_session.py` | S8-F1：`Iterator[None]` mypy fix（test-only） |
 
-`git diff --name-only 87c49763..460d6f5b` 与上表完全一致，无 missing/extra。
+```bash
+git diff --name-only 87c49763..460d6f5b -- vnext
+# vnext/backend/tests/test_live_session.py
+```
+
+`-- vnext` 过滤后与上表完全一致，无 missing/extra。
+
+### 2.2 Docs paths（同区间 publication；非 S8-F1 allowed paths）
+
+```bash
+git diff --name-only 87c49763..460d6f5b -- docs
+# 8 paths（README ×2、s7-acceptance、review-8、remediation-handoff、s8-f1-handoff、s8-handoff、execution-plan §9）
+```
 
 ## 3. S8-F1 closure verification
 
@@ -101,8 +115,25 @@ S8 handoff 原记 `sha256:15e496bb…` **不可复现**（与 P4-R5 §8 historic
 
 ### 4.2 Container disposition
 
-`backend/Dockerfile` 仅 `COPY backend/src`；S8-F1 不触碰 build input。三镜像 ID 与 S8
-handoff 记录一致（`6309926b…` / `3ce44246…` / `a725a242…`）；**不重建**。
+`backend/Dockerfile` 仅 `COPY backend/src`；S8-F1 不触碰 backend/worker build input。
+**Gate 不要求**为 S8-F1 手工重建镜像（`container_rebuild_required: no`）。
+
+| Image | Role | Identity @ record time |
+| --- | --- | --- |
+| `deploy-backend:latest` | conjunction smoke @ `87c49763` | `sha256:6309926b…`（unchanged） |
+| `deploy-worker:latest` | conjunction smoke @ `87c49763` | `sha256:3ce44246…`（unchanged） |
+| `gateway-repository-service:local` | smoke @ `87c49763`（**untagged**；按 ID 复核） | `sha256:a725a242…`；`org.opencontainers.image.revision=87c49763` |
+| `gateway-repository-service:local` | **current tag** after authoritative runner @ `460d6f5b` | `sha256:227e661f…`；`revision=460d6f5b`；`build-input-revision=4d1dc010`；`source-tree-sha256=sha256:62a38a08…`；`uv-lock-sha256=6dc9659f…` |
+| `gateway-repository-client-e2e:local` | runner serial batch side effect @ `460d6f5b` | `sha256:b518680f…` |
+
+`ensure_repository_service_image()`（`compose_build_harness.py`；`test_import_compose_e2e.py`、
+`test_versioned_read_compose_e2e.py` 等）在镜像 labels ≠ 当前 build context 时自动重建；
+candidate 取 `git rev-parse HEAD`。权威 runner 的 repository_service serial 批次因此将
+`gateway-repository-service:local` tag 从 `a725a242…` 刷新为 `227e661f…`，但运行时 payload
+逐字节一致（仅含 `CANDIDATE_SHA` 的层/标签不同）。**不改变** S8 gate 结论；复核应优先看
+labels（candidate / build-input / source-tree / lock）或按 ID 引用 smoke 证据镜像。
+
+Conjunction smoke 证据产生于 **`87c49763`**（见 handoff Phase 4 smoke 段标题）。
 
 ### 4.3 records_head
 

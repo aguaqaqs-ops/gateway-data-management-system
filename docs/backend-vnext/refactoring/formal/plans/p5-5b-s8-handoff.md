@@ -221,19 +221,19 @@ for f in docs/backend-vnext/refactoring/formal/plans/p5-5b-s7-independent-review
   sed -i "s/^records_head: .*/records_head: $HEAD/" "$f"
 done
 RH=$(grep -m1 '^records_head:' docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-handoff.md | awk '{print $2}')
-test "$HEAD" = "$RH"      # content seal：amend 前 HEAD 必须等于 records_head
+test "$HEAD" = "$RH"      # content seal：pin 前 HEAD 必须等于 records_head
 git add docs/backend-vnext/refactoring/formal/plans/p5-5b-s7-independent-review-8.md \
         docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-handoff.md \
         docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-independent-review-1.md \
         docs/backend-vnext/refactoring/formal/plans/p5-5b-s7-acceptance.md
-git commit --amend --no-edit
+git commit -m "docs: pin records_head content seal"
 test "$(git rev-parse HEAD^)" = "$RH"   # publication tip parent == content seal
 git branch -a --contains "$RH" | grep -q .
 git status --short        # empty
 ```
 
 `records_head` 为 Hygiene content-seal SHA（publication tip 的 parent）；`git rev-parse HEAD` 为
-publication tip。gate 代码以 `candidate_head: 460d6f5b` 为准。
+pin commit tip。gate 代码以 `candidate_head: 460d6f5b` 为准。
 
 ## Next step
 

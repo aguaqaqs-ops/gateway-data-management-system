@@ -106,7 +106,8 @@ handoff 记录一致（`6309926b…` / `3ce44246…` / `a725a242…`）；**不�
 
 ### 4.3 records_head
 
-Hygiene content-seal SHA；语义见 [p5-5b-s8-handoff.md](p5-5b-s8-handoff.md) Hygiene 块。
+Hygiene content-seal SHA（publication pin commit 的 parent）；语义见
+[p5-5b-s8-handoff.md](p5-5b-s8-handoff.md) Hygiene 块。须 `git branch -a --contains` 可达。
 
 ## 5. Next step
 

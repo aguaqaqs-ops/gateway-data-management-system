@@ -18,7 +18,7 @@ gate_candidate: 460d6f5b1efdb24199534778bd5cc9d4a8131d13
 test_hygiene_seal: 87c497634e4f6417de7fbb46b42086fd61af9031
 test_hygiene_fix_seal: 460d6f5b1efdb24199534778bd5cc9d4a8131d13
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
-records_head: pending_hygiene_seal
+records_head: f9f5422ffc84a3f79d7f08f162840d08a49bb5b4
 parent_review: p5-5b-s7-independent-review-8.md
 authority:
   - p5-5b-s8-f1-remediation-handoff.md

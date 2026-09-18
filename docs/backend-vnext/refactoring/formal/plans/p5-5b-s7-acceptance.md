@@ -17,7 +17,7 @@ remediation_round_3: 7c511c4b8b59842b67d24083abf274ba620b2e7e
 remediation_round_4: e5c43c0c9f71de3cd2e602504ec9034f16add8af
 remediation_round_4_fix: d3661fe0eda4a3463afed879c6a5bbec72f79404
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
-records_head: pending_hygiene_seal
+records_head: f9f5422ffc84a3f79d7f08f162840d08a49bb5b4
 s5_independent_review: pass
 s6_independent_review: pass (p5-5b-s6-independent-review-5.md)
 s7_independent_review: pass (p5-5b-s7-independent-review-7.md)

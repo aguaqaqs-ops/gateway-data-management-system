@@ -12,7 +12,9 @@
 当前内容（仓库 P5 默认入口）：
 
 - [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)
-- [P5-5B-S0 Entry Brief](plans/p5-5b-s0-entry-brief.md)（Submit/AcceptSubmit 详细设计入口；design S0 authorized）
+- [P5-5B-S8 Independent Slice Exit Acceptance](plans/p5-5b-s8-independent-acceptance.md)（`p5_5b_slice_exit: pass`）
+- [P5-5B-S8 Handoff](plans/p5-5b-s8-handoff.md)（gate evidence @ `460d6f5b`）
+- [P5-5B-S0 Entry Brief](plans/p5-5b-s0-entry-brief.md)（historical entry input）
 
 P4-R6 exit（**pass** on sealed candidate `7fbddc73`；解除 5B source/test/deployment 硬前置）：
 
@@ -32,7 +34,7 @@ P5-5A historical input（slice exit pass；container gate pass）：
 - [P5-5A S6 Handoff](plans/p5-5a-s6-handoff.md)（slice exit pass；container gate pass）
 
 P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；**P4-R6 exit pass**。
-P5-5B implementation 仍需单独授权；P4 Active Context Index 不覆盖 P5 semantic default entry。
+P5-5B slice exit pass；P5-5C 尚未授权。P4 Active Context Index 不覆盖 P5 semantic default entry。
 以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述 P5 默认顺序：
 
 - [P4 Active Context Index](plans/p4-active-context-index.md)（P4 专用入口；不是仓库当前默认入口）
@@ -128,17 +130,12 @@ tags `docs/p3-p4-cleanup-pre-20260823`、`docs/p3-p4-cleanup-final-20260823`。
 fixture追溯；其中的同步Preview、`START_REVIEW`、Archive/Repository ref写入或旧状态名不得反向
 覆盖当前P5 authority。
 
-当前阶段：`phase_2_complete: yes`；P3 final closure `p3_exit: pass`、`p4_ready: yes`；
-P4-R1至P4-R5 module gate均为`pass`，R5 validated code为`0fa2b897`。P4-R6-S0 independent
-entry acceptance为`accepted`：registry-name bounded reopen与marker remediation已闭合；S1–S7
-gate execution仍需新的明确授权，R6 implementation与P5B implementation仍未授权。P5总体设计基线accepted；
-P5-5A slice exit `pass`；P5-5B-S0 entry brief
-accepted且`p5_5b_design_s0_authorized: yes`；P5-5B-S8 handoff
-[p5-5b-s8-handoff.md](plans/p5-5b-s8-handoff.md) 建议 `p5_5b_slice_exit=pass_recommended`（S8-F1 closed @ review-1）；
-`p5_5b_implementation_authorized: no`（不自行授权 5C/production）。
-这些docs-only结果不越过P4-R6或授权P5B实现。
+当前阶段：`phase_2_complete: yes`；P3 final closure `p3_exit: pass`；P4-R1至P4-R6均已
+exit/pass。P5总体设计基线accepted；P5-5A slice exit `pass`；P5-5B gate evidence @
+`460d6f5b` 经独立 acceptance 复核，`p5_5b_slice_exit: pass`。P5-5B 的历史 implementation
+authority 已消费并关闭；不由此授权新的 P5-5B 改动、P5-5C 或 production deployment。
 全局`p3_implementation_authorized: no`。P4 专用入口见
 [P4 Active Context Index](plans/p4-active-context-index.md)；仓库当前默认入口是 P5 baseline
-与 [P5-5B-S0 Entry Brief](plans/p5-5b-s0-entry-brief.md)。
+与 [P5-5B-S8 Independent Slice Exit Acceptance](plans/p5-5b-s8-independent-acceptance.md)。
 完整对外接口见
 [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)。

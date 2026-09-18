@@ -1,8 +1,10 @@
 # P5-5B Submit Acceptance and Finalize Execution Plan
 
-状态：**CANDIDATE / DRAFT — independent docs review required; implementation not authorized**
+状态：**EXECUTED — S8 gate pass；independent slice exit pass**
 
 日期：2026-09-13
+
+Exit acceptance：2026-09-18
 
 计划基线 HEAD：`7e8cea7b3454a8cfdd7c2ba880becee5c427a0de`
 
@@ -19,6 +21,8 @@ Finding输入：[P5-5B-S0 Independent Docs Review](p5-5b-s0-independent-docs-rev
 owning contract，也不表示任何步骤已获实现授权或已执行。
 
 ## 1. Authority gate
+
+以下 YAML 是计划起草时的 authority snapshot；执行后的当前状态见 §9 与 §11。
 
 ```yaml
 plan_kind: p5_5b_submit_finalize_execution
@@ -636,10 +640,11 @@ authoritative_runner: pass
 container_gate_for_current_head: passed
 findings_closed: [S7-F2, S8-F1]
 findings_open: []
-p5_5b_slice_exit: pass_recommended
+p5_5b_slice_exit: pass
+independent_exit_acceptance: docs/backend-vnext/refactoring/formal/plans/p5-5b-s8-independent-acceptance.md
 p5_5c_authorized: no
 production_deployment_authorized: no
-next_step: independent_acceptance_authority_for_slice_exit_declaration
+next_step: separate_p5_5c_entry_authorization
 ```
 
 ## 10. S0 finding-scoped remediation
@@ -657,4 +662,17 @@ owning_contract_reopen: not_required
 implementation_authority_changed: false
 candidate_status: candidate_draft_pending_new_independent_review
 next_step: new_independent_docs_review
+```
+
+## 11. Independent slice exit acceptance
+
+[P5-5B-S8 Independent Slice Exit Acceptance](p5-5b-s8-independent-acceptance.md) 对
+`gate_tested_head: 460d6f5b`、container evidence、S7-F2/S8-F1 closure、当前 implementation
+identity 与 provenance 完成独立复核，结论为：
+
+```yaml
+p5_5b_slice_exit: pass
+p5_5c_authorized: no
+production_deployment_authorized: no
+next_step: separate_p5_5c_entry_authorization
 ```

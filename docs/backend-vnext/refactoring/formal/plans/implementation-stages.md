@@ -5,13 +5,12 @@
 本文把 [整体架构总纲](../architecture/architecture-and-refactoring-plan.md) 转换为可执行的重构阶段。阶段编号表示主要依赖顺序，不表示必须完成整个水平层后才能继续；每一阶段只建设下一条业务纵切所需的最小能力，并保持可运行、可验证和可回退。
 
 当前状态：Phase 2 `phase_2_complete: yes`；P3-R1至P3-R7 module gates与final closure均为
-`pass`；P4-R1至P4-R5 module gate均为`pass`。P4-R6最终acceptance/integration gate尚未
-exit（parallel prerequisite）。P5-5A slice exit `pass`，container gate `pass`（证据见
-[P5-5A S6 Handoff](p5-5a-s6-handoff.md)）。P5总体设计accepted；P5-5B-S0 entry brief
-accepted且`p5_5b_design_s0_authorized: yes`；P5-5B implementation仍等待P4-R6 exit和明确
-授权。P4默认上下文从[P4 Active Context Index](p4-active-context-index.md)开始；P5设计入口见
-[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md)与
-[P5-5B-S0 Entry Brief](p5-5b-s0-entry-brief.md)。
+`pass`；P4-R1至P4-R6均已exit/pass。P5-5A slice exit `pass`，container gate `pass`（证据见
+[P5-5A S6 Handoff](p5-5a-s6-handoff.md)）；P5-5B 已由
+[P5-5B-S8 Independent Slice Exit Acceptance](p5-5b-s8-independent-acceptance.md)标记
+`p5_5b_slice_exit: pass`。P5-5C 尚未授权。P4默认上下文从
+[P4 Active Context Index](p4-active-context-index.md)开始；P5当前入口见
+[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md)与上述5B exit记录。
 P3 capability 模块边界与 sealed evidence 见各 module handoff 与
 [P3 Capability Foundation Design](p3-capability-foundation-design.md)。
 历史 P3 S-step/review/execution plan 过程记录已离开默认树；恢复见

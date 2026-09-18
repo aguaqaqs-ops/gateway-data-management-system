@@ -6,13 +6,14 @@ vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约�
 
 ## 当前默认入口
 
-Phase 3 已 exit，P4-R1 至 P4-R5 module gate 已通过；P4-R6 仍是 pending 的最终
-acceptance/integration gate。当前 P5 设计检索从以下材料开始，不要从历史 P4 handoff 或
+Phase 3 已 exit，P4-R1 至 P4-R6 均已 exit/pass；P5-5A 与 P5-5B slice exit 均为 `pass`。
+当前 P5 检索从以下材料开始，不要从历史 P4 handoff 或
 下文旧 contract/capability 清单推导 P5 语义：
 
 - [P5 Business Vertical Slices Design Baseline](refactoring/formal/plans/p5-business-vertical-slices-design.md)
-- [P5-5B-S0 Entry Brief](refactoring/formal/plans/p5-5b-s0-entry-brief.md)
-- [P5-5B-S8 Handoff](refactoring/formal/plans/p5-5b-s8-handoff.md)（current-HEAD gate pass @ `460d6f5b`；S8-F1 closed；建议 slice exit）
+- [P5-5B-S8 Independent Slice Exit Acceptance](refactoring/formal/plans/p5-5b-s8-independent-acceptance.md)（`p5_5b_slice_exit: pass`）
+- [P5-5B-S8 Handoff](refactoring/formal/plans/p5-5b-s8-handoff.md)（gate evidence @ `460d6f5b`；S8-F1 closed）
+- [P5-5B-S0 Entry Brief](refactoring/formal/plans/p5-5b-s0-entry-brief.md)（historical entry input）
 
 P5-5A historical input（slice exit pass；container gate pass）：
 
@@ -39,8 +40,8 @@ contract/capability 清单当作 Repository Service wire 或 P2 完成状态：
 - [P4/R2-S0 Independent Entry Acceptance](refactoring/formal/plans/p4-r2-s0-entry-acceptance.md)
 - [P2 External Interface Handoff](refactoring/formal/plans/p2-external-interface-handoff.md)
 
-P5 总体设计和 5B-S0 详细设计可与 P4-R6 最终验收并行收敛，但 5B 实现必须等待 P4-R6 exit
-和明确授权。
+P5-5B 的历史 implementation authority 已消费并关闭；P5-5C 与 production deployment 仍须
+新的明确授权。
 
 历史 P3 默认入口 `p3-active-context-index.md` 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823`
 与 [P3→P4 Cleanup Manifest](refactoring/formal/plans/p3-p4-cleanup-manifest.yaml)。

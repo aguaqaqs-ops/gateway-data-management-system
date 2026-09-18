@@ -23,7 +23,7 @@ s7_f2_remediation_seal: 4d1dc010deff17249bb2aa54b7563e7a86959096
 test_hygiene_seal: 87c497634e4f6417de7fbb46b42086fd61af9031
 test_hygiene_fix_seal: 460d6f5b1efdb24199534778bd5cc9d4a8131d13
 s8_f1_closure_review: p5-5b-s8-independent-review-1.md
-records_head: f9f5422ffc84a3f79d7f08f162840d08a49bb5b4
+records_head: ed202d846f609fb60a047c0e01422b13d535c7d0
 clean_status: yes
 container_rebuild_required: no
 container_reason: S8-F1 test-only; backend/worker build input unchanged; runner ensure may refresh repository-service tag labels without payload change

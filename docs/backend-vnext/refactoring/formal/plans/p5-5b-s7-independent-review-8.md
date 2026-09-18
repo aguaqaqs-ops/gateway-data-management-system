@@ -16,7 +16,7 @@ review_target: 4d1dc010deff17249bb2aa54b7563e7a86959096
 gate_candidate: 87c497634e4f6417de7fbb46b42086fd61af9031
 test_hygiene_seal: 87c497634e4f6417de7fbb46b42086fd61af9031
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
-records_head: f9f5422ffc84a3f79d7f08f162840d08a49bb5b4
+records_head: ed202d846f609fb60a047c0e01422b13d535c7d0
 parent_review: p5-5b-s7-independent-review-7.md
 authority:
   - p5-5b-s7-independent-review.md §S7-F2

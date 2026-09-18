@@ -12,7 +12,7 @@ Owner：P5-5B Delivery
 
 ```yaml
 stage: P5-5B-S8-final-current-head-gate
-candidate_head: 46b003a9d580ffebf460df6b92e9b9f40d395728
+candidate_head: 87c497634e4f6417de7fbb46b42086fd61af9031
 gate_tested_head: 87c497634e4f6417de7fbb46b42086fd61af9031
 implementation_seal: e5c43c0c9f71de3cd2e602504ec9034f16add8af
 test_evidence_seal: d3661fe0eda4a3463afed879c6a5bbec72f79404
@@ -40,8 +40,9 @@ timezone: Asia/Shanghai
 | `test_evidence_seal` | `d3661fe0` | R4-F1 recovery owner lease 窗口健壮性（test-only） |
 | `s7_f2_remediation_seal` | `4d1dc010` | S7-F2 compose journey + 真实 preview→submit 路径下 snapshot table binding 最小生产修订 |
 | `test_hygiene_seal` | `87c49763` | `test_live_session.py` repository ready probe 隔离（权威 runner 门禁） |
-| `candidate_head` | `46b003a9` | 最终 handoff HEAD（docs pin） |
-| `gate_tested_head` | `87c49763` | 镜像构建与全部 gate 实测代码对象 |
+| `candidate_head` | `87c49763` | 全部 gate 实测代码对象（与 `gate_tested_head` 一致） |
+| `gate_tested_head` | `87c49763` | 镜像构建与 conjunction 实测对象 |
+| `records_head` | 见 YAML 顶栏 | handoff 文档发布 SHA（docs-only 修订可晚于 candidate） |
 
 `implementation_authority_unchanged: false`：`4d1dc010` 在 S7-F2 remediation 中扩展了 allowed paths 外的最小生产修订（`submit_jobs.py`、`submit_acceptance.py`、`contracts.py`），以修复真实 preview artifact 集合无法被 prepare-import 打开的问题；其余 Submit finalize 语义与 Round 4 seal 一致。
 
@@ -134,7 +135,7 @@ GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh
 | Item | Value |
 | --- | --- |
 | Gate tested SHA | `87c497634e4f6417de7fbb46b42086fd61af9031` |
-| Handoff / records SHA | `46b003a9d580ffebf460df6b92e9b9f40d395728` |
+| Handoff / records SHA | 见 YAML `records_head` |
 | Gate worktree porcelain | **empty** |
 | `vnext/**` source-tree digest | `sha256:15e496bbdf7d408587755265c9f61cdc4d370e5c9fdb7a5d09f276d1a871c64e` (860 files) |
 | `deploy/compose.yaml` | `sha256:f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0` |
@@ -187,7 +188,7 @@ cd vnext/backend
 ```bash
 git diff --check          # pass
 git status --short        # empty
-git rev-parse HEAD        # 46b003a9d580ffebf460df6b92e9b9f40d395728
+git rev-parse HEAD        # 应等于 YAML records_head
 ```
 
 ## Next step

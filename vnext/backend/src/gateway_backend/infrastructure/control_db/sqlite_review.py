@@ -6,6 +6,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 
 from gateway_backend.domain.submission.errors import (
+    InvalidReviewReason,
     ReviewClosureViolation,
     ReviewVersionConflict,
 )
@@ -43,22 +44,15 @@ class SQLiteReviewRepository:
         self._read_only = read_only
 
     def get_projection(self, submission_id: str) -> ReviewProjection | None:
-        row = self._connection.execute(
-            """
-            SELECT submission_id, status, optimistic_version, latest_sequence,
-                   updated_by, updated_at_us
-            FROM review_projection_records
-            WHERE submission_id = ?
-            """,
-            (submission_id,),
-        ).fetchone()
-        if row is None:
-            return None
         try:
-            projection = _projection_from_row(row)
+            projection = self._load_projection_unchecked(submission_id)
             events = self._load_events_unchecked(submission_id)
+            if projection is None:
+                if events:
+                    raise ReviewClosureViolation("review projection is missing")
+                return None
             validate_review_closure(projection, events)
-        except (ReviewClosureViolation, ValueError, OverflowError, KeyError) as exc:
+        except (ReviewClosureViolation, ValueError, OverflowError, KeyError, InvalidReviewReason) as exc:
             raise _map_read_error(exc) from exc
         return projection
 
@@ -66,9 +60,12 @@ class SQLiteReviewRepository:
         try:
             projection = self._load_projection_unchecked(submission_id)
             events = self._load_events_unchecked(submission_id)
-            if projection is not None:
-                validate_review_closure(projection, events)
-        except (ReviewClosureViolation, ValueError, OverflowError, KeyError) as exc:
+            if projection is None:
+                if events:
+                    raise ReviewClosureViolation("review projection is missing")
+                return events
+            validate_review_closure(projection, events)
+        except (ReviewClosureViolation, ValueError, OverflowError, KeyError, InvalidReviewReason) as exc:
             raise _map_read_error(exc) from exc
         return events
 
@@ -120,7 +117,7 @@ class SQLiteReviewRepository:
                 raise ReviewClosureViolation(
                     "review idempotency record business_project_id does not match workspace"
                 )
-        except (ReviewClosureViolation, ValueError, OverflowError, KeyError) as exc:
+        except (ReviewClosureViolation, ValueError, OverflowError, KeyError, InvalidReviewReason) as exc:
             raise _map_read_error(exc) from exc
         return record
 

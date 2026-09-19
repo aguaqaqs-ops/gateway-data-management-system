@@ -519,6 +519,97 @@ def test_review_event_reason_byte_bound_uses_blob_length(
                 )
 
 
+def test_sqlite_review_repository_read_fails_when_projection_missing_but_events_exist(
+    db_path: Path,
+) -> None:
+    seed_event, seed_projection = build_seed_projection(
+        submission_id="sub-1",
+        actor_id="actor-1",
+        occurred_at=TS0,
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        _seed_submission_row(unit_of_work.connection)
+        unit_of_work.review.insert_seed(seed_event, seed_projection)
+        unit_of_work.connection.execute(
+            "DELETE FROM review_projection_records WHERE submission_id = ?",
+            ("sub-1",),
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        with pytest.raises(ReviewClosureViolation, match="review projection is missing"):
+            unit_of_work.review.get_projection("sub-1")
+        with pytest.raises(ReviewClosureViolation, match="review projection is missing"):
+            unit_of_work.review.list_events("sub-1")
+
+
+def test_sqlite_review_repository_maps_empty_reason_to_closure_violation(
+    db_path: Path,
+) -> None:
+    seed_event, seed_projection = build_seed_projection(
+        submission_id="sub-1",
+        actor_id="actor-1",
+        occurred_at=TS0,
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        _seed_submission_row(unit_of_work.connection)
+        unit_of_work.review.insert_seed(seed_event, seed_projection)
+        unit_of_work.connection.execute(
+            """
+            UPDATE review_event_records
+            SET reason = ''
+            WHERE submission_id = 'sub-1' AND sequence = 0
+            """
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        with pytest.raises(ReviewClosureViolation, match="reason exceeds bounded size"):
+            unit_of_work.review.get_projection("sub-1")
+        with pytest.raises(ReviewClosureViolation, match="reason exceeds bounded size"):
+            unit_of_work.review.list_events("sub-1")
+
+
+def test_sqlite_review_repository_maps_invalid_transition_chain_to_closure_violation(
+    db_path: Path,
+) -> None:
+    seed_event, seed_projection = build_seed_projection(
+        submission_id="sub-1",
+        actor_id="actor-1",
+        occurred_at=TS0,
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        _seed_submission_row(unit_of_work.connection)
+        unit_of_work.review.insert_seed(seed_event, seed_projection)
+        seed_us = unit_of_work.connection.execute(
+            """
+            SELECT occurred_at_us
+            FROM review_event_records
+            WHERE submission_id = 'sub-1' AND sequence = 0
+            """
+        ).fetchone()[0]
+        unit_of_work.connection.execute(
+            """
+            INSERT INTO review_event_records (
+                submission_id, sequence, event_kind, from_status, to_status,
+                reason, actor_id, occurred_at_us
+            ) VALUES ('sub-1', 1, 'APPROVED', 'REJECTED', 'APPROVED', NULL, 'actor-1', ?)
+            """,
+            (seed_us + 1,),
+        )
+        unit_of_work.connection.execute(
+            """
+            UPDATE review_projection_records
+            SET status = 'APPROVED', optimistic_version = 1, latest_sequence = 1,
+                updated_by = 'actor-1', updated_at_us = ?
+            WHERE submission_id = 'sub-1'
+            """,
+            (seed_us + 1,),
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        with pytest.raises(
+            ReviewClosureViolation,
+            match="review event from_status does not match previous to_status",
+        ):
+            unit_of_work.review.get_projection("sub-1")
+
+
 def test_sqlite_review_repository_cas_projection_missing_row(db_path: Path) -> None:
     stale_projection = ReviewProjection(
         submission_id="sub-1",

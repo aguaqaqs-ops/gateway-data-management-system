@@ -50,6 +50,10 @@ _ACTION_TO_EVENT_KIND: dict[ReviewAction, ReviewEventKind] = {
     ReviewAction.WITHDRAW: ReviewEventKind.WITHDRAWN,
 }
 
+_EVENT_KIND_TO_ACTION: dict[ReviewEventKind, ReviewAction] = {
+    event_kind: action for action, event_kind in _ACTION_TO_EVENT_KIND.items()
+}
+
 _ALLOWED_TRANSITIONS: dict[ReviewStatus, dict[ReviewAction, ReviewStatus]] = {
     ReviewStatus.PENDING: {
         ReviewAction.APPROVE: ReviewStatus.APPROVED,
@@ -208,6 +212,24 @@ def validate_review_closure(
             raise ReviewClosureViolation("review event submission_id does not match projection")
         if event.sequence != index:
             raise ReviewClosureViolation("review event sequence has a gap or duplicate")
+    for index in range(1, len(events)):
+        previous = events[index - 1]
+        event = events[index]
+        if event.from_status != previous.to_status:
+            raise ReviewClosureViolation(
+                "review event from_status does not match previous to_status"
+            )
+        action = _EVENT_KIND_TO_ACTION.get(event.event_kind)
+        if action is None:
+            raise ReviewClosureViolation("review event kind is not an allowed user transition")
+        try:
+            _, target = resolve_review_transition(previous.to_status, action)
+        except InvalidReviewTransition:
+            raise ReviewClosureViolation("review event transition is not allowed") from None
+        if target != event.to_status:
+            raise ReviewClosureViolation(
+                "review event to_status does not match transition policy"
+            )
     latest_event = events[-1]
     latest_sequence = latest_event.sequence
     if projection.optimistic_version != latest_sequence:

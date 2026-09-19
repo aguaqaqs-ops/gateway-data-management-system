@@ -239,12 +239,26 @@ def _seed_event() -> ReviewEvent:
 
 
 def _approve_event(sequence: int) -> ReviewEvent:
+    return _user_event(
+        sequence,
+        from_status=ReviewStatus.PENDING,
+        to_status=ReviewStatus.APPROVED,
+    )
+
+
+def _user_event(
+    sequence: int,
+    *,
+    from_status: ReviewStatus,
+    to_status: ReviewStatus,
+    event_kind: ReviewEventKind = ReviewEventKind.APPROVED,
+) -> ReviewEvent:
     return ReviewEvent(
         submission_id="submission-1",
         sequence=sequence,
-        event_kind=ReviewEventKind.APPROVED,
-        from_status=ReviewStatus.PENDING,
-        to_status=ReviewStatus.APPROVED,
+        event_kind=event_kind,
+        from_status=from_status,
+        to_status=to_status,
         reason=None,
         actor_id="actor-1",
         occurred_at=TS0,
@@ -289,6 +303,32 @@ REVIEW_CLOSURE_VIOLATION_CASES: tuple[
         "review event stream has no seed",
         _pending_projection(),
         (_approve_event(1),),
+    ),
+    (
+        "from_status_chain_break",
+        "review event from_status does not match previous to_status",
+        _pending_projection(),
+        (
+            _seed_event(),
+            _user_event(
+                1,
+                from_status=ReviewStatus.REJECTED,
+                to_status=ReviewStatus.APPROVED,
+            ),
+        ),
+    ),
+    (
+        "invalid_transition",
+        "review event to_status does not match transition policy",
+        _pending_projection(),
+        (
+            _seed_event(),
+            _user_event(
+                1,
+                from_status=ReviewStatus.PENDING,
+                to_status=ReviewStatus.REJECTED,
+            ),
+        ),
     ),
     (
         "optimistic_version_mismatch",

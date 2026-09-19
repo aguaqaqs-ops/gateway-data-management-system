@@ -27,13 +27,12 @@ implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
 remediation_implementation_head: 1726c2d5638f5d9d50f94af24987e942c090d05a
 sealed_doc_tree_head: aedcc06a64a126e261bcd68f204965a7d0fc3b9b
 candidate_head: 188323d75f277f87b0bd7e113b99ef32e3cb4a14
-git_rev_parse_HEAD: 188323d75f277f87b0bd7e113b99ef32e3cb4a14
 uv_lock_in_diff: no
 ```
 
 `implementation_candidate_head` 保留首次 S1 代码交付提交；`remediation_implementation_head` 绑定
-remediation 实现树 `1726c2d5`；`sealed_doc_tree_head` 绑定收口文档树 `aedcc06a`；`candidate_head` / `git_rev_parse_HEAD`
-绑定 sealed binding tip `b800ae84`。
+remediation 实现树 `1726c2d5`；`sealed_doc_tree_head` 绑定收口文档树 `aedcc06a`；
+`candidate_head` 绑定 sealed binding commit `188323d7`（handoff 不自我引用后续 docs-only tip）。
 
 ## Finding → fix → owner → retest
 
@@ -42,7 +41,7 @@ remediation 实现树 `1726c2d5`；`sealed_doc_tree_head` 绑定收口文档树 
 | **P1-A** | 纠正 `f29a8915` 错误绑定 `8d68c2d4`；`remediation_implementation_head` 固定为 `1726c2d5` | docs | handoff YAML 审计 |
 | **P1-1** | handoff `parent_head`/`implementation_candidate_head`/`candidate_head` 分离绑定 | docs | handoff YAML 审计 |
 | **P1-B** | vertical-slices §2/页眉旧 S0 正文对齐；`p5_implementation_authorized` 保持 `no` | docs | baseline 一致性扫描 |
-| **P1-A2** | sealed binding：`candidate_head`/`git_rev_parse_HEAD` 绑定 `aedcc06a` 文档树 | docs | handoff YAML 审计 |
+| **P1-A2** | sealed binding：`candidate_head` 绑定 `188323d7`；移除 `git_rev_parse_HEAD` 自指字段 | docs | handoff YAML 审计 |
 | **P1-2** | authority YAML 与正文/next-action 对齐；`p5_implementation_authorized` 回退为 `no` | docs | 四份 plan 一致性扫描 |
 | **P1-3** | design §6.1 拆分 inbound command 与 validation/result fingerprint；新增 `ApplyReviewValidationResult` | `test_review_domain.py` | validation/result shape + helper |
 | **P2-4** | NFC/NFD、negative command、真实 `ReviewFacts` 参数表 | `test_review_domain.py` | focused unit gate |

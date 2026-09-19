@@ -28,14 +28,13 @@ implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
 remediation_implementation_head: 1726c2d5638f5d9d50f94af24987e942c090d05a
 sealed_doc_tree_head: aedcc06a64a126e261bcd68f204965a7d0fc3b9b
 candidate_head: 188323d75f277f87b0bd7e113b99ef32e3cb4a14
-git_rev_parse_HEAD: 188323d75f277f87b0bd7e113b99ef32e3cb4a14
 uv_lock_in_diff: no
 ```
 
 `implementation_candidate_head` 绑定首次 S1 代码交付提交 `82f353de`；
 `remediation_implementation_head` 绑定 finding-scoped remediation 实现树 `1726c2d5`（gate 已验证）。
-`sealed_doc_tree_head` 绑定 authority/traceability 收口文档树 `aedcc06a`；`candidate_head` /
-`git_rev_parse_HEAD` 绑定 sealed binding tip `b800ae84`（见
+`sealed_doc_tree_head` 绑定 authority/traceability 收口文档树 `aedcc06a`；
+`candidate_head` 绑定 sealed binding commit `188323d7`（不在 handoff 内自我引用当前 tip；见
 [p5-5c-s1-remediation-handoff.md](p5-5c-s1-remediation-handoff.md)）。
 
 ```yaml

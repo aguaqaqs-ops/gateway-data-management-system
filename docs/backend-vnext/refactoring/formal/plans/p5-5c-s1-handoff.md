@@ -25,7 +25,7 @@ production_deployment_authorized: false
 stage: P5-5C-S1-review-domain-application
 parent_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
 implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
-candidate_head: cde8d316c47b7d77c1bbba7ace0d1e8948f330c2
+candidate_head: 8d68c2d4a6f961909d09363614dfba65f346fe2e
 uv_lock_in_diff: no
 ```
 
@@ -95,7 +95,7 @@ remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s1-remedi
 independent_countersign:
   review: pending
   implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
-  candidate_head: cde8d316c47b7d77c1bbba7ace0d1e8948f330c2
+  candidate_head: 8d68c2d4a6f961909d09363614dfba65f346fe2e
 ```
 
 ## Notes

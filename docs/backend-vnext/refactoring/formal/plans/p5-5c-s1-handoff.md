@@ -27,15 +27,16 @@ parent_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
 implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
 remediation_implementation_head: 1726c2d5638f5d9d50f94af24987e942c090d05a
 sealed_doc_tree_head: aedcc06a64a126e261bcd68f204965a7d0fc3b9b
-candidate_head: aedcc06a64a126e261bcd68f204965a7d0fc3b9b
-git_rev_parse_HEAD: aedcc06a64a126e261bcd68f204965a7d0fc3b9b
+candidate_head: 5b60a370901a70a950369280feb5622acbf5e1c0
+git_rev_parse_HEAD: 5b60a370901a70a950369280feb5622acbf5e1c0
 uv_lock_in_diff: no
 ```
 
 `implementation_candidate_head` 绑定首次 S1 代码交付提交 `82f353de`；
 `remediation_implementation_head` 绑定 finding-scoped remediation 实现树 `1726c2d5`（gate 已验证）。
-`sealed_doc_tree_head` / `candidate_head` 绑定 authority/traceability 收口后的 clean 文档树
-`aedcc06a`（见 [p5-5c-s1-remediation-handoff.md](p5-5c-s1-remediation-handoff.md)）。
+`sealed_doc_tree_head` 绑定 authority/traceability 收口文档树 `aedcc06a`；`candidate_head` /
+`git_rev_parse_HEAD` 绑定 sealed binding tip `5b60a370`（见
+[p5-5c-s1-remediation-handoff.md](p5-5c-s1-remediation-handoff.md)）。
 
 ```yaml
 stage: P5-5C-S1-review-domain-application
@@ -101,7 +102,7 @@ independent_countersign:
   implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
   remediation_implementation_head: 1726c2d5638f5d9d50f94af24987e942c090d05a
   sealed_doc_tree_head: aedcc06a64a126e261bcd68f204965a7d0fc3b9b
-  candidate_head: aedcc06a64a126e261bcd68f204965a7d0fc3b9b
+  candidate_head: 5b60a370901a70a950369280feb5622acbf5e1c0
 ```
 
 ## Notes

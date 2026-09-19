@@ -25,12 +25,14 @@ production_deployment_authorized: false
 stage: P5-5C-S1-review-domain-application
 parent_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
 implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
-candidate_head: 8d68c2d4a6f961909d09363614dfba65f346fe2e
+remediation_implementation_head: 1726c2d5638f5d9d50f94af24987e942c090d05a
+candidate_head: 1726c2d5638f5d9d50f94af24987e942c090d05a
 uv_lock_in_diff: no
 ```
 
-`implementation_candidate_head` 绑定首次 S1 代码交付提交 `82f353de`；`candidate_head` 在
-finding-scoped remediation 完成后绑定最终验证树（见
+`implementation_candidate_head` 绑定首次 S1 代码交付提交 `82f353de`；
+`remediation_implementation_head` 绑定 finding-scoped remediation 实现树 `1726c2d5`（gate 已验证）。
+`candidate_head` 在 sealed countersign binding 后指向 clean 文档树 tip（见
 [p5-5c-s1-remediation-handoff.md](p5-5c-s1-remediation-handoff.md)）。
 
 ```yaml
@@ -95,7 +97,7 @@ remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s1-remedi
 independent_countersign:
   review: pending
   implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
-  candidate_head: 8d68c2d4a6f961909d09363614dfba65f346fe2e
+  candidate_head: 1726c2d5638f5d9d50f94af24987e942c090d05a
 ```
 
 ## Notes

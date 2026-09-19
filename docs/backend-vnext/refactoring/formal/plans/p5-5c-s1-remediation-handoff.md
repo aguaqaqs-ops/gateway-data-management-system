@@ -24,17 +24,21 @@ production_deployment_authorized: false
 ```yaml
 parent_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
 implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
-candidate_head: 8d68c2d4a6f961909d09363614dfba65f346fe2e
+remediation_implementation_head: 1726c2d5638f5d9d50f94af24987e942c090d05a
+candidate_head: 1726c2d5638f5d9d50f94af24987e942c090d05a
 uv_lock_in_diff: no
 ```
 
-`implementation_candidate_head` 保留首次 S1 代码交付提交；`candidate_head` 绑定本 remediation 验证树。
+`implementation_candidate_head` 保留首次 S1 代码交付提交；`remediation_implementation_head` 绑定
+remediation 实现树 `1726c2d5`；`candidate_head` 在 sealed binding 后指向 clean 文档树 tip。
 
 ## Finding → fix → owner → retest
 
 | Finding | 修复摘要 | Test owner | Retest |
 | --- | --- | --- | --- |
+| **P1-A** | 纠正 `f29a8915` 错误绑定 `8d68c2d4`；`remediation_implementation_head` 固定为 `1726c2d5` | docs | handoff YAML 审计 |
 | **P1-1** | handoff `parent_head`/`implementation_candidate_head`/`candidate_head` 分离绑定 | docs | handoff YAML 审计 |
+| **P1-B** | vertical-slices §2/页眉旧 S0 正文对齐；`p5_implementation_authorized` 保持 `no` | docs | baseline 一致性扫描 |
 | **P1-2** | authority YAML 与正文/next-action 对齐；`p5_implementation_authorized` 回退为 `no` | docs | 四份 plan 一致性扫描 |
 | **P1-3** | design §6.1 拆分 inbound command 与 validation/result fingerprint；新增 `ApplyReviewValidationResult` | `test_review_domain.py` | validation/result shape + helper |
 | **P2-4** | NFC/NFD、negative command、真实 `ReviewFacts` 参数表 | `test_review_domain.py` | focused unit gate |

@@ -4,7 +4,7 @@
 
 日期：2026-09-06
 
-状态更新：2026-09-18（P5-5B exit；P5-5C-S0 docs-only entry/design authorization）
+状态更新：2026-09-19（P5-5C design accepted；S1 implementation authorized；remediation pending countersign）
 
 Owner：Backend vNext Business Applications and Interfaces
 
@@ -20,7 +20,7 @@ Owner：Backend vNext Business Applications and Interfaces
 
 5C 入口：[P5-5C-S0 Entry Brief](p5-5c-s0-entry-brief.md)
 
-5C design candidate：[P5-5C Review Detailed Design](p5-5c-review-design.md)、
+5C design：[P5-5C Review Detailed Design](p5-5c-review-design.md)、
 [P5-5C Review Execution Plan](p5-5c-review-execution-plan.md)
 
 5A historical input：[P5-5A S6 Handoff](p5-5a-s6-handoff.md)
@@ -64,9 +64,10 @@ implementation、production deployment 或 contract/wire/trust boundary 变更�
 P5按`5A Upload/Preview -> 5B Submit -> 5C Review -> 5D Archive -> 5E History Compare`
 交付正式业务纵切。总体基线只冻结跨Slice identity、owner、事务、权限和Repository边界。
 **5A** slice exit pass，作为 historical input / slice evidence，不再作为默认详细设计入口。
-**5B** slice exit pass；S0 entry、详细设计与执行记录转为 historical input。**5C** 已取得
-docs-only S0 entry/design authority，其 detailed design/execution plan 是待独立复核的 candidate；不从
-docs authority 推导 implementation 或 production authority。**5D–5E** 仍待新的明确授权。
+**5B** slice exit pass；S0 entry、详细设计与执行记录转为 historical input。**5C** design 已
+accepted；S1 implementation 在 `0e9c131b` 授权并于 `82f353de` 交付；finding-scoped remediation 于
+`1726c2d5` 闭合代码/契约问题，当前 pending independent S1 countersign。**5D–5E** 仍待新的明确授权；
+production deployment 未授权。
 
 P5第一屏交付的是可用业务API和前端loader所需bundle，不建设营销或兼容适配层。新vNext HTTP
 DTO独立版本化，不承诺旧`/api/*` wire兼容；legacy只用于发现需要保留的业务语义和fixture。

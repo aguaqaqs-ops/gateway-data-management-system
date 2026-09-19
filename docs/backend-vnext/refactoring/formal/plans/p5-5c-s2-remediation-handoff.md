@@ -24,7 +24,7 @@ production_deployment_authorized: false
 stage: P5-5C-S2-remediation
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s2-handoff.md
 implementation_candidate_head: 0f446c8b9070eea8cba5b5cf1d2e7cddcb0d1fca
-sealed_doc_tree_head: pending_docs_commit
+sealed_doc_tree_head: b7846d9ed9c9a81e8a58e603d655c87b10390d5b
 workspace_schema_version: 4
 uv_lock_in_diff: no
 finding_remediation: F1-F12

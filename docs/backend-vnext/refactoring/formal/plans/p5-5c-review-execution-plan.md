@@ -96,6 +96,8 @@ vnext/backend/src/gateway_backend/application/submission/ports.py
 vnext/backend/src/gateway_backend/infrastructure/control_db/migrations.py
 vnext/backend/src/gateway_backend/infrastructure/control_db/database.py
 vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_review.py
+vnext/backend/src/gateway_backend/application/submit_jobs.py
+vnext/backend/src/gateway_backend/bootstrap/operation_worker.py
 vnext/backend/src/gateway_backend/http/dependencies.py
 vnext/backend/src/gateway_backend/http/errors.py
 vnext/backend/src/gateway_backend/http/orchestration/review.py

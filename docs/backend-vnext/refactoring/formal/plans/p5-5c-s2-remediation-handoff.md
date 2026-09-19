@@ -1,6 +1,6 @@
 # P5-5C-S2 Finding-Scoped Remediation Handoff
 
-状态：**S2 remediation delivered — pending independent closure**
+状态：**S2 remediation + R1–R6 closure delivered — pending independent closure**
 
 日期：2026-09-20
 
@@ -24,19 +24,26 @@ production_deployment_authorized: false
 stage: P5-5C-S2-remediation
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s2-handoff.md
 implementation_candidate_head: 0f446c8b9070eea8cba5b5cf1d2e7cddcb0d1fca
+remediation_implementation_head: d7332bc2c089775280c0b463bb735d9fe29d754c
 sealed_doc_tree_head: b7846d9ed9c9a81e8a58e603d655c87b10390d5b
+candidate_head: pending_docs_commit
 workspace_schema_version: 4
 uv_lock_in_diff: no
-finding_remediation: F1-F12
+finding_remediation: F1-F12, R1-R6
 next_step: P5-5C-S3
 ```
+
+`implementation_candidate_head` 保留首次 S2 代码交付提交 `0f446c8b`；
+`remediation_implementation_head` 绑定 R1–R6 不变量收口提交 `d7332bc2`；
+`sealed_doc_tree_head` 绑定首轮 remediation 文档树 `b7846d9e`；
+`candidate_head` 绑定本轮 seal 承载 commit（handoff 不自我引用当前 tip）。
 
 ## Input authority
 
 - `docs/backend-vnext/refactoring/formal/plans/p5-5c-review-design.md`
 - `docs/backend-vnext/refactoring/formal/plans/p5-5c-review-execution-plan.md`
 - `docs/backend-vnext/refactoring/formal/plans/p5-5c-s2-handoff.md`
-- Independent S2 review findings F1–F12
+- Independent S2 review findings F1–F12 and residual R1–R6
 
 ## Scope paths
 
@@ -67,6 +74,20 @@ next_step: P5-5C-S3
 | F10 | Deleted `review_seed.py`; `submit_jobs` factory typed as `WorkspaceControlTransaction` |
 | F11 | This structured handoff |
 | F12 | Backfill uses `INSERT … SELECT` |
+| R1 | Closure matrix: `expected_reason` + true `sequence_gap` / `latest_sequence_mismatch` |
+| R2 | `append_event` rejects empty stream; `validate_review_closure` requires seed at sequence 0 |
+| R3 | `ReviewReadPort` docstrings document read-side fail-closed |
+| R4 | `candidate_head` + `remediation_implementation_head` triple-SHA binding |
+| R5 | `operation_worker.py` / `submit_jobs.py` in execution plan §3.1; cast rationale recorded |
+| R6 | T3 replay test UoW hygiene; backfill `ORDER BY` removed |
+
+### F10 / R5 cast note
+
+`build_worker_write_uow_factory` retains `cast(SubmitControlTransactionFactory, preview_bound)`.
+Runtime `ControlDbUnitOfWork` returned by `control_transaction_factory` structurally satisfies
+`WorkspaceControlTransaction` after `bind_control_transaction_factory`; behavior unchanged from
+pre-remediation. Path budget now includes `bootstrap/operation_worker.py` and
+`application/submit_jobs.py`.
 
 ## Unique test owners
 
@@ -82,12 +103,13 @@ cd vnext/backend
   tests/test_review_domain.py tests/test_review_persistence.py \
   tests/test_submit_transactions.py tests/test_submit_control_db_migrations.py \
   tests/test_sqlite_submit_repository.py
-# => 148 passed
+# => 152 passed
 
 ../scripts/uv-consume.sh -C . run ruff check \
   src/gateway_backend/infrastructure/control_db \
   src/gateway_backend/application/submission \
   src/gateway_backend/application/submit_jobs.py \
+  src/gateway_backend/domain/submission/ports.py \
   tests/test_review_domain.py tests/test_review_persistence.py tests/test_submit_transactions.py
 # => All checks passed
 
@@ -113,5 +135,5 @@ None introduced.
 
 ```yaml
 review: pending
-next_step: independent_s2_remediation_closure
+next_step: P5-5C-S3
 ```

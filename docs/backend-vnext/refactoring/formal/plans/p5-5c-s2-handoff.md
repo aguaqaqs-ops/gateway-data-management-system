@@ -1,6 +1,6 @@
 # P5-5C-S2 Control DB Schema, Migration, Repository and Finalize Seed Handoff
 
-状态：**S2 remediation delivered — pending independent closure**
+状态：**S2 remediation + R1–R6 closure delivered — pending independent closure**
 
 日期：2026-09-20
 
@@ -24,10 +24,11 @@ production_deployment_authorized: false
 stage: P5-5C-S2-control-db-migration-repository-finalize-seed
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s1-handoff.md
 implementation_candidate_head: 0f446c8b9070eea8cba5b5cf1d2e7cddcb0d1fca
+remediation_implementation_head: d7332bc2c089775280c0b463bb735d9fe29d754c
 workspace_schema_version: 4
 uv_lock_in_diff: no
 remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s2-remediation-handoff.md
-next_step: independent_s2_remediation_closure
+next_step: P5-5C-S3
 ```
 
 ## Input authority
@@ -75,7 +76,7 @@ cd vnext/backend
   tests/test_review_domain.py tests/test_review_persistence.py \
   tests/test_submit_transactions.py tests/test_submit_control_db_migrations.py \
   tests/test_sqlite_submit_repository.py
-# => 148 passed (post-remediation)
+# => 152 passed (post R1-R6 closure)
 
 ../scripts/uv-consume.sh -C . run ruff check src/gateway_backend/infrastructure/control_db \
   src/gateway_backend/application/submission src/gateway_backend/application/submit_jobs.py \
@@ -104,5 +105,5 @@ None.
 
 ```yaml
 review: pending
-next_step: independent_s2_remediation_closure
+next_step: P5-5C-S3
 ```

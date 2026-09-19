@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -10,6 +11,10 @@ import pytest
 from gateway_backend.application.submission.review_contracts import (
     REVIEW_APPLY_FINGERPRINT_GOLDEN,
     ApplyReviewCommand,
+    ApplyReviewResult,
+    ApplyReviewValidationResult,
+    ReviewFacts,
+    build_apply_review_request_fingerprint_from_command,
     compute_review_apply_request_fingerprint,
     validate_apply_review_command,
 )
@@ -126,6 +131,25 @@ FINGERPRINT_SENSITIVITY_CASES = (
     ("repository_id", "repository-1", "repository-2"),
     ("submission_id", "submission-1", "submission-2"),
     ("workspace_id", "workspace-1", "workspace-2"),
+)
+
+_NFC_E_ACUTE = "\u00e9"
+_NFD_E_ACUTE = "e\u0301"
+REVIEW_REASON_NORMALIZATION_CASES = (
+    ("nfc_form", f"caf{_NFC_E_ACUTE}"),
+    ("nfd_form", f"caf{_NFD_E_ACUTE}"),
+)
+
+INVALID_APPLY_REVIEW_COMMAND_CASES = (
+    ("negative_version", {"expected_review_version": -1}, ValueError),
+    ("empty_submission_id", {"submission_id": ""}, ValueError),
+    ("invalid_key", {"idempotency_key": " "}, InvalidReviewIdempotencyKey),
+    ("missing_reason", {"action": ReviewAction.REJECT, "reason": None}, InvalidReviewReason),
+)
+
+REVIEW_FACTS_CASES = (
+    ("seed_only", (0,)),
+    ("seed_and_approve", (0, 1)),
 )
 
 
@@ -291,24 +315,149 @@ def test_compute_review_apply_request_fingerprint_changes_when_closed_object_cha
     assert changed != baseline
 
 
+@pytest.mark.parametrize(("case_id", "overrides", "expected_error"), INVALID_APPLY_REVIEW_COMMAND_CASES)
+def test_validate_apply_review_command_rejects_invalid_inputs(
+    case_id: str,
+    overrides: dict[str, Any],
+    expected_error: type[Exception],
+) -> None:
+    with pytest.raises(expected_error):
+        validate_apply_review_command(_apply_command(**overrides))
+
+
+def test_validate_apply_review_command_rejects_wrong_action_type() -> None:
+    command = ApplyReviewCommand(
+        context=IDENTITY,
+        submission_id="submission-1",
+        expected_review_version=0,
+        action=cast(ReviewAction, "APPROVE"),
+        reason=None,
+        idempotency_key="review-key-1",
+    )
+    with pytest.raises(ValueError, match="action must be ReviewAction"):
+        validate_apply_review_command(command)
+
+
 def test_validate_apply_review_command_accepts_valid_command() -> None:
     command = _apply_command(action=ReviewAction.REJECT, reason="needs work")
     assert validate_apply_review_command(command) is command
 
 
-def test_validate_apply_review_command_rejects_invalid_transition_inputs() -> None:
-    with pytest.raises(InvalidReviewReason):
-        validate_apply_review_command(_apply_command(action=ReviewAction.REJECT, reason=None))
+@pytest.mark.parametrize(("case_id", "reason"), REVIEW_REASON_NORMALIZATION_CASES)
+def test_validate_review_reason_preserves_unicode_normalization_form(
+    case_id: str,
+    reason: str,
+) -> None:
+    assert validate_review_reason(ReviewAction.REJECT, reason) == reason
 
 
-def test_review_facts_shape_uses_projection_and_ordered_events() -> None:
-    projection = _pending_projection()
-    event, _ = build_seed_projection(
+def test_compute_review_apply_request_fingerprint_does_not_normalize_reason() -> None:
+    nfc_reason = f"needs {_NFC_E_ACUTE} review"
+    nfd_reason = f"needs {_NFD_E_ACUTE} review"
+    assert unicodedata.normalize("NFC", nfc_reason) == unicodedata.normalize("NFC", nfd_reason)
+    nfc_fingerprint = compute_review_apply_request_fingerprint(
+        **cast(
+            Any,
+            {**FINGERPRINT_BASE, "action": ReviewAction.REJECT, "reason": nfc_reason},
+        )
+    )
+    nfd_fingerprint = compute_review_apply_request_fingerprint(
+        **cast(
+            Any,
+            {**FINGERPRINT_BASE, "action": ReviewAction.REJECT, "reason": nfd_reason},
+        )
+    )
+    assert nfc_fingerprint != nfd_fingerprint
+
+
+def test_build_apply_review_request_fingerprint_from_command_matches_scope_closure() -> None:
+    command = _apply_command(action=ReviewAction.REJECT, reason="needs work")
+    fingerprint = build_apply_review_request_fingerprint_from_command(
+        command=command,
+        workspace_id="workspace-1",
+        repository_id="repository-1",
+    )
+    expected = compute_review_apply_request_fingerprint(
+        action=ReviewAction.REJECT,
+        business_project_id="project-1",
+        expected_review_version=0,
+        gateway_device_external_key="device-1",
+        reason="needs work",
+        repository_id="repository-1",
+        submission_id="submission-1",
+        workspace_id="workspace-1",
+    )
+    assert fingerprint == expected
+
+
+def test_apply_review_validation_result_carries_request_fingerprint() -> None:
+    command = _apply_command(action=ReviewAction.REJECT, reason="needs work")
+    fingerprint = build_apply_review_request_fingerprint_from_command(
+        command=command,
+        workspace_id="workspace-1",
+        repository_id="repository-1",
+    )
+    validation = ApplyReviewValidationResult(
+        workspace_id="workspace-1",
+        repository_id="repository-1",
+        business_project_id="project-1",
+        gateway_device_external_key="device-1",
+        submission_id="submission-1",
+        expected_review_version=0,
+        action=ReviewAction.REJECT,
+        reason="needs work",
+        idempotency_key="review-key-1",
+        request_fingerprint=fingerprint,
+        replay=False,
+    )
+    assert validation.request_fingerprint == fingerprint
+    assert validation.replay is False
+
+
+def test_apply_review_result_carries_request_fingerprint() -> None:
+    event, projection = build_seed_projection(
         submission_id="submission-1",
         actor_id="actor-1",
         occurred_at=TS0,
     )
-    facts_projection = projection
-    facts_events = (event,)
-    assert facts_projection.status is ReviewStatus.PENDING
-    assert facts_events[0].sequence == 0
+    result = ApplyReviewResult(
+        event=event,
+        projection=projection,
+        request_fingerprint=REVIEW_APPLY_FINGERPRINT_GOLDEN,
+    )
+    assert result.request_fingerprint == REVIEW_APPLY_FINGERPRINT_GOLDEN
+
+
+@pytest.mark.parametrize(("case_id", "sequences"), REVIEW_FACTS_CASES)
+def test_review_facts_preserves_projection_and_event_tuple(
+    case_id: str,
+    sequences: tuple[int, ...],
+) -> None:
+    projection = _pending_projection()
+    seed_event, _ = build_seed_projection(
+        submission_id="submission-1",
+        actor_id="actor-1",
+        occurred_at=TS0,
+    )
+    events: list[ReviewEvent] = [seed_event]
+    if 1 in sequences:
+        event_kind, to_status = resolve_review_transition(
+            ReviewStatus.PENDING,
+            ReviewAction.APPROVE,
+        )
+        events.append(
+            ReviewEvent(
+                submission_id="submission-1",
+                sequence=1,
+                event_kind=event_kind,
+                from_status=ReviewStatus.PENDING,
+                to_status=to_status,
+                reason=None,
+                actor_id="actor-1",
+                occurred_at=TS0,
+            )
+        )
+    facts = ReviewFacts(projection=projection, events=tuple(events))
+    assert facts.projection is projection
+    assert tuple(event.sequence for event in facts.events) == sequences
+    # Ascending event order is enforced by ReviewReadPort.list_events, not ReviewFacts.

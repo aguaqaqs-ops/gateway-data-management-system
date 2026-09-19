@@ -24,6 +24,8 @@ REVIEW_APPLY_FINGERPRINT_GOLDEN = (
 
 @dataclass(frozen=True, slots=True)
 class ApplyReviewCommand:
+    """Inbound caller command; does not carry request_fingerprint."""
+
     context: IdentityContext
     submission_id: str
     expected_review_version: int
@@ -33,9 +35,27 @@ class ApplyReviewCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ApplyReviewValidationResult:
+    """Application-internal validation output after scope closure."""
+
+    workspace_id: str
+    repository_id: str
+    business_project_id: str
+    gateway_device_external_key: str
+    submission_id: str
+    expected_review_version: int
+    action: ReviewAction
+    reason: str | None
+    idempotency_key: str
+    request_fingerprint: str
+    replay: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ApplyReviewResult:
     event: ReviewEvent
     projection: ReviewProjection
+    request_fingerprint: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,8 +108,29 @@ def compute_review_apply_request_fingerprint(
     return f"sha256:{digest}"
 
 
+def build_apply_review_request_fingerprint_from_command(
+    *,
+    command: ApplyReviewCommand,
+    workspace_id: str,
+    repository_id: str,
+) -> str:
+    """Compute request fingerprint after scope closure using validated command facts."""
+
+    validated_command = validate_apply_review_command(command)
+    return compute_review_apply_request_fingerprint(
+        action=validated_command.action,
+        business_project_id=validated_command.context.business_project_id,
+        expected_review_version=validated_command.expected_review_version,
+        gateway_device_external_key=validated_command.context.gateway_device_external_key,
+        reason=validated_command.reason,
+        repository_id=repository_id,
+        submission_id=validated_command.submission_id,
+        workspace_id=workspace_id,
+    )
+
+
 def validate_apply_review_command(command: ApplyReviewCommand) -> ApplyReviewCommand:
-    """Validate command fields that must fail before persistence."""
+    """Validate inbound command fields that must fail before persistence."""
 
     if type(command.context) is not IdentityContext:
         raise ValueError("context must be IdentityContext")

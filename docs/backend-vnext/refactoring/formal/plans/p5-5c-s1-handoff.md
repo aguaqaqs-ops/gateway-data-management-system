@@ -1,6 +1,6 @@
 # P5-5C-S1 Review Domain and Application Handoff
 
-状态：**S1 closure delivered — independent review required**
+状态：**S1 delivered — remediation applied; independent countersign pending**
 
 日期：2026-09-19
 
@@ -24,9 +24,14 @@ production_deployment_authorized: false
 ```yaml
 stage: P5-5C-S1-review-domain-application
 parent_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
-candidate_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
+implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
+candidate_head: cde8d316c47b7d77c1bbba7ace0d1e8948f330c2
 uv_lock_in_diff: no
 ```
+
+`implementation_candidate_head` 绑定首次 S1 代码交付提交 `82f353de`；`candidate_head` 在
+finding-scoped remediation 完成后绑定最终验证树（见
+[p5-5c-s1-remediation-handoff.md](p5-5c-s1-remediation-handoff.md)）。
 
 ```yaml
 stage: P5-5C-S1-review-domain-application
@@ -61,13 +66,14 @@ invariants_delivered:
   - terminal status and invalid action/status/version fail before persistence
   - bounded reason and Idempotency-Key contracts with no trim or Unicode normalization
   - versioned closed-object RFC 8785 JCS/SHA-256 review apply fingerprint with frozen golden digest
+  - inbound ApplyReviewCommand without request_fingerprint; ApplyReviewValidationResult / ApplyReviewResult carry fingerprint
   - Review read/write ports and WorkspaceControlTransaction / WorkspaceControlUnitOfWorkFactory composition
   - ReviewIntegrityFailure application error type defined for later closure validation
 unique_test_owners:
   - tests/test_review_domain.py
   - tests/test_architecture.py
 focused_commands_and_results:
-  - cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest -q -m unit tests/test_review_domain.py tests/test_architecture.py => 103 passed
+  - cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest -q -m unit tests/test_review_domain.py tests/test_architecture.py => 114 passed (post-remediation)
   - cd vnext/backend && ../scripts/uv-consume.sh -C . run ruff check src/gateway_backend/domain/submission src/gateway_backend/application/submission tests/test_review_domain.py => pass
   - cd vnext/backend && ../scripts/uv-consume.sh -C . run mypy => pass (380 source files)
 forbidden_imports: none
@@ -84,10 +90,12 @@ deferred:
   - compose journey and authoritative runner/container gate (S5)
 reopen_required: []
 implementation_authority_unchanged: true
-next_step: P5-5C-S2 entry (pending independent S1 review)
+next_step: independent_s1_countersign
+remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s1-remediation-handoff.md
 independent_countersign:
   review: pending
-  candidate_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
+  implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
+  candidate_head: cde8d316c47b7d77c1bbba7ace0d1e8948f330c2
 ```
 
 ## Notes

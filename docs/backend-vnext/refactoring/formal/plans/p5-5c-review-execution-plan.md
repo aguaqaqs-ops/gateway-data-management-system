@@ -1,6 +1,6 @@
 # P5-5C Review Execution Plan
 
-状态：**IMPLEMENTATION AUTHORIZED — S1 IN PROGRESS**
+状态：**S1 REMEDIATION — PENDING INDEPENDENT REVIEW**
 
 日期：2026-09-19
 
@@ -20,6 +20,7 @@ Owner：P5-5C Delivery + Architecture Acceptance
 plan_kind: p5_5c_review_execution
 authority_base_sha: a7ed4090bd1e182a77aff074ac9573692cfce9d6
 implementation_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
+s1_implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
 p5_5b_slice_exit: pass
 p5_5c_s0_entry_authorized: yes
 p5_5c_design_s0_authorized: yes
@@ -159,7 +160,7 @@ vnext/**/uv.lock
 
 - `ReviewStatus`、`ReviewEventKind`、immutable `ReviewEvent`、`ReviewProjection`、
   `ReviewIdempotencyRecord`；
-- `ReviewAction`、`ApplyReviewCommand/Result`、`ReviewFacts`；
+- `ReviewAction`、`ApplyReviewCommand`、`ApplyReviewValidationResult`、`ApplyReviewResult`、`ReviewFacts`；
 - transition policy 与 exact reason/key character and length contract；
 - Review read/write/UoW ports，以及兼容既有 Submit consumer 的组合
   `WorkspaceControlTransaction` / `WorkspaceControlUnitOfWorkFactory`；
@@ -477,6 +478,7 @@ independent_docs_review: pass
 p5_5c_implementation_authorized: yes
 source_or_test_change_authorized: true
 first_authorized_step: P5-5C-S1
-current_stage: P5-5C-S1
-next_step: P5-5C-S1-handoff
+current_stage: P5-5C-S1-remediation
+next_step: independent_s1_countersign
+remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s1-remediation-handoff.md
 ```

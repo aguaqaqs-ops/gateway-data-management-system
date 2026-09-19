@@ -50,13 +50,13 @@ p5_5c_design: accepted
 p5_5c_design_status: accepted
 p5_5c_implementation_authorized: yes
 first_authorized_step: P5-5C-S1
-p5_implementation_authorized: yes
+p5_implementation_authorized: no
 ```
 
 P5-5B 的历史 implementation 与 real Repository effect authority 已在 S1–S8 执行链中消费并关闭；
 独立 acceptance 已声明 `p5_5b_slice_exit: pass`。P5-5A slice exit 与 container gate 亦已 pass
-（证据见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)）。repository owner 已明确授权 P5-5C-S0
-docs-only entry/design；当前 design/plan candidate 待独立复核，不授权新的 P5-5B 实现、P5-5C
+（证据见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)）。P5-5C design 已 accepted；S1
+implementation 已在 `0e9c131b` 授权并交付于 `82f353de`。不授权新的 P5-5B 实现、P5-5D/P5-5E
 implementation、production deployment 或 contract/wire/trust boundary 变更。
 
 ## 2. Objective and staged depth
@@ -305,7 +305,7 @@ online ruleset migration、external event consumer、HA和外部DB保持独立�
 ## 13. Current next action
 
 [P5-5B-S8 Independent Slice Exit Acceptance](p5-5b-s8-independent-acceptance.md) 已声明
-`p5_5b_slice_exit: pass`。P5-5C-S0 docs-only entry/design authority 已记录于
-[Entry Brief](p5-5c-s0-entry-brief.md)；[Detailed Design](p5-5c-review-design.md)与
-[Execution Plan](p5-5c-review-execution-plan.md)当前等待 independent docs review。通过后仍必须另行取得
-implementation authority；production deployment 亦未授权。
+`p5_5b_slice_exit: pass`。P5-5C design 已 accepted；S1 implementation 已授权并交付，当前处于
+S1 remediation / independent countersign（见 [S1 handoff](p5-5c-s1-handoff.md) 与
+[remediation handoff](p5-5c-s1-remediation-handoff.md)）。P5-5D/P5-5E implementation 与
+production deployment 仍未授权。

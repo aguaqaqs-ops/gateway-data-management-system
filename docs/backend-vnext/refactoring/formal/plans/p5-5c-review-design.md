@@ -23,6 +23,7 @@ design_kind: p5_5c_review
 design_authority: accepted
 authority_base_sha: a7ed4090bd1e182a77aff074ac9573692cfce9d6
 implementation_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
+implementation_candidate_head: 82f353de7687607370a76cfb40d42717214f3ba7
 p5_5b_slice_exit: pass
 p5_5c_design: accepted
 p5_5c_design_status: accepted
@@ -277,17 +278,36 @@ transition policy 中显式 reopen；不得只在 route 增加 actor comparison�
 ### 6.1 Command
 
 ```text
-ApplyReviewCommand
+ApplyReviewCommand (inbound; HTTP caller fields only)
   context
   submission_id
   expected_review_version
   action: APPROVE | REJECT | RETURN_FOR_REVISION | WITHDRAW
   reason optional
   idempotency_key
+
+ApplyReviewValidationResult (application-internal; post scope closure)
+  workspace_id
+  repository_id
+  business_project_id
+  gateway_device_external_key
+  submission_id
+  expected_review_version
+  action
+  reason optional
+  idempotency_key
+  request_fingerprint
+  replay
+
+ApplyReviewResult (transaction commit output)
+  event
+  projection
   request_fingerprint
 ```
 
-Application 产生 fingerprint；caller 不传 fingerprint。Fingerprint 使用既有 canonical JSON/digest
+Inbound `ApplyReviewCommand` 不含 `request_fingerprint`。Application 在 scope closure 后生成
+fingerprint，并写入 `ApplyReviewValidationResult` / `ApplyReviewResult` / idempotency record；HTTP
+caller 永不提供 fingerprint。Fingerprint 使用既有 canonical JSON/digest
 utility，contract 冻结为 `gateway-vnext.review-apply-fingerprint.v1`。输入是以下 closed object，不得增加、
 删除、重命名字段，也不得加入 actor 或运行时值：
 
@@ -636,7 +656,7 @@ Design acceptance requires independent docs review to confirm：
 - migration/backfill and future Finalize seed preserve one projection/event stream per Submission；
 - permission/scope/idempotency/error contracts are closed and testable；
 - execution stages/allowed paths/test owners are proportional and non-overlapping；
-- implementation remains explicitly unauthorized。
+- pre-S1 design acceptance gate is satisfied; S1+ implementation authority is recorded separately in the execution plan and does not imply P5-5D/P5-5E authorization。
 
 ```yaml
 p5_5c_design_candidate: accepted

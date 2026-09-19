@@ -41,9 +41,11 @@ next_step: P5-5C-S1
 next_step_authorized: yes
 ```
 
-本授权只允许冻结 P5-5C 的领域状态机、持久事实、短事务、HTTP contract、权限、幂等、
-Workspace release、5D/5E handoff 和实施/验证分解。它不授权修改 `vnext/**`、依赖锁、数据库、
-route、OpenAPI、镜像、Compose、测试或生产部署，也不授权任何 Repository read/write effect。
+本 S0 授权当时只允许冻结 P5-5C 的领域状态机、持久事实、短事务、HTTP contract、权限、幂等、
+Workspace release、5D/5E handoff 和实施/验证分解；属于 docs-only entry 边界，不授权当时的
+`vnext/**` 实现改动。后续 repository owner 在 `0e9c131b` 明确授权 P5-5C-S1 implementation，
+允许修改 S1 path budget 内的 `vnext/backend` 与对应测试；仍不授权依赖锁、数据库 migration、
+route、OpenAPI、镜像、Compose 或生产部署，也不授权任何 Repository read/write effect。
 
 ## 2. Entry decision
 
@@ -252,9 +254,10 @@ docs/backend-vnext/README.md
 
 ## 11. S0 exit and next authority
 
-当前两份设计文档是 candidate，必须由新的 independent docs review 复核 exact bytes、状态机、权限、
-migration/backfill、事务、5D/5E handoff、allowed paths 和 test ownership。通过前不得标记 design
-accepted；通过后仍需 repository owner 单独明确 implementation authorization 和 first authorized step。
+S0 docs-only entry 已完成；design 与 execution plan 已由 independent docs review 接受。repository
+owner 在 `0e9c131b` 授权 `p5_5c_implementation_authorized: yes` 与 `first_authorized_step: P5-5C-S1`。
+当前 next action 为 S1 independent countersign；通过后进入 S2，仍不自动授权 P5-5D/P5-5E 或 production
+deployment。
 
 ```yaml
 p5_5c_s0_entry: authorized

@@ -70,6 +70,21 @@ Owner rules：
 Domain 不依赖 FastAPI、Pydantic、sqlite3、Operation、Repository Client、artifact store 或 Archive
 model。HTTP handler 不直接执行 SQL 或推进 domain state。
 
+### 2.1 P5 增量架构约束
+
+本 Slice 遵守 [P5 架构纠偏与阶段收口](p5-business-vertical-slices-design.md#p5-architecture-guardrails)。Review 继续是 Application 协调的本地短事务；
+不为 Review 新建 capability、worker job 或 Rust provider。Domain 只保留 Review 事实与转换规则；
+HTTP DTO、application command/result 和 SQLite record 由各自 owner 映射。
+
+组合 `WorkspaceControlUnitOfWorkFactory` 仅在接线处表达同一个事务实现可服务多个用例；
+Review 内部依赖所需的最小 port，不因共享 UoW 获得调用 Submit job/Repository wire 的职责。
+S2 的 finalize seed 在既有本地事务内复用 Review owner 的最小入口，seed/helper 不反向依赖
+`submit_jobs`，Review transaction 也不导入 Preview/Submit 编排模块或 capability 私有实现。
+修改 finalize seam 不要求立即清理全部 Submit 历史问题，但不得增加相同反向依赖。
+
+5D/5E 通过稳定 Review facts/read port 消费审核状态，不直接复用 SQLite record 或改写 Review
+entity。当前已接受的字段、状态机、权限、事务与幂等语义保持不变。
+
 ## 3. Domain model
 
 ### 3.1 Status and event kind

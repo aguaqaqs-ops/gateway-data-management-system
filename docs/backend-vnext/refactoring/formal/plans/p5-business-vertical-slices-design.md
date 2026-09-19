@@ -72,6 +72,96 @@ production deployment 未授权。
 P5第一屏交付的是可用业务API和前端loader所需bundle，不建设营销或兼容适配层。新vNext HTTP
 DTO独立版本化，不承诺旧`/api/*` wire兼容；legacy只用于发现需要保留的业务语义和fixture。
 
+<a id="p5-architecture-guardrails"></a>
+
+## 2A. Architecture guardrails and phase closure
+
+生效日期：2026-09-19。Owner：P5 Application/Capability owners；阶段收口由 Backend vNext
+Architecture 负责。依据 repository owner 本轮明确授权，补充 P5 后续设计、实现与评审原则；
+遵守 [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)、
+[Contract Taxonomy and Ownership](../contracts/contract-taxonomy-and-ownership.md) 与
+[Proportional Assurance Policy](../policies/proportional-assurance-and-risk-based-verification-policy.md)。
+
+### 2A.1 生效范围与修复时机
+
+本节是 P5 架构纠偏的唯一规则来源，适用于 5C 后续工作、5D/5E 详细设计与实现，以及再次修改
+5A/5B 时的增量。5A/5B 历史 exit、5C 已交付步骤的验收记录继续有效；本次文档补充不宣称
+源码已修复、测试已增强或当前阶段已获新实现/部署授权。阶段状态与下一步仍见 §13。
+
+后续增量立即遵守下列边界；已有问题集中安排在 P5 业务纵切完成后、P5 整体退出验收前处理。
+不以集中修复为由扩散既有例外，也不要求每个 Slice 先完成全量架构清理。若当前工作必须新增
+私有依赖、复制 wire 映射、形成反向调用，或同一内部 helper 出现第三个模块消费者，应先做
+对应 owner 内的最小边界修正。允许路径内、行为不变的普通整理按既有实现授权执行；确实需要
+扩大阶段范围或改变持久/业务 contract 时才更新对应计划与必要授权，不新增逐项审批流程。
+
+### 2A.2 后续实现立即遵守的边界
+
+- **单向依赖与公共入口：**Capability 只依赖上游公共 contract；Application、HTTP、adapter
+  等所有消费者都不得新增 capability 私有模块/私有符号依赖。Application 用公共 entrypoint
+  编排能力；下层事务、codec、protection helper 不得反向 import job 编排模块，函数内 import
+  也不能用来规避依赖方向。具体 adapter/provider 在 composition 中选择。
+- **薄契约与 owner：**公共面按真实消费者暴露 Input/Result/Facts、最小 port 和明确入口。
+  必要语义校验、canonical digest 和序列化规则仍归原 owner；不以行数判断契约厚度，不复制
+  算法，不通过 `__init__` 把 planner 中间状态或具体 provider 扩成普通用例的必需依赖。
+  不新增 common DTO、通用 context bag、无消费者版本轴或通用工作流框架。
+- **业务 port 与 wire：**新增业务 port 不返回 Repository wire DTO。Adapter 负责 wire 编解码
+  和映射，Application 消费最小业务事实/结果。Submit 已有 exact request bytes、fingerprint、
+  same-key replay、matching terminal result 和 verification 语义必须保留；移动编码责任时应
+  证明持久证据与实际发送内容一致，不得把恢复依据替换成可能漂移的重新构造请求。
+- **流程编排归 Application：**业务身份、权限、场景选择、跨聚合协调、事务与恢复策略留在
+  Application。Capability 接受中性的输入和显式计算策略，不新增对 Review/Archive/History
+  实体或 application model 的依赖。R5 已接受的 pair/view/applicability 词汇保留；5D/5E 若
+  需要增加流程分支，先判断是否可在 Application 映射为已有模式，不能只因新增流程就扩大
+  comparison 的业务分支。确需改变语义时由原 contract owner 决定。
+- **按职责控制编排复杂度：**payload/checkpoint codec、artifact protection、事务协调与
+  capability pipeline 可以分为同一用例 owner 内的模块；job handler 保留步骤选择和恢复协调。
+  只有真实重复消费者才提炼共享入口，不为减少单文件行数新增架构层。
+- **门禁保护增量：**`tests/test_architecture.py` 是 Backend import 边界的权威测试 owner。
+  新规则按精确公共模块/符号检查，不新增按文件 basename 或整层放行的豁免。既有绿灯不能替代
+  对实际依赖边的检查；评审覆盖 HTTP/adapter 消费者、函数内 import 和 Application 运行时环，
+  区分 TYPE_CHECKING 类型引用与运行时依赖。已有违例收口前只对本次增量执行禁止扩散检查，
+  不为每个 Slice 建立另一套扫描框架或复制全部架构测试。
+
+### 2A.3 为渐进 Rust 改造保留边界
+
+遵守 [ADR 0001](../adr/0001-python-rust-hybrid-compute-strategy.md)。Python 保留业务编排、
+Repository/Artifact I/O、事务和 Operation 生命周期；Rust 承接经测量确认的批量计算热点。
+
+- 普通用例依赖 capability 公共入口；provider 选择集中在 composition，业务 payload、checkpoint
+  和 digest 不新增对 Python/Rust class 或实现版本的身份依赖。
+- 保留 Arrow/Parquet 批处理边界，检查逐行 FFI、Python object graph、重复编码和重复 artifact
+  读写；不为未来热点预建 provider framework，也不要求 P5 新增 Rust 实现。
+- Rust 替换复用 owner 现有 contract/golden 与小规模 Python oracle，核对排序、null/decimal、
+  digest、错误语义、资源上限和取消边界；不要求完整 Python 生产双实现或自动 fallback。
+- P5 收口选择一条已完成的真实业务链路，用代表性 workload 记录端到端耗时与 Repository/I/O、
+  Python 转换、计算的主要开销，形成 Phase 6 热点候选。测量遵守现有 performance policy；
+  只作迁移排序依据，不新增性能通过阈值或 benchmark/evidence 平台，不凭模块行数承诺加速。
+
+### 2A.4 已知问题与收口责任
+
+以下是 2026-09-19 架构评估的源码观察，不是已完成修复声明，也不把已接受设计折中自动判为
+功能缺陷。实际修复时复核届时源码；已由后续 Slice 解决的项目直接引用结果，不重复改造。
+
+| 已知问题/风险 | Owner | P5 整体退出前的处置 |
+| --- | --- | --- |
+| `application/submission/ports.py` 返回 `VersionedOperation`；`submit_jobs.py` 编解码 wire | Submit Application + Repository adapter | 收窄业务 port，将 wire 映射移至 adapter；保持请求证据、实际发送与恢复语义一致 |
+| HTTP admission 导入 `source_package_staging._archive`；read adapter 导入 `snapshot_materialization._digest` | Source Package / Snapshot + 对应消费者 | 建立最小 owner 公共入口并迁移消费者，不复制安全校验或摘要算法 |
+| finalize/abort transaction 反向调用 `submit_jobs` 的 checkpoint protection helper | Submission Application | 将 helper 放回用例 owner 内的下层模块，消除运行时依赖环 |
+| 架构测试存在 basename 整体豁免，未覆盖上述消费者与运行时环 | Backend Architecture | 收窄例外并在现有测试 owner 补齐边界，避免同包合法内部导入或纯类型引用误报 |
+| Preview/Submit 编排职责集中；Comparison 公共面及流程词汇扩大 | 对应 Application + Comparison | 按实际调用方收窄入口和拆分职责；保留已有正式语义，记录必要设计折中，不按文件大小强拆 |
+| `comparison_projection` / `business_projection` 仍为占位契约 | 对应 capability owner + Architecture | 根据 5D/5E 真实消费者明确实现、合并或延期，并同步总纲/ownership；不以空目录声称能力落地 |
+
+### 2A.5 收口验收
+
+在既有 P5 exit review 中检查本节，不新增独立审批链或持久治理状态机：
+
+1. 前四项已确认的边界问题完成修复并经现有架构测试验证；不得仅因 5A/5B 曾通过而视为关闭。
+2. 后两项风险完成实际消费者复核与文档处置；有必要的既有公开语义可保留，明确 owner 和理由。
+3. 记录本轮新增依赖是否遵守本节、既有问题已解决/待收口的位置，以及真实链路测量结果与
+   Phase 6 候选；使用已有 handoff 的简短文字或表格，不重复复制本节问题清单。
+4. 按改动范围完成语义回归、五包静态检查及既有阶段退出的权威 runner/容器要求；模块移动
+   不自动增加全故障点矩阵。P5 整体 exit 不能先通过再无限期延期这次收口。
+
 ## 3. Deployment and trust boundary
 
 - Backend HTTP与worker使用同一镜像、不同进程；single host、single worker。
@@ -286,6 +376,9 @@ ABORT_CONFIRMED_FAILURE
 阶段性验证按仓库testing conventions只运行focused范围；5A最终gate运行Backend相关unit/
 integration/serial、五包ruff/mypy及权威`./vnext/scripts/run-tests.sh`。触碰Dockerfile、Compose、
 entrypoint、settings/readiness、mount或最终Slice gate时，重建current-HEAD镜像并运行容器门禁。
+
+P5 整体退出另须完成 §2A 的边界修复、风险处置及 Phase 6 性能输入；单个 Slice 的历史 exit
+不替代阶段收口。5C 后续及 5D/5E 在原有 handoff 中简述增量遵守情况。
 
 ## 12. Deferred and reopen conditions
 

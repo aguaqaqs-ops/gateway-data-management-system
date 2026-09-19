@@ -56,6 +56,13 @@ Workspace release、History inclusion、Repository 禁写和短事务边界均�
 本轮没有需要 reopen Contract/ADR 的问题。exact route、closed DTO、permission 字符串、事件字段、
 idempotency fingerprint、错误映射和 stage/test owner 属于本 S0 详细设计范围。
 
+### 2.1 后续实现的架构约束（2026-09-19）
+
+后续设计/执行遵守 [P5 架构纠偏与阶段收口](p5-business-vertical-slices-design.md#p5-architecture-guardrails) 与 [Review dependency boundary](p5-5c-review-design.md#21-p5-增量架构约束)。
+本轮仅补充文档原则，保留原 authority snapshot 和当前 S1 countersign；不自动开启 S2。
+Review 保持本地短事务、最小业务 port 与单向依赖；5A/5B 既有问题集中在 P5 整体退出前收口，
+不要求本 Slice 先完成全部历史清理。步骤落实见 [Delivery principles](p5-5c-review-execution-plan.md#21-增量纠偏与阶段收口)。
+
 ## 3. Objective and user journey
 
 5C 在已成功 Finalize 的 immutable Submission 上交付同步 Review：

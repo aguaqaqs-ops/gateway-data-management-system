@@ -59,6 +59,21 @@ P5-5E 或任何 Repository effect。
 - 不改任何 `uv.lock` 或依赖；若实现发现必须改依赖，停止并重新授权 dependency scope。
 - migration、HTTP route、session config 和最终 slice gate 触发 current-HEAD image rebuild，旧镜像结果不能作为最终证据。
 
+### 2.1 增量纠偏与阶段收口
+
+执行 [P5 架构纠偏与阶段收口](p5-business-vertical-slices-design.md#p5-architecture-guardrails)；本节不改变当前 S1 countersign 状态或自动开放 S2。
+S2–S5 在各自获权后落实以下要求：
+
+- S2：finalize seed 通过 Review owner 入口执行，保持既有事务原子性；不增加 transaction/helper
+  到 `submit_jobs` 的反向导入，不把 Repository wire DTO 带入 Review port。
+- S3：Review command/transaction 使用最小业务 port；复用 Workspace 事务不等于复用其完整
+  编排逻辑，不新增 capability 私有依赖、context bag 或通用工作流层。
+- S4：HTTP 只映射 DTO、认证输入与 application 调用；SQLite adapter 负责 record 映射。
+- 各步评审在现有 handoff 简述新增依赖和既有问题是否被触碰。`test_architecture.py` 承担新增
+  边界规则，不增加 basename 放行；已有违例不作为扩大例外的先例，也不自动阻塞无关 Review 工作。
+- S5：确认 5C 未扩大总体设计 §2A 的已知问题，将尚存的跨 Slice 问题引用到 P5 收口；5C exit
+  不宣称所有历史架构问题已经解决。不得为此复制全量 Submit 测试或新建证据/审批体系。
+
 ## 3. Planned path budget
 
 ### 3.1 Production paths

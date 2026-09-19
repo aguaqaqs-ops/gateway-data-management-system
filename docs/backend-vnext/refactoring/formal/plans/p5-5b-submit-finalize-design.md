@@ -841,3 +841,11 @@ implementation_authority_changed: false
 S0-F1选择保持现有owning contract；没有新增pre-effect abort authority。S0-F2的endpoint仅接线既有
 P4 port和existing internal bearer。S0-F3不修改P4 capability guard。下一步仍是新的独立context复审，
 不是implementation。
+
+## 后续维护约束（2026-09-19）
+
+本 Slice 已交付部分的后续维护与跨 Slice 复用遵守 [P5 架构纠偏与阶段收口](p5-business-vertical-slices-design.md#p5-architecture-guardrails)。
+该补充约束后续增量，不追溯改写本文件历史 gate、实现授权或已通过的 slice exit。
+既有 port/wire、私有模块调用、编排职责与依赖环问题按总体设计 §2A 的 owner/时机收口；
+后续消费者不得复制这些例外。当前请求/结果、digest、checkpoint 与幂等恢复语义继续由
+原 owning contract 定义，不能以边界整理为由静默改变。

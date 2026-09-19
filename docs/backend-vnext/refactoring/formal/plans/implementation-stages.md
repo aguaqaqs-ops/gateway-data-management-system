@@ -538,6 +538,9 @@ P5总体owner、部署、身份、跨Slice事务和Repository/Baseline双身份�
 P4-R6期间收敛；任何P5代码、migration、HTTP route或deployment实现必须等待P4最终exit和
 明确implementation authorization。
 
+后续增量与整体退出遵守 [P5 架构纠偏与阶段收口](p5-business-vertical-slices-design.md#p5-architecture-guardrails)：5C–5E 不扩散已有耦合，
+集中修复在业务纵切完成后、P5 整体退出验收前完成。该规则不重开历史 Slice exit。
+
 ### Slice 5A：Upload Preview
 
 ```text
@@ -613,6 +616,8 @@ Submission、Review/Archive disposition和未来登记的SYSTEM_MIGRATION；不�
 - 完整 `upload -> submit -> review -> archive -> next baseline -> history compare` journey 通过。
 - API、application、domain、capability、operation 和 repository 边界符合架构测试。
 - 新主路径不依赖旧业务模块和统一 StateStore。
+- 完成 [P5 架构纠偏与阶段收口](p5-business-vertical-slices-design.md#p5-architecture-guardrails) 中的已确认边界修复与风险处置，并提供一条真实业务链路的
+  代表性性能测量，作为 Phase 6 热点排序输入；不要求 P5 提前迁移 Rust 或达到新增性能阈值。
 
 ## 9. Phase 6：Rust Coverage Expansion and Compute Optimization
 

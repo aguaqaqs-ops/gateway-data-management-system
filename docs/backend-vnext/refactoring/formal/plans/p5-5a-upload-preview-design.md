@@ -403,3 +403,11 @@ non-authoritative historical oracle，用于发现capability行为和fixture。�
 `BuildUploadPreview`、`INITIALIZE_BASELINE`、`START_REVIEW`、Archive/Repository ref写入等旧表述
 不得覆盖本文件；历史原文保留，不做语义洗写。当前authority中的这些词只能出现在明确删除、
 禁止、historical fence或reopen说明中。
+
+## 后续维护约束（2026-09-19）
+
+本 Slice 已交付部分的后续维护与跨 Slice 复用遵守 [P5 架构纠偏与阶段收口](p5-business-vertical-slices-design.md#p5-architecture-guardrails)。
+该补充约束后续增量，不追溯改写本文件历史 gate、实现授权或已通过的 slice exit。
+既有 port/wire、私有模块调用、编排职责与依赖环问题按总体设计 §2A 的 owner/时机收口；
+后续消费者不得复制这些例外。当前请求/结果、digest、checkpoint 与幂等恢复语义继续由
+原 owning contract 定义，不能以边界整理为由静默改变。

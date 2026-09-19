@@ -111,3 +111,11 @@ independent_countersign:
 - Fingerprint golden:
   `sha256:f97a6da6f2c568efdbbecdf64b6687593f5dc10b708cca81e602ba1a4e77b909`
 - `vnext/backend/uv.lock` is not part of the delivery diff.
+
+## 后续交接补充：架构纠偏（2026-09-19）
+
+后续步骤遵守 [P5 架构纠偏与阶段收口](p5-business-vertical-slices-design.md#p5-architecture-guardrails) 及 Review execution plan §2.1。
+这是 repository owner 本轮授权的文档补充，不属于上述已绑定实现树的新增代码或验证证据；
+保留本 handoff 的历史 SHA、测试结果、pending countersign 与 S2 未开放状态。
+本轮没有修复源码或运行新的业务测试。后续实现不得扩散既有私有导入、wire 泄漏和编排反向依赖；
+跨 Slice 存量问题按 P5 总体设计 §2A 收口，不转化为 S1 全量重做要求。

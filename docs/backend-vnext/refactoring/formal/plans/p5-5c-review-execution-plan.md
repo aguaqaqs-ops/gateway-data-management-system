@@ -69,6 +69,9 @@ S2–S5 在各自获权后落实以下要求：
 - S3：Review command/transaction 使用最小业务 port；复用 Workspace 事务不等于复用其完整
   编排逻辑，不新增 capability 私有依赖、context bag 或通用工作流层。
 - S4：HTTP 只映射 DTO、认证输入与 application 调用；SQLite adapter 负责 record 映射。
+- 新增转换函数不放入依赖业务域的基础模块或无 owner 的包根；contract 按总体设计 §2A.2
+  区分纯 codec/validator 与执行实现。能力公共入口许可按实际职责审查，不引入 job/transaction
+  文件名通配放行，也不为本来无需能力计算的 Review 添加调用路径。
 - 各步评审在现有 handoff 简述新增依赖和既有问题是否被触碰。`test_architecture.py` 承担新增
   边界规则，不增加 basename 放行；已有违例不作为扩大例外的先例，也不自动阻塞无关 Review 工作。
 - S5：确认 5C 未扩大总体设计 §2A 的已知问题，将尚存的跨 Slice 问题引用到 P5 收口；5C exit

@@ -81,6 +81,8 @@ Review 内部依赖所需的最小 port，不因共享 UoW 获得调用 Submit j
 S2 的 finalize seed 在既有本地事务内复用 Review owner 的最小入口，seed/helper 不反向依赖
 `submit_jobs`，Review transaction 也不导入 Preview/Submit 编排模块或 capability 私有实现。
 修改 finalize seam 不要求立即清理全部 Submit 历史问题，但不得增加相同反向依赖。
+Review 新增的 ref/record 映射留在 Application/adapter，不让 Artifacts 反向依赖 Review/Submission。
+公共 contract 可包含纯 codec/validator，执行和 I/O 留在用例或 adapter；不新增包根胶水。
 
 5D/5E 通过稳定 Review facts/read port 消费审核状态，不直接复用 SQLite record 或改写 Review
 entity。当前已接受的字段、状态机、权限、事务与幂等语义保持不变。

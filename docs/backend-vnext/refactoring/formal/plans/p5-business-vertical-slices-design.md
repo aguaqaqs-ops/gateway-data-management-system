@@ -100,10 +100,21 @@ Architecture 负责。依据 repository owner 本轮明确授权，补充 P5 后
   等所有消费者都不得新增 capability 私有模块/私有符号依赖。Application 用公共 entrypoint
   编排能力；下层事务、codec、protection helper 不得反向 import job 编排模块，函数内 import
   也不能用来规避依赖方向。具体 adapter/provider 在 composition 中选择。
+- **基础层与归属：**Artifacts 等基础单元不依赖 Domain/Application；业务 nominal ref 与通用
+  artifact ref 的转换放在能同时依赖两端的 Application/adapter 侧。类型迁移必须服从既有
+  Domain 依赖规则，不能为消除一条倒挂而新增 Domain → Artifacts 依赖。Backend/Repository
+  ref 的 nominal type、ID scope 和 upload 显式映射继续保持隔离。
+  Storage Projection 的 canonical 编码/manifest 语义由该 capability 拥有；用例 publication
+  adapter 归 infrastructure，由 composition 接线。包根不新增无明确 owner 的业务胶水。
 - **薄契约与 owner：**公共面按真实消费者暴露 Input/Result/Facts、最小 port 和明确入口。
   必要语义校验、canonical digest 和序列化规则仍归原 owner；不以行数判断契约厚度，不复制
   算法，不通过 `__init__` 把 planner 中间状态或具体 provider 扩成普通用例的必需依赖。
   不新增 common DTO、通用 context bag、无消费者版本轴或通用工作流框架。
+  `contracts.py` 表示公共语义面而非仅类型集合：允许纯 codec、shape/invariant validator、
+  规范 canonical bytes/digest 规则；禁止承载 provider 选择、数据集扫描/比较/投影执行、I/O
+  或业务编排。规范摘要规则与执行算法应按职责区分，不能因 digest 也是算法就机械迁出。
+  Contract 不反向导入执行实现；facade 可委托同 owner 的实现，但 lazy import 不能掩盖环或
+  越界。只 import contract 不应要求初始化具体 provider 或加载重型执行依赖。
 - **业务 port 与 wire：**新增业务 port 不返回 Repository wire DTO。Adapter 负责 wire 编解码
   和映射，Application 消费最小业务事实/结果。Submit 已有 exact request bytes、fingerprint、
   same-key replay、matching terminal result 和 verification 语义必须保留；移动编码责任时应
@@ -121,6 +132,9 @@ Architecture 负责。依据 repository owner 本轮明确授权，补充 P5 后
   对实际依赖边的检查；评审覆盖 HTTP/adapter 消费者、函数内 import 和 Application 运行时环，
   区分 TYPE_CHECKING 类型引用与运行时依赖。已有违例收口前只对本次增量执行禁止扩散检查，
   不为每个 Slice 建立另一套扫描框架或复制全部架构测试。
+  能力调用许可依据用例职责和精确公共入口，不以“仅 job 文件可调用”为架构不变量，也不把
+  basename 豁免替换成 `*_jobs.py`/transaction 通配豁免。同步用例可在 Application 编排能力；
+  transaction 模块不因文件名自动获得能力访问权，短事务中也不引入长时间计算或外部 I/O。
 
 ### 2A.3 为渐进 Rust 改造保留边界
 
@@ -148,15 +162,26 @@ Repository/Artifact I/O、事务和 Operation 生命周期；Rust 承接经测�
 | HTTP admission 导入 `source_package_staging._archive`；read adapter 导入 `snapshot_materialization._digest` | Source Package / Snapshot + 对应消费者 | 建立最小 owner 公共入口并迁移消费者，不复制安全校验或摘要算法 |
 | finalize/abort transaction 反向调用 `submit_jobs` 的 checkpoint protection helper | Submission Application | 将 helper 放回用例 owner 内的下层模块，消除运行时依赖环 |
 | 架构测试存在 basename 整体豁免，未覆盖上述消费者与运行时环 | Backend Architecture | 收窄例外并在现有测试 owner 补齐边界，避免同包合法内部导入或纯类型引用误报 |
+| `artifacts/nominal_refs.py` 导入 `domain.submission.models` | Artifacts + Submission Application/adapter | 优先将跨层转换上移至 Application/adapter；若迁移类型须同时满足 Domain 依赖规则，保持 Backend/Repository nominal ref 与 scope 隔离 |
+| 包根 `canonicalization_cells.py` / `canonicalization_manifest.py` 与 `repository_import_artifact.py` 混放 owner 逻辑和 Submit adapter | Storage Projection + Submit publication adapter + Architecture | 按职责拆分归位；保持 canonical bytes、manifest/package 版本和 digest 兼容；删除无消费者入口，避免只搬目录或让 capability 反向依赖 Application |
+| 契约公共面与执行实现的区分缺少明确约束 | Capability owners + Architecture | 按 §2A.2 核对 codec/validator/规范摘要与执行算法的边界；仅修复确认的反向依赖、加载副作用或执行混入，不把所有契约函数或 lazy import 判为缺陷 |
 | Preview/Submit 编排职责集中；Comparison 公共面及流程词汇扩大 | 对应 Application + Comparison | 按实际调用方收窄入口和拆分职责；保留已有正式语义，记录必要设计折中，不按文件大小强拆 |
-| `comparison_projection` / `business_projection` 仍为占位契约 | 对应 capability owner + Architecture | 根据 5D/5E 真实消费者明确实现、合并或延期，并同步总纲/ownership；不以空目录声称能力落地 |
+| `comparison_projection` / `business_projection` 仍为占位契约 | 对应 capability owner + Architecture | 根据 5D/5E 真实消费者明确实现、合并或延期，并同步总纲/ownership 与架构测试 owner 集合、DAG 白名单；无真实消费者时不强行实现，延期不保留虚假的已落地依赖边 |
+
+补充核对：`repository_write/http.py` 当前从包根 manifest 模块导入的是
+`REPOSITORY_IMPORT_MEDIA_TYPE` 常量，并非调用 manifest 组装器。收口应消除该常量对组装模块的
+不必要依赖；常量的来源按实际 wire/content owner 决定，不能据此推断该 adapter 执行了 canonical
+组装。以上不宣称 nominal-ref 倒挂是全仓唯一基础层违例，也不以某次文件计数作为验收依据。
 
 ### 2A.5 收口验收
 
 在既有 P5 exit review 中检查本节，不新增独立审批链或持久治理状态机：
 
-1. 前四项已确认的边界问题完成修复并经现有架构测试验证；不得仅因 5A/5B 曾通过而视为关闭。
-2. 后两项风险完成实际消费者复核与文档处置；有必要的既有公开语义可保留，明确 owner 和理由。
+1. 已确认的 wire 泄漏、私有导入、事务/编排环、基础层倒挂与包根归属问题完成修复，架构
+   门禁补齐相应边界；canonical/manifest 归位还须复用现有语义测试核对 bytes/digest 兼容。
+   不得仅因 5A/5B 曾通过而视为关闭。
+2. 契约面/执行边界、编排集中度及 projection 占位风险完成实际消费者复核与文档处置；
+   有必要的既有公开语义可保留，明确 owner 和理由。
 3. 记录本轮新增依赖是否遵守本节、既有问题已解决/待收口的位置，以及真实链路测量结果与
    Phase 6 候选；使用已有 handoff 的简短文字或表格，不重复复制本节问题清单。
 4. 按改动范围完成语义回归、五包静态检查及既有阶段退出的权威 runner/容器要求；模块移动

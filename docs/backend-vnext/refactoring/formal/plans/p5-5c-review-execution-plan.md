@@ -1,6 +1,6 @@
 # P5-5C Review Execution Plan
 
-状态：**EXECUTION PLAN CANDIDATE — DOCS-ONLY; IMPLEMENTATION UNAUTHORIZED**
+状态：**IMPLEMENTATION AUTHORIZED — S1 IN PROGRESS**
 
 日期：2026-09-19
 
@@ -19,13 +19,16 @@ Owner：P5-5C Delivery + Architecture Acceptance
 ```yaml
 plan_kind: p5_5c_review_execution
 authority_base_sha: a7ed4090bd1e182a77aff074ac9573692cfce9d6
+implementation_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
 p5_5b_slice_exit: pass
 p5_5c_s0_entry_authorized: yes
 p5_5c_design_s0_authorized: yes
-p5_5c_design_status: candidate_pending_independent_review
-p5_5c_implementation_authorized: no
-source_or_test_change_authorized: false
-first_authorized_step: null
+p5_5c_design: accepted
+p5_5c_design_status: accepted
+p5_5c_implementation_authorized: yes
+source_or_test_change_authorized: true
+unresolved_contract_drift: none
+first_authorized_step: P5-5C-S1
 repository_effect_authorized: false
 production_deployment_authorized: false
 ```
@@ -466,11 +469,14 @@ production_deployment_authorized: no
 ## 11. S0 current disposition
 
 ```yaml
-p5_5c_entry: authorized_docs_only
-p5_5c_design_candidate: prepared
-p5_5c_execution_plan_candidate: prepared
-independent_docs_review: required
-p5_5c_implementation_authorized: no
-source_or_test_change_authorized: false
-next_step: independent_docs_review
+p5_5c_entry: authorized
+p5_5c_design: accepted
+p5_5c_design_candidate: accepted
+p5_5c_execution_plan: accepted
+independent_docs_review: pass
+p5_5c_implementation_authorized: yes
+source_or_test_change_authorized: true
+first_authorized_step: P5-5C-S1
+current_stage: P5-5C-S1
+next_step: P5-5C-S1-handoff
 ```

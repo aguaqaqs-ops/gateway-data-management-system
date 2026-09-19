@@ -1,6 +1,6 @@
 # P5-5C Review Detailed Design
 
-状态：**DESIGN CANDIDATE — INDEPENDENT DOCS REVIEW REQUIRED; IMPLEMENTATION UNAUTHORIZED**
+状态：**DESIGN ACCEPTED — IMPLEMENTATION AUTHORIZED (P5-5C-S1)**
 
 日期：2026-09-19
 
@@ -20,11 +20,14 @@ Owner：Submission Domain + Review Application + HTTP Interface
 
 ```yaml
 design_kind: p5_5c_review
-design_authority: docs_only
+design_authority: accepted
 authority_base_sha: a7ed4090bd1e182a77aff074ac9573692cfce9d6
+implementation_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
 p5_5b_slice_exit: pass
-p5_5c_design_status: candidate_pending_independent_review
-p5_5c_implementation_authorized: no
+p5_5c_design: accepted
+p5_5c_design_status: accepted
+p5_5c_implementation_authorized: yes
+first_authorized_step: P5-5C-S1
 repository_effect: forbidden
 operation_runtime: not_used
 worker: not_used
@@ -636,7 +639,8 @@ Design acceptance requires independent docs review to confirm：
 - implementation remains explicitly unauthorized。
 
 ```yaml
-p5_5c_design_candidate: ready_for_independent_review
-p5_5c_design_accepted: no
-p5_5c_implementation_authorized: no
+p5_5c_design_candidate: accepted
+p5_5c_design_accepted: yes
+p5_5c_implementation_authorized: yes
+first_authorized_step: P5-5C-S1
 ```

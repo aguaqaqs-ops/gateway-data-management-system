@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 from gateway_backend.domain.submission.errors import (
+    InvalidReviewTransition as InvalidReviewTransition,
+)
+from gateway_backend.domain.submission.errors import (
+    ReviewVersionConflict as ReviewVersionConflict,
+)
+from gateway_backend.domain.submission.errors import (
     SubmitAttemptVersionConflict as SubmitAttemptVersionConflict,
 )
 from gateway_backend.domain.submission.errors import (
@@ -147,6 +153,16 @@ class OperatorRecoveryCapabilityConflict(SubmitApplicationError):
     """Operator recovery command is incompatible with step recovery capability."""
 
     stable_code = "RECOVERY_CAPABILITY_CONFLICT"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class ReviewIntegrityFailure(SubmitApplicationError):
+    """Review projection/event/idempotency closure is inconsistent or incomplete."""
+
+    stable_code = "REVIEW_INTEGRITY_FAILURE"
 
     def __init__(self, reason: str) -> None:
         super().__init__(reason)

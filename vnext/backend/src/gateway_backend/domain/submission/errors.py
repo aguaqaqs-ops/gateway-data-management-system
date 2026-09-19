@@ -45,3 +45,47 @@ class SubmitOccupancyConflict(SubmissionDomainError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class InvalidReviewTransition(SubmissionDomainError):
+    """Raised when a Review status transition is not allowed."""
+
+    stable_code = "REVIEW_TRANSITION_CONFLICT"
+
+    def __init__(self, *, current: str, action: str) -> None:
+        super().__init__(f"cannot apply review action {action!r} from status {current!r}")
+        self.current = current
+        self.action = action
+
+
+class InvalidReviewReason(SubmissionDomainError):
+    """Raised when a Review reason violates the bounded plain-text contract."""
+
+    stable_code = "INVALID_REVIEW_REASON"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class InvalidReviewIdempotencyKey(SubmissionDomainError):
+    """Raised when an Idempotency-Key violates the Review wire contract."""
+
+    stable_code = "INVALID_IDEMPOTENCY_KEY"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class ReviewVersionConflict(SubmissionDomainError):
+    """Review projection optimistic version does not match the command."""
+
+    stable_code = "REVIEW_VERSION_CONFLICT"
+
+    def __init__(self, *, expected: int, actual: int) -> None:
+        super().__init__(
+            f"review optimistic version conflict: expected {expected}, actual {actual}"
+        )
+        self.expected = expected
+        self.actual = actual

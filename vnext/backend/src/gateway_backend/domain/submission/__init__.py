@@ -1,7 +1,11 @@
 """SubmitAttempt and Submission domain contracts."""
 
 from gateway_backend.domain.submission.errors import (
+    InvalidReviewIdempotencyKey,
+    InvalidReviewReason,
+    InvalidReviewTransition,
     InvalidSubmitAttemptTransition,
+    ReviewVersionConflict,
     SubmissionBindingConflict,
     SubmitAttemptInvariantViolation,
     SubmitAttemptVersionConflict,
@@ -28,13 +32,37 @@ from gateway_backend.domain.submission.policies import (
     assert_submit_attempt_invariants,
     transition_attempt_state,
 )
+from gateway_backend.domain.submission.review import (
+    ReviewAction,
+    ReviewEvent,
+    ReviewEventKind,
+    ReviewIdempotencyRecord,
+    ReviewProjection,
+    ReviewStatus,
+    build_seed_projection,
+    is_terminal_review_status,
+    resolve_review_transition,
+    review_allowed_transitions,
+    validate_review_idempotency_key,
+    validate_review_reason,
+)
 
 __all__ = [
     "BackendArtifactRef",
     "BuilderMutationPolicy",
+    "InvalidReviewIdempotencyKey",
+    "InvalidReviewReason",
+    "InvalidReviewTransition",
     "InvalidSubmitAttemptTransition",
     "RepositoryArtifactRef",
     "RepositorySubmitOccupancy",
+    "ReviewAction",
+    "ReviewEvent",
+    "ReviewEventKind",
+    "ReviewIdempotencyRecord",
+    "ReviewProjection",
+    "ReviewStatus",
+    "ReviewVersionConflict",
     "Submission",
     "SubmissionBindingConflict",
     "SubmissionDomainError",
@@ -50,6 +78,12 @@ __all__ = [
     "WorkspaceSubmitOccupancy",
     "assert_submission_attempt_binding",
     "assert_submit_attempt_invariants",
+    "build_seed_projection",
     "derive_preview_canonical_business_digest",
+    "is_terminal_review_status",
+    "resolve_review_transition",
+    "review_allowed_transitions",
     "transition_attempt_state",
+    "validate_review_idempotency_key",
+    "validate_review_reason",
 ]

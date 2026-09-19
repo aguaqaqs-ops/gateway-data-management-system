@@ -1,6 +1,6 @@
 # P5-5C-S0 Entry Brief: Review
 
-状态：**ENTRY/DESIGN AUTHORIZED — DOCS-ONLY; IMPLEMENTATION UNAUTHORIZED**
+状态：**DESIGN ACCEPTED — IMPLEMENTATION AUTHORIZED (P5-5C-S1)**
 
 日期：2026-09-19
 
@@ -26,14 +26,18 @@ p5_5b_slice_exit: pass
 p5_design_baseline: accepted
 p5_5c_s0_entry_authorized: yes
 p5_5c_design_s0_authorized: yes
-p5_5c_design_status: candidate_pending_independent_review
-p5_5c_implementation_authorized: no
-source_or_test_change_authorized: false
+p5_5c_design: accepted
+p5_5c_design_status: accepted
+p5_5c_implementation_authorized: yes
+source_or_test_change_authorized: true
+unresolved_contract_drift: none
+first_authorized_step: P5-5C-S1
+implementation_head: 0e9c131b6c90bd7f32c8cac886896740bbb99215
 migration_or_route_change_authorized: false
 repository_effect_authorized: false
 production_deployment_authorized: false
-review_scope: docs_only
-next_step: independent_docs_review
+review_scope: implementation_s1
+next_step: P5-5C-S1
 next_step_authorized: yes
 ```
 
@@ -254,8 +258,9 @@ accepted；通过后仍需 repository owner 单独明确 implementation authoriz
 
 ```yaml
 p5_5c_s0_entry: authorized
-p5_5c_design_candidate: prepared
-p5_5c_design_accepted: no
-p5_5c_implementation_authorized: no
-next_step: independent_docs_review
+p5_5c_design_candidate: accepted
+p5_5c_design_accepted: yes
+p5_5c_implementation_authorized: yes
+first_authorized_step: P5-5C-S1
+next_step: P5-5C-S1-handoff
 ```

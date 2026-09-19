@@ -1,6 +1,6 @@
 # P5 Business Vertical Slices Design Baseline
 
-状态：**ACCEPTED DESIGN BASELINE — 5A/5B EXIT PASS; 5C-S0 DOCS-ONLY DESIGN AUTHORIZED**
+状态：**ACCEPTED DESIGN BASELINE — 5A/5B EXIT PASS; 5C IMPLEMENTATION AUTHORIZED (S1)**
 
 日期：2026-09-06
 
@@ -46,9 +46,11 @@ p5b_real_repository_effect_authorized: no
 p5_5b_slice_exit: pass
 p5_5c_s0_entry_authorized: yes
 p5_5c_design_s0_authorized: yes
-p5_5c_design_status: candidate_pending_independent_review
-p5_5c_implementation_authorized: no
-p5_implementation_authorized: no
+p5_5c_design: accepted
+p5_5c_design_status: accepted
+p5_5c_implementation_authorized: yes
+first_authorized_step: P5-5C-S1
+p5_implementation_authorized: yes
 ```
 
 P5-5B 的历史 implementation 与 real Repository effect authority 已在 S1–S8 执行链中消费并关闭；

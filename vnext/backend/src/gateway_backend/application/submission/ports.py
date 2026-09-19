@@ -19,6 +19,7 @@ from gateway_backend.domain.submission.models import (
     Submission,
     WorkspaceSubmitOccupancy,
 )
+from gateway_backend.domain.submission.ports import ReviewReadPort, ReviewWritePort
 from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness, ResolvedScope
 from gateway_backend.domain.workspace.ports import WorkspaceRepository
 from gateway_backend.operations import OperationStore
@@ -70,6 +71,35 @@ class SubmitControlUnitOfWorkFactory(Protocol):
         *,
         read_only: bool = False,
     ) -> AbstractContextManager[SubmitControlTransaction]: ...
+
+
+class ReviewTransactionRepository(ReviewReadPort, ReviewWritePort, Protocol):
+    """Review persistence participant for one Control DB transaction."""
+
+
+class ReviewControlTransaction(Protocol):
+    @property
+    def review(self) -> ReviewTransactionRepository: ...
+
+
+class ReviewControlUnitOfWorkFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        read_only: bool = False,
+    ) -> AbstractContextManager[ReviewControlTransaction]: ...
+
+
+class WorkspaceControlTransaction(SubmitControlTransaction, ReviewControlTransaction, Protocol):
+    """Combined Submit and Review control transaction for one workspace schema."""
+
+
+class WorkspaceControlUnitOfWorkFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        read_only: bool = False,
+    ) -> AbstractContextManager[WorkspaceControlTransaction]: ...
 
 
 class SubmissionRepository(Protocol):

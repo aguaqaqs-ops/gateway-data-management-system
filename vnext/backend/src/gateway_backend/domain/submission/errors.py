@@ -89,3 +89,11 @@ class ReviewVersionConflict(SubmissionDomainError):
         )
         self.expected = expected
         self.actual = actual
+
+
+class ReviewClosureViolation(SubmissionDomainError):
+    """Review projection/event/idempotency closure is inconsistent or incomplete."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason

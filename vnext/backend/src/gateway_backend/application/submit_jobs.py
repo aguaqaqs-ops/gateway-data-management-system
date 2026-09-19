@@ -115,6 +115,7 @@ from gateway_backend.application.submission.ports import (
     RepositoryWritePort,
     SubmitControlTransaction,
     SubmitControlUnitOfWorkFactory,
+    WorkspaceControlTransaction,
 )
 from gateway_backend.artifacts.nominal_refs import store_ref_from_backend_artifact_ref
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
@@ -184,7 +185,7 @@ _JOB_STATE_TERMINAL_RESULT_EVIDENCE_REF = "terminal_result_evidence_ref"
 _TERMINAL_REPOSITORY_EVIDENCE_DOCUMENT_TYPE = "submit_repository_terminal_evidence"
 _TERMINAL_REPOSITORY_EVIDENCE_CONTRACT_VERSION = "backend-vnext/submit/repository-terminal-evidence/v1"
 
-_active_submit_transaction: ContextVar[SubmitControlTransaction | None] = ContextVar(
+_active_submit_transaction: ContextVar[WorkspaceControlTransaction | None] = ContextVar(
     "_active_submit_transaction",
     default=None,
 )
@@ -231,7 +232,7 @@ class SubmitJobPayload:
     options: Mapping[str, object]
 
 
-SubmitControlTransactionFactory = Callable[[], ContextManager[SubmitControlTransaction]]
+SubmitControlTransactionFactory = Callable[[], ContextManager[WorkspaceControlTransaction]]
 
 
 @runtime_checkable
@@ -369,10 +370,10 @@ def bind_submit_control_transaction_factory(
     """Bind the active submit transaction for checkpoint and crossing writes."""
 
     class _BoundUnitOfWork:
-        def __init__(self, wrapped: ContextManager[SubmitControlTransaction]) -> None:
+        def __init__(self, wrapped: ContextManager[WorkspaceControlTransaction]) -> None:
             self._wrapped = wrapped
 
-        def __enter__(self) -> SubmitControlTransaction:
+        def __enter__(self) -> WorkspaceControlTransaction:
             transaction = self._wrapped.__enter__()
             _active_submit_transaction.set(transaction)
             return transaction
@@ -386,7 +387,7 @@ def bind_submit_control_transaction_factory(
             _active_submit_transaction.set(None)
             return self._wrapped.__exit__(exc_type, exc, tb)
 
-    def factory() -> ContextManager[SubmitControlTransaction]:
+    def factory() -> ContextManager[WorkspaceControlTransaction]:
         return _BoundUnitOfWork(inner())
 
     return factory
@@ -2211,7 +2212,7 @@ def _submit_attempt_id_from_operation(operation: OperationRecord) -> str:
 def _read_write_factory(
     factory: SubmitControlTransactionFactory,
 ) -> SubmitControlUnitOfWorkFactory:
-    def unit_of_work_factory(*, read_only: bool = False) -> ContextManager[SubmitControlTransaction]:
+    def unit_of_work_factory(*, read_only: bool = False) -> ContextManager[WorkspaceControlTransaction]:
         del read_only
         return factory()
 

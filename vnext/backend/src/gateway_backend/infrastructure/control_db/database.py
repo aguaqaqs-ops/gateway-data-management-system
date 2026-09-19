@@ -17,6 +17,7 @@ from gateway_backend.operations import OperationStore, StoreBusy
 if TYPE_CHECKING:
     from gateway_backend.domain.workspace.models import ResolvedScope
     from gateway_backend.domain.workspace.ports import WorkspaceRepository
+    from gateway_backend.infrastructure.control_db.sqlite_review import SQLiteReviewRepository
     from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
 
 BUSY_TIMEOUT_MS = 5_000
@@ -125,6 +126,7 @@ class ControlDbUnitOfWork:
         self._workspace: WorkspaceRepository | None = None
         self._protection: SQLiteArtifactProtectionStore | None = None
         self._submission: SQLiteSubmissionRepository | None = None
+        self._review: SQLiteReviewRepository | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -165,6 +167,14 @@ class ControlDbUnitOfWork:
         if self._protection is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._protection
+
+    @property
+    def review(self) -> SQLiteReviewRepository:
+        """Return the review participant bound to this transaction."""
+
+        if self._review is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._review
 
     def set_artifact_protection(
         self,
@@ -243,6 +253,9 @@ class ControlDbUnitOfWork:
             from gateway_backend.infrastructure.control_db.sqlite_operations import (
                 SQLiteOperationStore,
             )
+            from gateway_backend.infrastructure.control_db.sqlite_review import (
+                SQLiteReviewRepository,
+            )
             from gateway_backend.infrastructure.control_db.sqlite_submission import (
                 SQLiteSubmissionRepository,
             )
@@ -266,6 +279,11 @@ class ControlDbUnitOfWork:
                 read_only=self._read_only,
             )
             self._submission = SQLiteSubmissionRepository(
+                connection,
+                transaction_now=transaction_now,
+                read_only=self._read_only,
+            )
+            self._review = SQLiteReviewRepository(
                 connection,
                 transaction_now=transaction_now,
                 read_only=self._read_only,
@@ -297,6 +315,7 @@ class ControlDbUnitOfWork:
         self._workspace = None
         self._protection = None
         self._submission = None
+        self._review = None
         self._transaction_now = None
         if connection is None:
             return

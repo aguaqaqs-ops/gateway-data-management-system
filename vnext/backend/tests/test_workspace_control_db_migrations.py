@@ -54,6 +54,9 @@ def test_workspace_bootstrap_creates_tables_constraints_and_indexes() -> None:
         "preview_result_records",
         "provisioned_scope_mappings",
         "repository_submit_occupancy_records",
+        "review_event_records",
+        "review_idempotency_records",
+        "review_projection_records",
         "step_records",
         "submit_attempt_records",
         "submit_idempotency_records",
@@ -71,6 +74,7 @@ def test_workspace_bootstrap_creates_tables_constraints_and_indexes() -> None:
         (OPERATIONS_SCHEMA_COMPONENT, 1),
         (WORKSPACE_SCHEMA_COMPONENT, 1),
         (WORKSPACE_SCHEMA_COMPONENT, 2),
+        (WORKSPACE_SCHEMA_COMPONENT, 3),
         (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
     ]
 
@@ -216,6 +220,7 @@ def test_historical_workspace_v1_file_reopens_and_seeds_mappings(tmp_path: Path)
             (OPERATIONS_SCHEMA_COMPONENT, 1),
             (WORKSPACE_SCHEMA_COMPONENT, 1),
             (WORKSPACE_SCHEMA_COMPONENT, 2),
+            (WORKSPACE_SCHEMA_COMPONENT, 3),
             (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
         ]
         idempotency_columns = [

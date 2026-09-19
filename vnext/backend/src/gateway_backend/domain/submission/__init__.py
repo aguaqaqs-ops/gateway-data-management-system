@@ -5,6 +5,7 @@ from gateway_backend.domain.submission.errors import (
     InvalidReviewReason,
     InvalidReviewTransition,
     InvalidSubmitAttemptTransition,
+    ReviewClosureViolation,
     ReviewVersionConflict,
     SubmissionBindingConflict,
     SubmitAttemptInvariantViolation,
@@ -43,6 +44,7 @@ from gateway_backend.domain.submission.review import (
     is_terminal_review_status,
     resolve_review_transition,
     review_allowed_transitions,
+    validate_review_closure,
     validate_review_idempotency_key,
     validate_review_reason,
 )
@@ -62,6 +64,7 @@ __all__ = [
     "ReviewIdempotencyRecord",
     "ReviewProjection",
     "ReviewStatus",
+    "ReviewClosureViolation",
     "ReviewVersionConflict",
     "Submission",
     "SubmissionBindingConflict",
@@ -84,6 +87,7 @@ __all__ = [
     "resolve_review_transition",
     "review_allowed_transitions",
     "transition_attempt_state",
+    "validate_review_closure",
     "validate_review_idempotency_key",
     "validate_review_reason",
 ]

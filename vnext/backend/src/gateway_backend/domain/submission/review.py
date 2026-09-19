@@ -10,6 +10,7 @@ from gateway_backend.domain.submission.errors import (
     InvalidReviewIdempotencyKey,
     InvalidReviewReason,
     InvalidReviewTransition,
+    ReviewClosureViolation,
 )
 
 _REVIEW_REASON_MAX_BYTES = 4096
@@ -186,6 +187,37 @@ def resolve_review_transition(
     if target is None:
         raise InvalidReviewTransition(current=current.value, action=action.value)
     return _ACTION_TO_EVENT_KIND[action], target
+
+
+def validate_review_closure(
+    projection: ReviewProjection | None,
+    events: tuple[ReviewEvent, ...],
+) -> None:
+    """Validate projection/event closure or raise ReviewClosureViolation."""
+
+    if projection is None:
+        raise ReviewClosureViolation("review projection is missing")
+    if not events:
+        raise ReviewClosureViolation("review event stream is empty")
+    if projection.submission_id != events[0].submission_id:
+        raise ReviewClosureViolation("review projection submission_id does not match events")
+    for index, event in enumerate(events):
+        if event.submission_id != projection.submission_id:
+            raise ReviewClosureViolation("review event submission_id does not match projection")
+        if event.sequence != index:
+            raise ReviewClosureViolation("review event sequence has a gap or duplicate")
+    latest_event = events[-1]
+    latest_sequence = latest_event.sequence
+    if projection.optimistic_version != latest_sequence:
+        raise ReviewClosureViolation("review projection optimistic_version does not match events")
+    if projection.latest_sequence != latest_sequence:
+        raise ReviewClosureViolation("review projection latest_sequence does not match events")
+    if projection.status is not latest_event.to_status:
+        raise ReviewClosureViolation("review projection status does not match latest event")
+    if projection.updated_by != latest_event.actor_id:
+        raise ReviewClosureViolation("review projection updated_by does not match latest event")
+    if projection.updated_at != latest_event.occurred_at:
+        raise ReviewClosureViolation("review projection updated_at does not match latest event")
 
 
 def build_seed_projection(

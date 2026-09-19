@@ -22,6 +22,7 @@ from gateway_backend.domain.submission.errors import (
     InvalidReviewIdempotencyKey,
     InvalidReviewReason,
     InvalidReviewTransition,
+    ReviewClosureViolation,
 )
 from gateway_backend.domain.submission.review import (
     ReviewAction,
@@ -32,6 +33,7 @@ from gateway_backend.domain.submission.review import (
     build_seed_projection,
     resolve_review_transition,
     review_allowed_transitions,
+    validate_review_closure,
     validate_review_idempotency_key,
     validate_review_reason,
 )
@@ -225,6 +227,112 @@ def test_review_transition_matrix_inventory_matches_policy_module() -> None:
     assert inventory[ReviewStatus.REJECTED] == {}
     assert inventory[ReviewStatus.RETURNED_FOR_REVISION] == {}
     assert inventory[ReviewStatus.WITHDRAWN] == {}
+
+
+def _seed_event() -> ReviewEvent:
+    event, _ = build_seed_projection(
+        submission_id="submission-1",
+        actor_id="actor-1",
+        occurred_at=TS0,
+    )
+    return event
+
+
+REVIEW_CLOSURE_VIOLATION_CASES: tuple[tuple[str, ReviewProjection | None, tuple[ReviewEvent, ...]], ...] = (
+    (
+        "missing_projection",
+        None,
+        (_seed_event(),),
+    ),
+    (
+        "empty_events",
+        _pending_projection(),
+        (),
+    ),
+    (
+        "submission_id_mismatch",
+        _pending_projection(),
+        (
+            ReviewEvent(
+                submission_id="submission-2",
+                sequence=0,
+                event_kind=ReviewEventKind.SUBMISSION_FINALIZED,
+                from_status=None,
+                to_status=ReviewStatus.PENDING,
+                reason=None,
+                actor_id="actor-1",
+                occurred_at=TS0,
+            ),
+        ),
+    ),
+    (
+        "sequence_gap",
+        _pending_projection(),
+        (_seed_event(),),
+    ),
+    (
+        "status_mismatch",
+        ReviewProjection(
+            submission_id="submission-1",
+            status=ReviewStatus.APPROVED,
+            optimistic_version=0,
+            latest_sequence=0,
+            updated_by="actor-1",
+            updated_at=TS0,
+        ),
+        (_seed_event(),),
+    ),
+    (
+        "updated_by_mismatch",
+        ReviewProjection(
+            submission_id="submission-1",
+            status=ReviewStatus.PENDING,
+            optimistic_version=0,
+            latest_sequence=0,
+            updated_by="actor-2",
+            updated_at=TS0,
+        ),
+        (_seed_event(),),
+    ),
+    (
+        "updated_at_mismatch",
+        ReviewProjection(
+            submission_id="submission-1",
+            status=ReviewStatus.PENDING,
+            optimistic_version=0,
+            latest_sequence=0,
+            updated_by="actor-1",
+            updated_at=datetime(2024, 6, 2, 12, 0, 0, tzinfo=UTC),
+        ),
+        (_seed_event(),),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("case_id", "projection", "events"),
+    REVIEW_CLOSURE_VIOLATION_CASES,
+    ids=[case[0] for case in REVIEW_CLOSURE_VIOLATION_CASES],
+)
+def test_validate_review_closure_rejects_violations(
+    case_id: str,
+    projection: ReviewProjection | None,
+    events: tuple[ReviewEvent, ...],
+) -> None:
+    if case_id == "sequence_gap":
+        gap_event = ReviewEvent(
+            submission_id="submission-1",
+            sequence=1,
+            event_kind=ReviewEventKind.APPROVED,
+            from_status=ReviewStatus.PENDING,
+            to_status=ReviewStatus.APPROVED,
+            reason=None,
+            actor_id="actor-1",
+            occurred_at=TS0,
+        )
+        events = (_seed_event(), gap_event)
+    with pytest.raises(ReviewClosureViolation):
+        validate_review_closure(projection, events)
 
 
 def test_build_seed_projection_maps_null_to_pending_only() -> None:

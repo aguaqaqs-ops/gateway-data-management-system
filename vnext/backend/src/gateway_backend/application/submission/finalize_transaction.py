@@ -10,14 +10,19 @@ from gateway_backend.application.submission.contracts import (
     FinalizeSubmitResult,
     MatchingFinalizeFacts,
 )
-from gateway_backend.application.submission.errors import FinalizeRecoveryRequired
+from gateway_backend.application.submission.errors import (
+    FinalizeRecoveryRequired,
+    ReviewIntegrityFailure,
+)
 from gateway_backend.application.submission.finalize import finalize_submit
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
-from gateway_backend.application.submission.ports import SubmitControlTransaction
+from gateway_backend.application.submission.ports import WorkspaceControlTransaction
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.domain.submission.errors import ReviewClosureViolation
 from gateway_backend.domain.submission.models import SubmitAttempt, SubmitAttemptState, Submission
+from gateway_backend.domain.submission.review import build_seed_projection
 from gateway_backend.operations import (
     OperationStatus,
     StepStatus,
@@ -42,7 +47,7 @@ class FinalizeSubmitTransactionRequest:
 def finalize_submit_transaction(
     *,
     request: FinalizeSubmitTransactionRequest,
-    unit_of_work: SubmitControlTransaction,
+    unit_of_work: WorkspaceControlTransaction,
 ) -> FinalizeSubmitResult:
     attempt = unit_of_work.submission.get_submit_attempt(request.submit_attempt_id)
     if attempt is None:
@@ -64,6 +69,7 @@ def finalize_submit_transaction(
                 attempt=result.attempt,
                 submission=result.submission,
             )
+            _assert_finalize_review_closure(unit_of_work, result.submission.submission_id)
             return result
         raise ValueError("finalize requires EFFECT_PENDING attempt")
 
@@ -83,6 +89,9 @@ def finalize_submit_transaction(
     )
     if not result.replay:
         unit_of_work.submission.insert_submission(result.submission)
+        _insert_finalize_review_seed(unit_of_work, result.submission)
+    else:
+        _assert_finalize_review_closure(unit_of_work, result.submission.submission_id)
 
     finalized_attempt = replace(
         result.attempt,
@@ -164,8 +173,35 @@ def finalize_submit_transaction(
     return result
 
 
+def _insert_finalize_review_seed(
+    unit_of_work: WorkspaceControlTransaction,
+    submission: Submission,
+) -> None:
+    event, projection = build_seed_projection(
+        submission_id=submission.submission_id,
+        actor_id=submission.created_by,
+        occurred_at=submission.created_at,
+    )
+    try:
+        unit_of_work.review.insert_seed(event, projection)
+    except ReviewClosureViolation as exc:
+        raise ReviewIntegrityFailure(exc.reason) from exc
+
+
+def _assert_finalize_review_closure(
+    unit_of_work: WorkspaceControlTransaction,
+    submission_id: str,
+) -> None:
+    try:
+        projection = unit_of_work.review.get_projection(submission_id)
+    except ReviewClosureViolation as exc:
+        raise ReviewIntegrityFailure(exc.reason) from exc
+    if projection is None:
+        raise ReviewIntegrityFailure("review projection is missing")
+
+
 def _assert_finalized_closure(
-    unit_of_work: SubmitControlTransaction,
+    unit_of_work: WorkspaceControlTransaction,
     *,
     attempt: SubmitAttempt,
     submission: Submission,
@@ -188,7 +224,7 @@ def _assert_finalized_closure(
 
 
 def _transfer_finalize_protection(
-    unit_of_work: SubmitControlTransaction,
+    unit_of_work: WorkspaceControlTransaction,
     *,
     attempt: SubmitAttempt,
 ) -> None:

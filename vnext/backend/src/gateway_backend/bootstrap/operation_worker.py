@@ -40,7 +40,7 @@ from gateway_backend.application.submit_jobs import (
     build_submit_recovery_port,
     submit_composition_bundle,
 )
-from gateway_backend.application.submission.ports import SubmitControlUnitOfWorkFactory
+from gateway_backend.application.submit_jobs import SubmitControlTransactionFactory
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.application.synthetic_jobs import build_external_effect_stub_recovery_port
 from gateway_backend.infrastructure.artifact_store import (
@@ -185,7 +185,7 @@ def build_worker_write_uow_factory(
     return cast(
         WriteUnitOfWorkFactory,
         bind_submit_control_transaction_factory(
-            cast(SubmitControlUnitOfWorkFactory, preview_bound)
+            cast(SubmitControlTransactionFactory, preview_bound)
         ),
     )
 

@@ -44,6 +44,7 @@ from gateway_backend.application.submission.errors import (
     FinalizeRecoveryRequired,
     IdempotencyConflict,
     NoCanonicalChange,
+    ReviewIntegrityFailure,
     SubmitJobNotRegistered,
     SubmitOccupancyConflict,
 )
@@ -58,6 +59,7 @@ from gateway_shared_kernel import DigestRef
 
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.errors import SubmitAttemptVersionConflict
+from gateway_backend.domain.submission.review import ReviewEventKind, ReviewStatus
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
@@ -1069,12 +1071,21 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) ->
         occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
         repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
         operation = unit_of_work.operations.get_operation(attempt.operation_id)
+        projection = unit_of_work.review.get_projection("sub-1")
+        events = unit_of_work.review.list_events("sub-1")
     assert submission is not None
     assert submission.submission_id == "sub-1"
     assert occupancy is not None
     assert occupancy.active_submission_id == "sub-1"
     assert repository_occupancy is None
     assert operation.status is OperationStatus.SUCCEEDED
+    assert projection is not None
+    assert projection.status is ReviewStatus.PENDING
+    assert projection.optimistic_version == 0
+    assert projection.latest_sequence == 0
+    assert len(events) == 1
+    assert events[0].sequence == 0
+    assert events[0].event_kind is ReviewEventKind.SUBMISSION_FINALIZED
 
 
 def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> None:
@@ -1130,7 +1141,75 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
             "SELECT COUNT(*) FROM submission_records WHERE submit_attempt_id = ?",
             (attempt.submit_attempt_id,),
         ).fetchone()[0]
+        event_rows = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_event_records WHERE submission_id = ?",
+            ("sub-1",),
+        ).fetchone()[0]
+        projection_rows = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_projection_records WHERE submission_id = ?",
+            ("sub-1",),
+        ).fetchone()[0]
     assert rows == 1
+    assert event_rows == 1
+    assert projection_rows == 1
+
+
+def test_t3_finalize_replay_fails_when_review_seed_missing(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
+    facts = MatchingFinalizeFacts(
+        repository_id=seed.workspace.repository_id,
+        repository_operation_id="repo-op-1",
+        repository_commit_id="commit-new",
+        repository_expected_parent_commit_id="commit-main",
+        repository_artifact_id="repo-artifact-1",
+        repository_import_artifact_raw_sha256=_SHA_PACKAGE,
+        canonicalization_manifest_ref="manifest-1",
+        canonicalization_manifest_digest=_SHA_MANIFEST,
+        completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+        completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
+        target_ref=SubmitTargetRef.MAIN,
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        finalize_submit_transaction(
+            request=FinalizeSubmitTransactionRequest(
+                submit_attempt_id=attempt.submit_attempt_id,
+                facts=facts,
+                submission_id="sub-1",
+                created_at=TS1,
+                expected_attempt_version=attempt_version,
+                expected_await_step_version=await_version,
+                expected_operation_version=operation_version,
+                worker_id="worker-test",
+                lease_token="lease-test",
+            ),
+            unit_of_work=unit_of_work,
+        )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "DELETE FROM review_projection_records WHERE submission_id = ?",
+            ("sub-1",),
+        )
+        unit_of_work.connection.execute(
+            "DELETE FROM review_event_records WHERE submission_id = ?",
+            ("sub-1",),
+        )
+        with pytest.raises(ReviewIntegrityFailure):
+            finalize_submit_transaction(
+                request=FinalizeSubmitTransactionRequest(
+                    submit_attempt_id=attempt.submit_attempt_id,
+                    facts=facts,
+                    submission_id="sub-1",
+                    created_at=TS1,
+                    expected_attempt_version=attempt_version,
+                    expected_await_step_version=await_version,
+                    expected_operation_version=operation_version,
+                    worker_id="worker-test",
+                    lease_token="lease-test",
+                ),
+                unit_of_work=unit_of_work,
+            )
 
 
 def test_stable_abort_releases_occupancy_without_submission(db_path: Path) -> None:

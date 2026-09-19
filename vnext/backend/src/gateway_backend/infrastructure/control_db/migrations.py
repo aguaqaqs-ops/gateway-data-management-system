@@ -12,7 +12,7 @@ from gateway_backend.operations import StoreBusy, UnsupportedSchemaVersion
 OPERATIONS_SCHEMA_COMPONENT = "operations"
 OPERATIONS_SCHEMA_VERSION = 1
 WORKSPACE_SCHEMA_COMPONENT = "workspace"
-WORKSPACE_SCHEMA_VERSION = 3
+WORKSPACE_SCHEMA_VERSION = 4
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SQLITE_INT_MIN = -(2**63)
@@ -55,6 +55,20 @@ _SUBMIT_TARGET_REFS = ("'main'",)
 _SUBMIT_VERIFICATION_POLICIES = ("'STRUCTURAL'",)
 _SUBMIT_UNKNOWN_TYPE_POLICIES = ("'REJECT'",)
 _BUILDER_MUTATION_POLICIES = ("'REBUILD_ALWAYS'",)
+_REVIEW_STATUSES = (
+    "'PENDING'",
+    "'APPROVED'",
+    "'REJECTED'",
+    "'RETURNED_FOR_REVISION'",
+    "'WITHDRAWN'",
+)
+_REVIEW_EVENT_KINDS = (
+    "'SUBMISSION_FINALIZED'",
+    "'APPROVED'",
+    "'REJECTED'",
+    "'RETURNED_FOR_REVISION'",
+    "'WITHDRAWN'",
+)
 
 
 def bootstrap_control_schema(
@@ -84,7 +98,12 @@ def bootstrap_workspace_schema(
         connection,
         component=WORKSPACE_SCHEMA_COMPONENT,
         target_version=WORKSPACE_SCHEMA_VERSION,
-        steps={1: _apply_workspace_v1, 2: _apply_workspace_v2, 3: _apply_workspace_v3},
+        steps={
+            1: _apply_workspace_v1,
+            2: _apply_workspace_v2,
+            3: _apply_workspace_v3,
+            4: _apply_workspace_v4,
+        },
         now=now,
     )
 
@@ -155,13 +174,20 @@ def _apply_workspace_v3(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _apply_workspace_v4(connection: sqlite3.Connection) -> None:
+    _assert_workspace_migration_integrity(connection)
+    for statement in _workspace_v4_statements():
+        connection.execute(statement)
+    _backfill_review_seed_from_submissions(connection)
+
+
 def _assert_workspace_migration_integrity(connection: sqlite3.Connection) -> None:
     integrity_rows = connection.execute("PRAGMA integrity_check").fetchall()
     foreign_key_rows = connection.execute("PRAGMA foreign_key_check").fetchall()
     if len(integrity_rows) != 1 or integrity_rows[0][0] != "ok":
-        raise RuntimeError("workspace v3 migration found integrity check failure")
+        raise RuntimeError("workspace migration found integrity check failure")
     if foreign_key_rows:
-        raise RuntimeError("workspace v3 migration found foreign key check failure")
+        raise RuntimeError("workspace migration found foreign key check failure")
 
 
 def _apply_workspace_v2(connection: sqlite3.Connection) -> None:
@@ -859,6 +885,104 @@ def _workspace_v3_statements() -> tuple[str, ...]:
                 ON DELETE RESTRICT
         )
         """,
+    )
+
+
+def _workspace_v4_statements() -> tuple[str, ...]:
+    review_statuses = ", ".join(_REVIEW_STATUSES)
+    review_event_kinds = ", ".join(_REVIEW_EVENT_KINDS)
+    return (
+        f"""
+        CREATE TABLE review_event_records (
+            submission_id TEXT NOT NULL
+                CHECK (typeof(submission_id) = 'text' AND length(submission_id) BETWEEN 1 AND 255),
+            sequence INTEGER NOT NULL
+                CHECK (typeof(sequence) = 'integer' AND sequence >= 0),
+            event_kind TEXT NOT NULL
+                CHECK (typeof(event_kind) = 'text' AND event_kind IN ({review_event_kinds})),
+            from_status TEXT
+                CHECK (from_status IS NULL OR
+                       (typeof(from_status) = 'text' AND from_status IN ({review_statuses}))),
+            to_status TEXT NOT NULL
+                CHECK (typeof(to_status) = 'text' AND to_status IN ({review_statuses})),
+            reason TEXT
+                CHECK (reason IS NULL OR
+                       (typeof(reason) = 'text'
+                        AND length(CAST(reason AS BLOB)) BETWEEN 0 AND 4096)),
+            actor_id TEXT NOT NULL
+                CHECK (typeof(actor_id) = 'text' AND length(actor_id) BETWEEN 1 AND 255),
+            occurred_at_us INTEGER NOT NULL
+                CHECK (typeof(occurred_at_us) = 'integer'),
+            PRIMARY KEY (submission_id, sequence),
+            FOREIGN KEY (submission_id) REFERENCES submission_records(submission_id)
+                ON DELETE RESTRICT
+        )
+        """,
+        f"""
+        CREATE TABLE review_projection_records (
+            submission_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(submission_id) = 'text' AND length(submission_id) BETWEEN 1 AND 255),
+            status TEXT NOT NULL
+                CHECK (typeof(status) = 'text' AND status IN ({review_statuses})),
+            optimistic_version INTEGER NOT NULL
+                CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version >= 0),
+            latest_sequence INTEGER NOT NULL
+                CHECK (typeof(latest_sequence) = 'integer' AND latest_sequence >= 0),
+            updated_by TEXT NOT NULL
+                CHECK (typeof(updated_by) = 'text' AND length(updated_by) BETWEEN 1 AND 255),
+            updated_at_us INTEGER NOT NULL
+                CHECK (typeof(updated_at_us) = 'integer'),
+            FOREIGN KEY (submission_id) REFERENCES submission_records(submission_id)
+                ON DELETE RESTRICT
+        )
+        """,
+        """
+        CREATE TABLE review_idempotency_records (
+            business_project_id TEXT NOT NULL
+                CHECK (typeof(business_project_id) = 'text'
+                       AND length(business_project_id) BETWEEN 1 AND 255),
+            idempotency_key TEXT NOT NULL
+                CHECK (typeof(idempotency_key) = 'text'
+                       AND length(idempotency_key) BETWEEN 1 AND 255),
+            submission_id TEXT NOT NULL
+                CHECK (typeof(submission_id) = 'text' AND length(submission_id) BETWEEN 1 AND 255),
+            request_fingerprint TEXT NOT NULL
+                CHECK (typeof(request_fingerprint) = 'text'
+                       AND length(request_fingerprint) BETWEEN 1 AND 512),
+            event_sequence INTEGER NOT NULL
+                CHECK (typeof(event_sequence) = 'integer' AND event_sequence >= 0),
+            PRIMARY KEY (business_project_id, idempotency_key),
+            FOREIGN KEY (submission_id) REFERENCES submission_records(submission_id)
+                ON DELETE RESTRICT,
+            FOREIGN KEY (submission_id, event_sequence)
+                REFERENCES review_event_records(submission_id, sequence) ON DELETE RESTRICT
+        )
+        """,
+    )
+
+
+def _backfill_review_seed_from_submissions(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        INSERT INTO review_event_records (
+            submission_id, sequence, event_kind, from_status, to_status,
+            reason, actor_id, occurred_at_us
+        )
+        SELECT submission_id, 0, 'SUBMISSION_FINALIZED', NULL, 'PENDING', NULL, created_by, created_at_us
+        FROM submission_records
+        ORDER BY submission_id
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO review_projection_records (
+            submission_id, status, optimistic_version, latest_sequence,
+            updated_by, updated_at_us
+        )
+        SELECT submission_id, 'PENDING', 0, 0, created_by, created_at_us
+        FROM submission_records
+        ORDER BY submission_id
+        """
     )
 
 

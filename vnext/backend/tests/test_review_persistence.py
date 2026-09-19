@@ -534,6 +534,27 @@ def test_sqlite_review_repository_cas_projection_missing_row(db_path: Path) -> N
             unit_of_work.review.cas_projection(stale_projection, expected_version=0)
 
 
+def test_sqlite_review_repository_append_rejects_empty_stream(db_path: Path) -> None:
+    approve_event = ReviewEvent(
+        submission_id="sub-1",
+        sequence=1,
+        event_kind=ReviewEventKind.APPROVED,
+        from_status=ReviewStatus.PENDING,
+        to_status=ReviewStatus.APPROVED,
+        reason=None,
+        actor_id="reviewer-1",
+        occurred_at=TS1,
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        _seed_submission_row(unit_of_work.connection)
+        with pytest.raises(ReviewClosureViolation, match="no seed"):
+            unit_of_work.review.append_event(approve_event)
+        assert unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_event_records WHERE submission_id = ?",
+            ("sub-1",),
+        ).fetchone()[0] == 0
+
+
 def test_sqlite_review_repository_append_rejects_sequence_gap(db_path: Path) -> None:
     seed_event, seed_projection = build_seed_projection(
         submission_id="sub-1",

@@ -970,7 +970,6 @@ def _backfill_review_seed_from_submissions(connection: sqlite3.Connection) -> No
         )
         SELECT submission_id, 0, 'SUBMISSION_FINALIZED', NULL, 'PENDING', NULL, created_by, created_at_us
         FROM submission_records
-        ORDER BY submission_id
         """
     )
     connection.execute(
@@ -981,7 +980,6 @@ def _backfill_review_seed_from_submissions(connection: sqlite3.Connection) -> No
         )
         SELECT submission_id, 'PENDING', 0, 0, created_by, created_at_us
         FROM submission_records
-        ORDER BY submission_id
         """
     )
 

@@ -199,6 +199,8 @@ def validate_review_closure(
         raise ReviewClosureViolation("review projection is missing")
     if not events:
         raise ReviewClosureViolation("review event stream is empty")
+    if events[0].event_kind is not ReviewEventKind.SUBMISSION_FINALIZED:
+        raise ReviewClosureViolation("review event stream has no seed")
     if projection.submission_id != events[0].submission_id:
         raise ReviewClosureViolation("review projection submission_id does not match events")
     for index, event in enumerate(events):

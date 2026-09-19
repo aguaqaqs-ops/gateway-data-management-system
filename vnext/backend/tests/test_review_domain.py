@@ -238,19 +238,38 @@ def _seed_event() -> ReviewEvent:
     return event
 
 
-REVIEW_CLOSURE_VIOLATION_CASES: tuple[tuple[str, ReviewProjection | None, tuple[ReviewEvent, ...]], ...] = (
+def _approve_event(sequence: int) -> ReviewEvent:
+    return ReviewEvent(
+        submission_id="submission-1",
+        sequence=sequence,
+        event_kind=ReviewEventKind.APPROVED,
+        from_status=ReviewStatus.PENDING,
+        to_status=ReviewStatus.APPROVED,
+        reason=None,
+        actor_id="actor-1",
+        occurred_at=TS0,
+    )
+
+
+REVIEW_CLOSURE_VIOLATION_CASES: tuple[
+    tuple[str, str, ReviewProjection | None, tuple[ReviewEvent, ...]],
+    ...,
+] = (
     (
         "missing_projection",
+        "review projection is missing",
         None,
         (_seed_event(),),
     ),
     (
         "empty_events",
+        "review event stream is empty",
         _pending_projection(),
         (),
     ),
     (
         "submission_id_mismatch",
+        "review projection submission_id does not match events",
         _pending_projection(),
         (
             ReviewEvent(
@@ -266,12 +285,39 @@ REVIEW_CLOSURE_VIOLATION_CASES: tuple[tuple[str, ReviewProjection | None, tuple[
         ),
     ),
     (
-        "sequence_gap",
+        "missing_seed_event",
+        "review event stream has no seed",
         _pending_projection(),
+        (_approve_event(1),),
+    ),
+    (
+        "optimistic_version_mismatch",
+        "review projection optimistic_version does not match events",
+        _pending_projection(),
+        (_seed_event(), _approve_event(1)),
+    ),
+    (
+        "sequence_gap",
+        "review event sequence has a gap or duplicate",
+        _pending_projection(),
+        (_seed_event(), _approve_event(2)),
+    ),
+    (
+        "latest_sequence_mismatch",
+        "review projection latest_sequence does not match events",
+        ReviewProjection(
+            submission_id="submission-1",
+            status=ReviewStatus.PENDING,
+            optimistic_version=0,
+            latest_sequence=5,
+            updated_by="actor-1",
+            updated_at=TS0,
+        ),
         (_seed_event(),),
     ),
     (
         "status_mismatch",
+        "review projection status does not match latest event",
         ReviewProjection(
             submission_id="submission-1",
             status=ReviewStatus.APPROVED,
@@ -284,6 +330,7 @@ REVIEW_CLOSURE_VIOLATION_CASES: tuple[tuple[str, ReviewProjection | None, tuple[
     ),
     (
         "updated_by_mismatch",
+        "review projection updated_by does not match latest event",
         ReviewProjection(
             submission_id="submission-1",
             status=ReviewStatus.PENDING,
@@ -296,6 +343,7 @@ REVIEW_CLOSURE_VIOLATION_CASES: tuple[tuple[str, ReviewProjection | None, tuple[
     ),
     (
         "updated_at_mismatch",
+        "review projection updated_at does not match latest event",
         ReviewProjection(
             submission_id="submission-1",
             status=ReviewStatus.PENDING,
@@ -310,28 +358,17 @@ REVIEW_CLOSURE_VIOLATION_CASES: tuple[tuple[str, ReviewProjection | None, tuple[
 
 
 @pytest.mark.parametrize(
-    ("case_id", "projection", "events"),
+    ("case_id", "expected_reason", "projection", "events"),
     REVIEW_CLOSURE_VIOLATION_CASES,
     ids=[case[0] for case in REVIEW_CLOSURE_VIOLATION_CASES],
 )
 def test_validate_review_closure_rejects_violations(
     case_id: str,
+    expected_reason: str,
     projection: ReviewProjection | None,
     events: tuple[ReviewEvent, ...],
 ) -> None:
-    if case_id == "sequence_gap":
-        gap_event = ReviewEvent(
-            submission_id="submission-1",
-            sequence=1,
-            event_kind=ReviewEventKind.APPROVED,
-            from_status=ReviewStatus.PENDING,
-            to_status=ReviewStatus.APPROVED,
-            reason=None,
-            actor_id="actor-1",
-            occurred_at=TS0,
-        )
-        events = (_seed_event(), gap_event)
-    with pytest.raises(ReviewClosureViolation):
+    with pytest.raises(ReviewClosureViolation, match=expected_reason):
         validate_review_closure(projection, events)
 
 

@@ -166,6 +166,8 @@ class SQLiteReviewRepository:
         ).fetchone()[0]
         if type(latest_sequence) is not int:
             raise ReviewClosureViolation("review event sequence lookup returned invalid data")
+        if latest_sequence < 0:
+            raise ReviewClosureViolation("review event stream has no seed")
         if event.sequence != latest_sequence + 1:
             raise ReviewClosureViolation("review event sequence is not contiguous")
         try:

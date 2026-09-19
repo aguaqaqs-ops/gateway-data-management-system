@@ -27,10 +27,16 @@ class SubmissionReadPort(Protocol):
 
 class ReviewReadPort(Protocol):
     def get_projection(self, submission_id: str) -> ReviewProjection | None:
-        """Load current ReviewProjection for one Submission."""
+        """Load current ReviewProjection for one Submission.
+
+        Raises ReviewClosureViolation when stored projection/event closure is inconsistent.
+        """
 
     def list_events(self, submission_id: str) -> tuple[ReviewEvent, ...]:
-        """Return Review events ordered by ascending sequence."""
+        """Return Review events ordered by ascending sequence.
+
+        Raises ReviewClosureViolation when stored projection/event closure is inconsistent.
+        """
 
     def find_idempotency(
         self,

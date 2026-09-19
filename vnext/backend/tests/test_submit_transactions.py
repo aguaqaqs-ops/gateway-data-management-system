@@ -1195,21 +1195,21 @@ def test_t3_finalize_replay_fails_when_review_seed_missing(db_path: Path) -> Non
             "DELETE FROM review_event_records WHERE submission_id = ?",
             ("sub-1",),
         )
-        with pytest.raises(ReviewIntegrityFailure):
-            finalize_submit_transaction(
-                request=FinalizeSubmitTransactionRequest(
-                    submit_attempt_id=attempt.submit_attempt_id,
-                    facts=facts,
-                    submission_id="sub-1",
-                    created_at=TS1,
-                    expected_attempt_version=attempt_version,
-                    expected_await_step_version=await_version,
-                    expected_operation_version=operation_version,
-                    worker_id="worker-test",
-                    lease_token="lease-test",
-                ),
-                unit_of_work=unit_of_work,
-            )
+    with ControlDbUnitOfWork(db_path) as unit_of_work, pytest.raises(ReviewIntegrityFailure):
+        finalize_submit_transaction(
+            request=FinalizeSubmitTransactionRequest(
+                submit_attempt_id=attempt.submit_attempt_id,
+                facts=facts,
+                submission_id="sub-1",
+                created_at=TS1,
+                expected_attempt_version=attempt_version,
+                expected_await_step_version=await_version,
+                expected_operation_version=operation_version,
+                worker_id="worker-test",
+                lease_token="lease-test",
+            ),
+            unit_of_work=unit_of_work,
+        )
 
 
 def test_stable_abort_releases_occupancy_without_submission(db_path: Path) -> None:

@@ -26,7 +26,7 @@ parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s2-handoff.md
 implementation_candidate_head: 0f446c8b9070eea8cba5b5cf1d2e7cddcb0d1fca
 remediation_implementation_head: d7332bc2c089775280c0b463bb735d9fe29d754c
 sealed_doc_tree_head: b7846d9ed9c9a81e8a58e603d655c87b10390d5b
-candidate_head: pending_docs_commit
+candidate_head: 88c165b1d564a6aac2d7b86a6dc7bf9cf29cc995
 workspace_schema_version: 4
 uv_lock_in_diff: no
 finding_remediation: F1-F12, R1-R6

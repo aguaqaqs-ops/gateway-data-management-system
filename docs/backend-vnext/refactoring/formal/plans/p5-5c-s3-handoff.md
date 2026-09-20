@@ -24,16 +24,16 @@ production_deployment_authorized: false
 stage: P5-5C-S3-review-command-transaction-workspace-release
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s2-handoff.md
 implementation_candidate_head: dadf5d1f6f01e028e2020b005737040ae4bee11e
-remediation_implementation_head: 02acbee188b05e4f78f9725c9ad959f2fbdc2189
-sealed_doc_tree_head: c3fe191c67cc334762aecb34f32c1da188e7828d
+remediation_implementation_head: pending_bind_after_commit
+sealed_doc_tree_head: pending_bind_after_commit
 remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s3-remediation-handoff.md
 uv_lock_in_diff: no
 next_step: independent_S3_countersign_then_P5-5C-S4
 ```
 
 `implementation_candidate_head` 保留首次 S3 代码交付提交 `dadf5d1f6f`；
-`remediation_implementation_head` 绑定 P2 countersign remediation 代码提交 `02acbee188`；
-`sealed_doc_tree_head` 绑定 P2 remediation docs 提交。
+`remediation_implementation_head` 绑定 cross-submission P2 remediation 代码提交；
+`sealed_doc_tree_head` 绑定 cross-submission remediation docs 提交。
 Finding 闭环见 `p5-5c-s3-remediation-handoff.md`。
 
 ## Changed paths
@@ -77,6 +77,8 @@ Finding 闭环见 `p5-5c-s3-remediation-handoff.md`。
 | same-key/same-fingerprint replay (cross-actor, workspace unchanged) | yes |
 | same-key/different fingerprint conflict | yes |
 | cross-submission same project/key conflict | yes |
+| cross-submission conflict via transaction (different device/repository) | yes |
+| cross-submission record-submission closure damage → `ReviewIntegrityFailure` | yes |
 | replay returns bound event after later mutation | yes |
 | seed-bound/damaged idempotency → `ReviewIntegrityFailure` | yes |
 | corrupted idempotency fingerprint → `ReviewIntegrityFailure` (not conflict) | yes |
@@ -111,7 +113,7 @@ cd vnext/backend
   tests/test_review_domain.py tests/test_review_persistence.py \
   tests/test_review_transactions.py tests/test_submit_transactions.py \
   tests/test_sqlite_submit_repository.py tests/test_architecture.py
-# => 230 passed
+# => 233 passed
 
 ../scripts/uv-consume.sh -C . run ruff check src/gateway_backend/application/submission \
   src/gateway_backend/domain/submission src/gateway_backend/infrastructure/control_db \

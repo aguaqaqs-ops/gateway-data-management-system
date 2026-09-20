@@ -24,15 +24,15 @@ production_deployment_authorized: false
 stage: P5-5C-S3-remediation
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s3-handoff.md
 implementation_candidate_head: dadf5d1f6f01e028e2020b005737040ae4bee11e
-remediation_implementation_head: 02acbee188b05e4f78f9725c9ad959f2fbdc2189
-sealed_doc_tree_head: c3fe191c67cc334762aecb34f32c1da188e7828d
-finding_remediation: F1-F8, P2-1-P2-3
+remediation_implementation_head: pending_bind_after_commit
+sealed_doc_tree_head: pending_bind_after_commit
+finding_remediation: F1-F8, P2-1-P2-3, P2-1a-P2-1b
 next_step: independent_S3_countersign_then_P5-5C-S4
 ```
 
 `implementation_candidate_head` 保留首次 S3 代码交付提交 `dadf5d1f6f`；
-`remediation_implementation_head` 绑定 P2 countersign remediation 代码提交 `02acbee188`；
-`sealed_doc_tree_head` 绑定 P2 remediation docs 提交（首轮 F1–F8 见 `9e08f2f63e` / `af157cf880`）。
+`remediation_implementation_head` 绑定 cross-submission P2 remediation 代码提交；
+`sealed_doc_tree_head` 绑定 cross-submission remediation docs 提交（历史轮次见 `9e08f2f63e` / `02acbee188` / `c3fe191c67`）。
 
 ## Findings closed
 
@@ -50,6 +50,8 @@ next_step: independent_S3_countersign_then_P5-5C-S4
 | P2-2 | P2 | Persisted reason not in closure | `validate_review_reason` in `validate_review_closure`; domain param cases + GET/replay integrity tests |
 | P2-3 | P2 | Concurrent barrier evidence gap | `Barrier` dual-connection test; one commit + stable `ReviewVersionConflict` |
 | P3 | LOW | Review uses full Submit transaction port | Deferred: no stray calls found; converge to minimal `ReviewApplyTransaction` before/within S4 |
+| P2-1a | P2 | Cross-submission integrity used request scope for record fingerprint | Record-scoped vs request-scoped fingerprint split in `verify_idempotency_replay` |
+| P2-1b | P2 | Cross-submission `list_events` leaked `ReviewClosureViolation` | Wrapped in `ReviewIntegrityFailure` boundary; transaction regression tests |
 
 ## S4 entry note (not S3 defects)
 
@@ -65,7 +67,7 @@ cd vnext/backend
   tests/test_review_domain.py tests/test_review_persistence.py \
   tests/test_review_transactions.py tests/test_submit_transactions.py \
   tests/test_sqlite_submit_repository.py tests/test_architecture.py
-# => 230 passed
+# => 233 passed
 
 ../scripts/uv-consume.sh -C . run ruff check src/gateway_backend/application/submission \
   src/gateway_backend/domain/submission src/gateway_backend/infrastructure/control_db \

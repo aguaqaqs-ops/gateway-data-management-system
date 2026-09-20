@@ -49,6 +49,13 @@ from gateway_backend.http.schemas.errors import ErrorResponse
 INTERNAL_ERROR_CODE = "INTERNAL_ERROR"
 INTERNAL_ERROR_MESSAGE = "internal server error"
 
+_MAPPING_NOT_FOUND_REASONS = frozenset(
+    {
+        "provisioned mapping is missing",
+        "provisioned mapping is disabled",
+    }
+)
+
 
 class ApiError(Exception):
     """Expected HTTP error mapped to the frozen 5A error family."""
@@ -118,6 +125,12 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             status_code=404,
         )
     if isinstance(exc, ScopeResolutionError):
+        if exc.reason in _MAPPING_NOT_FOUND_REASONS:
+            return ApiError(
+                code="RESOURCE_NOT_FOUND",
+                message="resource not found",
+                status_code=404,
+            )
         return ApiError(
             code="DEPENDENCY_UNAVAILABLE",
             message=str(exc),

@@ -9,6 +9,7 @@ from gateway_backend.application.submission.review import get_review_facts
 from gateway_backend.application.submission.review_contracts import ApplyReviewCommand
 from gateway_backend.application.submission.review_transaction import apply_review_transaction
 from gateway_backend.application.submission.ports import WorkspaceControlUnitOfWorkFactory
+from gateway_backend.domain.submission.errors import InvalidReviewIdempotencyKey
 from gateway_backend.domain.submission.review import ReviewAction, validate_review_idempotency_key
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
@@ -29,22 +30,20 @@ class ApplyReviewOperationResult:
 
 
 def parse_review_idempotency_key(raw_header: str | None) -> str:
-    if raw_header is None or not raw_header.strip():
+    if raw_header is None:
         raise ApiError(
             code="REQUEST_VALIDATION_FAILED",
             message="Idempotency-Key header is required",
             status_code=422,
         )
-    resolved_key = raw_header.strip()
     try:
-        validate_review_idempotency_key(resolved_key)
-    except Exception:
+        return validate_review_idempotency_key(raw_header)
+    except InvalidReviewIdempotencyKey:
         raise ApiError(
             code="REQUEST_VALIDATION_FAILED",
             message="request validation failed",
             status_code=422,
         ) from None
-    return resolved_key
 
 
 def build_apply_review_command(

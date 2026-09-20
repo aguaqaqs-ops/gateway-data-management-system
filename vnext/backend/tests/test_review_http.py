@@ -19,10 +19,28 @@ from tests.support.http_workspace_harness import (
     seed_pending_review_submission,
 )
 from tests.support.workspace_fixtures import make_identity
+from tests.test_submit_transactions import _upsert_provisioned_mapping_row
 
 pytestmark = pytest.mark.unit
 
 REVIEWER_BEARER = "reviewer-session-token"
+OTHER_SCOPE_BEARER = "other-scope-session-token"
+DENIED_REVIEWER_BEARER = "denied-reviewer-session-token"
+
+REVIEW_HTTP_IDEMPOTENCY_KEY_CASES = (
+    ("empty", "", 422),
+    ("too_long", "a" * 256, 422),
+    ("leading_space", " key", 422),
+    ("trailing_space", "key ", 422),
+    ("padded", " padded-key ", 422),
+    ("control", "key\x1f", 422),
+    ("valid_min", "!", 201),
+)
+
+REVIEW_MAPPING_DRIFT_CASES = (
+    ("mapping_missing", "provisioned mapping is missing"),
+    ("mapping_disabled", "provisioned mapping is disabled"),
+)
 
 
 def _review_permissions() -> frozenset[str]:
@@ -129,6 +147,28 @@ def test_apply_review_replays_same_key_with_200(
     assert first.json() == second.json()
 
 
+def test_apply_review_replay_without_permission_returns_403(tmp_path: Path) -> None:
+    env, seed = _review_env(
+        tmp_path,
+        extra_sessions={
+            DENIED_REVIEWER_BEARER: make_identity(
+                actor_id="reviewer-2",
+                permissions=frozenset({"workspace_read", "preview_workspace"}),
+            )
+        },
+    )
+    first = _post_review(env, seed, idempotency_key="review-replay-forbidden")
+    second = _post_review(
+        env,
+        seed,
+        idempotency_key="review-replay-forbidden",
+        bearer=DENIED_REVIEWER_BEARER,
+    )
+    assert first.status_code == 201
+    assert second.status_code == 403
+    assert second.json()["code"] == "SCOPE_FORBIDDEN"
+
+
 def test_apply_review_replays_cross_actor_same_project_key(tmp_path: Path) -> None:
     env, seed = _review_env(
         tmp_path,
@@ -165,13 +205,36 @@ def test_apply_review_requires_idempotency_key(
     assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
 
 
-def test_apply_review_rejects_invalid_idempotency_key(
+@pytest.mark.parametrize(
+    ("case_id", "idempotency_key", "expected_status"),
+    REVIEW_HTTP_IDEMPOTENCY_KEY_CASES,
+    ids=[case[0] for case in REVIEW_HTTP_IDEMPOTENCY_KEY_CASES],
+)
+def test_apply_review_validates_idempotency_key_contract(
+    review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
+    case_id: str,
+    idempotency_key: str,
+    expected_status: int,
+) -> None:
+    env, seed = review_env
+    response = _post_review(env, seed, idempotency_key=idempotency_key)
+    assert response.status_code == expected_status
+    if expected_status == 422:
+        assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_apply_review_does_not_normalize_padded_idempotency_key_into_replay(
     review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
 ) -> None:
     env, seed = review_env
-    response = _post_review(env, seed, idempotency_key="")
-    assert response.status_code == 422
-    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+    padded = _post_review(env, seed, idempotency_key=" padded-key ")
+    assert padded.status_code == 422
+    assert padded.json()["code"] == "REQUEST_VALIDATION_FAILED"
+    fresh = _post_review(env, seed, idempotency_key="padded-key")
+    assert fresh.status_code == 201
+    replay = _post_review(env, seed, idempotency_key="padded-key")
+    assert replay.status_code == 200
+    assert fresh.json() == replay.json()
 
 
 def test_apply_review_rejects_closed_schema_extra_field(
@@ -222,6 +285,23 @@ def test_get_review_requires_review_permission(tmp_path: Path) -> None:
     assert response.json()["code"] == "SCOPE_FORBIDDEN"
 
 
+def test_get_review_without_permission_hides_existing_submission(tmp_path: Path) -> None:
+    env, seed = _review_env(
+        tmp_path,
+        extra_sessions={
+            DENIED_REVIEWER_BEARER: make_identity(
+                actor_id="reviewer-2",
+                permissions=frozenset({"workspace_read", "preview_workspace"}),
+            )
+        },
+    )
+    approved = _post_review(env, seed, idempotency_key="review-get-forbidden")
+    assert approved.status_code == 201
+    response = _get_review(env, seed, bearer=DENIED_REVIEWER_BEARER)
+    assert response.status_code == 403
+    assert response.json()["code"] == "SCOPE_FORBIDDEN"
+
+
 def test_apply_review_without_permission_hides_missing_submission(tmp_path: Path) -> None:
     env = create_workspace_http_environment(
         tmp_path,
@@ -261,24 +341,59 @@ def test_get_review_returns_404_for_missing_submission(
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
-def test_apply_review_returns_404_for_cross_scope_submission(tmp_path: Path) -> None:
-    owner_env, owner_seed = _review_env(tmp_path)
-    other_root = tmp_path / "other"
-    other_root.mkdir()
-    other_env = create_workspace_http_environment(
-        other_root,
-        identity=make_identity(
-            actor_id="actor-2",
-            device_key="device-2",
-            project_id="project-2",
-            permissions=_review_permissions(),
-        ),
+def test_apply_review_hides_cross_scope_submission_same_database(tmp_path: Path) -> None:
+    env = create_workspace_http_environment(
+        tmp_path,
+        identity=make_identity(permissions=_review_permissions()),
+        extra_sessions={
+            OTHER_SCOPE_BEARER: make_identity(
+                actor_id="actor-2",
+                device_key="device-other",
+                project_id="project-1",
+                permissions=_review_permissions(),
+            )
+        },
     )
-    response = other_env.client.post(
-        f"/v1/submissions/{owner_seed.submission_id}/review-events",
-        headers={"Authorization": f"Bearer {TEST_BEARER}", "Idempotency-Key": "review-cross-scope"},
+    seed = seed_pending_review_submission(env.db_path)
+    _upsert_provisioned_mapping_row(
+        env.db_path,
+        device_key="device-other",
+        project_id=seed.project_id,
+        repository_id=seed.repository_id,
+    )
+    response = env.client.post(
+        f"/v1/submissions/{seed.submission_id}/review-events",
+        headers={
+            "Authorization": f"Bearer {OTHER_SCOPE_BEARER}",
+            "Idempotency-Key": "review-cross-scope",
+        },
         json=_apply_body(),
     )
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_get_review_hides_cross_scope_submission_same_database(tmp_path: Path) -> None:
+    env, seed = _review_env(
+        tmp_path,
+        extra_sessions={
+            OTHER_SCOPE_BEARER: make_identity(
+                actor_id="actor-2",
+                device_key="device-other",
+                project_id="project-1",
+                permissions=_review_permissions(),
+            )
+        },
+    )
+    _upsert_provisioned_mapping_row(
+        env.db_path,
+        device_key="device-other",
+        project_id=seed.project_id,
+        repository_id=seed.repository_id,
+    )
+    approved = _post_review(env, seed, idempotency_key="review-cross-scope-get")
+    assert approved.status_code == 201
+    response = _get_review(env, seed, bearer=OTHER_SCOPE_BEARER)
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
@@ -364,6 +479,64 @@ def test_apply_review_returns_503_when_scope_provider_fails(
     response = _post_review(env, seed, idempotency_key="review-provider-fail")
     assert response.status_code == 503
     assert response.json()["code"] == "DEPENDENCY_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    ("case_id", "resolution_error"),
+    REVIEW_MAPPING_DRIFT_CASES,
+    ids=[case[0] for case in REVIEW_MAPPING_DRIFT_CASES],
+)
+def test_apply_review_hides_mapping_resolution_failures(
+    review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
+    case_id: str,
+    resolution_error: str,
+) -> None:
+    env, seed = review_env
+    env.scope_resolution.simulate_resolution_error = resolution_error
+    response = _post_review(env, seed, idempotency_key=f"review-mapping-{case_id}")
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_apply_review_hides_stale_mapping_drift(
+    review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
+) -> None:
+    env, seed = review_env
+    env.scope_resolution.repository_id = "repo-other"
+    response = _post_review(env, seed, idempotency_key="review-mapping-drift")
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+@pytest.mark.parametrize(
+    ("case_id", "resolution_error"),
+    REVIEW_MAPPING_DRIFT_CASES,
+    ids=[case[0] for case in REVIEW_MAPPING_DRIFT_CASES],
+)
+def test_get_review_hides_mapping_resolution_failures(
+    review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
+    case_id: str,
+    resolution_error: str,
+) -> None:
+    env, seed = review_env
+    approved = _post_review(env, seed, idempotency_key=f"review-get-mapping-{case_id}")
+    assert approved.status_code == 201
+    env.scope_resolution.simulate_resolution_error = resolution_error
+    response = _get_review(env, seed)
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_get_review_hides_stale_mapping_drift(
+    review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
+) -> None:
+    env, seed = review_env
+    approved = _post_review(env, seed, idempotency_key="review-get-mapping-drift")
+    assert approved.status_code == 201
+    env.scope_resolution.repository_id = "repo-other"
+    response = _get_review(env, seed)
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
 def test_get_review_returns_503_on_integrity_failure(

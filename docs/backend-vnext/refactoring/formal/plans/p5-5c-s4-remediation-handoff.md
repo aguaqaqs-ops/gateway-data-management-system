@@ -25,7 +25,7 @@ stage: P5-5C-S4-remediation
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-handoff.md
 implementation_candidate_head: 83dc907cb5
 remediation_implementation_head: 161b805ad8
-sealed_doc_tree_head: pending_publication
+sealed_doc_tree_head: 4eac2464f0
 finding_remediation: P2-1, P2-2
 independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-independent-review.md
 next_step: P5-5C-S5

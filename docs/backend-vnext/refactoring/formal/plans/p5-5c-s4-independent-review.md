@@ -16,7 +16,7 @@ stage: P5-5C-S4-http-contract-production-wiring-deployed-permission
 review_target: 161b805ad8
 implementation_candidate_head: 83dc907cb5
 remediation_implementation_head: 161b805ad8
-sealed_doc_tree_head: pending_publication
+sealed_doc_tree_head: 4eac2464f0
 parent_handoff: p5-5c-s4-handoff.md
 remediation_handoff: p5-5c-s4-remediation-handoff.md
 decision: pass

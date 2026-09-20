@@ -98,6 +98,7 @@ P4 Active Context Index 不覆盖 P5 semantic default entry。
 - P3 module handoffs：R1–R7 `p3-r*-handoff.md`
 - P3 module designs：R4–R7 `p3-r*-design.md`
 - [Proportional Assurance and Risk-Based Verification Policy](policies/proportional-assurance-and-risk-based-verification-policy.md)
+- [纵切与阶段设计、执行计划及独立审核指南](guides/slice-design-execution-and-review-guide.md)（参考指南；含定向修订与整体返工标准）
 - [Rust Safety and Performance Policy](policies/rust-safety-and-performance-policy.md)
 - [Contract Taxonomy and Ownership](contracts/contract-taxonomy-and-ownership.md)
 - [Business Lifecycle and State Contract](contracts/business-lifecycle-and-state.md)

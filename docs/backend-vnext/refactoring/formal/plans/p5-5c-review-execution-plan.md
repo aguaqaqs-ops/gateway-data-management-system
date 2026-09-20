@@ -67,7 +67,9 @@ S2–S5 在各自获权后落实以下要求：
 - S2：finalize seed 通过 Review owner 入口执行，保持既有事务原子性；不增加 transaction/helper
   到 `submit_jobs` 的反向导入，不把 Repository wire DTO 带入 Review port。
 - S3：Review command/transaction 使用最小业务 port；复用 Workspace 事务不等于复用其完整
-  编排逻辑，不新增 capability 私有依赖、context bag 或通用工作流层。
+  编排逻辑，不新增 capability 私有依赖、context bag 或通用工作流层。Workspace release 所需的
+  `delete_workspace_submission_occupancy` 落在既有 Submission adapter（`sqlite_submission.py`），
+  不扩 Review adapter 职责。
 - S4：HTTP 只映射 DTO、认证输入与 application 调用；SQLite adapter 负责 record 映射。
 - 新增转换函数不放入依赖业务域的基础模块或无 owner 的包根；contract 按总体设计 §2A.2
   区分纯 codec/validator 与执行实现。能力公共入口许可按实际职责审查，不引入 job/transaction
@@ -96,6 +98,7 @@ vnext/backend/src/gateway_backend/application/submission/ports.py
 vnext/backend/src/gateway_backend/infrastructure/control_db/migrations.py
 vnext/backend/src/gateway_backend/infrastructure/control_db/database.py
 vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_review.py
+vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_submission.py
 vnext/backend/src/gateway_backend/application/submit_jobs.py
 vnext/backend/src/gateway_backend/bootstrap/operation_worker.py
 vnext/backend/src/gateway_backend/http/dependencies.py
@@ -132,6 +135,7 @@ vnext/backend/tests/test_review_transactions.py
 vnext/backend/tests/test_review_http.py
 vnext/backend/tests/test_review_compose_e2e.py
 vnext/backend/tests/test_submit_transactions.py
+vnext/backend/tests/test_sqlite_submit_repository.py
 vnext/backend/tests/test_architecture.py
 vnext/backend/tests/test_http_openapi.py
 vnext/backend/tests/test_production_wiring.py

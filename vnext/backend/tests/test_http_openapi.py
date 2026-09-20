@@ -56,3 +56,7 @@ def test_openapi_submit_request_rejects_additional_properties(client: TestClient
     assert "submit_attempt_id" in submit_response["properties"]
     recovery_request = schema["components"]["schemas"]["OperatorRecoveryRequestBody"]
     assert recovery_request.get("additionalProperties") is False
+    apply_review_request = schema["components"]["schemas"]["ApplyReviewRequest"]
+    assert apply_review_request.get("additionalProperties") is False
+    review_facts_response = schema["components"]["schemas"]["ReviewFactsResponse"]
+    assert "events" in review_facts_response["properties"]

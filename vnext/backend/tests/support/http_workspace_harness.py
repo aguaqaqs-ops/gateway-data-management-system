@@ -968,6 +968,59 @@ def create_workspace_http_environment(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class PendingReviewHttpSeed:
+    submission_id: str
+    workspace_id: str
+    repository_id: str
+    device_key: str
+    project_id: str
+
+
+def seed_pending_review_submission(
+    db_path: Path,
+    *,
+    submission_id: str = "sub-1",
+) -> PendingReviewHttpSeed:
+    from gateway_backend.application.submission.finalize_transaction import (
+        FinalizeSubmitTransactionRequest,
+        finalize_submit_transaction,
+    )
+    from tests.test_submit_transactions import (
+        TS1,
+        _finalize_facts,
+        _read_finalize_versions,
+        _seed_effect_pending_attempt,
+        seed_submit_ready_workspace as seed_submit_transaction_workspace,
+    )
+
+    submit_seed = seed_submit_transaction_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, submit_seed)
+    attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        finalize_submit_transaction(
+            request=FinalizeSubmitTransactionRequest(
+                submit_attempt_id=attempt.submit_attempt_id,
+                facts=_finalize_facts(submit_seed),
+                submission_id=submission_id,
+                created_at=TS1,
+                expected_attempt_version=attempt_version,
+                expected_await_step_version=await_version,
+                expected_operation_version=operation_version,
+                worker_id="worker-test",
+                lease_token="lease-test",
+            ),
+            unit_of_work=unit_of_work,
+        )
+    return PendingReviewHttpSeed(
+        submission_id=submission_id,
+        workspace_id=submit_seed.workspace.workspace_id,
+        repository_id=submit_seed.workspace.repository_id,
+        device_key=submit_seed.workspace.gateway_device_external_key,
+        project_id=submit_seed.workspace.business_project_id,
+    )
+
+
 def create_test_http_app_without_routes(
     tmp_path: Path,
     deps: WorkspaceHttpDependencies,

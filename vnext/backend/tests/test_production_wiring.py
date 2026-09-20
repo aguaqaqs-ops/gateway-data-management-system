@@ -1085,3 +1085,22 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
         operation = unit_of_work.operations.get_operation(body["operation_id"])
     assert attempt is not None
     assert operation is not None
+
+
+def test_production_runtime_exposes_review_routes(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from gateway_backend.app import create_app
+
+    prepare_backend_runtime_paths(tmp_path)
+    settings = make_backend_settings(
+        tmp_path,
+        control_db_path=tmp_path / "control" / "control.sqlite3",
+        artifact_root=tmp_path / "artifacts",
+        repository_bearer_token_file=tmp_path / "repository-bearer-token",
+    )
+    runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)
+    client = TestClient(create_app(workspace_http=runtime.workspace_http))
+    schema = client.get("/openapi.json").json()
+    assert "/v1/submissions/{submission_id}/review-events" in schema["paths"]
+    assert "/v1/submissions/{submission_id}/review" in schema["paths"]

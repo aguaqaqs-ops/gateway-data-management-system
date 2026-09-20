@@ -8,7 +8,8 @@
       "permissions": [
         "workspace_read",
         "upload_submit_workspace",
-        "preview_workspace"
+        "preview_workspace",
+        "review_submission"
       ]
     }
   ]

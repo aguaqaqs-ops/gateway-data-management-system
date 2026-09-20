@@ -17,7 +17,7 @@ from gateway_backend.application.submission.review_contracts import (
     compute_review_apply_request_fingerprint,
 )
 from gateway_backend.application.submission.ports import (
-    WorkspaceControlTransaction,
+    ReviewApplyTransaction,
     WorkspaceControlUnitOfWorkFactory,
 )
 from gateway_backend.domain.submission.errors import ReviewClosureViolation
@@ -177,7 +177,7 @@ def verify_idempotency_replay(
 
 
 def resolve_fresh_provisioned_scope(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: ReviewApplyTransaction,
     context: IdentityContext,
 ) -> ResolvedScope:
     try:
@@ -197,7 +197,7 @@ def assert_fresh_scope_matches(fresh_scope: ResolvedScope, expected_scope: Resol
 
 
 def load_review_scope_facts(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: ReviewApplyTransaction,
     *,
     context: IdentityContext,
     submission_id: str,

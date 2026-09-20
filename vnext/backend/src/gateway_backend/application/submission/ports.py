@@ -82,6 +82,40 @@ class ReviewControlTransaction(Protocol):
     def review(self) -> ReviewTransactionRepository: ...
 
 
+class ReviewApplySubmissionRepository(Protocol):
+    def get_submission(self, submission_id: str) -> Submission | None:
+        """Load one Submission."""
+
+    def get_workspace_occupancy(self, workspace_id: str) -> WorkspaceSubmitOccupancy | None:
+        """Return workspace submit occupancy projection when occupied."""
+
+    def delete_workspace_submission_occupancy(
+        self,
+        workspace_id: str,
+        *,
+        expected_submission_id: str,
+    ) -> None:
+        """Delete workspace submit occupancy row when it still points at this Submission."""
+
+
+class ReviewApplyTransaction(ReviewControlTransaction, Protocol):
+    """Minimal control transaction surface required by Review apply/release."""
+
+    @property
+    def submission(self) -> ReviewApplySubmissionRepository: ...
+
+    @property
+    def workspace(self) -> WorkspaceRepository: ...
+
+    def resolve_provisioned_scope(
+        self,
+        *,
+        gateway_device_external_key: str,
+        business_project_id: str,
+    ) -> ResolvedScope:
+        """Read transaction-fresh provisioned mapping/BaselineHead for one scope key."""
+
+
 class ReviewControlUnitOfWorkFactory(Protocol):
     def __call__(
         self,

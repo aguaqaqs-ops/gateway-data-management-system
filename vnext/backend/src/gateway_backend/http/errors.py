@@ -19,6 +19,8 @@ from gateway_backend.application.submission.errors import (
     NoCanonicalChange,
     PreviewBindingConflict as SubmitPreviewBindingConflict,
     PreviewDerivedStale,
+    ReviewIntegrityFailure,
+    ReviewWorkspaceOccupancyConflict,
     SubmitApplicationError,
 )
 from gateway_backend.application.workspace.errors import (
@@ -26,7 +28,14 @@ from gateway_backend.application.workspace.errors import (
     PreviewBindingConflict,
     WorkspaceApplicationError,
 )
-from gateway_backend.domain.submission.errors import SubmissionDomainError, SubmitOccupancyConflict
+from gateway_backend.domain.submission.errors import (
+    InvalidReviewIdempotencyKey,
+    InvalidReviewReason,
+    InvalidReviewTransition,
+    ReviewVersionConflict,
+    SubmissionDomainError,
+    SubmitOccupancyConflict,
+)
 from gateway_backend.domain.workspace.errors import (
     PermissionDenied,
     ScopeForbidden,
@@ -189,6 +198,44 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             code="FINALIZE_RECOVERY_REQUIRED",
             message=str(exc),
             status_code=409,
+        )
+    if isinstance(exc, ReviewIntegrityFailure):
+        return ApiError(
+            code="SERVICE_NOT_READY",
+            message="service not ready",
+            status_code=503,
+        )
+    if isinstance(exc, ReviewWorkspaceOccupancyConflict):
+        return ApiError(
+            code="WORKSPACE_OCCUPANCY_CONFLICT",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, ReviewVersionConflict):
+        return ApiError(
+            code="REVIEW_VERSION_CONFLICT",
+            message=str(exc),
+            status_code=409,
+            details={"expected": exc.expected, "actual": exc.actual},
+        )
+    if isinstance(exc, InvalidReviewTransition):
+        return ApiError(
+            code="REVIEW_TRANSITION_CONFLICT",
+            message=str(exc),
+            status_code=409,
+            details={"current": exc.current, "action": exc.action},
+        )
+    if isinstance(exc, InvalidReviewReason):
+        return ApiError(
+            code="REQUEST_VALIDATION_FAILED",
+            message="request validation failed",
+            status_code=422,
+        )
+    if isinstance(exc, InvalidReviewIdempotencyKey):
+        return ApiError(
+            code="REQUEST_VALIDATION_FAILED",
+            message="request validation failed",
+            status_code=422,
         )
     if isinstance(exc, SubmitApplicationError):
         stable_code = getattr(exc, "stable_code", None)

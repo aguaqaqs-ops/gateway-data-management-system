@@ -25,7 +25,7 @@ from gateway_backend.application.submission.review_contracts import (
     validate_apply_review_command,
 )
 from gateway_backend.application.submission.ports import (
-    WorkspaceControlTransaction,
+    ReviewApplyTransaction,
     WorkspaceControlUnitOfWorkFactory,
 )
 from gateway_backend.domain.submission.errors import (
@@ -67,7 +67,7 @@ def apply_review_transaction(
 def _apply_review_in_control_transaction(
     *,
     command: ApplyReviewCommand,
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: ReviewApplyTransaction,
     resolved: ResolvedScope,
     now: datetime,
 ) -> ApplyReviewResult:
@@ -188,7 +188,7 @@ def _apply_review_in_control_transaction(
 
 
 def _release_workspace_for_review(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: ReviewApplyTransaction,
     *,
     workspace: Workspace,
     submission_id: str,

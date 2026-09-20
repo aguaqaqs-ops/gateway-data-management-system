@@ -29,6 +29,7 @@ def default_session_document() -> dict[str, object]:
                     "workspace_read",
                     "upload_submit_workspace",
                     "preview_workspace",
+                    "review_submission",
                 ],
             }
         ]

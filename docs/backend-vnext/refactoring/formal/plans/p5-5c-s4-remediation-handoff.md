@@ -23,7 +23,7 @@ production_deployment_authorized: false
 ```yaml
 stage: P5-5C-S4-remediation
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-handoff.md
-implementation_candidate_head: 83dc907cb5f8e8f2e8b0e8f2e8b0e8f2e8b0e8f
+implementation_candidate_head: 83dc907cb5
 remediation_implementation_head: pending_commit
 finding_remediation: P2-1, P2-2
 next_step: independent_S4_countersign_then_P5-5C-S5

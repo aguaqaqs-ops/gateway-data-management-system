@@ -24,8 +24,8 @@ production_deployment_authorized: false
 stage: P5-5C-S3-review-command-transaction-workspace-release
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s2-handoff.md
 implementation_candidate_head: dadf5d1f6f01e028e2020b005737040ae4bee11e
-remediation_implementation_head: pending_bind_after_commit
-sealed_doc_tree_head: pending_bind_after_commit
+remediation_implementation_head: 02fb3564ddb262d3b812437b796a71f2298eb930
+sealed_doc_tree_head: 7813639b52454011d5cc60c12778e09c6f09bcad
 remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s3-remediation-handoff.md
 uv_lock_in_diff: no
 next_step: independent_S3_countersign_then_P5-5C-S4

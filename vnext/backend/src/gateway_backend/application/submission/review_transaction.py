@@ -13,7 +13,6 @@ from gateway_backend.application.submission.review import (
     PERMISSION_REVIEW_SUBMISSION,
     assert_fresh_scope_matches,
     assert_review_workspace_bindings,
-    build_apply_review_validation,
     is_review_release_action,
     load_review_scope_facts,
     resolve_fresh_provisioned_scope,
@@ -22,6 +21,7 @@ from gateway_backend.application.submission.review import (
 from gateway_backend.application.submission.review_contracts import (
     ApplyReviewCommand,
     ApplyReviewResult,
+    build_apply_review_request_fingerprint_from_command,
     validate_apply_review_command,
 )
 from gateway_backend.application.submission.ports import (
@@ -40,7 +40,7 @@ from gateway_backend.domain.submission.review import (
     resolve_review_transition,
     validate_review_reason,
 )
-from gateway_backend.domain.workspace.models import ResolvedScope
+from gateway_backend.domain.workspace.models import ResolvedScope, Workspace
 from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
 
@@ -79,10 +79,13 @@ def _apply_review_in_control_transaction(
         submission_id=command.submission_id,
         resolved_scope=fresh_scope,
     )
-    existing = unit_of_work.review.find_idempotency(
-        command.context.business_project_id,
-        command.idempotency_key,
-    )
+    try:
+        existing = unit_of_work.review.find_idempotency(
+            command.context.business_project_id,
+            command.idempotency_key,
+        )
+    except ReviewClosureViolation as exc:
+        raise ReviewIntegrityFailure(exc.reason) from exc
     if existing is not None:
         return verify_idempotency_replay(
             existing,
@@ -92,11 +95,10 @@ def _apply_review_in_control_transaction(
             events=facts.events,
         )
 
-    validation = build_apply_review_validation(
-        command,
-        workspace=facts.workspace,
+    request_fingerprint = build_apply_review_request_fingerprint_from_command(
+        command=command,
+        workspace_id=facts.workspace.workspace_id,
         repository_id=fresh_scope.repository_id,
-        replay=False,
     )
     if facts.projection.optimistic_version != command.expected_review_version:
         raise ReviewVersionConflict(
@@ -140,7 +142,7 @@ def _apply_review_in_control_transaction(
                 business_project_id=command.context.business_project_id,
                 submission_id=command.submission_id,
                 idempotency_key=command.idempotency_key,
-                request_fingerprint=validation.request_fingerprint,
+                request_fingerprint=request_fingerprint,
                 event_sequence=next_sequence,
             )
         )
@@ -158,21 +160,20 @@ def _apply_review_in_control_transaction(
     return ApplyReviewResult(
         event=event,
         projection=projection,
-        request_fingerprint=validation.request_fingerprint,
+        request_fingerprint=request_fingerprint,
+        replay=False,
     )
 
 
 def _release_workspace_for_review(
     unit_of_work: WorkspaceControlTransaction,
     *,
-    workspace: object,
+    workspace: Workspace,
     submission_id: str,
     now: datetime,
 ) -> None:
-    from gateway_backend.domain.workspace.models import Workspace
-
-    if not isinstance(workspace, Workspace):
-        raise TypeError("workspace must be Workspace")
+    # WorkspaceVersionConflict is unreachable here: occupancy bindings were verified
+    # against the same workspace optimistic_version before this CAS.
     updated_workspace = replace(
         workspace,
         current_upload_revision_id=None,

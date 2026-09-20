@@ -609,6 +609,7 @@ def test_apply_review_result_carries_request_fingerprint() -> None:
         event=event,
         projection=projection,
         request_fingerprint=REVIEW_APPLY_FINGERPRINT_GOLDEN,
+        replay=False,
     )
     assert result.request_fingerprint == REVIEW_APPLY_FINGERPRINT_GOLDEN
 

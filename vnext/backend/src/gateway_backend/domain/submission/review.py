@@ -176,6 +176,14 @@ def is_terminal_review_status(status: ReviewStatus) -> bool:
     return status in _TERMINAL_STATUSES
 
 
+def review_action_for_event_kind(event_kind: ReviewEventKind) -> ReviewAction | None:
+    """Map a user review event kind to its originating action, if any."""
+
+    if type(event_kind) is not ReviewEventKind:
+        raise ValueError("event_kind must be ReviewEventKind")
+    return _EVENT_KIND_TO_ACTION.get(event_kind)
+
+
 def resolve_review_transition(
     current: ReviewStatus,
     action: ReviewAction,

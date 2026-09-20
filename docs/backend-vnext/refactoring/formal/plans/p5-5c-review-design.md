@@ -320,7 +320,11 @@ ApplyReviewResult (transaction commit output)
   event
   projection
   request_fingerprint
+  replay
 ```
+
+`replay` 为 `true` 时表示 same-key/same-fingerprint 重放，HTTP 返回 `200 OK`；fresh commit 为
+`false`，HTTP 返回 `201 Created`。Replay 结果从 bound event 重建，不代表当前 projection。
 
 Inbound `ApplyReviewCommand` 不含 `request_fingerprint`。Application 在 scope closure 后生成
 fingerprint，并写入 `ApplyReviewValidationResult` / `ApplyReviewResult` / idempotency record；HTTP

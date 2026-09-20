@@ -25,11 +25,12 @@ from gateway_backend.application.submission.review_transaction import apply_revi
 from gateway_backend.domain.submission.errors import (
     InvalidReviewTransition,
     ReviewVersionConflict,
+    SubmitOccupancyConflict,
 )
 from gateway_backend.domain.submission.models import Submission
 from gateway_backend.domain.submission.review import ReviewAction, ReviewEventKind, ReviewStatus
 from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeForbidden
-from gateway_backend.domain.workspace.models import IdentityContext
+from gateway_backend.domain.workspace.models import IdentityContext, WorkspaceState
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
 from tests.test_submit_transactions import (
@@ -325,6 +326,21 @@ def test_apply_review_rejects_occupancy_binding_mismatch(
     assert len(events) == 1
 
 
+def test_apply_review_rejects_closed_workspace(review_seed: ReviewSeed) -> None:
+    with ControlDbUnitOfWork(review_seed.db_path) as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
+        assert workspace is not None
+        closed = replace(workspace, state=WorkspaceState.CLOSED)
+        unit_of_work.workspace.save_workspace(
+            closed,
+            expected_version=workspace.optimistic_version,
+        )
+    with pytest.raises(ReviewWorkspaceOccupancyConflict) as exc_info:
+        _apply_review(review_seed, _apply_command(review_seed))
+    assert exc_info.value.reason == "workspace is not open"
+    assert exc_info.value.stable_code == "WORKSPACE_OCCUPANCY_CONFLICT"
+
+
 def test_apply_review_rejects_missing_occupancy(review_seed: ReviewSeed) -> None:
     with ControlDbUnitOfWork(review_seed.db_path) as unit_of_work:
         unit_of_work.submission.delete_workspace_submission_occupancy(
@@ -336,6 +352,12 @@ def test_apply_review_rejects_missing_occupancy(review_seed: ReviewSeed) -> None
 
 
 def test_apply_review_idempotency_replay_is_write_free(review_seed: ReviewSeed) -> None:
+    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
+        workspace_before = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
+        assert workspace_before is not None
+        workspace_version_before = workspace_before.optimistic_version
+        upload_before = workspace_before.current_upload_revision_id
+        preview_before = workspace_before.current_preview_result_id
     command = _apply_command(review_seed, idempotency_key="replay-key")
     first = _apply_review(review_seed, command)
     replay = _apply_review(
@@ -347,7 +369,11 @@ def test_apply_review_idempotency_replay_is_write_free(review_seed: ReviewSeed) 
             idempotency_key="replay-key",
         ),
     )
-    assert replay == first
+    assert first.replay is False
+    assert replay.replay is True
+    assert replay.event == first.event
+    assert replay.projection == first.projection
+    assert replay.request_fingerprint == first.request_fingerprint
     assert replay.event.actor_id == "reviewer-1"
     with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
         events = unit_of_work.review.list_events(review_seed.submission_id)
@@ -355,8 +381,13 @@ def test_apply_review_idempotency_replay_is_write_free(review_seed: ReviewSeed) 
             "SELECT COUNT(*) FROM review_idempotency_records WHERE idempotency_key = ?",
             ("replay-key",),
         ).fetchone()[0]
+        workspace_after = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
     assert len(events) == 2
     assert rows == 1
+    assert workspace_after is not None
+    assert workspace_after.optimistic_version == workspace_version_before
+    assert workspace_after.current_upload_revision_id == upload_before
+    assert workspace_after.current_preview_result_id == preview_before
 
 
 def test_apply_review_idempotency_conflict_on_different_fingerprint(review_seed: ReviewSeed) -> None:
@@ -431,6 +462,7 @@ def test_apply_review_replay_returns_original_result_after_later_mutation(
             idempotency_key="approve-replay",
         ),
     )
+    assert replay.replay is True
     assert replay.event.sequence == approve.event.sequence
     assert replay.projection.status is ReviewStatus.APPROVED
     with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
@@ -482,6 +514,46 @@ def test_apply_review_integrity_failure_on_projection_event_divergence(
         _apply_review(review_seed, _apply_command(review_seed))
 
 
+def test_apply_review_fails_closed_on_seed_bound_idempotency_record(review_seed: ReviewSeed) -> None:
+    with ControlDbUnitOfWork(review_seed.db_path) as unit_of_work:
+        workspace_before = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
+        assert workspace_before is not None
+        unit_of_work.connection.execute(
+            """
+            INSERT INTO review_idempotency_records (
+                business_project_id, idempotency_key, submission_id,
+                request_fingerprint, event_sequence
+            ) VALUES (?, 'seed-bound-key', ?, 'sha256:fp', 0)
+            """,
+            (
+                review_seed.reviewer_context.business_project_id,
+                review_seed.submission_id,
+            ),
+        )
+    with pytest.raises(ReviewIntegrityFailure) as exc_info:
+        _apply_review(
+            review_seed,
+            _apply_command(review_seed, idempotency_key="seed-bound-key"),
+        )
+    assert exc_info.value.stable_code == "REVIEW_INTEGRITY_FAILURE"
+    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
+        projection = unit_of_work.review.get_projection(review_seed.submission_id)
+        events = unit_of_work.review.list_events(review_seed.submission_id)
+        workspace_after = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
+        occupancy = unit_of_work.submission.get_workspace_occupancy(review_seed.workspace_id)
+        idempotency_rows = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_idempotency_records WHERE idempotency_key = ?",
+            ("seed-bound-key",),
+        ).fetchone()[0]
+    assert projection is not None
+    assert projection.optimistic_version == 0
+    assert len(events) == 1
+    assert idempotency_rows == 1
+    assert workspace_after == workspace_before
+    assert occupancy is not None
+    assert occupancy.active_submission_id == review_seed.submission_id
+
+
 def test_apply_review_rolls_back_when_cas_projection_fails(review_seed: ReviewSeed) -> None:
     with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
         original_workspace = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
@@ -509,12 +581,44 @@ def test_apply_review_rolls_back_when_cas_projection_fails(review_seed: ReviewSe
     assert workspace == original_workspace
 
 
-def test_apply_review_concurrent_second_command_gets_stable_conflict(review_seed: ReviewSeed) -> None:
+def test_apply_review_rolls_back_when_release_occupancy_delete_fails(review_seed: ReviewSeed) -> None:
+    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
+        original_workspace = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
+        assert original_workspace is not None
+    with patch(
+        "gateway_backend.infrastructure.control_db.sqlite_submission.SQLiteSubmissionRepository.delete_workspace_submission_occupancy",
+        side_effect=SubmitOccupancyConflict("workspace submission occupancy delete failed"),
+    ):
+        with pytest.raises(ReviewWorkspaceOccupancyConflict):
+            _apply_review(
+                review_seed,
+                _apply_command(review_seed, action=ReviewAction.REJECT, reason="rollback"),
+            )
+    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
+        projection = unit_of_work.review.get_projection(review_seed.submission_id)
+        events = unit_of_work.review.list_events(review_seed.submission_id)
+        workspace = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
+        occupancy = unit_of_work.submission.get_workspace_occupancy(review_seed.workspace_id)
+        idempotency_rows = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_idempotency_records",
+        ).fetchone()[0]
+    assert projection is not None
+    assert projection.optimistic_version == 0
+    assert len(events) == 1
+    assert idempotency_rows == 0
+    assert workspace == original_workspace
+    assert occupancy is not None
+    assert occupancy.active_submission_id == review_seed.submission_id
+
+
+def test_apply_review_second_command_gets_version_conflict_after_approve(
+    review_seed: ReviewSeed,
+) -> None:
     _apply_review(
         review_seed,
         _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="first"),
     )
-    with pytest.raises((InvalidReviewTransition, ReviewVersionConflict)):
+    with pytest.raises(ReviewVersionConflict):
         _apply_review(
             review_seed,
             _apply_command(

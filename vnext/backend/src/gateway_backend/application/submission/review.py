@@ -12,7 +12,6 @@ from gateway_backend.application.submission.errors import (
 from gateway_backend.application.submission.review_contracts import (
     ApplyReviewCommand,
     ApplyReviewResult,
-    ApplyReviewValidationResult,
     ReviewFacts,
     build_apply_review_request_fingerprint_from_command,
     compute_review_apply_request_fingerprint,
@@ -26,12 +25,11 @@ from gateway_backend.domain.submission.models import Submission, WorkspaceSubmit
 from gateway_backend.domain.submission.review import (
     ReviewAction,
     ReviewEvent,
-    ReviewEventKind,
     ReviewIdempotencyRecord,
     ReviewProjection,
-    validate_review_reason,
+    review_action_for_event_kind,
 )
-from gateway_backend.domain.workspace.errors import ScopeForbidden, ScopeResolutionError
+from gateway_backend.domain.workspace.errors import ScopeForbidden, ScopeResolutionError, WorkspaceNotOpen
 from gateway_backend.domain.workspace.models import IdentityContext, ResolvedScope, Workspace
 from gateway_backend.domain.workspace.policies import assert_permission, assert_workspace_open
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
@@ -46,13 +44,6 @@ _RELEASE_ACTIONS = frozenset(
     }
 )
 
-_EVENT_KIND_TO_ACTION: dict[ReviewEventKind, ReviewAction] = {
-    ReviewEventKind.APPROVED: ReviewAction.APPROVE,
-    ReviewEventKind.REJECTED: ReviewAction.REJECT,
-    ReviewEventKind.RETURNED_FOR_REVISION: ReviewAction.RETURN_FOR_REVISION,
-    ReviewEventKind.WITHDRAWN: ReviewAction.WITHDRAW,
-}
-
 
 @dataclass(frozen=True, slots=True)
 class ReviewScopeFacts:
@@ -60,7 +51,6 @@ class ReviewScopeFacts:
     workspace: Workspace
     projection: ReviewProjection
     events: tuple[ReviewEvent, ...]
-    resolved_scope: ResolvedScope
     occupancy: WorkspaceSubmitOccupancy | None
 
 
@@ -93,8 +83,8 @@ def assert_review_workspace_bindings(
 ) -> None:
     try:
         assert_workspace_open(workspace)
-    except Exception as exc:
-        raise ReviewWorkspaceOccupancyConflict(str(exc)) from exc
+    except WorkspaceNotOpen:
+        raise ReviewWorkspaceOccupancyConflict("workspace is not open") from None
     if workspace.generation != submission.workspace_generation:
         raise ReviewWorkspaceOccupancyConflict(
             "workspace generation does not match submission"
@@ -111,34 +101,6 @@ def assert_review_workspace_bindings(
         raise ReviewWorkspaceOccupancyConflict(
             "workspace submit occupancy does not match submission"
         )
-
-
-def build_apply_review_validation(
-    command: ApplyReviewCommand,
-    *,
-    workspace: Workspace,
-    repository_id: str,
-    replay: bool,
-) -> ApplyReviewValidationResult:
-    validated_reason = validate_review_reason(command.action, command.reason)
-    request_fingerprint = build_apply_review_request_fingerprint_from_command(
-        command=command,
-        workspace_id=workspace.workspace_id,
-        repository_id=repository_id,
-    )
-    return ApplyReviewValidationResult(
-        workspace_id=workspace.workspace_id,
-        repository_id=repository_id,
-        business_project_id=command.context.business_project_id,
-        gateway_device_external_key=command.context.gateway_device_external_key,
-        submission_id=command.submission_id,
-        expected_review_version=command.expected_review_version,
-        action=command.action,
-        reason=validated_reason,
-        idempotency_key=command.idempotency_key,
-        request_fingerprint=request_fingerprint,
-        replay=replay,
-    )
 
 
 def rebuild_apply_review_result_from_event(
@@ -158,6 +120,7 @@ def rebuild_apply_review_result_from_event(
         event=event,
         projection=projection,
         request_fingerprint=request_fingerprint,
+        replay=True,
     )
 
 
@@ -181,7 +144,7 @@ def verify_idempotency_replay(
     bound_event = next((event for event in events if event.sequence == record.event_sequence), None)
     if bound_event is None:
         raise ReviewIntegrityFailure("review idempotency record points to a missing event")
-    action = _EVENT_KIND_TO_ACTION.get(bound_event.event_kind)
+    action = review_action_for_event_kind(bound_event.event_kind)
     if action is None:
         raise ReviewIntegrityFailure("review idempotency record is bound to a non-user event")
     if bound_event.sequence < 1:
@@ -252,7 +215,6 @@ def load_review_scope_facts(
         workspace=workspace,
         projection=projection,
         events=events,
-        resolved_scope=fresh_scope,
         occupancy=occupancy,
     )
 

@@ -56,6 +56,7 @@ class ApplyReviewResult:
     event: ReviewEvent
     projection: ReviewProjection
     request_fingerprint: str
+    replay: bool
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,7 +12,6 @@ from gateway_backend.application.submission.review_contracts import (
     REVIEW_APPLY_FINGERPRINT_GOLDEN,
     ApplyReviewCommand,
     ApplyReviewResult,
-    ApplyReviewValidationResult,
     ReviewFacts,
     build_apply_review_request_fingerprint_from_command,
     compute_review_apply_request_fingerprint,
@@ -573,30 +572,6 @@ def test_build_apply_review_request_fingerprint_from_command_matches_scope_closu
         workspace_id="workspace-1",
     )
     assert fingerprint == expected
-
-
-def test_apply_review_validation_result_carries_request_fingerprint() -> None:
-    command = _apply_command(action=ReviewAction.REJECT, reason="needs work")
-    fingerprint = build_apply_review_request_fingerprint_from_command(
-        command=command,
-        workspace_id="workspace-1",
-        repository_id="repository-1",
-    )
-    validation = ApplyReviewValidationResult(
-        workspace_id="workspace-1",
-        repository_id="repository-1",
-        business_project_id="project-1",
-        gateway_device_external_key="device-1",
-        submission_id="submission-1",
-        expected_review_version=0,
-        action=ReviewAction.REJECT,
-        reason="needs work",
-        idempotency_key="review-key-1",
-        request_fingerprint=fingerprint,
-        replay=False,
-    )
-    assert validation.request_fingerprint == fingerprint
-    assert validation.replay is False
 
 
 def test_apply_review_result_carries_request_fingerprint() -> None:

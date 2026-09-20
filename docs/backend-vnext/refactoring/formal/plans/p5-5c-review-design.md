@@ -303,19 +303,6 @@ ApplyReviewCommand (inbound; HTTP caller fields only)
   reason optional
   idempotency_key
 
-ApplyReviewValidationResult (application-internal; post scope closure)
-  workspace_id
-  repository_id
-  business_project_id
-  gateway_device_external_key
-  submission_id
-  expected_review_version
-  action
-  reason optional
-  idempotency_key
-  request_fingerprint
-  replay
-
 ApplyReviewResult (transaction commit output)
   event
   projection
@@ -327,7 +314,7 @@ ApplyReviewResult (transaction commit output)
 `false`，HTTP 返回 `201 Created`。Replay 结果从 bound event 重建，不代表当前 projection。
 
 Inbound `ApplyReviewCommand` 不含 `request_fingerprint`。Application 在 scope closure 后生成
-fingerprint，并写入 `ApplyReviewValidationResult` / `ApplyReviewResult` / idempotency record；HTTP
+fingerprint，并写入 `ApplyReviewResult` / idempotency record；HTTP
 caller 永不提供 fingerprint。Fingerprint 使用既有 canonical JSON/digest
 utility，contract 冻结为 `gateway-vnext.review-apply-fingerprint.v1`。输入是以下 closed object，不得增加、
 删除、重命名字段，也不得加入 actor 或运行时值：

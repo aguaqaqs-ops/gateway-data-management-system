@@ -35,23 +35,6 @@ class ApplyReviewCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class ApplyReviewValidationResult:
-    """Application-internal validation output after scope closure."""
-
-    workspace_id: str
-    repository_id: str
-    business_project_id: str
-    gateway_device_external_key: str
-    submission_id: str
-    expected_review_version: int
-    action: ReviewAction
-    reason: str | None
-    idempotency_key: str
-    request_fingerprint: str
-    replay: bool
-
-
-@dataclass(frozen=True, slots=True)
 class ApplyReviewResult:
     event: ReviewEvent
     projection: ReviewProjection

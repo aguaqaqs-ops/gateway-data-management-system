@@ -184,7 +184,7 @@ vnext/**/uv.lock
 
 - `ReviewStatus`、`ReviewEventKind`、immutable `ReviewEvent`、`ReviewProjection`、
   `ReviewIdempotencyRecord`；
-- `ReviewAction`、`ApplyReviewCommand`、`ApplyReviewValidationResult`、`ApplyReviewResult`、`ReviewFacts`；
+- `ReviewAction`、`ApplyReviewCommand`、`ApplyReviewResult`、`ReviewFacts`；
 - transition policy 与 exact reason/key character and length contract；
 - Review read/write/UoW ports，以及兼容既有 Submit consumer 的组合
   `WorkspaceControlTransaction` / `WorkspaceControlUnitOfWorkFactory`；

@@ -8,12 +8,12 @@
 `pass`；P4-R1至P4-R6均已exit/pass。P5-5A slice exit `pass`，container gate `pass`（证据见
 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)）；P5-5B 已由
 [P5-5B-S8 Independent Slice Exit Acceptance](p5-5b-s8-independent-acceptance.md)标记
-`p5_5b_slice_exit: pass`。P5-5C-S0 docs-only entry/design 已授权；
-[Entry Brief](p5-5c-s0-entry-brief.md)、[Detailed Design](p5-5c-review-design.md)与
-[Execution Plan](p5-5c-review-execution-plan.md)为待独立 docs review 的 candidate，implementation
-尚未授权。P4默认上下文从
-[P4 Active Context Index](p4-active-context-index.md)开始；P5当前入口见
-[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md)、上述5C-S0文档与5B exit记录。
+`p5_5b_slice_exit: pass`。P5-5C 已由
+[S5 Independent Acceptance](p5-5c-s5-independent-acceptance.md) 声明 `p5_5c_slice_exit: pass`。
+5D docs-only 设计入口条件具备；5D implementation 与 production deployment 未授权。
+P4 默认上下文从 [P4 Active Context Index](p4-active-context-index.md) 开始；P5 当前入口为
+[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md) 与 5C exit。
+
 P3 capability 模块边界与 sealed evidence 见各 module handoff 与
 [P3 Capability Foundation Design](p3-capability-foundation-design.md)。
 历史 P3 S-step/review/execution plan 过程记录已离开默认树；恢复见

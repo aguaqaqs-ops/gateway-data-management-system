@@ -1,5 +1,7 @@
 # P5-5C-S5 Finding-Scoped Remediation Handoff
 
+当前结论：**`p5_5c_slice_exit: pass`**，见 [Independent Acceptance](p5-5c-s5-independent-acceptance.md)。下文 Delivery 状态是验收前快照。
+
 状态：**pass — P1/P2 closed @ independent review remediation**
 
 日期：2026-09-20 (UTC+8)
@@ -78,3 +80,9 @@ cd vnext/backend
 review: pending
 next_step: independent_acceptance_authority_for_p5_5c_slice_exit
 ```
+
+## Independent acceptance publication
+
+[S5 Independent Slice Exit Acceptance](p5-5c-s5-independent-acceptance.md) 已独立声明
+`p5_5c_slice_exit: pass`，P1/P2 closed、open findings 为空。上文 Delivery 建议与 pending
+快照保留为历史交接记录，当前状态以独立 acceptance 为准；不授权 5D implementation 或 production。

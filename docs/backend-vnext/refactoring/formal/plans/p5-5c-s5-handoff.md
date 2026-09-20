@@ -1,5 +1,7 @@
 # P5-5C-S5 Final Current-HEAD Gate and Slice Handoff
 
+当前结论：**`p5_5c_slice_exit: pass`**，见 [Independent Acceptance](p5-5c-s5-independent-acceptance.md)。下文 Delivery 状态是验收前快照。
+
 状态：**pass — slice exit 建议 `p5_5c_slice_exit=pass_recommended`（P1/P2 closed @ [remediation handoff](p5-5c-s5-remediation-handoff.md)；不自行授权 P5-5D / production）**
 
 日期：2026-09-20 (UTC+8)
@@ -170,3 +172,9 @@ production_deployment_authorized: no
 ```
 
 最终由 separate independent acceptance context 决定 `p5_5c_slice_exit`。Delivery/handoff 不自签 exit。
+
+## Independent acceptance publication
+
+[S5 Independent Slice Exit Acceptance](p5-5c-s5-independent-acceptance.md) 已独立声明
+`p5_5c_slice_exit: pass`，P1/P2 closed、open findings 为空。上文 Delivery 建议与 pending
+快照保留为历史交接记录，当前状态以独立 acceptance 为准；不授权 5D implementation 或 production。

@@ -12,9 +12,10 @@
 当前内容（仓库 P5 默认入口）：
 
 - [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)
-- [P5-5C-S0 Entry Brief](plans/p5-5c-s0-entry-brief.md)（docs-only entry/design authorized）
-- [P5-5C Review Detailed Design](plans/p5-5c-review-design.md)（candidate；待独立 docs review）
-- [P5-5C Review Execution Plan](plans/p5-5c-review-execution-plan.md)（candidate；implementation 未授权）
+- [P5-5C-S5 Independent Slice Exit Acceptance](plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）
+- [P5-5C-S0 Entry Brief](plans/p5-5c-s0-entry-brief.md)（historical entry input）
+- [P5-5C Review Detailed Design](plans/p5-5c-review-design.md)（accepted；slice completed）
+- [P5-5C Review Execution Plan](plans/p5-5c-review-execution-plan.md)（completed；slice exit pass）
 - [P5-5B-S8 Independent Slice Exit Acceptance](plans/p5-5b-s8-independent-acceptance.md)（`p5_5b_slice_exit: pass`）
 - [P5-5B-S8 Handoff](plans/p5-5b-s8-handoff.md)（gate evidence @ `460d6f5b`）
 - [P5-5B-S0 Entry Brief](plans/p5-5b-s0-entry-brief.md)（historical entry input）
@@ -37,8 +38,8 @@ P5-5A historical input（slice exit pass；container gate pass）：
 - [P5-5A S6 Handoff](plans/p5-5a-s6-handoff.md)（slice exit pass；container gate pass）
 
 P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；**P4-R6 exit pass**。
-P5-5B slice exit pass；P5-5C-S0 docs-only entry/design 已授权，design/plan candidate 待独立复核，
-implementation 未授权。P4 Active Context Index 不覆盖 P5 semantic default entry。
+P5-5B/5C slice exit pass；5D docs-only 设计入口条件具备，implementation 未授权。
+P4 Active Context Index 不覆盖 P5 semantic default entry。
 以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述 P5 默认顺序：
 
 - [P4 Active Context Index](plans/p4-active-context-index.md)（P4 专用入口；不是仓库当前默认入口）
@@ -138,11 +139,11 @@ fixture追溯；其中的同步Preview、`START_REVIEW`、Archive/Repository ref
 exit/pass。P5总体设计基线accepted；P5-5A slice exit `pass`；P5-5B gate evidence @
 `460d6f5b` 经独立 acceptance 复核，`p5_5b_slice_exit: pass`。P5-5B 的历史 implementation
 authority 已消费并关闭；5B exit 本身不授权新的 P5-5B 改动、P5-5C 或 production deployment。
-其后 repository owner 已单独授予 P5-5C-S0 docs-only entry/design authority；design/plan candidate
-待独立复核，implementation 与 production deployment 仍未授权。
-全局`p3_implementation_authorized: no`。P4 专用入口见
-[P4 Active Context Index](plans/p4-active-context-index.md)；仓库当前默认入口包括 P5 baseline、
-[P5-5C-S0 Entry Brief](plans/p5-5c-s0-entry-brief.md)与
-[P5-5B-S8 Independent Slice Exit Acceptance](plans/p5-5b-s8-independent-acceptance.md)。
+其后 P5-5C 已完成并由 [S5 Independent Acceptance](plans/p5-5c-s5-independent-acceptance.md)
+声明 `p5_5c_slice_exit: pass`，历史 implementation authority 已消费并关闭。
+5D docs-only 设计条件具备；5D implementation 与 production deployment 未授权。
+全局 `p3_implementation_authorized: no`。P4 专用入口见
+[P4 Active Context Index](plans/p4-active-context-index.md)；当前默认入口是 P5 baseline 与 5C exit。
+
 完整对外接口见
 [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)。

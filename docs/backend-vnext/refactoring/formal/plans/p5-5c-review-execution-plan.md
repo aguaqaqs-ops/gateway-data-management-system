@@ -1,6 +1,8 @@
 # P5-5C Review Execution Plan
 
-状态：**S1 REMEDIATION — PENDING INDEPENDENT REVIEW**
+状态：**COMPLETED — `p5_5c_slice_exit: pass`**
+
+最终验收：[S5 Independent Slice Exit Acceptance](p5-5c-s5-independent-acceptance.md)。§1 为历史入口授权快照；当前状态以 §11 为准。
 
 日期：2026-09-19
 
@@ -495,19 +497,21 @@ production_deployment_authorized: no
 
 此时更新 owning Contract/ADR/Design，并取得 finding-scoped authority 后才能继续。
 
-## 11. S0 current disposition
+## 11. Current disposition — slice exit
 
 ```yaml
-p5_5c_entry: authorized
 p5_5c_design: accepted
-p5_5c_design_candidate: accepted
 p5_5c_execution_plan: accepted
-independent_docs_review: pass
-p5_5c_implementation_authorized: yes
-source_or_test_change_authorized: true
-first_authorized_step: P5-5C-S1
-current_stage: P5-5C-S5
-next_step: independent_functional_acceptance_and_current_head_gate
-s4_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-handoff.md
-s4_independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-independent-review.md
+p5_5c_implementation_status: completed
+p5_5c_implementation_authorized: no
+source_or_test_change_authorized: false
+current_stage: P5-5C-completed
+p5_5c_slice_exit: pass
+accepted_candidate_head: 04317788c259b172e3b8580cfe42bac8d16735f0
+independent_acceptance: docs/backend-vnext/refactoring/formal/plans/p5-5c-s5-independent-acceptance.md
+review_findings_open: []
+p5_5d_design_readiness: ready
+p5_5d_implementation_authorized: no
+production_deployment_authorized: no
+next_step: separate_p5_5d_docs_only_entry_and_design
 ```

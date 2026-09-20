@@ -26,10 +26,12 @@ accepted且`p5_5b_design_s0_authorized: yes`；P5-5B implementation与real Repos
 
 2026-09-18 closure overlay：P4-R6 已 exit/pass；P5-5B gate-tested implementation 为
 `460d6f5b`，并由 [P5-5B-S8 Independent Slice Exit Acceptance](../plans/p5-5b-s8-independent-acceptance.md)
-标记 `p5_5b_slice_exit: pass`。这关闭历史 P5-5B implementation authority。repository owner 随后
-明确授予 [P5-5C-S0 Entry Brief](../plans/p5-5c-s0-entry-brief.md) 所记录的 docs-only entry/design
-authority；P5-5C design/plan 当前是待独立复核的 candidate，implementation、production deployment
-和新的 Repository effect 仍未授权。
+标记 `p5_5b_slice_exit: pass`。这关闭历史 P5-5B implementation authority。P5-5C 随后完成 S1–S5，
+由 [P5-5C-S5 Independent Acceptance](../plans/p5-5c-s5-independent-acceptance.md) 声明
+`p5_5c_slice_exit: pass`（candidate `04317788c2`），历史 implementation authority 已消费并关闭。
+当前 5D docs-only 设计入口条件具备；5D/5E implementation、production deployment 与新的
+Repository effect 均未授权。此前 dated overlay 保留为历史记录，当前状态以本 closure 为准。
+
 
 ## 1. 目标与范围
 

@@ -26,21 +26,35 @@ from gateway_backend.application.submission.review_contracts import ApplyReviewC
 from gateway_backend.application.submission.review_transaction import apply_review_transaction
 from gateway_backend.domain.submission.errors import (
     InvalidReviewTransition,
+    ReviewClosureViolation,
     ReviewVersionConflict,
     SubmitOccupancyConflict,
 )
 from gateway_backend.domain.submission.models import Submission
 from gateway_backend.domain.submission.review import ReviewAction, ReviewEventKind, ReviewStatus
 from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeForbidden
-from gateway_backend.domain.workspace.models import IdentityContext, WorkspaceState
+from gateway_backend.application.workspace.services import create_or_get_workspace
+from gateway_backend.domain.workspace.models import (
+    IdentityContext,
+    InputCompleteness,
+    SourceArtifactBinding,
+    SourceArtifactRole,
+    UploadRevision,
+    WorkspaceState,
+)
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
 from tests.test_submit_transactions import (
     BASELINE_HEAD,
+    SubmitSeed,
+    TS0,
     TS1,
     _finalize_facts,
+    _preview_result,
+    _protected_preview_refs,
     _read_finalize_versions,
     _seed_effect_pending_attempt,
+    _upsert_provisioned_mapping_row,
     seed_submit_ready_workspace,
 )
 from gateway_backend.application.submission.finalize_transaction import (
@@ -103,6 +117,137 @@ def _seed_pending_review_submission(db_path: Path) -> ReviewSeed:
             submit_seed.workspace.gateway_device_external_key,
             submit_seed.workspace.business_project_id,
         ),
+        submission=submission,
+    )
+
+
+def _seed_additional_pending_review_submission(
+    db_path: Path,
+    *,
+    submission_id: str,
+    device_key: str,
+    repository_id: str,
+    project_id: str,
+) -> ReviewSeed:
+    _upsert_provisioned_mapping_row(
+        db_path,
+        device_key=device_key,
+        project_id=project_id,
+        repository_id=repository_id,
+    )
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    context = make_identity(
+        device_key=device_key,
+        project_id=project_id,
+        permissions=frozenset({"upload_submit_workspace", "workspace_read"}),
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        created = create_or_get_workspace(
+            context=context,
+            scope_resolution=scope_resolution,
+            repository=unit_of_work.workspace,
+            created_at=TS0,
+        )
+        workspace = created.workspace
+        upload_revision_id = f"ur-{submission_id}"
+        preview_result_id = f"pr-{submission_id}"
+        upload_revision = UploadRevision(
+            upload_revision_id=upload_revision_id,
+            workspace_id=workspace.workspace_id,
+            generation=1,
+            input_completeness=InputCompleteness.FULL,
+            source_artifacts={
+                SourceArtifactRole.INITIAL: SourceArtifactBinding(
+                    artifact_id="initial-1",
+                    media_type="application/gzip",
+                    size_bytes=1,
+                    raw_sha256="sha256:initial",
+                ),
+                SourceArtifactRole.MODIFIED: SourceArtifactBinding(
+                    artifact_id="modified-1",
+                    media_type="application/gzip",
+                    size_bytes=2,
+                    raw_sha256="sha256:modified",
+                ),
+            },
+            idempotency_key=f"upload-key-{submission_id}",
+            request_fingerprint=f"fp-upload-{submission_id}",
+            created_by="actor-1",
+            created_at=TS0,
+        )
+        preview = replace(
+            _preview_result(workspace.workspace_id),
+            preview_result_id=preview_result_id,
+            upload_revision_id=upload_revision_id,
+            repository_id=repository_id,
+            operation_id=f"op-preview-{submission_id}",
+        )
+        unit_of_work.workspace.save_upload_revision(upload_revision)
+        unit_of_work.workspace.save_preview_result(preview)
+        updated_workspace = replace(
+            workspace,
+            repository_id=repository_id,
+            generation=1,
+            optimistic_version=workspace.optimistic_version + 1,
+            current_upload_revision_id=upload_revision_id,
+            current_preview_result_id=preview_result_id,
+            updated_at=TS1,
+        )
+        unit_of_work.workspace.save_workspace(
+            updated_workspace,
+            expected_version=workspace.optimistic_version,
+        )
+        preview_operation_id = f"op-preview-{submission_id}"
+        protected_refs = _protected_preview_refs()
+        unit_of_work.set_artifact_protection(
+            protected_refs,
+            owner_kind="current-preview",
+            owner_id=updated_workspace.workspace_id,
+            intent="current-preview",
+        )
+        unit_of_work.set_artifact_protection(
+            protected_refs[:2],
+            owner_kind="preview-operation",
+            owner_id=preview_operation_id,
+            intent="preview-operation",
+        )
+    submit_seed = SubmitSeed(
+        db_path=db_path,
+        workspace=updated_workspace,
+        upload_revision=upload_revision,
+        preview_result=preview,
+        preview_operation_id=preview_operation_id,
+        protected_refs=protected_refs,
+    )
+    attempt = _seed_effect_pending_attempt(db_path, submit_seed)
+    attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        finalize_submit_transaction(
+            request=FinalizeSubmitTransactionRequest(
+                submit_attempt_id=attempt.submit_attempt_id,
+                facts=_finalize_facts(submit_seed),
+                submission_id=submission_id,
+                created_at=TS1,
+                expected_attempt_version=attempt_version,
+                expected_await_step_version=await_version,
+                expected_operation_version=operation_version,
+                worker_id="worker-test",
+                lease_token="lease-test",
+            ),
+            unit_of_work=unit_of_work,
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission(submission_id)
+        assert submission is not None
+    return ReviewSeed(
+        db_path=db_path,
+        submission_id=submission_id,
+        workspace_id=updated_workspace.workspace_id,
+        repository_id=repository_id,
+        reviewer_context=_reviewer_context(device_key, project_id),
         submission=submission,
     )
 
@@ -467,10 +612,145 @@ def test_apply_review_idempotency_conflict_on_cross_submission(review_seed: Revi
                 submission_id="sub-2",
                 idempotency_key="shared-project-key",
             ),
-            workspace=workspace,
-            repository_id=review_seed.repository_id,
+            record_workspace=workspace,
+            request_workspace=workspace,
+            request_repository_id=review_seed.repository_id,
             events=events,
         )
+
+
+CROSS_SUBMISSION_IDEMPOTENCY_CONFLICT_CASES = (
+    ("different_device_same_project", "device-2", "repo-2"),
+    ("different_repository_same_project", "device-2", "repo-2"),
+)
+
+
+@pytest.mark.parametrize(
+    ("case_id", "device_key", "repository_id"),
+    CROSS_SUBMISSION_IDEMPOTENCY_CONFLICT_CASES,
+    ids=[case[0] for case in CROSS_SUBMISSION_IDEMPOTENCY_CONFLICT_CASES],
+)
+def test_apply_review_idempotency_conflict_on_cross_submission_via_transaction(
+    review_seed: ReviewSeed,
+    case_id: str,
+    device_key: str,
+    repository_id: str,
+) -> None:
+    idempotency_key = f"shared-cross-key-{case_id}"
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, idempotency_key=idempotency_key),
+    )
+    second_seed = _seed_additional_pending_review_submission(
+        review_seed.db_path,
+        submission_id="sub-2",
+        device_key=device_key,
+        repository_id=repository_id,
+        project_id=review_seed.reviewer_context.business_project_id,
+    )
+    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
+        first_events = unit_of_work.review.list_events(review_seed.submission_id)
+        first_projection = unit_of_work.review.get_projection(review_seed.submission_id)
+        second_events = unit_of_work.review.list_events(second_seed.submission_id)
+        idempotency_rows = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_idempotency_records",
+        ).fetchone()[0]
+    with pytest.raises(IdempotencyConflict):
+        apply_review_transaction(
+            command=_apply_command(
+                second_seed,
+                idempotency_key=idempotency_key,
+            ),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(review_seed.db_path),
+            now=TS2,
+        )
+    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
+        events_after = unit_of_work.review.list_events(review_seed.submission_id)
+        projection_after = unit_of_work.review.get_projection(review_seed.submission_id)
+        second_events_after = unit_of_work.review.list_events(second_seed.submission_id)
+        idempotency_rows_after = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_idempotency_records",
+        ).fetchone()[0]
+    assert len(events_after) == len(first_events)
+    assert projection_after == first_projection
+    assert second_events_after == second_events
+    assert idempotency_rows_after == idempotency_rows
+
+
+def test_apply_review_cross_submission_fails_closed_on_record_submission_closure_damage(
+    review_seed: ReviewSeed,
+) -> None:
+    idempotency_key = "shared-cross-closure-key"
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, idempotency_key=idempotency_key),
+    )
+    second_seed = _seed_additional_pending_review_submission(
+        review_seed.db_path,
+        submission_id="sub-2",
+        device_key="device-2",
+        repository_id="repo-2",
+        project_id=review_seed.reviewer_context.business_project_id,
+    )
+    with ControlDbUnitOfWork(review_seed.db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            """
+            UPDATE review_projection_records
+            SET status = 'PENDING', optimistic_version = 0, latest_sequence = 0
+            WHERE submission_id = ?
+            """,
+            (review_seed.submission_id,),
+        )
+    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
+        with pytest.raises(ReviewClosureViolation):
+            unit_of_work.review.list_events(review_seed.submission_id)
+        first_event_rows = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_event_records WHERE submission_id = ?",
+            (review_seed.submission_id,),
+        ).fetchone()[0]
+        first_projection_rows = unit_of_work.connection.execute(
+            "SELECT optimistic_version FROM review_projection_records WHERE submission_id = ?",
+            (review_seed.submission_id,),
+        ).fetchone()
+        second_events = unit_of_work.review.list_events(second_seed.submission_id)
+        idempotency_rows = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_idempotency_records",
+        ).fetchone()[0]
+    with pytest.raises(ReviewIntegrityFailure) as exc_info:
+        apply_review_transaction(
+            command=_apply_command(
+                second_seed,
+                idempotency_key=idempotency_key,
+            ),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id="repo-2",
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(review_seed.db_path),
+            now=TS2,
+        )
+    assert exc_info.value.stable_code == "REVIEW_INTEGRITY_FAILURE"
+    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
+        second_events_after = unit_of_work.review.list_events(second_seed.submission_id)
+        event_rows_after = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_event_records WHERE submission_id = ?",
+            (review_seed.submission_id,),
+        ).fetchone()[0]
+        projection_row_after = unit_of_work.connection.execute(
+            "SELECT optimistic_version FROM review_projection_records WHERE submission_id = ?",
+            (review_seed.submission_id,),
+        ).fetchone()
+        idempotency_rows_after = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_idempotency_records",
+        ).fetchone()[0]
+    assert event_rows_after == first_event_rows
+    assert projection_row_after == first_projection_rows
+    assert second_events_after == second_events
+    assert idempotency_rows_after == idempotency_rows
 
 
 def test_apply_review_replay_returns_original_result_after_later_mutation(

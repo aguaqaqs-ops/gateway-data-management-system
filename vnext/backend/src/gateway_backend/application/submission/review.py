@@ -128,13 +128,22 @@ def verify_idempotency_replay(
     record: ReviewIdempotencyRecord,
     *,
     command: ApplyReviewCommand,
-    workspace: Workspace,
-    repository_id: str,
+    record_workspace: Workspace,
+    request_workspace: Workspace,
+    request_repository_id: str,
     events: tuple[ReviewEvent, ...],
 ) -> ApplyReviewResult:
     bound_event = next((event for event in events if event.sequence == record.event_sequence), None)
     if bound_event is None:
         raise ReviewIntegrityFailure("review idempotency record points to a missing event")
+    if bound_event.submission_id != record.submission_id:
+        raise ReviewIntegrityFailure(
+            "review idempotency record submission_id does not match bound event"
+        )
+    if record.business_project_id != record_workspace.business_project_id:
+        raise ReviewIntegrityFailure(
+            "review idempotency record business project does not match workspace"
+        )
     action = review_action_for_event_kind(bound_event.event_kind)
     if action is None:
         raise ReviewIntegrityFailure("review idempotency record is bound to a non-user event")
@@ -142,13 +151,13 @@ def verify_idempotency_replay(
         raise ReviewIntegrityFailure("review idempotency record is bound to a seed event")
     replay_fingerprint = compute_review_apply_request_fingerprint(
         action=action,
-        business_project_id=command.context.business_project_id,
+        business_project_id=record.business_project_id,
         expected_review_version=bound_event.sequence - 1,
-        gateway_device_external_key=command.context.gateway_device_external_key,
+        gateway_device_external_key=record_workspace.gateway_device_external_key,
         reason=bound_event.reason,
-        repository_id=repository_id,
+        repository_id=record_workspace.repository_id,
         submission_id=record.submission_id,
-        workspace_id=workspace.workspace_id,
+        workspace_id=record_workspace.workspace_id,
     )
     if replay_fingerprint != record.request_fingerprint:
         raise ReviewIntegrityFailure("review idempotency record fingerprint does not match event")
@@ -156,8 +165,8 @@ def verify_idempotency_replay(
         raise IdempotencyConflict(idempotency_key=command.idempotency_key)
     request_fingerprint = build_apply_review_request_fingerprint_from_command(
         command=command,
-        workspace_id=workspace.workspace_id,
-        repository_id=repository_id,
+        workspace_id=request_workspace.workspace_id,
+        repository_id=request_repository_id,
     )
     if record.request_fingerprint != request_fingerprint:
         raise IdempotencyConflict(idempotency_key=command.idempotency_key)

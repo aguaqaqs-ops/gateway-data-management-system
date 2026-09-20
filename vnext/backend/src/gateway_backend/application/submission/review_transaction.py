@@ -93,7 +93,10 @@ def _apply_review_in_control_transaction(
             record_events = facts.events
             record_workspace = facts.workspace
         else:
-            record_events = unit_of_work.review.list_events(existing.submission_id)
+            try:
+                record_events = unit_of_work.review.list_events(existing.submission_id)
+            except ReviewClosureViolation as exc:
+                raise ReviewIntegrityFailure(exc.reason) from exc
             record_submission = unit_of_work.submission.get_submission(existing.submission_id)
             if record_submission is None:
                 raise ReviewIntegrityFailure(
@@ -108,8 +111,9 @@ def _apply_review_in_control_transaction(
         return verify_idempotency_replay(
             existing,
             command=command,
-            workspace=record_workspace,
-            repository_id=fresh_scope.repository_id,
+            record_workspace=record_workspace,
+            request_workspace=facts.workspace,
+            request_repository_id=fresh_scope.repository_id,
             events=record_events,
         )
 

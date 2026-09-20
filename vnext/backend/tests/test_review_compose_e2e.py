@@ -10,15 +10,13 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from tests.support.compose_gate_harness import BACKEND_URL, compose_project_name, require_docker, run_compose
 from tests.test_submit_compose_e2e import (
-    BACKEND_URL,
     BEARER_TOKEN,
     DEVICE_KEY,
     PROJECT_ID,
     SESSION_TOKEN,
-    _require_docker,
     _run_accept_to_submission_read_journey,
-    _run_compose,
     _start_three_container_stack,
 )
 
@@ -78,8 +76,11 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
             "GATEWAY_BACKEND_SESSION_FILE": str(session),
             "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(internal_bearer),
             "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(mapping),
-            "GATEWAY_REPOSITORY_SERVICE_IMAGE": "gateway-repository-service:local",
-            "COMPOSE_PROJECT_NAME": f"gateway-review-s5-{tmp_path.name}",
+            "GATEWAY_REPOSITORY_SERVICE_IMAGE": os.environ.get(
+                "GATEWAY_REPOSITORY_SERVICE_IMAGE",
+                "gateway-repository-service:local",
+            ),
+            "COMPOSE_PROJECT_NAME": compose_project_name(tmp_path, default_prefix="gateway-review-s5"),
         }
     )
     return env
@@ -95,7 +96,7 @@ req = urllib.request.Request(
 with urllib.request.urlopen(req, timeout=30) as response:
     print(json.loads(response.read().decode())["commit_id"])
 """
-    result = _run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
+    result = run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
     if result.returncode != 0:
         pytest.fail(f"failed to resolve repository main ref: {result.stderr}\n{result.stdout}")
     commit_id = result.stdout.strip()
@@ -112,7 +113,7 @@ def _auth_headers(*, idempotency_key: str | None = None) -> dict[str, str]:
 
 
 def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
-    _require_docker()
+    require_docker()
     env = _compose_env(tmp_path)
     repository_id, initial_commit_id = _start_three_container_stack(env, tmp_path)
 
@@ -154,6 +155,6 @@ def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
         main_after_review = _resolve_main_commit_id(env, repository_id)
         assert main_after_review == main_before_review
     finally:
-        down = _run_compose(env, "down", "-v", "--remove-orphans")
+        down = run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:
             pytest.fail(f"compose down failed: {down.stderr}\n{down.stdout}")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import time
 import urllib.error
@@ -13,16 +12,16 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.compose_gate_harness import (
+    BACKEND_URL,
+    build_backend_image,
+    compose_project_name,
+    ensure_repository_service_image,
+    require_docker,
+    run_compose,
+)
+
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
-
-DEPLOY_ROOT = Path(__file__).resolve().parents[2] / "deploy"
-COMPOSE_FILE = DEPLOY_ROOT / "compose.yaml"
-BACKEND_URL = "http://127.0.0.1:8000"
-
-
-def _require_docker() -> None:
-    if shutil.which("docker") is None:
-        pytest.skip("docker is required for backend container gate")
 
 
 def _compose_env(tmp_path: Path) -> dict[str, str]:
@@ -73,23 +72,14 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
             "GATEWAY_BACKEND_SESSION_FILE": str(session),
             "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(internal_bearer),
             "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(mapping),
-            "GATEWAY_REPOSITORY_SERVICE_IMAGE": "gateway-repository-service:local",
-            "COMPOSE_PROJECT_NAME": f"gateway-backend-gate-{tmp_path.name}",
+            "GATEWAY_REPOSITORY_SERVICE_IMAGE": os.environ.get(
+                "GATEWAY_REPOSITORY_SERVICE_IMAGE",
+                "gateway-repository-service:local",
+            ),
+            "COMPOSE_PROJECT_NAME": compose_project_name(tmp_path, default_prefix="gateway-backend-gate"),
         }
     )
     return env
-
-
-def _run_compose(env: dict[str, str], *args: str, timeout: float = 600.0) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), *args],
-        cwd=DEPLOY_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
 
 
 def _wait_http_ok(url: str, *, timeout_seconds: float = 120.0) -> None:
@@ -105,11 +95,9 @@ def _wait_http_ok(url: str, *, timeout_seconds: float = 120.0) -> None:
 
 
 def test_backend_image_builds_with_http_server_entrypoint(tmp_path: Path) -> None:
-    _require_docker()
+    require_docker()
     env = _compose_env(tmp_path)
-    build = _run_compose(env, "build", "backend")
-    if build.returncode != 0:
-        pytest.fail(f"backend image build failed: {build.stderr}\n{build.stdout}")
+    build_backend_image(env)
 
     image_ref = f"{env['COMPOSE_PROJECT_NAME']}-backend"
     config = subprocess.run(
@@ -122,30 +110,26 @@ def test_backend_image_builds_with_http_server_entrypoint(tmp_path: Path) -> Non
 
 
 def test_backend_container_ready_and_stops_cleanly_with_repository_service(tmp_path: Path) -> None:
-    _require_docker()
+    require_docker()
     env = _compose_env(tmp_path)
-    repository_build = _run_compose(env, "build", "repository-service")
-    if repository_build.returncode != 0:
-        pytest.skip(
-            "repository-service build unavailable for backend container readiness gate: "
-            f"{repository_build.stderr[:200]}"
-        )
+    ensure_repository_service_image()
+    build_backend_image(env)
 
-    backend_build = _run_compose(env, "build", "backend")
-    if backend_build.returncode != 0:
-        pytest.fail(f"backend image build failed: {backend_build.stderr}\n{backend_build.stdout}")
+    up_repo = run_compose(env, "up", "-d", "--no-build", "repository-service")
+    if up_repo.returncode != 0:
+        pytest.fail(f"compose up repository-service failed: {up_repo.stderr}\n{up_repo.stdout}")
 
-    up = _run_compose(env, "up", "-d", "repository-service", "backend")
-    if up.returncode != 0:
-        pytest.fail(f"compose up failed: {up.stderr}\n{up.stdout}")
+    up_backend = run_compose(env, "up", "-d", "--no-build", "backend")
+    if up_backend.returncode != 0:
+        pytest.fail(f"compose up backend failed: {up_backend.stderr}\n{up_backend.stdout}")
 
     try:
         _wait_http_ok(f"{BACKEND_URL}/readyz")
-        stop = _run_compose(env, "stop", "-t", "5", "backend")
+        stop = run_compose(env, "stop", "-t", "5", "backend")
         if stop.returncode != 0:
             pytest.fail(f"compose stop backend failed: {stop.stderr}\n{stop.stdout}")
-        status = _run_compose(env, "ps", "backend", "--status", "exited", "--format", "{{.State}}")
+        status = run_compose(env, "ps", "backend", "--status", "exited", "--format", "{{.State}}")
         assert status.returncode == 0
         assert "exited" in status.stdout.lower()
     finally:
-        _run_compose(env, "down", "-v", "--remove-orphans")
+        run_compose(env, "down", "-v", "--remove-orphans")

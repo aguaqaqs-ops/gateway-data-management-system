@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import time
 import urllib.error
@@ -15,16 +14,18 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from tests.support.compose_gate_harness import (
+    BACKEND_URL,
+    build_compose_stack_images,
+    compose_project_name,
+    require_docker,
+    run_compose,
+)
 from tests.support.submit_job_harness import _repository_service_build_package_bytes
 from tests.support.upload_http_packages import upload_files
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
-VNEXT_ROOT = Path(__file__).resolve().parents[2]
-DEPLOY_ROOT = VNEXT_ROOT / "deploy"
-COMPOSE_FILE = DEPLOY_ROOT / "compose.yaml"
-BACKEND_URL = "http://127.0.0.1:8000"
-BUILD_REPOSITORY_SCRIPT = VNEXT_ROOT / "scripts" / "build-repository-service-image.sh"
 SESSION_TOKEN = "compose-session-token"
 BEARER_TOKEN = "compose-submit-bearer"
 BASELINE_NODE_ID = "compose-node"
@@ -32,9 +33,6 @@ BASELINE_MANIFEST_DIGEST = "sha256:" + "a" * 64
 BASELINE_REPLAY_SQL = b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
 DEVICE_KEY = "compose-device"
 PROJECT_ID = "compose-project"
-def _require_docker() -> None:
-    if shutil.which("docker") is None:
-        pytest.skip("docker is required for compose e2e gate")
 
 
 def _compose_env(tmp_path: Path) -> dict[str, str]:
@@ -89,23 +87,14 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
             "GATEWAY_BACKEND_SESSION_FILE": str(session),
             "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(internal_bearer),
             "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(mapping),
-            "GATEWAY_REPOSITORY_SERVICE_IMAGE": "gateway-repository-service:local",
-            "COMPOSE_PROJECT_NAME": f"gateway-submit-s8-{tmp_path.name}",
+            "GATEWAY_REPOSITORY_SERVICE_IMAGE": os.environ.get(
+                "GATEWAY_REPOSITORY_SERVICE_IMAGE",
+                "gateway-repository-service:local",
+            ),
+            "COMPOSE_PROJECT_NAME": compose_project_name(tmp_path, default_prefix="gateway-submit-s8"),
         }
     )
     return env
-
-
-def _run_compose(env: dict[str, str], *args: str, timeout: float = 600.0) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), *args],
-        cwd=DEPLOY_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
 
 
 def _auth_headers(*, idempotency_key: str | None = None) -> dict[str, str]:
@@ -113,41 +102,6 @@ def _auth_headers(*, idempotency_key: str | None = None) -> dict[str, str]:
     if idempotency_key is not None:
         headers["Idempotency-Key"] = idempotency_key
     return headers
-
-
-def _ensure_repository_service_image() -> None:
-    image = os.environ.get("GATEWAY_REPOSITORY_SERVICE_IMAGE", "gateway-repository-service:local")
-    inspect = subprocess.run(
-        ["docker", "image", "inspect", image],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=60.0,
-    )
-    if inspect.returncode == 0:
-        return
-    if not BUILD_REPOSITORY_SCRIPT.is_file():
-        pytest.fail(f"missing repository-service build script: {BUILD_REPOSITORY_SCRIPT}")
-    completed = subprocess.run(
-        [str(BUILD_REPOSITORY_SCRIPT)],
-        cwd=VNEXT_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=1800.0,
-    )
-    if completed.returncode != 0:
-        pytest.fail(
-            "repository-service image build failed; "
-            f"stdout={completed.stdout[-500:]} stderr={completed.stderr[-500:]}"
-        )
-
-
-def _build_compose_images(env: dict[str, str]) -> None:
-    _ensure_repository_service_image()
-    build = _run_compose(env, "build", "backend", "worker")
-    if build.returncode != 0:
-        pytest.fail(f"compose backend/worker build failed: {build.stderr}\n{build.stdout}")
 
 
 def _wait_http_ok(url: str, *, timeout_seconds: float = 180.0) -> None:
@@ -169,7 +123,7 @@ def _wait_repository_service_ready(env: dict[str, str], *, timeout_seconds: floa
         "urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5.0)"
     )
     while time.monotonic() < deadline:
-        result = _run_compose(
+        result = run_compose(
             env,
             "exec",
             "-T",
@@ -187,7 +141,7 @@ def _wait_repository_service_ready(env: dict[str, str], *, timeout_seconds: floa
 def _worker_ready(env: dict[str, str], *, timeout_seconds: float = 120.0) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        logs = _run_compose(env, "logs", "worker", "--no-color")
+        logs = run_compose(env, "logs", "worker", "--no-color")
         if "code=worker_ready" in logs.stdout:
             return
         time.sleep(2.0)
@@ -221,7 +175,7 @@ def _import_baseline_into_repository(
 ) -> str:
     package_path = tmp_path / "baseline-import.tar.zst"
     package_path.write_bytes(_build_baseline_import_package())
-    container_id = _run_compose(
+    container_id = run_compose(
         env,
         "ps",
         "repository-service",
@@ -312,7 +266,7 @@ with urllib.request.urlopen(resolve_req, timeout=30) as response:
     resolved = json.loads(response.read().decode())
 print(resolved["commit_id"])
 """
-    result = _run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
+    result = run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
     if result.returncode != 0:
         pytest.fail(f"baseline import failed: {result.stderr}\n{result.stdout}")
     commit_id = result.stdout.strip()
@@ -330,7 +284,7 @@ def _seed_repository_and_mapping(env: dict[str, str], tmp_path: Path) -> tuple[s
         f"headers={{'Authorization': 'Bearer {BEARER_TOKEN}', 'Idempotency-Key': 'compose-seed-repo'}}); "
         "print(urllib.request.urlopen(req, timeout=30.0).read().decode())"
     )
-    result = _run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
+    result = run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
     if result.returncode != 0:
         pytest.fail(f"repository seed failed: {result.stderr}\n{result.stdout}")
     payload = json.loads(result.stdout.strip())
@@ -365,13 +319,13 @@ def _seed_repository_and_mapping(env: dict[str, str], tmp_path: Path) -> tuple[s
 
 
 def _start_three_container_stack(env: dict[str, str], tmp_path: Path) -> tuple[str, str]:
-    _build_compose_images(env)
-    up_repo = _run_compose(env, "up", "-d", "--no-build", "repository-service")
+    build_compose_stack_images(env)
+    up_repo = run_compose(env, "up", "-d", "--no-build", "repository-service")
     if up_repo.returncode != 0:
         pytest.fail(f"compose up repository-service failed: {up_repo.stderr}\n{up_repo.stdout}")
     _wait_repository_service_ready(env)
     repository_id, initial_commit_id = _seed_repository_and_mapping(env, tmp_path)
-    up_stack = _run_compose(env, "up", "-d", "--no-build", "backend", "worker")
+    up_stack = run_compose(env, "up", "-d", "--no-build", "backend", "worker")
     if up_stack.returncode != 0:
         pytest.fail(f"compose up backend/worker failed: {up_stack.stderr}\n{up_stack.stdout}")
     _wait_http_ok(f"{BACKEND_URL}/readyz")
@@ -412,7 +366,7 @@ def _read_workspace_row(env: dict[str, str], workspace_id: str) -> dict[str, Any
         "if row else {})"
         ")"
     )
-    result = _run_compose(env, "exec", "-T", "backend", "python", "-c", script)
+    result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:
         pytest.fail(f"failed to read workspace row: {result.stderr}\n{result.stdout}")
     payload = json.loads(result.stdout.strip() or "{}")
@@ -536,7 +490,7 @@ def _run_accept_to_submission_read_journey(
 
 
 def test_compose_three_process_submit_stack_smoke_and_backend_restart(tmp_path: Path) -> None:
-    _require_docker()
+    require_docker()
     env = _compose_env(tmp_path)
     _start_three_container_stack(env, tmp_path)
 
@@ -547,7 +501,7 @@ def test_compose_three_process_submit_stack_smoke_and_backend_restart(tmp_path: 
         assert ready.status == 200
         assert BEARER_TOKEN not in health.read().decode("utf-8")
 
-        restart = _run_compose(env, "restart", "backend")
+        restart = run_compose(env, "restart", "backend")
         if restart.returncode != 0:
             pytest.fail(f"compose restart backend failed: {restart.stderr}\n{restart.stdout}")
         _wait_http_ok(f"{BACKEND_URL}/readyz")
@@ -571,13 +525,13 @@ def test_compose_three_process_submit_stack_smoke_and_backend_restart(tmp_path: 
             body = json.loads(response.read().decode("utf-8"))
         assert "workspace_id" in body
     finally:
-        down = _run_compose(env, "down", "-v", "--remove-orphans")
+        down = run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:
             pytest.fail(f"compose down failed: {down.stderr}\n{down.stdout}")
 
 
 def test_compose_accept_upload_import_poll_t3_read_journey(tmp_path: Path) -> None:
-    _require_docker()
+    require_docker()
     env = _compose_env(tmp_path)
     _repository_id, initial_commit_id = _start_three_container_stack(env, tmp_path)
 
@@ -589,6 +543,6 @@ def test_compose_accept_upload_import_poll_t3_read_journey(tmp_path: Path) -> No
         assert journey["submission_id"]
         assert journey["preview_result_id"].startswith("pr-")
     finally:
-        down = _run_compose(env, "down", "-v", "--remove-orphans")
+        down = run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:
             pytest.fail(f"compose down failed: {down.stderr}\n{down.stdout}")

@@ -25,7 +25,11 @@ class ScopeResolutionPort(Protocol):
 @runtime_checkable
 class BaselineHeadReadPort(Protocol):
     def get_current_head(self, repository_id: str) -> BaselineHead:
-        """Read the current BaselineHead for one repository."""
+        """Read the current BaselineHead adapter DTO for one repository.
+
+        Persisted authority lives in the Baseline domain; this port remains the
+        5A/5B-facing read surface.
+        """
 
 
 @runtime_checkable

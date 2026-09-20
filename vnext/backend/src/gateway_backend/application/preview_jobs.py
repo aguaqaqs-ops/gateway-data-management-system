@@ -1740,9 +1740,14 @@ def _sides_from_materialize_checkpoint(
 
 def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort) -> BoundSnapshotInput:
     tables_raw = entry.get("tables")
-    if type(tables_raw) is not list or not tables_raw:
+    if tables_raw is None:
         raise CheckpointDecodeError(
             "materialize checkpoint is missing closed table refs",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if type(tables_raw) is not list:
+        raise CheckpointDecodeError(
+            "materialize checkpoint table refs must be a list",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     opened = []

@@ -45,7 +45,7 @@ def default_mapping_document() -> dict[str, object]:
                 "repository_id": TEST_MAPPING_REPOSITORY_ID,
                 "business_baseline_node_id": "node-1",
                 "business_baseline_commit_id": TEST_MAPPING_COMMIT_ID,
-                "baseline_head_version": 3,
+                "baseline_head_version": 0,
                 "enabled": True,
             }
         ]
@@ -123,6 +123,10 @@ def make_backend_settings(
 def prepare_backend_runtime_paths(tmp_path: Path) -> None:
     """Create the directories and identity files required for production startup."""
 
+    from gateway_backend.infrastructure.control_db.database import initialize_control_db
+    from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
+    from tests.support.http_workspace_harness import BASELINE_HEAD
+
     (tmp_path / "artifacts").mkdir(parents=True, exist_ok=True)
     (tmp_path / "control").mkdir(parents=True, exist_ok=True)
     token_file = tmp_path / "repository-bearer-token"
@@ -132,4 +136,12 @@ def prepare_backend_runtime_paths(tmp_path: Path) -> None:
     if not internal_bearer_file.exists():
         internal_bearer_file.write_text(TEST_INTERNAL_BEARER_TOKEN + "\n", encoding="utf-8")
     write_session_file(tmp_path / "session.json")
-    write_mapping_file(tmp_path / "provisioned-mapping.json")
+    mapping_file = write_mapping_file(tmp_path / "provisioned-mapping.json")
+    control_db_path = tmp_path / "control" / "control.sqlite3"
+    initialize_control_db(control_db_path)
+    seed_provisioned_mapping_with_head(
+        control_db_path,
+        repository_id=TEST_MAPPING_REPOSITORY_ID,
+        baseline_head=BASELINE_HEAD,
+        mapping_file=mapping_file,
+    )

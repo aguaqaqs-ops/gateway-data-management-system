@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -68,7 +67,6 @@ from gateway_backend.http.dependencies import (
 )
 from gateway_backend.http.wiring import register_workspace_http
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
-from gateway_backend.infrastructure.control_db.sqlite_mapping import seed_provisioned_mappings
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
@@ -400,26 +398,13 @@ def _submit_recovery_capability_lookup(
 
 
 def _seed_provisioned_mapping(db_path: Path, *, repository_id: str = "repo-1") -> None:
-    mapping_file = db_path.parent / "provisioned-mapping.json"
-    mapping_file.write_text(
-        json.dumps(
-            {
-                "mappings": [
-                    {
-                        "gateway_device_external_key": "device-1",
-                        "business_project_id": "project-1",
-                        "repository_id": repository_id,
-                        "business_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
-                        "business_baseline_commit_id": BASELINE_HEAD.business_baseline_commit_id,
-                        "baseline_head_version": BASELINE_HEAD.baseline_head_version,
-                        "enabled": True,
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
+    from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
+
+    seed_provisioned_mapping_with_head(
+        db_path,
+        repository_id=repository_id,
+        baseline_head=BASELINE_HEAD,
     )
-    seed_provisioned_mappings(db_path, mapping_file)
 
 
 def _protected_preview_refs() -> tuple[ArtifactRef, ...]:

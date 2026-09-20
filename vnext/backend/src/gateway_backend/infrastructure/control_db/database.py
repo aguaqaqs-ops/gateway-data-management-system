@@ -15,6 +15,7 @@ from gateway_backend.infrastructure.control_db.sqlite_protection import SQLiteAr
 from gateway_backend.operations import OperationStore, StoreBusy
 
 if TYPE_CHECKING:
+    from gateway_backend.domain.baseline.ports import BaselineRepository
     from gateway_backend.domain.workspace.models import ResolvedScope
     from gateway_backend.domain.workspace.ports import WorkspaceRepository
     from gateway_backend.infrastructure.control_db.sqlite_review import SQLiteReviewRepository
@@ -127,6 +128,7 @@ class ControlDbUnitOfWork:
         self._protection: SQLiteArtifactProtectionStore | None = None
         self._submission: SQLiteSubmissionRepository | None = None
         self._review: SQLiteReviewRepository | None = None
+        self._baseline: BaselineRepository | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -175,6 +177,14 @@ class ControlDbUnitOfWork:
         if self._review is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._review
+
+    @property
+    def baseline(self) -> BaselineRepository:
+        """Return the baseline participant bound to this transaction."""
+
+        if self._baseline is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._baseline
 
     def set_artifact_protection(
         self,
@@ -250,6 +260,9 @@ class ControlDbUnitOfWork:
             connection.execute("BEGIN" if self._read_only else "BEGIN IMMEDIATE")
             transaction_now = self._now()
             _validate_utc_datetime(transaction_now, "transaction clock")
+            from gateway_backend.infrastructure.control_db.sqlite_baseline import (
+                SQLiteBaselineRepository,
+            )
             from gateway_backend.infrastructure.control_db.sqlite_operations import (
                 SQLiteOperationStore,
             )
@@ -288,6 +301,10 @@ class ControlDbUnitOfWork:
                 transaction_now=transaction_now,
                 read_only=self._read_only,
             )
+            self._baseline = SQLiteBaselineRepository(
+                connection,
+                read_only=self._read_only,
+            )
         except sqlite3.OperationalError as exc:
             if connection.in_transaction:
                 connection.execute("ROLLBACK")
@@ -316,6 +333,7 @@ class ControlDbUnitOfWork:
         self._protection = None
         self._submission = None
         self._review = None
+        self._baseline = None
         self._transaction_now = None
         if connection is None:
             return

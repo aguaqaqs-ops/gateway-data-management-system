@@ -40,7 +40,9 @@ TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 
 
 def _connection() -> sqlite3.Connection:
-    return sqlite3.connect(":memory:", isolation_level=None)
+    connection = sqlite3.connect(":memory:", isolation_level=None)
+    connection.row_factory = sqlite3.Row
+    return connection
 
 
 def _migration_time() -> datetime:
@@ -160,14 +162,18 @@ def test_workspace_v4_bootstrap_creates_review_tables() -> None:
         "review_projection_records",
         "review_idempotency_records",
     } <= tables
-    ledger_rows = connection.execute(
-        "SELECT component, version FROM control_schema_migrations ORDER BY component, version"
-    ).fetchall()
+    ledger_rows = [
+        (row[0], row[1])
+        for row in connection.execute(
+            "SELECT component, version FROM control_schema_migrations ORDER BY component, version"
+        ).fetchall()
+    ]
     assert ledger_rows == [
         (OPERATIONS_SCHEMA_COMPONENT, 1),
         (WORKSPACE_SCHEMA_COMPONENT, 1),
         (WORKSPACE_SCHEMA_COMPONENT, 2),
         (WORKSPACE_SCHEMA_COMPONENT, 3),
+        (WORKSPACE_SCHEMA_COMPONENT, 4),
         (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
     ]
 
@@ -261,7 +267,13 @@ def test_workspace_v4_backfill_creates_seed_per_submission() -> None:
     occupancy_rows = connection.execute(
         "SELECT * FROM workspace_submit_occupancy_records ORDER BY workspace_id"
     ).fetchall()
-    bootstrap_workspace_schema(connection, now=_migration_time)
+    connection.execute("BEGIN IMMEDIATE")
+    migrations._apply_workspace_v4(connection)
+    connection.execute(
+        "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
+        (WORKSPACE_SCHEMA_COMPONENT, 4, 1_704_164_645_678_901),
+    )
+    connection.execute("COMMIT")
 
     assert connection.execute("SELECT COUNT(*) FROM review_event_records").fetchone()[0] == 2
     assert connection.execute("SELECT COUNT(*) FROM review_projection_records").fetchone()[0] == 2
@@ -272,14 +284,21 @@ def test_workspace_v4_backfill_creates_seed_per_submission() -> None:
         FROM review_event_records WHERE submission_id = 'sub-1'
         """
     ).fetchone()
-    assert event == (0, "SUBMISSION_FINALIZED", None, "PENDING", "actor-1", 1_718_000_000_000_000)
+    assert tuple(event) == (
+        0,
+        "SUBMISSION_FINALIZED",
+        None,
+        "PENDING",
+        "actor-1",
+        1_718_000_000_000_000,
+    )
     projection = connection.execute(
         """
         SELECT status, optimistic_version, latest_sequence, updated_by, updated_at_us
         FROM review_projection_records WHERE submission_id = 'sub-2'
         """
     ).fetchone()
-    assert projection == ("PENDING", 0, 0, "actor-2", 1_718_000_000_000_001)
+    assert tuple(projection) == ("PENDING", 0, 0, "actor-2", 1_718_000_000_000_001)
     assert connection.execute("SELECT * FROM submission_records ORDER BY submission_id").fetchall() == submission_rows
     assert connection.execute(
         "SELECT * FROM workspace_submit_occupancy_records ORDER BY workspace_id"

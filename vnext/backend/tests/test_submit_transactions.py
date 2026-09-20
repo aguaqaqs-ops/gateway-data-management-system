@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -82,7 +81,6 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
 )
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
-from gateway_backend.infrastructure.control_db.sqlite_mapping import seed_provisioned_mappings
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
@@ -92,6 +90,10 @@ from gateway_backend.operations import (
     StepRecord,
     StepStatus,
     WritePrecondition,
+)
+from tests.support.baseline_fixtures import (
+    seed_provisioned_mapping_with_head,
+    upsert_provisioned_mapping_row,
 )
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_baseline_head, make_identity
 
@@ -267,26 +269,14 @@ def _seed_provisioned_mapping(
     baseline_head: BaselineHead = BASELINE_HEAD,
     enabled: bool = True,
 ) -> None:
-    mapping_file = db_path.parent / "provisioned-mapping.json"
-    mapping_file.write_text(
-        json.dumps(
-            {
-                "mappings": [
-                    {
-                        "gateway_device_external_key": device_key,
-                        "business_project_id": project_id,
-                        "repository_id": repository_id,
-                        "business_baseline_node_id": baseline_head.business_baseline_node_id,
-                        "business_baseline_commit_id": baseline_head.business_baseline_commit_id,
-                        "baseline_head_version": baseline_head.baseline_head_version,
-                        "enabled": enabled,
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
+    seed_provisioned_mapping_with_head(
+        db_path,
+        device_key=device_key,
+        project_id=project_id,
+        repository_id=repository_id,
+        baseline_head=baseline_head,
+        enabled=enabled,
     )
-    seed_provisioned_mappings(db_path, mapping_file)
 
 
 def _upsert_provisioned_mapping_row(
@@ -295,38 +285,17 @@ def _upsert_provisioned_mapping_row(
     device_key: str = "device-1",
     project_id: str = "project-1",
     repository_id: str = "repo-1",
-    baseline_head: BaselineHead = BASELINE_HEAD,
+    baseline_head: BaselineHead | None = BASELINE_HEAD,
     enabled: bool = True,
 ) -> None:
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.connection.execute(
-            """
-            INSERT INTO provisioned_scope_mappings (
-                gateway_device_external_key,
-                business_project_id,
-                repository_id,
-                business_baseline_node_id,
-                business_baseline_commit_id,
-                baseline_head_version,
-                enabled
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(gateway_device_external_key, business_project_id) DO UPDATE SET
-                repository_id = excluded.repository_id,
-                business_baseline_node_id = excluded.business_baseline_node_id,
-                business_baseline_commit_id = excluded.business_baseline_commit_id,
-                baseline_head_version = excluded.baseline_head_version,
-                enabled = excluded.enabled
-            """,
-            (
-                device_key,
-                project_id,
-                repository_id,
-                baseline_head.business_baseline_node_id,
-                baseline_head.business_baseline_commit_id,
-                baseline_head.baseline_head_version,
-                1 if enabled else 0,
-            ),
-        )
+    upsert_provisioned_mapping_row(
+        db_path,
+        device_key=device_key,
+        project_id=project_id,
+        repository_id=repository_id,
+        baseline_head=baseline_head,
+        enabled=enabled,
+    )
 
 
 def _assert_t1_zero_writes(db_path: Path, seed: SubmitSeed, *, idempotency_key: str) -> None:
@@ -2057,11 +2026,11 @@ def _drift_head_node_only(db_path: Path) -> None:
 
 
 def _drift_mapping_disable(db_path: Path) -> None:
-    _upsert_provisioned_mapping_row(db_path, enabled=False)
+    _upsert_provisioned_mapping_row(db_path, baseline_head=None, enabled=False)
 
 
 def _drift_repo_swap(db_path: Path) -> None:
-    _upsert_provisioned_mapping_row(db_path, repository_id="repo-other")
+    _upsert_provisioned_mapping_row(db_path, repository_id="repo-other", baseline_head=None)
 
 
 NEW_KEY_PROJECTION_DRIFT_CASES: tuple[tuple[str, type[Exception], Callable[[Path], None]], ...] = (
@@ -2106,8 +2075,7 @@ def test_t1_new_key_rejects_projection_drift_without_writes(
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
         row = unit_of_work.connection.execute(
             """
-            SELECT repository_id, business_baseline_node_id, business_baseline_commit_id,
-                   baseline_head_version, enabled
+            SELECT repository_id, enabled
             FROM provisioned_scope_mappings
             WHERE gateway_device_external_key = ? AND business_project_id = ?
             """,
@@ -2226,14 +2194,15 @@ def test_t1_replay_returns_winner_when_only_head_drifts_after_concurrent_winner(
         winner = unit_of_work.submission.get_submit_attempt(result.submit_attempt_id)
         assert winner is not None
         assert winner.state is SubmitAttemptState.PREPARED
-        row = unit_of_work.connection.execute(
+        head_row = unit_of_work.connection.execute(
             """
-            SELECT business_baseline_commit_id
-            FROM provisioned_scope_mappings
-            WHERE gateway_device_external_key = ? AND business_project_id = ?
+            SELECT node.commit_id
+            FROM baseline_head_records AS head
+            INNER JOIN baseline_node_records AS node ON node.node_id = head.node_id
+            WHERE head.repository_id = ?
             """,
-            ("device-1", "project-1"),
+            (seed.workspace.repository_id,),
         ).fetchone()
-        assert row is not None
-        assert row["business_baseline_commit_id"] == "commit-only-drift"
+        assert head_row is not None
+        assert head_row["commit_id"] == "commit-only-drift"
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 1

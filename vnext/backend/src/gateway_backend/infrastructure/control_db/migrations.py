@@ -12,7 +12,7 @@ from gateway_backend.operations import StoreBusy, UnsupportedSchemaVersion
 OPERATIONS_SCHEMA_COMPONENT = "operations"
 OPERATIONS_SCHEMA_VERSION = 1
 WORKSPACE_SCHEMA_COMPONENT = "workspace"
-WORKSPACE_SCHEMA_VERSION = 4
+WORKSPACE_SCHEMA_VERSION = 5
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SQLITE_INT_MIN = -(2**63)
@@ -103,6 +103,7 @@ def bootstrap_workspace_schema(
             2: _apply_workspace_v2,
             3: _apply_workspace_v3,
             4: _apply_workspace_v4,
+            5: _apply_workspace_v5,
         },
         now=now,
     )
@@ -179,6 +180,16 @@ def _apply_workspace_v4(connection: sqlite3.Connection) -> None:
     for statement in _workspace_v4_statements():
         connection.execute(statement)
     _backfill_review_seed_from_submissions(connection)
+
+
+def _apply_workspace_v5(connection: sqlite3.Connection) -> None:
+    _assert_workspace_migration_integrity(connection)
+    migration_rows = _collect_v5_mapping_migration_rows(connection)
+    _validate_v5_workspace_submission_scope(connection, migration_rows)
+    for statement in _workspace_v5_baseline_statements():
+        connection.execute(statement)
+    _migrate_v5_baseline_authority(connection, migration_rows)
+    _rebuild_v5_provisioned_scope_mappings(connection, migration_rows)
 
 
 def _assert_workspace_migration_integrity(connection: sqlite3.Connection) -> None:
@@ -996,3 +1007,272 @@ def _preview_binding_fields(binding_blob: bytes) -> tuple[str, int]:
     if type(node_id) is not str or not node_id or type(head_version) is not int:
         raise RuntimeError("workspace v2 migration found undecodable preview binding")
     return node_id, head_version
+
+
+def _workspace_v5_baseline_statements() -> tuple[str, ...]:
+    node_kinds = ", ".join(("'INITIAL'", "'ARCHIVED_SUBMISSION'"))
+    return (
+        f"""
+        CREATE TABLE baseline_node_records (
+            node_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(node_id) = 'text' AND length(node_id) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
+            gateway_device_external_key TEXT NOT NULL
+                CHECK (typeof(gateway_device_external_key) = 'text'
+                       AND length(gateway_device_external_key) BETWEEN 1 AND 255),
+            business_project_id TEXT NOT NULL
+                CHECK (typeof(business_project_id) = 'text'
+                       AND length(business_project_id) BETWEEN 1 AND 255),
+            commit_id TEXT NOT NULL
+                CHECK (typeof(commit_id) = 'text' AND length(commit_id) BETWEEN 1 AND 255),
+            kind TEXT NOT NULL
+                CHECK (typeof(kind) = 'text' AND kind IN ({node_kinds})),
+            parent_node_id TEXT
+                CHECK (parent_node_id IS NULL OR
+                       (typeof(parent_node_id) = 'text' AND length(parent_node_id) BETWEEN 1 AND 255)),
+            source_submission_id TEXT
+                CHECK (source_submission_id IS NULL OR
+                       (typeof(source_submission_id) = 'text'
+                        AND length(source_submission_id) BETWEEN 1 AND 255)),
+            created_at_us INTEGER NOT NULL
+                CHECK (typeof(created_at_us) = 'integer'),
+            CHECK (
+                (kind = 'INITIAL' AND parent_node_id IS NULL AND source_submission_id IS NULL)
+                OR (kind = 'ARCHIVED_SUBMISSION'
+                    AND parent_node_id IS NOT NULL
+                    AND source_submission_id IS NOT NULL)
+            ),
+            FOREIGN KEY (parent_node_id) REFERENCES baseline_node_records(node_id) ON DELETE RESTRICT
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX baseline_node_records_one_initial_per_repository
+            ON baseline_node_records(repository_id)
+            WHERE kind = 'INITIAL'
+        """,
+        """
+        CREATE TABLE baseline_head_records (
+            repository_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
+            node_id TEXT NOT NULL
+                CHECK (typeof(node_id) = 'text' AND length(node_id) BETWEEN 1 AND 255),
+            optimistic_version INTEGER NOT NULL
+                CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version >= 0),
+            FOREIGN KEY (node_id) REFERENCES baseline_node_records(node_id) ON DELETE RESTRICT
+        )
+        """,
+    )
+
+
+def _collect_v5_mapping_migration_rows(connection: sqlite3.Connection) -> tuple[dict[str, object], ...]:
+    rows = connection.execute(
+        """
+        SELECT gateway_device_external_key, business_project_id, repository_id,
+               business_baseline_node_id, business_baseline_commit_id, baseline_head_version,
+               enabled
+        FROM provisioned_scope_mappings
+        ORDER BY repository_id, gateway_device_external_key, business_project_id
+        """
+    ).fetchall()
+    if not rows:
+        return ()
+    by_repository: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        repository_id = row["repository_id"]
+        if type(repository_id) is not str:
+            raise RuntimeError("workspace v5 migration found invalid repository_id")
+        by_repository.setdefault(repository_id, []).append(row)
+    migration_rows: list[dict[str, object]] = []
+    for repository_id, repo_rows in sorted(by_repository.items()):
+        scopes = {
+            (row["gateway_device_external_key"], row["business_project_id"])
+            for row in repo_rows
+        }
+        if len(scopes) != 1:
+            raise RuntimeError("workspace v5 migration found cross-scope repository sharing")
+        heads = {
+            (
+                row["business_baseline_node_id"],
+                row["business_baseline_commit_id"],
+                row["baseline_head_version"],
+            )
+            for row in repo_rows
+        }
+        if len(heads) != 1:
+            raise RuntimeError("workspace v5 migration found conflicting baseline heads")
+        enabled_rows = [row for row in repo_rows if row["enabled"] == 1]
+        if len(enabled_rows) > 1:
+            raise RuntimeError("workspace v5 migration found multiple enabled mappings for one repository")
+        source_row = enabled_rows[0] if enabled_rows else repo_rows[0]
+        migration_rows.append(
+            {
+                "gateway_device_external_key": source_row["gateway_device_external_key"],
+                "business_project_id": source_row["business_project_id"],
+                "repository_id": repository_id,
+                "business_baseline_node_id": source_row["business_baseline_node_id"],
+                "business_baseline_commit_id": source_row["business_baseline_commit_id"],
+                "baseline_head_version": source_row["baseline_head_version"],
+            }
+        )
+    return tuple(migration_rows)
+
+
+def _validate_v5_workspace_submission_scope(
+    connection: sqlite3.Connection,
+    migration_rows: tuple[dict[str, object], ...],
+) -> None:
+    scope_by_repository = {
+        row["repository_id"]: (
+            row["gateway_device_external_key"],
+            row["business_project_id"],
+        )
+        for row in migration_rows
+    }
+    workspace_rows = connection.execute(
+        """
+        SELECT DISTINCT repository_id, gateway_device_external_key, business_project_id
+        FROM workspace_records
+        """
+    ).fetchall()
+    for row in workspace_rows:
+        repository_id = row["repository_id"]
+        expected = scope_by_repository.get(repository_id)
+        if expected is None:
+            raise RuntimeError("workspace v5 migration found workspace without provisioned mapping")
+        actual = (row["gateway_device_external_key"], row["business_project_id"])
+        if actual != expected:
+            raise RuntimeError("workspace v5 migration found workspace scope mismatch")
+    submission_rows = connection.execute(
+        """
+        SELECT DISTINCT submission.repository_id,
+               workspace.gateway_device_external_key,
+               workspace.business_project_id
+        FROM submission_records AS submission
+        INNER JOIN workspace_records AS workspace
+            ON workspace.workspace_id = submission.workspace_id
+        """
+    ).fetchall()
+    for row in submission_rows:
+        repository_id = row["repository_id"]
+        expected = scope_by_repository.get(repository_id)
+        if expected is None:
+            raise RuntimeError("workspace v5 migration found submission without provisioned mapping")
+        actual = (row["gateway_device_external_key"], row["business_project_id"])
+        if actual != expected:
+            raise RuntimeError("workspace v5 migration found submission scope mismatch")
+
+
+def _migrate_v5_baseline_authority(
+    connection: sqlite3.Connection,
+    migration_rows: tuple[dict[str, object], ...],
+) -> None:
+    created_at_us = 0
+    for row in migration_rows:
+        node_id = row["business_baseline_node_id"]
+        commit_id = row["business_baseline_commit_id"]
+        head_version = row["baseline_head_version"]
+        if (
+            type(node_id) is not str
+            or not node_id
+            or type(commit_id) is not str
+            or not commit_id
+            or type(head_version) is not int
+            or head_version < 0
+        ):
+            raise RuntimeError("workspace v5 migration found invalid baseline head fields")
+        connection.execute(
+            """
+            INSERT INTO baseline_node_records (
+                node_id, repository_id, gateway_device_external_key, business_project_id,
+                commit_id, kind, parent_node_id, source_submission_id, created_at_us
+            ) VALUES (?, ?, ?, ?, ?, 'INITIAL', NULL, NULL, ?)
+            """,
+            (
+                node_id,
+                row["repository_id"],
+                row["gateway_device_external_key"],
+                row["business_project_id"],
+                commit_id,
+                created_at_us,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO baseline_head_records (repository_id, node_id, optimistic_version)
+            VALUES (?, ?, ?)
+            """,
+            (row["repository_id"], node_id, head_version),
+        )
+
+
+def _rebuild_v5_provisioned_scope_mappings(
+    connection: sqlite3.Connection,
+    migration_rows: tuple[dict[str, object], ...],
+) -> None:
+    existing_rows = connection.execute(
+        """
+        SELECT gateway_device_external_key, business_project_id, repository_id, enabled
+        FROM provisioned_scope_mappings
+        """
+    ).fetchall()
+    connection.execute("DROP TABLE provisioned_scope_mappings")
+    for statement in _workspace_v5_mapping_statements():
+        connection.execute(statement)
+    for row in existing_rows:
+        connection.execute(
+            """
+            INSERT INTO provisioned_scope_mappings (
+                gateway_device_external_key, business_project_id, repository_id, enabled
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (
+                row["gateway_device_external_key"],
+                row["business_project_id"],
+                row["repository_id"],
+                row["enabled"],
+            ),
+        )
+    if migration_rows and not existing_rows:
+        for row in migration_rows:
+            connection.execute(
+                """
+                INSERT INTO provisioned_scope_mappings (
+                    gateway_device_external_key, business_project_id, repository_id, enabled
+                ) VALUES (?, ?, ?, 1)
+                """,
+                (
+                    row["gateway_device_external_key"],
+                    row["business_project_id"],
+                    row["repository_id"],
+                ),
+            )
+
+
+def _workspace_v5_mapping_statements() -> tuple[str, ...]:
+    return (
+        """
+        CREATE TABLE provisioned_scope_mappings (
+            gateway_device_external_key TEXT NOT NULL
+                CHECK (typeof(gateway_device_external_key) = 'text'
+                       AND length(gateway_device_external_key) BETWEEN 1 AND 255),
+            business_project_id TEXT NOT NULL
+                CHECK (typeof(business_project_id) = 'text'
+                       AND length(business_project_id) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
+            enabled INTEGER NOT NULL
+                CHECK (typeof(enabled) = 'integer' AND enabled IN (0, 1)),
+            PRIMARY KEY (gateway_device_external_key, business_project_id)
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX provisioned_scope_mappings_one_active_device
+            ON provisioned_scope_mappings(gateway_device_external_key)
+            WHERE enabled = 1
+        """,
+        """
+        CREATE UNIQUE INDEX provisioned_scope_mappings_one_repository
+            ON provisioned_scope_mappings(repository_id)
+        """,
+    )

@@ -76,12 +76,28 @@ MODIFIED_SQL = (
     "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
     "INSERT INTO t VALUES (1), (2);\n"
 )
+EMPTY_SQL = "SELECT 1 WHERE 0;\n"
 
 
 def preview_baseline_provider(
     *,
     commit_id: str = BASELINE_HEAD.business_baseline_commit_id,
+    empty: bool = False,
 ) -> FakeRepositoryTableAccessProvider:
+    if empty:
+        catalog = make_catalog(
+            (),
+            repository_id=REPOSITORY_ID,
+            ref=commit_id,
+            commit=commit_id,
+        )
+        hidden = hidden_summary_for(catalog, {})
+        return FakeRepositoryTableAccessProvider(
+            catalog=catalog,
+            hidden=hidden,
+            rows={},
+            current_commit=commit_id,
+        )
     table = catalog_table("t", (int_id_column(),))
     rows = {"t": ((1,),)}
     catalog = make_catalog(
@@ -206,12 +222,17 @@ def build_preview_harness(
     *,
     input_completeness: InputCompleteness = InputCompleteness.FULL,
     canonical_noop: bool = False,
+    empty_baseline: bool = False,
 ) -> PreviewJobHarness:
     db_path = tmp_path / "preview-control.sqlite3"
     bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
     artifact_store = InMemoryArtifactStore()
-    modified_sql = BASELINE_SQL if canonical_noop else MODIFIED_SQL
-    initial_sql = BASELINE_SQL if canonical_noop else INITIAL_SQL
+    if empty_baseline and canonical_noop:
+        modified_sql = EMPTY_SQL
+        initial_sql = EMPTY_SQL
+    else:
+        modified_sql = BASELINE_SQL if canonical_noop else MODIFIED_SQL
+        initial_sql = BASELINE_SQL if canonical_noop else INITIAL_SQL
     modified_binding = store_source_package(
         artifact_store,
         modified_sql.encode("utf-8"),
@@ -229,7 +250,7 @@ def build_preview_harness(
         initial_binding=initial_binding,
         modified_binding=modified_binding,
     )
-    baseline_provider = preview_baseline_provider()
+    baseline_provider = preview_baseline_provider(empty=empty_baseline)
     baseline_head_read = MutableBaselineHeadReadPort({REPOSITORY_ID: BASELINE_HEAD})
     deps = PreviewRuntimeDependencies(
         artifact_store=artifact_store,

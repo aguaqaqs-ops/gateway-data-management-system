@@ -147,19 +147,79 @@ def test_assemble_resumes_from_checkpoint_when_repository_is_unavailable(tmp_pat
     assert assemble_step.checkpoint_ref is not None
 
 
-def test_materialize_checkpoint_without_closed_refs_fails_closed() -> None:
+@pytest.mark.parametrize(
+    ("case_id", "side_document", "match"),
+    (
+        ("missing_tables", {"snapshot": {}}, "closed table refs"),
+        ("null_tables", {"tables": None, "snapshot": {}}, "closed table refs"),
+        ("invalid_tables_type", {"tables": "bad", "snapshot": {}}, "table refs must be a list"),
+    ),
+)
+def test_materialize_checkpoint_rejects_invalid_empty_shapes(
+    case_id: str,
+    side_document: dict[str, object],
+    match: str,
+) -> None:
+    del case_id
     from gateway_backend.application.payloads import CheckpointDecodeError
     from gateway_backend.application.preview_jobs import _sides_from_materialize_checkpoint
     from gateway_backend.artifacts import InMemoryArtifactStore
 
-    with pytest.raises(CheckpointDecodeError, match="closed table refs"):
+    with pytest.raises(CheckpointDecodeError, match=match):
         _sides_from_materialize_checkpoint(
             {
                 "sides": {
-                    "BASELINE": {"tables": []},
-                    "INITIAL": {"tables": []},
-                    "MODIFIED": {"tables": []},
+                    "BASELINE": side_document,
+                    "INITIAL": side_document,
+                    "MODIFIED": side_document,
                 }
             },
             InMemoryArtifactStore(),
         )
+
+
+@pytest.mark.parametrize(
+    "input_completeness",
+    [InputCompleteness.FULL, InputCompleteness.MODIFIED_ONLY],
+    ids=["full", "modified_only"],
+)
+def test_empty_baseline_assemble_produces_ready_closure_and_matching_digest(
+    tmp_path: Path,
+    input_completeness: InputCompleteness,
+) -> None:
+    harness = build_preview_harness(
+        tmp_path,
+        input_completeness=input_completeness,
+        empty_baseline=True,
+    )
+    operation_id = f"op-assemble-empty-{input_completeness.value.lower()}"
+    _run_materialize(harness, operation_id)
+    session, control, operation, step = claim_next_step(harness)
+    run_claimed_handler(harness, PREVIEW_ASSEMBLE_HANDLER, session, control, operation, step)
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assemble_step = unit_of_work.operations.get_step(step_id_for(operation_id, "assemble_preview"))
+    assert assemble_step.status is StepStatus.SUCCEEDED
+    assert assemble_step.checkpoint_ref is not None
+    envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
+    assemble_state = envelope.job_state["assemble_state"]
+    assert isinstance(assemble_state, dict)
+    assert assemble_state["required_refs"]
+    if input_completeness is InputCompleteness.FULL:
+        assert assemble_state["pair_ids"] == ["baseline_to_initial", "initial_to_modified"]
+    else:
+        assert assemble_state["pair_ids"] == ["initial_to_modified"]
+    port_bundle_digest = compute_baseline_canonical_bundle_digest(
+        repository_id=REPOSITORY_ID,
+        baseline_head=BaselineHead(
+            business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+            business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+            baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        ),
+        input_completeness=input_completeness,
+        ruleset_version=RULESET_VERSION,
+        provider_factory=harness.deps.repository_provider_factory,
+        store=harness.artifact_store,
+    )
+    assert isinstance(port_bundle_digest, str)
+    assert port_bundle_digest.startswith("sha256:")

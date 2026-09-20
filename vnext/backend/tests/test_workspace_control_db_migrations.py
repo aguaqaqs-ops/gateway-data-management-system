@@ -48,6 +48,8 @@ def test_workspace_bootstrap_creates_tables_constraints_and_indexes() -> None:
     }
     assert {
         "artifact_protection_intents",
+        "baseline_head_records",
+        "baseline_node_records",
         "control_schema_migrations",
         "operation_records",
         "preview_idempotency_records",
@@ -75,6 +77,7 @@ def test_workspace_bootstrap_creates_tables_constraints_and_indexes() -> None:
         (WORKSPACE_SCHEMA_COMPONENT, 1),
         (WORKSPACE_SCHEMA_COMPONENT, 2),
         (WORKSPACE_SCHEMA_COMPONENT, 3),
+        (WORKSPACE_SCHEMA_COMPONENT, 4),
         (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
     ]
 
@@ -198,7 +201,7 @@ def test_historical_workspace_v1_file_reopens_and_seeds_mappings(tmp_path: Path)
                         "repository_id": "repository-1",
                         "business_baseline_node_id": "node-1",
                         "business_baseline_commit_id": "commit-1",
-                        "baseline_head_version": 1,
+                        "baseline_head_version": 0,
                         "enabled": True,
                     }
                 ]
@@ -221,6 +224,7 @@ def test_historical_workspace_v1_file_reopens_and_seeds_mappings(tmp_path: Path)
             (WORKSPACE_SCHEMA_COMPONENT, 1),
             (WORKSPACE_SCHEMA_COMPONENT, 2),
             (WORKSPACE_SCHEMA_COMPONENT, 3),
+            (WORKSPACE_SCHEMA_COMPONENT, 4),
             (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
         ]
         idempotency_columns = [

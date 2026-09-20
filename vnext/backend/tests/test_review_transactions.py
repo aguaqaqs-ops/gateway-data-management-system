@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Barrier
 from unittest.mock import patch
 
 import pytest
@@ -390,6 +392,41 @@ def test_apply_review_idempotency_replay_is_write_free(review_seed: ReviewSeed) 
     assert workspace_after.current_preview_result_id == preview_before
 
 
+def test_apply_review_fails_closed_on_corrupted_idempotency_fingerprint(
+    review_seed: ReviewSeed,
+) -> None:
+    command = _apply_command(review_seed, idempotency_key="corrupt-fp-key")
+    _apply_review(review_seed, command)
+    corrupted_fingerprint = "sha256:" + ("a" * 64)
+    with ControlDbUnitOfWork(review_seed.db_path) as unit_of_work:
+        workspace_before = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
+        assert workspace_before is not None
+        unit_of_work.connection.execute(
+            """
+            UPDATE review_idempotency_records
+            SET request_fingerprint = ?
+            WHERE idempotency_key = ?
+            """,
+            (corrupted_fingerprint, "corrupt-fp-key"),
+        )
+    with pytest.raises(ReviewIntegrityFailure) as exc_info:
+        _apply_review(review_seed, command)
+    assert exc_info.value.stable_code == "REVIEW_INTEGRITY_FAILURE"
+    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
+        events = unit_of_work.review.list_events(review_seed.submission_id)
+        projection = unit_of_work.review.get_projection(review_seed.submission_id)
+        workspace_after = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
+        idempotency_rows = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_idempotency_records WHERE idempotency_key = ?",
+            ("corrupt-fp-key",),
+        ).fetchone()[0]
+    assert len(events) == 2
+    assert projection is not None
+    assert projection.optimistic_version == 1
+    assert idempotency_rows == 1
+    assert workspace_after == workspace_before
+
+
 def test_apply_review_idempotency_conflict_on_different_fingerprint(review_seed: ReviewSeed) -> None:
     _apply_review(
         review_seed,
@@ -609,6 +646,101 @@ def test_apply_review_rolls_back_when_release_occupancy_delete_fails(review_seed
     assert workspace == original_workspace
     assert occupancy is not None
     assert occupancy.active_submission_id == review_seed.submission_id
+
+
+def test_get_review_facts_fails_closed_on_corrupted_event_reason(review_seed: ReviewSeed) -> None:
+    _apply_review(
+        review_seed,
+        _apply_command(
+            review_seed,
+            action=ReviewAction.REJECT,
+            reason="needs work",
+            idempotency_key="reject-facts",
+        ),
+    )
+    with ControlDbUnitOfWork(review_seed.db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            """
+            UPDATE review_event_records
+            SET reason = NULL
+            WHERE submission_id = ? AND sequence = 1
+            """,
+            (review_seed.submission_id,),
+        )
+    with pytest.raises(ReviewIntegrityFailure) as exc_info:
+        get_review_facts(
+            context=review_seed.reviewer_context,
+            submission_id=review_seed.submission_id,
+            scope_resolution=_scope_resolution(review_seed),
+            unit_of_work_factory=_uow_factory(review_seed.db_path),
+        )
+    assert exc_info.value.stable_code == "REVIEW_INTEGRITY_FAILURE"
+
+
+def test_apply_review_replay_fails_closed_on_corrupted_event_reason(review_seed: ReviewSeed) -> None:
+    command = _apply_command(
+        review_seed,
+        action=ReviewAction.REJECT,
+        reason="needs work",
+        idempotency_key="reject-replay",
+    )
+    _apply_review(review_seed, command)
+    with ControlDbUnitOfWork(review_seed.db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            """
+            UPDATE review_event_records
+            SET reason = NULL
+            WHERE submission_id = ? AND sequence = 1
+            """,
+            (review_seed.submission_id,),
+        )
+    with pytest.raises(ReviewIntegrityFailure) as exc_info:
+        _apply_review(review_seed, command)
+    assert exc_info.value.stable_code == "REVIEW_INTEGRITY_FAILURE"
+
+
+@pytest.mark.serial
+def test_apply_review_concurrent_commands_produce_one_commit_and_stable_conflict(
+    review_seed: ReviewSeed,
+) -> None:
+    barrier = Barrier(2)
+    outcomes: list[ApplyReviewResult | ReviewVersionConflict] = []
+
+    def attempt(idempotency_key: str) -> None:
+        barrier.wait()
+        command = _apply_command(
+            review_seed,
+            action=ReviewAction.APPROVE,
+            idempotency_key=idempotency_key,
+        )
+        try:
+            outcomes.append(_apply_review(review_seed, command))
+        except ReviewVersionConflict as exc:
+            outcomes.append(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(attempt, "concurrent-a"),
+            executor.submit(attempt, "concurrent-b"),
+        ]
+        for future in futures:
+            future.result()
+
+    successes = [outcome for outcome in outcomes if isinstance(outcome, ApplyReviewResult)]
+    conflicts = [outcome for outcome in outcomes if isinstance(outcome, ReviewVersionConflict)]
+    assert len(successes) == 1
+    assert len(conflicts) == 1
+    assert successes[0].replay is False
+    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
+        events = unit_of_work.review.list_events(review_seed.submission_id)
+        projection = unit_of_work.review.get_projection(review_seed.submission_id)
+        idempotency_rows = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM review_idempotency_records",
+        ).fetchone()[0]
+    assert len(events) == 2
+    assert projection is not None
+    assert projection.optimistic_version == 1
+    assert idempotency_rows == 1
 
 
 def test_apply_review_second_command_gets_version_conflict_after_approve(

@@ -238,6 +238,12 @@ def validate_review_closure(
             raise ReviewClosureViolation(
                 "review event to_status does not match transition policy"
             )
+        try:
+            validate_review_reason(action, event.reason)
+        except InvalidReviewReason:
+            raise ReviewClosureViolation(
+                "review event reason violates action contract"
+            ) from None
     latest_event = events[-1]
     latest_sequence = latest_event.sequence
     if projection.optimistic_version != latest_sequence:

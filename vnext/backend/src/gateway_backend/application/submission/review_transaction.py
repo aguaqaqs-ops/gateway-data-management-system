@@ -87,12 +87,30 @@ def _apply_review_in_control_transaction(
     except ReviewClosureViolation as exc:
         raise ReviewIntegrityFailure(exc.reason) from exc
     if existing is not None:
+        record_events: tuple[ReviewEvent, ...]
+        record_workspace: Workspace
+        if existing.submission_id == command.submission_id:
+            record_events = facts.events
+            record_workspace = facts.workspace
+        else:
+            record_events = unit_of_work.review.list_events(existing.submission_id)
+            record_submission = unit_of_work.submission.get_submission(existing.submission_id)
+            if record_submission is None:
+                raise ReviewIntegrityFailure(
+                    "review idempotency record points to a missing submission"
+                )
+            maybe_workspace = unit_of_work.workspace.get_workspace(record_submission.workspace_id)
+            if maybe_workspace is None:
+                raise ReviewIntegrityFailure(
+                    "review idempotency record points to a missing workspace"
+                )
+            record_workspace = maybe_workspace
         return verify_idempotency_replay(
             existing,
             command=command,
-            workspace=facts.workspace,
+            workspace=record_workspace,
             repository_id=fresh_scope.repository_id,
-            events=facts.events,
+            events=record_events,
         )
 
     request_fingerprint = build_apply_review_request_fingerprint_from_command(

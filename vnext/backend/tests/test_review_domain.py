@@ -393,6 +393,56 @@ REVIEW_CLOSURE_VIOLATION_CASES: tuple[
         ),
         (_seed_event(),),
     ),
+    (
+        "reject_required_missing",
+        "review event reason violates action contract",
+        ReviewProjection(
+            submission_id="submission-1",
+            status=ReviewStatus.REJECTED,
+            optimistic_version=1,
+            latest_sequence=1,
+            updated_by="actor-1",
+            updated_at=TS0,
+        ),
+        (
+            _seed_event(),
+            ReviewEvent(
+                submission_id="submission-1",
+                sequence=1,
+                event_kind=ReviewEventKind.REJECTED,
+                from_status=ReviewStatus.PENDING,
+                to_status=ReviewStatus.REJECTED,
+                reason=None,
+                actor_id="actor-1",
+                occurred_at=TS0,
+            ),
+        ),
+    ),
+    (
+        "return_whitespace_only",
+        "review event reason violates action contract",
+        ReviewProjection(
+            submission_id="submission-1",
+            status=ReviewStatus.RETURNED_FOR_REVISION,
+            optimistic_version=1,
+            latest_sequence=1,
+            updated_by="actor-1",
+            updated_at=TS0,
+        ),
+        (
+            _seed_event(),
+            ReviewEvent(
+                submission_id="submission-1",
+                sequence=1,
+                event_kind=ReviewEventKind.RETURNED_FOR_REVISION,
+                from_status=ReviewStatus.PENDING,
+                to_status=ReviewStatus.RETURNED_FOR_REVISION,
+                reason="   ",
+                actor_id="actor-1",
+                occurred_at=TS0,
+            ),
+        ),
+    ),
 )
 
 

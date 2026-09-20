@@ -35,6 +35,11 @@ from gateway_backend.application.submission.contracts import (
     derive_repository_upload_idempotency_key,
     preview_canonical_business_digest,
 )
+from gateway_backend.application.submission.review import (
+    PERMISSION_REVIEW_SUBMISSION,
+    get_review_facts,
+)
+from gateway_backend.application.submission.review_transaction import apply_review_transaction
 from gateway_backend.application.submission.errors import (
     AbortProofNotSatisfied,
     BaselineVersionConflict,
@@ -47,6 +52,7 @@ from gateway_backend.application.submission.errors import (
     PreviewDerivedStale,
     ReviewIntegrityFailure,
     ReviewVersionConflict,
+    ReviewWorkspaceOccupancyConflict,
     SubmitApplicationError,
     SubmitAttemptVersionConflict,
     SubmitOccupancyConflict,
@@ -130,9 +136,11 @@ __all__ = [
     "ReviewControlTransaction",
     "ReviewControlUnitOfWorkFactory",
     "ReviewFacts",
+    "PERMISSION_REVIEW_SUBMISSION",
     "ReviewIntegrityFailure",
     "ReviewTransactionRepository",
     "ReviewVersionConflict",
+    "ReviewWorkspaceOccupancyConflict",
     "InvalidReviewTransition",
     "SUBMIT_JOB_CONTRACT_VERSION",
     "SUBMIT_JOB_KIND",
@@ -153,6 +161,8 @@ __all__ = [
     "WorkspaceSubmitOccupancy",
     "abort_submit_transaction",
     "accept_submit_transaction",
+    "apply_review_transaction",
+    "get_review_facts",
     "assert_submit_job_registered",
     "build_submission",
     "build_submit_job_payload",

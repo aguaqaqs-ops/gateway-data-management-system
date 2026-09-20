@@ -171,6 +171,14 @@ class SubmitTransactionRepository(SubmissionRepository, SubmitOccupancyReadPort,
     ) -> None:
         """Delete workspace submit occupancy row when it still points at this Attempt."""
 
+    def delete_workspace_submission_occupancy(
+        self,
+        workspace_id: str,
+        *,
+        expected_submission_id: str,
+    ) -> None:
+        """Delete workspace submit occupancy row when it still points at this Submission."""
+
     def insert_repository_occupancy(self, occupancy: RepositorySubmitOccupancy) -> None:
         """Insert repository submit occupancy row."""
 

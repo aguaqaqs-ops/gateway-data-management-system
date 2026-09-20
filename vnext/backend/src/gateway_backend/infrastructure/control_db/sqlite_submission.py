@@ -303,6 +303,23 @@ class SQLiteSubmissionRepository:
         if updated.rowcount != 1:
             raise SubmitOccupancyConflict("workspace submit occupancy delete failed")
 
+    def delete_workspace_submission_occupancy(
+        self,
+        workspace_id: str,
+        *,
+        expected_submission_id: str,
+    ) -> None:
+        self._require_writable()
+        updated = self._connection.execute(
+            """
+            DELETE FROM workspace_submit_occupancy_records
+            WHERE workspace_id = ? AND active_submission_id = ?
+            """,
+            (workspace_id, expected_submission_id),
+        )
+        if updated.rowcount != 1:
+            raise SubmitOccupancyConflict("workspace submission occupancy delete failed")
+
     def insert_repository_occupancy(self, occupancy: RepositorySubmitOccupancy) -> None:
         self._require_writable()
         try:

@@ -278,6 +278,89 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
     assert repository_occupancy is None
 
 
+def _sample_submission() -> Submission:
+    return Submission(
+        submission_id="sub-1",
+        submit_attempt_id="sa-1",
+        workspace_id="ws-1",
+        workspace_generation=1,
+        upload_revision_id="ur-1",
+        preview_result_id="pr-1",
+        repository_id="repo-1",
+        based_on_baseline_node_id="node-1",
+        business_baseline_commit_id="commit-base",
+        repository_commit_id="commit-new",
+        canonical_business_digest="sha256:canonical",
+        source_artifact_refs=("initial-1",),
+        canonicalization_manifest_ref="manifest-1",
+        canonicalization_manifest_digest="sha256:manifest",
+        repository_import_artifact_raw_sha256="sha256:package",
+        repository_artifact_id="repo-artifact-1",
+        requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+        completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+        requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
+        target_ref=SubmitTargetRef.MAIN,
+        created_by="actor-1",
+        created_at=TS0,
+    )
+
+
+def test_submission_occupancy_delete_succeeds_for_matching_owner(db_path: Path) -> None:
+    _seed_workspace(db_path)
+    _seed_operation(db_path, "op-submit-1")
+    attempt = _sample_attempt()
+    submission = _sample_submission()
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.submission.insert_attempt_prepared(attempt)
+        unit_of_work.submission.insert_submission(submission)
+        unit_of_work.submission.insert_workspace_attempt_occupancy(
+            workspace_id="ws-1",
+            submit_attempt_id="sa-1",
+        )
+        unit_of_work.submission.switch_workspace_occupancy_to_submission(
+            workspace_id="ws-1",
+            submit_attempt_id="sa-1",
+            submission_id="sub-1",
+        )
+        unit_of_work.submission.delete_workspace_submission_occupancy(
+            "ws-1",
+            expected_submission_id="sub-1",
+        )
+
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy("ws-1")
+    assert workspace_occupancy is None
+
+
+def test_submission_occupancy_delete_rejects_mismatched_owner(db_path: Path) -> None:
+    _seed_workspace(db_path)
+    _seed_operation(db_path, "op-submit-1")
+    attempt = _sample_attempt()
+    submission = _sample_submission()
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.submission.insert_attempt_prepared(attempt)
+        unit_of_work.submission.insert_submission(submission)
+        unit_of_work.submission.insert_workspace_attempt_occupancy(
+            workspace_id="ws-1",
+            submit_attempt_id="sa-1",
+        )
+        unit_of_work.submission.switch_workspace_occupancy_to_submission(
+            workspace_id="ws-1",
+            submit_attempt_id="sa-1",
+            submission_id="sub-1",
+        )
+        with pytest.raises(SubmitOccupancyConflict, match="workspace submission occupancy delete"):
+            unit_of_work.submission.delete_workspace_submission_occupancy(
+                "ws-1",
+                expected_submission_id="sub-other",
+            )
+
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy("ws-1")
+    assert workspace_occupancy is not None
+    assert workspace_occupancy.active_submission_id == "sub-1"
+
+
 def test_occupancy_delete_rejects_mismatched_owner(db_path: Path) -> None:
     _seed_workspace(db_path)
     _seed_operation(db_path, "op-submit-1")

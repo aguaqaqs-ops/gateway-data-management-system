@@ -167,3 +167,13 @@ class ReviewIntegrityFailure(SubmitApplicationError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class ReviewWorkspaceOccupancyConflict(SubmitApplicationError):
+    """Review command does not match the exact active Submission workspace bindings."""
+
+    stable_code = "WORKSPACE_OCCUPANCY_CONFLICT"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason

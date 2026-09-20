@@ -447,6 +447,10 @@ docker compose build --no-cache backend worker
 ```
 
 随后运行 Review compose journey、既有 backend clean stop/readiness 门禁以及必要三服务 conjunction。
+conjunction 须使用固定预构建 compose project（例如 `GATEWAY_COMPOSE_GATE_PROJECT_NAME` +
+`GATEWAY_COMPOSE_GATE_PREBUILT=1`），handoff 记录该 project 实跑镜像 IDs，不得将默认
+`deploy-*` 标签误作 journey 证据。repository-service 使用 `build-repository-service-image.sh`，
+readiness/clean-stop 门禁不得因 `compose build repository-service` 失败而 skip。
 不得把 P5-5B 旧镜像证据表述为当前 5C candidate 已验证。
 
 ### Exit evidence

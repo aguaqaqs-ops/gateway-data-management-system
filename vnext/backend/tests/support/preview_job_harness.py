@@ -76,7 +76,7 @@ MODIFIED_SQL = (
     "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
     "INSERT INTO t VALUES (1), (2);\n"
 )
-EMPTY_SQL = "SELECT 1 WHERE 0;\n"
+EMPTY_SQL = "SET FOREIGN_KEY_CHECKS=0;\n"
 
 
 def preview_baseline_provider(

@@ -186,6 +186,8 @@ def _apply_workspace_v5(connection: sqlite3.Connection) -> None:
     _assert_workspace_migration_integrity(connection)
     migration_rows = _collect_v5_mapping_migration_rows(connection)
     _validate_v5_workspace_submission_scope(connection, migration_rows)
+    _validate_v5_mapping_initial_head(migration_rows)
+    _validate_v5_historical_baseline_references(connection, migration_rows)
     for statement in _workspace_v5_baseline_statements():
         connection.execute(statement)
     _migrate_v5_baseline_authority(connection, migration_rows)
@@ -996,6 +998,11 @@ def _backfill_review_seed_from_submissions(connection: sqlite3.Connection) -> No
 
 
 def _preview_binding_fields(binding_blob: bytes) -> tuple[str, int]:
+    node_id, commit_id, head_version = _preview_binding_full_fields(binding_blob)
+    return node_id, head_version
+
+
+def _preview_binding_full_fields(binding_blob: bytes) -> tuple[str, str, int]:
     try:
         binding = json.loads(binding_blob.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -1003,10 +1010,17 @@ def _preview_binding_fields(binding_blob: bytes) -> tuple[str, int]:
     if type(binding) is not dict:
         raise RuntimeError("workspace v2 migration found undecodable preview binding")
     node_id = binding.get("business_baseline_node_id")
+    commit_id = binding.get("business_baseline_commit_id")
     head_version = binding.get("baseline_head_version")
-    if type(node_id) is not str or not node_id or type(head_version) is not int:
+    if (
+        type(node_id) is not str
+        or not node_id
+        or type(commit_id) is not str
+        or not commit_id
+        or type(head_version) is not int
+    ):
         raise RuntimeError("workspace v2 migration found undecodable preview binding")
-    return node_id, head_version
+    return node_id, commit_id, head_version
 
 
 def _workspace_v5_baseline_statements() -> tuple[str, ...]:
@@ -1043,8 +1057,13 @@ def _workspace_v5_baseline_statements() -> tuple[str, ...]:
                     AND parent_node_id IS NOT NULL
                     AND source_submission_id IS NOT NULL)
             ),
-            FOREIGN KEY (parent_node_id) REFERENCES baseline_node_records(node_id) ON DELETE RESTRICT
+            FOREIGN KEY (repository_id, parent_node_id)
+                REFERENCES baseline_node_records(repository_id, node_id) ON DELETE RESTRICT
         )
+        """,
+        """
+        CREATE UNIQUE INDEX baseline_node_records_repository_node
+            ON baseline_node_records(repository_id, node_id)
         """,
         """
         CREATE UNIQUE INDEX baseline_node_records_one_initial_per_repository
@@ -1059,7 +1078,8 @@ def _workspace_v5_baseline_statements() -> tuple[str, ...]:
                 CHECK (typeof(node_id) = 'text' AND length(node_id) BETWEEN 1 AND 255),
             optimistic_version INTEGER NOT NULL
                 CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version >= 0),
-            FOREIGN KEY (node_id) REFERENCES baseline_node_records(node_id) ON DELETE RESTRICT
+            FOREIGN KEY (repository_id, node_id)
+                REFERENCES baseline_node_records(repository_id, node_id) ON DELETE RESTRICT
         )
         """,
     )
@@ -1163,6 +1183,140 @@ def _validate_v5_workspace_submission_scope(
             raise RuntimeError("workspace v5 migration found submission scope mismatch")
 
 
+def _validate_v5_mapping_initial_head(migration_rows: tuple[dict[str, object], ...]) -> None:
+    for row in migration_rows:
+        head_version = row["baseline_head_version"]
+        if type(head_version) is not int or head_version != 0:
+            raise RuntimeError("workspace v5 migration requires initial baseline head version 0")
+
+
+def _v5_canonical_baseline_by_repository(
+    migration_rows: tuple[dict[str, object], ...],
+) -> dict[str, tuple[str, str, int]]:
+    canonical: dict[str, tuple[str, str, int]] = {}
+    for row in migration_rows:
+        repository_id = row["repository_id"]
+        if type(repository_id) is not str:
+            raise RuntimeError("workspace v5 migration found invalid repository_id")
+        node_id = row["business_baseline_node_id"]
+        commit_id = row["business_baseline_commit_id"]
+        head_version = row["baseline_head_version"]
+        if (
+            type(node_id) is not str
+            or not node_id
+            or type(commit_id) is not str
+            or not commit_id
+            or type(head_version) is not int
+        ):
+            raise RuntimeError("workspace v5 migration found invalid baseline head fields")
+        canonical[repository_id] = (node_id, commit_id, head_version)
+    return canonical
+
+
+def _assert_v5_explainable_baseline_reference(
+    *,
+    repository_id: str,
+    node_id: object,
+    commit_id: object | None,
+    head_version: object | None,
+    canonical_by_repository: dict[str, tuple[str, str, int]],
+) -> None:
+    expected = canonical_by_repository.get(repository_id)
+    if expected is None:
+        raise RuntimeError("workspace v5 migration found baseline reference without provisioned mapping")
+    expected_node_id, expected_commit_id, expected_head_version = expected
+    if type(node_id) is not str or not node_id or node_id != expected_node_id:
+        raise RuntimeError("workspace v5 migration found unexplainable baseline node reference")
+    if commit_id is not None and (type(commit_id) is not str or not commit_id or commit_id != expected_commit_id):
+        raise RuntimeError("workspace v5 migration found unexplainable baseline commit reference")
+    if head_version is not None and (
+        type(head_version) is not int or head_version != expected_head_version
+    ):
+        raise RuntimeError("workspace v5 migration found unexplainable baseline head version reference")
+
+
+def _validate_v5_historical_baseline_references(
+    connection: sqlite3.Connection,
+    migration_rows: tuple[dict[str, object], ...],
+) -> None:
+    canonical_by_repository = _v5_canonical_baseline_by_repository(migration_rows)
+    preview_rows = connection.execute(
+        """
+        SELECT repository_id, binding
+        FROM preview_result_records
+        """
+    ).fetchall()
+    for row in preview_rows:
+        node_id, commit_id, head_version = _preview_binding_full_fields(row["binding"])
+        _assert_v5_explainable_baseline_reference(
+            repository_id=row["repository_id"],
+            node_id=node_id,
+            commit_id=commit_id,
+            head_version=head_version,
+            canonical_by_repository=canonical_by_repository,
+        )
+    idempotency_rows = connection.execute(
+        """
+        SELECT workspace.repository_id,
+               idempotency.business_baseline_node_id,
+               idempotency.baseline_head_version
+        FROM preview_idempotency_records AS idempotency
+        INNER JOIN workspace_records AS workspace
+            ON workspace.workspace_id = idempotency.workspace_id
+        """
+    ).fetchall()
+    for row in idempotency_rows:
+        _assert_v5_explainable_baseline_reference(
+            repository_id=row["repository_id"],
+            node_id=row["business_baseline_node_id"],
+            commit_id=None,
+            head_version=row["baseline_head_version"],
+            canonical_by_repository=canonical_by_repository,
+        )
+    attempt_rows = connection.execute(
+        """
+        SELECT repository_id, business_baseline_node_id, business_baseline_commit_id, baseline_head_version
+        FROM submit_attempt_records
+        """
+    ).fetchall()
+    for row in attempt_rows:
+        _assert_v5_explainable_baseline_reference(
+            repository_id=row["repository_id"],
+            node_id=row["business_baseline_node_id"],
+            commit_id=row["business_baseline_commit_id"],
+            head_version=row["baseline_head_version"],
+            canonical_by_repository=canonical_by_repository,
+        )
+    submission_rows = connection.execute(
+        """
+        SELECT repository_id, based_on_baseline_node_id, business_baseline_commit_id
+        FROM submission_records
+        """
+    ).fetchall()
+    for row in submission_rows:
+        _assert_v5_explainable_baseline_reference(
+            repository_id=row["repository_id"],
+            node_id=row["based_on_baseline_node_id"],
+            commit_id=row["business_baseline_commit_id"],
+            head_version=None,
+            canonical_by_repository=canonical_by_repository,
+        )
+    occupancy_rows = connection.execute(
+        """
+        SELECT repository_id, business_baseline_node_id, baseline_head_version
+        FROM repository_submit_occupancy_records
+        """
+    ).fetchall()
+    for row in occupancy_rows:
+        _assert_v5_explainable_baseline_reference(
+            repository_id=row["repository_id"],
+            node_id=row["business_baseline_node_id"],
+            commit_id=None,
+            head_version=row["baseline_head_version"],
+            canonical_by_repository=canonical_by_repository,
+        )
+
+
 def _migrate_v5_baseline_authority(
     connection: sqlite3.Connection,
     migration_rows: tuple[dict[str, object], ...],
@@ -1178,7 +1332,7 @@ def _migrate_v5_baseline_authority(
             or type(commit_id) is not str
             or not commit_id
             or type(head_version) is not int
-            or head_version < 0
+            or head_version != 0
         ):
             raise RuntimeError("workspace v5 migration found invalid baseline head fields")
         connection.execute(
@@ -1200,9 +1354,9 @@ def _migrate_v5_baseline_authority(
         connection.execute(
             """
             INSERT INTO baseline_head_records (repository_id, node_id, optimistic_version)
-            VALUES (?, ?, ?)
+            VALUES (?, ?, 0)
             """,
-            (row["repository_id"], node_id, head_version),
+            (row["repository_id"], node_id),
         )
 
 

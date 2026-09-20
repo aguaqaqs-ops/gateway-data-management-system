@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -106,6 +106,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotMaterializationStatus,
     SnapshotSourceContext,
     SnapshotSummary,
+    SnapshotTable,
     SnapshotTableSet,
     SUMMARY_CONTRACT_VERSION,
 )
@@ -1774,6 +1775,19 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             "materialize checkpoint digest mismatch",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
+    summary_payload = entry.get("summary")
+    if type(summary_payload) is not dict:
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    _validate_checkpoint_summary_consistency(
+        summary_payload,
+        snapshot=snapshot,
+        tables_raw=tables_raw,
+        opened=opened,
+    )
+    row_count_total = summary_payload.get("row_count_total")
     summary = SnapshotSummary(
         snapshot_id=snapshot.snapshot_id,
         snapshot_digest=snapshot.snapshot_digest,
@@ -1786,7 +1800,11 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
         tables=tuple(table.descriptor for table in opened),
         source_context=snapshot.source_context,
         diagnostics=(),
-        row_count_total=sum(table.descriptor.row_count for table in opened),
+        row_count_total=(
+            int(row_count_total)
+            if type(row_count_total) is int
+            else sum(table.descriptor.row_count for table in opened)
+        ),
     )
     table_set = SnapshotTableSet(
         snapshot_id=snapshot.snapshot_id,
@@ -1842,6 +1860,96 @@ def _snapshot_from_payload(raw: object) -> Snapshot:
         created_at=str(raw["created_at"]),
         source_context=source_context,
     )
+
+
+def _validate_checkpoint_summary_consistency(
+    summary_payload: dict[str, object],
+    *,
+    snapshot: Snapshot,
+    tables_raw: list[object],
+    opened: Sequence[SnapshotTable],
+) -> None:
+    table_count = summary_payload.get("table_count")
+    summary_tables = summary_payload.get("tables")
+    summary_snapshot_digest = summary_payload.get("snapshot_digest")
+    row_count_total = summary_payload.get("row_count_total")
+    if type(table_count) is not int or table_count < 0:
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary table_count is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if type(summary_tables) is not list:
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary tables are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if type(summary_snapshot_digest) is not str or not summary_snapshot_digest:
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary snapshot_digest is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if summary_snapshot_digest != snapshot.snapshot_digest.value:
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary digest mismatch",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if table_count != len(tables_raw) or table_count != len(opened):
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary table_count mismatch",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if not tables_raw:
+        if summary_tables or table_count != 0:
+            raise CheckpointDecodeError(
+                "materialize checkpoint empty summary mismatch",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        if type(row_count_total) is int and row_count_total != 0:
+            raise CheckpointDecodeError(
+                "materialize checkpoint empty summary row_count_total mismatch",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        return
+    if len(summary_tables) != len(opened):
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary tables length mismatch",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    summary_by_name: dict[str, dict[str, object]] = {}
+    for item in summary_tables:
+        if type(item) is not dict:
+            raise CheckpointDecodeError(
+                "materialize checkpoint summary table entry is invalid",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        table_name = item.get("table_name")
+        if type(table_name) is not str or not table_name:
+            raise CheckpointDecodeError(
+                "materialize checkpoint summary table_name is invalid",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        summary_by_name[table_name] = item
+    computed_row_count_total = 0
+    for table in opened:
+        descriptor = table.descriptor
+        summary_table = summary_by_name.get(descriptor.table_name)
+        if summary_table is None:
+            raise CheckpointDecodeError(
+                "materialize checkpoint summary table entry is missing",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        summary_row_count = summary_table.get("row_count")
+        if type(summary_row_count) is not int or summary_row_count != descriptor.row_count:
+            raise CheckpointDecodeError(
+                "materialize checkpoint summary row_count mismatch",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        computed_row_count_total += descriptor.row_count
+    if type(row_count_total) is int and row_count_total != computed_row_count_total:
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary row_count_total mismatch",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
 
 
 def _summary_payload(summary: object) -> dict[str, object]:

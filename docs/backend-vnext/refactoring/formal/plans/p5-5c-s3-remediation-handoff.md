@@ -24,15 +24,15 @@ production_deployment_authorized: false
 stage: P5-5C-S3-remediation
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s3-handoff.md
 implementation_candidate_head: dadf5d1f6f01e028e2020b005737040ae4bee11e
-remediation_implementation_head: 9e08f2f63e1da8cb8e5344de4810d5cbef5eb072
-sealed_doc_tree_head: af157cf8806b0861d05442f29998bed1449304e8
-finding_remediation: F1-F8
+remediation_implementation_head: 02acbee188b05e4f78f9725c9ad959f2fbdc2189
+sealed_doc_tree_head: pending_bind_after_commit
+finding_remediation: F1-F8, P2-1-P2-3
 next_step: independent_S3_countersign_then_P5-5C-S4
 ```
 
 `implementation_candidate_head` 保留首次 S3 代码交付提交 `dadf5d1f6f`；
-`remediation_implementation_head` 绑定 F1–F8 remediation 代码提交 `9e08f2f63e`；
-`sealed_doc_tree_head` 绑定本 follow-up docs 提交（修正 `59eba792bb` 中无效 SHA 误拼）。
+`remediation_implementation_head` 绑定 P2 countersign remediation 代码提交 `02acbee188`；
+`sealed_doc_tree_head` 绑定 P2 remediation docs 提交（首轮 F1–F8 见 `9e08f2f63e` / `af157cf880`）。
 
 ## Findings closed
 
@@ -46,6 +46,10 @@ next_step: independent_S3_countersign_then_P5-5C-S4
 | F6 | MEDIUM | Handoff candidate head / gate incomplete | This handoff + parent handoff update; gate includes `test_sqlite_submit_repository.py`, `test_architecture.py` |
 | F7 | LOW | Path budget omission | `sqlite_submission.py` + `test_sqlite_submit_repository.py` added to execution plan §3.1/§3.2 |
 | F8 | LOW | Seam hygiene | `review_action_for_event_kind` in domain; removed `ReviewScopeFacts.resolved_scope`; simplified fingerprint path |
+| P2-1 | P2 | Idempotency integrity after request compare | Reordered `verify_idempotency_replay`; cross-submission loads record events; corrupted fingerprint regression |
+| P2-2 | P2 | Persisted reason not in closure | `validate_review_reason` in `validate_review_closure`; domain param cases + GET/replay integrity tests |
+| P2-3 | P2 | Concurrent barrier evidence gap | `Barrier` dual-connection test; one commit + stable `ReviewVersionConflict` |
+| P3 | LOW | Review uses full Submit transaction port | Deferred: no stray calls found; converge to minimal `ReviewApplyTransaction` before/within S4 |
 
 ## S4 entry note (not S3 defects)
 
@@ -61,7 +65,7 @@ cd vnext/backend
   tests/test_review_domain.py tests/test_review_persistence.py \
   tests/test_review_transactions.py tests/test_submit_transactions.py \
   tests/test_sqlite_submit_repository.py tests/test_architecture.py
-# => 225 passed
+# => 230 passed
 
 ../scripts/uv-consume.sh -C . run ruff check src/gateway_backend/application/submission \
   src/gateway_backend/domain/submission src/gateway_backend/infrastructure/control_db \

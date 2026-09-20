@@ -24,16 +24,16 @@ production_deployment_authorized: false
 stage: P5-5C-S3-review-command-transaction-workspace-release
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s2-handoff.md
 implementation_candidate_head: dadf5d1f6f01e028e2020b005737040ae4bee11e
-remediation_implementation_head: 9e08f2f63e1da8cb8e5344de4810d5cbef5eb072
-sealed_doc_tree_head: af157cf8806b0861d05442f29998bed1449304e8
+remediation_implementation_head: 02acbee188b05e4f78f9725c9ad959f2fbdc2189
+sealed_doc_tree_head: pending_bind_after_commit
 remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s3-remediation-handoff.md
 uv_lock_in_diff: no
 next_step: independent_S3_countersign_then_P5-5C-S4
 ```
 
 `implementation_candidate_head` 保留首次 S3 代码交付提交 `dadf5d1f6f`；
-`remediation_implementation_head` 绑定 F1–F8 remediation 代码提交 `9e08f2f63e`；
-`sealed_doc_tree_head` 绑定本 follow-up docs 提交（修正无效 SHA 与 triple-SHA 键语义）。
+`remediation_implementation_head` 绑定 P2 countersign remediation 代码提交 `02acbee188`；
+`sealed_doc_tree_head` 绑定 P2 remediation docs 提交。
 Finding 闭环见 `p5-5c-s3-remediation-handoff.md`。
 
 ## Changed paths
@@ -57,7 +57,9 @@ Finding 闭环见 `p5-5c-s3-remediation-handoff.md`。
 - project/device/repository scope closure without owner-actor equality
 - `apply_review_transaction`: idempotency replay/conflict, optimistic CAS, transition policy, occupancy bindings
 - `ApplyReviewResult.replay` distinguishes fresh commit vs same-key replay (S4 201/200 seam)
-- damaged idempotency records fail closed as `ReviewIntegrityFailure` (not 500/conflict)
+- damaged idempotency/event records fail closed as `ReviewIntegrityFailure` (not 500/conflict/idempotency conflict)
+- idempotency integrity validated before request fingerprint comparison
+- persisted event reason validated in domain closure (GET/replay fail closed consistently)
 - approve retains exact occupancy; release clears pointers + deletes submission occupancy + bumps workspace version
 - `get_review_facts` read query with closure validation
 - `ReviewWorkspaceOccupancyConflict` with bounded messages including CLOSED workspace
@@ -77,6 +79,9 @@ Finding 闭环见 `p5-5c-s3-remediation-handoff.md`。
 | cross-submission same project/key conflict | yes |
 | replay returns bound event after later mutation | yes |
 | seed-bound/damaged idempotency → `ReviewIntegrityFailure` | yes |
+| corrupted idempotency fingerprint → `ReviewIntegrityFailure` (not conflict) | yes |
+| corrupted persisted event reason → `ReviewIntegrityFailure` on GET/replay | yes |
+| concurrent overlapping apply → one commit + `ReviewVersionConflict` | yes |
 | approved-return archive race (occupancy cleared) | yes |
 | projection/event divergence → `ReviewIntegrityFailure` | yes |
 | `cas_projection` fault injection rollback (pre-release) | yes |
@@ -106,7 +111,7 @@ cd vnext/backend
   tests/test_review_domain.py tests/test_review_persistence.py \
   tests/test_review_transactions.py tests/test_submit_transactions.py \
   tests/test_sqlite_submit_repository.py tests/test_architecture.py
-# => 225 passed
+# => 230 passed
 
 ../scripts/uv-consume.sh -C . run ruff check src/gateway_backend/application/submission \
   src/gateway_backend/domain/submission src/gateway_backend/infrastructure/control_db \

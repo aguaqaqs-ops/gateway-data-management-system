@@ -24,13 +24,15 @@ production_deployment_authorized: false
 stage: P5-5C-S3-remediation
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s3-handoff.md
 implementation_candidate_head: dadf5d1f6f01e028e2020b005737040ae4bee11e
-remediation_implementation_head: 9e08f2f63e8c8fdc4949ffe78b9e86896a04dd46e
+remediation_implementation_head: 9e08f2f63e1da8cb8e5344de4810d5cbef5eb072
+sealed_doc_tree_head: pending_bind_after_commit
 finding_remediation: F1-F8
 next_step: independent_S3_countersign_then_P5-5C-S4
 ```
 
-`implementation_candidate_head` 保留首次 S3 代码交付提交 `dadf5d1f6f`；`remediation_implementation_head`
-在 remediation 代码提交后由 follow-up docs 提交绑定。
+`implementation_candidate_head` 保留首次 S3 代码交付提交 `dadf5d1f6f`；
+`remediation_implementation_head` 绑定 F1–F8 remediation 代码提交 `9e08f2f63e`；
+`sealed_doc_tree_head` 绑定本 follow-up docs 提交（修正 `59eba792bb` 中无效 SHA 误拼）。
 
 ## Findings closed
 

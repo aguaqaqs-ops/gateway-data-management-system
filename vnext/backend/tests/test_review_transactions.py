@@ -620,7 +620,7 @@ def test_apply_review_idempotency_conflict_on_cross_submission(review_seed: Revi
 
 
 CROSS_SUBMISSION_IDEMPOTENCY_CONFLICT_CASES = (
-    ("different_device_same_project", "device-2", "repo-2"),
+    ("different_device_same_project", "device-2", "repo-1"),
     ("different_repository_same_project", "device-2", "repo-2"),
 )
 

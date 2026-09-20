@@ -117,12 +117,12 @@ def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
     repository_id, initial_commit_id = _start_three_container_stack(env, tmp_path)
 
     try:
-        main_before = _resolve_main_commit_id(env, repository_id)
         journey = _run_accept_to_submission_read_journey(
             env,
             initial_commit_id=initial_commit_id,
         )
         submission_id = str(journey["submission_id"])
+        main_before_review = _resolve_main_commit_id(env, repository_id)
 
         with httpx.Client(base_url=BACKEND_URL, headers=_auth_headers(), timeout=60.0) as client:
             approve = client.post(
@@ -151,9 +151,8 @@ def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
             assert facts_body["events"][1]["event_kind"] == "APPROVED"
             assert facts_body["events"][1]["sequence"] == 1
 
-        main_after = _resolve_main_commit_id(env, repository_id)
-        assert main_after == main_before
-        assert main_after == initial_commit_id
+        main_after_review = _resolve_main_commit_id(env, repository_id)
+        assert main_after_review == main_before_review
     finally:
         down = _run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:

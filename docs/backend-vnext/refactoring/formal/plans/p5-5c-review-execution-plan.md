@@ -502,7 +502,8 @@ independent_docs_review: pass
 p5_5c_implementation_authorized: yes
 source_or_test_change_authorized: true
 first_authorized_step: P5-5C-S1
-current_stage: P5-5C-S1-remediation
-next_step: independent_s1_countersign
-remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s1-remediation-handoff.md
+current_stage: P5-5C-S5
+next_step: independent_functional_acceptance_and_current_head_gate
+s4_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-handoff.md
+s4_independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-independent-review.md
 ```

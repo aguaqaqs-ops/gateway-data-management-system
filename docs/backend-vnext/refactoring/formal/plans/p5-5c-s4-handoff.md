@@ -1,6 +1,6 @@
 # P5-5C-S4 HTTP Contract, Production Wiring and Deployed Permission Handoff
 
-状态：**S4 delivered — pending independent countersign**
+状态：**pass — S4 closed @ [independent review](p5-5c-s4-independent-review.md)**
 
 日期：2026-09-20
 
@@ -24,10 +24,19 @@ production_deployment_authorized: false
 stage: P5-5C-S4-http-contract-production-wiring-deployed-permission
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s3-handoff.md
 s3_countersign_head: ea6b38e4f22fcd282622ee09e6cb102aca39d8aa
-implementation_candidate_head: pending_commit
+implementation_candidate_head: 83dc907cb5
+remediation_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-remediation-handoff.md
+remediation_implementation_head: 161b805ad8
+sealed_doc_tree_head: pending_publication
+independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-independent-review.md
 uv_lock_in_diff: no
-next_step: independent_S4_countersign_then_P5-5C-S5
+next_step: P5-5C-S5
 ```
+
+`implementation_candidate_head` 保留首次 S4 代码交付提交 `83dc907cb5`；
+`remediation_implementation_head` 绑定 P2 remediation 代码提交 `161b805ad8`。
+Finding 闭环见 [p5-5c-s4-remediation-handoff.md](p5-5c-s4-remediation-handoff.md) 与
+[p5-5c-s4-independent-review.md](p5-5c-s4-independent-review.md)。
 
 ## Changed paths
 
@@ -105,7 +114,7 @@ cd vnext/backend
 ../scripts/uv-consume.sh -C . run pytest -q -m unit \
   tests/test_review_http.py tests/test_http_openapi.py \
   tests/test_production_wiring.py tests/test_architecture.py
-# => 86 passed
+# => 86 passed (initial delivery @ 83dc907cb5)
 
 ../scripts/uv-consume.sh -C . run ruff check src/gateway_backend/http \
   src/gateway_backend/bootstrap tests/test_review_http.py \
@@ -115,6 +124,9 @@ cd vnext/backend
 ../scripts/uv-consume.sh -C . run mypy
 # => Success: no issues found in 389 source files
 ```
+
+Remediation 后 focused gate（@ `161b805ad8`）：**102 passed**（见
+[p5-5c-s4-remediation-handoff.md](p5-5c-s4-remediation-handoff.md)）。
 
 ## Container / image gate
 
@@ -133,6 +145,8 @@ None.
 ## Independent countersign
 
 ```yaml
-review: pending
+review: pass
+review_record: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-independent-review.md
+findings_closed: [P2-1, P2-2]
 next_step: P5-5C-S5
 ```

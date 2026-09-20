@@ -1,6 +1,6 @@
 # P5-5C-S4 Finding-Scoped Remediation Handoff
 
-状态：**S4 remediation delivered — pending independent countersign**
+状态：**pass — S4 remediation closed @ [independent review](p5-5c-s4-independent-review.md)**
 
 日期：2026-09-20
 
@@ -24,9 +24,11 @@ production_deployment_authorized: false
 stage: P5-5C-S4-remediation
 parent_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-handoff.md
 implementation_candidate_head: 83dc907cb5
-remediation_implementation_head: pending_commit
+remediation_implementation_head: 161b805ad8
+sealed_doc_tree_head: pending_publication
 finding_remediation: P2-1, P2-2
-next_step: independent_S4_countersign_then_P5-5C-S5
+independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-independent-review.md
+next_step: P5-5C-S5
 ```
 
 `implementation_candidate_head` 保留首次 S4 代码交付提交 `83dc907cb5`。
@@ -88,6 +90,8 @@ container_gate_for_current_head: not_applicable
 ## Independent countersign
 
 ```yaml
-review: pending
+review: pass
+review_record: docs/backend-vnext/refactoring/formal/plans/p5-5c-s4-independent-review.md
+findings_closed: [P2-1, P2-2]
 next_step: P5-5C-S5
 ```

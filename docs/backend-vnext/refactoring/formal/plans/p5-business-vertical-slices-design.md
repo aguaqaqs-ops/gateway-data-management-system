@@ -424,7 +424,8 @@ online ruleset migration、external event consumer、HA和外部DB保持独立�
 ## 13. Current next action
 
 [P5-5B-S8 Independent Slice Exit Acceptance](p5-5b-s8-independent-acceptance.md) 已声明
-`p5_5b_slice_exit: pass`。P5-5C design 已 accepted；S1 implementation 已授权并交付，当前处于
-S1 remediation / independent countersign（见 [S1 handoff](p5-5c-s1-handoff.md) 与
-[remediation handoff](p5-5c-s1-remediation-handoff.md)）。P5-5D/P5-5E implementation 与
+`p5_5b_slice_exit: pass`。P5-5C S1–S4 已交付；S4 independent countersign **pass**（见
+[S4 handoff](p5-5c-s4-handoff.md) 与
+[S4 independent review](p5-5c-s4-independent-review.md)）。当前进入 **P5-5C-S5**
+independent functional acceptance and current-HEAD gate。P5-5D/P5-5E implementation 与
 production deployment 仍未授权。

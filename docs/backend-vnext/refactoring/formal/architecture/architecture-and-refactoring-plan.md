@@ -29,8 +29,10 @@ accepted且`p5_5b_design_s0_authorized: yes`；P5-5B implementation与real Repos
 标记 `p5_5b_slice_exit: pass`。这关闭历史 P5-5B implementation authority。P5-5C 随后完成 S1–S5，
 由 [P5-5C-S5 Independent Acceptance](../plans/p5-5c-s5-independent-acceptance.md) 声明
 `p5_5c_slice_exit: pass`（candidate `04317788c2`），历史 implementation authority 已消费并关闭。
-当前 5D docs-only 设计入口条件具备；5D/5E implementation、production deployment 与新的
-Repository effect 均未授权。此前 dated overlay 保留为历史记录，当前状态以本 closure 为准。
+当前 [5D docs-only entry/design/plan](../plans/p5-5d-s0-entry-brief.md) 已独立审核通过，
+四项文档 finding 全部关闭，
+[Business Lifecycle 固定归属补充](../contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)
+已接受为 3.0.0，S1 Contract 前置已满足；5D/5E implementation、production deployment 与新的 Repository effect 均未授权。此前 dated overlay 保留为历史记录，当前状态以本 closure 为准。
 
 
 ## 1. 目标与范围

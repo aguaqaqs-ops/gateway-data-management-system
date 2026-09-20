@@ -10,9 +10,10 @@
 [P5-5B-S8 Independent Slice Exit Acceptance](p5-5b-s8-independent-acceptance.md)标记
 `p5_5b_slice_exit: pass`。P5-5C 已由
 [S5 Independent Acceptance](p5-5c-s5-independent-acceptance.md) 声明 `p5_5c_slice_exit: pass`。
-5D docs-only 设计入口条件具备；5D implementation 与 production deployment 未授权。
+5D docs-only 文档及 Business Lifecycle 3.0.0 已独立审核通过；5D implementation 与 production deployment 未授权。
 P4 默认上下文从 [P4 Active Context Index](p4-active-context-index.md) 开始；P5 当前入口为
-[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md) 与 5C exit。
+[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md)、
+[5D accepted docs entry](p5-5d-s0-entry-brief.md) 与 5C exit。
 
 P3 capability 模块边界与 sealed evidence 见各 module handoff 与
 [P3 Capability Foundation Design](p3-capability-foundation-design.md)。
@@ -592,6 +593,15 @@ ref；所有成功Submission commit永久进入授权History。
 退出条件：状态机、权限、幂等、Workspace release与History visibility全部由自动测试覆盖。
 
 ### Slice 5D：Archive
+
+当前 accepted docs：[Entry Brief](p5-5d-s0-entry-brief.md)、
+[Detailed Design](p5-5d-archive-design.md)、[Execution Plan](p5-5d-archive-execution-plan.md)。
+已审核实施顺序为 Head authority/migration + initial-empty Preview/Submit 前置修复验证 → 完整本地
+归档语义 → 生产 HTTP → fresh image conjunction 与独立退出验收。
+[Business Lifecycle 固定归属补充](../contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)
+已接受为 3.0.0，S1 Contract 前置已满足。四项文档 finding 全部关闭，见
+[独立文档接受记录](p5-5d-s0-independent-docs-acceptance.md)；源码尚未实现上述保障，
+尚未启动实施，不沿用 5C 的阶段授权。
 
 实现从当前业务Baseline上的approved Submission facts派生CandidateProjection、
 confirmation/anomaly resolution、纯读PreviewArchivePlan与本地事务StartArchive gate。

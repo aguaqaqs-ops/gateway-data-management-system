@@ -1,10 +1,10 @@
 # P5 Business Vertical Slices Design Baseline
 
-状态：**ACCEPTED DESIGN BASELINE — 5A/5B/5C EXIT PASS; 5D DESIGN READY**
+状态：**ACCEPTED DESIGN BASELINE — 5A/5B/5C EXIT PASS; 5D DOCS ACCEPTED**
 
 日期：2026-09-06
 
-状态更新：2026-09-20（P5-5C slice exit pass；P5-5D docs-only 设计入口条件具备）
+状态更新：2026-09-20（P5-5C slice exit pass；P5-5D docs review pass；Business Lifecycle 3.0.0 补充 accepted）
 
 Owner：Backend vNext Business Applications and Interfaces
 
@@ -22,6 +22,9 @@ Owner：Backend vNext Business Applications and Interfaces
 
 5C design：[P5-5C Review Detailed Design](p5-5c-review-design.md)、
 [P5-5C Review Execution Plan](p5-5c-review-execution-plan.md)
+
+5D accepted design：[Entry Brief](p5-5d-s0-entry-brief.md)、
+[Archive Design](p5-5d-archive-design.md)、[Execution Plan](p5-5d-archive-execution-plan.md)（独立文档审核通过；不授权实现）。
 
 5A historical input：[P5-5A S6 Handoff](p5-5a-s6-handoff.md)
 
@@ -52,6 +55,13 @@ p5_5c_implementation_status: completed
 p5_5c_implementation_authorized: no
 p5_5c_slice_exit: pass
 p5_5d_design_readiness: ready
+p5_5d_docs_authorized: yes
+p5_5d_design: accepted
+p5_5d_execution_plan: accepted
+p5_5d_independent_docs_review: pass
+p5_5d_docs_revision_review: pass
+p5_5d_closed_document_findings: [initial_empty_design_budget, audit_request_fingerprint, utf8_limits, repository_scope_contract_acceptance]
+p5_5d_remaining_design_item: none
 p5_5d_implementation_authorized: no
 p5_implementation_authorized: no
 ```
@@ -60,7 +70,7 @@ P5-5B 的历史 implementation 与 real Repository effect authority 已在 S1–
 独立 acceptance 已声明 `p5_5b_slice_exit: pass`。P5-5A slice exit 与 container gate 亦已 pass
 （证据见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)）。P5-5C 已由
 [S5 Independent Acceptance](p5-5c-s5-independent-acceptance.md) 声明 slice exit pass，历史
-implementation authority 已消费并关闭。5D docs-only 设计条件具备；5D/5E implementation、
+implementation authority 已消费并关闭。5D docs-only 已独立审核通过；5D/5E implementation、
 production deployment 与新的 Repository effect 均未授权。
 
 ## 2. Objective and staged depth
@@ -68,8 +78,7 @@ production deployment 与新的 Repository effect 均未授权。
 P5按`5A Upload/Preview -> 5B Submit -> 5C Review -> 5D Archive -> 5E History Compare`
 交付正式业务纵切。总体基线只冻结跨Slice identity、owner、事务、权限和Repository边界。
 **5A** slice exit pass，作为 historical input / slice evidence，不再作为默认详细设计入口。
-**5B/5C** slice exit pass；详细设计与执行记录作为已验收输入。**5D** 可在新对话明确授权后
-开始 docs-only entry/design/plan；5D/5E implementation 与 production deployment 未授权。
+**5B/5C** slice exit pass；详细设计与执行记录作为已验收输入。**5D** docs-only entry/design/plan 已独立审核通过；5D/5E implementation 与 production deployment 未授权。
 
 P5第一屏交付的是可用业务API和前端loader所需bundle，不建设营销或兼容适配层。新vNext HTTP
 DTO独立版本化，不承诺旧`/api/*` wire兼容；legacy只用于发现需要保留的业务语义和fixture。
@@ -204,6 +213,13 @@ registry；worker有独立health gate。部署只在Backend、worker和Repositor
 
 ## 4. Scope, provisioning and identity
 
+5D 的 Repository 固定业务 scope 规则已写入
+[Business Lifecycle §1A](../contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)：
+同一 Repository 在整个历史中归属一个 device/project，禁止跨 scope 共享/转交，disabled/移除
+mapping 不释放归属；migration/seed/update 原子拒绝冲突。同 scope 可绑定新 Repository，旧
+归属与历史不变。补充已复审接受为 3.0.0，S1 Contract 前置已满足；
+该规则作为本次不兼容补充生效，不追溯解释为 2.0.0 已有约束。
+
 IdentityContext保留：
 
 ```text
@@ -313,6 +329,9 @@ events，不建设start-review中间态。Review不创建、移动、回退或�
 Submission commit永久保留；rejected/returned/withdrawn重新开放Workspace并进入History。
 
 ### 6.4 5D Archive
+
+详细设计与实施预算见 [5D accepted docs entry](p5-5d-s0-entry-brief.md)；下文保持 accepted
+跨 Slice 规则，详细设计已接受，与 Business Lifecycle 3.0.0 对齐；能力尚未实现。
 
 CandidateProjection只包含Review=`APPROVED`、基于current BaselineHead且未被既有ArchiveResult
 关闭的Submission。PreviewArchivePlan是纯读结果。StartArchive要求idempotency key、expected
@@ -427,6 +446,7 @@ online ruleset migration、external event consumer、HA和外部DB保持独立�
 
 [P5-5C-S5 Independent Slice Exit Acceptance](p5-5c-s5-independent-acceptance.md) 已声明
 `p5_5c_slice_exit: pass`，accepted candidate 为 `04317788c2`。
-下一步是 P5-5D docs-only entry brief、Archive detailed design 与 execution plan；入口条件具备，
-在新对话明确授权后落成 candidate 文档，再做独立 docs review。5D/5E implementation 与
-production deployment 未授权。
+P5-5D docs-only entry/design/plan 与 Business Lifecycle 3.0.0 已独立审核通过，见
+[5D 文档接受记录](p5-5d-s0-independent-docs-acceptance.md)。下一步为明确授权 P5-5D-S1 实现；
+四项文档 finding 全部关闭，S1 的 Contract 前置已满足；
+5D/5E implementation 与 production deployment 未授权。

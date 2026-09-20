@@ -12,6 +12,11 @@
 当前内容（仓库 P5 默认入口）：
 
 - [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)
+- [P5-5D Independent Docs Acceptance](plans/p5-5d-s0-independent-docs-acceptance.md)（docs review pass；四项 finding closed）
+- [P5-5D-S0 Entry Brief](plans/p5-5d-s0-entry-brief.md)（accepted；独立文档审核通过，implementation 未授权）
+- [Business Lifecycle 固定 scope 归属补充](contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)（3.0.0 accepted；S1 Contract 前置已满足）
+- [P5-5D Archive Detailed Design](plans/p5-5d-archive-design.md)（accepted；独立文档审核通过，implementation 未授权）
+- [P5-5D Archive Execution Plan](plans/p5-5d-archive-execution-plan.md)（accepted；独立文档审核通过，implementation 未授权）
 - [P5-5C-S5 Independent Slice Exit Acceptance](plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）
 - [P5-5C-S0 Entry Brief](plans/p5-5c-s0-entry-brief.md)（historical entry input）
 - [P5-5C Review Detailed Design](plans/p5-5c-review-design.md)（accepted；slice completed）
@@ -38,7 +43,7 @@ P5-5A historical input（slice exit pass；container gate pass）：
 - [P5-5A S6 Handoff](plans/p5-5a-s6-handoff.md)（slice exit pass；container gate pass）
 
 P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；**P4-R6 exit pass**。
-P5-5B/5C slice exit pass；5D docs-only 设计入口条件具备，implementation 未授权。
+P5-5B/5C slice exit pass；5D 文档审核通过，固定归属 Contract 3.0.0 已接受，四项 finding 全部关闭；implementation 未授权。
 P4 Active Context Index 不覆盖 P5 semantic default entry。
 以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述 P5 默认顺序：
 
@@ -141,9 +146,9 @@ exit/pass。P5总体设计基线accepted；P5-5A slice exit `pass`；P5-5B gate 
 authority 已消费并关闭；5B exit 本身不授权新的 P5-5B 改动、P5-5C 或 production deployment。
 其后 P5-5C 已完成并由 [S5 Independent Acceptance](plans/p5-5c-s5-independent-acceptance.md)
 声明 `p5_5c_slice_exit: pass`，历史 implementation authority 已消费并关闭。
-5D docs-only 设计条件具备；5D implementation 与 production deployment 未授权。
+5D 文档及固定归属 Contract 3.0.0 已接受，四项文档 finding 全部关闭；5D implementation 与 production deployment 未授权。
 全局 `p3_implementation_authorized: no`。P4 专用入口见
-[P4 Active Context Index](plans/p4-active-context-index.md)；当前默认入口是 P5 baseline 与 5C exit。
+[P4 Active Context Index](plans/p4-active-context-index.md)；当前默认入口是 P5 baseline、5D accepted 文档入口与 5C exit。
 
 完整对外接口见
 [P2 External Interface Handoff](plans/p2-external-interface-handoff.md)。

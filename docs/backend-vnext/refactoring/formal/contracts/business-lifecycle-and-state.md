@@ -1,6 +1,6 @@
 # Business Lifecycle and State Contract
 
-状态：正式设计（Accepted）
+状态：正式设计（Accepted）；`3.0.0` 固定业务 scope 归属补充已复审接受
 
 阶段：Phase 0 结论；Phase 5 实现
 
@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.business-lifecycle-and-state`
 
 Owner：各子领域 owner（见下表；本文不建立共同 aggregate）
 
-Semantic version：`2.0.0`
+Semantic version：`3.0.0`（Accepted；前版 `2.0.0`）
 
 2026-09-06 amendment：P5 设计收口后，Repository `main` 与业务 `BaselineHead` 明确分离；
 Archive 直接把既有合格 Submission commit 提升为业务 Baseline，不移动 Repository ref、
@@ -38,6 +38,87 @@ business-project mapping；外部control plane把
 `(gateway_device_external_key, business_project_id)`解析为唯一Repository。`BaselineHead`
 按Repository唯一。历史对象冻结创建时的actor/device/project/Repository身份；后续mapping
 变化不得改写历史。
+
+<a id="repository-scope-ownership-amendment"></a>
+
+## 1A. Repository 固定业务 scope 归属（Accepted）
+
+状态：**ACCEPTED — 2026-09-20 独立复审通过**。接受依据见 [5D 文档审核记录](../plans/p5-5d-s0-independent-docs-acceptance.md)。
+
+日期：2026-09-20。
+
+Owner：Business Lifecycle Contract（跨领域身份/一致性）；Baseline Domain（初始归属事实）；
+Provisioning Application / control-plane adapter（mapping 验证）。不建立新的共同 aggregate。
+
+```yaml
+amendment_kind: repository_fixed_business_scope
+accepted_base_version: 2.0.0
+accepted_contract_version: 3.0.0
+content_agreed_by_repository_owner: yes
+amendment_status: accepted
+independent_amendment_review: pass
+amendment_accepted: yes
+p5_5d_s1_contract_precondition: satisfied
+implementation_authorized: no
+```
+
+补充依据：原 §1 的 scope→Repository 正向映射与 Repository 唯一 BaselineHead，尚未排除
+两个 scope 共用 Repository。Archive 按授权 scope 收集候选却推进共享 Head 时，可能遗漏另一
+scope 的 approved sibling 和 Workspace release。V1 采用以下固定归属规则消除此歧义。
+此处只收窄 Backend 业务映射，不改变 Repository Service 的通用 wire 或令其识别业务 scope。
+本节及 §9A 随本次复审接受进入 `3.0.0`；相关 5D 设计同步接受。实现与迁移验收仍待后续阶段。
+
+### 1A.1 Identity and cardinality
+
+- 业务 scope 定义为 exact `(gateway_device_external_key, business_project_id)`；actor 不属于
+  Repository 归属键。同 scope 多 actor 的 Workspace/Submission 合法，仍按各用例权限授权。
+- 一个 Repository 从首次业务登记起，在整个业务历史中只属于一个固定 scope；不同 scope
+  不得同时共享，也不得先后接管同一 Repository。即使两组 mapping 的 Head/node/commit 相同，
+  也不能视为同一业务 scope。
+- 保留一个 device 同时最多一个 active project mapping、一个当前 scope 解析到唯一 Repository
+  的既有规则。同 scope 可改为绑定新的 Repository；新 Repository 必须未绑定过其他 scope，
+  或已具有该 exact scope 的合法归属。旧 Repository 的归属与全部历史事实保持原样。
+- 禁用、移除 mapping，或把 scope 的 mapping 改指新 Repository，都不释放旧 Repository 的
+  固定归属。不得借删除/重建 mapping 绕过规则；禁止重写历史对象的 device/project/Repository。
+
+### 1A.2 Authority and validation
+
+固定归属由 Backend 初始 BaselineNode 的 immutable Repository/device/project identity 表达，
+其业务事实不随 mapping 消失；不另建 owner registry、租约、tombstone 或归属状态机。初始
+Baseline 登记与首次 mapping 建立在同一个 control DB 事务中完成；一个 Repository 只有一个
+initial BaselineNode。Repository provisioning/initial commit 的真实性仍由既有 owner 负责，
+不得靠 Archive 创建 commit 或猜测 main 来补归属。
+
+migration、首次 seed、批量 seed 和 mapping update 必须遵循同一业务验收规则：
+
+1. 以 Repository 聚合输入、现存 mapping（包含 disabled）及已有初始归属；同时核对历史
+   Workspace/Submission 等冻结 scope。一个 Repository 只能得到一个 exact scope。
+2. 已有固定归属时只接受同 scope；没有归属事实但历史已存在时，只有在 migration 明确验证
+   全部既有事实一致后，才能按其原身份接入初始 Baseline。不能选任一 mapping、采用最新记录、
+   自动拆分 Repository，或把两个 scope 静默合并。
+3. 任一跨 scope、无法解释的历史或初始归属冲突使整个 migration / seed 批次 / mapping update
+   事务拒绝，无部分写入；失败不改既有 mapping、Head、历史或 schema migration 版本。
+4. 同 scope 的重复 seed、禁用/启用、重启沿用合法身份，不覆盖已推进的业务 Head。读取当前
+   scope 和验收 Archive 时仍核对固定归属；遗留矛盾明确失败，不能只在 candidate 查询中过滤。
+
+具体 DDL、唯一索引和 INITIAL Node 接入由
+[5D Design §6](../plans/p5-5d-archive-design.md#6-persistence-migration-and-initial-baseline) 细化；
+本 Contract 只规定身份、原子拒绝和历史不变的语义。现有源码尚未实现此补充，不将文档确认
+表述为已存在的 migration/seed 保障。
+
+### 1A.3 Archive, authorization and reopen
+
+在固定归属成立时，一个 Repository 的业务候选全集即其唯一 scope 的候选全集；拥有该 scope
+Archive 权限的 actor 可覆盖其中其他 actor 的 Workspace。StartArchive 仍须按 §5 原子验收完整
+候选集合、分类全部未选 approved sibling 并释放相关占用；不能通过扩大当前 actor 的权限跨
+scope 收集数据来补救非法共享。
+
+scope 改绑新 Repository 不隐式授予对旧 Repository 的历史读取权限，也不重写历史 scope；
+每次访问仍遵守各用例当前权限及业务引用校验。本补充不新增历史授权 API。
+
+若未来需要 Repository 跨 scope 共享或转交，必须先重开本 Contract，由相应 owner 定义候选
+全集、权限范围、历史访问、sibling 处置、迁移及并发规则后再实现。撤掉唯一约束、将 mapping
+设为 disabled 或由普通 Archive 命令“接管”都不是 V1 合法操作。
 
 ## 2. Workspace 输入与预览
 
@@ -178,6 +259,10 @@ permission；完整项目历史需要device/project audit权限。
 
 本 contract 是不兼容重构基线，不承诺读取 legacy persistence record。旧 Dolt repository 的迁移/兼容由独立 cutover gate 决定。任何新增持久状态必须证明无法从现有权威事实可靠派生，并由对应 domain owner 提升 semantic version。
 
+§1A 的 `3.0.0` 收窄此前未禁止的跨 scope 共享/转交，可能拒绝既有配置，按不兼容
+业务映射约束处理；不将其标成 `2.0.0` 已有规则。正式版本推进见
+[独立复审接受记录](../plans/p5-5d-s0-independent-docs-acceptance.md)；不自动升级 SQLite schema、Repository wire、其他 Contract 或授权 production migration。
+
 ## 9. 验收标准
 
 - 每个对象、状态和 projection 能定位到上表唯一 owner。
@@ -191,6 +276,28 @@ permission；完整项目历史需要device/project audit权限。
 - 旧baseline sibling不能覆盖新baseline；再次采用必须从当前baseline重新Preview/Submit。
 - rejected/withdrawn/returned/closed-not-archived节点可从授权History读取并按exact commit比较。
 - 持久schema中不存在baseline batch、Candidate状态、ArchiveExecution或重复archive状态。
+
+## 9A. 固定归属补充验收（Accepted）
+
+以下是 §1A 的实施验收要求，当前未执行或宣称通过：
+
+- migration 拒绝两个不同 scope 指向同 Repository，包括 identical Head 与 disabled mapping；
+  既有历史 scope 冲突也必须拒绝，失败后原数据和 migration version 完整保留。
+- 首次/批量 seed、mapping update 拒绝共享和跨 scope 转交，批次不能部分写入；原 mapping
+  移走后仍通过 immutable initial identity 拒绝另一个 scope 接管。
+- 同 scope 多 actor、合法重复 seed、禁用/启用、改绑新 Repository 正常；旧归属/历史不改写，
+  重启不回退 Head，不隐式扩展旧 Repository 访问权限。
+- Archive 遇归属矛盾 fail closed；合法 scope 的完整 candidate/sibling/release 继续满足 §5，
+  无 Repository 写入、第二个 commit 或新增归属工作流。
+
+唯一测试 owner 沿用 [5D Design §9](../plans/p5-5d-archive-design.md#9-verification-ownership)：
+`test_archive_control_db_migrations.py` 拥有 migration/seed/update 归属矩阵，
+`test_archive_queries.py` 拥有候选完整性拒绝，`test_archive_transactions.py` 拥有原子归档效果，
+`test_archive_http.py` 拥有外部权限边界；不建立另一套 Contract 验证框架或重复矩阵。
+
+本补充已复审接受，解除 5D S1 的这项 Contract 前置，但不是 S1 实现授权或 5D slice acceptance。
+当前评审入口及其余三项 finding 的关闭依据见
+[5D Entry Brief](../plans/p5-5d-s0-entry-brief.md)。
 
 ## 10. 关联文档
 

@@ -1,6 +1,6 @@
 # P5-5D-S2 Bounded Read, Audit and Single-Transaction Archive Handoff
 
-状态：**S2 remediation delivered — pending independent closure**
+状态：**S2 evidence remediation delivered — pending independent closure**
 
 日期：2026-09-21
 
@@ -25,9 +25,11 @@ p5_5d_s2_stage_exit: not_evaluated
 stage: P5-5D-S2-bounded-read-audit-single-transaction-archive
 parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5d-archive-execution-plan.md
 implementation_candidate_head: 6c99810779
-remediation_implementation_head: 1796e5b0bf
+remediation_implementation_head: 12441a5402
+evidence_remediation_head: b34d64751a
 workspace_schema_version: 5
 uv_lock_in_diff: no
+candidate_binding: bind to the reachable commit that introduces or updates this handoff; never record amend intermediate objects
 next_step: P5-5D-S2-remediation-review
 ```
 
@@ -39,7 +41,13 @@ next_step: P5-5D-S2-remediation-review
 
 ## Scope paths
 
-### Initial implementation (`6c99810779`)
+### Allowed budget (unchanged in remediation)
+
+- `vnext/backend/src/gateway_backend/http/orchestration/review.py`
+- `vnext/backend/src/gateway_backend/http/routes/reviews.py`
+- `vnext/backend/tests/conftest.py` — `db_path` fixture (`6c99810779`)
+
+### Changed in `6c99810779`
 
 - `vnext/backend/src/gateway_backend/domain/archive/**`
 - `vnext/backend/src/gateway_backend/application/archive/**`
@@ -53,13 +61,12 @@ next_step: P5-5D-S2-remediation-review
 - `vnext/backend/src/gateway_backend/application/submission/review.py`
 - `vnext/backend/src/gateway_backend/application/submission/review_transaction.py`
 - `vnext/backend/src/gateway_backend/application/submission/errors.py`
-- `vnext/backend/src/gateway_backend/http/orchestration/review.py`
-- `vnext/backend/src/gateway_backend/http/routes/reviews.py`
 - `vnext/backend/src/gateway_backend/http/errors.py` — `ARCHIVE_CLOSED` mapping
+- `vnext/backend/tests/conftest.py`
 - `vnext/backend/tests/test_archive_*.py`
 - `vnext/backend/tests/support/archive_fixtures.py`
 
-### Remediation (review F1–F10)
+### Changed in remediation `12441a5402`
 
 - `vnext/backend/src/gateway_backend/application/archive/snapshot.py` — occupancy gate, bounded read mapping
 - `vnext/backend/src/gateway_backend/application/archive/queries.py` — submit blockers; remove dead code
@@ -69,11 +76,18 @@ next_step: P5-5D-S2-remediation-review
 - `vnext/backend/src/gateway_backend/http/errors.py` — `ArchiveIntegrityFailure` → 503
 - `vnext/backend/src/gateway_backend/infrastructure/control_db/migrations.py` — disposition partial unique
 - `vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_submission.py` — `LIMIT 201`
-- `vnext/backend/tests/support/archive_fixtures.py` — dual-sibling seed helpers
-- `vnext/backend/tests/support/baseline_fixtures.py` — scoped baseline node id
-- Extended: `test_archive_queries.py`, `test_archive_audit.py`, `test_archive_transactions.py`,
-  `test_archive_concurrency.py`, `test_archive_control_db_migrations.py`, `test_review_transactions.py`,
-  `test_review_http.py`, `test_submit_transactions.py`
+- `vnext/backend/tests/support/archive_fixtures.py`, `baseline_fixtures.py`
+- Extended archive/review/submit tests listed in F1–F10 remediation
+
+### Changed in evidence remediation (this commit)
+
+- `vnext/backend/tests/support/archive_fixtures.py` — bulk approved candidate SQL seed
+- `vnext/backend/tests/test_archive_queries.py` — real `LIMIT 201` boundary tests
+- `vnext/backend/tests/test_archive_audit.py` — resolution empty-stream REVOKE
+- `vnext/backend/tests/test_archive_transactions.py` — `ArchiveAnomalyUnresolved` Start; occupancy mismatch
+- `vnext/backend/tests/test_archive_concurrency.py` — strengthened races; AcceptSubmit/Start barrier
+- `vnext/backend/tests/test_submit_transactions.py` — scoped `seed_submit_ready_workspace` actor ids
+- This handoff and execution plan §3 note
 
 ## Review findings closed
 
@@ -81,18 +95,22 @@ next_step: P5-5D-S2-remediation-review
 | --- | --- |
 | F1 sibling/anomaly zero coverage | Dual-sibling fixtures; queries/audit/transaction tests for disposition, anomaly, resolution |
 | F2 occupancy gate missing | `collect_repository_submit_blockers` / `assert_repository_submit_gate`; `ArchiveIntegrityFailure` HTTP 503 |
-| F3 concurrency owner gaps | Two-connection races for Start/revoke and competing keys |
-| F4 audit owner gaps | REVOKE on empty stream; actor/sequence/subject-expiry matrix |
-| F5 unbounded candidate read | SQL `LIMIT 201` + domain `ArchiveCandidateReadBoundExceeded` |
+| F3 concurrency owner gaps | Two-connection races; strengthened post-state; AcceptSubmit/Start barrier |
+| F4 audit owner gaps | REVOKE on empty stream (confirmation + resolution); actor/sequence/subject-expiry matrix |
+| F5 unbounded candidate read | SQL `LIMIT 201` + real 200/201 boundary tests + `ArchiveCandidateReadBoundExceeded` mapping |
 | F6 cross-repo negative case removed | `scoped_baseline_node_id` fix; restore `different_repository_same_project` |
-| F7 allowlist drift | Execution plan §3 budget updated |
+| F7 allowlist drift | Execution plan §3 budget updated incl. `T/conftest.py` |
 | F8 missing handoff | This document |
 | F9 `ARCHIVE_CLOSED` HTTP untested | `test_review_http.py` 409 assertions |
 | F10 disposition partial unique | Migration index + migration test assertion |
 
+## Open observations (no production change)
+
+- `start_archive` validates `candidate_set_digest` before `assert_repository_submit_gate`; when both digest mismatch and active attempts exist, callers observe `CandidateSetConflict` rather than `ActiveSubmitAttempt` (Design §5.1 step order vs current implementation).
+
 ## Invariants delivered
 
-- Bounded candidate read at SQL layer (`LIMIT 201`) with typed scope-limit errors
+- Bounded candidate read at SQL layer (`LIMIT 201`) with typed scope-limit errors and regression tests on real rows
 - Repository occupancy integrity gate before Archive Start (Design §5.1.4)
 - Single-transaction Archive: Plan/Result/Node/Head CAS/disposition/release atomic in one UoW
 - Audit append with fingerprint idempotency; REVOKE requires existing stream
@@ -102,10 +120,10 @@ next_step: P5-5D-S2-remediation-review
 
 ## Unique test owners
 
-- `tests/test_archive_queries.py` — candidate eligibility, sibling set, anomaly preview, scope limit
+- `tests/test_archive_queries.py` — candidate eligibility, sibling set, anomaly preview, SQL fetch limit
 - `tests/test_archive_audit.py` — confirmation/resolution idempotency, REVOKE, actor, subject expiry
-- `tests/test_archive_transactions.py` — single-tx Start, dual-sibling disposition, occupancy integrity
-- `tests/test_archive_concurrency.py` — two-connection commit-order races
+- `tests/test_archive_transactions.py` — single-tx Start, dual-sibling disposition, occupancy integrity, anomaly Start block
+- `tests/test_archive_concurrency.py` — two-connection commit-order races incl. AcceptSubmit/Start
 - `tests/test_archive_control_db_migrations.py` — v5 Archive DDL including partial unique index
 - `tests/test_review_transactions.py` — `ARCHIVE_CLOSED`, replay after archive
 - `tests/test_review_http.py` — HTTP 409 `ARCHIVE_CLOSED`
@@ -120,7 +138,7 @@ cd vnext/backend
   tests/test_archive_control_db_migrations.py tests/test_review_transactions.py \
   tests/test_review_http.py tests/test_submit_transactions.py tests/test_submit_idempotency.py \
   tests/test_architecture.py
-# => 218 passed, 1 warning, ~9.1s
+# => 223 passed, 1 warning, ~9.6s
 
 ../scripts/uv-consume.sh -C . run ruff check .
 # => All checks passed
@@ -138,9 +156,11 @@ ruff + mypy 全通过；无 `uv.lock` 变更。
 container_rebuild_required: deferred
 container_reason: S2 is control DB / application / tests only; no Archive routes, Compose, entrypoint, or runtime ENV change
 deferred: S3/S4
-last_verified_image_revision: not_applicable
+last_verified_image_revision: 04317788c2
 container_gate_for_current_head: not_applicable
 ```
+
+`last_verified_image_revision` 引用 execution plan §6.3 既有锚点（5C accepted candidate）；本轮未重建镜像。
 
 ## Forbidden imports
 

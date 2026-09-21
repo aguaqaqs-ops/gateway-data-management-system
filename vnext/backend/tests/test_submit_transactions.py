@@ -381,13 +381,21 @@ def seed_submit_ready_workspace(
     db_path: Path,
     *,
     repository_id: str = "repo-1",
+    actor_id: str = "actor-1",
+    device_key: str = "device-1",
+    project_id: str = "project-1",
 ) -> SubmitSeed:
     _seed_provisioned_mapping(db_path, repository_id=repository_id)
     scope_resolution = FixedScopeResolutionPort(
         repository_id=repository_id,
         baseline_head=BASELINE_HEAD,
     )
-    context = make_identity(permissions=frozenset({"upload_submit_workspace", "workspace_read"}))
+    context = make_identity(
+        actor_id=actor_id,
+        device_key=device_key,
+        project_id=project_id,
+        permissions=frozenset({"upload_submit_workspace", "workspace_read"}),
+    )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         created = create_or_get_workspace(
             context=context,
@@ -396,8 +404,10 @@ def seed_submit_ready_workspace(
             created_at=TS0,
         )
         workspace = created.workspace
+        upload_revision_id = "ur-1" if actor_id == "actor-1" else f"ur-{actor_id}"
+        preview_result_id = "pr-1" if actor_id == "actor-1" else f"pr-{actor_id}"
         upload_revision = UploadRevision(
-            upload_revision_id="ur-1",
+            upload_revision_id=upload_revision_id,
             workspace_id=workspace.workspace_id,
             generation=1,
             input_completeness=InputCompleteness.FULL,
@@ -415,13 +425,18 @@ def seed_submit_ready_workspace(
                     raw_sha256="sha256:modified",
                 ),
             },
-            idempotency_key="upload-key",
-            request_fingerprint="fp-upload",
-            created_by="actor-1",
+            idempotency_key=f"upload-key-{actor_id}",
+            request_fingerprint=f"fp-upload-{actor_id}",
+            created_by=actor_id,
             created_at=TS0,
         )
-        preview = _preview_result(workspace.workspace_id)
-        preview = replace(preview, repository_id=repository_id)
+        preview = replace(
+            _preview_result(workspace.workspace_id),
+            preview_result_id=preview_result_id,
+            upload_revision_id=upload_revision_id,
+            repository_id=repository_id,
+            operation_id=f"op-preview-{actor_id}",
+        )
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
         updated_workspace = replace(

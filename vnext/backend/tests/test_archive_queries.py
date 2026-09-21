@@ -230,34 +230,59 @@ def test_preview_dual_sibling_dispositions(db_path: Path) -> None:
     assert dispositions[dual_seed.sibling_submission_id] == "CLOSED_NOT_ARCHIVED"
 
 
-def test_archive_candidates_reject_scope_over_limit(
+@pytest.mark.parametrize(
+    ("candidate_count", "expect_limit"),
+    [
+        (200, False),
+        (201, True),
+    ],
+)
+def test_archive_candidates_enforce_sql_fetch_limit(
     db_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    candidate_count: int,
+    expect_limit: bool,
 ) -> None:
     from gateway_backend.application.archive.errors import ArchiveScopeLimitExceeded
-    from gateway_backend.domain.submission.ports import ArchiveCandidateFacts
-    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
-    from tests.support.archive_fixtures import seed_approved_archive_candidate
+    from tests.support.archive_fixtures import seed_bulk_approved_archive_candidates
 
-    seed = seed_approved_archive_candidate(db_path)
-
-    def over_limit(
-        self: SQLiteSubmissionRepository,
-        repository_id: str,
-        *,
-        baseline_node_id: str,
-        baseline_commit_id: str,
-    ) -> tuple[ArchiveCandidateFacts, ...]:
-        raise ArchiveScopeLimitExceeded()
-
-    monkeypatch.setattr(SQLiteSubmissionRepository, "list_archive_candidate_facts", over_limit)
+    seed = seed_bulk_approved_archive_candidates(db_path, count=candidate_count)
     scope_resolution = FixedScopeResolutionPort(
         repository_id=seed.repository_id,
         baseline_head=BASELINE_HEAD,
     )
-    with pytest.raises(ArchiveScopeLimitExceeded):
-        get_archive_candidates(
+    if expect_limit:
+        with pytest.raises(ArchiveScopeLimitExceeded):
+            get_archive_candidates(
+                context=seed.archiver_context,
+                scope_resolution=scope_resolution,
+                unit_of_work_factory=_uow_factory(db_path),
+            )
+    else:
+        candidates = get_archive_candidates(
             context=seed.archiver_context,
             scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
         )
+        assert len(candidates.candidates) == candidate_count
+
+
+def test_sqlite_list_archive_candidate_facts_raises_at_fetch_limit(db_path: Path) -> None:
+    from gateway_backend.domain.submission.errors import ArchiveCandidateReadBoundExceeded
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+    from tests.support.archive_fixtures import seed_bulk_approved_archive_candidates
+
+    from datetime import UTC, datetime
+
+    seed = seed_bulk_approved_archive_candidates(db_path, count=201)
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        repository = SQLiteSubmissionRepository(
+            unit_of_work.connection,
+            transaction_now=datetime(2024, 7, 1, tzinfo=UTC),
+        )
+        with pytest.raises(ArchiveCandidateReadBoundExceeded):
+            repository.list_archive_candidate_facts(
+                seed.repository_id,
+                baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+            )

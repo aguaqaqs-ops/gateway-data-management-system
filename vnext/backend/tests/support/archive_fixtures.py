@@ -28,12 +28,15 @@ from gateway_backend.application.archive.start import (
     StartArchiveResult,
     start_archive,
 )
+from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
+from gateway_backend.operations.contracts import OPERATION_RUNTIME_CONTRACT_VERSION
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
     ArchiveConfirmationAction,
 )
 from gateway_backend.domain.submission.review import ReviewAction
 from gateway_backend.domain.workspace.models import IdentityContext
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
 from tests.test_review_transactions import (
     ReviewSeed,
@@ -119,6 +122,163 @@ def seed_approved_archive_candidate(db_path: Path) -> ArchiveSeed:
         _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-archive"),
     )
     return archive_seed_from_review_seed(review_seed)
+
+
+def _insert_bulk_approved_archive_candidate_rows(
+    db_path: Path,
+    *,
+    repository_id: str,
+    additional_count: int,
+    start_index: int = 2,
+) -> None:
+    node_id = BASELINE_HEAD.business_baseline_node_id
+    commit_id = BASELINE_HEAD.business_baseline_commit_id
+    head_version = BASELINE_HEAD.baseline_head_version
+    workspace_rows: list[tuple[object, ...]] = []
+    operation_rows: list[tuple[object, ...]] = []
+    attempt_rows: list[tuple[object, ...]] = []
+    submission_rows: list[tuple[object, ...]] = []
+    review_rows: list[tuple[object, ...]] = []
+    for offset in range(additional_count):
+        index = start_index + offset
+        submission_id = f"sub-bulk-{index}"
+        attempt_id = f"attempt-bulk-{index}"
+        workspace_id = f"ws-bulk-{index}"
+        operation_id = f"op-bulk-{index}"
+        workspace_rows.append(
+            (
+                workspace_id,
+                repository_id,
+                f"actor-bulk-{index}",
+                f"device-bulk-{index}",
+                f"project-bulk-{index}",
+            )
+        )
+        operation_rows.append(
+            (
+                operation_id,
+                OPERATION_RUNTIME_CONTRACT_VERSION,
+                "backend-vnext/submit",
+                SUBMIT_JOB_CONTRACT_VERSION,
+                b"{}",
+                b"[]",
+                b"[]",
+            )
+        )
+        attempt_rows.append(
+            (
+                attempt_id,
+                workspace_id,
+                repository_id,
+                node_id,
+                commit_id,
+                head_version,
+                b"[]",
+                b"[]",
+                operation_id,
+                submission_id,
+            )
+        )
+        submission_rows.append(
+            (
+                submission_id,
+                attempt_id,
+                workspace_id,
+                repository_id,
+                node_id,
+                commit_id,
+                b"[]",
+            )
+        )
+        review_rows.append((submission_id,))
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        connection = unit_of_work.connection
+        connection.executemany(
+            """
+            INSERT INTO workspace_records (
+                workspace_id, owner_actor_id, gateway_device_external_key, business_project_id,
+                repository_id, state, generation, optimistic_version, current_upload_revision_id,
+                current_preview_result_id, created_at_us, updated_at_us, closed_at_us
+            ) VALUES (?, ?, ?, ?, ?, 'OPEN', 1, 0, NULL, NULL, 0, 0, NULL)
+            """,
+            workspace_rows,
+        )
+        connection.executemany(
+            """
+            INSERT INTO operation_records (
+                operation_id, contract_version, optimistic_version, job_kind, job_contract_version,
+                job_payload, job_payload_ref, business_refs, artifact_refs, repository_operation_id,
+                checkpoint_ref, ready_closure_ref, status, diagnostic, cancel_requested,
+                created_at_us, updated_at_us, completed_at_us
+            ) VALUES (?, ?, 0, ?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'SUCCEEDED', NULL, 0, 0, 0, 0)
+            """,
+            operation_rows,
+        )
+        connection.executemany(
+            """
+            INSERT INTO submit_attempt_records (
+                submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
+                preview_result_id, repository_id, business_baseline_node_id,
+                business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
+                canonical_business_digest, source_digest, snapshot_digest, source_artifact_refs,
+                snapshot_table_artifact_refs, preview_ready_closure_ref, preview_ready_closure_digest,
+                canonicalization_manifest_ref, canonicalization_manifest_digest,
+                repository_import_artifact_ref, repository_artifact_ref, repository_operation_id,
+                repository_operation_evidence, requested_target_ref, requested_verification_policy,
+                requested_unknown_type_policy, builder_mutation_policy, accept_idempotency_key,
+                accept_request_fingerprint, repository_upload_idempotency_key,
+                repository_import_idempotency_key, operation_id, state, submission_id,
+                optimistic_version, created_by, created_at_us, effect_pending_at_us,
+                finalized_at_us, aborted_at_us, abort_code
+            ) VALUES (
+                ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, ?, 'commit-main',
+                'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, 'closure-1', 'd-closure',
+                'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
+                'REJECT', 'REBUILD_ALWAYS', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
+                ?, 'FINALIZED', ?, 1, 'actor-1', 0, 0, 0, NULL, NULL
+            )
+            """,
+            attempt_rows,
+        )
+        connection.executemany(
+            """
+            INSERT INTO submission_records (
+                submission_id, submit_attempt_id, workspace_id, workspace_generation,
+                upload_revision_id, preview_result_id, repository_id, based_on_baseline_node_id,
+                business_baseline_commit_id, repository_commit_id, canonical_business_digest,
+                source_artifact_refs, canonicalization_manifest_ref,
+                canonicalization_manifest_digest, repository_import_artifact_raw_sha256,
+                repository_artifact_id, requested_verification_policy,
+                completed_verification_policy, requested_unknown_type_policy, target_ref,
+                created_by, created_at_us
+            ) VALUES (
+                ?, ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, 'commit-new',
+                'sha256:canonical', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
+                'repo-artifact-1', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0
+            )
+            """,
+            submission_rows,
+        )
+        connection.executemany(
+            """
+            INSERT INTO review_projection_records (
+                submission_id, status, optimistic_version, latest_sequence,
+                updated_by, updated_at_us
+            ) VALUES (?, 'APPROVED', 0, 1, 'actor-1', 0)
+            """,
+            review_rows,
+        )
+
+
+def seed_bulk_approved_archive_candidates(db_path: Path, *, count: int) -> ArchiveSeed:
+    seed = seed_approved_archive_candidate(db_path)
+    if count > 1:
+        _insert_bulk_approved_archive_candidate_rows(
+            db_path,
+            repository_id=seed.repository_id,
+            additional_count=count - 1,
+        )
+    return seed
 
 
 def seed_approved_dual_sibling_archive(db_path: Path) -> DualSiblingArchiveSeed:

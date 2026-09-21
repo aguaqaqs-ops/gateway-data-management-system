@@ -133,6 +133,25 @@ def test_confirmation_replay_returns_original_event_after_subject_expires(db_pat
     assert replay.sequence == first.sequence
 
 
+def test_resolution_revoke_on_empty_stream_is_rejected(db_path: Path) -> None:
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=dual_seed.primary.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    with pytest.raises(ArchiveAuditVersionConflict):
+        append_archive_anomaly_resolution(
+            command=_resolution_command(
+                dual_seed,
+                action=ArchiveAnomalyResolutionAction.REVOKE,
+                reason="revoke without stream",
+            ),
+            scope_resolution=scope_resolution,
+            unit_of_work_factory=_uow_factory(db_path),
+            now=datetime(2024, 7, 1, tzinfo=UTC),
+        )
+
+
 def test_confirmation_revoke_on_empty_stream_is_rejected(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
     scope_resolution = FixedScopeResolutionPort(

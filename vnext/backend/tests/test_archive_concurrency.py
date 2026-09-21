@@ -185,15 +185,38 @@ def test_concurrent_archive_start_and_review_return_produce_single_winner(db_pat
         )
 
     first, second = _run_barrier_race(db_path, first=do_start, second=do_return)
-    result_types = {type(item) for item in (first, second)}
     from gateway_backend.application.archive.errors import CandidateSetConflict
+    from gateway_backend.application.archive.start import StartArchiveResult
     from gateway_backend.application.submission.review_contracts import ApplyReviewResult
+    from gateway_backend.domain.submission.review import ReviewStatus
 
-    assert (
-        ArchiveClosed in result_types
-        or CandidateSetConflict in result_types
-        or sum(1 for item in (first, second) if isinstance(item, ApplyReviewResult)) == 1
-    )
+    start_successes = [
+        item
+        for item in (first, second)
+        if isinstance(item, StartArchiveResult) and item.replay is False
+    ]
+    review_successes = [item for item in (first, second) if isinstance(item, ApplyReviewResult)]
+    assert len(start_successes) + len(review_successes) == 1
+
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        plan_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM archive_plan_records"
+        ).fetchone()[0]
+        review_status = unit_of_work.connection.execute(
+            "SELECT status FROM review_projection_records WHERE submission_id = ?",
+            (review_seed.submission_id,),
+        ).fetchone()[0]
+
+    if start_successes:
+        assert plan_count == 1
+        assert review_status == ReviewStatus.APPROVED.value
+        assert any(isinstance(item, ArchiveClosed) for item in (first, second))
+    else:
+        assert plan_count == 0
+        assert review_status == ReviewStatus.RETURNED_FOR_REVISION.value
+        assert any(
+            isinstance(item, (ArchiveClosed, CandidateSetConflict)) for item in (first, second)
+        )
 
 
 def test_concurrent_dual_archive_keys_commit_one_plan(db_path: Path) -> None:
@@ -240,34 +263,79 @@ def test_concurrent_dual_archive_keys_commit_one_plan(db_path: Path) -> None:
     assert plan_count == 1
 
 
-def test_concurrent_archive_start_and_active_attempt_blocks_one_side(
-    db_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+def test_concurrent_accept_submit_and_archive_start_linearized(db_path: Path) -> None:
+    from gateway_backend.application.submission.accept_transaction import accept_submit_transaction
+    from gateway_backend.application.submission.errors import BaselineVersionConflict
+    from gateway_backend.application.archive.start import StartArchiveResult
+    from tests.test_submit_transactions import (
+        FakeBaselineCanonicalDigestPort,
+        RecordingMainResolvePort,
+        _accept_command,
+        _preflight,
+        _submit_job_registry,
+        seed_submit_ready_workspace,
+    )
 
-    seed = seed_approved_archive_candidate(db_path)
-    confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
+    archive_seed = seed_approved_archive_candidate(db_path)
+    confirmation_sequence = append_selection_confirmation(archive_seed, now=TS_ARCHIVE)
+    submit_seed = seed_submit_ready_workspace(
+        db_path,
+        repository_id=archive_seed.repository_id,
+        actor_id="actor-accept-race",
+    )
     scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
+        repository_id=archive_seed.repository_id,
         baseline_head=BASELINE_HEAD,
     )
 
-    def active_attempts(
-        self: SQLiteSubmissionRepository,
-        repository_id: str,
-    ) -> tuple[ArchiveActiveAttemptFacts, ...]:
-        return (ArchiveActiveAttemptFacts(submit_attempt_id="attempt-active-1", state="PREPARED"),)
+    def do_accept() -> object:
+        return accept_submit_transaction(
+            command=_accept_command(submit_seed, idempotency_key="accept-race"),
+            scope_resolution=scope_resolution,
+            unit_of_work_factory=_uow_factory(db_path),
+            job_registry=_submit_job_registry(),
+            baseline_digest=FakeBaselineCanonicalDigestPort(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(submit_seed),
+            now=TS_ARCHIVE,
+        )
 
-    monkeypatch.setattr(SQLiteSubmissionRepository, "list_active_submit_attempts", active_attempts)
-
-    with pytest.raises(ActiveSubmitAttempt):
-        start_archive(
-            command=_start_command(seed, confirmation_sequence),
+    def do_start() -> object:
+        return start_archive(
+            command=_start_command(archive_seed, confirmation_sequence),
             scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
+
+    first, second = _run_barrier_race(db_path, first=do_accept, second=do_start)
+    start_successes = [
+        item
+        for item in (first, second)
+        if isinstance(item, StartArchiveResult) and item.replay is False
+    ]
+
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        plan_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM archive_plan_records"
+        ).fetchone()[0]
+        active_attempt_count = unit_of_work.connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM submit_attempt_records
+            WHERE repository_id = ?
+              AND state IN ('PREPARED', 'EFFECT_PENDING')
+            """,
+            (archive_seed.repository_id,),
+        ).fetchone()[0]
+
+    if start_successes:
+        assert plan_count == 1
+        assert any(isinstance(item, BaselineVersionConflict) for item in (first, second))
+    else:
+        assert plan_count == 0
+        assert active_attempt_count >= 1
+        assert any(isinstance(item, ActiveSubmitAttempt) for item in (first, second))
 
 
 def test_concurrent_revoke_and_start_are_linearized(db_path: Path) -> None:

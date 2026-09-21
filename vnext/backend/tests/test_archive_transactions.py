@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 import pytest
 
-from gateway_backend.application.archive.errors import ArchiveConfirmationRequired
+from gateway_backend.application.archive.errors import ArchiveAnomalyUnresolved, ArchiveConfirmationRequired
 from gateway_backend.application.archive.start import StartArchiveCommand
 from gateway_backend.application.submission.errors import IdempotencyConflict
 from gateway_backend.domain.archive.models import ArchiveDispositionKind
@@ -196,6 +196,40 @@ def test_start_archive_dual_sibling_writes_both_dispositions(db_path: Path) -> N
     assert sibling_disposition[0].disposition is ArchiveDispositionKind.CLOSED_NOT_ARCHIVED
 
 
+def test_start_archive_rejects_unresolved_sibling_anomaly(db_path: Path) -> None:
+    from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
+    from gateway_backend.application.archive.start import start_archive
+    from tests.support.archive_fixtures import seed_approved_dual_sibling_archive
+
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    confirmation_sequence = append_selection_confirmation(dual_seed.primary, now=TS_ARCHIVE)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=dual_seed.primary.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    with pytest.raises(ArchiveAnomalyUnresolved):
+        start_archive(
+            command=StartArchiveCommand(
+                context=dual_seed.primary.archiver_context,
+                idempotency_key="start-without-resolution",
+                expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+                candidate_set_digest=dual_seed.primary.candidate_set_digest,
+                selected_ref=dual_seed.primary.selected_ref,
+                confirmation_refs=(
+                    ArchiveAuditReferenceInput(
+                        subject_digest=dual_seed.primary.selection_subject_digest,
+                        sequence=confirmation_sequence,
+                    ),
+                ),
+                anomaly_resolution_refs=(),
+            ),
+            scope_resolution=scope_resolution,
+            unit_of_work_factory=_uow_factory(db_path),
+            now=TS_ARCHIVE,
+        )
+
+
 def test_start_archive_rejects_orphan_repository_occupancy(
     db_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -247,6 +281,78 @@ def test_start_archive_rejects_orphan_repository_occupancy(
             command=StartArchiveCommand(
                 context=seed.archiver_context,
                 idempotency_key="start-with-orphan-occupancy",
+                expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+                candidate_set_digest=seed.candidate_set_digest,
+                selected_ref=seed.selected_ref,
+                confirmation_refs=(
+                    ArchiveAuditReferenceInput(
+                        subject_digest=seed.selection_subject_digest,
+                        sequence=confirmation_sequence,
+                    ),
+                ),
+                anomaly_resolution_refs=(),
+            ),
+            scope_resolution=scope_resolution,
+            unit_of_work_factory=_uow_factory(db_path),
+            now=TS_ARCHIVE,
+        )
+
+
+def test_start_archive_rejects_mismatched_active_attempt_and_occupancy(
+    db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.application.archive.start import start_archive
+    from gateway_backend.domain.submission.models import RepositorySubmitOccupancy
+    from gateway_backend.domain.submission.ports import ArchiveActiveAttemptFacts
+    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+
+    seed = seed_approved_archive_candidate(db_path)
+    confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission(seed.submission_id)
+        assert submission is not None
+    occupancy = RepositorySubmitOccupancy(
+        repository_id=seed.repository_id,
+        workspace_id=submission.workspace_id,
+        submit_attempt_id="attempt-occupancy-b",
+        business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        acquired_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+
+    def active_attempts(
+        self: SQLiteSubmissionRepository,
+        repository_id: str,
+    ) -> tuple[ArchiveActiveAttemptFacts, ...]:
+        if repository_id == seed.repository_id:
+            return (
+                ArchiveActiveAttemptFacts(submit_attempt_id="attempt-active-a", state="PREPARED"),
+            )
+        return ()
+
+    def mismatched_occupancy(
+        self: SQLiteSubmissionRepository,
+        repository_id: str,
+    ) -> RepositorySubmitOccupancy | None:
+        if repository_id == seed.repository_id:
+            return occupancy
+        return None
+
+    monkeypatch.setattr(SQLiteSubmissionRepository, "list_active_submit_attempts", active_attempts)
+    monkeypatch.setattr(SQLiteSubmissionRepository, "get_repository_occupancy", mismatched_occupancy)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=seed.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    with pytest.raises(ArchiveIntegrityFailure):
+        start_archive(
+            command=StartArchiveCommand(
+                context=seed.archiver_context,
+                idempotency_key="start-with-mismatched-occupancy",
                 expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
                 expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
                 candidate_set_digest=seed.candidate_set_digest,

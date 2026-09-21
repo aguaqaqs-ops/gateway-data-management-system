@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
@@ -9,7 +10,36 @@ from gateway_backend.domain.submission.review import (
     ReviewEvent,
     ReviewIdempotencyRecord,
     ReviewProjection,
+    ReviewStatus,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveCandidateFacts:
+    submission: Submission
+    review_status: ReviewStatus
+    review_sequence: int
+    closed_by_archive: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveActiveAttemptFacts:
+    submit_attempt_id: str
+    state: str
+
+
+class ArchiveCandidateReadPort(Protocol):
+    def list_archive_candidate_facts(
+        self,
+        repository_id: str,
+        *,
+        baseline_node_id: str,
+        baseline_commit_id: str,
+    ) -> tuple[ArchiveCandidateFacts, ...]:
+        """Return bounded submission/review facts for archive candidate evaluation."""
+
+    def list_active_submit_attempts(self, repository_id: str) -> tuple[ArchiveActiveAttemptFacts, ...]:
+        """Return non-terminal submit attempts for one repository."""
 
 
 class SubmitAttemptReadPort(Protocol):

@@ -1,6 +1,6 @@
 # P5-5D Archive Execution Plan
 
-状态：**ACCEPTED — 2026-09-20 独立 docs review 通过；implementation 未授权**
+状态：**ACCEPTED — S1 pass；S2 implementation in progress**
 
 审核依据：[S0 Independent Docs Acceptance](p5-5d-s0-independent-docs-acceptance.md)。
 
@@ -26,17 +26,20 @@ docs_revision_review: pass
 closed_document_findings: [initial_empty_design_budget, audit_request_fingerprint, utf8_limits, repository_scope_contract_acceptance]
 remaining_design_item: none
 repository_scope_contract_amendment: accepted
-p5_5d_implementation_authorized: no
-first_authorized_implementation_stage: none
+p5_5d_implementation_authorized: yes
+first_authorized_implementation_stage: S2
+p5_5d_s1_stage_exit: pass
+p5_5d_s2_stage_exit: not_evaluated
 production_deployment_authorized: no
 new_repository_effect_authorized: no
 p5_5d_slice_exit: not_evaluated
-next_step: separate_p5_5d_s1_implementation_authorization
+next_step: P5-5D-S2-implementation
 ```
 
-S0 文档编写及独立复审已完成；S1–S4 均 **not started / not authorized**。独立 docs review
-通过也不自动启动 S1，须新的 implementation authority。未来测试环境中为构造 Submission 所需
-Repository writes 也应在实施授权中明确限定为现有 Submit journey 测试；Archive 自身始终零写。
+S0 文档编写及独立复审已完成。S1 **pass**（Baseline Head authority、initial-empty 前置、v5
+Baseline DDL、focused gate）；S2 实施授权中；S3–S4 未开始。S1 交付无 Archive API；v5 仍未
+发布。未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；
+Archive 自身始终零写。
 
 阶段按 Archive 的实际依赖划分，不照搬 5C 的持久化/HTTP/评审轮次：S1 先建立可靠 Head authority，并由原 owner 补齐 initial-empty Preview/Submit 前置链路；
 S2 在同 DB 交付候选、审计、归档与跨用例屏障；S3 暴露完整生产 API；S4 对精确候选进行 fresh
@@ -165,6 +168,9 @@ Submit restart、Backend CMD/readiness gates（§6 现有文件）；阶段 pass
 writer、修改公用 canonical/wire 语义、出现需重开反向基数 Contract 的需求或 initial-empty 仍有失败。
 交付 S1 handoff 明确“无 Archive API；v5 尚未发布”，列明 initial-empty 已修复/仅验证的精确路径
 和 focused 证据；不得把未验证能力标已支持。
+
+**S1 stage exit: pass**（2026-09-21）。已交付 Baseline Head DB authority、v5 Baseline DDL、
+initial-empty preview 修复与 focused gate；无 Archive API；v5 仍未发布。
 
 ### S2 — bounded read, audit and single-transaction Archive
 

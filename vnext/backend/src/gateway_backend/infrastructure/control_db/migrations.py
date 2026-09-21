@@ -191,6 +191,8 @@ def _apply_workspace_v5(connection: sqlite3.Connection) -> None:
     for statement in _workspace_v5_baseline_statements():
         connection.execute(statement)
     _migrate_v5_baseline_authority(connection, migration_rows)
+    for statement in _workspace_v5_archive_statements():
+        connection.execute(statement)
     _rebuild_v5_provisioned_scope_mappings(connection, migration_rows)
 
 
@@ -1081,6 +1083,224 @@ def _workspace_v5_baseline_statements() -> tuple[str, ...]:
             FOREIGN KEY (repository_id, node_id)
                 REFERENCES baseline_node_records(repository_id, node_id) ON DELETE RESTRICT
         )
+        """,
+    )
+
+
+def _workspace_v5_archive_statements() -> tuple[str, ...]:
+    disposition_kinds = ", ".join(("'ARCHIVED_BASELINE'", "'CLOSED_NOT_ARCHIVED'"))
+    confirmation_actions = ", ".join(("'CONFIRM'", "'REVOKE'"))
+    resolution_actions = ", ".join(("'ACKNOWLEDGE_EXCLUSION'", "'REVOKE'"))
+    confirmation_subject = "'CONFIRM_SELECTION'"
+    resolution_subject = "'APPROVED_SIBLING_EXCLUDED'"
+    return (
+        """
+        CREATE TABLE archive_plan_records (
+            plan_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(plan_id) = 'text'
+                       AND length(CAST(plan_id AS BLOB)) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text'
+                       AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
+            gateway_device_external_key TEXT NOT NULL
+                CHECK (typeof(gateway_device_external_key) = 'text'
+                       AND length(CAST(gateway_device_external_key AS BLOB)) BETWEEN 1 AND 255),
+            business_project_id TEXT NOT NULL
+                CHECK (typeof(business_project_id) = 'text'
+                       AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
+            idempotency_key TEXT NOT NULL
+                CHECK (typeof(idempotency_key) = 'text'
+                       AND length(CAST(idempotency_key AS BLOB)) BETWEEN 1 AND 255),
+            request_fingerprint TEXT NOT NULL
+                CHECK (typeof(request_fingerprint) = 'text'
+                       AND length(CAST(request_fingerprint AS BLOB)) BETWEEN 1 AND 255),
+            accepted_by TEXT NOT NULL
+                CHECK (typeof(accepted_by) = 'text'
+                       AND length(CAST(accepted_by AS BLOB)) BETWEEN 1 AND 255),
+            accepted_at_us INTEGER NOT NULL
+                CHECK (typeof(accepted_at_us) = 'integer'),
+            old_baseline_node_id TEXT NOT NULL
+                CHECK (typeof(old_baseline_node_id) = 'text'
+                       AND length(CAST(old_baseline_node_id AS BLOB)) BETWEEN 1 AND 255),
+            old_baseline_commit_id TEXT NOT NULL
+                CHECK (typeof(old_baseline_commit_id) = 'text'
+                       AND length(CAST(old_baseline_commit_id AS BLOB)) BETWEEN 1 AND 255),
+            old_baseline_head_version INTEGER NOT NULL
+                CHECK (typeof(old_baseline_head_version) = 'integer'
+                       AND old_baseline_head_version >= 0),
+            candidate_set_digest TEXT NOT NULL
+                CHECK (typeof(candidate_set_digest) = 'text'
+                       AND length(CAST(candidate_set_digest AS BLOB)) BETWEEN 1 AND 255),
+            selected_submission_id TEXT NOT NULL
+                CHECK (typeof(selected_submission_id) = 'text'
+                       AND length(CAST(selected_submission_id AS BLOB)) BETWEEN 1 AND 255),
+            selected_candidate_digest TEXT NOT NULL
+                CHECK (typeof(selected_candidate_digest) = 'text'
+                       AND length(CAST(selected_candidate_digest AS BLOB)) BETWEEN 1 AND 255),
+            selected_repository_commit_id TEXT NOT NULL
+                CHECK (typeof(selected_repository_commit_id) = 'text'
+                       AND length(CAST(selected_repository_commit_id AS BLOB)) BETWEEN 1 AND 255),
+            confirmation_refs_json TEXT NOT NULL
+                CHECK (typeof(confirmation_refs_json) = 'text'),
+            anomaly_resolution_refs_json TEXT NOT NULL
+                CHECK (typeof(anomaly_resolution_refs_json) = 'text'),
+            frozen_input_json TEXT NOT NULL
+                CHECK (typeof(frozen_input_json) = 'text')
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX archive_plan_records_start_key
+            ON archive_plan_records(
+                repository_id,
+                gateway_device_external_key,
+                business_project_id,
+                idempotency_key
+            )
+        """,
+        """
+        CREATE TABLE archive_result_records (
+            result_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(result_id) = 'text'
+                       AND length(CAST(result_id AS BLOB)) BETWEEN 1 AND 255),
+            plan_id TEXT NOT NULL UNIQUE
+                CHECK (typeof(plan_id) = 'text'
+                       AND length(CAST(plan_id AS BLOB)) BETWEEN 1 AND 255),
+            baseline_node_id TEXT NOT NULL UNIQUE
+                CHECK (typeof(baseline_node_id) = 'text'
+                       AND length(CAST(baseline_node_id AS BLOB)) BETWEEN 1 AND 255),
+            archived_at_us INTEGER NOT NULL
+                CHECK (typeof(archived_at_us) = 'integer'),
+            FOREIGN KEY (plan_id) REFERENCES archive_plan_records(plan_id) ON DELETE RESTRICT,
+            FOREIGN KEY (baseline_node_id) REFERENCES baseline_node_records(node_id) ON DELETE RESTRICT
+        )
+        """,
+        f"""
+        CREATE TABLE archive_disposition_records (
+            submission_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(submission_id) = 'text'
+                       AND length(CAST(submission_id AS BLOB)) BETWEEN 1 AND 255),
+            result_id TEXT NOT NULL
+                CHECK (typeof(result_id) = 'text'
+                       AND length(CAST(result_id AS BLOB)) BETWEEN 1 AND 255),
+            disposition TEXT NOT NULL
+                CHECK (typeof(disposition) = 'text' AND disposition IN ({disposition_kinds})),
+            FOREIGN KEY (result_id) REFERENCES archive_result_records(result_id) ON DELETE RESTRICT
+        )
+        """,
+        """
+        CREATE INDEX archive_disposition_records_result_id
+            ON archive_disposition_records(result_id)
+        """,
+        f"""
+        CREATE TABLE archive_confirmation_events (
+            event_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(event_id) = 'text'
+                       AND length(CAST(event_id AS BLOB)) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text'
+                       AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
+            gateway_device_external_key TEXT NOT NULL
+                CHECK (typeof(gateway_device_external_key) = 'text'
+                       AND length(CAST(gateway_device_external_key AS BLOB)) BETWEEN 1 AND 255),
+            business_project_id TEXT NOT NULL
+                CHECK (typeof(business_project_id) = 'text'
+                       AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
+            subject_kind TEXT NOT NULL
+                CHECK (subject_kind = {confirmation_subject}),
+            subject_digest TEXT NOT NULL
+                CHECK (typeof(subject_digest) = 'text'
+                       AND length(CAST(subject_digest AS BLOB)) BETWEEN 1 AND 255),
+            sequence INTEGER NOT NULL
+                CHECK (typeof(sequence) = 'integer' AND sequence > 0),
+            action TEXT NOT NULL
+                CHECK (typeof(action) = 'text' AND action IN ({confirmation_actions})),
+            reason TEXT NOT NULL
+                CHECK (typeof(reason) = 'text'
+                       AND length(CAST(reason AS BLOB)) BETWEEN 1 AND 4096),
+            actor_id TEXT NOT NULL
+                CHECK (typeof(actor_id) = 'text'
+                       AND length(CAST(actor_id AS BLOB)) BETWEEN 1 AND 255),
+            occurred_at_us INTEGER NOT NULL
+                CHECK (typeof(occurred_at_us) = 'integer'),
+            idempotency_key TEXT NOT NULL
+                CHECK (typeof(idempotency_key) = 'text'
+                       AND length(CAST(idempotency_key AS BLOB)) BETWEEN 1 AND 255),
+            request_fingerprint TEXT NOT NULL
+                CHECK (typeof(request_fingerprint) = 'text'
+                       AND length(CAST(request_fingerprint AS BLOB)) BETWEEN 1 AND 255),
+            request_payload_json TEXT NOT NULL
+                CHECK (typeof(request_payload_json) = 'text'),
+            UNIQUE (repository_id, subject_digest, sequence),
+            UNIQUE (repository_id, idempotency_key)
+        )
+        """,
+        f"""
+        CREATE TABLE archive_anomaly_resolution_events (
+            event_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(event_id) = 'text'
+                       AND length(CAST(event_id AS BLOB)) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text'
+                       AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
+            gateway_device_external_key TEXT NOT NULL
+                CHECK (typeof(gateway_device_external_key) = 'text'
+                       AND length(CAST(gateway_device_external_key AS BLOB)) BETWEEN 1 AND 255),
+            business_project_id TEXT NOT NULL
+                CHECK (typeof(business_project_id) = 'text'
+                       AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
+            subject_kind TEXT NOT NULL
+                CHECK (subject_kind = {resolution_subject}),
+            subject_digest TEXT NOT NULL
+                CHECK (typeof(subject_digest) = 'text'
+                       AND length(CAST(subject_digest AS BLOB)) BETWEEN 1 AND 255),
+            sequence INTEGER NOT NULL
+                CHECK (typeof(sequence) = 'integer' AND sequence > 0),
+            action TEXT NOT NULL
+                CHECK (typeof(action) = 'text' AND action IN ({resolution_actions})),
+            issue_code TEXT NOT NULL
+                CHECK (typeof(issue_code) = 'text'
+                       AND length(CAST(issue_code AS BLOB)) BETWEEN 1 AND 255),
+            sibling_submission_id TEXT NOT NULL
+                CHECK (typeof(sibling_submission_id) = 'text'
+                       AND length(CAST(sibling_submission_id AS BLOB)) BETWEEN 1 AND 255),
+            sibling_candidate_digest TEXT NOT NULL
+                CHECK (typeof(sibling_candidate_digest) = 'text'
+                       AND length(CAST(sibling_candidate_digest AS BLOB)) BETWEEN 1 AND 255),
+            reason TEXT NOT NULL
+                CHECK (typeof(reason) = 'text'
+                       AND length(CAST(reason AS BLOB)) BETWEEN 1 AND 4096),
+            actor_id TEXT NOT NULL
+                CHECK (typeof(actor_id) = 'text'
+                       AND length(CAST(actor_id AS BLOB)) BETWEEN 1 AND 255),
+            occurred_at_us INTEGER NOT NULL
+                CHECK (typeof(occurred_at_us) = 'integer'),
+            idempotency_key TEXT NOT NULL
+                CHECK (typeof(idempotency_key) = 'text'
+                       AND length(CAST(idempotency_key AS BLOB)) BETWEEN 1 AND 255),
+            request_fingerprint TEXT NOT NULL
+                CHECK (typeof(request_fingerprint) = 'text'
+                       AND length(CAST(request_fingerprint AS BLOB)) BETWEEN 1 AND 255),
+            request_payload_json TEXT NOT NULL
+                CHECK (typeof(request_payload_json) = 'text'),
+            UNIQUE (repository_id, subject_digest, sequence),
+            UNIQUE (repository_id, idempotency_key)
+        )
+        """,
+        """
+        CREATE INDEX archive_confirmation_events_subject
+            ON archive_confirmation_events(repository_id, subject_digest, sequence)
+        """,
+        """
+        CREATE INDEX archive_anomaly_resolution_events_subject
+            ON archive_anomaly_resolution_events(repository_id, subject_digest, sequence)
+        """,
+        """
+        CREATE INDEX submission_records_archive_candidate_lookup
+            ON submission_records(repository_id, based_on_baseline_node_id, submission_id)
+        """,
+        """
+        CREATE INDEX submit_attempt_records_repository_state
+            ON submit_attempt_records(repository_id, state)
         """,
     )
 

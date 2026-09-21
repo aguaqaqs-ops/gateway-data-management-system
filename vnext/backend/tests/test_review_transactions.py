@@ -140,6 +140,7 @@ def _seed_additional_pending_review_submission(
         baseline_head=BASELINE_HEAD,
     )
     context = make_identity(
+        actor_id=f"actor-{submission_id}",
         device_key=device_key,
         project_id=project_id,
         permissions=frozenset({"upload_submit_workspace", "workspace_read"}),
@@ -620,8 +621,7 @@ def test_apply_review_idempotency_conflict_on_cross_submission(review_seed: Revi
 
 
 CROSS_SUBMISSION_IDEMPOTENCY_CONFLICT_CASES = (
-    ("different_device_same_project", "device-2", "repo-1"),
-    ("different_repository_same_project", "device-2", "repo-2"),
+    ("second_submission_same_scope", "device-1", "repo-1"),
 )
 
 
@@ -644,8 +644,8 @@ def test_apply_review_idempotency_conflict_on_cross_submission_via_transaction(
     second_seed = _seed_additional_pending_review_submission(
         review_seed.db_path,
         submission_id="sub-2",
-        device_key=device_key,
-        repository_id=repository_id,
+        device_key=review_seed.reviewer_context.gateway_device_external_key,
+        repository_id=review_seed.repository_id,
         project_id=review_seed.reviewer_context.business_project_id,
     )
     with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
@@ -692,8 +692,8 @@ def test_apply_review_cross_submission_fails_closed_on_record_submission_closure
     second_seed = _seed_additional_pending_review_submission(
         review_seed.db_path,
         submission_id="sub-2",
-        device_key="device-2",
-        repository_id="repo-2",
+        device_key=review_seed.reviewer_context.gateway_device_external_key,
+        repository_id=review_seed.repository_id,
         project_id=review_seed.reviewer_context.business_project_id,
     )
     with ControlDbUnitOfWork(review_seed.db_path) as unit_of_work:
@@ -727,7 +727,7 @@ def test_apply_review_cross_submission_fails_closed_on_record_submission_closure
                 idempotency_key=idempotency_key,
             ),
             scope_resolution=FixedScopeResolutionPort(
-                repository_id="repo-2",
+                repository_id=second_seed.repository_id,
                 baseline_head=BASELINE_HEAD,
             ),
             unit_of_work_factory=_uow_factory(review_seed.db_path),

@@ -591,3 +591,29 @@ def test_seed_rejects_cross_scope_repository_reassignment(tmp_path: Path) -> Non
     )
     with pytest.raises(ValueError, match="already owned by a different scope"):
         seed_provisioned_mappings(db_path, mapping_file)
+
+
+def test_workspace_v5_creates_archive_tables(tmp_path: Path) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_and_verify_control_db(db_path, now=lambda: MIGRATION_TIME)
+    connection = connect_control_db(db_path)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name LIKE 'archive_%'
+                ORDER BY name
+                """
+            ).fetchall()
+        }
+    finally:
+        connection.close()
+    assert tables == {
+        "archive_anomaly_resolution_events",
+        "archive_confirmation_events",
+        "archive_disposition_records",
+        "archive_plan_records",
+        "archive_result_records",
+    }

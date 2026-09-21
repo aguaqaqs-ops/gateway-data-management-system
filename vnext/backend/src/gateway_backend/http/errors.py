@@ -12,6 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from gateway_backend.application.submission.errors import (
     AbortProofNotSatisfied,
+    ArchiveClosed,
     BaselineVersionConflict,
     FinalizeBindingMismatch,
     FinalizeRecoveryRequired,
@@ -221,6 +222,12 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
     if isinstance(exc, ReviewWorkspaceOccupancyConflict):
         return ApiError(
             code="WORKSPACE_OCCUPANCY_CONFLICT",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, ArchiveClosed):
+        return ApiError(
+            code="ARCHIVE_CLOSED",
             message=str(exc),
             status_code=409,
         )

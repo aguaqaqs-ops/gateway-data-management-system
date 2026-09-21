@@ -192,8 +192,6 @@ def resolve_fresh_provisioned_scope(
 def assert_fresh_scope_matches(fresh_scope: ResolvedScope, expected_scope: ResolvedScope) -> None:
     if fresh_scope.repository_id != expected_scope.repository_id:
         raise ScopeForbidden
-    if fresh_scope.baseline_head != expected_scope.baseline_head:
-        raise ScopeForbidden
 
 
 def load_review_scope_facts(

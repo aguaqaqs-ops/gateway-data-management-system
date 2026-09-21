@@ -359,7 +359,8 @@ def test_apply_review_hides_cross_scope_submission_same_database(tmp_path: Path)
         env.db_path,
         device_key="device-other",
         project_id=seed.project_id,
-        repository_id=seed.repository_id,
+        repository_id="repo-other",
+        baseline_head=None,
     )
     response = env.client.post(
         f"/v1/submissions/{seed.submission_id}/review-events",
@@ -389,7 +390,8 @@ def test_get_review_hides_cross_scope_submission_same_database(tmp_path: Path) -
         env.db_path,
         device_key="device-other",
         project_id=seed.project_id,
-        repository_id=seed.repository_id,
+        repository_id="repo-other",
+        baseline_head=None,
     )
     approved = _post_review(env, seed, idempotency_key="review-cross-scope-get")
     assert approved.status_code == 201

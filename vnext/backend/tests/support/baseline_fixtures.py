@@ -76,7 +76,50 @@ def apply_baseline_head_state(
             (repository_id,),
         ).fetchone()
         if head_row is None:
-            raise ValueError("baseline head is missing")
+            initial_head = initial_identity_from_head(baseline_head)
+            created_at_us = _datetime_to_epoch_us(_SEED_TIME)
+            bootstrap_node_id = (
+                initial_head.business_baseline_node_id
+                if repository_id == "repo-1"
+                else f"{repository_id}:{initial_head.business_baseline_node_id}"
+            )
+            connection.execute(
+                """
+                INSERT INTO baseline_node_records (
+                    node_id, repository_id, gateway_device_external_key, business_project_id,
+                    commit_id, kind, parent_node_id, source_submission_id, created_at_us
+                ) VALUES (?, ?, ?, ?, ?, 'INITIAL', NULL, NULL, ?)
+                """,
+                (
+                    bootstrap_node_id,
+                    repository_id,
+                    device_key,
+                    project_id,
+                    initial_head.business_baseline_commit_id,
+                    created_at_us,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO baseline_head_records (repository_id, node_id, optimistic_version)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    repository_id,
+                    bootstrap_node_id,
+                    initial_head.baseline_head_version,
+                ),
+            )
+            head_row = connection.execute(
+                """
+                SELECT node_id, optimistic_version
+                FROM baseline_head_records
+                WHERE repository_id = ?
+                """,
+                (repository_id,),
+            ).fetchone()
+            if head_row is None:
+                raise ValueError("baseline head bootstrap failed")
         current_node_id = head_row["node_id"]
         if baseline_head.business_baseline_node_id != current_node_id:
             parent_row = connection.execute(

@@ -31,3 +31,13 @@ class BaselineRepository(Protocol):
         head: BaselineHeadRecord,
     ) -> None:
         """Persist one INITIAL node and its version=0 head in the current transaction."""
+
+    def save_archived_node_and_cas_head(
+        self,
+        node: BaselineNode,
+        *,
+        expected_head: BaselineHeadRecord,
+        new_head_node_id: str,
+        new_head_version: int,
+    ) -> BaselineHeadRecord:
+        """Insert one ARCHIVED_SUBMISSION node and CAS-advance the repository head."""

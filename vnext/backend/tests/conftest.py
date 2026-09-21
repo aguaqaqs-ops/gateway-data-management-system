@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from tests.support.dolt import dolt_available
+
+
+@pytest.fixture
+def db_path(tmp_path: Path) -> Path:
+    from gateway_backend.infrastructure.control_db.database import initialize_control_db
+
+    path = tmp_path / "control.sqlite3"
+    initialize_control_db(path)
+    return path
 
 
 @pytest.fixture

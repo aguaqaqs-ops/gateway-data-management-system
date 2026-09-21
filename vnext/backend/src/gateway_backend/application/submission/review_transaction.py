@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import datetime
 
 from gateway_backend.application.submission.errors import (
+    ArchiveClosed,
     ReviewIntegrityFailure,
     ReviewWorkspaceOccupancyConflict,
 )
@@ -122,6 +123,8 @@ def _apply_review_in_control_transaction(
         workspace_id=facts.workspace.workspace_id,
         repository_id=fresh_scope.repository_id,
     )
+    if unit_of_work.is_submission_closed(command.submission_id):
+        raise ArchiveClosed()
     if facts.projection.optimistic_version != command.expected_review_version:
         raise ReviewVersionConflict(
             expected=command.expected_review_version,

@@ -15,6 +15,7 @@ from gateway_backend.infrastructure.control_db.sqlite_protection import SQLiteAr
 from gateway_backend.operations import OperationStore, StoreBusy
 
 if TYPE_CHECKING:
+    from gateway_backend.domain.archive.ports import ArchiveRepository
     from gateway_backend.domain.baseline.ports import BaselineRepository
     from gateway_backend.domain.workspace.models import ResolvedScope
     from gateway_backend.domain.workspace.ports import WorkspaceRepository
@@ -129,6 +130,7 @@ class ControlDbUnitOfWork:
         self._submission: SQLiteSubmissionRepository | None = None
         self._review: SQLiteReviewRepository | None = None
         self._baseline: BaselineRepository | None = None
+        self._archive: ArchiveRepository | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -185,6 +187,14 @@ class ControlDbUnitOfWork:
         if self._baseline is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._baseline
+
+    @property
+    def archive(self) -> ArchiveRepository:
+        """Return the archive participant bound to this transaction."""
+
+        if self._archive is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._archive
 
     def set_artifact_protection(
         self,
@@ -252,6 +262,11 @@ class ControlDbUnitOfWork:
             business_project_id=business_project_id,
         )
 
+    def is_submission_closed(self, submission_id: str) -> bool:
+        """Return whether one submission appears in any ArchiveResult disposition."""
+
+        return self.archive.is_submission_closed(submission_id)
+
     def __enter__(self) -> Self:
         if self._connection is not None:
             raise RuntimeError("control DB unit of work cannot be entered twice")
@@ -260,6 +275,9 @@ class ControlDbUnitOfWork:
             connection.execute("BEGIN" if self._read_only else "BEGIN IMMEDIATE")
             transaction_now = self._now()
             _validate_utc_datetime(transaction_now, "transaction clock")
+            from gateway_backend.infrastructure.control_db.sqlite_archive import (
+                SQLiteArchiveRepository,
+            )
             from gateway_backend.infrastructure.control_db.sqlite_baseline import (
                 SQLiteBaselineRepository,
             )
@@ -305,6 +323,11 @@ class ControlDbUnitOfWork:
                 connection,
                 read_only=self._read_only,
             )
+            self._archive = SQLiteArchiveRepository(
+                connection,
+                transaction_now=transaction_now,
+                read_only=self._read_only,
+            )
         except sqlite3.OperationalError as exc:
             if connection.in_transaction:
                 connection.execute("ROLLBACK")
@@ -334,6 +357,7 @@ class ControlDbUnitOfWork:
         self._submission = None
         self._review = None
         self._baseline = None
+        self._archive = None
         self._transaction_now = None
         if connection is None:
             return

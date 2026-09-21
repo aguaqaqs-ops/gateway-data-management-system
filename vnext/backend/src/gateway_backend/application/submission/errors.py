@@ -177,3 +177,12 @@ class ReviewWorkspaceOccupancyConflict(SubmitApplicationError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class ArchiveClosed(SubmitApplicationError):
+    """Review mutation is blocked because the submission is closed by Archive."""
+
+    stable_code = "ARCHIVE_CLOSED"
+
+    def __init__(self) -> None:
+        super().__init__("submission is closed by archive")

@@ -28,6 +28,11 @@ from gateway_backend.domain.submission.models import (
     Submission,
     WorkspaceSubmitOccupancy,
 )
+from gateway_backend.domain.submission.ports import (
+    ArchiveActiveAttemptFacts,
+    ArchiveCandidateFacts,
+)
+from gateway_backend.domain.submission.review import ReviewStatus
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SQLITE_INT_MIN = -(2**63)
@@ -162,6 +167,69 @@ class SQLiteSubmissionRepository:
             business_baseline_node_id=row[3],
             baseline_head_version=row[4],
             acquired_at=_epoch_us_to_datetime(row[5]),
+        )
+
+    def list_archive_candidate_facts(
+        self,
+        repository_id: str,
+        *,
+        baseline_node_id: str,
+        baseline_commit_id: str,
+    ) -> tuple[ArchiveCandidateFacts, ...]:
+        rows = self._connection.execute(
+            """
+            SELECT
+                s.*,
+                p.status AS review_status,
+                p.latest_sequence AS review_sequence,
+                CASE WHEN d.submission_id IS NOT NULL THEN 1 ELSE 0 END AS closed_by_archive
+            FROM submission_records AS s
+            LEFT JOIN review_projection_records AS p
+                ON s.submission_id = p.submission_id
+            LEFT JOIN archive_disposition_records AS d
+                ON s.submission_id = d.submission_id
+            WHERE s.repository_id = ?
+              AND s.based_on_baseline_node_id = ?
+              AND s.business_baseline_commit_id = ?
+            ORDER BY s.submission_id
+            """,
+            (repository_id, baseline_node_id, baseline_commit_id),
+        ).fetchall()
+        facts: list[ArchiveCandidateFacts] = []
+        for row in rows:
+            mapping = _row_mapping(row)
+            submission = submission_from_row(mapping)
+            review_status_raw = mapping.get("review_status")
+            review_sequence_raw = mapping.get("review_sequence")
+            if review_status_raw is None or review_sequence_raw is None:
+                continue
+            facts.append(
+                ArchiveCandidateFacts(
+                    submission=submission,
+                    review_status=ReviewStatus(str(review_status_raw)),
+                    review_sequence=int(cast(int | str, review_sequence_raw)),
+                    closed_by_archive=bool(mapping.get("closed_by_archive")),
+                )
+            )
+        return tuple(facts)
+
+    def list_active_submit_attempts(self, repository_id: str) -> tuple[ArchiveActiveAttemptFacts, ...]:
+        rows = self._connection.execute(
+            """
+            SELECT submit_attempt_id, state
+            FROM submit_attempt_records
+            WHERE repository_id = ?
+              AND state IN ('PREPARED', 'EFFECT_PENDING')
+            ORDER BY submit_attempt_id
+            """,
+            (repository_id,),
+        ).fetchall()
+        return tuple(
+            ArchiveActiveAttemptFacts(
+                submit_attempt_id=row["submit_attempt_id"],
+                state=row["state"],
+            )
+            for row in rows
         )
 
     def insert_attempt_prepared(self, attempt: SubmitAttempt) -> None:

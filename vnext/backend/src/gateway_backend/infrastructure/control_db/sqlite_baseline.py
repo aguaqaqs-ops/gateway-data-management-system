@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime
+from gateway_backend.domain.baseline.errors import BaselineHeadVersionConflict
 from gateway_backend.domain.baseline.models import (
     BaselineHeadRecord,
     BaselineNode,
@@ -110,6 +111,65 @@ class SQLiteBaselineRepository(BaselineRepository):
             VALUES (?, ?, ?)
             """,
             (head.repository_id, head.node_id, head.optimistic_version),
+        )
+
+    def save_archived_node_and_cas_head(
+        self,
+        node: BaselineNode,
+        *,
+        expected_head: BaselineHeadRecord,
+        new_head_node_id: str,
+        new_head_version: int,
+    ) -> BaselineHeadRecord:
+        if self._read_only:
+            raise RuntimeError("baseline repository is read-only")
+        if node.kind is not BaselineNodeKind.ARCHIVED_SUBMISSION:
+            raise ValueError("save_archived_node_and_cas_head requires ARCHIVED_SUBMISSION")
+        if node.repository_id != expected_head.repository_id:
+            raise ValueError("archived node repository must match expected head repository")
+        if new_head_node_id != node.node_id:
+            raise ValueError("new head node id must match archived node id")
+        if new_head_version != expected_head.optimistic_version + 1:
+            raise ValueError("new head version must advance expected head by one")
+        created_at_us = _datetime_to_epoch_us(node.created_at)
+        self._connection.execute(
+            """
+            INSERT INTO baseline_node_records (
+                node_id, repository_id, gateway_device_external_key, business_project_id,
+                commit_id, kind, parent_node_id, source_submission_id, created_at_us
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                node.node_id,
+                node.repository_id,
+                node.gateway_device_external_key,
+                node.business_project_id,
+                node.commit_id,
+                node.kind.value,
+                node.parent_node_id,
+                node.source_submission_id,
+                created_at_us,
+            ),
+        )
+        cursor = self._connection.execute(
+            """
+            UPDATE baseline_head_records
+            SET node_id = ?, optimistic_version = ?
+            WHERE repository_id = ? AND optimistic_version = ?
+            """,
+            (
+                new_head_node_id,
+                new_head_version,
+                expected_head.repository_id,
+                expected_head.optimistic_version,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise BaselineHeadVersionConflict("baseline head version conflict during archive")
+        return BaselineHeadRecord(
+            repository_id=expected_head.repository_id,
+            node_id=new_head_node_id,
+            optimistic_version=new_head_version,
         )
 
 

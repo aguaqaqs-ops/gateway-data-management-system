@@ -19,7 +19,13 @@ from gateway_backend.domain.submission.models import (
     Submission,
     WorkspaceSubmitOccupancy,
 )
-from gateway_backend.domain.submission.ports import ReviewReadPort, ReviewWritePort
+from gateway_backend.domain.archive.ports import ArchiveRepository
+from gateway_backend.domain.baseline.ports import BaselineRepository
+from gateway_backend.domain.submission.ports import (
+    ArchiveCandidateReadPort,
+    ReviewReadPort,
+    ReviewWritePort,
+)
 from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness, ResolvedScope
 from gateway_backend.domain.workspace.ports import WorkspaceRepository
 from gateway_backend.operations import OperationStore
@@ -98,7 +104,12 @@ class ReviewApplySubmissionRepository(Protocol):
         """Delete workspace submit occupancy row when it still points at this Submission."""
 
 
-class ReviewApplyTransaction(ReviewControlTransaction, Protocol):
+class ArchiveClosureReadPort(Protocol):
+    def is_submission_closed(self, submission_id: str) -> bool:
+        """Return whether one submission appears in any ArchiveResult disposition."""
+
+
+class ReviewApplyTransaction(ReviewControlTransaction, ArchiveClosureReadPort, Protocol):
     """Minimal control transaction surface required by Review apply/release."""
 
     @property
@@ -124,8 +135,21 @@ class ReviewControlUnitOfWorkFactory(Protocol):
     ) -> AbstractContextManager[ReviewControlTransaction]: ...
 
 
-class WorkspaceControlTransaction(SubmitControlTransaction, ReviewControlTransaction, Protocol):
-    """Combined Submit and Review control transaction for one workspace schema."""
+class WorkspaceControlTransaction(
+    SubmitControlTransaction,
+    ReviewControlTransaction,
+    ArchiveClosureReadPort,
+    Protocol,
+):
+    """Combined Submit, Review and Archive control transaction for one workspace schema."""
+
+    @property
+    def baseline(self) -> BaselineRepository:
+        """Return the baseline participant bound to this transaction."""
+
+    @property
+    def archive(self) -> ArchiveRepository:
+        """Return the archive participant bound to this transaction."""
 
 
 class WorkspaceControlUnitOfWorkFactory(Protocol):
@@ -162,7 +186,12 @@ class SubmitOccupancyReadPort(Protocol):
         """Return repository submit occupancy projection when occupied."""
 
 
-class SubmitTransactionRepository(SubmissionRepository, SubmitOccupancyReadPort, Protocol):
+class SubmitTransactionRepository(
+    SubmissionRepository,
+    SubmitOccupancyReadPort,
+    ArchiveCandidateReadPort,
+    Protocol,
+):
     def insert_attempt_prepared(self, attempt: SubmitAttempt) -> None:
         """Insert one PREPARED SubmitAttempt."""
 

@@ -209,8 +209,9 @@ IDEMPOTENCY_CONFLICT；单独保留 subject/Head 过期后的完全相同请求 
 disposition partial unique index。handoff 见 [p5-5d-s2-handoff.md](p5-5d-s2-handoff.md)。
 
 **S2 evidence remediation**（2026-09-21，待独立 closure）。在 `12441a5402` 之上补强复审
-P1–P4：handoff 可达 HEAD、真实 SQL `LIMIT 201` 边界测试、anomaly Start / resolution REVOKE /
-occupancy mismatch / AcceptSubmit–Start 竞争证据。focused gate **223 passed**；
+P1–P4：handoff parent+HEAD 绑定（不再自写 evidence head）、真实 SQL `LIMIT 201` 边界测试、
+anomaly Start / resolution REVOKE / occupancy mismatch / AcceptSubmit–Start 竞争证据。
+B1/B2 closure：`start.py` Design §5.1 步骤 4→5 顺序对齐。focused gate **224 passed**；
 `p5_5d_s2_stage_exit` 仍为 `not_evaluated`。
 
 ### S3 — public API, production composition and deployment inputs

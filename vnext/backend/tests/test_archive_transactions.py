@@ -6,7 +6,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 import pytest
 
-from gateway_backend.application.archive.errors import ArchiveAnomalyUnresolved, ArchiveConfirmationRequired
+from gateway_backend.application.archive.errors import (
+    ActiveSubmitAttempt,
+    ArchiveAnomalyUnresolved,
+    ArchiveConfirmationRequired,
+)
 from gateway_backend.application.archive.start import StartArchiveCommand
 from gateway_backend.application.submission.errors import IdempotencyConflict
 from gateway_backend.domain.archive.models import ArchiveDispositionKind
@@ -194,6 +198,52 @@ def test_start_archive_dual_sibling_writes_both_dispositions(db_path: Path) -> N
         )
     assert primary_disposition[0].disposition is ArchiveDispositionKind.ARCHIVED_BASELINE
     assert sibling_disposition[0].disposition is ArchiveDispositionKind.CLOSED_NOT_ARCHIVED
+
+
+def test_start_archive_prefers_active_attempt_over_candidate_set_conflict(
+    db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
+    from gateway_backend.application.archive.start import start_archive
+    from gateway_backend.domain.submission.ports import ArchiveActiveAttemptFacts
+    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+
+    seed = seed_approved_archive_candidate(db_path)
+    confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=seed.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+
+    def active_attempts(
+        self: SQLiteSubmissionRepository,
+        repository_id: str,
+    ) -> tuple[ArchiveActiveAttemptFacts, ...]:
+        return (ArchiveActiveAttemptFacts(submit_attempt_id="attempt-active-1", state="PREPARED"),)
+
+    monkeypatch.setattr(SQLiteSubmissionRepository, "list_active_submit_attempts", active_attempts)
+    with pytest.raises(ActiveSubmitAttempt):
+        start_archive(
+            command=StartArchiveCommand(
+                context=seed.archiver_context,
+                idempotency_key="start-with-active-and-stale-digest",
+                expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+                candidate_set_digest="sha256:" + "f" * 64,
+                selected_ref=seed.selected_ref,
+                confirmation_refs=(
+                    ArchiveAuditReferenceInput(
+                        subject_digest=seed.selection_subject_digest,
+                        sequence=confirmation_sequence,
+                    ),
+                ),
+                anomaly_resolution_refs=(),
+            ),
+            scope_resolution=scope_resolution,
+            unit_of_work_factory=_uow_factory(db_path),
+            now=TS_ARCHIVE,
+        )
 
 
 def test_start_archive_rejects_unresolved_sibling_anomaly(db_path: Path) -> None:

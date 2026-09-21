@@ -15,6 +15,7 @@ from gateway_backend.application.archive.contracts import (
     validate_utf8_id,
 )
 from gateway_backend.application.archive.errors import (
+    ArchiveIntegrityFailure,
     CandidateBindingConflict,
     CandidateSetConflict,
 )
@@ -132,15 +133,23 @@ def start_archive(
                 replay=True,
             )
 
-        snapshot = load_archive_candidate_snapshot(unit_of_work, command.context, resolved)
+        fresh_scope = unit_of_work.resolve_provisioned_scope(
+            gateway_device_external_key=command.context.gateway_device_external_key,
+            business_project_id=command.context.business_project_id,
+        )
+        if fresh_scope.repository_id != resolved.repository_id:
+            raise ArchiveIntegrityFailure("repository scope mismatch")
+        head = fresh_scope.baseline_head
         if (
-            snapshot.baseline_node_id != command.expected_baseline_node_id
-            or snapshot.baseline_head_version != command.expected_baseline_head_version
+            head.business_baseline_node_id != command.expected_baseline_node_id
+            or head.baseline_head_version != command.expected_baseline_head_version
         ):
             raise BaselineVersionConflict("expected baseline head does not match current head")
+        assert_repository_submit_gate(unit_of_work, fresh_scope.repository_id)
+
+        snapshot = load_archive_candidate_snapshot(unit_of_work, command.context, resolved)
         if snapshot.candidate_set_digest != command.candidate_set_digest:
             raise CandidateSetConflict()
-        assert_repository_submit_gate(unit_of_work, snapshot.repository_id)
         if not any(
             candidate.submission_id == command.selected_ref.submission_id
             and candidate.expected_candidate_digest == command.selected_ref.expected_candidate_digest

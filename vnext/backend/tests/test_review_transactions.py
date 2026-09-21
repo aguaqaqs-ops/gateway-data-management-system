@@ -129,15 +129,24 @@ def _seed_additional_pending_review_submission(
     repository_id: str,
     project_id: str,
 ) -> ReviewSeed:
+    from tests.support.baseline_fixtures import scoped_baseline_node_id
+
+    baseline_head = BASELINE_HEAD
+    if repository_id != "repo-1":
+        baseline_head = replace(
+            BASELINE_HEAD,
+            business_baseline_node_id=scoped_baseline_node_id(repository_id, BASELINE_HEAD),
+        )
     _upsert_provisioned_mapping_row(
         db_path,
         device_key=device_key,
         project_id=project_id,
         repository_id=repository_id,
+        baseline_head=baseline_head,
     )
     scope_resolution = FixedScopeResolutionPort(
         repository_id=repository_id,
-        baseline_head=BASELINE_HEAD,
+        baseline_head=baseline_head,
     )
     context = make_identity(
         actor_id=f"actor-{submission_id}",
@@ -185,6 +194,9 @@ def _seed_additional_pending_review_submission(
             upload_revision_id=upload_revision_id,
             repository_id=repository_id,
             operation_id=f"op-preview-{submission_id}",
+            business_baseline_node_id=baseline_head.business_baseline_node_id,
+            business_baseline_commit_id=baseline_head.business_baseline_commit_id,
+            baseline_head_version=baseline_head.baseline_head_version,
         )
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
@@ -223,7 +235,7 @@ def _seed_additional_pending_review_submission(
         preview_operation_id=preview_operation_id,
         protected_refs=protected_refs,
     )
-    attempt = _seed_effect_pending_attempt(db_path, submit_seed)
+    attempt = _seed_effect_pending_attempt(db_path, submit_seed, baseline_head=baseline_head)
     attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         finalize_submit_transaction(
@@ -622,6 +634,7 @@ def test_apply_review_idempotency_conflict_on_cross_submission(review_seed: Revi
 
 CROSS_SUBMISSION_IDEMPOTENCY_CONFLICT_CASES = (
     ("second_submission_same_scope", "device-1", "repo-1"),
+    ("different_repository_same_project", "device-2", "repo-other"),
 )
 
 
@@ -643,9 +656,9 @@ def test_apply_review_idempotency_conflict_on_cross_submission_via_transaction(
     )
     second_seed = _seed_additional_pending_review_submission(
         review_seed.db_path,
-        submission_id="sub-2",
-        device_key=review_seed.reviewer_context.gateway_device_external_key,
-        repository_id=review_seed.repository_id,
+        submission_id=f"sub-2-{case_id}",
+        device_key=device_key,
+        repository_id=repository_id,
         project_id=review_seed.reviewer_context.business_project_id,
     )
     with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
@@ -1088,3 +1101,71 @@ def test_get_review_facts_rejects_cross_scope_submission(db_path: Path) -> None:
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
         )
+
+
+def test_apply_review_archive_closed_blocks_new_return(db_path: Path) -> None:
+    from gateway_backend.application.submission.errors import ArchiveClosed
+    from tests.support.archive_fixtures import (
+        append_selection_confirmation,
+        archive_seed_from_review_seed,
+        start_archive_for_seed,
+    )
+
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-archive-close"),
+    )
+    seed = archive_seed_from_review_seed(review_seed)
+    confirmation_sequence = append_selection_confirmation(seed)
+    start_archive_for_seed(seed, confirmation_sequence=confirmation_sequence)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=seed.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    with pytest.raises(ArchiveClosed):
+        apply_review_transaction(
+            command=_apply_command(
+                review_seed,
+                action=ReviewAction.RETURN_FOR_REVISION,
+                reason="blocked after archive",
+                expected_review_version=1,
+                idempotency_key="return-after-archive-owner",
+            ),
+            scope_resolution=scope_resolution,
+            unit_of_work_factory=_uow_factory(db_path),
+            now=TS2,
+        )
+
+
+def test_apply_review_replay_succeeds_after_archive_closure(db_path: Path) -> None:
+    from tests.support.archive_fixtures import (
+        append_selection_confirmation,
+        archive_seed_from_review_seed,
+        start_archive_for_seed,
+    )
+
+    review_seed = _seed_pending_review_submission(db_path)
+    original = _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-replay"),
+    )
+    seed = archive_seed_from_review_seed(review_seed)
+    confirmation_sequence = append_selection_confirmation(seed)
+    start_archive_for_seed(seed, confirmation_sequence=confirmation_sequence)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=seed.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    replay = apply_review_transaction(
+        command=_apply_command(
+            review_seed,
+            action=ReviewAction.APPROVE,
+            idempotency_key="approve-replay",
+        ),
+        scope_resolution=scope_resolution,
+        unit_of_work_factory=_uow_factory(db_path),
+        now=TS2,
+    )
+    assert replay.replay is True
+    assert replay.event.sequence == original.event.sequence

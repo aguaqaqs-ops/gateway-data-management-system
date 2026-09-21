@@ -15,7 +15,6 @@ from gateway_backend.application.archive.contracts import (
     validate_utf8_id,
 )
 from gateway_backend.application.archive.errors import (
-    ActiveSubmitAttempt,
     CandidateBindingConflict,
     CandidateSetConflict,
 )
@@ -31,6 +30,7 @@ from gateway_backend.application.archive.queries import (
 )
 from gateway_backend.application.archive.snapshot import (
     ArchiveCandidateSnapshot,
+    assert_repository_submit_gate,
     load_archive_candidate_snapshot,
 )
 from gateway_backend.application.submission.errors import BaselineVersionConflict, IdempotencyConflict
@@ -140,8 +140,7 @@ def start_archive(
             raise BaselineVersionConflict("expected baseline head does not match current head")
         if snapshot.candidate_set_digest != command.candidate_set_digest:
             raise CandidateSetConflict()
-        if snapshot.active_attempt_ids:
-            raise ActiveSubmitAttempt()
+        assert_repository_submit_gate(unit_of_work, snapshot.repository_id)
         if not any(
             candidate.submission_id == command.selected_ref.submission_id
             and candidate.expected_candidate_digest == command.selected_ref.expected_candidate_digest

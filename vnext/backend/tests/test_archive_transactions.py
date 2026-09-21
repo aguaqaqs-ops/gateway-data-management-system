@@ -167,3 +167,99 @@ def test_start_archive_rolls_back_when_late_write_fails(db_path: Path, monkeypat
             "SELECT COUNT(*) FROM archive_plan_records"
         ).fetchone()[0]
     assert plan_count == 0
+
+
+def test_start_archive_dual_sibling_writes_both_dispositions(db_path: Path) -> None:
+    from tests.support.archive_fixtures import (
+        prepare_dual_sibling_start,
+        seed_approved_dual_sibling_archive,
+        start_archive_for_seed,
+    )
+
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    confirmation_sequence, resolution_sequence = prepare_dual_sibling_start(dual_seed, now=TS_ARCHIVE)
+    result = start_archive_for_seed(
+        dual_seed.primary,
+        confirmation_sequence=confirmation_sequence,
+        anomaly_resolution_sequences=((dual_seed.anomaly_subject_digest, resolution_sequence),),
+        now=TS_ARCHIVE,
+    )
+    assert result.replay is False
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        primary_disposition = unit_of_work.archive.list_dispositions_for_submission(
+            dual_seed.primary.submission_id
+        )
+        sibling_disposition = unit_of_work.archive.list_dispositions_for_submission(
+            dual_seed.sibling_submission_id
+        )
+    assert primary_disposition[0].disposition is ArchiveDispositionKind.ARCHIVED_BASELINE
+    assert sibling_disposition[0].disposition is ArchiveDispositionKind.CLOSED_NOT_ARCHIVED
+
+
+def test_start_archive_rejects_orphan_repository_occupancy(
+    db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import UTC
+
+    from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.application.archive.start import start_archive
+    from gateway_backend.domain.submission.models import RepositorySubmitOccupancy
+    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+
+    seed = seed_approved_archive_candidate(db_path)
+    confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission(seed.submission_id)
+        assert submission is not None
+    orphan = RepositorySubmitOccupancy(
+        repository_id=seed.repository_id,
+        workspace_id=submission.workspace_id,
+        submit_attempt_id="attempt-orphan",
+        business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        acquired_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+
+    def orphan_occupancy(
+        self: SQLiteSubmissionRepository,
+        repository_id: str,
+    ) -> RepositorySubmitOccupancy | None:
+        if repository_id == seed.repository_id:
+            return orphan
+        return None
+
+    def no_active_attempts(
+        self: SQLiteSubmissionRepository,
+        repository_id: str,
+    ) -> tuple[object, ...]:
+        return ()
+
+    monkeypatch.setattr(SQLiteSubmissionRepository, "get_repository_occupancy", orphan_occupancy)
+    monkeypatch.setattr(SQLiteSubmissionRepository, "list_active_submit_attempts", no_active_attempts)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=seed.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    with pytest.raises(ArchiveIntegrityFailure):
+        start_archive(
+            command=StartArchiveCommand(
+                context=seed.archiver_context,
+                idempotency_key="start-with-orphan-occupancy",
+                expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+                candidate_set_digest=seed.candidate_set_digest,
+                selected_ref=seed.selected_ref,
+                confirmation_refs=(
+                    ArchiveAuditReferenceInput(
+                        subject_digest=seed.selection_subject_digest,
+                        sequence=confirmation_sequence,
+                    ),
+                ),
+                anomaly_resolution_refs=(),
+            ),
+            scope_resolution=scope_resolution,
+            unit_of_work_factory=_uow_factory(db_path),
+            now=TS_ARCHIVE,
+        )

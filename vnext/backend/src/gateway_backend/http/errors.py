@@ -10,6 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
 from gateway_backend.application.submission.errors import (
     AbortProofNotSatisfied,
     ArchiveClosed,
@@ -224,6 +225,12 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             code="WORKSPACE_OCCUPANCY_CONFLICT",
             message=str(exc),
             status_code=409,
+        )
+    if isinstance(exc, ArchiveIntegrityFailure):
+        return ApiError(
+            code="ARCHIVE_INTEGRITY_FAILURE",
+            message=str(exc),
+            status_code=503,
         )
     if isinstance(exc, ArchiveClosed):
         return ApiError(

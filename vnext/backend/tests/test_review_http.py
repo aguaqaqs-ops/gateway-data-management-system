@@ -553,3 +553,72 @@ def test_get_review_returns_503_on_integrity_failure(
     response = _get_review(env, seed)
     assert response.status_code == 503
     assert response.json()["code"] == "SERVICE_NOT_READY"
+
+
+def test_apply_review_returns_archive_closed_after_submission_archived(
+    review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
+) -> None:
+    from tests.support.archive_fixtures import (
+        append_selection_confirmation,
+        archive_seed_from_review_seed,
+        start_archive_for_seed,
+    )
+    from tests.test_review_transactions import ReviewSeed
+
+    env, seed = review_env
+    approved = _post_review(env, seed, idempotency_key="approve-before-archive")
+    assert approved.status_code == 201
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission(seed.submission_id)
+        assert submission is not None
+    review_seed = ReviewSeed(
+        db_path=env.db_path,
+        submission_id=seed.submission_id,
+        workspace_id=seed.workspace_id,
+        repository_id=seed.repository_id,
+        reviewer_context=make_identity(permissions=_review_permissions()),
+        submission=submission,
+    )
+    archive_seed = archive_seed_from_review_seed(review_seed)
+    confirmation_sequence = append_selection_confirmation(archive_seed)
+    start_archive_for_seed(archive_seed, confirmation_sequence=confirmation_sequence)
+    response = _post_review(
+        env,
+        seed,
+        idempotency_key="return-after-archive",
+        body=_apply_body(expected_review_version=1, action="RETURN_FOR_REVISION", reason="too late"),
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == "ARCHIVE_CLOSED"
+
+
+def test_apply_review_replays_after_archive_closure(
+    review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
+) -> None:
+    from tests.support.archive_fixtures import (
+        append_selection_confirmation,
+        archive_seed_from_review_seed,
+        start_archive_for_seed,
+    )
+    from tests.test_review_transactions import ReviewSeed
+
+    env, seed = review_env
+    first = _post_review(env, seed, idempotency_key="approve-replay-after-archive")
+    assert first.status_code == 201
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission(seed.submission_id)
+        assert submission is not None
+    review_seed = ReviewSeed(
+        db_path=env.db_path,
+        submission_id=seed.submission_id,
+        workspace_id=seed.workspace_id,
+        repository_id=seed.repository_id,
+        reviewer_context=make_identity(permissions=_review_permissions()),
+        submission=submission,
+    )
+    archive_seed = archive_seed_from_review_seed(review_seed)
+    confirmation_sequence = append_selection_confirmation(archive_seed)
+    start_archive_for_seed(archive_seed, confirmation_sequence=confirmation_sequence)
+    replay = _post_review(env, seed, idempotency_key="approve-replay-after-archive")
+    assert replay.status_code == 200
+    assert replay.json() == first.json()

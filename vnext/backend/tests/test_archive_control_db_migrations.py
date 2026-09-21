@@ -617,3 +617,22 @@ def test_workspace_v5_creates_archive_tables(tmp_path: Path) -> None:
         "archive_plan_records",
         "archive_result_records",
     }
+
+
+def test_workspace_v5_creates_archive_disposition_selected_unique_index(tmp_path: Path) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_and_verify_control_db(db_path, now=lambda: MIGRATION_TIME)
+    connection = connect_control_db(db_path)
+    try:
+        index_row = connection.execute(
+            """
+            SELECT name, sql
+            FROM sqlite_master
+            WHERE type = 'index'
+              AND name = 'archive_disposition_records_one_selected_per_result'
+            """
+        ).fetchone()
+    finally:
+        connection.close()
+    assert index_row is not None
+    assert "WHERE disposition = 'ARCHIVED_BASELINE'" in index_row["sql"]

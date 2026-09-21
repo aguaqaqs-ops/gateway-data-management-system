@@ -130,6 +130,8 @@ def append_archive_confirmation(
         )
         if command.expected_sequence != latest_sequence:
             raise ArchiveAuditVersionConflict(expected=command.expected_sequence, actual=latest_sequence)
+        if command.action is ArchiveConfirmationAction.REVOKE and latest_sequence == 0:
+            raise ArchiveAuditVersionConflict(expected=command.expected_sequence, actual=latest_sequence)
         next_sequence = latest_sequence + 1
         payload = {
             "action": command.action.value,
@@ -234,6 +236,11 @@ def append_archive_anomaly_resolution(
             command.subject_digest,
         )
         if command.expected_sequence != latest_sequence:
+            raise ArchiveAuditVersionConflict(expected=command.expected_sequence, actual=latest_sequence)
+        if (
+            command.action is ArchiveAnomalyResolutionAction.REVOKE
+            and latest_sequence == 0
+        ):
             raise ArchiveAuditVersionConflict(expected=command.expected_sequence, actual=latest_sequence)
         next_sequence = latest_sequence + 1
         payload = {

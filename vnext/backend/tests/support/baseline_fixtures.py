@@ -14,6 +14,18 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import seed_provis
 _SEED_TIME = datetime(2024, 1, 1, tzinfo=UTC)
 
 
+def scoped_baseline_node_id(repository_id: str, baseline_head: BaselineHead) -> str:
+    """Return repository-scoped baseline node identity for multi-repo test seeds."""
+
+    node_id = baseline_head.business_baseline_node_id
+    if repository_id == "repo-1":
+        return node_id
+    prefix = f"{repository_id}:"
+    if node_id.startswith(prefix):
+        return node_id
+    return f"{prefix}{node_id}"
+
+
 def seed_provisioned_mapping_with_head(
     db_path: Path,
     *,
@@ -78,11 +90,7 @@ def apply_baseline_head_state(
         if head_row is None:
             initial_head = initial_identity_from_head(baseline_head)
             created_at_us = _datetime_to_epoch_us(_SEED_TIME)
-            bootstrap_node_id = (
-                initial_head.business_baseline_node_id
-                if repository_id == "repo-1"
-                else f"{repository_id}:{initial_head.business_baseline_node_id}"
-            )
+            bootstrap_node_id = scoped_baseline_node_id(repository_id, initial_head)
             connection.execute(
                 """
                 INSERT INTO baseline_node_records (
@@ -121,7 +129,8 @@ def apply_baseline_head_state(
             if head_row is None:
                 raise ValueError("baseline head bootstrap failed")
         current_node_id = head_row["node_id"]
-        if baseline_head.business_baseline_node_id != current_node_id:
+        expected_node_id = scoped_baseline_node_id(repository_id, baseline_head)
+        if expected_node_id != current_node_id:
             parent_row = connection.execute(
                 """
                 SELECT node_id
@@ -133,6 +142,7 @@ def apply_baseline_head_state(
             if parent_row is None:
                 raise ValueError("baseline initial node is missing")
             created_at_us = _datetime_to_epoch_us(_SEED_TIME)
+            advance_node_id = scoped_baseline_node_id(repository_id, baseline_head)
             connection.execute(
                 """
                 INSERT INTO baseline_node_records (
@@ -141,7 +151,7 @@ def apply_baseline_head_state(
                 ) VALUES (?, ?, ?, ?, ?, 'ARCHIVED_SUBMISSION', ?, 'submission-test', ?)
                 """,
                 (
-                    baseline_head.business_baseline_node_id,
+                    advance_node_id,
                     repository_id,
                     device_key,
                     project_id,
@@ -157,7 +167,7 @@ def apply_baseline_head_state(
                 WHERE repository_id = ?
                 """,
                 (
-                    baseline_head.business_baseline_node_id,
+                    advance_node_id,
                     baseline_head.baseline_head_version,
                     repository_id,
                 ),

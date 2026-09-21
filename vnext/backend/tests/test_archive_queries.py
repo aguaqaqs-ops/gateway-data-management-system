@@ -156,3 +156,108 @@ def test_candidate_digest_changes_when_review_sequence_changes(db_path: Path) ->
         review_sequence=1,
     )
     assert digest_v0 != digest_v1
+
+
+def test_archive_candidates_include_both_approved_siblings_on_same_base(db_path: Path) -> None:
+    from tests.support.archive_fixtures import seed_approved_dual_sibling_archive
+
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=dual_seed.primary.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    result = get_archive_candidates(
+        context=dual_seed.primary.archiver_context,
+        scope_resolution=scope_resolution,
+        unit_of_work_factory=_uow_factory(db_path),
+    )
+    assert len(result.candidates) == 2
+    submission_ids = {candidate.submission_id for candidate in result.candidates}
+    assert dual_seed.primary.submission_id in submission_ids
+    assert dual_seed.sibling_submission_id in submission_ids
+
+
+def test_preview_dual_sibling_selection_reports_anomaly_and_blocks_start(db_path: Path) -> None:
+    from tests.support.archive_fixtures import (
+        append_selection_confirmation,
+        seed_approved_dual_sibling_archive,
+    )
+
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=dual_seed.primary.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    preview_without_audit = preview_archive_plan(
+        context=dual_seed.primary.archiver_context,
+        selected_ref=dual_seed.primary.selected_ref,
+        scope_resolution=scope_resolution,
+        unit_of_work_factory=_uow_factory(db_path),
+    )
+    assert len(preview_without_audit.anomalies) == 1
+    assert preview_without_audit.anomalies[0].issue_code == "APPROVED_SIBLING_EXCLUDED"
+    assert preview_without_audit.anomalies[0].sibling_submission_id == dual_seed.sibling_submission_id
+    assert preview_without_audit.audit_valid is False
+    assert preview_without_audit.can_start is False
+
+    append_selection_confirmation(dual_seed.primary)
+    preview_with_confirmation_only = preview_archive_plan(
+        context=dual_seed.primary.archiver_context,
+        selected_ref=dual_seed.primary.selected_ref,
+        scope_resolution=scope_resolution,
+        unit_of_work_factory=_uow_factory(db_path),
+    )
+    assert preview_with_confirmation_only.audit_valid is False
+    assert preview_with_confirmation_only.can_start is False
+
+
+def test_preview_dual_sibling_dispositions(db_path: Path) -> None:
+    from tests.support.archive_fixtures import seed_approved_dual_sibling_archive
+
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=dual_seed.primary.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    preview = preview_archive_plan(
+        context=dual_seed.primary.archiver_context,
+        selected_ref=dual_seed.primary.selected_ref,
+        scope_resolution=scope_resolution,
+        unit_of_work_factory=_uow_factory(db_path),
+    )
+    dispositions = {item.submission_id: item.disposition for item in preview.dispositions}
+    assert dispositions[dual_seed.primary.submission_id] == "ARCHIVED_BASELINE"
+    assert dispositions[dual_seed.sibling_submission_id] == "CLOSED_NOT_ARCHIVED"
+
+
+def test_archive_candidates_reject_scope_over_limit(
+    db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_backend.application.archive.errors import ArchiveScopeLimitExceeded
+    from gateway_backend.domain.submission.ports import ArchiveCandidateFacts
+    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+    from tests.support.archive_fixtures import seed_approved_archive_candidate
+
+    seed = seed_approved_archive_candidate(db_path)
+
+    def over_limit(
+        self: SQLiteSubmissionRepository,
+        repository_id: str,
+        *,
+        baseline_node_id: str,
+        baseline_commit_id: str,
+    ) -> tuple[ArchiveCandidateFacts, ...]:
+        raise ArchiveScopeLimitExceeded()
+
+    monkeypatch.setattr(SQLiteSubmissionRepository, "list_archive_candidate_facts", over_limit)
+    scope_resolution = FixedScopeResolutionPort(
+        repository_id=seed.repository_id,
+        baseline_head=BASELINE_HEAD,
+    )
+    with pytest.raises(ArchiveScopeLimitExceeded):
+        get_archive_candidates(
+            context=seed.archiver_context,
+            scope_resolution=scope_resolution,
+            unit_of_work_factory=_uow_factory(db_path),
+        )

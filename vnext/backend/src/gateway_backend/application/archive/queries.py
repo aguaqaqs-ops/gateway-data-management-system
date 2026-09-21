@@ -11,7 +11,6 @@ from gateway_backend.application.archive.contracts import (
     compute_selection_subject_digest,
 )
 from gateway_backend.application.archive.errors import (
-    ActiveSubmitAttempt,
     ArchiveAnomalyUnresolved,
     ArchiveConfirmationRequired,
     CandidateBindingConflict,
@@ -23,6 +22,7 @@ from gateway_backend.application.archive.ports import (
 )
 from gateway_backend.application.archive.snapshot import (
     ArchiveCandidateSnapshot,
+    collect_repository_submit_blockers,
     load_archive_candidate_snapshot,
 )
 from gateway_backend.domain.archive.models import (
@@ -90,9 +90,7 @@ def get_archive_candidates(
     resolved = scope_resolution.resolve(context)
     with unit_of_work_factory(read_only=True) as unit_of_work:
         snapshot = load_archive_candidate_snapshot(unit_of_work, context, resolved)
-        blockers: list[str] = []
-        if snapshot.active_attempt_ids:
-            blockers.append("ACTIVE_SUBMIT_ATTEMPT")
+        blockers = list(collect_repository_submit_blockers(unit_of_work, snapshot.repository_id))
         return ArchiveCandidatesResult(
             head=snapshot.resolved_scope.baseline_head,
             candidates=snapshot.candidates,
@@ -112,9 +110,7 @@ def preview_archive_plan(
     resolved = scope_resolution.resolve(context)
     with unit_of_work_factory(read_only=True) as unit_of_work:
         snapshot = load_archive_candidate_snapshot(unit_of_work, context, resolved)
-        blockers: list[str] = []
-        if snapshot.active_attempt_ids:
-            blockers.append("ACTIVE_SUBMIT_ATTEMPT")
+        blockers = list(collect_repository_submit_blockers(unit_of_work, snapshot.repository_id))
         selected: ArchiveSelectedRef | None = None
         selection_subject_digest: str | None = None
         if selected_ref is not None:
@@ -305,8 +301,3 @@ def _validate_audit_for_start(
             anomaly.subject_digest,
         ):
             raise ArchiveAnomalyUnresolved("approved sibling exclusion is unresolved")
-
-
-def assert_no_active_submit_attempts(snapshot: ArchiveCandidateSnapshot) -> None:
-    if snapshot.active_attempt_ids:
-        raise ActiveSubmitAttempt()

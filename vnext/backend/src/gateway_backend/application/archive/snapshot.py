@@ -5,13 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from gateway_backend.application.archive.contracts import (
-    ARCHIVE_MAX_CANDIDATES,
     ArchiveCandidateRef,
     compute_candidate_digest,
     compute_candidate_set_digest,
     review_status_to_archive_value,
 )
-from gateway_backend.application.archive.errors import ArchiveScopeLimitExceeded
+from gateway_backend.application.archive.errors import (
+    ActiveSubmitAttempt,
+    ArchiveIntegrityFailure,
+    ArchiveScopeLimitExceeded,
+)
+from gateway_backend.domain.submission.errors import ArchiveCandidateReadBoundExceeded
 from gateway_backend.application.archive.ports import ArchiveControlTransaction
 from gateway_backend.domain.submission.review import ReviewStatus
 from gateway_backend.domain.workspace.models import IdentityContext, ResolvedScope
@@ -41,13 +45,16 @@ def load_archive_candidate_snapshot(
         business_project_id=context.business_project_id,
     )
     if fresh_scope.repository_id != resolved_scope.repository_id:
-        raise ValueError("repository scope mismatch")
+        raise ArchiveIntegrityFailure("repository scope mismatch")
     head = fresh_scope.baseline_head
-    facts = unit_of_work.submission.list_archive_candidate_facts(
-        fresh_scope.repository_id,
-        baseline_node_id=head.business_baseline_node_id,
-        baseline_commit_id=head.business_baseline_commit_id,
-    )
+    try:
+        facts = unit_of_work.submission.list_archive_candidate_facts(
+            fresh_scope.repository_id,
+            baseline_node_id=head.business_baseline_node_id,
+            baseline_commit_id=head.business_baseline_commit_id,
+        )
+    except ArchiveCandidateReadBoundExceeded:
+        raise ArchiveScopeLimitExceeded() from None
     candidate_refs: list[ArchiveCandidateRef] = []
     for fact in facts:
         if fact.closed_by_archive:
@@ -82,8 +89,6 @@ def load_archive_candidate_snapshot(
                 expected_candidate_digest=candidate_digest,
             )
         )
-    if len(candidate_refs) > ARCHIVE_MAX_CANDIDATES:
-        raise ArchiveScopeLimitExceeded()
     candidate_set_digest = compute_candidate_set_digest(
         repository_id=fresh_scope.repository_id,
         gateway_device_external_key=context.gateway_device_external_key,
@@ -106,3 +111,31 @@ def load_archive_candidate_snapshot(
         candidate_set_digest=candidate_set_digest,
         active_attempt_ids=tuple(item.submit_attempt_id for item in active_attempts),
     )
+
+
+def collect_repository_submit_blockers(
+    unit_of_work: ArchiveControlTransaction,
+    repository_id: str,
+) -> tuple[str, ...]:
+    active_attempts = unit_of_work.submission.list_active_submit_attempts(repository_id)
+    occupancy = unit_of_work.submission.get_repository_occupancy(repository_id)
+    if active_attempts and occupancy is not None:
+        active_ids = {item.submit_attempt_id for item in active_attempts}
+        if occupancy.submit_attempt_id not in active_ids:
+            return ("ARCHIVE_INTEGRITY_FAILURE",)
+    if active_attempts:
+        return ("ACTIVE_SUBMIT_ATTEMPT",)
+    if occupancy is not None:
+        return ("ARCHIVE_INTEGRITY_FAILURE",)
+    return ()
+
+
+def assert_repository_submit_gate(
+    unit_of_work: ArchiveControlTransaction,
+    repository_id: str,
+) -> None:
+    blockers = collect_repository_submit_blockers(unit_of_work, repository_id)
+    if "ACTIVE_SUBMIT_ATTEMPT" in blockers:
+        raise ActiveSubmitAttempt()
+    if "ARCHIVE_INTEGRITY_FAILURE" in blockers:
+        raise ArchiveIntegrityFailure("repository submit occupancy is inconsistent")

@@ -28,11 +28,14 @@ from gateway_backend.domain.submission.models import (
     Submission,
     WorkspaceSubmitOccupancy,
 )
+from gateway_backend.domain.submission.errors import ArchiveCandidateReadBoundExceeded
 from gateway_backend.domain.submission.ports import (
     ArchiveActiveAttemptFacts,
     ArchiveCandidateFacts,
 )
 from gateway_backend.domain.submission.review import ReviewStatus
+
+_ARCHIVE_CANDIDATE_FETCH_LIMIT = 201
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SQLITE_INT_MIN = -(2**63)
@@ -192,9 +195,12 @@ class SQLiteSubmissionRepository:
               AND s.based_on_baseline_node_id = ?
               AND s.business_baseline_commit_id = ?
             ORDER BY s.submission_id
+            LIMIT ?
             """,
-            (repository_id, baseline_node_id, baseline_commit_id),
+            (repository_id, baseline_node_id, baseline_commit_id, _ARCHIVE_CANDIDATE_FETCH_LIMIT),
         ).fetchall()
+        if len(rows) >= _ARCHIVE_CANDIDATE_FETCH_LIMIT:
+            raise ArchiveCandidateReadBoundExceeded()
         facts: list[ArchiveCandidateFacts] = []
         for row in rows:
             mapping = _row_mapping(row)

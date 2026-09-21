@@ -461,7 +461,12 @@ def seed_submit_ready_workspace(
     )
 
 
-def _accept_command(seed: SubmitSeed, *, idempotency_key: str) -> AcceptSubmitCommand:
+def _accept_command(
+    seed: SubmitSeed,
+    *,
+    idempotency_key: str,
+    baseline_head: BaselineHead = BASELINE_HEAD,
+) -> AcceptSubmitCommand:
     return AcceptSubmitCommand(
         context=make_identity(
             actor_id=seed.workspace.owner_actor_id,
@@ -474,8 +479,8 @@ def _accept_command(seed: SubmitSeed, *, idempotency_key: str) -> AcceptSubmitCo
         upload_revision_id=seed.upload_revision.upload_revision_id,
         preview_result_id=seed.preview_result.preview_result_id,
         generation=seed.preview_result.generation,
-        expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
-        expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        expected_baseline_node_id=baseline_head.business_baseline_node_id,
+        expected_baseline_head_version=baseline_head.baseline_head_version,
         idempotency_key=idempotency_key,
         options={},
     )
@@ -800,12 +805,17 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path)
         )
 
 
-def _seed_effect_pending_attempt(db_path: Path, seed: SubmitSeed) -> SubmitAttempt:
+def _seed_effect_pending_attempt(
+    db_path: Path,
+    seed: SubmitSeed,
+    *,
+    baseline_head: BaselineHead = BASELINE_HEAD,
+) -> SubmitAttempt:
     accepted = accept_submit_transaction(
-        command=_accept_command(seed, idempotency_key="accept-key-1"),
+        command=_accept_command(seed, idempotency_key="accept-key-1", baseline_head=baseline_head),
         scope_resolution=FixedScopeResolutionPort(
             repository_id=seed.workspace.repository_id,
-            baseline_head=BASELINE_HEAD,
+            baseline_head=baseline_head,
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),

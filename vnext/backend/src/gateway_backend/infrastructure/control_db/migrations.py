@@ -1191,6 +1191,11 @@ def _workspace_v5_archive_statements() -> tuple[str, ...]:
         CREATE INDEX archive_disposition_records_result_id
             ON archive_disposition_records(result_id)
         """,
+        """
+        CREATE UNIQUE INDEX archive_disposition_records_one_selected_per_result
+            ON archive_disposition_records(result_id)
+            WHERE disposition = 'ARCHIVED_BASELINE'
+        """,
         f"""
         CREATE TABLE archive_confirmation_events (
             event_id TEXT NOT NULL PRIMARY KEY

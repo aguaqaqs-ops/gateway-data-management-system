@@ -37,6 +37,10 @@ class SubmitAttemptVersionConflict(SubmissionDomainError):
         self.actual = actual
 
 
+class ArchiveCandidateReadBoundExceeded(SubmissionDomainError):
+    """Archive candidate bounded read exceeded the supported SQL fetch limit."""
+
+
 class SubmitOccupancyConflict(SubmissionDomainError):
     """Workspace or repository submit occupancy is already held or owner CAS failed."""
 

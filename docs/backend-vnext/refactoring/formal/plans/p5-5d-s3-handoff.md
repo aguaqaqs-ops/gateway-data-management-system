@@ -31,9 +31,9 @@ independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-indepen
 re_review: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-re-review.md
 closure_verification: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-closure-verification.md
 baseline_commit: 2233e80cc1b8e1288acf1ed9785c6b84093f67ce
-implementation_candidate_head: 8508de70dd863d3165a72da161367ef437bf5a5f
-evidence_delivery: delivered_by_round4_remediation_commit
-candidate_binding_note: bind to 8508de70dd (in-history implementation); do not record amend-replaced SHAs
+implementation_candidate_head: TBD_ROUND4_REVIEW_FIX
+evidence_delivery: delivered_by_round4_review_remediation_commit
+candidate_binding_note: bind to round-4 review F1 harness commit (in-history); do not record amend-replaced SHAs
 workspace_schema_version: 5
 uv_lock_in_diff: no
 candidate_binding: independent_review_uses_git_head_at_review_time
@@ -45,11 +45,19 @@ next_step: P5-5D-S3-re-review
 | Finding | Fix |
 | --- | --- |
 | P2-1 深层 JSON `RecursionError` → 500 | `ArchiveRequestBodyLimitMiddleware` 捕获 `RecursionError` → **422**；`test_archive_post_rejects_deeply_nested_json_with_422` |
-| P2-2 Compose main ref 屏障 | 前置 `main_after_both != main_after_a`；观察窗口 `main_after_archive == main_before_archive`；`resolve_main_commit_id` HTTP 503 时回退 `dolt log main` |
+| P2-2 Compose main ref 屏障 | 前置 `main_after_both != main_after_a`；观察窗口 `main_after_archive == main_before_archive`（全程经 HTTP `refs/main`） |
 
 ### RecursionError 修前证据
 
 修复前：payload `b'[' * 50000 + b'0' + b']' * 50000`（100001 bytes < 256 KiB）POST `/v1/archive-plan-preview` → **500**。修复后 → **422** `REQUEST_VALIDATION_FAILED`。
+
+## Round-4 review remediation (F1)
+
+| Finding | Fix |
+| --- | --- |
+| F1 compose gate root dolt 污染 | `list_repository_commit_ids` 改 `docker compose exec -u gateway`；删除 `resolve_main_commit_id` dolt 回退；main ref 观测全程 HTTP |
+
+先前「归档后 refs/main 持续 503」归因不成立：503 由 harness 以 root 在容器内执行 `dolt`、污染 `.dolt/**` 属主所致，与 Archive 无关。
 
 ## Re-review remediation summary (R1–R9)
 
@@ -68,7 +76,7 @@ next_step: P5-5D-S3-re-review
 
 - 中间件短路 413/422 响应不含 FastAPI 校验错误的 `details` 子结构（已知差异，成本未扩）。
 - 请求体读取超时（slowloris）未实现；待 design 决策。
-- 归档后 repository HTTP `refs/main` 可能持续 **503**；compose gate 在 HTTP 重试耗尽后以 `dolt log main` 读取技术 main（与零 Repository effect 观察一致）。
+- compose gate 在 repository-service 容器内执行 `dolt` 时必须以服务用户 `gateway` 运行（`exec -u gateway`），避免 root 写入污染 `.dolt/**` 导致后续 `refs/main` **503**。
 
 ## Scope delivered
 
@@ -94,7 +102,7 @@ next_step: P5-5D-S3-re-review
 | 文件 | 改动 |
 | --- | --- |
 | `tests/test_archive_http.py` | 断连中间件用例；R1/R2/R3；七响应泄漏扫描；深层 JSON RecursionError→422 |
-| `tests/support/compose_gate_harness.py` | provenance helper；`resolve_main_commit_id` HTTP+dolt 回退 |
+| `tests/support/compose_gate_harness.py` | provenance helper；`list_repository_commit_ids` 以 `gateway` 用户 exec；`resolve_main_commit_id` 仅 HTTP |
 | `tests/test_archive_compose_e2e.py` | 双 actor main ref 屏障；零 Repository effect main 直接断言 |
 
 ## Invariants delivered
@@ -150,10 +158,10 @@ cd vnext/backend/src && find . -name '*.py' -type f | LC_ALL=C sort | \
 
 | 证据 | 值 |
 | --- | --- |
-| Implementation binding commit | `8508de70dd863d3165a72da161367ef437bf5a5f`（round-4 实现；在历史中可 `git cat-file`） |
+| Implementation binding commit | `TBD_ROUND4_REVIEW_FIX`（round-4 review F1 harness；在历史中可 `git cat-file`） |
 | `vnext/**` tree status | clean at implementation binding |
 | Source-tree file count | 905 |
-| Source-tree digest | `4f2b69fd7a8b4e6495db0a5dfc72b8d54da434a5b00eb1670c3d7fbcf8f6008e` |
+| Source-tree digest | `c21785c370568befd0c24517c190c003bde7b0ef1efcfc4fb6f97b68c0e24c15` |
 | Backend `src` py digest（`path\tsha256` recipe，local == image） | `b37e8b3ec48fad1144505a6756e79ae33f71cfeb8c3356f4f2a4c85e235f6285` |
 | uv.lock SHA (backend) | `21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea` |
 | uv.lock SHA (repository_service) | `6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11` |
@@ -161,13 +169,13 @@ cd vnext/backend/src && find . -name '*.py' -type f | LC_ALL=C sort | \
 | uv.lock SHA (repository_contracts) | `b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3` |
 | uv.lock SHA (shared_kernel) | `7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898` |
 | compose.yaml SHA-256 | `f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0` |
-| repository-service | `sha256:6709828c4188c5eb8b41384463eef7baa8d1727d4fc75b9042c4aaa91d644b41`（container `26969b52bffd`） |
-| backend | `sha256:81e1d5919f4e565ebae8b5f5e4e21807d7aadc0afd3fb3d1cd8ea00af48ff116`（container `eda64da642c4`） |
-| worker | `sha256:337cde10a3296a8c3f16e12c1917b967f06edc90087b6fd1b65dde7d725daf36`（container `334bc3f193ae`） |
+| repository-service | `sha256:6709828c4188c5eb8b41384463eef7baa8d1727d4fc75b9042c4aaa91d644b41`（container `2ec32cd101cc`） |
+| backend | `sha256:81e1d5919f4e565ebae8b5f5e4e21807d7aadc0afd3fb3d1cd8ea00af48ff116`（container `316f7ca74562`） |
+| worker | `sha256:337cde10a3296a8c3f16e12c1917b967f06edc90087b6fd1b65dde7d725daf36`（container `44aa70680cb8`） |
 | Running container provenance | `vnext/backend/tests/support/.last_compose_gate_provenance.json` |
 | `org.opencontainers.image.revision` (backend/worker) | 空（py digest 对等补偿） |
 
-Superseded：`6006d443…` source-tree digest（round-3 候选，非 round-4 最终候选）。
+Superseded：`4f2b69fd…` source-tree digest（round-4 初版含 dolt 回退，非 review F1 最终候选）；`6006d443…`（round-3）。
 
 ## Forbidden imports
 

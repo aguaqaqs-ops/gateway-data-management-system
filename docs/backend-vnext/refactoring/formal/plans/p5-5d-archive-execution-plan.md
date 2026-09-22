@@ -40,7 +40,7 @@ next_step: P5-5D-S3-re-review
 S0 文档编写及独立复审已完成。S1 **pass**（Baseline Head authority、initial-empty 前置、v5
 Baseline DDL、focused gate）；S2 **pass**（bounded read、audit、single-transaction archive、
 独立复审闭环；focused gate 248 passed）；S3 **re-review remediation complete**（关闭 R-1 断连死循环与
-R1–R9 测试/文档/provenance 缺口；focused gate 136 passed、conjunction 6 passed、`-m unit` 2355 passed；
+R1–R9 测试/文档/provenance 缺口；round-4 关闭 P2-1/P2-2；focused gate 137 passed、conjunction 6 passed、`-m unit` 2356 passed；
 `p5_5d_s3_stage_exit: not_evaluated`，`delivery_recommendation: pass_recommended`）；
 S4 未开始（待 stage exit 签署）。S1/S2 交付无 Archive HTTP API；S3 交付完整生产 API 与双 actor compose journey。v5 仍未发布。
 O-1（`test_production_wiring.py`）已在 S3 修复（19 passed）。
@@ -239,7 +239,7 @@ baseline head 与测试 fixture 不一致；S3 以 `_authoritative_baseline_head
 
 **S3 re-review remediation complete**（2026-09-22）。handoff 见 [p5-5d-s3-handoff.md](p5-5d-s3-handoff.md)；
 复审见 [p5-5d-s3-re-review.md](p5-5d-s3-re-review.md)。
-focused gate **136 passed**；fresh-build conjunction **6 passed, 0 skipped**（`gateway-p5-5d-s3-rereview-gate`）；
+focused gate **137 passed**；fresh-build conjunction **6 passed, 0 skipped**（`gateway-p5-5d-s3-round4-gate`）；
 `p5_5d_s3_stage_exit: not_evaluated`；`delivery_recommendation: pass_recommended`；`next_step: P5-5D-S3-re-review`。
 不签 slice exit。S4 仅在 stage exit 签署后启动。
 

@@ -1,6 +1,6 @@
 # P5-5D-S3 Public API, Production Composition and Deployment Inputs Handoff
 
-状态：**S3 round-4 remediation complete — delivery_recommendation: pass_recommended（不签 stage exit / slice exit）**
+状态：**S3 pass — stage exit authorized @ [p5-5d-s3-stage-exit-acceptance.md](p5-5d-s3-stage-exit-acceptance.md)**
 
 日期：2026-09-22
 
@@ -17,7 +17,7 @@ source_or_test_change_authorized: true
 unresolved_contract_drift: none
 repository_effect_authorized: false
 production_deployment_authorized: false
-p5_5d_s3_stage_exit: not_evaluated
+p5_5d_s3_stage_exit: pass
 p5_5d_slice_exit: not_evaluated
 ```
 
@@ -37,7 +37,7 @@ candidate_binding_note: bind to round-4 review F1 harness commit (in-history); d
 workspace_schema_version: 5
 uv_lock_in_diff: no
 candidate_binding: independent_review_uses_git_head_at_review_time
-next_step: P5-5D-S3-re-review
+next_step: P5-5D-S4
 ```
 
 ## Round-4 remediation summary (P2-1, P2-2)
@@ -185,9 +185,10 @@ None.
 
 ```yaml
 delivery_recommendation: pass_recommended
-review: pending
-p5_5d_s3_stage_exit: not_evaluated
-next_step: P5-5D-S3-re-review
+review: pass
+p5_5d_s3_stage_exit: pass
+stage_exit_acceptance: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-stage-exit-acceptance.md
+next_step: P5-5D-S4
 slice_exit: not_signed_by_delivery
 ```
 

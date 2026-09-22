@@ -1,6 +1,6 @@
 # P5-5D Archive Execution Plan
 
-状态：**ACCEPTED — S1 pass；S2 pass（authorized closure）；S3 remediation complete（pass_recommended，stage exit 待独立 re-review）**
+状态：**ACCEPTED — S1 pass；S2 pass（authorized closure）；S3 pass（authorized closure）；S4 进行中**
 
 审核依据：[S0 Independent Docs Acceptance](p5-5d-s0-independent-docs-acceptance.md)。
 
@@ -30,19 +30,19 @@ p5_5d_implementation_authorized: yes
 first_authorized_implementation_stage: S2
 p5_5d_s1_stage_exit: pass
 p5_5d_s2_stage_exit: pass
-p5_5d_s3_stage_exit: not_evaluated
+p5_5d_s3_stage_exit: pass
 production_deployment_authorized: no
 new_repository_effect_authorized: no
 p5_5d_slice_exit: not_evaluated
-next_step: P5-5D-S3-re-review
+next_step: P5-5D-S4
 ```
 
 S0 文档编写及独立复审已完成。S1 **pass**（Baseline Head authority、initial-empty 前置、v5
 Baseline DDL、focused gate）；S2 **pass**（bounded read、audit、single-transaction archive、
 独立复审闭环；focused gate 248 passed）；S3 **re-review remediation complete**（关闭 R-1 断连死循环与
-R1–R9 测试/文档/provenance 缺口；round-4 关闭 P2-1/P2-2；focused gate 137 passed、conjunction 6 passed、`-m unit` 2356 passed；
-`p5_5d_s3_stage_exit: not_evaluated`，`delivery_recommendation: pass_recommended`）；
-S4 未开始（待 stage exit 签署）。S1/S2 交付无 Archive HTTP API；S3 交付完整生产 API 与双 actor compose journey。v5 仍未发布。
+R1–R9 测试/文档/provenance 缺口；round-4 关闭 P2-1/P2-2；focused gate 137 passed、conjunction 6 passed）；
+S3 **pass**（2026-09-23 authorized closure，见 [p5-5d-s3-stage-exit-acceptance.md](p5-5d-s3-stage-exit-acceptance.md)）；
+S4 进行中。S1/S2 交付无 Archive HTTP API；S3 交付完整生产 API 与双 actor compose journey。v5 仍未发布。
 O-1（`test_production_wiring.py`）已在 S3 修复（19 passed）。
 未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；Archive 自身始终零写。
 
@@ -238,10 +238,11 @@ baseline head 与测试 fixture 不一致；S3 以 `_authoritative_baseline_head
 ### S3 — public API, production composition and deployment inputs
 
 **S3 re-review remediation complete**（2026-09-22）。handoff 见 [p5-5d-s3-handoff.md](p5-5d-s3-handoff.md)；
-复审见 [p5-5d-s3-re-review.md](p5-5d-s3-re-review.md)。
-focused gate **137 passed**；fresh-build conjunction **6 passed, 0 skipped**（`gateway-p5-5d-s3-round4-gate`）；
-`p5_5d_s3_stage_exit: not_evaluated`；`delivery_recommendation: pass_recommended`；`next_step: P5-5D-S3-re-review`。
-不签 slice exit。S4 仅在 stage exit 签署后启动。
+复审见 [p5-5d-s3-re-review.md](p5-5d-s3-re-review.md)、[round-4 closure](p5-5d-s3-round4-independent-closure.md)。
+focused gate **137 passed**；fresh-build conjunction **6 passed, 0 skipped**（`gateway-p5-5d-s3-round4-gate`）。
+
+**S3 authorized closure**（2026-09-23）。[p5-5d-s3-stage-exit-acceptance.md](p5-5d-s3-stage-exit-acceptance.md)
+签署；`p5_5d_s3_stage_exit: pass`；`next_step: P5-5D-S4`。不签 slice exit。
 
 
 目标：所有 Design §8 routes/DTO 与真实 production factory 接线、独立 permission、schema/seed

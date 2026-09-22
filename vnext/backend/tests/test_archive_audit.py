@@ -16,7 +16,11 @@ from gateway_backend.application.archive.audit import (
     append_archive_confirmation,
 )
 from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
-from gateway_backend.application.archive.errors import ArchiveAuditVersionConflict, ArchiveConfirmationRequired
+from gateway_backend.application.archive.errors import (
+    ArchiveAuditVersionConflict,
+    ArchiveConfirmationRequired,
+    ArchiveRequestValidation,
+)
 from gateway_backend.application.archive.start import StartArchiveCommand, start_archive
 from gateway_backend.application.submission.errors import IdempotencyConflict
 from gateway_backend.domain.archive.models import (
@@ -267,7 +271,7 @@ def test_confirmation_rejects_non_integer_expected_sequence(
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
     seed = seed_approved_archive_candidate(db_path)
-    with pytest.raises(ValueError, match="expected_sequence must be a non-negative integer"):
+    with pytest.raises(ArchiveRequestValidation, match="expected_sequence must be a non-negative integer"):
         append_archive_confirmation(
             command=_confirmation_command(seed, expected_sequence=expected_sequence),
             unit_of_work_factory=_uow_factory(db_path),
@@ -285,7 +289,7 @@ def test_confirmation_rejects_non_integer_expected_baseline_head_version(db_path
 
     seed = seed_approved_archive_candidate(db_path)
     with pytest.raises(
-        ValueError,
+        ArchiveRequestValidation,
         match="expected_baseline_head_version must be a non-negative integer",
     ):
         append_archive_confirmation(
@@ -336,7 +340,7 @@ def test_confirmation_rejects_null_reason_for_revoke_action(db_path: Path) -> No
         unit_of_work_factory=_uow_factory(db_path),
         now=datetime(2024, 7, 1, tzinfo=UTC),
     )
-    with pytest.raises(ValueError, match="reason must be a string"):
+    with pytest.raises(ArchiveRequestValidation, match="reason must be a string"):
         append_archive_confirmation(
             command=_confirmation_command(
                 seed,
@@ -360,7 +364,7 @@ def test_resolution_rejects_null_reason(db_path: Path) -> None:
 
     dual_seed = seed_approved_dual_sibling_archive(db_path)
     append_selection_confirmation(dual_seed.primary, idempotency_key="confirm-before-null-resolution")
-    with pytest.raises(ValueError, match="reason must be a string"):
+    with pytest.raises(ArchiveRequestValidation, match="reason must be a string"):
         append_archive_anomaly_resolution(
             command=_resolution_command(dual_seed, reason=None),
             unit_of_work_factory=_uow_factory(db_path),

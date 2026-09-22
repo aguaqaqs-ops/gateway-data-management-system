@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
+from gateway_backend.application.archive.errors import ArchiveRequestValidation
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
     ArchiveConfirmationAction,
@@ -47,31 +48,33 @@ class ArchiveAuditReferenceInput:
 
 def validate_utf8_id(value: str, *, field_name: str) -> str:
     if type(value) is not str:
-        raise ValueError(f"{field_name} must be a string")
+        raise ArchiveRequestValidation(f"{field_name} must be a string")
     encoded = value.encode("utf-8")
     if len(encoded) < ARCHIVE_ID_MIN_BYTES or len(encoded) > ARCHIVE_ID_MAX_BYTES:
-        raise ValueError(f"{field_name} must be between 1 and 255 UTF-8 bytes")
+        raise ArchiveRequestValidation(f"{field_name} must be between 1 and 255 UTF-8 bytes")
     return value
 
 
 def validate_utf8_reason(value: str, *, field_name: str = "reason") -> str:
     if type(value) is not str:
-        raise ValueError(f"{field_name} must be a string")
+        raise ArchiveRequestValidation(f"{field_name} must be a string")
     encoded = value.encode("utf-8")
     if len(encoded) < ARCHIVE_REASON_MIN_BYTES or len(encoded) > ARCHIVE_REASON_MAX_BYTES:
-        raise ValueError(f"{field_name} must be between 1 and 4096 UTF-8 bytes")
+        raise ArchiveRequestValidation(
+            f"{field_name} must be between 1 and 4096 UTF-8 bytes"
+        )
     return value
 
 
 def validate_archive_digest(value: str, *, field_name: str) -> str:
     if type(value) is not str or not _DIGEST_PATTERN.fullmatch(value):
-        raise ValueError(f"{field_name} must be a sha256 digest")
+        raise ArchiveRequestValidation(f"{field_name} must be a sha256 digest")
     return value
 
 
 def validate_non_negative_int(value: int, *, field_name: str) -> int:
     if type(value) is not int or isinstance(value, bool) or value < 0:
-        raise ValueError(f"{field_name} must be a non-negative integer")
+        raise ArchiveRequestValidation(f"{field_name} must be a non-negative integer")
     return value
 
 
@@ -88,7 +91,7 @@ def validate_archive_confirmation_reason(
     if action is ArchiveConfirmationAction.CONFIRM and reason is None:
         return None
     if not isinstance(reason, str):
-        raise ValueError(f"{field_name} must be a string")
+        raise ArchiveRequestValidation(f"{field_name} must be a string")
     return validate_utf8_reason(reason, field_name=field_name)
 
 

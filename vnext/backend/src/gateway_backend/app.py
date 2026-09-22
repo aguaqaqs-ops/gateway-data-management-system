@@ -15,10 +15,12 @@ def create_app(
     workspace_http: WorkspaceHttpDependencies | None = None,
 ) -> FastAPI:
     if workspace_http is not None:
-        app = FastAPI(title="Gateway Backend vNext")
-        _register_health_routes(app, ready=True)
+        from gateway_backend.http.dependencies import ArchiveRequestBodyLimitMiddleware
         from gateway_backend.http.wiring import register_workspace_http
 
+        app = FastAPI(title="Gateway Backend vNext")
+        app.add_middleware(ArchiveRequestBodyLimitMiddleware)
+        _register_health_routes(app, ready=True)
         register_workspace_http(app, workspace_http)
         return app
 
@@ -38,9 +40,11 @@ def create_app(
         finally:
             begin_http_pre_drain(app)
 
-    app = FastAPI(title="Gateway Backend vNext", lifespan=lifespan)
+    from gateway_backend.http.dependencies import ArchiveRequestBodyLimitMiddleware
     from gateway_backend.http.errors import register_exception_handlers
 
+    app = FastAPI(title="Gateway Backend vNext", lifespan=lifespan)
+    app.add_middleware(ArchiveRequestBodyLimitMiddleware)
     register_exception_handlers(app)
     app.state.ready = False
     _register_health_routes(app, ready=None)

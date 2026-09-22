@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -9,10 +10,13 @@ import pytest
 from pydantic import ValidationError
 
 from gateway_backend.application.archive.contracts import (
+    ARCHIVE_MAX_AUDIT_REFS,
+    ARCHIVE_MAX_REQUEST_BYTES,
     validate_archive_confirmation_reason,
     validate_utf8_id,
     validate_utf8_reason,
 )
+from gateway_backend.application.archive.errors import ArchiveRequestValidation
 from gateway_backend.application.archive.queries import PERMISSION_ARCHIVE_SUBMISSION
 from gateway_backend.domain.archive.models import ArchiveConfirmationAction
 from gateway_backend.http.dependencies import ClosableAdmissionGate
@@ -23,6 +27,7 @@ from gateway_backend.http.schemas.archive import (
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from tests.support.archive_fixtures import (
     append_selection_confirmation,
+    assert_archive_durable_state_unchanged,
     seed_approved_archive_candidate,
     seed_approved_dual_sibling_archive,
 )
@@ -32,7 +37,7 @@ from tests.support.http_workspace_harness import (
     create_workspace_http_environment,
 )
 from tests.support.workspace_fixtures import make_identity
-from tests.test_submit_transactions import BASELINE_HEAD
+from tests.test_submit_transactions import BASELINE_HEAD, _upsert_provisioned_mapping_row
 
 pytestmark = pytest.mark.unit
 
@@ -178,7 +183,6 @@ def test_list_archive_candidates_returns_approved_submission(archive_env: Worksp
 
 def test_preview_archive_plan_is_read_only(archive_env: WorkspaceHttpTestEnvironment) -> None:
     seed = seed_approved_archive_candidate(archive_env.db_path)
-    before = _archive_table_counts(archive_env.db_path)
     for _ in range(2):
         response = archive_env.client.post(
             "/v1/archive-plan-preview",
@@ -195,8 +199,11 @@ def test_preview_archive_plan_is_read_only(archive_env: WorkspaceHttpTestEnviron
         assert body["audit_validity"] is False
         assert body["can_start"] is False
         assert "plan_id" not in body
-    after = _archive_table_counts(archive_env.db_path)
-    assert before == after
+    assert_archive_durable_state_unchanged(
+        archive_env.db_path,
+        repository_id="repo-1",
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+    )
 
 
 def test_archive_confirmation_and_start_journey(archive_env: WorkspaceHttpTestEnvironment) -> None:
@@ -324,27 +331,57 @@ def test_archive_start_returns_429_when_admission_closed(tmp_path: Path) -> None
     assert response.json()["code"] == "ADMISSION_LIMIT_REACHED"
 
 
-def test_archive_get_result_hides_cross_scope_result(tmp_path: Path) -> None:
-    env = _archive_env(tmp_path)
+def test_archive_get_result_hides_cross_scope_result_same_database(tmp_path: Path) -> None:
+    env = _archive_env(
+        tmp_path,
+        extra_sessions={
+            OTHER_SCOPE_BEARER: make_identity(
+                actor_id="actor-other-scope",
+                device_key="device-other",
+                project_id="project-1",
+                permissions=_archive_permissions(),
+            )
+        },
+    )
     seed = seed_approved_archive_candidate(env.db_path)
+    _upsert_provisioned_mapping_row(
+        env.db_path,
+        device_key="device-other",
+        project_id="project-1",
+        repository_id="repo-other",
+        baseline_head=BASELINE_HEAD,
+    )
     confirmation_sequence = append_selection_confirmation(seed)
     started = archive_env_start(env, seed, confirmation_sequence)
-    other_root = tmp_path / "other"
-    other_root.mkdir()
-    other_env = create_workspace_http_environment(
-        other_root,
-        identity=make_identity(
-            device_key="device-2",
-            project_id="project-2",
-            permissions=_archive_permissions(),
-        ),
-    )
-    response = other_env.client.get(
+    response = env.client.get(
         f"/v1/archives/{started['archive_result_id']}",
-        headers=_auth_headers(other_env),
+        headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER),
     )
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_archive_get_result_allows_same_scope_different_actor(tmp_path: Path) -> None:
+    other_actor_bearer = "same-scope-other-actor"
+    env = _archive_env(
+        tmp_path,
+        extra_sessions={
+            other_actor_bearer: make_identity(
+                actor_id="actor-2",
+                device_key="device-1",
+                project_id="project-1",
+                permissions=_archive_permissions(),
+            )
+        },
+    )
+    seed = seed_approved_archive_candidate(env.db_path)
+    confirmation_sequence = append_selection_confirmation(seed)
+    started = archive_env_start(env, seed, confirmation_sequence)
+    response = env.client.get(
+        f"/v1/archives/{started['archive_result_id']}",
+        headers=_auth_headers(env, bearer=other_actor_bearer),
+    )
+    assert response.status_code == 200
 
 
 def archive_env_start(
@@ -382,7 +419,7 @@ def test_archive_id_utf8_boundaries_match_contract_and_dto(
             }
         )
     else:
-        with pytest.raises(ValueError):
+        with pytest.raises(ArchiveRequestValidation):
             validate_utf8_id(id_value, field_name="submission_id")
         with pytest.raises(ValidationError):
             AppendArchiveConfirmationRequest.model_validate(
@@ -408,9 +445,8 @@ def test_archive_idempotency_key_ascii_boundaries_over_http(
     expected_status: int,
 ) -> None:
     seed = seed_approved_archive_candidate(archive_env.db_path)
-    validate_utf8_id(id_value, field_name="idempotency_key") if expected_status == 201 else None
     if expected_status == 422:
-        with pytest.raises(ValueError):
+        with pytest.raises(ArchiveRequestValidation):
             validate_utf8_id(id_value, field_name="idempotency_key")
     response = archive_env.client.post(
         "/v1/archive-confirmations",
@@ -436,7 +472,7 @@ def test_archive_reason_utf8_boundaries_match_contract(
         validate_utf8_reason(reason_value)
         validate_archive_confirmation_reason(ArchiveConfirmationAction.CONFIRM, reason_value)
     else:
-        with pytest.raises(ValueError):
+        with pytest.raises(ArchiveRequestValidation):
             validate_utf8_reason(reason_value)
     response = archive_env.client.post(
         "/v1/archive-confirmations",
@@ -449,7 +485,7 @@ def test_archive_reason_utf8_boundaries_match_contract(
 def test_archive_reason_rejects_1500_chinese_characters(archive_env: WorkspaceHttpTestEnvironment) -> None:
     seed = seed_approved_archive_candidate(archive_env.db_path)
     reason = "中" * 1500
-    with pytest.raises(ValueError):
+    with pytest.raises(ArchiveRequestValidation):
         validate_utf8_reason(reason)
     response = archive_env.client.post(
         "/v1/archive-confirmations",
@@ -515,3 +551,365 @@ def test_archive_resolution_requires_non_null_reason(archive_env: WorkspaceHttpT
 
 def replace_dict(body: dict[str, object], **updates: object) -> dict[str, object]:
     return {**body, **updates}
+
+
+ARCHIVE_AUDIT_QUERY_INVALID_CASES = (
+    ("invalid_digest", {"subject_digest": "not-a-digest"}, 422),
+    ("limit_zero", {"limit": 0}, 422),
+    ("limit_over", {"limit": 101}, 422),
+    ("limit_negative", {"limit": -1}, 422),
+    ("after_sequence_negative", {"after_sequence": -1}, 422),
+)
+
+ARCHIVE_FORBIDDEN_RESPONSE_SUBSTRINGS = (
+    "repository_id",
+    "SELECT ",
+    "/var/lib/",
+)
+
+
+@pytest.mark.parametrize(
+    ("case_id", "extra_params", "expected_status"),
+    ARCHIVE_AUDIT_QUERY_INVALID_CASES,
+    ids=[case[0] for case in ARCHIVE_AUDIT_QUERY_INVALID_CASES],
+)
+def test_archive_audit_events_query_validation(
+    archive_env: WorkspaceHttpTestEnvironment,
+    case_id: str,
+    extra_params: dict[str, object],
+    expected_status: int,
+) -> None:
+    seed_approved_archive_candidate(archive_env.db_path)
+    params = {
+        "subject_kind": "CONFIRM_SELECTION",
+        "subject_digest": "sha256:" + "a" * 64,
+        "after_sequence": 0,
+        "limit": 100,
+        **extra_params,
+    }
+    response = archive_env.client.get(
+        "/v1/archive-audit-events",
+        headers=_auth_headers(archive_env),
+        params=params,
+    )
+    assert response.status_code == expected_status
+
+
+def test_archive_confirmation_revoke_requires_reason_over_http(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    for payload in (
+        replace_dict(_confirmation_body(seed), action="REVOKE", reason=None),
+        {k: v for k, v in replace_dict(_confirmation_body(seed), action="REVOKE").items() if k != "reason"},
+    ):
+        response = archive_env.client.post(
+            "/v1/archive-confirmations",
+            headers=_auth_headers(archive_env, idempotency_key="revoke-no-reason"),
+            json=payload,
+        )
+        assert response.status_code == 422
+
+
+def test_archive_start_rejects_too_many_confirmation_refs(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    digest = seed.selection_subject_digest
+    refs = [{"subject_digest": digest, "sequence": index} for index in range(ARCHIVE_MAX_AUDIT_REFS + 1)]
+    response = archive_env.client.post(
+        "/v1/archives",
+        headers=_auth_headers(archive_env, idempotency_key="too-many-refs"),
+        json={
+            **_start_body(seed, confirmation_sequence=0),
+            "confirmation_refs": refs,
+            "anomaly_resolution_refs": [],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_archive_start_rejects_duplicate_confirmation_refs(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    ref = {"subject_digest": seed.selection_subject_digest, "sequence": 1}
+    response = archive_env.client.post(
+        "/v1/archives",
+        headers=_auth_headers(archive_env, idempotency_key="duplicate-refs"),
+        json={
+            **_start_body(seed, confirmation_sequence=1),
+            "confirmation_refs": [ref, ref],
+            "anomaly_resolution_refs": [],
+        },
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "route",
+    (
+        "/v1/archive-confirmations",
+        "/v1/archive-anomaly-resolutions",
+        "/v1/archives",
+    ),
+)
+def test_archive_write_routes_return_429_when_admission_closed(
+    tmp_path: Path,
+    route: str,
+) -> None:
+    gate = ClosableAdmissionGate(limit=1)
+    env = _archive_env(tmp_path, admission_gate=gate)
+    dual = seed_approved_dual_sibling_archive(env.db_path)
+    seed = dual.primary
+    confirm_sequence = append_selection_confirmation(seed)
+    resolve = env.client.post(
+        "/v1/archive-anomaly-resolutions",
+        headers=_auth_headers(env, idempotency_key=f"resolve-{route}"),
+        json={
+            **_confirmation_body(seed, reason="acknowledge sibling exclusion"),
+            "action": "ACKNOWLEDGE_EXCLUSION",
+            "issue_code": "APPROVED_SIBLING_EXCLUDED",
+            "sibling_submission_id": dual.sibling_submission_id,
+            "sibling_candidate_digest": dual.sibling_candidate_digest,
+            "subject_digest": dual.anomaly_subject_digest,
+        },
+    )
+    assert resolve.status_code == 201
+    gate.close()
+    if route == "/v1/archive-confirmations":
+        body = _confirmation_body(seed)
+        key = "admission-confirm"
+    elif route == "/v1/archive-anomaly-resolutions":
+        body = {
+            **_confirmation_body(seed, reason="retry"),
+            "action": "ACKNOWLEDGE_EXCLUSION",
+            "issue_code": "APPROVED_SIBLING_EXCLUDED",
+            "sibling_submission_id": dual.sibling_submission_id,
+            "sibling_candidate_digest": dual.sibling_candidate_digest,
+            "subject_digest": dual.anomaly_subject_digest,
+            "expected_sequence": 1,
+        }
+        key = "admission-resolve"
+    else:
+        body = _start_body(
+            seed,
+            confirmation_sequence=confirm_sequence,
+            anomaly_resolution_sequences=((dual.anomaly_subject_digest, resolve.json()["sequence"]),),
+        )
+        key = "admission-start"
+    response = env.client.post(
+        route,
+        headers=_auth_headers(env, idempotency_key=key),
+        json=body,
+    )
+    assert response.status_code == 429
+    assert response.json()["code"] == "ADMISSION_LIMIT_REACHED"
+
+
+def test_archive_confirmation_audit_version_conflict_returns_409_with_details(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    first = archive_env.client.post(
+        "/v1/archive-confirmations",
+        headers=_auth_headers(archive_env, idempotency_key="audit-version-1"),
+        json=_confirmation_body(seed),
+    )
+    assert first.status_code == 201
+    conflict = archive_env.client.post(
+        "/v1/archive-confirmations",
+        headers=_auth_headers(archive_env, idempotency_key="audit-version-2"),
+        json=replace_dict(_confirmation_body(seed), expected_sequence=99),
+    )
+    assert conflict.status_code == 409
+    body = conflict.json()
+    assert body["code"] == "ARCHIVE_AUDIT_VERSION_CONFLICT"
+    assert body["details"]["expected"] == 99
+    assert body["details"]["actual"] == 1
+
+
+def test_archive_start_candidate_set_conflict_returns_409(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    confirm_sequence = append_selection_confirmation(seed)
+    response = archive_env.client.post(
+        "/v1/archives",
+        headers=_auth_headers(archive_env, idempotency_key="candidate-set-conflict"),
+        json=replace_dict(
+            _start_body(seed, confirmation_sequence=confirm_sequence),
+            candidate_set_digest="sha256:" + "b" * 64,
+        ),
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == "CANDIDATE_SET_CONFLICT"
+
+
+def test_archive_cross_actor_idempotency_conflict_on_confirmation(
+    tmp_path: Path,
+) -> None:
+    other_actor = "other-actor-bearer"
+    env = _archive_env(
+        tmp_path,
+        extra_sessions={
+            other_actor: make_identity(
+                actor_id="actor-2",
+                permissions=_archive_permissions(),
+            )
+        },
+    )
+    seed = seed_approved_archive_candidate(env.db_path)
+    body = _confirmation_body(seed)
+    first = env.client.post(
+        "/v1/archive-confirmations",
+        headers=_auth_headers(env, idempotency_key="shared-confirm-key"),
+        json=body,
+    )
+    assert first.status_code == 201
+    conflict = env.client.post(
+        "/v1/archive-confirmations",
+        headers=_auth_headers(env, bearer=other_actor, idempotency_key="shared-confirm-key"),
+        json=body,
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"
+
+
+def test_archive_post_rejects_declared_body_over_limit(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    seed_approved_archive_candidate(archive_env.db_path)
+    oversized = b"x" * (ARCHIVE_MAX_REQUEST_BYTES + 1)
+    response = archive_env.client.post(
+        "/v1/archive-confirmations",
+        headers={
+            **_auth_headers(archive_env, idempotency_key="oversized-body"),
+            "Content-Length": str(len(oversized)),
+            "Content-Type": "application/json",
+        },
+        content=oversized,
+    )
+    assert response.status_code == 413
+    assert response.json()["code"] == "REQUEST_TOO_LARGE"
+
+
+def test_archive_post_rejects_chunked_body_over_limit(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    seed_approved_archive_candidate(archive_env.db_path)
+    oversized = b"x" * (ARCHIVE_MAX_REQUEST_BYTES + 1)
+    response = archive_env.client.post(
+        "/v1/archive-confirmations",
+        headers={
+            **_auth_headers(archive_env, idempotency_key="chunked-oversized"),
+            "Content-Type": "application/json",
+            "Transfer-Encoding": "chunked",
+        },
+        content=oversized,
+    )
+    assert response.status_code == 413
+    assert response.json()["code"] == "REQUEST_TOO_LARGE"
+
+
+def test_archive_confirmation_rejects_duplicate_json_keys(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    base = _confirmation_body(seed)
+    raw = (
+        "{"
+        f'"expected_baseline_node_id":"{base["expected_baseline_node_id"]}",'
+        f'"expected_baseline_head_version":{base["expected_baseline_head_version"]},'
+        f'"selected":{json.dumps(base["selected"])},'
+        f'"candidate_set_digest":"{base["candidate_set_digest"]}",'
+        f'"subject_digest":"{base["subject_digest"]}",'
+        f'"expected_sequence":{base["expected_sequence"]},'
+        '"action":"CONFIRM",'
+        '"reason":"first","reason":"second"'
+        "}"
+    )
+    response = archive_env.client.post(
+        "/v1/archive-confirmations",
+        headers={
+            **_auth_headers(archive_env, idempotency_key="dup-json-key"),
+            "Content-Type": "application/json",
+        },
+        content=raw.encode("utf-8"),
+    )
+    assert response.status_code == 422
+
+
+def test_archive_confirmation_rejects_extra_fields_over_http(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    response = archive_env.client.post(
+        "/v1/archive-confirmations",
+        headers=_auth_headers(archive_env, idempotency_key="extra-field"),
+        json=replace_dict(_confirmation_body(seed), unexpected=True),
+    )
+    assert response.status_code == 422
+
+
+def test_deploy_session_example_lists_archive_permission_explicitly() -> None:
+    session_path = Path(__file__).resolve().parents[2] / "deploy" / "config" / "session.json"
+    payload = json.loads(session_path.read_text(encoding="utf-8"))
+    for entry in payload["sessions"]:
+        permissions = entry["permissions"]
+        assert isinstance(permissions, list)
+        assert "*" not in permissions
+    granted = [entry for entry in payload["sessions"] if "archive_submission" in entry["permissions"]]
+    assert granted, "deploy example must show explicit archive_submission grant"
+
+
+@pytest.mark.parametrize("path", ("/v1/archive-candidates", "/v1/archive-plan-preview"))
+def test_archive_read_routes_unaffected_by_body_limit_middleware(
+    archive_env: WorkspaceHttpTestEnvironment,
+    path: str,
+) -> None:
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    if path.endswith("candidates"):
+        response = archive_env.client.get(path, headers=_auth_headers(archive_env))
+    else:
+        response = archive_env.client.post(
+            path,
+            headers=_auth_headers(archive_env),
+            json={
+                "selected": {
+                    "submission_id": seed.selected_ref.submission_id,
+                    "expected_candidate_digest": seed.selected_ref.expected_candidate_digest,
+                }
+            },
+        )
+    assert response.status_code == 200
+
+
+def test_archive_responses_do_not_leak_internal_fields(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    dual = seed_approved_dual_sibling_archive(archive_env.db_path)
+    seed = dual.primary
+    confirm = archive_env.client.post(
+        "/v1/archive-confirmations",
+        headers=_auth_headers(archive_env, idempotency_key="leak-scan-confirm"),
+        json=_confirmation_body(seed),
+    )
+    assert confirm.status_code == 201
+    bodies = [
+        archive_env.client.get("/v1/archive-candidates", headers=_auth_headers(archive_env)).text,
+        archive_env.client.post(
+            "/v1/archive-plan-preview",
+            headers=_auth_headers(archive_env),
+            json={
+                "selected": {
+                    "submission_id": seed.selected_ref.submission_id,
+                    "expected_candidate_digest": seed.selected_ref.expected_candidate_digest,
+                }
+            },
+        ).text,
+        confirm.text,
+    ]
+    for text in bodies:
+        for forbidden in ARCHIVE_FORBIDDEN_RESPONSE_SUBSTRINGS:
+            assert forbidden not in text

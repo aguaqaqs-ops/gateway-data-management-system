@@ -11,7 +11,7 @@ from gateway_backend.application.archive.audit import (
     append_archive_anomaly_resolution,
     append_archive_confirmation,
 )
-from gateway_backend.application.archive.contracts import ARCHIVE_MAX_REQUEST_BYTES
+from gateway_backend.application.archive.errors import ArchiveRequestValidation
 from gateway_backend.application.archive.ports import ArchiveControlUnitOfWorkFactory
 from gateway_backend.application.archive.queries import (
     get_archive_candidates,
@@ -33,10 +33,10 @@ from gateway_backend.http.schemas.archive import (
     ArchiveAuditEventsResponse,
     ArchiveCandidatesResponse,
     ArchiveResultResponse,
+    ArchiveStartedResponse,
     PreviewArchivePlanRequest,
     PreviewArchivePlanResponse,
     StartArchiveRequest,
-    ArchiveStartedResponse,
     audit_append_to_response,
     audit_events_to_response,
     archive_candidates_to_response,
@@ -56,19 +56,12 @@ class ArchiveMutationOperationResult:
     replay: bool
 
 
-def ensure_request_body_within_limit(content_length: str | None) -> None:
-    if content_length is None:
-        return
-    try:
-        size = int(content_length)
-    except ValueError:
-        return
-    if size > ARCHIVE_MAX_REQUEST_BYTES:
-        raise ApiError(
-            code="REQUEST_TOO_LARGE",
-            message="request body exceeds archive size limit",
-            status_code=413,
-        )
+def _validation_failed() -> ApiError:
+    return ApiError(
+        code="REQUEST_VALIDATION_FAILED",
+        message="request validation failed",
+        status_code=422,
+    )
 
 
 def parse_archive_idempotency_key(raw_header: str | None) -> str:
@@ -81,11 +74,7 @@ def parse_archive_idempotency_key(raw_header: str | None) -> str:
     try:
         return validate_utf8_id_field(raw_header, field_name="idempotency_key")
     except ValueError:
-        raise ApiError(
-            code="REQUEST_VALIDATION_FAILED",
-            message="request validation failed",
-            status_code=422,
-        ) from None
+        raise _validation_failed() from None
 
 
 def list_candidates_operation(
@@ -245,19 +234,18 @@ def list_audit_events_operation(
     try:
         parsed_subject_kind = parse_archive_subject_kind(subject_kind)
     except ValueError:
-        raise ApiError(
-            code="REQUEST_VALIDATION_FAILED",
-            message="request validation failed",
-            status_code=422,
-        ) from None
-    result = list_archive_audit_events(
-        context=context,
-        subject_kind=parsed_subject_kind,
-        subject_digest=subject_digest,
-        after_sequence=after_sequence,
-        limit=limit,
-        unit_of_work_factory=unit_of_work_factory,
-    )
+        raise _validation_failed() from None
+    try:
+        result = list_archive_audit_events(
+            context=context,
+            subject_kind=parsed_subject_kind,
+            subject_digest=subject_digest,
+            after_sequence=after_sequence,
+            limit=limit,
+            unit_of_work_factory=unit_of_work_factory,
+        )
+    except ArchiveRequestValidation:
+        raise _validation_failed() from None
     return audit_events_to_response(result)
 
 

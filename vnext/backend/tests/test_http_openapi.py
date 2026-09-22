@@ -12,6 +12,18 @@ from tests.support.http_workspace_harness import create_workspace_http_environme
 
 pytestmark = pytest.mark.unit
 
+FROZEN_ARCHIVE_OPENAPI_PATHS = frozenset(
+    {
+        "/v1/archive-candidates",
+        "/v1/archive-plan-preview",
+        "/v1/archive-confirmations",
+        "/v1/archive-anomaly-resolutions",
+        "/v1/archive-audit-events",
+        "/v1/archives",
+        "/v1/archives/{archive_result_id}",
+    }
+)
+
 
 @pytest.fixture
 def client(tmp_path: Path) -> TestClient:
@@ -22,6 +34,12 @@ def test_openapi_paths_match_frozen_routes(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     paths = set(schema["paths"])
     assert PRODUCTION_OPENAPI_PATHS == paths
+
+
+def test_openapi_archive_paths_match_literal_baseline(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    paths = set(schema["paths"])
+    assert FROZEN_ARCHIVE_OPENAPI_PATHS <= paths
 
 
 def test_openapi_schemas_reject_additional_properties(client: TestClient) -> None:

@@ -1,6 +1,6 @@
 # P5-5D Archive Execution Plan
 
-状态：**ACCEPTED — S1 pass；S2 pass（authorized closure）；S3 pass（delivery complete）**
+状态：**ACCEPTED — S1 pass；S2 pass（authorized closure）；S3 remediation complete（pass_recommended，stage exit 待独立 re-review）**
 
 审核依据：[S0 Independent Docs Acceptance](p5-5d-s0-independent-docs-acceptance.md)。
 
@@ -30,7 +30,7 @@ p5_5d_implementation_authorized: yes
 first_authorized_implementation_stage: S2
 p5_5d_s1_stage_exit: pass
 p5_5d_s2_stage_exit: pass
-p5_5d_s3_stage_exit: pass
+p5_5d_s3_stage_exit: not_evaluated
 production_deployment_authorized: no
 new_repository_effect_authorized: no
 p5_5d_slice_exit: not_evaluated
@@ -39,9 +39,10 @@ next_step: P5-5D-S4
 
 S0 文档编写及独立复审已完成。S1 **pass**（Baseline Head authority、initial-empty 前置、v5
 Baseline DDL、focused gate）；S2 **pass**（bounded read、audit、single-transaction archive、
-独立复审闭环；focused gate 248 passed）；S3 **pass**（七条 Archive HTTP 路由、生产接线、部署示例、
-focused gate 107 passed、fresh-build conjunction 6 passed）；S4 未开始。S1/S2 交付无 Archive HTTP API；
-S3 交付完整生产 API 与容器 journey。v5 仍未发布。O-1（`test_production_wiring.py` 3 项失败）已在 S3 修复。
+独立复审闭环；focused gate 248 passed）；S3 **remediation complete**（独立评审 P1–P3 关闭；
+focused gate 131 passed、fresh-build conjunction 6 passed；`p5_5d_s3_stage_exit` 待独立 re-review）；
+S4 未开始。S1/S2 交付无 Archive HTTP API；S3 交付完整生产 API 与双 actor compose journey。v5 仍未发布。
+O-1（`test_production_wiring.py`）已在 S3 修复（19 passed）。
 未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；Archive 自身始终零写。
 
 阶段按 Archive 的实际依赖划分，不照搬 5C 的持久化/HTTP/评审轮次：S1 先建立可靠 Head authority，并由原 owner 补齐 initial-empty Preview/Submit 前置链路；

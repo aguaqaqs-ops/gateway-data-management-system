@@ -6,6 +6,7 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
+from gateway_backend.application.archive.queries import ARCHIVE_AUDIT_EVENTS_MAX_LIMIT
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, acquire_new_work, get_workspace_http
@@ -15,7 +16,6 @@ from gateway_backend.http.orchestration.archive import (
     build_append_confirmation_command,
     build_append_resolution_command,
     build_start_archive_command,
-    ensure_request_body_within_limit,
     get_archive_result_operation,
     list_audit_events_operation,
     list_candidates_operation,
@@ -29,11 +29,13 @@ from gateway_backend.http.schemas.archive import (
     ArchiveAuditAppendResponse,
     ArchiveAuditEventsResponse,
     ArchiveCandidatesResponse,
+    ArchiveDigest,
     ArchiveResultResponse,
+    ArchiveStartedResponse,
+    ArchiveSubjectKindLiteral,
     PreviewArchivePlanRequest,
     PreviewArchivePlanResponse,
     StartArchiveRequest,
-    ArchiveStartedResponse,
 )
 
 router = APIRouter(tags=["archives"])
@@ -75,11 +77,9 @@ def list_archive_candidates_route(
 )
 def preview_archive_plan_route(
     body: PreviewArchivePlanRequest,
-    request: Request,
     deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> PreviewArchivePlanResponse:
-    ensure_request_body_within_limit(request.headers.get("content-length"))
     return preview_plan_operation(
         context=context,
         body=body,
@@ -113,7 +113,6 @@ def append_archive_confirmation_route(
     deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> ArchiveAuditAppendResponse:
-    ensure_request_body_within_limit(request.headers.get("content-length"))
     idempotency_key = parse_archive_idempotency_key(request.headers.get("Idempotency-Key"))
     command = build_append_confirmation_command(
         context=context,
@@ -157,7 +156,6 @@ def append_archive_anomaly_resolution_route(
     deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> ArchiveAuditAppendResponse:
-    ensure_request_body_within_limit(request.headers.get("content-length"))
     idempotency_key = parse_archive_idempotency_key(request.headers.get("Idempotency-Key"))
     command = build_append_resolution_command(
         context=context,
@@ -186,12 +184,12 @@ def append_archive_anomaly_resolution_route(
     },
 )
 def list_archive_audit_events_route(
-    subject_kind: Annotated[str, Query()],
-    subject_digest: Annotated[str, Query()],
+    subject_kind: Annotated[ArchiveSubjectKindLiteral, Query()],
+    subject_digest: Annotated[ArchiveDigest, Query()],
     deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
-    after_sequence: Annotated[int, Query()] = 0,
-    limit: Annotated[int, Query()] = 100,
+    after_sequence: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=ARCHIVE_AUDIT_EVENTS_MAX_LIMIT)] = 100,
 ) -> ArchiveAuditEventsResponse:
     return list_audit_events_operation(
         context=context,
@@ -231,7 +229,6 @@ def start_archive_route(
     deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> ArchiveStartedResponse:
-    ensure_request_body_within_limit(request.headers.get("content-length"))
     idempotency_key = parse_archive_idempotency_key(request.headers.get("Idempotency-Key"))
     command = build_start_archive_command(
         context=context,

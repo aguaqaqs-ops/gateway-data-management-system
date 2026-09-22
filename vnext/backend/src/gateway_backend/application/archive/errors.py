@@ -9,6 +9,16 @@ class ArchiveApplicationError(SubmitApplicationError):
     """Base error for archive application services."""
 
 
+class ArchiveRequestValidation(ArchiveApplicationError):
+    """Caller-supplied archive input failed validation."""
+
+    stable_code = "REQUEST_VALIDATION_FAILED"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class ArchiveIntegrityFailure(ArchiveApplicationError):
     """Archive read or closure integrity is inconsistent."""
 

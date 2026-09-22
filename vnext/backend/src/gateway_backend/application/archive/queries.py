@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from gateway_backend.application.archive.contracts import (
     ArchiveCandidateRef,
@@ -15,6 +16,7 @@ from gateway_backend.application.archive.contracts import (
 )
 from gateway_backend.application.archive.errors import (
     ArchiveAnomalyUnresolved,
+    ArchiveRequestValidation,
     ArchiveConfirmationRequired,
     ArchiveResultNotFound,
     CandidateBindingConflict,
@@ -65,7 +67,7 @@ class ArchivePreviewAnomaly:
 @dataclass(frozen=True, slots=True)
 class ArchivePreviewDisposition:
     submission_id: str
-    disposition: str
+    disposition: Literal["ARCHIVED_BASELINE", "CLOSED_NOT_ARCHIVED"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,7 +205,7 @@ def list_archive_audit_events(
     validated_after = validate_archive_sequence(after_sequence, field_name="after_sequence")
     validated_limit = validate_non_negative_int(limit, field_name="limit")
     if validated_limit < 1 or validated_limit > ARCHIVE_AUDIT_EVENTS_MAX_LIMIT:
-        raise ValueError("limit must be between 1 and 100")
+        raise ArchiveRequestValidation("limit must be between 1 and 100")
     with unit_of_work_factory(read_only=True) as unit_of_work:
         fresh_scope = unit_of_work.resolve_provisioned_scope(
             gateway_device_external_key=context.gateway_device_external_key,
@@ -232,7 +234,7 @@ def list_archive_audit_events(
             )
             events = resolution_events
         else:
-            raise ValueError("subject_kind is not supported")
+            raise ArchiveRequestValidation("subject_kind is not supported")
         next_after_sequence: int | None = None
         if len(events) == validated_limit:
             next_after_sequence = events[-1].sequence

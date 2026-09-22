@@ -10,6 +10,7 @@ from threading import Lock
 from typing import Protocol, runtime_checkable
 
 from fastapi import Request
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.submission.ports import (
@@ -301,3 +302,89 @@ class ReadOnlySubmissionStore:
     def get_submission(self, submission_id: str) -> Submission | None:
         with self._unit_of_work_factory() as unit_of_work:
             return unit_of_work.submission.get_submission(submission_id)
+
+
+def reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    seen: set[str] = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise ValueError("duplicate JSON keys are not allowed")
+        seen.add(key)
+    return dict(pairs)
+
+
+ARCHIVE_POST_PATHS = frozenset(
+    {
+        "/v1/archive-plan-preview",
+        "/v1/archive-confirmations",
+        "/v1/archive-anomaly-resolutions",
+        "/v1/archives",
+    }
+)
+
+
+class ArchiveRequestBodyLimitMiddleware:
+    """Reject Archive POST bodies above the Design §3.3 byte budget before parsing."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        path = str(scope.get("path", ""))
+        if path not in ARCHIVE_POST_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        import json
+
+        from gateway_backend.application.archive.contracts import ARCHIVE_MAX_REQUEST_BYTES
+        from gateway_backend.http.errors import error_response
+
+        body = b""
+        more_body = True
+        while more_body:
+            message: Message = await receive()
+            if message["type"] != "http.request":
+                continue
+            chunk = message.get("body", b"")
+            if not isinstance(chunk, (bytes, bytearray)):
+                chunk = b""
+            body += bytes(chunk)
+            more_body = bool(message.get("more_body", False))
+            if len(body) > ARCHIVE_MAX_REQUEST_BYTES:
+                response = error_response(
+                    code="REQUEST_TOO_LARGE",
+                    message="request body exceeds archive size limit",
+                    status_code=413,
+                )
+                await response(scope, receive, send)
+                return
+
+        if body:
+            try:
+                json.loads(
+                    body.decode("utf-8"),
+                    object_pairs_hook=reject_duplicate_json_keys,
+                )
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                response = error_response(
+                    code="REQUEST_VALIDATION_FAILED",
+                    message="request validation failed",
+                    status_code=422,
+                )
+                await response(scope, receive, send)
+                return
+
+        sent = False
+
+        async def replay_receive() -> Message:
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay_receive, send)

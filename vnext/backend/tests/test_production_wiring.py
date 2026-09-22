@@ -78,7 +78,10 @@ def test_prepare_backend_runtime_uses_provisioned_identity_ports(tmp_path: Path)
     assert type(runtime.workspace_http.baseline_head_read) is ProvisionedBaselineHeadRead
     assert type(runtime.workspace_http.main_resolve) is HttpRepositoryMainResolvePort
     registry = build_workspace_job_registry()
-    for definition in preview_job_definitions() + submit_job_definitions():
+    expected_definitions = preview_job_definitions() + submit_job_definitions()
+    expected_keys = {definition.key for definition in expected_definitions}
+    assert {definition.key for definition in registry.definitions()} == expected_keys
+    for definition in expected_definitions:
         resolved = registry.get(definition.key)
         assert resolved.decoder_identity == definition.decoder_identity
         assert resolved.handler_identity == definition.handler_identity

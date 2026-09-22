@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from gateway_backend.application.archive.audit import AppendArchiveAuditResult
 from gateway_backend.application.archive.contracts import (
+    ARCHIVE_MAX_AUDIT_REFS,
     ArchiveAuditReferenceInput,
     ArchiveSelectedRef,
     validate_archive_confirmation_reason,
     validate_archive_digest,
     validate_utf8_id,
-    validate_utf8_reason,
 )
+from gateway_backend.application.archive.errors import ArchiveRequestValidation
 from gateway_backend.application.archive.queries import (
     ArchiveCandidatesResult,
     ArchivePreviewAnomaly,
@@ -45,10 +46,17 @@ ArchiveSubjectKindLiteral = Literal["CONFIRM_SELECTION", "APPROVED_SIBLING_EXCLU
 ArchiveDispositionLiteral = Literal["ARCHIVED_BASELINE", "CLOSED_NOT_ARCHIVED"]
 
 
+def _validation_value_error(exc: ArchiveRequestValidation) -> ValueError:
+    return ValueError(str(exc))
+
+
 def _validate_archive_digest_field(value: object, *, field_name: str) -> str:
     if type(value) is not str:
         raise ValueError(f"{field_name} must be a string")
-    return validate_archive_digest(value, field_name=field_name)
+    try:
+        return validate_archive_digest(value, field_name=field_name)
+    except ArchiveRequestValidation as exc:
+        raise _validation_value_error(exc) from exc
 
 
 ArchiveDigest = Annotated[
@@ -63,13 +71,6 @@ class BaselineHeadResponse(BaseModel):
     business_baseline_node_id: BoundedOpaqueId
     business_baseline_commit_id: BoundedOpaqueId
     baseline_head_version: NonNegativeIJsonInt
-
-
-class ArchiveCandidateRefRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    submission_id: BoundedOpaqueId
-    expected_candidate_digest: ArchiveDigest
 
 
 class ArchiveSelectedRefRequest(BaseModel):
@@ -104,6 +105,11 @@ class AppendArchiveConfirmationRequest(BaseModel):
     action: ArchiveConfirmationActionLiteral
     reason: BoundedDiagnosticReason | None = None
 
+    @model_validator(mode="after")
+    def validate_reason_for_action(self) -> Self:
+        validate_confirmation_reason_field(self.action, self.reason)
+        return self
+
 
 class AppendArchiveAnomalyResolutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -128,8 +134,23 @@ class StartArchiveRequest(BaseModel):
     expected_baseline_head_version: NonNegativeIJsonInt
     candidate_set_digest: ArchiveDigest
     selected: ArchiveSelectedRefRequest
-    confirmation_refs: list[ArchiveAuditReferenceRequest] = Field(default_factory=list)
-    anomaly_resolution_refs: list[ArchiveAuditReferenceRequest] = Field(default_factory=list)
+    confirmation_refs: list[ArchiveAuditReferenceRequest] = Field(
+        default_factory=list,
+        max_length=ARCHIVE_MAX_AUDIT_REFS,
+    )
+    anomaly_resolution_refs: list[ArchiveAuditReferenceRequest] = Field(
+        default_factory=list,
+        max_length=ARCHIVE_MAX_AUDIT_REFS,
+    )
+
+    @model_validator(mode="after")
+    def validate_unique_audit_refs(self) -> Self:
+        _assert_unique_audit_refs(self.confirmation_refs, field_name="confirmation_refs")
+        _assert_unique_audit_refs(
+            self.anomaly_resolution_refs,
+            field_name="anomaly_resolution_refs",
+        )
+        return self
 
 
 class ArchiveCandidateResponse(BaseModel):
@@ -398,10 +419,17 @@ def validate_utf8_id_field(value: object, *, field_name: str) -> str:
     return validate_utf8_id(value, field_name=field_name)
 
 
-def validate_utf8_reason_field(value: object, *, field_name: str = "reason") -> str:
-    if type(value) is not str:
-        raise ValueError(f"{field_name} must be a string")
-    return validate_utf8_reason(value, field_name=field_name)
+def _assert_unique_audit_refs(
+    refs: list[ArchiveAuditReferenceRequest],
+    *,
+    field_name: str,
+) -> None:
+    seen: set[tuple[str, int]] = set()
+    for ref in refs:
+        key = (ref.subject_digest, int(ref.sequence))
+        if key in seen:
+            raise ValueError(f"duplicate reference in {field_name}")
+        seen.add(key)
 
 
 def validate_confirmation_reason_field(
@@ -410,10 +438,16 @@ def validate_confirmation_reason_field(
 ) -> str | None:
     parsed_action = ArchiveConfirmationAction(action)
     if reason is None:
-        return validate_archive_confirmation_reason(parsed_action, None)
+        try:
+            return validate_archive_confirmation_reason(parsed_action, None)
+        except ArchiveRequestValidation as exc:
+            raise _validation_value_error(exc) from exc
     if type(reason) is not str:
         raise ValueError("reason must be a string")
-    return validate_archive_confirmation_reason(parsed_action, reason)
+    try:
+        return validate_archive_confirmation_reason(parsed_action, reason)
+    except ArchiveRequestValidation as exc:
+        raise _validation_value_error(exc) from exc
 
 
 def _anomaly_to_response(anomaly: ArchivePreviewAnomaly) -> ArchivePreviewAnomalyResponse:
@@ -430,7 +464,7 @@ def _disposition_to_response(
 ) -> ArchivePreviewDispositionResponse:
     return ArchivePreviewDispositionResponse(
         submission_id=item.submission_id,
-        disposition=item.disposition,  # type: ignore[arg-type]
+        disposition=item.disposition,
     )
 
 

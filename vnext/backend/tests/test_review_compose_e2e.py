@@ -10,14 +10,18 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from tests.support.compose_gate_harness import BACKEND_URL, compose_project_name, require_docker, run_compose
-from tests.test_submit_compose_e2e import (
+from tests.support.compose_gate_harness import (
+    BACKEND_URL,
     BEARER_TOKEN,
     DEVICE_KEY,
     PROJECT_ID,
     SESSION_TOKEN,
-    _run_accept_to_submission_read_journey,
-    _start_three_container_stack,
+    compose_project_name,
+    require_docker,
+    resolve_main_commit_id,
+    run_accept_to_submission_read_journey,
+    run_compose,
+    start_three_container_stack,
 )
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
@@ -86,25 +90,6 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
     return env
 
 
-def _resolve_main_commit_id(env: dict[str, str], repository_id: str) -> str:
-    script = f"""
-import json, urllib.request
-req = urllib.request.Request(
-    "http://127.0.0.1:8000/v1/repositories/{repository_id}/versioned/refs/main",
-    headers={{"Authorization": "Bearer {BEARER_TOKEN}"}},
-)
-with urllib.request.urlopen(req, timeout=30) as response:
-    print(json.loads(response.read().decode())["commit_id"])
-"""
-    result = run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
-    if result.returncode != 0:
-        pytest.fail(f"failed to resolve repository main ref: {result.stderr}\n{result.stdout}")
-    commit_id = result.stdout.strip()
-    if not commit_id:
-        pytest.fail("repository main resolve returned empty commit_id")
-    return commit_id
-
-
 def _auth_headers(*, idempotency_key: str | None = None) -> dict[str, str]:
     headers = {"Authorization": f"Bearer {SESSION_TOKEN}"}
     if idempotency_key is not None:
@@ -115,15 +100,19 @@ def _auth_headers(*, idempotency_key: str | None = None) -> dict[str, str]:
 def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
     require_docker()
     env = _compose_env(tmp_path)
-    repository_id, initial_commit_id = _start_three_container_stack(env, tmp_path)
+    repository_id, initial_commit_id = start_three_container_stack(env, tmp_path)
 
     try:
-        journey = _run_accept_to_submission_read_journey(
+        journey = run_accept_to_submission_read_journey(
             env,
             initial_commit_id=initial_commit_id,
         )
         submission_id = str(journey["submission_id"])
-        main_before_review = _resolve_main_commit_id(env, repository_id)
+        main_before_review = resolve_main_commit_id(
+            env,
+            repository_id,
+            bearer_token=BEARER_TOKEN,
+        )
 
         with httpx.Client(base_url=BACKEND_URL, headers=_auth_headers(), timeout=60.0) as client:
             approve = client.post(
@@ -152,7 +141,11 @@ def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
             assert facts_body["events"][1]["event_kind"] == "APPROVED"
             assert facts_body["events"][1]["sequence"] == 1
 
-        main_after_review = _resolve_main_commit_id(env, repository_id)
+        main_after_review = resolve_main_commit_id(
+            env,
+            repository_id,
+            bearer_token=BEARER_TOKEN,
+        )
         assert main_after_review == main_before_review
     finally:
         down = run_compose(env, "down", "-v", "--remove-orphans")

@@ -84,6 +84,7 @@ from tests.test_submit_job_effect import (
     _run_submit_to_await_claim,
 )
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
+from tests.support.baseline_fixtures import read_authoritative_baseline_head
 from tests.test_submit_job_prepare import _materialize_snapshot, _run_prepare_handler
 from tests.test_submit_transactions import (
     BASELINE_HEAD,
@@ -108,6 +109,16 @@ TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 FAULT_AFTER_BUSINESS_FINALIZE_COMMIT_BEFORE_WORKER_ACK = (
     "after_business_finalize_commit_before_worker_ack"
 )
+
+
+def _authoritative_accept_scope(
+    db_path: Path, seed: SubmitSeed
+) -> tuple[object, FixedScopeResolutionPort]:
+    baseline_head = read_authoritative_baseline_head(db_path, seed.workspace.repository_id)
+    return baseline_head, FixedScopeResolutionPort(
+        repository_id=seed.workspace.repository_id,
+        baseline_head=baseline_head,
+    )
 
 
 class _FaultAfterCommitUnitOfWork:
@@ -185,12 +196,14 @@ def _accept_prepared_operation_for_repository(
         protected_artifact_refs=protected_refs,
         snapshot_table_set_digest=SNAPSHOT_TABLE_SET_DIGEST,
     )
+    baseline_head, scope_resolution = _authoritative_accept_scope(db_path, seed)
     accepted = accept_submit_transaction(
-        command=_accept_command(seed, idempotency_key="accept-key-live-restart"),
-        scope_resolution=FixedScopeResolutionPort(
-            repository_id=seed.workspace.repository_id,
-            baseline_head=BASELINE_HEAD,
+        command=_accept_command(
+            seed,
+            idempotency_key="accept-key-live-restart",
+            baseline_head=baseline_head,  # type: ignore[arg-type]
         ),
+        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
         baseline_digest=FakeBaselineCanonicalDigestPort(),
@@ -271,12 +284,14 @@ def _seed_running_submit_without_checkpoint(
     prepare_lease_token = "lease-prepare"
     submit_worker_id = "worker-submit"
     submit_lease_token = "lease-submit"
+    baseline_head, scope_resolution = _authoritative_accept_scope(db_path, seed)
     accepted = accept_submit_transaction(
-        command=_accept_command(seed, idempotency_key="accept-key-recovery-running"),
-        scope_resolution=FixedScopeResolutionPort(
-            repository_id=seed.workspace.repository_id,
-            baseline_head=BASELINE_HEAD,
+        command=_accept_command(
+            seed,
+            idempotency_key="accept-key-recovery-running",
+            baseline_head=baseline_head,  # type: ignore[arg-type]
         ),
+        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=submit_job_registry(),
         baseline_digest=FakeBaselineCanonicalDigestPort(),
@@ -435,12 +450,14 @@ def test_submit_recovery_without_checkpoint_retains_occupancy(tmp_path: Path) ->
 def test_prepared_attempt_operator_abort_retains_occupancy(tmp_path: Path) -> None:
     db_path = _initialized_db_path(tmp_path, "recovery-prepared-abort.sqlite3")
     seed = seed_submit_ready_workspace(db_path)
+    baseline_head, scope_resolution = _authoritative_accept_scope(db_path, seed)
     accepted = accept_submit_transaction(
-        command=_accept_command(seed, idempotency_key="accept-key-prepared-abort"),
-        scope_resolution=FixedScopeResolutionPort(
-            repository_id=seed.workspace.repository_id,
-            baseline_head=BASELINE_HEAD,
+        command=_accept_command(
+            seed,
+            idempotency_key="accept-key-prepared-abort",
+            baseline_head=baseline_head,  # type: ignore[arg-type]
         ),
+        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=submit_job_registry(),
         baseline_digest=FakeBaselineCanonicalDigestPort(),

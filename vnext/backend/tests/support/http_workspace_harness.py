@@ -442,10 +442,13 @@ def seed_submit_ready_workspace(
     *,
     repository_id: str = "repo-1",
 ) -> dict[str, Any]:
+    from tests.support.baseline_fixtures import read_authoritative_baseline_head
+
     _seed_provisioned_mapping(db_path, repository_id=repository_id)
+    baseline_head = read_authoritative_baseline_head(db_path, repository_id)
     scope_resolution = FixedScopeResolutionPort(
         repository_id=repository_id,
-        baseline_head=BASELINE_HEAD,
+        baseline_head=baseline_head,
     )
     context = make_identity(permissions=frozenset({"upload_submit_workspace", "workspace_read"}))
     with ControlDbUnitOfWork(db_path) as unit_of_work:
@@ -486,9 +489,9 @@ def seed_submit_ready_workspace(
             upload_revision_id=upload_revision.upload_revision_id,
             generation=1,
             repository_id=repository_id,
-            business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
-            business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
-            baseline_head_version=BASELINE_HEAD.baseline_head_version,
+            business_baseline_node_id=baseline_head.business_baseline_node_id,
+            business_baseline_commit_id=baseline_head.business_baseline_commit_id,
+            baseline_head_version=baseline_head.baseline_head_version,
             ruleset_version=RULESET_VERSION,
             contract_version="contract-1",
             provider_versions={"comparison": "v1"},

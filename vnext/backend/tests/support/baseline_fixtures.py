@@ -26,6 +26,14 @@ def scoped_baseline_node_id(repository_id: str, baseline_head: BaselineHead) -> 
     return f"{prefix}{node_id}"
 
 
+def read_authoritative_baseline_head(db_path: Path, repository_id: str) -> BaselineHead:
+    """Read the current BaselineHead authority row for one repository."""
+
+    from gateway_backend.infrastructure.control_db.sqlite_mapping import ProvisionedBaselineHeadRead
+
+    return ProvisionedBaselineHeadRead(db_path).get_current_head(repository_id)
+
+
 def seed_provisioned_mapping_with_head(
     db_path: Path,
     *,

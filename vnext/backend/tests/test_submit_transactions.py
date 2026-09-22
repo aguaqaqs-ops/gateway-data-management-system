@@ -385,10 +385,13 @@ def seed_submit_ready_workspace(
     device_key: str = "device-1",
     project_id: str = "project-1",
 ) -> SubmitSeed:
+    from tests.support.baseline_fixtures import read_authoritative_baseline_head
+
     _seed_provisioned_mapping(db_path, repository_id=repository_id)
+    baseline_head = read_authoritative_baseline_head(db_path, repository_id)
     scope_resolution = FixedScopeResolutionPort(
         repository_id=repository_id,
-        baseline_head=BASELINE_HEAD,
+        baseline_head=baseline_head,
     )
     context = make_identity(
         actor_id=actor_id,
@@ -436,6 +439,9 @@ def seed_submit_ready_workspace(
             upload_revision_id=upload_revision_id,
             repository_id=repository_id,
             operation_id=f"op-preview-{actor_id}",
+            business_baseline_node_id=baseline_head.business_baseline_node_id,
+            business_baseline_commit_id=baseline_head.business_baseline_commit_id,
+            baseline_head_version=baseline_head.baseline_head_version,
         )
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
@@ -824,8 +830,12 @@ def _seed_effect_pending_attempt(
     db_path: Path,
     seed: SubmitSeed,
     *,
-    baseline_head: BaselineHead = BASELINE_HEAD,
+    baseline_head: BaselineHead | None = None,
 ) -> SubmitAttempt:
+    if baseline_head is None:
+        from tests.support.baseline_fixtures import read_authoritative_baseline_head
+
+        baseline_head = read_authoritative_baseline_head(db_path, seed.workspace.repository_id)
     accepted = accept_submit_transaction(
         command=_accept_command(seed, idempotency_key="accept-key-1", baseline_head=baseline_head),
         scope_resolution=FixedScopeResolutionPort(

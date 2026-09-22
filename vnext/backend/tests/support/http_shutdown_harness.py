@@ -111,14 +111,21 @@ def repository_ready_stub_context(
 def seed_production_submit_ready_workspace(tmp_path: Path) -> dict[str, Any]:
     """Seed control DB and on-disk artifacts for production HTTP submit admission tests."""
 
+    from tests.support.baseline_fixtures import read_authoritative_baseline_head
+    from tests.support.runtime_settings import TEST_MAPPING_REPOSITORY_ID
+
     prepare_backend_runtime_paths(tmp_path)
     db_path = tmp_path / "control" / "control.sqlite3"
-    initialize_control_db(db_path)
     memory_store = InMemoryBoundedArtifactStore()
-    seed = seed_submit_ready_workspace(db_path, memory_store)
+    seed = seed_submit_ready_workspace(
+        db_path,
+        memory_store,
+        repository_id=TEST_MAPPING_REPOSITORY_ID,
+    )
     local_store = LocalArtifactStore(tmp_path / "artifacts")
     for ref in memory_store._registered_refs.values():
         local_store.put(memory_store._store.locate(ref), ref)
+    seed["baseline_head"] = read_authoritative_baseline_head(db_path, TEST_MAPPING_REPOSITORY_ID)
     return seed
 
 

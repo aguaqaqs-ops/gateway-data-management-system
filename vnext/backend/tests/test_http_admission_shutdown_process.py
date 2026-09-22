@@ -21,7 +21,7 @@ from tests.support.http_shutdown_harness import (
     wait_for_http_server_ready,
     wait_for_http_server_startup_failure,
 )
-from tests.support.http_workspace_harness import BASELINE_HEAD, TEST_BEARER
+from tests.support.http_workspace_harness import TEST_BEARER
 from tests.support.runtime_settings import TEST_REPOSITORY_TOKEN
 
 pytestmark = pytest.mark.serial
@@ -56,6 +56,7 @@ def test_uvicorn_sigterm_rejects_new_submit_before_exit(tmp_path: Path) -> None:
     workspace = seed["workspace"]
     upload = seed["upload_revision"]
     preview = seed["preview_result"]
+    baseline_head = seed["baseline_head"]
     port_file = tmp_path / "http-port.json"
     with repository_ready_stub_context(tmp_path) as repository_stub:
         environment = http_server_subprocess_environment(
@@ -96,8 +97,8 @@ def test_uvicorn_sigterm_rejects_new_submit_before_exit(tmp_path: Path) -> None:
                             "upload_revision_id": upload.upload_revision_id,
                             "preview_result_id": preview.preview_result_id,
                             "generation": upload.generation,
-                            "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
-                            "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
+                            "expected_baseline_node_id": baseline_head.business_baseline_node_id,
+                            "expected_baseline_head_version": baseline_head.baseline_head_version,
                             "options": {},
                         },
                         timeout=0.3,

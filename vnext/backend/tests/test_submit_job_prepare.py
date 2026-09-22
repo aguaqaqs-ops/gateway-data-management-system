@@ -44,6 +44,7 @@ from gateway_backend.operations.worker import (
 from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
 from tests.support.snapshot_materialization import materialize_sql
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
+from tests.support.baseline_fixtures import read_authoritative_baseline_head
 from tests.test_submit_transactions import (
     BASELINE_HEAD,
     PREVIEW_READY_CLOSURE_DIGEST,
@@ -135,6 +136,7 @@ def _accept_prepared_operation(
     protected_refs = tuple(
         ref for ref in seed.protected_refs if ref.artifact_id != "snap-1"
     ) + (snapshot_ref,)
+    baseline_head = read_authoritative_baseline_head(db_path, repository_id)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.clear_artifact_protection(
             owner_kind="current-preview",
@@ -154,10 +156,10 @@ def _accept_prepared_operation(
         snapshot_table_set_digest=SNAPSHOT_TABLE_SET_DIGEST,
     )
     accepted = accept_submit_transaction(
-        command=_accept_command(seed, idempotency_key="accept-key-1"),
+        command=_accept_command(seed, idempotency_key="accept-key-1", baseline_head=baseline_head),
         scope_resolution=FixedScopeResolutionPort(
             repository_id=seed.workspace.repository_id,
-            baseline_head=BASELINE_HEAD,
+            baseline_head=baseline_head,
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),

@@ -29,9 +29,12 @@ parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5d-archive-execution
 remediation_work_order: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-remediation-work-order.md
 independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-independent-review.md
 re_review: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-re-review.md
+closure_verification: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-closure-verification.md
 baseline_commit: 2233e80cc1b8e1288acf1ed9785c6b84093f67ce
-implementation_candidate_head: b9924be4da075fd99bd18d67f5e9fe50314151d5
+implementation_candidate_head: cf0d34cb9dc4b42268ce21740b43aaa2598c7ba5
+docs_only_amend_on_branch: 3a78150ce54533c868e829908c1399475c59b7cf
 evidence_delivery: delivered_by_re_review_remediation_commit
+candidate_binding_note: bind to cf0d34cb9d (in-history implementation); do not record amend-replaced SHAs; vnext/** digest 6006d443… identical on cf0d34cb9d and docs-only amends
 workspace_schema_version: 5
 uv_lock_in_diff: no
 candidate_binding: independent_review_uses_git_head_at_review_time
@@ -72,6 +75,10 @@ next_step: P5-5D-S3-re-review
 - `vnext/backend/src/gateway_backend/http/orchestration/archive.py` — seven operations
 - `vnext/backend/src/gateway_backend/http/routes/archives.py` — seven routes
 - `vnext/backend/src/gateway_backend/http/dependencies.py` — `ArchiveRequestBodyLimitMiddleware`（断连安全）
+
+### Repository hygiene
+
+- `.gitignore` — ignore `vnext/backend/tests/support/.last_compose_gate_provenance.json`（compose gate 运行产物，非交付源码）
 
 ### Modified HTTP / wiring
 
@@ -138,8 +145,9 @@ cd vnext/backend/src && find . -name '*.py' -type f | LC_ALL=C sort | \
 
 | 证据 | 值 |
 | --- | --- |
-| Git HEAD | `b9924be4da075fd99bd18d67f5e9fe50314151d5` |
-| `vnext/**` tree status | clean |
+| Implementation binding commit | `cf0d34cb9dc4b42268ce21740b43aaa2598c7ba5`（round-3 实现；在历史中可 `git cat-file`） |
+| Docs-only amend on branch | `3a78150ce54533c868e829908c1399475c59b7cf`（仅 handoff SHA 措辞；`vnext/**` 摘要与实现提交相同） |
+| `vnext/**` tree status | clean at implementation binding |
 | Source-tree file count | 905 |
 | Source-tree digest | `6006d443268f51a6474cca28357da0dd81e8c4a2ddebe73f86e1d17293def985` |
 | Backend `src` py digest（`path\tsha256` recipe，local == image） | `12ecd51e624f23f56bba048044cd6424018d716a13569f227b9abce6f74324e0` |

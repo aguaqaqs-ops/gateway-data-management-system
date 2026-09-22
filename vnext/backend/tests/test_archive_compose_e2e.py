@@ -17,10 +17,12 @@ from tests.support.compose_gate_harness import (
     DEVICE_KEY,
     PROJECT_ID,
     SESSION_TOKEN,
+    assert_running_backend_worker_images_match_build,
     capture_running_container_provenance,
     compose_project_name,
     count_backend_operations,
     list_repository_commit_ids,
+    persist_compose_gate_provenance,
     require_docker,
     resolve_main_commit_id,
     run_accept_to_submission_read_journey,
@@ -163,6 +165,7 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
     require_docker()
     env = _compose_env(tmp_path)
     repository_id, initial_commit_id = start_three_container_stack(env, tmp_path)
+    assert_running_backend_worker_images_match_build(env)
     provenance = capture_running_container_provenance(env)
 
     try:
@@ -379,8 +382,8 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             )
             assert restarted_audit.status_code == 200, restarted_audit.text
     finally:
-        provenance_path = tmp_path / "compose-container-provenance.json"
-        provenance_path.write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+        provenance_path = persist_compose_gate_provenance(env, provenance)
+        print(f"compose gate provenance written to {provenance_path}")
         down = run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:
             pytest.fail(f"compose down failed: {down.stderr}\n{down.stdout}")

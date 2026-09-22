@@ -34,14 +34,15 @@ p5_5d_s3_stage_exit: not_evaluated
 production_deployment_authorized: no
 new_repository_effect_authorized: no
 p5_5d_slice_exit: not_evaluated
-next_step: P5-5D-S4
+next_step: P5-5D-S3-re-review
 ```
 
 S0 文档编写及独立复审已完成。S1 **pass**（Baseline Head authority、initial-empty 前置、v5
 Baseline DDL、focused gate）；S2 **pass**（bounded read、audit、single-transaction archive、
-独立复审闭环；focused gate 248 passed）；S3 **remediation complete**（独立评审 P1–P3 关闭；
-focused gate 131 passed、fresh-build conjunction 6 passed；`p5_5d_s3_stage_exit` 待独立 re-review）；
-S4 未开始。S1/S2 交付无 Archive HTTP API；S3 交付完整生产 API 与双 actor compose journey。v5 仍未发布。
+独立复审闭环；focused gate 248 passed）；S3 **re-review remediation complete**（关闭 R-1 断连死循环与
+R1–R9 测试/文档/provenance 缺口；focused gate 136 passed、conjunction 6 passed、`-m unit` 2355 passed；
+`p5_5d_s3_stage_exit: not_evaluated`，`delivery_recommendation: pass_recommended`）；
+S4 未开始（待 stage exit 签署）。S1/S2 交付无 Archive HTTP API；S3 交付完整生产 API 与双 actor compose journey。v5 仍未发布。
 O-1（`test_production_wiring.py`）已在 S3 修复（19 passed）。
 未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；Archive 自身始终零写。
 
@@ -236,9 +237,11 @@ baseline head 与测试 fixture 不一致；S3 以 `_authoritative_baseline_head
 
 ### S3 — public API, production composition and deployment inputs
 
-**S3 delivery complete**（2026-09-22）。handoff 见 [p5-5d-s3-handoff.md](p5-5d-s3-handoff.md)。
-focused gate **107 passed**；fresh-build conjunction **6 passed, 0 skipped**；五包 static 全通过；
-`p5_5d_s3_stage_exit: pass`；`next_step: P5-5D-S4`。不签 slice exit。
+**S3 re-review remediation complete**（2026-09-22）。handoff 见 [p5-5d-s3-handoff.md](p5-5d-s3-handoff.md)；
+复审见 [p5-5d-s3-re-review.md](p5-5d-s3-re-review.md)。
+focused gate **136 passed**；fresh-build conjunction **6 passed, 0 skipped**（`gateway-p5-5d-s3-rereview-gate`）；
+`p5_5d_s3_stage_exit: not_evaluated`；`delivery_recommendation: pass_recommended`；`next_step: P5-5D-S3-re-review`。
+不签 slice exit。S4 仅在 stage exit 签署后启动。
 
 
 目标：所有 Design §8 routes/DTO 与真实 production factory 接线、独立 permission、schema/seed

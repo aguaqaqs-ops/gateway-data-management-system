@@ -348,7 +348,7 @@ class ArchiveRequestBodyLimitMiddleware:
         while more_body:
             message: Message = await receive()
             if message["type"] != "http.request":
-                continue
+                return
             chunk = message.get("body", b"")
             if not isinstance(chunk, (bytes, bytearray)):
                 chunk = b""

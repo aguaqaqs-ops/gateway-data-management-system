@@ -23,6 +23,9 @@ BUILD_REPOSITORY_SCRIPT = VNEXT_ROOT / "scripts" / "build-repository-service-ima
 BACKEND_URL = "http://127.0.0.1:8000"
 GATE_PROJECT_ENV = "GATEWAY_COMPOSE_GATE_PROJECT_NAME"
 PREBUILT_ENV = "GATEWAY_COMPOSE_GATE_PREBUILT"
+COMPOSE_GATE_PROVENANCE_PATH = (
+    Path(__file__).resolve().parent / ".last_compose_gate_provenance.json"
+)
 
 
 def require_docker() -> None:
@@ -236,12 +239,31 @@ def count_backend_operations(env: dict[str, str]) -> int:
     return int(result.stdout.strip())
 
 
+def _inspect_container_image_id(container_id: str) -> str:
+    completed = subprocess.run(
+        ["docker", "inspect", "--format", "{{.Image}}", container_id],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60.0,
+    )
+    if completed.returncode != 0:
+        pytest.fail(
+            f"docker inspect failed for {container_id}: "
+            f"{completed.stderr}\n{completed.stdout}"
+        )
+    image_id = completed.stdout.strip()
+    if not image_id.startswith("sha256:"):
+        pytest.fail(f"expected immutable image id for {container_id}, got {image_id!r}")
+    return image_id
+
+
 def capture_running_container_provenance(env: dict[str, str]) -> dict[str, dict[str, str]]:
     result = run_compose(
         env,
         "ps",
         "--format",
-        "{{.Name}}\t{{.ID}}\t{{.Image}}",
+        "{{.Name}}\t{{.ID}}",
     )
     if result.returncode != 0:
         pytest.fail(f"compose ps failed: {result.stderr}\n{result.stdout}")
@@ -249,9 +271,41 @@ def capture_running_container_provenance(env: dict[str, str]) -> dict[str, dict[
     for line in result.stdout.splitlines():
         if not line.strip():
             continue
-        name, container_id, image = line.split("\t", 2)
-        captured[name] = {"container_id": container_id, "image": image}
+        name, container_id = line.split("\t", 1)
+        captured[name] = {
+            "container_id": container_id,
+            "image": _inspect_container_image_id(container_id),
+        }
     return captured
+
+
+def persist_compose_gate_provenance(
+    env: dict[str, str],
+    provenance: dict[str, dict[str, str]],
+) -> Path:
+    payload = {
+        "compose_project_name": env["COMPOSE_PROJECT_NAME"],
+        "containers": provenance,
+    }
+    COMPOSE_GATE_PROVENANCE_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return COMPOSE_GATE_PROVENANCE_PATH
+
+
+def assert_running_backend_worker_images_match_build(env: dict[str, str]) -> None:
+    built = compose_image_ids(env)
+    running = capture_running_container_provenance(env)
+    project = env["COMPOSE_PROJECT_NAME"]
+    for service in ("backend", "worker"):
+        running_key = f"{project}-{service}-1"
+        running_image = running.get(running_key, {}).get("image")
+        built_image = built[service].get("id")
+        if running_image is None or built_image is None:
+            pytest.fail(f"missing running or built image for {service}")
+        if running_image != built_image:
+            pytest.fail(
+                f"running image for {service} does not match fresh build: "
+                f"{running_image} != {built_image}"
+            )
 
 
 SESSION_TOKEN = "compose-session-token"

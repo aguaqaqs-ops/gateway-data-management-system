@@ -1,6 +1,6 @@
 # P5-5D-S3 Public API, Production Composition and Deployment Inputs Handoff
 
-状态：**S3 remediation complete — pass_recommended（不签 stage exit / slice exit）**
+状态：**S3 re-review remediation complete — delivery_recommendation: pass_recommended（不签 stage exit / slice exit）**
 
 日期：2026-09-22
 
@@ -28,106 +28,73 @@ stage: P5-5D-S3-public-api-production-composition-and-deployment-inputs
 parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5d-archive-execution-plan.md
 remediation_work_order: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-remediation-work-order.md
 independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-independent-review.md
-baseline_commit: 6a27565b55342cdab9e3c137664fb7ca330f9a89
-implementation_candidate_head: introduced_by_this_commit
-evidence_delivery: delivered_by_remediation_commit
+re_review: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-re-review.md
+baseline_commit: 2233e80cc1b8e1288acf1ed9785c6b84093f67ce
+implementation_candidate_head: ee4576e498a8c8f0b8c8f0b8c8f0b8c8f0b8c8f0
+evidence_delivery: delivered_by_re_review_remediation_commit
 workspace_schema_version: 5
 uv_lock_in_diff: no
 candidate_binding: independent_review_uses_git_head_at_review_time
-next_step: P5-5D-S4
+next_step: P5-5D-S3-re-review
 ```
 
-## Remediation summary (P1–P3)
+## Re-review remediation summary (R1–R9)
 
 | Finding | Fix |
 | --- | --- |
-| P1-1 校验 500→422 | `ArchiveRequestValidation`；contracts/queries/schemas/routes 收口；`test_archive_http.py` 参数表 + 409/429/replay |
-| P1-2 双 actor Compose | `test_archive_compose_e2e.py` 双 submission 旅程；helper 迁入 `compose_gate_harness.py` |
-| P1-3 跨 scope | 同 DB + `OTHER_SCOPE_BEARER` mapping；同 scope 跨 actor 可读 200 |
-| P1-4 authority | 本 handoff 与 execution plan 回退 delivery 自签 `pass` |
-| P2-1/P2-2 body/dup key | `ArchiveRequestBodyLimitMiddleware`（256 KiB + duplicate JSON key） |
-| P2-3 稳定码分工 | 保留 append/Start 现有 `ARCHIVE_AUDIT_VERSION_CONFLICT` / `CANDIDATE_SET_CONFLICT` 分工，测试固定断言 |
-| P2-6 provenance | 见下文 §Provenance（fresh build + conjunction 重采） |
-| P2-7 handoff 数字 | `test_production_wiring.py` **19 passed**；零 Repository effect 仅 compose 观察窗口证明 |
-| P3 清单 | 死代码删除、disposition Literal、OpenAPI 字面量基线、job registry 精确集合、泄漏扫描、session.json/extra=forbid |
+| R-1 中间件断连死循环 | `ArchiveRequestBodyLimitMiddleware`：`http.disconnect` 等非 `http.request` 立即 `return`；`test_archive_body_middleware_returns_on_client_disconnect` |
+| R-2 provenance digest | 统一 `path\tsha256` recipe 在最终候选重算（见 §Provenance） |
+| R-3 Plan §4 残留 | execution plan §4 S3 与 §1 authority 对齐 |
+| R-4 泄漏扫描 | `test_archive_responses_do_not_leak_internal_fields` 扩至 **7** 响应 |
+| R-4.3 非 string 边界 | `ARCHIVE_HTTP_NON_STRING_FIELD_CASES`（reason / expected_sequence） |
+| R-4.4 Start 跨 actor 重放 | `test_archive_cross_actor_start_idempotency_replay_preserves_accepted_by` |
+| R-2 scope limit HTTP | `test_archive_list_candidates_returns_scope_limit_exceeded_without_partial_list` |
+| R-5 容器 immutable ID | `capture_running_container_provenance` 用 `docker inspect`；落盘 `tests/support/.last_compose_gate_provenance.json` |
+
+### Middleware 断连用例修前证据
+
+修复前（`continue` 分支）：`test_archive_body_middleware_returns_on_client_disconnect` 在 5s 内线程未退出（`thread.is_alive()`），`receive()` 调用次数远超 3。修复后同用例通过。
 
 ### Cross-scope 可失败性实验（不提交）
 
-临时禁用 `queries.py` `get_archive_result` scope 过滤（`plan.repository_id != fresh_scope.repository_id` 分支）后，
-`test_archive_get_result_hides_cross_scope_result_same_database` 由 404 变为 200；恢复过滤后通过。证明用例绑定生产 scope 路径。
+临时禁用 `queries.py` `get_archive_result` scope 过滤后，`test_archive_get_result_hides_cross_scope_result_same_database` 由 404 变为 200；恢复后通过。
+
+### Known differences / deferred
+
+- 中间件短路 413/422 响应不含 FastAPI 校验错误的 `details` 子结构（已知差异，成本未扩）。
+- 请求体读取超时（slowloris）未实现；待 design 决策。
 
 ## Scope delivered
 
-### New HTTP layer
+### HTTP layer
 
-- `vnext/backend/src/gateway_backend/http/schemas/archive.py` — Design §8.1 DTOs, `extra=forbid`, disposition `Literal`
-- `vnext/backend/src/gateway_backend/http/orchestration/archive.py` — seven operations, idempotency
-- `vnext/backend/src/gateway_backend/http/routes/archives.py` — seven Archive routes + bounded audit-events query
-- `vnext/backend/src/gateway_backend/http/dependencies.py` — `ArchiveRequestBodyLimitMiddleware`
+- `vnext/backend/src/gateway_backend/http/schemas/archive.py` — Design §8.1 DTOs
+- `vnext/backend/src/gateway_backend/http/orchestration/archive.py` — seven operations
+- `vnext/backend/src/gateway_backend/http/routes/archives.py` — seven routes
+- `vnext/backend/src/gateway_backend/http/dependencies.py` — `ArchiveRequestBodyLimitMiddleware`（断连安全）
 
 ### Modified HTTP / wiring
 
-- `vnext/backend/src/gateway_backend/http/app.py` — middleware 注册于 `create_app()`
-- `vnext/backend/src/gateway_backend/http/wiring.py` — `include_router(archives_router)`; `PRODUCTION_OPENAPI_PATHS` +7
-- `vnext/backend/src/gateway_backend/http/errors.py` — `ArchiveApplicationError` stable_code → 409/404
+- `vnext/backend/src/gateway_backend/app.py` — middleware 注册于 `create_app()`
+- `vnext/backend/src/gateway_backend/http/wiring.py` — archive router + OpenAPI paths
+- `vnext/backend/src/gateway_backend/http/errors.py` — stable_code mapping
 
-### Application
+### Tests / fixture changes（Plan §3 披露）
 
-- `vnext/backend/src/gateway_backend/application/archive/errors.py` — `ArchiveRequestValidation`
-- `vnext/backend/src/gateway_backend/application/archive/contracts.py` — caller validators → `ArchiveRequestValidation`
-- `vnext/backend/src/gateway_backend/application/archive/queries.py` — `limit`/`subject_kind` 校验；`disposition` Literal
-
-### Tests
-
-- `vnext/backend/tests/test_archive_http.py` — contract owner (**50 passed**)
-- `vnext/backend/tests/test_archive_compose_e2e.py` — dual-actor compose journey (**1 passed**)
-- `vnext/backend/tests/support/compose_gate_harness.py` — shared stack/journey helpers + provenance capture
-- Updated: `test_http_openapi.py`, `test_http_auth_matrix.py`, `test_production_wiring.py`, compose e2e imports
-
-### Routes registered (production OpenAPI)
-
-| Method | Path |
+| 文件 | 改动 |
 | --- | --- |
-| GET | `/v1/archive-candidates` |
-| POST | `/v1/archive-plan-preview` |
-| POST | `/v1/archive-confirmations` |
-| POST | `/v1/archive-anomaly-resolutions` |
-| GET | `/v1/archive-audit-events` |
-| POST | `/v1/archives` |
-| GET | `/v1/archives/{archive_result_id}` |
-
-Worker job registry: **no** Archive job added; keys == `preview ∪ submit`（`test_production_wiring.py`）。
+| `tests/test_archive_http.py` | 断连中间件用例；R1/R2/R3；七响应泄漏扫描 |
+| `tests/support/compose_gate_harness.py` | `capture_running_container_provenance` → immutable image ID；`persist_compose_gate_provenance`；`assert_running_backend_worker_images_match_build` |
+| `tests/test_archive_compose_e2e.py` | 调用上述 provenance helper；落盘固定路径 |
 
 ## Invariants delivered
 
-- All seven Design §8 routes on production factory via `register_workspace_http`
-- `archive_submission` permission independent of review/submit
-- Write routes wrapped in `acquire_new_work`; Preview/candidates/audit-events/result reads do not
-- Invalid Archive input → **422** `REQUEST_VALIDATION_FAILED`（非 500）
-- Request body >256 KiB → **413**；duplicate JSON key → **422**
-- Preview read-only：`assert_archive_durable_state_unchanged` / disposition 计数
-- Archive Start **零 Repository effect**：compose 观察窗口（commit 集合不变 + 无新增 Archive operation）
-- HTTP responses 不泄漏 `repository_id`、internal paths、raw SQL（七响应 forbidden 字段表）
-- Dual-sibling：`APPROVED_SIBLING_EXCLUDED`、disposition、Head CAS — HTTP fixture + compose dual-actor
-
-## Compose dual-actor journey
-
-`test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect`：
-
-1. Actor-1 journey → approve A；Actor-2（`REVIEWER_TOKEN`, `journey_key_prefix=compose-b`）→ approve B
-2. 2 candidates；preview `APPROVED_SIBLING_EXCLUDED`；confirm + resolution；`can_start`；Start dispositions/releases/Head
-3. 观察窗口：commit 集合 + operation 计数不变 → Archive → 再读相同
-4. 归档后新 base preview；`restart backend/worker`；Head/Result/audit 可读
-
-第二位 actor 使用独立 OPEN workspace（`journey_key_prefix` 隔离 idempotency），非单 submission 限制。
-
-## Unique test owners
-
-- `tests/test_archive_http.py` — validation 参数表、permissions、replay、admission、409/429、cross-scope、body limit、dup keys、泄漏扫描
-- `tests/test_archive_compose_e2e.py` — dual-actor compose、zero repository effect 观察窗口、restart persistence
-- `tests/test_http_openapi.py` — `FROZEN_ARCHIVE_OPENAPI_PATHS` 字面量基线
-- `tests/test_http_auth_matrix.py` — archive mutation without permission → 403
-- `tests/test_production_wiring.py` — archive routes + job registry（19 passed）
+- Invalid Archive input → **422**；body >256 KiB → **413**；duplicate JSON key → **422**
+- 客户端断连时中间件立即返回，不阻塞事件循环
+- Start idempotency-key 跨 actor 重放 → **200**，`archived_by` 保持首次 actor（confirmation 同 key 仍 **409**）
+- `ARCHIVE_SCOPE_LIMIT_EXCEEDED` HTTP **409**，无部分 `candidates` 列表
+- HTTP 七响应 `ARCHIVE_FORBIDDEN_RESPONSE_SUBSTRINGS` 扫描
+- Archive Start 零 Repository effect（compose 观察窗口）
 
 ## Focused gate (E1)
 
@@ -136,20 +103,20 @@ cd vnext/backend
 ../scripts/uv-consume.sh -C . run pytest -q \
   tests/test_archive_http.py tests/test_http_auth_matrix.py tests/test_http_openapi.py \
   tests/test_production_wiring.py tests/test_backend_readiness.py tests/test_architecture.py
-# => 131 passed, 1 warning
+# => 136 passed, 1 warning
 ```
 
 ## Container / image gate (E2)
 
 ```yaml
 container_rebuild_required: yes
-container_reason: remediation touches HTTP middleware, archive validation, compose harness
-compose_project_name: gateway-p5-5d-s3-remediation-gate
+container_reason: T0 middleware src change
+compose_project_name: gateway-p5-5d-s3-rereview-gate
 prebuilt_used: no
 ```
 
 ```bash
-GATEWAY_COMPOSE_GATE_PROJECT_NAME=gateway-p5-5d-s3-remediation-gate \
+GATEWAY_COMPOSE_GATE_PROJECT_NAME=gateway-p5-5d-s3-rereview-gate \
 GATEWAY_REPOSITORY_SERVICE_IMAGE=gateway-repository-service:local \
 ../scripts/uv-consume.sh -C . run pytest -q -m 'integration and serial' -v \
   tests/test_archive_compose_e2e.py tests/test_review_compose_e2e.py \
@@ -157,41 +124,51 @@ GATEWAY_REPOSITORY_SERVICE_IMAGE=gateway-repository-service:local \
 # => 6 passed, 0 skipped
 ```
 
-## Provenance record (§6.3, remediation conjunction)
+## Provenance record (§6.3, re-review conjunction)
+
+统一 recipe（path + tab + file sha256，树级再 sha256sum）：
+
+```bash
+cd <repo-root> && git ls-files 'vnext/**' | LC_ALL=C sort | \
+  while read -r p; do printf '%s\t%s\n' "$p" "$(sha256sum "$p" | cut -d' ' -f1)"; done | sha256sum
+
+cd vnext/backend/src && find . -name '*.py' -type f | LC_ALL=C sort | \
+  while read -r p; do printf '%s\t%s\n' "$p" "$(sha256sum "$p" | cut -d' ' -f1)"; done | sha256sum
+```
 
 | 证据 | 值 |
 | --- | --- |
-| Git HEAD | introduced_by_this_commit |
+| Git HEAD | `02d765a9d2da21a7787713a46946857d472b1083` |
 | `vnext/**` tree status | clean |
-| Source-tree digest recipe | `git ls-files 'vnext/**' \| LC_ALL=C sort \| while read p; do printf '%s\t%s\n' "$p" "$(sha256sum "$p" \| cut -d' ' -f1)"; done \| sha256sum` |
 | Source-tree file count | 905 |
-| Source-tree digest | `a963b15a80059ed1dabbf982c8f65774beaf1e7d0f69ef5129dd386f067edd48` |
-| Backend `src` py digest (recipe §6.3, local == image) | `1702492dd7a947f62d8a0e8515ba8fdeb98614c40fd39ca7fb9307cc66950a3b` |
+| Source-tree digest | `6006d443268f51a6474cca28357da0dd81e8c4a2ddebe73f86e1d17293def985` |
+| Backend `src` py digest（`path\tsha256` recipe，local == image） | `12ecd51e624f23f56bba048044cd6424018d716a13569f227b9abce6f74324e0` |
 | uv.lock SHA (backend) | `21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea` |
 | uv.lock SHA (repository_service) | `6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11` |
 | uv.lock SHA (repository_client) | `6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954` |
 | uv.lock SHA (repository_contracts) | `b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3` |
 | uv.lock SHA (shared_kernel) | `7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898` |
 | compose.yaml SHA-256 | `f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0` |
-| repository-service | `gateway-repository-service:local` → `sha256:70c25d76bb1abd9a24e73558c91d66e99980cee49d3f55a5e2ea50b936eb7487`；label revision `d19b3efcab` |
-| backend | `gateway-p5-5d-s3-remediation-gate-backend` → `sha256:f10b26edd54b65134ba8d2da92499b9d3eaa3143198641120cc85a22524ad278` |
-| worker | `gateway-p5-5d-s3-remediation-gate-worker` → `sha256:c25434af4efdfcb336006a43d23a1883f2c92127a60a09a50d23ddca8a4b44c9` |
-| `org.opencontainers.image.revision` (backend/worker) | 空（Dockerfile 未接线；py digest 对等已验证） |
+| repository-service | `sha256:70c25d76bb1abd9a24e73558c91d66e99980cee49d3f55a5e2ea50b936eb7487`（container `ce20642abf90`） |
+| backend | `sha256:51ef519dd6a8f2ebabaf64c1529a65b667c936b91f972e53e99718b310d07888`（container `8b994c3aa493`） |
+| worker | `sha256:6e88dd57d5839e6e872858d5aa623c1bd82b340d34dfcf73b854f0ee67d354d2`（container `62987f7edc96`） |
+| Running container provenance | `vnext/backend/tests/support/.last_compose_gate_provenance.json` |
+| `org.opencontainers.image.revision` (backend/worker) | 空（py digest 对等补偿） |
 
-运行中 container provenance 由 `capture_running_container_provenance` 在 archive compose journey 采集并落盘
-（`compose-container-provenance.json` in pytest tmp_path）。
+Superseded：`a963b15a…` source-tree digest（中间态，非最终候选）。
 
 ## Forbidden imports
 
-None. HTTP layer imports Application archive modules and existing HTTP dependencies only.
+None.
 
 ## Independent countersign
 
 ```yaml
-review: pass_recommended
+delivery_recommendation: pass_recommended
+review: pending
 p5_5d_s3_stage_exit: not_evaluated
-next_step: P5-5D-S4
+next_step: P5-5D-S3-re-review
 slice_exit: not_signed_by_delivery
 ```
 
-Delivery 建议独立 re-review 后签署 `p5_5d_s3_stage_exit`；不代签 `p5_5d_slice_exit` 或 `production_deployment_authorized`。
+Delivery 不代签 `p5_5d_s3_stage_exit`、`p5_5d_slice_exit` 或 `production_deployment_authorized`。

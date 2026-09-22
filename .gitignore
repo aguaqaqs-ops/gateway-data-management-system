@@ -21,4 +21,5 @@ logs/
 htmlcov/
 vnext/rust/gateway-compute-python/python/**/*.so
 vnext/backend/.phase-exit-build/
+vnext/backend/tests/support/.last_compose_gate_provenance.json
 docs/backend-vnext/refactoring/temporary/phase-1/artifacts/

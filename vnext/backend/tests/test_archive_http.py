@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 from pathlib import Path
 from typing import Any, cast
 
@@ -19,7 +21,10 @@ from gateway_backend.application.archive.contracts import (
 from gateway_backend.application.archive.errors import ArchiveRequestValidation
 from gateway_backend.application.archive.queries import PERMISSION_ARCHIVE_SUBMISSION
 from gateway_backend.domain.archive.models import ArchiveConfirmationAction
-from gateway_backend.http.dependencies import ClosableAdmissionGate
+from gateway_backend.http.dependencies import (
+    ArchiveRequestBodyLimitMiddleware,
+    ClosableAdmissionGate,
+)
 from gateway_backend.http.schemas.archive import (
     AppendArchiveConfirmationRequest,
     AppendArchiveAnomalyResolutionRequest,
@@ -30,6 +35,7 @@ from tests.support.archive_fixtures import (
     assert_archive_durable_state_unchanged,
     seed_approved_archive_candidate,
     seed_approved_dual_sibling_archive,
+    seed_bulk_approved_archive_candidates,
 )
 from tests.support.http_workspace_harness import (
     TEST_BEARER,
@@ -561,6 +567,18 @@ ARCHIVE_AUDIT_QUERY_INVALID_CASES = (
     ("after_sequence_negative", {"after_sequence": -1}, 422),
 )
 
+ARCHIVE_HTTP_NON_STRING_FIELD_CASES = (
+    ("reason_not_string", "reason", 5),
+    ("sequence_not_string", "expected_sequence", "0"),
+)
+
+ARCHIVE_MIDDLEWARE_DISCONNECT_SCOPE = {
+    "type": "http",
+    "method": "POST",
+    "path": "/v1/archives",
+    "headers": [],
+}
+
 ARCHIVE_FORBIDDEN_RESPONSE_SUBSTRINGS = (
     "repository_id",
     "SELECT ",
@@ -776,6 +794,117 @@ def test_archive_cross_actor_idempotency_conflict_on_confirmation(
     assert conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"
 
 
+def test_archive_cross_actor_start_idempotency_replay_preserves_accepted_by(
+    tmp_path: Path,
+) -> None:
+    other_actor = "other-actor-bearer"
+    env = _archive_env(
+        tmp_path,
+        extra_sessions={
+            other_actor: make_identity(
+                actor_id="actor-2",
+                permissions=_archive_permissions(),
+            )
+        },
+    )
+    seed = seed_approved_archive_candidate(env.db_path)
+    confirmation_sequence = append_selection_confirmation(seed)
+    start_body = _start_body(seed, confirmation_sequence=confirmation_sequence)
+    first = env.client.post(
+        "/v1/archives",
+        headers=_auth_headers(env, idempotency_key="shared-start-key"),
+        json=start_body,
+    )
+    assert first.status_code == 201
+    first_body = first.json()
+    replay = env.client.post(
+        "/v1/archives",
+        headers=_auth_headers(env, bearer=other_actor, idempotency_key="shared-start-key"),
+        json=start_body,
+    )
+    assert replay.status_code == 200
+    replay_body = replay.json()
+    assert replay_body["archive_plan_id"] == first_body["archive_plan_id"]
+    assert replay_body["archive_result_id"] == first_body["archive_result_id"]
+    assert replay_body["archived_by"] == first_body["archived_by"]
+    assert first_body["archived_by"] == "actor-1"
+
+
+def test_archive_list_candidates_returns_scope_limit_exceeded_without_partial_list(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    seed_bulk_approved_archive_candidates(archive_env.db_path, count=201)
+    response = archive_env.client.get(
+        "/v1/archive-candidates",
+        headers=_auth_headers(archive_env),
+    )
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == "ARCHIVE_SCOPE_LIMIT_EXCEEDED"
+    assert "candidates" not in body
+
+
+@pytest.mark.parametrize(
+    ("case_id", "field_name", "invalid_value"),
+    ARCHIVE_HTTP_NON_STRING_FIELD_CASES,
+    ids=[case[0] for case in ARCHIVE_HTTP_NON_STRING_FIELD_CASES],
+)
+def test_archive_confirmation_rejects_non_string_fields_over_http(
+    archive_env: WorkspaceHttpTestEnvironment,
+    case_id: str,
+    field_name: str,
+    invalid_value: object,
+) -> None:
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    with pytest.raises(ValidationError):
+        AppendArchiveConfirmationRequest.model_validate(
+            replace_dict(_confirmation_body(seed), **{field_name: invalid_value})
+        )
+    response = archive_env.client.post(
+        "/v1/archive-confirmations",
+        headers=_auth_headers(archive_env, idempotency_key=f"non-string-{case_id}"),
+        json=replace_dict(_confirmation_body(seed), **{field_name: invalid_value}),
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_archive_body_middleware_returns_on_client_disconnect() -> None:
+    """客户端中途断开时中间件必须立即返回，不得空转阻塞事件循环。
+
+    TestClient 总是发送完整 body，无法覆盖该路径，因此直接驱动 ASGI 中间件。
+    """
+    calls = 0
+
+    async def receive() -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"type": "http.request", "body": b'{"selected"', "more_body": True}
+        return {"type": "http.disconnect"}
+
+    async def inner_app(scope: object, receive: object, send: object) -> None:  # pragma: no cover
+        raise AssertionError("inner app must not run on disconnect")
+
+    async def send(message: object) -> None:  # pragma: no cover
+        return None
+
+    def run() -> None:
+        asyncio.run(
+            ArchiveRequestBodyLimitMiddleware(inner_app)(
+                ARCHIVE_MIDDLEWARE_DISCONNECT_SCOPE,
+                receive,
+                send,
+            )
+        )
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(timeout=5.0)
+    assert not thread.is_alive(), "middleware spun without yielding on http.disconnect"
+    assert calls <= 3
+
+
 def test_archive_post_rejects_declared_body_over_limit(
     archive_env: WorkspaceHttpTestEnvironment,
 ) -> None:
@@ -896,6 +1025,46 @@ def test_archive_responses_do_not_leak_internal_fields(
         json=_confirmation_body(seed),
     )
     assert confirm.status_code == 201
+    resolve = archive_env.client.post(
+        "/v1/archive-anomaly-resolutions",
+        headers=_auth_headers(archive_env, idempotency_key="leak-scan-resolve"),
+        json={
+            **_confirmation_body(seed, reason="acknowledge sibling exclusion"),
+            "action": "ACKNOWLEDGE_EXCLUSION",
+            "issue_code": "APPROVED_SIBLING_EXCLUDED",
+            "sibling_submission_id": dual.sibling_submission_id,
+            "sibling_candidate_digest": dual.sibling_candidate_digest,
+            "subject_digest": dual.anomaly_subject_digest,
+        },
+    )
+    assert resolve.status_code == 201
+    start = archive_env.client.post(
+        "/v1/archives",
+        headers=_auth_headers(archive_env, idempotency_key="leak-scan-start"),
+        json=_start_body(
+            seed,
+            confirmation_sequence=confirm.json()["sequence"],
+            anomaly_resolution_sequences=((dual.anomaly_subject_digest, resolve.json()["sequence"]),),
+        ),
+    )
+    assert start.status_code == 201
+    started = start.json()
+    result = archive_env.client.get(
+        f"/v1/archives/{started['archive_result_id']}",
+        headers=_auth_headers(archive_env),
+    )
+    assert result.status_code == 200
+    audit = archive_env.client.get(
+        "/v1/archive-audit-events",
+        headers=_auth_headers(archive_env),
+        params={
+            "subject_kind": "CONFIRM_SELECTION",
+            "subject_digest": seed.selection_subject_digest,
+            "after_sequence": 0,
+            "limit": 100,
+        },
+    )
+    assert audit.status_code == 200
     bodies = [
         archive_env.client.get("/v1/archive-candidates", headers=_auth_headers(archive_env)).text,
         archive_env.client.post(
@@ -909,6 +1078,10 @@ def test_archive_responses_do_not_leak_internal_fields(
             },
         ).text,
         confirm.text,
+        resolve.text,
+        audit.text,
+        start.text,
+        result.text,
     ]
     for text in bodies:
         for forbidden in ARCHIVE_FORBIDDEN_RESPONSE_SUBSTRINGS:

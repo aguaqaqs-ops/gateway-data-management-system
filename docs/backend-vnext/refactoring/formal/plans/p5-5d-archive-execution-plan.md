@@ -1,6 +1,6 @@
 # P5-5D Archive Execution Plan
 
-状态：**ACCEPTED — S1 pass；S2 remediation delivered — pending independent closure**
+状态：**ACCEPTED — S1 pass；S2 pass（authorized closure）；S3 未开始**
 
 审核依据：[S0 Independent Docs Acceptance](p5-5d-s0-independent-docs-acceptance.md)。
 
@@ -29,16 +29,17 @@ repository_scope_contract_amendment: accepted
 p5_5d_implementation_authorized: yes
 first_authorized_implementation_stage: S2
 p5_5d_s1_stage_exit: pass
-p5_5d_s2_stage_exit: not_evaluated
+p5_5d_s2_stage_exit: pass
 production_deployment_authorized: no
 new_repository_effect_authorized: no
 p5_5d_slice_exit: not_evaluated
-next_step: P5-5D-S2-remediation-review
+next_step: P5-5D-S3
 ```
 
 S0 文档编写及独立复审已完成。S1 **pass**（Baseline Head authority、initial-empty 前置、v5
-Baseline DDL、focused gate）；S2 实施授权中；S3–S4 未开始。S1 交付无 Archive API；v5 仍未
-发布。未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；
+Baseline DDL、focused gate）；S2 **pass**（bounded read、audit、single-transaction archive、
+独立复审闭环；focused gate 248 passed）；S3–S4 未开始。S1/S2 交付无 Archive HTTP API；v5 仍未
+发布。S2 容器 conjunction 仍 deferred 至最终候选退出节点（见 O-1）。未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；
 Archive 自身始终零写。
 
 阶段按 Archive 的实际依赖划分，不照搬 5C 的持久化/HTTP/评审轮次：S1 先建立可靠 Head authority，并由原 owner 补齐 initial-empty Preview/Submit 前置链路；
@@ -213,6 +214,22 @@ P1–P4：handoff parent+HEAD 绑定（不再自写 evidence head）、真实 SQ
 anomaly Start / resolution REVOKE / occupancy mismatch / AcceptSubmit–Start 竞争证据。
 B1/B2 closure：`start.py` Design §5.1 步骤 4→5 顺序对齐。focused gate **224 passed**；
 `p5_5d_s2_stage_exit` 仍为 `not_evaluated`。
+
+**S2 independent review remediation**（2026-09-21）。闭环 [p5-5d-s2-independent-review.md](p5-5d-s2-independent-review.md)
+F1–F7；初审清理 P2-1（`ScopeForbidden`→`ArchiveIntegrityFailure`）、P3-2（`closed_by_archive` /
+无用 `scope_resolution` 参数）、P3-3（integrity 零写入与 F6 `accepted_version` 测试）。focused gate
+**235 passed**；`p5_5d_s2_stage_exit` 仍为 `not_evaluated`，待独立 re-review。
+
+**S2 re-review remediation**（2026-09-22）。闭环 [p5-5d-s2-independent-rereview.md](p5-5d-s2-independent-rereview.md)
+R1–R3 与 F-R1a/F-R1b：integrity-relevant selective SQL `LIMIT 201`、projection 缺失 fail-closed、
+审计整数校验、CONFIRM `reason=null`。focused gate **248 passed**。
+
+**S2 authorized closure**（2026-09-22）。[p5-5d-s2-remediation-closure-review.md](p5-5d-s2-remediation-closure-review.md)
+复审通过；`p5_5d_s2_stage_exit: pass`；`next_step: P5-5D-S3`。容器镜像重建与
+Review+Submit+Backend conjunction 仍 deferred（不替代 slice 最终候选门禁）。
+
+**O-1（conjunction 前置）**：`tests/test_production_wiring.py` 3 项失败在 pristine HEAD 可复现，
+属既有问题；最终 conjunction 前须由原 owner triage，不能表述为当前 HEAD 已通过该 gate。
 
 ### S3 — public API, production composition and deployment inputs
 

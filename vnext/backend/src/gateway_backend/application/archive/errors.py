@@ -87,3 +87,13 @@ class ActiveSubmitAttempt(ArchiveApplicationError):
 
     def __init__(self) -> None:
         super().__init__("repository has an active submit attempt")
+
+
+class ArchiveResultNotFound(ArchiveApplicationError):
+    """Archive result is missing or not visible in the current scope."""
+
+    stable_code = "RESOURCE_NOT_FOUND"
+
+    def __init__(self, *, archive_result_id: str) -> None:
+        super().__init__(f"archive result {archive_result_id!r} was not found")
+        self.archive_result_id = archive_result_id

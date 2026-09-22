@@ -16,22 +16,15 @@ from gateway_backend.application.archive.queries import get_archive_candidates, 
 from gateway_backend.domain.submission.review import ReviewStatus
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from tests.support.archive_fixtures import seed_approved_archive_candidate
-from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.test_review_transactions import _seed_pending_review_submission, _uow_factory
-from tests.test_submit_transactions import BASELINE_HEAD
 
 pytestmark = pytest.mark.unit
 
 
 def test_archive_candidates_include_only_approved_current_base_submissions(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     result = get_archive_candidates(
         context=seed.archiver_context,
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
     )
     assert len(result.candidates) == 1
@@ -48,13 +41,8 @@ def test_pending_review_submission_is_not_a_candidate(db_path: Path) -> None:
         review_seed.reviewer_context.gateway_device_external_key,
         review_seed.reviewer_context.business_project_id,
     )
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=review_seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     result = get_archive_candidates(
         context=archiver,
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
     )
     assert result.candidates == ()
@@ -62,10 +50,6 @@ def test_pending_review_submission_is_not_a_candidate(db_path: Path) -> None:
 
 def test_preview_archive_plan_rejects_unknown_selected_ref(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     with pytest.raises(CandidateBindingConflict):
         preview_archive_plan(
             context=seed.archiver_context,
@@ -73,17 +57,12 @@ def test_preview_archive_plan_rejects_unknown_selected_ref(db_path: Path) -> Non
                 submission_id=seed.submission_id,
                 expected_candidate_digest="sha256:" + "0" * 64,
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
         )
 
 
 def test_preview_archive_plan_does_not_write_rows(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         before_plans = unit_of_work.connection.execute(
             "SELECT COUNT(*) FROM archive_plan_records"
@@ -94,7 +73,6 @@ def test_preview_archive_plan_does_not_write_rows(db_path: Path) -> None:
     preview_archive_plan(
         context=seed.archiver_context,
         selected_ref=seed.selected_ref,
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
     )
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
@@ -162,13 +140,8 @@ def test_archive_candidates_include_both_approved_siblings_on_same_base(db_path:
     from tests.support.archive_fixtures import seed_approved_dual_sibling_archive
 
     dual_seed = seed_approved_dual_sibling_archive(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=dual_seed.primary.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     result = get_archive_candidates(
         context=dual_seed.primary.archiver_context,
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
     )
     assert len(result.candidates) == 2
@@ -184,14 +157,9 @@ def test_preview_dual_sibling_selection_reports_anomaly_and_blocks_start(db_path
     )
 
     dual_seed = seed_approved_dual_sibling_archive(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=dual_seed.primary.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     preview_without_audit = preview_archive_plan(
         context=dual_seed.primary.archiver_context,
         selected_ref=dual_seed.primary.selected_ref,
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
     )
     assert len(preview_without_audit.anomalies) == 1
@@ -204,7 +172,6 @@ def test_preview_dual_sibling_selection_reports_anomaly_and_blocks_start(db_path
     preview_with_confirmation_only = preview_archive_plan(
         context=dual_seed.primary.archiver_context,
         selected_ref=dual_seed.primary.selected_ref,
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
     )
     assert preview_with_confirmation_only.audit_valid is False
@@ -215,14 +182,9 @@ def test_preview_dual_sibling_dispositions(db_path: Path) -> None:
     from tests.support.archive_fixtures import seed_approved_dual_sibling_archive
 
     dual_seed = seed_approved_dual_sibling_archive(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=dual_seed.primary.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     preview = preview_archive_plan(
         context=dual_seed.primary.archiver_context,
         selected_ref=dual_seed.primary.selected_ref,
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
     )
     dispositions = {item.submission_id: item.disposition for item in preview.dispositions}
@@ -237,7 +199,7 @@ def test_preview_dual_sibling_dispositions(db_path: Path) -> None:
         (201, True),
     ],
 )
-def test_archive_candidates_enforce_sql_fetch_limit(
+def test_archive_candidates_enforce_bounded_read_limit(
     db_path: Path,
     candidate_count: int,
     expect_limit: bool,
@@ -246,33 +208,145 @@ def test_archive_candidates_enforce_sql_fetch_limit(
     from tests.support.archive_fixtures import seed_bulk_approved_archive_candidates
 
     seed = seed_bulk_approved_archive_candidates(db_path, count=candidate_count)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     if expect_limit:
         with pytest.raises(ArchiveScopeLimitExceeded):
             get_archive_candidates(
                 context=seed.archiver_context,
-                scope_resolution=scope_resolution,
                 unit_of_work_factory=_uow_factory(db_path),
             )
     else:
         candidates = get_archive_candidates(
             context=seed.archiver_context,
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
         )
         assert len(candidates.candidates) == candidate_count
 
 
+def test_archive_candidates_ignore_rejected_history_for_limit(db_path: Path) -> None:
+    from tests.support.archive_fixtures import _insert_bulk_rejected_archive_candidate_rows
+
+    seed = seed_approved_archive_candidate(db_path)
+    _insert_bulk_rejected_archive_candidate_rows(
+        db_path,
+        repository_id=seed.repository_id,
+        gateway_device_external_key=seed.archiver_context.gateway_device_external_key,
+        business_project_id=seed.archiver_context.business_project_id,
+        count=200,
+    )
+    candidates = get_archive_candidates(
+        context=seed.archiver_context,
+        unit_of_work_factory=_uow_factory(db_path),
+    )
+    assert len(candidates.candidates) == 1
+    assert candidates.candidates[0].submission_id == seed.submission_id
+
+
+def test_get_archive_result_returns_frozen_plan_for_current_scope(db_path: Path) -> None:
+    from gateway_backend.application.archive.queries import get_archive_result
+    from tests.support.archive_fixtures import append_selection_confirmation, start_archive_for_seed
+
+    seed = seed_approved_archive_candidate(db_path)
+    confirmation_sequence = append_selection_confirmation(seed)
+    started = start_archive_for_seed(seed, confirmation_sequence=confirmation_sequence)
+    loaded = get_archive_result(
+        context=seed.archiver_context,
+        archive_result_id=started.archive_result_id,
+        unit_of_work_factory=_uow_factory(db_path),
+    )
+    assert loaded.archive_result.result_id == started.archive_result_id
+    assert loaded.plan.plan_id == started.archive_plan_id
+    assert loaded.selected_repository_commit_id == started.baseline_commit_id
+    assert loaded.plan.selected_submission_id == seed.submission_id
+
+
+def test_get_archive_result_hides_cross_scope_results(db_path: Path) -> None:
+    from gateway_backend.application.archive.errors import ArchiveResultNotFound
+    from gateway_backend.application.archive.queries import get_archive_result
+    from tests.support.archive_fixtures import append_selection_confirmation, start_archive_for_seed
+
+    seed = seed_approved_archive_candidate(db_path)
+    confirmation_sequence = append_selection_confirmation(seed)
+    started = start_archive_for_seed(seed, confirmation_sequence=confirmation_sequence)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            """
+            UPDATE archive_plan_records
+            SET business_project_id = 'project-other'
+            WHERE plan_id = ?
+            """,
+            (started.archive_plan_id,),
+        )
+    with pytest.raises(ArchiveResultNotFound):
+        get_archive_result(
+            context=seed.archiver_context,
+            archive_result_id=started.archive_result_id,
+            unit_of_work_factory=_uow_factory(db_path),
+        )
+
+
+@pytest.mark.parametrize(
+    "tamper_sql",
+    [
+        pytest.param(
+            "DELETE FROM review_projection_records WHERE submission_id = ?",
+            id="missing_projection",
+        ),
+        pytest.param(
+            """
+            UPDATE review_projection_records
+            SET status = 'REJECTED'
+            WHERE submission_id = ?
+            """,
+            id="projection_event_mismatch",
+        ),
+    ],
+)
+def test_get_archive_candidates_rejects_tampered_sibling_projection(
+    db_path: Path,
+    tamper_sql: str,
+) -> None:
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.application.archive.queries import get_archive_candidates
+    from tests.support.archive_fixtures import seed_approved_dual_sibling_archive
+
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            tamper_sql,
+            (dual_seed.sibling_submission_id,),
+        )
+    with pytest.raises(ArchiveIntegrityFailure):
+        get_archive_candidates(
+            context=dual_seed.primary.archiver_context,
+            unit_of_work_factory=_uow_factory(db_path),
+        )
+
+
+def test_get_archive_candidates_rejects_missing_review_state(db_path: Path) -> None:
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.application.archive.queries import get_archive_candidates
+    from tests.support.archive_fixtures import (
+        delete_submission_review_state,
+        seed_approved_dual_sibling_archive,
+    )
+
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    delete_submission_review_state(db_path, dual_seed.sibling_submission_id)
+    with pytest.raises(ArchiveIntegrityFailure, match="review projection is missing"):
+        get_archive_candidates(
+            context=dual_seed.primary.archiver_context,
+            unit_of_work_factory=_uow_factory(db_path),
+        )
+
+
 def test_sqlite_list_archive_candidate_facts_raises_at_fetch_limit(db_path: Path) -> None:
+    from datetime import UTC, datetime
+
     from gateway_backend.domain.submission.errors import ArchiveCandidateReadBoundExceeded
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
     from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
     from tests.support.archive_fixtures import seed_bulk_approved_archive_candidates
-
-    from datetime import UTC, datetime
+    from tests.test_submit_transactions import BASELINE_HEAD
 
     seed = seed_bulk_approved_archive_candidates(db_path, count=201)
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:

@@ -17,11 +17,11 @@ from gateway_backend.domain.archive.models import ArchiveDispositionKind
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.sqlite_baseline import get_current_head_from_connection
 from tests.support.archive_fixtures import (
+    assert_archive_durable_state_unchanged,
     append_selection_confirmation,
     seed_approved_archive_candidate,
     start_archive_for_seed,
 )
-from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.test_review_transactions import _uow_factory
 from tests.test_submit_transactions import BASELINE_HEAD
 
@@ -30,12 +30,376 @@ pytestmark = pytest.mark.unit
 TS_ARCHIVE = datetime(2024, 7, 1, 12, 0, 0, tzinfo=UTC)
 
 
+def test_get_archive_candidates_rejects_workspace_generation_mismatch(db_path: Path) -> None:
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.application.archive.queries import get_archive_candidates
+
+    seed = seed_approved_archive_candidate(db_path)
+    submission = None
+    workspace_version = 0
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission(seed.submission_id)
+        assert submission is not None
+        workspace = unit_of_work.workspace.get_workspace(submission.workspace_id)
+        assert workspace is not None
+        workspace_version = workspace.optimistic_version
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE workspace_records SET generation = 99 WHERE workspace_id = ?",
+            (submission.workspace_id,),
+        )
+    with pytest.raises(ArchiveIntegrityFailure):
+        get_archive_candidates(
+            context=seed.archiver_context,
+            unit_of_work_factory=_uow_factory(db_path),
+        )
+    assert_archive_durable_state_unchanged(
+        db_path,
+        repository_id=seed.repository_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        expected_workspace_versions={submission.workspace_id: workspace_version},
+    )
+
+
+def test_get_archive_candidates_rejects_workspace_project_mismatch(db_path: Path) -> None:
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.application.archive.queries import get_archive_candidates
+
+    seed = seed_approved_archive_candidate(db_path)
+    submission = None
+    workspace_version = 0
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission(seed.submission_id)
+        assert submission is not None
+        workspace = unit_of_work.workspace.get_workspace(submission.workspace_id)
+        assert workspace is not None
+        workspace_version = workspace.optimistic_version
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE workspace_records SET business_project_id = 'project-other' WHERE workspace_id = ?",
+            (submission.workspace_id,),
+        )
+    with pytest.raises(ArchiveIntegrityFailure, match="repository scope does not match candidate workspace"):
+        get_archive_candidates(
+            context=seed.archiver_context,
+            unit_of_work_factory=_uow_factory(db_path),
+        )
+    assert_archive_durable_state_unchanged(
+        db_path,
+        repository_id=seed.repository_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        expected_workspace_versions={submission.workspace_id: workspace_version},
+    )
+
+
+def test_start_archive_rejects_review_event_to_status_tampering(db_path: Path) -> None:
+    from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.application.archive.start import start_archive
+
+    seed = seed_approved_archive_candidate(db_path)
+    confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
+    submission = None
+    workspace_version = 0
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission(seed.submission_id)
+        assert submission is not None
+        workspace = unit_of_work.workspace.get_workspace(submission.workspace_id)
+        assert workspace is not None
+        workspace_version = workspace.optimistic_version
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            """
+            UPDATE review_event_records
+            SET to_status = 'REJECTED'
+            WHERE submission_id = ? AND sequence = 1
+            """,
+            (seed.submission_id,),
+        )
+    with pytest.raises(ArchiveIntegrityFailure, match="to_status does not match transition policy"):
+        start_archive(
+            command=StartArchiveCommand(
+                context=seed.archiver_context,
+                idempotency_key="start-with-tampered-review",
+                expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+                candidate_set_digest=seed.candidate_set_digest,
+                selected_ref=seed.selected_ref,
+                confirmation_refs=(
+                    ArchiveAuditReferenceInput(
+                        subject_digest=seed.selection_subject_digest,
+                        sequence=confirmation_sequence,
+                    ),
+                ),
+                anomaly_resolution_refs=(),
+            ),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=TS_ARCHIVE,
+        )
+    assert_archive_durable_state_unchanged(
+        db_path,
+        repository_id=seed.repository_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        expected_workspace_versions={submission.workspace_id: workspace_version},
+    )
+
+
+@pytest.mark.parametrize(
+    "tamper_sql",
+    [
+        pytest.param(
+            "DELETE FROM review_projection_records WHERE submission_id = ?",
+            id="missing_projection",
+        ),
+        pytest.param(
+            """
+            UPDATE review_projection_records
+            SET status = 'REJECTED'
+            WHERE submission_id = ?
+            """,
+            id="projection_event_mismatch",
+        ),
+    ],
+)
+def test_start_archive_rejects_tampered_sibling_projection(
+    db_path: Path,
+    tamper_sql: str,
+) -> None:
+    from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.application.archive.start import start_archive
+    from tests.support.archive_fixtures import seed_approved_dual_sibling_archive
+
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    confirmation_sequence = append_selection_confirmation(dual_seed.primary, now=TS_ARCHIVE)
+    workspace_versions: dict[str, int] = {}
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        for submission_id in (
+            dual_seed.primary.submission_id,
+            dual_seed.sibling_submission_id,
+        ):
+            submission = unit_of_work.submission.get_submission(submission_id)
+            assert submission is not None
+            workspace = unit_of_work.workspace.get_workspace(submission.workspace_id)
+            assert workspace is not None
+            workspace_versions[workspace.workspace_id] = workspace.optimistic_version
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            tamper_sql,
+            (dual_seed.sibling_submission_id,),
+        )
+    with pytest.raises(ArchiveIntegrityFailure):
+        start_archive(
+            command=StartArchiveCommand(
+                context=dual_seed.primary.archiver_context,
+                idempotency_key="start-with-tampered-sibling",
+                expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+                candidate_set_digest=dual_seed.primary.candidate_set_digest,
+                selected_ref=dual_seed.primary.selected_ref,
+                confirmation_refs=(
+                    ArchiveAuditReferenceInput(
+                        subject_digest=dual_seed.primary.selection_subject_digest,
+                        sequence=confirmation_sequence,
+                    ),
+                ),
+                anomaly_resolution_refs=(),
+            ),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=TS_ARCHIVE,
+        )
+    assert_archive_durable_state_unchanged(
+        db_path,
+        repository_id=dual_seed.primary.repository_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        expected_workspace_versions=workspace_versions,
+    )
+
+
+def test_start_archive_rejects_missing_review_state(db_path: Path) -> None:
+    from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.application.archive.start import start_archive
+    from tests.support.archive_fixtures import (
+        delete_submission_review_state,
+        seed_approved_dual_sibling_archive,
+    )
+
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    confirmation_sequence = append_selection_confirmation(dual_seed.primary, now=TS_ARCHIVE)
+    workspace_versions: dict[str, int] = {}
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        for submission_id in (
+            dual_seed.primary.submission_id,
+            dual_seed.sibling_submission_id,
+        ):
+            submission = unit_of_work.submission.get_submission(submission_id)
+            assert submission is not None
+            workspace = unit_of_work.workspace.get_workspace(submission.workspace_id)
+            assert workspace is not None
+            workspace_versions[workspace.workspace_id] = workspace.optimistic_version
+    delete_submission_review_state(db_path, dual_seed.sibling_submission_id)
+    with pytest.raises(ArchiveIntegrityFailure, match="review projection is missing"):
+        start_archive(
+            command=StartArchiveCommand(
+                context=dual_seed.primary.archiver_context,
+                idempotency_key="start-with-missing-review-state",
+                expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+                candidate_set_digest=dual_seed.primary.candidate_set_digest,
+                selected_ref=dual_seed.primary.selected_ref,
+                confirmation_refs=(
+                    ArchiveAuditReferenceInput(
+                        subject_digest=dual_seed.primary.selection_subject_digest,
+                        sequence=confirmation_sequence,
+                    ),
+                ),
+                anomaly_resolution_refs=(),
+            ),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=TS_ARCHIVE,
+        )
+    assert_archive_durable_state_unchanged(
+        db_path,
+        repository_id=dual_seed.primary.repository_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        expected_workspace_versions=workspace_versions,
+    )
+
+
+def test_start_archive_replay_requires_transaction_fresh_enabled_mapping(db_path: Path) -> None:
+    from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
+    from gateway_backend.application.archive.start import start_archive
+    from gateway_backend.domain.workspace.errors import ScopeResolutionError
+    from tests.support.baseline_fixtures import upsert_provisioned_mapping_row
+
+    seed = seed_approved_archive_candidate(db_path)
+    confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
+    start_archive_for_seed(
+        seed,
+        idempotency_key="replay-mapping-key",
+        confirmation_sequence=confirmation_sequence,
+        now=TS_ARCHIVE,
+    )
+    upsert_provisioned_mapping_row(
+        seed.db_path,
+        device_key=seed.archiver_context.gateway_device_external_key,
+        project_id=seed.archiver_context.business_project_id,
+        repository_id=seed.repository_id,
+        enabled=False,
+    )
+    with pytest.raises(ScopeResolutionError):
+        start_archive(
+            command=StartArchiveCommand(
+                context=seed.archiver_context,
+                idempotency_key="replay-mapping-key",
+                expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+                candidate_set_digest=seed.candidate_set_digest,
+                selected_ref=seed.selected_ref,
+                confirmation_refs=(
+                    ArchiveAuditReferenceInput(
+                        subject_digest=seed.selection_subject_digest,
+                        sequence=confirmation_sequence,
+                    ),
+                ),
+                anomaly_resolution_refs=(),
+            ),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=TS_ARCHIVE,
+        )
+
+
+def test_start_archive_triple_sibling_accepts_digest_sorted_resolution_refs(db_path: Path) -> None:
+    import json
+
+    from gateway_backend.application.archive.contracts import compute_anomaly_subject_digest
+    from tests.support.archive_fixtures import (
+        append_anomaly_resolution,
+        append_selection_confirmation,
+        seed_triple_approved_sibling_archive,
+        start_archive_for_seed,
+    )
+
+    primary, sibling_refs = seed_triple_approved_sibling_archive(db_path)
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        primary_submission = unit_of_work.submission.get_submission(primary.submission_id)
+        assert primary_submission is not None
+        primary_workspace = unit_of_work.workspace.get_workspace(primary_submission.workspace_id)
+        assert primary_workspace is not None
+        accepted_version = primary_workspace.optimistic_version
+        workspace_id = primary_workspace.workspace_id
+    confirmation_sequence = append_selection_confirmation(primary, now=TS_ARCHIVE)
+    resolution_sequences: list[tuple[str, int]] = []
+    for sibling_ref in sibling_refs:
+        anomaly_subject_digest = compute_anomaly_subject_digest(
+            selection_subject_digest=primary.selection_subject_digest,
+            issue_code="APPROVED_SIBLING_EXCLUDED",
+            sibling_submission_id=sibling_ref.submission_id,
+            sibling_candidate_digest=sibling_ref.expected_candidate_digest,
+        )
+        resolution_sequence = append_anomaly_resolution(
+            primary,
+            anomaly_subject_digest=anomaly_subject_digest,
+            sibling_submission_id=sibling_ref.submission_id,
+            sibling_candidate_digest=sibling_ref.expected_candidate_digest,
+            idempotency_key=f"resolve-{sibling_ref.submission_id}",
+            now=TS_ARCHIVE,
+        )
+        resolution_sequences.append((anomaly_subject_digest, resolution_sequence))
+    resolution_sequences.sort(key=lambda item: item[0])
+    result = start_archive_for_seed(
+        primary,
+        confirmation_sequence=confirmation_sequence,
+        anomaly_resolution_sequences=tuple(resolution_sequences),
+        now=TS_ARCHIVE,
+    )
+    assert result.replay is False
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        row = unit_of_work.connection.execute(
+            "SELECT frozen_input_json FROM archive_plan_records WHERE plan_id = ?",
+            (result.archive_plan_id,),
+        ).fetchone()
+        assert row is not None
+        frozen_input = json.loads(row[0])
+        assert len(frozen_input["candidate_refs"]) == 3
+        assert len(frozen_input["workspace_acceptance_bindings"]) == 3
+        binding = next(
+            item
+            for item in frozen_input["workspace_acceptance_bindings"]
+            if item["submission_id"] == primary.submission_id
+        )
+        assert binding["workspace_id"] == workspace_id
+        assert binding["optimistic_version"] == accepted_version
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        workspace_after_start = unit_of_work.workspace.get_workspace(workspace_id)
+        assert workspace_after_start is not None
+        version_after_start = workspace_after_start.optimistic_version
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE workspace_records SET optimistic_version = optimistic_version + 1 WHERE workspace_id = ?",
+            (workspace_id,),
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(workspace_id)
+        assert workspace is not None
+        assert workspace.optimistic_version == version_after_start + 1
+        row_after = unit_of_work.connection.execute(
+            "SELECT frozen_input_json FROM archive_plan_records WHERE plan_id = ?",
+            (result.archive_plan_id,),
+        ).fetchone()
+        assert row_after is not None
+        frozen_after = json.loads(row_after[0])
+        binding_after = next(
+            item
+            for item in frozen_after["workspace_acceptance_bindings"]
+            if item["submission_id"] == primary.submission_id
+        )
+        assert binding_after["optimistic_version"] == accepted_version
+
+
 def test_start_archive_requires_confirmation_before_plan_is_written(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     from gateway_backend.application.archive.start import start_archive
     from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
 
@@ -56,7 +420,6 @@ def test_start_archive_requires_confirmation_before_plan_is_written(db_path: Pat
                 ),
                 anomaly_resolution_refs=(),
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
@@ -114,10 +477,6 @@ def test_start_archive_rejects_conflicting_idempotency_fingerprint(db_path: Path
     from gateway_backend.application.archive.start import start_archive
     from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
 
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     with pytest.raises(IdempotencyConflict):
         start_archive(
             command=StartArchiveCommand(
@@ -135,7 +494,6 @@ def test_start_archive_rejects_conflicting_idempotency_fingerprint(db_path: Path
                 ),
                 anomaly_resolution_refs=(),
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
@@ -211,10 +569,6 @@ def test_start_archive_prefers_active_attempt_over_candidate_set_conflict(
 
     seed = seed_approved_archive_candidate(db_path)
     confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
 
     def active_attempts(
         self: SQLiteSubmissionRepository,
@@ -240,7 +594,6 @@ def test_start_archive_prefers_active_attempt_over_candidate_set_conflict(
                 ),
                 anomaly_resolution_refs=(),
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
@@ -253,10 +606,6 @@ def test_start_archive_rejects_unresolved_sibling_anomaly(db_path: Path) -> None
 
     dual_seed = seed_approved_dual_sibling_archive(db_path)
     confirmation_sequence = append_selection_confirmation(dual_seed.primary, now=TS_ARCHIVE)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=dual_seed.primary.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     with pytest.raises(ArchiveAnomalyUnresolved):
         start_archive(
             command=StartArchiveCommand(
@@ -274,7 +623,6 @@ def test_start_archive_rejects_unresolved_sibling_anomaly(db_path: Path) -> None
                 ),
                 anomaly_resolution_refs=(),
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
@@ -322,10 +670,6 @@ def test_start_archive_rejects_orphan_repository_occupancy(
 
     monkeypatch.setattr(SQLiteSubmissionRepository, "get_repository_occupancy", orphan_occupancy)
     monkeypatch.setattr(SQLiteSubmissionRepository, "list_active_submit_attempts", no_active_attempts)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     with pytest.raises(ArchiveIntegrityFailure):
         start_archive(
             command=StartArchiveCommand(
@@ -343,7 +687,6 @@ def test_start_archive_rejects_orphan_repository_occupancy(
                 ),
                 anomaly_resolution_refs=(),
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
@@ -394,10 +737,6 @@ def test_start_archive_rejects_mismatched_active_attempt_and_occupancy(
 
     monkeypatch.setattr(SQLiteSubmissionRepository, "list_active_submit_attempts", active_attempts)
     monkeypatch.setattr(SQLiteSubmissionRepository, "get_repository_occupancy", mismatched_occupancy)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     with pytest.raises(ArchiveIntegrityFailure):
         start_archive(
             command=StartArchiveCommand(
@@ -415,7 +754,6 @@ def test_start_archive_rejects_mismatched_active_attempt_and_occupancy(
                 ),
                 anomaly_resolution_refs=(),
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )

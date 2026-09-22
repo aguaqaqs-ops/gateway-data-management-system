@@ -1219,9 +1219,10 @@ def _workspace_v5_archive_statements() -> tuple[str, ...]:
                 CHECK (typeof(sequence) = 'integer' AND sequence > 0),
             action TEXT NOT NULL
                 CHECK (typeof(action) = 'text' AND action IN ({confirmation_actions})),
-            reason TEXT NOT NULL
-                CHECK (typeof(reason) = 'text'
-                       AND length(CAST(reason AS BLOB)) BETWEEN 1 AND 4096),
+            reason TEXT
+                CHECK (reason IS NULL OR
+                       (typeof(reason) = 'text'
+                        AND length(CAST(reason AS BLOB)) BETWEEN 1 AND 4096)),
             actor_id TEXT NOT NULL
                 CHECK (typeof(actor_id) = 'text'
                        AND length(CAST(actor_id AS BLOB)) BETWEEN 1 AND 255),

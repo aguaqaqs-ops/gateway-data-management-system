@@ -36,7 +36,6 @@ from gateway_backend.domain.submission.ports import (
 from gateway_backend.domain.submission.review import ReviewStatus
 
 _ARCHIVE_CANDIDATE_FETCH_LIMIT = 201
-
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SQLITE_INT_MIN = -(2**63)
 _SQLITE_INT_MAX = 2**63 - 1
@@ -184,8 +183,7 @@ class SQLiteSubmissionRepository:
             SELECT
                 s.*,
                 p.status AS review_status,
-                p.latest_sequence AS review_sequence,
-                CASE WHEN d.submission_id IS NOT NULL THEN 1 ELSE 0 END AS closed_by_archive
+                p.latest_sequence AS review_sequence
             FROM submission_records AS s
             LEFT JOIN review_projection_records AS p
                 ON s.submission_id = p.submission_id
@@ -194,10 +192,37 @@ class SQLiteSubmissionRepository:
             WHERE s.repository_id = ?
               AND s.based_on_baseline_node_id = ?
               AND s.business_baseline_commit_id = ?
+              AND d.submission_id IS NULL
+              AND (
+                p.status = 'APPROVED'
+                OR p.submission_id IS NULL
+                OR NOT EXISTS (
+                  SELECT 1
+                  FROM review_event_records AS e
+                  WHERE e.submission_id = s.submission_id
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM review_event_records AS e
+                  WHERE e.submission_id = s.submission_id
+                    AND e.sequence = (
+                      SELECT MAX(e2.sequence)
+                      FROM review_event_records AS e2
+                      WHERE e2.submission_id = s.submission_id
+                    )
+                    AND e.to_status = 'APPROVED'
+                    AND (p.status IS NULL OR p.status != 'APPROVED')
+                )
+              )
             ORDER BY s.submission_id
             LIMIT ?
             """,
-            (repository_id, baseline_node_id, baseline_commit_id, _ARCHIVE_CANDIDATE_FETCH_LIMIT),
+            (
+                repository_id,
+                baseline_node_id,
+                baseline_commit_id,
+                _ARCHIVE_CANDIDATE_FETCH_LIMIT,
+            ),
         ).fetchall()
         if len(rows) >= _ARCHIVE_CANDIDATE_FETCH_LIMIT:
             raise ArchiveCandidateReadBoundExceeded()
@@ -207,14 +232,21 @@ class SQLiteSubmissionRepository:
             submission = submission_from_row(mapping)
             review_status_raw = mapping.get("review_status")
             review_sequence_raw = mapping.get("review_sequence")
-            if review_status_raw is None or review_sequence_raw is None:
-                continue
+            review_status = (
+                None
+                if review_status_raw is None
+                else ReviewStatus(str(review_status_raw))
+            )
+            review_sequence = (
+                None
+                if review_sequence_raw is None
+                else int(cast(int | str, review_sequence_raw))
+            )
             facts.append(
                 ArchiveCandidateFacts(
                     submission=submission,
-                    review_status=ReviewStatus(str(review_status_raw)),
-                    review_sequence=int(cast(int | str, review_sequence_raw)),
-                    closed_by_archive=bool(mapping.get("closed_by_archive")),
+                    review_status=review_status,
+                    review_sequence=review_sequence,
                 )
             )
         return tuple(facts)

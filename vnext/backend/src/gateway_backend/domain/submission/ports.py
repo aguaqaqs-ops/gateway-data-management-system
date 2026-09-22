@@ -17,9 +17,8 @@ from gateway_backend.domain.submission.review import (
 @dataclass(frozen=True, slots=True)
 class ArchiveCandidateFacts:
     submission: Submission
-    review_status: ReviewStatus
-    review_sequence: int
-    closed_by_archive: bool
+    review_status: ReviewStatus | None
+    review_sequence: int | None
 
 
 @dataclass(frozen=True, slots=True)

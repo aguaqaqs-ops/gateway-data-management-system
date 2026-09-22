@@ -47,7 +47,6 @@ from gateway_backend.domain.archive.models import (
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
-from gateway_backend.domain.workspace.ports import ScopeResolutionPort
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,21 +79,17 @@ class StartArchiveResult:
 def start_archive(
     *,
     command: StartArchiveCommand,
-    scope_resolution: ScopeResolutionPort,
     unit_of_work_factory: ArchiveControlUnitOfWorkFactory,
     now: datetime,
 ) -> StartArchiveResult:
     assert_permission(command.context, PERMISSION_ARCHIVE_SUBMISSION)
-    resolved = scope_resolution.resolve(command.context)
     with unit_of_work_factory(read_only=False) as unit_of_work:
-        existing_plan = unit_of_work.archive.find_start_plan_by_key(
-            resolved.repository_id,
-            command.context.gateway_device_external_key,
-            command.context.business_project_id,
-            command.idempotency_key,
+        fresh_scope = unit_of_work.resolve_provisioned_scope(
+            gateway_device_external_key=command.context.gateway_device_external_key,
+            business_project_id=command.context.business_project_id,
         )
         request_fingerprint = compute_start_request_fingerprint(
-            repository_id=resolved.repository_id,
+            repository_id=fresh_scope.repository_id,
             gateway_device_external_key=command.context.gateway_device_external_key,
             business_project_id=command.context.business_project_id,
             expected_baseline_node_id=command.expected_baseline_node_id,
@@ -104,6 +99,12 @@ def start_archive(
             expected_candidate_digest=command.selected_ref.expected_candidate_digest,
             confirmation_refs=command.confirmation_refs,
             anomaly_resolution_refs=command.anomaly_resolution_refs,
+        )
+        existing_plan = unit_of_work.archive.find_start_plan_by_key(
+            fresh_scope.repository_id,
+            command.context.gateway_device_external_key,
+            command.context.business_project_id,
+            command.idempotency_key,
         )
         if existing_plan is not None:
             if existing_plan.request_fingerprint != request_fingerprint:
@@ -133,12 +134,6 @@ def start_archive(
                 replay=True,
             )
 
-        fresh_scope = unit_of_work.resolve_provisioned_scope(
-            gateway_device_external_key=command.context.gateway_device_external_key,
-            business_project_id=command.context.business_project_id,
-        )
-        if fresh_scope.repository_id != resolved.repository_id:
-            raise ArchiveIntegrityFailure("repository scope mismatch")
         head = fresh_scope.baseline_head
         if (
             head.business_baseline_node_id != command.expected_baseline_node_id
@@ -147,7 +142,7 @@ def start_archive(
             raise BaselineVersionConflict("expected baseline head does not match current head")
         assert_repository_submit_gate(unit_of_work, fresh_scope.repository_id)
 
-        snapshot = load_archive_candidate_snapshot(unit_of_work, command.context, resolved)
+        snapshot = load_archive_candidate_snapshot(unit_of_work, command.context, fresh_scope)
         if snapshot.candidate_set_digest != command.candidate_set_digest:
             raise CandidateSetConflict()
         if not any(
@@ -217,7 +212,18 @@ def start_archive(
             ArchiveAuditReference(subject_digest=ref.subject_digest, sequence=ref.sequence)
             for ref in command.anomaly_resolution_refs
         )
+        workspace_acceptance_bindings = _collect_workspace_acceptance_bindings(
+            unit_of_work,
+            snapshot=snapshot,
+        )
         frozen_input = {
+            "candidate_refs": [
+                {
+                    "expected_candidate_digest": candidate.expected_candidate_digest,
+                    "submission_id": candidate.submission_id,
+                }
+                for candidate in snapshot.candidates
+            ],
             "candidate_set_digest": snapshot.candidate_set_digest,
             "confirmation_refs": [
                 {"sequence": ref.sequence, "subject_digest": ref.subject_digest}
@@ -233,6 +239,14 @@ def start_archive(
                 "expected_candidate_digest": command.selected_ref.expected_candidate_digest,
                 "submission_id": command.selected_ref.submission_id,
             },
+            "workspace_acceptance_bindings": [
+                {
+                    "optimistic_version": binding["optimistic_version"],
+                    "submission_id": binding["submission_id"],
+                    "workspace_id": binding["workspace_id"],
+                }
+                for binding in workspace_acceptance_bindings
+            ],
         }
         plan = ArchivePlan(
             plan_id=plan_id,
@@ -335,9 +349,14 @@ def _validate_audit_refs(
         raise CandidateBindingConflict("confirmation audit reference is not affirmative")
     if len(anomaly_resolution_refs) != len(anomalies):
         raise CandidateBindingConflict("anomaly resolution audit references are incomplete")
-    for anomaly, resolution_ref in zip(anomalies, anomaly_resolution_refs, strict=True):
-        if resolution_ref.subject_digest != anomaly.subject_digest:
-            raise CandidateBindingConflict("anomaly resolution audit reference subject mismatch")
+    if len({ref.subject_digest for ref in anomaly_resolution_refs}) != len(anomaly_resolution_refs):
+        raise CandidateBindingConflict("anomaly resolution audit references must be unique")
+    expected_by_digest = {anomaly.subject_digest: anomaly for anomaly in anomalies}
+    provided_by_digest = {ref.subject_digest: ref for ref in anomaly_resolution_refs}
+    if set(expected_by_digest) != set(provided_by_digest):
+        raise CandidateBindingConflict("anomaly resolution audit references are incomplete")
+    for subject_digest, anomaly in expected_by_digest.items():
+        resolution_ref = provided_by_digest[subject_digest]
         latest_sequence = unit_of_work.archive.get_latest_resolution_sequence(
             repository_id,
             anomaly.subject_digest,
@@ -354,6 +373,29 @@ def _validate_audit_refs(
             or resolution_event.action is not ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION
         ):
             raise CandidateBindingConflict("anomaly resolution audit reference is not affirmative")
+
+
+def _collect_workspace_acceptance_bindings(
+    unit_of_work: ArchiveControlTransaction,
+    *,
+    snapshot: ArchiveCandidateSnapshot,
+) -> tuple[dict[str, object], ...]:
+    bindings: list[dict[str, object]] = []
+    for candidate in snapshot.candidates:
+        submission = unit_of_work.submission.get_submission(candidate.submission_id)
+        if submission is None:
+            raise ArchiveIntegrityFailure("candidate submission is missing")
+        workspace = unit_of_work.workspace.get_workspace(submission.workspace_id)
+        if workspace is None:
+            raise ArchiveIntegrityFailure("candidate workspace is missing")
+        bindings.append(
+            {
+                "workspace_id": workspace.workspace_id,
+                "optimistic_version": workspace.optimistic_version,
+                "submission_id": submission.submission_id,
+            }
+        )
+    return tuple(bindings)
 
 
 def _release_workspaces_for_archive(

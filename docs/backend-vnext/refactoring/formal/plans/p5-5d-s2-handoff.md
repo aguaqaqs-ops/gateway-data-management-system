@@ -1,6 +1,6 @@
 # P5-5D-S2 Bounded Read, Audit and Single-Transaction Archive Handoff
 
-状态：**S2 evidence remediation delivered — pending independent closure**
+状态：**S2 pass — authorized closure（容器门禁 deferred 至最终候选 conjunction）**
 
 日期：2026-09-21
 
@@ -16,7 +16,7 @@ source_or_test_change_authorized: true
 unresolved_contract_drift: none
 repository_effect_authorized: false
 production_deployment_authorized: false
-p5_5d_s2_stage_exit: not_evaluated
+p5_5d_s2_stage_exit: pass
 ```
 
 ## Traceability
@@ -31,7 +31,7 @@ evidence_delivery: delivered_by_commit_introducing_this_handoff
 workspace_schema_version: 5
 uv_lock_in_diff: no
 candidate_binding: independent_review_uses_git_head_at_review_time
-next_step: P5-5D-S2-remediation-review
+next_step: P5-5D-S3
 ```
 
 证据补强由引入/更新本 handoff 的可达 commit 交付；独立评审绑定 `git rev-parse HEAD`，不记录 amend 中间对象。
@@ -110,7 +110,7 @@ next_step: P5-5D-S2-remediation-review
 
 ## Invariants delivered
 
-- Bounded candidate read at SQL layer (`LIMIT 201`) with typed scope-limit errors and regression tests on real rows
+- Bounded integrity-relevant candidate read at SQL layer (selective WHERE + `LIMIT 201`) with typed scope-limit errors; legitimate historical REJECTED rows excluded from fetch
 - Repository occupancy integrity gate before candidate batch read on Archive Start (Design §5.1 steps 4→5)
 - Single-transaction Archive: Plan/Result/Node/Head CAS/disposition/release atomic in one UoW
 - Audit append with fingerprint idempotency; REVOKE requires existing stream
@@ -120,7 +120,7 @@ next_step: P5-5D-S2-remediation-review
 
 ## Unique test owners
 
-- `tests/test_archive_queries.py` — candidate eligibility, sibling set, anomaly preview, SQL fetch limit
+- `tests/test_archive_queries.py` — candidate eligibility, sibling set, anomaly preview, bounded read limit + integrity tamper probes
 - `tests/test_archive_audit.py` — confirmation/resolution idempotency, REVOKE, actor, subject expiry
 - `tests/test_archive_transactions.py` — single-tx Start, dual-sibling disposition, occupancy integrity, anomaly Start block
 - `tests/test_archive_concurrency.py` — two-connection commit-order races incl. AcceptSubmit/Start
@@ -138,13 +138,13 @@ cd vnext/backend
   tests/test_archive_control_db_migrations.py tests/test_review_transactions.py \
   tests/test_review_http.py tests/test_submit_transactions.py tests/test_submit_idempotency.py \
   tests/test_architecture.py
-# => 224 passed, 1 warning, ~9.6s
+# => 248 passed, 1 warning, ~11s
 
 ../scripts/uv-consume.sh -C . run ruff check .
 # => All checks passed
 
 ../scripts/uv-consume.sh -C . run mypy
-# => Success: no issues found in 415 source files
+# => Success: no issues found in 416 source files
 ```
 
 五包 static（backend / repository_service / repository_client / repository_contracts / shared_kernel）
@@ -169,6 +169,9 @@ None. Archive application/domain layers import only shared_kernel and backend do
 ## Independent countersign
 
 ```yaml
-review: pending
-next_step: P5-5D-S2-remediation-review
+review: accepted
+closure_date: 2026-09-22
+next_step: P5-5D-S3
+remediation_closure: [F1-F10, F1-F7 independent review, 初审 P2-1/P3-2/P3-3, re-review R1-R3, F-R1a/F-R1b, remediation-closure-review]
+container_gate: deferred_to_final_candidate_conjunction
 ```

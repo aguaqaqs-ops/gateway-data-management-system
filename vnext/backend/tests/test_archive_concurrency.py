@@ -30,11 +30,11 @@ from gateway_backend.application.archive.audit import (
     AppendArchiveConfirmationCommand,
     append_archive_confirmation,
 )
-from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.test_review_transactions import (
     TS2,
     _apply_command,
     _apply_review,
+    _scope_resolution,
     _seed_pending_review_submission,
     _uow_factory,
 )
@@ -71,10 +71,6 @@ def test_archive_start_blocks_when_active_submit_attempt_exists(
 
     seed = seed_approved_archive_candidate(db_path)
     confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
 
     def active_attempts(
         self: SQLiteSubmissionRepository,
@@ -86,7 +82,6 @@ def test_archive_start_blocks_when_active_submit_attempt_exists(
     with pytest.raises(ActiveSubmitAttempt):
         start_archive(
             command=_start_command(seed, confirmation_sequence),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
@@ -100,13 +95,8 @@ def test_review_return_loses_race_when_archive_commits_first(db_path: Path) -> N
     )
     seed = archive_seed_from_review_seed(review_seed)
     confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     start_archive(
         command=_start_command(seed, confirmation_sequence),
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
         now=TS_ARCHIVE,
     )
@@ -119,7 +109,7 @@ def test_review_return_loses_race_when_archive_commits_first(db_path: Path) -> N
                 expected_review_version=1,
                 idempotency_key="return-after-archive",
             ),
-            scope_resolution=scope_resolution,
+            scope_resolution=_scope_resolution(review_seed),
             unit_of_work_factory=_uow_factory(db_path),
             now=TS2,
         )
@@ -157,15 +147,10 @@ def test_concurrent_archive_start_and_review_return_produce_single_winner(db_pat
     )
     seed = archive_seed_from_review_seed(review_seed)
     confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
 
     def do_start() -> object:
         return start_archive(
             command=_start_command(seed, confirmation_sequence),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
@@ -179,7 +164,7 @@ def test_concurrent_archive_start_and_review_return_produce_single_winner(db_pat
                 expected_review_version=1,
                 idempotency_key="return-race",
             ),
-            scope_resolution=scope_resolution,
+            scope_resolution=_scope_resolution(review_seed),
             unit_of_work_factory=_uow_factory(db_path),
             now=TS2,
         )
@@ -222,10 +207,6 @@ def test_concurrent_archive_start_and_review_return_produce_single_winner(db_pat
 def test_concurrent_dual_archive_keys_commit_one_plan(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
     confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
 
     def start_with_key(key: str) -> object:
         return start_archive(
@@ -244,7 +225,6 @@ def test_concurrent_dual_archive_keys_commit_one_plan(db_path: Path) -> None:
                 ),
                 anomaly_resolution_refs=(),
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
@@ -267,6 +247,7 @@ def test_concurrent_accept_submit_and_archive_start_linearized(db_path: Path) ->
     from gateway_backend.application.submission.accept_transaction import accept_submit_transaction
     from gateway_backend.application.submission.errors import BaselineVersionConflict
     from gateway_backend.application.archive.start import StartArchiveResult
+    from tests.support.workspace_fixtures import FixedScopeResolutionPort
     from tests.test_submit_transactions import (
         FakeBaselineCanonicalDigestPort,
         RecordingMainResolvePort,
@@ -283,15 +264,14 @@ def test_concurrent_accept_submit_and_archive_start_linearized(db_path: Path) ->
         repository_id=archive_seed.repository_id,
         actor_id="actor-accept-race",
     )
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=archive_seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
 
     def do_accept() -> object:
         return accept_submit_transaction(
             command=_accept_command(submit_seed, idempotency_key="accept-race"),
-            scope_resolution=scope_resolution,
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=submit_seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
             unit_of_work_factory=_uow_factory(db_path),
             job_registry=_submit_job_registry(),
             baseline_digest=FakeBaselineCanonicalDigestPort(),
@@ -303,7 +283,6 @@ def test_concurrent_accept_submit_and_archive_start_linearized(db_path: Path) ->
     def do_start() -> object:
         return start_archive(
             command=_start_command(archive_seed, confirmation_sequence),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
@@ -353,16 +332,8 @@ def test_concurrent_revoke_and_start_are_linearized(db_path: Path) -> None:
             action=ArchiveConfirmationAction.CONFIRM,
             reason="confirm archive selection",
         ),
-        scope_resolution=FixedScopeResolutionPort(
-            repository_id=seed.repository_id,
-            baseline_head=BASELINE_HEAD,
-        ),
         unit_of_work_factory=_uow_factory(db_path),
         now=TS_ARCHIVE,
-    )
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
     )
 
     def do_revoke() -> object:
@@ -379,7 +350,6 @@ def test_concurrent_revoke_and_start_are_linearized(db_path: Path) -> None:
                 action=ArchiveConfirmationAction.REVOKE,
                 reason="revoke selection",
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )

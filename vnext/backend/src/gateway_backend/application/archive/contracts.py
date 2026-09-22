@@ -75,6 +75,23 @@ def validate_non_negative_int(value: int, *, field_name: str) -> int:
     return value
 
 
+def validate_archive_sequence(value: int, *, field_name: str = "expected_sequence") -> int:
+    return validate_non_negative_int(value, field_name=field_name)
+
+
+def validate_archive_confirmation_reason(
+    action: ArchiveConfirmationAction,
+    reason: str | None,
+    *,
+    field_name: str = "reason",
+) -> str | None:
+    if action is ArchiveConfirmationAction.CONFIRM and reason is None:
+        return None
+    if not isinstance(reason, str):
+        raise ValueError(f"{field_name} must be a string")
+    return validate_utf8_reason(reason, field_name=field_name)
+
+
 def compute_archive_digest(kind: str, payload: Mapping[str, Any]) -> str:
     if type(kind) is not str or not kind:
         raise ValueError("kind must be a non-empty string")
@@ -235,7 +252,7 @@ def compute_confirmation_request_fingerprint(
     subject_digest: str,
     expected_sequence: int,
     action: ArchiveConfirmationAction,
-    reason: str,
+    reason: str | None,
     actor_id: str,
 ) -> str:
     payload = {
@@ -244,15 +261,18 @@ def compute_confirmation_request_fingerprint(
         "business_project_id": business_project_id,
         "candidate_set_digest": validate_archive_digest(candidate_set_digest, field_name="candidate_set_digest"),
         "command_kind": "CONFIRMATION",
-        "expected_baseline_head_version": expected_baseline_head_version,
+        "expected_baseline_head_version": validate_non_negative_int(
+            expected_baseline_head_version,
+            field_name="expected_baseline_head_version",
+        ),
         "expected_baseline_node_id": expected_baseline_node_id,
         "expected_candidate_digest": validate_archive_digest(
             expected_candidate_digest,
             field_name="expected_candidate_digest",
         ),
-        "expected_sequence": expected_sequence,
+        "expected_sequence": validate_archive_sequence(expected_sequence),
         "gateway_device_external_key": gateway_device_external_key,
-        "reason": validate_utf8_reason(reason),
+        "reason": validate_archive_confirmation_reason(action, reason),
         "repository_id": repository_id,
         "selected_submission_id": validate_utf8_id(selected_submission_id, field_name="selected_submission_id"),
         "subject_digest": validate_archive_digest(subject_digest, field_name="subject_digest"),
@@ -285,13 +305,16 @@ def compute_resolution_request_fingerprint(
         "business_project_id": business_project_id,
         "candidate_set_digest": validate_archive_digest(candidate_set_digest, field_name="candidate_set_digest"),
         "command_kind": "RESOLUTION",
-        "expected_baseline_head_version": expected_baseline_head_version,
+        "expected_baseline_head_version": validate_non_negative_int(
+            expected_baseline_head_version,
+            field_name="expected_baseline_head_version",
+        ),
         "expected_baseline_node_id": expected_baseline_node_id,
         "expected_candidate_digest": validate_archive_digest(
             expected_candidate_digest,
             field_name="expected_candidate_digest",
         ),
-        "expected_sequence": expected_sequence,
+        "expected_sequence": validate_archive_sequence(expected_sequence),
         "gateway_device_external_key": gateway_device_external_key,
         "issue_code": issue_code,
         "reason": validate_utf8_reason(reason),
@@ -347,7 +370,10 @@ def compute_start_request_fingerprint(
         "candidate_set_digest": validate_archive_digest(candidate_set_digest, field_name="candidate_set_digest"),
         "command_kind": "START",
         "confirmation_refs": confirmation_payload,
-        "expected_baseline_head_version": expected_baseline_head_version,
+        "expected_baseline_head_version": validate_non_negative_int(
+            expected_baseline_head_version,
+            field_name="expected_baseline_head_version",
+        ),
         "expected_baseline_node_id": expected_baseline_node_id,
         "expected_candidate_digest": validate_archive_digest(
             expected_candidate_digest,

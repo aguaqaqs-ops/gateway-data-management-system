@@ -13,6 +13,7 @@ from gateway_backend.application.archive.contracts import (
 from gateway_backend.application.archive.errors import (
     ArchiveAnomalyUnresolved,
     ArchiveConfirmationRequired,
+    ArchiveResultNotFound,
     CandidateBindingConflict,
 )
 from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
@@ -28,10 +29,11 @@ from gateway_backend.application.archive.snapshot import (
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
     ArchiveConfirmationAction,
+    ArchivePlan,
+    ArchiveResult,
 )
 from gateway_backend.domain.workspace.models import BaselineHead, IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
-from gateway_backend.domain.workspace.ports import ScopeResolutionPort
 
 PERMISSION_ARCHIVE_SUBMISSION = "archive_submission"
 APPROVED_SIBLING_EXCLUDED_ISSUE = "APPROVED_SIBLING_EXCLUDED"
@@ -66,6 +68,13 @@ class ArchivePreviewWorkspaceRelease:
 
 
 @dataclass(frozen=True, slots=True)
+class GetArchiveResultResult:
+    plan: ArchivePlan
+    archive_result: ArchiveResult
+    selected_repository_commit_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class PreviewArchivePlanResult:
     head: BaselineHead
     candidate_set_digest: str
@@ -83,13 +92,15 @@ class PreviewArchivePlanResult:
 def get_archive_candidates(
     *,
     context: IdentityContext,
-    scope_resolution: ScopeResolutionPort,
     unit_of_work_factory: ArchiveControlUnitOfWorkFactory,
 ) -> ArchiveCandidatesResult:
     assert_permission(context, PERMISSION_ARCHIVE_SUBMISSION)
-    resolved = scope_resolution.resolve(context)
     with unit_of_work_factory(read_only=True) as unit_of_work:
-        snapshot = load_archive_candidate_snapshot(unit_of_work, context, resolved)
+        fresh_scope = unit_of_work.resolve_provisioned_scope(
+            gateway_device_external_key=context.gateway_device_external_key,
+            business_project_id=context.business_project_id,
+        )
+        snapshot = load_archive_candidate_snapshot(unit_of_work, context, fresh_scope)
         blockers = list(collect_repository_submit_blockers(unit_of_work, snapshot.repository_id))
         return ArchiveCandidatesResult(
             head=snapshot.resolved_scope.baseline_head,
@@ -103,13 +114,15 @@ def preview_archive_plan(
     *,
     context: IdentityContext,
     selected_ref: ArchiveSelectedRef | None,
-    scope_resolution: ScopeResolutionPort,
     unit_of_work_factory: ArchiveControlUnitOfWorkFactory,
 ) -> PreviewArchivePlanResult:
     assert_permission(context, PERMISSION_ARCHIVE_SUBMISSION)
-    resolved = scope_resolution.resolve(context)
     with unit_of_work_factory(read_only=True) as unit_of_work:
-        snapshot = load_archive_candidate_snapshot(unit_of_work, context, resolved)
+        fresh_scope = unit_of_work.resolve_provisioned_scope(
+            gateway_device_external_key=context.gateway_device_external_key,
+            business_project_id=context.business_project_id,
+        )
+        snapshot = load_archive_candidate_snapshot(unit_of_work, context, fresh_scope)
         blockers = list(collect_repository_submit_blockers(unit_of_work, snapshot.repository_id))
         selected: ArchiveSelectedRef | None = None
         selection_subject_digest: str | None = None
@@ -160,6 +173,37 @@ def preview_archive_plan(
             workspace_releases=workspace_releases,
             can_start=can_start,
             blockers=tuple(blockers),
+        )
+
+
+def get_archive_result(
+    *,
+    context: IdentityContext,
+    archive_result_id: str,
+    unit_of_work_factory: ArchiveControlUnitOfWorkFactory,
+) -> GetArchiveResultResult:
+    assert_permission(context, PERMISSION_ARCHIVE_SUBMISSION)
+    with unit_of_work_factory(read_only=True) as unit_of_work:
+        fresh_scope = unit_of_work.resolve_provisioned_scope(
+            gateway_device_external_key=context.gateway_device_external_key,
+            business_project_id=context.business_project_id,
+        )
+        result = unit_of_work.archive.get_result_by_id(archive_result_id)
+        if result is None:
+            raise ArchiveResultNotFound(archive_result_id=archive_result_id)
+        plan = unit_of_work.archive.get_plan_by_id(result.plan_id)
+        if plan is None:
+            raise ArchiveResultNotFound(archive_result_id=archive_result_id)
+        if (
+            plan.repository_id != fresh_scope.repository_id
+            or plan.gateway_device_external_key != context.gateway_device_external_key
+            or plan.business_project_id != context.business_project_id
+        ):
+            raise ArchiveResultNotFound(archive_result_id=archive_result_id)
+        return GetArchiveResultResult(
+            plan=plan,
+            archive_result=result,
+            selected_repository_commit_id=plan.selected_repository_commit_id,
         )
 
 

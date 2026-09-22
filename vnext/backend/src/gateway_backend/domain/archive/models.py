@@ -134,7 +134,7 @@ class ArchiveConfirmationEvent:
     subject_digest: str
     sequence: int
     action: ArchiveConfirmationAction
-    reason: str
+    reason: str | None
     actor_id: str
     occurred_at: datetime
     idempotency_key: str
@@ -146,8 +146,13 @@ class ArchiveConfirmationEvent:
             raise ValueError("confirmation event subject_kind must be CONFIRM_SELECTION")
         if type(self.sequence) is not int or self.sequence < 1:
             raise ValueError("sequence must be a positive integer")
-        if type(self.reason) is not str or not self.reason:
-            raise ValueError("reason must be a non-empty string")
+        if self.action is ArchiveConfirmationAction.REVOKE:
+            if type(self.reason) is not str or not self.reason:
+                raise ValueError("reason must be a non-empty string")
+        elif self.reason is not None and (
+            type(self.reason) is not str or not self.reason
+        ):
+            raise ValueError("reason must be null or a non-empty string")
         if self.occurred_at.tzinfo is None or self.occurred_at.utcoffset() is None:
             raise ValueError("occurred_at must be an aware datetime")
 

@@ -30,7 +30,6 @@ from tests.support.archive_fixtures import (
     seed_approved_dual_sibling_archive,
     start_archive_for_seed,
 )
-from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.test_review_transactions import _uow_factory
 from tests.test_submit_transactions import BASELINE_HEAD
 
@@ -74,13 +73,8 @@ def test_confirmation_replay_rejects_changed_binding_fields(
     replacement: str,
 ) -> None:
     seed = seed_approved_archive_candidate(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     append_archive_confirmation(
         command=_confirmation_command(seed),
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
         now=datetime(2024, 7, 1, tzinfo=UTC),
     )
@@ -102,21 +96,79 @@ def test_confirmation_replay_rejects_changed_binding_fields(
     with pytest.raises(IdempotencyConflict):
         append_archive_confirmation(
             command=mutated,
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=datetime(2024, 7, 1, 1, tzinfo=UTC),
         )
 
 
+def test_confirmation_rejects_unknown_selected_candidate(db_path: Path) -> None:
+    from dataclasses import replace as dc_replace
+
+    from gateway_backend.application.archive.contracts import (
+        ArchiveSelectedRef,
+        compute_selection_subject_digest,
+    )
+    from gateway_backend.application.submission.errors import BaselineVersionConflict
+
+    seed = seed_approved_archive_candidate(db_path)
+    bogus_selected = ArchiveSelectedRef(
+        submission_id="nonexistent-submission",
+        expected_candidate_digest=seed.selected_ref.expected_candidate_digest,
+    )
+    bogus_subject = compute_selection_subject_digest(
+        candidate_set_digest=seed.candidate_set_digest,
+        selected_submission_id=bogus_selected.submission_id,
+        expected_candidate_digest=bogus_selected.expected_candidate_digest,
+    )
+    with pytest.raises(BaselineVersionConflict, match="unknown or stale"):
+        append_archive_confirmation(
+            command=dc_replace(
+                _confirmation_command(seed),
+                selected=bogus_selected,
+                subject_digest=bogus_subject,
+            ),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=datetime(2024, 7, 1, tzinfo=UTC),
+        )
+
+
+def test_resolution_rejects_selected_as_sibling(db_path: Path) -> None:
+    from gateway_backend.application.archive.contracts import compute_anomaly_subject_digest
+    from gateway_backend.application.submission.errors import BaselineVersionConflict
+
+    seed = seed_approved_archive_candidate(db_path)
+    subject_digest = compute_anomaly_subject_digest(
+        selection_subject_digest=seed.selection_subject_digest,
+        issue_code="APPROVED_SIBLING_EXCLUDED",
+        sibling_submission_id=seed.selected_ref.submission_id,
+        sibling_candidate_digest=seed.selected_ref.expected_candidate_digest,
+    )
+    with pytest.raises(BaselineVersionConflict, match="does not match current snapshot"):
+        append_archive_anomaly_resolution(
+            command=AppendArchiveAnomalyResolutionCommand(
+                context=seed.archiver_context,
+                idempotency_key="invalid-sibling-resolution",
+                expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+                selected=seed.selected_ref,
+                candidate_set_digest=seed.candidate_set_digest,
+                subject_digest=subject_digest,
+                expected_sequence=0,
+                action=ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION,
+                reason="invalid sibling",
+                issue_code="APPROVED_SIBLING_EXCLUDED",
+                sibling_submission_id=seed.selected_ref.submission_id,
+                sibling_candidate_digest=seed.selected_ref.expected_candidate_digest,
+            ),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=datetime(2024, 7, 1, tzinfo=UTC),
+        )
+
+
 def test_confirmation_replay_returns_original_event_after_subject_expires(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     first = append_archive_confirmation(
         command=_confirmation_command(seed, idempotency_key="replay-key"),
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
         now=datetime(2024, 7, 1, tzinfo=UTC),
     )
@@ -124,7 +176,6 @@ def test_confirmation_replay_returns_original_event_after_subject_expires(db_pat
     start_archive_for_seed(seed, confirmation_sequence=confirmation_sequence, now=datetime(2024, 7, 1, 1, tzinfo=UTC))
     replay = append_archive_confirmation(
         command=_confirmation_command(seed, idempotency_key="replay-key"),
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
         now=datetime(2024, 7, 1, 2, tzinfo=UTC),
     )
@@ -135,10 +186,6 @@ def test_confirmation_replay_returns_original_event_after_subject_expires(db_pat
 
 def test_resolution_revoke_on_empty_stream_is_rejected(db_path: Path) -> None:
     dual_seed = seed_approved_dual_sibling_archive(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=dual_seed.primary.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     with pytest.raises(ArchiveAuditVersionConflict):
         append_archive_anomaly_resolution(
             command=_resolution_command(
@@ -146,7 +193,6 @@ def test_resolution_revoke_on_empty_stream_is_rejected(db_path: Path) -> None:
                 action=ArchiveAnomalyResolutionAction.REVOKE,
                 reason="revoke without stream",
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=datetime(2024, 7, 1, tzinfo=UTC),
         )
@@ -154,10 +200,6 @@ def test_resolution_revoke_on_empty_stream_is_rejected(db_path: Path) -> None:
 
 def test_confirmation_revoke_on_empty_stream_is_rejected(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     with pytest.raises(ArchiveAuditVersionConflict):
         append_archive_confirmation(
             command=_confirmation_command(
@@ -165,7 +207,6 @@ def test_confirmation_revoke_on_empty_stream_is_rejected(db_path: Path) -> None:
                 action=ArchiveConfirmationAction.REVOKE,
                 reason="revoke without stream",
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=datetime(2024, 7, 1, tzinfo=UTC),
         )
@@ -173,13 +214,8 @@ def test_confirmation_revoke_on_empty_stream_is_rejected(db_path: Path) -> None:
 
 def test_confirmation_revoke_invalidates_affirmative_state(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     confirm = append_archive_confirmation(
         command=_confirmation_command(seed, idempotency_key="confirm-then-revoke"),
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
         now=datetime(2024, 7, 1, tzinfo=UTC),
     )
@@ -191,7 +227,6 @@ def test_confirmation_revoke_invalidates_affirmative_state(db_path: Path) -> Non
             action=ArchiveConfirmationAction.REVOKE,
             reason="revoke selection",
         ),
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
         now=datetime(2024, 7, 1, 1, tzinfo=UTC),
     )
@@ -212,22 +247,137 @@ def test_confirmation_revoke_invalidates_affirmative_state(db_path: Path) -> Non
                 ),
                 anomaly_resolution_refs=(),
             ),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=datetime(2024, 7, 1, 2, tzinfo=UTC),
         )
 
 
+INVALID_CONFIRMATION_SEQUENCE_SHAPES = (
+    pytest.param(True, id="bool-true"),
+    pytest.param(False, id="bool-false"),
+    pytest.param(1.0, id="float"),
+)
+
+
+@pytest.mark.parametrize("expected_sequence", INVALID_CONFIRMATION_SEQUENCE_SHAPES)
+def test_confirmation_rejects_non_integer_expected_sequence(
+    db_path: Path,
+    expected_sequence: object,
+) -> None:
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+
+    seed = seed_approved_archive_candidate(db_path)
+    with pytest.raises(ValueError, match="expected_sequence must be a non-negative integer"):
+        append_archive_confirmation(
+            command=_confirmation_command(seed, expected_sequence=expected_sequence),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=datetime(2024, 7, 1, tzinfo=UTC),
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        event_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM archive_confirmation_events"
+        ).fetchone()[0]
+    assert event_count == 0
+
+
+def test_confirmation_rejects_non_integer_expected_baseline_head_version(db_path: Path) -> None:
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+
+    seed = seed_approved_archive_candidate(db_path)
+    with pytest.raises(
+        ValueError,
+        match="expected_baseline_head_version must be a non-negative integer",
+    ):
+        append_archive_confirmation(
+            command=_confirmation_command(seed, expected_baseline_head_version=True),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=datetime(2024, 7, 1, tzinfo=UTC),
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        event_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM archive_confirmation_events"
+        ).fetchone()[0]
+    assert event_count == 0
+
+
+def test_confirmation_accepts_null_reason_for_confirm_action(db_path: Path) -> None:
+    import json
+
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+
+    seed = seed_approved_archive_candidate(db_path)
+    result = append_archive_confirmation(
+        command=_confirmation_command(seed, reason=None),
+        unit_of_work_factory=_uow_factory(db_path),
+        now=datetime(2024, 7, 1, tzinfo=UTC),
+    )
+    assert result.replay is False
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        row = unit_of_work.connection.execute(
+            """
+            SELECT reason, request_payload_json
+            FROM archive_confirmation_events
+            WHERE event_id = ?
+            """,
+            (result.event_id,),
+        ).fetchone()
+        assert row is not None
+        assert row[0] is None
+        payload = json.loads(row[1])
+        assert payload["reason"] is None
+
+
+def test_confirmation_rejects_null_reason_for_revoke_action(db_path: Path) -> None:
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+
+    seed = seed_approved_archive_candidate(db_path)
+    append_archive_confirmation(
+        command=_confirmation_command(seed),
+        unit_of_work_factory=_uow_factory(db_path),
+        now=datetime(2024, 7, 1, tzinfo=UTC),
+    )
+    with pytest.raises(ValueError, match="reason must be a string"):
+        append_archive_confirmation(
+            command=_confirmation_command(
+                seed,
+                expected_sequence=1,
+                action=ArchiveConfirmationAction.REVOKE,
+                reason=None,
+                idempotency_key="revoke-null-reason",
+            ),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=datetime(2024, 7, 1, 1, tzinfo=UTC),
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        event_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM archive_confirmation_events"
+        ).fetchone()[0]
+    assert event_count == 1
+
+
+def test_resolution_rejects_null_reason(db_path: Path) -> None:
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+
+    dual_seed = seed_approved_dual_sibling_archive(db_path)
+    append_selection_confirmation(dual_seed.primary, idempotency_key="confirm-before-null-resolution")
+    with pytest.raises(ValueError, match="reason must be a string"):
+        append_archive_anomaly_resolution(
+            command=_resolution_command(dual_seed, reason=None),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=datetime(2024, 7, 1, tzinfo=UTC),
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        event_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM archive_anomaly_resolution_events"
+        ).fetchone()[0]
+    assert event_count == 0
+
+
 def test_confirmation_rejects_stale_expected_sequence(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     with pytest.raises(ArchiveAuditVersionConflict):
         append_archive_confirmation(
             command=_confirmation_command(seed, expected_sequence=99),
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=datetime(2024, 7, 1, tzinfo=UTC),
         )
@@ -237,13 +387,8 @@ def test_confirmation_rejects_same_key_different_actor(db_path: Path) -> None:
     from dataclasses import replace as dc_replace
 
     seed = seed_approved_archive_candidate(db_path)
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=seed.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     append_archive_confirmation(
         command=_confirmation_command(seed, idempotency_key="actor-key"),
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
         now=datetime(2024, 7, 1, tzinfo=UTC),
     )
@@ -255,7 +400,6 @@ def test_confirmation_rejects_same_key_different_actor(db_path: Path) -> None:
     with pytest.raises(IdempotencyConflict):
         append_archive_confirmation(
             command=other_actor_command,
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=datetime(2024, 7, 1, 1, tzinfo=UTC),
         )
@@ -288,6 +432,31 @@ def _resolution_command(
     return command
 
 
+def test_confirmation_replay_requires_transaction_fresh_enabled_mapping(db_path: Path) -> None:
+    from gateway_backend.domain.workspace.errors import ScopeResolutionError
+    from tests.support.baseline_fixtures import upsert_provisioned_mapping_row
+
+    seed = seed_approved_archive_candidate(db_path)
+    append_archive_confirmation(
+        command=_confirmation_command(seed, idempotency_key="mapping-replay-key"),
+        unit_of_work_factory=_uow_factory(db_path),
+        now=datetime(2024, 7, 1, tzinfo=UTC),
+    )
+    upsert_provisioned_mapping_row(
+        seed.db_path,
+        device_key=seed.archiver_context.gateway_device_external_key,
+        project_id=seed.archiver_context.business_project_id,
+        repository_id=seed.repository_id,
+        enabled=False,
+    )
+    with pytest.raises(ScopeResolutionError):
+        append_archive_confirmation(
+            command=_confirmation_command(seed, idempotency_key="mapping-replay-key"),
+            unit_of_work_factory=_uow_factory(db_path),
+            now=datetime(2024, 7, 1, 1, tzinfo=UTC),
+        )
+
+
 @pytest.mark.parametrize(("field_name", "replacement"), RESOLUTION_IDEMPOTENCY_CONFLICT_SHAPES)
 def test_resolution_replay_rejects_changed_binding_fields(
     db_path: Path,
@@ -296,13 +465,8 @@ def test_resolution_replay_rejects_changed_binding_fields(
 ) -> None:
     dual_seed = seed_approved_dual_sibling_archive(db_path)
     append_selection_confirmation(dual_seed.primary, idempotency_key="confirm-before-resolution")
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=dual_seed.primary.repository_id,
-        baseline_head=BASELINE_HEAD,
-    )
     append_archive_anomaly_resolution(
         command=_resolution_command(dual_seed),
-        scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(db_path),
         now=datetime(2024, 7, 1, tzinfo=UTC),
     )
@@ -318,7 +482,6 @@ def test_resolution_replay_rejects_changed_binding_fields(
     with pytest.raises(IdempotencyConflict):
         append_archive_anomaly_resolution(
             command=mutated,
-            scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),
             now=datetime(2024, 7, 1, 1, tzinfo=UTC),
         )

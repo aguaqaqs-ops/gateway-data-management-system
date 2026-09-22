@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from gateway_backend.application.archive.closure import assert_archive_candidate_integrity
 from gateway_backend.application.archive.contracts import (
+    ARCHIVE_MAX_CANDIDATES,
     ArchiveCandidateRef,
     compute_candidate_digest,
     compute_candidate_set_digest,
@@ -15,8 +17,12 @@ from gateway_backend.application.archive.errors import (
     ArchiveIntegrityFailure,
     ArchiveScopeLimitExceeded,
 )
-from gateway_backend.domain.submission.errors import ArchiveCandidateReadBoundExceeded
 from gateway_backend.application.archive.ports import ArchiveControlTransaction
+from gateway_backend.domain.submission.errors import (
+    ArchiveCandidateReadBoundExceeded,
+    ReviewClosureViolation,
+)
+from gateway_backend.domain.submission.ports import ArchiveCandidateFacts
 from gateway_backend.domain.submission.review import ReviewStatus
 from gateway_backend.domain.workspace.models import IdentityContext, ResolvedScope
 
@@ -57,38 +63,55 @@ def load_archive_candidate_snapshot(
         raise ArchiveScopeLimitExceeded() from None
     candidate_refs: list[ArchiveCandidateRef] = []
     for fact in facts:
-        if fact.closed_by_archive:
+        try:
+            projection = unit_of_work.review.get_projection(fact.submission.submission_id)
+        except ReviewClosureViolation as exc:
+            raise ArchiveIntegrityFailure(str(exc)) from exc
+        if projection is None:
+            raise ArchiveIntegrityFailure("review projection is missing")
+        if projection.status is not ReviewStatus.APPROVED:
             continue
-        if fact.review_status is not ReviewStatus.APPROVED:
-            continue
+        approved_fact = ArchiveCandidateFacts(
+            submission=fact.submission,
+            review_status=projection.status,
+            review_sequence=projection.latest_sequence,
+        )
+        assert_archive_candidate_integrity(
+            unit_of_work,
+            context=context,
+            resolved_scope=fresh_scope,
+            fact=approved_fact,
+        )
         candidate_digest = compute_candidate_digest(
-            repository_id=fact.submission.repository_id,
+            repository_id=approved_fact.submission.repository_id,
             gateway_device_external_key=context.gateway_device_external_key,
             business_project_id=context.business_project_id,
-            workspace_id=fact.submission.workspace_id,
-            workspace_generation=fact.submission.workspace_generation,
-            submission_id=fact.submission.submission_id,
-            submit_attempt_id=fact.submission.submit_attempt_id,
-            upload_revision_id=fact.submission.upload_revision_id,
-            preview_result_id=fact.submission.preview_result_id,
-            based_on_baseline_node_id=fact.submission.based_on_baseline_node_id,
-            business_baseline_commit_id=fact.submission.business_baseline_commit_id,
-            repository_commit_id=fact.submission.repository_commit_id,
-            canonical_business_digest=fact.submission.canonical_business_digest,
-            canonicalization_manifest_ref=fact.submission.canonicalization_manifest_ref,
-            canonicalization_manifest_digest=fact.submission.canonicalization_manifest_digest,
-            source_artifact_refs=fact.submission.source_artifact_refs,
-            requested_verification_policy=fact.submission.requested_verification_policy.value,
-            completed_verification_policy=fact.submission.completed_verification_policy.value,
-            review_status=review_status_to_archive_value(fact.review_status),
-            review_sequence=fact.review_sequence,
+            workspace_id=approved_fact.submission.workspace_id,
+            workspace_generation=approved_fact.submission.workspace_generation,
+            submission_id=approved_fact.submission.submission_id,
+            submit_attempt_id=approved_fact.submission.submit_attempt_id,
+            upload_revision_id=approved_fact.submission.upload_revision_id,
+            preview_result_id=approved_fact.submission.preview_result_id,
+            based_on_baseline_node_id=approved_fact.submission.based_on_baseline_node_id,
+            business_baseline_commit_id=approved_fact.submission.business_baseline_commit_id,
+            repository_commit_id=approved_fact.submission.repository_commit_id,
+            canonical_business_digest=approved_fact.submission.canonical_business_digest,
+            canonicalization_manifest_ref=approved_fact.submission.canonicalization_manifest_ref,
+            canonicalization_manifest_digest=approved_fact.submission.canonicalization_manifest_digest,
+            source_artifact_refs=approved_fact.submission.source_artifact_refs,
+            requested_verification_policy=approved_fact.submission.requested_verification_policy.value,
+            completed_verification_policy=approved_fact.submission.completed_verification_policy.value,
+            review_status=review_status_to_archive_value(projection.status),
+            review_sequence=projection.latest_sequence,
         )
         candidate_refs.append(
             ArchiveCandidateRef(
-                submission_id=fact.submission.submission_id,
+                submission_id=approved_fact.submission.submission_id,
                 expected_candidate_digest=candidate_digest,
             )
         )
+    if len(candidate_refs) > ARCHIVE_MAX_CANDIDATES:
+        raise ArchiveScopeLimitExceeded()
     candidate_set_digest = compute_candidate_set_digest(
         repository_id=fresh_scope.repository_id,
         gateway_device_external_key=context.gateway_device_external_key,

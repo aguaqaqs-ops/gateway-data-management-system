@@ -240,6 +240,19 @@ class SQLiteArchiveRepository:
             return None
         return self._result_from_row(row)
 
+    def get_plan_by_id(self, plan_id: str) -> ArchivePlan | None:
+        row = self._connection.execute(
+            """
+            SELECT *
+            FROM archive_plan_records
+            WHERE plan_id = ?
+            """,
+            (plan_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return _plan_from_row(row)
+
     def get_result_by_id(self, result_id: str) -> ArchiveResult | None:
         row = self._connection.execute(
             """

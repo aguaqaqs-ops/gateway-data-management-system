@@ -80,6 +80,9 @@ class ArchiveRepository(ArchiveAuditWritePort, Protocol):
     def get_result_by_plan_id(self, plan_id: str) -> ArchiveResult | None:
         """Load one ArchiveResult by plan id."""
 
+    def get_plan_by_id(self, plan_id: str) -> ArchivePlan | None:
+        """Load one ArchivePlan by plan id."""
+
     def get_result_by_id(self, result_id: str) -> ArchiveResult | None:
         """Load one ArchiveResult by result id."""
 

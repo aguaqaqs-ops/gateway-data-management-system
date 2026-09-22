@@ -60,3 +60,7 @@ def test_openapi_submit_request_rejects_additional_properties(client: TestClient
     assert apply_review_request.get("additionalProperties") is False
     review_facts_response = schema["components"]["schemas"]["ReviewFactsResponse"]
     assert "events" in review_facts_response["properties"]
+    start_archive_request = schema["components"]["schemas"]["StartArchiveRequest"]
+    assert start_archive_request.get("additionalProperties") is False
+    archive_started_response = schema["components"]["schemas"]["ArchiveStartedResponse"]
+    assert "archive_result_id" in archive_started_response["properties"]

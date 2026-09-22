@@ -205,6 +205,70 @@ class SQLiteArchiveRepository:
             return None
         return _resolution_from_row(row)
 
+    def list_confirmation_events(
+        self,
+        repository_id: str,
+        gateway_device_external_key: str,
+        business_project_id: str,
+        subject_digest: str,
+        after_sequence: int,
+        limit: int,
+    ) -> tuple[ArchiveConfirmationEvent, ...]:
+        rows = self._connection.execute(
+            """
+            SELECT *
+            FROM archive_confirmation_events
+            WHERE repository_id = ?
+              AND gateway_device_external_key = ?
+              AND business_project_id = ?
+              AND subject_digest = ?
+              AND sequence > ?
+            ORDER BY sequence ASC
+            LIMIT ?
+            """,
+            (
+                repository_id,
+                gateway_device_external_key,
+                business_project_id,
+                subject_digest,
+                after_sequence,
+                limit,
+            ),
+        ).fetchall()
+        return tuple(_confirmation_from_row(row) for row in rows)
+
+    def list_resolution_events(
+        self,
+        repository_id: str,
+        gateway_device_external_key: str,
+        business_project_id: str,
+        subject_digest: str,
+        after_sequence: int,
+        limit: int,
+    ) -> tuple[ArchiveAnomalyResolutionEvent, ...]:
+        rows = self._connection.execute(
+            """
+            SELECT *
+            FROM archive_anomaly_resolution_events
+            WHERE repository_id = ?
+              AND gateway_device_external_key = ?
+              AND business_project_id = ?
+              AND subject_digest = ?
+              AND sequence > ?
+            ORDER BY sequence ASC
+            LIMIT ?
+            """,
+            (
+                repository_id,
+                gateway_device_external_key,
+                business_project_id,
+                subject_digest,
+                after_sequence,
+                limit,
+            ),
+        ).fetchall()
+        return tuple(_resolution_from_row(row) for row in rows)
+
     def find_start_plan_by_key(
         self,
         repository_id: str,

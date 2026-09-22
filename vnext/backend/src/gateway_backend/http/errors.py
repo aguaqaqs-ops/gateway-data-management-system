@@ -10,7 +10,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+from gateway_backend.application.archive.errors import (
+    ArchiveApplicationError,
+    ArchiveAuditVersionConflict,
+    ArchiveIntegrityFailure,
+)
 from gateway_backend.application.submission.errors import (
     AbortProofNotSatisfied,
     ArchiveClosed,
@@ -232,6 +236,34 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             message=str(exc),
             status_code=503,
         )
+    if isinstance(exc, ArchiveApplicationError):
+        stable_code = getattr(exc, "stable_code", None)
+        if stable_code == "RESOURCE_NOT_FOUND":
+            return ApiError(
+                code="RESOURCE_NOT_FOUND",
+                message=str(exc),
+                status_code=404,
+            )
+        if isinstance(exc, ArchiveAuditVersionConflict):
+            return ApiError(
+                code="ARCHIVE_AUDIT_VERSION_CONFLICT",
+                message=str(exc),
+                status_code=409,
+                details={"expected": exc.expected, "actual": exc.actual},
+            )
+        if stable_code in {
+            "ARCHIVE_SCOPE_LIMIT_EXCEEDED",
+            "CANDIDATE_SET_CONFLICT",
+            "CANDIDATE_BINDING_CONFLICT",
+            "ARCHIVE_CONFIRMATION_REQUIRED",
+            "ARCHIVE_ANOMALY_UNRESOLVED",
+            "ACTIVE_SUBMIT_ATTEMPT",
+        }:
+            return ApiError(
+                code=stable_code,
+                message=str(exc),
+                status_code=409,
+            )
     if isinstance(exc, ArchiveClosed):
         return ApiError(
             code="ARCHIVE_CLOSED",

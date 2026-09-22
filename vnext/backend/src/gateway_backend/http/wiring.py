@@ -11,6 +11,7 @@ from gateway_backend.http.routes.operator_recovery import router as operator_rec
 from gateway_backend.http.routes.preview_operations import router as preview_operations_router
 from gateway_backend.http.routes.preview_results import router as preview_results_router
 from gateway_backend.http.routes.submit_attempts import router as submit_attempts_router
+from gateway_backend.http.routes.archives import router as archives_router
 from gateway_backend.http.routes.reviews import router as reviews_router
 from gateway_backend.http.routes.submissions import router as submissions_router
 from gateway_backend.http.routes.upload_revisions import router as upload_revisions_router
@@ -31,6 +32,13 @@ PRODUCTION_OPENAPI_PATHS = frozenset(
         "/v1/workspaces/{workspace_id}/submissions/{submission_id}",
         "/v1/submissions/{submission_id}/review-events",
         "/v1/submissions/{submission_id}/review",
+        "/v1/archive-candidates",
+        "/v1/archive-plan-preview",
+        "/v1/archive-confirmations",
+        "/v1/archive-anomaly-resolutions",
+        "/v1/archive-audit-events",
+        "/v1/archives",
+        "/v1/archives/{archive_result_id}",
         "/internal/v1/operations/{operation_id}/steps/{step_id}/recovery",
     }
 )
@@ -51,4 +59,5 @@ def register_workspace_http(
     app.include_router(submit_attempts_router)
     app.include_router(submissions_router)
     app.include_router(reviews_router)
+    app.include_router(archives_router)
     app.include_router(operator_recovery_router)

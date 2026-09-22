@@ -9,7 +9,8 @@
         "workspace_read",
         "upload_submit_workspace",
         "preview_workspace",
-        "review_submission"
+        "review_submission",
+        "archive_submission"
       ]
     }
   ]

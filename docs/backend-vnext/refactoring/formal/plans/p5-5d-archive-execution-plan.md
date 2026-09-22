@@ -1,6 +1,6 @@
 # P5-5D Archive Execution Plan
 
-状态：**ACCEPTED — S1 pass；S2 pass（authorized closure）；S3 未开始**
+状态：**ACCEPTED — S1 pass；S2 pass（authorized closure）；S3 pass（delivery complete）**
 
 审核依据：[S0 Independent Docs Acceptance](p5-5d-s0-independent-docs-acceptance.md)。
 
@@ -30,17 +30,19 @@ p5_5d_implementation_authorized: yes
 first_authorized_implementation_stage: S2
 p5_5d_s1_stage_exit: pass
 p5_5d_s2_stage_exit: pass
+p5_5d_s3_stage_exit: pass
 production_deployment_authorized: no
 new_repository_effect_authorized: no
 p5_5d_slice_exit: not_evaluated
-next_step: P5-5D-S3
+next_step: P5-5D-S4
 ```
 
 S0 文档编写及独立复审已完成。S1 **pass**（Baseline Head authority、initial-empty 前置、v5
 Baseline DDL、focused gate）；S2 **pass**（bounded read、audit、single-transaction archive、
-独立复审闭环；focused gate 248 passed）；S3–S4 未开始。S1/S2 交付无 Archive HTTP API；v5 仍未
-发布。S2 容器 conjunction 仍 deferred 至最终候选退出节点（见 O-1）。未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；
-Archive 自身始终零写。
+独立复审闭环；focused gate 248 passed）；S3 **pass**（七条 Archive HTTP 路由、生产接线、部署示例、
+focused gate 107 passed、fresh-build conjunction 6 passed）；S4 未开始。S1/S2 交付无 Archive HTTP API；
+S3 交付完整生产 API 与容器 journey。v5 仍未发布。O-1（`test_production_wiring.py` 3 项失败）已在 S3 修复。
+未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；Archive 自身始终零写。
 
 阶段按 Archive 的实际依赖划分，不照搬 5C 的持久化/HTTP/评审轮次：S1 先建立可靠 Head authority，并由原 owner 补齐 initial-empty Preview/Submit 前置链路；
 S2 在同 DB 交付候选、审计、归档与跨用例屏障；S3 暴露完整生产 API；S4 对精确候选进行 fresh
@@ -228,10 +230,15 @@ R1–R3 与 F-R1a/F-R1b：integrity-relevant selective SQL `LIMIT 201`、project
 复审通过；`p5_5d_s2_stage_exit: pass`；`next_step: P5-5D-S3`。容器镜像重建与
 Review+Submit+Backend conjunction 仍 deferred（不替代 slice 最终候选门禁）。
 
-**O-1（conjunction 前置）**：`tests/test_production_wiring.py` 3 项失败在 pristine HEAD 可复现，
-属既有问题；最终 conjunction 前须由原 owner triage，不能表述为当前 HEAD 已通过该 gate。
+**O-1（已关闭，S3）**：`tests/test_production_wiring.py` 3 项失败根因为 S1 后 authoritative
+baseline head 与测试 fixture 不一致；S3 以 `_authoritative_baseline_head` 修复，18 passed。
 
 ### S3 — public API, production composition and deployment inputs
+
+**S3 delivery complete**（2026-09-22）。handoff 见 [p5-5d-s3-handoff.md](p5-5d-s3-handoff.md)。
+focused gate **107 passed**；fresh-build conjunction **6 passed, 0 skipped**；五包 static 全通过；
+`p5_5d_s3_stage_exit: pass`；`next_step: P5-5D-S4`。不签 slice exit。
+
 
 目标：所有 Design §8 routes/DTO 与真实 production factory 接线、独立 permission、schema/seed
 启动语义、真实 Archive Compose journey。mock app 或只挂 router 的 HTTP 测试不能替代 production。进入真实 Archive journey 前必须

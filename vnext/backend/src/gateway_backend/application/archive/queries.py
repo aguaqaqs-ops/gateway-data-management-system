@@ -9,6 +9,9 @@ from gateway_backend.application.archive.contracts import (
     ArchiveSelectedRef,
     compute_anomaly_subject_digest,
     compute_selection_subject_digest,
+    validate_archive_digest,
+    validate_archive_sequence,
+    validate_non_negative_int,
 )
 from gateway_backend.application.archive.errors import (
     ArchiveAnomalyUnresolved,
@@ -28,15 +31,19 @@ from gateway_backend.application.archive.snapshot import (
 )
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
+    ArchiveAnomalyResolutionEvent,
     ArchiveConfirmationAction,
+    ArchiveConfirmationEvent,
     ArchivePlan,
     ArchiveResult,
+    ArchiveSubjectKind,
 )
 from gateway_backend.domain.workspace.models import BaselineHead, IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
 
 PERMISSION_ARCHIVE_SUBMISSION = "archive_submission"
 APPROVED_SIBLING_EXCLUDED_ISSUE = "APPROVED_SIBLING_EXCLUDED"
+ARCHIVE_AUDIT_EVENTS_MAX_LIMIT = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +79,12 @@ class GetArchiveResultResult:
     plan: ArchivePlan
     archive_result: ArchiveResult
     selected_repository_commit_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ListArchiveAuditEventsResult:
+    events: tuple[ArchiveConfirmationEvent | ArchiveAnomalyResolutionEvent, ...]
+    next_after_sequence: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +186,59 @@ def preview_archive_plan(
             workspace_releases=workspace_releases,
             can_start=can_start,
             blockers=tuple(blockers),
+        )
+
+
+def list_archive_audit_events(
+    *,
+    context: IdentityContext,
+    subject_kind: ArchiveSubjectKind,
+    subject_digest: str,
+    after_sequence: int,
+    limit: int,
+    unit_of_work_factory: ArchiveControlUnitOfWorkFactory,
+) -> ListArchiveAuditEventsResult:
+    assert_permission(context, PERMISSION_ARCHIVE_SUBMISSION)
+    validated_digest = validate_archive_digest(subject_digest, field_name="subject_digest")
+    validated_after = validate_archive_sequence(after_sequence, field_name="after_sequence")
+    validated_limit = validate_non_negative_int(limit, field_name="limit")
+    if validated_limit < 1 or validated_limit > ARCHIVE_AUDIT_EVENTS_MAX_LIMIT:
+        raise ValueError("limit must be between 1 and 100")
+    with unit_of_work_factory(read_only=True) as unit_of_work:
+        fresh_scope = unit_of_work.resolve_provisioned_scope(
+            gateway_device_external_key=context.gateway_device_external_key,
+            business_project_id=context.business_project_id,
+        )
+        if subject_kind is ArchiveSubjectKind.CONFIRM_SELECTION:
+            confirmation_events = unit_of_work.archive.list_confirmation_events(
+                fresh_scope.repository_id,
+                context.gateway_device_external_key,
+                context.business_project_id,
+                validated_digest,
+                validated_after,
+                validated_limit,
+            )
+            events: tuple[ArchiveConfirmationEvent | ArchiveAnomalyResolutionEvent, ...] = (
+                confirmation_events
+            )
+        elif subject_kind is ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED:
+            resolution_events = unit_of_work.archive.list_resolution_events(
+                fresh_scope.repository_id,
+                context.gateway_device_external_key,
+                context.business_project_id,
+                validated_digest,
+                validated_after,
+                validated_limit,
+            )
+            events = resolution_events
+        else:
+            raise ValueError("subject_kind is not supported")
+        next_after_sequence: int | None = None
+        if len(events) == validated_limit:
+            next_after_sequence = events[-1].sequence
+        return ListArchiveAuditEventsResult(
+            events=events,
+            next_after_sequence=next_after_sequence,
         )
 
 

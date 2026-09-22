@@ -401,6 +401,7 @@ def _run_accept_to_submission_read_journey(
     env: dict[str, str],
     *,
     initial_commit_id: str,
+    journey_key_prefix: str = "compose",
 ) -> dict[str, Any]:
     with httpx.Client(base_url=BACKEND_URL, headers=_auth_headers(), timeout=60.0) as client:
         workspace = client.post(
@@ -416,7 +417,7 @@ def _run_accept_to_submission_read_journey(
 
         upload = client.post(
             f"/v1/workspaces/{workspace_id}/upload-revisions",
-            headers=_auth_headers(idempotency_key="compose-upload"),
+            headers=_auth_headers(idempotency_key=f"{journey_key_prefix}-upload"),
             files=upload_files(expected_version=workspace_body["optimistic_version"]),
         )
         assert upload.status_code == 201, upload.text
@@ -424,7 +425,7 @@ def _run_accept_to_submission_read_journey(
 
         preview = client.post(
             f"/v1/workspaces/{workspace_id}/preview-operations",
-            headers=_auth_headers(idempotency_key="compose-preview"),
+            headers=_auth_headers(idempotency_key=f"{journey_key_prefix}-preview"),
             json={
                 "expected_workspace_version": upload_body["optimistic_version"],
                 "upload_revision_id": upload_body["upload_revision_id"],
@@ -449,7 +450,7 @@ def _run_accept_to_submission_read_journey(
 
         accepted = client.post(
             f"/v1/workspaces/{workspace_id}/submit-attempts",
-            headers=_auth_headers(idempotency_key="compose-submit"),
+            headers=_auth_headers(idempotency_key=f"{journey_key_prefix}-submit"),
             json={
                 "expected_workspace_version": workspace_row["optimistic_version"],
                 "upload_revision_id": upload_body["upload_revision_id"],

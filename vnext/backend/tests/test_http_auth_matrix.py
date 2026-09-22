@@ -86,3 +86,34 @@ def test_submit_permission_matrix(env: WorkspaceHttpTestEnvironment, tmp_path: P
     )
     assert response.status_code == 403
     assert response.json()["code"] == "SCOPE_FORBIDDEN"
+
+
+def test_archive_permission_matrix(env: WorkspaceHttpTestEnvironment, tmp_path: Path) -> None:
+    from tests.support.archive_fixtures import seed_approved_archive_candidate
+
+    read_only_root = tmp_path / "archive-read-only"
+    read_only_root.mkdir()
+    read_only = create_workspace_http_environment(
+        read_only_root,
+        identity=make_identity(permissions=frozenset({"workspace_read", "review_submission"})),
+    )
+    seed = seed_approved_archive_candidate(read_only.db_path)
+    response = read_only.client.post(
+        "/v1/archive-confirmations",
+        headers=read_only.auth_headers(idempotency_key="matrix-archive"),
+        json={
+            "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
+            "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
+            "selected": {
+                "submission_id": seed.selected_ref.submission_id,
+                "expected_candidate_digest": seed.selected_ref.expected_candidate_digest,
+            },
+            "candidate_set_digest": seed.candidate_set_digest,
+            "subject_digest": seed.selection_subject_digest,
+            "expected_sequence": 0,
+            "action": "CONFIRM",
+            "reason": "confirm archive selection",
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "SCOPE_FORBIDDEN"

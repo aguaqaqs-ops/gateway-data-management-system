@@ -65,6 +65,28 @@ class ArchiveAuditWritePort(Protocol):
     ) -> ArchiveAnomalyResolutionEvent | None:
         """Load one resolution event by subject and sequence."""
 
+    def list_confirmation_events(
+        self,
+        repository_id: str,
+        gateway_device_external_key: str,
+        business_project_id: str,
+        subject_digest: str,
+        after_sequence: int,
+        limit: int,
+    ) -> tuple[ArchiveConfirmationEvent, ...]:
+        """Return confirmation events after one sequence within one scope."""
+
+    def list_resolution_events(
+        self,
+        repository_id: str,
+        gateway_device_external_key: str,
+        business_project_id: str,
+        subject_digest: str,
+        after_sequence: int,
+        limit: int,
+    ) -> tuple[ArchiveAnomalyResolutionEvent, ...]:
+        """Return resolution events after one sequence within one scope."""
+
 
 @runtime_checkable
 class ArchiveRepository(ArchiveAuditWritePort, Protocol):

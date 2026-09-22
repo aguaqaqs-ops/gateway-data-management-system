@@ -27,12 +27,10 @@ from gateway_backend.http.runtime import (
 from gateway_backend.application.submit_registry import submit_job_definitions
 from gateway_backend.artifacts import ArtifactRef
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_shared_kernel import DigestRef, raw_blob_digest
-from gateway_backend.infrastructure.control_db.sqlite_mapping import seed_provisioned_mappings
 from tests.support.http_workspace_harness import BASELINE_HEAD
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
-from tests.support.runtime_settings import write_mapping_file
 from gateway_backend.infrastructure.control_db.sqlite_mapping import ProvisionedBaselineHeadRead
 from gateway_backend.infrastructure.repository_read.http_arrow import (
     HttpArrowRepositoryTableAccessProvider,
@@ -52,6 +50,10 @@ pytestmark = pytest.mark.unit
 
 REPO_ID = UUID(TEST_MAPPING_REPOSITORY_ID)
 COMMIT_ID = "commit-c1"
+
+
+def _authoritative_baseline_head(db_path: Path) -> BaselineHead:
+    return ProvisionedBaselineHeadRead(db_path).get_current_head(TEST_MAPPING_REPOSITORY_ID)
 
 
 def _arrow_ipc_table() -> bytes:
@@ -591,22 +593,17 @@ def test_accept_submit_rejects_no_canonical_change_with_production_port(tmp_path
         skip_repository_ready_probe=True,
         repository_transport=transport,
     )
+    db_path = tmp_path / "control" / "control.sqlite3"
+    baseline_head = _authoritative_baseline_head(db_path)
     baseline_digest = runtime.workspace_http.baseline_canonical_digest.get_baseline_canonical_digest(
         repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=BaselineHead(
-            business_baseline_node_id="node-1",
-            business_baseline_commit_id=TEST_MAPPING_COMMIT_ID,
-            baseline_head_version=3,
-        ),
+        baseline_head=baseline_head,
         input_completeness=InputCompleteness.MODIFIED_ONLY,
         ruleset_version=RULESET_VERSION,
     )
-    db_path = tmp_path / "control" / "control.sqlite3"
-    initialize_control_db(db_path)
-    seed_provisioned_mappings(db_path, write_mapping_file(tmp_path / "mapping.json"))
     scope_resolution = FixedScopeResolutionPort(
         repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=BASELINE_HEAD,
+        baseline_head=baseline_head,
     )
     context = make_identity(permissions=frozenset({"upload_submit_workspace", "workspace_read"}))
     with ControlDbUnitOfWork(db_path) as unit_of_work:
@@ -641,9 +638,9 @@ def test_accept_submit_rejects_no_canonical_change_with_production_port(tmp_path
             upload_revision_id=upload_revision.upload_revision_id,
             generation=1,
             repository_id=TEST_MAPPING_REPOSITORY_ID,
-            business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
-            business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
-            baseline_head_version=BASELINE_HEAD.baseline_head_version,
+            business_baseline_node_id=baseline_head.business_baseline_node_id,
+            business_baseline_commit_id=baseline_head.business_baseline_commit_id,
+            baseline_head_version=baseline_head.baseline_head_version,
             ruleset_version=RULESET_VERSION,
             contract_version="contract-1",
             provider_versions={"comparison": "v1"},
@@ -699,8 +696,8 @@ def test_accept_submit_rejects_no_canonical_change_with_production_port(tmp_path
             "upload_revision_id": upload_revision.upload_revision_id,
             "preview_result_id": preview.preview_result_id,
             "generation": upload_revision.generation,
-            "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
-            "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
+            "expected_baseline_node_id": baseline_head.business_baseline_node_id,
+            "expected_baseline_head_version": baseline_head.baseline_head_version,
             "options": {},
         },
     )
@@ -740,22 +737,17 @@ def test_accept_submit_rejects_no_canonical_change_for_full_with_production_port
         skip_repository_ready_probe=True,
         repository_transport=transport,
     )
+    db_path = tmp_path / "control" / "control.sqlite3"
+    baseline_head = _authoritative_baseline_head(db_path)
     baseline_digest = runtime.workspace_http.baseline_canonical_digest.get_baseline_canonical_digest(
         repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=BaselineHead(
-            business_baseline_node_id="node-1",
-            business_baseline_commit_id=TEST_MAPPING_COMMIT_ID,
-            baseline_head_version=3,
-        ),
+        baseline_head=baseline_head,
         input_completeness=InputCompleteness.FULL,
         ruleset_version=RULESET_VERSION,
     )
-    db_path = tmp_path / "control" / "control.sqlite3"
-    initialize_control_db(db_path)
-    seed_provisioned_mappings(db_path, write_mapping_file(tmp_path / "mapping.json"))
     scope_resolution = FixedScopeResolutionPort(
         repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=BASELINE_HEAD,
+        baseline_head=baseline_head,
     )
     context = make_identity(permissions=frozenset({"upload_submit_workspace", "workspace_read"}))
     with ControlDbUnitOfWork(db_path) as unit_of_work:
@@ -796,9 +788,9 @@ def test_accept_submit_rejects_no_canonical_change_for_full_with_production_port
             upload_revision_id=upload_revision.upload_revision_id,
             generation=1,
             repository_id=TEST_MAPPING_REPOSITORY_ID,
-            business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
-            business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
-            baseline_head_version=BASELINE_HEAD.baseline_head_version,
+            business_baseline_node_id=baseline_head.business_baseline_node_id,
+            business_baseline_commit_id=baseline_head.business_baseline_commit_id,
+            baseline_head_version=baseline_head.baseline_head_version,
             ruleset_version=RULESET_VERSION,
             contract_version="contract-1",
             provider_versions={"comparison": "v1"},
@@ -854,8 +846,8 @@ def test_accept_submit_rejects_no_canonical_change_for_full_with_production_port
             "upload_revision_id": upload_revision.upload_revision_id,
             "preview_result_id": preview.preview_result_id,
             "generation": upload_revision.generation,
-            "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
-            "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
+            "expected_baseline_node_id": baseline_head.business_baseline_node_id,
+            "expected_baseline_head_version": baseline_head.baseline_head_version,
             "options": {},
         },
     )
@@ -938,13 +930,11 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
         skip_repository_ready_probe=True,
         repository_transport=transport,
     )
+    db_path = tmp_path / "control" / "control.sqlite3"
+    baseline_head = _authoritative_baseline_head(db_path)
     baseline_digest = runtime.workspace_http.baseline_canonical_digest.get_baseline_canonical_digest(
         repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=BaselineHead(
-            business_baseline_node_id="node-1",
-            business_baseline_commit_id=TEST_MAPPING_COMMIT_ID,
-            baseline_head_version=3,
-        ),
+        baseline_head=baseline_head,
         input_completeness=InputCompleteness.FULL,
         ruleset_version=RULESET_VERSION,
     )
@@ -960,12 +950,9 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             "snap-1": _PAYLOAD_SNAP,
         },
     )
-    db_path = tmp_path / "control" / "control.sqlite3"
-    initialize_control_db(db_path)
-    seed_provisioned_mappings(db_path, write_mapping_file(tmp_path / "mapping.json"))
     scope_resolution = FixedScopeResolutionPort(
         repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=BASELINE_HEAD,
+        baseline_head=baseline_head,
     )
     context = make_identity(permissions=frozenset({"upload_submit_workspace", "workspace_read"}))
     with ControlDbUnitOfWork(db_path) as unit_of_work:
@@ -1006,9 +993,9 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             upload_revision_id=upload_revision.upload_revision_id,
             generation=1,
             repository_id=TEST_MAPPING_REPOSITORY_ID,
-            business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
-            business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
-            baseline_head_version=BASELINE_HEAD.baseline_head_version,
+            business_baseline_node_id=baseline_head.business_baseline_node_id,
+            business_baseline_commit_id=baseline_head.business_baseline_commit_id,
+            baseline_head_version=baseline_head.baseline_head_version,
             ruleset_version=RULESET_VERSION,
             contract_version="contract-1",
             provider_versions={"comparison": "v1"},
@@ -1070,8 +1057,8 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             "upload_revision_id": upload_revision.upload_revision_id,
             "preview_result_id": preview.preview_result_id,
             "generation": upload_revision.generation,
-            "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
-            "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
+            "expected_baseline_node_id": baseline_head.business_baseline_node_id,
+            "expected_baseline_head_version": baseline_head.baseline_head_version,
             "options": {},
         },
     )
@@ -1085,6 +1072,26 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
         operation = unit_of_work.operations.get_operation(body["operation_id"])
     assert attempt is not None
     assert operation is not None
+
+
+def test_production_runtime_exposes_archive_routes(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from gateway_backend.app import create_app
+
+    prepare_backend_runtime_paths(tmp_path)
+    settings = make_backend_settings(
+        tmp_path,
+        control_db_path=tmp_path / "control" / "control.sqlite3",
+        artifact_root=tmp_path / "artifacts",
+        repository_bearer_token_file=tmp_path / "repository-bearer-token",
+    )
+    runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)
+    client = TestClient(create_app(workspace_http=runtime.workspace_http))
+    schema = client.get("/openapi.json").json()
+    assert "/v1/archive-candidates" in schema["paths"]
+    assert "/v1/archives" in schema["paths"]
+    assert "/v1/archives/{archive_result_id}" in schema["paths"]
 
 
 def test_production_runtime_exposes_review_routes(tmp_path: Path) -> None:

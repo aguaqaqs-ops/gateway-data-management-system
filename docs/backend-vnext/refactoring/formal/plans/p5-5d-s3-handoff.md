@@ -30,7 +30,7 @@ remediation_work_order: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-rem
 independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-independent-review.md
 re_review: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-re-review.md
 baseline_commit: 2233e80cc1b8e1288acf1ed9785c6b84093f67ce
-implementation_candidate_head: ee4576e498a8c8f0b8c8f0b8c8f0b8c8f0b8c8f0
+implementation_candidate_head: b9924be4da075fd99bd18d67f5e9fe50314151d5
 evidence_delivery: delivered_by_re_review_remediation_commit
 workspace_schema_version: 5
 uv_lock_in_diff: no
@@ -138,7 +138,7 @@ cd vnext/backend/src && find . -name '*.py' -type f | LC_ALL=C sort | \
 
 | 证据 | 值 |
 | --- | --- |
-| Git HEAD | `02d765a9d2da21a7787713a46946857d472b1083` |
+| Git HEAD | `b9924be4da075fd99bd18d67f5e9fe50314151d5` |
 | `vnext/**` tree status | clean |
 | Source-tree file count | 905 |
 | Source-tree digest | `6006d443268f51a6474cca28357da0dd81e8c4a2ddebe73f86e1d17293def985` |

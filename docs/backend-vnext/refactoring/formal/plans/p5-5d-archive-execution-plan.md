@@ -1,6 +1,6 @@
 # P5-5D Archive Execution Plan
 
-状态：**ACCEPTED — S1 pass；S2 pass（authorized closure）；S3 pass（authorized closure）；S4 进行中**
+状态：**ACCEPTED — S1 pass；S2 pass；S3 pass；S4 pass（slice exit authorized）**
 
 审核依据：[S0 Independent Docs Acceptance](p5-5d-s0-independent-docs-acceptance.md)。
 
@@ -33,8 +33,8 @@ p5_5d_s2_stage_exit: pass
 p5_5d_s3_stage_exit: pass
 production_deployment_authorized: no
 new_repository_effect_authorized: no
-p5_5d_slice_exit: not_evaluated
-next_step: P5-5D-S4
+p5_5d_slice_exit: pass
+next_step: P5-5E-docs-entry
 ```
 
 S0 文档编写及独立复审已完成。S1 **pass**（Baseline Head authority、initial-empty 前置、v5
@@ -42,7 +42,8 @@ Baseline DDL、focused gate）；S2 **pass**（bounded read、audit、single-tra
 独立复审闭环；focused gate 248 passed）；S3 **re-review remediation complete**（关闭 R-1 断连死循环与
 R1–R9 测试/文档/provenance 缺口；round-4 关闭 P2-1/P2-2；focused gate 137 passed、conjunction 6 passed）；
 S3 **pass**（2026-09-23 authorized closure，见 [p5-5d-s3-stage-exit-acceptance.md](p5-5d-s3-stage-exit-acceptance.md)）；
-S4 进行中。S1/S2 交付无 Archive HTTP API；S3 交付完整生产 API 与双 actor compose journey。v5 仍未发布。
+S4 **pass**（2026-09-23 slice exit，见 [p5-5d-s4-independent-acceptance.md](p5-5d-s4-independent-acceptance.md)）。
+S1/S2 交付无 Archive HTTP API；S3 交付完整生产 API 与双 actor compose journey。v5 仍未发布。
 O-1（`test_production_wiring.py`）已在 S3 修复（19 passed）。
 未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；Archive 自身始终零写。
 
@@ -276,6 +277,12 @@ build 并运行 §6 全部 conjunction（含从真实零表初始 commit 开始�
 缺失、startup 重置 Head、实际镜像不可绑定或必要测试 skip。交付 S3 handoff 不签 slice exit。
 
 ### S4 — final fresh candidate conjunction and independent exit
+
+**S4 authorized slice exit**（2026-09-23）。handoff 见 [p5-5d-s4-handoff.md](p5-5d-s4-handoff.md)；
+验收见 [p5-5d-s4-independent-acceptance.md](p5-5d-s4-independent-acceptance.md)。
+最终候选 `05e0399fe9`；权威 runner exit 0（backend 2519 passed）；fresh-build conjunction
+**6 passed, 0 skipped**（`gateway-p5-5d-final-gate`）；`p5_5d_slice_exit: pass`。
+不授权 production deployment / 5E implementation。
 
 目标：冻结精确 source/test/deployment 候选，关闭独立 findings，汇总所有唯一 owner 与真实生产
 入口证据。在该候选运行五包 static、权威 runner、fresh image conjunction；之前阶段结果只作

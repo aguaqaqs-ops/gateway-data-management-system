@@ -204,6 +204,8 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
                 idempotency_key="compose-review-b",
             )
         main_after_both = resolve_main_commit_id(env, repository_id, bearer_token=BEARER_TOKEN)
+        assert main_after_a != initial_commit_id
+        assert main_after_both != main_after_a
         assert main_after_both != initial_commit_id
         assert journey_a["workspace_id"] != journey_b["workspace_id"]
 
@@ -326,6 +328,11 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
                 journey_b["workspace_id"],
             }
 
+            main_after_archive = resolve_main_commit_id(
+                env,
+                repository_id,
+                bearer_token=BEARER_TOKEN,
+            )
             commits_after = list_repository_commit_ids(
                 env,
                 repository_id,
@@ -333,6 +340,7 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             )
             assert commits_before
             assert main_before_archive in commits_before
+            assert main_after_archive == main_before_archive
             assert commits_after == commits_before
             assert count_backend_operations(env) == operation_count_before
 

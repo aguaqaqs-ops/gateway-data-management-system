@@ -369,7 +369,7 @@ class ArchiveRequestBodyLimitMiddleware:
                     body.decode("utf-8"),
                     object_pairs_hook=reject_duplicate_json_keys,
                 )
-            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
                 response = error_response(
                     code="REQUEST_VALIDATION_FAILED",
                     message="request validation failed",

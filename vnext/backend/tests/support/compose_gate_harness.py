@@ -177,9 +177,52 @@ else:
     raise RuntimeError("repository main resolve timed out")
 """
     result = run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
-    if result.returncode != 0:
-        pytest.fail(f"failed to resolve repository main ref: {result.stderr}\n{result.stdout}")
-    commit_id = result.stdout.strip()
+    if result.returncode == 0:
+        commit_id = result.stdout.strip()
+        if commit_id:
+            return commit_id
+    dolt_script = f"""
+import re, subprocess, uuid
+repo_hex = uuid.UUID("{repository_id}").hex
+repo_path = f"/var/lib/gateway/repository/versioned/{{repo_hex}}"
+pager_env = {{
+    **__import__("os").environ,
+    "PAGER": "",
+    "GIT_PAGER": "",
+    "NO_COLOR": "1",
+    "DOLT_CLI_NO_COLOR": "1",
+}}
+resolved = subprocess.run(
+    ["dolt", "log", "main", "-n", "1", "--oneline", "--decorate=no"],
+    cwd=repo_path,
+    check=False,
+    capture_output=True,
+    text=True,
+    env=pager_env,
+)
+if resolved.returncode != 0:
+    raise RuntimeError(resolved.stderr or resolved.stdout)
+line = next((item for item in resolved.stdout.splitlines() if item.strip()), "")
+if not line:
+    raise RuntimeError("dolt log returned no commits for main")
+ansi = re.compile(r"\\x1b\\[[0-9;]*m")
+print(ansi.sub("", line.split()[0]))
+"""
+    dolt_result = run_compose(
+        env,
+        "exec",
+        "-T",
+        "repository-service",
+        "python",
+        "-c",
+        dolt_script,
+    )
+    if dolt_result.returncode != 0:
+        pytest.fail(
+            "failed to resolve repository main ref via HTTP or dolt: "
+            f"{result.stderr}\n{result.stdout}\n{dolt_result.stderr}\n{dolt_result.stdout}"
+        )
+    commit_id = dolt_result.stdout.strip()
     if not commit_id:
         pytest.fail("repository main resolve returned empty commit_id")
     return commit_id

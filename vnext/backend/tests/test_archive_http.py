@@ -905,6 +905,23 @@ def test_archive_body_middleware_returns_on_client_disconnect() -> None:
     assert calls <= 3
 
 
+def test_archive_post_rejects_deeply_nested_json_with_422(
+    archive_env: WorkspaceHttpTestEnvironment,
+) -> None:
+    deep_json = b"[" * 50000 + b"0" + b"]" * 50000
+    assert len(deep_json) < ARCHIVE_MAX_REQUEST_BYTES
+    response = archive_env.client.post(
+        "/v1/archive-plan-preview",
+        headers={
+            **_auth_headers(archive_env, idempotency_key="deep-json-nesting"),
+            "Content-Type": "application/json",
+        },
+        content=deep_json,
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
 def test_archive_post_rejects_declared_body_over_limit(
     archive_env: WorkspaceHttpTestEnvironment,
 ) -> None:

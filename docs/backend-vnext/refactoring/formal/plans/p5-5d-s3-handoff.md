@@ -31,7 +31,7 @@ independent_review: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-indepen
 re_review: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-re-review.md
 closure_verification: docs/backend-vnext/refactoring/formal/plans/p5-5d-s3-closure-verification.md
 baseline_commit: 2233e80cc1b8e1288acf1ed9785c6b84093f67ce
-implementation_candidate_head: TBD_ROUND4_REVIEW_FIX
+implementation_candidate_head: d61d37be97821f303e9083abe739618cebd96b46
 evidence_delivery: delivered_by_round4_review_remediation_commit
 candidate_binding_note: bind to round-4 review F1 harness commit (in-history); do not record amend-replaced SHAs
 workspace_schema_version: 5
@@ -158,7 +158,7 @@ cd vnext/backend/src && find . -name '*.py' -type f | LC_ALL=C sort | \
 
 | 证据 | 值 |
 | --- | --- |
-| Implementation binding commit | `TBD_ROUND4_REVIEW_FIX`（round-4 review F1 harness；在历史中可 `git cat-file`） |
+| Implementation binding commit | `d61d37be97821f303e9083abe739618cebd96b46`（round-4 review F1 harness；在历史中可 `git cat-file`） |
 | `vnext/**` tree status | clean at implementation binding |
 | Source-tree file count | 905 |
 | Source-tree digest | `c21785c370568befd0c24517c190c003bde7b0ef1efcfc4fb6f97b68c0e24c15` |

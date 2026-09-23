@@ -36,6 +36,8 @@ production_deployment_authorized: no
 new_repository_effect_authorized: no
 delivery_recommendation: pass_recommended
 acceptance_record: docs/backend-vnext/refactoring/formal/plans/p5-5d-s4r2-independent-acceptance.md
+p5_5d_exit_record: docs/backend-vnext/refactoring/formal/plans/p5-5d-slice-exit-final.md
+compose_gate_provenance: docs/backend-vnext/refactoring/formal/plans/p5-5d-s4r2-compose-gate-provenance.json
 ```
 
 ## S4R2 supersession and candidate delta

@@ -6,7 +6,7 @@ vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约�
 
 ## 当前默认入口
 
-Phase 3 已 exit，P4-R1 至 P4-R6 均已 exit/pass；P5-5A、P5-5B、P5-5C slice exit 均为 `pass`。
+Phase 3 已 exit，P4-R1 至 P4-R6 均已 exit/pass；P5-5A、P5-5B、P5-5C、P5-5D slice exit 均为 `pass`。
 当前 P5 检索从以下材料开始，不要从历史 P4 handoff 或
 下文旧 contract/capability 清单推导 P5 语义：
 
@@ -15,7 +15,13 @@ Phase 3 已 exit，P4-R1 至 P4-R6 均已 exit/pass；P5-5A、P5-5B、P5-5C slic
 - [P5-5D-S0 Entry Brief](refactoring/formal/plans/p5-5d-s0-entry-brief.md)（accepted；独立文档审核通过，implementation 未授权）
 - [Business Lifecycle 固定 scope 归属补充](refactoring/formal/contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)（3.0.0 accepted；S1 Contract 前置已满足）
 - [P5-5D Archive Detailed Design](refactoring/formal/plans/p5-5d-archive-design.md)（accepted；独立文档审核通过，implementation 未授权）
-- [P5-5D Archive Execution Plan](refactoring/formal/plans/p5-5d-archive-execution-plan.md)（accepted；独立文档审核通过，implementation 未授权）
+- [P5-5D Archive Execution Plan](refactoring/formal/plans/p5-5d-archive-execution-plan.md)（completed；slice exit pass）
+- [P5-5D Slice Exit — Final](refactoring/formal/plans/p5-5d-slice-exit-final.md)（`p5_5d_slice_exit: pass`）
+- [P5-5E Independent Docs Acceptance](refactoring/formal/plans/p5-5e-s0-independent-docs-acceptance.md)（docs review pass v3.6；S1 实现已授权）
+- [P5-5E-S0 Entry Brief](refactoring/formal/plans/p5-5e-s0-entry-brief.md)（accepted；S1 kickoff pass）
+- [P5-5E History Compare Detailed Design](refactoring/formal/plans/p5-5e-history-compare-design.md)（accepted）
+- [P5-5E History Compare Execution Plan](refactoring/formal/plans/p5-5e-history-compare-execution-plan.md)（accepted；S1–S4 权威执行入口）
+- [P5-5E-S1 Kickoff Gate](refactoring/formal/plans/p5-5e-s1-kickoff.md)（pass）
 - [P5-5C-S5 Independent Slice Exit Acceptance](refactoring/formal/plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）
 - [P5-5C-S0 Entry Brief](refactoring/formal/plans/p5-5c-s0-entry-brief.md)（historical entry input）
 - [P5-5C Review Detailed Design](refactoring/formal/plans/p5-5c-review-design.md)（accepted；slice completed）

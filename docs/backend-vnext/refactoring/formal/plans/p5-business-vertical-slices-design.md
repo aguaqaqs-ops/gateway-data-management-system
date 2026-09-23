@@ -1,10 +1,10 @@
 # P5 Business Vertical Slices Design Baseline
 
-状态：**ACCEPTED DESIGN BASELINE — 5A/5B/5C EXIT PASS; 5D DOCS ACCEPTED**
+状态：**ACCEPTED DESIGN BASELINE — 5A/5B/5C/5D EXIT PASS; 5E S1 AUTHORIZED**
 
 日期：2026-09-06
 
-状态更新：2026-09-20（P5-5C slice exit pass；P5-5D docs review pass；Business Lifecycle 3.0.0 补充 accepted）
+状态更新：2026-09-23（P5-5D slice exit pass；P5-5E docs accepted v3.6，S1 kickoff pass）
 
 Owner：Backend vNext Business Applications and Interfaces
 
@@ -23,8 +23,11 @@ Owner：Backend vNext Business Applications and Interfaces
 5C design：[P5-5C Review Detailed Design](p5-5c-review-design.md)、
 [P5-5C Review Execution Plan](p5-5c-review-execution-plan.md)
 
-5D accepted design：[Entry Brief](p5-5d-s0-entry-brief.md)、
-[Archive Design](p5-5d-archive-design.md)、[Execution Plan](p5-5d-archive-execution-plan.md)（独立文档审核通过；不授权实现）。
+5D exit：[Slice Exit — Final](p5-5d-slice-exit-final.md)（`p5_5d_slice_exit: pass`）。
+
+5E accepted design：[Entry Brief](p5-5e-s0-entry-brief.md)、
+[History Compare Design](p5-5e-history-compare-design.md)、
+[Execution Plan](p5-5e-history-compare-execution-plan.md)（S1 实现已授权）。
 
 5A historical input：[P5-5A S6 Handoff](p5-5a-s6-handoff.md)
 
@@ -62,7 +65,14 @@ p5_5d_independent_docs_review: pass
 p5_5d_docs_revision_review: pass
 p5_5d_closed_document_findings: [initial_empty_design_budget, audit_request_fingerprint, utf8_limits, repository_scope_contract_acceptance]
 p5_5d_remaining_design_item: none
+p5_5d_implementation_status: completed
+p5_5d_slice_exit: pass
 p5_5d_implementation_authorized: no
+p5_5e_docs_authorized: yes
+p5_5e_design: accepted
+p5_5e_execution_plan: accepted
+p5_5e_independent_docs_review: pass
+p5_5e_implementation_authorized: S1 only
 p5_implementation_authorized: no
 ```
 
@@ -70,15 +80,16 @@ P5-5B 的历史 implementation 与 real Repository effect authority 已在 S1–
 独立 acceptance 已声明 `p5_5b_slice_exit: pass`。P5-5A slice exit 与 container gate 亦已 pass
 （证据见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)）。P5-5C 已由
 [S5 Independent Acceptance](p5-5c-s5-independent-acceptance.md) 声明 slice exit pass，历史
-implementation authority 已消费并关闭。5D docs-only 已独立审核通过；5D/5E implementation、
-production deployment 与新的 Repository effect 均未授权。
+implementation authority 已消费并关闭。5D slice exit pass（`p5_5d_slice_exit: pass`）。
+5E docs accepted（v3.6），S1 实现已授权（kickoff pass）；5E S2+、production deployment
+与新的 Repository effect 未授权。
 
 ## 2. Objective and staged depth
 
 P5按`5A Upload/Preview -> 5B Submit -> 5C Review -> 5D Archive -> 5E History Compare`
 交付正式业务纵切。总体基线只冻结跨Slice identity、owner、事务、权限和Repository边界。
 **5A** slice exit pass，作为 historical input / slice evidence，不再作为默认详细设计入口。
-**5B/5C** slice exit pass；详细设计与执行记录作为已验收输入。**5D** docs-only entry/design/plan 已独立审核通过；5D/5E implementation 与 production deployment 未授权。
+**5B/5C/5D** slice exit pass；详细设计与执行记录作为已验收输入。**5E** docs accepted（v3.6），S1 实现已授权；5E S2+ 与 production deployment 未授权。
 
 P5第一屏交付的是可用业务API和前端loader所需bundle，不建设营销或兼容适配层。新vNext HTTP
 DTO独立版本化，不承诺旧`/api/*` wire兼容；legacy只用于发现需要保留的业务语义和fixture。
@@ -444,9 +455,11 @@ online ruleset migration、external event consumer、HA和外部DB保持独立�
 
 ## 13. Current next action
 
-[P5-5C-S5 Independent Slice Exit Acceptance](p5-5c-s5-independent-acceptance.md) 已声明
-`p5_5c_slice_exit: pass`，accepted candidate 为 `04317788c2`。
-P5-5D docs-only entry/design/plan 与 Business Lifecycle 3.0.0 已独立审核通过，见
-[5D 文档接受记录](p5-5d-s0-independent-docs-acceptance.md)。下一步为明确授权 P5-5D-S1 实现；
-四项文档 finding 全部关闭，S1 的 Contract 前置已满足；
-5D/5E implementation 与 production deployment 未授权。
+[P5-5D Slice Exit — Final](p5-5d-slice-exit-final.md) 已签署 `p5_5d_slice_exit: pass`
+（gate HEAD `af833695ef`）。
+[P5-5E Independent Docs Acceptance](p5-5e-s0-independent-docs-acceptance.md) 已接受 v3.6 三份文档；
+[S1 kickoff](p5-5e-s1-kickoff.md) pass @ 实现基线 `6707a1ca01`。
+**下一步：按 [P5-5E Execution Plan](p5-5e-history-compare-execution-plan.md) 实施 S1**
+（History 读投影 + `GET /v1/history` + production wiring + focused 验证）。
+S2 公开诊断接口、integrity v6 迁移与 materialization 窄例外仍留在 S2；production deployment
+与新的 Repository effect 未授权。

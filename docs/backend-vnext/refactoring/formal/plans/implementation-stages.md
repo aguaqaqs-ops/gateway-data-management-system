@@ -614,10 +614,17 @@ BaselineNode，并原子创建ArchiveResult、推进BaselineHead、关闭未选s
 
 ### Slice 5E：History Compare
 
+状态：**docs accepted（v3.6）；S1 实现已授权**（[接受记录](p5-5e-s0-independent-docs-acceptance.md)、
+[kickoff pass](p5-5e-s1-kickoff.md)）。权威执行计划：
+[p5-5e-history-compare-execution-plan.md](p5-5e-history-compare-execution-plan.md)。
+
 实现授权业务HistoryTreeProjection、immutable commit resolve、repository read/native diff、
 comparison/risk/surface/bundle和只读operation。业务图包含initial baseline、全部成功
 Submission、Review/Archive disposition和未来登记的SYSTEM_MIGRATION；不把private candidate、
 失败import或operation marker伪装成业务节点。
+
+**当前阶段（S1）**：读查询 → History 投影 → HTTP 读面及生产接线 → focused 验证。
+S2+（compare 执行、integrity、公开诊断面）与 S3/S4 容器门禁按执行计划顺序推进。
 
 退出条件：history compare 不修改 Workspace/Submission/Archive 状态，远程 repository read 与本地 oracle 等价。
 

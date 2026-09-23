@@ -87,7 +87,6 @@ from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.support.baseline_fixtures import read_authoritative_baseline_head
 from tests.test_submit_job_prepare import _materialize_snapshot, _run_prepare_handler
 from tests.test_submit_transactions import (
-    BASELINE_HEAD,
     PREVIEW_READY_CLOSURE_DIGEST,
     SNAPSHOT_TABLE_SET_DIGEST,
     FakeAbortEvidencePort,

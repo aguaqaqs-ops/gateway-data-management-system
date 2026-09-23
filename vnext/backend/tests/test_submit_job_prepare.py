@@ -46,7 +46,6 @@ from tests.support.snapshot_materialization import materialize_sql
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.support.baseline_fixtures import read_authoritative_baseline_head
 from tests.test_submit_transactions import (
-    BASELINE_HEAD,
     PREVIEW_READY_CLOSURE_DIGEST,
     SNAPSHOT_TABLE_SET_DIGEST,
     FakeBaselineCanonicalDigestPort,

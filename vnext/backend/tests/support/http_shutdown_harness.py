@@ -16,7 +16,6 @@ from typing import Any
 import httpx
 
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.control_db.database import initialize_control_db
 from tests.support.http_workspace_harness import (
     InMemoryBoundedArtifactStore,
     seed_submit_ready_workspace,

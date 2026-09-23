@@ -8,8 +8,8 @@
 gate_tested_head: fdf430e76811085a29c268c1f09c1239499fbd84
 gate_tested_source_tree_sha: 095fcf2d7b30a4f515e0168968c21593725c21ac
 built_source_tree_sha: 990989628801caee4cd36db977c59fba3176a4b1
-exit_candidate_head: 579bbfb9791468a0c615cde49ee7c3d6fbd030b6
-exit_candidate_source_tree_sha: 0a11622ec0f368125700ced0dab4315f62112aa3
+exit_candidate_head: 8490ed77bab3917faf5f551230a9431aac6b9964
+exit_candidate_source_tree_sha: 3f35c65bb67bea76dbaf4e22084cf049f30eec51
 built_source_tree_sha 说明: 生产接线改动（P2 bounded promotion fetch）所在的源码树，其 vnext/ 内容与本记录最终候选逐字节相同；容器镜像内容已用 md5sum 逐字节核对（sqlite_history.py = 6ca630ee487a3aac9c9a8d5a798d862b，worktree == deploy-backend）。09bbbe9f4145a156262f49c35aa1999770b65bfc / 5d56d205fa8ed61b854dc67f8ab2d2bd919b3542 为 pre-amend 悬空对象，不属于本记录，不得引用。
 backend/uv.lock sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 repository_client/uv.lock sha256: 6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954
@@ -105,8 +105,8 @@ cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest -q -m 'integration 
 git rev-parse fdf430e76811085a29c268c1f09c1239499fbd84^{tree}
 # 095fcf2d7b30a4f515e0168968c21593725c21ac  （= gate_tested_source_tree_sha）
 
-git rev-parse 579bbfb9791468a0c615cde49ee7c3d6fbd030b6^{tree}
-# 0a11622ec0f368125700ced0dab4315f62112aa3  （= exit_candidate_source_tree_sha）
+git rev-parse <exit_candidate_head>^{tree}
+# （= exit_candidate_source_tree_sha；提交 finalization 后填入具体 hash）
 
 sha256sum vnext/backend/uv.lock vnext/repository_client/uv.lock vnext/repository_contracts/uv.lock \
           vnext/repository_service/uv.lock vnext/shared_kernel/uv.lock vnext/deploy/compose.yaml

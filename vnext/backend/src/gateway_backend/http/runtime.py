@@ -63,6 +63,7 @@ from gateway_backend.http.auth import (
 )
 from gateway_backend.http.dependencies import (
     ClosableAdmissionGate,
+    HistoryHttpDependencies,
     ReadOnlyOperationStore,
     ReadOnlySubmissionStore,
     WorkspaceHttpDependencies,
@@ -82,6 +83,7 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import (
     ProvisionedScopeResolution,
     seed_provisioned_mappings,
 )
+from gateway_backend.http.history_reader import HttpHistoryReader
 from gateway_backend.infrastructure.repository_read import (
     build_http_repository_provider_factory,
     load_repository_bearer_token,
@@ -183,6 +185,7 @@ class BackendRuntime:
     settings: BackendSettings
     admission_gate: ClosableAdmissionGate
     workspace_http: WorkspaceHttpDependencies
+    history_http: HistoryHttpDependencies
 
 
 def build_workspace_job_registry() -> JobDefinitionRegistry:
@@ -400,9 +403,10 @@ def prepare_backend_runtime(
         submit_deps=submit_deps,
     )
 
+    scope_resolution = ProvisionedScopeResolution(settings.control_db_path)
     workspace_http = WorkspaceHttpDependencies(
         session_port=LiveFileSessionPort(settings.session_file),
-        scope_resolution=ProvisionedScopeResolution(settings.control_db_path),
+        scope_resolution=scope_resolution,
         baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),
         workspace_repository=TransactionWorkspaceRepository(settings.control_db_path),
         unit_of_work_factory=unit_of_work_factory,
@@ -428,10 +432,16 @@ def prepare_backend_runtime(
         operator_recovery_port=operator_recovery_port,
         now=lambda: datetime.now(UTC),
     )
+    history_http = HistoryHttpDependencies(
+        scope_resolution=scope_resolution,
+        history_reader=HttpHistoryReader(settings.control_db_path),
+        now=lambda: datetime.now(UTC),
+    )
     return BackendRuntime(
         settings=settings,
         admission_gate=admission_gate,
         workspace_http=workspace_http,
+        history_http=history_http,
     )
 
 

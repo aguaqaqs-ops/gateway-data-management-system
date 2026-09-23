@@ -117,3 +117,28 @@ def test_archive_permission_matrix(env: WorkspaceHttpTestEnvironment, tmp_path: 
     )
     assert response.status_code == 403
     assert response.json()["code"] == "SCOPE_FORBIDDEN"
+
+
+def test_history_permission_matrix(env: WorkspaceHttpTestEnvironment, tmp_path: Path) -> None:
+    from gateway_backend.application.history.contracts import PERMISSION_READ_PROJECT_HISTORY
+
+    read_only_root = tmp_path / "history-read-only"
+    read_only_root.mkdir()
+    read_only = create_workspace_http_environment(
+        read_only_root,
+        identity=make_identity(permissions=frozenset({"workspace_read"})),
+    )
+    response = read_only.client.get("/v1/history", headers=read_only.auth_headers())
+    assert response.status_code == 403
+    assert response.json()["code"] == "SCOPE_FORBIDDEN"
+
+    allowed_root = tmp_path / "history-allowed"
+    allowed_root.mkdir()
+    allowed = create_workspace_http_environment(
+        allowed_root,
+        identity=make_identity(
+            permissions=frozenset({"workspace_read", PERMISSION_READ_PROJECT_HISTORY}),
+        ),
+    )
+    response = allowed.client.get("/v1/history", headers=allowed.auth_headers())
+    assert response.status_code == 200

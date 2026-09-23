@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from gateway_backend.http.dependencies import WorkspaceHttpDependencies
+from gateway_backend.http.dependencies import HistoryHttpDependencies, WorkspaceHttpDependencies
 from gateway_backend.http.shutdown import begin_http_pre_drain
 from gateway_backend.settings import BackendSettings
 
@@ -13,6 +13,7 @@ def create_app(
     settings: BackendSettings | None = None,
     *,
     workspace_http: WorkspaceHttpDependencies | None = None,
+    history_http: HistoryHttpDependencies | None = None,
 ) -> FastAPI:
     if workspace_http is not None:
         from gateway_backend.http.dependencies import ArchiveRequestBodyLimitMiddleware
@@ -21,7 +22,7 @@ def create_app(
         app = FastAPI(title="Gateway Backend vNext")
         app.add_middleware(ArchiveRequestBodyLimitMiddleware)
         _register_health_routes(app, ready=True)
-        register_workspace_http(app, workspace_http)
+        register_workspace_http(app, workspace_http, history_deps=history_http)
         return app
 
     configured = settings if settings is not None else BackendSettings()  # type: ignore[call-arg]
@@ -32,7 +33,11 @@ def create_app(
         from gateway_backend.http.wiring import register_workspace_http
 
         runtime = prepare_backend_runtime(configured)
-        register_workspace_http(app, runtime.workspace_http)
+        register_workspace_http(
+            app,
+            runtime.workspace_http,
+            history_deps=runtime.history_http,
+        )
         app.state.admission_gate = runtime.admission_gate
         app.state.ready = True
         try:

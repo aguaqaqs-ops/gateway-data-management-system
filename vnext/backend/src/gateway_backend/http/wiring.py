@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from gateway_backend.http.dependencies import WorkspaceHttpDependencies
+from gateway_backend.http.dependencies import HistoryHttpDependencies, WorkspaceHttpDependencies
 from gateway_backend.http.errors import register_exception_handlers
 from gateway_backend.http.routes.operations import router as operations_router
 from gateway_backend.http.routes.operator_recovery import router as operator_recovery_router
@@ -16,11 +16,13 @@ from gateway_backend.http.routes.reviews import router as reviews_router
 from gateway_backend.http.routes.submissions import router as submissions_router
 from gateway_backend.http.routes.upload_revisions import router as upload_revisions_router
 from gateway_backend.http.routes.workspaces import router as workspaces_router
+from gateway_backend.http.routes.history import router as history_router
 
 PRODUCTION_OPENAPI_PATHS = frozenset(
     {
         "/healthz",
         "/readyz",
+        "/v1/history",
         "/v1/workspaces",
         "/v1/workspaces/{workspace_id}/upload-revisions",
         "/v1/workspaces/{workspace_id}/preview-operations",
@@ -47,10 +49,13 @@ PRODUCTION_OPENAPI_PATHS = frozenset(
 def register_workspace_http(
     app: FastAPI,
     deps: WorkspaceHttpDependencies | None = None,
+    history_deps: HistoryHttpDependencies | None = None,
 ) -> None:
     register_exception_handlers(app)
     if deps is not None:
         app.state.workspace_http = deps
+    if history_deps is not None:
+        app.state.history_http = history_deps
     app.include_router(workspaces_router)
     app.include_router(upload_revisions_router)
     app.include_router(preview_operations_router)
@@ -60,4 +65,5 @@ def register_workspace_http(
     app.include_router(submissions_router)
     app.include_router(reviews_router)
     app.include_router(archives_router)
+    app.include_router(history_router)
     app.include_router(operator_recovery_router)

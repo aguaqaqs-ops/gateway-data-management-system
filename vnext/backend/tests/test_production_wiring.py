@@ -1090,7 +1090,12 @@ def test_production_runtime_exposes_archive_routes(tmp_path: Path) -> None:
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)
-    client = TestClient(create_app(workspace_http=runtime.workspace_http))
+    client = TestClient(
+        create_app(
+            workspace_http=runtime.workspace_http,
+            history_http=runtime.history_http,
+        )
+    )
     schema = client.get("/openapi.json").json()
     assert "/v1/archive-candidates" in schema["paths"]
     assert "/v1/archives" in schema["paths"]
@@ -1110,7 +1115,35 @@ def test_production_runtime_exposes_review_routes(tmp_path: Path) -> None:
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)
-    client = TestClient(create_app(workspace_http=runtime.workspace_http))
+    client = TestClient(
+        create_app(
+            workspace_http=runtime.workspace_http,
+            history_http=runtime.history_http,
+        )
+    )
     schema = client.get("/openapi.json").json()
     assert "/v1/submissions/{submission_id}/review-events" in schema["paths"]
     assert "/v1/submissions/{submission_id}/review" in schema["paths"]
+
+
+def test_production_runtime_exposes_history_route(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from gateway_backend.app import create_app
+
+    prepare_backend_runtime_paths(tmp_path)
+    settings = make_backend_settings(
+        tmp_path,
+        control_db_path=tmp_path / "control" / "control.sqlite3",
+        artifact_root=tmp_path / "artifacts",
+        repository_bearer_token_file=tmp_path / "repository-bearer-token",
+    )
+    runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)
+    client = TestClient(
+        create_app(
+            workspace_http=runtime.workspace_http,
+            history_http=runtime.history_http,
+        )
+    )
+    schema = client.get("/openapi.json").json()
+    assert "/v1/history" in schema["paths"]

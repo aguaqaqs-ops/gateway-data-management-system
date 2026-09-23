@@ -27,6 +27,7 @@ from gateway_backend.domain.workspace.ports import (
     ScopeResolutionPort,
     WorkspaceRepository,
 )
+from gateway_backend.application.history.ports import HistoryReadPort
 from gateway_backend.http.auth import FailClosedInternalBearerPort, InternalBearerPort, SessionPort
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
@@ -239,6 +240,28 @@ class WorkspaceHttpDependencies:
     @classmethod
     def default_now(cls) -> datetime:
         return datetime.now(UTC)
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryHttpDependencies:
+    scope_resolution: ScopeResolutionPort
+    history_reader: HistoryReadPort
+    now: Callable[[], datetime]
+
+
+def get_history_http(request: Request) -> HistoryHttpDependencies:
+    deps = getattr(request.app.state, "history_http", None)
+    if deps is None:
+        from gateway_backend.http.errors import ApiError
+
+        raise ApiError(
+            code="SERVICE_NOT_READY",
+            message="history HTTP dependencies are unavailable",
+            status_code=503,
+        )
+    if not isinstance(deps, HistoryHttpDependencies):
+        raise TypeError("history_http state must be HistoryHttpDependencies")
+    return deps
 
 
 def get_workspace_http(request: Request) -> WorkspaceHttpDependencies:

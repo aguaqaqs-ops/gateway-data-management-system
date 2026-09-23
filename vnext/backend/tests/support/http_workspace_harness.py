@@ -59,6 +59,7 @@ from gateway_backend.http.dependencies import (
     AdmissionGatePort,
     ArtifactRefLookupPort,
     FailClosedOperatorRecoveryPort,
+    HistoryHttpDependencies,
     OpenAdmissionGate,
     OperatorRecoveryApplicationPort,
     ReadOnlyOperationStore,
@@ -67,6 +68,7 @@ from gateway_backend.http.dependencies import (
 )
 from gateway_backend.http.wiring import register_workspace_http
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.http.history_reader import HttpHistoryReader
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
@@ -863,9 +865,14 @@ def create_workspace_http_environment(
     now: Callable[[], datetime] | None = None,
     baseline_canonical_digest: BaselineCanonicalDigestPort | None = None,
     main_resolve_port: RecordingMainResolvePort | FailingMainResolvePort | None = None,
+    db_path: Path | None = None,
 ) -> WorkspaceHttpTestEnvironment:
-    db_path = tmp_path / "control.db"
-    initialize_control_db(db_path)
+    resolved_db_path = db_path or (tmp_path / "control.db")
+    if db_path is None:
+        initialize_control_db(resolved_db_path)
+        from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
+
+        seed_provisioned_mapping_with_head(resolved_db_path, baseline_head=BASELINE_HEAD)
     resolved_identity = identity or make_identity()
     sessions = {TEST_BEARER: resolved_identity}
     if extra_sessions:
@@ -875,12 +882,12 @@ def create_workspace_http_environment(
         baseline_head=BASELINE_HEAD,
     )
     baseline_head_read = MutableBaselineHeadReadPort({"repo-1": BASELINE_HEAD})
-    repository = SqliteWorkspaceRepositoryFacade(db_path)
+    repository = SqliteWorkspaceRepositoryFacade(resolved_db_path)
     artifact_store = InMemoryBoundedArtifactStore()
     bundle_reader = InMemoryBundleReader()
 
     def unit_of_work_factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(db_path, read_only=read_only)
+        return ControlDbUnitOfWork(resolved_db_path, read_only=read_only)
 
     operation_reader = ReadOnlyOperationStore(unit_of_work_factory)
     submission_reader = ReadOnlySubmissionStore(unit_of_work_factory)
@@ -941,12 +948,17 @@ def create_workspace_http_environment(
         operator_recovery_port=operator_recovery_port,
         now=clock,
     )
-    app = create_app(workspace_http=deps)
+    history_deps = HistoryHttpDependencies(
+        scope_resolution=scope_resolution,
+        history_reader=HttpHistoryReader(resolved_db_path),
+        now=clock,
+    )
+    app = create_app(workspace_http=deps, history_http=history_deps)
     return WorkspaceHttpTestEnvironment(
         client=TestClient(app, raise_server_exceptions=False),
         scope_resolution=scope_resolution,
         main_resolve=main_resolve,
-        db_path=db_path,
+        db_path=resolved_db_path,
         repository=repository,
         artifact_store=artifact_store,
         bundle_reader=bundle_reader,

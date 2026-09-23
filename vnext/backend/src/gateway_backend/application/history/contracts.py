@@ -139,3 +139,25 @@ class HistoryTreeProjection:
     head: HistoryHead
     nodes: tuple[HistoryNode, ...]
     next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryPageEntry:
+    ref_kind: HistoryNodeRefKind
+    ref_id: str
+    node_kind: HistoryNodeKind
+    commit_id: str
+    created_at: datetime
+    baseline_kind: BaselineNodeKind | None = None
+    parent_node_id: str | None = None
+    based_on_baseline_node_id: str | None = None
+    review_status: ReviewStatus | None = None
+    archive_disposition: ArchiveDispositionKind | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryPageSnapshot:
+    head: BaselineHead
+    entries: tuple[HistoryPageEntry, ...]
+    promoted_by_submission: dict[str, str]
+    has_next_page: bool

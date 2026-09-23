@@ -20,8 +20,8 @@ def list_history_operation(
     try:
         projection = get_project_history(
             context=context,
-            scope_resolution=deps.scope_resolution,
-            history_reader=deps.history_reader,
+            unit_of_work_factory=deps.unit_of_work_factory,
+            snapshot_loader=deps.snapshot_loader,
             limit=limit,
             cursor=cursor,
         )

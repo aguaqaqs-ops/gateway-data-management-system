@@ -20,6 +20,8 @@ from gateway_backend.application.history.contracts import (
     HistoryNodeKind,
     HistoryNodeRef,
     HistoryNodeRefKind,
+    HistoryPageEntry,
+    HistoryPageSnapshot,
     HistorySubmissionFact,
     HistoryTreeProjection,
 )
@@ -57,6 +59,74 @@ def project_history_tree(
     page_nodes = _paginate(sorted_nodes, limit=resolved_limit, after_order_key=cursor_order_key)
     next_cursor = _encode_next_cursor(page_nodes, sorted_nodes, head_version=head.version)
     return HistoryTreeProjection(head=head, nodes=page_nodes, next_cursor=next_cursor)
+
+
+def project_history_page(*, page: HistoryPageSnapshot, limit: int) -> HistoryTreeProjection:
+    head = HistoryHead.from_baseline_head(page.head)
+    nodes = tuple(
+        _page_entry_to_node(
+            entry,
+            head=page.head,
+            promoted_by_submission=page.promoted_by_submission,
+        )
+        for entry in page.entries
+    )
+    next_cursor = None
+    if page.has_next_page and nodes:
+        next_cursor = _encode_cursor(
+            order_key=_order_key_from_node(nodes[-1]),
+            head_version=head.version,
+        )
+    del limit
+    return HistoryTreeProjection(head=head, nodes=nodes, next_cursor=next_cursor)
+
+
+def _page_entry_to_node(
+    entry: HistoryPageEntry,
+    *,
+    head: BaselineHead,
+    promoted_by_submission: dict[str, str],
+) -> HistoryNode:
+    if entry.node_kind is HistoryNodeKind.BASELINE_NODE:
+        parent = None
+        if entry.parent_node_id is not None:
+            parent = HistoryNodeRef(
+                ref_kind=HistoryNodeRefKind.BASELINE_NODE,
+                ref_id=entry.parent_node_id,
+            )
+        if entry.baseline_kind is None:
+            raise ValueError("baseline page entry requires baseline_kind")
+        return HistoryNode(
+            ref_kind=HistoryNodeRefKind.BASELINE_NODE,
+            ref_id=entry.ref_id,
+            node_kind=HistoryNodeKind.BASELINE_NODE,
+            baseline_kind=entry.baseline_kind,
+            commit_id=entry.commit_id,
+            created_at=entry.created_at,
+            parent=parent,
+        )
+    if entry.based_on_baseline_node_id is None or entry.review_status is None:
+        raise ValueError("submission page entry is missing required fields")
+    eligibility_note = _derive_eligibility_note(
+        review_status=entry.review_status,
+        based_on_baseline_node_id=entry.based_on_baseline_node_id,
+        current_head_node_id=head.business_baseline_node_id,
+    )
+    return HistoryNode(
+        ref_kind=HistoryNodeRefKind.SUBMISSION,
+        ref_id=entry.ref_id,
+        node_kind=HistoryNodeKind.SUBMISSION,
+        commit_id=entry.commit_id,
+        created_at=entry.created_at,
+        parent=HistoryNodeRef(
+            ref_kind=HistoryNodeRefKind.BASELINE_NODE,
+            ref_id=entry.based_on_baseline_node_id,
+        ),
+        review_status=entry.review_status,
+        archive_disposition=entry.archive_disposition,
+        promoted_baseline_node_id=promoted_by_submission.get(entry.ref_id),
+        eligibility_note=eligibility_note,
+    )
 
 
 def _promoted_baseline_nodes(baseline_nodes: tuple[BaselineNode, ...]) -> dict[str, str]:

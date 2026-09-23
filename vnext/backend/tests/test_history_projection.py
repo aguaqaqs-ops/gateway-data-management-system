@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import sqlite3
 
 from gateway_backend.application.history.contracts import (
     HistoryEligibilityNote,
@@ -18,13 +19,15 @@ from gateway_backend.application.history.errors import HistoryRequestValidation
 from gateway_backend.application.history.errors import HistoryIntegrityFailure
 from gateway_backend.application.history.projection import project_history_tree
 from gateway_backend.application.history.queries import get_project_history
+from gateway_backend.application.submission.ports import WorkspaceControlUnitOfWorkFactory
 from gateway_backend.domain.archive.models import ArchiveDispositionKind
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.submission.models import Submission, SubmitTargetRef, SubmitUnknownTypePolicy, SubmitVerificationPolicy
 from gateway_backend.domain.submission.review import ReviewAction, ReviewStatus
+from gateway_backend.domain.workspace.errors import PermissionDenied
 from gateway_backend.domain.workspace.models import BaselineHead
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.infrastructure.control_db.sqlite_history import SQLiteHistoryReader
+from gateway_backend.infrastructure.control_db.sqlite_history import HistorySubmissionRow, SQLiteHistoryReader
 from gateway_backend.http.history_reader import HttpHistoryReader
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
@@ -32,6 +35,7 @@ from tests.support.http_workspace_harness import BASELINE_HEAD
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
 from tests.test_review_persistence import _insert_operation_record
 from tests.test_review_transactions import _apply_command, _apply_review, _seed_pending_review_submission
+from tests.test_submit_transactions import _upsert_provisioned_mapping_row
 
 pytestmark = pytest.mark.unit
 
@@ -540,25 +544,106 @@ def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
         assert marker not in ref_ids
 
 
+def _uow_factory(db_path: Path) -> WorkspaceControlUnitOfWorkFactory:
+    def factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(db_path, read_only=read_only)
+
+    return factory
+
+
+def _corrupt_baseline_created_at_us(db_path: Path, *, node_id: str) -> None:
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        connection.execute(
+            "UPDATE baseline_node_records SET created_at_us = ? WHERE node_id = ?",
+            ("not-an-int", node_id),
+        )
+        connection.commit()
+
+
 def test_get_project_history_raises_integrity_failure_for_corrupt_facts(db_path: Path) -> None:
     _seed_pending_review_submission(db_path)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.connection.execute(
-            "UPDATE submission_records SET source_artifact_refs = ? WHERE repository_id = ?",
-            (b"not-json", "repo-1"),
-        )
+    _corrupt_baseline_created_at_us(
+        db_path,
+        node_id=BASELINE_HEAD.business_baseline_node_id,
+    )
     identity = make_identity(
         permissions=frozenset({"read_project_history", "workspace_read"}),
     )
     with pytest.raises(HistoryIntegrityFailure):
         get_project_history(
             context=identity,
-            scope_resolution=FixedScopeResolutionPort(
-                repository_id="repo-1",
-                baseline_head=BASELINE_HEAD,
-            ),
-            history_reader=HttpHistoryReader(db_path),
+            unit_of_work_factory=_uow_factory(db_path),
+            snapshot_loader=HttpHistoryReader(db_path),
         )
+
+
+def test_get_project_history_rejects_disabled_mapping_in_same_transaction(db_path: Path) -> None:
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-scope"),
+    )
+    _upsert_provisioned_mapping_row(db_path, baseline_head=None, enabled=False)
+    identity = make_identity(
+        permissions=frozenset({"read_project_history", "workspace_read"}),
+    )
+    stale_scope = FixedScopeResolutionPort(
+        repository_id="repo-1",
+        baseline_head=BASELINE_HEAD,
+    )
+    assert stale_scope.resolve(identity).repository_id == "repo-1"
+    with pytest.raises(PermissionDenied):
+        get_project_history(
+            context=identity,
+            unit_of_work_factory=_uow_factory(db_path),
+            snapshot_loader=HttpHistoryReader(db_path),
+        )
+
+
+def test_paginated_history_loader_bounds_submission_fetch(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-bounded"),
+    )
+    import gateway_backend.infrastructure.control_db.sqlite_history as sqlite_history_module
+
+    full_load_calls = 0
+    original_loader = sqlite_history_module._load_submission_rows
+
+    def counting_loader(
+        connection: sqlite3.Connection,
+        *,
+        repository_id: str,
+    ) -> tuple[HistorySubmissionRow, ...]:
+        nonlocal full_load_calls
+        full_load_calls += 1
+        return original_loader(connection, repository_id=repository_id)
+
+    monkeypatch.setattr(sqlite_history_module, "_load_submission_rows", counting_loader)
+    identity = make_identity(
+        permissions=frozenset({"read_project_history", "workspace_read"}),
+    )
+    projection = get_project_history(
+        context=identity,
+        unit_of_work_factory=_uow_factory(db_path),
+        snapshot_loader=HttpHistoryReader(db_path),
+        limit=1,
+    )
+    assert full_load_calls == 0
+    assert len(projection.nodes) == 1
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        page = HttpHistoryReader(db_path).load_page_in_transaction(
+            unit_of_work,
+            repository_id="repo-1",
+            gateway_device_external_key="device-1",
+            business_project_id="project-1",
+            limit=1,
+            after_order_key=None,
+        )
+    assert len(page.entries) == 1
+    assert page.has_next_page is True
 
 
 @pytest.mark.parametrize(("case_id", "limit"), HISTORY_LIMIT_BOUNDARY_CASES)

@@ -27,7 +27,7 @@ from gateway_backend.domain.workspace.ports import (
     ScopeResolutionPort,
     WorkspaceRepository,
 )
-from gateway_backend.application.history.ports import HistoryReadPort
+from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory, HistorySnapshotLoaderPort
 from gateway_backend.http.auth import FailClosedInternalBearerPort, InternalBearerPort, SessionPort
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
@@ -244,8 +244,8 @@ class WorkspaceHttpDependencies:
 
 @dataclass(frozen=True, slots=True)
 class HistoryHttpDependencies:
-    scope_resolution: ScopeResolutionPort
-    history_reader: HistoryReadPort
+    unit_of_work_factory: HistoryControlUnitOfWorkFactory
+    snapshot_loader: HistorySnapshotLoaderPort
 
 
 def get_history_http(request: Request) -> HistoryHttpDependencies:

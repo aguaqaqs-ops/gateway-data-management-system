@@ -433,8 +433,8 @@ def prepare_backend_runtime(
         now=lambda: datetime.now(UTC),
     )
     history_http = HistoryHttpDependencies(
-        scope_resolution=scope_resolution,
-        history_reader=HttpHistoryReader(settings.control_db_path),
+        unit_of_work_factory=unit_of_work_factory,
+        snapshot_loader=HttpHistoryReader(settings.control_db_path),
     )
     return BackendRuntime(
         settings=settings,

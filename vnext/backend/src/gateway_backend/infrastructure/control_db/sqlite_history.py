@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from gateway_backend.domain.archive.models import ArchiveDispositionKind
@@ -32,6 +33,8 @@ _BASELINE_NODE_COLUMNS = (
     "commit_id, kind, parent_node_id, source_submission_id, created_at_us"
 )
 _SUBMISSION_COLUMN_NAMES = tuple(column.strip() for column in SUBMISSION_COLUMNS.split(","))
+_BASELINE_KIND_RANK = 0
+_SUBMISSION_KIND_RANK = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +50,29 @@ class HistorySnapshot:
     baseline_nodes: tuple[BaselineNode, ...]
     submissions: tuple[HistorySubmissionRow, ...]
     head: BaselineHead
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryPageRow:
+    ref_kind: str
+    ref_id: str
+    kind_rank: int
+    created_at_us: int
+    commit_id: str
+    baseline_kind: str | None
+    parent_node_id: str | None
+    based_on_baseline_node_id: str | None
+    review_status: str | None
+    archive_disposition: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryPageSnapshotInfra:
+    repository_id: str
+    head: BaselineHead
+    rows: tuple[HistoryPageRow, ...]
+    promoted_by_submission: dict[str, str]
+    has_next_page: bool
 
 
 class SQLiteHistoryReader:
@@ -91,6 +117,170 @@ def load_history_snapshot_from_connection(
         baseline_nodes=baseline_nodes,
         submissions=submissions,
         head=head,
+    )
+
+
+def load_history_page_from_connection(
+    connection: sqlite3.Connection,
+    *,
+    repository_id: str,
+    gateway_device_external_key: str,
+    business_project_id: str,
+    limit: int,
+    after_order_key: list[object] | None,
+) -> HistoryPageSnapshotInfra:
+    head = get_current_head_from_connection(connection, repository_id)
+    promoted_by_submission = _load_promoted_by_submission(
+        connection,
+        repository_id=repository_id,
+        gateway_device_external_key=gateway_device_external_key,
+        business_project_id=business_project_id,
+    )
+    rows = _load_history_page_rows(
+        connection,
+        repository_id=repository_id,
+        gateway_device_external_key=gateway_device_external_key,
+        business_project_id=business_project_id,
+        limit=limit + 1,
+        after_order_key=after_order_key,
+    )
+    has_next_page = len(rows) > limit
+    page_rows = rows[:limit]
+    return HistoryPageSnapshotInfra(
+        repository_id=repository_id,
+        head=head,
+        rows=page_rows,
+        promoted_by_submission=promoted_by_submission,
+        has_next_page=has_next_page,
+    )
+
+
+def _load_promoted_by_submission(
+    connection: sqlite3.Connection,
+    *,
+    repository_id: str,
+    gateway_device_external_key: str,
+    business_project_id: str,
+) -> dict[str, str]:
+    rows = connection.execute(
+        """
+        SELECT source_submission_id, node_id
+        FROM baseline_node_records
+        WHERE repository_id = ?
+          AND gateway_device_external_key = ?
+          AND business_project_id = ?
+          AND source_submission_id IS NOT NULL
+        """,
+        (repository_id, gateway_device_external_key, business_project_id),
+    ).fetchall()
+    promoted: dict[str, str] = {}
+    for row in rows:
+        source_submission_id = row["source_submission_id"]
+        node_id = row["node_id"]
+        if type(source_submission_id) is not str or type(node_id) is not str:
+            raise ValueError("promoted baseline row has invalid identifiers")
+        promoted[source_submission_id] = node_id
+    return promoted
+
+
+def _load_history_page_rows(
+    connection: sqlite3.Connection,
+    *,
+    repository_id: str,
+    gateway_device_external_key: str,
+    business_project_id: str,
+    limit: int,
+    after_order_key: list[object] | None,
+) -> tuple[HistoryPageRow, ...]:
+    cursor_clause = ""
+    params: list[object] = [
+        repository_id,
+        gateway_device_external_key,
+        business_project_id,
+        repository_id,
+    ]
+    if after_order_key is not None:
+        created_at_us, kind_rank, ref_id = after_order_key
+        cursor_clause = "WHERE (created_at_us, kind_rank, ref_id) > (?, ?, ?)"
+        params.extend([created_at_us, kind_rank, ref_id])
+    params.append(limit)
+    rows = connection.execute(
+        f"""
+        SELECT *
+        FROM (
+            SELECT
+                'baseline_node' AS ref_kind,
+                node_id AS ref_id,
+                {_BASELINE_KIND_RANK} AS kind_rank,
+                created_at_us,
+                commit_id,
+                kind AS baseline_kind,
+                parent_node_id,
+                NULL AS based_on_baseline_node_id,
+                NULL AS review_status,
+                NULL AS archive_disposition
+            FROM baseline_node_records
+            WHERE repository_id = ?
+              AND gateway_device_external_key = ?
+              AND business_project_id = ?
+            UNION ALL
+            SELECT
+                'submission',
+                s.submission_id,
+                {_SUBMISSION_KIND_RANK},
+                s.created_at_us,
+                s.repository_commit_id,
+                NULL,
+                NULL,
+                s.based_on_baseline_node_id,
+                p.status,
+                d.disposition
+            FROM submission_records AS s
+            INNER JOIN review_projection_records AS p
+                ON p.submission_id = s.submission_id
+            LEFT JOIN archive_disposition_records AS d
+                ON d.submission_id = s.submission_id
+            WHERE s.repository_id = ?
+        ) AS history_nodes
+        {cursor_clause}
+        ORDER BY created_at_us ASC, kind_rank ASC, ref_id ASC
+        LIMIT ?
+        """,
+        tuple(params),
+    ).fetchall()
+    return tuple(_history_page_row_from_row(row) for row in rows)
+
+
+def _history_page_row_from_row(row: sqlite3.Row) -> HistoryPageRow:
+    created_at_us = row["created_at_us"]
+    if type(created_at_us) is not int:
+        raise ValueError("created_at_us must be an integer")
+    ref_kind = row["ref_kind"]
+    ref_id = row["ref_id"]
+    kind_rank = row["kind_rank"]
+    commit_id = row["commit_id"]
+    if type(ref_kind) is not str or type(ref_id) is not str or type(commit_id) is not str:
+        raise ValueError("history page row has invalid text fields")
+    if type(kind_rank) is not int:
+        raise ValueError("kind_rank must be an integer")
+    baseline_kind = row["baseline_kind"]
+    parent_node_id = row["parent_node_id"]
+    based_on_baseline_node_id = row["based_on_baseline_node_id"]
+    review_status = row["review_status"]
+    archive_disposition = row["archive_disposition"]
+    return HistoryPageRow(
+        ref_kind=ref_kind,
+        ref_id=ref_id,
+        kind_rank=kind_rank,
+        created_at_us=created_at_us,
+        commit_id=commit_id,
+        baseline_kind=None if baseline_kind is None else str(baseline_kind),
+        parent_node_id=None if parent_node_id is None else str(parent_node_id),
+        based_on_baseline_node_id=(
+            None if based_on_baseline_node_id is None else str(based_on_baseline_node_id)
+        ),
+        review_status=None if review_status is None else str(review_status),
+        archive_disposition=None if archive_disposition is None else str(archive_disposition),
     )
 
 
@@ -153,3 +343,8 @@ def _submission_row_from_row(row: sqlite3.Row) -> HistorySubmissionRow:
         review_status=ReviewStatus(review_status_value),
         disposition=disposition,
     )
+
+
+def _epoch_us_to_datetime(value: int) -> datetime:
+    seconds, micros = divmod(value, 1_000_000)
+    return datetime.fromtimestamp(seconds, tz=UTC).replace(microsecond=micros)

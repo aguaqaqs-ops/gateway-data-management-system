@@ -134,18 +134,45 @@ def test_list_history_is_read_only(db_path: Path, tmp_path: Path) -> None:
     assert before == after
 
 
+def _corrupt_baseline_created_at_us(db_path: Path, *, node_id: str) -> None:
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        connection.execute(
+            "UPDATE baseline_node_records SET created_at_us = ? WHERE node_id = ?",
+            ("not-an-int", node_id),
+        )
+        connection.commit()
+
+
 def test_list_history_returns_integrity_failure_for_corrupt_facts(db_path: Path, tmp_path: Path) -> None:
     del tmp_path
     _seed_pending_review_submission(db_path)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.connection.execute(
-            "UPDATE submission_records SET source_artifact_refs = ? WHERE repository_id = ?",
-            (b"not-json", "repo-1"),
-        )
+    _corrupt_baseline_created_at_us(
+        db_path,
+        node_id=BASELINE_HEAD.business_baseline_node_id,
+    )
     history_env = _history_env(db_path.parent / "history-corrupt", db_path=db_path)
     response = history_env.client.get("/v1/history", headers=history_env.auth_headers())
     assert response.status_code == 503
     assert response.json()["code"] == "HISTORY_INTEGRITY_FAILURE"
+
+
+def test_list_history_rejects_disabled_mapping_without_stale_scope_reads(db_path: Path, tmp_path: Path) -> None:
+    del tmp_path
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-scope-http"),
+    )
+    from tests.test_submit_transactions import _upsert_provisioned_mapping_row
+
+    _upsert_provisioned_mapping_row(db_path, baseline_head=None, enabled=False)
+    history_env = _history_env(db_path.parent / "history-scope", db_path=db_path)
+    stale_scope = history_env.scope_resolution
+    assert stale_scope.resolve(history_env.identity).repository_id == "repo-1"
+    response = history_env.client.get("/v1/history", headers=history_env.auth_headers())
+    assert response.status_code == 403
+    assert response.json()["code"] == "SCOPE_FORBIDDEN"
 
 
 def test_list_history_accepts_long_cjk_commit_id(db_path: Path, tmp_path: Path) -> None:

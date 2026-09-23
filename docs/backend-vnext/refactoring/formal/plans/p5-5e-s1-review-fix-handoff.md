@@ -5,8 +5,8 @@
 ## §6.3 运行镜像证据
 
 ```
-HEAD: PLACEHOLDER_COMMIT
-source_tree_sha: PLACEHOLDER_TREE
+HEAD: a91251dabca7e5843f6adcdb0446836b10da1b72
+source_tree_sha: b94de44f2380907e257feba6573fce5248cfcb13
 backend/uv.lock sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 repository_client/uv.lock sha256: 6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954
 repository_contracts/uv.lock sha256: b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3

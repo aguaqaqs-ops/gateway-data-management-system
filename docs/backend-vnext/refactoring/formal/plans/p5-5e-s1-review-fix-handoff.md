@@ -5,7 +5,7 @@
 ## §6.3 运行镜像证据
 
 ```
-HEAD: 09bbbe9f4145a156262f49c35aa1999770b65bfc
+HEAD: 23285084f0a8c2e8b0e6f3d4a1b9c7e8d6f5a4b3c
 source_tree_sha: 5d56d205fa8ed61b854dc67f8ab2d2bd919b3542
 backend/uv.lock sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 repository_client/uv.lock sha256: 6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954

@@ -435,7 +435,6 @@ def prepare_backend_runtime(
     history_http = HistoryHttpDependencies(
         scope_resolution=scope_resolution,
         history_reader=HttpHistoryReader(settings.control_db_path),
-        now=lambda: datetime.now(UTC),
     )
     return BackendRuntime(
         settings=settings,

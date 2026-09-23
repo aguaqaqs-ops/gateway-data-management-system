@@ -1,4 +1,8 @@
-"""Production History read adapter bridging SQLite facts to application contracts."""
+"""Production History read adapter bridging SQLite facts to application contracts.
+
+Maps ``HistorySubmissionRow`` to ``HistorySubmissionFact`` here so infrastructure
+does not import application types.
+"""
 
 from __future__ import annotations
 

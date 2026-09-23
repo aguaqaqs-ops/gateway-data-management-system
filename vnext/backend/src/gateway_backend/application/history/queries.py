@@ -6,7 +6,7 @@ from gateway_backend.application.history.contracts import (
     PERMISSION_READ_PROJECT_HISTORY,
     HistoryTreeProjection,
 )
-from gateway_backend.application.history.errors import HistoryIntegrityFailure, HistoryRequestValidation
+from gateway_backend.application.history.errors import HistoryIntegrityFailure
 from gateway_backend.application.history.projection import project_history_tree
 from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeResolutionError
 from gateway_backend.domain.workspace.models import IdentityContext
@@ -28,14 +28,12 @@ def get_project_history(
         resolved = scope_resolution.resolve(context)
     except ScopeResolutionError as exc:
         raise PermissionDenied(PERMISSION_READ_PROJECT_HISTORY) from exc
-    facts = history_reader.load_facts(
-        repository_id=resolved.repository_id,
-        gateway_device_external_key=context.gateway_device_external_key,
-        business_project_id=context.business_project_id,
-    )
     try:
-        return project_history_tree(facts=facts, limit=limit, cursor=cursor)
-    except HistoryRequestValidation:
-        raise
-    except HistoryIntegrityFailure:
-        raise
+        facts = history_reader.load_facts(
+            repository_id=resolved.repository_id,
+            gateway_device_external_key=context.gateway_device_external_key,
+            business_project_id=context.business_project_id,
+        )
+    except ValueError as exc:
+        raise HistoryIntegrityFailure("history fact rows are inconsistent") from exc
+    return project_history_tree(facts=facts, limit=limit, cursor=cursor)

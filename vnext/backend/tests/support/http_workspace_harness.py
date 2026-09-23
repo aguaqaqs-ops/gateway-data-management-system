@@ -951,7 +951,6 @@ def create_workspace_http_environment(
     history_deps = HistoryHttpDependencies(
         scope_resolution=scope_resolution,
         history_reader=HttpHistoryReader(resolved_db_path),
-        now=clock,
     )
     app = create_app(workspace_http=deps, history_http=history_deps)
     return WorkspaceHttpTestEnvironment(

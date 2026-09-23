@@ -54,7 +54,7 @@ _SUBMIT_ATTEMPT_COLUMNS = (
     "created_by, created_at_us, effect_pending_at_us, finalized_at_us, aborted_at_us, abort_code"
 )
 
-_SUBMISSION_COLUMNS = (
+SUBMISSION_COLUMNS = (
     "submission_id, submit_attempt_id, workspace_id, workspace_generation, upload_revision_id, "
     "preview_result_id, repository_id, based_on_baseline_node_id, business_baseline_commit_id, "
     "repository_commit_id, canonical_business_digest, source_artifact_refs, "
@@ -113,25 +113,25 @@ class SQLiteSubmissionRepository:
         ).fetchone()
         if row is None:
             return None
-        return submit_attempt_from_row(_row_mapping(row))
+        return submit_attempt_from_row(row_mapping(row))
 
     def get_submission(self, submission_id: str) -> Submission | None:
         row = self._connection.execute(
-            f"SELECT {_SUBMISSION_COLUMNS} FROM submission_records WHERE submission_id = ?",
+            f"SELECT {SUBMISSION_COLUMNS} FROM submission_records WHERE submission_id = ?",
             (submission_id,),
         ).fetchone()
         if row is None:
             return None
-        return submission_from_row(_row_mapping(row))
+        return submission_from_row(row_mapping(row))
 
     def get_submission_by_attempt(self, submit_attempt_id: str) -> Submission | None:
         row = self._connection.execute(
-            f"SELECT {_SUBMISSION_COLUMNS} FROM submission_records WHERE submit_attempt_id = ?",
+            f"SELECT {SUBMISSION_COLUMNS} FROM submission_records WHERE submit_attempt_id = ?",
             (submit_attempt_id,),
         ).fetchone()
         if row is None:
             return None
-        return submission_from_row(_row_mapping(row))
+        return submission_from_row(row_mapping(row))
 
     def get_workspace_occupancy(self, workspace_id: str) -> WorkspaceSubmitOccupancy | None:
         row = self._connection.execute(
@@ -228,7 +228,7 @@ class SQLiteSubmissionRepository:
             raise ArchiveCandidateReadBoundExceeded()
         facts: list[ArchiveCandidateFacts] = []
         for row in rows:
-            mapping = _row_mapping(row)
+            mapping = row_mapping(row)
             submission = submission_from_row(mapping)
             review_status_raw = mapping.get("review_status")
             review_sequence_raw = mapping.get("review_sequence")
@@ -309,7 +309,7 @@ class SQLiteSubmissionRepository:
         try:
             self._connection.execute(
                 f"""
-                INSERT INTO submission_records ({_SUBMISSION_COLUMNS})
+                INSERT INTO submission_records ({SUBMISSION_COLUMNS})
                 VALUES ({", ".join("?" for _ in submission_to_row(submission))})
                 """,
                 submission_to_row(submission),
@@ -530,7 +530,7 @@ def submit_attempt_to_row(attempt: SubmitAttempt) -> tuple[object, ...]:
 
 
 def submit_attempt_from_row(row: Mapping[str, object]) -> SubmitAttempt:
-    mapping = _row_mapping(row)
+    mapping = row_mapping(row)
     return SubmitAttempt(
         submit_attempt_id=_required_text(mapping, "submit_attempt_id"),
         workspace_id=_required_text(mapping, "workspace_id"),
@@ -735,7 +735,7 @@ def _map_integrity_error(exc: sqlite3.IntegrityError) -> Exception:
     return SubmitOccupancyConflict("submit persistence constraint violated")
 
 
-def _row_mapping(row: object) -> Mapping[str, object]:
+def row_mapping(row: object) -> Mapping[str, object]:
     if isinstance(row, sqlite3.Row):
         return {key: row[key] for key in row.keys()}
     return cast(Mapping[str, object], row)

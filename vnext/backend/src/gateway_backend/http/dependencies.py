@@ -246,7 +246,6 @@ class WorkspaceHttpDependencies:
 class HistoryHttpDependencies:
     scope_resolution: ScopeResolutionPort
     history_reader: HistoryReadPort
-    now: Callable[[], datetime]
 
 
 def get_history_http(request: Request) -> HistoryHttpDependencies:

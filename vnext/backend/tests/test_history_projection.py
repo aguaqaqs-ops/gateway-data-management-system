@@ -15,7 +15,9 @@ from gateway_backend.application.history.contracts import (
     HistorySubmissionFact,
 )
 from gateway_backend.application.history.errors import HistoryRequestValidation
+from gateway_backend.application.history.errors import HistoryIntegrityFailure
 from gateway_backend.application.history.projection import project_history_tree
+from gateway_backend.application.history.queries import get_project_history
 from gateway_backend.domain.archive.models import ArchiveDispositionKind
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.submission.models import Submission, SubmitTargetRef, SubmitUnknownTypePolicy, SubmitVerificationPolicy
@@ -24,8 +26,11 @@ from gateway_backend.domain.workspace.models import BaselineHead
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.sqlite_history import SQLiteHistoryReader
 from gateway_backend.http.history_reader import HttpHistoryReader
+from gateway_shared_kernel.jcs import canonicalize_json_value
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
 from tests.support.http_workspace_harness import BASELINE_HEAD
+from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
+from tests.test_review_persistence import _insert_operation_record
 from tests.test_review_transactions import _apply_command, _apply_review, _seed_pending_review_submission
 
 pytestmark = pytest.mark.unit
@@ -38,6 +43,18 @@ INVALID_CURSOR_SHAPES = (
     "not-base64url",
     "!!!",
     "e30",
+)
+
+HISTORY_LIMIT_BOUNDARY_CASES = (
+    ("limit_zero", 0),
+    ("limit_over_max", 501),
+)
+
+EXCLUDED_HISTORY_MARKERS = (
+    "op-excluded-marker",
+    "sa-failed-import",
+    "plan-excluded-marker",
+    "sub-plan-only",
 )
 
 
@@ -341,16 +358,42 @@ def test_sqlite_history_reader_loads_submission_review_facts(db_path: Path) -> N
     assert facts.submissions[0].review_status is ReviewStatus.APPROVED
 
 
-def test_projection_rejects_limit_out_of_range() -> None:
-    facts = _facts(
-        baseline_nodes=(),
-        submissions=(),
-        head=BASELINE_HEAD,
+def test_history_reader_source_artifact_refs_match_submission_repository(db_path: Path) -> None:
+    review_seed = _seed_pending_review_submission(db_path)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        repository_submission = unit_of_work.submission.get_submission(review_seed.submission_id)
+        assert repository_submission is not None
+        unit_of_work.connection.execute(
+            "UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?",
+            (canonicalize_json_value([]), review_seed.submission_id),
+        )
+    facts = HttpHistoryReader(db_path).load_facts(
+        repository_id="repo-1",
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
     )
-    with pytest.raises(HistoryRequestValidation):
-        project_history_tree(facts=facts, limit=0)
-    with pytest.raises(HistoryRequestValidation):
-        project_history_tree(facts=facts, limit=501)
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        repository_submission = unit_of_work.submission.get_submission(review_seed.submission_id)
+        assert repository_submission is not None
+    history_submission = facts.submissions[0].submission
+    assert history_submission.source_artifact_refs == repository_submission.source_artifact_refs
+    assert history_submission.source_artifact_refs == ()
+
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?",
+            (canonicalize_json_value(["initial-1", "modified-1"]), review_seed.submission_id),
+        )
+    facts = HttpHistoryReader(db_path).load_facts(
+        repository_id="repo-1",
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+    )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        repository_submission = unit_of_work.submission.get_submission(review_seed.submission_id)
+        assert repository_submission is not None
+    assert facts.submissions[0].submission.source_artifact_refs == repository_submission.source_artifact_refs
+    assert facts.submissions[0].submission.source_artifact_refs == ("initial-1", "modified-1")
 
 
 def test_sqlite_history_reader_loads_scope_filtered_facts(db_path: Path) -> None:
@@ -381,3 +424,150 @@ def test_sqlite_history_reader_loads_scope_filtered_facts(db_path: Path) -> None
     )
     assert all(node.gateway_device_external_key == "device-1" for node in snapshot.baseline_nodes)
     assert "foreign-node" not in {node.node_id for node in snapshot.baseline_nodes}
+
+
+def test_projection_page_snapshot_is_self_consistent(db_path: Path) -> None:
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-snapshot"),
+    )
+    facts = HttpHistoryReader(db_path).load_facts(
+        repository_id="repo-1",
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+    )
+    full_projection = project_history_tree(facts=facts)
+    page = project_history_tree(facts=facts, limit=1)
+    all_refs = {node.ref_id for node in full_projection.nodes}
+    assert page.head == full_projection.head
+    for node in page.nodes:
+        if node.parent is not None:
+            assert node.parent.ref_id in all_refs
+
+
+def test_projection_head_fields_match_readonly_snapshot(db_path: Path) -> None:
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-head"),
+    )
+    facts = HttpHistoryReader(db_path).load_facts(
+        repository_id="repo-1",
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+    )
+    projection = project_history_tree(facts=facts)
+    assert projection.head.node_id == facts.head.business_baseline_node_id
+    assert projection.head.commit_id == facts.head.business_baseline_commit_id
+    assert projection.head.version == facts.head.baseline_head_version
+
+
+def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
+    _seed_pending_review_submission(db_path)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        _insert_operation_record(unit_of_work.connection, operation_id="op-excluded-marker")
+        unit_of_work.connection.execute(
+            """
+            INSERT INTO workspace_records (
+                workspace_id, owner_actor_id, gateway_device_external_key, business_project_id,
+                repository_id, state, generation, optimistic_version, current_upload_revision_id,
+                current_preview_result_id, created_at_us, updated_at_us, closed_at_us
+            ) VALUES ('ws-failed-import', 'actor-failed-import', 'device-2', 'project-2', 'repo-1',
+                      'OPEN', 1, 0, NULL, NULL, 1, 1, NULL)
+            """
+        )
+        unit_of_work.connection.execute(
+            """
+            INSERT INTO submit_attempt_records (
+                submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
+                preview_result_id, repository_id, business_baseline_node_id,
+                business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
+                canonical_business_digest, source_digest, snapshot_digest, source_artifact_refs,
+                snapshot_table_artifact_refs, preview_ready_closure_ref, preview_ready_closure_digest,
+                canonicalization_manifest_ref, canonicalization_manifest_digest,
+                repository_import_artifact_ref, repository_artifact_ref, repository_operation_id,
+                repository_operation_evidence, requested_target_ref, requested_verification_policy,
+                requested_unknown_type_policy, builder_mutation_policy, accept_idempotency_key,
+                accept_request_fingerprint, repository_upload_idempotency_key,
+                repository_import_idempotency_key, operation_id, state, submission_id,
+                optimistic_version, created_by, created_at_us, effect_pending_at_us,
+                finalized_at_us, aborted_at_us, abort_code
+            ) VALUES (
+                'sa-failed-import', 'ws-failed-import', 1, 'ur-1', 'pr-1', 'repo-1',
+                ?, ?, 1, 'commit-main', 'sha256:canonical', 'd-source', 'd-snapshot',
+                ?, ?, 'closure-1', 'd-closure', 'manifest-1', 'sha256:manifest', NULL, NULL,
+                NULL, NULL, 'main', 'STRUCTURAL', 'REJECT', 'REBUILD_ALWAYS', 'accept-key',
+                'sha256:fp', 'upload-key', 'import-key', 'op-excluded-marker', 'ABORTED',
+                NULL, 1, 'actor-1', 1, NULL, NULL, 1, 'IMPORT_FAILED'
+            )
+            """,
+            (
+                BASELINE_HEAD.business_baseline_node_id,
+                BASELINE_HEAD.business_baseline_commit_id,
+                canonicalize_json_value([]),
+                canonicalize_json_value([]),
+            ),
+        )
+        unit_of_work.connection.execute(
+            """
+            INSERT INTO archive_plan_records (
+                plan_id, repository_id, gateway_device_external_key, business_project_id,
+                idempotency_key, request_fingerprint, accepted_by, accepted_at_us,
+                old_baseline_node_id, old_baseline_commit_id, old_baseline_head_version,
+                candidate_set_digest, selected_submission_id, selected_candidate_digest,
+                selected_repository_commit_id, confirmation_refs_json,
+                anomaly_resolution_refs_json, frozen_input_json
+            ) VALUES (
+                'plan-excluded-marker', 'repo-1', 'device-1', 'project-1', 'idem-plan',
+                'fp-plan', 'actor-1', 1, ?, ?, 1, 'digest-plan', 'sub-plan-only',
+                'cand-plan', 'commit-plan', '[]', '[]', '{}'
+            )
+            """,
+            (
+                BASELINE_HEAD.business_baseline_node_id,
+                BASELINE_HEAD.business_baseline_commit_id,
+            ),
+        )
+    facts = HttpHistoryReader(db_path).load_facts(
+        repository_id="repo-1",
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+    )
+    projection = project_history_tree(facts=facts)
+    ref_ids = {node.ref_id for node in projection.nodes}
+    for marker in EXCLUDED_HISTORY_MARKERS:
+        assert marker not in ref_ids
+
+
+def test_get_project_history_raises_integrity_failure_for_corrupt_facts(db_path: Path) -> None:
+    _seed_pending_review_submission(db_path)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE submission_records SET source_artifact_refs = ? WHERE repository_id = ?",
+            (b"not-json", "repo-1"),
+        )
+    identity = make_identity(
+        permissions=frozenset({"read_project_history", "workspace_read"}),
+    )
+    with pytest.raises(HistoryIntegrityFailure):
+        get_project_history(
+            context=identity,
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id="repo-1",
+                baseline_head=BASELINE_HEAD,
+            ),
+            history_reader=HttpHistoryReader(db_path),
+        )
+
+
+@pytest.mark.parametrize(("case_id", "limit"), HISTORY_LIMIT_BOUNDARY_CASES)
+def test_projection_rejects_limit_boundary_cases(case_id: str, limit: int) -> None:
+    del case_id
+    facts = _facts(
+        baseline_nodes=(),
+        submissions=(),
+        head=BASELINE_HEAD,
+    )
+    with pytest.raises(HistoryRequestValidation):
+        project_history_tree(facts=facts, limit=limit)

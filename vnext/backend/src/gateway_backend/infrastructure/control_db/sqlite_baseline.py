@@ -58,7 +58,7 @@ class SQLiteBaselineRepository(BaselineRepository):
         ).fetchone()
         if row is None:
             return None
-        return _node_from_row(row)
+        return node_from_row(row)
 
     def get_initial_node(self, repository_id: str) -> BaselineNode | None:
         row = self._connection.execute(
@@ -72,7 +72,7 @@ class SQLiteBaselineRepository(BaselineRepository):
         ).fetchone()
         if row is None:
             return None
-        return _node_from_row(row)
+        return node_from_row(row)
 
     def save_initial_node_and_head(
         self,
@@ -238,7 +238,7 @@ def assert_initial_scope_matches(
         raise ScopeResolutionError("baseline initial scope does not match provisioned mapping")
 
 
-def _node_from_row(row: sqlite3.Row) -> BaselineNode:
+def node_from_row(row: sqlite3.Row) -> BaselineNode:
     created_at_us = row["created_at_us"]
     if type(created_at_us) is not int:
         raise RuntimeError("baseline node row has invalid created_at_us")
@@ -272,4 +272,5 @@ __all__ = [
     "SQLiteBaselineRepository",
     "assert_initial_scope_matches",
     "get_current_head_from_connection",
+    "node_from_row",
 ]

@@ -124,6 +124,7 @@ HistoryNode {
 ```
 
 - **Commit 传递纪律**：`CommitId` 是 repository-scoped opaque string（1..1024 code points；E `vnext/repository_contracts` `CommitIdString = BoundedOpaqueString`；契约 `repository-service.md` §2 表）。所有层（binding preimage、job payload、HTTP DTO）按 opaque 值原样传递：**不做** 40-hex 断言、不 re-encode/trim/normalize；HTTP path 传输用既有 base64url canonical 编码规则（repository HTTP 层 E 同款）。DTO 约束按 code point 计 1..1024。reserve：40-hex 只是 Dolt 常见形态，不是合法域。
+- **CommitId 三方边界（5D 对齐门，S1 记录）**：设计/DTO 取 `CommitIdString`（1..1024 code points）；5D v5 control DB CHECK 将 `submission_records.repository_commit_id` 与 `baseline_node_records.commit_id` 限为 `length(...) BETWEEN 1 AND 255`（SQLite `length()` 对 UTF-8 TEXT 计字符）。S1 不迁移 DDL；持久化上界 255 字符、HTTP/Contract 上界 1024 code points 并存，避免 S2 compare DTO（`before_commit`/`current_commit`）重复踩坑。
 - **同 commit 多业务身份**：同一 commit 可同时是 submission S 与由 S 晋升的 baseline node B。二者各自成节点、稳定引用不同（`ref_kind/ref_id` 不同），`commit_id` 相同；不合并、不去重，`promoted_baseline_node_id` 是唯一的跨引用（见基线核查：5D handoff 中 submission 与 baseline 行各自持有引用）。
 - **业务父边 vs 技术 parent**：`parent` 由业务事实构造——SUBMISSION.parent = 其 `based_on_baseline_node_id` 指向的 baseline 节点；BASELINE_NODE.parent = `parent_node_id`（INITIAL 为 null）。Repository 技术 parent commit **不是** `parent`；V1 不暴露技术 parent（诊断字段允许的契约语义 deliver deferred，无 consumer）。
 - **disposition 覆盖**：任一成功 submission 节点**恰好一个** disposition 来源（`archive_disposition_records` 的 result 子级或无记录）；`CLOSED_NOT_ARCHIVED` 节点保留 commit 与 review facts，仅不是 archive candidate。
@@ -150,6 +151,7 @@ HistoryNode {
 
 - 唯一 V1 码：`NOT_CANDIDATE_BASE_ADVANCED` —— `review_status=APPROVED` 的 submission 节点，其 `based_on_baseline_node` 不再指向 current Head（base 已前进）。派生自 5D §3.1 candidate 资格规则，不持久化。
 - 其他 issue 码一律不发明；consumer 解析器只接受已列码，未知码 = 数据异常 → `503 HISTORY_INTEGRITY_FAILURE`（§7.2），不静默丢弃。
+- **S1 阶段说明**：V1 仅上述单一 producer 存在；「未知 issue 码 → 503」在 S1 无第二 producer 时为**空断言**（不可构造未知码）。S1 以 control DB 行解析损坏（enum/列值非法）证明 `HISTORY_INTEGRITY_FAILURE` 映射可达。
 
 ## 4. 授权与 exact commit 绑定
 
@@ -375,7 +377,7 @@ materialize 读回失败先分类再处置。原版本 “V1 无 delete/rewrite 
 | `GET /v1/history-compares/{operation_id}/bundle` | — | `200` `StreamingResponse` octet-stream；`Content-Disposition: attachment; filename="history-compare-{operation_id}.bundle"`（E `StreamingResponse` + adapter 模式） |
 | `POST /v1/history-compares/{operation_id}/integrity-ack` | header internal bearer（E `require_internal_bearer`）；body `{ acknowledgement_status: "ACKNOWLEDGED", resolution_reference: string }`（1..255 opaque） | `200` `{ incident_id, acknowledgement_status, resolution_reference, …incident 全字段 }`；已 ACK 同 resolution → 200 幂等；变更 resolution → 409；无 bearer → 401 |
 
-- `HistoryNode` HTTP 形状 = §3.2（camelCase 映射在 `B/http/mappers.py` 统一处理，E 惯例）。
+- `HistoryNode` HTTP 形状 = §3.2（字段定义与 DTO 校验在 `B/http/schemas/history.py`，snake_case 键名，与 E preview/archive 先例一致）。
 - **pending vs terminal**：pending 返回 `{operation_id, status: QUEUED|RUNNING, step?}`；worker 不重新授权（授权在 accept 边界完成，E operation accept/执行语义），HTTP 读侧每次重新 authorize。
 - **generic operation read**（`GET /v1/operations/{id}`，E）：授权按 job kind 分派——先加载 operation record：preview/submit 行为不变（现行 `workspace_read` + `authorize_operation_read`，E）；`job_kind == backend-vnext/history-compare` **不要求 `workspace_read`**，改由 acceptance record 再授权 scope + `read_project_history`（无 record / 跨 scope → 404 不披露）；FAILED + 类 (c) 时透传 `integrity_incident` 同形。实现面：`B/http/routes/operations.py` 的授权入口按 job kind 分派（现状 `assert_workspace_read_permission` 无条件前置，history-only actor 会在该路由 403——审核 F3），preview 路径行为零变化。读 incident 走 `read_project_history`；ack 走 internal bearer（§7.4），读/ack 分离。
 

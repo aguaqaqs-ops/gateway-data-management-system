@@ -53,7 +53,7 @@ def project_history_tree(
         promoted_by_submission=promoted_by_submission,
     )
     sorted_nodes = tuple(sorted(nodes, key=_node_sort_key))
-    cursor_order_key = _decode_cursor(cursor, head_version=head.version)
+    cursor_order_key = _decode_cursor(cursor)
     page_nodes = _paginate(sorted_nodes, limit=resolved_limit, after_order_key=cursor_order_key)
     next_cursor = _encode_next_cursor(page_nodes, sorted_nodes, head_version=head.version)
     return HistoryTreeProjection(head=head, nodes=page_nodes, next_cursor=next_cursor)
@@ -109,8 +109,6 @@ def _submission_node(
         based_on_baseline_node_id=submission.based_on_baseline_node_id,
         current_head_node_id=head.business_baseline_node_id,
     )
-    if eligibility_note is not None and eligibility_note is not HistoryEligibilityNote.NOT_CANDIDATE_BASE_ADVANCED:
-        raise HistoryIntegrityFailure("unsupported eligibility note")
     return HistoryNode(
         ref_kind=HistoryNodeRefKind.SUBMISSION,
         ref_id=submission.submission_id,
@@ -200,7 +198,7 @@ def _encode_cursor(*, order_key: list[object], head_version: int) -> str:
     return encoded
 
 
-def _decode_cursor(cursor: str | None, *, head_version: int) -> list[object] | None:
+def _decode_cursor(cursor: str | None) -> list[object] | None:
     if cursor is None:
         return None
     try:
@@ -224,7 +222,6 @@ def _decode_cursor(cursor: str | None, *, head_version: int) -> list[object] | N
         raise HistoryRequestValidation("cursor order_key is malformed")
     if type(stored_head_version) is not int or stored_head_version < 0:
         raise HistoryRequestValidation("cursor head_version is malformed")
-    del head_version
     return [created_at_us, kind_rank, ref_id]
 
 

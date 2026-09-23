@@ -6,6 +6,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
+from gateway_backend.application.history.contracts import (
+    MAX_HISTORY_CURSOR_BYTES,
+    MAX_HISTORY_PAGE_LIMIT,
+)
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import HistoryHttpDependencies, get_history_http
@@ -28,8 +32,8 @@ router = APIRouter(tags=["history"])
 def list_history_route(
     deps: Annotated[HistoryHttpDependencies, Depends(get_history_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
-    limit: Annotated[int | None, Query(ge=1, le=500)] = None,
-    cursor: Annotated[str | None, Query(max_length=1024)] = None,
+    limit: Annotated[int | None, Query(ge=1, le=MAX_HISTORY_PAGE_LIMIT)] = None,
+    cursor: Annotated[str | None, Query(max_length=MAX_HISTORY_CURSOR_BYTES)] = None,
 ) -> HistoryListResponse:
     return list_history_operation(
         context=context,

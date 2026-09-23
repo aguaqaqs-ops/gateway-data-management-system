@@ -13,6 +13,7 @@ from gateway_backend.application.history.contracts import (
     HistoryTreeProjection,
 )
 from gateway_backend.http.schemas.constraints import BoundedOpaqueId, NonNegativeIJsonInt
+from gateway_repository_contracts.types import CommitIdString
 
 HistoryNodeRefKindLiteral = Literal["baseline_node", "submission"]
 HistoryNodeKindLiteral = Literal["BASELINE_NODE", "SUBMISSION", "SYSTEM_MIGRATION"]
@@ -39,7 +40,7 @@ class HistoryHeadResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     node_id: BoundedOpaqueId
-    commit_id: BoundedOpaqueId
+    commit_id: CommitIdString
     version: NonNegativeIJsonInt
 
 
@@ -49,7 +50,7 @@ class HistoryNodeResponse(BaseModel):
     ref_kind: HistoryNodeRefKindLiteral
     ref_id: BoundedOpaqueId
     node_kind: HistoryNodeKindLiteral
-    commit_id: BoundedOpaqueId
+    commit_id: CommitIdString
     created_at: datetime
     parent: HistoryNodeRefResponse | None = None
     baseline_kind: HistoryBaselineKindLiteral | None = None

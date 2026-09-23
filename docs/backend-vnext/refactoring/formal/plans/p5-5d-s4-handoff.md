@@ -1,6 +1,6 @@
 # P5-5D-S4R2 Final Candidate Gate and Slice Handoff
 
-状态：**S4R2 gate evidence complete — `delivery_recommendation: pass_recommended`（delivery 不签 slice exit）**
+状态：**S4R2 pass — slice exit authorized @ [p5-5d-s4r2-independent-acceptance.md](p5-5d-s4r2-independent-acceptance.md)；`delivery_recommendation: pass_recommended`（delivery 不签 slice exit）**
 
 日期：2026-09-23
 
@@ -30,7 +30,7 @@ prebuilt_used: no
 p5_5d_s1_stage_exit: pass
 p5_5d_s2_stage_exit: pass
 p5_5d_s3_stage_exit: pass
-p5_5d_slice_exit: pending_independent_acceptance
+p5_5d_slice_exit: pass
 p5_5e_implementation_authorized: no
 production_deployment_authorized: no
 new_repository_effect_authorized: no
@@ -278,12 +278,13 @@ Repository effect。5E 未进入实现范围；其未跟踪 review 文档已原�
 delivery_recommendation: pass_recommended
 review: delivery_gate_evidence_complete
 acceptance_record: docs/backend-vnext/refactoring/formal/plans/p5-5d-s4r2-independent-acceptance.md
-p5_5d_slice_exit: pending_independent_acceptance
+p5_5d_slice_exit: pass
+slice_exit_acceptance: docs/backend-vnext/refactoring/formal/plans/p5-5d-s4r2-independent-acceptance.md
 slice_exit: not_signed_by_delivery
 production_deployment_authorized: no
 new_repository_effect_authorized: no
 ```
 
 Delivery 不代签 `p5_5d_slice_exit`、`production_deployment_authorized` 或
-`new_repository_effect_authorized`；S4R2 acceptance record 中的 slice-exit 签名仍需独立
-acceptance context 或用户在聊天中显式授权后落盘。
+`new_repository_effect_authorized`；slice-exit 签名已由独立 acceptance context 在复审通过后于
+2026-09-23 落盘（见 S4R2 acceptance record），delivery 自身未签署。

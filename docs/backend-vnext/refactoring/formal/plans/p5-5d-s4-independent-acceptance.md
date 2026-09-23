@@ -1,4 +1,9 @@
-# P5-5D-S4 Independent Slice Exit Acceptance
+# P5-5D-S4 Independent Slice Exit Acceptance Record
+
+> **SUPERSEDED（2026-09-23）**：本文绑定的候选 `05e0399fe9` 上 `five_package_static: pass` 复核
+> 不可复现，本记录的 `p5_5d_slice_exit: pass` 不再是当前权威。现行权威记录：
+> [p5-5d-s4r2-independent-acceptance.md](p5-5d-s4r2-independent-acceptance.md)（绑定 `af833695ef`）。
+> 以下原文仅作历史保留，不改写。
 
 状态：**PASS — `p5_5d_slice_exit: pass`**
 

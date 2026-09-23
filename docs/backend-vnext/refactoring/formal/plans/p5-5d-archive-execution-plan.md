@@ -1,6 +1,6 @@
 # P5-5D Archive Execution Plan
 
-状态：**ACCEPTED — S1 pass；S2 pass；S3 pass；S4 gate evidence complete（slice exit pending independent acceptance）**
+状态：**ACCEPTED — S1 pass；S2 pass；S3 pass；S4 pass（slice exit）**
 
 审核依据：[S0 Independent Docs Acceptance](p5-5d-s0-independent-docs-acceptance.md)。
 
@@ -35,9 +35,9 @@ production_deployment_authorized: no
 new_repository_effect_authorized: no
 p5_5d_s4_candidate_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
 p5_5d_s4_gate_tested_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
-p5_5d_slice_exit: pending_independent_acceptance
+p5_5d_slice_exit: pass
 s4_acceptance_record: p5-5d-s4r2-independent-acceptance.md
-next_step: P5-5D-S4-independent-acceptance
+next_step: P5-5E-docs-entry
 ```
 
 S0 文档编写及独立复审已完成。S1 **pass**（Baseline Head authority、initial-empty 前置、v5
@@ -48,8 +48,8 @@ S3 **pass**（2026-09-23 authorized closure，见 [p5-5d-s3-stage-exit-acceptanc
 S4R2 **gate evidence complete**（2026-09-23，见 [p5-5d-s4-handoff.md](p5-5d-s4-handoff.md) 与
 [p5-5d-s4r2-independent-acceptance.md](p5-5d-s4r2-independent-acceptance.md)）；candidate 与
 gate-tested HEAD 均为 `af833695ef1c16b1ea0744d1b6eff6b5ada9924c`。旧候选
-`05e0399fe9` 的 `five_package_static: pass` 已显式 supersede；`p5_5d_slice_exit` 尚未由
-delivery 签署，等待独立 acceptance 或用户显式授权。
+`05e0399fe9` 的 `five_package_static: pass` 已显式 supersede；`p5_5d_slice_exit: pass` 已由独立
+acceptance context 复审签署（2026-09-23，见 superseding acceptance record），delivery 未签署。
 S1/S2 交付无 Archive HTTP API；S3 交付完整生产 API 与双 actor compose journey。v5 仍未发布。
 O-1（`test_production_wiring.py`）已在 S3 修复（19 passed）。
 未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；Archive 自身始终零写。
@@ -285,12 +285,12 @@ build 并运行 §6 全部 conjunction（含从真实零表初始 commit 开始�
 
 ### S4 — final fresh candidate conjunction and independent exit
 
-**S4R2 gate evidence complete**（2026-09-23）。handoff 见 [p5-5d-s4-handoff.md](p5-5d-s4-handoff.md)；
+**S4R2 slice exit: pass**（2026-09-23，独立 acceptance 复审签署）。handoff 见 [p5-5d-s4-handoff.md](p5-5d-s4-handoff.md)；
 superseding acceptance evidence 见 [p5-5d-s4r2-independent-acceptance.md](p5-5d-s4r2-independent-acceptance.md)。
 当前候选与 gate-tested HEAD 均为 `af833695ef1c16b1ea0744d1b6eff6b5ada9924c`；权威 runner
-exit 0（backend 2519 passed）；fresh-build conjunction **6 passed, 0 skipped**
+exit 0（backend 2519 passed，独立复跑复现）；fresh-build conjunction **6 passed, 0 skipped**
 （`gateway-p5-5d-s4r2-gate`）。旧候选 `05e0399fe9` 的 static 声明已 supersede；
-`p5_5d_slice_exit: pending_independent_acceptance`，不授权 production deployment / 5E implementation。
+`p5_5d_slice_exit: pass`，不授权 production deployment / 5E implementation。
 
 目标：冻结精确 source/test/deployment 候选，关闭独立 findings，汇总所有唯一 owner 与真实生产
 入口证据。在该候选运行五包 static、权威 runner、fresh image conjunction；之前阶段结果只作

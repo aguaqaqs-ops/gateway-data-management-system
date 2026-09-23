@@ -1,6 +1,6 @@
 # P5-5D-S4R2 Superseding Independent Slice Exit Acceptance Record
 
-状态：**READY FOR INDEPENDENT ACCEPTANCE — delivery 未签署 `p5_5d_slice_exit`**
+状态：**PASS — `p5_5d_slice_exit: pass`（independent acceptance context 复审签署，2026-09-23）**
 
 日期：2026-09-23
 
@@ -24,14 +24,14 @@ candidate_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
 gate_tested_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
 tests_remediation_commit: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
 archive_implementation_binding: d61d37be97821f303e9083abe739618cebd96b46
-decision: pass_recommended_pending_independent_acceptance
+decision: pass
 findings_closed: [S4-submit-integration-baseline-fix-and-static-recheck]
 review_findings_open: []
 p5_5d_s1_stage_exit: pass
 p5_5d_s2_stage_exit: pass
 p5_5d_s3_stage_exit: pass
-p5_5d_slice_exit: pending_independent_acceptance
-r2_s1_record_gap: explicit_waiver_recorded_pending_acceptance
+p5_5d_slice_exit: pass
+r2_s1_record_gap: waiver_accepted_by_independent_acceptance
 p5_5e_implementation_authorized: no
 production_deployment_authorized: no
 new_repository_effect_authorized: no
@@ -147,18 +147,35 @@ Deferred nodeids: none
 Required execution point: independent slice acceptance; before production deployment or Repository effect
 ```
 
+## Independent re-review evidence（independent acceptance context，2026-09-23）
+
+- T3 独立复跑：五包 ruff + mypy 全部 exit 0（backend ruff `All checks passed!`，mypy 421 files）。
+- Source-tree digest 按 §6.3 recipe 复算 4 次、5 种变体均得
+  `ba627192eb47da1f1bf1b71ee32c982e7cb55c739f5a30f86c43cd6d4a830ba5`（905 文件）；backend src
+  digest / 五锁 / compose SHA 全部匹配。
+- 镜像绑定：三个 image ID 存在且 tag 映射正确；repository-service OCI revision = 候选 SHA；
+  backend/worker 与上一轮镜像的 Config 唯一差异为 `com.docker.compose.project` label，两镜像内
+  src digest 均等于本地 `b37e8b3e…6285`；provenance JSON 与 handoff 表逐字一致；conjunction
+  junitxml 6/6 PASS、0 skipped，逐项耗时与记录吻合。
+- T4 独立复跑（独占窗口、全量输出）：**exit 0** —— 242 / 152 / 154 / **2519** / 1678+1 skipped /
+  serial **205**，与交付记录逐项一致。首次复跑因第三方并发 runner 污染（共享宿主 8000 与 dolt
+  PID 空间，serial 4 项 dolt-PID 断言失败）清场后复跑全绿；该污染与候选无关。
+- 据此接受 R2 范围化豁免（仅历史 S1 文档/签署缺口，行为面已由 T4/T5 覆盖）与 F3 路径披露，
+  无未关闭 finding。
+
 ## Acceptance boundary and signature
 
 Archive 仍为零 Repository effect；v5 schema 仍未发布；本记录不授权 5E implementation、production
-deployment 或 `new_repository_effect_authorized`。delivery 不能签署本记录中的 slice exit；当前
-聊天也没有用户对 `p5_5d_slice_exit: pass` 的显式授权。
+deployment 或 `new_repository_effect_authorized`。delivery 不能签署本记录中的 slice exit；本记录
+的 slice exit 由独立 acceptance context 在复审通过后签署。
 
 ```yaml
 acceptance_signature:
-  status: absent
-  signer: none
-  required: independent_acceptance_context_or_explicit_user_authorization
-p5_5d_slice_exit: pending_independent_acceptance
+  status: signed
+  signer: independent_acceptance_context
+  signed_date: 2026-09-23
+  basis: independent_re_review_static_runner_provenance_reproduced
+p5_5d_slice_exit: pass
 production_deployment_authorized: no
 new_repository_effect_authorized: no
 ```

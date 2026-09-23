@@ -105,8 +105,8 @@ cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest -q -m 'integration 
 git rev-parse fdf430e76811085a29c268c1f09c1239499fbd84^{tree}
 # 095fcf2d7b30a4f515e0168968c21593725c21ac  （= gate_tested_source_tree_sha）
 
-git rev-parse <exit_candidate_head>^{tree}
-# （= exit_candidate_source_tree_sha；提交 finalization 后填入具体 hash）
+git rev-parse 8490ed77bab3917faf5f551230a9431aac6b9964^{tree}
+# 3f35c65bb67bea76dbaf4e22084cf049f30eec51  （= exit_candidate_source_tree_sha）
 
 sha256sum vnext/backend/uv.lock vnext/repository_client/uv.lock vnext/repository_contracts/uv.lock \
           vnext/repository_service/uv.lock vnext/shared_kernel/uv.lock vnext/deploy/compose.yaml

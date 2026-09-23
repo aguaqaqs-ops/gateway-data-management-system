@@ -5,10 +5,12 @@
 ## §6.3 运行镜像证据
 
 ```
-gate_tested_head: pending-step-3-gate-run
-gate_tested_source_tree_sha: pending-step-3-gate-run
+gate_tested_head: fdf430e76811085a29c268c1f09c1239499fbd84
+gate_tested_source_tree_sha: 095fcf2d7b30a4f515e0168968c21593725c21ac
 built_source_tree_sha: 990989628801caee4cd36db977c59fba3176a4b1
-built_source_tree_sha 说明: 生产接线改动（P2 bounded promotion fetch）所在的源码树（23285084f0^{tree}）；其 vnext/ 内容与本记录最终候选逐字节相同；容器镜像内容已用 md5sum 逐字节核对（sqlite_history.py = 6ca630ee487a3aac9c9a8d5a798d862b，worktree == deploy-backend）。09bbbe9f4145a156262f49c35aa1999770b65bfc / 5d56d205fa8ed61b854dc67f8ab2d2bd919b3542 为 pre-amend 悬空对象，不属于本记录，不得引用。
+exit_candidate_head: pending-step-4-commit
+exit_candidate_source_tree_sha: pending-step-4-commit
+built_source_tree_sha 说明: 生产接线改动（P2 bounded promotion fetch）所在的源码树，其 vnext/ 内容与本记录最终候选逐字节相同；容器镜像内容已用 md5sum 逐字节核对（sqlite_history.py = 6ca630ee487a3aac9c9a8d5a798d862b，worktree == deploy-backend）。09bbbe9f4145a156262f49c35aa1999770b65bfc / 5d56d205fa8ed61b854dc67f8ab2d2bd919b3542 为 pre-amend 悬空对象，不属于本记录，不得引用。
 backend/uv.lock sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 repository_client/uv.lock sha256: 6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954
 repository_contracts/uv.lock sha256: b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3
@@ -19,6 +21,7 @@ repository-service image: sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44
 backend image (deploy-backend compose build): sha256:ddd872935178a1ef8303c85cf859bf481dca3ee95d19d10843b8ebfb044757e0
 worker image (deploy-worker compose build): sha256:765948a61980c009582d87443f95d3b228212af89f169627b3a17dc1f8bc8db5
 compose gate provenance (authoritative): docs/backend-vnext/refactoring/formal/plans/p5-5e-s1-compose-gate-provenance.json
+gate compose project: gateway-backend-gate-test_backend_container_ready_a0
 gate running backend container image: sha256:835cab12283e03e93f3167769d153a7d4ba7fe562f8c2f5f02cff8ddfe42a288
 gate running == gate built (pytest assert): yes（gate 内 backend 镜像；≠ deploy-backend compose build ddd87293…）
 sqlite_history.py md5 (worktree vs deploy-backend): 6ca630ee487a3aac9c9a8d5a798d862b == 6ca630ee487a3aac9c9a8d5a798d862b
@@ -28,7 +31,7 @@ focused 测试摘要:
   - S1 focused (7 files): 125 passed
   - backend unit -m unit: 2400 passed, 163 deselected
   - 五包 ruff + mypy: all pass
-容器门禁结果:
+容器门禁结果 (gate_tested_head fdf430e768):
   - tests/test_backend_http_container_gate.py::test_backend_image_builds_with_http_server_entrypoint PASSED
   - tests/test_backend_http_container_gate.py::test_backend_container_ready_and_stops_cleanly_with_repository_service PASSED
 5D 对齐 gate 记录: commit_id / ref_id 三方边界已回写设计 §3.2 + kickoff §3

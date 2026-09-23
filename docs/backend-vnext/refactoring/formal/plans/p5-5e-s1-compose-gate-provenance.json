@@ -1,0 +1,17 @@
+{
+  "compose_project_name": "gateway-backend-gate-test_backend_container_ready_a0",
+  "gate_tested_head": "fdf430e76811085a29c268c1f09c1239499fbd84",
+  "recorded_at": "2026-09-24",
+  "authority": "docs/backend-vnext/refactoring/formal/plans/p5-5e-s1-review-fix-handoff.md §6.3",
+  "note": "Authoritative S1 exit running-container snapshot. vnext/backend/tests/support/.last_compose_gate_provenance.json is a gitignored local last-run overlay and must not be used for exit verification.",
+  "containers": {
+    "gateway-backend-gate-test_backend_container_ready_a0-backend-1": {
+      "container_id": "95a5361decde",
+      "image": "sha256:835cab12283e03e93f3167769d153a7d4ba7fe562f8c2f5f02cff8ddfe42a288"
+    },
+    "gateway-backend-gate-test_backend_container_ready_a0-repository-service-1": {
+      "container_id": "3411a3680d35",
+      "image": "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+    }
+  }
+}

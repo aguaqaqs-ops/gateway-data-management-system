@@ -130,12 +130,6 @@ def load_history_page_from_connection(
     after_order_key: list[object] | None,
 ) -> HistoryPageSnapshotInfra:
     head = get_current_head_from_connection(connection, repository_id)
-    promoted_by_submission = _load_promoted_by_submission(
-        connection,
-        repository_id=repository_id,
-        gateway_device_external_key=gateway_device_external_key,
-        business_project_id=business_project_id,
-    )
     rows = _load_history_page_rows(
         connection,
         repository_id=repository_id,
@@ -146,6 +140,16 @@ def load_history_page_from_connection(
     )
     has_next_page = len(rows) > limit
     page_rows = rows[:limit]
+    submission_ids = tuple(
+        row.ref_id for row in page_rows if row.ref_kind == "submission"
+    )
+    promoted_by_submission = _load_promoted_by_submission_for_submissions(
+        connection,
+        repository_id=repository_id,
+        gateway_device_external_key=gateway_device_external_key,
+        business_project_id=business_project_id,
+        submission_ids=submission_ids,
+    )
     return HistoryPageSnapshotInfra(
         repository_id=repository_id,
         head=head,
@@ -153,6 +157,32 @@ def load_history_page_from_connection(
         promoted_by_submission=promoted_by_submission,
         has_next_page=has_next_page,
     )
+
+
+def _load_promoted_by_submission_for_submissions(
+    connection: sqlite3.Connection,
+    *,
+    repository_id: str,
+    gateway_device_external_key: str,
+    business_project_id: str,
+    submission_ids: tuple[str, ...],
+) -> dict[str, str]:
+    if not submission_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in submission_ids)
+    rows = connection.execute(
+        f"""
+        SELECT source_submission_id, node_id
+        FROM baseline_node_records
+        WHERE repository_id = ?
+          AND gateway_device_external_key = ?
+          AND business_project_id = ?
+          AND source_submission_id IN ({placeholders})
+        ORDER BY created_at_us ASC, node_id ASC
+        """,
+        (repository_id, gateway_device_external_key, business_project_id, *submission_ids),
+    ).fetchall()
+    return _promoted_map_from_rows(rows)
 
 
 def _load_promoted_by_submission(
@@ -174,6 +204,10 @@ def _load_promoted_by_submission(
         """,
         (repository_id, gateway_device_external_key, business_project_id),
     ).fetchall()
+    return _promoted_map_from_rows(rows)
+
+
+def _promoted_map_from_rows(rows: list[sqlite3.Row]) -> dict[str, str]:
     promoted: dict[str, str] = {}
     for row in rows:
         source_submission_id = row["source_submission_id"]

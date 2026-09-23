@@ -139,7 +139,7 @@ HistoryNode {
   3. 仍同 `ref_id` UTF-8 字节升序。
 - **分页**：`GET /v1/history?limit=&cursor=`。`limit` 默认 100，max 500（P5 §12 把 cursor/page 形状 defer 到本 slice，此处冻结）。响应含 `next_cursor`（opaque base64url，canonical JSON `{order_key, head_version}`，≤1024 字节，不可解析 → 422）。**无 `total`**（全集无界，不做全量冻结）。
 - **每页是独立只读快照**：页间 Head 前进可接受；响应头字段 `head{node_id, commit_id, version}` 让客户端检测漂移。跨页不承诺一致性。
-- **分页 DB 成本（S1 记录）**：Python 侧读取/映射/排序已收敛为 O(limit)；SQLite 侧 `UNION ALL + ORDER BY + LIMIT` 仍对全 scope history 行排序（无含 `created_at_us` 的索引）→ 单请求 DB 成本 O(scope history)，归后续 perf slice，不阻断 S1。
+- **分页 DB 成本（S1 记录）**：生产页路径 Python 侧节点行与映射为 O(limit)；晋升关系 map 仅查询当前页 submission 的 `source_submission_id`（≤ 页内 submission 数，重复来源在 SQL 侧 `ORDER BY created_at_us, node_id` 后末位写入），不为全 scope 构造完整晋升字典。SQLite 侧 `UNION ALL + ORDER BY + LIMIT` 仍对全 scope history 行排序（无含 `created_at_us` 的索引）→ 单请求 DB 节点扫描成本 O(scope history)，归后续 perf slice，不阻断 S1。
 - **读取语义（并发 Review/Archive）**：单请求一个 control DB readonly 快照（`BEGIN`，WAL）；无缓存、无跨请求状态；读到的节点/边/prompt 在同一快照内自洽。Head 并发推进不破坏页内一致性。
 
 ### 3.4 SYSTEM_MIGRATION 语义保留（无 consumer 框架不实现）

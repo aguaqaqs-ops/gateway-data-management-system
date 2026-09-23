@@ -833,6 +833,84 @@ def test_get_project_history_rejects_disabled_mapping_in_same_transaction(db_pat
         )
 
 
+def test_paginated_history_loader_bounds_promotion_fetch(
+    db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary = _seed_promotion_duplicate_fixture(db_path)
+    _insert_duplicate_promoted_baseline_rows(
+        db_path,
+        source_submission_id=primary.submission_id,
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        for index in range(1000):
+            connection.execute(
+                """
+                INSERT INTO baseline_node_records (
+                    node_id, repository_id, gateway_device_external_key, business_project_id,
+                    commit_id, kind, parent_node_id, source_submission_id, created_at_us
+                ) VALUES (?, 'repo-1', 'device-1', 'project-1', ?, 'ARCHIVED_SUBMISSION', ?, ?, ?)
+                """,
+                (
+                    f"noise-node-{index}",
+                    f"commit-noise-{index}",
+                    BASELINE_HEAD.business_baseline_node_id,
+                    f"noise-sub-{index}",
+                    10_000 + index,
+                ),
+            )
+        connection.commit()
+    import gateway_backend.infrastructure.control_db.sqlite_history as sqlite_history_module
+
+    promotion_row_counts: list[int] = []
+    original_map = sqlite_history_module._promoted_map_from_rows
+
+    def counting_map(rows: list[sqlite3.Row]) -> dict[str, str]:
+        promotion_row_counts.append(len(rows))
+        return original_map(rows)
+
+    monkeypatch.setattr(sqlite_history_module, "_promoted_map_from_rows", counting_map)
+    identity = make_identity(
+        permissions=frozenset({"read_project_history", "workspace_read"}),
+    )
+    first_page = get_project_history(
+        context=identity,
+        unit_of_work_factory=_uow_factory(db_path),
+        snapshot_loader=HttpHistoryReader(db_path),
+        limit=1,
+    )
+    assert len(first_page.nodes) == 1
+    assert first_page.nodes[0].node_kind is HistoryNodeKind.BASELINE_NODE
+    assert promotion_row_counts == []
+
+    cursor = first_page.next_cursor
+    submission_page = None
+    while cursor is not None:
+        promotion_row_counts.clear()
+        page = get_project_history(
+            context=identity,
+            unit_of_work_factory=_uow_factory(db_path),
+            snapshot_loader=HttpHistoryReader(db_path),
+            limit=50,
+            cursor=cursor,
+        )
+        submission_nodes = [
+            node for node in page.nodes if node.node_kind is HistoryNodeKind.SUBMISSION
+        ]
+        if submission_nodes:
+            submission_page = page
+            break
+        cursor = page.next_cursor
+    assert submission_page is not None
+    submission_nodes = [
+        node for node in submission_page.nodes if node.node_kind is HistoryNodeKind.SUBMISSION
+    ]
+    assert promotion_row_counts == [3]
+    sub_1 = next(node for node in submission_nodes if node.ref_id == primary.submission_id)
+    assert sub_1.promoted_baseline_node_id == "zz-node"
+
+
 def test_paginated_history_loader_bounds_submission_fetch(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(

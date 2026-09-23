@@ -15,8 +15,11 @@ import pytest
 from tests.support.compose_gate_harness import (
     BACKEND_URL,
     build_backend_image,
+    capture_running_container_provenance,
+    compose_image_ids,
     compose_project_name,
     ensure_repository_service_image,
+    persist_compose_gate_provenance,
     require_docker,
     run_compose,
 )
@@ -125,6 +128,19 @@ def test_backend_container_ready_and_stops_cleanly_with_repository_service(tmp_p
 
     try:
         _wait_http_ok(f"{BACKEND_URL}/readyz")
+        running = capture_running_container_provenance(env)
+        built = compose_image_ids(env)
+        backend_project = f"{env['COMPOSE_PROJECT_NAME']}-backend-1"
+        backend_running = running.get(backend_project, {}).get("image")
+        backend_built = built["backend"].get("id")
+        if backend_running is None or backend_built is None:
+            pytest.fail("container gate missing backend running or built image id")
+        if backend_running != backend_built:
+            pytest.fail(
+                "running backend image does not match fresh gate build: "
+                f"{backend_running} != {backend_built}"
+            )
+        persist_compose_gate_provenance(env, running)
         stop = run_compose(env, "stop", "-t", "5", "backend")
         if stop.returncode != 0:
             pytest.fail(f"compose stop backend failed: {stop.stderr}\n{stop.stdout}")

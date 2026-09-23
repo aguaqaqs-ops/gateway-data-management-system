@@ -5,8 +5,8 @@
 ## §6.3 运行镜像证据
 
 ```
-HEAD: a91251dabca7e5843f6adcdb0446836b10da1b72
-source_tree_sha: b94de44f2380907e257feba6573fce5248cfcb13
+HEAD: 09bbbe9f4145a156262f49c35aa1999770b65bfc
+source_tree_sha: 5d56d205fa8ed61b854dc67f8ab2d2bd919b3542
 backend/uv.lock sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 repository_client/uv.lock sha256: 6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954
 repository_contracts/uv.lock sha256: b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3
@@ -14,16 +14,17 @@ repository_service/uv.lock sha256: 6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0
 shared_kernel/uv.lock sha256: 7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898
 deploy/compose.yaml sha256: f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0
 repository-service image: sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10
-backend image (deploy-backend): sha256:cff3d8ffff65218819d9353468425dade836f0ff354ac73287d9919b1c97836a
-worker image (deploy-worker): sha256:8bfddfe74c34388c202a589a391ac8d8b82cbac659435f6b8564e9f199d65cb3
-sqlite_history.py md5 (worktree vs deploy-backend): 2a3b3c23ef80fe82bded3ec174bdca9e == 2a3b3c23ef80fe82bded3ec174bdca9e
-compose project: deploy（容器门禁 pytest 动态 project 亦通过 compose build）
+backend image (deploy-backend compose build): sha256:ddd872935178a1ef8303c85cf859bf481dca3ee95d19d10843b8ebfb044757e0
+worker image (deploy-worker compose build): sha256:765948a61980c009582d87443f95d3b228212af89f169627b3a17dc1f8bc8db5
+gate compose project: gateway-backend-gate-test_backend_container_ready_a0
+gate running backend container image: sha256:835cab12283e03e93f3167769d153a7d4ba7fe562f8c2f5f02cff8ddfe42a288
+gate running == gate built (pytest assert): yes
+sqlite_history.py md5 (worktree vs deploy-backend): 6ca630ee487a3aac9c9a8d5a798d862b == 6ca630ee487a3aac9c9a8d5a798d862b
 fresh_build: yes
-重建理由: S1 exit 收尾触碰 backend 源码（D1 promotion ORDER BY + 测试/文档）；须以新 HEAD 证明 production wiring
+重建理由: S1 复审 P2 修复（页路径 bounded promotion fetch + gate provenance 挂接）；须以新 HEAD 证明 production wiring
 focused 测试摘要:
-  - S1 focused (7 files): 124 passed
-  - backend unit -m unit: 2399 passed, 163 deselected
-  - unshare dolt unit (history 子集): 111 passed
+  - S1 focused (7 files): 125 passed
+  - backend unit -m unit: 2400 passed, 163 deselected
   - 五包 ruff + mypy: all pass
 容器门禁结果:
   - tests/test_backend_http_container_gate.py::test_backend_image_builds_with_http_server_entrypoint PASSED
@@ -48,7 +49,7 @@ focused 测试摘要:
 | R-c | 删除 `project_history_page` 死参数 `limit` |
 | R-b | 损坏 `source_artifact_refs` 时 GET /v1/history 仍 200（页路径不解码重列） |
 | R-d | 设计 §3.2 ref_id 三方边界脚注 + kickoff 对齐行 |
-| R-f | 设计 §3.3 + handoff：Python O(limit)；SQLite 单请求 O(scope history)，归 perf slice |
+| R-f | 设计 §3.3 + handoff：页内节点 O(limit)；晋升 map 仅查页内 submission（≤ 页内 submission 数 × 重复来源上界）；SQLite 单请求 O(scope history)，归 perf slice |
 
 ## D1 可达性
 
@@ -61,7 +62,8 @@ focused 测试摘要:
 | --- | --- |
 | P2 scope | 单 readonly UoW：`resolve_provisioned_scope` + `load_page_in_transaction` 同快照 |
 | P2 pagination | `UNION ALL + LIMIT` 生产分页；`project_history_page` |
-| P1 container | fresh compose build；`test_backend_http_container_gate.py` 2/2 pass |
+| P1 container | fresh compose build；gate 记录 running container image + built image 一致性；`test_backend_http_container_gate.py` 2/2 pass |
+| P2 promotion | 先 `_load_history_page_rows` 分页，再 `_load_promoted_by_submission_for_submissions(IN 页内 submission_ids)`；`test_paginated_history_loader_bounds_promotion_fetch` |
 
 ## HTTP 语义记录
 

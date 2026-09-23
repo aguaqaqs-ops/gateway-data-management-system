@@ -5,7 +5,7 @@
 ## §6.3 运行镜像证据
 
 ```
-HEAD: <待验收提交后填写>（分支 phase1/gate-ownership-repair）
+HEAD: daed6a4d61（分支 phase1/gate-ownership-repair）
 source_tree_sha / pyproject+uv.lock sha（五包）: 未改动 lock / Dockerfile
 deploy/compose.yaml sha256: 未改动
 running image: 未构建 / 未运行容器门禁

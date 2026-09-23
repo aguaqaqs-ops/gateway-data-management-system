@@ -1,6 +1,6 @@
 # P5-5D Archive Execution Plan
 
-状态：**ACCEPTED — S1 pass；S2 pass；S3 pass；S4 pass（slice exit）**
+状态：**ACCEPTED — S1 pass；S2 pass；S3 pass；S4 pass；P5-5D slice exit signed @ [p5-5d-slice-exit-final.md](p5-5d-slice-exit-final.md)**
 
 审核依据：[S0 Independent Docs Acceptance](p5-5d-s0-independent-docs-acceptance.md)。
 
@@ -37,6 +37,7 @@ p5_5d_s4_candidate_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
 p5_5d_s4_gate_tested_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
 p5_5d_slice_exit: pass
 s4_acceptance_record: p5-5d-s4r2-independent-acceptance.md
+p5_5d_exit_record: p5-5d-slice-exit-final.md
 next_step: P5-5E-docs-entry
 ```
 
@@ -405,15 +406,19 @@ Container rebuild required: yes
 Reason: S4R2 final candidate fresh-build conjunction and current-HEAD provenance
 Last verified image revision: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
 Last verified source-tree/image IDs: ba627192…30ba; 3ced4f…de84d; e7a7c10…30df7; 73680e4…49cc6
-Current gate: passed for candidate; independent slice acceptance pending
+Current gate: passed for gate-tested candidate; p5_5d_slice_exit signed @ p5-5d-s4r2-independent-acceptance.md (2026-09-23)
 Deferred nodeids: none
-Required execution point: independent S4 acceptance; before production deployment or Repository effect
+Required execution point: none for 5D slice exit; production deployment or Repository effect remain unauthorized
 ```
+
+运行中容器证据的权威落盘为 [p5-5d-s4r2-compose-gate-provenance.json](p5-5d-s4r2-compose-gate-provenance.json)。
+gitignored `tests/support/.last_compose_gate_provenance.json` 仅为本地 last-run 覆盖，可能已被
+无关 compose 改写，不得作为 slice exit 复核依据。
 
 T3/T4/T5 期间 worktree clean，905-file source-tree digest 为
 `ba627192eb47da1f1bf1b71ee32c982e7cb55c739f5a30f86c43cd6d4a830ba5`；镜像和实际运行容器
-IDs 详见 [S4R2 handoff §6.3](p5-5d-s4-handoff.md)。本轮 docs-only 提交不改变 tracked
-`vnext/**`，不会改变该 gate-tested source tree。
+IDs 详见 [S4R2 handoff §6.3](p5-5d-s4-handoff.md) 与上述 provenance JSON。本轮 docs-only
+提交不改变 tracked `vnext/**`，不会改变该 gate-tested source tree。
 
 ## 7. Final exit evidence and stopping rules
 
@@ -432,7 +437,8 @@ IDs 详见 [S4R2 handoff §6.3](p5-5d-s4-handoff.md)。本轮 docs-only 提交�
    skip/延期与理由，必要 conjunction 任何 skip 都不能通过。
 6. P5 §2A 增量未扩散证据及原有收口项的 owner/延期位置；占位 projection 无虚假依赖，未新增
    private import、wire 泄漏、基础层倒挂、反向 transaction→job 或无 consumer framework。
-7. delivery 建议状态及独立 acceptance 待办；禁止交付者自签 `accepted` 或 `p5_5d_slice_exit: pass`。
+7. delivery 建议状态及独立 acceptance 记录（5D：`pass` @ S4R2）；禁止交付者自签 `accepted` 或
+   `p5_5d_slice_exit: pass`。
 
 全阶段停止条件：需要新 commit/Repository write/ref move、多 candidate merge、持久候选/执行
 状态、另一 DB/broker/sidecar/outbox、跨 host writer、业务与技术 Head 合并、跨 scope 自动修复，

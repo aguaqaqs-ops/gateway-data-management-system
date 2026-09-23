@@ -118,7 +118,8 @@ Conjunction 使用 project `gateway-p5-5d-s4r2-gate`、`GATEWAY_COMPOSE_GATE_PRE
 | repository-service image | `sha256:3ced4f022e0fcff1a4b0ae5c071c018c8fdf826fb820e83b916772435ecde84d`；OCI revision = candidate |
 | backend image | `sha256:e7a7c10f3f798059cd6fa92448352e298dc1660d2b0cfa5f2416d5ad8aa30df7` |
 | worker image | `sha256:73680e40265b5b109ecdc987d2f0607b8ab29218ab85fb3bfc1098c6edb49cc6` |
-| Running provenance | [`tests/support/.last_compose_gate_provenance.json`](../../../../vnext/backend/tests/support/.last_compose_gate_provenance.json)；project `gateway-p5-5d-s4r2-gate` |
+| Running provenance (authoritative) | [p5-5d-s4r2-compose-gate-provenance.json](p5-5d-s4r2-compose-gate-provenance.json) |
+| Local last-run overlay (gitignored, non-authoritative) | `vnext/backend/tests/support/.last_compose_gate_provenance.json` |
 | Final container IDs | repository-service `df856f8a770d`; backend `300fbd493f27`; worker `a2b9fa9107b0` |
 | Backend/worker content proof | Each image digest equals local `b37e8b3e…6285` |
 
@@ -142,9 +143,9 @@ Container rebuild required: yes
 Reason: S4R2 final candidate fresh-build conjunction and current-HEAD provenance
 Last verified image revision: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
 Last verified source-tree/image IDs: ba627192…30ba; 3ced4f…de84d; e7a7c10…30df7; 73680e4…49cc6
-Current gate: passed for candidate; acceptance signature pending
+Current gate: passed for gate-tested candidate; p5_5d_slice_exit signed (independent acceptance context, 2026-09-23)
 Deferred nodeids: none
-Required execution point: independent slice acceptance; before production deployment or Repository effect
+Required execution point: none for 5D slice exit; production deployment or Repository effect remain unauthorized
 ```
 
 ## Independent re-review evidence（independent acceptance context，2026-09-23）
@@ -155,7 +156,9 @@ Required execution point: independent slice acceptance; before production deploy
   digest / 五锁 / compose SHA 全部匹配。
 - 镜像绑定：三个 image ID 存在且 tag 映射正确；repository-service OCI revision = 候选 SHA；
   backend/worker 与上一轮镜像的 Config 唯一差异为 `com.docker.compose.project` label，两镜像内
-  src digest 均等于本地 `b37e8b3e…6285`；provenance JSON 与 handoff 表逐字一致；conjunction
+  src digest 均等于本地 `b37e8b3e…6285`；权威 provenance 见
+  [p5-5d-s4r2-compose-gate-provenance.json](p5-5d-s4r2-compose-gate-provenance.json)（gitignored
+  `.last_compose_gate_provenance.json` 仅为本地 last-run，可能已被无关运行覆盖）；conjunction
   junitxml 6/6 PASS、0 skipped，逐项耗时与记录吻合。
 - T4 独立复跑（独占窗口、全量输出）：**exit 0** —— 242 / 152 / 154 / **2519** / 1678+1 skipped /
   serial **205**，与交付记录逐项一致。首次复跑因第三方并发 runner 污染（共享宿主 8000 与 dolt

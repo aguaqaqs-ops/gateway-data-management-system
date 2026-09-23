@@ -1,0 +1,21 @@
+{
+  "compose_project_name": "gateway-p5-5d-s4r2-gate",
+  "gate_tested_head": "af833695ef1c16b1ea0744d1b6eff6b5ada9924c",
+  "recorded_at": "2026-09-23",
+  "authority": "docs/backend-vnext/refactoring/formal/plans/p5-5d-s4-handoff.md §6.3",
+  "note": "Authoritative S4R2 running-container snapshot committed with acceptance evidence. Gitignored vnext/backend/tests/support/.last_compose_gate_provenance.json is a local last-run overlay and may reflect unrelated compose projects after S4R2.",
+  "containers": {
+    "gateway-p5-5d-s4r2-gate-repository-service-1": {
+      "container_id": "df856f8a770d",
+      "image": "sha256:3ced4f022e0fcff1a4b0ae5c071c018c8fdf826fb820e83b916772435ecde84d"
+    },
+    "gateway-p5-5d-s4r2-gate-backend-1": {
+      "container_id": "300fbd493f27",
+      "image": "sha256:e7a7c10f3f798059cd6fa92448352e298dc1660d2b0cfa5f2416d5ad8aa30df7"
+    },
+    "gateway-p5-5d-s4r2-gate-worker-1": {
+      "container_id": "a2b9fa9107b0",
+      "image": "sha256:73680e40265b5b109ecdc987d2f0607b8ab29218ab85fb3bfc1098c6edb49cc6"
+    }
+  }
+}

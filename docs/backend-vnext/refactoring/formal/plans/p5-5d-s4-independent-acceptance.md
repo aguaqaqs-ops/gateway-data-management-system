@@ -83,8 +83,9 @@ test_backend_http_container_gate.py::test_backend_container_ready_and_stops_clea
 | backend image | `sha256:2e73f82418d354cbf935ac4536a6f10f11ac51895020b7cfb8c7226dab23b3bc` |
 | worker image | `sha256:b52585330d7a79db272d10d04dafdea50e2feda2b7520f71ca81062cb3648e54` |
 
-运行中 container/image 绑定见 [S4 handoff](p5-5d-s4-handoff.md) 与
-`vnext/backend/tests/support/.last_compose_gate_provenance.json`。
+运行中 container/image 绑定见 superseded [S4 handoff](p5-5d-s4-handoff.md) 与
+[p5-5d-s4r2-compose-gate-provenance.json](p5-5d-s4r2-compose-gate-provenance.json)（现行权威）。
+gitignored `vnext/backend/tests/support/.last_compose_gate_provenance.json` 仅为本地 last-run。
 
 ## Container decision
 

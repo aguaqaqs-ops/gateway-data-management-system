@@ -246,7 +246,8 @@ done | sha256sum
 | shared_kernel `uv.lock` | `7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898` |
 | `vnext/deploy/compose.yaml` | `f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0` |
 | Build identity helper | `build_input_revision=4d1dc010deff17249bb2aa54b7563e7a86959096`; package source label `sha256:62a38a0881926ba0afd15fb22db292c15be19318649562033f4b9c3f91d642cf` |
-| Running provenance file | [`tests/support/.last_compose_gate_provenance.json`](../../../../vnext/backend/tests/support/.last_compose_gate_provenance.json)（gitignored） |
+| Running provenance (authoritative) | [p5-5d-s4r2-compose-gate-provenance.json](p5-5d-s4r2-compose-gate-provenance.json) |
+| Local last-run overlay (gitignored, non-authoritative) | `vnext/backend/tests/support/.last_compose_gate_provenance.json` |
 
 最终报告 run 的实际运行容器：
 
@@ -264,9 +265,9 @@ Container rebuild required: yes
 Reason: S4R2 final candidate and current-HEAD fresh-build/conjunction boundary
 Last verified image revision: af833695ef1c16b1ea0744d1b6eff6b5ada9924c (repository-service OCI label)
 Last verified source-tree/image IDs: ba627192…30ba; repository 3ced4f…de84d; backend e7a7c10…30df7; worker 73680e4…49cc6
-Current gate: passed for gate-tested candidate; slice exit remains pending independent acceptance
+Current gate: passed for gate-tested candidate; p5_5d_slice_exit signed @ p5-5d-s4r2-independent-acceptance.md (2026-09-23)
 Deferred nodeids: none
-Required execution point: independent S4 slice acceptance; before any production deployment or repository effect
+Required execution point: none for 5D slice exit; production deployment or Repository effect remain unauthorized
 ```
 
 5D Archive 仍为零 Repository effect；v5 schema 未发布；本轮没有 deployment、生产发布或新的

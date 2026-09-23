@@ -170,6 +170,7 @@ def _load_promoted_by_submission(
           AND gateway_device_external_key = ?
           AND business_project_id = ?
           AND source_submission_id IS NOT NULL
+        ORDER BY created_at_us ASC, node_id ASC
         """,
         (repository_id, gateway_device_external_key, business_project_id),
     ).fetchall()

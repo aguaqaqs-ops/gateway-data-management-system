@@ -11,13 +11,18 @@ import sqlite3
 from gateway_backend.application.history.contracts import (
     HistoryEligibilityNote,
     HistoryFacts,
+    HistoryNode,
     HistoryNodeKind,
     HistoryNodeRefKind,
     HistorySubmissionFact,
+    HistoryTreeProjection,
 )
 from gateway_backend.application.history.errors import HistoryRequestValidation
 from gateway_backend.application.history.errors import HistoryIntegrityFailure
-from gateway_backend.application.history.projection import project_history_tree
+from gateway_backend.application.history.projection import (
+    _order_key_from_node,
+    project_history_tree,
+)
 from gateway_backend.application.history.queries import get_project_history
 from gateway_backend.application.submission.ports import WorkspaceControlUnitOfWorkFactory
 from gateway_backend.domain.archive.models import ArchiveDispositionKind
@@ -25,7 +30,7 @@ from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKin
 from gateway_backend.domain.submission.models import Submission, SubmitTargetRef, SubmitUnknownTypePolicy, SubmitVerificationPolicy
 from gateway_backend.domain.submission.review import ReviewAction, ReviewStatus
 from gateway_backend.domain.workspace.errors import PermissionDenied
-from gateway_backend.domain.workspace.models import BaselineHead
+from gateway_backend.domain.workspace.models import BaselineHead, IdentityContext
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.sqlite_history import HistorySubmissionRow, SQLiteHistoryReader
 from gateway_backend.http.history_reader import HttpHistoryReader
@@ -34,7 +39,13 @@ from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
 from tests.support.http_workspace_harness import BASELINE_HEAD
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
 from tests.test_review_persistence import _insert_operation_record
-from tests.test_review_transactions import _apply_command, _apply_review, _seed_pending_review_submission
+from tests.test_review_transactions import (
+    ReviewSeed,
+    _apply_command,
+    _apply_review,
+    _seed_additional_pending_review_submission,
+    _seed_pending_review_submission,
+)
 from tests.test_submit_transactions import _upsert_provisioned_mapping_row
 
 pytestmark = pytest.mark.unit
@@ -60,6 +71,167 @@ EXCLUDED_HISTORY_MARKERS = (
     "plan-excluded-marker",
     "sub-plan-only",
 )
+
+HISTORY_TREE_PAGE_DIFF_LIMITS = (1, 2, 3, 10)
+CJK_BASELINE_REF_ID = "中" * 63 + "zz"
+DIFF_FIXTURE_PERMISSIONS = frozenset({"read_project_history", "workspace_read"})
+
+
+def _seed_promotion_duplicate_fixture(db_path: Path) -> ReviewSeed:
+    primary = _seed_pending_review_submission(db_path)
+    _apply_review(
+        primary,
+        _apply_command(primary, action=ReviewAction.APPROVE, idempotency_key="approve-dup-primary"),
+    )
+    return primary
+
+
+def _seed_history_diff_fixture(db_path: Path) -> ReviewSeed:
+    primary = _seed_pending_review_submission(db_path)
+    _apply_review(
+        primary,
+        _apply_command(primary, action=ReviewAction.APPROVE, idempotency_key="approve-diff-primary"),
+    )
+    sibling = _seed_additional_pending_review_submission(
+        db_path,
+        submission_id="sub-2",
+        device_key="device-1",
+        repository_id="repo-1",
+        project_id="project-1",
+    )
+    _apply_review(
+        sibling,
+        _apply_command(sibling, action=ReviewAction.APPROVE, idempotency_key="approve-diff-sibling"),
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            """
+            INSERT INTO baseline_node_records (
+                node_id, repository_id, gateway_device_external_key, business_project_id,
+                commit_id, kind, parent_node_id, source_submission_id, created_at_us
+            ) VALUES (?, 'repo-1', 'device-1', 'project-1', 'commit-cjk-archived',
+                      'ARCHIVED_SUBMISSION', ?, ?, ?)
+            """,
+            (
+                CJK_BASELINE_REF_ID,
+                BASELINE_HEAD.business_baseline_node_id,
+                primary.submission_id,
+                500_000,
+            ),
+        )
+    return primary
+
+
+def _load_history_facts(db_path: Path) -> HistoryFacts:
+    return HttpHistoryReader(db_path).load_facts(
+        repository_id="repo-1",
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+    )
+
+
+def _history_read_identity() -> IdentityContext:
+    return make_identity(permissions=DIFF_FIXTURE_PERMISSIONS)
+
+
+def _uow_factory(db_path: Path) -> WorkspaceControlUnitOfWorkFactory:
+    def factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(db_path, read_only=read_only)
+
+    return factory
+
+
+def _assert_history_nodes_equal(left: HistoryNode, right: HistoryNode) -> None:
+    assert left.ref_kind == right.ref_kind
+    assert left.ref_id == right.ref_id
+    assert left.node_kind == right.node_kind
+    assert left.commit_id == right.commit_id
+    assert left.created_at == right.created_at
+    assert left.baseline_kind == right.baseline_kind
+    assert left.review_status == right.review_status
+    assert left.archive_disposition == right.archive_disposition
+    assert left.promoted_baseline_node_id == right.promoted_baseline_node_id
+    assert left.eligibility_note == right.eligibility_note
+    if left.parent is None:
+        assert right.parent is None
+    else:
+        assert right.parent is not None
+        assert left.parent.ref_kind == right.parent.ref_kind
+        assert left.parent.ref_id == right.parent.ref_id
+
+
+def _assert_history_projections_equal(
+    left: HistoryTreeProjection,
+    right: HistoryTreeProjection,
+) -> None:
+    assert left.head == right.head
+    assert left.next_cursor == right.next_cursor
+    assert len(left.nodes) == len(right.nodes)
+    for left_node, right_node in zip(left.nodes, right.nodes, strict=True):
+        _assert_history_nodes_equal(left_node, right_node)
+
+
+def _collect_tree_path_pages(*, facts: HistoryFacts, limit: int) -> tuple[HistoryTreeProjection, ...]:
+    pages: list[HistoryTreeProjection] = []
+    cursor: str | None = None
+    while True:
+        page = project_history_tree(facts=facts, limit=limit, cursor=cursor)
+        pages.append(page)
+        if page.next_cursor is None:
+            break
+        cursor = page.next_cursor
+    return tuple(pages)
+
+
+def _collect_page_path_pages(db_path: Path, *, limit: int) -> tuple[HistoryTreeProjection, ...]:
+    pages: list[HistoryTreeProjection] = []
+    cursor: str | None = None
+    identity = _history_read_identity()
+    while True:
+        page = get_project_history(
+            context=identity,
+            unit_of_work_factory=_uow_factory(db_path),
+            snapshot_loader=HttpHistoryReader(db_path),
+            limit=limit,
+            cursor=cursor,
+        )
+        pages.append(page)
+        if page.next_cursor is None:
+            break
+        cursor = page.next_cursor
+    return tuple(pages)
+
+
+def _insert_duplicate_promoted_baseline_rows(
+    db_path: Path,
+    *,
+    source_submission_id: str,
+) -> str:
+    expected_winner = "zz-node"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        for node_id, created_at_us in (
+            ("aa-node", 100),
+            ("中-node", 150),
+            (expected_winner, 200),
+        ):
+            connection.execute(
+                """
+                INSERT INTO baseline_node_records (
+                    node_id, repository_id, gateway_device_external_key, business_project_id,
+                    commit_id, kind, parent_node_id, source_submission_id, created_at_us
+                ) VALUES (?, 'repo-1', 'device-1', 'project-1', ?, 'ARCHIVED_SUBMISSION', ?, ?, ?)
+                """,
+                (
+                    node_id,
+                    f"commit-{node_id}",
+                    BASELINE_HEAD.business_baseline_node_id,
+                    source_submission_id,
+                    created_at_us,
+                ),
+            )
+        connection.commit()
+    return expected_winner
 
 
 def _baseline_node(
@@ -430,24 +602,91 @@ def test_sqlite_history_reader_loads_scope_filtered_facts(db_path: Path) -> None
     assert "foreign-node" not in {node.node_id for node in snapshot.baseline_nodes}
 
 
-def test_projection_page_snapshot_is_self_consistent(db_path: Path) -> None:
-    review_seed = _seed_pending_review_submission(db_path)
-    _apply_review(
-        review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-snapshot"),
+def test_page_path_cursor_survives_head_advance(db_path: Path) -> None:
+    _seed_history_diff_fixture(db_path)
+    identity = _history_read_identity()
+    page1 = get_project_history(
+        context=identity,
+        unit_of_work_factory=_uow_factory(db_path),
+        snapshot_loader=HttpHistoryReader(db_path),
+        limit=1,
     )
-    facts = HttpHistoryReader(db_path).load_facts(
-        repository_id="repo-1",
-        gateway_device_external_key="device-1",
-        business_project_id="project-1",
+    assert page1.next_cursor is not None
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        head_row = unit_of_work.connection.execute(
+            "SELECT node_id, optimistic_version FROM baseline_head_records WHERE repository_id = ?",
+            ("repo-1",),
+        ).fetchone()
+        assert head_row is not None
+        new_node_id = "node-head-advanced"
+        unit_of_work.connection.execute(
+            """
+            INSERT INTO baseline_node_records (
+                node_id, repository_id, gateway_device_external_key, business_project_id,
+                commit_id, kind, parent_node_id, source_submission_id, created_at_us
+            ) VALUES (?, 'repo-1', 'device-1', 'project-1', 'commit-head-advanced',
+                      'ARCHIVED_SUBMISSION', ?, 'sub-1', ?)
+            """,
+            (new_node_id, head_row["node_id"], 900_000),
+        )
+        unit_of_work.connection.execute(
+            """
+            UPDATE baseline_head_records
+            SET node_id = ?, optimistic_version = ?
+            WHERE repository_id = ?
+            """,
+            (new_node_id, head_row["optimistic_version"] + 1, "repo-1"),
+        )
+    page2 = get_project_history(
+        context=identity,
+        unit_of_work_factory=_uow_factory(db_path),
+        snapshot_loader=HttpHistoryReader(db_path),
+        limit=10,
+        cursor=page1.next_cursor,
     )
-    full_projection = project_history_tree(facts=facts)
-    page = project_history_tree(facts=facts, limit=1)
-    all_refs = {node.ref_id for node in full_projection.nodes}
-    assert page.head == full_projection.head
-    for node in page.nodes:
+    assert page2.head.version > page1.head.version
+    assert _order_key_from_node(page2.nodes[0]) > _order_key_from_node(page1.nodes[-1])
+    page1_refs = {node.ref_id for node in page1.nodes}
+    page2_refs = {node.ref_id for node in page2.nodes}
+    assert page1_refs.isdisjoint(page2_refs)
+    known_refs = page1_refs | page2_refs
+    for node in page2.nodes:
         if node.parent is not None:
-            assert node.parent.ref_id in all_refs
+            assert node.parent.ref_id in known_refs
+
+
+@pytest.mark.parametrize("limit", HISTORY_TREE_PAGE_DIFF_LIMITS)
+def test_tree_and_page_paths_match_for_all_cursor_pages(db_path: Path, limit: int) -> None:
+    _seed_history_diff_fixture(db_path)
+    facts = _load_history_facts(db_path)
+    tree_pages = _collect_tree_path_pages(facts=facts, limit=limit)
+    query_pages = _collect_page_path_pages(db_path, limit=limit)
+    assert len(tree_pages) == len(query_pages)
+    for tree_page, query_page in zip(tree_pages, query_pages, strict=True):
+        _assert_history_projections_equal(tree_page, query_page)
+
+
+def test_promoted_baseline_node_is_deterministic_for_duplicate_source_submission(
+    db_path: Path,
+) -> None:
+    # DB allows duplicate source_submission_id; service write paths do not produce this state.
+    primary = _seed_promotion_duplicate_fixture(db_path)
+    expected_winner = _insert_duplicate_promoted_baseline_rows(
+        db_path,
+        source_submission_id=primary.submission_id,
+    )
+    facts = _load_history_facts(db_path)
+    tree_page = project_history_tree(facts=facts)
+    tree_submission = next(node for node in tree_page.nodes if node.ref_id == primary.submission_id)
+    assert tree_submission.promoted_baseline_node_id == expected_winner
+    query_pages = _collect_page_path_pages(db_path, limit=10)
+    query_submission = next(
+        node
+        for page in query_pages
+        for node in page.nodes
+        if node.ref_id == primary.submission_id
+    )
+    assert query_submission.promoted_baseline_node_id == expected_winner
 
 
 def test_projection_head_fields_match_readonly_snapshot(db_path: Path) -> None:
@@ -542,13 +781,6 @@ def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
     ref_ids = {node.ref_id for node in projection.nodes}
     for marker in EXCLUDED_HISTORY_MARKERS:
         assert marker not in ref_ids
-
-
-def _uow_factory(db_path: Path) -> WorkspaceControlUnitOfWorkFactory:
-    def factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(db_path, read_only=read_only)
-
-    return factory
 
 
 def _corrupt_baseline_created_at_us(db_path: Path, *, node_id: str) -> None:

@@ -45,6 +45,7 @@ s1_implementation_authorized: yes
 | Archive disposition 读口 | `domain/archive/ports.py` `list_dispositions_for_submission` 等 | pass |
 | Submission commit 字段 | `Submission.repository_commit_id`、`Submission.business_baseline_commit_id`（`domain/submission/models.py`） | pass |
 | CommitId 三方边界 | 设计/DTO：`CommitIdString` 1..1024 code points；5D v5 DB CHECK：`repository_commit_id` / baseline `commit_id` `length(...) ≤ 255`；S1 不迁移 | pass — 见设计 §3.2 脚注 |
+| ref_id 三方边界 | 设计/DTO：`BoundedOpaqueId` 1..255 UTF-8 字节；5D v5 DB CHECK：`node_id` / `submission_id` `length(...) ≤ 255` 字符；S1 不迁移 | pass — 见设计 §3.2 ref_id 脚注 |
 | v6 DDL / integrity 表 | 未创建 | 符合计划 — S2 交付，S1 禁止 |
 
 **无需修订设计 §3/§4/§6.4**：设计已预留 kickoff 重核；实现与 5D accepted 语义一致，仅 baseline 节点列名为 `commit_id`。

@@ -1,4 +1,9 @@
-"""HistoryTreeProjection assembly from authoritative control DB facts."""
+"""HistoryTreeProjection assembly from authoritative control DB facts.
+
+Production reads use ``get_project_history`` → SQL pagination → ``project_history_page``.
+``project_history_tree(facts=...)`` is a test/synthetic fixture only; owner = History
+Application tests (see ``tests/test_history_projection.py`` diff coverage).
+"""
 
 from __future__ import annotations
 
@@ -61,7 +66,7 @@ def project_history_tree(
     return HistoryTreeProjection(head=head, nodes=page_nodes, next_cursor=next_cursor)
 
 
-def project_history_page(*, page: HistoryPageSnapshot, limit: int) -> HistoryTreeProjection:
+def project_history_page(*, page: HistoryPageSnapshot) -> HistoryTreeProjection:
     head = HistoryHead.from_baseline_head(page.head)
     nodes = tuple(
         _page_entry_to_node(
@@ -77,7 +82,6 @@ def project_history_page(*, page: HistoryPageSnapshot, limit: int) -> HistoryTre
             order_key=_order_key_from_node(nodes[-1]),
             head_version=head.version,
         )
-    del limit
     return HistoryTreeProjection(head=head, nodes=nodes, next_cursor=next_cursor)
 
 

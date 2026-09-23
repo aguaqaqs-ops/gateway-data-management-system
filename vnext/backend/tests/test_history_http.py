@@ -157,6 +157,24 @@ def test_list_history_returns_integrity_failure_for_corrupt_facts(db_path: Path,
     assert response.json()["code"] == "HISTORY_INTEGRITY_FAILURE"
 
 
+def test_list_history_ignores_corrupt_submission_heavy_columns_on_page_path(
+    db_path: Path,
+    tmp_path: Path,
+) -> None:
+    del tmp_path
+    review_seed = _seed_pending_review_submission(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        connection.execute(
+            "UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?",
+            (b"not-json", review_seed.submission_id),
+        )
+        connection.commit()
+    history_env = _history_env(db_path.parent / "history-heavy-column", db_path=db_path)
+    response = history_env.client.get("/v1/history", headers=history_env.auth_headers())
+    assert response.status_code == 200
+
+
 def test_list_history_rejects_disabled_mapping_without_stale_scope_reads(db_path: Path, tmp_path: Path) -> None:
     del tmp_path
     review_seed = _seed_pending_review_submission(db_path)

@@ -47,4 +47,4 @@ def get_project_history(
         raise PermissionDenied(PERMISSION_READ_PROJECT_HISTORY) from exc
     except ValueError as exc:
         raise HistoryIntegrityFailure("history fact rows are inconsistent") from exc
-    return project_history_page(page=page, limit=resolved_limit)
+    return project_history_page(page=page)

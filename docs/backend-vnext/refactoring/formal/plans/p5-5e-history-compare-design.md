@@ -125,6 +125,7 @@ HistoryNode {
 
 - **Commit 传递纪律**：`CommitId` 是 repository-scoped opaque string（1..1024 code points；E `vnext/repository_contracts` `CommitIdString = BoundedOpaqueString`；契约 `repository-service.md` §2 表）。所有层（binding preimage、job payload、HTTP DTO）按 opaque 值原样传递：**不做** 40-hex 断言、不 re-encode/trim/normalize；HTTP path 传输用既有 base64url canonical 编码规则（repository HTTP 层 E 同款）。DTO 约束按 code point 计 1..1024。reserve：40-hex 只是 Dolt 常见形态，不是合法域。
 - **CommitId 三方边界（5D 对齐门，S1 记录）**：设计/DTO 取 `CommitIdString`（1..1024 code points）；5D v5 control DB CHECK 将 `submission_records.repository_commit_id` 与 `baseline_node_records.commit_id` 限为 `length(...) BETWEEN 1 AND 255`（SQLite `length()` 对 UTF-8 TEXT 计字符）。S1 不迁移 DDL；持久化上界 255 字符、HTTP/Contract 上界 1024 code points 并存，避免 S2 compare DTO（`before_commit`/`current_commit`）重复踩坑。
+- **ref_id 三方边界（5D 对齐门，S1 记录）**：设计/DTO 取 `BoundedOpaqueId`（1..255 **UTF-8 字节**，见 `http/schemas/constraints.py`）；5D v5 CHECK 将 `node_id` / `submission_id` 等限为 `length(...) BETWEEN 1 AND 255`（SQLite TEXT **字符**计数）。偏差：DB 可存 258 字节 CJK `node_id` 而 DTO 拒绝 → 500；生产 id 为 `uuid4()` ASCII（`application/archive/start.py` 等），**生产不可达**。S1 **决定**：保持 DTO 字节上界不变，仅记录；不新增「预期 500」测试。
 - **同 commit 多业务身份**：同一 commit 可同时是 submission S 与由 S 晋升的 baseline node B。二者各自成节点、稳定引用不同（`ref_kind/ref_id` 不同），`commit_id` 相同；不合并、不去重，`promoted_baseline_node_id` 是唯一的跨引用（见基线核查：5D handoff 中 submission 与 baseline 行各自持有引用）。
 - **业务父边 vs 技术 parent**：`parent` 由业务事实构造——SUBMISSION.parent = 其 `based_on_baseline_node_id` 指向的 baseline 节点；BASELINE_NODE.parent = `parent_node_id`（INITIAL 为 null）。Repository 技术 parent commit **不是** `parent`；V1 不暴露技术 parent（诊断字段允许的契约语义 deliver deferred，无 consumer）。
 - **disposition 覆盖**：任一成功 submission 节点**恰好一个** disposition 来源（`archive_disposition_records` 的 result 子级或无记录）；`CLOSED_NOT_ARCHIVED` 节点保留 commit 与 review facts，仅不是 archive candidate。
@@ -138,6 +139,7 @@ HistoryNode {
   3. 仍同 `ref_id` UTF-8 字节升序。
 - **分页**：`GET /v1/history?limit=&cursor=`。`limit` 默认 100，max 500（P5 §12 把 cursor/page 形状 defer 到本 slice，此处冻结）。响应含 `next_cursor`（opaque base64url，canonical JSON `{order_key, head_version}`，≤1024 字节，不可解析 → 422）。**无 `total`**（全集无界，不做全量冻结）。
 - **每页是独立只读快照**：页间 Head 前进可接受；响应头字段 `head{node_id, commit_id, version}` 让客户端检测漂移。跨页不承诺一致性。
+- **分页 DB 成本（S1 记录）**：Python 侧读取/映射/排序已收敛为 O(limit)；SQLite 侧 `UNION ALL + ORDER BY + LIMIT` 仍对全 scope history 行排序（无含 `created_at_us` 的索引）→ 单请求 DB 成本 O(scope history)，归后续 perf slice，不阻断 S1。
 - **读取语义（并发 Review/Archive）**：单请求一个 control DB readonly 快照（`BEGIN`，WAL）；无缓存、无跨请求状态；读到的节点/边/prompt 在同一快照内自洽。Head 并发推进不破坏页内一致性。
 
 ### 3.4 SYSTEM_MIGRATION 语义保留（无 consumer 框架不实现）

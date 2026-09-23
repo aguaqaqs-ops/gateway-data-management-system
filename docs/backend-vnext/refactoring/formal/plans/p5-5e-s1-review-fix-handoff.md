@@ -8,8 +8,8 @@
 gate_tested_head: fdf430e76811085a29c268c1f09c1239499fbd84
 gate_tested_source_tree_sha: 095fcf2d7b30a4f515e0168968c21593725c21ac
 built_source_tree_sha: 990989628801caee4cd36db977c59fba3176a4b1
-exit_candidate_head: pending-step-4-commit
-exit_candidate_source_tree_sha: pending-step-4-commit
+exit_candidate_head: 579bbfb9791468a0c615cde49ee7c3d6fbd030b6
+exit_candidate_source_tree_sha: 0a11622ec0f368125700ced0dab4315f62112aa3
 built_source_tree_sha 说明: 生产接线改动（P2 bounded promotion fetch）所在的源码树，其 vnext/ 内容与本记录最终候选逐字节相同；容器镜像内容已用 md5sum 逐字节核对（sqlite_history.py = 6ca630ee487a3aac9c9a8d5a798d862b，worktree == deploy-backend）。09bbbe9f4145a156262f49c35aa1999770b65bfc / 5d56d205fa8ed61b854dc67f8ab2d2bd919b3542 为 pre-amend 悬空对象，不属于本记录，不得引用。
 backend/uv.lock sha256: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
 repository_client/uv.lock sha256: 6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954
@@ -97,4 +97,40 @@ unshare -rm --propagation private sh -c 'mount --bind /dev/null /usr/local/bin/d
 cd vnext/deploy && docker compose -f compose.yaml build backend worker
 cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest -q -m 'integration and serial' \
   tests/test_backend_http_container_gate.py
+```
+
+## §6.3 第三方可复跑核对（干净 clone）
+
+```bash
+git rev-parse fdf430e76811085a29c268c1f09c1239499fbd84^{tree}
+# 095fcf2d7b30a4f515e0168968c21593725c21ac  （= gate_tested_source_tree_sha）
+
+git rev-parse 579bbfb9791468a0c615cde49ee7c3d6fbd030b6^{tree}
+# 0a11622ec0f368125700ced0dab4315f62112aa3  （= exit_candidate_source_tree_sha）
+
+sha256sum vnext/backend/uv.lock vnext/repository_client/uv.lock vnext/repository_contracts/uv.lock \
+          vnext/repository_service/uv.lock vnext/shared_kernel/uv.lock vnext/deploy/compose.yaml
+# 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea  vnext/backend/uv.lock
+# 6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954  vnext/repository_client/uv.lock
+# b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3  vnext/repository_contracts/uv.lock
+# 6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11  vnext/repository_service/uv.lock
+# 7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898  vnext/shared_kernel/uv.lock
+# f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0  vnext/deploy/compose.yaml
+
+md5sum vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_history.py
+# 6ca630ee487a3aac9c9a8d5a798d862b
+
+docker images --format '{{.ID}} {{.Repository}}:{{.Tag}}'
+# ddd872935178 deploy-backend:latest
+# 765948a61980 deploy-worker:latest
+
+docker run --rm --entrypoint sh deploy-backend -c \
+  'md5sum /app/backend/src/gateway_backend/infrastructure/control_db/sqlite_history.py'
+# 6ca630ee487a3aac9c9a8d5a798d862b  /app/backend/src/gateway_backend/infrastructure/control_db/sqlite_history.py
+
+git status --porcelain
+# （空；gitignored .last_compose_gate_provenance.json 覆盖除外）
+
+git diff --check
+# （空）
 ```

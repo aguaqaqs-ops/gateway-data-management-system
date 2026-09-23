@@ -1,6 +1,6 @@
 # P5-5D Archive Execution Plan
 
-状态：**ACCEPTED — S1 pass；S2 pass；S3 pass；S4 pass（slice exit authorized）**
+状态：**ACCEPTED — S1 pass；S2 pass；S3 pass；S4 gate evidence complete（slice exit pending independent acceptance）**
 
 审核依据：[S0 Independent Docs Acceptance](p5-5d-s0-independent-docs-acceptance.md)。
 
@@ -15,7 +15,7 @@ Owner：Backend Archive Application；Baseline/Submission/Workspace/HTTP/Control
 ## 1. Current authority and execution shape
 
 ```yaml
-inspection_head: 16f4112ee10536c3c8b82765167ff0454ad5f05f
+inspection_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
 accepted_p5_5c_candidate: 04317788c259b172e3b8580cfe42bac8d16735f0
 p5_5c_slice_exit: pass
 p5_5d_docs_authorized: yes
@@ -33,8 +33,11 @@ p5_5d_s2_stage_exit: pass
 p5_5d_s3_stage_exit: pass
 production_deployment_authorized: no
 new_repository_effect_authorized: no
-p5_5d_slice_exit: pass
-next_step: P5-5E-docs-entry
+p5_5d_s4_candidate_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
+p5_5d_s4_gate_tested_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
+p5_5d_slice_exit: pending_independent_acceptance
+s4_acceptance_record: p5-5d-s4r2-independent-acceptance.md
+next_step: P5-5D-S4-independent-acceptance
 ```
 
 S0 文档编写及独立复审已完成。S1 **pass**（Baseline Head authority、initial-empty 前置、v5
@@ -42,7 +45,11 @@ Baseline DDL、focused gate）；S2 **pass**（bounded read、audit、single-tra
 独立复审闭环；focused gate 248 passed）；S3 **re-review remediation complete**（关闭 R-1 断连死循环与
 R1–R9 测试/文档/provenance 缺口；round-4 关闭 P2-1/P2-2；focused gate 137 passed、conjunction 6 passed）；
 S3 **pass**（2026-09-23 authorized closure，见 [p5-5d-s3-stage-exit-acceptance.md](p5-5d-s3-stage-exit-acceptance.md)）；
-S4 **pass**（2026-09-23 slice exit，见 [p5-5d-s4-independent-acceptance.md](p5-5d-s4-independent-acceptance.md)）。
+S4R2 **gate evidence complete**（2026-09-23，见 [p5-5d-s4-handoff.md](p5-5d-s4-handoff.md) 与
+[p5-5d-s4r2-independent-acceptance.md](p5-5d-s4r2-independent-acceptance.md)）；candidate 与
+gate-tested HEAD 均为 `af833695ef1c16b1ea0744d1b6eff6b5ada9924c`。旧候选
+`05e0399fe9` 的 `five_package_static: pass` 已显式 supersede；`p5_5d_slice_exit` 尚未由
+delivery 签署，等待独立 acceptance 或用户显式授权。
 S1/S2 交付无 Archive HTTP API；S3 交付完整生产 API 与双 actor compose journey。v5 仍未发布。
 O-1（`test_production_wiring.py`）已在 S3 修复（19 passed）。
 未来测试环境中为构造 Submission 所需 Repository writes 限定为现有 Submit journey 测试；Archive 自身始终零写。
@@ -278,11 +285,12 @@ build 并运行 §6 全部 conjunction（含从真实零表初始 commit 开始�
 
 ### S4 — final fresh candidate conjunction and independent exit
 
-**S4 authorized slice exit**（2026-09-23）。handoff 见 [p5-5d-s4-handoff.md](p5-5d-s4-handoff.md)；
-验收见 [p5-5d-s4-independent-acceptance.md](p5-5d-s4-independent-acceptance.md)。
-最终候选 `05e0399fe9`；权威 runner exit 0（backend 2519 passed）；fresh-build conjunction
-**6 passed, 0 skipped**（`gateway-p5-5d-final-gate`）；`p5_5d_slice_exit: pass`。
-不授权 production deployment / 5E implementation。
+**S4R2 gate evidence complete**（2026-09-23）。handoff 见 [p5-5d-s4-handoff.md](p5-5d-s4-handoff.md)；
+superseding acceptance evidence 见 [p5-5d-s4r2-independent-acceptance.md](p5-5d-s4r2-independent-acceptance.md)。
+当前候选与 gate-tested HEAD 均为 `af833695ef1c16b1ea0744d1b6eff6b5ada9924c`；权威 runner
+exit 0（backend 2519 passed）；fresh-build conjunction **6 passed, 0 skipped**
+（`gateway-p5-5d-s4r2-gate`）。旧候选 `05e0399fe9` 的 static 声明已 supersede；
+`p5_5d_slice_exit: pending_independent_acceptance`，不授权 production deployment / 5E implementation。
 
 目标：冻结精确 source/test/deployment 候选，关闭独立 findings，汇总所有唯一 owner 与真实生产
 入口证据。在该候选运行五包 static、权威 runner、fresh image conjunction；之前阶段结果只作
@@ -389,9 +397,23 @@ source-tree+image IDs / current gate / deferred nodeids / required execution poi
 iteration 可延期，但阶段最终候选和 S4 最终 conjunction 必须 fresh build。缺 Docker/依赖/资源时
 标 blocked/deferred 并列缺口，不能把 5C accepted image 或 host-only tests 表述为当前 HEAD pass。
 
-本轮 docs-only 的当前 HEAD 为 `16f4112ee1`，rebuild required=no；current container gate 为
-not-applicable。最后被独立验证的镜像 revision 是 `04317788c2`，实际 IDs/source-tree 在
-[5C Independent Acceptance](p5-5c-s5-independent-acceptance.md)；本轮没有运行这些容器。
+S4R2 评审记录按 Testing Conventions 模板如下：
+
+```text
+Current HEAD: af833695ef1c16b1ea0744d1b6eff6b5ada9924c (gate-tested code candidate)
+Container rebuild required: yes
+Reason: S4R2 final candidate fresh-build conjunction and current-HEAD provenance
+Last verified image revision: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
+Last verified source-tree/image IDs: ba627192…30ba; 3ced4f…de84d; e7a7c10…30df7; 73680e4…49cc6
+Current gate: passed for candidate; independent slice acceptance pending
+Deferred nodeids: none
+Required execution point: independent S4 acceptance; before production deployment or Repository effect
+```
+
+T3/T4/T5 期间 worktree clean，905-file source-tree digest 为
+`ba627192eb47da1f1bf1b71ee32c982e7cb55c739f5a30f86c43cd6d4a830ba5`；镜像和实际运行容器
+IDs 详见 [S4R2 handoff §6.3](p5-5d-s4-handoff.md)。本轮 docs-only 提交不改变 tracked
+`vnext/**`，不会改变该 gate-tested source tree。
 
 ## 7. Final exit evidence and stopping rules
 

@@ -1,14 +1,13 @@
 {
   "compose_project_name": "gateway-backend-gate-test_backend_container_ready_a0",
-  "gate_tested_head": "a19103d37cf5f30f6411b9132fd3d7bdb850dc3e",
-  "source_tree_sha": "a19103d37cf5f30f6411b9132fd3d7bdb850dc3e",
+  "gate_tested_head": "d6b0ccc1e9839102e3410aa1a391d56498d747f5",
+  "source_tree_sha": "d6b0ccc1e9839102e3410aa1a391d56498d747f5",
   "worktree_clean": true,
-  "review_fix_worktree": false,
-  "review_fix_round": "6 + exit remediation",
-  "gate_tested_note": "Exit remediation freeze: decode/drain test discrimination, docs closure, atop round-6 production compare fixes. Gate re-run at committed HEAD a19103d.",
+  "review_fix_round": "6 + exit remediation + review re-exit",
+  "gate_tested_note": "Review re-exit: HttpInflightReadBarrierMiddleware for drain in-flight completion proof; structural evidence rename. Fresh compose build at d6b0ccc (app.py wiring).",
   "recorded_at": "2026-09-24",
   "authority": "docs/backend-vnext/refactoring/formal/plans/p5-5e-s2-handoff.md §6.3",
-  "note": "Authoritative S2 container+submit gate snapshot (exit remediation freeze). Container gate does not cover successful result/bundle read paths.",
+  "note": "Authoritative S2 container+submit gate snapshot (review re-exit). Container gate does not cover successful result/bundle read paths.",
   "uv_lock_drift_event": {
     "when": "2026-09-24",
     "cause": "bare uv sync/uv lock rewrote vnext/backend/uv.lock via internal mirror (pypi.org count dropped to 0)",
@@ -25,14 +24,14 @@
   },
   "vnext_deploy_compose_yaml_sha256": "f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0",
   "fresh_build": true,
-  "fresh_build_reason": "gate_tested_head includes production compare_jobs/history_compare/compare.py; compose build backend at a19103d (layer digest unchanged vs round-6 pre-commit build)",
+  "fresh_build_reason": "Review re-exit touches app.py inflight barrier wiring; compose build backend at d6b0ccc",
   "running_image": {
     "repo_tag": "gateway-backend-gate-test_backend_container_ready_a0-backend:latest",
-    "revision": "sha256:911b0cbdd5199efae3225a9212636e73dde6d19d78f26ede87a7b4721263e9ca",
-    "container_id": "c2a487ededd7"
+    "revision": "sha256:3fa6e11ce61c90be86d4d6dfc8287b16374bfa7af30f15ba1bd4515ddde4b4c7",
+    "container_id": "6480f9bedb65"
   },
   "deploy_compose_build_images": {
-    "gateway-backend-gate-test_backend_container_ready_a0-backend": "sha256:911b0cbdd5199efae3225a9212636e73dde6d19d78f26ede87a7b4721263e9ca"
+    "gateway-backend-gate-test_backend_container_ready_a0-backend": "sha256:3fa6e11ce61c90be86d4d6dfc8287b16374bfa7af30f15ba1bd4515ddde4b4c7"
   },
   "gate_tests": [
     "tests/test_backend_http_container_gate.py::test_backend_image_builds_with_http_server_entrypoint",
@@ -40,7 +39,7 @@
     "tests/test_submit_compose_e2e.py::test_compose_three_process_submit_stack_smoke_and_backend_restart",
     "tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey"
   ],
-  "gate_result": "4 passed, 0 skipped in 122.37s (exit remediation freeze @ a19103d)",
+  "gate_result": "4 passed, 0 skipped in 123.89s (review re-exit @ d6b0ccc)",
   "unit_tests": {
     "backend_unit": "2472 passed, 164 deselected"
   },
@@ -48,9 +47,14 @@
     "runs": 3,
     "result": "3x 174 passed"
   },
-  "counterfactual_evidence": {
-    "decode": "HistoryCompareResultInputResponse outside try → bundle_digest cases assert 500 (not 404); restored → 3 passed",
-    "drain": "begin_http_pre_drain no-op → readyz stays 200 (not 503); restored → 10/10 passed"
+  "drain_inflight_barrier": {
+    "stability": "10/10 passed",
+    "middleware": "gateway_backend.http.inflight_barrier.HttpInflightReadBarrierMiddleware",
+    "env": "GATEWAY_BACKEND_HTTP_TEST_INFLIGHT_BARRIER_DIR"
+  },
+  "structural_evidence_correction": {
+    "execution_chain_recovery": "test_structural_integrity_second_read_recovery_downgrades_to_commit_unavailable",
+    "structural_drift_owner": "test_integrity_confirmed_rejects_drifting_structural_observed_digest"
   },
   "container_gate_coverage_note": "Container gate does not cover successful result/bundle read paths"
 }

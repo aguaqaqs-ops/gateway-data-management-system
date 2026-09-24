@@ -1,13 +1,14 @@
 {
   "compose_project_name": "gateway-backend-gate-test_backend_container_ready_a0",
-  "gate_tested_head": "74324b5f6dff14f5b26b1ef018c275a4678d211e",
-  "source_tree_sha": "74324b5f6dff14f5b26b1ef018c275a4678d211e",
-  "review_fix_worktree": true,
-  "review_fix_round": 6,
-  "gate_tested_note": "Review-fix round 6: fresh build after compare_jobs integrity/PK fixes, history_compare decode mapping, and compare.py replay binding order. Worktree uncommitted atop 74324b5.",
+  "gate_tested_head": "a19103d37cf5f30f6411b9132fd3d7bdb850dc3e",
+  "source_tree_sha": "a19103d37cf5f30f6411b9132fd3d7bdb850dc3e",
+  "worktree_clean": true,
+  "review_fix_worktree": false,
+  "review_fix_round": "6 + exit remediation",
+  "gate_tested_note": "Exit remediation freeze: decode/drain test discrimination, docs closure, atop round-6 production compare fixes. Gate re-run at committed HEAD a19103d.",
   "recorded_at": "2026-09-24",
   "authority": "docs/backend-vnext/refactoring/formal/plans/p5-5e-s2-handoff.md §6.3",
-  "note": "Authoritative S2 container+submit gate snapshot (review-fix round 6). Container gate does not cover successful result/bundle read paths. vnext/backend/tests/support/.last_compose_gate_provenance.json is gitignored and must not be used for exit verification.",
+  "note": "Authoritative S2 container+submit gate snapshot (exit remediation freeze). Container gate does not cover successful result/bundle read paths.",
   "uv_lock_drift_event": {
     "when": "2026-09-24",
     "cause": "bare uv sync/uv lock rewrote vnext/backend/uv.lock via internal mirror (pypi.org count dropped to 0)",
@@ -24,10 +25,11 @@
   },
   "vnext_deploy_compose_yaml_sha256": "f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0",
   "fresh_build": true,
-  "fresh_build_reason": "Review-fix round 6: runtime compare_jobs + history_compare + compare.py replay binding; backend Dockerfile COPY backend/uv.lock + uv sync --frozen",
+  "fresh_build_reason": "gate_tested_head includes production compare_jobs/history_compare/compare.py; compose build backend at a19103d (layer digest unchanged vs round-6 pre-commit build)",
   "running_image": {
     "repo_tag": "gateway-backend-gate-test_backend_container_ready_a0-backend:latest",
-    "revision": "sha256:911b0cbdd5199efae3225a9212636e73dde6d19d78f26ede87a7b4721263e9ca"
+    "revision": "sha256:911b0cbdd5199efae3225a9212636e73dde6d19d78f26ede87a7b4721263e9ca",
+    "container_id": "c2a487ededd7"
   },
   "deploy_compose_build_images": {
     "gateway-backend-gate-test_backend_container_ready_a0-backend": "sha256:911b0cbdd5199efae3225a9212636e73dde6d19d78f26ede87a7b4721263e9ca"
@@ -38,6 +40,17 @@
     "tests/test_submit_compose_e2e.py::test_compose_three_process_submit_stack_smoke_and_backend_restart",
     "tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey"
   ],
-  "gate_result": "4 passed, 0 skipped (review-fix round 6)",
+  "gate_result": "4 passed, 0 skipped in 122.37s (exit remediation freeze @ a19103d)",
+  "unit_tests": {
+    "backend_unit": "2472 passed, 164 deselected"
+  },
+  "focused_tests": {
+    "runs": 3,
+    "result": "3x 174 passed"
+  },
+  "counterfactual_evidence": {
+    "decode": "HistoryCompareResultInputResponse outside try → bundle_digest cases assert 500 (not 404); restored → 3 passed",
+    "drain": "begin_http_pre_drain no-op → readyz stays 200 (not 503); restored → 10/10 passed"
+  },
   "container_gate_coverage_note": "Container gate does not cover successful result/bundle read paths"
 }

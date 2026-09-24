@@ -27,8 +27,9 @@ next_step: P5-5E-S3
 stage: P5-5E-S2-compare-accept-execution-result-read-review-fix-round-6
 parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5e-history-compare-execution-plan.md
 implementation_parent_head: 74324b5f6dff14f5b26b1ef018c275a4678d211e
-review_fix_head: uncommitted worktree (round 6)
+review_fix_head: a19103d37cf5f30f6411b9132fd3d7bdb850dc3e
 uv_lock_in_diff: no
+worktree_clean: true
 ```
 
 ## 阶段退出前整改（exit remediation）
@@ -209,7 +210,7 @@ uv_lock_in_diff: no
 - HTTP 多字节 Idempotency 255B 接受：`TestClient`/httpx 无法发送非 ASCII header；路由字节校验由 `IDEMPOTENCY_KEY_VALIDATION_CASES` 直测 `_validate_idempotency_key`，HTTP 接受用 255 ASCII 字节。
 - **锁漂移纪律**：Round 3 根因为裸 `uv sync`/`uv lock` 改写 `vnext/backend/uv.lock`；须全程 `uv-consume.sh`。`run-tests.sh` **无** `git diff --exit-code -- vnext/*/uv.lock` 前置检查（handoff round 5 误记已更正）。
 
-## §6.3 运行镜像证据（review-fix round 6）
+## §6.3 运行镜像证据（exit remediation freeze @ a19103d）
 
 ```
 uv_lock_drift_event:
@@ -217,25 +218,33 @@ uv_lock_drift_event:
   cause: 内网 mirror 隐式改写 vnext/backend/uv.lock（pypi.org 计数归零）
   recovery: git checkout -- vnext/backend/uv.lock（禁止 uv lock / uv sync）
   pypi_org_count_after_recovery: 39
-source_tree_sha: 74324b5f6dff14f5b26b1ef018c275a4678d211e (+ round-6 worktree, uncommitted)
-gate_tested_head: 74324b5f6dff14f5b26b1ef018c275a4678d211e (+ round-6 worktree, uncommitted)
+source_tree_sha: a19103d37cf5f30f6411b9132fd3d7bdb850dc3e
+gate_tested_head: a19103d37cf5f30f6411b9132fd3d7bdb850dc3e
+worktree_clean: true
 vnext/deploy/compose.yaml_sha256: f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0
-fresh_build: yes (round 6: compare_jobs + history_compare + compare.py)
-重建理由: backend Dockerfile COPY backend/uv.lock + uv sync --frozen
+fresh_build: yes (compose build backend @ a19103d; layer digest 与 round-6 预提交构建一致)
+重建理由: gate_tested_head 含 production compare 修复；backend Dockerfile COPY backend/uv.lock + uv sync --frozen
 五锁 SHA:
   shared_kernel: 7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898
   repository_contracts: b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3
   repository_client: 6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954
   repository_service: 6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11
   backend: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
-focused 测试摘要 (Round 6):
-  - S2 focused (9 files): 174 passed
-  - backend ruff + mypy: pass
-容器+submit 门禁结果 (Round 6):
+静态检查: 五包 ruff + mypy pass
+unit: backend -m unit → 2472 passed, 164 deselected
+focused 测试摘要 (exit remediation):
+  - S2 focused (9 files): 3× 174 passed
+  - drain 单测: test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain 10/10
+反事实:
+  - decode: HistoryCompareResultInputResponse 移出 try → bundle_digest 用例 500（非 404）；恢复 → 3 passed
+  - drain: begin_http_pre_drain no-op → readyz 200（非 503）；恢复 → 10/10
+容器+submit 门禁结果 (@ a19103d):
   - tests/test_backend_http_container_gate.py: 2 passed
   - tests/test_submit_compose_e2e.py: 2 passed
+  - gate_duration: 122.37s
   - running_image: gateway-backend-gate-test_backend_container_ready_a0-backend:latest
   - image_revision: sha256:911b0cbdd5199efae3225a9212636e73dde6d19d78f26ede87a7b4721263e9ca
+  - container_id: c2a487ededd7
   - 权威 provenance: docs/backend-vnext/refactoring/formal/plans/p5-5e-s2-compose-gate-provenance.json
 注: 容器门禁不覆盖 result/bundle 成功读路径
 ```

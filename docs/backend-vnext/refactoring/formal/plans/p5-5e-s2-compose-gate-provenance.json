@@ -3,7 +3,8 @@
   "gate_tested_head": "d6b0ccc1e9839102e3410aa1a391d56498d747f5",
   "source_tree_sha": "d6b0ccc1e9839102e3410aa1a391d56498d747f5",
   "worktree_clean": true,
-  "review_fix_round": "6 + exit remediation + review re-exit",
+  "review_fix_round": "6 + exit remediation + review re-exit + review re-exit 2",
+  "review_fix_head": "01780a242a689cd7dcf417596b12a8ccce21e540",
   "gate_tested_note": "Review re-exit: HttpInflightReadBarrierMiddleware for drain in-flight completion proof; structural evidence rename. Fresh compose build at d6b0ccc (app.py wiring).",
   "recorded_at": "2026-09-24",
   "authority": "docs/backend-vnext/refactoring/formal/plans/p5-5e-s2-handoff.md §6.3",
@@ -54,6 +55,7 @@
     "env": "GATEWAY_BACKEND_HTTP_TEST_INFLIGHT_BARRIER_DIR",
     "wait_drain_started": "监听 socket 关闭（readyz ConnectError）+ margin_seconds=1.0 后 release",
     "counterfactual": {
+      "evidence_commit": "01780a242a689cd7dcf417596b12a8ccce21e540",
       "healthy": "1 passed (~3.0s)",
       "graceful_shutdown_seconds_0": "1 failed (JSONDecodeError on in-flight thread / early process exit); restored http_server.py"
     }

@@ -24,10 +24,10 @@ next_step: P5-5E-S3
 ## Traceability
 
 ```yaml
-stage: P5-5E-S2-compare-accept-execution-result-read-review-fix-round-6
+stage: P5-5E-S2-compare-accept-execution-result-read-review-fix-round-6-review-re-exit-2
 parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5e-history-compare-execution-plan.md
 implementation_parent_head: 74324b5f6dff14f5b26b1ef018c275a4678d211e
-review_fix_head: d6b0ccc1e9839102e3410aa1a391d56498d747f5
+review_fix_head: 01780a242a689cd7dcf417596b12a8ccce21e540
 uv_lock_in_diff: no
 worktree_clean: true
 ```
@@ -243,11 +243,12 @@ focused 测试摘要 (review re-exit):
   - S2 focused (9 files): 3× 174 passed
   - drain 在飞屏障: test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain 10/10（~3.0s/次；监听 socket 关闭 + 1s 余量后 release）
   - structural 勘误: test_structural_integrity_second_read_recovery_downgrades_to_commit_unavailable；结构漂移 owner test_integrity_confirmed_rejects_drifting_structural_observed_digest
-反事实 (继承 exit remediation + drain 判别力):
+反事实 (继承 exit remediation + drain 判别力 @ 01780a):
   - decode: HistoryCompareResultInputResponse 移出 try → bundle_digest 用例 500；恢复 → 3 passed
   - drain pre-drain: begin_http_pre_drain no-op → readyz 非 503；恢复 → 10/10
-  - drain graceful 预算: _HTTP_GRACEFUL_SHUTDOWN_SECONDS=0 → 用例 failed（在飞读 JSONDecodeError/进程提前退出）；恢复 → 1 passed
-gate_scope_note: 本轮仅测试变更，production source 与 d6b0ccc 一致，未重建镜像
+  - drain graceful 预算 (01780a242a): _HTTP_GRACEFUL_SHUTDOWN_SECONDS=0 → 用例 failed（在飞读 JSONDecodeError/进程提前退出）；恢复 → 1 passed
+review_re_exit_2_head: 01780a242a689cd7dcf417596b12a8ccce21e540
+gate_scope_note: drain 判别力为纯测试变更（01780a）；gate_tested_head/source_tree_sha 仍为 d6b0ccc，未重建镜像
 容器+submit 门禁结果 (@ d6b0ccc):
   - tests/test_backend_http_container_gate.py: 2 passed
   - tests/test_submit_compose_e2e.py: 2 passed

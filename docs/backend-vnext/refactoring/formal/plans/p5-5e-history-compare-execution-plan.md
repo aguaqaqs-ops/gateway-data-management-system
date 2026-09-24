@@ -15,6 +15,7 @@ status: docs accepted; S2 implementation authorized
 implementation_authorized: S2 only
 s1_stage_exit: pass
 s2_kickoff: pass
+s2_stage_exit: pass
 docs_review_baseline_head: 6f6a780415b3e85ec2d1e9074b1f34c4093a9c7c
 implementation_baseline_head: 6707a1ca01c7325220ec47261b4b69a6232313ab
 p5_5d_gate_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c

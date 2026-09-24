@@ -53,7 +53,7 @@
     "stability": "10/10 passed (~3.0s pytest per run, wall ~3.63s)",
     "middleware": "gateway_backend.http.inflight_barrier.HttpInflightReadBarrierMiddleware",
     "env": "GATEWAY_BACKEND_HTTP_TEST_INFLIGHT_BARRIER_DIR",
-    "wait_drain_started": "监听 socket 关闭（readyz ConnectError）+ margin_seconds=1.0 后 release",
+    "wait_drain_started": "新 readyz 连接被拒（ConnectError/RemoteProtocolError，非超时）+ margin_seconds=1.0 后 release",
     "counterfactual": {
       "evidence_commit": "01780a242a689cd7dcf417596b12a8ccce21e540",
       "healthy": "1 passed (~3.0s)",

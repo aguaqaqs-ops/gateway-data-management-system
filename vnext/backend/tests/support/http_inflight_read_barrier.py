@@ -54,7 +54,11 @@ class HttpInflightReadBarrier:
         margin_seconds: float = 1.0,
         timeout_seconds: float = 5.0,
     ) -> None:
-        """Wait until uvicorn closes the listening socket, then allow drain wait margin."""
+        """Wait until a new readyz connection is refused, then allow drain wait margin.
+
+        Only ``ConnectError`` and ``RemoteProtocolError`` count as the listening socket
+        having closed; timeouts are retried because they are not equivalent to drain start.
+        """
 
         drain_started_deadline = time.monotonic() + timeout_seconds
         socket_closed = False
@@ -63,9 +67,11 @@ class HttpInflightReadBarrier:
                 pytest.fail("server exited before the listening socket closed during drain")
             try:
                 httpx.get(f"{base_url}/readyz", timeout=0.3)
-            except httpx.HTTPError:
+            except (httpx.ConnectError, httpx.RemoteProtocolError):
                 socket_closed = True
                 break
+            except httpx.HTTPError:
+                pass
             time.sleep(0.02)
         else:
             if not socket_closed:

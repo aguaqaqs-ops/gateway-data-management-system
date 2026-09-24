@@ -1,6 +1,6 @@
 # P5-5E-S2 Compare Accept Handoff（Review-Fix Round 6）
 
-状态：**review-fix round 6 完成 — 待独立审核评估 `p5_5e_s2_stage_exit`**
+状态：**S2 stage exit PASS — 见 [p5-5e-s2-stage-exit-acceptance.md](p5-5e-s2-stage-exit-acceptance.md)**
 
 日期：2026-09-24
 
@@ -11,7 +11,7 @@ Owner：History Application
 ```yaml
 p5_5e_s1_stage_exit: pass
 p5_5e_s2_kickoff: pass
-p5_5e_s2_stage_exit: not_evaluated
+p5_5e_s2_stage_exit: pass
 implementation_authorized: S2 only
 workspace_schema_version: 6
 compare_implemented: yes
@@ -28,6 +28,7 @@ stage: P5-5E-S2-compare-accept-execution-result-read-review-fix-round-6-review-r
 parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5e-history-compare-execution-plan.md
 implementation_parent_head: 74324b5f6dff14f5b26b1ef018c275a4678d211e
 review_fix_head: 01780a242a689cd7dcf417596b12a8ccce21e540
+s2_stage_exit_acceptance: docs/backend-vnext/refactoring/formal/plans/p5-5e-s2-stage-exit-acceptance.md
 uv_lock_in_diff: no
 worktree_clean: true
 ```
@@ -313,6 +314,6 @@ gate_scope_note: drain 判别力为纯测试变更（01780a）；gate_tested_hea
 
 ## 范围声明
 
-- 本 handoff **不** 自行签署 `p5_5e_s2_stage_exit`（待独立审核在 blocker 关闭后评估）
+- `p5_5e_s2_stage_exit: pass` 见 [p5-5e-s2-stage-exit-acceptance.md](p5-5e-s2-stage-exit-acceptance.md)（`delivery_recommendation: pass_recommended`）
 - 本 handoff **不** 授权 production deployment
 - compose journey 仍归 S3

@@ -207,14 +207,20 @@ class FakeRepositoryTableAccessProvider:
         per_read_mutate_raw_digest_table: Sequence[str | None] = (),
         per_read_raw_digest_extra_by_table: Sequence[Mapping[str, bytes]] = (),
         per_read_rows: Sequence[RepositoryRows] = (),
+        base_catalog: RepositoryTableCatalog | None = None,
+        per_read_catalog_without: Sequence[Sequence[str]] = (),
+        per_read_hidden_catalog_without: Sequence[Sequence[str]] = (),
     ) -> None:
         self.catalog = catalog
+        self._base_catalog = base_catalog or catalog
         self.hidden = hidden
         self.declared_rows = declared_rows if declared_rows is not None else (rows or {})
         self.rows = rows if rows is not None else self.declared_rows
         self._per_read_mutate_raw_digest_table = tuple(per_read_mutate_raw_digest_table)
         self._per_read_raw_digest_extra_by_table = tuple(per_read_raw_digest_extra_by_table)
         self._per_read_rows = tuple(per_read_rows)
+        self._per_read_catalog_without = tuple(tuple(item) for item in per_read_catalog_without)
+        self._per_read_hidden_catalog_without = tuple(tuple(item) for item in per_read_hidden_catalog_without)
         self._materialize_read_index = 0
         self.current_commit = current_commit or catalog.resolved_commit_hash
         self.pad_nulls = pad_nulls
@@ -252,6 +258,19 @@ class FakeRepositoryTableAccessProvider:
                 "open_ref failed",
             )
         pinned = self.current_commit
+        read_index = self._materialize_read_index
+        base_catalog = self._base_catalog
+        if base_catalog.resolved_commit_hash != pinned:
+            base_catalog = RepositoryTableCatalog(
+                repository_id=base_catalog.repository_id,
+                repository_ref=base_catalog.repository_ref,
+                resolved_commit_hash=pinned,
+                repository_server_contract_version=base_catalog.repository_server_contract_version,
+                tables=base_catalog.tables,
+                repository_engine_version=base_catalog.repository_engine_version,
+                catalog_digest=base_catalog.catalog_digest,
+                cache_hit=base_catalog.cache_hit,
+            )
         catalog = self.catalog
         if catalog.resolved_commit_hash != pinned:
             catalog = RepositoryTableCatalog(
@@ -266,10 +285,30 @@ class FakeRepositoryTableAccessProvider:
             )
         hidden = self.hidden
         session_rows = self.declared_rows
-        if self._per_read_rows or self._per_read_mutate_raw_digest_table or self._per_read_raw_digest_extra_by_table:
-            read_index = self._materialize_read_index
+        if (
+            self._per_read_rows
+            or self._per_read_mutate_raw_digest_table
+            or self._per_read_raw_digest_extra_by_table
+            or self._per_read_catalog_without
+            or self._per_read_hidden_catalog_without
+        ):
             if read_index < len(self._per_read_rows):
                 session_rows = self._per_read_rows[read_index]
+            catalog_drop: tuple[str, ...] = ()
+            if read_index < len(self._per_read_catalog_without):
+                catalog_drop = self._per_read_catalog_without[read_index]
+            if catalog_drop:
+                catalog = catalog_without_tables(base_catalog, drop=catalog_drop)
+            elif self._per_read_catalog_without or self._per_read_hidden_catalog_without:
+                catalog = base_catalog
+            hidden_drop: tuple[str, ...] = ()
+            if read_index < len(self._per_read_hidden_catalog_without):
+                hidden_drop = self._per_read_hidden_catalog_without[read_index]
+            if hidden_drop:
+                hidden_catalog = catalog_without_tables(base_catalog, drop=hidden_drop)
+                hidden = hidden_summary_for(hidden_catalog, self.declared_rows)
+            elif self._per_read_catalog_without and read_index < len(self._per_read_catalog_without):
+                hidden = hidden_summary_for(base_catalog, self.declared_rows)
             mutate_table = None
             extras: Mapping[str, bytes] = {}
             if read_index < len(self._per_read_mutate_raw_digest_table):

@@ -572,8 +572,10 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
             table_ruleset_version=RUNTIME_RULESET_VERSION,
             now=TS,
         )
-    assert first_rebind_exc.value.code == second_rebind_exc.value.code
-    assert first_rebind_exc.value.message == second_rebind_exc.value.message
+    assert first_rebind_exc.value.status_code == 409
+    assert first_rebind_exc.value.code == "IDEMPOTENCY_CONFLICT"
+    assert second_rebind_exc.value.status_code == 409
+    assert second_rebind_exc.value.code == "IDEMPOTENCY_CONFLICT"
 
 
 def test_distinct_idempotency_keys_create_independent_accept_chains(db_path: Path) -> None:

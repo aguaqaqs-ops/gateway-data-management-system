@@ -347,6 +347,14 @@ materialize 读回失败先分类再处置。原版本 “V1 无 delete/rewrite 
 
 **证据轨 B — 结构 mismatch（无 content digest pair）**：候选码触发但无 content pair（如 `repository_ref.py:413–417` catalog 缺表）。走 materialization 公开的**结构 mismatch 事实**（S2 同批交付：`expected_digest_ref`/`observed_digest_ref` 承载「声明存在 vs 观测缺失」等有界 `DigestRef`，**非** row content digest）。**升 (c) 条件**：两次同候选码且两次结构事实引用全等。**已确认的结构矛盾不得因缺 content pair 归 (a)**。
 
+**轨 B 可判定规则（S2 exit 勘误）**：结构轨标签集合与 `repository_ref.py` `_select_hidden_tables` halt 点对齐：
+
+- `catalog-table:missing`
+- `catalog-table:{table}`
+- `hidden-summary-table:missing:{table}`
+
+其余 `expected_digest_ref`/`observed_digest_ref`（含 `hidden-summary-stage:*`、`hidden-row-count:*` / `catalog-row-count:*` 于 `repository_ref.py:388–396`）→ **内容轨**，允许 observed 漂移。实现引用：`compare_jobs.py::_is_structural_integrity_diagnostic`（S2 双轨 `_integrity_confirmed` 消费方）。若后续新增 halt 点，再评估是否引入 `digest_pair_kind` 等显式字段（方案 b）。
+
 **`expected_digest` / `observed_digest` 字段映射（F5 v3.5/v3.6，§8.3 选项 1）**：Operation Lifecycle §4 要求两侧为 materialization 公开的 `DigestRef` 引用。History **只投影**，不重算、不复制 `_digest.py`。
 
 **S2 阶段内交付（materialization owner，窄预算）**：扩展 `MaterializationDiagnostic`（`B/capabilities/snapshot_materialization/contracts.py`）增可选 `expected_digest_ref`/`observed_digest_ref`；在 `repository_ref.py` 类 (c) 相关 `_Halt` 点填充 content pair 或结构事实 pair。History consumer 在该公开面就绪后接线。
@@ -390,7 +398,7 @@ materialize 读回失败先分类再处置。原版本 “V1 无 delete/rewrite 
 | 401 | `AUTHENTICATION_REQUIRED` | 无 session / 认证失败（E） |
 | 403 | `SCOPE_FORBIDDEN` | 无 `read_project_history`（含当前时点 session 权限不足）；scope 未解析 / mapping 缺失（无法建立授权边界，不披露对象存在性） |
 | 404 | `RESOURCE_NOT_FOUND`；`ARTIFACT_UNAVAILABLE` | 授权 scope 内无此 node / operation / result；跨 scope 引用一律 `RESOURCE_NOT_FOUND`；SUCCEEDED 后 bundle bytes 缺失或 digest 校验失败 → `ARTIFACT_UNAVAILABLE`（不把终态成功改写为失败） |
-| 409 | `IDEMPOTENCY_CONFLICT`；`ADMISSION_CONFLICT`（E）；`HISTORY_INTEGRITY_UNRESOLVED` | 同 key 不同 accept-binding fingerprint；admission 冲突；未 ack 的 integrity incident 阻塞含相同 commit 的新 accept |
+| 409 | `IDEMPOTENCY_CONFLICT`；`ADMISSION_CONFLICT`（E）；`HISTORY_INTEGRITY_UNRESOLVED` | 同 key 不同 accept-binding fingerprint（含 durable `repository_id` 与当前 scope 改绑 → `HistoryCompareBindingConflict`，在节点解析前检查，`compare.py`；不因节点是否仍可解析而分化 409/404；`test_history_compare_transactions.py` replay 改绑用例）；admission 冲突；未 ack 的 integrity incident 阻塞含相同 commit 的新 accept |
 | 422 | `REQUEST_VALIDATION_FAILED` | node 数 ≠2..3、未知 `ref_kind`、重复 JSON key、cursor 不可解析、shape/byte 超限 |
 | 413 | `REQUEST_TOO_LARGE` | body > 256 KiB（E） |
 | 429 | `ADMISSION_LIMIT_REACHED` | E |

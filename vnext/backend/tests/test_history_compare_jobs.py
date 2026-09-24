@@ -29,6 +29,7 @@ from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
     ComparisonPlan,
     ComparisonTablePolicy,
+    ComparisonTableStatus,
     DetailedFactsResult,
     InputCompleteness,
     OrderedRecordKind,
@@ -67,7 +68,18 @@ from tests.support.history_compare_job_harness import (
     run_full_history_compare_job,
     run_through_step,
 )
-from tests.support.repository_ref_materialization import FakeRepositoryTableAccessProvider
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    RepositoryCatalogTable,
+    RepositoryColumn,
+)
+from tests.support.repository_ref_materialization import (
+    FakeRepositoryTableAccessProvider,
+    catalog_table,
+    hidden_summary_for,
+    int_id_column,
+    make_catalog,
+    text_column,
+)
 from gateway_backend.operations.contracts import BusinessReference
 
 from tests.support.history_zero_write_tables import capture_business_table_state
@@ -191,6 +203,85 @@ def test_assemble_resumes_without_rederiving_compare_binding(tmp_path: Path) -> 
     assemble_state = envelope.job_state["assemble_state"]
     assert isinstance(assemble_state, dict)
     assert assemble_state["bundle_digest"]
+
+
+def test_primary_key_change_across_commits_degrades_without_failing_job(tmp_path: Path) -> None:
+    before_commit = BASELINE_HEAD.business_baseline_commit_id
+    current_commit = "commit-b"
+    value_col = text_column("value", 1)
+    id_table = catalog_table("t", (int_id_column(), value_col), primary_key=("id",))
+    code_col = RepositoryColumn(name="code", ordinal=0, scalar_type="INT", nullable=False)
+    code_table = catalog_table("t", (code_col, value_col), primary_key=("code",))
+    rows = {"t": ((1, "a"),)}
+
+    def _provider(commit_id: str, table: RepositoryCatalogTable) -> FakeRepositoryTableAccessProvider:
+        catalog = make_catalog(
+            (table,),
+            repository_id=REPOSITORY_ID,
+            ref=commit_id,
+            commit=commit_id,
+        )
+        hidden = hidden_summary_for(catalog, rows)
+        return FakeRepositoryTableAccessProvider(
+            catalog=catalog,
+            base_catalog=catalog,
+            hidden=hidden,
+            rows=rows,
+            declared_rows=rows,
+            current_commit=commit_id,
+        )
+
+    providers = {
+        before_commit: _provider(before_commit, id_table),
+        current_commit: _provider(current_commit, code_table),
+    }
+    harness = build_history_compare_harness(
+        tmp_path,
+        custom_providers=providers,
+        idempotency_key="history-compare-pk-change",
+    )
+    run_full_history_compare_job(harness)
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(harness.operation_id)
+        incident = unit_of_work.history_compare.get_integrity_by_operation_id(harness.operation_id)
+        materialize_step = unit_of_work.operations.get_step(
+            history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
+        )
+    assert operation.status is OperationStatus.SUCCEEDED
+    assert incident is None
+    assert materialize_step.checkpoint_ref is not None
+    envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
+    policies_raw = envelope.job_state["table_policies"]
+    assert isinstance(policies_raw, list)
+    table_policies = _table_policies_from_checkpoint(policies_raw)
+    bound = bind_pair_input(
+        pair_id="pair-0",
+        view_kind=PairViewKind.HISTORY,
+        pair_role=PairRole.HISTORY,
+        before=_materialize_bound(
+            providers[before_commit],
+            commit_id=before_commit,
+            artifact_store=harness.artifact_store,
+        ),
+        current=_materialize_bound(
+            providers[current_commit],
+            commit_id=current_commit,
+            artifact_store=harness.artifact_store,
+        ),
+        input_completeness=InputCompleteness.FULL,
+        artifact_scope=ArtifactScope.ALL_CHANGES,
+        trusted_flow_binding=TrustedFlowApplicabilityBinding(
+            view_kind=PairViewKind.HISTORY,
+            binding_digest=DigestRef(str(envelope.job_state["compare_binding_digest"])),
+        ),
+        table_policies=table_policies,
+    )
+    planned = plan_pair(bound)
+    assert isinstance(planned, ComparisonPlan)
+    compared = compare_plan(planned)
+    assert isinstance(compared, DetailedFactsResult) and compared.facts is not None
+    assert compared.facts.tables[0].status is ComparisonTableStatus.DEGRADED
 
 
 def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:

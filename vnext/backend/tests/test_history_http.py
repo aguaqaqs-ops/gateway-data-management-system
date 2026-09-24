@@ -35,6 +35,12 @@ HISTORY_HTTP_QUERY_BOUNDARY_CASES = (
     ("cursor_over_max", {"cursor": "a" * 1025}, 422),
 )
 
+COMPARE_RESULT_DECODE_MALFORMED_CASES = (
+    ("bundle_digest_bad_prefix", "bundle_digest", "not-a-digest"),
+    ("bundle_digest_bad_hex", "bundle_digest", "sha256:" + "g" * 64),
+    ("comparison_digest_bad_hex", "comparison_digest", "sha256:" + "g" * 64),
+)
+
 HISTORY_COMPARE_HTTP_VALIDATION_CASES = (
     ("empty_idempotency_key", "", 422, "REQUEST_VALIDATION_FAILED"),
     ("long_idempotency_key", "a" * 300, 422, "REQUEST_VALIDATION_FAILED"),
@@ -784,6 +790,12 @@ def test_checkpoint_bytes_tamper_returns_artifact_unavailable(
     tmp_path: Path,
     store_kind: str,
 ) -> None:
+    """Store digest rejection: same-length semantic tamper with the original ref.
+
+    This proves the artifact store rejects bytes that no longer match ``raw_sha256``.
+    Route-side DTO decode validation is covered by
+    ``test_compare_result_decode_malformed_digest_returns_artifact_unavailable``.
+    """
     from gateway_backend.application.history.compare_jobs import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
@@ -860,6 +872,90 @@ def test_checkpoint_bytes_tamper_returns_artifact_unavailable(
     else:
         assert isinstance(artifact_store, InMemoryBoundedArtifactStore)
         _tamper_checkpoint_semantically_same_length(artifact_store._store, ref)  # noqa: SLF001
+
+    response = history_env.client.get(
+        f"/v1/history-compares/{operation_id}",
+        headers=history_env.auth_headers(),
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "ARTIFACT_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    ("case_id", "field", "invalid_value"),
+    COMPARE_RESULT_DECODE_MALFORMED_CASES,
+)
+def test_compare_result_decode_malformed_digest_returns_artifact_unavailable(
+    db_path: Path,
+    tmp_path: Path,
+    case_id: str,
+    field: str,
+    invalid_value: str,
+) -> None:
+    del case_id
+    from gateway_backend.application.history.compare_jobs import (
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER,
+        HISTORY_COMPARE_STEP_ASSEMBLE,
+        history_compare_step_id,
+    )
+    from tests.support.history_compare_job_harness import (
+        build_history_compare_harness,
+        run_through_step,
+    )
+    from tests.support.http_workspace_harness import InMemoryBoundedArtifactStore
+
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-{field}"),
+    )
+    node_a, node_b = _seed_compare_nodes(db_path)
+    memory_bounded = InMemoryBoundedArtifactStore()
+    history_env = _history_env(
+        db_path.parent / f"history-compare-decode-{field}",
+        db_path=db_path,
+        artifact_store=memory_bounded,
+    )
+    accepted = history_env.client.post(
+        "/v1/history-compares",
+        headers=history_env.auth_headers(idempotency_key=f"compare-decode-{field}"),
+        json={
+            "nodes": [
+                {"ref_kind": "baseline_node", "ref_id": node_a},
+                {"ref_kind": "baseline_node", "ref_id": node_b},
+            ]
+        },
+    )
+    operation_id = accepted.json()["operation_id"]
+    harness = build_history_compare_harness(
+        tmp_path / f"harness-decode-{field}",
+        db_path=db_path,
+        artifact_store=memory_bounded._store,
+        idempotency_key=f"compare-decode-{field}",
+        seed_acceptance=False,
+        existing_operation_id=operation_id,
+    )
+    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
+    run_through_step(harness, HISTORY_COMPARE_PUBLISH_HANDLER)
+
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        assemble_step = unit_of_work.operations.get_step(
+            history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
+        )
+    assert assemble_step.checkpoint_ref is not None
+    from tests.support.history_compare_checkpoint_tamper import rebind_tampered_assemble_checkpoint
+
+    rebind_tampered_assemble_checkpoint(
+        memory_bounded._store,
+        assemble_step.checkpoint_ref,
+        db_path=db_path,
+        step_id=history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_ASSEMBLE),
+        field=field,
+        value=invalid_value,
+    )
 
     response = history_env.client.get(
         f"/v1/history-compares/{operation_id}",

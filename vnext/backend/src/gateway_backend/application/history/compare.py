@@ -88,6 +88,14 @@ def validate_history_compare_binding(
         business_project_id=command.context.business_project_id,
         idempotency_key=command.idempotency_key,
     )
+    if prior is not None:
+        if prior.gateway_device_external_key != command.context.gateway_device_external_key:
+            raise HistoryCompareBindingConflict("scope device does not match durable acceptance")
+        if prior.business_project_id != command.context.business_project_id:
+            raise HistoryCompareBindingConflict("scope project does not match durable acceptance")
+        if prior.repository_id != fresh_scope.repository_id:
+            raise HistoryCompareBindingConflict("repository mapping does not match durable acceptance")
+
     resolved_nodes = resolve_compare_nodes(
         unit_of_work,
         repository_id=fresh_scope.repository_id,
@@ -108,12 +116,6 @@ def validate_history_compare_binding(
     if prior is not None:
         if prior.request_fingerprint != request_fingerprint:
             raise HistoryCompareIdempotencyConflict(idempotency_key=command.idempotency_key)
-        if prior.gateway_device_external_key != command.context.gateway_device_external_key:
-            raise HistoryCompareBindingConflict("scope device does not match durable acceptance")
-        if prior.business_project_id != command.context.business_project_id:
-            raise HistoryCompareBindingConflict("scope project does not match durable acceptance")
-        if prior.repository_id != fresh_scope.repository_id:
-            raise HistoryCompareBindingConflict("repository mapping does not match durable acceptance")
         if prior.table_ruleset_version != table_ruleset_version:
             raise HistoryCompareIdempotencyConflict(idempotency_key=command.idempotency_key)
         if prior.nodes != resolved_nodes:

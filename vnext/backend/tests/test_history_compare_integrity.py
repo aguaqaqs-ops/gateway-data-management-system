@@ -172,6 +172,13 @@ def _provider_for_integrity_scenario(
             declared_rows=_ROWS_A,
             catalog_without=("t",),
         )
+    if scenario == "structural_drifting":
+        return history_compare_provider(
+            commit_id=commit_id,
+            declared_rows=_ROWS_A,
+            per_read_catalog_without=(("t",), ()),
+            per_read_hidden_catalog_without=((), ("t",)),
+        )
     raise ValueError(f"unknown scenario: {scenario}")
 
 
@@ -222,6 +229,38 @@ def test_integrity_scenario_parameter_table(tmp_path: Path, scenario: str) -> No
     assert operation.ready_closure_ref is None
 
 
+def test_structural_integrity_drifting_observed_downgrades_to_commit_unavailable(
+    tmp_path: Path,
+) -> None:
+    from gateway_backend.application.history.contracts import HistoryCompareDiagnosticCode
+
+    commit_id = BASELINE_HEAD.business_baseline_commit_id
+    commit_b = "commit-b"
+    provider = _provider_for_integrity_scenario("structural_drifting", commit_id)
+    harness = build_history_compare_harness(
+        tmp_path,
+        custom_providers={
+            commit_id: provider,
+            commit_b: history_compare_provider(commit_id=commit_b),
+        },
+        idempotency_key="history-compare-f5-structural-drifting",
+    )
+    insert_history_compare_operation(harness)
+    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(harness.operation_id)
+        incident = unit_of_work.history_compare.get_integrity_by_operation_id(harness.operation_id)
+    assert operation.status is OperationStatus.FAILED
+    assert operation.diagnostic is not None
+    assert (
+        operation.diagnostic.code
+        == HistoryCompareDiagnosticCode.HISTORY_COMMIT_UNAVAILABLE.value
+    )
+    assert incident is None
+    assert operation.ready_closure_ref is None
+
+
 def test_integrity_confirmed_allows_drifting_observed_digest() -> None:
     from gateway_shared_kernel import DigestRef
 
@@ -248,6 +287,36 @@ def test_integrity_confirmed_allows_drifting_observed_digest() -> None:
         observed_digest_ref=DigestRef("sha256:" + "c" * 64),
     )
     assert _integrity_confirmed(first, second)
+
+
+def test_integrity_confirmed_rejects_drifting_structural_observed_digest() -> None:
+    from gateway_shared_kernel import raw_blob_digest
+
+    from gateway_backend.application.history.compare_jobs import _integrity_confirmed
+    from gateway_backend.capabilities.snapshot_materialization.contracts import (
+        DiagnosticSeverity,
+        MaterializationDiagnostic,
+        MaterializationDiagnosticCode,
+    )
+
+    expected = raw_blob_digest(b"catalog-table:t")
+    first = MaterializationDiagnostic(
+        code=MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
+        severity=DiagnosticSeverity.ERROR,
+        message="first",
+        table="t",
+        expected_digest_ref=expected,
+        observed_digest_ref=raw_blob_digest(b"catalog-table:missing"),
+    )
+    second = MaterializationDiagnostic(
+        code=MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
+        severity=DiagnosticSeverity.ERROR,
+        message="second",
+        table="t",
+        expected_digest_ref=expected,
+        observed_digest_ref=raw_blob_digest(b"hidden-summary-table:missing:t"),
+    )
+    assert not _integrity_confirmed(first, second)
 
 
 def test_pending_integrity_blocks_new_compare_until_acknowledged(tmp_path: Path) -> None:

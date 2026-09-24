@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
 
+from pydantic import ValidationError
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.checkpoints import StepCheckpointEnvelope
@@ -440,15 +441,11 @@ def _load_success_result(
             message="compare result is not available",
             status_code=404,
         )
-    pairs: list[HistoryComparePairResultResponse] = []
-    for item in pairs_raw:
-        if type(item) is not dict:
-            raise ApiError(
-                code="ARTIFACT_UNAVAILABLE",
-                message="compare result is not available",
-                status_code=404,
-            )
-        try:
+    try:
+        pairs: list[HistoryComparePairResultResponse] = []
+        for item in pairs_raw:
+            if type(item) is not dict:
+                raise TypeError("pair entry must be an object")
             before_ref_raw = item["before_ref"]
             current_ref_raw = item["current_ref"]
             if type(before_ref_raw) is not dict or type(current_ref_raw) is not dict:
@@ -472,36 +469,29 @@ def _load_success_result(
                     record_count=int(item["record_count"]),
                 )
             )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ApiError(
-                code="ARTIFACT_UNAVAILABLE",
-                message="compare result is not available",
-                status_code=404,
-            ) from exc
-    try:
         bundle_digest = str(assemble_state["bundle_digest"])
-    except (KeyError, TypeError, ValueError) as exc:
+        return HistoryCompareResultInputResponse(
+            input={
+                "nodes": [
+                    {
+                        "ref_kind": node.ref_kind.value,
+                        "ref_id": node.ref_id,
+                        "commit_id": node.commit_id,
+                    }
+                    for node in acceptance.nodes
+                ],
+                "commits": [node.commit_id for node in acceptance.nodes],
+            },
+            pairs=pairs,
+            bundle_digest=bundle_digest,
+            completed_at=operation.completed_at,
+        )
+    except (KeyError, TypeError, ValueError, ValidationError) as exc:
         raise ApiError(
             code="ARTIFACT_UNAVAILABLE",
             message="compare result is not available",
             status_code=404,
         ) from exc
-    return HistoryCompareResultInputResponse(
-        input={
-            "nodes": [
-                {
-                    "ref_kind": node.ref_kind.value,
-                    "ref_id": node.ref_id,
-                    "commit_id": node.commit_id,
-                }
-                for node in acceptance.nodes
-            ],
-            "commits": [node.commit_id for node in acceptance.nodes],
-        },
-        pairs=pairs,
-        bundle_digest=bundle_digest,
-        completed_at=operation.completed_at,
-    )
 
 
 def _bundle_artifact_id(

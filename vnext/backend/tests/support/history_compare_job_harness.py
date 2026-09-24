@@ -162,6 +162,8 @@ def history_compare_provider(
     mutate_raw_digest_table: str | None = None,
     per_read_mutate_raw_digest_table: tuple[str | None, ...] = (),
     per_read_raw_digest_extra_by_table: tuple[dict[str, bytes], ...] = (),
+    per_read_catalog_without: tuple[tuple[str, ...], ...] = (),
+    per_read_hidden_catalog_without: tuple[tuple[str, ...], ...] = (),
     missing_table_on_open: str | None = None,
     catalog_without: tuple[str, ...] = (),
 ) -> FakeRepositoryTableAccessProvider:
@@ -188,6 +190,7 @@ def history_compare_provider(
     )
     return FakeRepositoryTableAccessProvider(
         catalog=session_catalog,
+        base_catalog=full_catalog,
         hidden=hidden,
         rows=resolved_declared_rows,
         declared_rows=resolved_declared_rows,
@@ -195,6 +198,8 @@ def history_compare_provider(
         per_read_rows=per_read_rows,
         per_read_mutate_raw_digest_table=per_read_mutate_raw_digest_table,
         per_read_raw_digest_extra_by_table=per_read_raw_digest_extra_by_table,
+        per_read_catalog_without=per_read_catalog_without,
+        per_read_hidden_catalog_without=per_read_hidden_catalog_without,
         missing_table_on_open=missing_table_on_open,
     )
 

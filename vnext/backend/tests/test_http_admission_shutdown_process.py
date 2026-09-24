@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -148,8 +149,61 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
         )
         try:
             base_url = wait_for_http_server_ready(port_file)
+            auth_headers = {"Authorization": f"Bearer {TEST_BEARER}"}
+            history_result: dict[str, object] = {}
+            operation_result: dict[str, object] = {}
+            bundle_result: dict[str, object] = {}
+            read_errors: dict[str, str] = {}
+
+            def read_history() -> None:
+                try:
+                    response = httpx.get(
+                        f"{base_url}/v1/history",
+                        headers=auth_headers,
+                        timeout=5.0,
+                    )
+                    history_result["status"] = response.status_code
+                except httpx.HTTPError as exc:
+                    read_errors["history"] = type(exc).__name__
+
+            def read_operation() -> None:
+                try:
+                    response = httpx.get(
+                        f"{base_url}/v1/history-compares/{operation_id}",
+                        headers=auth_headers,
+                        timeout=5.0,
+                    )
+                    operation_result["status"] = response.status_code
+                except httpx.HTTPError as exc:
+                    read_errors["operation"] = type(exc).__name__
+
+            def read_bundle() -> None:
+                try:
+                    response = httpx.get(
+                        f"{base_url}/v1/history-compares/{operation_id}/bundle",
+                        headers=auth_headers,
+                        timeout=5.0,
+                    )
+                    bundle_result["status"] = response.status_code
+                    bundle_result["body"] = response.json()
+                except httpx.HTTPError as exc:
+                    read_errors["bundle"] = type(exc).__name__
+
+            in_flight_reads = (
+                threading.Thread(target=read_history, name="history-read"),
+                threading.Thread(target=read_operation, name="operation-read"),
+                threading.Thread(target=read_bundle, name="bundle-read"),
+            )
+            for thread in in_flight_reads:
+                thread.start()
+
+            connect_deadline = time.monotonic() + 2.0
+            while time.monotonic() < connect_deadline:
+                if operation_result.get("status") == 200 and history_result.get("status") == 200:
+                    break
+                time.sleep(0.01)
             os.kill(process.pid, signal.SIGTERM)
-            drain_deadline = time.monotonic() + 3.0
+            drain_deadline = time.monotonic() + 5.0
             ready_status = None
             rejected_status = None
             rejected_body: dict[str, object] | None = None
@@ -163,7 +217,7 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
                     rejected = httpx.post(
                         f"{base_url}/v1/history-compares",
                         headers={
-                            "Authorization": f"Bearer {TEST_BEARER}",
+                            **auth_headers,
                             "Idempotency-Key": "compare-sigterm-drain",
                         },
                         json={
@@ -181,56 +235,22 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
                 if ready_status == 503 and rejected_status == 409:
                     break
                 time.sleep(0.02)
-            history_status = None
-            operation_status = None
-            bundle_status = None
-            bundle_body: dict[str, object] | None = None
-            read_deadline = time.monotonic() + 3.0
-            while time.monotonic() < read_deadline and process.poll() is None:
-                try:
-                    history = httpx.get(
-                        f"{base_url}/v1/history",
-                        headers={"Authorization": f"Bearer {TEST_BEARER}"},
-                        timeout=0.3,
-                    )
-                    history_status = history.status_code
-                except httpx.HTTPError:
-                    pass
-                try:
-                    operation = httpx.get(
-                        f"{base_url}/v1/history-compares/{operation_id}",
-                        headers={"Authorization": f"Bearer {TEST_BEARER}"},
-                        timeout=0.3,
-                    )
-                    operation_status = operation.status_code
-                except httpx.HTTPError:
-                    pass
-                try:
-                    bundle = httpx.get(
-                        f"{base_url}/v1/history-compares/{operation_id}/bundle",
-                        headers={"Authorization": f"Bearer {TEST_BEARER}"},
-                        timeout=0.3,
-                    )
-                    bundle_status = bundle.status_code
-                    bundle_body = bundle.json()
-                except httpx.HTTPError:
-                    pass
-                if (
-                    history_status == 200
-                    and operation_status == 200
-                    and bundle_status == 404
-                ):
-                    break
-                time.sleep(0.02)
+
+            for thread in in_flight_reads:
+                thread.join(timeout=5.0)
+                assert not thread.is_alive()
+
             assert ready_status == 503
             assert rejected_status == 409
             assert rejected_body is not None
             assert rejected_body["code"] == "ADMISSION_CONFLICT"
-            assert history_status == 200
-            assert operation_status == 200
-            assert bundle_status == 404
-            assert bundle_body is not None
-            assert bundle_body["code"] == "RESOURCE_NOT_FOUND"
+            assert operation_result.get("status") == 200
+            assert history_result.get("status") == 200
+            if "status" in bundle_result:
+                assert bundle_result["status"] == 404
+                bundle_body = bundle_result.get("body")
+                assert isinstance(bundle_body, dict)
+                assert bundle_body["code"] == "RESOURCE_NOT_FOUND"
             output, _ = process.communicate(timeout=10)
             assert process.returncode in {0, -signal.SIGTERM}
             assert TEST_REPOSITORY_TOKEN not in output

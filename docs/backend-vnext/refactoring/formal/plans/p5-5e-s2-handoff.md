@@ -1,6 +1,6 @@
-# P5-5E-S2 Compare Accept Handoff（Review-Fix Round 5）
+# P5-5E-S2 Compare Accept Handoff（Review-Fix Round 6）
 
-状态：**review-fix round 5 完成 — 不签署 `p5_5e_s2_stage_exit`**
+状态：**review-fix round 6 完成 — 待独立审核评估 `p5_5e_s2_stage_exit`**
 
 日期：2026-09-24
 
@@ -15,7 +15,7 @@ p5_5e_s2_stage_exit: not_evaluated
 implementation_authorized: S2 only
 workspace_schema_version: 6
 compare_implemented: yes
-integrity_closed: partial
+integrity_closed: closed  # 设计 §6.6 轨 B 勘误 + compare_jobs::_is_structural_integrity_diagnostic + structural_drifting/content_drifting 测试
 compose_journey: deferred_to_s3
 production_deployment_authorized: no
 next_step: P5-5E-S3
@@ -24,12 +24,34 @@ next_step: P5-5E-S3
 ## Traceability
 
 ```yaml
-stage: P5-5E-S2-compare-accept-execution-result-read-review-fix-round-5
+stage: P5-5E-S2-compare-accept-execution-result-read-review-fix-round-6
 parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5e-history-compare-execution-plan.md
-implementation_parent_head: a2f8a0a2b0f892020f49a6676e535355b8674645
-review_fix_head: uncommitted worktree (round 5)
+implementation_parent_head: 74324b5f6dff14f5b26b1ef018c275a4678d211e
+review_fix_head: uncommitted worktree (round 6)
 uv_lock_in_diff: no
 ```
+
+## 阶段退出前整改（exit remediation）
+
+| 项 | 要点 | 证据 |
+| --- | --- | --- |
+| decode 判别化 | `rebind_tampered_assemble_checkpoint` 重签 ref + 更新 `step_records.checkpoint_ref`；tamper 用例标注 store digest 边界 | `tests/support/history_compare_checkpoint_tamper.py`；反事实：移出 `HistoryCompareResultInputResponse` try → bundle 用例 `500`（非 404） |
+| drain 确定性 | SIGTERM 前在飞读；drain 窗口仅断言 readyz 503 + POST 409；ConnectError 不计 bundle 失败 | `test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain` 10/10；反事实：注释 `begin_http_pre_drain` → readyz 仍为 200 |
+| HTTP pre-drain 契约 | SIGTERM 后不接受新连接；仅保证在飞请求可完成 | `http_server.py::_begin_http_pre_drain_sync` + `test_admission_first_server_pre_drains_before_super_shutdown` |
+| replay 改绑 409 | mapping 改绑 → `409 IDEMPOTENCY_CONFLICT`（accept-binding 含 `repository_id`） | 设计 §7.2 + `compare.py` 节点解析前 binding 检查；`test_history_compare_transactions.py` L575–578 |
+| 结构轨勘误 | 设计 §6.6 轨 B 标签集合与实现对齐 | `repository_ref.py:473–488`；`compare_jobs.py::_is_structural_integrity_diagnostic` |
+
+## Review-fix round 6 摘要
+
+本轮按独立审核意见关闭 S2 exit blockers：**PK 变化表级 DEGRADED、结构轨 integrity 双轨确认、bundle_digest 解码映射、replay 改绑 409、fresh 容器+submit 门禁证据**。
+
+| 项 | 修复 | 回归测试 |
+| --- | --- | --- |
+| PK 结构变化 | 删除 materialize 跨 commit PK 硬失败；capability `key_changed` → 表级 DEGRADED（§5.4） | `test_primary_key_change_across_commits_degrades_without_failing_job` |
+| 结构轨 integrity | `_integrity_confirmed` 双轨：结构事实全等才升 (c)；漂移降级类 (a) | `test_structural_integrity_drifting_observed_downgrades_to_commit_unavailable`、`test_integrity_confirmed_rejects_drifting_structural_observed_digest` |
+| bundle_digest 解码 | DTO `ValidationError` → `404 ARTIFACT_UNAVAILABLE` | `COMPARE_RESULT_DECODE_MALFORMED_CASES` / `test_compare_result_decode_malformed_digest_returns_artifact_unavailable` |
+| replay 改绑 | `validate_history_compare_binding` 在节点解析前检查 durable binding；改绑 → `409 IDEMPOTENCY_CONFLICT` | `test_replay_requires_current_permission` |
+| 容器门禁 | fresh build + 4 项 gate（2 container + 2 submit journey） | `p5-5e-s2-compose-gate-provenance.json` |
 
 ## Review-fix round 5 摘要
 
@@ -182,13 +204,12 @@ uv_lock_in_diff: no
 
 ## 未覆盖项与遗留风险
 
-- **integrity_closed: partial** — 剩余 partial：owner 12 轨 B；replay 改绑待 owner 3 单码裁决；容器不覆盖 result/bundle **成功**读路径（Round 5 bundle 探针仅为 QUEUED 404 语义）。
-- 容器门禁**不覆盖** result/bundle 成功读路径（见 §6.3）。
+- 容器门禁**不覆盖** result/bundle **成功**读路径（Round 5 bundle 探针仅为 QUEUED 404 语义；见 §6.3）。
 - compose journey 仍归 S3。
 - HTTP 多字节 Idempotency 255B 接受：`TestClient`/httpx 无法发送非 ASCII header；路由字节校验由 `IDEMPOTENCY_KEY_VALIDATION_CASES` 直测 `_validate_idempotency_key`，HTTP 接受用 255 ASCII 字节。
-- **锁漂移纪律**：Round 3 根因为裸 `uv sync`/`uv lock` 改写 `vnext/backend/uv.lock`；须全程 `uv-consume.sh`。`run-tests.sh` 前置 `git diff --exit-code -- vnext/*/uv.lock` 为计划外增强，**待 owner 追认**。
+- **锁漂移纪律**：Round 3 根因为裸 `uv sync`/`uv lock` 改写 `vnext/backend/uv.lock`；须全程 `uv-consume.sh`。`run-tests.sh` **无** `git diff --exit-code -- vnext/*/uv.lock` 前置检查（handoff round 5 误记已更正）。
 
-## §6.3 运行镜像证据（review-fix round 4；Round 5 未重跑容器门禁）
+## §6.3 运行镜像证据（review-fix round 6）
 
 ```
 uv_lock_drift_event:
@@ -196,29 +217,26 @@ uv_lock_drift_event:
   cause: 内网 mirror 隐式改写 vnext/backend/uv.lock（pypi.org 计数归零）
   recovery: git checkout -- vnext/backend/uv.lock（禁止 uv lock / uv sync）
   pypi_org_count_after_recovery: 39
-round_3_evidence_invalidated:
-  - focused 8 files / 161 passed（漂移锁上取得）
-  - 容器门禁 2 passed（漂移锁语境）
-source_tree_sha: a2f8a0a2b0f892020f49a6676e535355b8674645
-gate_tested_head: a2f8a0a2b0f892020f49a6676e535355b8674645 (+ round-4 worktree, uncommitted)
+source_tree_sha: 74324b5f6dff14f5b26b1ef018c275a4678d211e (+ round-6 worktree, uncommitted)
+gate_tested_head: 74324b5f6dff14f5b26b1ef018c275a4678d211e (+ round-6 worktree, uncommitted)
 vnext/deploy/compose.yaml_sha256: f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0
-fresh_build: yes (Round 4 only; Round 5 未触发重建)
-重建理由: backend Dockerfile COPY backend/uv.lock + uv sync --frozen（非 repository_service 的 ARG UV_LOCK_SHA256）
+fresh_build: yes (round 6: compare_jobs + history_compare + compare.py)
+重建理由: backend Dockerfile COPY backend/uv.lock + uv sync --frozen
 五锁 SHA:
   shared_kernel: 7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898
   repository_contracts: b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3
   repository_client: 6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954
   repository_service: 6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11
   backend: 21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea
-focused 测试摘要 (Round 5):
-  - S2 focused (9 files): 168 passed
-  - 五包 ruff + mypy: all pass
-  - pytest -m unit → 2465 passed（dolt 未 park：/usr/local/bin 对 dev 只读；marker 纯度由逐文件审查确认）
-round_5_fresh_build: no（未触碰 runtime/dependencies/wiring/routes/operation_worker）
-容器门禁结果 (Round 4 证据):
+focused 测试摘要 (Round 6):
+  - S2 focused (9 files): 174 passed
+  - backend ruff + mypy: pass
+容器+submit 门禁结果 (Round 6):
   - tests/test_backend_http_container_gate.py: 2 passed
+  - tests/test_submit_compose_e2e.py: 2 passed
   - running_image: gateway-backend-gate-test_backend_container_ready_a0-backend:latest
-  - image_revision: sha256:0dd74b005f9fc0dfc6369ba6172b7c364dd6223eae1b97bcc92c11b37ed3909d
+  - image_revision: sha256:911b0cbdd5199efae3225a9212636e73dde6d19d78f26ede87a7b4721263e9ca
+  - 权威 provenance: docs/backend-vnext/refactoring/formal/plans/p5-5e-s2-compose-gate-provenance.json
 注: 容器门禁不覆盖 result/bundle 成功读路径
 ```
 
@@ -254,26 +272,27 @@ round_5_fresh_build: no（未触碰 runtime/dependencies/wiring/routes/operation
 - `tests/support/http_workspace_harness.py` — artifact_store/bundle_reader 注入
 - `tests/test_production_wiring.py` — wiring 断言
 
-## awaiting owner decision（§5，原样保留，本轮不改行为）
+## awaiting owner decision（§5）
 
-1. §5.4 结构不同 table → 表级 DEGRADED vs 实现整 job FAILED
+1. ~~§5.4 结构不同 table → 表级 DEGRADED~~ → **closed（round 6）**
 2. §6.2 `acquire_new_work`（closed→429）vs DRAINING→409
-3. §7.2 history 读侧 mapping 缺失 → 403 vs E 全局 404 helper
+3. ~~§7.2 history 读侧 mapping 缺失 403/404~~ → **核销**：compare 读侧已有 `operation_scope._map_history_scope_resolution_error` → **403 `SCOPE_FORBIDDEN`**（非 E 全局 404 helper）
 4. `StoreBusy` → 500（E 级缺口，非 S2 引入）
 5. v6 两表缺 FK `operation_id → operation_records`
-6. pending 形状缺 `step?` 字段
+6. ~~pending 形状缺 `step?` 字段~~ → **裁决**：`step?` 为可选字段，现设计允许
 7. GET incident camelCase 注记矛盾
 8. §8 唯一 owner 表双 owner / 错位
 9. **已补列（见计划 §3），待 owner 追认**
 10. §10 停止线 9：row-digest 轨在 materialization 补齐 refs 后应不可达
 11. 设计勘误候选（v6 时间戳列、索引、decoder identity 短 token）
-12. **轨 B 是否强制两次 observed 全等**（设计字面 vs 实现；分支 2 已删除）
-13. ~~`_integrity_confirmed` 分支 2~~ → **已闭合（删除）**
-14. **SUCCEEDED 后 pin 集合无 unpin 通路、随 compare 次数增长**（对标 E preview supersede）→ **awaiting owner decision**
-15. **M12**：三节点 MULTI_PAIR bundle manifest 字段（`test_three_node_compare_job_uses_multi_pair_bundle`）— **closed（round 3）**
+12. ~~轨 B 两次结构事实全等~~ → **closed（round 6 双轨 `_integrity_confirmed` + exit 设计 §6.6 轨 B 标签勘误 + `structural_drifting`/`content_drifting` 测试）**
+13. ~~`_integrity_confirmed` 分支 2~~ → **已闭合（删除，round 4）**
+14. **SUCCEEDED 后 pin 集合无 unpin 通路** → **裁决**：现设计允许 SUCCEEDED pin 与 operation 共存；不据此扩 GC（对标 E preview supersede 为后续账）
+15. **M12**：三节点 MULTI_PAIR bundle manifest — **closed（round 3）**
+16. ~~replay 改绑拒绝码（409 vs 404）~~ → **closed（exit remediation）**：`409 IDEMPOTENCY_CONFLICT`；accept-binding fingerprint 含 `repository_id`；`compare.py` 节点解析前检查；`test_history_compare_transactions.py` L575–578
 
 ## 范围声明
 
-- 本 handoff **不** 签署 `p5_5e_s2_stage_exit`
+- 本 handoff **不** 自行签署 `p5_5e_s2_stage_exit`（待独立审核在 blocker 关闭后评估）
 - 本 handoff **不** 授权 production deployment
 - compose journey 仍归 S3

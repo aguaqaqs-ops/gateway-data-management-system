@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
 
-from gateway_shared_kernel import DigestRef
+from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.application.checkpoints import (
     CheckpointPublicationError,
@@ -739,11 +739,10 @@ def _materialize_distinct_commits(
     for table_set in table_sets:
         for table in table_set.tables:
             descriptor = table.descriptor
-            existing = table_names.get(descriptor.table_name)
-            if existing is None:
+            if descriptor.table_name not in table_names:
+                # First-seen PK is used only for ruleset policy projection; capability
+                # compares per-side descriptors and degrades on key_changed (design §5.4).
                 table_names[descriptor.table_name] = descriptor.primary_key_columns
-            elif existing != descriptor.primary_key_columns:
-                raise HistoryCompareJobError("table schema mismatch across commits")
 
     policies = [
         _policy_to_checkpoint_dict(_project_table_policy(resolve_table_rule(
@@ -848,23 +847,37 @@ def _integrity_confirmed(first: MaterializationDiagnostic, second: Materializati
         return False
     if (
         first.expected_digest_ref is None
-        and first.observed_digest_ref is None
-        and second.expected_digest_ref is None
-        and second.observed_digest_ref is None
+        or first.observed_digest_ref is None
+        or second.expected_digest_ref is None
+        or second.observed_digest_ref is None
     ):
         return False
-    # Content-track confirmation only: both reads disagree with the same expected digest.
-    if (
-        first.expected_digest_ref is not None
-        and second.expected_digest_ref is not None
-        and first.expected_digest_ref == second.expected_digest_ref
-        and first.observed_digest_ref is not None
-        and second.observed_digest_ref is not None
-        and first.observed_digest_ref != first.expected_digest_ref
+    if first.expected_digest_ref != second.expected_digest_ref:
+        return False
+    if _is_structural_integrity_diagnostic(first):
+        return first.observed_digest_ref == second.observed_digest_ref
+    # Content-track: stable expected; both observed disagree with expected (drift allowed).
+    return (
+        first.observed_digest_ref != first.expected_digest_ref
         and second.observed_digest_ref != second.expected_digest_ref
-    ):
-        return True
-    return False
+    )
+
+
+def _is_structural_integrity_diagnostic(diagnostic: MaterializationDiagnostic) -> bool:
+    expected = diagnostic.expected_digest_ref
+    observed = diagnostic.observed_digest_ref
+    if expected is None or observed is None:
+        return False
+    structural_labels: tuple[bytes, ...] = (b"catalog-table:missing",)
+    if type(diagnostic.table) is str and diagnostic.table:
+        structural_labels += (
+            f"catalog-table:{diagnostic.table}".encode(),
+            f"hidden-summary-table:missing:{diagnostic.table}".encode(),
+        )
+    return any(
+        expected == raw_blob_digest(label) or observed == raw_blob_digest(label)
+        for label in structural_labels
+    )
 
 
 def _candidate_diagnostic(result: SnapshotMaterializationResult) -> MaterializationDiagnostic | None:

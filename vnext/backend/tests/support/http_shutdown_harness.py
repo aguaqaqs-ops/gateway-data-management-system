@@ -266,6 +266,7 @@ def _base_http_server_environment(
     *,
     repository_base_url: str,
     port_file: Path,
+    inflight_barrier_dir: str | None = None,
 ) -> dict[str, str]:
     prepare_backend_runtime_paths(tmp_path)
     settings = make_backend_settings(
@@ -294,6 +295,10 @@ def _base_http_server_environment(
     environment["GATEWAY_BACKEND_HTTP_HOST"] = "127.0.0.1"
     environment["GATEWAY_BACKEND_HTTP_LOG_LEVEL"] = "error"
     environment["GATEWAY_BACKEND_HTTP_PORT_FILE"] = str(port_file)
+    if inflight_barrier_dir is not None:
+        from gateway_backend.http.inflight_barrier import INFLIGHT_BARRIER_ENV
+
+        environment[INFLIGHT_BARRIER_ENV] = inflight_barrier_dir
     return environment
 
 
@@ -328,11 +333,13 @@ def http_server_subprocess_environment(
     *,
     port_file: Path,
     repository_base_url: str,
+    inflight_barrier_dir: str | None = None,
 ) -> dict[str, str]:
     return _base_http_server_environment(
         tmp_path,
         repository_base_url=repository_base_url,
         port_file=port_file,
+        inflight_barrier_dir=inflight_barrier_dir,
     )
 
 

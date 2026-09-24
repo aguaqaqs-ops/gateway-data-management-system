@@ -19,8 +19,11 @@ def create_app(
         from gateway_backend.http.dependencies import ArchiveRequestBodyLimitMiddleware
         from gateway_backend.http.wiring import register_workspace_http
 
+        from gateway_backend.http.inflight_barrier import maybe_add_inflight_barrier_middleware
+
         app = FastAPI(title="Gateway Backend vNext")
         app.add_middleware(ArchiveRequestBodyLimitMiddleware)
+        maybe_add_inflight_barrier_middleware(app)
         _register_health_routes(app, ready=True)
         register_workspace_http(app, workspace_http, history_deps=history_http)
         return app
@@ -48,8 +51,11 @@ def create_app(
     from gateway_backend.http.dependencies import ArchiveRequestBodyLimitMiddleware
     from gateway_backend.http.errors import register_exception_handlers
 
+    from gateway_backend.http.inflight_barrier import maybe_add_inflight_barrier_middleware
+
     app = FastAPI(title="Gateway Backend vNext", lifespan=lifespan)
     app.add_middleware(ArchiveRequestBodyLimitMiddleware)
+    maybe_add_inflight_barrier_middleware(app)
     register_exception_handlers(app)
     app.state.ready = False
     _register_health_routes(app, ready=None)

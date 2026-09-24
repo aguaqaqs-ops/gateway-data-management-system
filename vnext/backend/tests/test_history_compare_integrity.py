@@ -172,7 +172,7 @@ def _provider_for_integrity_scenario(
             declared_rows=_ROWS_A,
             catalog_without=("t",),
         )
-    if scenario == "structural_drifting":
+    if scenario == "structural_second_read_recovers":
         return history_compare_provider(
             commit_id=commit_id,
             declared_rows=_ROWS_A,
@@ -229,21 +229,26 @@ def test_integrity_scenario_parameter_table(tmp_path: Path, scenario: str) -> No
     assert operation.ready_closure_ref is None
 
 
-def test_structural_integrity_drifting_observed_downgrades_to_commit_unavailable(
+def test_structural_integrity_second_read_recovery_downgrades_to_commit_unavailable(
     tmp_path: Path,
 ) -> None:
+    """First read fails with HIDDEN_SUMMARY_DIGEST_MISMATCH; second read recovers to COMPLETE.
+
+    This proves bounded re-read downgrade to class (a), not structural observed-drift rejection.
+    Structural drift rejection is owned by ``test_integrity_confirmed_rejects_drifting_structural_observed_digest``.
+    """
     from gateway_backend.application.history.contracts import HistoryCompareDiagnosticCode
 
     commit_id = BASELINE_HEAD.business_baseline_commit_id
     commit_b = "commit-b"
-    provider = _provider_for_integrity_scenario("structural_drifting", commit_id)
+    provider = _provider_for_integrity_scenario("structural_second_read_recovers", commit_id)
     harness = build_history_compare_harness(
         tmp_path,
         custom_providers={
             commit_id: provider,
             commit_b: history_compare_provider(commit_id=commit_b),
         },
-        idempotency_key="history-compare-f5-structural-drifting",
+        idempotency_key="history-compare-f5-structural-second-read-recovery",
     )
     insert_history_compare_operation(harness)
     run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)

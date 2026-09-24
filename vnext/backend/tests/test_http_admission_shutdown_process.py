@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from tests.support.http_inflight_read_barrier import HttpInflightReadBarrier
 from tests.support.http_shutdown_harness import (
     HTTP_SERVER_MODULE,
     apply_production_history_session,
@@ -132,11 +133,13 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
     node_a = seed["node_a"]
     node_b = seed["node_b"]
     port_file = tmp_path / "http-port-history.json"
+    inflight_barrier = HttpInflightReadBarrier(tmp_path)
     with repository_ready_stub_context(tmp_path) as repository_stub:
         environment = http_server_subprocess_environment(
             tmp_path,
             port_file=port_file,
             repository_base_url=repository_stub.base_url,
+            inflight_barrier_dir=inflight_barrier.barrier_dir_for_env(),
         )
         apply_production_history_session(tmp_path, environment)
         process = subprocess.Popen(
@@ -153,41 +156,31 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
             history_result: dict[str, object] = {}
             operation_result: dict[str, object] = {}
             bundle_result: dict[str, object] = {}
-            read_errors: dict[str, str] = {}
 
             def read_history() -> None:
-                try:
-                    response = httpx.get(
-                        f"{base_url}/v1/history",
-                        headers=auth_headers,
-                        timeout=5.0,
-                    )
-                    history_result["status"] = response.status_code
-                except httpx.HTTPError as exc:
-                    read_errors["history"] = type(exc).__name__
+                response = httpx.get(
+                    f"{base_url}/v1/history",
+                    headers=auth_headers,
+                    timeout=30.0,
+                )
+                history_result["status"] = response.status_code
 
             def read_operation() -> None:
-                try:
-                    response = httpx.get(
-                        f"{base_url}/v1/history-compares/{operation_id}",
-                        headers=auth_headers,
-                        timeout=5.0,
-                    )
-                    operation_result["status"] = response.status_code
-                except httpx.HTTPError as exc:
-                    read_errors["operation"] = type(exc).__name__
+                response = httpx.get(
+                    f"{base_url}/v1/history-compares/{operation_id}",
+                    headers=auth_headers,
+                    timeout=30.0,
+                )
+                operation_result["status"] = response.status_code
 
             def read_bundle() -> None:
-                try:
-                    response = httpx.get(
-                        f"{base_url}/v1/history-compares/{operation_id}/bundle",
-                        headers=auth_headers,
-                        timeout=5.0,
-                    )
-                    bundle_result["status"] = response.status_code
-                    bundle_result["body"] = response.json()
-                except httpx.HTTPError as exc:
-                    read_errors["bundle"] = type(exc).__name__
+                response = httpx.get(
+                    f"{base_url}/v1/history-compares/{operation_id}/bundle",
+                    headers=auth_headers,
+                    timeout=30.0,
+                )
+                bundle_result["status"] = response.status_code
+                bundle_result["body"] = response.json()
 
             in_flight_reads = (
                 threading.Thread(target=read_history, name="history-read"),
@@ -197,11 +190,7 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
             for thread in in_flight_reads:
                 thread.start()
 
-            connect_deadline = time.monotonic() + 2.0
-            while time.monotonic() < connect_deadline:
-                if operation_result.get("status") == 200 and history_result.get("status") == 200:
-                    break
-                time.sleep(0.01)
+            inflight_barrier.wait_entered(3, timeout_seconds=5.0)
             os.kill(process.pid, signal.SIGTERM)
             drain_deadline = time.monotonic() + 5.0
             ready_status = None
@@ -236,6 +225,8 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
                     break
                 time.sleep(0.02)
 
+            inflight_barrier.release()
+
             for thread in in_flight_reads:
                 thread.join(timeout=5.0)
                 assert not thread.is_alive()
@@ -246,11 +237,10 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
             assert rejected_body["code"] == "ADMISSION_CONFLICT"
             assert operation_result.get("status") == 200
             assert history_result.get("status") == 200
-            if "status" in bundle_result:
-                assert bundle_result["status"] == 404
-                bundle_body = bundle_result.get("body")
-                assert isinstance(bundle_body, dict)
-                assert bundle_body["code"] == "RESOURCE_NOT_FOUND"
+            assert bundle_result.get("status") == 404
+            bundle_body = bundle_result.get("body")
+            assert isinstance(bundle_body, dict)
+            assert bundle_body["code"] == "RESOURCE_NOT_FOUND"
             output, _ = process.communicate(timeout=10)
             assert process.returncode in {0, -signal.SIGTERM}
             assert TEST_REPOSITORY_TOKEN not in output

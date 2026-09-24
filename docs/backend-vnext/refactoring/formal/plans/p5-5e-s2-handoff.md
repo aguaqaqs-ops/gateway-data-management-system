@@ -15,7 +15,7 @@ p5_5e_s2_stage_exit: not_evaluated
 implementation_authorized: S2 only
 workspace_schema_version: 6
 compare_implemented: yes
-integrity_closed: closed  # 设计 §6.6 轨 B 勘误 + compare_jobs::_is_structural_integrity_diagnostic + structural_drifting/content_drifting 测试
+integrity_closed: closed  # 设计 §6.6 轨 B 勘误 + compare_jobs::_is_structural_integrity_diagnostic + test_integrity_confirmed_rejects_drifting_structural_observed_digest / content_drifting 参数表
 compose_journey: deferred_to_s3
 production_deployment_authorized: no
 next_step: P5-5E-S3
@@ -32,15 +32,22 @@ uv_lock_in_diff: no
 worktree_clean: true
 ```
 
+## 复审修复（review re-exit）
+
+| 项 | 修复 | 证据 |
+| --- | --- | --- |
+| drain 在飞完成 | `HttpInflightReadBarrierMiddleware` + 文件屏障；SIGTERM 在屏障内、release 后断言 200/404 | `inflight_barrier.py`；`test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain` 10/10 |
+| structural 证据勘误 | 重命名 `structural_second_read_recovers`；不声称执行链覆盖结构 observed 漂移 | `test_structural_integrity_second_read_recovery_downgrades_to_commit_unavailable`；结构漂移 owner：`test_integrity_confirmed_rejects_drifting_structural_observed_digest` |
+
 ## 阶段退出前整改（exit remediation）
 
 | 项 | 要点 | 证据 |
 | --- | --- | --- |
 | decode 判别化 | `rebind_tampered_assemble_checkpoint` 重签 ref + 更新 `step_records.checkpoint_ref`；tamper 用例标注 store digest 边界 | `tests/support/history_compare_checkpoint_tamper.py`；反事实：移出 `HistoryCompareResultInputResponse` try → bundle 用例 `500`（非 404） |
-| drain 确定性 | SIGTERM 前在飞读；drain 窗口仅断言 readyz 503 + POST 409；ConnectError 不计 bundle 失败 | `test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain` 10/10；反事实：注释 `begin_http_pre_drain` → readyz 仍为 200 |
+| drain 在飞完成 | env 门控 `HttpInflightReadBarrierMiddleware`；屏障内 SIGTERM；release 后 history/operation 200、bundle 404 | `test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain` 10/10；反事实：`begin_http_pre_drain` no-op → readyz 非 503 |
 | HTTP pre-drain 契约 | SIGTERM 后不接受新连接；仅保证在飞请求可完成 | `http_server.py::_begin_http_pre_drain_sync` + `test_admission_first_server_pre_drains_before_super_shutdown` |
 | replay 改绑 409 | mapping 改绑 → `409 IDEMPOTENCY_CONFLICT`（accept-binding 含 `repository_id`） | 设计 §7.2 + `compare.py` 节点解析前 binding 检查；`test_history_compare_transactions.py` L575–578 |
-| 结构轨勘误 | 设计 §6.6 轨 B 标签集合与实现对齐 | `repository_ref.py:473–488`；`compare_jobs.py::_is_structural_integrity_diagnostic` |
+| 结构轨勘误 | 设计 §6.6 轨 B 标签集合与实现对齐；结构漂移判别 owner 为直接单测 | `repository_ref.py:473–488`；`compare_jobs.py::_is_structural_integrity_diagnostic`；`test_integrity_confirmed_rejects_drifting_structural_observed_digest` |
 
 ## Review-fix round 6 摘要
 
@@ -49,7 +56,7 @@ worktree_clean: true
 | 项 | 修复 | 回归测试 |
 | --- | --- | --- |
 | PK 结构变化 | 删除 materialize 跨 commit PK 硬失败；capability `key_changed` → 表级 DEGRADED（§5.4） | `test_primary_key_change_across_commits_degrades_without_failing_job` |
-| 结构轨 integrity | `_integrity_confirmed` 双轨：结构事实全等才升 (c)；漂移降级类 (a) | `test_structural_integrity_drifting_observed_downgrades_to_commit_unavailable`、`test_integrity_confirmed_rejects_drifting_structural_observed_digest` |
+| 结构轨 integrity | `_integrity_confirmed` 双轨：结构事实全等才升 (c)；结构 observed 漂移拒绝 | `test_integrity_confirmed_rejects_drifting_structural_observed_digest`；第二次读回恢复降级 (a)：`test_structural_integrity_second_read_recovery_downgrades_to_commit_unavailable` |
 | bundle_digest 解码 | DTO `ValidationError` → `404 ARTIFACT_UNAVAILABLE` | `COMPARE_RESULT_DECODE_MALFORMED_CASES` / `test_compare_result_decode_malformed_digest_returns_artifact_unavailable` |
 | replay 改绑 | `validate_history_compare_binding` 在节点解析前检查 durable binding；改绑 → `409 IDEMPOTENCY_CONFLICT` | `test_replay_requires_current_permission` |
 | 容器门禁 | fresh build + 4 项 gate（2 container + 2 submit journey） | `p5-5e-s2-compose-gate-provenance.json` |
@@ -294,7 +301,7 @@ focused 测试摘要 (exit remediation):
 9. **已补列（见计划 §3），待 owner 追认**
 10. §10 停止线 9：row-digest 轨在 materialization 补齐 refs 后应不可达
 11. 设计勘误候选（v6 时间戳列、索引、decoder identity 短 token）
-12. ~~轨 B 两次结构事实全等~~ → **closed（round 6 双轨 `_integrity_confirmed` + exit 设计 §6.6 轨 B 标签勘误 + `structural_drifting`/`content_drifting` 测试）**
+12. ~~轨 B 两次结构事实全等~~ → **closed（round 6 双轨 `_integrity_confirmed` + exit 设计 §6.6 轨 B 标签勘误 + `test_integrity_confirmed_rejects_drifting_structural_observed_digest` / `content_drifting` 参数表）**
 13. ~~`_integrity_confirmed` 分支 2~~ → **已闭合（删除，round 4）**
 14. **SUCCEEDED 后 pin 集合无 unpin 通路** → **裁决**：现设计允许 SUCCEEDED pin 与 operation 共存；不据此扩 GC（对标 E preview supersede 为后续账）
 15. **M12**：三节点 MULTI_PAIR bundle manifest — **closed（round 3）**

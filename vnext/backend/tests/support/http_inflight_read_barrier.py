@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import subprocess
 import time
 from pathlib import Path
+
+import httpx
+import pytest
 
 from gateway_backend.http.inflight_barrier import (
     INFLIGHT_BARRIER_ENV,
     _ENTERED_DIR_NAME,
     _RELEASE_FILE_NAME,
 )
-
 
 class HttpInflightReadBarrier:
     """Coordinate subprocess history GETs with the env-gated in-flight middleware."""
@@ -41,3 +44,26 @@ class HttpInflightReadBarrier:
 
     def release(self) -> None:
         self._release_file.write_text("release\n", encoding="utf-8")
+
+    def wait_drain_started(
+        self,
+        base_url: str,
+        process: subprocess.Popen[str],
+        *,
+        margin_seconds: float = 1.0,
+        timeout_seconds: float = 5.0,
+    ) -> None:
+        """Wait until uvicorn closes the listening socket, then allow drain wait margin."""
+
+        drain_started_deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < drain_started_deadline and process.poll() is None:
+            try:
+                httpx.get(f"{base_url}/readyz", timeout=0.3)
+            except httpx.HTTPError:
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("drain never closed the listening socket")
+        time.sleep(margin_seconds)
+        if process.poll() is not None:
+            pytest.fail("server exited before in-flight reads completed")

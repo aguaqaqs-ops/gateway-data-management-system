@@ -225,6 +225,7 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
                     break
                 time.sleep(0.02)
 
+            inflight_barrier.wait_drain_started(base_url, process, margin_seconds=1.0)
             inflight_barrier.release()
 
             for thread in in_flight_reads:

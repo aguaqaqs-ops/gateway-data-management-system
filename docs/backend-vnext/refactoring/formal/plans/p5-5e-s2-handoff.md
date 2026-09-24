@@ -36,7 +36,7 @@ worktree_clean: true
 
 | 项 | 修复 | 证据 |
 | --- | --- | --- |
-| drain 在飞完成 | `HttpInflightReadBarrierMiddleware` + 文件屏障；SIGTERM 在屏障内、release 后断言 200/404 | `inflight_barrier.py`；`test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain` 10/10 |
+| drain 在飞完成 | `HttpInflightReadBarrierMiddleware` + 文件屏障；观测监听 socket 关闭（drain 起点）+ ≥1s 余量后 release，再断言 history/operation 200、bundle 404 | `wait_drain_started`；`test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain` 10/10（~3.0s/次）；反事实 `_HTTP_GRACEFUL_SHUTDOWN_SECONDS=0` → 1 failed |
 | structural 证据勘误 | 重命名 `structural_second_read_recovers`；不声称执行链覆盖结构 observed 漂移 | `test_structural_integrity_second_read_recovery_downgrades_to_commit_unavailable`；结构漂移 owner：`test_integrity_confirmed_rejects_drifting_structural_observed_digest` |
 
 ## 阶段退出前整改（exit remediation）
@@ -44,7 +44,7 @@ worktree_clean: true
 | 项 | 要点 | 证据 |
 | --- | --- | --- |
 | decode 判别化 | `rebind_tampered_assemble_checkpoint` 重签 ref + 更新 `step_records.checkpoint_ref`；tamper 用例标注 store digest 边界 | `tests/support/history_compare_checkpoint_tamper.py`；反事实：移出 `HistoryCompareResultInputResponse` try → bundle 用例 `500`（非 404） |
-| drain 在飞完成 | env 门控 `HttpInflightReadBarrierMiddleware`；屏障内 SIGTERM；release 后 history/operation 200、bundle 404 | `test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain` 10/10；反事实：`begin_http_pre_drain` no-op → readyz 非 503 |
+| drain 在飞完成 | env 门控屏障；监听 socket 关闭 + ≥1s 余量后 release；drain wait 阶段内断言 200/404 | `wait_drain_started`；10/10（~3.0s）；反事实：graceful=0 → failed；`begin_http_pre_drain` no-op → readyz 非 503 |
 | HTTP pre-drain 契约 | SIGTERM 后不接受新连接；仅保证在飞请求可完成 | `http_server.py::_begin_http_pre_drain_sync` + `test_admission_first_server_pre_drains_before_super_shutdown` |
 | replay 改绑 409 | mapping 改绑 → `409 IDEMPOTENCY_CONFLICT`（accept-binding 含 `repository_id`） | 设计 §7.2 + `compare.py` 节点解析前 binding 检查；`test_history_compare_transactions.py` L575–578 |
 | 结构轨勘误 | 设计 §6.6 轨 B 标签集合与实现对齐；结构漂移判别 owner 为直接单测 | `repository_ref.py:473–488`；`compare_jobs.py::_is_structural_integrity_diagnostic`；`test_integrity_confirmed_rejects_drifting_structural_observed_digest` |
@@ -241,11 +241,13 @@ fresh_build: yes (compose build backend @ d6b0ccc; app.py inflight barrier wirin
 unit: backend -m unit → 2472 passed, 164 deselected
 focused 测试摘要 (review re-exit):
   - S2 focused (9 files): 3× 174 passed
-  - drain 在飞屏障: test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain 10/10
+  - drain 在飞屏障: test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain 10/10（~3.0s/次；监听 socket 关闭 + 1s 余量后 release）
   - structural 勘误: test_structural_integrity_second_read_recovery_downgrades_to_commit_unavailable；结构漂移 owner test_integrity_confirmed_rejects_drifting_structural_observed_digest
-反事实 (继承 exit remediation):
+反事实 (继承 exit remediation + drain 判别力):
   - decode: HistoryCompareResultInputResponse 移出 try → bundle_digest 用例 500；恢复 → 3 passed
-  - drain: begin_http_pre_drain no-op → readyz 非 503；恢复 → 10/10
+  - drain pre-drain: begin_http_pre_drain no-op → readyz 非 503；恢复 → 10/10
+  - drain graceful 预算: _HTTP_GRACEFUL_SHUTDOWN_SECONDS=0 → 用例 failed（在飞读 JSONDecodeError/进程提前退出）；恢复 → 1 passed
+gate_scope_note: 本轮仅测试变更，production source 与 d6b0ccc 一致，未重建镜像
 容器+submit 门禁结果 (@ d6b0ccc):
   - tests/test_backend_http_container_gate.py: 2 passed
   - tests/test_submit_compose_e2e.py: 2 passed

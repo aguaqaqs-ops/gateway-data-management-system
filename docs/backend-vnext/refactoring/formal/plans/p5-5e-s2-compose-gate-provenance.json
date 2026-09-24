@@ -47,10 +47,16 @@
     "runs": 3,
     "result": "3x 174 passed"
   },
+  "gate_scope_note": "仅测试变更，production source 与 d6b0ccc 一致；未重建镜像",
   "drain_inflight_barrier": {
-    "stability": "10/10 passed",
+    "stability": "10/10 passed (~3.0s pytest per run, wall ~3.63s)",
     "middleware": "gateway_backend.http.inflight_barrier.HttpInflightReadBarrierMiddleware",
-    "env": "GATEWAY_BACKEND_HTTP_TEST_INFLIGHT_BARRIER_DIR"
+    "env": "GATEWAY_BACKEND_HTTP_TEST_INFLIGHT_BARRIER_DIR",
+    "wait_drain_started": "监听 socket 关闭（readyz ConnectError）+ margin_seconds=1.0 后 release",
+    "counterfactual": {
+      "healthy": "1 passed (~3.0s)",
+      "graceful_shutdown_seconds_0": "1 failed (JSONDecodeError on in-flight thread / early process exit); restored http_server.py"
+    }
   },
   "structural_evidence_correction": {
     "execution_chain_recovery": "test_structural_integrity_second_read_recovery_downgrades_to_commit_unavailable",

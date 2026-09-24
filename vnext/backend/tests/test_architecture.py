@@ -802,6 +802,20 @@ def test_control_db_boundary_exists_and_has_no_application_wiring() -> None:
                     or imported.startswith("gateway_backend.domain.baseline")
                     or imported.startswith("gateway_backend.domain.submission")
                     or imported.startswith("gateway_backend.infrastructure.control_db")
+                    or (
+                        source.name in {"database.py", "sqlite_history_compare.py"}
+                        and any(
+                            imported == prefix or imported.startswith(f"{prefix}.")
+                            for prefix in (
+                                "gateway_backend.application.history.ports",
+                                "gateway_backend.application.history.contracts",
+                                # compare_bindings also exports digest helpers; control_db
+                                # adapters only use parse_nodes_json/nodes_json_from_bindings.
+                                "gateway_backend.application.history.compare_bindings",
+                                "gateway_backend.application.history.errors",
+                            )
+                        )
+                    )
                 ), f"{source} imports disallowed backend module {imported}"
 
 
@@ -967,6 +981,8 @@ def _assert_application_import_allowed(source: Path, imported: str) -> None:
     if imported == "__future__":
         return
     if source.name == "preview_jobs.py" and imported.startswith("gateway_backend.capabilities."):
+        return
+    if source.name == "compare_jobs.py" and imported.startswith("gateway_backend.capabilities."):
         return
     if source.name == "submit_jobs.py" and imported.startswith("gateway_repository_contracts"):
         return

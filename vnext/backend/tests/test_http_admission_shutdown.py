@@ -54,7 +54,16 @@ def test_create_routes_reject_after_admission_close_while_reads_remain(tmp_path:
         },
     )
     assert created.status_code in {200, 201}
-    closed = create_workspace_http_environment(tmp_path, admission_open=False)
+    from gateway_backend.application.history.contracts import PERMISSION_READ_PROJECT_HISTORY
+    from tests.support.workspace_fixtures import make_identity
+
+    closed = create_workspace_http_environment(
+        tmp_path,
+        admission_open=False,
+        identity=make_identity(
+            permissions=frozenset({"workspace_read", PERMISSION_READ_PROJECT_HISTORY}),
+        ),
+    )
     rejected = closed.client.post(
         "/v1/workspaces",
         headers=AUTH,
@@ -68,9 +77,23 @@ def test_create_routes_reject_after_admission_close_while_reads_remain(tmp_path:
     health = closed.client.get("/healthz")
     ready = closed.client.get("/readyz")
     missing_operation = closed.client.get("/v1/operations/op-missing", headers=AUTH)
+    rejected_compare = closed.client.post(
+        "/v1/history-compares",
+        headers={**AUTH, "Idempotency-Key": "compare-admission"},
+        json={
+            "nodes": [
+                {"ref_kind": "baseline_node", "ref_id": "bn-a"},
+                {"ref_kind": "baseline_node", "ref_id": "bn-b"},
+            ]
+        },
+    )
+    history_list = closed.client.get("/v1/history", headers=AUTH)
     assert health.status_code == 200
     assert ready.status_code == 200
+    assert history_list.status_code == 200
     assert missing_operation.status_code in {401, 403, 404}
+    assert rejected_compare.status_code == 409
+    assert rejected_compare.json()["code"] == "ADMISSION_CONFLICT"
 
 
 def test_production_pre_drain_marks_not_ready_and_closes_admission(tmp_path: Path) -> None:
@@ -111,6 +134,7 @@ def test_production_lifespan_shutdown_marks_not_ready(tmp_path: Path) -> None:
         assert fastapi_app.state.admission_gate.allows_new_work() is False
 
 
+@pytest.mark.serial
 def test_admission_first_server_pre_drains_before_super_shutdown(tmp_path: Path) -> None:
     prepare_backend_runtime_paths(tmp_path)
     settings = make_backend_settings(
@@ -148,6 +172,9 @@ def test_admission_first_server_pre_drains_before_super_shutdown(tmp_path: Path)
     asyncio.run(run_shutdown_probe())
 
     assert captured == [(False, False)]
+    ready_before_drain, admission_before_drain = captured[0]
+    assert ready_before_drain is False
+    assert admission_before_drain is False
 
 
 def test_submit_create_route_rejects_after_admission_close(tmp_path: Path) -> None:
@@ -174,6 +201,51 @@ def test_submit_create_route_rejects_after_admission_close(tmp_path: Path) -> No
     )
     assert rejected.status_code == 429
     assert rejected.json()["code"] == "ADMISSION_LIMIT_REACHED"
+
+
+def test_history_compare_replay_releases_admission_slot(tmp_path: Path) -> None:
+    from gateway_backend.application.history.contracts import PERMISSION_READ_PROJECT_HISTORY
+    from tests.support.history_compare_job_harness import seed_archived_baseline_node
+    from tests.support.workspace_fixtures import make_identity
+
+    gate = ClosableAdmissionGate(limit=1)
+    env = create_workspace_http_environment(
+        tmp_path,
+        admission_gate=gate,
+        identity=make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY})),
+    )
+    seed_archived_baseline_node(
+        env.db_path,
+        node_id="bn-compare-b",
+        commit_id="commit-b",
+        created_at_us=2,
+    )
+    nodes = {
+        "nodes": [
+            {"ref_kind": "baseline_node", "ref_id": BASELINE_HEAD.business_baseline_node_id},
+            {"ref_kind": "baseline_node", "ref_id": "bn-compare-b"},
+        ]
+    }
+    first = env.client.post(
+        "/v1/history-compares",
+        headers={**AUTH, "Idempotency-Key": "compare-admission-first"},
+        json=nodes,
+    )
+    assert first.status_code == 202
+    replay = env.client.post(
+        "/v1/history-compares",
+        headers={**AUTH, "Idempotency-Key": "compare-admission-first"},
+        json=nodes,
+    )
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+    second = env.client.post(
+        "/v1/history-compares",
+        headers={**AUTH, "Idempotency-Key": "compare-admission-second"},
+        json=nodes,
+    )
+    assert second.status_code == 202
+    assert gate.allows_new_work() is True
 
 
 def test_closable_admission_gate_rejects_when_in_flight_limit_reached() -> None:

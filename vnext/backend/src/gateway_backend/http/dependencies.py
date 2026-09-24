@@ -246,6 +246,14 @@ class WorkspaceHttpDependencies:
 class HistoryHttpDependencies:
     unit_of_work_factory: HistoryControlUnitOfWorkFactory
     snapshot_loader: HistorySnapshotLoaderPort
+    scope_resolution: ScopeResolutionPort
+    job_registry: JobDefinitionRegistry
+    admission_gate: AdmissionGatePort
+    operation_reader: OperationReaderPort
+    artifact_store: BoundedArtifactStorePort
+    bundle_reader: BundleReaderPort
+    table_ruleset_version: str
+    now: Callable[[], datetime]
 
 
 def get_history_http(request: Request) -> HistoryHttpDependencies:
@@ -335,12 +343,13 @@ def reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, obj
     return dict(pairs)
 
 
-ARCHIVE_POST_PATHS = frozenset(
+BODY_LIMIT_POST_PATHS = frozenset(
     {
         "/v1/archive-plan-preview",
         "/v1/archive-confirmations",
         "/v1/archive-anomaly-resolutions",
         "/v1/archives",
+        "/v1/history-compares",
     }
 )
 
@@ -356,7 +365,7 @@ class ArchiveRequestBodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
         path = str(scope.get("path", ""))
-        if path not in ARCHIVE_POST_PATHS:
+        if path not in BODY_LIMIT_POST_PATHS:
             await self.app(scope, receive, send)
             return
 
@@ -379,7 +388,7 @@ class ArchiveRequestBodyLimitMiddleware:
             if len(body) > ARCHIVE_MAX_REQUEST_BYTES:
                 response = error_response(
                     code="REQUEST_TOO_LARGE",
-                    message="request body exceeds archive size limit",
+                    message="request body exceeds size limit",
                     status_code=413,
                 )
                 await response(scope, receive, send)

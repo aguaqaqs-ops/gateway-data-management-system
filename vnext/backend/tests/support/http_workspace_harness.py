@@ -13,10 +13,12 @@ from fastapi.testclient import TestClient
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.app import create_app
+from gateway_backend.http.runtime import LocalArtifactBundleReader
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     JobDefinitionRegistry,
 )
+from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
 from gateway_backend.application.preview_jobs import preview_job_definitions
 from gateway_backend.application.submit_registry import submit_job_definitions
 from gateway_backend.application.recovery import RecoveryCapability
@@ -42,6 +44,7 @@ from gateway_backend.artifacts.bounded_store import (
     DeleteDisposition,
     VerifyReadableResult,
 )
+from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
 from gateway_backend.domain.workspace.models import (
     IdentityContext,
     InputCompleteness,
@@ -280,12 +283,19 @@ def preview_job_registry() -> JobDefinitionRegistry:
     return JobDefinitionRegistry.build(preview_job_definitions())
 
 
-def workspace_job_registry(*, include_preview: bool = True, include_submit: bool = True) -> JobDefinitionRegistry:
+def workspace_job_registry(
+    *,
+    include_preview: bool = True,
+    include_submit: bool = True,
+    include_history_compare: bool = True,
+) -> JobDefinitionRegistry:
     definitions: list[JobDefinition] = []
     if include_preview:
         definitions.extend(preview_job_definitions())
     if include_submit:
         definitions.extend(submit_job_definitions())
+    if include_history_compare:
+        definitions.extend(history_compare_job_definitions())
     return JobDefinitionRegistry.build(tuple(definitions))
 
 
@@ -836,7 +846,7 @@ class WorkspaceHttpTestEnvironment:
     db_path: Path
     repository: SqliteWorkspaceRepositoryFacade
     artifact_store: InMemoryBoundedArtifactStore
-    bundle_reader: InMemoryBundleReader
+    bundle_reader: InMemoryBundleReader | LocalArtifactBundleReader
     baseline_head_read: MutableBaselineHeadReadPort
     scope_resolution: FixedScopeResolutionPort
     main_resolve: RecordingMainResolvePort | FailingMainResolvePort
@@ -866,6 +876,8 @@ def create_workspace_http_environment(
     baseline_canonical_digest: BaselineCanonicalDigestPort | None = None,
     main_resolve_port: RecordingMainResolvePort | FailingMainResolvePort | None = None,
     db_path: Path | None = None,
+    artifact_store: InMemoryBoundedArtifactStore | BoundedArtifactStore | None = None,
+    bundle_reader: InMemoryBundleReader | LocalArtifactBundleReader | None = None,
 ) -> WorkspaceHttpTestEnvironment:
     resolved_db_path = db_path or (tmp_path / "control.db")
     if db_path is None:
@@ -883,8 +895,10 @@ def create_workspace_http_environment(
     )
     baseline_head_read = MutableBaselineHeadReadPort({"repo-1": BASELINE_HEAD})
     repository = SqliteWorkspaceRepositoryFacade(resolved_db_path)
-    artifact_store = InMemoryBoundedArtifactStore()
-    bundle_reader = InMemoryBundleReader()
+    artifact_store = artifact_store or InMemoryBoundedArtifactStore()
+    resolved_bundle_reader = (
+        bundle_reader if bundle_reader is not None else InMemoryBundleReader()
+    )
 
     def unit_of_work_factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(resolved_db_path, read_only=read_only)
@@ -938,7 +952,7 @@ def create_workspace_http_environment(
         artifact_store=cast(BoundedArtifactStorePort, artifact_store),
         artifact_ref_lookup=cast(ArtifactRefLookupPort, artifact_store),
         job_registry=job_registry,
-        bundle_reader=bundle_reader,
+        bundle_reader=resolved_bundle_reader,
         admission_gate=resolved_gate,
         operation_reader=operation_reader,
         submission_reader=submission_reader,
@@ -948,9 +962,19 @@ def create_workspace_http_environment(
         operator_recovery_port=operator_recovery_port,
         now=clock,
     )
+    from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
+
     history_deps = HistoryHttpDependencies(
         unit_of_work_factory=unit_of_work_factory,
         snapshot_loader=HttpHistoryReader(resolved_db_path),
+        scope_resolution=scope_resolution,
+        job_registry=job_registry,
+        admission_gate=resolved_gate,
+        operation_reader=operation_reader,
+        artifact_store=cast(BoundedArtifactStorePort, artifact_store),
+        bundle_reader=resolved_bundle_reader,
+        table_ruleset_version=str(TABLE_RULESET_VERSION),
+        now=clock,
     )
     app = create_app(workspace_http=deps, history_http=history_deps)
     return WorkspaceHttpTestEnvironment(
@@ -959,8 +983,8 @@ def create_workspace_http_environment(
         main_resolve=main_resolve,
         db_path=resolved_db_path,
         repository=repository,
-        artifact_store=artifact_store,
-        bundle_reader=bundle_reader,
+        artifact_store=cast(InMemoryBoundedArtifactStore, artifact_store),
+        bundle_reader=resolved_bundle_reader,
         baseline_head_read=baseline_head_read,
         identity=resolved_identity,
         now=clock,

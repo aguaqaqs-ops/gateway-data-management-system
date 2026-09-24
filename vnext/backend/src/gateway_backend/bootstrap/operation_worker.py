@@ -26,6 +26,11 @@ from gateway_backend.application.job_definitions import (
 )
 from gateway_backend.application.recovery import RecoveryCapability, RecoveryPort
 from gateway_backend.application.payloads import PayloadDecodeError, PayloadDecoder
+from gateway_backend.application.history.compare_jobs import (
+    HistoryCompareControlTransactionFactory,
+    HistoryCompareRuntimeDependencies,
+    history_compare_composition_bundle,
+)
 from gateway_backend.application.preview_jobs import (
     PREVIEW_JOB_KIND,
     PreviewRuntimeDependencies,
@@ -179,7 +184,7 @@ def build_production_preview_dependencies(
 def build_worker_write_uow_factory(
     control_transaction_factory: Callable[[], ControlDbUnitOfWork],
 ) -> WriteUnitOfWorkFactory:
-    """Stack preview and submit transaction binders for LeaseSession checkpoint writes."""
+    """Stack preview and submit transaction binders."""
 
     preview_bound = bind_control_transaction_factory(control_transaction_factory)
     return cast(
@@ -353,19 +358,34 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             )
 
             assert_workspace_registry_ready(build_workspace_job_registry())
-            preview_deps, write_uow_factory = build_production_preview_dependencies(configured)
+            preview_deps, submit_write_uow_factory = build_production_preview_dependencies(configured)
             submit_deps = build_production_submit_dependencies(configured, preview_deps=preview_deps)
+            history_compare_deps = HistoryCompareRuntimeDependencies(
+                artifact_store=preview_deps.artifact_store,
+                repository_provider_factory=preview_deps.repository_provider_factory,
+                control_transaction_factory=cast(
+                    HistoryCompareControlTransactionFactory,
+                    submit_write_uow_factory,
+                ),
+            )
             preview_definitions, preview_handlers, preview_decoders = preview_composition_bundle(
                 preview_deps
             )
             submit_definitions, submit_handlers, submit_decoders, bound_submit_deps = (
                 submit_composition_bundle(submit_deps)
             )
+            history_definitions, history_handlers, history_decoders, bound_history_deps = (
+                history_compare_composition_bundle(history_compare_deps)
+            )
+            write_uow_factory = cast(
+                WriteUnitOfWorkFactory,
+                bound_history_deps.control_transaction_factory,
+            )
             runtime = build_worker_runtime(
                 configured,
-                job_definitions=preview_definitions + submit_definitions,
-                handlers={**preview_handlers, **submit_handlers},
-                payload_decoders={**preview_decoders, **submit_decoders},
+                job_definitions=preview_definitions + submit_definitions + history_definitions,
+                handlers={**preview_handlers, **submit_handlers, **history_handlers},
+                payload_decoders={**preview_decoders, **submit_decoders, **history_decoders},
                 preview_recovery=build_preview_recovery_port(preview_deps),
                 submit_recovery=build_submit_recovery_port(bound_submit_deps),
                 write_uow_factory=write_uow_factory,

@@ -6,7 +6,7 @@ import dataclasses
 import time
 from datetime import UTC, datetime
 
-from gateway_shared_kernel import CanonicalEncodingError, canonicalize_identifier
+from gateway_shared_kernel import CanonicalEncodingError, DigestRef, canonicalize_identifier, raw_blob_digest
 
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
@@ -69,11 +69,21 @@ _HaltCode = MaterializationDiagnosticCode
 
 
 class _Halt(Exception):
-    def __init__(self, code: _HaltCode, message: str, *, table: str | None = None) -> None:
+    def __init__(
+        self,
+        code: _HaltCode,
+        message: str,
+        *,
+        table: str | None = None,
+        expected_digest_ref: DigestRef | None = None,
+        observed_digest_ref: DigestRef | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.table = table
+        self.expected_digest_ref = expected_digest_ref
+        self.observed_digest_ref = observed_digest_ref
 
 
 def materialize_repository_ref(
@@ -88,7 +98,19 @@ def materialize_repository_ref(
     except ArtifactPublishError as exc:
         return _failed(stage, trust, (_error(exc.code, exc.message, table=exc.table),))
     except _Halt as halt:
-        return _failed(stage, trust, (_error(halt.code, halt.message, table=halt.table),))
+        return _failed(
+            stage,
+            trust,
+            (
+                _error(
+                    halt.code,
+                    halt.message,
+                    table=halt.table,
+                    expected_digest_ref=halt.expected_digest_ref,
+                    observed_digest_ref=halt.observed_digest_ref,
+                ),
+            ),
+        )
 
 
 def _materialize(
@@ -115,7 +137,19 @@ def _materialize(
     except ArtifactPublishError as exc:
         result = _failed(stage, trust, (artifact_error_diagnostic(exc),))
     except _Halt as halt:
-        result = _failed(stage, trust, (_error(halt.code, halt.message, table=halt.table),))
+        result = _failed(
+            stage,
+            trust,
+            (
+                _error(
+                    halt.code,
+                    halt.message,
+                    table=halt.table,
+                    expected_digest_ref=halt.expected_digest_ref,
+                    observed_digest_ref=halt.observed_digest_ref,
+                ),
+            ),
+        )
     except RepositoryProviderError as exc:
         result = _failed(stage, trust, (_error(exc.code, exc.message, table=exc.table),))
     finally:
@@ -161,6 +195,10 @@ def _materialize_open_session(
         raise _Halt(
             MaterializationDiagnosticCode.HIDDEN_SUMMARY_CORRUPT,
             "hidden summary is not FINAL",
+            expected_digest_ref=raw_blob_digest(b"hidden-summary-stage:FINAL"),
+            observed_digest_ref=raw_blob_digest(
+                f"hidden-summary-stage:{hidden.materialization_stage.value}".encode("utf-8")
+            ),
         )
     recomputed = snapshot_digest_of(
         stage=hidden.materialization_stage,
@@ -172,11 +210,16 @@ def _materialize_open_session(
         raise _Halt(
             MaterializationDiagnosticCode.HIDDEN_SUMMARY_CORRUPT,
             "hidden snapshot_digest does not match stored descriptors",
+            expected_digest_ref=hidden.snapshot_digest,
+            observed_digest_ref=recomputed,
         )
-    if raw_state_digest_of(hidden.tables) != hidden.raw_state_digest:
+    recomputed_raw = raw_state_digest_of(hidden.tables)
+    if recomputed_raw != hidden.raw_state_digest:
         raise _Halt(
             MaterializationDiagnosticCode.HIDDEN_SUMMARY_CORRUPT,
             "hidden raw_state_digest does not match stored descriptors",
+            expected_digest_ref=hidden.raw_state_digest,
+            observed_digest_ref=recomputed_raw,
         )
     _checkpoint(request.context)
     catalog = session.get_catalog()
@@ -198,6 +241,8 @@ def _materialize_open_session(
                 MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
                 "catalog compare schema does not match hidden summary",
                 table=table.table_name,
+                expected_digest_ref=table.compare_schema_digest,
+                observed_digest_ref=schema,
             )
         hidden_names = tuple(column.name for column in table.columns)
         if column_names != hidden_names:
@@ -205,6 +250,12 @@ def _materialize_open_session(
                 MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
                 "catalog columns do not match hidden summary",
                 table=table.table_name,
+                expected_digest_ref=raw_blob_digest(
+                    ("hidden-columns:" + ",".join(hidden_names)).encode("utf-8")
+                ),
+                observed_digest_ref=raw_blob_digest(
+                    ("catalog-columns:" + ",".join(column_names)).encode("utf-8")
+                ),
             )
     published: list[SnapshotTable] = []
     if request.policy is MaterializationPolicy.READERS_REQUIRED:
@@ -335,18 +386,32 @@ def _read_and_validate_table(
             MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
             "row count does not match hidden summary",
             table=hidden_table.table_name,
+            expected_digest_ref=raw_blob_digest(
+                ("hidden-row-count:" + str(hidden_table.row_count)).encode("utf-8")
+            ),
+            observed_digest_ref=raw_blob_digest(
+                ("catalog-row-count:" + str(len(encoded_rows))).encode("utf-8")
+            ),
         )
     if hidden_table.raw_content_digest is None or raw_digest != hidden_table.raw_content_digest:
         raise _Halt(
             MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
             "raw_content_digest does not match hidden summary",
             table=hidden_table.table_name,
+            expected_digest_ref=(
+                hidden_table.raw_content_digest
+                if hidden_table.raw_content_digest is not None
+                else raw_blob_digest(b"hidden-raw-content:missing")
+            ),
+            observed_digest_ref=raw_digest,
         )
     if hidden_table.fast_row_digest is not None and fast_digest != hidden_table.fast_row_digest:
         raise _Halt(
             MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
             "fast_row_digest does not match hidden summary",
             table=hidden_table.table_name,
+            expected_digest_ref=hidden_table.fast_row_digest,
+            observed_digest_ref=fast_digest,
         )
     source_descriptor = SourceTableDescriptor(
         display_name=catalog_table.display_table_name or catalog_table.table_name,
@@ -409,12 +474,18 @@ def _select_hidden_tables(
                 MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
                 f"table {name!r} is not in the hidden summary",
                 table=name,
+                expected_digest_ref=raw_blob_digest(f"catalog-table:{name}".encode("utf-8")),
+                observed_digest_ref=raw_blob_digest(
+                    f"hidden-summary-table:missing:{name}".encode("utf-8")
+                ),
             )
         if name not in indexed:
             raise _Halt(
                 MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
                 f"hidden summary table {name!r} is missing from the catalog",
                 table=name,
+                expected_digest_ref=raw_blob_digest(f"catalog-table:{name}".encode("utf-8")),
+                observed_digest_ref=raw_blob_digest(b"catalog-table:missing"),
             )
         selected.append(hidden_table)
     return tuple(selected)
@@ -547,6 +618,8 @@ def _error(
     *,
     table: str | None = None,
     column: str | None = None,
+    expected_digest_ref: DigestRef | None = None,
+    observed_digest_ref: DigestRef | None = None,
 ) -> MaterializationDiagnostic:
     return MaterializationDiagnostic(
         code=code,
@@ -554,6 +627,8 @@ def _error(
         message=message,
         table=table,
         column=column,
+        expected_digest_ref=expected_digest_ref,
+        observed_digest_ref=observed_digest_ref,
     )
 
 

@@ -12,7 +12,11 @@ from gateway_backend.application.history.contracts import (
     HistoryNode,
     HistoryTreeProjection,
 )
-from gateway_backend.http.schemas.constraints import BoundedOpaqueId, NonNegativeIJsonInt
+from gateway_backend.http.schemas.constraints import (
+    BoundedOpaqueId,
+    NonNegativeIJsonInt,
+    Sha256Digest,
+)
 from gateway_repository_contracts.types import CommitIdString
 
 HistoryNodeRefKindLiteral = Literal["baseline_node", "submission"]
@@ -108,3 +112,119 @@ def history_projection_to_response(projection: HistoryTreeProjection) -> History
         nodes=[history_node_to_response(node) for node in projection.nodes],
         next_cursor=projection.next_cursor,
     )
+
+
+class HistoryCompareNodeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ref_kind: HistoryNodeRefKindLiteral
+    ref_id: BoundedOpaqueId
+
+
+class HistoryCompareAcceptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nodes: list[HistoryCompareNodeRequest] = Field(min_length=2, max_length=3)
+
+
+class HistoryCompareAcceptResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: str
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
+    replayed: bool
+
+
+class HistoryCompareDiagnosticResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+
+
+class HistoryComparePairResultResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pair_id: str
+    before_ref: HistoryNodeRefResponse
+    before_commit: CommitIdString
+    current_ref: HistoryNodeRefResponse
+    current_commit: CommitIdString
+    comparison_digest: Sha256Digest
+    risk_digest: Sha256Digest
+    surface_digest: Sha256Digest
+    record_count: NonNegativeIJsonInt
+
+
+class HistoryCompareResultInputResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input: dict[str, object]
+    pairs: list[HistoryComparePairResultResponse]
+    bundle_digest: Sha256Digest
+    completed_at: datetime | None = None
+
+
+class IntegrityIncidentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    incident_id: str
+    operation_id: str
+    repository_id: str
+    commit_refs: list[dict[str, str]]
+    failure_class: str
+    expected_digest: Sha256Digest
+    observed_digest: Sha256Digest
+    affected_tables: list[str]
+    recommended_action: str
+    first_seen_at: datetime
+    last_seen_at: datetime
+    acknowledgement_status: Literal["PENDING", "ACKNOWLEDGED"]
+    resolution_reference: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_record(cls, record: object) -> IntegrityIncidentResponse:
+        from gateway_backend.application.history.contracts import HistoryCompareIntegrityRecord
+
+        if type(record) is not HistoryCompareIntegrityRecord:
+            raise TypeError("record must be HistoryCompareIntegrityRecord")
+        return cls(
+            incident_id=record.incident_id,
+            operation_id=record.operation_id,
+            repository_id=record.repository_id,
+            commit_refs=[dict(item) for item in record.commit_refs],
+            failure_class=record.failure_class,
+            expected_digest=record.expected_digest,
+            observed_digest=record.observed_digest,
+            affected_tables=list(record.affected_tables),
+            recommended_action=record.recommended_action,
+            first_seen_at=record.first_seen_at,
+            last_seen_at=record.last_seen_at,
+            acknowledgement_status=record.acknowledgement_status.value,
+            resolution_reference=record.resolution_reference,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+
+class HistoryCompareResultResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: str
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
+    diagnostic: HistoryCompareDiagnosticResponse | None = None
+    integrity_incident: IntegrityIncidentResponse | None = None
+    result: HistoryCompareResultInputResponse | None = None
+
+
+class IntegrityAcknowledgementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    acknowledgement_status: Literal["ACKNOWLEDGED"]
+    resolution_reference: BoundedOpaqueId
+
+
+class IntegrityAcknowledgementResponse(IntegrityIncidentResponse):
+    pass

@@ -49,11 +49,7 @@ def test_workspace_v3_bootstrap_creates_submit_tables() -> None:
     ).fetchall()
     assert ledger_rows == [
         (OPERATIONS_SCHEMA_COMPONENT, 1),
-        (WORKSPACE_SCHEMA_COMPONENT, 1),
-        (WORKSPACE_SCHEMA_COMPONENT, 2),
-        (WORKSPACE_SCHEMA_COMPONENT, 3),
-        (WORKSPACE_SCHEMA_COMPONENT, 4),
-        (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
+        *[(WORKSPACE_SCHEMA_COMPONENT, version) for version in range(1, WORKSPACE_SCHEMA_VERSION + 1)],
     ]
 
     occupancy_columns = [

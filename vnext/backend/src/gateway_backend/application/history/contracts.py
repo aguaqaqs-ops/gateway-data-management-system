@@ -1,4 +1,4 @@
-"""History read-model contracts."""
+"""History read-model and compare contracts."""
 
 from __future__ import annotations
 
@@ -10,12 +10,34 @@ from gateway_backend.domain.archive.models import ArchiveDispositionKind
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.submission.models import Submission
 from gateway_backend.domain.submission.review import ReviewStatus
-from gateway_backend.domain.workspace.models import BaselineHead
+from gateway_backend.domain.workspace.models import BaselineHead, IdentityContext
 
 PERMISSION_READ_PROJECT_HISTORY = "read_project_history"
 DEFAULT_HISTORY_PAGE_LIMIT = 100
 MAX_HISTORY_PAGE_LIMIT = 500
 MAX_HISTORY_CURSOR_BYTES = 1024
+
+HISTORY_COMPARE_JOB_KIND = "backend-vnext/history-compare"
+HISTORY_COMPARE_JOB_CONTRACT_VERSION = "backend-vnext/history-compare/v1"
+HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison/v2"
+HISTORY_COMPARE_MIN_NODES = 2
+HISTORY_COMPARE_MAX_NODES = 3
+HISTORY_COMPARE_VIEW_KIND = "HISTORY"
+HISTORY_INTEGRITY_FAILURE_CLASS = "HISTORY_REPOSITORY_INTEGRITY"
+HISTORY_INTEGRITY_RECOMMENDED_ACTION = "OPERATOR_REVIEW_REQUIRED"
+
+
+class HistoryCompareDiagnosticCode(StrEnum):
+    """Worker/job contract diagnostic codes for History compare."""
+
+    HISTORY_COMMIT_UNAVAILABLE = "HISTORY_COMMIT_UNAVAILABLE"
+    HISTORY_REPOSITORY_INTEGRITY = "HISTORY_REPOSITORY_INTEGRITY"
+    HISTORY_RULESET_VERSION_MISMATCH = "HISTORY_RULESET_VERSION_MISMATCH"
+
+
+class IntegrityAcknowledgementStatus(StrEnum):
+    PENDING = "PENDING"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
 
 
 class HistoryNodeRefKind(StrEnum):
@@ -161,3 +183,119 @@ class HistoryPageSnapshot:
     entries: tuple[HistoryPageEntry, ...]
     promoted_by_submission: dict[str, str]
     has_next_page: bool
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryCompareNodeBinding:
+    ref_kind: HistoryNodeRefKind
+    ref_id: str
+    commit_id: str
+
+    def __post_init__(self) -> None:
+        if type(self.ref_kind) is not HistoryNodeRefKind:
+            raise ValueError("ref_kind must be HistoryNodeRefKind")
+        if type(self.ref_id) is not str or not self.ref_id:
+            raise ValueError("ref_id must be a non-empty string")
+        if type(self.commit_id) is not str or not self.commit_id:
+            raise ValueError("commit_id must be a non-empty string")
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryCompareAcceptanceRecord:
+    acceptance_id: str
+    gateway_device_external_key: str
+    business_project_id: str
+    repository_id: str
+    idempotency_key: str
+    request_fingerprint: str
+    table_ruleset_version: str
+    nodes: tuple[HistoryCompareNodeBinding, ...]
+    operation_id: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        for label in (
+            "acceptance_id",
+            "gateway_device_external_key",
+            "business_project_id",
+            "repository_id",
+            "idempotency_key",
+            "request_fingerprint",
+            "table_ruleset_version",
+            "operation_id",
+        ):
+            value = getattr(self, label)
+            if type(value) is not str or not value:
+                raise ValueError(f"{label} must be a non-empty string")
+        if type(self.nodes) is not tuple or not self.nodes:
+            raise ValueError("nodes must be a non-empty tuple")
+        if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
+            raise ValueError("created_at must be an aware datetime")
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryCompareIntegrityRecord:
+    incident_id: str
+    operation_id: str
+    repository_id: str
+    commit_refs: tuple[dict[str, str], ...]
+    failure_class: str
+    expected_digest: str
+    observed_digest: str
+    affected_tables: tuple[str, ...]
+    recommended_action: str
+    first_seen_at: datetime
+    last_seen_at: datetime
+    acknowledgement_status: IntegrityAcknowledgementStatus
+    resolution_reference: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    def __post_init__(self) -> None:
+        for label in (
+            "incident_id",
+            "operation_id",
+            "repository_id",
+            "failure_class",
+            "expected_digest",
+            "observed_digest",
+            "recommended_action",
+        ):
+            value = getattr(self, label)
+            if type(value) is not str or not value:
+                raise ValueError(f"{label} must be a non-empty string")
+        if type(self.commit_refs) is not tuple:
+            raise ValueError("commit_refs must be a tuple")
+        if type(self.affected_tables) is not tuple:
+            raise ValueError("affected_tables must be a tuple")
+        if type(self.acknowledgement_status) is not IntegrityAcknowledgementStatus:
+            raise ValueError("acknowledgement_status must be IntegrityAcknowledgementStatus")
+        for label in ("first_seen_at", "last_seen_at", "created_at", "updated_at"):
+            value = getattr(self, label)
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError(f"{label} must be an aware datetime")
+        if self.resolution_reference is not None and (
+            type(self.resolution_reference) is not str or not self.resolution_reference
+        ):
+            raise ValueError("resolution_reference must be a non-empty string or None")
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryCompareValidationResult:
+    repository_id: str
+    gateway_device_external_key: str
+    business_project_id: str
+    nodes: tuple[HistoryCompareNodeBinding, ...]
+    request_fingerprint: str
+    table_ruleset_version: str
+    replay: bool
+    prior_acceptance: HistoryCompareAcceptanceRecord | None
+    operation_id: str | None = None
+    acceptance_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryCompareAcceptCommand:
+    context: IdentityContext
+    idempotency_key: str
+    node_refs: tuple[HistoryNodeRef, ...]

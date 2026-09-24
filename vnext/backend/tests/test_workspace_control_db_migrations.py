@@ -67,6 +67,8 @@ def test_workspace_bootstrap_creates_tables_constraints_and_indexes() -> None:
         "upload_revision_records",
         "workspace_records",
         "workspace_submit_occupancy_records",
+        "history_compare_acceptance_records",
+        "history_compare_integrity_records",
     } <= tables
 
     ledger_rows = connection.execute(
@@ -74,11 +76,7 @@ def test_workspace_bootstrap_creates_tables_constraints_and_indexes() -> None:
     ).fetchall()
     assert ledger_rows == [
         (OPERATIONS_SCHEMA_COMPONENT, 1),
-        (WORKSPACE_SCHEMA_COMPONENT, 1),
-        (WORKSPACE_SCHEMA_COMPONENT, 2),
-        (WORKSPACE_SCHEMA_COMPONENT, 3),
-        (WORKSPACE_SCHEMA_COMPONENT, 4),
-        (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
+        *[(WORKSPACE_SCHEMA_COMPONENT, version) for version in range(1, WORKSPACE_SCHEMA_VERSION + 1)],
     ]
 
     idempotency_columns = [
@@ -221,11 +219,7 @@ def test_historical_workspace_v1_file_reopens_and_seeds_mappings(tmp_path: Path)
         ]
         assert ledger == [
             (OPERATIONS_SCHEMA_COMPONENT, 1),
-            (WORKSPACE_SCHEMA_COMPONENT, 1),
-            (WORKSPACE_SCHEMA_COMPONENT, 2),
-            (WORKSPACE_SCHEMA_COMPONENT, 3),
-            (WORKSPACE_SCHEMA_COMPONENT, 4),
-            (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
+            *[(WORKSPACE_SCHEMA_COMPONENT, version) for version in range(1, WORKSPACE_SCHEMA_VERSION + 1)],
         ]
         idempotency_columns = [
             row[1] for row in reopened.execute("PRAGMA table_info(preview_idempotency_records)")

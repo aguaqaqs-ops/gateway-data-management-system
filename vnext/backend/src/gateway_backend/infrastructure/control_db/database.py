@@ -15,6 +15,10 @@ from gateway_backend.infrastructure.control_db.sqlite_protection import SQLiteAr
 from gateway_backend.operations import OperationStore, StoreBusy
 
 if TYPE_CHECKING:
+    from gateway_backend.application.history.ports import HistoryComparePort
+    from gateway_backend.infrastructure.control_db.sqlite_history_compare import (
+        SQLiteHistoryCompareRepository,
+    )
     from gateway_backend.domain.archive.ports import ArchiveRepository
     from gateway_backend.domain.baseline.ports import BaselineRepository
     from gateway_backend.domain.workspace.models import ResolvedScope
@@ -131,6 +135,7 @@ class ControlDbUnitOfWork:
         self._review: SQLiteReviewRepository | None = None
         self._baseline: BaselineRepository | None = None
         self._archive: ArchiveRepository | None = None
+        self._history_compare: SQLiteHistoryCompareRepository | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -195,6 +200,14 @@ class ControlDbUnitOfWork:
         if self._archive is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._archive
+
+    @property
+    def history_compare(self) -> HistoryComparePort:
+        """Return the history compare participant bound to this transaction."""
+
+        if self._history_compare is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._history_compare
 
     def set_artifact_protection(
         self,
@@ -278,6 +291,9 @@ class ControlDbUnitOfWork:
             from gateway_backend.infrastructure.control_db.sqlite_archive import (
                 SQLiteArchiveRepository,
             )
+            from gateway_backend.infrastructure.control_db.sqlite_history_compare import (
+                SQLiteHistoryCompareRepository,
+            )
             from gateway_backend.infrastructure.control_db.sqlite_baseline import (
                 SQLiteBaselineRepository,
             )
@@ -328,6 +344,10 @@ class ControlDbUnitOfWork:
                 transaction_now=transaction_now,
                 read_only=self._read_only,
             )
+            self._history_compare = SQLiteHistoryCompareRepository(
+                connection,
+                read_only=self._read_only,
+            )
         except sqlite3.OperationalError as exc:
             if connection.in_transaction:
                 connection.execute("ROLLBACK")
@@ -358,6 +378,7 @@ class ControlDbUnitOfWork:
         self._review = None
         self._baseline = None
         self._archive = None
+        self._history_compare = None
         self._transaction_now = None
         if connection is None:
             return

@@ -193,6 +193,7 @@ class FakeRepositoryTableAccessProvider:
         catalog: RepositoryTableCatalog,
         hidden: HiddenFinalSummary | None,
         rows: RepositoryRows | None = None,
+        declared_rows: RepositoryRows | None = None,
         current_commit: str | None = None,
         pad_nulls: bool = True,
         fail_stream: bool = False,
@@ -203,10 +204,18 @@ class FakeRepositoryTableAccessProvider:
         open_timeout: bool = False,
         open_not_found: bool = False,
         open_failed: bool = False,
+        per_read_mutate_raw_digest_table: Sequence[str | None] = (),
+        per_read_raw_digest_extra_by_table: Sequence[Mapping[str, bytes]] = (),
+        per_read_rows: Sequence[RepositoryRows] = (),
     ) -> None:
         self.catalog = catalog
         self.hidden = hidden
-        self.rows = rows or {}
+        self.declared_rows = declared_rows if declared_rows is not None else (rows or {})
+        self.rows = rows if rows is not None else self.declared_rows
+        self._per_read_mutate_raw_digest_table = tuple(per_read_mutate_raw_digest_table)
+        self._per_read_raw_digest_extra_by_table = tuple(per_read_raw_digest_extra_by_table)
+        self._per_read_rows = tuple(per_read_rows)
+        self._materialize_read_index = 0
         self.current_commit = current_commit or catalog.resolved_commit_hash
         self.pad_nulls = pad_nulls
         self.fail_stream = fail_stream
@@ -255,10 +264,30 @@ class FakeRepositoryTableAccessProvider:
                 catalog_digest=catalog.catalog_digest,
                 cache_hit=catalog.cache_hit,
             )
+        hidden = self.hidden
+        session_rows = self.declared_rows
+        if self._per_read_rows or self._per_read_mutate_raw_digest_table or self._per_read_raw_digest_extra_by_table:
+            read_index = self._materialize_read_index
+            if read_index < len(self._per_read_rows):
+                session_rows = self._per_read_rows[read_index]
+            mutate_table = None
+            extras: Mapping[str, bytes] = {}
+            if read_index < len(self._per_read_mutate_raw_digest_table):
+                mutate_table = self._per_read_mutate_raw_digest_table[read_index]
+            if read_index < len(self._per_read_raw_digest_extra_by_table):
+                extras = self._per_read_raw_digest_extra_by_table[read_index]
+            if self._per_read_mutate_raw_digest_table or self._per_read_raw_digest_extra_by_table:
+                hidden = hidden_summary_for(
+                    catalog,
+                    self.declared_rows,
+                    mutate_raw_digest_table=mutate_table,
+                    raw_digest_extra_by_table=extras,
+                )
+            self._materialize_read_index += 1
         session = FakeRepositoryRefSession(
             catalog=catalog,
-            hidden=self.hidden,
-            rows=self.rows,
+            hidden=hidden,
+            rows=session_rows,
             pinned_commit=pinned,
             pad_nulls=self.pad_nulls,
             fail_stream=self.fail_stream,
@@ -318,6 +347,29 @@ def make_catalog(
     )
 
 
+def catalog_without_tables(
+    catalog: RepositoryTableCatalog,
+    *,
+    drop: tuple[str, ...],
+) -> RepositoryTableCatalog:
+    drop_names = {canonicalize_identifier(name) for name in drop}
+    remaining = tuple(
+        table
+        for table in catalog.tables
+        if canonicalize_identifier(table.table_name) not in drop_names
+    )
+    return RepositoryTableCatalog(
+        repository_id=catalog.repository_id,
+        repository_ref=catalog.repository_ref,
+        resolved_commit_hash=catalog.resolved_commit_hash,
+        repository_server_contract_version=catalog.repository_server_contract_version,
+        tables=remaining,
+        repository_engine_version=catalog.repository_engine_version,
+        catalog_digest=catalog.catalog_digest,
+        cache_hit=catalog.cache_hit,
+    )
+
+
 def hidden_summary_for(
     catalog: RepositoryTableCatalog,
     rows: RepositoryRows,
@@ -332,6 +384,7 @@ def hidden_summary_for(
     stage: MaterializationStage = MaterializationStage.FINAL,
     mutate_snapshot_digest: bool = False,
     mutate_raw_digest_table: str | None = None,
+    raw_digest_extra_by_table: Mapping[str, bytes] | None = None,
 ) -> HiddenFinalSummary:
     descriptors: list[SnapshotTableDescriptor] = []
     for table in catalog.tables:
@@ -351,6 +404,9 @@ def hidden_summary_for(
         raw_digest = raw_content_digest_of(row_hashes)
         if mutate_raw_digest_table == canonical:
             raw_digest = raw_content_digest_of((*row_hashes, b"\x00" * 32))
+        extra = (raw_digest_extra_by_table or {}).get(canonical)
+        if extra is not None:
+            raw_digest = raw_content_digest_of((*row_hashes, extra))
         columns = tuple(
             SnapshotColumnDescriptor(
                 name=item.canonical_name,

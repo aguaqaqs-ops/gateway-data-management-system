@@ -11,6 +11,7 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
+from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
 from gateway_backend.application.preview_jobs import preview_job_definitions
 from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
 from gateway_backend.bootstrap.operation_worker import build_production_preview_dependencies
@@ -78,7 +79,9 @@ def test_prepare_backend_runtime_uses_provisioned_identity_ports(tmp_path: Path)
     assert type(runtime.workspace_http.baseline_head_read) is ProvisionedBaselineHeadRead
     assert type(runtime.workspace_http.main_resolve) is HttpRepositoryMainResolvePort
     registry = build_workspace_job_registry()
-    expected_definitions = preview_job_definitions() + submit_job_definitions()
+    expected_definitions = (
+        preview_job_definitions() + submit_job_definitions() + history_compare_job_definitions()
+    )
     expected_keys = {definition.key for definition in expected_definitions}
     assert {definition.key for definition in registry.definitions()} == expected_keys
     for definition in expected_definitions:

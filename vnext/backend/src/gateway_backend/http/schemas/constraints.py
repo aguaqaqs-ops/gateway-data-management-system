@@ -35,3 +35,17 @@ def _coerce_diagnostic_reason(value: object) -> str:
 
 BoundedOpaqueId = Annotated[str, BeforeValidator(_coerce_opaque_id)]
 BoundedDiagnosticReason = Annotated[str, BeforeValidator(_coerce_diagnostic_reason)]
+
+
+def _coerce_sha256_digest(value: object) -> str:
+    if type(value) is not str:
+        raise ValueError("digest must be a string")
+    if not value.startswith("sha256:") or len(value) != 71:
+        raise ValueError("digest must be sha256:<64 hex chars>")
+    hex_part = value[7:]
+    if len(hex_part) != 64 or any(char not in "0123456789abcdef" for char in hex_part):
+        raise ValueError("digest must be sha256:<64 hex chars>")
+    return value
+
+
+Sha256Digest = Annotated[str, BeforeValidator(_coerce_sha256_digest)]

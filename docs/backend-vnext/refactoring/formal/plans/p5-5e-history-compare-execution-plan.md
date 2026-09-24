@@ -1,6 +1,6 @@
 # P5-5E History Compare 执行计划
 
-- 状态：**ACCEPTED — 独立文档审核通过（v3.6）；S1 实现已授权**
+- 状态：**ACCEPTED — 独立文档审核通过（v3.6）；S2 实现已授权**
 - 日期：2026-09-21
 **修订记录**：v3.6.1（2026-09-23）接受同步；S1 kickoff pass（见 [p5-5e-s1-kickoff.md](p5-5e-s1-kickoff.md)）。v3.6（2026-09-21）v3.5 独立复审 **F5 分类**：确认/映射分离；B→C；结构轨。v3.5 digest pair 语义。v3.4 P3。v3.3 F1a–F1c。v3.1 R1–R4。v3 F1 + F5 骨架。v2 纳入 F1–F6。
 - 对应设计：[P5-5E History Compare 详细设计](p5-5e-history-compare-design.md)
@@ -10,9 +10,11 @@
 
 ```yaml
 entry_kind: p5_5e_execution_plan
-stage: p5_5e_s1_ready
-status: docs accepted; S1 implementation authorized
-implementation_authorized: S1 only
+stage: p5_5e_s2
+status: docs accepted; S2 implementation authorized
+implementation_authorized: S2 only
+s1_stage_exit: pass
+s2_kickoff: pass
 docs_review_baseline_head: 6f6a780415b3e85ec2d1e9074b1f34c4093a9c7c
 implementation_baseline_head: 6707a1ca01c7325220ec47261b4b69a6232313ab
 p5_5d_gate_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
@@ -106,7 +108,7 @@ worktree_for_docs_round: /home/dev/gdds-5e-history-compare-docs（分支 p5-5e-h
   tests/test_operation_http.py tests/test_http_admission_shutdown.py tests/test_architecture.py
 ```
 
-  测试分类变动时按 AGENTS 跑「移开 dolt → `-m unit`」验证（本轮新增均为 unit/app-level，不为 D 相关断言建 dolt fixture）。
+  测试分类变动时按 AGENTS 跑「移开 dolt → `-m unit`」验证（本轮新增为 app-level unit + serial 进程级两类，不为 D 相关断言建 dolt fixture）。
 - 独立审核：History Application + Operation owner 联审事务闭包/replay/resume；Architecture 审 worker 组装与 import 边界（operation 不得反向依赖 application 的业务入口——组装在 `operation_worker.py` 单点）。
 - 镜像触发：**是**（runtime/worker/wiring 生产接线）→ S2 该轮最终 HEAD fresh 构建 + 既有 3-process readiness/submit restart 回归门禁（复用 5D S3 的文件集，见 §6.2）。
 - 停止条件（S2）：需要改动 capability 词表或 R5 语义、需要 caller 传 commit/repository、出现外部 effect、job_payload 超预算、需要持久执行状态/outbox（任一 → 回设计 §10 对应停止线）。
@@ -157,7 +159,7 @@ B=`vnext/backend/src/gateway_backend/`，T=`vnext/backend/tests/`（与设计 §
 | 阶段 | 新增（B） | 新增（T） | 修改（B/T/config） |
 | --- | --- | --- | --- |
 | S1 | `application/history/__init__.py`、`application/history/contracts.py`、`application/history/projection.py`、`infrastructure/control_db/sqlite_history.py`（读查询）、`http/routes/history.py`（list 路由）、`http/schemas/history.py`、`http/orchestration/history_read.py` | `test_history_projection.py`、`test_history_http.py`（list 路由部分） | `http/dependencies.py`、`http/runtime.py`、`http/wiring.py`、`T/test_http_openapi.py`、`T/test_http_auth_matrix.py`、`T/test_production_wiring.py`、`T/test_backend_readiness.py`、`T/test_architecture.py` |
-| S2 | `application/history/compare.py`、`application/history/compare_jobs.py`、`application/history/compare_registry.py`、`http/orchestration/history_compare.py`、`http/orchestration/history_integrity.py` | `test_history_compare_transactions.py`、`test_history_compare_jobs.py`、`test_history_compare_integrity.py` | `B/capabilities/snapshot_materialization/{contracts.py,repository_ref.py}`（**窄例外**：content digest pair + 结构 mismatch 最小公开事实；mismatch halt 填充）、`application/history/contracts.py`（`HistoryCompareDiagnosticCode`）、`infrastructure/control_db/migrations.py`（v6）、`infrastructure/control_db/database.py`、`infrastructure/control_db/sqlite_history.py`、`http/routes/history.py`（+4 路由，integrity-ack 挂 `require_internal_bearer`）、`http/routes/operations.py`、`http/schemas/history.py`、`http/errors.py`（仅 3 HTTP 码）、`http/dependencies.py`、`http/runtime.py`、`http/wiring.py`、`http/orchestration/operation_scope.py`、`bootstrap/operation_worker.py`、`T/test_history_http.py`、`T/test_operation_http.py`、`T/test_http_admission_shutdown.py`、`T/test_architecture.py` |
+| S2 | `application/history/compare.py`、`application/history/compare_bindings.py`、`application/history/compare_jobs.py`、`application/history/compare_registry.py`、`http/orchestration/history_compare.py`、`http/orchestration/history_integrity.py` | `test_history_compare_transactions.py`、`test_history_compare_jobs.py`、`test_history_compare_integrity.py` | `B/capabilities/snapshot_materialization/{contracts.py,repository_ref.py}`（**窄例外**：content digest pair + 结构 mismatch 最小公开事实；mismatch halt 填充）、`application/history/contracts.py`（`HistoryCompareDiagnosticCode`）、`application/submission/ports.py`、`infrastructure/control_db/migrations.py`（v6）、`infrastructure/control_db/database.py`、`infrastructure/control_db/sqlite_history_compare.py`、`infrastructure/control_db/sqlite_history.py`、`http/routes/history.py`（+4 路由，integrity-ack 挂 `require_internal_bearer`）、`http/routes/operations.py`、`http/schemas/history.py`、`http/schemas/constraints.py`、`http/errors.py`（仅 3 HTTP 码）、`http/dependencies.py`、`http/runtime.py`、`http/wiring.py`、`http/orchestration/operation_scope.py`、`bootstrap/operation_worker.py`、`T/support/history_compare_job_harness.py`、`T/support/http_shutdown_harness.py`、`T/support/repository_ref_materialization.py`、`T/support/history_zero_write_tables.py`、`T/test_history_http.py`、`T/test_operation_http.py`、`T/test_http_admission_shutdown.py`、`T/test_http_admission_shutdown_process.py`、`T/test_preview_read_http.py`、`T/test_review_persistence.py`、`T/test_submit_control_db_migrations.py`、`T/test_workspace_control_db_migrations.py`、`T/test_architecture.py` |
 | S3 | — | `test_history_compose_e2e.py` | `vnext/deploy/config/session.json`、`T/test_http_auth_matrix.py`（如参数表扩展）、`T/support/compose_gate_harness.py`（仅共享 helper 必要时）、`deploy/compose.yaml`（仅真实缺口时，预期无） |
 | S4 | 无业务能力新增 | findings 回修 S1–S3 | 仅 findings 涉及文件 |
 

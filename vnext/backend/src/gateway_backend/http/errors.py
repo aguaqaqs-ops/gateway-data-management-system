@@ -29,6 +29,15 @@ from gateway_backend.application.submission.errors import (
     ReviewWorkspaceOccupancyConflict,
     SubmitApplicationError,
 )
+from gateway_backend.application.history.errors import (
+    HistoryApplicationError,
+    HistoryCompareBindingConflict,
+    HistoryCompareIdempotencyConflict,
+    HistoryCompareNodeNotFound,
+    HistoryIntegrityFailure,
+    HistoryIntegrityUnresolved,
+    HistoryRequestValidation,
+)
 from gateway_backend.application.workspace.errors import (
     IdempotencyConflict,
     PreviewBindingConflict,
@@ -229,6 +238,49 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             code="WORKSPACE_OCCUPANCY_CONFLICT",
             message=str(exc),
             status_code=409,
+        )
+    if isinstance(exc, HistoryIntegrityFailure):
+        return ApiError(
+            code="HISTORY_INTEGRITY_FAILURE",
+            message=str(exc),
+            status_code=503,
+        )
+    if isinstance(exc, HistoryRequestValidation):
+        return ApiError(
+            code="REQUEST_VALIDATION_FAILED",
+            message=str(exc),
+            status_code=422,
+        )
+    if isinstance(exc, HistoryCompareNodeNotFound):
+        return ApiError(
+            code="RESOURCE_NOT_FOUND",
+            message="resource not found",
+            status_code=404,
+        )
+    if isinstance(exc, HistoryCompareIdempotencyConflict):
+        return ApiError(
+            code="IDEMPOTENCY_CONFLICT",
+            message="idempotency conflict",
+            status_code=409,
+            details={"idempotency_key": exc.idempotency_key},
+        )
+    if isinstance(exc, HistoryCompareBindingConflict):
+        return ApiError(
+            code="IDEMPOTENCY_CONFLICT",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, HistoryIntegrityUnresolved):
+        return ApiError(
+            code="HISTORY_INTEGRITY_UNRESOLVED",
+            message="history integrity incident is unresolved",
+            status_code=409,
+        )
+    if isinstance(exc, HistoryApplicationError):
+        return ApiError(
+            code="HISTORY_INTEGRITY_FAILURE",
+            message=str(exc),
+            status_code=503,
         )
     if isinstance(exc, ArchiveIntegrityFailure):
         return ApiError(

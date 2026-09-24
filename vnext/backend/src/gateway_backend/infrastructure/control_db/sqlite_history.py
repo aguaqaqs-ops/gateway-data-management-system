@@ -1,8 +1,11 @@
 """SQLite read queries for History projection facts.
 
 ``HistorySubmissionRow`` stays in infrastructure; ``HistorySubmissionFact`` lives in
-application. Do not merge them: ``test_architecture`` forbids control_db imports of
-application types.
+application. Do not merge them.
+
+``test_architecture`` allows control_db to import only
+``application.history.{ports,contracts,compare_bindings,errors}`` from application
+history modules, and only from ``database.py`` / ``sqlite_history_compare.py``.
 """
 
 from __future__ import annotations

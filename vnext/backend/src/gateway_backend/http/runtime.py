@@ -26,6 +26,8 @@ from gateway_backend.application.preview_jobs import (
     compute_baseline_canonical_bundle_digest,
     preview_job_definitions,
 )
+from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+from gateway_backend.application.history.compare_registry import assert_compare_registry_ready
 from gateway_backend.application.preview_registry import assert_preview_registry_ready
 from gateway_backend.application.submit_jobs import (
     SubmitRuntimeDependencies,
@@ -44,6 +46,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryProviderError,
     RepositoryTableAccessProvider,
 )
+from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import (
@@ -189,15 +192,20 @@ class BackendRuntime:
 
 
 def build_workspace_job_registry() -> JobDefinitionRegistry:
-    """Immutable preview+submit registry shared by HTTP acceptance and the worker."""
+    """Immutable preview+submit+history registry shared by HTTP acceptance and the worker."""
 
-    return JobDefinitionRegistry.build(preview_job_definitions() + submit_job_definitions())
+    return JobDefinitionRegistry.build(
+        preview_job_definitions()
+        + submit_job_definitions()
+        + history_compare_job_definitions()
+    )
 
 
 def assert_workspace_registry_ready(registry: JobDefinitionRegistry) -> None:
     assert_preview_registry_ready(registry)
     assert_submit_job_registered(registry)
     assert_submit_registry_decoders(registry)
+    assert_compare_registry_ready(registry)
 
 
 def assert_repository_service_ready(
@@ -435,6 +443,14 @@ def prepare_backend_runtime(
     history_http = HistoryHttpDependencies(
         unit_of_work_factory=unit_of_work_factory,
         snapshot_loader=HttpHistoryReader(settings.control_db_path),
+        scope_resolution=scope_resolution,
+        job_registry=registry,
+        admission_gate=admission_gate,
+        operation_reader=ReadOnlyOperationStore(unit_of_work_factory),
+        artifact_store=artifact_store,
+        bundle_reader=LocalArtifactBundleReader(local_store),
+        table_ruleset_version=str(TABLE_RULESET_VERSION),
+        now=lambda: datetime.now(UTC),
     )
     return BackendRuntime(
         settings=settings,

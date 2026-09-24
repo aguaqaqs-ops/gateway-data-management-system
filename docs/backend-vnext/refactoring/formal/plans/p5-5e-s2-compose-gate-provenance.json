@@ -1,0 +1,41 @@
+{
+  "compose_project_name": "gateway-backend-gate-test_backend_container_ready_a0",
+  "gate_tested_head": "a2f8a0a2b0f892020f49a6676e535355b8674645",
+  "source_tree_sha": "a2f8a0a2b0f892020f49a6676e535355b8674645",
+  "gate_tested_note": "Round-4 container gate on restored canonical backend uv.lock; Round-5 did not re-run container gate (no production wiring changes).",
+  "recorded_at": "2026-09-24",
+  "authority": "docs/backend-vnext/refactoring/formal/plans/p5-5e-s2-handoff.md §6.3",
+  "note": "Authoritative S2 container gate snapshot (Round 4). Container gate does not cover successful result/bundle read paths. vnext/backend/tests/support/.last_compose_gate_provenance.json is gitignored and must not be used for exit verification.",
+  "uv_lock_drift_event": {
+    "when": "2026-09-24",
+    "cause": "bare uv sync/uv lock rewrote vnext/backend/uv.lock via internal mirror (pypi.org count dropped to 0)",
+    "recovery": "git checkout -- vnext/backend/uv.lock",
+    "pypi_org_count_after_recovery": 39,
+    "round_3_evidence_invalidated": true
+  },
+  "lock_sha256": {
+    "shared_kernel": "7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898",
+    "repository_contracts": "b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3",
+    "repository_client": "6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954",
+    "repository_service": "6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11",
+    "backend": "21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea"
+  },
+  "vnext_deploy_compose_yaml_sha256": "f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0",
+  "fresh_build": true,
+  "fresh_build_reason": "Round 4: backend Dockerfile COPY backend/uv.lock (lines 6, 37) + uv sync --frozen (lines 14, 38-42); not repository_service ARG UV_LOCK_SHA256",
+  "round_5_fresh_build": false,
+  "round_5_fresh_build_reason": "Round 5 touches tests and docs only; no runtime/dependencies/wiring/routes/operation_worker changes",
+  "running_image": {
+    "repo_tag": "gateway-backend-gate-test_backend_container_ready_a0-backend:latest",
+    "revision": "sha256:0dd74b005f9fc0dfc6369ba6172b7c364dd6223eae1b97bcc92c11b37ed3909d"
+  },
+  "deploy_compose_build_images": {
+    "gateway-backend-gate-test_backend_container_ready_a0-backend": "sha256:0dd74b005f9fc0dfc6369ba6172b7c364dd6223eae1b97bcc92c11b37ed3909d"
+  },
+  "gate_tests": [
+    "tests/test_backend_http_container_gate.py::test_backend_image_builds_with_http_server_entrypoint",
+    "tests/test_backend_http_container_gate.py::test_backend_container_ready_and_stops_cleanly_with_repository_service"
+  ],
+  "gate_result": "2 passed, 0 skipped (Round 4; not re-run in Round 5)",
+  "container_gate_coverage_note": "Container gate does not cover successful result/bundle read paths"
+}

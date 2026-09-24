@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.application.history.contracts import PERMISSION_READ_PROJECT_HISTORY
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
@@ -71,6 +72,7 @@ def test_get_operation_returns_200(env: WorkspaceHttpTestEnvironment) -> None:
     assert body["operation_id"] == preview["operation_id"]
     assert body["status"] == "QUEUED"
     assert body["job_kind"] == "backend-vnext/preview"
+    assert body["integrity_incident"] is None
 
 
 def test_get_operation_requires_authentication(env: WorkspaceHttpTestEnvironment) -> None:
@@ -157,6 +159,7 @@ def test_get_submit_operation_returns_200(env: WorkspaceHttpTestEnvironment) -> 
     assert body["operation_id"] == operation_id
     assert body["job_kind"] == "backend-vnext/submit"
     assert body["status"] == "QUEUED"
+    assert body["integrity_incident"] is None
 
 
 def _accept_submit_operation(env: WorkspaceHttpTestEnvironment) -> tuple[str, str]:
@@ -209,6 +212,43 @@ def test_get_submit_operation_hides_stale_mapping(env: WorkspaceHttpTestEnvironm
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
     assert env.scope_resolution.resolve_calls >= 1
+
+
+def test_get_history_compare_operation_returns_200(db_path: Path, tmp_path: Path) -> None:
+    del db_path
+    env = create_workspace_http_environment(
+        tmp_path,
+        identity=make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY})),
+    )
+    from tests.support.history_compare_job_harness import seed_archived_baseline_node
+
+    seed_archived_baseline_node(
+        env.db_path,
+        node_id="bn-op-b",
+        commit_id="commit-b",
+        created_at_us=2,
+    )
+    accepted = env.client.post(
+        "/v1/history-compares",
+        headers=env.auth_headers(idempotency_key="compare-op-http"),
+        json={
+            "nodes": [
+                {"ref_kind": "baseline_node", "ref_id": BASELINE_HEAD.business_baseline_node_id},
+                {"ref_kind": "baseline_node", "ref_id": "bn-op-b"},
+            ]
+        },
+    )
+    assert accepted.status_code == 202
+    operation_id = accepted.json()["operation_id"]
+    response = env.client.get(
+        f"/v1/operations/{operation_id}",
+        headers=env.auth_headers(),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["operation_id"] == operation_id
+    assert body["job_kind"] == "backend-vnext/history-compare"
+    assert body["status"] == "QUEUED"
 
 
 def test_get_submit_operation_hides_missing_attempt_record(env: WorkspaceHttpTestEnvironment) -> None:

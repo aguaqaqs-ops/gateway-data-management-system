@@ -107,6 +107,139 @@ def repository_ready_stub_context(
         stub.terminate()
 
 
+def seed_production_history_compare_ready(tmp_path: Path) -> dict[str, Any]:
+    """Seed control DB for production HTTP history compare admission tests."""
+
+    from datetime import UTC, datetime
+
+    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.contracts import (
+        HistoryCompareAcceptCommand,
+        HistoryNodeRef,
+        HistoryNodeRefKind,
+        PERMISSION_READ_PROJECT_HISTORY,
+    )
+    from gateway_backend.application.job_definitions import JobDefinitionRegistry
+    from gateway_backend.application.submission.finalize_transaction import (
+        FinalizeSubmitTransactionRequest,
+        finalize_submit_transaction,
+    )
+    from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
+    from gateway_backend.domain.submission.review import ReviewAction
+    from gateway_backend.http.dependencies import OpenAdmissionGate
+    from gateway_backend.http.orchestration.history_compare import accept_compare_operation
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from tests.support.baseline_fixtures import read_authoritative_baseline_head
+    from tests.support.history_compare_job_harness import seed_archived_baseline_node
+    from tests.support.runtime_settings import (
+        TEST_DEVICE_KEY,
+        TEST_MAPPING_REPOSITORY_ID,
+        TEST_PROJECT_ID,
+        prepare_backend_runtime_paths,
+        write_session_file,
+    )
+    from tests.support.workspace_fixtures import make_identity
+    from tests.test_review_transactions import (
+        ReviewSeed,
+        _apply_command,
+        _apply_review,
+        _reviewer_context,
+    )
+    from tests.test_submit_transactions import (
+        TS1,
+        _finalize_facts,
+        _read_finalize_versions,
+        _seed_effect_pending_attempt,
+        seed_submit_ready_workspace,
+    )
+
+    prepare_backend_runtime_paths(tmp_path)
+    write_session_file(tmp_path / "session.json", _production_session_with_history_permission())
+
+    db_path = tmp_path / "control" / "control.sqlite3"
+    submit_seed = seed_submit_ready_workspace(
+        db_path,
+        repository_id=TEST_MAPPING_REPOSITORY_ID,
+        device_key=TEST_DEVICE_KEY,
+        project_id=TEST_PROJECT_ID,
+    )
+    attempt = _seed_effect_pending_attempt(db_path, submit_seed)
+    attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        finalize_submit_transaction(
+            request=FinalizeSubmitTransactionRequest(
+                submit_attempt_id=attempt.submit_attempt_id,
+                facts=_finalize_facts(submit_seed),
+                submission_id="sub-prod-history",
+                created_at=TS1,
+                expected_attempt_version=attempt_version,
+                expected_await_step_version=await_version,
+                expected_operation_version=operation_version,
+                worker_id="worker-test",
+                lease_token="lease-test",
+            ),
+            unit_of_work=unit_of_work,
+        )
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission("sub-prod-history")
+    assert submission is not None
+    review_seed = ReviewSeed(
+        db_path=db_path,
+        submission_id="sub-prod-history",
+        workspace_id=submit_seed.workspace.workspace_id,
+        repository_id=TEST_MAPPING_REPOSITORY_ID,
+        reviewer_context=_reviewer_context(TEST_DEVICE_KEY, TEST_PROJECT_ID),
+        submission=submission,
+    )
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-prod-history"),
+    )
+
+    baseline_head = read_authoritative_baseline_head(db_path, TEST_MAPPING_REPOSITORY_ID)
+    node_a = baseline_head.business_baseline_node_id
+    node_b = "bn-prod-compare-b"
+    seed_archived_baseline_node(
+        db_path,
+        node_id=node_b,
+        commit_id="commit-b",
+        created_at_us=2,
+        repository_id=TEST_MAPPING_REPOSITORY_ID,
+        device_key=TEST_DEVICE_KEY,
+        project_id=TEST_PROJECT_ID,
+    )
+
+    job_registry = JobDefinitionRegistry.build(history_compare_job_definitions())
+    identity = make_identity(
+        device_key=TEST_DEVICE_KEY,
+        project_id=TEST_PROJECT_ID,
+        permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY}),
+    )
+    result = accept_compare_operation(
+        command=HistoryCompareAcceptCommand(
+            context=identity,
+            idempotency_key="prod-history-compare-seed",
+            node_refs=(
+                HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, node_a),
+                HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, node_b),
+            ),
+        ),
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+        job_registry=job_registry,
+        admission_gate=OpenAdmissionGate(),
+        table_ruleset_version=str(TABLE_RULESET_VERSION),
+        now=datetime(2026, 9, 24, tzinfo=UTC),
+    )
+
+    return {
+        "operation_id": result.response.operation_id,
+        "node_a": node_a,
+        "node_b": node_b,
+        "baseline_head": baseline_head,
+        "db_path": db_path,
+    }
+
+
 def seed_production_submit_ready_workspace(tmp_path: Path) -> dict[str, Any]:
     """Seed control DB and on-disk artifacts for production HTTP submit admission tests."""
 
@@ -162,6 +295,32 @@ def _base_http_server_environment(
     environment["GATEWAY_BACKEND_HTTP_LOG_LEVEL"] = "error"
     environment["GATEWAY_BACKEND_HTTP_PORT_FILE"] = str(port_file)
     return environment
+
+
+def _production_session_with_history_permission() -> dict[str, object]:
+    from gateway_backend.application.history.contracts import PERMISSION_READ_PROJECT_HISTORY
+    from tests.support.runtime_settings import default_session_document
+
+    session_doc = default_session_document()
+    sessions_raw = session_doc.get("sessions")
+    assert isinstance(sessions_raw, list)
+    first_session = sessions_raw[0]
+    assert isinstance(first_session, dict)
+    permissions_raw = first_session.get("permissions")
+    assert isinstance(permissions_raw, list)
+    permissions = list(permissions_raw)
+    if PERMISSION_READ_PROJECT_HISTORY not in permissions:
+        permissions.append(PERMISSION_READ_PROJECT_HISTORY)
+    first_session["permissions"] = permissions
+    return session_doc
+
+
+def apply_production_history_session(tmp_path: Path, environment: dict[str, str]) -> None:
+    from tests.support.runtime_settings import write_session_file
+
+    session_path = tmp_path / "session.json"
+    write_session_file(session_path, _production_session_with_history_permission())
+    environment["GATEWAY_BACKEND_SESSION_FILE"] = str(session_path)
 
 
 def http_server_subprocess_environment(

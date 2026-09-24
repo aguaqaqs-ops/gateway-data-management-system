@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from gateway_backend.domain.workspace.models import PreviewResult, PreviewResultDigests
 from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
+    InMemoryBundleReader,
     WorkspaceHttpTestEnvironment,
     create_workspace_http_environment,
 )
@@ -121,7 +122,9 @@ def test_read_preview_bundle_streams_logical_bytes(env: WorkspaceHttpTestEnviron
     upload = _seed_upload(env.client, env.auth_headers(), workspace)
     result = _preview_result(workspace, upload)
     env.repository.save_preview_result(result)
-    env.bundle_reader.register(result.bundle_artifact_id, "preview.bundle", BUNDLE_BYTES)
+    bundle_reader = env.bundle_reader
+    assert isinstance(bundle_reader, InMemoryBundleReader)
+    bundle_reader.register(result.bundle_artifact_id, "preview.bundle", BUNDLE_BYTES)
     response = env.client.get(
         f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result.preview_result_id}/bundle",
         headers=env.auth_headers(),

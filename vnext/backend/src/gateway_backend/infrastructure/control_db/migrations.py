@@ -12,7 +12,7 @@ from gateway_backend.operations import StoreBusy, UnsupportedSchemaVersion
 OPERATIONS_SCHEMA_COMPONENT = "operations"
 OPERATIONS_SCHEMA_VERSION = 1
 WORKSPACE_SCHEMA_COMPONENT = "workspace"
-WORKSPACE_SCHEMA_VERSION = 5
+WORKSPACE_SCHEMA_VERSION = 6
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SQLITE_INT_MIN = -(2**63)
@@ -104,6 +104,7 @@ def bootstrap_workspace_schema(
             3: _apply_workspace_v3,
             4: _apply_workspace_v4,
             5: _apply_workspace_v5,
+            6: _apply_workspace_v6,
         },
         now=now,
     )
@@ -194,6 +195,12 @@ def _apply_workspace_v5(connection: sqlite3.Connection) -> None:
     for statement in _workspace_v5_archive_statements():
         connection.execute(statement)
     _rebuild_v5_provisioned_scope_mappings(connection, migration_rows)
+
+
+def _apply_workspace_v6(connection: sqlite3.Connection) -> None:
+    _assert_workspace_migration_integrity(connection)
+    for statement in _workspace_v6_statements():
+        connection.execute(statement)
 
 
 def _assert_workspace_migration_integrity(connection: sqlite3.Connection) -> None:
@@ -1627,6 +1634,102 @@ def _rebuild_v5_provisioned_scope_mappings(
                     row["repository_id"],
                 ),
             )
+
+
+def _workspace_v6_statements() -> tuple[str, ...]:
+    return (
+        """
+        CREATE TABLE history_compare_acceptance_records (
+            acceptance_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(acceptance_id) = 'text'
+                       AND length(CAST(acceptance_id AS BLOB)) BETWEEN 1 AND 255),
+            gateway_device_external_key TEXT NOT NULL
+                CHECK (typeof(gateway_device_external_key) = 'text'
+                       AND length(CAST(gateway_device_external_key AS BLOB)) BETWEEN 1 AND 255),
+            business_project_id TEXT NOT NULL
+                CHECK (typeof(business_project_id) = 'text'
+                       AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text'
+                       AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
+            idempotency_key TEXT NOT NULL
+                CHECK (typeof(idempotency_key) = 'text'
+                       AND length(CAST(idempotency_key AS BLOB)) BETWEEN 1 AND 255),
+            request_fingerprint TEXT NOT NULL
+                CHECK (typeof(request_fingerprint) = 'text'
+                       AND length(CAST(request_fingerprint AS BLOB)) BETWEEN 1 AND 512),
+            table_ruleset_version TEXT NOT NULL
+                CHECK (typeof(table_ruleset_version) = 'text'
+                       AND length(CAST(table_ruleset_version AS BLOB)) BETWEEN 1 AND 255),
+            nodes_json TEXT NOT NULL
+                CHECK (typeof(nodes_json) = 'text'),
+            operation_id TEXT NOT NULL UNIQUE
+                CHECK (typeof(operation_id) = 'text'
+                       AND length(CAST(operation_id AS BLOB)) BETWEEN 1 AND 255),
+            created_at_us INTEGER NOT NULL
+                CHECK (typeof(created_at_us) = 'integer')
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX history_compare_acceptance_scope_idempotency
+            ON history_compare_acceptance_records(
+                gateway_device_external_key,
+                business_project_id,
+                idempotency_key
+            )
+        """,
+        """
+        CREATE TABLE history_compare_integrity_records (
+            incident_id TEXT NOT NULL PRIMARY KEY
+                CHECK (typeof(incident_id) = 'text'
+                       AND length(CAST(incident_id AS BLOB)) BETWEEN 1 AND 255),
+            operation_id TEXT NOT NULL UNIQUE
+                CHECK (typeof(operation_id) = 'text'
+                       AND length(CAST(operation_id AS BLOB)) BETWEEN 1 AND 255),
+            repository_id TEXT NOT NULL
+                CHECK (typeof(repository_id) = 'text'
+                       AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
+            commit_refs_json TEXT NOT NULL
+                CHECK (typeof(commit_refs_json) = 'text'),
+            failure_class TEXT NOT NULL
+                CHECK (typeof(failure_class) = 'text'
+                       AND length(CAST(failure_class AS BLOB)) BETWEEN 1 AND 255),
+            expected_digest TEXT NOT NULL
+                CHECK (typeof(expected_digest) = 'text'
+                       AND length(CAST(expected_digest AS BLOB)) BETWEEN 1 AND 255),
+            observed_digest TEXT NOT NULL
+                CHECK (typeof(observed_digest) = 'text'
+                       AND length(CAST(observed_digest AS BLOB)) BETWEEN 1 AND 255),
+            affected_tables_json TEXT NOT NULL
+                CHECK (typeof(affected_tables_json) = 'text'),
+            recommended_action TEXT NOT NULL
+                CHECK (typeof(recommended_action) = 'text'
+                       AND length(CAST(recommended_action AS BLOB)) BETWEEN 1 AND 255),
+            first_seen_at_us INTEGER NOT NULL
+                CHECK (typeof(first_seen_at_us) = 'integer'),
+            last_seen_at_us INTEGER NOT NULL
+                CHECK (typeof(last_seen_at_us) = 'integer'),
+            acknowledgement_status TEXT NOT NULL
+                CHECK (typeof(acknowledgement_status) = 'text'
+                       AND acknowledgement_status IN ('PENDING', 'ACKNOWLEDGED')),
+            resolution_reference TEXT
+                CHECK (resolution_reference IS NULL
+                       OR (typeof(resolution_reference) = 'text'
+                           AND length(CAST(resolution_reference AS BLOB)) BETWEEN 1 AND 255)),
+            created_at_us INTEGER NOT NULL
+                CHECK (typeof(created_at_us) = 'integer'),
+            updated_at_us INTEGER NOT NULL
+                CHECK (typeof(updated_at_us) = 'integer')
+        )
+        """,
+        """
+        CREATE INDEX history_compare_integrity_pending_commit
+            ON history_compare_integrity_records(
+                repository_id,
+                acknowledgement_status
+            )
+        """,
+    )
 
 
 def _workspace_v5_mapping_statements() -> tuple[str, ...]:

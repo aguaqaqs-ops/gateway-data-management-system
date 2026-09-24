@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from gateway_repository_contracts import VersionedOperation
 
+    from gateway_backend.application.history.ports import HistoryComparePort
+
 from gateway_backend.application.submission.contracts import MatchingAbortProof
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
 from gateway_backend.artifacts.types import ArtifactRef
@@ -150,6 +152,10 @@ class WorkspaceControlTransaction(
     @property
     def archive(self) -> ArchiveRepository:
         """Return the archive participant bound to this transaction."""
+
+    @property
+    def history_compare(self) -> HistoryComparePort:
+        """Return the history compare participant bound to this transaction."""
 
 
 class WorkspaceControlUnitOfWorkFactory(Protocol):

@@ -72,7 +72,7 @@ p5_5e_docs_authorized: yes
 p5_5e_design: accepted
 p5_5e_execution_plan: accepted
 p5_5e_independent_docs_review: pass
-p5_5e_implementation_authorized: S1 only
+p5_5e_implementation_authorized: S2 only
 p5_implementation_authorized: no
 ```
 

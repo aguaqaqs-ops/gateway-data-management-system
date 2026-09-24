@@ -170,11 +170,7 @@ def test_workspace_v4_bootstrap_creates_review_tables() -> None:
     ]
     assert ledger_rows == [
         (OPERATIONS_SCHEMA_COMPONENT, 1),
-        (WORKSPACE_SCHEMA_COMPONENT, 1),
-        (WORKSPACE_SCHEMA_COMPONENT, 2),
-        (WORKSPACE_SCHEMA_COMPONENT, 3),
-        (WORKSPACE_SCHEMA_COMPONENT, 4),
-        (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION),
+        *[(WORKSPACE_SCHEMA_COMPONENT, version) for version in range(1, WORKSPACE_SCHEMA_VERSION + 1)],
     ]
 
 

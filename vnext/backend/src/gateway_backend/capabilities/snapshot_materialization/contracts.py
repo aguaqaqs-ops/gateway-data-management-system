@@ -174,6 +174,8 @@ class MaterializationDiagnostic:
     message: str
     table: str | None = None
     column: str | None = None
+    expected_digest_ref: DigestRef | None = None
+    observed_digest_ref: DigestRef | None = None
 
     def __post_init__(self) -> None:
         if type(self.code) is not MaterializationDiagnosticCode:
@@ -188,6 +190,10 @@ class MaterializationDiagnostic:
             raise ValueError("table must be a non-empty string or None")
         if self.column is not None and (type(self.column) is not str or self.column == ""):
             raise ValueError("column must be a non-empty string or None")
+        if self.expected_digest_ref is not None and type(self.expected_digest_ref) is not DigestRef:
+            raise ValueError("expected_digest_ref must be DigestRef or None")
+        if self.observed_digest_ref is not None and type(self.observed_digest_ref) is not DigestRef:
+            raise ValueError("observed_digest_ref must be DigestRef or None")
 
 
 @dataclass(frozen=True, slots=True)
